@@ -60,6 +60,18 @@ const html = renderInvoicePrintHtml({
 ok(html.includes('tmpl-formal-official'), 'official template class present');
 ok(html.includes('off-banner'), 'official banner markup present');
 ok(html.includes('/invoice-print.css'), 'print stylesheet linked');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const sent = {};
+sendSecureHtml({
+  req: { headers: { host: 'erp.poshaktaranom.com' } },
+  status() { return this; },
+  type() { return this; },
+  setHeader(name, value) { sent[name] = value; },
+  send(value) { sent.body = value; return value; },
+}, html, { allowPrintScript: true });
+ok(sent.body.includes('https://erp.poshaktaranom.com/invoice-print.css'), 'server print HTML uses absolute CSS URL');
+ok(sent.body.includes('https://erp.poshaktaranom.com/logo-sm.png'), 'server print HTML uses absolute logo URL');
+ok(sent.body.includes('nonce="'), 'style nonce still present after absolutize');
 ok(html.includes('words-fa') || html.includes('به حروف'), 'payable-in-words block present');
 
 console.log(fail ? `\nFAILED ${fail} / ${pass + fail}` : `\nAll ${pass} checks passed`);

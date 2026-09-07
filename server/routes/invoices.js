@@ -22,6 +22,10 @@ const {
 const {
   salesJournalLines, postInvoiceCustomerLedger,
 } = require('../lib/customer-books');
+const {
+  resolveInvoicePayments, headerPayTypeFromSplits, applyInvoicePaySplits,
+  persistInvoicePayPlan, paymentsFromStoredInvoice,
+} = require('../lib/invoice-payments');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -304,6 +308,9 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
           .run(r.qty, r.qty, r.product_id, whId);
       }
     }
+    if (r.variant_id) {
+      require('../lib/product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');
+    }
   }
   if (metaOut) metaOut.usedWarehouses = [...used.entries()].map(([id, name]) => ({ id, name }));
   return null;
@@ -399,6 +406,16 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   let { final, netBeforeVat } = freightAdj;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
+  let payPlan;
+  try {
+    payPlan = resolveInvoicePayments(req.body || {}, final);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const storedPayType = payPlan.splits.length
+    ? headerPayTypeFromSplits(payPlan.splits, pType, final)
+    : pType;
+  const skipInvoiceCash = payPlan.skipInvoiceCash;
 
   // کارشناس فاکتور: مدیر/حسابدار می‌تواند تعیین کند؛ در غیر این صورت مشتری→کاربر جاری
   let ownerUserId = req.user.id;
@@ -430,7 +447,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   }
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
   const journalOpts = {
-    payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows,
+    payType: skipInvoiceCash ? 'credit' : storedPayType,
+    bankId: skipInvoiceCash ? null : (bank_id || null),
+    cashBoxId: skipInvoiceCash ? null : (cash_box_id || null),
+    rows: built.rows,
     freightRial, freightType: freight_type,
   };
 
@@ -463,7 +483,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
-            pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
+            storedPayType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
             0, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
             allocMethod, vat_exempt ? 1 : 0, ccId,
@@ -489,7 +509,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
         postInvoiceCustomerLedger(db, {
           customerId: cust_id, date: entryDate, invId, num, invType,
-          final, userId: req.user.id, payType: pType,
+          final, userId: req.user.id, payType: skipInvoiceCash ? 'credit' : storedPayType,
+          skipImmediatePayment: skipInvoiceCash,
         });
         assertJournalIdempotent(db, 'invoice', invId);
         postToLedger(db, {
@@ -498,6 +519,14 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           lines: salesJournalLines(db, cust_id, { subtotal, discAmt, final, vatAmount, netBeforeVat }, false, journalOpts),
           costCenterId: ccId,
         });
+        persistInvoicePayPlan(db, invId, payPlan, req.body || {});
+        if (payPlan.splits.length) {
+          applyInvoicePaySplits(db, {
+            invoiceId: invId, custId: cust_id, date: entryDate,
+            splits: payPlan.splits, userId: req.user.id, num,
+            chequeHeader: { cheque_info, cheque_due_date },
+          });
+        }
         if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
@@ -507,6 +536,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         }
         if (invType === 'final') enqueueMoadian(db, 'sales', invId);
         if (invType === 'normal') autoApproveNormalInvoice(db, invId, req.user.id);
+      } else {
+        persistInvoicePayPlan(db, invId, payPlan, req.body || {});
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -646,6 +677,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
              row.stock_deducted || 0, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
              allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
+      persistInvoicePayPlan(db, req.params.id, resolveInvoicePayments(req.body || {}, final), req.body || {});
       if ((req.user.role === 'admin' || req.user.role === 'accounting') && expert_user_id) {
         const eu = db.prepare('SELECT id,name,phone FROM users WHERE id=? AND active=1').get(parseInt(expert_user_id, 10));
         if (eu) {
@@ -755,10 +787,12 @@ router.post('/:id/convert', auth, (req, res) => {
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
+      const convertPay = paymentsFromStoredInvoice(inv, totals.final);
       postInvoiceCustomerLedger(db, {
         customerId: inv.cust_id, date: inv.date || '', invId: inv.id, num: inv.num,
         invType: targetType, final: totals.final, userId: req.user.id,
-        payType: inv.pay_type || 'cash',
+        payType: convertPay.skipInvoiceCash ? 'credit' : (inv.pay_type || 'cash'),
+        skipImmediatePayment: convertPay.skipInvoiceCash,
       });
       assertJournalIdempotent(db, 'invoice', inv.id);
       postToLedger(db, {
@@ -768,10 +802,19 @@ router.post('/:id/convert', auth, (req, res) => {
           subtotal: totals.subtotal, discAmt: totals.discAmt, final: totals.final,
           vatAmount: totals.vatAmount, netBeforeVat: totals.netBeforeVat,
         }, false, {
-          payType: inv.pay_type || 'cash', bankId: inv.bank_id, cashBoxId: inv.cash_box_id,
+          payType: convertPay.skipInvoiceCash ? 'credit' : (inv.pay_type || 'cash'),
+          bankId: convertPay.skipInvoiceCash ? null : inv.bank_id,
+          cashBoxId: convertPay.skipInvoiceCash ? null : inv.cash_box_id,
           rows, freightRial: Math.round(inv.freight_amount || 0), freightType: inv.freight_type,
         }),
       });
+      if (convertPay.splits.length) {
+        applyInvoicePaySplits(db, {
+          invoiceId: inv.id, custId: inv.cust_id, date: inv.date || '',
+          splits: convertPay.splits, userId: req.user.id, num: inv.num,
+          chequeHeader: { cheque_info: inv.cheque_info, cheque_due_date: inv.cheque_due_date },
+        });
+      }
       if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,

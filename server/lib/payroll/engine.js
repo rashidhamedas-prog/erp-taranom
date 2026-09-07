@@ -115,10 +115,13 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
   const employerInsurance = Math.round(insuranceBase * employerInsuranceBp / 10000);
 
   const periodTaxExemption = int(input.tax_exemption_rial, 'معافیت مالیاتی');
-  const taxableIncome = Math.max(0, gross - employeeInsurance - periodTaxExemption);
-  const rawTax = calculateProgressiveTax(taxableIncome, brackets);
-  const exemptionBp = Math.min(10000, int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی'));
-  const incomeTax = Math.round(rawTax * (10000 - exemptionBp) / 10000);
+  const fullyExempt = Number(eff.is_tax_exempt) === 1
+    || String(eff.tax_exemption_type || '') === 'tax_exempt'
+    || int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی') >= 10000;
+  const taxableIncome = fullyExempt ? 0 : Math.max(0, gross - employeeInsurance - periodTaxExemption);
+  const rawTax = fullyExempt ? 0 : calculateProgressiveTax(taxableIncome, brackets || []);
+  const exemptionBp = fullyExempt ? 10000 : Math.min(10000, int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی'));
+  const incomeTax = fullyExempt ? 0 : Math.round(rawTax * (10000 - exemptionBp) / 10000);
   const otherDeductions = int(input.other_deductions_rial, 'سایر کسورات');
   const netPay = gross - employeeInsurance - incomeTax - otherDeductions;
   if (netPay < 0) throw new Error('کسورات از حقوق ناخالص بیشتر است');

@@ -688,6 +688,9 @@ function initDB() {
   ensureColumn(db, 'invoices', 'approved', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'invoices', 'approved_at', 'INTEGER');
   ensureColumn(db, 'invoices', 'approved_by', 'INTEGER');
+  ensureColumn(db, 'invoices', 'pay_splits_json', 'TEXT');
+  ensureColumn(db, 'invoices', 'pay_amount_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'invoices', 'pos_terminal_id', 'INTEGER');
   ensureColumn(db, 'orders', 'product_id', 'INTEGER');
   ensureColumn(db, 'orders', 'stock_deducted', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'orders', 'warehouse_id', 'INTEGER');

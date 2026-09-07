@@ -14,6 +14,33 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۶ — پک زنده: مشکی لغوشده دیگر باقی نمی‌ماند (SW v202)
+
+- **ریشه:** `applyStockMatrix` فقط خانه‌های ارسالی را به‌روز می‌کرد؛ SKU رنگ لغوشده (مثل مشکی) `active` می‌ماند. پک زنده وقتی موجودی صفر بود به کل ماتریس برمی‌گشت و مشکی دوباره دیده می‌شد.
+- **اصلاح:** رنگ/سایز خارج از تیک غیرفعال و موجودی‌اش صفر می‌شود؛ لینک استایل هم قطع می‌شود. پک زنده فقط از خانه‌های با موجودی ساخته می‌شود. برگشت تیک همان SKU را زنده می‌کند (نه ردیف تکراری).
+- **فایل‌ها:** `server/lib/product-variants/service.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-erp3-v201.js`
+- **تست:** `node server/scripts/test-erp3-v201.js`
+- **SW:** erp-taranom-v202
+
+### ۱۴۰۵/۰۶/۱۶ — ERP3: پرداخت فاکتور + موجودی رنگ×سایز + حقوق + BOM (SW v201)
+
+- **h1/h2 فاکتور:** نوع پرداخت مبلغ واریزی را هم می‌گیرد؛ کارتخوان و پرداخت چندمرحله‌ای (نقد+کارت+بانک) با سند جدا برای هر قسط. پیش‌فاکتور اقساط را نگه می‌دارد و هنگام تبدیل اعمال می‌کند.
+- **h3 کالا:** موجودی از فیلد تکی به ماتریس رنگ×سایز رفت. پک زنده = رنگ‌های با موجودی × سایزهای با موجودی؛ فروش SKU همان خانه را کم می‌کند و پک خودش عوض می‌شود.
+- **h4 حقوق:** دکمه «ویرایش» روی ساختار کارمند و گروه.
+- **h5/h6 مالیات:** پلکان ماده ۸۴ اختیاری است (بدون پله = مالیات صفر). پرونده کارمند گزینه «معاف از مالیات» دارد و CHECK اسکیما آن را قبول می‌کند.
+- **h7 تولید:** `adv.updateOperation is not a function` — ذخیره عملیات از API و تابع دامنه `updateOperation`.
+- **فایل‌ها:** `server/lib/{invoice-payments,payroll/{engine,schema},product-variants/service,production/bom-advanced}.js`، `server/routes/{invoices,payroll,product-variants,production-boms}.js`، `server/public/{app.js,sw.js,index.html}`
+- **تست:** `node server/scripts/test-erp3-v201.js`
+- **SW:** erp-taranom-v201
+
+### ۱۴۰۵/۰۶/۱۶ — چاپ فاکتور: URL مطلق دارایی‌ها در پاسخ سرور (SW v200)
+
+- **باگ زنده:** پیش‌نمایش چاپ روی `erp.poshaktaranom.com` همچنان خام/بدون تم بود چون اصلاح SW v199 روی VPS اعمال نشده بود و تب `blob:` هنوز `/invoice-print.css` و `/logo-sm.png` را نسبت به blob می‌گرفت.
+- **اصلاح تکمیلی:** `sendSecureHtml` قبل از ارسال، `href`/`src` ریشه‌نسبی را به URL مطلق همان میزبان تبدیل می‌کند. حتی اگر `csp-runtime` قدیمی با `DOMParser` nonce را حذف کند، CSS و لوگو از origin واقعی لود می‌شوند.
+- **فایل‌ها:** `server/lib/secure-html-response.js`، `server/public/{invoice-print.css,csp-runtime.js,sw.js,index.html}`
+- **تست:** test-secure-html-response + test-invoice-print-blob-v199
+- **SW:** erp-taranom-v200
+
 ### ۱۴۰۵/۰۶/۱۶ — پیش‌نمایش چاپ فاکتور: طرح گرافیکی روی blob (SW v199)
 
 - **باگ:** چاپ فاکتور HTML قالب را می‌ساخت ولی در تب `blob:` بدون رنگ، بدون جدول و با لوگوی شکسته دیده می‌شد.

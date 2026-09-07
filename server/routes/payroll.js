@@ -21,6 +21,14 @@ const {
 
 const lwteUpload = createSecureUpload('lwte');
 
+function coercePersonTaxExemption(b, current) {
+  const raw = String(b.tax_exemption_type ?? current?.tax_exemption_type ?? 'none');
+  const flagged = Number(b.is_tax_exempt ?? current?.is_tax_exempt) === 1 || raw === 'tax_exempt';
+  const allowed = ['none', 'tax_exempt', 'veteran', 'petroleum_zones'];
+  const type = flagged ? 'tax_exempt' : (allowed.includes(raw) ? raw : 'none');
+  return { tax_exemption_type: type, is_tax_exempt: flagged ? 1 : 0 };
+}
+
 // Hourly payroll — employees are Persons (category "کارمند"). Each record
 // accrues the salary as a real double-entry posting:
 //   Dr 6104 هزینه حقوق و دستمزد   = gross_pay - deductions
@@ -247,6 +255,7 @@ router.get('/employees', auth, adminOrAccounting, (req, res) => {
            p.insurance_id, p.tax_id, p.employment_type, p.hire_date, p.termination_date,
            p.tax_exemption_type, p.insurance_type, p.department, p.bank_iban, p.active,
            p.party_group_id, p.employee_group_id, p.monthly_salary_rial,
+           COALESCE(p.is_tax_exempt,0) AS is_tax_exempt,
            pg.name AS party_group_name, eg.name AS employee_group_name,
            CASE WHEN NULLIF(TRIM(p.personnel_code),'') IS NULL THEN 1 ELSE 0 END AS needs_profile
     FROM persons p
@@ -279,6 +288,7 @@ router.post('/employees', auth, requirePermission('payroll', 'create'), (req, re
       if (exists) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = ensurePersonnelPartyGroup(db);
+    const tax = coercePersonTaxExemption(b, null);
     const id = db.transaction(() => {
       const newId = db.prepare(`
         INSERT INTO persons
@@ -290,11 +300,12 @@ router.post('/employees', auth, requirePermission('payroll', 'create'), (req, re
         name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
         b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
         b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
-        b.tax_exemption_type || 'none', b.insurance_type || 'sso',
+        tax.tax_exemption_type, b.insurance_type || 'sso',
         b.department || '', b.bank_iban || '', staffGid,
         b.employee_group_id ? Number(b.employee_group_id) : null,
         Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
       ).lastInsertRowid;
+      try { db.prepare('UPDATE persons SET is_tax_exempt=? WHERE id=?').run(tax.is_tax_exempt, newId); } catch (_) {}
       try { require('../lib/party-employee-sync').ensurePersonParty(db, newId); } catch (_) {}
       return newId;
     })();
@@ -322,6 +333,7 @@ router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req,
       if (dup) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = current.party_group_id || ensurePersonnelPartyGroup(db);
+    const tax = coercePersonTaxExemption(b, current);
     db.transaction(() => {
       db.prepare(`
         UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
@@ -334,7 +346,7 @@ router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req,
         b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
         b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
         b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
-        b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
+        b.termination_date ?? current.termination_date, tax.tax_exemption_type,
         b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
         b.bank_iban ?? current.bank_iban ?? '', staffGid,
         b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
@@ -342,6 +354,7 @@ router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req,
         b.active == null ? current.active : (b.active ? 1 : 0),
         req.params.id
       );
+      try { db.prepare('UPDATE persons SET is_tax_exempt=? WHERE id=?').run(tax.is_tax_exempt, req.params.id); } catch (_) {}
       try { require('../lib/party-employee-sync').ensurePersonParty(db, Number(req.params.id)); } catch (_) {}
     })();
     audit(req.user.id, 'update', 'employee', req.params.id, `ویرایش کارمند ${personnelCode || name}`);
@@ -711,6 +724,10 @@ function payrollContext(db, periodId, personId, opts = {}) {
     };
   }
   if (!structure && !opts.manual_mode) throw new Error('ساختار حقوق کارمند برای این سال ثبت نشده است');
+  const fullyExempt = Number(person?.is_tax_exempt) === 1
+    || String(structure?.tax_exemption_type || person?.tax_exemption_type || '') === 'tax_exempt'
+    || Number(structure?.tax_exemption_percent_bp) >= 10000;
+  if (structure && fullyExempt) structure = { ...structure, is_tax_exempt: 1, tax_exemption_percent_bp: 10000 };
   let brackets = db.prepare(`
     SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
   `).all(period.fiscal_year);
@@ -721,7 +738,9 @@ function payrollContext(db, periodId, personId, opts = {}) {
       brackets = snap.brackets;
     }
   }
-  if (!brackets.length && !opts.manual_mode) throw new Error('پله‌های مالیات حقوق این سال ثبت نشده است');
+  if (!brackets.length && !opts.manual_mode && !fullyExempt) {
+    brackets = [];
+  }
   const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?')
     .get(period.fiscal_year) || null;
   return { period, structure, brackets, person, laborSettings };
@@ -923,7 +942,6 @@ router.post('/year-end/calculate', auth, requirePermission('payroll', 'create'),
     const brackets = db.prepare(`
       SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
     `).all(year);
-    if (!brackets.length) throw new Error('پله‌های مالیات این سال ثبت نشده است');
     const { calculateProgressiveTax } = require('../lib/payroll/engine');
     const result = db.transaction(() => rows.map(input => {
       const personId = Number(input.person_id);

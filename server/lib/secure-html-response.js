@@ -76,8 +76,47 @@ function secureHtmlDocument(input, options = {}) {
   return { html, policy, nonce };
 }
 
+function publicAssetOriginFromReq(req) {
+  if (!req || !req.headers) return '';
+  const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::\d{1,5})?$/.test(rawHost)) return '';
+  const protoRaw = String(req.headers['x-forwarded-proto'] || req.protocol || 'https')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(rawHost);
+  const proto = isLocal && protoRaw === 'http' ? 'http' : 'https';
+  return `${proto}://${rawHost}`;
+}
+
+function absolutizeRootRelativeAssets(html, origin) {
+  if (!origin) return html;
+  let originUrl;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return html;
+  }
+  if (!/^https?:$/i.test(originUrl.protocol)) return html;
+  const base = originUrl.href.endsWith('/') ? originUrl.href : `${originUrl.href}/`;
+  return String(html).replace(
+    /\b(href|src)=(["'])(\/[^"'>\s]*)\2/gi,
+    (whole, attr, quote, assetPath) => {
+      if (assetPath.startsWith('//')) return whole;
+      const abs = new URL(assetPath, base);
+      if (abs.origin !== originUrl.origin) return whole;
+      return `${attr}=${quote}${abs.href}${quote}`;
+    },
+  );
+}
+
 function sendSecureHtml(res, input, options = {}) {
   const document = secureHtmlDocument(input, options);
+  const origin = options.assetOrigin || publicAssetOriginFromReq(res && res.req);
+  const html = absolutizeRootRelativeAssets(document.html, origin);
   res.status(options.status || 200);
   res.type('html');
   res.setHeader('Content-Security-Policy', document.policy);
@@ -85,7 +124,7 @@ function sendSecureHtml(res, input, options = {}) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-  return res.send(document.html);
+  return res.send(html);
 }
 
 module.exports = {
@@ -93,4 +132,6 @@ module.exports = {
   sendSecureHtml,
   assertNoInlineExecutableMarkup,
   buildPolicy,
+  publicAssetOriginFromReq,
+  absolutizeRootRelativeAssets,
 };

@@ -210,8 +210,14 @@ try {
   adv.addOperation(db, d4.id, { seq: 25, cost_center_id: cc['CC-20'], labor_method: 'piece', labor_rate_rial: 1000 }, adminId);
   const rows = adv.resequenceOperations(db, d4.id);
   ok('T4-23 بازشماری', rows.map(r => r.seq).join(',') === '10,20');
+  const first = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').get(d4.id);
+  ok('updateOperation exported', typeof adv.updateOperation === 'function');
+  const updated = adv.updateOperation(db, d4.id, first.id, {
+    operation_name: 'برش اصلاح‌شده', labor_rate_rial: 200000, yield_percent: 98,
+  });
+  ok('updateOperation writes name/rate', updated.operation_name === 'برش اصلاح‌شده' && Number(updated.labor_rate_rial) === 200000);
 } catch (e) {
-  ok('T4-23 بازشماری', false, e.message);
+  ok('T4-23 بازشماری / updateOperation', false, e.message);
 }
 
 // T4-21 circular multilevel — reuse bom detectCircular via create/activate path
