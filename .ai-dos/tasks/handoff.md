@@ -1,3 +1,10 @@
+## 2026-09-08T02:50:00+03:30 — INVOICE-AMEND-SALES-UX-V205 deployed
+
+- Commit `3071357` on `feat/INVOICE-AMEND-SALES-UX-V205`; FF `origin/main`.
+- Iran overlay Paramiko SFTP (checkout stayed `claude/claude-md-docs-2ssrpy`, dirty). health 200; SW `erp-taranom-v205`; `app.js?v=205`.
+- Tests: amend 27/27 (sqlite SKIP), field-ops 40/40 (HTTP SKIP), sms 22/22.
+- Claims released. Do not commit leftover `_deploy*` `_diag*` `motefareqe/`.
+
 ## 2026-09-08T02:20:00+03:30 — INVOICE-AMEND-SALES-UX-V205 ready for commit
 
 - VAT: omitted `vat_exempt` → normal/proforma=1, final=0; explicit 0/1 kept.

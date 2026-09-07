@@ -64,6 +64,7 @@ catch (e) { ok(false, 'marketer-ui.js parses', e.message); }
 ok(/const CACHE = 'erp-taranom-v205'/.test(sw), 'sw.js CACHE erp-taranom-v205');
 ok(idx.includes('app.js?v=205'), 'index.html app.js?v=205');
 ok(idx.includes('marketer-ui.js?v=205'), 'index.html marketer-ui.js?v=205');
+ok(idx.includes('app.css?v=205'), 'index.html app.css?v=205');
 
 ok(css.includes('.rep-form-error') && css.includes('.rep-form-section'), 'CSS rep-form-*');
 ok(css.includes('.inv-amend-hint') && css.includes('.mk-checkout'), 'CSS inv-amend-hint + mk-checkout');

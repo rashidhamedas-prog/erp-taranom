@@ -22,7 +22,7 @@
 - **امنیت:** `GET /payments/mine` برای هر دو نقش فروش باز شد ولی فقط `rep_id` خود کاربر. IDOR تخصیص مشتری و رسید اجباری ماند. `GET /settings` برای فروش باز نشد.
 - **فایل‌ها:** `server/lib/{amend-invoice,ledger,customer-books}.js`، `server/routes/{invoices,rep-management}.js`، `server/sync/multipart-policy.js`، `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-{invoice-amend,sales-field-ops}-v205.js`
 - **تست:** invoice-amend ۲۷/۲۷ (SQLite این ماشین ABI SKIP)؛ sales-field-ops ۴۰/۴۰ (HTTP SKIP)؛ sms ۲۲/۲۲؛ نحو `app.js` با `new Function`
-- **Deploy:** ⏳ نیاز به pull / overlay ایران
+- **Deploy:** ✅ ایران overlay SFTP @ `3071357` روی `origin/main` — `app.js?v=205` و `erp-taranom-v205`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay).
 - **SW:** erp-taranom-v205
 
 ### ۱۴۰۵/۰۶/۱۶ — چاپ تجمیعی رنگ×سایز + فاکتور نقد با مانده طرف‌حساب (SW v204)
