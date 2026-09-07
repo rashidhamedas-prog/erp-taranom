@@ -1,5 +1,54 @@
 schema_version: 1
 tasks:
+  - id: "INVOICE-AMEND-SALES-UX-V205"
+    title: "VAT defaults + in-place invoice amend + sales invoice details + field-ops UX"
+    status: "in_progress"
+    claimed_at: "2026-09-08T01:40:00+03:30"
+    review_status: "IN_REVIEW"
+    security_status: "IN_REVIEW"
+    risk: "high"
+    owner: "cursor:invoice-amend-sales-v205"
+    roles:
+      orchestrator: "cursor:invoice-amend-sales-v205"
+      implementer: "cursor:invoice-amend-sales-v205"
+    branch: "feat/INVOICE-AMEND-SALES-UX-V205"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/amend-invoice.js"
+      - "server/lib/ledger.js"
+      - "server/lib/customer-books.js"
+      - "server/lib/invoice-payments.js"
+      - "server/lib/sales-document.js"
+      - "server/routes/invoices.js"
+      - "server/routes/rep-management.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/public/marketer-ui.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-invoice-amend-v205.js"
+      - "server/scripts/test-sales-field-ops-v205.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+    acceptance_criteria:
+      - "New normal invoice defaults vat_exempt=1; official/final defaults vat_exempt=0"
+      - "PUT amends proforma and normal in place: same invoice id, same JE id, no reverse JE, no new sale JE"
+      - "Official/final stays locked (void/convert path)"
+      - "field_sales and inside_sales see invoice pay/VAT/freight/warehouse details"
+      - "Marketer + receipt + expense + visit + call forms are complete (labels, validation, states)"
+      - "inside_sales can submit customer receipts"
+      - "Help + SW v205"
+      - "node server/scripts/test-invoice-amend-v205.js"
+    non_goals:
+      - "In-place edit of official/final invoices"
+      - "Opening admin GET /settings to sales roles"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy/_diag/motefareqe"
+    notes: >-
+      Reclaimed invoices.js/app.js/CHANGE-LOG from PRINT-COLLAPSE-CASH-V204
+      (product already at 5486884 / Iran v204). User override of R13 for
+      normal+proforma: amend posted docs in place, do not reverse+recreate.
   - id: "PRINT-COLLAPSE-CASH-V204"
     title: "Print collapse color×size + cash invoice remainder on party"
     status: "completed"
@@ -14,7 +63,8 @@ tasks:
       implementer: "cursor:print-collapse-cash-v204"
     branch: "feat/PRINT-COLLAPSE-CASH-V204"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/lib/print-line-collapse.js"
       - "server/lib/invoice-print.js"
       - "server/public/invoice-print.css"

@@ -119,4 +119,83 @@ function postToLedger(db, opts) {
   return entryId;
 }
 
-module.exports = { postToLedger, validateBalancedLines, DELETED_FILTER };
+/**
+ * Rewrite an existing live journal in place (same id + voucher_number).
+ * Used for invoice amend — does not post a reversal or allocate a new voucher.
+ * @returns {number|null} existing entry id, or null if no live JE found
+ */
+function rewriteJournalEntry(db, opts) {
+  const {
+    sourceType, sourceId, date, description, lines,
+  } = opts;
+
+  const existing = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type=? AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC
+    LIMIT 1
+  `).get(sourceType, sourceId);
+  if (!existing) return null;
+
+  const fyCheck = assertFiscalYearWritable(db, date);
+  if (!fyCheck.ok) {
+    const err = new Error(fyCheck.error);
+    err.status = 422;
+    throw err;
+  }
+
+  const normalized = (lines || []).map(l => ({
+    code: l.code,
+    name: l.name,
+    debit: tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit),
+    credit: tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit),
+    description: l.description || '',
+    detail_account_id: l.detail_account_id || null,
+    cost_center_id: l.cost_center_id || null,
+    project_id: l.project_id || null,
+    tax_type: l.tax_type || null,
+    tafsili2_code: l.tafsili2_code || null,
+  }));
+
+  const bal = validateBalancedLines(normalized);
+  if (!bal.ok) {
+    const err = new Error(bal.error);
+    err.status = 409;
+    throw err;
+  }
+
+  db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(existing.id);
+
+  const lineStmt = db.prepare(`
+    INSERT INTO journal_lines (
+      entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,
+      debit_rial,credit_rial,cost_center_id,project_id,tax_type,tafsili2_code
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+  let lineNo = 0;
+  for (const l of normalized) {
+    lineNo++;
+    lineStmt.run(
+      existing.id, l.code, l.name,
+      l.debit / 10, l.credit / 10,
+      l.description, lineNo,
+      l.detail_account_id,
+      l.debit, l.credit,
+      l.cost_center_id, l.project_id, l.tax_type,
+      l.tafsili2_code
+    );
+  }
+
+  const fiscalYearId = resolveFiscalYearForDate(db, date);
+  db.prepare(`
+    UPDATE journal_entries
+    SET entry_date=?, description=?, total_debit_rial=?, total_credit_rial=?, fiscal_year_id=?
+    WHERE id=?
+  `).run(date || '', description || '', bal.totalDebit, bal.totalCredit, fiscalYearId, existing.id);
+
+  return existing.id;
+}
+
+module.exports = { postToLedger, rewriteJournalEntry, validateBalancedLines, DELETED_FILTER };

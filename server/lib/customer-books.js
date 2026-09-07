@@ -227,6 +227,56 @@ function postInvoiceCustomerLedger(db, {
   });
 }
 
+/**
+ * In-place amend of the invoice customer_ledger row (same id).
+ * Never inserts entry_type='reversal'. Immediate-pay rows are updated or zeroed.
+ */
+function updateInvoiceCustomerLedger(db, {
+  customerId, date, invId, num, invType, final, userId, payType, skipImmediatePayment,
+}) {
+  const desc = `${invoiceTypeLabel(invType)} ${num}`;
+  const invRow = db.prepare(
+    "SELECT id FROM customer_ledger WHERE ref_type='invoice' AND ref_id=? AND entry_type='invoice' LIMIT 1"
+  ).get(invId);
+  if (invRow) {
+    db.prepare(`
+      UPDATE customer_ledger
+      SET customer_id=?, date=?, description=?, debit=?, credit=0
+      WHERE id=?
+    `).run(customerId, date || '', desc, final, invRow.id);
+  } else {
+    postInvoiceCustomerLedger(db, {
+      customerId, date, invId, num, invType, final, userId,
+      payType: 'credit', skipImmediatePayment: true,
+    });
+  }
+
+  const payRow = db.prepare(
+    "SELECT id FROM customer_ledger WHERE ref_type='invoice_payment' AND ref_id=? LIMIT 1"
+  ).get(invId);
+
+  if (isImmediatePay(payType) && !skipImmediatePayment) {
+    if (payRow) {
+      db.prepare(`
+        UPDATE customer_ledger
+        SET customer_id=?, date=?, description=?, debit=0, credit=?
+        WHERE id=?
+      `).run(customerId, date || '', `دریافت هنگام فاکتور ${num}`, final, payRow.id);
+    } else {
+      postInvoiceCustomerLedger(db, {
+        customerId, date, invId, num, invType, final, userId, payType,
+        skipImmediatePayment: false,
+      });
+    }
+  } else if (payRow) {
+    db.prepare(`
+      UPDATE customer_ledger
+      SET customer_id=?, date=?, description=?, debit=0, credit=0
+      WHERE id=?
+    `).run(customerId, date || '', '—', payRow.id);
+  }
+}
+
 function reverseInvoiceCustomerLedger(db, inv, userId, date) {
   const { createLedgerEntry } = require('../db');
   const { todayJalali } = require('../jalali');
@@ -896,6 +946,7 @@ module.exports = {
   sumJournalSides,
   assertJournalLinesBalanced,
   postInvoiceCustomerLedger,
+  updateInvoiceCustomerLedger,
   reverseInvoiceCustomerLedger,
   attachMissingInvoiceRows,
   listCustomerGlMovements,

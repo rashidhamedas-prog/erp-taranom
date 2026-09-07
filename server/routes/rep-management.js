@@ -163,7 +163,7 @@ router.get('/payments/pending', auth, adminOrAccounting, (req, res) => {
 });
 
 router.get('/payments/mine', auth, (req, res) => {
-  if (req.user.role !== 'field_sales') return res.status(403).json({ error: 'فقط کارشناس میدانی' });
+  if (!isRepRole(req.user.role)) return res.status(403).json({ error: 'فقط کارشناس میدانی یا تلفنی' });
   const db = getDB();
   res.json(db.prepare(`
     SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
@@ -181,7 +181,9 @@ router.get('/payments/:id/receipt', auth, (req, res) => {
 });
 
 router.post('/payments', auth, repImageUpload.single('receipt'), (req, res) => {
-  if (req.user.role !== 'field_sales') return res.status(403).json({ error: 'فقط کارشناس میدانی' });
+  if (req.user.role !== 'field_sales' && req.user.role !== 'inside_sales') {
+    return res.status(403).json({ error: 'فقط کارشناس میدانی یا تلفنی' });
+  }
   const db = getDB();
   const {
     cust_id, pay_type, amount, date, note, bank_ref,
@@ -820,8 +822,12 @@ router.post('/:id/visits', auth, adminRepOrSelf, repImageUpload.fields([{ name: 
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { customer_id, date, note, lat, lng, check_in_at, check_out_at, signature_file, photo_file } = req.body;
-  if (customer_id && !customerAssignedToRep(db, customer_id, repId)) {
-    audit(req.user.id, 'idor_denied', 'customer', customer_id, 'رد ثبت ویزیت برای مشتری خارج از مالکیت نماینده', req);
+  const custId = parseInt(customer_id, 10);
+  if (!Number.isInteger(custId) || custId <= 0) {
+    return res.status(400).json({ error: 'مشتری الزامی است' });
+  }
+  if (!customerAssignedToRep(db, custId, repId)) {
+    audit(req.user.id, 'idor_denied', 'customer', custId, 'رد ثبت ویزیت برای مشتری خارج از مالکیت نماینده', req);
     return res.status(403).json({ error: 'این مشتری به نماینده انتخاب‌شده تخصیص ندارد' });
   }
   try { assertNoClientFileReferences(req.body, ['signature_file', 'photo_file']); }
@@ -832,7 +838,7 @@ router.post('/:id/visits', auth, adminRepOrSelf, repImageUpload.fields([{ name: 
     const r = db.prepare(`
       INSERT INTO rep_visit_logs (rep_id,customer_id,date,note,lat,lng,check_in_at,check_out_at,signature_file,photo_file)
       VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).run(repId, customer_id || null, date || todayJalali(), note || '', lat || null, lng || null,
+    `).run(repId, custId, date || todayJalali(), note || '', lat || null, lng || null,
       check_in_at || Math.floor(Date.now() / 1000), check_out_at || null, signature, photo);
     res.json({ id: r.lastInsertRowid, ok: true,
       photo_url: photo ? `/api/reps/${repId}/visits/${r.lastInsertRowid}/photo` : null,
@@ -855,12 +861,17 @@ router.post('/:id/calls', auth, adminRepOrSelf, (req, res) => {
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { customer_id, date, duration_min, outcome, note } = req.body;
-  if (customer_id && !customerAssignedToRep(db, customer_id, repId)) {
-    audit(req.user.id, 'idor_denied', 'customer', customer_id, 'رد ثبت تماس برای مشتری خارج از مالکیت نماینده', req);
+  const custId = parseInt(customer_id, 10);
+  if (!Number.isInteger(custId) || custId <= 0) {
+    return res.status(400).json({ error: 'مشتری الزامی است' });
+  }
+  if (!customerAssignedToRep(db, custId, repId)) {
+    audit(req.user.id, 'idor_denied', 'customer', custId, 'رد ثبت تماس برای مشتری خارج از مالکیت نماینده', req);
     return res.status(403).json({ error: 'این مشتری به نماینده انتخاب‌شده تخصیص ندارد' });
   }
+  const callDate = (date != null && String(date).trim() !== '') ? String(date).trim() : todayJalali();
   const r = db.prepare(`INSERT INTO rep_call_logs (rep_id,customer_id,date,duration_min,outcome,note) VALUES (?,?,?,?,?,?)`)
-    .run(repId, customer_id || null, date || todayJalali(), parseInt(duration_min) || 0, outcome || '', note || '');
+    .run(repId, custId, callDate, parseInt(duration_min) || 0, outcome || '', note || '');
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 

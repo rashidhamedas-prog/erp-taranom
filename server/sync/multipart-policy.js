@@ -7,7 +7,7 @@ const RULES = Object.freeze([
   { name: 'voucher-attachment', method: 'POST', path: /^\/api\/accounting\/vouchers\/\d+\/attachment$/, fields: ['file'], profile: 'document', roles: ['admin', 'accounting'] },
   { name: 'invoice-cancel-image', method: 'POST', path: /^\/api\/accounting\/invoices\/\d+\/cancel$/, fields: ['image'], profile: 'messageImage', roles: ['admin', 'accounting'] },
   { name: 'invoice-rubika-image', method: 'POST', path: /^\/api\/accounting\/invoices\/\d+\/rubika$/, fields: ['image'], profile: 'messageImage', roles: ['admin', 'accounting'] },
-  { name: 'rep-payment-receipt', method: 'POST', path: /^\/api\/reps\/payments$/, fields: ['receipt'], profile: 'messageImage', roles: ['field_sales'] },
+  { name: 'rep-payment-receipt', method: 'POST', path: /^\/api\/reps\/payments$/, fields: ['receipt'], profile: 'messageImage', roles: ['field_sales', 'inside_sales'] },
   { name: 'rep-expense-create', method: 'POST', path: /^\/api\/reps\/\d+\/expenses$/, fields: ['receipt'], profile: 'messageImage', roles: ['admin', 'accounting', 'sales_manager', 'field_sales', 'inside_sales'] },
   { name: 'rep-expense-receipt', method: 'POST', path: /^\/api\/reps\/\d+\/expenses\/\d+\/receipt$/, fields: ['file'], profile: 'messageImage', roles: ['admin', 'accounting', 'sales_manager', 'field_sales', 'inside_sales'] },
   { name: 'rep-contract', method: 'POST', path: /^\/api\/reps\/\d+\/contract$/, fields: ['file'], profile: 'document', roles: ['admin', 'accounting'] },

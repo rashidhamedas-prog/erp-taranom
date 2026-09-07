@@ -1,3 +1,13 @@
+## 2026-09-08T02:20:00+03:30 — INVOICE-AMEND-SALES-UX-V205 ready for commit
+
+- VAT: omitted `vat_exempt` → normal/proforma=1, final=0; explicit 0/1 kept.
+- PUT amends proforma (row) and normal (same JE via rewriteJournalEntry). No reverse/new sale JE. Final locked. Type change 409 E_TYPE_LOCKED.
+- field_sales + inside_sales see invoice pay/VAT/freight; warehouse locked. GET /payments/mine for both roles, scoped to self.
+- Marketer checkout type/VAT via `__pendingMarketerInvMeta`. my-rep receipts/expense/visit/call forms complete.
+- Tests: amend 27/27 (sqlite SKIP), field-ops 40/40 (HTTP SKIP), sms 22/22, app.js parses.
+- Do not commit leftover `_deploy*` `_diag*` `motefareqe/`.
+- Next: commit + merge to `claude/claude-md-docs-2ssrpy` + Iran deploy SW v205.
+
 ## 2026-09-07T16:20:00+03:30 — PRINT-COLLAPSE-CASH-V204 implemented
 
 - Print collapse (display-only) + cash remainder on customer/supplier tafsili. SW v204.

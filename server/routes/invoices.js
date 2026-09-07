@@ -27,6 +27,7 @@ const {
   persistInvoicePayPlan, paymentsFromStoredInvoice,
 } = require('../lib/invoice-payments');
 const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
+const { amendPostedInvoiceInPlace, defaultVatExempt, resolveVatExemptFlag } = require('../lib/amend-invoice');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -384,7 +385,13 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const discPct = parseFloat(disc) || 0;
-  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
+  let invType;
+  try { invType = normalizeInvoiceType(type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  const vatFlag = (vat_exempt === undefined || vat_exempt === null)
+    ? defaultVatExempt(invType)
+    : resolveVatExemptFlag(invType, vat_exempt);
+  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
@@ -442,9 +449,6 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
-  let invType;
-  try { invType = normalizeInvoiceType(type || 'proforma'); }
-  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
 
   try {
     resolveCashPaid(req.body || {}, final);
@@ -482,7 +486,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             storedPayType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
             0, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-            allocMethod, vat_exempt ? 1 : 0, ccId,
+            allocMethod, vatFlag, ccId,
             parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
       const stockMeta = {};
@@ -615,18 +619,28 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
-  if (isFirmSale(row.type)) {
-    return res.status(409).json({ error: 'فاکتور قطعی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
+  if (row.type === 'final') {
+    return res.status(409).json({ error: 'فاکتور رسمی ثبت‌شده قفل است؛ برای اصلاح، آن را ابطال کنید' });
   }
-  if (isFirmSale(type || row.type)) {
+  if (isFirmSale(type || row.type) && row.type === 'proforma') {
     return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
   }
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
   try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
+  let newType;
+  try { newType = normalizeInvoiceType(type || row.type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (row.type === 'proforma' && isFirmSale(newType)) {
+    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
+  }
+  if (newType !== row.type) {
+    return res.status(409).json({ error: 'تغییر نوع فاکتور از ویرایش مجاز نیست', code: 'E_TYPE_LOCKED' });
+  }
+  const vatFlag = resolveVatExemptFlag(newType, vat_exempt, row.vat_exempt);
   const discPct = parseFloat(disc) || 0;
-  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
+  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method)
     ? freight_alloc_method
@@ -636,12 +650,6 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   let { subtotal, discAmt, vatAmount, vatRate } = totals;
   let { final } = freightAdj;
 
-  let newType;
-  try { newType = normalizeInvoiceType(type || 'proforma'); }
-  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
-  if (isFirmSale(newType)) {
-    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
-  }
   const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
   const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
@@ -658,6 +666,53 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   }
   const ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
 
+  let payPlan;
+  try {
+    payPlan = resolveInvoicePayments(req.body || {}, final);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const pType = pay_type || row.pay_type || 'cash';
+  const storedPayType = payPlan.splits.length
+    ? headerPayTypeFromSplits(payPlan.splits, pType, final)
+    : pType;
+  const skipInvoiceCash = payPlan.skipInvoiceCash;
+  const journalOpts = {
+    payType: skipInvoiceCash ? 'credit' : storedPayType,
+    bankId: skipInvoiceCash ? null : (bank_id || row.bank_id || null),
+    cashBoxId: skipInvoiceCash ? null : (cash_box_id || row.cash_box_id || null),
+    rows: built.rows,
+    freightRial, freightType: freight_type,
+  };
+
+  if (row.type === 'normal') {
+    try {
+      resolveCashPaid(req.body || {}, final);
+      if (storedPayType === 'cash' && !payPlan.splits.length) {
+        assertCashBoxRequired('cash', cash_box_id || row.cash_box_id);
+      }
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+    }
+    try {
+      const amended = db.transaction(() => amendPostedInvoiceInPlace(db, {
+        row, built, totals, freightAdj, req, body: req.body, newType, whId, ccId, payPlan,
+        journalOpts, freightRial, freight_type, allocMethod, storedPayType, skipInvoiceCash,
+        salesChannel: resolveSalesChannel(req),
+      }))();
+      const updated = db.prepare(`${INVOICE_JOIN_SQL} WHERE i.id=?`).get(row.id);
+      return res.json({
+        ...updated,
+        rows: JSON.parse((updated && updated.rows) || '[]'),
+        amended: true,
+        journal_id: amended.journal_id,
+        used_warehouses: amended.usedWarehouses || [],
+      });
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    }
+  }
+
   try {
     db.transaction(() => {
       const moadianType = moadian_invoice_type != null && moadian_invoice_type !== ''
@@ -672,8 +727,8 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
              row.stock_deducted || 0, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-             allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
-      persistInvoicePayPlan(db, req.params.id, resolveInvoicePayments(req.body || {}, final), req.body || {});
+             allocMethod, vatFlag, ccId, moadianType, req.params.id);
+      persistInvoicePayPlan(db, req.params.id, payPlan, req.body || {});
       if ((req.user.role === 'admin' || req.user.role === 'accounting') && expert_user_id) {
         const eu = db.prepare('SELECT id,name,phone FROM users WHERE id=? AND active=1').get(parseInt(expert_user_id, 10));
         if (eu) {

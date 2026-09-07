@@ -1704,6 +1704,10 @@ function guardBackupAccess(){
   return false;
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
+function defaultVatExemptForType(type){
+  const t=String(type||'').toLowerCase();
+  return t==='normal' || t==='proforma';
+}
 
 function ensureModuleFlags(){
   if(CACHE._moduleFlagsLoading) return;
@@ -4168,17 +4172,7 @@ function openInvBuilder(id){
 async function _openInvBuilder(id){
   rememberPrintDocId(id);
   await ensureProductsCache();
-  // Lookup lists for invoice pay fields — soft-fail so sales roles are not blocked
-  // if a meta endpoint is temporarily unavailable (banks/cash/checks/cost-centers).
-  async function loadMeta(path, fallback){
-    try{ return await api('GET', path, null, false, true) || fallback; }
-    catch{ return fallback; }
-  }
-  if(!CACHE.banks) CACHE.banks = await loadMeta('/banks', []);
-  if(!CACHE.cashBoxes) CACHE.cashBoxes = await loadMeta('/cash-boxes', []);
-  if(!CACHE.checkCategories) CACHE.checkCategories = await loadMeta('/check-categories', []);
-  if(!CACHE.costCenters) CACHE.costCenters = await loadMeta('/accounting/cost-centers', []);
-  if(!CACHE.posTerminals) CACHE.posTerminals = await loadMeta('/pos/terminals', []);
+  await ensurePayCaches();
   let inv = null;
   if(id){
     inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
@@ -4225,8 +4219,19 @@ async function _openInvBuilder(id){
     return c?.user_id || ME.id;
   })();
 
-  const hideRepAdv = typeof isRepRole==='function' && isRepRole(ME?.role);
-  const defSalesWh = inv?.warehouse_id || ME?.sales_warehouse_id || '';
+  const isSalesRole = typeof isRepRole==='function' && isRepRole(ME?.role);
+  const defSalesWh = isSalesRole ? (ME?.sales_warehouse_id || inv?.warehouse_id || '') : (inv?.warehouse_id || ME?.sales_warehouse_id || '');
+  const mkMeta = !id && window.__pendingMarketerInvMeta && typeof window.__pendingMarketerInvMeta==='object'
+    ? window.__pendingMarketerInvMeta
+    : null;
+  if(!id) window.__pendingMarketerInvMeta = null;
+  const mkType = mkMeta && (mkMeta.type==='proforma'||mkMeta.type==='normal'||mkMeta.type==='final') ? mkMeta.type : null;
+  const builderType = inv ? inv.type : (mkType || 'proforma');
+  const vatExemptChecked = inv
+    ? !!Number(inv.vat_exempt)
+    : (mkMeta && mkMeta.vatExempt!=null ? !!mkMeta.vatExempt : defaultVatExemptForType(builderType));
+  const isFinalEdit = !!(inv && inv.type==='final');
+  const isAmendEdit = !!(inv && (inv.type==='proforma' || inv.type==='normal'));
   window._invBuilderId = id || 0;
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   openModal(`
@@ -4238,41 +4243,33 @@ async function _openInvBuilder(id){
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
-        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${inv&&inv.type==='proforma'&&!inv.converted?'disabled':''}>
-          <option value="proforma" ${inv&&inv.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
-          <option value="normal" ${inv&&inv.type==='normal'?'selected':''}>فاکتور معمولی</option>
-          <option value="final" ${inv&&inv.type==='final'?'selected':''}>فاکتور رسمی</option></select>
-          ${inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}</div>
+        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${inv?'disabled':''}>
+          <option value="proforma" ${builderType==='proforma'?'selected':''}>پیش‌فاکتور</option>
+          <option value="normal" ${builderType==='normal'?'selected':''}>فاکتور معمولی</option>
+          <option value="final" ${builderType==='final'?'selected':''}>فاکتور رسمی</option></select>
+          ${inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
+          ${inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
-        ${hideRepAdv?`
-        <input type="hidden" id="inv-warehouse" value="${esc(String(defSalesWh||''))}">
-        <input type="hidden" id="inv-cc" value="${inv&&inv.cost_center_id?inv.cost_center_id:''}">
-        <input type="hidden" id="inv-freight" value="${moneyInit(inv?inv.freight_amount:0)}">
-        <input type="hidden" id="inv-freight-alloc" value="${inv&&inv.freight_alloc_method?inv.freight_alloc_method:'amount'}">
-        <input type="hidden" id="inv-freight-type" value="${inv&&inv.freight_type?inv.freight_type:''}">
-        <input type="hidden" id="inv-vat-exempt" value="">
-        <input type="hidden" id="inv-moadian-type" value="${inv&&inv.moadian_invoice_type?inv.moadian_invoice_type:1}">
-        <input type="hidden" id="inv-pay-type" value="${inv&&inv.pay_type?inv.pay_type:'credit'}">
-        <input type="hidden" id="inv-bank" value="">
-        <input type="hidden" id="inv-cashbox" value="">
-        <input type="hidden" id="inv-checkcat" value="">
-        `:`
-        <div class="fg"><label>انبار مبدأ</label><select id="inv-warehouse">${warehouseOptionsHtml(inv?inv.warehouse_id:defSalesWh,'— انتخاب انبار —')}</select></div>
-        <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
+        <div class="fg"><label>انبار مبدأ ${hlp('انبار خروج کالا. برای کارشناس فروش روی انبار تخصیص‌یافته قفل است و سرور همان را اعمال می‌کند.')}</label>
+          <select id="inv-warehouse" ${isSalesRole?'disabled':''}>${warehouseOptionsHtml(defSalesWh,'— انتخاب انبار —')}</select>
+          ${isSalesRole?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}">انبار مبدأ شما ثابت است و قابل تغییر نیست.</div>`:''}
+        </div>
+        <div class="fg"><label>مرکز هزینه ${hlp('اختیاری — برای گزارش هزینه/درآمد بر اساس مرکز.')}</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
+        <div class="fg"><label>کرایه حمل ${moneyColLabel()} ${hlp('مبلغ کرایه به ریال. با سرشکن روی ردیف‌ها تقسیم می‌شود.')}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
+        <div class="fg"><label>سرشکن کرایه ${hlp('نسبت تقسیم کرایه روی اقلام: مبلغ، مقدار یا مساوی.')}</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
           <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
           <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
         </select></div>
-        <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
+        <div class="fg"><label>نوع کرایه ${hlp('عهده خریدار به مبلغ مشتری اضافه می‌شود؛ عهده فروشنده هزینه توزیع است.')}</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
           <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
-        <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${inv&&inv.vat_exempt?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
-        <div class="fg"><label>نوع صورتحساب مودیان</label>
+        <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${vatExemptChecked?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات ${hlp('پیش‌فاکتور و معمولی پیش‌فرض معاف‌اند؛ رسمی پیش‌فرض مشمول است. در ویرایش، مقدار ذخیره‌شده حفظ می‌شود.')}</label></div>
+        <div class="fg" id="inv-moadian-wrap" data-csp-style="${CSP.style(builderType==='final'?'':'display:none')}">
+          <label>نوع صورتحساب مودیان ${hlp('فقط برای فاکتور رسمی. پیش‌فاکتور و معمولی به صف مودیان نمی‌روند.')}</label>
           <select id="inv-moadian-type">
             <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>${T('نوع ۱ — کسب‌وکار به کسب‌وکار')}</option>
             <option value="2" ${inv&&Number(inv.moadian_invoice_type)===2?'selected':''}>نوع ۲ — B2C</option>
@@ -4309,12 +4306,11 @@ async function _openInvBuilder(id){
           </tr></thead><tbody id="invPayRowsBody"></tbody></table></div>
           <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invPayAddRow();renderInvPayRows()})}">➕ مرحله دیگر</button>
         </div>
-        `}
         <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
         <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
-      <div id="chequeFields" data-csp-style="${CSP.style(`${hideRepAdv||!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
+      <div id="chequeFields" data-csp-style="${CSP.style(`${!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
         <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
           <div class="fg"><label>مدت چک (روز) ${hlp('فاصله روزهای سررسید چک از تاریخ فاکتور.')}</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
           <div class="fg"><label>تاریخ سررسید ${hlp('تاریخ وصول چک — در بخش مدیریت چک‌های حسابداری پیگیری می‌شود.')}</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
@@ -4341,7 +4337,8 @@ async function _openInvBuilder(id){
           <div id="invStockWarn" hidden></div>
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
-          <button class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">💾 ذخیره فاکتور</button>
+          ${isFinalEdit?`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این فرم ذخیره نمی‌شود. برای اصلاح باید <b>ابطال</b> کنید؛ ویرایش مستقیم سند جدید یا سند معکوس ثبت نمی‌کند.</div>`:`<button id="inv-save-btn" class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${id?'💾 ذخیره تغییرات':'💾 ذخیره فاکتور'}</button>
+          ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود.</p>`:''}`}
           ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
           ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
@@ -4365,8 +4362,12 @@ async function _openInvBuilder(id){
   const typeSel=el('inv-type');
   if(typeSel && !typeSel.dataset.warnBound){
     typeSel.dataset.warnBound='1';
-    typeSel.addEventListener('change', ()=>{ renderInvoiceStockWarn(); });
+    typeSel.addEventListener('change', ()=>{
+      renderInvoiceStockWarn();
+      syncInvTypeDependentFields(!id);
+    });
   }
+  syncInvTypeDependentFields(false);
   if((invCart||[]).some(r=>r && (r.batch_id||r.is_fabric_roll))) ensureInvoiceLiveRolls().then(()=>{ if(el('cartRows')) renderCart(); });
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
@@ -4948,7 +4949,20 @@ function toggleInvPayFields(){
   syncInvCashPayAmount();
 }
 function toggleChequeFields(){ toggleInvPayFields(); }
+function syncInvTypeDependentFields(applyVatDefault){
+  const type=el('inv-type')?.value||'proforma';
+  if(applyVatDefault){
+    const vat=el('inv-vat-exempt');
+    if(vat && vat.type==='checkbox') vat.checked=defaultVatExemptForType(type);
+  }
+  const mo=el('inv-moadian-wrap');
+  if(mo) mo.style.display = type==='final' ? '' : 'none';
+}
 async function saveInvoice(id){
+  if(id && el('inv-type')?.value==='final'){
+    showToast('ویرایش فاکتور رسمی ممکن نیست؛ ابتدا ابطال کنید','error');
+    return;
+  }
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
@@ -5019,7 +5033,8 @@ async function saveInvoice(id){
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL && (accTab==='sales-invoices'||accTab==='proforma-invoices')) loadAccTab(accTab);
     const whNames=(saved?.used_warehouses||[]).map(w=>w.name).filter(Boolean);
-    showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
+    if(id) showToast(data.type==='proforma'?'پیش‌فاکتور به‌روز شد':'فاکتور و سند ثبت‌شده به‌روز شد');
+    else showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
   }catch(e){}
 }
 function convertProformaChooser(id){
@@ -13290,10 +13305,15 @@ function payPosFieldHtml(prefix){
     </select></div>`;
 }
 async function ensurePayCaches(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
-  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
-  if(!CACHE.posTerminals) CACHE.posTerminals=await api('GET','/pos/terminals').catch(()=>[])||[];
+  async function soft(path){
+    try{ return await api('GET', path, null, false, true) || []; }
+    catch{ return []; }
+  }
+  if(!CACHE.banks) CACHE.banks=await soft('/banks');
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await soft('/cash-boxes');
+  if(!CACHE.checkCategories) CACHE.checkCategories=await soft('/check-categories');
+  if(!CACHE.posTerminals) CACHE.posTerminals=await soft('/pos/terminals');
+  if(!CACHE.costCenters) CACHE.costCenters=await soft('/accounting/cost-centers');
 }
 function payFg(prefix, kind){
   return el(prefix+'-'+kind+'-fg') || el(prefix+'-'+kind)?.closest('.fg');
@@ -17287,7 +17307,7 @@ async function settlementModal(custId){
     <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
-      <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فقط فاکتورهای رسمی با مانده باز نمایش داده می‌شوند.')}</label>
+      <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فاکتورهای قطعی با مانده باز (معمولی و رسمی).')}</label>
         <select id="st-invoice" data-csp-change="${CSP.bind('change',function(event){stlApplyInvoiceAmt()})}"><option value="">— بدون تخصیص به فاکتور —</option>
         ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
         </select></div>
@@ -17593,18 +17613,70 @@ async function saveSettlement(){
 /* ============================================================
    MY REP ACCOUNT (self-service)
 ============================================================ */
+function fldErrHtml(id){
+  return `<div id="${esc(id)}-err" class="fld-err" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-top:4px;line-height:1.7`)}"></div>`;
+}
+function clearFldErrs(ids){
+  (ids||[]).forEach(id=>{ const n=el(id+'-err'); if(n) n.textContent=''; });
+}
+function setFldErr(id, msg){
+  const n=el(id+'-err'); if(n) n.textContent=msg||'';
+  return !!msg;
+}
+function setSubmitBusy(btn, busy, idleLabel, busyLabel){
+  if(!btn) return;
+  btn.disabled=!!busy;
+  if(busy && busyLabel) btn.textContent=busyLabel;
+  else if(!busy && idleLabel) btn.textContent=idleLabel;
+}
+function refreshMyRepIfOpen(){
+  if(CURRENT_PAGE==='my-rep' && typeof ROUTES['my-rep']==='function') ROUTES['my-rep']();
+}
+async function softRepList(path){
+  try{
+    const rows=await api('GET', path, null, false, true);
+    return Array.isArray(rows)?rows:[];
+  }catch(e){
+    if(e && (e.status===403 || e.code==='E_FORBIDDEN')) return null;
+    return [];
+  }
+}
+function repRecentBlock(title, emptyMsg, rows, cols, renderRow){
+  if(rows==null) return '';
+  const list=Array.isArray(rows)?rows:[];
+  return `<div data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+    <h5 data-csp-style="${CSP.style(`margin:0 0 8px;font-size:13px`)}">${title}</h5>
+    ${list.length?`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${list.slice(0,8).map(renderRow).join('')}</tbody></table></div>`
+      :`<div class="empty" data-csp-style="${CSP.style(`padding:12px;text-align:center`)}">${esc(emptyMsg)}</div>`}
+  </div>`;
+}
 ROUTES['my-rep'] = async function(){
   if(!isRepRole(ME?.role)){ el('view').innerHTML='<div class="empty">فقط نمایندگان فروش</div>'; return; }
-  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const isField = ME.role==='field_sales';
-  const reqs = [
+  el('view').innerHTML='<div class="muted" aria-live="polite">در حال بارگذاری...</div>';
+  const settled=await Promise.allSettled([
     api('GET','/reps/my/dashboard'),
-    api('GET','/reps/my/ledger')
-  ];
-  if(isField) reqs.push(api('GET','/reps/payments/mine').catch(()=>[]));
-  const results = await Promise.all(reqs);
-  const dash=results[0], stmt=results[1], myPayments=isField?results[2]:[];
+    api('GET','/reps/my/ledger'),
+    api('GET','/reps/payments/mine')
+  ]);
+  if(settled[0].status!=='fulfilled'){
+    el('view').innerHTML='<div class="empty" role="alert">بارگذاری حساب انجام نشد. دوباره تلاش کنید.</div>';
+    return;
+  }
+  const dash=settled[0].value||{};
+  const stmt=settled[1].status==='fulfilled'?(settled[1].value||{}):{};
+  const payErr=settled[2].status==='rejected'?settled[2].reason:null;
+  const myPayments=(settled[2].status==='fulfilled' && Array.isArray(settled[2].value))?settled[2].value
+    :(payErr && (payErr.status===403 || payErr.code==='E_FORBIDDEN')?null:[]);
+  const [visits, calls, expenses, cats]=await Promise.all([
+    softRepList('/reps/'+ME.id+'/visits'),
+    softRepList('/reps/'+ME.id+'/calls'),
+    softRepList('/reps/'+ME.id+'/expenses'),
+    api('GET','/reps/expense-categories',null,false,true).catch(()=>({}))
+  ]);
+  const expCats=cats&&typeof cats==='object'?cats:{};
   const comm=dash?.commission||{};
+  const payStatus=s=>s==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':s==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>';
   el('view').innerHTML=`
     <div class="cards" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
       ${statCard('g','💰',fmt(comm.salesTotal||0),'فروش کل (ت)')}
@@ -17613,21 +17685,37 @@ ROUTES['my-rep'] = async function(){
       ${comm.monthlyTarget?statCard('b','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
     </div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      ${isField?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){repPaymentModal()})}">💵 ثبت دریافت از مشتری</button>`:''}
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){repPaymentModal()})}">💵 ثبت دریافت از مشتری</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){repExpenseModal((ME.id),(ME.name||''))})}">🧾 ثبت هزینه</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){repVisitModal((ME.id))})}">📍 ثبت بازدید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){repCallModal((ME.id))})}">📞 ثبت تماس</button>
     </div>
-    ${isField && (myPayments||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}"><div class="panel-head"><h4>⏳ پرداخت‌های در انتظار تأیید</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:-4px 0 14px`)}">دریافت از مشتری تا تأیید حسابدار روی مانده اعمال نمی‌شود. هزینه در انتظار تأیید است. بازدید و تماس برای گزارش عملکرد ثبت می‌شود.</p>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}"><div class="panel-head"><h4>💵 دریافت‌های ثبت‌شده</h4></div>
+      <div class="panel-body tbl-wrap">${myPayments===null
+        ? `<div class="empty">فهرست دریافت در دسترس نیست. صفحه را تازه کنید یا با مدیر هماهنگ کنید.</div>`
+        : `<table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
         <th>تاریخ</th><th>مشتری</th><th>نوع</th><th>مبلغ</th><th>وضعیت</th><th>رسید</th>
-      </tr></thead><tbody>${(myPayments||[]).slice(0,20).map(p=>`<tr>
+      </tr></thead><tbody>${(myPayments.length?myPayments.slice(0,20):[]).map(p=>`<tr>
         <td class="mono">${escDate(p.date)}</td><td>${esc(p.cust_biz||'-')}</td>
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
         <td class="mono">${fmt(p.amount)}</td>
-        <td>${p.status==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':p.status==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>'}</td>
+        <td>${payStatus(p.status)}</td>
         <td>${repReceiptBtn(p.receipt_url)}</td>
-      </tr>`).join('')||emptyRow(6)}</tbody></table></div></div>`:''}
+      </tr>`).join('')||emptyRow(6)}</tbody></table>`}</div></div>
+    ${visits!=null||calls!=null||expenses!=null?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}"><div class="panel-head"><h4>فعالیت اخیر</h4></div>
+      <div class="panel-body">
+        ${repRecentBlock('📍 بازدیدها','هنوز بازدیدی ثبت نشده',visits,['تاریخ','مشتری','یادداشت'],v=>`<tr>
+          <td class="mono">${escDate(v.date)}</td><td>${esc(v.customer_name||'-')}</td>
+          <td class="muted">${esc(v.note||'-')}</td></tr>`)}
+        ${repRecentBlock('📞 تماس‌ها','هنوز تماسی ثبت نشده',calls,['تاریخ','مشتری','نتیجه'],c=>`<tr>
+          <td class="mono">${escDate(c.date)}</td><td>${esc(c.customer_name||'-')}</td>
+          <td class="muted">${esc(c.outcome||'-')}</td></tr>`)}
+        ${repRecentBlock('🧾 هزینه‌ها','هنوز هزینه‌ای ثبت نشده',expenses,['تاریخ','دسته','مبلغ','وضعیت'],e=>`<tr>
+          <td class="mono">${escDate(e.date)}</td><td>${esc(expCats[e.category]||e.category||'-')}</td>
+          <td class="mono">${fmt(e.amount)}</td><td>${payStatus(e.status)}</td></tr>`)}
+      </div>
+    </div>`:''}
     <div class="panel"><div class="panel-head"><h4>📒 گردش حساب من</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
         <th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th>
@@ -17639,51 +17727,75 @@ ROUTES['my-rep'] = async function(){
 };
 
 async function repPaymentModal(){
-  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  try{ if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[]; }catch(_){ CACHE.customers=CACHE.customers||[]; }
   openModal(`
     <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>مشتری *</label>${custSelect('rp-cust',0)}</div>
-      <div class="fg"><label>مبلغ (ریال) *</label><input id="rp-amount" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>نوع</label><select id="rp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleRepPayFields()})}">
+    <div class="modal-body" dir="rtl">
+      <div id="rp-form-err" class="muted" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-bottom:8px;line-height:1.7`)}"></div>
+      <div class="form-grid">
+      <div class="fg full"><label>مشتری * ${hlp('فروشگاهی که وجه را از او گرفته‌اید. نام یا تلفن را جستجو کنید.')}</label>${custSelect('rp-cust',0)}${fldErrHtml('rp-cust')}</div>
+      <div class="fg"><label>مبلغ (ریال) * ${hlp('مبلغ دریافتی به ریال؛ تا تأیید حسابدار روی مانده مشتری اعمال نمی‌شود.')}</label><input id="rp-amount" type="text" inputmode="numeric" class="money" placeholder="0">${fldErrHtml('rp-amount')}</div>
+      <div class="fg"><label>نوع پرداخت ${hlp('نقد، واریز بانکی یا چک — نوع را با مدارک رسید هماهنگ کنید.')}</label><select id="rp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleRepPayFields()})}">
         <option value="cash">💵 نقد</option>
         <option value="bank_transfer">🏦 واریز بانکی</option>
         <option value="cheque">🧾 چک</option>
-      </select></div>
-      <div class="fg"><label>تاریخ</label><input id="rp-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>یادداشت</label><input id="rp-note" placeholder="توضیحات..."></div>
-      <div id="rp-bank-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}"><label>شماره پیگیری / مرجع واریز</label><input id="rp-bankref"></div>
+      </select>${fldErrHtml('rp-paytype')}</div>
+      <div class="fg"><label>تاریخ * ${hlp('تاریخ دریافت وجه.')}</label><input id="rp-date" data-jdate value="${todayJalali()}">${fldErrHtml('rp-date')}</div>
+      <div class="fg full"><label>یادداشت ${hlp('توضیح اختیاری برای حسابدار.')}</label><input id="rp-note" placeholder="توضیحات..."></div>
+      <div id="rp-cash-note" class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">حسابدار مقصد را هنگام تأیید مشخص می‌کند.</div>
+      <div id="rp-bank-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}"><label>شماره پیگیری / مرجع واریز * ${hlp('کد رهگیری بانکی برای واریز الزامی است.')}</label><input id="rp-bankref" dir="ltr">${fldErrHtml('rp-bankref')}</div>
       <div id="rp-cheque-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}"><div class="form-grid">
-        <div class="fg"><label>بانک *</label><input id="rp-cbank"></div>
-        <div class="fg"><label>صیادی *</label><input id="rp-csayadi"></div>
-        <div class="fg"><label>شماره چک</label><input id="rp-cnum"></div>
-        <div class="fg"><label>صادرکننده</label><input id="rp-cowner"></div>
-        <div class="fg"><label>مبلغ چک</label><input id="rp-camount" type="text" inputmode="numeric" class="money"></div>
-        <div class="fg full"><label>سررسید *</label><input id="rp-cdue" data-jdate></div>
+        <div class="fg"><label>بانک * ${hlp('نام بانک صادرکننده چک.')}</label><input id="rp-cbank">${fldErrHtml('rp-cbank')}</div>
+        <div class="fg"><label>صیادی * ${hlp('شناسه ۱۶ رقمی صیاد.')}</label><input id="rp-csayadi" dir="ltr">${fldErrHtml('rp-csayadi')}</div>
+        <div class="fg"><label>شماره چک ${hlp('شماره سریال چک در صورت وجود.')}</label><input id="rp-cnum" dir="ltr"></div>
+        <div class="fg"><label>صادرکننده ${hlp('نام صاحب حساب چک.')}</label><input id="rp-cowner"></div>
+        <div class="fg"><label>مبلغ چک ${hlp('اگر خالی بماند همان مبلغ دریافت ثبت می‌شود.')}</label><input id="rp-camount" type="text" inputmode="numeric" class="money"></div>
+        <div class="fg full"><label>سررسید * ${hlp('تاریخ وصول چک.')}</label><input id="rp-cdue" data-jdate>${fldErrHtml('rp-cdue')}</div>
       </div></div>
-      <div class="fg full"><label>عکس رسید / چک *</label><input type="file" id="rp-receipt" accept="image/*"></div>
+      <div class="fg full"><label>عکس رسید / چک * ${hlp('تصویر رسید نقد، فیش واریز یا چک. فقط فایل تصویری.')}</label>
+        <input type="file" id="rp-receipt" accept="image/*">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">فرمت مجاز: jpg، png، webp</div>
+        ${fldErrHtml('rp-receipt')}</div>
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;grid-column:1/-1`)}">تا تأیید حسابدار، این مبلغ روی مانده مشتری اعمال نمی‌شود.</p>
     </div></div>
     <div class="modal-foot">
-      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveRepPayment()})}">📤 ارسال برای تأیید</button>
+      <button id="rp-submit" class="btn green" data-csp-click="${CSP.bind('click',function(event){saveRepPayment()})}">📤 ارسال برای تأیید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
     </div>`, true);
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
+  (el('modalRoot')||document).querySelectorAll('input.money').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
+  toggleRepPayFields();
 }
 function toggleRepPayFields(){
   const pt=el('rp-paytype')?.value;
-  const cb=el('rp-cheque-block'), bb=el('rp-bank-block');
+  const cb=el('rp-cheque-block'), bb=el('rp-bank-block'), cn=el('rp-cash-note');
   if(cb) cb.style.display=pt==='cheque'?'block':'none';
   if(bb) bb.style.display=pt==='bank_transfer'?'block':'none';
+  if(cn) cn.style.display=pt==='cash'?'block':'none';
 }
+let _repPayBusy=false;
 async function saveRepPayment(){
+  if(_repPayBusy) return;
+  const errIds=['rp-cust','rp-amount','rp-paytype','rp-date','rp-bankref','rp-cbank','rp-csayadi','rp-cdue','rp-receipt'];
+  clearFldErrs(errIds);
+  const sum=el('rp-form-err'); if(sum) sum.textContent='';
   const cust_id=+el('rp-cust')?.value;
   const amount=moneyVal('rp-amount');
   const pay_type=el('rp-paytype')?.value||'cash';
   const f=el('rp-receipt')?.files?.[0];
-  if(!cust_id||!amount){ showToast('مشتری و مبلغ الزامی است','error'); return; }
-  if(!f){ showToast('عکس رسید الزامی است','error'); return; }
+  let ok=true;
+  if(!cust_id){ setFldErr('rp-cust','مشتری را انتخاب کنید'); ok=false; }
+  if(!amount){ setFldErr('rp-amount','مبلغ را وارد کنید'); ok=false; }
+  if(!(el('rp-date')?.value||'').trim()){ setFldErr('rp-date','تاریخ را انتخاب کنید'); ok=false; }
+  if(pay_type==='bank_transfer' && !(el('rp-bankref')?.value||'').trim()){ setFldErr('rp-bankref','شماره پیگیری واریز الزامی است'); ok=false; }
+  if(pay_type==='cheque'){
+    if(!(el('rp-cbank')?.value||'').trim()){ setFldErr('rp-cbank','نام بانک الزامی است'); ok=false; }
+    if(!(el('rp-csayadi')?.value||'').trim()){ setFldErr('rp-csayadi','شناسه صیادی الزامی است'); ok=false; }
+    if(!(el('rp-cdue')?.value||'').trim()){ setFldErr('rp-cdue','تاریخ سررسید الزامی است'); ok=false; }
+  }
+  if(!f){ setFldErr('rp-receipt','عکس رسید الزامی است'); ok=false; }
+  if(!ok) return;
   const fd=new FormData();
   fd.append('cust_id',cust_id); fd.append('amount',amount); fd.append('pay_type',pay_type);
   fd.append('date',el('rp-date')?.value||''); fd.append('note',el('rp-note')?.value||'');
@@ -17696,15 +17808,21 @@ async function saveRepPayment(){
     fd.append('cheque_owner',el('rp-cowner')?.value||'');
     fd.append('cheque_amount',moneyVal('rp-camount')||amount);
     fd.append('cheque_due',el('rp-cdue')?.value||'');
-    if(!el('rp-cbank')?.value||!el('rp-csayadi')?.value||!el('rp-cdue')?.value){
-      showToast('اطلاعات چک ناقص است','error'); return;
-    }
   }
-  const token=localStorage.getItem('crm_token');
-  const r=await fetch('/api/reps/payments',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok){ showToast(j.error||'خطا','error'); return; }
-  closeModal(); showToast('برای تأیید حسابدار ارسال شد'); ROUTES['my-rep']();
+  _repPayBusy=true;
+  setSubmitBusy(el('rp-submit'),true,'📤 ارسال برای تأیید','در حال ارسال...');
+  try{
+    const token=localStorage.getItem('crm_token');
+    const r=await fetch('/api/reps/payments',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ if(sum) sum.textContent=j.error||'ارسال دریافت انجام نشد'; return; }
+    closeModal(); showToast('برای تأیید حسابدار ارسال شد'); refreshMyRepIfOpen();
+  }catch(_){
+    if(sum) sum.textContent='خطای ارتباط با سرور';
+  }finally{
+    _repPayBusy=false;
+    setSubmitBusy(el('rp-submit'),false,'📤 ارسال برای تأیید');
+  }
 }
 async function approveRepPayment(id){
   await api('POST','/reps/payments/'+id+'/approve');
@@ -18152,29 +18270,46 @@ async function saveTerritory(){
   await api('POST','/reps/territories',{name,rep_id:+el('rt-rep')?.value||null,cities:el('rt-cities')?.value||''});
   showToast('ثبت شد'); repTerritoriesModal();
 }
+function captureVisitGps(){
+  const inp=el('rv-gps'); if(!inp) return;
+  inp.value='در حال دریافت موقعیت...';
+  if(!navigator.geolocation){ inp.value='موقعیت‌یاب در این دستگاه نیست'; return; }
+  navigator.geolocation.getCurrentPosition(
+    p=>{ inp.value=p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5); },
+    ()=>{ inp.value='موقعیت در دسترس نیست'; },
+    {enableHighAccuracy:true,timeout:8000}
+  );
+}
 async function repVisitModal(repId){
-  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  try{ if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[]; }catch(_){ CACHE.customers=CACHE.customers||[]; }
   openModal(`
     <div class="modal-head"><h3>📍 ثبت بازدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full">${custSelect('rv-cust',0)}</div>
-      <div class="fg"><label>تاریخ</label><input id="rv-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>GPS</label><input id="rv-gps" readonly placeholder="در حال دریافت..." data-csp-style="${CSP.style(`font-size:11px`)}"></div>
-      <div class="fg full"><label>عکس بازدید</label><input id="rv-photo" type="file" accept="image/*"></div>
-      <div class="fg full"><label>امضا</label>
+    <div class="modal-body" dir="rtl">
+      <div id="rv-form-err" class="muted" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-bottom:8px;line-height:1.7`)}"></div>
+      <div class="form-grid">
+      <div class="fg full"><label>مشتری * ${hlp('فروشگاهی که بازدید کرده‌اید. بدون مشتری ثبت نمی‌شود.')}</label>${custSelect('rv-cust',0)}${fldErrHtml('rv-cust')}</div>
+      <div class="fg"><label>تاریخ * ${hlp('تاریخ بازدید.')}</label><input id="rv-date" data-jdate value="${todayJalali()}">${fldErrHtml('rv-date')}</div>
+      <div class="fg"><label>موقعیت GPS ${hlp('مختصات فعلی دستگاه. اگر ناموفق بود دوباره تلاش کنید.')}</label>
+        <input id="rv-gps" readonly placeholder="در حال دریافت..." data-csp-style="${CSP.style(`font-size:11px`)}">
+        <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(event){captureVisitGps()})}">🔄 تلاش مجدد GPS</button>
+      </div>
+      <div class="fg full"><label>هدف / یادداشت بازدید * ${hlp('هدف حضور یا خلاصه مذاکره — حداقل چند کلمه.')}</label>
+        <textarea id="rv-note" rows="3" placeholder="هدف بازدید و نتیجه..."></textarea>${fldErrHtml('rv-note')}</div>
+      <div class="fg full"><label>عکس بازدید ${hlp('اختیاری — تصویر ویترین، قفسه یا محیط فروشگاه.')}</label>
+        <input id="rv-photo" type="file" accept="image/*">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">فرمت مجاز: jpg، png، webp</div></div>
+      <div class="fg full"><label>امضا ${hlp('امضای مشتری یا خودتان روی صفحه. پاک‌کردن برای شروع دوباره.')}</label>
         <canvas id="rv-sig" width="300" height="100" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:8px;touch-action:none;background:#fff`)}"></canvas>
         <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(event){clearVisitSig()})}">پاک کردن امضا</button>
       </div>
-      <div class="fg full"><label>یادداشت</label><input id="rv-note"></div>
+      <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
+        <input type="checkbox" id="rv-checkout-later" checked data-csp-style="${CSP.style(`width:auto`)}"> خروج را بعداً ثبت می‌کنم ${hlp('اگر تیک باشد زمان خروج خالی می‌ماند؛ در غیر این صورت همین لحظه به‌عنوان خروج ثبت می‌شود.')}
+      </label></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepVisit((repId))})}">💾</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+    <div class="modal-foot"><button id="rv-submit" class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepVisit((repId))})}">💾 ثبت بازدید</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
   initVisitSigCanvas();
-  if(navigator.geolocation){
-    navigator.geolocation.getCurrentPosition(p=>{
-      const inp=el('rv-gps'); if(inp) inp.value=p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5);
-    },()=>{ const inp=el('rv-gps'); if(inp) inp.value='موقعیت در دسترس نیست'; },{enableHighAccuracy:true,timeout:8000});
-  }
+  captureVisitGps();
 }
 let _visitSigCtx=null,_visitSigDrawing=false;
 function initVisitSigCanvas(){
@@ -18194,17 +18329,31 @@ function initVisitSigCanvas(){
 function clearVisitSig(){
   const c=el('rv-sig'); if(c&&_visitSigCtx) _visitSigCtx.clearRect(0,0,c.width,c.height);
 }
+let _repVisitBusy=false;
 async function saveRepVisit(repId){
+  if(_repVisitBusy) return;
+  clearFldErrs(['rv-cust','rv-date','rv-note']);
+  const sum=el('rv-form-err'); if(sum) sum.textContent='';
+  const cust_id=+el('rv-cust')?.value;
+  const note=(el('rv-note')?.value||'').trim();
+  let ok=true;
+  if(!cust_id){ setFldErr('rv-cust','مشتری را انتخاب کنید'); ok=false; }
+  if(!(el('rv-date')?.value||'').trim()){ setFldErr('rv-date','تاریخ را انتخاب کنید'); ok=false; }
+  if(!note){ setFldErr('rv-note','هدف یا یادداشت بازدید الزامی است'); ok=false; }
+  if(!ok) return;
   let lat=null,lng=null;
   const gps=(el('rv-gps')?.value||'').split(',');
-  if(gps.length===2){ lat=parseFloat(gps[0]); lng=parseFloat(gps[1]); }
+  if(gps.length===2){ const a=parseFloat(gps[0]), b=parseFloat(gps[1]); if(Number.isFinite(a)&&Number.isFinite(b)){ lat=a; lng=b; } }
+  _repVisitBusy=true;
+  setSubmitBusy(el('rv-submit'),true,'💾 ثبت بازدید','در حال ثبت...');
   try{
     const fd=new FormData();
-    fd.append('customer_id',+el('rv-cust').value);
+    fd.append('customer_id',cust_id);
     fd.append('date',el('rv-date').value);
-    fd.append('note',el('rv-note').value);
+    fd.append('note',note);
     if(lat!=null) fd.append('lat',lat);
     if(lng!=null) fd.append('lng',lng);
+    if(!el('rv-checkout-later')?.checked) fd.append('check_out_at', String(Math.floor(Date.now()/1000)));
     const photoInp=el('rv-photo');
     if(photoInp?.files?.[0]) fd.append('photo',photoInp.files[0]);
     const sigC=el('rv-sig');
@@ -18213,27 +18362,63 @@ async function saveRepVisit(repId){
       if(blob&&blob.size>500) fd.append('signature',blob,'signature.png');
     }
     await api('POST','/reps/'+repId+'/visits',fd,true);
-    closeModal(); showToast('بازدید ثبت شد');
-  }catch(e){}
+    closeModal(); showToast('بازدید ثبت شد'); refreshMyRepIfOpen();
+  }catch(e){
+    if(sum) sum.textContent=(e&&e.message)||'ثبت بازدید انجام نشد';
+  }finally{
+    _repVisitBusy=false;
+    setSubmitBusy(el('rv-submit'),false,'💾 ثبت بازدید');
+  }
 }
 async function repCallModal(repId){
-  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  try{ if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[]; }catch(_){ CACHE.customers=CACHE.customers||[]; }
   openModal(`
     <div class="modal-head"><h3>📞 ثبت تماس</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full">${custSelect('rc-cust',0)}</div>
-      <div class="fg"><label>مدت (دقیقه)</label><input id="rc-dur" type="number"></div>
-      <div class="fg"><label>نتیجه</label><input id="rc-outcome" placeholder="پاسخ داد / بی‌پاسخ"></div>
-      <div class="fg full"><label>یادداشت</label><input id="rc-note"></div>
+    <div class="modal-body" dir="rtl">
+      <div id="rc-form-err" class="muted" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-bottom:8px;line-height:1.7`)}"></div>
+      <div class="form-grid">
+      <div class="fg full"><label>مشتری * ${hlp('فروشگاهی که با او تماس گرفته‌اید.')}</label>${custSelect('rc-cust',0)}${fldErrHtml('rc-cust')}</div>
+      <div class="fg"><label>تاریخ * ${hlp('تاریخ تماس.')}</label><input id="rc-date" data-jdate value="${todayJalali()}">${fldErrHtml('rc-date')}</div>
+      <div class="fg"><label>مدت (دقیقه) ${hlp('مدت تقریبی مکالمه.')}</label><input id="rc-dur" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="fg"><label>نتیجه ${hlp('وضعیت پاسخ تماس.')}</label>
+        <select id="rc-outcome">
+          <option value="پاسخ داد">پاسخ داد</option>
+          <option value="بی‌پاسخ">بی‌پاسخ</option>
+          <option value="مشغول">مشغول</option>
+          <option value="تماس بعدی">تماس بعدی</option>
+          <option value="سایر">سایر</option>
+        </select></div>
+      <div class="fg full"><label>یادداشت ${hlp('خلاصه مکالمه یا اقدام بعدی.')}</label><textarea id="rc-note" rows="3" placeholder="خلاصه تماس..."></textarea></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepCall((repId))})}">💾</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+    <div class="modal-foot"><button id="rc-submit" class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepCall((repId))})}">💾 ثبت تماس</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
 }
+let _repCallBusy=false;
 async function saveRepCall(repId){
+  if(_repCallBusy) return;
+  clearFldErrs(['rc-cust','rc-date']);
+  const sum=el('rc-form-err'); if(sum) sum.textContent='';
+  const cust_id=+el('rc-cust')?.value;
+  if(!cust_id){ setFldErr('rc-cust','مشتری را انتخاب کنید'); return; }
+  if(!(el('rc-date')?.value||'').trim()){ setFldErr('rc-date','تاریخ را انتخاب کنید'); return; }
+  _repCallBusy=true;
+  setSubmitBusy(el('rc-submit'),true,'💾 ثبت تماس','در حال ثبت...');
   try{
-    await api('POST','/reps/'+repId+'/calls',{customer_id:+el('rc-cust').value,duration_min:+(el('rc-dur').value||0),outcome:el('rc-outcome').value,note:el('rc-note').value});
-    closeModal(); showToast('تماس ثبت شد');
-  }catch(e){}
+    await api('POST','/reps/'+repId+'/calls',{
+      customer_id:cust_id,
+      date:el('rc-date').value,
+      duration_min:+(el('rc-dur')?.value||0),
+      outcome:el('rc-outcome')?.value||'',
+      note:el('rc-note')?.value||''
+    });
+    closeModal(); showToast('تماس ثبت شد'); refreshMyRepIfOpen();
+  }catch(e){
+    if(sum) sum.textContent=(e&&e.message)||'ثبت تماس انجام نشد';
+  }finally{
+    _repCallBusy=false;
+    setSubmitBusy(el('rc-submit'),false,'💾 ثبت تماس');
+  }
 }
 function repTransferCustModal(){
   const reps=(CACHE.users||[]).filter(u=>u.role==='field_sales'||u.role==='inside_sales');
@@ -18268,32 +18453,63 @@ async function repAssignmentHistoryModal(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`,true);
 }
 async function repExpenseModal(repId,repName){
-  const cats=await api('GET','/reps/expense-categories')||{};
+  const cats=await api('GET','/reps/expense-categories',null,false,true).catch(()=>({}))||{};
+  await ensurePayCaches();
+  const ccs=(CACHE.costCenters||[]).filter(c=>c && c.id);
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت هزینه — ${esc(repName)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>دسته</label><select id="re-cat">${Object.entries(cats).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-      <div class="fg"><label>مبلغ (ریال) *</label><input id="re-amount" type="number" min="1"></div>
-      <div class="fg"><label>تاریخ</label><input id="re-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>رسید / فاکتور (اختیاری)</label><input id="re-receipt" type="file" accept="image/*,.pdf"></div>
-      <div class="fg full"><label>شرح</label><input id="re-desc"></div>
+    <div class="modal-body" dir="rtl">
+      <div id="re-form-err" class="muted" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-bottom:8px;line-height:1.7`)}"></div>
+      <div class="form-grid">
+      <div class="fg"><label>دسته * ${hlp('نوع هزینه سفر یا عملیات.')}</label><select id="re-cat">${Object.entries(cats).map(([k,v])=>`<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>${fldErrHtml('re-cat')}</div>
+      <div class="fg"><label>مبلغ (ریال) * ${hlp('مبلغ هزینه به ریال.')}</label><input id="re-amount" type="text" inputmode="numeric" class="money" placeholder="0">${fldErrHtml('re-amount')}</div>
+      <div class="fg"><label>تاریخ * ${hlp('تاریخ وقوع هزینه.')}</label><input id="re-date" data-jdate value="${todayJalali()}">${fldErrHtml('re-date')}</div>
+      ${ccs.length?`<div class="fg"><label>مرکز هزینه ${hlp('اختیاری — اگر مرکز مشخص است انتخاب کنید.')}</label>
+        <select id="re-cost-cc"><option value="">—</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>`:''}
+      <div class="fg full"><label>شرح * ${hlp('توضیح هزینه حداقل ۳ حرف.')}</label><textarea id="re-desc" rows="3" placeholder="شرح هزینه..."></textarea>${fldErrHtml('re-desc')}</div>
+      <div class="fg full"><label>رسید / فاکتور (اختیاری) ${hlp('تصویر یا PDF رسید در صورت وجود.')}</label>
+        <input id="re-receipt" type="file" accept="image/*,.pdf">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">تصویر (jpg/png/webp) یا PDF</div></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepExpense((repId))})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+    <div class="modal-foot"><button id="re-submit" class="btn" data-csp-click="${CSP.bind('click',function(event){saveRepExpense((repId))})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  (el('modalRoot')||document).querySelectorAll('input.money').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
 }
+let _repExpBusy=false;
 async function saveRepExpense(repId){
-  const amount=+el('re-amount').value; if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(_repExpBusy) return;
+  clearFldErrs(['re-cat','re-amount','re-date','re-desc']);
+  const sum=el('re-form-err'); if(sum) sum.textContent='';
+  const amount=moneyVal('re-amount');
+  const desc=(el('re-desc')?.value||'').trim();
+  let ok=true;
+  if(!(el('re-cat')?.value||'')){ setFldErr('re-cat','دسته را انتخاب کنید'); ok=false; }
+  if(!amount){ setFldErr('re-amount','مبلغ را وارد کنید'); ok=false; }
+  if(!(el('re-date')?.value||'').trim()){ setFldErr('re-date','تاریخ را انتخاب کنید'); ok=false; }
+  if(desc.length<3){ setFldErr('re-desc','شرح حداقل ۳ حرف باشد'); ok=false; }
+  if(!ok) return;
+  _repExpBusy=true;
+  setSubmitBusy(el('re-submit'),true,'💾 ثبت','در حال ثبت...');
   try{
     const fd=new FormData();
     fd.append('category',el('re-cat').value);
     fd.append('amount',amount);
     fd.append('date',el('re-date').value);
-    fd.append('description',el('re-desc').value);
+    fd.append('description',desc);
+    const cc=+el('re-cost-cc')?.value||0;
+    if(cc) fd.append('cost_center_id',cc);
     const fileInp=el('re-receipt');
     if(fileInp?.files?.[0]) fd.append('receipt',fileInp.files[0]);
     await api('POST','/reps/'+repId+'/expenses',fd,true);
-    closeModal(); showToast('هزینه ثبت شد — در انتظار تأیید'); loadAccTab('reps');
-  }catch(e){}
+    closeModal(); showToast('هزینه ثبت شد — در انتظار تأیید');
+    if(CURRENT_PAGE==='my-rep') refreshMyRepIfOpen();
+    else if(typeof loadAccTab==='function') loadAccTab('reps');
+  }catch(e){
+    if(sum) sum.textContent=(e&&e.message)||'ثبت هزینه انجام نشد';
+  }finally{
+    _repExpBusy=false;
+    setSubmitBusy(el('re-submit'),false,'💾 ثبت');
+  }
 }
 async function repAdvanceModal(repId,repName){
   openModal(`
@@ -20878,7 +21094,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>در جدول اقلام: تعداد، فی، تخفیف٪/مبلغی، انبار ردیف، جمع ردیف و توضیحات</li>
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور رسمی</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا فاکتور رسمی</li>
+        <li><b>مالیات:</b> پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>؛ رسمی پیش‌فرض <b>مشمول</b>. در فاکتور جدید با تغییر نوع، تیک معافیت با پیش‌فرض همان نوع هماهنگ می‌شود؛ در ویرایش مقدار ذخیره‌شده دست نمی‌خورد</li>
+        <li><b>ویرایش معمولی و پیش‌فاکتور</b> همان فاکتور و همان سند حسابداری را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود</li>
+        <li><b>فاکتور رسمی</b> از فرم ویرایش ذخیره نمی‌شود؛ برای اصلاح باید <b>ابطال</b> کنید</li>
+        <li>کارشناس حضوری/تلفنی جزئیات پرداخت، صندوق، بانک، چک، کرایه و مالیات را در فاکتور می‌بیند؛ انبار مبدأ برای او قفل است</li>
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
         <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
         <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
@@ -20897,7 +21117,17 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>با «افزودن به سبد»، به‌اندازه <b>تعداد در پک</b> کالا به سبد/فاکتور اضافه می‌شود (مثل فاکتورساز)</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
+        <li>کارشناس حضوری و تلفنی در فاکتور نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک، معافیت مالیات و کرایه را می‌بیند؛ انبار مبدأ قفل روی انبار تخصیص‌یافته است</li>
+        <li>در تسویه سبد، نوع فاکتور (پیش‌فاکتور / معمولی / رسمی) را انتخاب کنید؛ تیک مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
         <li>در «کاربران → دسترسی‌ها» دکمه «دسترسی کامل فاکتور» همین تیک‌ها را یک‌جا می‌زند</li>
+      </ul>`),
+    helpSec('💼','حساب من و عملیات میدانی',`
+      <p>کارشناس حضوری و تلفنی از منوی <b>حساب من</b> چهار ثبت روزمره را انجام می‌دهد. مشتری باید به همان کارشناس تخصیص داده شده باشد.</p>
+      <ul>
+        <li><b>ثبت دریافت از مشتری:</b> مبلغ به ریال، نوع نقد / واریز / چک، تاریخ، و عکس رسید الزامی است. واریز کد پیگیری می‌خواهد؛ چک بانک و صیادی و سررسید می‌خواهد. تا تأیید حسابدار روی مانده مشتری اثر ندارد</li>
+        <li><b>ثبت هزینه:</b> دسته، مبلغ ریال، تاریخ و شرح (حداقل ۳ حرف). رسید تصویر یا PDF اختیاری است. پس از ثبت در انتظار تأیید می‌ماند</li>
+        <li><b>ثبت بازدید:</b> مشتری و یادداشت هدف الزامی است. GPS، عکس و امضا اختیاری‌اند</li>
+        <li><b>ثبت تماس:</b> مشتری و تاریخ الزامی است؛ مدت و نتیجه تماس برای گزارش عملکرد است</li>
       </ul>`),
     helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`
       <p>بخش پیام‌ها با ظاهر و تجربهٔ شبیه تلگرام بازطراحی شده است.</p>
@@ -21116,7 +21346,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v204</b> است و اسکریپت‌ها با <code>?v=204</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v205</b> است و اسکریپت‌ها با <code>?v=205</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21313,7 +21543,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v204</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v205</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -21369,18 +21599,31 @@ function renderSalesGuide(){
         <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود و فقط ترکیب‌های با موجودی (پک زنده) دیده می‌شوند — رنگ تمام‌شده یا لغوشده مثل مشکی در پک نمی‌ماند. هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
+        <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
+        <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. انبار مبدأ برای کارشناس فروش قفل است</li>
+        <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
         <li>چاپ فاکتور فروش/خرید: رنگ و سایز جدا ردیف نمی‌شوند؛ یک ردیف کالا + خلاصه زیرش</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
       </ol>
-      <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
+      <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب»: کاتالوگ با همان قالب صفحه کاتالوگ، افزودن به سبد، سپس ثبت فاکتور. ترتیب نمایش کالاها از بیشترین موجودی به کمترین است.</p>
       <ul>
         <li>هر بار «افزودن به سبد» = اگر ماتریس رنگ×سایز باشد پنجرهٔ انتخاب رنگ باز می‌شود؛ وگرنه <b>تعداد در پک</b> آن کالا</li>
+        <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
+        <li>نقد/نسیه/چک/کارت را در فاکتورساز کامل کنید</li>
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
+      </ul>`),
+    helpSec('💼','حساب من',`
+      <p>از منوی <b>حساب من</b> دریافت، هزینه، بازدید و تماس را ثبت کنید.</p>
+      <ul>
+        <li><b>دریافت از مشتری:</b> مشتری تخصیص‌یافته، مبلغ ریال، نوع پرداخت و عکس رسید الزامی است. تا تأیید حسابدار روی مانده اثر ندارد</li>
+        <li><b>هزینه:</b> دسته، مبلغ، تاریخ و شرح الزامی است؛ رسید اختیاری</li>
+        <li><b>بازدید:</b> مشتری و یادداشت الزامی است؛ GPS و عکس و امضا اختیاری</li>
+        <li><b>تماس:</b> مشتری و تاریخ الزامی است</li>
       </ul>`),
     helpSec('💬','پیام‌ها',`
       <p>پیام‌ها با ظاهر شبیه تلگرام کار می‌کند: لیست گفتگو، حباب پیام، تیک خوانده‌شدن.</p>

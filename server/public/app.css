@@ -1405,3 +1405,57 @@ body.erp-demo-mode{padding-top:32px}
 .ifr-live-box.ifr-live-bad{border-color:var(--red);background:var(--bad-bg)}
 .ifr-live-alert{color:var(--red);font-weight:700}
 
+/* ===== Field-ops / marketer (v205) ===== */
+.rep-form-error{
+  color:var(--red);
+  font-size:12px;
+  margin-top:6px;
+  line-height:1.6;
+}
+.rep-form-section{
+  margin:14px 0;
+  padding:12px 0;
+  border-bottom:1px solid var(--border);
+}
+.rep-form-section:last-of-type{border-bottom:none}
+.rep-form-section legend{
+  font-weight:700;
+  font-size:13px;
+  color:var(--text);
+  margin-bottom:8px;
+}
+.inv-amend-hint{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.7;
+  margin-top:6px;
+}
+.mk-checkout{padding:4px 0 12px}
+.mk-checkout .mk-inv-types{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px 16px;
+  margin:6px 0 4px;
+}
+.mk-checkout .mk-inv-types label{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  cursor:pointer;
+}
+.mk-running-total{
+  font-weight:800;
+  color:var(--purple);
+  margin:10px 0;
+}
+.mk-wh-banner{
+  font-size:13px;
+  color:var(--muted);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:8px 12px;
+  margin-bottom:12px;
+  background:var(--well);
+}
+.mk-state-error{color:var(--red)}
+
