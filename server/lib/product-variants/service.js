@@ -151,7 +151,8 @@ function generateMatrix(db, opts) {
 
   const findMatrix = db.prepare(`
     SELECT * FROM product_variants
-    WHERE product_id=? AND color_id=? AND size_id=? AND active=1
+    WHERE product_id=? AND color_id=? AND size_id=? AND is_default=0
+    ORDER BY active DESC, id DESC
     LIMIT 1
   `);
   const insertVar = db.prepare(`
@@ -197,8 +198,12 @@ function generateMatrix(db, opts) {
     let n = 0;
     for (const color of colors) {
       for (const size of sizes) {
-        const existing = findMatrix.get(productId, color.id, size.id);
+        let existing = findMatrix.get(productId, color.id, size.id);
         if (existing) {
+          if (!existing.active) {
+            db.prepare("UPDATE product_variants SET active=1, status='active' WHERE id=?").run(existing.id);
+            existing = db.prepare('SELECT * FROM product_variants WHERE id=?').get(existing.id);
+          }
           result.existing.push(existing);
           continue;
         }
@@ -379,7 +384,7 @@ function softDeleteVariant(db, id) {
   return { ok: true, id: Number(id) };
 }
 
-/** Live pack = distinct in-stock colors × sizes (fallback: all active SKUs, then products.pack_size). */
+/** Live pack = distinct in-stock colors × sizes. Zero-stock colors (e.g. مشکی) leave the pack. */
 function packSizeFor(db, productId) {
   const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(productId);
   const fallback = Math.max(1, Number(product && product.pack_size) || 1);
@@ -399,16 +404,101 @@ function packSizeFor(db, productId) {
     };
   }
   const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
-  const pool = live.length ? live : variants;
-  const colors = new Set(pool.map((v) => v.color_id || v.color_name).filter(Boolean));
-  const sizes = new Set(pool.map((v) => v.size_id || v.size_name).filter(Boolean));
-  const auto = Math.max(1, colors.size * sizes.size);
+  const colors = new Set(live.map((v) => v.color_id || v.color_name).filter(Boolean));
+  const sizes = new Set(live.map((v) => v.size_id || v.size_name).filter(Boolean));
+  const auto = live.length ? Math.max(1, colors.size * sizes.size) : fallback;
   return {
     pack_size: fallback,
     pack_size_auto: auto,
     live_colors: colors.size,
     live_sizes: sizes.size,
     has_matrix: 1,
+  };
+}
+
+function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
+  const colors = new Set((colorIds || []).map(Number).filter(Boolean));
+  const sizes = new Set((sizeIds || []).map(Number).filter(Boolean));
+  if (!colors.size || !sizes.size) return { deactivated: 0 };
+  const rows = db.prepare(`
+    SELECT id, color_id, size_id FROM product_variants
+    WHERE product_id=? AND is_default=0 AND active=1
+  `).all(productId);
+  let deactivated = 0;
+  const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive', stock=0 WHERE id=?");
+  for (const row of rows) {
+    if (!colors.has(Number(row.color_id)) || !sizes.has(Number(row.size_id))) {
+      upd.run(row.id);
+      deactivated += 1;
+    }
+  }
+  const colorList = [...colors];
+  const sizeList = [...sizes];
+  db.prepare(`DELETE FROM product_style_colors WHERE product_id=? AND color_id NOT IN (${colorList.map(() => '?').join(',')})`)
+    .run(productId, ...colorList);
+  db.prepare(`DELETE FROM product_style_sizes WHERE product_id=? AND size_id NOT IN (${sizeList.map(() => '?').join(',')})`)
+    .run(productId, ...sizeList);
+  return { deactivated };
+}
+
+/**
+ * Set per-SKU qty (color × size). Header products.stock and warehouse_stock
+ * become the sum so live pack = in-stock colors × in-stock sizes.
+ * Unchecked colors/sizes are deactivated so they leave the live pack.
+ */
+function applyStockMatrix(db, productId, cells, opts = {}) {
+  const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
+  if (!product) throw Object.assign(new Error('محصول یافت نشد'), { status: 404 });
+  const list = Array.isArray(cells) ? cells : [];
+  const colorIds = [...new Set(list.map((c) => Number(c.color_id)).filter(Boolean))];
+  const sizeIds = [...new Set(list.map((c) => Number(c.size_id)).filter(Boolean))];
+  if (colorIds.length && sizeIds.length) {
+    generateMatrix(db, {
+      product_id: productId,
+      color_ids: colorIds,
+      size_ids: sizeIds,
+      auto_barcode: opts.auto_barcode !== false,
+      stock: 0,
+    });
+    deactivateUnselectedVariants(db, productId, colorIds, sizeIds);
+  }
+  const findMatrix = db.prepare(`
+    SELECT * FROM product_variants
+    WHERE product_id=? AND color_id=? AND size_id=? AND active=1
+    LIMIT 1
+  `);
+  let sum = 0;
+  const updated = [];
+  for (const cell of list) {
+    const colorId = Number(cell.color_id);
+    const sizeId = Number(cell.size_id);
+    if (!colorId || !sizeId) continue;
+    const qty = Number(cell.qty);
+    if (!Number.isFinite(qty) || qty < 0) {
+      throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
+    }
+    const row = findMatrix.get(productId, colorId, sizeId);
+    if (!row) continue;
+    db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(qty, row.id);
+    sum += qty;
+    updated.push({ id: row.id, color_id: colorId, size_id: sizeId, stock: qty });
+  }
+  db.prepare('UPDATE products SET stock=?, colors=? WHERE id=?').run(
+    sum, Math.max(1, colorIds.length || Number(product.colors) || 1), productId
+  );
+  const warehouseId = opts.warehouse_id || product.warehouse_id;
+  if (warehouseId) {
+    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)')
+      .run(productId, warehouseId);
+    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+      .run(sum, productId, warehouseId);
+  }
+  return {
+    product_id: productId,
+    stock: sum,
+    updated,
+    pack: packSizeFor(db, productId),
+    variants: listVariants(db, productId, { include_default: false }),
   };
 }
 
@@ -445,9 +535,8 @@ function variantLineSummary(db, productId) {
   let variants = [];
   try { variants = listVariants(db, productId, { include_default: false }); } catch (_) { variants = []; }
   const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
-  const pool = live.length ? live : variants;
-  const colors = [...new Set(pool.map((v) => String(v.color_name || '').trim()).filter(Boolean))];
-  const sizes = [...new Set(pool.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
+  const colors = [...new Set(live.map((v) => String(v.color_name || '').trim()).filter(Boolean))];
+  const sizes = [...new Set(live.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
   const line = [colors.length ? colors.join('، ') : '', sizes.length ? sizes.join(' ') : ''].filter(Boolean).join(' · ');
   return {
     line,
@@ -474,6 +563,8 @@ module.exports = {
   adjustVariantStock,
   softDeleteVariant,
   packSizeFor,
+  applyStockMatrix,
+  deactivateUnselectedVariants,
   styleMetadata,
   variantLineSummary,
 };

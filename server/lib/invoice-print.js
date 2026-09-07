@@ -773,7 +773,7 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css" rel="stylesheet">
+<link href="/invoice-print.css?v=200" rel="stylesheet">
 <style>${themeCss(templateId, dims)}</style>
 </head>
 <body>

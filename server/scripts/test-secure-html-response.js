@@ -65,4 +65,38 @@ ok('response is marked and header policy matches the embedded policy', () => {
   assert.ok(response.body.includes(headers['Content-Security-Policy'].replace(/&/g, '&amp;').replace(/"/g, '&quot;')));
 });
 
+ok('print HTML rewrites root-relative assets to the request origin', () => {
+  const {
+    publicAssetOriginFromReq,
+    absolutizeRootRelativeAssets,
+  } = require('../lib/secure-html-response');
+  assert.strictEqual(
+    publicAssetOriginFromReq({ headers: { host: 'erp.poshaktaranom.com' }, protocol: 'http' }),
+    'https://erp.poshaktaranom.com',
+  );
+  assert.strictEqual(
+    publicAssetOriginFromReq({ headers: { host: 'localhost:3000' }, protocol: 'http' }),
+    'http://localhost:3000',
+  );
+  const headers = {};
+  const response = {
+    req: { headers: { host: 'erp.poshaktaranom.com', 'x-forwarded-proto': 'https' } },
+    statusCode: 0,
+    status(code) { this.statusCode = code; return this; },
+    type() { return this; },
+    setHeader(name, value) { headers[name] = value; },
+    send(value) { this.body = value; return value; },
+  };
+  sendSecureHtml(response, base, { allowPrintScript: true });
+  assert.ok(response.body.includes('href="https://erp.poshaktaranom.com/print.css"'));
+  assert.ok(response.body.includes('src="https://erp.poshaktaranom.com/print-page.js"'));
+  assert.ok(response.body.includes('nonce="'));
+  const rewritten = absolutizeRootRelativeAssets(
+    '<img src="/logo-sm.png" alt="x"><link href="/invoice-print.css" rel="stylesheet">',
+    'https://erp.poshaktaranom.com',
+  );
+  assert.ok(rewritten.includes('https://erp.poshaktaranom.com/logo-sm.png'));
+  assert.ok(rewritten.includes('https://erp.poshaktaranom.com/invoice-print.css'));
+});
+
 console.log(`secure HTML response: ${passed}/${passed} pass`);

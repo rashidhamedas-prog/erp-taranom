@@ -79,6 +79,7 @@ const PATH_TABLE_MAP = [
   ['/api/product-variants/colors', 'product_colors'],
   ['/api/product-variants/sizes', 'product_sizes'],
   ['/api/product-variants/generate-matrix', 'product_variants'],
+  ['/api/product-variants/stock-matrix', 'product_variants'],
   ['/api/product-variants/ensure-default', 'product_variants'],
   ['/api/product-variants/style', 'product_variants'],
   ['/api/product-variants', 'product_variants'],

@@ -10,6 +10,33 @@ function ensureColumn(db, table, name, definition) {
   }
 }
 
+function expandTaxExemptionCheck(db, table) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  if (!row || !row.sql || row.sql.includes("'tax_exempt'")) return;
+  if (!/tax_exemption_type/.test(row.sql)) return;
+  const tmp = `${table}__tax_ex`;
+  const createSql = row.sql
+    .replace(new RegExp(`CREATE TABLE(?: IF NOT EXISTS)?\\s+${table}\\b`, 'i'), `CREATE TABLE ${tmp}`)
+    .replace(
+      /CHECK\s*\(\s*tax_exemption_type\s+IN\s*\(\s*'none'\s*,\s*'veteran'\s*,\s*'petroleum_zones'\s*\)\s*\)/i,
+      "CHECK(tax_exemption_type IN ('none','tax_exempt','veteran','petroleum_zones'))"
+    );
+  if (createSql === row.sql) return;
+  const cols = columns(db, table);
+  db.exec('PRAGMA foreign_keys=OFF');
+  try {
+    db.exec(createSql);
+    db.exec(`INSERT INTO ${tmp} (${cols.join(',')}) SELECT ${cols.join(',')} FROM ${table}`);
+    db.exec(`DROP TABLE ${table}`);
+    db.exec(`ALTER TABLE ${tmp} RENAME TO ${table}`);
+  } catch (e) {
+    try { db.exec(`DROP TABLE IF EXISTS ${tmp}`); } catch (_) {}
+    console.error('expandTaxExemptionCheck', table, e.message);
+  } finally {
+    db.exec('PRAGMA foreign_keys=ON');
+  }
+}
+
 function initPayrollSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS payroll_periods (
@@ -48,7 +75,7 @@ function initPayrollSchema(db) {
       insurance_type TEXT NOT NULL DEFAULT 'sso'
         CHECK(insurance_type IN ('sso','armed_forces','none')),
       tax_exemption_type TEXT NOT NULL DEFAULT 'none'
-        CHECK(tax_exemption_type IN ('none','veteran','petroleum_zones')),
+        CHECK(tax_exemption_type IN ('none','tax_exempt','veteran','petroleum_zones')),
       tax_exemption_percent_bp INTEGER NOT NULL DEFAULT 0,
       overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
       night_shift_factor_bp INTEGER NOT NULL DEFAULT 11500,
@@ -116,6 +143,8 @@ function initPayrollSchema(db) {
     ['insurance_type', 'TEXT'],
   ];
   for (const [name, definition] of personColumns) ensureColumn(db, 'persons', name, definition);
+  ensureColumn(db, 'persons', 'is_tax_exempt', 'INTEGER DEFAULT 0');
+  expandTaxExemptionCheck(db, 'salary_structures');
 
   // P0-HR1: freeze labor/insurance params used at process time (JSON snapshot).
   ensureColumn(db, 'payroll_periods', 'params_json', 'TEXT');
@@ -197,7 +226,7 @@ function initPayrollSchema(db) {
       insurance_type TEXT NOT NULL DEFAULT 'sso'
         CHECK(insurance_type IN ('sso','armed_forces','none')),
       tax_exemption_type TEXT NOT NULL DEFAULT 'none'
-        CHECK(tax_exemption_type IN ('none','veteran','petroleum_zones')),
+        CHECK(tax_exemption_type IN ('none','tax_exempt','veteran','petroleum_zones')),
       tax_exemption_percent_bp INTEGER NOT NULL DEFAULT 0,
       overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
       night_shift_factor_bp INTEGER NOT NULL DEFAULT 11500,
@@ -213,6 +242,7 @@ function initPayrollSchema(db) {
       ON group_salary_structures(employee_group_id, fiscal_year);
   `);
   ensureColumn(db, 'persons', 'employee_group_id', 'INTEGER');
+  expandTaxExemptionCheck(db, 'group_salary_structures');
 
   // W1-HR1: immutable params snapshot captured at period process time
   ensureColumn(db, 'payroll_periods', 'params_snapshot_json', 'TEXT');

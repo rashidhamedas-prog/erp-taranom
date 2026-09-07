@@ -12,8 +12,30 @@ function handle(res, fn) {
     res.json(data);
   } catch (e) {
     const status = e.status || 500;
-    res.status(status).json({ error: e.message || 'خطا', code: e.code || e.message, ...(e.extra || {}) });
+    const code = e.code || e.message;
+    res.status(status).json({
+      error: bomFaError(e),
+      code,
+      ...(e.extra || {}),
+    });
   }
+}
+
+function bomFaError(e) {
+  const code = String(e && (e.code || e.message) || '');
+  const map = {
+    E_BOM_LOCKED: 'فرمول فعال قفل است. برای تغییر از «نسخه جدید» استفاده کنید.',
+    E_SEQ_DUPLICATE: 'این ترتیب (seq) قبلاً ثبت شده — همان ردیف به‌روز می‌شود یا ترتیب دیگری بگذارید.',
+    E_SEQ_REQUIRED: 'ترتیب عملیات (seq) الزامی است.',
+    E_CC_NOT_FOUND: 'مرکز هزینه یافت نشد.',
+    E_CC_NOT_STAGE: 'مرکز هزینه باید از نوع مرحله تولید باشد.',
+    E_NOT_FOUND: 'عملیات یا فرمول یافت نشد.',
+  };
+  if (map[code]) return map[code];
+  if (/updateOperation is not a function/i.test(code)) {
+    return 'ذخیره مسیر عملیات در این نسخه درست نشد؛ صفحه را یک‌بار رفرش کنید.';
+  }
+  return e.message || 'خطا';
 }
 
 router.get('/', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -251,13 +273,24 @@ router.post('/:id/operations', auth, requirePermission('production_bom', 'edit')
     const row = adv.addOperation(getDB(), Number(req.params.id), req.body || {}, req.user.id);
     res.status(201).json(applyCostPolicy(getDB(), req.user, row));
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
+    res.status(e.status || 500).json({ error: bomFaError(e), code: e.code || e.message });
   }
 });
 
 router.put('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
-  handle(res, () => applyCostPolicy(getDB(), req.user,
-    adv.updateOperation(getDB(), Number(req.params.id), Number(req.params.opId), req.body || {})));
+  handle(res, () => {
+    const fn = adv && typeof adv.updateOperation === 'function'
+      ? adv.updateOperation
+      : require('../lib/production/bom-advanced').updateOperation;
+    if (typeof fn !== 'function') {
+      const e = new Error('ذخیره عملیات در این نسخه در دسترس نیست');
+      e.status = 500;
+      e.code = 'E_OP_SAVE';
+      throw e;
+    }
+    return applyCostPolicy(getDB(), req.user,
+      fn(getDB(), Number(req.params.id), Number(req.params.opId), req.body || {}));
+  });
 });
 
 router.delete('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {

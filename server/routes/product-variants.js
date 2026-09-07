@@ -12,6 +12,7 @@ const {
   upsertColor,
   upsertSize,
   generateMatrix,
+  applyStockMatrix,
   listVariants,
   getVariant,
   createVariant,
@@ -169,6 +170,23 @@ router.post('/generate-matrix', auth, adminOrAccounting, (req, res) => {
       );
     } catch (_) {}
     res.status(201).json(result);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/stock-matrix', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    ensureSchema(db);
+    const productId = parseInt(req.body.product_id || req.body.productId, 10);
+    if (!productId) return res.status(400).json({ error: 'product_id الزامی است' });
+    const cells = Array.isArray(req.body.cells) ? req.body.cells : [];
+    const row = db.transaction(() => applyStockMatrix(db, productId, cells, {
+      warehouse_id: req.body.warehouse_id,
+      auto_barcode: req.body.auto_barcode !== false,
+    }))();
+    try { audit(req.user.id, 'update', 'product_variants', productId, `ماتریس موجودی ${row.stock}`, req); } catch (_) {}
+    try { require('../lib/website-stock-sync').notifyStockChanged(db, productId); } catch (_) {}
+    res.json(row);
   } catch (e) { sendErr(res, e); }
 });
 

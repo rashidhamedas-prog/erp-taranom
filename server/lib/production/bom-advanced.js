@@ -413,8 +413,8 @@ function addOperation(db, bomId, body, userId) {
 
   const seq = Number(body.seq);
   if (!seq) throw err('E_SEQ_REQUIRED', 422);
-  const dup = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? AND seq=?').get(bomId, seq);
-  if (dup) throw err('E_SEQ_DUPLICATE', 422);
+  const dup = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? AND seq=?').get(bomId, seq);
+  if (dup) return updateOperation(db, bomId, dup.id, body);
 
   const cc = db.prepare('SELECT * FROM cost_centers WHERE id=?').get(body.cost_center_id);
   if (!cc) throw err('E_CC_NOT_FOUND', 404);
