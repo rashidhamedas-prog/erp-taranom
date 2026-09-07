@@ -49,7 +49,16 @@ html.inv-print .thermal-brand { font-weight: 800; color: #1A5C38; font-size: 1.1
 html.inv-print .thermal-kind { color: #5F7268; margin-top: 3px; }
 html.inv-print .thermal-number { margin-top: 4px; }
 html.inv-print .thermal-customer { line-height: 1.7; }
-html.inv-print .row-desc { font-size: 9px; color: #5F7268; margin-top: 2px; font-weight: 400; }
+html.inv-print .row-desc {
+  font-size: 9px;
+  color: #5F7268;
+  margin-top: 2px;
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
 html.inv-print .warn-line { color: #b45309; font-size: 11px; font-weight: 700; }
 html.inv-print .thanks { margin-top: 6px; color: #8A7020; font-size: .85em; font-weight: 600; }
 html.inv-print .logo-box {

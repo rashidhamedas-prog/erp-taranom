@@ -7,12 +7,9 @@
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
 const { todayJalali } = require('../jalali');
+const { moneyRial, resolveCashPaid } = require('./cash-on-document');
 
 const SPLIT_TYPES = new Set(['cash', 'bank', 'bank_transfer', 'cheque', 'pos_card']);
-
-function moneyRial(v) {
-  return Math.max(0, Math.round(Number(v) || 0));
-}
 
 function normalizePayType(pt) {
   const t = String(pt || '').trim();
@@ -49,6 +46,7 @@ function resolveInvoicePayments(body, invoiceFinal) {
     const splits = normalizeInvoicePaySplits(b, finalAmt);
     return { splits, skipInvoiceCash: splits.length > 0 };
   }
+  resolveCashPaid(b, finalAmt);
   const pt = normalizePayType(b.pay_type);
   const declared = b.pay_amount != null && b.pay_amount !== '' ? moneyRial(b.pay_amount) : null;
   const needsSplit = pt === 'pos_card' || (declared != null && declared > 0 && declared < finalAmt - 0.5);

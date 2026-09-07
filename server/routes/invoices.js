@@ -26,6 +26,7 @@ const {
   resolveInvoicePayments, headerPayTypeFromSplits, applyInvoicePaySplits,
   persistInvoicePayPlan, paymentsFromStoredInvoice,
 } = require('../lib/invoice-payments');
+const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -445,6 +446,15 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   try { invType = normalizeInvoiceType(type || 'proforma'); }
   catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
 
+  try {
+    resolveCashPaid(req.body || {}, final);
+    if (isFirmSale(invType) && storedPayType === 'cash' && !payPlan.splits.length) {
+      assertCashBoxRequired('cash', cash_box_id);
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+  }
+
   if (isFirmSale(invType)) {
     try {
       whId = requireFirmHeaderWarehouse(whId);
@@ -750,6 +760,20 @@ router.post('/:id/convert', auth, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
+  let convertPay;
+  try {
+    convertPay = paymentsFromStoredInvoice(inv, totals.final);
+    resolveCashPaid({
+      pay_type: inv.pay_type, pay_amount: inv.pay_amount_rial,
+      cash_box_id: inv.cash_box_id, bank_id: inv.bank_id,
+    }, totals.final);
+    if (String(inv.pay_type || 'cash') === 'cash' && !convertPay.splits.length) {
+      assertCashBoxRequired('cash', inv.cash_box_id);
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+  }
+
   try {
     db.transaction(() => {
       let stockDeducted = inv.stock_deducted || 0;
@@ -773,7 +797,6 @@ router.post('/:id/convert', auth, (req, res) => {
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
-      const convertPay = paymentsFromStoredInvoice(inv, totals.final);
       postInvoiceCustomerLedger(db, {
         customerId: inv.cust_id, date: inv.date || '', invId: inv.id, num: inv.num,
         invType: targetType, final: totals.final, userId: req.user.id,

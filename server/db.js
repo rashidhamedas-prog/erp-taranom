@@ -1021,6 +1021,7 @@ function initDB() {
   ensureColumn(db, 'settlements', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'supplier_payments', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'pay_amount_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
   // Manual journal voucher expansion: optional single attachment per entry.

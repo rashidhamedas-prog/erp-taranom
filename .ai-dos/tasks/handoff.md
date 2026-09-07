@@ -1,3 +1,9 @@
+## 2026-09-07T16:20:00+03:30 — PRINT-COLLAPSE-CASH-V204 implemented
+
+- Print collapse (display-only) + cash remainder on customer/supplier tafsili. SW v204.
+- Agents: print `8f4c849f` 23/23; accounting `22d24160` 17 then 23/23 after UX source locks; UX specialist aborted — UX already in app.js, verified by parse + cash-v204.
+- Do not commit leftover `_deploy*` `_diag*` `motefareqe/`.
+
 ## 2026-09-03T15:50:00+03:30 — LOGIN-RESILIENCE-V185 deployed
 
 - Iran overlay Paramiko @ `2386fd1`. health/ready/root 200; public health has `starting:false`; SW `erp-taranom-v185`.

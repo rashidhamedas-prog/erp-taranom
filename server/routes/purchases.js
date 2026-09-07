@@ -13,6 +13,8 @@ const { getDB, audit, resolveCashAccount, allocateNumber, isDevice } = require('
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { assertJournalLinesBalanced } = require('../lib/customer-books');
+const { resolveCashPaid, assertCashBoxRequired, isImmediatePayType } = require('../lib/cash-on-document');
+const { reverseJournalEntry } = require('../lib/void-journal');
 
 function getSetting(db, key) {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
@@ -213,15 +215,25 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const chqDur = pType === 'cheque' ? String(cheque_duration || '') : '';
   const chqDue = pType === 'cheque' ? String(cheque_due_date || '') : '';
   const chqInfo = pType === 'cheque' ? String(cheque_info || '') : '';
+  let cashPaid;
+  try {
+    assertCashBoxRequired(pType, cash_box_id);
+    cashPaid = resolveCashPaid({ pay_type: pType, pay_amount: req.body.pay_amount }, final);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+  }
+  const paid = isImmediatePayType(pType) ? cashPaid.paid : 0;
 
-  const { invId, num } = db.transaction(() => {
+  let created;
+  try {
+  created = db.transaction(() => {
     const num = isDevice()
       ? ('موقت-' + Date.now().toString(36).toUpperCase())
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
-      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
+      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,pay_amount_rial)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId, paid);
     const invId = result.lastInsertRowid;
 
     if (perpetualDocsEnabled(db)) {
@@ -254,22 +266,31 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       }
     }
 
-    if (pType === 'credit') {
+    createSupplierLedgerEntry(db, {
+      supplier_id, date: date || '', entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
+      description: `فاکتور خرید ${num}`, debit: 0, credit: final, user_id: req.user.id
+    });
+    if (paid > 0) {
       createSupplierLedgerEntry(db, {
-        supplier_id, date: date || '', entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
-        description: `فاکتور خرید ${num}`, debit: 0, credit: final, user_id: req.user.id
+        supplier_id, date: date || '', entry_type: 'payment', ref_type: 'purchase', ref_id: invId,
+        description: `پرداخت هنگام خرید ${num}`, debit: paid, credit: 0, user_id: req.user.id
       });
     }
 
     assertJournalIdempotent(db, 'purchase', invId);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
+    const payable = payableAcct(db, supplier_id);
     const inventoryDebit = rialToLedger(netBeforeVat);
     const jLines = [{ code: invAcct.code, name: invAcct.name, debit: inventoryDebit, credit: 0 }];
     if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: rialToLedger(vatAmount), credit: 0, description: 'مالیات خرید' });
-    const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
-    const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
-    jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: rialToLedger(final) });
+    jLines.push({ code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(final) });
+    if (paid > 0) {
+      const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
+      const cash = resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
+      jLines.push({ code: payable.code, name: payable.name, debit: rialToLedger(paid), credit: 0, description: 'پرداخت هنگام خرید' });
+      jLines.push({ code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(paid), description: 'پرداخت هنگام خرید' });
+    }
     assertJournalLinesBalanced(jLines, 'فاکتور خرید');
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
@@ -278,6 +299,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     });
     return { invId, num };
   })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const { invId, num } = created;
 
   audit(req.user.id, 'create', 'purchase', invId, `ثبت فاکتور خرید ${num} به مبلغ ${final}`);
   res.json(db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(invId));
@@ -330,28 +355,67 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
         }
       }
     }
-    if (row.pay_type === 'credit') {
+    const purchaseLed = db.prepare(
+      "SELECT credit FROM supplier_ledger WHERE supplier_id=? AND ref_type='purchase' AND ref_id=? AND entry_type='purchase' LIMIT 1"
+    ).get(row.supplier_id, row.id);
+    if (purchaseLed) {
       createSupplierLedgerEntry(db, {
         supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
-        description: `ابطال فاکتور خرید ${row.num}`, debit: row.final, credit: 0, user_id: req.user.id
+        description: `ابطال فاکتور خرید ${row.num}`, debit: purchaseLed.credit || row.final, credit: 0, user_id: req.user.id
       });
     }
-    const payTypeResolved = row.pay_type === 'bank_transfer' ? 'bank' : row.pay_type;
-    const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
-    const invAcct = coaAcct(db, 'coa_inventory');
-    const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0)
-      + (freightChargedToCounterparty(row.freight_type) ? Math.round(row.freight_amount || 0) : 0);
-    const revLines = [
-      { code: cr.code, name: cr.name, debit: rialToLedger(row.final), credit: 0 },
-      { code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) },
-    ];
-    if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: rialToLedger(row.vat_amount), description: 'ابطال VAT خرید' });
-    const reversalId = postToLedger(db, {
-      sourceType: 'purchase_reversal', sourceId: row.id,
-      date: todayJalali(), description: `ابطال فاکتور خرید ${row.num}`, createdBy: req.user.id,
-      lines: revLines,
-    });
+    const payLed = db.prepare(
+      "SELECT debit FROM supplier_ledger WHERE supplier_id=? AND ref_type='purchase' AND ref_id=? AND entry_type='payment' LIMIT 1"
+    ).get(row.supplier_id, row.id);
+    if (payLed && Number(payLed.debit) > 0) {
+      createSupplierLedgerEntry(db, {
+        supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
+        description: `ابطال پرداخت هنگام خرید ${row.num}`, debit: 0, credit: payLed.debit, user_id: req.user.id
+      });
+    }
+    const origJe = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type='purchase' AND ref_id=? AND COALESCE(deleted_at,0)=0
+      ORDER BY id ASC LIMIT 1
+    `).get(row.id);
+    let reversalId = origJe
+      ? reverseJournalEntry(db, origJe.id, {
+          userId: req.user.id, date: todayJalali(),
+          reason: `ابطال فاکتور خرید ${row.num}`,
+          sourceType: 'purchase_reversal',
+        })
+      : null;
+    if (!reversalId) {
+      const hasNewShape = !!purchaseLed;
+      const payTypeResolved = row.pay_type === 'bank_transfer' ? 'bank' : row.pay_type;
+      const payable = payableAcct(db, row.supplier_id);
+      const invAcct = coaAcct(db, 'coa_inventory');
+      const vatRec = coaAcct(db, 'coa_vat_receivable');
+      const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0)
+        + (freightChargedToCounterparty(row.freight_type) ? Math.round(row.freight_amount || 0) : 0);
+      const paidAmt = Math.round(Number(payLed && payLed.debit) || Number(row.pay_amount_rial) || 0);
+      const revLines = [];
+      if (hasNewShape) {
+        revLines.push({ code: payable.code, name: payable.name, debit: rialToLedger(row.final), credit: 0 });
+        revLines.push({ code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) });
+        if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: rialToLedger(row.vat_amount), description: 'ابطال VAT خرید' });
+        if (paidAmt > 0) {
+          const cash = resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
+          revLines.push({ code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(paidAmt), description: 'ابطال پرداخت هنگام خرید' });
+          revLines.push({ code: cash.code, name: cash.name, debit: rialToLedger(paidAmt), credit: 0, description: 'ابطال پرداخت هنگام خرید' });
+        }
+      } else {
+        const cr = row.pay_type === 'credit' ? payable : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
+        revLines.push({ code: cr.code, name: cr.name, debit: rialToLedger(row.final), credit: 0 });
+        revLines.push({ code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) });
+        if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: rialToLedger(row.vat_amount), description: 'ابطال VAT خرید' });
+      }
+      reversalId = postToLedger(db, {
+        sourceType: 'purchase_reversal', sourceId: row.id,
+        date: todayJalali(), description: `ابطال فاکتور خرید ${row.num}`, createdBy: req.user.id,
+        lines: revLines,
+      });
+    }
 
     db.prepare("UPDATE purchase_invoices SET status='reversed',stock_added=0,reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);

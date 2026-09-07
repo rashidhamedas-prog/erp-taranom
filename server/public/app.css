@@ -759,6 +759,10 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 }
 
 .muted{color:var(--muted)}
+.pay-remain{font-size:12px;line-height:1.7;margin-block-start:2px;font-variant-numeric:tabular-nums}
+.pay-remain.muted{color:var(--muted)}
+.pay-remain.orange{color:var(--orange)}
+.pay-remain.red{color:var(--red);font-weight:600}
 .right{text-align:right}.center{text-align:center}.left{text-align:left}
 .mono{font-variant-numeric:tabular-nums}
 .flex{display:flex}.gap{gap:10px}.wrap{flex-wrap:wrap}

@@ -4227,6 +4227,8 @@ async function _openInvBuilder(id){
 
   const hideRepAdv = typeof isRepRole==='function' && isRepRole(ME?.role);
   const defSalesWh = inv?.warehouse_id || ME?.sales_warehouse_id || '';
+  window._invBuilderId = id || 0;
+  const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':'فاکتور جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
@@ -4284,13 +4286,14 @@ async function _openInvBuilder(id){
           <option value="bank_transfer" ${inv&&(inv.pay_type==='bank_transfer'||inv.pay_type==='bank')?'selected':''}>واریز بانکی</option>
           <option value="pos_card" ${inv&&inv.pay_type==='pos_card'?'selected':''}>کارتخوان</option>
         </select></div>
-        <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور. کمتر از کل یعنی بقیه نسیه می‌ماند.')}</label>
-          <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1'})}"></div>
+        <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
+          <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder()})}">
+          <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
         <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز/چک به بانک</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
           <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
         </select></div>
-        <div class="fg" id="inv-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دریافت در صندوق</label><select id="inv-cashbox">
-          <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+        <div class="fg" id="inv-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دریافت در صندوق *</label><select id="inv-cashbox">
+          <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':(!inv && defCashBoxId && Number(b.id)===Number(defCashBoxId)?'selected':'')}>${esc(b.name)}</option>`).join('')}
         </select></div>
         ${payPosFieldHtml('inv')}
         <div class="fg" id="inv-checkcat-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="inv-checkcat"><option value="">—</option></select></div>
@@ -4776,10 +4779,7 @@ function renderCart(){
   const chargedFreight = freightSeller ? 0 : freight;
   const final = subtotal-discAmt+chargedFreight;
   window._invLastFinal = final;
-  const payAmtInp=el('inv-pay-amount');
-  if(payAmtInp && !payAmtInp.dataset.userEdited && !parseInvMoney(payAmtInp.value)){
-    payAmtInp.value = typeof moneyInit==='function'?moneyInit(final):String(final);
-  }
+  if(typeof syncInvCashPayAmount==='function') syncInvCashPayAmount();
   el('cartTot').innerHTML = `
     <div class="inv-builder-summary-box">
       ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
@@ -4797,6 +4797,62 @@ function parseInvMoney(v){
 function invPayAmountRial(){
   if(typeof moneyVal==='function' && el('inv-pay-amount')) return moneyVal('inv-pay-amount');
   return parseInvMoney(el('inv-pay-amount')?.value);
+}
+function firstActiveCashBoxId(){
+  const b=(CACHE.cashBoxes||[]).find(x=>x.active);
+  return b?b.id:null;
+}
+function invPayAmountVisible(){
+  const pt=el('inv-pay-type')?.value;
+  const multi=!!el('inv-multi')?.checked;
+  return !multi && !!pt && pt!=='credit';
+}
+function syncInvCashPayAmount(){
+  const inp=el('inv-pay-amount');
+  const pt=el('inv-pay-type')?.value;
+  if(!inp || !invPayAmountVisible()){
+    if(typeof renderInvCashRemainder==='function') renderInvCashRemainder();
+    return;
+  }
+  const final=Number(window._invLastFinal)||0;
+  if(!inp.dataset.userEdited){
+    const empty=!parseInvMoney(inp.value);
+    if(pt==='cash' || empty){
+      inp.value = typeof moneyInit==='function'?moneyInit(final):String(final);
+      if(typeof ensureMoneyField==='function') ensureMoneyField(inp);
+    }
+  }
+  renderInvCashRemainder();
+}
+function renderInvCashRemainder(){
+  const hint=el('inv-pay-remain');
+  if(!hint) return;
+  const pt=el('inv-pay-type')?.value;
+  if(!invPayAmountVisible() || pt!=='cash'){
+    hint.textContent='';
+    hint.className='pay-remain muted';
+    return;
+  }
+  const paid=invPayAmountRial();
+  const final=Number(window._invLastFinal)||0;
+  if(paid>final){
+    hint.className='pay-remain red';
+    hint.textContent='مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد';
+  }else if(paid===final){
+    hint.className='pay-remain muted';
+    hint.textContent='کل مبلغ به صندوق انتخابی می‌رود';
+  }else{
+    hint.className='pay-remain orange';
+    hint.textContent='الباقی '+fmt(final-paid)+' ریال در حساب مشتری می‌ماند';
+  }
+}
+function defaultInvCashBoxIfNew(){
+  const cb=el('inv-cashbox');
+  if(!cb || cb.tagName!=='SELECT' || cb.value) return;
+  if(window._invBuilderId) return;
+  if(el('inv-pay-type')?.value!=='cash') return;
+  const id=firstActiveCashBoxId();
+  if(id) cb.value=String(id);
 }
 function invDestHtml(row, i){
   const pt=row.pay_type||'cash';
@@ -4888,13 +4944,8 @@ function toggleInvPayFields(){
     }
     renderInvPayRows();
   }
-  if(!multi && pt && pt!=='credit'){
-    const inp=el('inv-pay-amount');
-    if(inp && !parseInvMoney(inp.value) && window._invLastFinal){
-      inp.value = typeof moneyInit==='function'?moneyInit(window._invLastFinal):String(window._invLastFinal);
-    }
-    if(inp && typeof ensureMoneyField==='function') ensureMoneyField(inp);
-  }
+  if(pt==='cash' && !multi) defaultInvCashBoxIfNew();
+  syncInvCashPayAmount();
 }
 function toggleChequeFields(){ toggleInvPayFields(); }
 async function saveInvoice(id){
@@ -4909,6 +4960,13 @@ async function saveInvoice(id){
     if(splits.some(s=>s.pay_type==='pos_card' && !s.terminal_id)){ showToast('برای هر قسط کارتخوان، دستگاه را انتخاب کنید','error'); return; }
   }else if(pay_type==='pos_card' && !(+el('inv-pos')?.value)){
     showToast('کارتخوان را انتخاب کنید','error'); return;
+  }else if(pay_type==='cash' && !(+el('inv-cashbox')?.value)){
+    showToast('صندوق را انتخاب کنید','error'); return;
+  }
+  if(!splits && pay_type==='cash'){
+    const chkAmt=invPayAmountRial();
+    const chkFinal=Number(window._invLastFinal)||0;
+    if(chkAmt>chkFinal){ showToast('مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
   }
   const data = {
     cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
@@ -4949,7 +5007,7 @@ async function saveInvoice(id){
     if(types.length===1) data.pay_type=types[0];
   }else{
     const payAmt=invPayAmountRial();
-    if(payAmt>0) data.pay_amount=payAmt;
+    if(pay_type && pay_type!=='credit') data.pay_amount=payAmt;
     if(pay_type==='pos_card') data.pos_terminal_id=+el('inv-pos')?.value||null;
     if(pay_type==='cash'){ data.bank_id=null; data.pos_terminal_id=null; }
     else if(pay_type==='pos_card'){ data.bank_id=null; data.cash_box_id=null; }
@@ -7713,24 +7771,28 @@ function renderGenCart(){
       <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].description=this.value})}"></td></tr>`;
     }).join('')}</tbody></table>`;
   }
-  const totEl=el('genCartTot'); if(!totEl) return;
+  const totEl=el('genCartTot');
   const linesDiscTotal = showLineDisc ? genCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
   const subtotal=invCartSubtotalAfterLineDisc(genCart);
+  let poFinal=subtotal;
   if(genCartDiscInputId){
     const discAmtEl=el('po-disc-amt');
     let discPct=+el(genCartDiscInputId)?.value||0;
     let discAmt=discAmtEl?Math.max(0,Math.round(Number(discAmtEl.value)||0)):Math.round(subtotal*discPct/100);
     if(discAmtEl && !discAmt && discPct){ discAmt=Math.round(subtotal*discPct/100); discAmtEl.value=discAmt; }
     else if(discAmtEl && discAmt && subtotal>0){ discPct=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el(genCartDiscInputId); if(pe && document.activeElement!==pe) pe.value=discPct; }
-    totEl.innerHTML = `
+    poFinal=subtotal-discAmt+chargedFreight;
+    if(totEl) totEl.innerHTML = `
       ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
       <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
       <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
       ${freight?`<div class="l"><span>کرایه حمل ${freightSeller?'(عهده فروشنده — روی مبلغ تأمین‌کننده نمی‌آید)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+chargedFreight)} ریال</span></div>`;
-  } else {
+      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(poFinal)} ریال</span></div>`;
+  } else if(totEl) {
     totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ریال</span></div>`;
   }
+  window._poLastFinal = poFinal;
+  if(typeof syncPoCashPayAmount==='function') syncPoCashPayAmount();
 }
 function genProductSearchHtml(){
   return `<div data-csp-style="${CSP.style(`position:relative`)}">
@@ -13387,6 +13449,9 @@ async function purchaseInvoiceModal(){
         <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" data-csp-change="${CSP.bind('change',function(event){togglePoBankFields()})}">
           <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
           <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
+        <div class="fg" id="po-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب تأمین‌کننده می‌ماند.')}</label>
+          <input id="po-pay-amount" type="text" inputmode="numeric" class="money" value="" placeholder="مبلغ پرداختی" data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderPoCashRemainder==='function')renderPoCashRemainder()})}">
+          <div id="po-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
         <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
@@ -13400,7 +13465,7 @@ async function purchaseInvoiceModal(){
         <div class="fg" id="po-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از بانک</label><select id="po-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('po')})}">
           <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
-        <div class="fg" id="po-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از صندوق</label><select id="po-cashbox">
+        <div class="fg" id="po-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از صندوق *</label><select id="po-cashbox">
           <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
         <div class="fg" id="po-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="po-checkcat"><option value="">—</option></select></div>
@@ -13445,23 +13510,84 @@ async function purchaseInvoiceModal(){
 }
 // Purchase invoices add a third state (نسیه/credit) where no cash moves at all,
 // so the bank/checkbook fields are hidden entirely rather than just the checkbook.
+function poPayAmountRial(){
+  if(typeof moneyVal==='function' && el('po-pay-amount')) return moneyVal('po-pay-amount');
+  return parseInvMoney(el('po-pay-amount')?.value);
+}
+function poPayAmountVisible(){
+  const pt=el('po-paytype')?.value;
+  return pt==='cash'||pt==='cheque'||pt==='bank_transfer';
+}
+function defaultPoCashBoxIfNeeded(){
+  const cb=el('po-cashbox');
+  if(!cb || cb.value) return;
+  if(el('po-paytype')?.value!=='cash') return;
+  const id=typeof firstActiveCashBoxId==='function'?firstActiveCashBoxId():null;
+  if(id) cb.value=String(id);
+}
+function syncPoCashPayAmount(){
+  const inp=el('po-pay-amount');
+  if(!inp || !poPayAmountVisible()){
+    if(typeof renderPoCashRemainder==='function') renderPoCashRemainder();
+    return;
+  }
+  const final=Number(window._poLastFinal)||0;
+  if(!inp.dataset.userEdited){
+    inp.value = typeof moneyInit==='function'?moneyInit(final):String(final);
+    if(typeof ensureMoneyField==='function') ensureMoneyField(inp);
+  }
+  renderPoCashRemainder();
+}
+function renderPoCashRemainder(){
+  const hint=el('po-pay-remain');
+  if(!hint) return;
+  const pt=el('po-paytype')?.value;
+  if(!poPayAmountVisible()){
+    hint.textContent='';
+    hint.className='pay-remain muted';
+    return;
+  }
+  const paid=poPayAmountRial();
+  const final=Number(window._poLastFinal)||0;
+  if(paid>final){
+    hint.className='pay-remain red';
+    hint.textContent='مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد';
+  }else if(paid===final){
+    hint.className='pay-remain muted';
+    hint.textContent=pt==='cash'?'کل مبلغ به صندوق انتخابی می‌رود':'کل مبلغ پرداخت می‌شود';
+  }else{
+    hint.className='pay-remain orange';
+    hint.textContent='الباقی '+fmt(final-paid)+' ریال در حساب تأمین‌کننده می‌ماند';
+  }
+}
 function togglePoBankFields(){
   const pt=el('po-paytype')?.value;
   const bankWrap=el('po-bank-wrap'); if(bankWrap) bankWrap.style.display=(pt==='credit'||pt==='cash')?'none':'flex';
   const cashboxWrap=el('po-cashbox-wrap'); if(cashboxWrap) cashboxWrap.style.display=pt==='cash'?'flex':'none';
+  const amtWrap=el('po-pay-amt-wrap'); if(amtWrap) amtWrap.style.display=poPayAmountVisible()?'flex':'none';
   const ccWrap=el('po-cc-wrap'); if(ccWrap) ccWrap.style.display=pt==='cheque'?'flex':'none';
   const chq=el('poChequeFields'); if(chq) chq.style.display=pt==='cheque'?'':'none';
   if(pt==='cheque') updateCheckCategoryOptions('po');
+  if(pt==='cash') defaultPoCashBoxIfNeeded();
+  syncPoCashPayAmount();
 }
 async function savePurchaseInvoice(){
   const supplier_id=+el('po-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
   const pay_type=el('po-paytype').value;
+  if(pay_type==='cash' && !(+el('po-cashbox')?.value)){
+    showToast('صندوق را انتخاب کنید','error'); return;
+  }
+  const poPayAmt=poPayAmountRial();
+  if(pay_type==='cash' && poPayAmt>(Number(window._poLastFinal)||0)){
+    showToast('مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return;
+  }
   try{
     await api('POST','/purchases',{
       supplier_id, date:el('po-date').value, note:el('po-note').value,
       disc:+el('po-disc').value||0, pay_type,
+      pay_amount: (pay_type==='cash'||pay_type==='cheque'||pay_type==='bank_transfer') ? poPayAmt : undefined,
       bank_id:+el('po-bank')?.value||null,
       cash_box_id:+el('po-cashbox')?.value||null,
       check_category_id:+el('po-checkcat')?.value||null,
@@ -20544,9 +20670,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
         <li>اگر ثبت فاکتور موجودی کالا را منفی کند، نوار هشدار زنده در سبد دیده می‌شود (نیاز / موجود / مانده پس از فاکتور). ذخیره مسدود نیست — فقط هشدار است. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
-        <li><b>نوع پرداخت:</b> نسیه، نقد، چک، واریز بانکی، و <b>کارتخوان</b>. بعد از انتخاب نوع، فیلد <b>مبلغ این پرداخت</b> می‌آید (پیش‌فرض = مبلغ فاکتور). کمتر از کل یعنی بقیه نسیه می‌ماند. صندوق فقط برای نقد، بانک برای واریز/چک، کارتخوان برای POS است</li>
+        <li><b>نوع پرداخت:</b> نسیه، نقد، چک، واریز بانکی، و <b>کارتخوان</b>. بعد از انتخاب نوع، فیلد <b>مبلغ این پرداخت</b> می‌آید</li>
+        <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند. صندوق برای نقد اجباری است</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب مثلاً بخشی نقد و بخشی کارت؛ هر ردیف مبلغ و مقصد جدا دارد. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود</li>
-        <li><b>چاپ:</b> ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
+        <li><b>چاپ فاکتور فروش/خرید:</b> رنگ و سایز جدا ردیف نمی‌شوند؛ یک ردیف کالا + خلاصه زیرش. ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
       </ul>`),
     helpSec('📞','پیگیری CRM',`
       <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> و <b>داشبورد و گزارش‌های CRM</b>.</p>
@@ -20989,7 +21116,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v203</b> است و اسکریپت‌ها با <code>?v=203</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v204</b> است و اسکریپت‌ها با <code>?v=204</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21186,7 +21313,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v202</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v204</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -21245,6 +21372,8 @@ function renderSalesGuide(){
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
+        <li>چاپ فاکتور فروش/خرید: رنگ و سایز جدا ردیف نمی‌شوند؛ یک ردیف کالا + خلاصه زیرش</li>
+        <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
     helpSec('🛒','فروش بازاریاب',`

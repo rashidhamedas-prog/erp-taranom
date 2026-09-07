@@ -7,6 +7,8 @@
  */
 'use strict';
 
+const { collapsePrintRows } = require('./print-line-collapse');
+
 const FORMAL_IDS = ['formal-official', 'formal-modern', 'formal-premium'];
 const CASUAL_IDS = ['casual-simple'];
 const THERMAL_ID = 'thermal';
@@ -254,10 +256,14 @@ function buildCasualRows(rows) {
 }
 
 function buildThermalRows(rows) {
-  return (rows || []).map((r, i) => {
+  return (rows || []).map((r) => {
+    const desc = String(r.description || '').trim();
+    const nameCell = desc
+      ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
+      : esc(r.name || '');
     const disc = lineDiscOf(r);
     return `<tr>
-      <td class="rtl">${esc(r.name || '')}</td>
+      <td class="rtl">${nameCell}</td>
       <td>${faNum(r.qty)}</td>
       <td class="num disc">${disc ? faNum(disc) : '—'}</td>
       <td class="num">${faNum(lineNet(r))}</td>
@@ -304,7 +310,7 @@ function themeCss(id, dims) {
   .thermal-kind{color:#5F7268;margin-top:3px}
   .thermal-number{margin-top:4px}
   .thermal-customer{line-height:1.7}
-  .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400}
+  .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.45}
   .warn-line{color:#b45309;font-size:11px;font-weight:700}
   .thanks{margin-top:6px;color:#8A7020;font-size:.85em;font-weight:600}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:10px;padding:3px 8px;display:inline-flex;align-items:center}
@@ -466,7 +472,6 @@ function payLabel(inv) {
 
 function renderInvoicePrintHtml(opts) {
   const inv = opts.inv || {};
-  const rows = opts.rows || [];
   const settings = opts.settings || {};
   const customize = parseCustomize(settings.invoice_customize);
   const dims = paperDims(opts.paper || settings.invoice_paper_size || 'A4', settings);
@@ -475,6 +480,7 @@ function renderInvoicePrintHtml(opts) {
     templateOverride: opts.templateOverride || (dims.paper === 'THERMAL' ? THERMAL_ID : undefined),
   });
   const isThermal = templateId === THERMAL_ID;
+  const rows = collapsePrintRows(opts.rows || [], isThermal ? { thermal: true } : undefined);
   const isA5 = dims.paper === 'A5';
   const htmlClass = [
     'inv-print',
@@ -773,7 +779,7 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css?v=200" rel="stylesheet">
+<link href="/invoice-print.css?v=204" rel="stylesheet">
 <style>${themeCss(templateId, dims)}</style>
 </head>
 <body>
@@ -791,4 +797,5 @@ module.exports = {
   FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE,
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
   renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
+  collapsePrintRows,
 };
