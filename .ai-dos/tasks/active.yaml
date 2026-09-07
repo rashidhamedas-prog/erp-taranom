@@ -2,7 +2,8 @@ schema_version: 1
 tasks:
   - id: "PRINT-COLLAPSE-CASH-V204"
     title: "Print collapse color×size + cash invoice remainder on party"
-    status: "in_progress"
+    status: "completed"
+    completed_at: "2026-09-07T16:30:00+03:30"
     claimed_at: "2026-09-07T15:59:00+03:30"
     review_status: "PENDING"
     security_status: "NOT_REQUIRED"

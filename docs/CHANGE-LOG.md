@@ -21,7 +21,7 @@
 - **نقد خرید:** سند همیشه بستانکار تأمین‌کننده به اندازه مبلغ فاکتور است؛ پرداخت نقد `Dr AP / Cr صندوق` است. الباقی روی حساب تأمین‌کننده می‌ماند. خریدهای نقد قدیمی بدون معین، همان سند قدیم ابطال می‌شوند.
 - **فایل‌ها:** `server/lib/{print-line-collapse,cash-on-document,invoice-print,invoice-payments}.js`، `server/routes/{invoices,purchases}.js`، `server/db.js` (ستون `pay_amount_rial` خرید)، `server/public/{app.js,app.css,sw.js,index.html,invoice-print.css}`، `server/scripts/test-{print-collapse,cash-invoice}-v204.js`
 - **تست:** print-collapse ۲۳/۲۳؛ cash-invoice ۲۳/۲۳؛ erp3 ۲۶/۲۶؛ print-layout ۲۳/۲۳؛ sms ۲۲/۲۲؛ نحو `app.js` با `new Function`
-- **Deploy:** ⏳ در حال ارسال
+- **Deploy:** ✅ ایران overlay SFTP @ `5486884` روی `origin/main` — `app.js?v=204` و `erp-taranom-v204`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay).
 - **SW:** erp-taranom-v204
 
 ### ۱۴۰۵/۰۶/۱۶ — هشدار موجودی منفی فاکتور + مانده زنده طاقه (SW v203)
