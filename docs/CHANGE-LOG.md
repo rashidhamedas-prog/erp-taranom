@@ -19,8 +19,8 @@
 - **سیاست:** اگر کالا/SKU بعد از فاکتور قطعی منفی شود، نوار هشدار زنده در سبد می‌آید (نیاز / موجود / مانده پس از فاکتور). ذخیره و تبدیل مسدود نیست. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود.
 - **طاقه:** پنجره «افزودن طاقه» مانده دفتر انبار، رزرو همین فاکتور، و مانده پس از متر واردشده را لحظه‌ای نشان می‌دهد؛ طاقه با مانده صفر هم دیده می‌شود.
 - **فایل‌ها:** `server/lib/{inventory/ledger,sales-document}.js`، `server/routes/invoices.js`، `server/public/{app.js,app.css,sw.js,index.html}`، `server/scripts/test-invoice-stock-warn-v203.js`
-- **تست:** `node server/scripts/test-invoice-stock-warn-v203.js`
-- **Deploy:** ⏳
+- **تست:** `node server/scripts/test-invoice-stock-warn-v203.js` — ۱۳/۱۳ (SQLite این ماشین به‌خاطر ABI SKIP)
+- **Deploy:** ✅ ایران overlay SFTP @ `d556f2f` روی `origin/main` — `app.js?v=203` و `erp-taranom-v203`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay) تا ریست کامل درخت زنده را برنگرداند.
 - **SW:** erp-taranom-v203
 
 ### ۱۴۰۵/۰۶/۱۶ — پک زنده: مشکی لغوشده دیگر باقی نمی‌ماند (SW v202)
