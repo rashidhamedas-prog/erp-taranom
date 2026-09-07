@@ -19,7 +19,8 @@
 - **ریشه:** `applyStockMatrix` فقط خانه‌های ارسالی را به‌روز می‌کرد؛ SKU رنگ لغوشده (مثل مشکی) `active` می‌ماند. پک زنده وقتی موجودی صفر بود به کل ماتریس برمی‌گشت و مشکی دوباره دیده می‌شد.
 - **اصلاح:** رنگ/سایز خارج از تیک غیرفعال و موجودی‌اش صفر می‌شود؛ لینک استایل هم قطع می‌شود. پک زنده فقط از خانه‌های با موجودی ساخته می‌شود. برگشت تیک همان SKU را زنده می‌کند (نه ردیف تکراری).
 - **فایل‌ها:** `server/lib/product-variants/service.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-erp3-v201.js`
-- **تست:** `node server/scripts/test-erp3-v201.js`
+- **تست:** `node server/scripts/test-erp3-v201.js` — ۲۶/۲۶ (SQLite این ماشین به‌خاطر ABI SKIP)
+- **Deploy:** ✅ ایران overlay SFTP @ `ccf6699` روی `origin/main` — `app.js?v=202` و `erp-taranom-v202`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay) تا ریست کامل درخت زنده را برنگرداند.
 - **SW:** erp-taranom-v202
 
 ### ۱۴۰۵/۰۶/۱۶ — ERP3: پرداخت فاکتور + موجودی رنگ×سایز + حقوق + BOM (SW v201)
@@ -31,6 +32,7 @@
 - **h7 تولید:** `adv.updateOperation is not a function` — ذخیره عملیات از API و تابع دامنه `updateOperation`.
 - **فایل‌ها:** `server/lib/{invoice-payments,payroll/{engine,schema},product-variants/service,production/bom-advanced}.js`، `server/routes/{invoices,payroll,product-variants,production-boms}.js`، `server/public/{app.js,sw.js,index.html}`
 - **تست:** `node server/scripts/test-erp3-v201.js`
+- **Deploy:** ✅ همراه v202 روی `origin/main` @ `ccf6699`
 - **SW:** erp-taranom-v201
 
 ### ۱۴۰۵/۰۶/۱۶ — چاپ فاکتور: URL مطلق دارایی‌ها در پاسخ سرور (SW v200)
