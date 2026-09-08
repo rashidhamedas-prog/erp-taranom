@@ -19,8 +19,8 @@
 - **BOM:** در تب مسیر عملیات فرمول تولید فیلد اختیاری «شخص» اضافه شد؛ `bom_operations.person_id` ذخیره می‌شود و هنگام جذب دستمزد به `production_labor_entries` منتقل می‌گردد.
 - **اشخاص:** لیست «اطلاعات اشخاص» دیگر فقط `opening_balance` را نشان نمی‌دهد؛ مانده زنده از دفتر کل تفصیلی / دفتر معین شخص / مشتری / تأمین‌کننده محاسبه می‌شود. دکمه گردش برای نقش‌های غیرمشتری هم دفتر شخص را می‌آورد.
 - **فایل‌ها:** `server/lib/{party-books,production/{schema,bom-advanced,labor,engine-advanced}}.js`، `server/routes/parties.js`، `server/sync/tables.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-bom-person-party-balance-v206.js`
-- **تست:** `node server/scripts/test-bom-person-party-balance-v206.js`؛ sms + sync پس از بک‌اند
-- **Deploy:** ⏳
+- **تست:** `node server/scripts/test-bom-person-party-balance-v206.js` ۱۰/۱۰ (SQLite این ماشین ABI SKIP)؛ sms ۲۲/۲۲
+- **Deploy:** ✅ ایران overlay SFTP @ `8209c12` — `app.js?v=206` و `erp-taranom-v206`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay).
 - **SW:** erp-taranom-v206
 
 
