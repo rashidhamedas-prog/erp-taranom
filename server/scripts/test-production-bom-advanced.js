@@ -216,6 +216,13 @@ try {
     operation_name: 'برش اصلاح‌شده', labor_rate_rial: 200000, yield_percent: 98,
   });
   ok('updateOperation writes name/rate', updated.operation_name === 'برش اصلاح‌شده' && Number(updated.labor_rate_rial) === 200000);
+  const personRow = db.prepare("SELECT id FROM persons LIMIT 1").get();
+  if (personRow) {
+    const withPerson = adv.updateOperation(db, d4.id, first.id, { person_id: personRow.id });
+    ok('updateOperation stores person_id', Number(withPerson.person_id) === Number(personRow.id));
+  } else {
+    ok('updateOperation stores person_id', true, 'no persons seeded — skipped');
+  }
 } catch (e) {
   ok('T4-23 بازشماری / updateOperation', false, e.message);
 }

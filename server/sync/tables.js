@@ -473,6 +473,8 @@ const FK_COLUMNS = [
   // ARCH-ERP-RAR persons↔parties (append-only)
   ['persons', 'party_id'],
   ['parties', 'position_id'],
+  // BOM op person attribution (append-only)
+  ['bom_operations', 'person_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

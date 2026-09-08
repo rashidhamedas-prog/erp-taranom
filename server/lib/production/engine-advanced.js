@@ -354,6 +354,7 @@ function postStageCore(db, {
       orderId: po.id,
       stageId: stage.id,
       costCenterId: stage.cost_center_id,
+      personId: op?.person_id || null,
       method: laborMethod,
       qty: qtyIn,
       hours: op ? ((num(op.setup_minutes) + num(op.run_minutes_per_unit) * qtyIn) / 60)

@@ -420,13 +420,21 @@ function addOperation(db, bomId, body, userId) {
   if (!cc) throw err('E_CC_NOT_FOUND', 404);
   if (!Number(cc.is_stage)) throw err('E_CC_NOT_STAGE', 422);
 
+  let personId = body.person_id != null && body.person_id !== '' ? Number(body.person_id) : null;
+  if (personId) {
+    const person = db.prepare('SELECT id FROM persons WHERE id=?').get(personId);
+    if (!person) throw err('E_PERSON_NOT_FOUND', 404);
+  } else {
+    personId = null;
+  }
+
   const id = db.prepare(`
     INSERT INTO bom_operations
       (bom_id, seq, cost_center_id, operation_name, setup_minutes, run_minutes_per_unit,
        machine_minutes_per_unit, labor_method, labor_rate_rial, crew_size,
        overhead_driver, yield_percent, normal_waste_percent, is_subcontract,
-       subcontract_supplier_id, subcontract_fee_rial, is_qc_gate, note)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       subcontract_supplier_id, subcontract_fee_rial, is_qc_gate, person_id, note)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     bomId, seq, body.cost_center_id, body.operation_name || body.name || '',
     Number(body.setup_minutes) || 0, Number(body.run_minutes_per_unit) || 0,
@@ -437,7 +445,7 @@ function addOperation(db, bomId, body, userId) {
     Number(body.normal_waste_percent) || 0,
     body.is_subcontract ? 1 : 0, body.subcontract_supplier_id || null,
     Math.round(Number(body.subcontract_fee_rial) || 0),
-    body.is_qc_gate ? 1 : 0, body.note || ''
+    body.is_qc_gate ? 1 : 0, personId, body.note || ''
   ).lastInsertRowid;
 
   db.prepare('UPDATE bom_headers SET has_routing=1 WHERE id=?').run(bomId);
@@ -722,7 +730,16 @@ function updateOperation(db, bomId, opId, body = {}) {
     subcontract_supplier_id: body.subcontract_supplier_id !== undefined ? body.subcontract_supplier_id : op.subcontract_supplier_id,
     subcontract_fee_rial: body.subcontract_fee_rial != null ? Math.round(Number(body.subcontract_fee_rial)) : op.subcontract_fee_rial,
     is_qc_gate: body.is_qc_gate != null ? (body.is_qc_gate ? 1 : 0) : op.is_qc_gate,
+    person_id: body.person_id !== undefined
+      ? (body.person_id != null && body.person_id !== '' ? Number(body.person_id) : null)
+      : op.person_id,
   };
+  if (fields.person_id) {
+    const person = db.prepare('SELECT id FROM persons WHERE id=?').get(fields.person_id);
+    if (!person) throw err('E_PERSON_NOT_FOUND', 404);
+  } else {
+    fields.person_id = null;
+  }
   if (fields.seq !== op.seq) {
     const dup = db.prepare('SELECT id FROM bom_operations WHERE bom_id=? AND seq=? AND id<>?').get(bomId, fields.seq, opId);
     if (dup) throw err('E_SEQ_DUPLICATE', 422);
@@ -732,13 +749,13 @@ function updateOperation(db, bomId, opId, body = {}) {
       seq=?, cost_center_id=?, operation_name=?, setup_minutes=?, run_minutes_per_unit=?,
       machine_minutes_per_unit=?, labor_method=?, labor_rate_rial=?, crew_size=?,
       overhead_driver=?, yield_percent=?, normal_waste_percent=?, is_subcontract=?,
-      subcontract_supplier_id=?, subcontract_fee_rial=?, is_qc_gate=?
+      subcontract_supplier_id=?, subcontract_fee_rial=?, is_qc_gate=?, person_id=?
     WHERE id=?
   `).run(
     fields.seq, fields.cost_center_id, fields.operation_name, fields.setup_minutes, fields.run_minutes_per_unit,
     fields.machine_minutes_per_unit, fields.labor_method, fields.labor_rate_rial, fields.crew_size,
     fields.overhead_driver, fields.yield_percent, fields.normal_waste_percent, fields.is_subcontract,
-    fields.subcontract_supplier_id, fields.subcontract_fee_rial, fields.is_qc_gate, opId
+    fields.subcontract_supplier_id, fields.subcontract_fee_rial, fields.is_qc_gate, fields.person_id, opId
   );
   return db.prepare('SELECT * FROM bom_operations WHERE id=?').get(opId);
 }

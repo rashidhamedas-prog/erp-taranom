@@ -146,6 +146,9 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'persons', 'cost_center_id', 'INTEGER');
     ensureColumn(db, 'persons', 'labor_method', "TEXT DEFAULT 'piece'");
   }
+  if (tableExists(db, 'bom_operations')) {
+    ensureColumn(db, 'bom_operations', 'person_id', 'INTEGER');
+  }
   if (tableExists(db, 'payroll_records')) {
     ensureColumn(db, 'payroll_records', 'production_linked', 'INTEGER DEFAULT 0');
     ensureColumn(db, 'payroll_records', 'cost_center_id', 'INTEGER');
@@ -273,6 +276,7 @@ function createTables(db) {
       subcontract_supplier_id INTEGER,
       subcontract_fee_rial INTEGER DEFAULT 0,
       is_qc_gate           INTEGER DEFAULT 0,
+      person_id            INTEGER,
       note                 TEXT DEFAULT '',
       created_at           INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(bom_id) REFERENCES bom_headers(id) ON DELETE CASCADE,

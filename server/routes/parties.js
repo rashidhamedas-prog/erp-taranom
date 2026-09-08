@@ -4,6 +4,7 @@ const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { tomanToRial } = require('../lib/money');
 const { syncPartyToLegacy, deactivatePartyCascade } = require('../lib/parties-sync');
 const { allocTafsili } = require('../lib/coa-map');
+const { applyPartyBalances } = require('../lib/party-books');
 
 const PARTY_TYPES = ['customer', 'supplier', 'both', 'other'];
 const ROLE_KEYS = ['customer', 'supplier', 'employee', 'partner', 'marketer', 'other'];
@@ -188,7 +189,7 @@ router.get('/', auth, (req, res) => {
   const lim = Math.min(500, parseInt(limit, 10) || 200);
   sql += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
   params.push(lim, (Math.max(1, parseInt(page, 10)) - 1) * lim);
-  const rows = db.prepare(sql).all(...params).map(mapPartyRow);
+  const rows = applyPartyBalances(db, db.prepare(sql).all(...params).map(mapPartyRow));
   res.json({ success: true, data: rows, pagination: { page: parseInt(page, 10) || 1, limit: parseInt(limit, 10) || 50, total } });
 });
 

@@ -7884,7 +7884,7 @@ async function renderPartiesTab(body){
   CACHE.parties=rows;
   const natureLabel={debit:'بدهکار',credit:'بستانکار','':'بی‌حساب'};
   const roleLabel={customer:'مشتری',supplier:'تأمین‌کننده',employee:'کارمند',partner:'شریک',marketer:'بازاریاب',other:'سایر'};
-  const balRows=rows.map(p=>({...p, balance:Number(p.opening_balance_toman||p.opening_balance||0)}));
+  const balRows=rows.map(p=>({...p, balance:Number(p.balance!=null?p.balance:(p.opening_balance_toman||p.opening_balance||0))}));
   const balT=balTotals(balRows);
   body.innerHTML=`
     <div data-csp-style="${CSP.style(`display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap`)}">
@@ -7955,9 +7955,14 @@ async function showPartyTurnover(id,name){
     const pr=await api('GET','/parties/'+id);
     const p=pr.data||pr;
     let entries=[], title=name;
-    const [customers,suppliers]=await Promise.all([api('GET','/customers')||[], api('GET','/suppliers')||[]]);
+    const [customers,suppliers,persons]=await Promise.all([
+      api('GET','/customers')||[],
+      api('GET','/suppliers')||[],
+      listRows(await api('GET','/persons'))||[]
+    ]);
     const cust=customers.find(c=>c.party_id===p.id)||(p.legacy_table==='customers'&&p.legacy_id?customers.find(c=>c.id===p.legacy_id):null);
     const sup=suppliers.find(s=>s.party_id===p.id)||(p.legacy_table==='suppliers'&&p.legacy_id?suppliers.find(s=>s.id===p.legacy_id):null);
+    const person=(persons||[]).find(x=>Number(x.party_id)===Number(p.id));
     if(cust&&((p.party_roles||[]).includes('customer')||p.party_type==='customer'||p.party_type==='both')){
       const d=await api('GET','/accounting/statement/'+cust.id)||{};
       entries=(d.entries||[]).map(e=>({date:e.date,description:e.type_label||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.running_balance||0}));
@@ -7966,8 +7971,21 @@ async function showPartyTurnover(id,name){
       const d=await api('GET','/purchases/ledger/'+sup.id)||{entries:[]};
       entries=(d.entries||[]).map(e=>({date:e.date,description:e.description||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.balance||0}));
       title='گردش تأمین‌کننده: '+name;
+    } else if(person){
+      try{
+        const d=await api('GET','/ledgers/financial?entity_type=person&entity_id='+encodeURIComponent(person.id))||{};
+        entries=(d.lines||[]).map(e=>({date:e.date,description:e.description||'-',debit:e.debit_rial||e.debit||0,credit:e.credit_rial||e.credit||0,balance:e.running_balance||0}));
+        title='گردش شخص: '+name;
+      }catch(_){}
+      if(!entries.length){
+        try{
+          const d=await api('GET','/persons/'+person.id+'/ledger')||{};
+          entries=(d.entries||d||[]).map(e=>({date:e.date,description:e.description||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.balance||e.running_balance||0}));
+          title='گردش شخص: '+name;
+        }catch(_){}
+      }
     }
-    if(!entries.length){ showToast('دفتر گردش برای این شخص یافت نشد — پس از ذخیره با سمت مشتری/تأمین‌کننده دوباره امتحان کنید','error'); return; }
+    if(!entries.length){ showToast('دفتر گردش برای این شخص یافت نشد — سند حسابداری یا سمت مشتری/تأمین‌کننده لازم است','error'); return; }
     openModal(`
       <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:0`)}"><div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
@@ -10437,6 +10455,9 @@ async function prodBomEditModal(id, tab){
         window._prodBomStageCCs=stageCCs;
       }catch(e){ stageCCs=[]; }
     }
+    try{
+      if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+    }catch(e){ if(!CACHE.persons) CACHE.persons=[]; }
   }
   if(activeTab==='outputs'){
     try{ outs=(await api('GET','/production/boms/'+id+'/outputs'))?.rows||[]; }catch(e){ outs=[]; }
@@ -10495,6 +10516,11 @@ function prodBomStageCcOpts(selected){
   const rows=window._prodBomStageCCs||[];
   return rows.map(c=>`<option value="${c.id}" ${String(c.id)===String(selected)?'selected':''}>${esc(c.code||'')} — ${esc(c.name||'')}</option>`).join('');
 }
+function prodBomPersonLabel(personId){
+  if(!personId) return '—';
+  const p=(CACHE.persons||[]).find(x=>Number(x.id)===Number(personId));
+  return p?(p.name||p.full_name||('#'+personId)):'#'+personId;
+}
 function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
   if(stageCCs&&stageCCs.length) window._prodBomStageCCs=stageCCs;
   const canMut=!locked;
@@ -10505,14 +10531,15 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">V4-21: با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>.</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>. شخص اختیاری است و هزینهٔ عملیات را به همان فرد نسبت می‌دهد.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
+      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>شخص</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
       ${(ops||[]).map(o=>`<tr>
         <td class="num">${o.seq}</td>
         <td>${esc(o.operation_name||'—')}</td>
         <td class="num">${o.cost_center_id||'—'}</td>
+        <td>${esc(prodBomPersonLabel(o.person_id))}</td>
         <td>${esc({piece:'قطعه‌ای',hourly:'ساعتی',monthly:'ماهانه',contract:'پیمان'}[o.labor_method]||o.labor_method||'قطعه‌ای')}</td>
         <td class="num">${o.labor_method==='monthly'?'از نرخ مرکز':fmt(o.labor_rate_rial||0)}</td>
         <td class="num">${o.yield_percent??100}</td>
@@ -10522,7 +10549,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
           <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomFillOpForm((o))})}">ویرایش</button>
           <button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteOperation((id),(o.id))})}">حذف</button>
         </td>`:''}
-      </tr>`).join('')||`<tr><td colspan="${canMut?9:8}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="${canMut?10:9}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-op-form">
@@ -10530,6 +10557,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <div class="fg"><label>ترتیب (seq)</label><input id="pbe-op-seq" type="number" min="1" step="1" value="${nextSeq}"></div>
       <div class="fg"><label>نام عملیات</label><input id="pbe-op-name" placeholder="مثلاً برش"></div>
       <div class="fg"><label>مرکز هزینه مرحله</label><select id="pbe-op-cc">${prodBomStageCcOpts('')}</select></div>
+      <div class="fg"><label>شخص (اختیاری)</label>${personSelect('pbe-op-person','')}</div>
       <div class="fg"><label>روش دستمزد</label><select id="pbe-op-method"><option value="piece">قطعه‌ای</option><option value="hourly">ساعتی</option><option value="monthly">ماهانه (از نرخ مرکز)</option><option value="contract">پیمان</option></select></div>
       <div class="fg"><label>نرخ دستمزد (ریال)</label><input id="pbe-op-rate" class="money" inputmode="numeric" value="0"></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-op-yield" type="number" min="0.1" max="100" step="any" value="100"></div>
@@ -10540,7 +10568,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOperation((id))})}">💾 ذخیره عملیات</button>
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOpForm()})}">پاک کردن فرم</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد.</p>`:''}`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد. شخص اختیاری است.</p>`:''}`;
 }
 function prodBomFillOpForm(o){
   if(!o) return;
@@ -10553,6 +10581,8 @@ function prodBomFillOpForm(o){
   if(el('pbe-op-run')) el('pbe-op-run').value=o.run_minutes_per_unit??0;
   if(el('pbe-op-method')) el('pbe-op-method').value=o.labor_method||'piece';
   if(el('pbe-op-rate')) el('pbe-op-rate').value=o.labor_rate_rial||0;
+  if(typeof pickGeneric==='function') pickGeneric('pbe-op-person', o.person_id||'');
+  else if(el('pbe-op-person')) el('pbe-op-person').value=o.person_id||'';
 }
 function prodBomResetOpForm(){
   if(el('pbe-op-id')) el('pbe-op-id').value='';
@@ -10562,6 +10592,8 @@ function prodBomResetOpForm(){
   if(el('pbe-op-run')) el('pbe-op-run').value=0;
   if(el('pbe-op-method')) el('pbe-op-method').value='piece';
   if(el('pbe-op-rate')) el('pbe-op-rate').value=0;
+  if(typeof pickGeneric==='function') pickGeneric('pbe-op-person','');
+  else if(el('pbe-op-person')) el('pbe-op-person').value='';
 }
 window.adv = window.adv || {};
 if(typeof window.adv.updateOperation !== 'function'){
@@ -10576,6 +10608,7 @@ async function prodBomSaveOperation(id){
   const cost_center_id=+el('pbe-op-cc')?.value;
   if(!seq){ showToast('ترتیب (seq) الزامی است','error'); return; }
   if(!cost_center_id){ showToast('مرکز هزینه مرحله الزامی است','error'); return; }
+  const personRaw=el('pbe-op-person')?.value;
   const body={
     seq,
     cost_center_id,
@@ -10584,7 +10617,8 @@ async function prodBomSaveOperation(id){
     normal_waste_percent:+el('pbe-op-waste')?.value||0,
     run_minutes_per_unit:+el('pbe-op-run')?.value||0,
     labor_method:el('pbe-op-method')?.value||'piece',
-    labor_rate_rial: typeof moneyVal==='function'?moneyVal('pbe-op-rate'):(+el('pbe-op-rate')?.value||0)
+    labor_rate_rial: typeof moneyVal==='function'?moneyVal('pbe-op-rate'):(+el('pbe-op-rate')?.value||0),
+    person_id: personRaw ? +personRaw : null
   };
   try{
     if(opId) await api('PUT','/production/boms/'+id+'/operations/'+opId,body);
@@ -20948,7 +20982,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
-        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>).</li>
+        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>).</li>
         <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪. دکمه‌های «تسهیم خودکار (ارزش فروش)» و «تسهیم خودکار (فیزیکی)» سهم‌ها را از <code>POST .../outputs/auto-share</code> پر می‌کنند؛ ویرایش و حذف خروجی هم پشتیبانی می‌شود.</li>
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
@@ -20964,7 +20998,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
-        <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه و نرخ را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
+        <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
@@ -21015,6 +21049,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>ماهیت حساب و مانده</h5><ul>
         <li>در لیست مشتریان ستون‌های <b>ماهیت</b> (بدهکار/بستانکار) و <b>مانده زنده</b> از دفتر معین نمایش داده می‌شود.</li>
+        <li>در <b>اطلاعات اشخاص</b> هم ستون‌های بدهکار/بستانکار از ماندهٔ زنده خوانده می‌شود (دفتر کل تفصیلی شخص، دفتر معین شخص، مشتری یا تأمین‌کنندهٔ متصل) — نه فقط ماندهٔ افتتاحیه.</li>
         <li>گروه اشخاص و گروه مشتری (ماهیت) با اطلاعات اشخاص حسابداری همگام است.</li>
       </ul>
       <h5>افزودن مشتری جدید</h5><ul>

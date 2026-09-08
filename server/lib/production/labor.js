@@ -196,6 +196,7 @@ function autoPostLabor(db, { po, qtyStarted, date, period, userId, laborSpecs = 
           const r = postLabor(db, {
             orderId: po.id,
             costCenterId: op.cost_center_id || po.cost_center_id,
+            personId: op.person_id || null,
             method,
             qty: qtyStarted,
             rateRial,
