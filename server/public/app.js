@@ -409,18 +409,21 @@ function allocateFreightShares(rows, freightAmount, method){
   });
   return shares;
 }
-function invPackOneLine(indices){
-  const colors=[], sizes=[];
-  (indices||[]).forEach(i=>{
-    const r=invCart[i]; if(!r) return;
+function packSubtitleFromRows(rows){
+  const colors=[], sizeMap={};
+  (rows||[]).forEach(r=>{
+    if(!r) return;
     const c=String(r.color_name||r.color||'').trim();
     const s=String(r.size_name||'').trim();
-    if(c) colors.push(c);
-    if(s) sizes.push(s);
+    const q=Number(r.qty)||0;
+    if(c && colors.indexOf(c)<0) colors.push(c);
+    if(s) sizeMap[s]=(sizeMap[s]||0)+q;
   });
-  const c=[...new Set(colors)];
-  const s=[...new Set(sizes)];
-  return [c.length?c.join('، '):'', s.length?s.join(' '):''].filter(Boolean).join(' · ');
+  const sizePart=Object.keys(sizeMap).map(s=>s+'×'+fmt(sizeMap[s])).join(' ');
+  return [colors.join('، '), sizePart].filter(Boolean).join(' · ');
+}
+function invPackOneLine(indices){
+  return packSubtitleFromRows((indices||[]).map(i=>invCart[i]));
 }
 function showInvVariantDetail(pid, indices){
   const p=findInvProduct(pid);
@@ -2796,12 +2799,17 @@ const ROUTES = {};
 
 let dashDateFrom='', dashDateTo='', dashPreset='month';
 function applyDashPreset(p){
+  window._dashUserPicked=true;
   dashPreset=p;
   if(p==='custom'){ ROUTES.dash(); return; } // just show the custom date inputs
   [dashDateFrom,dashDateTo]=jPresetRange(p);
   ROUTES.dash();
 }
 ROUTES.dash = async function(){
+  // فروش حضوری/تلفنی: پیش‌فرض «همه» تا فروش کل با حساب من یکی باشد (نه ماه جاری خالی)
+  if(typeof isRepRole==='function' && isRepRole(ME?.role) && !window._dashUserPicked && dashPreset==='month' && !dashDateFrom){
+    dashPreset='all';
+  }
   // First visit: apply the default "current month" preset
   if(dashPreset!=='custom'&&dashPreset!=='all'&&!dashDateFrom) [dashDateFrom,dashDateTo]=jPresetRange(dashPreset);
   const v = el('view');
@@ -2923,12 +2931,16 @@ async function renderDashContent(){
       _followupsFetched=true; _invoicesFetched=true;
     }
     let myComm = { totalComm:0, commRate:{cash:0,cheque:0} };
-    try { myComm = await apiCached('GET','/accounting/my-commission',60000) || myComm; } catch(e){}
-    let finalInvs = (invoices||[]).filter(i=>i.type==='final');
-    let allInvs = invoices||[];
+    try { myComm = await apiCached('GET','/accounting/my-commission'+dq,60000) || myComm; } catch(e){}
+    const invList=Array.isArray(invoices)?invoices:(invoices&&(invoices.data||invoices.rows))||[];
+    const isFirmInv=i=>i && (i.type==='final'||i.type==='normal') && (i.status||'posted')!=='reversed' && !i.deleted_at;
+    let finalInvs = invList.filter(isFirmInv);
+    let allInvs = invList.slice();
     if(dashDateFrom) { finalInvs=finalInvs.filter(i=>i.date>=dashDateFrom); allInvs=allInvs.filter(i=>i.date>=dashDateFrom); }
     if(dashDateTo)   { finalInvs=finalInvs.filter(i=>i.date<=dashDateTo);   allInvs=allInvs.filter(i=>i.date<=dashDateTo); }
-    const sales = finalInvs.reduce((a,i)=>a+(i.final||0),0);
+    const salesFromInvs = finalInvs.reduce((a,i)=>a+(Number(i.final_rial)||Number(i.final)||0),0);
+    const commSales=Number(myComm.salesTotal)||0;
+    const sales = (dashDateFrom||dashDateTo) ? salesFromInvs : (commSales||salesFromInvs);
     const openF = (followups||[]).filter(f=>f.status==='open').length;
     const balRows = (balances||[]);
     const balT = balTotals(balRows);
@@ -2936,7 +2948,7 @@ async function renderDashContent(){
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
         ${statCard('g','💰', fmt(sales),'فروش کل'+(dq?' · بازه':''))}
-        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' · بازه':''))}
+        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور قطعی'+(dq?' · بازه':''))}
         ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' · بازه':''))}
         ${statCard('b','📞', fmt(openF),'پیگیری باز')}
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
@@ -3624,28 +3636,28 @@ function renderCrmDashData(data){
   const cards=[
     ['سرنخ جدید',cmp.new_leads||k.new_customers,'new_leads',false],
     ['فرصت باز',cmp.open_opportunities,'open_opportunities',false],
-    ['ارزش پایپ‌لاین',cmp.pipeline_value_rial, '',false,true],
-    ['ارزش موزون',cmp.pipeline_weighted_rial,'',false,true],
+    ['ارزش پایپ‌لاین',cmp.pipeline_value_rial, 'open_opportunities',false,true],
+    ['ارزش موزون',cmp.pipeline_weighted_rial,'open_opportunities',false,true],
     ['فرصت برنده',cmp.won_opportunities,'won_opportunities',false],
     ['فرصت باخته',cmp.lost_opportunities,'lost_opportunities',true],
-    ['نرخ برد ٪',cmp.win_rate,'',false],
+    ['نرخ برد ٪',cmp.win_rate,'won_opportunities',false],
     ['فروش قطعی',cmp.firm_invoice_count||k.firm_invoice_count,'firm_sales',false],
     ['مبلغ فروش قطعی',cmp.firm_sales_rial||k.firm_sales_rial,'firm_sales',false,true],
-    ['میانگین خرید',cmp.avg_order_rial,'',false,true],
+    ['میانگین خرید',cmp.avg_order_rial,'firm_sales',false,true],
     ['مشتری جدید',cmp.new_customers||k.new_customers,'new_customers',false],
-    ['مشتری تکراری',cmp.repeat_customers,'',false],
+    ['مشتری تکراری',cmp.repeat_customers,'repeat_customers',false],
     ['پیگیری باز',cmp.open_followups||k.open_followups,'open_followups',false],
     ['سررسید امروز',cmp.due_today_followups,'due_today_followups',false],
     ['عقب‌افتاده',cmp.overdue_followups||k.overdue_followups,'overdue_followups',true],
     ['فرصت متوقف',cmp.stale_opportunities,'stale_opportunities',true],
     ['بدون فعالیت',cmp.inactive_customers_90d||k.inactive_customers_90d,'inactive_customers_90d',true],
     ['ریسک ریزش',cmp.churn_risk_customers,'churn_risk_customers',true],
-    ['مطالبات',cmp.receivables_rial||k.receivables_rial,'',true,true],
-    ['مطالبات معوق',cmp.overdue_receivables_rial,'',true,true],
-    ['چک نزدیک سررسید',cmp.cheques_due||k.cheques_due_14d,'',true],
-    ['چک برگشتی',cmp.cheques_bounced||k.cheques_bounced,'',true],
-    ['تحقق هدف ٪',cmp.sales_target_percent,'',false],
-    ['شکایت باز',cmp.open_complaints,'',true],
+    ['مطالبات',cmp.receivables_rial||k.receivables_rial,'receivables',true,true],
+    ['مطالبات معوق',cmp.overdue_receivables_rial,'overdue_receivables',true,true],
+    ['چک نزدیک سررسید',cmp.cheques_due||k.cheques_due_14d,'cheques_due',true],
+    ['چک برگشتی',cmp.cheques_bounced||k.cheques_bounced,'cheques_bounced',true],
+    ['تحقق هدف ٪',cmp.sales_target_percent,'firm_sales',false],
+    ['شکایت باز',cmp.open_complaints,'open_complaints',true],
   ];
   el('crmKpiGrid').innerHTML=cards.map(([label,raw,metric,invert,money])=>{
     const d=crmKpiDelta(raw,invert);
@@ -4435,7 +4447,7 @@ function renderInvPicker(){
     const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
     const needsColor=productNeedsColorPick(p);
     const colorBtn=needsColor
-      ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">🎨 انتخاب رنگ</button>`
+      ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">${(typeof isRepRole==='function'&&isRepRole(ME?.role))?'➕ افزودن پک':'🎨 انتخاب رنگ'}</button>`
       : '';
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
@@ -4515,7 +4527,7 @@ function refreshCatalogSalesBar(){
   if(!bar) return;
   const n=catalogCartQty();
   if(!n){
-    bar.innerHTML='<span class="muted">رنگ مشتری را روی کارت بزنید؛ کالا به سبد فروش می‌رود</span>';
+    bar.innerHTML='<span class="muted">کالا را به سبد بزنید؛ پک کامل خودکار اضافه می‌شود. رنگ و سایز را بعداً در سبد ویرایش کنید</span>';
     return;
   }
   bar.innerHTML=`🛒 سبد فروش: <b>${fmt(n)}</b> عدد
@@ -4623,6 +4635,40 @@ function addCartRow(p, extra){
     stock_on_hand:extra&&extra.stock_on_hand!=null?Number(extra.stock_on_hand):(p.wh_qty!=null?p.wh_qty:(p.stock||0))
   });
 }
+function variantLineFromSku(v, qty){
+  return {
+    qty: qty!=null?Math.max(0.001, Number(qty)||0):1,
+    variant_id: Number(v.id)||null,
+    color_id: v.color_id||null,
+    size_id: v.size_id||null,
+    color: v.color_name||'',
+    color_name: v.color_name||'',
+    size_name: v.size_name||'',
+    sku_stock: Number(v.stock)||0
+  };
+}
+function applyAutoLivePack(p, pack, dest){
+  const live=(pack&&pack.live)||[];
+  if(!live.length){
+    showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
+    return false;
+  }
+  const lines=live.map(function(v){ return variantLineFromSku(v, 1); });
+  const toast='پک کامل ('+fmt(lines.length)+' قطعه) به سبد اضافه شد';
+  if(dest==='marketer'){
+    if(!(window.MarketerUI && typeof MarketerUI.addVariantLines==='function')){
+      showToast('سبد فروش در دسترس نیست','error');
+      return false;
+    }
+    MarketerUI.addVariantLines(p, lines, { toast: toast });
+    return true;
+  }
+  lines.forEach(function(row){ addCartRow(p, row); });
+  try{ renderCart(); }catch(_){}
+  try{ renderInvPicker(); }catch(_){}
+  showToast(toast);
+  return true;
+}
 async function addToCart(pid){
   const p = findInvProduct(pid);
   if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
@@ -4630,6 +4676,10 @@ async function addToCart(pid){
   try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
+    if(typeof isRepRole==='function' && isRepRole(ME?.role)){
+      applyAutoLivePack(p, pack, 'invoice');
+      return;
+    }
     openInvVariantSplitModal(p, pack);
     return;
   }
@@ -4647,9 +4697,10 @@ function bumpInvVarQty(vid, delta){
   inp.value=n;
 }
 function filterInvVariantColorFromChip(ev){
-  const t=ev&&(ev.currentTarget||ev.target);
-  const btn=t&&t.closest?t.closest('.var-chip-btn'):t;
-  filterInvVariantColor(btn?btn.getAttribute('data-color'):'*');
+  const btn=(this&&this.getAttribute)?this:(ev&&ev.target);
+  const elBtn=btn&&btn.closest?btn.closest('.var-chip-btn'):btn;
+  const node=elBtn&&elBtn.getAttribute?elBtn:btn;
+  filterInvVariantColor(node&&node.getAttribute? (node.getAttribute('data-color')||'*') : '*');
 }
 function filterInvVariantColor(name){
   const root=document.getElementById('nestedActiveModal');
@@ -4677,7 +4728,7 @@ function openInvVariantSplitModal(p, pack, opts){
   const splitConfirmBind=CSP.bind('click',function(){
     confirmInvVariantSplit(Number(p.id), confirmOpts);
   });
-  const chipBind=CSP.bind('click',function(event){filterInvVariantColorFromChip(event)});
+  const chipBind=CSP.bind('click',filterInvVariantColorFromChip);
   const colorMeta=[];
   const seenColor=new Set();
   rows.forEach(function(v){
@@ -5464,7 +5515,7 @@ function productCardHtml(p, opts){
         ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?((Number(stockQty)||0)<=0
           ?`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px;opacity:.55`)}" disabled title="موجودی صفر">⛔ بدون موجودی</button>`
-          :`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){CSP.resolve(opts.addToCartFn)((p.id))})}">${productNeedsColorPick(p)?'🎨 انتخاب رنگ':('➕ افزودن به سبد'+(pack>1?` (${pack} عدد)`:''))}</button>`):''}
+          :`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){CSP.resolve(opts.addToCartFn)((p.id))})}">${productNeedsColorPick(p)?'➕ افزودن پک':('➕ افزودن به سبد'+(pack>1?` (${pack} عدد)`:''))}</button>`):''}
         ${opts.canEdit?`<div class="acts">
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodModal((p.id))})}">✏️</button>
           ${p.barcode?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeLabels((p.id))})}" title="چاپ برچسب بارکد">🏷️</button>`:''}
@@ -18053,13 +18104,10 @@ async function saveRepPayment(){
   _repPayBusy=true;
   setSubmitBusy(el('rp-submit'),true,'📤 ارسال برای تأیید','در حال ارسال...');
   try{
-    const token=localStorage.getItem('crm_token');
-    const r=await fetch('/api/reps/payments',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
-    const j=await r.json().catch(()=>({}));
-    if(!r.ok){ if(sum) sum.textContent=j.error||'ارسال دریافت انجام نشد'; return; }
+    await api('POST','/reps/payments',fd,true);
     closeModal(); showToast('برای تأیید حسابدار ارسال شد'); refreshMyRepIfOpen();
-  }catch(_){
-    if(sum) sum.textContent='خطای ارتباط با سرور';
+  }catch(e){
+    if(sum) sum.textContent=(e&&(e.payload&&e.payload.error||e.message))||'ارسال دریافت انجام نشد';
   }finally{
     _repPayBusy=false;
     setSubmitBusy(el('rp-submit'),false,'📤 ارسال برای تأیید');
@@ -18599,7 +18647,12 @@ async function saveRepVisit(repId){
     if(photoInp?.files?.[0]) fd.append('photo',photoInp.files[0]);
     const sigC=el('rv-sig');
     if(sigC){
-      const blob=await new Promise(r=>sigC.toBlob(r,'image/png'));
+      const blob=await new Promise(function(resolve){
+        const t=setTimeout(function(){ resolve(null); }, 2500);
+        try{
+          sigC.toBlob(function(b){ clearTimeout(t); resolve(b); }, 'image/png');
+        }catch(_){ clearTimeout(t); resolve(null); }
+      });
       if(blob&&blob.size>500) fd.append('signature',blob,'signature.png');
     }
     await api('POST','/reps/'+repId+'/visits',fd,true);
@@ -19190,7 +19243,14 @@ ROUTES.ai = async function(){
   try{ myStats = await api('GET','/ai/my-summary'); }catch{}
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
   const kinds=['churn_risk','opportunity','daily_action'];
-  const byKind = k=>insights.filter(i=>i.kind===k);
+  const seenAi=new Set();
+  const byKind = k=>insights.filter(i=>{
+    if(i.kind!==k) return false;
+    const key=k+':'+(i.customer_id!=null?('c'+i.customer_id):('u'+(i.user_id||0)));
+    if(seenAi.has(key)) return false;
+    seenAi.add(key);
+    return true;
+  });
   const card = i=>{
     const m = AI_KIND_META[i.kind]||{icon:'🤖',label:i.kind,bg:'#f9fafb',color:'#374151'};
     const ic=EMO_LU[m.icon]?lucide(EMO_LU[m.icon]):m.icon;
@@ -21070,7 +21130,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. تعریف ماتریس فقط مدیر/حسابدار است. انتخاب رنگ برای مشتری در فاکتورساز، کاتالوگ فروش و «فروش بازاریاب» (میدانی، تلفنی و شعب) همان پنجره است — تعریف ماتریس فقط مدیر/حسابدار. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای کارشناس حضوری و تلفنی، افزودن کالا به سبد <b>پک کامل را خودکار</b> می‌گذارد (بدون باز شدن لیست رنگ). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -21142,7 +21202,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فروش قطعی فقط فاکتور <b>معمولی و رسمی</b> است؛ پیش‌فاکتور و اسناد ابطال‌شده وارد KPI نمی‌شوند</li>
         <li>مبالغ API و کارت‌ها <b>ریال</b> هستند</li>
         <li>فیلتر سراسری روی همه KPI، نمودار و drill-down یکسان اعمال می‌شود؛ بازه روی تاریخ ایجاد فرصت و تاریخ فاکتور است — برای کل پایپ‌لاین بازه را «همه» بگذارید</li>
-        <li>کلیک روی کارت یا ستون نمودار جزئیات صفحه‌بندی‌شده و لینک به مشتری/فاکتور را باز می‌کند</li>
+        <li>کلیک روی کارت یا ستون نمودار جزئیات صفحه‌بندی‌شده و لینک به مشتری/فاکتور را باز می‌کند — همهٔ شاخص‌ها (مطالبات، فروش قطعی، ریزش، شکایت و …) شناخته‌شده‌اند</li>
         <li>کارشناس فروش فقط دادهٔ خود را می‌بیند و نمی‌تواند با user_id دامنه را باز کند</li>
         <li>سگمنت VIP/A/B/C/ریزش از تنظیمات CRM و فاکتور قطعی محاسبه می‌شود</li>
       </ul>`),
@@ -21154,7 +21214,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>در صفحات اصلی (غیر از داشبورد) → برگشت به <b>داشبورد</b></li>
       </ul>`),
     helpSec('📊','داشبورد',`
-      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. روی <b>موبایل</b> رابط به‌صورت <b>مینیمال تک‌ستونه</b> است: KPIها به‌صورت لیست عمودی (بدون برش متن)، جداول به‌صورت کارت، فیلتر بازه تمام‌عرض، تاپ‌بار خلوت (منو + عنوان + اعلان + وضعیت همگام کوتاه)، و فیلدهای فرم با ارتفاع لمسی و فونت ۱۶px.</p>
+      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. <b>فروش کل</b> جمع فاکتورهای قطعی (معمولی و رسمی، غیر ابطال‌شده) است. برای کارشناس حضوری/تلفنی پیش‌فرض بازه «همه» است تا با «حساب من» یکی باشد. روی <b>موبایل</b> رابط به‌صورت <b>مینیمال تک‌ستونه</b> است: KPIها به‌صورت لیست عمودی (بدون برش متن)، جداول به‌صورت کارت، فیلتر بازه تمام‌عرض، تاپ‌بار خلوت (منو + عنوان + اعلان + وضعیت همگام کوتاه)، و فیلدهای فرم با ارتفاع لمسی و فونت ۱۶px.</p>
       <div class="tip">دکمه ☰ بالای صفحه، در نسخه دسکتاپ (ویندوز) نیز فعال است و مانند موبایل منوی کناری را جمع/باز می‌کند — تجربه یکسان در همه دستگاه‌ها.</div>
       <h5>امکانات</h5><ul>
         <li>آمار تعداد مشتریان، فاکتورها و پیگیری‌های باز</li>
@@ -21359,7 +21419,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
       <ul>
         <li>کالاها از <b>بیشترین موجودی به کمترین</b> مرتب می‌شوند</li>
-        <li>اگر کالا ماتریس رنگ×سایز داشته باشد دکمهٔ <b>انتخاب رنگ</b> همان پنجرهٔ فاکتورساز را باز می‌کند: رنگ را فیلتر کنید، با +/− تعداد بزنید، «افزودن به سبد». هر SKU جدا در سبد و فاکتور می‌ماند. تعریف رنگ فقط مدیر است</li>
+        <li>اگر کالا ماتریس رنگ×سایز داشته باشد، کارشناس حضوری/تلفنی با «افزودن پک» کل پک زنده را یکجا به سبد می‌برد — لیست رنگ باز نمی‌شود. در سبد هر کالا <b>یک ردیف</b> است و زیر نام، رنگ‌ها و تعداد سایزبندی دیده می‌شود. «ویرایش رنگ/سایز» همان پنجره را برای اصلاح باز می‌کند. مدیر/حسابدار همچنان هنگام افزودن می‌تواند رنگ را انتخاب کند. ذخیره فاکتور همچنان per-SKU است</li>
         <li>کالای بدون ماتریس مثل قبل به‌اندازه <b>تعداد در پک</b> اضافه می‌شود</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
@@ -21592,7 +21652,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v210</b> است و اسکریپت‌ها با <code>?v=210</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v211</b> است و اسکریپت‌ها با <code>?v=211</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21787,7 +21847,7 @@ function renderSalesGuide(){
         <li>بعد از هر تماس، پیگیری ثبت کنید</li>
         <li>تاریخ پیگیری بعدی را فراموش نکنید — سیستم به شما پیامک می‌فرستد</li>
       </ol>
-      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
+      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من) و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v210</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
@@ -21833,7 +21893,7 @@ function renderSalesGuide(){
       <ul>
         <li>اعداد از دادهٔ واقعی است و واحد همه مبالغ <b>ریال</b> است</li>
         <li>پیش‌فاکتور فروش قطعی نیست؛ فاکتور ابطال‌شده در KPI نمی‌آید</li>
-        <li>فیلتر تاریخ/مرحله را اعمال کنید؛ کلیک روی کارت جزئیات همان شاخص را باز می‌کند</li>
+        <li>فیلتر تاریخ/مرحله را اعمال کنید؛ کلیک روی هر کارت آمار جزئیات همان شاخص را باز می‌کند (فروش قطعی = فاکتور معمولی و رسمی)</li>
         <li>شما فقط مشتریان و فروش خودتان را می‌بینید</li>
       </ul>`),
     helpSec('🧾','صدور فاکتور',`
@@ -21842,7 +21902,7 @@ function renderSalesGuide(){
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
         <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند. انبار سربرگ فقط روی کالای بدون انبار می‌نشیند؛ ردیف انبار دیگر حذف نمی‌شود</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود: روی رنگ بزنید تا فیلتر شود، با +/− تعداد بزنید (پیش‌فرض صفر تا همه رنگ‌ها اتفاقی نروند). ترکیب‌های موجود دیده می‌شوند. همین پنجره در فروش بازاریاب هم هست. هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. برای کارشناس حضوری/تلفنی، کالای رنگ‌دار به‌صورت <b>پک کامل</b> خودکار وارد سبد می‌شود و هر کالا یک ردیف با رنگ‌ها و سایزبندی زیر نام است؛ ویرایش رنگ از سبد. مدیر هنگام افزودن می‌تواند رنگ را انتخاب کند. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
@@ -21857,9 +21917,9 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🛒','فروش بازاریاب',`
-      <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: همان دکمهٔ انتخاب رنگ، سبد مشترک، سپس ثبت فاکتور. ترتیب کالا از بیشترین موجودی است. کارشناس میدانی، تلفنی و شعب رنگ مشتری را انتخاب می‌کنند.</p>
+      <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>
       <ul>
-        <li>کالای رنگی: روی کارت <b>انتخاب رنگ</b> بزنید. اول رنگ، بعد سایز و تعداد (+/−). در سبد «تغییر رنگ» همان پنجره را دوباره باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
+        <li>کالای رنگی: پک زنده (رنگ‌های موجود × سایزهای موجود) خودکار اضافه می‌شود. در سبد «ویرایش رنگ/سایز» همان پنجره را باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
         <li>کالای بدون ماتریس: هر بار افزودن = <b>تعداد در پک</b></li>
         <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
         <li>اگر انبار فروش روی حساب شما ثبت شده باشد، بنر «انبار فروش» در کاتالوگ بازاریاب دیده می‌شود و فاکتورساز همان انبار را قفل می‌کند</li>
@@ -21867,7 +21927,7 @@ function renderSalesGuide(){
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
       </ul>`),
     helpSec('💼','حساب من',`
-      <p>از منوی <b>حساب من</b> دریافت، هزینه، بازدید و تماس را ثبت کنید.</p>
+      <p>از منوی <b>حساب من</b> دریافت، هزینه، بازدید و تماس را ثبت کنید. پس از پر کردن فیلدهای ستاره‌دار، ثبت با پیام موفقیت یا خطای مشخص تمام می‌شود — دکمه روی «در حال ارسال» گیر نمی‌کند.</p>
       <ul>
         <li><b>دریافت از مشتری:</b> مشتری تخصیص‌یافته، مبلغ ریال، نوع پرداخت و عکس رسید الزامی است. تا تأیید حسابدار روی مانده اثر ندارد. از پیگیری یا تاریخچهٔ مشتری هم «ثبت دریافت» باز می‌شود و همان فرم میدانی است (نه سند حسابداری مستقیم)</li>
         <li><b>هزینه:</b> دسته (حمل‌ونقل، سوخت، هتل، پذیرایی، هدایا، تبلیغات، اداری، سایر)، مبلغ، تاریخ و شرح الزامی است؛ رسید اختیاری. اگر فهرست دسته خالی آمد همان دسته‌های ثابت سیستم استفاده می‌شود</li>
@@ -21921,6 +21981,7 @@ function renderSalesGuide(){
         <li><b>⚠️ ریسک ریزش</b>: کدام مشتری‌ها مدت زیادی است خرید یا پیگیری نداشته‌اند (برچسب قرمز در لیست مشتریان)</li>
         <li><b>💡 فرصت فروش</b>: کدام مشتری‌ها طبق الگوی خریدشان الان آماده سفارش مجدد هستند</li>
         <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه — امروز با چه کسانی تماس بگیرید</li>
+        <li>هر مشتری در هر فهرست فقط یک‌بار می‌آید؛ تکرار ریسک ریزش نمایش داده نمی‌شود</li>
       </ul>`),
     helpSec('📷','اسکن بارکد در فاکتور',`
       <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید — محصول به سبد اضافه می‌شود. اسکنر USB (wedge) هم در همین صفحه بدون باز کردن دوربین کار می‌کند؛ کافی است بارکد را اسکن کنید.</p>`),

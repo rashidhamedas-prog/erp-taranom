@@ -174,8 +174,9 @@ router.get('/', auth, (req, res) => {
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const pq = listQueryPlan(req.query);
+  // Visibility filter may reference `pc.*` — COUNT must use the same joins as the list query.
   const total = pq.paginate
-    ? (db.prepare(`SELECT COUNT(*) AS c FROM products p ${whereSql}`).get(...params)?.c || 0)
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id ${whereSql}`).get(...params)?.c || 0)
     : 0;
   const whSelect = warehouseId
     ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`

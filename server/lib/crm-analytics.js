@@ -332,10 +332,31 @@ function buildTimeline(db, {
   return { events: filtered.slice(off, off + lim), total, applied_filters: { customer_id: custId, kinds: kindFilter } };
 }
 
+const DRILL_METRIC_ALIASES = {
+  firm_sales_rial: 'firm_sales',
+  firm_invoice_count: 'firm_sales',
+  avg_order_rial: 'firm_sales',
+  sales_target_percent: 'firm_sales',
+  receivables_rial: 'receivables',
+  overdue_receivables_rial: 'overdue_receivables',
+  pipeline_value_rial: 'open_opportunities',
+  pipeline_weighted_rial: 'open_opportunities',
+  win_rate: 'won_opportunities',
+  cheques_due_14d: 'cheques_due',
+  lead_to_proforma_rate: 'proforma',
+  proforma_to_firm_rate: 'firm_sales',
+  lead_to_firm_rate: 'firm_sales',
+  pipeline: 'open_opportunities',
+};
+
 function buildDrilldown(db, metric, filters, scopeUserId) {
   const analytics = require('./crm-pro-analytics');
   const { getSettingInt } = require('./crm-pro');
-  const m = String(metric || '').trim();
+  let m = String(metric || '').trim();
+  if (DRILL_METRIC_ALIASES[m]) m = DRILL_METRIC_ALIASES[m];
+  if (m === 'pipeline_' || m === 'pipeline' || (m.startsWith('pipeline_') && !analytics.DRILL_METRICS.has(m))) {
+    m = 'open_opportunities';
+  }
   if (!analytics.DRILL_METRICS.has(m)) {
     const err = new Error('metric ناشناخته');
     err.status = 400;
@@ -370,7 +391,8 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
       params
     );
   }
-  if (m === 'firm_sales' || m === 'normal' || m === 'final' || m === 'proforma' || m === 'funnel_firm') {
+  if (m === 'firm_sales' || m === 'normal' || m === 'final' || m === 'proforma' || m === 'funnel_firm'
+      || m === 'expert_sales' || m === 'campaign_sales' || m === 'source_sales') {
     const where = []; const params = [];
     const invF = (m === 'normal' || m === 'final' || m === 'proforma') ? { ...f, invoice_type: m } : f;
     analytics.addInvFilters(where, params, invF);
@@ -463,6 +485,119 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
     );
   }
 
+  if (m === 'receivables' || m === 'overdue_receivables') {
+    const where = ['1=1']; const params = [];
+    analytics.addCustFilters(where, params, { ...f, from: '', to: '' });
+    if (m === 'overdue_receivables') {
+      const overdueDays = getSettingInt(db, 'crm_overdue_receivable_days', 30);
+      const overdueBefore = addDaysToJalali(todayJalali(), -overdueDays);
+      where.push(`EXISTS (SELECT 1 FROM invoices i WHERE i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND COALESCE(i.status,'posted')<>'reversed' AND i.date<=?)`);
+      params.push(overdueBefore);
+    }
+    return finish(
+      `SELECT c.id, c.biz AS cust_biz, c.city,
+         (SELECT COALESCE(SUM(cl.debit-cl.credit),0) FROM customer_ledger cl WHERE cl.customer_id=c.id) AS final_rial
+       FROM customers c WHERE ${where.join(' AND ')}
+       ORDER BY final_rial DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM customers c WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  if (m === 'cheques_due' || m === 'cheques_bounced') {
+    const has = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cheque_records'").get();
+    if (!has) return finish('SELECT 1 AS id WHERE 0', [], 'SELECT 0 AS c', []);
+    const where = ["COALESCE(cr.record_status,'posted')<>'reversed'"]; const params = [];
+    if (m === 'cheques_bounced') {
+      where.push("COALESCE(cr.lifecycle_status,cr.status)='bounced'");
+    } else {
+      const days = getSettingInt(db, 'crm_cheque_due_days', 14);
+      const dueLimit = addDaysToJalali(todayJalali(), days);
+      where.push("COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')");
+      where.push("cr.due_date<>'' AND cr.due_date<=?");
+      params.push(dueLimit);
+    }
+    if (f.user_id) {
+      where.push(`(
+        COALESCE(cr.customer_id,0) IN (SELECT id FROM customers WHERE user_id=?)
+        OR COALESCE(cr.party_id,0) IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)
+      )`);
+      params.push(f.user_id, f.user_id);
+    }
+    return finish(
+      `SELECT cr.id, cr.party_name AS cust_biz, cr.due_date AS date,
+         COALESCE(cr.amount, 0) AS final_rial,
+         COALESCE(cr.lifecycle_status, cr.status) AS status
+       FROM cheque_records cr WHERE ${where.join(' AND ')} ORDER BY cr.id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM cheque_records cr WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  if (m === 'product_sales') {
+    const where = []; const params = [];
+    analytics.addInvFilters(where, params, f);
+    return finish(
+      `SELECT p.id, p.name AS cust_biz, p.name AS title,
+         COALESCE(SUM(CAST(json_extract(j.value,'$.qty') AS REAL) *
+           COALESCE(CAST(json_extract(j.value,'$.price') AS INTEGER),0)),0) AS final_rial
+       FROM invoices i
+       JOIN json_each(i.rows) j
+       JOIN products p ON p.id=CAST(COALESCE(json_extract(j.value,'$.product_id'), json_extract(j.value,'$.id')) AS INTEGER)
+       WHERE ${where.join(' AND ')} AND ${firmSaleTypeSql('i')}
+       GROUP BY p.id ORDER BY final_rial DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM (
+         SELECT p.id FROM invoices i JOIN json_each(i.rows) j
+         JOIN products p ON p.id=CAST(COALESCE(json_extract(j.value,'$.product_id'), json_extract(j.value,'$.id')) AS INTEGER)
+         WHERE ${where.join(' AND ')} AND ${firmSaleTypeSql('i')} GROUP BY p.id)`,
+      params
+    );
+  }
+
+  if (m === 'activities_open' || m === 'activities_done' || m === 'activities_today' || m === 'activities_overdue' || m === 'open_complaints') {
+    const hasAct = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_activities'").get();
+    if (hasAct) {
+      const where = ['1=1']; const params = [];
+      if (f.user_id) { where.push('a.owner_user_id=?'); params.push(f.user_id); }
+      if (m === 'activities_open') where.push("a.status='open'");
+      if (m === 'open_complaints') { where.push("a.status='open'"); where.push("a.type='complaint'"); }
+      if (m === 'activities_done') where.push("a.status IN ('done','closed')");
+      if (m === 'activities_today') { where.push("COALESCE(a.due_date,a.date)=?"); params.push(todayJalali()); }
+      if (m === 'activities_overdue') {
+        where.push("a.status='open' AND COALESCE(a.due_date,'')<>'' AND a.due_date<?");
+        params.push(todayJalali());
+      }
+      return finish(
+        `SELECT a.id, a.subject AS title, COALESCE(a.due_date,a.date,'') AS date, a.status, a.customer_id AS cust_id,
+           c.biz AS cust_biz
+         FROM crm_activities a LEFT JOIN customers c ON c.id=a.customer_id
+         WHERE ${where.join(' AND ')} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+        [...params, pageSize, offset],
+        `SELECT COUNT(*) AS c FROM crm_activities a WHERE ${where.join(' AND ')}`,
+        params
+      );
+    }
+    const where = ["f.status='open'"]; const params = [];
+    analytics.addFuFilters(where, params, { ...f, status: '' });
+    if (m === 'activities_done') {
+      where.length = 0; params.length = 0;
+      analytics.addFuFilters(where, params, { ...f, status: '' });
+      where.push("f.status IN ('done','closed')");
+    }
+    if (m === 'activities_today') { where.push('f.next_date=?'); params.push(todayJalali()); }
+    if (m === 'activities_overdue') { where.push("f.next_date<>'' AND f.next_date < ?"); params.push(todayJalali()); }
+    return finish(
+      `SELECT f.*, c.biz as cust_biz FROM followups f LEFT JOIN customers c ON c.id=f.cust_id
+       WHERE ${where.join(' AND ')} ORDER BY f.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM followups f WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
   const err = new Error('metric ناشناخته');
   err.status = 400;
   throw err;
@@ -478,4 +613,6 @@ module.exports = {
   chequeKpis,
   tableHasColumn,
   sqlInvoiceAmountRial,
+  DRILL_METRIC_ALIASES,
 };
+

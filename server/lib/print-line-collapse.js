@@ -49,6 +49,18 @@ function skuBit(r) {
 }
 
 function compactSummary(members) {
+  const colors = [];
+  const sizeMap = {};
+  for (const r of members || []) {
+    const c = String(r.color_name || r.color || '').trim();
+    const s = String(r.size_name || '').trim();
+    const q = Number(r.qty) || 0;
+    if (c && colors.indexOf(c) < 0) colors.push(c);
+    if (s) sizeMap[s] = (sizeMap[s] || 0) + q;
+  }
+  const sizePart = Object.keys(sizeMap).map((s) => s + '×' + qtyFa(sizeMap[s])).join(' ');
+  const compact = [colors.join('، '), sizePart].filter(Boolean).join(' · ');
+  if (compact) return compact;
   return members.map(skuBit).filter(Boolean).join('، ');
 }
 

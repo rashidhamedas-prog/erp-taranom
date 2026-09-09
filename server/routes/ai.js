@@ -3,6 +3,18 @@ const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnlyStrict, managerOnly } = require('../middleware/auth');
 const ai = require('../services/ai');
 
+function dedupeInsightRows(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const r of rows || []) {
+    const key = String(r.kind || '') + ':' + (r.customer_id != null ? ('c' + r.customer_id) : ('u' + (r.user_id || 0)));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
 // Insights feed — managers see everything; salespeople see their own
 router.get('/insights', auth, (req, res) => {
   const db = getDB();
@@ -16,7 +28,7 @@ router.get('/insights', auth, (req, res) => {
       LEFT JOIN customers c ON a.customer_id=c.id
       LEFT JOIN users u ON a.user_id=u.id
       ${kind ? 'WHERE a.kind=?' : ''}
-      ORDER BY a.created_at DESC, a.score DESC LIMIT 100
+      ORDER BY a.created_at DESC, a.score DESC LIMIT 200
     `).all(...(kind ? [kind] : []));
   } else {
     rows = db.prepare(`
@@ -25,10 +37,10 @@ router.get('/insights', auth, (req, res) => {
       WHERE a.kind<>'weekly_summary'
         AND (a.user_id=? OR a.customer_id IN (SELECT id FROM customers WHERE user_id=?))
         ${kind ? 'AND a.kind=?' : ''}
-      ORDER BY a.created_at DESC, a.score DESC LIMIT 50
+      ORDER BY a.created_at DESC, a.score DESC LIMIT 100
     `).all(...(kind ? [req.user.id, req.user.id, kind] : [req.user.id, req.user.id]));
   }
-  res.json(rows);
+  res.json(dedupeInsightRows(rows));
 });
 
 // Insights + churn score for one customer

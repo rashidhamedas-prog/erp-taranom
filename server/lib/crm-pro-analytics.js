@@ -27,6 +27,7 @@ const DRILL_METRICS = new Set([
   'funnel_firm', 'funnel_repeat',
   'expert_sales', 'campaign_sales', 'source_sales', 'product_sales',
   'activities_open', 'activities_done', 'activities_today', 'activities_overdue',
+  'open_complaints',
 ]);
 
 function parseLimit(raw, fallback = 50, max = 200) {

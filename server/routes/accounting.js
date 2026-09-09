@@ -798,8 +798,13 @@ router.get('/my-commission', auth, (req, res) => {
   if (!u || !isRepRole(u.role)) {
     return res.json({ cashComm: 0, chequeComm: 0, totalComm: 0, paid: 0, payable: 0, commRate: { cash: 0, cheque: 0 } });
   }
-  const comm = computeRepCommission(db, u.id, {});
-  const view = buildRepLedgerView(db, u.id, {});
+  const from = String(req.query.from || '').trim();
+  const to = String(req.query.to || '').trim();
+  const range = {};
+  if (from) range.from = from;
+  if (to) range.to = to;
+  const comm = computeRepCommission(db, u.id, range);
+  const view = buildRepLedgerView(db, u.id, range);
   const paid = view?.paid ?? db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
   const pendingExp = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE rep_id=? AND status='pending'").get(u.id).c;
   res.json({

@@ -1,6 +1,6 @@
 /**
  * Marketer sales: Catalog (filters like کاتالوگ) → Cart (pack_size qty) → checkout → Invoice
- * Version marker: marketer-ui-v210 — keep in sync with SW / script ?v=
+ * Version marker: marketer-ui-v211 — keep in sync with SW / script ?v=
  *
  * Checkout writes window.__pendingMarketerInvMeta = { type, vatExempt } before
  * openInvBuilder(). app.js should read it when seeding a new invoice (#inv-type,
@@ -378,6 +378,10 @@
       ? livePackFromStyle(style)
       : { matrix: [], live: [], pack: packQty(p) };
     if (pack.matrix && pack.matrix.length) {
+      if (typeof applyAutoLivePack === 'function') {
+        applyAutoLivePack(p, pack, 'marketer');
+        return;
+      }
       if (typeof openInvVariantSplitModal !== 'function') {
         showToast('پنجره انتخاب رنگ در دسترس نیست', 'error');
         return;
@@ -467,7 +471,7 @@
     });
     if (!added) return;
     saveCart();
-    showToast('رنگ‌های انتخاب‌شده به سبد اضافه شد');
+    showToast((opts && opts.toast) || 'رنگ‌های انتخاب‌شده به سبد اضافه شد');
     try{ if(typeof notifySalesCartChanged==='function') notifySalesCartChanged(); }catch(_){}
     refreshVisibleMkView();
   }
@@ -510,6 +514,52 @@
     </div>`;
   }
 
+  function cartGroupKey(c) {
+    return [Number(c.product_id) || 0, Number(c.price) || 0, Number(c.disc) || 0, Number(c.disc_amount) || 0].join('|');
+  }
+  function cartGroups() {
+    const groups = [];
+    const seen = new Array(cart.length).fill(false);
+    for (let i = 0; i < cart.length; i++) {
+      if (seen[i]) continue;
+      const r = cart[i];
+      if (!r.variant_id) {
+        groups.push({ kind: 'single', indices: [i] });
+        seen[i] = true;
+        continue;
+      }
+      const key = cartGroupKey(r);
+      const indices = [i];
+      seen[i] = true;
+      for (let j = i + 1; j < cart.length; j++) {
+        if (seen[j] || !cart[j].variant_id) continue;
+        if (cartGroupKey(cart[j]) === key) { indices.push(j); seen[j] = true; }
+      }
+      groups.push({ kind: 'pack', indices });
+    }
+    return groups;
+  }
+  function groupQty(indices) {
+    return indices.reduce(function (a, i) { return a + (Number(cart[i] && cart[i].qty) || 0); }, 0);
+  }
+  function groupSum(indices) {
+    return indices.reduce(function (a, i) { return a + lineSum(cart[i] || {}); }, 0);
+  }
+  function groupSubtitle(indices) {
+    const rows = indices.map(function (i) { return cart[i]; }).filter(Boolean);
+    if (typeof packSubtitleFromRows === 'function') return packSubtitleFromRows(rows);
+    return rows.map(skuLabel).filter(Boolean).join('، ');
+  }
+  function removeGroup(indices) {
+    loadCart();
+    indices.slice().sort(function (a, b) { return b - a; }).forEach(function (i) {
+      if (i >= 0 && i < cart.length) cart.splice(i, 1);
+    });
+    mkCartError = '';
+    saveCart();
+    renderCart();
+  }
+
   function renderCart() {
     loadCart();
     const body = el('mkBody');
@@ -519,22 +569,41 @@
       body.innerHTML = cartEmptyHtml();
       return;
     }
+    const groups = cartGroups();
     const total = cartTotal();
     const err = mkCartError
       ? `<div class="rep-form-error" role="alert" aria-live="polite">${esc(mkCartError)}</div>`
       : '';
     body.innerHTML = `
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کالا</th><th>فی</th><th>تعداد</th><th>تخفیف ردیف</th><th>جمع</th><th></th></tr></thead>
-      <tbody>${cart.map((c, i) => `
-        <tr>
-          <td>${c.image ? prodImgTag(c.image, `data-csp-style="${CSP.style('height:40px;border-radius:6px;margin-left:8px;vertical-align:middle')}"`) : ''} ${esc(c.name)}${skuLabel(c)?`<div class="mk-sku-line">🎨 ${esc(skuLabel(c))}</div>`:''}${c.pack_size > 1 && !c.variant_id ? `<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">📦 پک ${fmt(c.pack_size)}</div>` : ''}</td>
+      <tbody>${groups.map(function (g) {
+        const indices = g.indices;
+        const i = indices[0];
+        const c = cart[i];
+        const isPack = g.kind === 'pack';
+        const qty = isPack ? groupQty(indices) : (Number(c.qty) || 0);
+        const sum = isPack ? groupSum(indices) : lineSum(c);
+        const sub = isPack ? groupSubtitle(indices) : skuLabel(c);
+        const qtyCell = isPack
+          ? `<span class="mono">${fmt(qty)}</span>`
+          : `<input type="number" min="1" step="1" inputmode="numeric" value="${c.qty}" data-csp-style="${CSP.style(`width:70px;min-height:44px`)}" data-csp-change="${CSP.bind('change',function(event){MarketerUI.setQty((i),+this.value)})}">`;
+        const editBtn = (isPack || c.variant_id)
+          ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){MarketerUI.editCartProduct((c.product_id))})}">🎨 ویرایش رنگ/سایز</button>`
+          : '';
+        const packIdx = indices.slice();
+        const rmBtn = isPack
+          ? `<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){MarketerUI.removeGroup(packIdx)})}">🗑️</button>`
+          : `<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){MarketerUI.remove((i))})}">🗑️</button>`;
+        return `<tr>
+          <td>${c.image ? prodImgTag(c.image, `data-csp-style="${CSP.style('height:40px;border-radius:6px;margin-left:8px;vertical-align:middle')}"`) : ''} ${esc(c.name)}${sub?`<div class="mk-sku-line">🎨 ${esc(sub)}</div>`:''}${c.pack_size > 1 && !c.variant_id ? `<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">📦 پک ${fmt(c.pack_size)}</div>` : ''}</td>
           <td class="mono">${fmt(c.price)} ریال</td>
-          <td><input type="number" min="1" step="1" inputmode="numeric" value="${c.qty}" data-csp-style="${CSP.style(`width:70px;min-height:44px`)}" data-csp-change="${CSP.bind('change',function(event){MarketerUI.setQty((i),+this.value)})}"></td>
+          <td>${qtyCell}</td>
           <td class="muted" title="تخفیف ردیف برای فروش فقط نمایشی است">${esc(lineDiscLabel(c))}</td>
-          <td class="mono">${fmt(lineSum(c))} ریال</td>
-          <td data-csp-style="${CSP.style(`white-space:nowrap`)}">${c.variant_id?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){MarketerUI.editCartProduct((c.product_id))})}">🎨 تغییر رنگ</button>`:''}<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){MarketerUI.remove((i))})}">🗑️</button></td>
-        </tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="4">جمع سبد</td><td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(total)} ریال</td><td></td></tr></tfoot>
+          <td class="mono">${fmt(sum)} ریال</td>
+          <td data-csp-style="${CSP.style(`white-space:nowrap`)}">${editBtn}${rmBtn}</td>
+        </tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><td colspan="4">جمع سبد (${fmt(groups.length)} کالا)</td><td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(total)} ریال</td><td></td></tr></tfoot>
       </table></div>
       ${err}
       <div class="mk-running-total" role="status">جمع سبد: <b>${fmt(total)}</b> ریال</div>
@@ -628,11 +697,16 @@
       <div class="panel mk-checkout">
         <div class="panel-body">
           ${warehouseBannerHtml(whName)}
-          <p class="muted">اقلام سبد (${cart.length} ردیف، با تعداد پک) آماده انتقال به فاکتورساز هستند.</p>
+          <p class="muted">اقلام سبد (${cartGroups().length} کالا) آماده انتقال به فاکتورساز هستند.</p>
           <div class="mk-running-total" role="status">جمع سبد: <b>${fmt(total)}</b> ریال</div>
           <ul class="muted" data-csp-style="${CSP.style(`font-size:13px;margin:8px 0 14px;padding-right:18px;line-height:1.8`)}">
-            ${cart.slice(0, 8).map(c => `<li>${esc(c.name)}${skuLabel(c) ? ' — ' + esc(skuLabel(c)) : ''} × ${fmt(c.qty)}</li>`).join('')}
-            ${cart.length > 8 ? `<li>… و ${cart.length - 8} مورد دیگر</li>` : ''}
+            ${cartGroups().slice(0, 8).map(function (g) {
+              const c = cart[g.indices[0]];
+              const sub = g.kind === 'pack' ? groupSubtitle(g.indices) : skuLabel(c);
+              const q = g.kind === 'pack' ? groupQty(g.indices) : (Number(c.qty) || 0);
+              return `<li>${esc(c.name)}${sub ? ' — ' + esc(sub) : ''} × ${fmt(q)}</li>`;
+            }).join('')}
+            ${cartGroups().length > 8 ? `<li>… و ${cartGroups().length - 8} مورد دیگر</li>` : ''}
           </ul>
 
           <div class="rep-form-section">
@@ -689,8 +763,9 @@
     editCartProduct,
     setQty,
     remove,
+    removeGroup,
     clearAfterInvoice,
     openInvoiceWithCart,
-    _ver: 'marketer-ui-v210'
+    _ver: 'marketer-ui-v211'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

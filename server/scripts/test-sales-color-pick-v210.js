@@ -40,11 +40,11 @@ ok(appJs.includes('filterInvVariantColor(firstColor)'), 'default first color fil
 ok(appJs.includes('pick-color-btn'), 'invoice pick color button');
 ok(mk.includes('window.__mkOpenTab'), 'marketer opens tab from catalog');
 ok(mk.includes('notifySalesCartChanged'), 'cart notifies catalog bar');
-ok(mk.includes("_ver: 'marketer-ui-v210'"), 'marketer v210');
+ok(mk.includes("_ver: 'marketer-ui-v211'"), 'marketer v211');
 ok(css.includes('.catalog-sales-bar'), 'css catalog bar');
-ok(sw.includes('erp-taranom-v210'), 'SW v210');
-ok(idx.includes('app.js?v=210'), 'index app v210');
-ok(appJs.includes('erp-taranom-v210'), 'help SW v210');
-ok(appJs.includes('کاتالوگ فروش و'), 'admin help mentions catalog');
+ok(sw.includes('erp-taranom-v211'), 'SW v211');
+ok(idx.includes('app.js?v=211'), 'index app v211');
+ok(appJs.includes('erp-taranom-v211'), 'help SW v211');
+ok(appJs.includes('کاتالوگ'), 'admin help mentions catalog');
 console.log('\n══ ' + pass + ' passed, ' + fail + ' failed ══\n');
 process.exit(fail ? 1 : 0);

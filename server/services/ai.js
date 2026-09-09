@@ -10,6 +10,7 @@
 
 const { getSetting } = require('../lib/secret-settings');
 const { firmSaleTypeSql } = require('../lib/sales-document');
+const { todayJalali } = require('../jalali');
 
 const DAY = 24 * 3600;
 
@@ -176,9 +177,9 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
   });
   tx();
 
-  // 2) refresh heuristic insights: wipe today's generated rows, insert fresh
-  const today = new Date().toISOString().slice(0, 10);
-  db.prepare("DELETE FROM ai_insights WHERE period=? AND kind IN ('churn_risk','opportunity','daily_action')").run(today);
+  // 2) refresh heuristic insights: wipe previous generated rows, insert a single current snapshot
+  const today = todayJalali();
+  db.prepare("DELETE FROM ai_insights WHERE kind IN ('churn_risk','opportunity','daily_action')").run();
   const ins = db.prepare('INSERT INTO ai_insights (customer_id,user_id,kind,score,title,body,period) VALUES (?,?,?,?,?,?,?)');
 
   const atRisk = scored.filter(c => c.churn_score >= 60).sort((a, b) => b.churn_score - a.churn_score).slice(0, 30);

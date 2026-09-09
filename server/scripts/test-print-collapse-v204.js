@@ -44,9 +44,8 @@ ok(c1.length === 1, '3 SKUs collapse to 1 row', c1.length);
 ok(c1[0] && c1[0].qty === 5, 'collapsed qty is sum', c1[0] && c1[0].qty);
 ok(c1[0] && String(c1[0].name).indexOf('مشکی') === -1, 'product name has no color in title', c1[0] && c1[0].name);
 const d1 = String(c1[0] && c1[0].description || '');
-ok(d1.indexOf('مشکی L×۲') !== -1, 'summary has مشکی L×۲', d1);
-ok(d1.indexOf('مشکی XL×۱') !== -1, 'summary has مشکی XL×۱', d1);
-ok(d1.indexOf('سفید M×۲') !== -1, 'summary has سفید M×۲', d1);
+ok(d1.indexOf('مشکی') !== -1 && d1.indexOf('سفید') !== -1, 'summary has color names', d1);
+ok(/L×[۲2]/.test(d1) && /XL×[۱1]/.test(d1) && /M×[۲2]/.test(d1), 'summary has size×qty', d1);
 ok(c1[0] && c1[0].code === 'P-10' && c1[0].sku === 'P-10', 'code/sku is product code not SKU barcode');
 
 // 2) دو قیمت متفاوت → دو ردیف
@@ -67,7 +66,7 @@ const c3 = collapsePrintRows(noCollapse);
 ok(c3.length === noCollapse.length, 'fabric/income/no-variant stay 1:1', c3.length);
 
 const oneSku = collapsePrintRows([sku()]);
-ok(oneSku.length === 1 && String(oneSku[0].description).indexOf('مشکی L×۲') !== -1,
+ok(oneSku.length === 1 && /مشکی/.test(String(oneSku[0].description)) && /L×[۲2]/.test(String(oneSku[0].description)),
   'single SKU still gets compact summary', oneSku[0] && oneSku[0].description);
 
 // 4) HTML چاپ — یک tr داده در tbody اقلام
@@ -86,7 +85,7 @@ const tbody = (html.match(/<table class="items">[\s\S]*?<tbody>([\s\S]*?)<\/tbod
 const dataRows = tbody.match(/<tr[\s>]/g) || [];
 ok(dataRows.length === 1, 'print HTML has one item data row', dataRows.length + ' in: ' + tbody.slice(0, 180));
 ok(html.indexOf('مانتو شومیزی') !== -1, 'print HTML has product name');
-ok(html.indexOf('مشکی L×۲') !== -1 && html.indexOf('سفید M×۲') !== -1, 'print HTML has compact summary');
+ok(/مشکی/.test(html) && /سفید/.test(html) && /L×[۲2]/.test(html), 'print HTML has compact summary');
 
 // 5) XSS
 const xssRows = [
@@ -122,7 +121,7 @@ const buyBody = (buyHtml.match(/<table class="items">[\s\S]*?<tbody>([\s\S]*?)<\
 const buyRows = buyBody.match(/<tr[\s>]/g) || [];
 ok(buyRows.length === 1, 'purchase print also collapses to 1 row', buyRows.length);
 ok(buyHtml.indexOf('فاکتور خرید') !== -1, 'purchase label present');
-ok(buyHtml.indexOf('مشکی L×۲') !== -1, 'purchase HTML has compact summary');
+ok(/مشکی/.test(buyHtml) && /L×[۲2]/.test(buyHtml), 'purchase HTML has compact summary');
 
 // حرارتی: همان جمع + برش توضیح
 const longSku = [];
