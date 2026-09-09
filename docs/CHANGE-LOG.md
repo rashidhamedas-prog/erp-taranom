@@ -14,6 +14,27 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۸ — آموزش کامل بخش تولید (فایل Word)
+
+- **کار:** راهنمای کارگاهی از صفر تا صد تولید (همهٔ منوها، فیلدها، اثر هر ثبت، دو مسیر برش/PACK و سفارش، سناریوها و چک‌لیست) به‌صورت سند Word راست‌چین.
+- **فایل‌ها:** `docs/Production/آموزش-کامل-بخش-تولید.docx`، `docs/Production/production-complete-guide-fa.docx`، `scripts/build-production-user-guide-docx.py`
+- **Deploy:** ⏳ مستندات — بدون تغییر SW
+- **SW:** بدون تغییر
+
+### ۱۴۰۵/۰۶/۱۸ — فاکتور/سبد پک خودکار + رفع CRM و حساب من (SW v211)
+
+- **رنگ بی‌اثر:** کلیک روی چیپ رنگ در picker به‌خاطر CSP (`event.currentTarget===document`) هیچ اثری نداشت؛ handler از `this` عنصر استفاده می‌کند.
+- **سبد فروش:** برای حضوری/تلفنی افزودن کالا = پک زنده خودکار (بدون مودال). هر کالا یک ردیف؛ زیر نام رنگ‌ها و سایز×تعداد. ویرایش از سبد. چاپ/پیش‌نمایش همان خلاصه.
+- **فاکتورساز عارف ۵۰۰:** `GET /products?pageSize=` در COUNT به `pc` بدون JOIN می‌رسید — JOIN دسته اضافه شد.
+- **حساب من گیر روی ارسال:** دریافت از `api()` با timeout؛ بازدید `toBlob` با مهلت ۲٫۵ث؛ دکمه در `finally` آزاد می‌شود.
+- **دستیار:** پاک‌کردن همهٔ kindهای تولیدشده + dedupe در GET و UI.
+- **CRM drill «metric ناشناخته»:** alias برای KPIها + drill مطالبات/چک/کالا/شکایت.
+- **داشبورد فروش کل ۰:** فروش قطعی = معمولی+رسمی؛ پیش‌فرض بازه کارشناس «همه» (هم‌خوان با حساب من).
+- **فایل‌ها:** `server/public/{app.js,marketer-ui.js,index.html,sw.js}`، `server/routes/{products,ai,accounting}.js`، `server/lib/{crm-analytics,crm-pro-analytics,print-line-collapse}.js`، `server/services/ai.js`، `server/scripts/test-field-ux-v211.js`
+- **تست:** field-ux v211؛ print-collapse v204؛ crm-pro-analytics؛ sms
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v211
+
 ### ۱۴۰۵/۰۶/۱۸ — کاتالوگ فروش: انتخاب رنگ مشتری (SW v210)
 
 - **شکاف:** دکمهٔ «انتخاب رنگ» فقط در فروش بازاریاب بود؛ صفحهٔ کاتالوگ میدانی/تلفنی دکمه نداشت و `is_style` دکمهٔ دروغ می‌ساخت.
