@@ -32,7 +32,7 @@
 - **داشبورد فروش کل ۰:** فروش قطعی = معمولی+رسمی؛ پیش‌فرض بازه کارشناس «همه» (هم‌خوان با حساب من).
 - **فایل‌ها:** `server/public/{app.js,marketer-ui.js,index.html,sw.js}`، `server/routes/{products,ai,accounting}.js`، `server/lib/{crm-analytics,crm-pro-analytics,print-line-collapse}.js`، `server/services/ai.js`، `server/scripts/test-field-ux-v211.js`
 - **تست:** field-ux v211؛ print-collapse v204؛ crm-pro-analytics؛ sms
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `5010880` — `app.js?v=211` / `erp-taranom-v211`؛ health HTTP 200
 - **SW:** erp-taranom-v211
 
 ### ۱۴۰۵/۰۶/۱۸ — کاتالوگ فروش: انتخاب رنگ مشتری (SW v210)
