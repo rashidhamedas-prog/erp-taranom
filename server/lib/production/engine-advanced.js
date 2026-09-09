@@ -239,7 +239,8 @@ function insertAutoSubcontractFee(db, {
   try { docNo = allocateNumber(db, 'subcontract', 'SC'); }
   catch { docNo = `SC-${Date.now()}`; }
 
-  const sid = supplierId || stage.supplier_id || 1;
+  const sid = Number(supplierId || stage.supplier_id) || 0;
+  if (!sid) throw err('E_SUBCONTRACT_SUPPLIER', 422);
   db.prepare(`
     INSERT INTO production_subcontract
       (doc_no, order_id, stage_id, supplier_id, direction, product_id,

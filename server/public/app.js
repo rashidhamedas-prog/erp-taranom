@@ -3,6 +3,11 @@ if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a
    STATE & API
 ============================================================ */
 let ME = null;
+window.ME = null;
+function setME(u){
+  ME = u || null;
+  window.ME = ME;
+}
 // Master lists (warehouses, groups, …) must be null — NOT [] — so `if(!CACHE.warehouses)`
 // actually fetches. Empty array is truthy and used to block reload until you open that section.
 let CACHE = { customers:[], products:[], allProducts:[], _invProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
@@ -65,7 +70,16 @@ async function loadLiveWarehousesForAccess(){
 }
 function warehouseOptionsHtml(selectedId, emptyLabel){
   const sel = selectedId==null||selectedId==='' ? '' : String(selectedId);
-  const rows = (CACHE.warehouses||[]).filter(w=>w.active!==0);
+  let rows = (CACHE.warehouses||[]).filter(w=>w.active!==0);
+  const lockedSalesWh = typeof isRepRole==='function' && isRepRole(ME?.role) && ME?.sales_warehouse_id;
+  if(lockedSalesWh){
+    const mineId=String(ME.sales_warehouse_id);
+    const mine=rows.filter(w=>String(w.id)===mineId);
+    if(mine.length) rows=mine;
+    else rows=[{id:ME.sales_warehouse_id,name:ME.sales_warehouse_name||('انبار '+mineId),active:1}];
+    const pick = sel || mineId;
+    return rows.map(w=>`<option value="${w.id}" ${String(pick)===String(w.id)?'selected':''}>${esc(w.name)}${w.code?' ('+esc(w.code)+')':''}</option>`).join('');
+  }
   return `<option value="">${esc(emptyLabel||'— انتخاب انبار —')}</option>` +
     rows.map(w=>`<option value="${w.id}" ${sel===String(w.id)?'selected':''}>${esc(w.name)}${w.code?' ('+esc(w.code)+')':''}</option>`).join('');
 }
@@ -200,6 +214,8 @@ async function api(method, path, data, isFormData, silent){
         E_NRV_ZERO:'برای روش NRV باید ارزش خالص بازیافتنی (NRV) بزرگ‌تر از صفر باشد',
         E_NRV_EXCEEDS_WIP:'اعتبار NRV محصولات فرعی از موجودی در جریان ساخت بیشتر است',
         E_SUBCON_INCOMPLETE:'پیمانکاری ناقص است (تأمین‌کننده و هزینه الزامی)',
+        E_SUBCONTRACT_SUPPLIER:'برای مرحلهٔ پیمانکاری باید تأمین‌کننده مشخص شود',
+        E_SUBCONTRACT_FEE_REQUIRED:'کارمزد پیمانکاری ثبت نشده — دریافت پیمانکار یا auto_subcontract_fee',
         E_QC_FIRST:'دروازهٔ کنترل کیفیت نمی‌تواند اولین عملیات مسیر باشد',
         E_NO_MACHINE_TIME:'برای محرک ساعت‌ماشین، دقیقه ماشین در عملیات الزامی است',
         E_NO_RUN_TIME:'زمان اجرا (دقیقه/واحد) برای عملیات الزامی است',
@@ -613,7 +629,7 @@ function onSettingsLangChange(lang){
 }
 function filterMainNavItem(it){
   const flags=CACHE.moduleFlags||CACHE.settings||{};
-  if(it.id==='ai' && String(flags.feature_ai_assistant||'0')!=='1') return false;
+  // دستیار CRM (آمار شخصی) همیشه در منو است؛ فلگ فقط سرویس متنی ابری را می‌بندد
   if(it.id==='b2bOrders' && String(flags.feature_b2b_portal||'0')!=='1') return false;
   return true;
 }
@@ -1176,7 +1192,7 @@ el('loginForm').addEventListener('submit', async (e)=>{
     if(j.twofa_required){ show2FALogin(j.pre_token); return; }
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
-    ME = j.user;
+    setME(j.user);
     if(j.must_change_password){
       el('login').style.display='none'; openForcePassChange(); return;
     }
@@ -1282,7 +1298,7 @@ async function finish2FALogin(r){
   closeModal();
   localStorage.setItem('crm_token', j.token);
   localStorage.setItem('crm_user', JSON.stringify(j.user));
-  ME = j.user;
+  setME(j.user);
   if(j.remaining_codes !== undefined) showToast(`ورود با کد بازیابی — ${j.remaining_codes} کد باقی مانده`, 'warn');
   if(j.must_change_password){ el('login').style.display='none'; openForcePassChange(); return; }
   await boot();
@@ -1361,7 +1377,7 @@ function logout(){
   closeAcctDrawer();
   localStorage.removeItem('crm_token');
   localStorage.removeItem('crm_user');
-  ME=null;
+  setME(null);
   el('app').style.display='none';
   el('login').style.display='flex';
 }
@@ -1704,6 +1720,18 @@ function guardBackupAccess(){
   return false;
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
+const REP_EXPENSE_CATS_FALLBACK={
+  transport:'حمل‌ونقل', fuel:'سوخت', hotel:'هتل', meals:'پذیرایی',
+  gifts:'هدایا', advertising:'تبلیغات', entertainment:'پذیرایی مشتری',
+  office:'اداری', other:'سایر'
+};
+function normalizeRepExpenseCats(cats){
+  if(cats && typeof cats==='object' && !Array.isArray(cats)){
+    if(cats.transport) return cats;
+    if(cats.data && cats.data.transport) return cats.data;
+  }
+  return REP_EXPENSE_CATS_FALLBACK;
+}
 function defaultVatExemptForType(type){
   const t=String(type||'').toLowerCase();
   return t==='normal' || t==='proforma';
@@ -1994,7 +2022,16 @@ function canRepAdmin(){ return canAccounting(); }
 async function boot(){
   el('login').style.display='none';
   el('app').style.display='block';
-  ME = JSON.parse(localStorage.getItem('crm_user')||'null');
+  let stored = JSON.parse(localStorage.getItem('crm_user')||'null');
+  setME(stored);
+  try{
+    const fresh = await api('GET','/auth/me');
+    if(fresh && (fresh.id||fresh.username)){
+      stored = Object.assign({}, stored||{}, fresh);
+      localStorage.setItem('crm_user', JSON.stringify(stored));
+      setME(stored);
+    }
+  }catch(_){}
   syncServerTime(); // refresh offset after login (non-blocking)
   el('userName').textContent = ME.name;
   el('userRole').textContent = roleLabel(ME.role);
@@ -3389,7 +3426,7 @@ ROUTES.followups = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   if(!_followupsFetched){ CACHE.followups=await api('GET','/followups')||[]; _followupsFetched=true; }
   // Managers land on the per-user folder view first — flat lists get unwieldy fast at scale.
-  if(!fupFilter.view) fupFilter.view = (ME.role==='admin'||ME.role==='accounting') ? 'folders' : 'list';
+  if(!fupFilter.view) fupFilter.view = (ME.role==='admin'||ME.role==='accounting') ? 'folders' : 'kanban';
   const showFolders = ME.role==='admin'||ME.role==='accounting';
   el('view').innerHTML=`
     <div class="toolbar">
@@ -3745,6 +3782,7 @@ function fupRowsHtml(rows, showSalesperson){
       <td class="no-sort" data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){fupModal((f.id))})}" title="ویرایش">✏️</button>
         <button class="btn sm blue icon" data-csp-click="${CSP.bind('click',function(event){custActivityModal((f.cust_id))})}" title="تاریخچه">📋</button>
+        ${typeof isRepRole==='function'&&isRepRole(ME?.role)?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){repPaymentModal((f.cust_id))})}" title="ثبت دریافت">💵 دریافت</button>`:''}
         <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){confirmDelete('followups',(f.id),'پیگیری')})}">🗑️</button>
       </td>
     </tr>`;
@@ -3944,6 +3982,7 @@ function fupModal(id, defaultStage, presetCustId){
     <div class="modal-foot">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){saveFup((id||0))})}">💾 ذخیره</button>
       ${id?`<button class="btn blue" data-csp-click="${CSP.bind('click',function(event){closeModal();custActivityModal((f.cust_id))})}">📋 تاریخچه</button>`:''}
+      ${typeof isRepRole==='function'&&isRepRole(ME?.role)&&f.cust_id?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(function(){repPaymentModal((f.cust_id))},40)})}">💵 ثبت دریافت</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
     </div>
   `,true);
@@ -3983,6 +4022,7 @@ async function custActivityModal(custId){
     <div class="modal-body" id="activityBody"><div data-csp-style="${CSP.style(`text-align:center;padding:24px;color:var(--muted)`)}">در حال بارگذاری...</div></div>
     <div class="modal-foot">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();fupModal(null,null,(custId))})}">➕ پیگیری جدید</button>
+      ${typeof isRepRole==='function'&&isRepRole(ME?.role)?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(function(){repPaymentModal((custId))},40)})}">💵 ثبت دریافت</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
     </div>
   `,true);
@@ -4146,7 +4186,7 @@ function renderInvTable(){
     <td>
       <div class="inv-actions-cell">
         ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
-        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
         ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
       </div>
@@ -8533,7 +8573,7 @@ async function renderSalesInvoicesTab(body, typeLock){
       <td>
         <div class="inv-actions-cell">
           ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
           ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
         </div>
@@ -17331,6 +17371,9 @@ async function updateChequeStatus(id, status){
 let stlRows = [];
 let stlOpenInvoices = [];
 async function settlementModal(custId){
+  if(typeof isRepRole==='function' && isRepRole(ME?.role)){
+    return repPaymentModal(custId);
+  }
   await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:'',bank_id:'',cash_box_id:''}];
@@ -17708,7 +17751,7 @@ ROUTES['my-rep'] = async function(){
     softRepList('/reps/'+ME.id+'/expenses'),
     api('GET','/reps/expense-categories',null,false,true).catch(()=>({}))
   ]);
-  const expCats=cats&&typeof cats==='object'?cats:{};
+  const expCats=normalizeRepExpenseCats(cats);
   const comm=dash?.commission||{};
   const payStatus=s=>s==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':s==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>';
   el('view').innerHTML=`
@@ -17760,14 +17803,15 @@ ROUTES['my-rep'] = async function(){
     </div>`;
 };
 
-async function repPaymentModal(){
+async function repPaymentModal(custId){
   try{ if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[]; }catch(_){ CACHE.customers=CACHE.customers||[]; }
+  const preCust = Number(custId)||0;
   openModal(`
     <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" dir="rtl">
       <div id="rp-form-err" class="muted" role="alert" aria-live="polite" data-csp-style="${CSP.style(`color:var(--red);font-size:12px;margin-bottom:8px;line-height:1.7`)}"></div>
       <div class="form-grid">
-      <div class="fg full"><label>مشتری * ${hlp('فروشگاهی که وجه را از او گرفته‌اید. نام یا تلفن را جستجو کنید.')}</label>${custSelect('rp-cust',0)}${fldErrHtml('rp-cust')}</div>
+      <div class="fg full"><label>مشتری * ${hlp('فروشگاهی که وجه را از او گرفته‌اید. نام یا تلفن را جستجو کنید.')}</label>${custSelect('rp-cust',preCust)}${fldErrHtml('rp-cust')}</div>
       <div class="fg"><label>مبلغ (ریال) * ${hlp('مبلغ دریافتی به ریال؛ تا تأیید حسابدار روی مانده مشتری اعمال نمی‌شود.')}</label><input id="rp-amount" type="text" inputmode="numeric" class="money" placeholder="0">${fldErrHtml('rp-amount')}</div>
       <div class="fg"><label>نوع پرداخت ${hlp('نقد، واریز بانکی یا چک — نوع را با مدارک رسید هماهنگ کنید.')}</label><select id="rp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleRepPayFields()})}">
         <option value="cash">💵 نقد</option>
@@ -18007,7 +18051,7 @@ async function loadRepDetail(id){
 }
 async function repPendingExpensesModal(){
   const rows=await api('GET','/reps/expenses/pending')||[];
-  const cats=await api('GET','/reps/expense-categories')||{};
+  const cats=normalizeRepExpenseCats(await api('GET','/reps/expense-categories')||{});
   openModal(`
     <div class="modal-head"><h3>🧾 تأیید هزینه‌های نمایندگان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -18487,7 +18531,7 @@ async function repAssignmentHistoryModal(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`,true);
 }
 async function repExpenseModal(repId,repName){
-  const cats=await api('GET','/reps/expense-categories',null,false,true).catch(()=>({}))||{};
+  const cats=normalizeRepExpenseCats(await api('GET','/reps/expense-categories',null,false,true).catch(()=>({})));
   await ensurePayCaches();
   const ccs=(CACHE.costCenters||[]).filter(c=>c && c.id);
   openModal(`
@@ -19006,7 +19050,9 @@ ROUTES.ai = async function(){
         ${statCard('o','📅',fmt(myStats.month_sales||0),'فروش ماه (ریال)')}
         ${statCard('p','📞',fmt(myStats.open_followups||0),'پیگیری باز')}
       </div>`:'<div class="muted">آمار شخصی در دسترس نیست</div>'}
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){runMyAiSummary()})}">✨ تحلیل هوشمند عملکرد من</button>
+      ${String((CACHE.moduleFlags||CACHE.settings||{}).feature_ai_assistant||'0')==='1'
+        ? `<button class="btn" data-csp-click="${CSP.bind('click',function(event){runMyAiSummary()})}">✨ تحلیل هوشمند عملکرد من</button>`
+        : `<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">آمار بالا از دادهٔ CRM شماست. خلاصهٔ متنی ابری وقتی مدیر سرویس هوش مصنوعی را در تنظیمات روشن کند فعال می‌شود.</p>`}
       <div id="myAiBody" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
     </div></div>`;
   el('view').innerHTML=`
@@ -20987,6 +21033,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
+        <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است.</li>
         <li><b>لایه‌چینی و برش (PROD-02/03) + رسید برش / PACK:</b> تولید → عملیات → لایه‌چینی و برش. طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف ضایعات عادی (٪ مصرف واقعی) سند ندارد؛ اضافه ضایعات غیرعادی (۵۲۲۱) است. طاقه از انبار مواد کم می‌شود. مدیر تولید طاقه را بدون دیدن بها انتخاب می‌کند. ابطال برش موجودی طاقه و سند را برمی‌گرداند. <b>رسید برش</b> تعداد ماتریس را به انبار محصول (بدون Lot/Serial) می‌برد؛ مبلغ رسید = مانده WIP همان لایه (نه بها × تعداد حدسی) و بعد از رسید کامل مانده WIP لایه صفر است. بارکد بسته هویت عملیاتی است نه سریال کالا؛ با ابطال رسید می‌میرد. حواله/backflush همان متر پارچهٔ مصرف‌شده در لایهٔ posted با خطای E_FABRIC_ALREADY_CUT رد می‌شود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید برش باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
@@ -21133,7 +21180,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مالیات:</b> پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>؛ رسمی پیش‌فرض <b>مشمول</b>. در فاکتور جدید با تغییر نوع، تیک معافیت با پیش‌فرض همان نوع هماهنگ می‌شود؛ در ویرایش مقدار ذخیره‌شده دست نمی‌خورد</li>
         <li><b>ویرایش معمولی و پیش‌فاکتور</b> همان فاکتور و همان سند حسابداری را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود</li>
         <li><b>فاکتور رسمی</b> از فرم ویرایش ذخیره نمی‌شود؛ برای اصلاح باید <b>ابطال</b> کنید</li>
-        <li>کارشناس حضوری/تلفنی جزئیات پرداخت، صندوق، بانک، چک، کرایه و مالیات را در فاکتور می‌بیند؛ انبار مبدأ برای او قفل است</li>
+        <li>کارشناس حضوری/تلفنی جزئیات پرداخت، صندوق، بانک، چک، کرایه و مالیات را در فاکتور می‌بیند؛ انبار مبدأ از حساب او قفل است و بهای تمام‌شده در پاسخ کالا/فاکتور برای او نیست</li>
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
         <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
         <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
@@ -21142,7 +21189,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تخفیف کل فاکتور سند حسابداری را تراز نگه می‌دارد — حتی اگر طاقه را از سبد حذف کنید و بقیه را ذخیره کنید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>دکمه چاپ در لیست و داخل فرم فاکتور است. پیش‌نمایش باید برگهٔ گرافیکی (بنر سبز، جدول خط‌دار، مهر) باشد نه متن خام. اگر صفحه بدون رنگ یا لوگو باز شد یک‌بار Ctrl+Shift+R بزنید. قالب‌ها: اداری رسمی، ERP مدرن، پرمیوم، ساده و حرارتی.</p>
+      <h5>چاپ</h5><p>دکمهٔ <b>چاپ</b> در ستون عملیات لیست (متن خوانا، نه فقط آیکون) و داخل فرم فاکتور است. اگر چند دکمه جا نشود زیر هم می‌پیچد. پیش‌نمایش باید برگهٔ گرافیکی (بنر سبز، جدول خط‌دار، مهر) باشد نه متن خام. اگر صفحه بدون رنگ یا لوگو باز شد یک‌بار Ctrl+Shift+R بزنید. قالب‌ها: اداری رسمی، ERP مدرن، پرمیوم، ساده و حرارتی.</p>
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -21152,7 +21199,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>با «افزودن به سبد»، به‌اندازه <b>تعداد در پک</b> کالا به سبد/فاکتور اضافه می‌شود (مثل فاکتورساز)</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
-        <li>کارشناس حضوری و تلفنی در فاکتور نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک، معافیت مالیات و کرایه را می‌بیند؛ انبار مبدأ قفل روی انبار تخصیص‌یافته است</li>
+        <li>کارشناس حضوری و تلفنی در فاکتور نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک، معافیت مالیات و کرایه را می‌بیند؛ انبار مبدأ قفل روی انبار تخصیص‌یافته است و در نشست ورود (<code>sales_warehouse_id</code>) می‌آید</li>
         <li>در تسویه سبد، نوع فاکتور (پیش‌فاکتور / معمولی / رسمی) را انتخاب کنید؛ تیک مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
         <li>در «کاربران → دسترسی‌ها» دکمه «دسترسی کامل فاکتور» همین تیک‌ها را یک‌جا می‌زند</li>
       </ul>`),
@@ -21176,10 +21223,10 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <div class="tip">به‌روزرسانی پیام‌ها هر چند ثانیه خودکار انجام می‌شود — نیازی به رفرش دستی نیست. در پنجره مکالمه می‌توانید بالا/پایین اسکرول کنید؛ کادر هر پیام فقط به اندازه متن است.</div>`),
     helpSec('🤖','دستیار هوشمند',`
-      <p>دستیار هوشمند برای مدیر و کارشناسان فعال است.</p>
+      <p>دستیار هوشمند برای مدیر و کارشناسان در منو فعال است (فلگ تنظیمات فقط سرویس متنی ابری را می‌بندد، نه آمار CRM).</p>
       <ul>
         <li><b>مدیر:</b> خلاصه هفتگی، ریسک ریزش مشتری، فرصت فروش مجدد، اقدام روزانه</li>
-        <li><b>کارشناس:</b> آمار شخصی (فروش هفته/ماه، فاکتور، پیگیری باز) + دکمه «تحلیل هوشمند» — فقط بر اساس داده‌های خود شما، بدون دسترسی به اطلاعات دیگران</li>
+        <li><b>کارشناس:</b> آمار شخصی (فروش هفته/ماه، فاکتور، پیگیری باز) — فقط بر اساس داده‌های خود شما، بدون دسترسی به اطلاعات دیگران. تحلیل متنی ابری اختیاری است</li>
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
@@ -21381,7 +21428,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v205</b> است و اسکریپت‌ها با <code>?v=205</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v207</b> است و اسکریپت‌ها با <code>?v=207</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21578,7 +21625,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v205</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v207</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -21610,7 +21657,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">اگر ساعت دقیق هم وارد کنید، پیامک یادآور ۱ ساعت قبل از آن ساعت ارسال می‌شود. بدون ساعت، پیامک ساعت ۸ صبح فرستاده می‌شود.</div>`),
     helpSec('📈','پایپ‌لاین فروش',`
-      <p>پایپ‌لاین نشان می‌دهد هر فرصت در چه مرحله‌ای از خرید است. وضعیت پیگیری (باز/انجام) با مرحله قاطی نمی‌شود.</p>
+      <p>پایپ‌لاین نشان می‌دهد هر فرصت در چه مرحله‌ای از خرید است. وضعیت پیگیری (باز/انجام) با مرحله قاطی نمی‌شود. صفحهٔ پیگیری‌ها برای کارشناس فروش به‌صورت پیش‌فرض روی <b>کانبان / پایپ‌لاین</b> باز می‌شود؛ لیست هم از همان نوار قابل انتخاب است.</p>
       <h5>مراحل</h5><ul>
         <li><b>سرنخ</b> → <b>واجد شرایط</b> → <b>پیشنهاد</b> → <b>مذاکره</b></li>
         <li><b>سفارش اول / برنده / تکراری</b> پس از فاکتور قطعی</li>
@@ -21636,9 +21683,10 @@ function renderSalesGuide(){
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
         <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
-        <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. انبار مبدأ برای کارشناس فروش قفل است</li>
+        <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
+        <li>بهای تمام‌شده کالا در API فروش نیست؛ فقط قیمت فروش روی کارت و فاکتور است</li>
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
-        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
+        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ در لیست فاکتور دکمهٔ خوانای <b>چاپ</b> هست و اگر جا کم باشد زیر دکمهٔ تبدیل می‌پیچد. چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
         <li>چاپ فاکتور فروش/خرید: رنگ و سایز جدا ردیف نمی‌شوند؛ یک ردیف کالا + خلاصه زیرش</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
@@ -21649,14 +21697,15 @@ function renderSalesGuide(){
       <ul>
         <li>هر بار «افزودن به سبد» = اگر ماتریس رنگ×سایز باشد پنجرهٔ انتخاب رنگ باز می‌شود؛ وگرنه <b>تعداد در پک</b> آن کالا</li>
         <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
+        <li>اگر انبار فروش روی حساب شما ثبت شده باشد، بنر «انبار فروش» در کاتالوگ بازاریاب دیده می‌شود و فاکتورساز همان انبار را قفل می‌کند</li>
         <li>نقد/نسیه/چک/کارت را در فاکتورساز کامل کنید</li>
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
       </ul>`),
     helpSec('💼','حساب من',`
       <p>از منوی <b>حساب من</b> دریافت، هزینه، بازدید و تماس را ثبت کنید.</p>
       <ul>
-        <li><b>دریافت از مشتری:</b> مشتری تخصیص‌یافته، مبلغ ریال، نوع پرداخت و عکس رسید الزامی است. تا تأیید حسابدار روی مانده اثر ندارد</li>
-        <li><b>هزینه:</b> دسته، مبلغ، تاریخ و شرح الزامی است؛ رسید اختیاری</li>
+        <li><b>دریافت از مشتری:</b> مشتری تخصیص‌یافته، مبلغ ریال، نوع پرداخت و عکس رسید الزامی است. تا تأیید حسابدار روی مانده اثر ندارد. از پیگیری یا تاریخچهٔ مشتری هم «ثبت دریافت» باز می‌شود و همان فرم میدانی است (نه سند حسابداری مستقیم)</li>
+        <li><b>هزینه:</b> دسته (حمل‌ونقل، سوخت، هتل، پذیرایی، هدایا، تبلیغات، اداری، سایر)، مبلغ، تاریخ و شرح الزامی است؛ رسید اختیاری. اگر فهرست دسته خالی آمد همان دسته‌های ثابت سیستم استفاده می‌شود</li>
         <li><b>بازدید:</b> مشتری و یادداشت الزامی است؛ GPS و عکس و امضا اختیاری</li>
         <li><b>تماس:</b> مشتری و تاریخ الزامی است</li>
       </ul>`),
@@ -21667,7 +21716,7 @@ function renderSalesGuide(){
         <li>اعلان‌های سیستمی (مثل سفارش پورتال) در «اعلان‌های من» نمایش داده می‌شود</li>
       </ul>`),
     helpSec('🤖','دستیار هوشمند من',`
-      <p>از منو «دستیار هوشمند» آمار فروش شخصی خود را ببینید و با «تحلیل هوشمند» خلاصه متنی عملکردتان را دریافت کنید — فقط داده‌های خودتان، نه کل شرکت.</p>`),
+      <p>آیتم <b>دستیار هوشمند</b> همیشه در منوی فروش هست. آمار فروش/فاکتور/پیگیری از دادهٔ خود شماست. دکمهٔ «تحلیل هوشمند» متنی ابری فقط وقتی مدیر سرویس هوش مصنوعی را در تنظیمات روشن کند ظاهر می‌شود.</p>`),
     helpSec('🔔','یادآورها',`
       <p>یادآورها برای کارهایی است که نمی‌خواهید فراموش کنید — غیر از پیگیری مشتری.</p>
       <h5>مثال‌ها</h5><ul>

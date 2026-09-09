@@ -14,7 +14,30 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
-### ۱۴۰۵/۰۶/۱۷ — شخص روی مسیر BOM + مانده زنده اطلاعات اشخاص (SW v206)
+### ۱۴۰۵/۰۶/۱۸ — R11 بها + انبار نشست فروش + دستیار/SKIPهای QA عارف (SW v207)
+
+- **بها (R11):** `GET /products` و جزئیات فاکتور برای نقش بدون `production_cost.view` کلیدهای `cost` / `*_cost_rial` / `unit_cost_rial` را نمی‌فرستد؛ قیمت فروش و تخفیف/کرایه می‌ماند.
+- **انبار:** `login` و `GET /auth/me` انبار تخصیص (`sales_warehouse_id` + نام) را در نشست می‌گذارند. `window.ME` برای فروش بازاریاب؛ فاکتورساز انبار قفل را بدون گزینهٔ خالی می‌گذارد؛ بنر «انبار فروش» از همین نشست است.
+- **دستیار:** آیتم منو همیشه هست؛ فلگ تنظیمات فقط خلاصهٔ متنی ابری را می‌بندد.
+- **SKIP QA:** کانبان پیش‌فرض پیگیری فروش؛ دکمهٔ خوانای چاپ + wrap؛ دستهٔ هزینه با fallback ثابت؛ دریافت میدانی از پیگیری/تاریخچه (نه سند حسابداری مستقیم). ایزولهٔ مشتری مدیر (C7) و CTA سبد خالی (F5) و هشدار موجودی (G3) عمداً عوض نشدند.
+- **فایل‌ها:** `server/lib/{catalog-cost-policy,staff-public}.js`، `server/routes/{auth,twofa,products,invoices}.js`، `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-r11-warehouse-v207.js`
+- **تست:** `node server/scripts/test-sales-r11-warehouse-v207.js`؛ sms پس از بک‌اند
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v207
+
+### ۱۴۰۵/۰۶/۱۸ — بچ E2E زنده تولید ۰→۱۰۰ + فیلد نوع کالا در API (ادمین)
+
+- **بچ:** `scripts/run-production-e2e-batch.ps1` / `.cmd` + `server/scripts/test-production-e2e-live-batch.js` — ورود ادمین به ERP زنده، پوشش master data، BOM/مسیر/شخص، سفارش ثابت/متغیر، پیشرفته (۷ مرحله + پیمانکار)، طاقه/برش/PACK، MRP/گزارشات/بستن دوره، سناریوهای منفی و cleanup.
+- **API کالا:** `POST/PUT /api/products` فیلدهای `item_type` / `is_manufactured` / `average_cost_rial` / `std_cost_rial` را می‌پذیرد (پیش‌نیاز فعال‌سازی BOM).
+- **برآورد MRP:** `estimateCost` هر دو شکل `product_id`/`productId` و `bom_id`/`bomId` را می‌پذیرد.
+- **پیمانکاری پیشرفته:** `insertAutoSubcontractFee` دیگر به `supplier_id=1` پیش‌فرض نمی‌رود — بدون تأمین‌کننده → `E_SUBCONTRACT_SUPPLIER`.
+- **اجرا:** رمز فقط از env/`-Password` — در گیت ذخیره نمی‌شود. `force_logout_other` برای تعارض نشست وب.
+- **نتیجه زنده:** **۹۷ passed / ۰ failed** روی `erp.poshaktaranom.com` (TAG نمونه `E2ETCLGP8`؛ گزارش JSON در `server/.tmp-test-artifacts/`).
+- **فایل‌ها:** `server/scripts/test-production-e2e-live-batch.js`، `scripts/run-production-e2e-batch.{ps1,cmd}`، `server/lib/production/{estimate,engine-advanced}.js`، `server/routes/products.js`، `server/lib/catalog-cost-policy.js`، `server/package.json`، راهنما در `app.js`
+- **Deploy:** ✅ overlay ایران (estimate + engine-advanced + products/catalog-cost)
+- **SW:** راهنما همراه v207
+
+
 
 - **BOM:** در تب مسیر عملیات فرمول تولید فیلد اختیاری «شخص» اضافه شد؛ `bom_operations.person_id` ذخیره می‌شود و هنگام جذب دستمزد به `production_labor_entries` منتقل می‌گردد.
 - **اشخاص:** لیست «اطلاعات اشخاص» دیگر فقط `opening_balance` را نشان نمی‌دهد؛ مانده زنده از دفتر کل تفصیلی / دفتر معین شخص / مشتری / تأمین‌کننده محاسبه می‌شود. دکمه گردش برای نقش‌های غیرمشتری هم دفتر شخص را می‌آورد.

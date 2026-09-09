@@ -11,6 +11,7 @@ const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const { applyNameCodeBarcodeSkuSearch, attachAvailableQty } = require('../lib/inventory/product-line-search');
+const { applyCatalogCostPolicy } = require('../lib/catalog-cost-policy');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
@@ -199,7 +200,7 @@ router.get('/', auth, (req, res) => {
     if (!row.image && imgs[0]) row.image = imgs[0].filename;
   }
   if (warehouseId) attachAvailableQty(db, rows, warehouseId);
-  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
+  res.json(applyCatalogCostPolicy(db, req.user, listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query)));
 });
 
 // Distinct categories (for filter dropdown) — MUST be registered before /:id/*
@@ -245,7 +246,7 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   `).get(...params);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   row.images = listProductImages(db, row.id);
-  res.json(row);
+  res.json(applyCatalogCostPolicy(db, req.user, row));
 });
 
 router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
@@ -297,7 +298,7 @@ router.get('/:id', auth, (req, res) => {
     try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
   }
   if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
-  res.json(row);
+  res.json(applyCatalogCostPolicy(db, req.user, jsonSafeProduct(row)));
 });
 
 // Item Kardex — per-product stock movement ledger with a running balance.
@@ -351,7 +352,7 @@ router.get('/:id/kardex', auth, (req, res) => {
         status: l.status,
         source: 'inventory_ledger',
       }));
-      return res.json({ product, logs, source: 'inventory_ledger' });
+      return res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'inventory_ledger' }));
     }
   }
 
@@ -362,7 +363,7 @@ router.get('/:id/kardex', auth, (req, res) => {
   const totalChange = logs.reduce((a, l) => a + (l.change || 0), 0);
   let running = (product.stock || 0) - totalChange;
   logs.forEach(l => { running += (l.change || 0); l.running_balance = running; l.source = 'stock_logs'; });
-  res.json({ product, logs, source: 'stock_logs' });
+  res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'stock_logs' }));
 });
 
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────
@@ -607,6 +608,25 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     const cm = String(req.body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
   }
+  {
+    const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
+    if (req.body.item_type != null && String(req.body.item_type).trim()) {
+      const it = String(req.body.item_type).trim();
+      if (allowed.has(it)) db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, result.lastInsertRowid);
+    }
+    if (req.body.is_manufactured != null) {
+      db.prepare('UPDATE products SET is_manufactured=? WHERE id=?')
+        .run(req.body.is_manufactured ? 1 : 0, result.lastInsertRowid);
+    }
+    if (req.body.average_cost_rial != null) {
+      db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
+        .run(Math.round(Number(req.body.average_cost_rial) || 0), result.lastInsertRowid);
+    }
+    if (req.body.std_cost_rial != null) {
+      db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
+        .run(Math.round(Number(req.body.std_cost_rial) || 0), result.lastInsertRowid);
+    }
+  }
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   try {
     await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
@@ -703,6 +723,25 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   if (bodyHas(body, 'costing_method')) {
     const cm = String(body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
+  }
+  // Production master-data fields (BOM / MRP / costing)
+  if (bodyHas(body, 'item_type')) {
+    const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
+    const it = String(body.item_type || '').trim() || 'finished';
+    if (!allowed.has(it)) return res.status(400).json({ error: 'نوع کالا نامعتبر است', code: 'E_ITEM_TYPE' });
+    db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, req.params.id);
+  }
+  if (bodyHas(body, 'is_manufactured')) {
+    db.prepare('UPDATE products SET is_manufactured=? WHERE id=?')
+      .run(body.is_manufactured ? 1 : 0, req.params.id);
+  }
+  if (bodyHas(body, 'average_cost_rial')) {
+    db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
+      .run(Math.round(Number(body.average_cost_rial) || 0), req.params.id);
+  }
+  if (bodyHas(body, 'std_cost_rial')) {
+    db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
+      .run(Math.round(Number(body.std_cost_rial) || 0), req.params.id);
   }
   // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
   if (whId) {

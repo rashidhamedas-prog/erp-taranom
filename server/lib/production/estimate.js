@@ -12,11 +12,20 @@ const { err } = require('./posting');
 function num(v) { return Number(v) || 0; }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 
-function estimateCost(db, { productId, qty, period, date, bomId = null, priceBasis = 'average' }) {
+function estimateCost(db, body = {}) {
+  // Accept camelCase (internal) and snake_case (HTTP / UI) alike
+  const productId = body.productId ?? body.product_id;
+  const qty = body.qty;
+  const period = body.period;
+  const date = body.date;
+  const bomId = body.bomId ?? body.bom_id ?? null;
+  const priceBasis = body.priceBasis ?? body.price_basis ?? 'average';
+
   const targetDate = date || todayJalali();
   const prd = period || targetDate.slice(0, 7);
   const targetQty = num(qty) || 1;
   if (targetQty <= 0) throw err('E_QTY_INVALID', 422);
+  if (!productId && !bomId) throw err('E_NO_ACTIVE_BOM', 404);
 
   const bom = resolveBom(db, {
     productId: Number(productId),

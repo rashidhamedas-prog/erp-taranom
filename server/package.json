@@ -29,6 +29,7 @@
     "test:payroll-accounting": "node scripts/test-payroll-accounting.js",
     "test:excel-user-integration": "node scripts/test-excel-user-integration.js",
     "test:production": "node scripts/run-production-tests.js",
+    "test:production:e2e-live": "node scripts/test-production-e2e-live-batch.js",
     "test:wave0-financial": "node scripts/test-wave0-financial-hostile.js",
     "test:backup-dr": "node scripts/test-backup-dr.js",
     "test:backup-offsite-policy": "node scripts/test-backup-offsite-policy.js",
