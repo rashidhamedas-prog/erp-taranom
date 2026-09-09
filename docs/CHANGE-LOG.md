@@ -14,6 +14,15 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۸ — کاتالوگ فروش: انتخاب رنگ مشتری (SW v210)
+
+- **شکاف:** دکمهٔ «انتخاب رنگ» فقط در فروش بازاریاب بود؛ صفحهٔ کاتالوگ میدانی/تلفنی دکمه نداشت و `is_style` دکمهٔ دروغ می‌ساخت.
+- **رفع:** `attachVariantFlags` روی `GET /products`؛ کاتالوگ فروش با `catalogAddToCart` → همان سبد بازاریاب؛ نوار سبد/فاکتور؛ picker رنگ‌اول (پیش‌فرض اولین رنگ).
+- **فایل‌ها:** `server/lib/product-variants/service.js`، `server/routes/products.js`، `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-color-pick-v210.js`
+- **تست:** `node server/scripts/test-sales-color-pick-v210.js`؛ sms پس از بک‌اند
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v210
+
 ### ۱۴۰۵/۰۶/۱۸ — انتخاب رنگ فروش/بازاریاب + merge به main (SW v209)
 
 - **فروش:** پنجرهٔ رنگ×سایز با فیلتر رنگ، تعداد پیش‌فرض صفر، دکمهٔ +/− لمسی؛ دکمهٔ «انتخاب رنگ» روی کارت کاتالوگ وقتی کالا ماتریس دارد.

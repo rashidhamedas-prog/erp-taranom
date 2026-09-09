@@ -1,6 +1,6 @@
 /**
  * Marketer sales: Catalog (filters like کاتالوگ) → Cart (pack_size qty) → checkout → Invoice
- * Version marker: marketer-ui-v209 — keep in sync with SW / script ?v=
+ * Version marker: marketer-ui-v210 — keep in sync with SW / script ?v=
  *
  * Checkout writes window.__pendingMarketerInvMeta = { type, vatExempt } before
  * openInvBuilder(). app.js should read it when seeding a new invoice (#inv-type,
@@ -220,6 +220,13 @@
       if (!canInvoice()) { showToast('دسترسی ایجاد فاکتور ندارید — از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را فعال کند', 'error'); return; }
       setToolbarActive(2); renderCheckout();
     };
+    const openTab = window.__mkOpenTab;
+    window.__mkOpenTab = null;
+    if (openTab === 'cart') { setToolbarActive(1); renderCart(); return; }
+    if (openTab === 'invoice') {
+      if (!invOk) { showToast('دسترسی ایجاد فاکتور ندارید', 'error'); setToolbarActive(0); await renderCatalog(); return; }
+      setToolbarActive(2); renderCheckout(); return;
+    }
     setToolbarActive(0);
     await renderCatalog();
   }
@@ -406,6 +413,7 @@
       image: p.image || ''
     });
     saveCart();
+    try{ if(typeof notifySalesCartChanged==='function') notifySalesCartChanged(); }catch(_){}
     showToast(qty > 1
       ? `${p.name} — ${fmt(qty)} عدد (یک پک) به سبد اضافه شد`
       : (p.name + ' به سبد اضافه شد'));
@@ -460,6 +468,7 @@
     if (!added) return;
     saveCart();
     showToast('رنگ‌های انتخاب‌شده به سبد اضافه شد');
+    try{ if(typeof notifySalesCartChanged==='function') notifySalesCartChanged(); }catch(_){}
     refreshVisibleMkView();
   }
 
@@ -682,6 +691,6 @@
     remove,
     clearAfterInvoice,
     openInvoiceWithCart,
-    _ver: 'marketer-ui-v209'
+    _ver: 'marketer-ui-v210'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

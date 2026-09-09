@@ -4433,6 +4433,10 @@ function renderInvPicker(){
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
     const reserved=invCart.filter(r=>Number(r.product_id)===Number(p.id)).reduce((a,r)=>a+r.qty,0);
     const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
+    const needsColor=productNeedsColorPick(p);
+    const colorBtn=needsColor
+      ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">🎨 انتخاب رنگ</button>`
+      : '';
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
       <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
@@ -4440,6 +4444,7 @@ function renderInvPicker(){
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmt(avail)}</div>
+      ${colorBtn}
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
   const shownIds=shown.map(p=>p.id);
@@ -4471,10 +4476,67 @@ function findInvProduct(pid){
   if(held && Number(held.id)===id) return held;
   return null;
 }
+function productVariantSum(pOrId){
+  const id=pOrId && typeof pOrId==='object' ? pOrId.id : pOrId;
+  if(id==null) return null;
+  return (CACHE._invVarSum && (CACHE._invVarSum[id]||CACHE._invVarSum[String(id)])) || null;
+}
 function productNeedsColorPick(p){
   if(!p) return false;
-  return Number(p.colors)>1 || Number(p.has_variants)===1 || Number(p.is_style)===1;
+  if(Number(p.has_variants)===1 || Number(p.variant_sku_count)>0) return true;
+  const sum=productVariantSum(p);
+  if(sum && Number(sum.has_matrix)===1) return true;
+  if(Array.isArray(sum && sum.colors) && sum.colors.length>1) return true;
+  return Number(p.colors)>1;
 }
+function applyVariantSumToProduct(p, sum){
+  if(!p || !sum) return;
+  if(Number(sum.has_matrix)===1) p.has_variants=1;
+  if(Array.isArray(sum.colors) && sum.colors.length)
+    p.colors=Math.max(Number(p.colors)||0, sum.colors.length);
+}
+function catalogCartQty(){
+  try{
+    const cart=JSON.parse(localStorage.getItem('marketer_cart')||'[]')||[];
+    if(!Array.isArray(cart)) return 0;
+    return cart.reduce((a,c)=>a+(Number(c.qty)||0),0);
+  }catch(_){ return 0; }
+}
+function openSalesCartPage(){
+  window.__mkOpenTab='cart';
+  go('marketer');
+}
+function openSalesCheckoutPage(){
+  window.__mkOpenTab='invoice';
+  go('marketer');
+}
+function refreshCatalogSalesBar(){
+  const bar=el('catalogSalesBar');
+  if(!bar) return;
+  const n=catalogCartQty();
+  if(!n){
+    bar.innerHTML='<span class="muted">رنگ مشتری را روی کارت بزنید؛ کالا به سبد فروش می‌رود</span>';
+    return;
+  }
+  bar.innerHTML=`🛒 سبد فروش: <b>${fmt(n)}</b> عدد
+    <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){openSalesCartPage()})}">مشاهده سبد</button>
+    <button type="button" class="btn sm green" data-csp-click="${CSP.bind('click',function(){openSalesCheckoutPage()})}">صدور فاکتور</button>`;
+}
+function notifySalesCartChanged(){
+  try{ refreshCatalogSalesBar(); }catch(_){}
+  try{
+    const badge=document.getElementById('mkCartBadge');
+    if(badge) badge.textContent=String(catalogCartQty());
+  }catch(_){}
+}
+function catalogAddToCart(pid){
+  if(window.MarketerUI && typeof MarketerUI.addToCart==='function'){
+    MarketerUI.addToCart(pid);
+    return;
+  }
+  showToast('سبد فروش در دسترس نیست','error');
+}
+
 function safeCssHex(h){
   const s=String(h||'').trim();
   return /^#[0-9A-Fa-f]{3,8}$/.test(s) ? s : '';
@@ -4627,19 +4689,21 @@ function openInvVariantSplitModal(p, pack, opts){
   const confirmLabel=dest==='marketer'
     ? (replaceIndices?'اعمال روی سبد':'افزودن به سبد')
     : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور');
+  const firstColor=colorMeta.length?colorMeta[0].name:'*';
   const hint=dest==='marketer'
-    ? 'فقط تعداد رنگ و سایزی را بزنید که مشتری می‌خواهد. بقیه را صفر بگذارید. روی رنگ بزنید تا جدول فیلتر شود.'
-    : 'پک زنده = '+fmt(pack.pack)+' عدد. فقط تعداد ترکیب‌های موردنظر را بزنید (پیش‌فرض صفر). روی رنگ بزنید تا جدول فیلتر شود.';
+    ? '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).'
+    : '۱) رنگ را انتخاب کنید  ۲) سایز و تعداد را بزنید. پک زنده = '+fmt(pack.pack)+' عدد.';
   openNestedModal(`
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">${esc(hint)}</p>
       <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-        <button type="button" class="var-chip var-chip-btn is-on" data-color="*" data-csp-click="${chipBind}">همه</button>
+        <button type="button" class="var-chip var-chip-btn${firstColor==='*'?' is-on':''}" data-color="*" data-csp-click="${chipBind}">همه</button>
         ${colorMeta.map(c=>{
-          const sw=c.hex?`<span class="var-swatch" data-csp-style="${CSP.style(`background:${c.hex}`)}"></span>`:'';
-          return `<button type="button" class="var-chip var-chip-btn" data-color="${esc(c.name)}" data-csp-click="${chipBind}">${sw}${esc(c.name)}</button>`;
+          const sw=c.hex?`<span class="var-swatch var-swatch-lg" data-csp-style="${CSP.style(`background:${c.hex}`)}"></span>`:'';
+          const on=c.name===firstColor?' is-on':'';
+          return `<button type="button" class="var-chip var-chip-btn${on}" data-color="${esc(c.name)}" data-csp-click="${chipBind}">${sw}${esc(c.name)}</button>`;
         }).join('')}
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی</th><th>تعداد</th></tr></thead>
@@ -4664,6 +4728,9 @@ function openInvVariantSplitModal(p, pack, opts){
       <button class="btn" data-csp-click="${splitConfirmBind}">${esc(confirmLabel)}</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
     </div>`);
+  if(firstColor && firstColor!=='*'){
+    try{ filterInvVariantColor(firstColor); }catch(_){}
+  }
 }
 function confirmInvVariantSplit(pid, opts){
   opts=opts||{};
@@ -5321,6 +5388,7 @@ async function productsPage(canEdit, opts){
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })})}">📷 اسکن بارکد</button>
         ${excelButtonsHtml('products')}`:''}
     </div>
+    ${isCatalog && typeof isRepRole==='function' && isRepRole(ME?.role)?`<div id="catalogSalesBar" class="catalog-sales-bar"></div>`:''}
     <div id="pBulkBar" data-csp-style="${CSP.style(`display:none;background:var(--purple-light);border-radius:8px;padding:10px 14px;margin-bottom:10px;flex-wrap:wrap;gap:8px;align-items:center`)}">
       <span id="pSelCount" data-csp-style="${CSP.style(`font-weight:600;color:var(--purple)`)}">۰ کالا انتخاب شده</span>
       ${canEdit?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){bulkProdDelete()})}">🗑️ حذف انتخاب‌شده‌ها</button>`:''}
@@ -5353,13 +5421,20 @@ function renderProdGrid(canEdit){
   if(bar) bar.style.display = prodSelected.size>0 ? 'flex' : 'none';
   if(cnt) cnt.textContent = `${prodSelected.size} کالا انتخاب شده`;
   const isCatalog = CURRENT_PAGE === 'catalog';
+  const salesCatalog = isCatalog && typeof isRepRole==='function' && isRepRole(ME?.role);
   grid.innerHTML = CACHE.products.map(p=>productCardHtml(p,{
     canEdit,
-    selectable:true,
+    selectable:!salesCatalog,
     selected:prodSelected.has(p.id),
     showWarehouse:!isCatalog,
-    warehouseFilter:prodFilter.warehouse_id
+    warehouseFilter:prodFilter.warehouse_id,
+    addToCartFn: salesCatalog ? 'catalogAddToCart' : null
   })).join('') || '<div class="empty">کالایی یافت نشد</div>';
+  if(salesCatalog){
+    const ids=CACHE.products.map(p=>p.id);
+    hydrateInvVarSum(ids).then(changed=>{ if(changed && el('prodGrid')) renderProdGrid(canEdit); });
+  }
+  try{ refreshCatalogSalesBar(); }catch(_){}
 }
 /** Shared catalog-style product card (کاتالوگ / فروش بازاریاب). */
 function productCardHtml(p, opts){
@@ -20995,7 +21070,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. تعریف ماتریس فقط مدیر/حسابدار است. انتخاب رنگ برای مشتری در فاکتورساز و در «فروش بازاریاب» (کارشناس میدانی، تلفنی و شعب) همان پنجره است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. تعریف ماتریس فقط مدیر/حسابدار است. انتخاب رنگ برای مشتری در فاکتورساز، کاتالوگ فروش و «فروش بازاریاب» (میدانی، تلفنی و شعب) همان پنجره است — تعریف ماتریس فقط مدیر/حسابدار. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -21517,7 +21592,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v209</b> است و اسکریپت‌ها با <code>?v=209</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v210</b> است و اسکریپت‌ها با <code>?v=210</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21714,7 +21789,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v209</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v210</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -21782,9 +21857,9 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🛒','فروش بازاریاب',`
-      <p>از منو «فروش بازاریاب»: کاتالوگ با همان قالب صفحه کاتالوگ، افزودن به سبد، سپس ثبت فاکتور. ترتیب نمایش کالاها از بیشترین موجودی به کمترین است. کارشناس میدانی، تلفنی و شعب رنگ مشتری را همین‌جا انتخاب می‌کنند.</p>
+      <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: همان دکمهٔ انتخاب رنگ، سبد مشترک، سپس ثبت فاکتور. ترتیب کالا از بیشترین موجودی است. کارشناس میدانی، تلفنی و شعب رنگ مشتری را انتخاب می‌کنند.</p>
       <ul>
-        <li>کالای رنگی: روی کارت <b>انتخاب رنگ</b> بزنید. فقط تعداد همان رنگ/سایزی را بزنید که مشتری می‌خواهد (بقیه صفر). با دکمهٔ رنگ جدول فیلتر می‌شود. در سبد «تغییر رنگ» همان پنجره را دوباره باز می‌کند</li>
+        <li>کالای رنگی: روی کارت <b>انتخاب رنگ</b> بزنید. اول رنگ، بعد سایز و تعداد (+/−). در سبد «تغییر رنگ» همان پنجره را دوباره باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
         <li>کالای بدون ماتریس: هر بار افزودن = <b>تعداد در پک</b></li>
         <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
         <li>اگر انبار فروش روی حساب شما ثبت شده باشد، بنر «انبار فروش» در کاتالوگ بازاریاب دیده می‌شود و فاکتورساز همان انبار را قفل می‌کند</li>

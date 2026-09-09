@@ -1466,3 +1466,9 @@ body.erp-demo-mode{padding-top:32px}
 }
 .mk-state-error{color:var(--red)}
 
+
+.catalog-sales-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--purple-light);border:1px solid var(--border);font-size:13px}
+.catalog-sales-bar .btn{margin:0}
+.pick-color-btn{width:100%;margin-top:8px;min-height:40px}
+.var-swatch-lg{width:18px;height:18px;flex:0 0 18px;border-radius:50%;border:1px solid rgba(0,0,0,.2)}
+.var-chip-btn{min-height:44px;padding:10px 14px;font-size:14px}

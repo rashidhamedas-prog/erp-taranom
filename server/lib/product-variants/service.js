@@ -527,6 +527,38 @@ function styleMetadata(db, productId) {
   };
 }
 
+/**
+ * Stamp live SKU flags onto product list/detail rows so sales catalog
+ * buttons do not depend on the stale products.has_variants column alone.
+ */
+function attachVariantFlags(db, rows) {
+  const list = Array.isArray(rows) ? rows : (rows ? [rows] : []);
+  if (!list.length) return rows;
+  try {
+    const ids = list.map((r) => Number(r && r.id)).filter((n) => Number.isFinite(n) && n > 0);
+    if (!ids.length) return rows;
+    const map = new Map();
+    const chunk = 200;
+    for (let i = 0; i < ids.length; i += chunk) {
+      const part = ids.slice(i, i + chunk);
+      const ph = part.map(() => '?').join(',');
+      const counts = db.prepare(`
+        SELECT product_id, COUNT(*) AS c
+        FROM product_variants
+        WHERE active=1 AND COALESCE(is_default,0)=0 AND product_id IN (${ph})
+        GROUP BY product_id
+      `).all(...part);
+      counts.forEach((x) => map.set(Number(x.product_id), Number(x.c) || 0));
+    }
+    for (const row of list) {
+      const c = map.get(Number(row.id)) || 0;
+      row.variant_sku_count = c;
+      if (c > 0) row.has_variants = 1;
+    }
+  } catch (_) { /* product_variants may be absent on very old DBs */ }
+  return rows;
+}
+
 function variantLineSummary(db, productId) {
   const pack = packSizeFor(db, productId);
   if (!pack.has_matrix) {
@@ -567,5 +599,6 @@ module.exports = {
   deactivateUnselectedVariants,
   styleMetadata,
   variantLineSummary,
+  attachVariantFlags,
 };
 

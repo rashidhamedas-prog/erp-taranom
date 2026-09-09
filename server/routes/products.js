@@ -12,6 +12,7 @@ const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const { applyNameCodeBarcodeSkuSearch, attachAvailableQty } = require('../lib/inventory/product-line-search');
 const { applyCatalogCostPolicy } = require('../lib/catalog-cost-policy');
+const { attachVariantFlags } = require('../lib/product-variants');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
@@ -199,6 +200,7 @@ router.get('/', auth, (req, res) => {
     row.images = imgs;
     if (!row.image && imgs[0]) row.image = imgs[0].filename;
   }
+  attachVariantFlags(db, rows);
   if (warehouseId) attachAvailableQty(db, rows, warehouseId);
   res.json(applyCatalogCostPolicy(db, req.user, listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query)));
 });
@@ -298,6 +300,7 @@ router.get('/:id', auth, (req, res) => {
     try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
   }
   if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
+  attachVariantFlags(db, row);
   res.json(applyCatalogCostPolicy(db, req.user, jsonSafeProduct(row)));
 });
 
