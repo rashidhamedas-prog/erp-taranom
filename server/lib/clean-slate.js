@@ -87,6 +87,35 @@ const TXN_PROBE = [
   'rep_payment_submissions', 'vat_records', 'consignments',
 ];
 
+/** Extra probes for افتتاح سال خام — catalog must actually disappear. */
+const CATALOG_PROBE = [
+  'products', 'product_images', 'product_colors', 'product_sizes',
+  'product_style_colors', 'product_style_sizes', 'product_variants',
+  'product_categories', 'warehouse_stock',
+  'customers', 'customer_groups', 'suppliers',
+  'persons', 'parties', 'party_groups', 'person_categories',
+  'detail_accounts', 'bom_headers', 'bom_lines', 'bom_operations', 'bom_outputs',
+];
+
+/**
+ * Keep company identity + empty infrastructure (انبار/بانک/صندوق/واحد/مرکز هزینه).
+ * Do NOT keep کالا / مشتری / تأمین‌کننده / فرمول ساخت.
+ */
+const OPEN_CLEAN_KEEP = new Set([
+  ...ALWAYS_KEEP,
+  'warehouses',
+  'units_of_measure',
+  'cost_centers',
+  'expense_categories',
+  'banks',
+  'cash_boxes',
+  'check_categories',
+  'currencies',
+  'positions',
+  'user_cost_centers',
+  'detail_categories',
+]);
+
 function assertSafeTable(name) {
   if (!TABLE_RE.test(name)) throw new Error('نام جدول نامعتبر است');
   return name;
@@ -111,9 +140,10 @@ function countRows(db, name) {
   }
 }
 
-function snapshotTxnCounts(db) {
+function snapshotTxnCounts(db, extra = []) {
   const out = {};
-  for (const t of TXN_PROBE) {
+  const names = [...TXN_PROBE, ...extra];
+  for (const t of names) {
     if (tableExists(db, t)) out[t] = countRows(db, t);
   }
   return out;
@@ -121,7 +151,15 @@ function snapshotTxnCounts(db) {
 
 function keepSetForMode(mode) {
   if (mode === 'full' || mode === 'wipe_master') return ALWAYS_KEEP;
+  if (mode === 'open-clean') return OPEN_CLEAN_KEEP;
   return MASTER_KEEP;
+}
+
+function probeTablesForMode(mode) {
+  if (mode === 'open-clean' || mode === 'full' || mode === 'wipe_master') {
+    return [...TXN_PROBE, ...CATALOG_PROBE];
+  }
+  return TXN_PROBE;
 }
 
 function resetMasterBalances(db) {
@@ -182,15 +220,15 @@ function purgeTransactionalData(db, opts = {}) {
           errors.push(t + ': ' + (e.message || e));
         }
       }
-      resetMasterBalances(db);
-      if (mode === 'full' || mode === 'wipe_master') {
+      if (mode === 'open-clean' || mode === 'full' || mode === 'wipe_master') {
         try { db.prepare('DELETE FROM warehouse_stock').run(); } catch { /* ignore */ }
+        try { db.prepare('UPDATE users SET party_id=NULL').run(); } catch { /* column may not exist */ }
+        try { db.exec('UPDATE number_sequences SET current_value=0'); } catch { /* ignore */ }
+      } else {
+        resetMasterBalances(db);
       }
       resetSqliteSequence(db, wiped);
       clearTransactionalSettings(db);
-      if (mode === 'full' || mode === 'wipe_master') {
-        try { db.prepare('UPDATE users SET party_id=NULL').run(); } catch { /* column may not exist */ }
-      }
       if (typeof opts.after === 'function') opts.after(db);
     });
     run();
@@ -206,12 +244,12 @@ function purgeTransactionalData(db, opts = {}) {
   }
 
   const leftover = {};
-  for (const t of TXN_PROBE) {
+  for (const t of probeTablesForMode(mode)) {
     const n = countRows(db, t);
     if (n > 0) leftover[t] = n;
   }
   if (Object.keys(leftover).length) {
-    const err = new Error('پس از پاک‌سازی هنوز سند باقی است: ' + JSON.stringify(leftover));
+    const err = new Error('پس از پاک‌سازی هنوز داده باقی است: ' + JSON.stringify(leftover));
     err.code = 'CLEAN_SLATE_LEFTOVER';
     err.leftover = leftover;
     throw err;
@@ -221,7 +259,7 @@ function purgeTransactionalData(db, opts = {}) {
     wiped,
     skipped,
     leftover,
-    counts: snapshotTxnCounts(db),
+    counts: snapshotTxnCounts(db, mode === 'open-clean' || mode === 'full' || mode === 'wipe_master' ? CATALOG_PROBE : []),
     mode,
   };
 }
@@ -237,7 +275,9 @@ function isWorkspaceClean(db) {
 module.exports = {
   ALWAYS_KEEP,
   MASTER_KEEP,
+  OPEN_CLEAN_KEEP,
   TXN_PROBE,
+  CATALOG_PROBE,
   listUserTables,
   snapshotTxnCounts,
   purgeTransactionalData,

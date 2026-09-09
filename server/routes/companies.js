@@ -1,10 +1,10 @@
 const router = require('express').Router();
-const bcrypt = require('bcryptjs');
 const { getDB, getDBPath, reopenDatabase, initDB, audit, isDevice } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const ws = require('../lib/company-workspace');
 const { revokeAllAuthSessions } = require('../lib/auth-sessions');
 const { beginCompanySwitch } = require('../lib/company-switch-guard');
+const { requireUserPassword, pickConfirmPassword } = require('../lib/password-verify');
 
 function activateCompanySafely(companyId, options = {}) {
   const previousCompany = ws.getActiveCompany();
@@ -139,17 +139,14 @@ router.post('/:id/activate', auth, adminOnly, centralOnly, (req, res) => {
 
 router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
   try {
-    const { confirm_password, confirm_text } = req.body || {};
-    const user = getDB().prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
-    if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
-      return res.status(403).json({ error: 'رمز عبور نادرست است' });
-    }
+    const { confirm_text } = req.body || {};
+    requireUserPassword(getDB(), req.user.id, pickConfirmPassword(req.body));
     const force = confirm_text === 'DELETE-COMPANY';
     const result = ws.deleteCompanyWorkspace(req.params.id, { force });
     audit(req.user.id, 'company_delete', 'company', result.id, 'حذف شرکت');
     res.json({ ok: true, ...result });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 

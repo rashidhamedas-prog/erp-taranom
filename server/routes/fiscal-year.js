@@ -1,5 +1,4 @@
 const router = require('express').Router();
-const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
@@ -7,6 +6,7 @@ const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { purgeTransactionalData, isWorkspaceClean } = require('../lib/clean-slate');
+const { requireUserPassword, pickConfirmPassword } = require('../lib/password-verify');
 
 function currentFiscalYear(db) {
   const activeId = db.prepare("SELECT value FROM settings WHERE key='active_fiscal_year_id'").get()?.value;
@@ -50,12 +50,7 @@ function yearPnLNetRial(db, fyId) {
 }
 
 function requireAdminPassword(db, userId, password) {
-  const user = db.prepare('SELECT password FROM users WHERE id=?').get(userId);
-  if (!user || !bcrypt.compareSync(password || '', user.password)) {
-    const err = new Error('رمز عبور نادرست است');
-    err.status = 403;
-    throw err;
-  }
+  requireUserPassword(db, userId, password);
 }
 
 function fyTxnCount(db, fyId) {
@@ -172,13 +167,12 @@ function openFreshYear(db, { label, startDate, endDate, userId, mode }) {
 // Pathway 2: Factory reset — purge transactions, keep master data
 router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
   try {
-    const { confirm_password, confirm_text } = req.body || {};
+    const { confirm_text } = req.body || {};
     if (confirm_text !== 'RESET-FISCAL') {
       return res.status(400).json({ error: 'متن تأیید نادرست است — RESET-FISCAL را تایپ کنید' });
     }
     const db = getDB();
-    assertNotLegacyLocked(db, 'بازنشانی کامل');
-    requireAdminPassword(db, req.user.id, confirm_password);
+    requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
     const label = 'سال مالی جدید ' + todayJalali().slice(0, 4);
     const opened = openFreshYear(db, {
       label,
@@ -200,16 +194,14 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 /**
- * Open a brand-new fiscal year with completely raw transactional data.
- * Keeps master data (customers/products/COA/users) unless wipe_master=true.
- * Confirm: OPEN-CLEAN-YEAR + password.
+ * Open a brand-new fiscal year from zero: documents + customers + products.
+ * Keeps users, COA, settings, empty warehouses/banks. Confirm: OPEN-CLEAN-YEAR + password.
  */
 router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
   try {
     const {
       label, start_date, end_date,
-      confirm_password, confirm_text,
-      wipe_master,
+      confirm_text,
     } = req.body || {};
     if (confirm_text !== 'OPEN-CLEAN-YEAR') {
       return res.status(400).json({ error: 'متن تأیید نادرست است — OPEN-CLEAN-YEAR را تایپ کنید' });
@@ -218,14 +210,13 @@ router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
       return res.status(400).json({ error: 'برچسب و تاریخ شروع الزامی است' });
     }
     const db = getDB();
-    assertNotLegacyLocked(db, 'افتتاح سال خام');
-    requireAdminPassword(db, req.user.id, confirm_password);
+    requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
     const opened = openFreshYear(db, {
       label,
       startDate: start_date,
       endDate: end_date || '',
       userId: req.user.id,
-      mode: wipe_master ? 'wipe_master' : 'transactions',
+      mode: 'open-clean',
     });
     audit(req.user.id, 'fiscal_open_clean', 'fiscal_year', opened.fyId, `افتتاح سال خام ${label}`);
     res.json({
@@ -233,7 +224,7 @@ router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
       fiscal_year_id: opened.fyId,
       reload: true,
       cleanliness: opened.wipe.counts,
-      wipe_master: !!wipe_master,
+      wiped_catalog: true,
     });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code, leftover: e.leftover });
@@ -297,9 +288,10 @@ router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
         txn_count: counts.journal_entries,
       });
     }
-    const user = db.prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
-    if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
-      return res.status(403).json({ error: 'رمز عبور نادرست است' });
+    try {
+      requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body) || confirm_password);
+    } catch (e) {
+      return res.status(e.status || 403).json({ error: e.message, code: e.code });
     }
   }
 

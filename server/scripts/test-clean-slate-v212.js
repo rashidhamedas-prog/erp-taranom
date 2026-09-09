@@ -81,6 +81,16 @@ function main() {
     const fyBefore = db.prepare('SELECT COUNT(*) c FROM fiscal_years').get().c;
     ok('fiscal years kept on txn wipe', fyBefore >= 1);
 
+    try {
+      db.prepare("INSERT INTO products (name, sku, stock) VALUES (?,?,?)").run('کالای تست پاک‌سازی', 'SLATE-1', 7);
+    } catch { /* schema variant */ }
+    const catalogWipe = purgeTransactionalData(db, { mode: 'open-clean' });
+    eq('open-clean invoices', catalogWipe.counts.invoices || 0, 0);
+    eq('open-clean customers', catalogWipe.counts.customers || 0, 0);
+    eq('open-clean products', catalogWipe.counts.products || 0, 0);
+    ok('users kept after open-clean', !!db.prepare("SELECT id FROM users WHERE username='admin'").get());
+    ok('coa kept after open-clean', (db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c || 0) > 0);
+
     const ws = require('../lib/company-workspace');
     const entry = ws.createCompanyWorkspace({
       name: 'شرکت تست خام ۲۱۲',

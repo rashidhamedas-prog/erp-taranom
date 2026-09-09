@@ -229,6 +229,8 @@ async function api(method, path, data, isFormData, silent){
         demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
         E_COLOR_INVALID_HEX:'کد رنگ باید #RGB یا #RRGGBB باشد',
         E_COLOR_DUPLICATE:'این کد رنگ قبلاً ثبت شده است',
+        E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
+        E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
       };
       if(!silent) showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
       const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
@@ -1384,6 +1386,7 @@ function logout(){
   localStorage.removeItem('crm_user');
   setME(null);
   el('app').style.display='none';
+  armLoginAutofill();
   el('login').style.display='flex';
 }
 
@@ -1725,6 +1728,12 @@ function guardBackupAccess(){
   return false;
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
+function isSalesProformaOnlyRole(r){ return isRepRole(r) || r==='salesperson'; }
+function canConvertProforma(){
+  const r=ME&&ME.role;
+  if(isSalesProformaOnlyRole(r)) return false;
+  return r==='admin'||r==='accounting'||r==='sales_manager';
+}
 const REP_EXPENSE_CATS_FALLBACK={
   transport:'حمل‌ونقل', fuel:'سوخت', hotel:'هتل', meals:'پذیرایی',
   gifts:'هدایا', advertising:'تبلیغات', entertainment:'پذیرایی مشتری',
@@ -2024,9 +2033,22 @@ function canPerm(resource, action){
 function canAccounting(){ return ME && (ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'); }
 function canRepAdmin(){ return canAccounting(); }
 
+function disarmLoginAutofill(){
+  const u=el('loginUser'), p=el('loginPass'), f=el('loginForm');
+  if(p){ p.value=''; p.setAttribute('autocomplete','off'); p.setAttribute('name','erp_disarmed_pass'); }
+  if(u){ u.setAttribute('autocomplete','off'); }
+  if(f) f.setAttribute('autocomplete','off');
+}
+function armLoginAutofill(){
+  const u=el('loginUser'), p=el('loginPass'), f=el('loginForm');
+  if(p){ p.setAttribute('autocomplete','current-password'); p.removeAttribute('name'); }
+  if(u){ u.setAttribute('autocomplete','username'); }
+  if(f) f.removeAttribute('autocomplete');
+}
 async function boot(){
   el('login').style.display='none';
   el('app').style.display='block';
+  disarmLoginAutofill();
   let stored = JSON.parse(localStorage.getItem('crm_user')||'null');
   setME(stored);
   try{
@@ -4170,7 +4192,7 @@ ROUTES.invoices = async function(){
 
     <div class="toolbar">
       <input class="search" id="iSearch" placeholder="🔍 جستجو: شماره فاکتور، نام مشتری، تلفن، کارشناس..." value="${esc(invFilter.q)}" data-csp-style="${CSP.style(`min-width:280px`)}">
-      ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">➕ فاکتور جدید</button>`:''}
+      ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">${isSalesProformaOnlyRole(ME?.role)?'➕ پیش‌فاکتور جدید':'➕ فاکتور جدید'}</button>`:''}
       ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('invoices')})}">📥 اکسل</button>`:''}
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
@@ -4200,7 +4222,7 @@ function renderInvTable(){
     <td class="muted">${esc(i.seller_name||'-')}</td>
     <td>
       <div class="inv-actions-cell">
-        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+        ${i.type==='proforma' && !i.converted && canConvertProforma() ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
         ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
@@ -4275,13 +4297,14 @@ async function _openInvBuilder(id){
   })();
 
   const isSalesRole = typeof isRepRole==='function' && isRepRole(ME?.role);
+  const salesProformaOnly = typeof isSalesProformaOnlyRole==='function' && isSalesProformaOnlyRole(ME?.role);
   const defSalesWh = isSalesRole ? (ME?.sales_warehouse_id || inv?.warehouse_id || '') : (inv?.warehouse_id || ME?.sales_warehouse_id || '');
   const mkMeta = !id && window.__pendingMarketerInvMeta && typeof window.__pendingMarketerInvMeta==='object'
     ? window.__pendingMarketerInvMeta
     : null;
   if(!id) window.__pendingMarketerInvMeta = null;
-  const mkType = mkMeta && (mkMeta.type==='proforma'||mkMeta.type==='normal'||mkMeta.type==='final') ? mkMeta.type : null;
-  const builderType = inv ? inv.type : (mkType || 'proforma');
+  const mkType = !salesProformaOnly && mkMeta && (mkMeta.type==='proforma'||mkMeta.type==='normal'||mkMeta.type==='final') ? mkMeta.type : null;
+  const builderType = inv ? inv.type : (salesProformaOnly ? 'proforma' : (mkType || 'proforma'));
   const vatExemptChecked = inv
     ? !!Number(inv.vat_exempt)
     : (mkMeta && mkMeta.vatExempt!=null ? !!mkMeta.vatExempt : defaultVatExemptForType(builderType));
@@ -4290,7 +4313,7 @@ async function _openInvBuilder(id){
   window._invBuilderId = id || 0;
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش فاکتور':'فاکتور جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>${id?'ویرایش فاکتور':(salesProformaOnly?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}</div>
@@ -4298,12 +4321,13 @@ async function _openInvBuilder(id){
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
-        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${inv?'disabled':''}>
-          <option value="proforma" ${builderType==='proforma'?'selected':''}>پیش‌فاکتور</option>
-          <option value="normal" ${builderType==='normal'?'selected':''}>فاکتور معمولی</option>
-          <option value="final" ${builderType==='final'?'selected':''}>فاکتور رسمی</option></select>
-          ${inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
-          ${inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
+        <div class="fg"><label>نوع ${hlp(salesProformaOnly?'بازاریاب فقط پیش‌فاکتور ثبت می‌کند. تبدیل به فاکتور معمولی یا رسمی فقط توسط مدیر یا حسابدار انجام می‌شود.':'پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${(inv||salesProformaOnly)?'disabled':''}>
+          ${salesProformaOnly && inv && inv.type && inv.type!=='proforma'
+            ? `<option value="${esc(inv.type)}" selected>${inv.type==='normal'?'فاکتور معمولی':(inv.type==='final'?'فاکتور رسمی':esc(inv.type))}</option>`
+            : `<option value="proforma" ${builderType==='proforma'?'selected':''}>پیش‌فاکتور</option>${salesProformaOnly?'':`<option value="normal" ${builderType==='normal'?'selected':''}>فاکتور معمولی</option><option value="final" ${builderType==='final'?'selected':''}>فاکتور رسمی</option>`}`}</select>
+          ${salesProformaOnly?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">فقط پیش‌فاکتور. تبدیل به فاکتور قطعی را مدیر یا حسابدار انجام می‌دهد.</div>`:''}
+          ${!salesProformaOnly&&inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
+          ${!salesProformaOnly&&inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
@@ -4311,8 +4335,8 @@ async function _openInvBuilder(id){
           <select id="inv-warehouse" ${isSalesRole?'disabled':''}>${warehouseOptionsHtml(defSalesWh,'— انتخاب انبار —')}</select>
           ${isSalesRole?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}">انبار مبدأ شما ثابت است و قابل تغییر نیست.</div>`:''}
         </div>
-        <div class="fg"><label>مرکز هزینه ${hlp('اختیاری — برای گزارش هزینه/درآمد بر اساس مرکز.')}</label><select id="inv-cc"><option value="">—</option>
-          ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+        ${salesProformaOnly?`<input type="hidden" id="inv-cc" value="">`:`<div class="fg"><label>مرکز هزینه ${hlp('اختیاری — برای گزارش هزینه/درآمد بر اساس مرکز.')}</label><select id="inv-cc"><option value="">—</option>
+          ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`}
         <div class="fg"><label>کرایه حمل ${moneyColLabel()} ${hlp('مبلغ کرایه به ریال. با سرشکن روی ردیف‌ها تقسیم می‌شود.')}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
         <div class="fg"><label>سرشکن کرایه ${hlp('نسبت تقسیم کرایه روی اقلام: مبلغ، مقدار یا مساوی.')}</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
@@ -4395,7 +4419,7 @@ async function _openInvBuilder(id){
           ${isFinalEdit?`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این فرم ذخیره نمی‌شود. برای اصلاح باید <b>ابطال</b> کنید؛ ویرایش مستقیم سند جدید یا سند معکوس ثبت نمی‌کند.</div>`:`<button id="inv-save-btn" class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${id?'💾 ذخیره تغییرات':'💾 ذخیره فاکتور'}</button>
           ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود.</p>`:''}`}
           ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
-          ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
+          ${id&&inv&&inv.type==='proforma'&&!inv.converted&&canConvertProforma()?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
       </div>
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px`)}">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
@@ -6811,31 +6835,70 @@ function openTypedConfirm(opts){
   const phrase=opts.phrase||'';
   const needPass=!!opts.needPassword;
   openModal(`<div class="modal-head"><h3>${esc(opts.title||'تأیید عملیات حساس')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <form id="tc-form" autocomplete="off" data-csp-style="${CSP.style(`margin:0`)}">
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin:0 0 12px`)}">${opts.body||''}</p>
       ${opts.warning?`<div class="warn" data-csp-style="${CSP.style(`margin:0 0 14px`)}">${opts.warning}</div>`:''}
-      <div class="fg"><label>عبارت تأیید را دقیقاً تایپ کنید — <b dir="ltr">${esc(phrase)}</b></label>
-        <input id="tc-phrase" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(phrase)}"></div>
-      ${needPass?`<div class="fg" data-csp-style="${CSP.style(`margin-top:10px`)}"><label>رمز عبور همین کاربر مدیر</label><input id="tc-pass" type="password" autocomplete="current-password"></div>`:''}
+      <div class="fg"><label>عبارت تأیید — <b dir="ltr">${esc(phrase)}</b></label>
+        <div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center`)}">
+          <input id="tc-phrase" name="erp_confirm_phrase" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(phrase)}" data-csp-style="${CSP.style(`flex:1`)}">
+          <button type="button" class="btn ghost sm" id="tc-fill" data-csp-click="${CSP.bind('click',function(event){const i=el('tc-phrase'); if(i) i.value=window.__typedConfirm?.phrase||''; el('tc-pass')?.focus();})}">درج عبارت</button>
+        </div>
+      </div>
+      ${needPass?`<div class="fg" data-csp-style="${CSP.style(`margin-top:10px`)}"><label>رمز ورود همین کاربر مدیر (نه عبارت بالا)</label>
+        <input id="tc-pass" type="password" name="erp_stepup_password" autocomplete="new-password" autocorrect="off" spellcheck="false" readonly></div>`:''}
+      <div id="tc-err" class="muted" data-csp-style="${CSP.style(`color:var(--red);margin-top:10px;min-height:1.2em`)}" role="alert"></div>
     </div>
     <div class="modal-foot">
-      <button class="btn red" data-csp-click="${CSP.bind('click',function(event){submitTypedConfirm()})}">${esc(opts.okLabel||'تأیید و اجرا')}</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-    </div>`);
-  window.__typedConfirm={ phrase, needPass, onOk:opts.onOk };
+      <button type="submit" class="btn red" id="tc-ok">${esc(opts.okLabel||'تأیید و اجرا')}</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>
+    </form>`);
+  window.__typedConfirm={ phrase, needPass, onOk:opts.onOk, typedPass:'' };
+  const form=el('tc-form');
+  if(form){
+    form.addEventListener('submit', function(ev){ ev.preventDefault(); submitTypedConfirm(); });
+  }
+  const passEl=el('tc-pass');
+  if(passEl){
+    passEl.addEventListener('focus', function(){ this.removeAttribute('readonly'); });
+    passEl.addEventListener('input', function(){ if(window.__typedConfirm) window.__typedConfirm.typedPass=this.value; });
+    passEl.addEventListener('paste', function(){ const t=this; setTimeout(()=>{ if(window.__typedConfirm) window.__typedConfirm.typedPass=t.value; },0); });
+  }
   setTimeout(()=>{ try{ el('tc-phrase')?.focus(); }catch(_){} }, 50);
 }
 async function submitTypedConfirm(){
   const cfg=window.__typedConfirm;
-  if(!cfg) return;
+  if(!cfg || cfg.busy) return;
+  const errBox=el('tc-err');
   const typed=(el('tc-phrase')?.value||'').trim();
-  if(typed!==cfg.phrase){ showToast('عبارت تأیید نادرست است','error'); return; }
-  const pass=cfg.needPass?(el('tc-pass')?.value||''):'';
-  if(cfg.needPass && !pass){ showToast('رمز عبور الزامی است','error'); return; }
+  if(typed!==cfg.phrase){
+    if(errBox) errBox.textContent='عبارت تأیید نادرست است — دکمه «درج عبارت» را بزنید';
+    showToast('عبارت تأیید نادرست است','error');
+    return;
+  }
+  const pass=cfg.needPass?(cfg.typedPass || el('tc-pass')?.value || ''):'';
+  if(cfg.needPass && !String(pass).trim()){
+    if(errBox) errBox.textContent='رمز ورود مدیر را در فیلد رمز بنویسید';
+    showToast('رمز عبور الزامی است','error');
+    return;
+  }
   const onOk=cfg.onOk;
-  window.__typedConfirm=null;
-  closeModal();
-  if(typeof onOk==='function') await onOk({ password:pass, text:typed });
+  const okBtn=el('tc-ok');
+  cfg.busy=true;
+  if(okBtn) okBtn.disabled=true;
+  if(errBox) errBox.textContent='';
+  try{
+    if(typeof onOk==='function') await onOk({ password:pass, text:typed });
+    window.__typedConfirm=null;
+    closeModal();
+  }catch(e){
+    cfg.busy=false;
+    if(okBtn) okBtn.disabled=false;
+    const msg=e?.message||e?.error||'اجرا نشد';
+    if(errBox) errBox.textContent=msg;
+    showToast(msg,'error');
+  }
 }
 async function fiscalFactoryReset(){
   openTypedConfirm({
@@ -6846,7 +6909,7 @@ async function fiscalFactoryReset(){
     needPassword:true,
     okLabel:'بازنشانی کامل',
     onOk: async ({password,text})=>{
-      const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:password});
+      const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:password},false,true);
       if(r?.ok){ showToast('بازنشانی انجام شد — صفحه تازه می‌شود'); location.reload(); }
     }
   });
@@ -6858,17 +6921,17 @@ async function fiscalOpenCleanFromSettings(){
   if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
   openTypedConfirm({
     title:'افتتاح سال مالی خام',
-    body:`سال «${esc(label)}» از تاریخ ${esc(start)} باز می‌شود و همه تراکنش‌های این شرکت پاک می‌گردند. اطلاعات پایه (کالا، مشتری، کدینگ) می‌ماند.`,
-    warning:'فاکتور، سند، چک و گردش حساب حذف می‌شوند. اگر فقط می‌خواهید سال جدید با حفظ تاریخچه باز شود، از «انتقال با مانده» استفاده کنید.',
+    body:`سال «${esc(label)}» از تاریخ ${esc(start)} باز می‌شود. همه فاکتور، سند، چک، کالا و مشتری این شرکت پاک می‌شود. کاربران ورود، کدینگ، انبار خالی و بانک/صندوق می‌مانند.`,
+    warning:'برگشت‌پذیر نیست مگر از نسخه پشتیبان. رمز = همان رمز ورود شما، نه عبارت OPEN-CLEAN-YEAR. اگر فقط تاریخچه را می‌خواهید نگه دارید از «انتقال با مانده» استفاده کنید.',
     phrase:'OPEN-CLEAN-YEAR',
     needPassword:true,
     okLabel:'افتتاح سال خام',
     onOk: async ({password,text})=>{
       const r=await api('POST','/fiscal-year/open-clean',{
         label, start_date:start, end_date:end||'',
-        confirm_text:text, confirm_password:password, wipe_master:false
-      });
-      if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
+        confirm_text:text, confirm_password:password
+      },false,true);
+      if(r?.ok){ showToast('سال خام افتتاح شد — کالا و مشتری هم پاک شد'); location.reload(); }
     }
   });
 }
@@ -8854,7 +8917,7 @@ async function renderSalesInvoicesTab(body, typeLock){
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
       <td>
         <div class="inv-actions-cell">
-          ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+          ${i.type==='proforma' && !i.converted && canConvertProforma() ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
           <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
           ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
@@ -15895,7 +15958,7 @@ async function renderFiscalPeriodTab(body){
   body.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>${lucide('calendar')} عملیات سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:14px`)}">
-        <b>سال فعال</b> مبنای ثبت سند است. <b>افتتاح سال خام</b> همه فاکتور، سند، چک و گردش این شرکت را پاک می‌کند؛ کالا و مشتری می‌ماند. <b>انتقال با مانده</b> اسناد را نگه می‌دارد و فقط سال جدید باز می‌کند.<br>
+        <b>سال فعال</b> مبنای ثبت سند است. <b>افتتاح سال خام</b> فاکتور، سند، چک، کالا و مشتری این شرکت را پاک می‌کند. <b>انتقال با مانده</b> اسناد را نگه می‌دارد و فقط سال جدید باز می‌کند.<br>
         <b>حذف سال</b> فقط برای سال غیرفعال؛ اگر سند داشته باشد نیاز به تأیید اجباری دارد.
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg);margin-bottom:14px`)}">
@@ -15963,18 +16026,17 @@ async function fiscalOpenClean(){
   if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
   openTypedConfirm({
     title:'افتتاح سال مالی خام',
-    body:`سال «${esc(label)}» از ${esc(start)} باز می‌شود. همه فاکتور، سند، چک و گردش این شرکت پاک می‌شود. کالا و مشتری می‌ماند.`,
-    warning:'اگر می‌خواهید تاریخچه سال قبل بماند، انصراف دهید و «انتقال با مانده» را بزنید.',
+    body:`سال «${esc(label)}» از ${esc(start)} باز می‌شود. همه فاکتور، سند، چک، کالا و مشتری این شرکت پاک می‌شود. کاربران ورود، کدینگ، انبار خالی و بانک/صندوق می‌مانند.`,
+    warning:'رمز = همان رمز ورود شما، نه عبارت OPEN-CLEAN-YEAR. اگر تاریخچه سال قبل را می‌خواهید نگه دارید از «انتقال با مانده» استفاده کنید.',
     phrase:'OPEN-CLEAN-YEAR',
     needPassword:true,
     okLabel:'افتتاح سال خام',
     onOk: async ({password,text})=>{
       const r=await api('POST','/fiscal-year/open-clean',{
         label, start_date:start, end_date:end||'',
-        confirm_text:text, confirm_password:password,
-        wipe_master:false
-      });
-      if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
+        confirm_text:text, confirm_password:password
+      },false,true);
+      if(r?.ok){ showToast('سال خام افتتاح شد — کالا و مشتری هم پاک شد'); location.reload(); }
     }
   });
 }
@@ -20507,7 +20569,7 @@ ROUTES.settings = async function(){
     <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
         <b>انتقال با مانده:</b> سال جاری بسته می‌شود؛ فاکتورها و اسناد حذف نمی‌شوند و در بایگانی همان سال می‌مانند. سود و زیان همان سال به افتتاحیه سال جدید می‌رود.<br>
-        <b>افتتاح سال خام:</b> همه تراکنش‌های این شرکت پاک می‌شود و سال جدید از صفر باز می‌شود — کالا و مشتری می‌ماند. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + رمز.<br>
+        <b>افتتاح سال خام:</b> فاکتور، سند، چک، کالا و مشتری پاک می‌شود و سال از صفر باز می‌شود. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + همان رمز ورود (نه عبارت تأیید).<br>
         <b>بازنشانی کامل:</b> همان پاک‌سازی تراکنش با سال جدید از امروز. در حالت کدینگ تفصیلی غیرفعال است.
       </div>
       <div class="form-grid">
@@ -21726,7 +21788,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v212</b> است و اسکریپت‌ها با <code>?v=212</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v213</b> است و اسکریپت‌ها با <code>?v=213</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21809,7 +21871,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>از <b>تنظیمات → عمومی</b> چند شرکت بسازید؛ هر شرکت فایل پایگاه جدا دارد. «ایجاد شرکت (خام)» فاکتور و سند شرکت جدید را صفر می‌کند و کالا/مشتری شرکت فعلی را کپی نمی‌کند. تا وقتی «انتخاب» نزنید روی شرکت قبلی می‌مانید. پس از تعویض شرکت باید دوباره وارد شوید.</p>
       <p>از <b>تنظیمات → حسابداری</b> یا <b>حسابداری → عملیات سال مالی</b>:</p>
       <ul>
-        <li><b>افتتاح سال خام</b>: پاک کردن همه تراکنش‌ها (فاکتور، سند، چک، گردش، انبارگردانی) و باز کردن سال جدید. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + رمز مدیر. اگر سندی باقی بماند سرور خطا می‌دهد و دروغ نمی‌گوید که پاک شده.</li>
+        <li><b>افتتاح سال خام</b>: پاک کردن فاکتور، سند، چک، گردش، کالا و مشتری و باز کردن سال جدید. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> با دکمه «درج عبارت» + <b>همان رمز ورود به برنامه</b> (عبارت تأیید رمز نیست). اگر سندی یا کالایی باقی بماند سرور خطا می‌دهد.</li>
         <li><b>انتقال با مانده</b>: اسناد سال قبل حذف نمی‌شوند؛ سود و زیان همان سال به افتتاحیه سال جدید می‌رود.</li>
         <li><b>بازنشانی کامل</b>: همان پاک‌سازی تراکنش با سال از امروز (<code dir="ltr">RESET-FISCAL</code>). در کدینگ تفصیلی مسدود است.</li>
         <li><b>فعال‌سازی / قفل / حذف سال</b>: مبنای ثبت سند، مسدود کردن ثبت، یا حذف سال غیرفعال.</li>

@@ -4,9 +4,9 @@
  * Never touches: users, settings, chart_of_accounts, api_keys, fiscal_years.
  */
 const router = require('express').Router();
-const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnlyStrict } = require('../middleware/auth');
+const { requireUserPassword, pickConfirmPassword } = require('../lib/password-verify');
 
 const PROTECTED = new Set([
   'users', 'settings', 'chart_of_accounts', 'api_keys', 'fiscal_years',
@@ -188,7 +188,7 @@ router.get('/sections', auth, adminOnly, centralOnlyStrict, (req, res) => {
 });
 
 router.post('/wipe', auth, adminOnly, centralOnlyStrict, (req, res) => {
-  const { section, mode, confirm_text, confirm_password } = req.body || {};
+  const { section, mode, confirm_text } = req.body || {};
   const sec = SECTIONS[section];
   if (!sec) return res.status(400).json({ error: 'بخش نامعتبر است' });
   if (mode !== 'transactions' && mode !== 'full') {
@@ -199,9 +199,10 @@ router.post('/wipe', auth, adminOnly, centralOnlyStrict, (req, res) => {
     return res.status(400).json({ error: `متن تأیید نادرست است — ${expected} را تایپ کنید` });
   }
   const db = getDB();
-  const user = db.prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
-  if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
-    return res.status(403).json({ error: 'رمز عبور نادرست است' });
+  try {
+    requireUserPassword(db, req.user.id, pickConfirmPassword(req.body));
+  } catch (e) {
+    return res.status(e.status || 403).json({ error: e.message, code: e.code });
   }
 
   const tables = mode === 'full' ? (sec.full || []) : (sec.transactions || []);

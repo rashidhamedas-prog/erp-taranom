@@ -22,15 +22,12 @@ const { validatePassword } = require('../lib/security');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
 const { publicInviteView, acceptInvitation } = require('../lib/user-invitations');
-const { publicStaffUser } = require('../lib/staff-public');
+const { passwordsMatch, DUMMY_HASH, normalizePlain } = require('../lib/password-verify');
 
 const OTP_TTL_SEC = 10 * 60;
 const MAX_OTP_ATTEMPTS = 5;
 const LOGIN_WINDOW_SEC = 15 * 60;
 const LOGIN_FAILURE_MESSAGE = 'نام کاربری یا رمز عبور اشتباه است یا تلاش‌ها بیش از حد مجاز بوده است';
-// Unknown accounts still execute bcrypt so timing does not become a username
-// enumeration channel. The value is process-local and is never persisted.
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
 
 function loginIp(req) {
   return String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 128);
@@ -105,7 +102,7 @@ function loginPayload(db, user, deviceInput) {
 // Login
 router.post('/login', (req, res) => {
   const username = normalizeUsername(req.body.username);
-  const password = (req.body.password || '').slice(0, 128);
+  const password = normalizePlain(req.body.password);
   if (!username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
 
   const ip = loginIp(req);
@@ -117,7 +114,7 @@ router.post('/login', (req, res) => {
 
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-  const passwordMatches = bcrypt.compareSync(password, user && user.password ? user.password : DUMMY_PASSWORD_HASH);
+  const passwordMatches = passwordsMatch(password, user && user.password ? user.password : DUMMY_HASH);
   if (!user || !passwordMatches) {
     const identityLimit = consumeRateLimit('login_identity', username, {
       max: 10, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC,
