@@ -22,6 +22,7 @@ const { validatePassword } = require('../lib/security');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
 const { publicInviteView, acceptInvitation } = require('../lib/user-invitations');
+const { publicStaffUser } = require('../lib/staff-public');
 
 const OTP_TTL_SEC = 10 * 60;
 const MAX_OTP_ATTEMPTS = 5;
@@ -97,13 +98,7 @@ function loginPayload(db, user, deviceInput) {
   return {
     token: issued.token,
     must_change_password: mustChange,
-    user: {
-      id: user.id,
-      name: user.name,
-      username: user.username,
-      role: user.role,
-      phone: user.phone || '',
-    },
+    user: publicStaffUser(db, user),
   };
 }
 
@@ -360,7 +355,7 @@ router.get('/me', auth, (req, res) => {
       } catch (_) {}
     }
   } catch (_) {}
-  res.json({ ...user, is_marketer, catalog_category_ids });
+  res.json({ ...publicStaffUser(db, user), last_login: user.last_login, must_change_password: user.must_change_password, party_id: user.party_id, is_marketer, catalog_category_ids });
 });
 
 router.get('/users/:id/catalog-categories', auth, adminOnly, (req, res) => {

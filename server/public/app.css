@@ -1342,7 +1342,7 @@ body.erp-demo-mode{padding-top:32px}
   display: flex;
   gap: 4px;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 .inv-actions-cell .btn {
   padding: 5px 9px;

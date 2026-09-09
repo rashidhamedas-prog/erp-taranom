@@ -1,6 +1,6 @@
 /**
  * Marketer sales: Catalog (filters like کاتالوگ) → Cart (pack_size qty) → checkout → Invoice
- * Version marker: marketer-ui-v205 — keep in sync with SW / script ?v=
+ * Version marker: marketer-ui-v207 — keep in sync with SW / script ?v=
  *
  * Checkout writes window.__pendingMarketerInvMeta = { type, vatExempt } before
  * openInvBuilder(). app.js should read it when seeding a new invoice (#inv-type,
@@ -34,9 +34,14 @@
     return Math.max(1, parseInt(p && p.pack_size, 10) || 1);
   }
 
+  function me() {
+    return global.ME || (typeof window !== 'undefined' ? window.ME : null) || null;
+  }
+
   function canInvoice() {
     if (typeof canCreateInvoice === 'function') return canCreateInvoice();
-    return !!(global.ME && (ME.role === 'admin' || ME.role === 'accounting'));
+    const u = me();
+    return !!(u && (u.role === 'admin' || u.role === 'accounting'));
   }
 
   function lineSum(c) {
@@ -59,12 +64,14 @@
   }
 
   function salesWarehouseId() {
-    return (typeof ME !== 'undefined' && ME && ME.sales_warehouse_id) ? ME.sales_warehouse_id : null;
+    const u = me();
+    return (u && u.sales_warehouse_id) ? u.sales_warehouse_id : null;
   }
 
   function warehouseNameFromCache(id) {
     if (!id) return '';
-    if (typeof ME !== 'undefined' && ME && ME.sales_warehouse_name) return String(ME.sales_warehouse_name);
+    const u = me();
+    if (u && u.sales_warehouse_name) return String(u.sales_warehouse_name);
     const rows = (typeof CACHE !== 'undefined' && CACHE && (CACHE.warehouses || CACHE._prodWarehouses)) || [];
     const hit = rows.find(function (w) { return Number(w.id) === Number(id); });
     return (hit && hit.name) ? hit.name : '';
@@ -551,6 +558,6 @@
     remove,
     clearAfterInvoice,
     openInvoiceWithCart,
-    _ver: 'marketer-ui-v205'
+    _ver: 'marketer-ui-v207'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

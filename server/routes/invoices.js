@@ -11,6 +11,7 @@ const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { applyCatalogCostPolicy } = require('../lib/catalog-cost-policy');
 const {
   normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
   assertJournalIdempotent, assertWarehouseLines,
@@ -370,7 +371,7 @@ router.get('/:id', auth, (req, res) => {
   const row = loadInvoiceRow(db, req.params.id);
   if (!row) return res.status(404).json({ error: 'فاکتور پیدا نشد' });
   if (!canViewInvoice(req, row)) return res.status(403).json({ error: 'دسترسی ندارید' });
-  res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
+  res.json(applyCatalogCostPolicy(db, req.user, { ...row, rows: JSON.parse(row.rows || '[]') }));
 });
 
 router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
@@ -603,7 +604,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       }));
     } catch (_) {}
   }
-  res.json({ ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] });
+  res.json(applyCatalogCostPolicy(db, req.user, { ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] }));
 });
 
 router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
@@ -701,13 +702,13 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
         salesChannel: resolveSalesChannel(req),
       }))();
       const updated = db.prepare(`${INVOICE_JOIN_SQL} WHERE i.id=?`).get(row.id);
-      return res.json({
+      return res.json(applyCatalogCostPolicy(db, req.user, {
         ...updated,
         rows: JSON.parse((updated && updated.rows) || '[]'),
         amended: true,
         journal_id: amended.journal_id,
         used_warehouses: amended.usedWarehouses || [],
-      });
+      }));
     } catch (e) {
       return res.status(e.status || 400).json({ error: e.message, code: e.code });
     }

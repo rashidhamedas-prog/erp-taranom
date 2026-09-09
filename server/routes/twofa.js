@@ -17,6 +17,7 @@ const {
   SECRET,
 } = require('../lib/auth-sessions');
 const { encrypt, decrypt, sha256 } = require('../services/crypto');
+const { publicStaffUser } = require('../lib/staff-public');
 
 authenticator.options = { window: 1 }; // accept one 30s step of clock drift
 
@@ -26,7 +27,7 @@ function loginUserPayload(db, user, challengePayload) {
   return {
     token: issueStaffSession(db, user, challengeDevice(challengePayload)).token,
     must_change_password: mustChange,
-    user: { id: user.id, name: user.name, username: user.username, role: user.role, phone: user.phone || '' }
+    user: publicStaffUser(db, user)
   };
 }
 
