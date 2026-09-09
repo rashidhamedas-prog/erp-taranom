@@ -19,7 +19,7 @@
 - **باگ:** در `server/routes/auth.js` هنگام اتصال `password-verify` ایمپورت `publicStaffUser` حذف شده بود → بعد از تطبیق رمز، `POST /api/auth/login` با ۵۰۰ می‌افتاد (`publicStaffUser is not defined`).
 - **رفع:** ایمپورت `../lib/staff-public` برگردانده شد.
 - **فایل‌ها:** `server/routes/auth.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `04350cf` — login دیگر ۵۰۰ نیست (رمز اشتباه → ۴۰۱)
 - **SW:** بدون تغییر (erp-taranom-v213)
 
 ### ۱۴۰۵/۰۶/۱۹ — رمز تأیید سال مالی + افتتاح خام با پاک‌سازی کالا/مشتری (SW v213)
