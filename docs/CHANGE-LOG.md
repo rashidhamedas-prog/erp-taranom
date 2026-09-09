@@ -20,7 +20,7 @@
 - **بازاریاب:** همان picker با `dest=marketer`؛ سبد `variant_id`/رنگ/سایز را به فاکتورساز می‌برد؛ «تغییر رنگ» در سبد.
 - **فایل‌ها:** `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-color-pick-v208.js`
 - **تست:** color-pick ۲۹/۲۹؛ sms ۲۲/۲۲
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `d2c5dea` — `app.js?v=209` / `erp-taranom-v209`؛ merge → `main` + `claude/claude-md-docs-2ssrpy`
 - **SW:** erp-taranom-v209
 
 ### ۱۴۰۵/۰۶/۱۸ — رفع ریشه‌ای باگ‌های نرم تولید (P0/P1) + سخت‌گیری E2E (SW v208)
