@@ -25,7 +25,7 @@
 - **سفارش تولید:** `is_manufactured=0` → `E_NOT_MANUFACTURED`؛ POST کالا `E_ITEM_TYPE`.
 - **E2E:** soft-passها برداشته شد؛ assert واقعی برای receipt-before-release، yield، گزارشات، غیرساختنی.
 - **فایل‌ها:** `server/lib/production/{engine,engine-advanced,bom,bom-advanced,reports}.js`، `server/routes/{production-*,products}.js`، `server/scripts/test-production-*`، `server/public/{app.js,sw.js,index.html}`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `97a8b9e` — `app.js?v=208` / `erp-taranom-v208`؛ E2E زنده **۱۰۰/۰** (TAG `E2ETDLMHN`)
 - **SW:** erp-taranom-v208
 
 
