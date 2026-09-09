@@ -21,7 +21,7 @@
 - **UI:** دکمهٔ اصلی «افتتاح سال خام» با تأیید عبارتی؛ ایجاد شرکت بدون انتخاب، شرکت فعلی را عوض نمی‌کند.
 - **فایل‌ها:** `server/lib/clean-slate.js`, `server/lib/company-workspace.js`, `server/db.js`, `server/routes/{fiscal-year,companies}.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-clean-slate-v212.js`, `.cursor/skills/fiscal-company-workspace/SKILL.md`
 - **تست:** `app.js` با `new Function` پارس شد. sqlite روی Node 24 این ماشین (ABI better-sqlite3) اجرا نشد.
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `c4a3887` — `app.js?v=212` / `erp-taranom-v212`؛ health HTTP 200؛ `pm2 restart erp-taranom` (بدون `--update-env`)
 - **SW:** erp-taranom-v212
 
 ### ۱۴۰۵/۰۶/۱۸ — آموزش کامل بخش تولید (فایل Word)
