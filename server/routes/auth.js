@@ -22,6 +22,7 @@ const { validatePassword } = require('../lib/security');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
 const { publicInviteView, acceptInvitation } = require('../lib/user-invitations');
+const { publicStaffUser } = require('../lib/staff-public');
 const { passwordsMatch, DUMMY_HASH, normalizePlain } = require('../lib/password-verify');
 
 const OTP_TTL_SEC = 10 * 60;
