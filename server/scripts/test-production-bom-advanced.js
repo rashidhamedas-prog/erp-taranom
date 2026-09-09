@@ -264,8 +264,32 @@ try {
   adv.applyRoutingTemplate(db, d6.id, adminId);
   db.prepare('UPDATE bom_headers SET yield_percent=97 WHERE id=?').run(d6.id);
   throws('extra validateAdvancedBom routing+yield≠100', () => adv.validateAdvancedBom(db, d6.id), 'E_YIELD_DOUBLE_COUNT');
+  // P1: activateBom must also enforce V4-21 (not only validateAdvancedBom alone)
+  throws('extra activateBom routing+yield≠100', () => bom.activateBom(db, d6.id, '1405/01/01', adminId), 'E_YIELD_DOUBLE_COUNT');
 } catch (e) {
   ok('extra validateAdvancedBom routing+yield≠100', false, e.message);
+}
+
+// P0 — overlapping CC with BOM materials → W_CC_STAGE_OVERLAP (soft; engine issues once)
+try {
+  const dOverlap = bom.createBom(db, {
+    product_id: p101, name: 'cc overlap', yield_percent: 100, has_routing: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
+  }, adminId);
+  adv.addOperation(db, dOverlap.id, {
+    seq: 10, cost_center_id: cc['CC-10'], operation_name: 'برش',
+    labor_method: 'monthly', yield_percent: 100, normal_waste_percent: 0,
+  }, adminId);
+  adv.addOperation(db, dOverlap.id, {
+    seq: 70, cost_center_id: cc['CC-10'], operation_name: 'شخص',
+    labor_method: 'piece', labor_rate_rial: 1000, run_minutes_per_unit: 1,
+    yield_percent: 100, normal_waste_percent: 0,
+  }, adminId);
+  const vOverlap = adv.validateAdvancedBom(db, dOverlap.id);
+  const hasWarn = (vOverlap.warnings || []).some(w => w.code === 'W_CC_STAGE_OVERLAP');
+  ok('extra W_CC_STAGE_OVERLAP on shared CC+materials', hasWarn && vOverlap.ok === true);
+} catch (e) {
+  ok('extra W_CC_STAGE_OVERLAP on shared CC+materials', false, e.message);
 }
 
 // ═══ T4-24 — Bootstrap نرخ: حذف cost_center_rates یک مرکز → نرخ از ۳ ماه + is_estimated=1 ═══

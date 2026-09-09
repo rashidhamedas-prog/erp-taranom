@@ -137,7 +137,38 @@ function orderQtyStart(db, po) {
   return backwardQty(db, po.bom_id, po.qty_planned).qty_start;
 }
 
+/**
+ * BOM lines only carry stage_cost_center_id (no operation_id).
+ * When multiple routing ops / order stages share a CC, materials must issue
+ * exactly once — on the earliest stage (by seq) that owns that CC.
+ */
+function stageOwnsBomMaterials(db, po, stage) {
+  if (!stage?.cost_center_id) return false;
+  // Prefer routing: earliest bom_operation with this CC
+  if (po.bom_id) {
+    const ownerOp = db.prepare(`
+      SELECT id, seq FROM bom_operations
+      WHERE bom_id=? AND cost_center_id=?
+      ORDER BY seq ASC, id ASC
+      LIMIT 1
+    `).get(po.bom_id, stage.cost_center_id);
+    if (ownerOp) {
+      if (stage.operation_id != null) return Number(stage.operation_id) === Number(ownerOp.id);
+      return Number(stage.seq) === Number(ownerOp.seq);
+    }
+  }
+  // Fallback: earliest production_order_stage with this CC
+  const ownerStage = db.prepare(`
+    SELECT id FROM production_order_stages
+    WHERE order_id=? AND cost_center_id=?
+    ORDER BY seq ASC, id ASC
+    LIMIT 1
+  `).get(po.id, stage.cost_center_id);
+  return !!(ownerStage && Number(ownerStage.id) === Number(stage.id));
+}
+
 function stageMaterialLines(db, po, stage) {
+  if (!stageOwnsBomMaterials(db, po, stage)) return [];
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
   const qtyStart = orderQtyStart(db, po);
   const ex = explodeBom(db, {
@@ -339,7 +370,7 @@ function postStageCore(db, {
       }
     }
   } else {
-    const hasBomLines = db.prepare(`
+    const hasBomLines = stageOwnsBomMaterials(db, po, stage) && db.prepare(`
       SELECT 1 FROM bom_lines WHERE bom_id=? AND stage_cost_center_id=? LIMIT 1
     `).get(po.bom_id, stage.cost_center_id);
     const issued = sumStageIssued(db, stageId);

@@ -395,19 +395,22 @@ async function phase3_bom_basic_and_adv() {
     }
 
     const badYield = await api('PUT', `/api/production/boms/${ctx.bomAdvId}`, { yield_percent: 95 });
-    // may succeed on draft; validate-advanced should catch
+    mark('3', 'set header yield 95 on routed', badYield.ok, badYield.body?.code || badYield.status);
     const val = await api('POST', `/api/production/boms/${ctx.bomAdvId}/validate-advanced`, {});
+    expectFail('3', 'validate-advanced → E_YIELD_DOUBLE_COUNT', val, ['E_YIELD_DOUBLE_COUNT']);
+    const actBad = await api('POST', `/api/production/boms/${ctx.bomAdvId}/activate`, { valid_from: DATE });
+    expectFail('3', 'activate with yield≠100 → E_YIELD_DOUBLE_COUNT', actBad, ['E_YIELD_DOUBLE_COUNT', 'E_']);
     if (badYield.ok) {
-      // restore 100 for activate
       await api('PUT', `/api/production/boms/${ctx.bomAdvId}`, { yield_percent: 100 });
     }
-    mark('3', 'validate-advanced callable', val.status > 0, val.body?.code || val.status);
 
-    const stageCc = ctx.cc['CC-10'] || ctx.cc._stage;
-    if (stageCc) {
+    // Person-only op must NOT reuse a CC that owns BOM materials (CC-10/CC-60),
+    // else W_CC_STAGE_OVERLAP / double backflush. Prefer CC-30 (no lines in this BOM).
+    const personCc = ctx.cc['CC-30'] || ctx.cc['CC-20'] || ctx.cc._stage;
+    if (personCc) {
       const op = await api('POST', `/api/production/boms/${ctx.bomAdvId}/operations`, {
         seq: 70,
-        cost_center_id: stageCc,
+        cost_center_id: personCc,
         operation_name: `تست شخص ${TAG}`,
         labor_method: 'piece',
         labor_rate_rial: 250000,
@@ -469,14 +472,10 @@ async function phase4_fixed_order() {
   const beforeReleaseReceipt = await api('POST', `/api/production/orders/${ctx.orderFixedId}/receipt`, {
     date: DATE, qty_produced: 10, waste_normal: 0, waste_abnormal: 0, auto_labor: true,
   }, { idempotency: uid('rcpt') });
-  if (beforeReleaseReceipt.status >= 400) {
-    expectFail('4', 'receipt before release fails', beforeReleaseReceipt, ['E_NOT_RELEASED', 'آزاد', 'release', 'status']);
-  } else {
-    mark('4', 'receipt before release auto-accepted (engine releases)', true, 'live behavior');
-  }
+  expectFail('4', 'receipt before release fails', beforeReleaseReceipt, ['E_NOT_RELEASED', 'آزاد', 'release', 'status']);
 
   const release = await api('POST', `/api/production/orders/${ctx.orderFixedId}/release`, {});
-  mark('4', 'release fixed (or already completed)', release.ok || release.status === 409, release.body?.status || release.body?.code || release.status);
+  mark('4', 'release fixed', release.ok, release.body?.status || release.body?.code || release.status);
 
   const issueFixed = await api('POST', `/api/production/orders/${ctx.orderFixedId}/issue`, {
     date: DATE, qty_started: 10, materials: [{ product_id: ctx.products.raw[0], qty_actual: 1 }],
@@ -803,24 +802,33 @@ async function phase8_mrp_reports_close() {
     }
   }
 
+  // dashboard: period optional (server defaults to todayJalali YYYY/MM)
+  // cost-sheet: requires order_id (NOT period) — PR-02 is per-order
+  const costOrderId = ctx.orderFixedId || ctx.orderVarId || ctx.orderAdvId;
   const reportPaths = [
-    '/api/production/reports/dashboard',
-    '/api/production/reports/orders',
-    '/api/production/reports/kanban',
-    '/api/production/reports/wip',
-    `/api/production/reports/cost-sheet?period=${encodeURIComponent(PERIOD)}`,
-    `/api/production/reports/material-usage?period=${encodeURIComponent(PERIOD)}`,
-    `/api/production/reports/waste?period=${encodeURIComponent(PERIOD)}`,
-    `/api/production/reports/variance-matrix?period=${encodeURIComponent(PERIOD)}`,
+    { path: '/api/production/reports/dashboard', requireOk: true },
+    { path: '/api/production/reports/orders', requireOk: false },
+    { path: '/api/production/reports/kanban', requireOk: false },
+    { path: '/api/production/reports/wip', requireOk: false },
+    {
+      path: costOrderId
+        ? `/api/production/reports/cost-sheet?order_id=${encodeURIComponent(costOrderId)}`
+        : null,
+      name: 'cost-sheet',
+      requireOk: true,
+    },
+    { path: `/api/production/reports/material-usage?period=${encodeURIComponent(PERIOD)}`, requireOk: true },
+    { path: `/api/production/reports/waste?period=${encodeURIComponent(PERIOD)}`, requireOk: true },
+    { path: `/api/production/reports/variance-matrix?period=${encodeURIComponent(PERIOD)}`, requireOk: true },
   ];
-  for (const p of reportPaths) {
-    const r = await api('GET', p);
-    const name = p.split('/').pop().split('?')[0];
-    if (name === 'material-usage' && r.status === 500) {
-      mark('8', `report ${name} (known 500 soft)`, true, 'server 500 — logged soft');
-    } else {
-      mark('8', `report ${name}`, r.ok || r.status === 422, r.status);
+  for (const item of reportPaths) {
+    const name = item.name || String(item.path || '').split('/').pop().split('?')[0];
+    if (!item.path) {
+      mark('8', `report ${name}`, false, 'missing order_id in ctx');
+      continue;
     }
+    const r = await api('GET', item.path);
+    mark('8', `report ${name}`, r.ok, r.body?.code || r.status);
   }
 
   const open = await api('POST', `/api/production/close/${encodeURIComponent(PERIOD)}/open`, {});
@@ -853,6 +861,31 @@ async function phase9_negatives() {
     date: DATE,
   });
   expectFail('9', 'unknown product fails', missingBom, ['E_', 'یافت', '404', '422', '400']);
+
+  // Non-manufactured finished good must not accept production orders
+  const rawOnly = await createProduct({
+    name: `غیرساختنی ${TAG}`,
+    code: uid('NM'),
+    price: 1000,
+    stock: 0,
+    item_type: 'finished',
+    is_manufactured: 0,
+    average_cost_rial: 1000,
+    unit: 'عدد',
+    category: 'تولید-E2E',
+    warehouse_id: ctx.wh.fg,
+  });
+  if (rawOnly.body?.id) {
+    const nm = await api('POST', '/api/production/orders', {
+      product_id: rawOnly.body.id,
+      qty_planned: 1,
+      analysis_type: 'fixed',
+      date: DATE,
+      warehouse_raw_id: ctx.wh.raw,
+      warehouse_fg_id: ctx.wh.fg,
+    });
+    expectFail('9', 'not manufactured → E_NOT_MANUFACTURED', nm, ['E_NOT_MANUFACTURED', 'ساخت', '422']);
+  }
 }
 
 async function phase10_cleanup() {

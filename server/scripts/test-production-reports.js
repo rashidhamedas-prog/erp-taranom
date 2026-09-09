@@ -251,6 +251,39 @@ seedCloseScenario();
   ok('T6 empty period rows=0', (waste.data?.rows || []).length === 0);
   ok('T6 empty period meta.empty', waste.meta?.empty === true || waste.meta?.row_count === 0);
 
+  const mat = reports.runReport(db, { name: 'PR-20', params: { period: emptyPeriod }, user: adminUser });
+  ok('T6 empty period PR-20 ok', mat.report === 'PR-20');
+  ok('T6 empty PR-20 rows=0', (mat.data?.rows || []).length === 0);
+  ok('T6 empty PR-20 amount=0', Math.round(Number(mat.totals?.amount_rial) || 0) === 0);
+
+  let missingPeriodOk = false;
+  let missingPeriod = null;
+  try {
+    const matDefault = reports.runReport(db, { name: 'PR-20', params: {}, user: adminUser });
+    missingPeriodOk = matDefault.report === 'PR-20' && !!matDefault.period;
+    missingPeriod = matDefault.period;
+  } catch (_) { missingPeriodOk = false; }
+  ok('T6 PR-20 missing period → defaults current YYYY/MM', missingPeriodOk && /^\d{4}\/\d{2}$/.test(String(missingPeriod || '')));
+
+  let badPeriodFail = false;
+  try {
+    reports.runReport(db, { name: 'PR-20', params: { period: '1405-06' }, user: adminUser });
+  } catch (e) {
+    badPeriodFail = e.status === 422 || String(e.code || e.message).includes('E_INVALID_PERIOD');
+  }
+  ok('T6 PR-20 bad period format → 422', badPeriodFail);
+
+  const dashDefault = reports.runReport(db, { name: 'PR-24', params: {}, user: adminUser });
+  ok('T6 PR-24 missing period → defaults', !!dashDefault.data?.kpis && /^\d{4}\/\d{2}$/.test(String(dashDefault.period || '')));
+
+  let costMissingOrder = false;
+  try {
+    reports.runReport(db, { name: 'PR-02', params: {}, user: adminUser });
+  } catch (e) {
+    costMissingOrder = e.status === 422 || String(e.code || e.message).includes('E_ORDER_REQUIRED');
+  }
+  ok('T6 PR-02 missing order_id → 422 E_ORDER_REQUIRED', costMissingOrder);
+
   const dashEmpty = reports.runReport(db, { name: 'PR-24', params: { period: emptyPeriod }, user: adminUser });
   const yld = dashEmpty.data?.kpis?.yield?.value_pct;
   ok('T6 empty yield not NaN', yld === 0 || yld === null || Number.isFinite(yld));

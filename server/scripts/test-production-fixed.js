@@ -169,6 +169,21 @@ try {
   ok('T2-01 ایجاد سفارش', false, e.message);
 }
 
+// P1 — V2-02: createOrder requires is_manufactured=1
+throws('P1 E_NOT_MANUFACTURED', () => {
+  const rawId = P.p201;
+  db.prepare('UPDATE products SET is_manufactured=0 WHERE id=?').run(rawId);
+  engine.createOrder(db, {
+    product_id: rawId,
+    qty_planned: 10,
+    analysis_type: 'fixed',
+    date: DATE,
+    warehouse_raw_id: whRaw,
+    warehouse_fg_id: whFg,
+    cost_center_id: cc30,
+  }, adminId);
+}, 'E_NOT_MANUFACTURED');
+
 // T2-02
 try {
   po = engine.releaseOrder(db, po.id, adminId);

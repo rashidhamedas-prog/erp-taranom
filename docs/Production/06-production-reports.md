@@ -412,6 +412,8 @@ GROUP BY jl.account_code;
 
 **`GET /api/production/reports/dashboard?period=1405/04`**
 
+`period` اختیاری است؛ اگر نباشد سرور دورهٔ جاری جلالی (`todayJalali().slice(0,7)` یعنی `YYYY/MM`) را می‌گیرد. دادهٔ خالی → HTTP 200 با KPI صفر و ساختار خالی (نه 422/500).
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ 🏭 داشبورد تولید — تیر ۱۴۰۵                     [🔄]  دوره: [۱۴۰۵/۰۴ ▾] │
@@ -562,7 +564,7 @@ SELECT 'مجموع WIP سفارش‌ها', SUM(wip_rial) FROM v_wip_by_order;
 |----|-------|-----|
 | V6-01 | `from ≤ to` | `E_DATE_RANGE` |
 | V6-02 | بازه ≤ ۵ سال | `E_RANGE_TOO_LARGE` |
-| V6-03 | `period` فرمت `YYYY/MM` | `E_INVALID_PERIOD` |
+| V6-03 | `period` فرمت `YYYY/MM` (اختیاری؛ پیش‌فرض ماه جاری) | `E_INVALID_PERIOD` فقط برای فرمت غلط |
 | V6-04 | `page ≥ 1`, `limit ≤ 500` | `E_PAGINATION` |
 | V6-05 | هیچ گزارشی نباید بنویسد | `E_READONLY_VIOLATION` (internal) |
 | V6-06 | `hide_cost` → حذف فیلدهای بها از JSON | — |
@@ -633,7 +635,7 @@ SELECT 'مجموع WIP سفارش‌ها', SUM(wip_rial) FROM v_wip_by_order;
 
 ```
 GET /api/production/reports/orders                    ?status=&from=&to=&product_id=&page=&limit=
-GET /api/production/reports/cost-sheet                ?order_id=
+GET /api/production/reports/cost-sheet                ?order_id=  (الزامی؛ period نادیده)
 GET /api/production/reports/kanban
 GET /api/production/orders/:id/ledger
 GET /api/production/reports/cycle-time                ?period=&product_id=
@@ -655,7 +657,7 @@ GET /api/production/reports/material-usage            ?period=
 GET /api/production/reports/subcontractor-performance ?period=
 GET /api/production/reports/product-profitability     ?period=
 GET /api/production/reports/monthly-profit            ?period=      ⭐⭐
-GET /api/production/reports/dashboard                 ?period=      ⭐
+GET /api/production/reports/dashboard                 ?period=      ⭐ (اختیاری؛ پیش‌فرض ماه جاری)
 GET /api/production/reports/reconciliation            ?date=        (PR-99 مغایرت)
 
 # خروجی — پارامتر مشترک روی همه

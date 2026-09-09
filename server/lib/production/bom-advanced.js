@@ -164,13 +164,20 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
   let qtyIn = qty_start;
   let costIn = 0;
   let totMat = 0, totPkg = 0, totLab = 0, totSub = 0, totOh = 0;
+  const materialAttributedCc = new Set();
 
   for (const op of ops) {
     const cc = db.prepare('SELECT * FROM cost_centers WHERE id=?').get(op.cost_center_id);
     if (!cc || !Number(cc.is_stage)) throw err('E_CC_NOT_STAGE', 422, { cc: cc?.name });
 
-    const material = matByStage[op.cost_center_id]?.rial || 0;
-    const pkg = matByStage[op.cost_center_id]?.kind?.packaging || 0;
+    // Materials keyed only by CC — attribute once (earliest op), matching backflush ownership
+    let material = 0;
+    let pkg = 0;
+    if (!materialAttributedCc.has(op.cost_center_id)) {
+      materialAttributedCc.add(op.cost_center_id);
+      material = matByStage[op.cost_center_id]?.rial || 0;
+      pkg = matByStage[op.cost_center_id]?.kind?.packaging || 0;
+    }
     const labor = stageLabor(db, op, qtyIn, period);
     const subcon = op.is_subcontract
       ? Math.round((Number(op.subcontract_fee_rial) || 0) * qtyIn)
@@ -534,6 +541,27 @@ function validateAdvancedBom(db, bomId) {
     for (const L of lines) {
       if (L.stage_cost_center_id && !opCCs.has(L.stage_cost_center_id)) {
         throw err('E_STAGE_NOT_IN_ROUTING', 422, { line: L.line_no });
+      }
+    }
+    // Same CC on ≥2 ops + BOM materials on that CC: allowed for labor (E4-13) but
+    // materials have no operation_id — engine issues only on earliest seq. Soft warn.
+    const ccOpCount = new Map();
+    for (const op of ops) {
+      const k = Number(op.cost_center_id);
+      ccOpCount.set(k, (ccOpCount.get(k) || 0) + 1);
+    }
+    const materialCCs = new Set(
+      lines.filter(L => L.stage_cost_center_id).map(L => Number(L.stage_cost_center_id))
+    );
+    for (const [ccId, n] of ccOpCount) {
+      if (n > 1 && materialCCs.has(ccId)) {
+        const overlapSeqs = ops.filter(o => Number(o.cost_center_id) === ccId).map(o => o.seq);
+        warnings.push({
+          code: 'W_CC_STAGE_OVERLAP',
+          cost_center_id: ccId,
+          seqs: overlapSeqs,
+          detail: 'چند عملیات یک مرکز هزینه دارند و مواد به همان مرکز وصل است؛ مصرف فقط روی اولین seq انجام می‌شود',
+        });
       }
     }
   }

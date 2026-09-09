@@ -67,7 +67,11 @@ router.post('/', auth, requirePermission('production', 'create'), (req, res) => 
     const data = engine.createOrder(getDB(), req.body || {}, req.user.id);
     res.status(201).json(data);
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
+    res.status(e.status || 500).json({
+      error: e.message,
+      code: e.code || e.message,
+      ...(e.extra || {}),
+    });
   }
 });
 

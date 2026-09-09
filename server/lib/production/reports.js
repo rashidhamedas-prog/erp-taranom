@@ -19,9 +19,16 @@ function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+/** Missing period → current Jalali YYYY/MM; invalid format still 422. */
+function resolvePeriod(period) {
+  const raw = (period == null || period === '') ? todayJalali().slice(0, 7) : String(period).trim();
+  if (!PERIOD_RE.test(raw)) throw err('E_INVALID_PERIOD', 422, { period: raw });
+  return raw;
+}
+
 function periodRange(period) {
-  const parts = String(period || '').split('/');
-  if (parts.length < 2) throw err('E_INVALID_PERIOD', 422, { period });
+  const resolved = resolvePeriod(period);
+  const parts = resolved.split('/');
   const y = parts[0];
   const m = Number(parts[1]);
   const days = [1, 3, 5, 7, 8, 10, 12].includes(m) ? 31 : [4, 6, 9, 11].includes(m) ? 30 : 29;
@@ -121,19 +128,51 @@ function ordersList(db, { status, from, to, productId, page = 1, limit = 100, cc
 }
 
 function costSheet(db, { orderId }) {
-  if (!orderId) throw err('E_ORDER_REQUIRED', 422);
-  const summary = db.prepare('SELECT * FROM v_order_cost_summary WHERE order_id=?').get(Number(orderId));
-  if (!summary) throw err('E_NOT_FOUND', 404, { orderId });
+  if (orderId == null || orderId === '') throw err('E_ORDER_REQUIRED', 422);
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0) throw err('E_ORDER_REQUIRED', 422);
 
-  const stages = db.prepare(`
-    SELECT s.seq, cc.code AS cc_code, cc.name AS cc_name,
-           s.qty_in, s.qty_out, s.material_in_rial, s.material_added_rial,
-           s.labor_rial, s.subcontract_rial, s.overhead_rial, s.cost_out_rial
-    FROM production_order_stages s
-    JOIN cost_centers cc ON cc.id = s.cost_center_id
-    WHERE s.order_id = ? AND s.status <> 'skipped'
-    ORDER BY s.seq
-  `).all(Number(orderId));
+  const order = db.prepare(`
+    SELECT id, order_no, status, product_id, period_label,
+           COALESCE(total_cost_rial, 0) AS total_cost_rial,
+           COALESCE(unit_cost_rial, 0) AS unit_cost_rial,
+           COALESCE(qty_produced, 0) AS qty_produced,
+           COALESCE(qty_waste_normal, 0) AS qty_waste_normal,
+           COALESCE(qty_waste_abnormal, 0) AS qty_waste_abnormal
+    FROM production_orders WHERE id=?
+  `).get(oid);
+  if (!order) throw err('E_NOT_FOUND', 404, { orderId: oid });
+
+  let summary = null;
+  try {
+    summary = db.prepare('SELECT * FROM v_order_cost_summary WHERE order_id=?').get(oid);
+  } catch { /* view may be missing */ }
+  if (!summary) {
+    const denom = Number(order.qty_produced) + Number(order.qty_waste_normal) + Number(order.qty_waste_abnormal);
+    summary = {
+      order_id: oid,
+      order_no: order.order_no,
+      status: order.status,
+      product_id: order.product_id,
+      period_label: order.period_label,
+      total_cost_rial: Math.round(Number(order.total_cost_rial) || 0),
+      unit_cost_rial: Math.round(Number(order.unit_cost_rial) || 0),
+      yield_pct: denom > 0 ? round2(Number(order.qty_produced) * 100 / denom) : 0,
+    };
+  }
+
+  let stages = [];
+  try {
+    stages = db.prepare(`
+      SELECT s.seq, cc.code AS cc_code, cc.name AS cc_name,
+             s.qty_in, s.qty_out, s.material_in_rial, s.material_added_rial,
+             s.labor_rial, s.subcontract_rial, s.overhead_rial, s.cost_out_rial
+      FROM production_order_stages s
+      JOIN cost_centers cc ON cc.id = s.cost_center_id
+      WHERE s.order_id = ? AND s.status <> 'skipped'
+      ORDER BY s.seq
+    `).all(oid);
+  } catch { stages = []; }
 
   let prevCost = 0;
   const stagesVa = stages.map(s => {
@@ -145,30 +184,39 @@ function costSheet(db, { orderId }) {
     return { ...s, value_added_rial: va, value_added_pct: pct };
   });
 
-  const wip = db.prepare('SELECT wip_rial FROM v_wip_by_order WHERE order_id=?').get(Number(orderId));
-  const journals = db.prepare(`
-    SELECT je.id, je.entry_date, je.description, je.voucher_number, je.ref_type,
-           SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)) AS total_debit_rial
-    FROM journal_entries je
-    JOIN journal_lines jl ON jl.entry_id = je.id
-    WHERE je.ref_type LIKE 'production_%' AND je.ref_id = ?
-      AND COALESCE(je.deleted_at, 0) = 0
-    GROUP BY je.id ORDER BY je.id
-  `).all(Number(orderId));
+  let wip = null;
+  try {
+    wip = db.prepare('SELECT wip_rial FROM v_wip_by_order WHERE order_id=?').get(oid);
+  } catch { wip = null; }
 
+  let journals = [];
+  try {
+    journals = db.prepare(`
+      SELECT je.id, je.entry_date, je.description, je.voucher_number, je.ref_type,
+             SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)) AS total_debit_rial
+      FROM journal_entries je
+      JOIN journal_lines jl ON jl.entry_id = je.id
+      WHERE je.ref_type LIKE 'production_%' AND je.ref_id = ?
+        AND COALESCE(je.deleted_at, 0) = 0
+      GROUP BY je.id ORDER BY je.id
+    `).all(oid);
+  } catch { journals = []; }
+
+  const wipRial = Math.round(Number(wip?.wip_rial) || 0);
   return {
     data: {
       summary,
       stages: stagesVa,
       journals,
-      wip_rial: Math.round(Number(wip?.wip_rial) || 0),
-      balanced: Math.abs(Number(wip?.wip_rial) || 0) <= 5 || summary.status === 'closed',
+      wip_rial: wipRial,
+      balanced: Math.abs(wipRial) <= 5 || summary.status === 'closed',
     },
     totals: {
       total_cost_rial: summary.total_cost_rial,
       unit_cost_rial: summary.unit_cost_rial,
       yield_pct: summary.yield_pct,
     },
+    meta: { empty: !stagesVa.length && !journals.length, message: null },
   };
 }
 
@@ -246,7 +294,7 @@ function wipReport(db, { date } = {}) {
 }
 
 function varianceMatrix(db, { period, ccFilter } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cc = ccSqlFilter(ccFilter);
   const params = [period, ...cc.params];
   const rows = db.prepare(`
@@ -276,7 +324,7 @@ function varianceMatrix(db, { period, ccFilter } = {}) {
 }
 
 function overheadVariance(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const { from, to } = periodRange(period);
   const ohCtrl = acct(db, 'coa_overhead_control').code;
   const ohApplied = acct(db, 'coa_overhead_applied').code;
@@ -337,7 +385,7 @@ function overheadVariance(db, { period } = {}) {
 }
 
 function wasteAnalysis(db, { period, ccId, type, ccFilter } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cc = ccSqlFilter(ccFilter);
   const params = [period];
   let where = ' WHERE w.period_label = ?';
@@ -366,7 +414,7 @@ function wasteAnalysis(db, { period, ccId, type, ccFilter } = {}) {
 }
 
 function yieldAnalysis(db, { period, productId, ccFilter } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cc = ccSqlFilter(ccFilter, 's.cost_center_id');
   const params = [period];
   let where = ' WHERE po.period_label = ?';
@@ -405,7 +453,7 @@ function yieldAnalysis(db, { period, productId, ccFilter } = {}) {
 }
 
 function periodCost(db, { period, compare } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cur = db.prepare(`
     SELECT
       COALESCE(SUM(material_cost_rial), 0) material_rial,
@@ -440,7 +488,7 @@ function periodCost(db, { period, compare } = {}) {
 }
 
 function stdVsActual(db, { period, productId } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const params = [period];
   let where = ' WHERE period_label = ? AND status IN (\'completed\', \'closed\')';
   if (productId) { where += ' AND product_id=?'; params.push(Number(productId)); }
@@ -482,15 +530,18 @@ function unitCostTrend(db, { productId, months = 6 } = {}) {
 }
 
 function materialUsage(db, { period, ccFilter } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cc = ccSqlFilter(ccFilter);
   const params = [period, ...cc.params];
+  // مصرف واقعی از qty_actual (ستون qty در جدول وجود ندارد)
   const rows = db.prepare(`
     SELECT mi.product_id, p.name AS product_name,
-           SUM(mi.qty) AS qty, SUM(mi.amount_rial) AS amount_rial
+           SUM(mi.qty_actual) AS qty, SUM(mi.amount_rial) AS amount_rial
     FROM production_material_issues mi
     JOIN products p ON p.id = mi.product_id
-    WHERE mi.period_label = ? ${cc.sql.replace(/cost_center_id/g, 'mi.cost_center_id')}
+    WHERE mi.period_label = ?
+      AND COALESCE(mi.status, 'posted') = 'posted'
+      ${cc.sql.replace(/cost_center_id/g, 'mi.cost_center_id')}
     GROUP BY mi.product_id
     ORDER BY amount_rial DESC
   `).all(...params);
@@ -498,11 +549,12 @@ function materialUsage(db, { period, ccFilter } = {}) {
   return {
     data: { rows },
     totals: { amount_rial: rows.reduce((s, r) => s + Math.round(Number(r.amount_rial) || 0), 0) },
+    meta: { empty: !rows.length, message: rows.length ? null : emptyMessage(period) },
   };
 }
 
 function bottleneck(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const rows = db.prepare(`
     SELECT cc.code, cc.name, cc.capacity_units,
            COUNT(DISTINCT s.order_id) AS orders,
@@ -515,7 +567,7 @@ function bottleneck(db, { period } = {}) {
     JOIN production_orders po ON po.id = s.order_id
     WHERE po.period_label = ? AND s.status <> 'skipped'
     GROUP BY cc.id
-    ORDER BY load_pct DESC NULLS LAST, cc.seq
+    ORDER BY CASE WHEN load_pct IS NULL THEN 1 ELSE 0 END, load_pct DESC, cc.seq
   `).all(period);
 
   const bottleneckCc = rows.find(r => r.load_pct >= 80) || rows[0] || null;
@@ -523,7 +575,7 @@ function bottleneck(db, { period } = {}) {
 }
 
 function productProfitability(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const rows = db.prepare(`
     SELECT po.product_id, p.name AS product_name,
            SUM(po.qty_produced) AS qty_produced,
@@ -553,7 +605,7 @@ function productProfitability(db, { period } = {}) {
 }
 
 function monthlyProfit(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const { from, to } = periodRange(period);
   const row = db.prepare('SELECT * FROM production_period_close WHERE period_label=?').get(period);
 
@@ -671,7 +723,7 @@ function monthlyProfit(db, { period } = {}) {
 const DASH_CACHE = new Map();
 
 function dashboard(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const key = `dash:${period}`;
   const cached = DASH_CACHE.get(key);
   if (cached && Date.now() - cached.at < 300_000) return cached.data;
@@ -780,7 +832,7 @@ function reconciliation(db, { date } = {}) {
 }
 
 function cycleTime(db, { period, productId } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const params = [period];
   let where = ' WHERE po.period_label = ?';
   if (productId) { where += ' AND po.product_id=?'; params.push(Number(productId)); }
@@ -801,7 +853,7 @@ function cycleTime(db, { period, productId } = {}) {
 }
 
 function reworkReport(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const rows = db.prepare(`
     SELECT r.*, po.order_no, cc.code AS cc_code
     FROM production_rework r
@@ -821,7 +873,7 @@ function reworkReport(db, { period } = {}) {
 }
 
 function costCenterPerformance(db, { period, ccFilter } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const cc = ccSqlFilter(ccFilter, 's.cost_center_id');
   const rows = db.prepare(`
     SELECT cc.code, cc.name,
@@ -840,7 +892,7 @@ function costCenterPerformance(db, { period, ccFilter } = {}) {
 }
 
 function materialVariance(db, { period, productId } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const params = [period];
   let where = ' WHERE v.period_label = ? AND v.variance_type LIKE \'material%\'';
   if (productId) { where += ' AND po.product_id=?'; params.push(Number(productId)); }
@@ -858,7 +910,7 @@ function materialVariance(db, { period, productId } = {}) {
 }
 
 function varianceReasons(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const rows = db.prepare(`
     SELECT COALESCE(mi.reason_code, mi.note, 'سایر') AS reason,
            SUM(COALESCE(v.amount_rial, 0)) AS amount_rial,
@@ -882,7 +934,7 @@ function varianceReasons(db, { period } = {}) {
 }
 
 function subcontractorPerformance(db, { period } = {}) {
-  if (!period) throw err('E_INVALID_PERIOD', 422);
+  period = resolvePeriod(period);
   const rows = db.prepare(`
     SELECT s.name AS supplier_name,
            COUNT(DISTINCT sc.order_id) AS orders,
@@ -1048,10 +1100,17 @@ function runReport(db, { name, params = {}, user }) {
   if (!spec) throw err('E_NOT_FOUND', 404, { name });
 
   assertReportAccess(db, user, spec);
-  validateReportParams(params);
+  // Period-scoped reports (and payload meta) default to current Jalali YYYY/MM.
+  const paramsWithPeriod = {
+    ...params,
+    period: (params.period == null || params.period === '')
+      ? todayJalali().slice(0, 7)
+      : params.period,
+  };
+  validateReportParams(paramsWithPeriod);
 
   const ccFilter = costCenterFilter(db, user.id);
-  const runParams = { ...params, ccFilter };
+  const runParams = { ...paramsWithPeriod, ccFilter };
 
   const result = spec.run(db, runParams);
   const warnings = [...(result.warnings || [])];
@@ -1063,16 +1122,16 @@ function runReport(db, { name, params = {}, user }) {
     }
   }
 
-  if (params.period && isPeriodOpen(db, params.period)) {
-    warnings.push(`دوره ${params.period} هنوز بسته نشده — اعداد موقتی هستند`);
+  if (paramsWithPeriod.period && isPeriodOpen(db, paramsWithPeriod.period)) {
+    warnings.push(`دوره ${paramsWithPeriod.period} هنوز بسته نشده — اعداد موقتی هستند`);
   }
 
   let payload = {
     report: name,
     title: spec.title,
-    period: params.period || null,
+    period: paramsWithPeriod.period || null,
     generated_at: `${todayJalali()} ${nowHHMM()}`,
-    filters: params,
+    filters: paramsWithPeriod,
     ...result,
   };
 
@@ -1088,7 +1147,7 @@ function runReport(db, { name, params = {}, user }) {
     ...(payload.meta || {}),
     row_count: countRows(result),
     duration_ms: dur,
-    period_status: params.period ? periodStatus(db, params.period) : null,
+    period_status: paramsWithPeriod.period ? periodStatus(db, paramsWithPeriod.period) : null,
     ledger_reconciled: !warnings.some(w => String(w).includes('مغایرت') || w?.code === 'W_LEDGER_MISMATCH'),
     cost_hidden: !canSeeCost(db, user),
   };

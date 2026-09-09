@@ -29,6 +29,7 @@ function bomFaError(e) {
     E_SEQ_REQUIRED: 'ترتیب عملیات (seq) الزامی است.',
     E_CC_NOT_FOUND: 'مرکز هزینه یافت نشد.',
     E_CC_NOT_STAGE: 'مرکز هزینه باید از نوع مرحله تولید باشد.',
+    E_STAGE_NOT_IN_ROUTING: 'مرکز مرحلهٔ قلم در مسیر عملیات نیست.',
     E_NOT_FOUND: 'عملیات یا فرمول یافت نشد.',
   };
   if (map[code]) return map[code];

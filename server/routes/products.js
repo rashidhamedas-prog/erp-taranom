@@ -612,7 +612,8 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
     if (req.body.item_type != null && String(req.body.item_type).trim()) {
       const it = String(req.body.item_type).trim();
-      if (allowed.has(it)) db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, result.lastInsertRowid);
+      if (!allowed.has(it)) return res.status(400).json({ error: 'نوع کالا نامعتبر است', code: 'E_ITEM_TYPE' });
+      db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, result.lastInsertRowid);
     }
     if (req.body.is_manufactured != null) {
       db.prepare('UPDATE products SET is_manufactured=? WHERE id=?')

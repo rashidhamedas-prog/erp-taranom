@@ -81,8 +81,12 @@ router.get('/orders', auth, requirePermission('production_reports', 'view'), (re
 });
 
 router.get('/cost-sheet', auth, requirePermission('production_reports', 'view'), async (req, res) => {
+  // PR-02 is per-order (not period). period query is ignored; order_id is required.
   if (!req.query.order_id) {
-    return res.status(422).json({ error: 'order_id الزامی است', code: 'E_ORDER_REQUIRED' });
+    return res.status(422).json({
+      error: 'order_id الزامی است — برگه بها برای یک سفارش است (نه دوره)',
+      code: 'E_ORDER_REQUIRED',
+    });
   }
   try {
     const result = reports.runReport(getDB(), {
@@ -92,7 +96,8 @@ router.get('/cost-sheet', auth, requirePermission('production_reports', 'view'),
     });
     return await maybeExport(req, res, result);
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
+    const status = e.status || 500;
+    res.status(status).json({ error: e.message, code: e.code || e.message });
   }
 });
 

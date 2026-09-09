@@ -14,7 +14,47 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
-### ۱۴۰۵/۰۶/۱۸ — R11 بها + انبار نشست فروش + دستیار/SKIPهای QA عارف (SW v207)
+### ۱۴۰۵/۰۶/۱۸ — رفع ریشه‌ای باگ‌های نرم تولید (P0/P1) + سخت‌گیری E2E (SW v208)
+
+- **رسید ثابت/متغیر:** گیت وضعیت شکسته بود (`draft`/`completed` عبور می‌کردند). فقط `released`/`in_progress`؛ draft → `E_NOT_RELEASED`؛ completed → `E_ALREADY_COMPLETED`.
+- **مصرف مواد مرحله‌ای:** وقتی چند عملیات یک CC دارند، مواد فقط روی **اولین** op/مرحله آن CC صادر می‌شود (`stageOwnsBomMaterials`) + هشدار `W_CC_STAGE_OVERLAP`.
+- **گزارش PR-20:** `SUM(mi.qty)` → `SUM(mi.qty_actual)` (ستون `qty` وجود نداشت → HTTP 500).
+- **داشبورد:** `period` اختیاری با پیش‌فرض ماه جلالی جاری (`resolvePeriod`).
+- **صورتحساب بها:** همچنان `order_id` اجباری؛ E2E اصلاح شد.
+- **فعال‌سازی BOM:** اگر مسیر/عملیات/خروجی → `validateAdvancedBom` (V4-21 دیگر دور زده نمی‌شود).
+- **سفارش تولید:** `is_manufactured=0` → `E_NOT_MANUFACTURED`؛ POST کالا `E_ITEM_TYPE`.
+- **E2E:** soft-passها برداشته شد؛ assert واقعی برای receipt-before-release، yield، گزارشات، غیرساختنی.
+- **فایل‌ها:** `server/lib/production/{engine,engine-advanced,bom,bom-advanced,reports}.js`، `server/routes/{production-*,products}.js`، `server/scripts/test-production-*`، `server/public/{app.js,sw.js,index.html}`
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v208
+
+
+
+- **باگ:** stageMaterialLines فقط با stage.cost_center_id فیلتر می‌کرد؛ عملیات شخص E2E روی CC-10 (seq 70) همان اقلام برش را دوباره backflush می‌کرد.
+- **رفع ریشه:** چون om_lines ستون operation_id ندارد، مالک مواد = **اولین** عملیات/مرحله با آن CC (ترتیب seq). stageOwnsBomMaterials در fixed backflush، variable E_NO_MATERIAL_ISSUED، و issueStageMaterials. Rollup هم مواد هر CC را فقط یک‌بار به earliest op می‌دهد.
+- **اعتبارسنجی:** alidateAdvancedBom → هشدار نرم W_CC_STAGE_OVERLAP (نه error؛ E4-13 اجازهٔ دو op روی یک CC برای دستمزد را می‌دهد؛ موتور جلوی دوبل را می‌گیرد).
+- **E2E:** عملیات شخص seq 70 روی CC-30 (بدون bom_lines در سناریو) به‌جای CC-10.
+- **فایل‌ها:** server/lib/production/engine-advanced.js، om-advanced.js، server/scripts/test-production-{bom-advanced,e2e-live-batch}.js، server/routes/production-boms.js، server/public/app.js (پیام + راهنما)
+- **Deploy:** ⏸ عمداً انجام نشد (درخواست کاربر)
+- **SW:** بدون bump
+
+### ۱۴۰۵/۰۶/۱۸ — [Cursor] P1 گیت‌های master-data تولید (بدون deploy)
+
+- **علت:** `activateBom` فقط `validateBom` می‌زد → V4-21 (`has_routing` + `yield≠100`) دور زده می‌شد؛ `createOrder` چک `is_manufactured` نداشت (`E_NOT_MANUFACTURED` فقط در docs بود)؛ POST `/api/products` نوع کالای نامعتبر را بی‌صدا نادیده می‌گرفت.
+- **رفع:** `activateBom` با lazy-require اگر `has_routing` یا ops/outputs → `validateAdvancedBom`؛ `createOrder` قبل از BOM → `E_NOT_MANUFACTURED`؛ POST `item_type` مثل PUT با `E_ITEM_TYPE`؛ پیام دوستانه در `app.js`؛ تست‌های P4/P2.
+- **فایل‌ها:** `server/lib/production/{bom,engine}.js`، `server/routes/{products,production-orders}.js`، `server/public/app.js`، `server/scripts/test-production-{bom-advanced,fixed}.js`
+- **Deploy:** ⏸ عمداً انجام نشد (درخواست کاربر)
+- **SW:** بدون bump
+
+### ۱۴۰۵/۰۶/۱۸ — [Cursor] گزارشات تولید: داشبورد بدون period + cost-sheet با order_id (بدون deploy)
+
+- **علت:** E2E زنده `GET /production/reports/dashboard` بدون query → `E_INVALID_PERIOD` 422؛ `cost-sheet?period=…` → `E_ORDER_REQUIRED` 422 (برگه بها per-order است).
+- **رفع:** `resolvePeriod()` — دورهٔ خالی = `todayJalali().slice(0,7)`؛ فرمت غلط همچنان 422. `costSheet` مقاوم به view خالی (ساختار خالی از `production_orders`). E2E: cost-sheet با `order_id` سفارش ساخته‌شده و assert واقعی HTTP 200 برای dashboard/cost-sheet.
+- **فایل‌ها:** `server/lib/production/reports.js`، `server/routes/production-reports.js`، `server/scripts/test-production-e2e-live-batch.js`، `server/scripts/test-production-reports.js`، `docs/Production/06-production-reports.md`، راهنما در `server/public/app.js`
+- **Deploy:** ⏸ عمداً انجام نشد (درخواست کاربر)
+- **SW:** بدون bump (فقط متن راهنما)
+
+
 
 - **بها (R11):** `GET /products` و جزئیات فاکتور برای نقش بدون `production_cost.view` کلیدهای `cost` / `*_cost_rial` / `unit_cost_rial` را نمی‌فرستد؛ قیمت فروش و تخفیف/کرایه می‌ماند.
 - **انبار:** `login` و `GET /auth/me` انبار تخصیص (`sales_warehouse_id` + نام) را در نشست می‌گذارند. `window.ME` برای فروش بازاریاب؛ فاکتورساز انبار قفل را بدون گزینهٔ خالی می‌گذارد؛ بنر «انبار فروش» از همین نشست است.

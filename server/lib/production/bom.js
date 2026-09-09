@@ -509,6 +509,15 @@ function activateBom(db, bomId, validFrom, userId) {
     if (!validFrom) throw err('E_VALIDATION', 400);
     validateBom(db, bomId);
 
+    // V4-21 / advanced gates: routing or ops/outputs must pass validateAdvancedBom
+    // (lazy require — bom-advanced already requires ./bom)
+    const hasOps = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(bomId);
+    const hasOuts = db.prepare('SELECT 1 FROM bom_outputs WHERE bom_id=? LIMIT 1').get(bomId);
+    if (b.has_routing || hasOps || hasOuts) {
+      const { validateAdvancedBom } = require('./bom-advanced');
+      validateAdvancedBom(db, bomId);
+    }
+
     const prev = db.prepare(`
       SELECT * FROM bom_headers
       WHERE product_id=? AND bom_type=? AND status='active' AND id<>? AND deleted_at IS NULL

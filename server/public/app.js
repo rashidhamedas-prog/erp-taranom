@@ -193,6 +193,7 @@ async function api(method, path, data, isFormData, silent){
         E_BOM_TOO_DEEP:'عمق درخت فرمول بیش از حد مجاز است',
         E_VALIDATION:'اطلاعات ناقص است (مثلاً تاریخ اعتبار برای فعال‌سازی)',
         E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
+        E_NOT_MANUFACTURED:'این کالا به‌عنوان کالای ساختنی تعریف نشده است',
         E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
         E_NOT_FOUND:'مورد درخواستی یافت نشد',
         E_ALREADY_CLOSED:'این دوره قبلاً بسته شده',
@@ -210,6 +211,8 @@ async function api(method, path, data, isFormData, silent){
         E_OP_WASTE_RANGE:'ضایعات نرمال عملیات نامعتبر است (۰ تا کمتر از ۹۹٫۹)',
         E_CC_NOT_STAGE:'مرکز هزینه انتخابی مرحلهٔ تولید (is_stage) نیست',
         E_CC_NOT_FOUND:'مرکز هزینه یافت نشد',
+        E_STAGE_NOT_IN_ROUTING:'مرکز مرحلهٔ قلم در مسیر عملیات نیست',
+        W_CC_STAGE_OVERLAP:'چند عملیات یک مرکز هزینه دارند و مواد به همان مرکز وصل است — مصرف فقط روی اولین عملیات آن مرکز',
         E_OUTPUT_DUPLICATE:'خروجی تکراری برای همین کالا',
         E_NRV_ZERO:'برای روش NRV باید ارزش خالص بازیافتنی (NRV) بزرگ‌تر از صفر باشد',
         E_NRV_EXCEEDS_WIP:'اعتبار NRV محصولات فرعی از موجودی در جریان ساخت بیشتر است',
@@ -221,7 +224,6 @@ async function api(method, path, data, isFormData, silent){
         E_NO_RUN_TIME:'زمان اجرا (دقیقه/واحد) برای عملیات الزامی است',
         E_LABOR_RATE_ZERO:'نرخ دستمزد عملیات صفر است',
         E_CREW_ZERO:'تعداد نفرات خدمه باید بزرگ‌تر از صفر باشد',
-        E_STAGE_NOT_IN_ROUTING:'مرکز مرحلهٔ قلم در مسیر عملیات نیست',
         E_COST_TREE_TIMEOUT:'محاسبهٔ درخت بها زمان‌بر شد — دوباره تلاش کنید',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
         demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
@@ -2779,6 +2781,7 @@ function openNestedModal(html, lg){
 function closeNestedModal(){
   const root=document.getElementById('nestedModalRoot');
   if(root) root.innerHTML='';
+  try{ window._variantPick=null; }catch(_){}
 }
 function closeModal(){
   if(isNestedModalOpen()){ closeNestedModal(); return; }
@@ -4458,13 +4461,23 @@ async function reloadInvProductsForWarehouse(){
 function findInvProduct(pid){
   const id=Number(pid);
   if(!Number.isFinite(id)) return null;
-  const lists=[CACHE._invProducts, CACHE.allProducts, CACHE.products];
+  const lists=[CACHE._invProducts, CACHE.allProducts, CACHE.products, window._mkProds];
   for(const list of lists){
     if(!list||!list.length) continue;
     const p=list.find(x=>Number(x.id)===id);
     if(p) return p;
   }
+  const held=window._variantPick && window._variantPick.product;
+  if(held && Number(held.id)===id) return held;
   return null;
+}
+function productNeedsColorPick(p){
+  if(!p) return false;
+  return Number(p.colors)>1 || Number(p.has_variants)===1 || Number(p.is_style)===1;
+}
+function safeCssHex(h){
+  const s=String(h||'').trim();
+  return /^#[0-9A-Fa-f]{3,8}$/.test(s) ? s : '';
 }
 async function invProdQuickModal(prefill){
   await ensureProductCategories();
@@ -4562,39 +4575,104 @@ async function addToCart(pid){
   renderCart();
   renderInvPicker();
 }
+function bumpInvVarQty(vid, delta){
+  const root=document.getElementById('nestedActiveModal')||document;
+  const inp=root.querySelector('.inv-var-qty[data-vid="'+String(vid)+'"]');
+  if(!inp) return;
+  const stock=Number(inp.getAttribute('data-stock'));
+  let n=Math.max(0, Math.floor((Number(inp.value)||0)+Number(delta||0)));
+  if(Number.isFinite(stock) && stock>=0 && n>stock) n=stock;
+  inp.value=n;
+}
+function filterInvVariantColorFromChip(ev){
+  const t=ev&&(ev.currentTarget||ev.target);
+  const btn=t&&t.closest?t.closest('.var-chip-btn'):t;
+  filterInvVariantColor(btn?btn.getAttribute('data-color'):'*');
+}
+function filterInvVariantColor(name){
+  const root=document.getElementById('nestedActiveModal');
+  if(!root) return;
+  const want=String(name||'*');
+  const all=!want || want==='*';
+  root.querySelectorAll('tr[data-vcolor]').forEach(function(tr){
+    tr.style.display = all || tr.getAttribute('data-vcolor')===want ? '' : 'none';
+  });
+  root.querySelectorAll('.var-chip-btn').forEach(function(b){
+    const on=all ? b.getAttribute('data-color')==='*' : b.getAttribute('data-color')===want;
+    b.classList.toggle('is-on', on);
+  });
+}
 function openInvVariantSplitModal(p, pack, opts){
   opts=opts||{};
-  const rows=pack.live.length?pack.live:pack.matrix;
+  const dest=opts.dest==='marketer'?'marketer':'invoice';
+  const rows=(pack.live&&pack.live.length)?pack.live:(pack.matrix||[]);
   const qtyMap={};
   (opts.existing||[]).forEach(r=>{ if(r.variant_id) qtyMap[String(r.variant_id)]=Number(r.qty)||0; });
   const replaceIndices=opts.replaceIndices||null;
+  window._variantPick={ dest: dest, product: p, replaceIndices: replaceIndices };
+  const confirmOpts={ dest: dest };
+  if(replaceIndices) confirmOpts.replaceIndices=replaceIndices.slice();
   const splitConfirmBind=CSP.bind('click',function(){
-    confirmInvVariantSplit(Number(p.id), replaceIndices?{replaceIndices:replaceIndices.slice()}: {});
+    confirmInvVariantSplit(Number(p.id), confirmOpts);
   });
+  const chipBind=CSP.bind('click',function(event){filterInvVariantColorFromChip(event)});
+  const colorMeta=[];
+  const seenColor=new Set();
+  rows.forEach(function(v){
+    const n=String(v.color_name||'').trim();
+    if(!n || seenColor.has(n)) return;
+    seenColor.add(n);
+    colorMeta.push({ name:n, hex:safeCssHex(v.color_hex) });
+  });
+  const confirmLabel=dest==='marketer'
+    ? (replaceIndices?'اعمال روی سبد':'افزودن به سبد')
+    : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور');
+  const hint=dest==='marketer'
+    ? 'فقط تعداد رنگ و سایزی را بزنید که مشتری می‌خواهد. بقیه را صفر بگذارید. روی رنگ بزنید تا جدول فیلتر شود.'
+    : 'پک زنده = '+fmt(pack.pack)+' عدد. فقط تعداد ترکیب‌های موردنظر را بزنید (پیش‌فرض صفر). روی رنگ بزنید تا جدول فیلتر شود.';
   openNestedModal(`
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد. تعداد هر ترکیب را وارد کنید. روی فاکتور یک خط خلاصه زیر نام کالا دیده می‌شود.</p>
-      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${[...new Set(rows.map(v=>v.color_name).filter(Boolean))].map(c=>`<span class="var-chip">${esc(c)}</span>`).join('')} ${[...new Set(rows.map(v=>v.size_name).filter(Boolean))].map(s=>`<span class="var-chip">${esc(s)}</span>`).join('')}</div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی SKU</th><th>تعداد</th></tr></thead>
-      <tbody>${rows.map(v=>`<tr>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">${esc(hint)}</p>
+      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+        <button type="button" class="var-chip var-chip-btn is-on" data-color="*" data-csp-click="${chipBind}">همه</button>
+        ${colorMeta.map(c=>{
+          const sw=c.hex?`<span class="var-swatch" data-csp-style="${CSP.style(`background:${c.hex}`)}"></span>`:'';
+          return `<button type="button" class="var-chip var-chip-btn" data-color="${esc(c.name)}" data-csp-click="${chipBind}">${sw}${esc(c.name)}</button>`;
+        }).join('')}
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی</th><th>تعداد</th></tr></thead>
+      <tbody>${rows.map(v=>{
+        const vid=Number(v.id)||0;
+        const defQty=qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:0;
+        const minus=CSP.bind('click',function(){bumpInvVarQty(vid,-1)});
+        const plus=CSP.bind('click',function(){bumpInvVarQty(vid,1)});
+        return `<tr data-vcolor="${esc(v.color_name||'')}">
         <td>${esc(v.color_name||'—')}</td>
         <td>${esc(v.size_name||'—')}</td>
         <td class="mono">${fmt(v.stock||0)}</td>
-        <td><input type="number" min="0" step="1" value="${qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:(opts.existing&&opts.existing.length?0:1)}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${v.stock||0}"></td>
-      </tr>`).join('')}</tbody></table></div>
+        <td><div class="inv-var-qty-cell">
+          <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${minus}">−</button>
+          <input type="number" min="0" step="1" inputmode="numeric" value="${defQty}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${v.stock||0}">
+          <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${plus}">+</button>
+        </div></td>
+      </tr>`;
+      }).join('')}</tbody></table></div>
     </div>
     <div class="modal-foot">
-      <button class="btn" data-csp-click="${splitConfirmBind}">${replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور'}</button>
+      <button class="btn" data-csp-click="${splitConfirmBind}">${esc(confirmLabel)}</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
     </div>`);
 }
 function confirmInvVariantSplit(pid, opts){
   opts=opts||{};
-  const p=findInvProduct(pid);
+  const pick=window._variantPick||{};
+  const dest=opts.dest||pick.dest||'invoice';
+  const p=findInvProduct(pid)||pick.product;
   if(!p){ closeNestedModal(); return; }
-  const inputs=[...document.querySelectorAll('.inv-var-qty')];
+  const root=document.getElementById('nestedActiveModal')||document;
+  const inputs=[...root.querySelectorAll('.inv-var-qty')];
   let added=0;
   const next=[];
   inputs.forEach(inp=>{
@@ -4613,14 +4691,24 @@ function confirmInvVariantSplit(pid, opts){
     added++;
   });
   if(!added){ showToast('حداقل برای یک رنگ/سایز تعداد وارد کنید','error'); return; }
-  if(Array.isArray(opts.replaceIndices) && opts.replaceIndices.length){
-    const drop=opts.replaceIndices.slice().sort((a,b)=>b-a);
+  const replaceIndices=opts.replaceIndices||pick.replaceIndices||null;
+  if(dest==='marketer'){
+    if(!(window.MarketerUI && typeof MarketerUI.addVariantLines==='function')){
+      showToast('سبد بازاریاب در دسترس نیست','error');
+      return;
+    }
+    MarketerUI.addVariantLines(p, next, { replaceIndices: replaceIndices });
+    closeNestedModal();
+    return;
+  }
+  if(Array.isArray(replaceIndices) && replaceIndices.length){
+    const drop=replaceIndices.slice().sort((a,b)=>b-a);
     drop.forEach(i=>{ if(i>=0&&i<invCart.length) invCart.splice(i,1); });
   }
   next.forEach(row=>addCartRow(p, row));
   closeNestedModal();
-  renderCart();
-  renderInvPicker();
+  try{ renderCart(); }catch(_){}
+  try{ renderInvPicker(); }catch(_){}
 }
 let _pickTap={};
 function pickCardTap(e,pid){
@@ -5298,10 +5386,10 @@ function productCardHtml(p, opts){
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
         <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
-        ${(p.colors>1||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
+        ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?((Number(stockQty)||0)<=0
           ?`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px;opacity:.55`)}" disabled title="موجودی صفر">⛔ بدون موجودی</button>`
-          :`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){CSP.resolve(opts.addToCartFn)((p.id))})}">➕ افزودن به سبد${pack>1?` (${pack} عدد)`:''}</button>`):''}
+          :`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){CSP.resolve(opts.addToCartFn)((p.id))})}">${productNeedsColorPick(p)?'🎨 انتخاب رنگ':('➕ افزودن به سبد'+(pack>1?` (${pack} عدد)`:''))}</button>`):''}
         ${opts.canEdit?`<div class="acts">
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodModal((p.id))})}">✏️</button>
           ${p.barcode?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeLabels((p.id))})}" title="چاپ برچسب بارکد">🏷️</button>`:''}
@@ -20907,7 +20995,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. در فاکتور اگر کالا ماتریس داشته باشد، پنجرهٔ انتخاب رنگ/سایز باز می‌شود. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. تعریف ماتریس فقط مدیر/حسابدار است. انتخاب رنگ برای مشتری در فاکتورساز و در «فروش بازاریاب» (کارشناس میدانی، تلفنی و شعب) همان پنجره است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -21028,19 +21116,19 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
-        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>).</li>
+        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد به همان مرکز وصل باشد، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای عملیات فقط‌دستمزد/شخص، مرکز بدون قلم مواد انتخاب کنید.</li>
         <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪. دکمه‌های «تسهیم خودکار (ارزش فروش)» و «تسهیم خودکار (فیزیکی)» سهم‌ها را از <code>POST .../outputs/auto-share</code> پر می‌کنند؛ ویرایش و حذف خروجی هم پشتیبانی می‌شود.</li>
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
-        <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
+        <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است.</li>
         <li><b>لایه‌چینی و برش (PROD-02/03) + رسید برش / PACK:</b> تولید → عملیات → لایه‌چینی و برش. طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف ضایعات عادی (٪ مصرف واقعی) سند ندارد؛ اضافه ضایعات غیرعادی (۵۲۲۱) است. طاقه از انبار مواد کم می‌شود. مدیر تولید طاقه را بدون دیدن بها انتخاب می‌کند. ابطال برش موجودی طاقه و سند را برمی‌گرداند. <b>رسید برش</b> تعداد ماتریس را به انبار محصول (بدون Lot/Serial) می‌برد؛ مبلغ رسید = مانده WIP همان لایه (نه بها × تعداد حدسی) و بعد از رسید کامل مانده WIP لایه صفر است. بارکد بسته هویت عملیاتی است نه سریال کالا؛ با ابطال رسید می‌میرد. حواله/backflush همان متر پارچهٔ مصرف‌شده در لایهٔ posted با خطای E_FABRIC_ALREADY_CUT رد می‌شود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید برش باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
           <br>چک‌لیست فاز ۸ برای صفحهٔ رسید برش (Light/Dark، عرض ~1440 و ~360، RTL، دکمه لمس ۴۴px، چاپ بارکد بدون chrome مرورگر) بعد از overlay ایران به‌صورت دستی باقی است.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
-        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
-        <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV.</li>
+        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد. گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
+        <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
@@ -21196,7 +21284,8 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
       <ul>
         <li>کالاها از <b>بیشترین موجودی به کمترین</b> مرتب می‌شوند</li>
-        <li>با «افزودن به سبد»، به‌اندازه <b>تعداد در پک</b> کالا به سبد/فاکتور اضافه می‌شود (مثل فاکتورساز)</li>
+        <li>اگر کالا ماتریس رنگ×سایز داشته باشد دکمهٔ <b>انتخاب رنگ</b> همان پنجرهٔ فاکتورساز را باز می‌کند: رنگ را فیلتر کنید، با +/− تعداد بزنید، «افزودن به سبد». هر SKU جدا در سبد و فاکتور می‌ماند. تعریف رنگ فقط مدیر است</li>
+        <li>کالای بدون ماتریس مثل قبل به‌اندازه <b>تعداد در پک</b> اضافه می‌شود</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
         <li>کارشناس حضوری و تلفنی در فاکتور نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک، معافیت مالیات و کرایه را می‌بیند؛ انبار مبدأ قفل روی انبار تخصیص‌یافته است و در نشست ورود (<code>sales_warehouse_id</code>) می‌آید</li>
@@ -21428,7 +21517,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v207</b> است و اسکریپت‌ها با <code>?v=207</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v208</b> است و اسکریپت‌ها با <code>?v=208</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21625,7 +21714,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v207</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v208</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`

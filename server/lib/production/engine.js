@@ -72,6 +72,12 @@ function createOrder(db, body, userId) {
   const period = body.period_label || jalaliPeriod(date);
   const analysisType = body.analysis_type || 'fixed';
 
+  const product = db.prepare('SELECT id, name, is_manufactured FROM products WHERE id=?').get(productId);
+  if (!product) throw err('E_NOT_FOUND', 404);
+  if (!product.is_manufactured) {
+    throw err('E_NOT_MANUFACTURED', 422, { name: product.name });
+  }
+
   const fy = assertFiscalYearWritable(db, date);
   if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
   assertPeriodOpen(db, period);
@@ -292,9 +298,12 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     if (po.status === 'cancelled') throw err('E_ORDER_CANCELLED', 409);
     if (po.analysis_type !== 'fixed') throw err('E_WRONG_ANALYSIS', 409);
     if (body.materials || body.qty_actual != null) throw err('E_FIXED_NO_MANUAL_QTY', 422);
-    if (!['released', 'in_progress', 'draft'].includes(po.status) && po.status !== 'completed') {
-      // allow released / in_progress primarily; draft needs release first
-      if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    // Status gate: only released / in_progress. Partial receipts keep status=in_progress
+    // (is_partial→in_progress), so completed has no remaining qty path — reject it.
+    if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    if (po.status === 'completed') throw err('E_ALREADY_COMPLETED', 409);
+    if (!['released', 'in_progress'].includes(po.status)) {
+      throw err('E_INVALID_STATUS', 409, { status: po.status });
     }
 
     const date = body.date || todayJalali();
@@ -1175,6 +1184,12 @@ function postReceiptVariable(db, { orderId, body, userId }) {
     const po = getOrder(db, orderId);
     if (po.analysis_type !== 'variable') throw err('E_WRONG_ANALYSIS', 409);
     if (po.status === 'closed') throw err('E_ORDER_CLOSED', 409);
+    if (po.status === 'cancelled') throw err('E_ORDER_CANCELLED', 409);
+    if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    if (po.status === 'completed') throw err('E_ALREADY_COMPLETED', 409);
+    if (!['released', 'in_progress'].includes(po.status)) {
+      throw err('E_INVALID_STATUS', 409, { status: po.status });
+    }
 
     const issued = db.prepare(`
       SELECT COALESCE(SUM(amount_rial),0) s FROM production_material_issues
