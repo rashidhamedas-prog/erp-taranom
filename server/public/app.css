@@ -662,6 +662,13 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .pick-var-line:hover,.inv-var-line:hover{color:var(--purple);text-decoration:underline}
 .var-chip-wrap{display:flex;flex-wrap:wrap;gap:6px}
 .var-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:999px;background:var(--purple-light);color:var(--purple);font-size:12px;font-weight:600}
+.var-chip-btn{border:0;cursor:pointer;font:inherit;min-height:36px;padding:8px 12px}
+.var-chip-btn.is-on{background:var(--purple);color:#fff}
+.var-swatch{width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.18);display:inline-block;flex:0 0 14px}
+.inv-var-qty-cell{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.inv-var-qty{width:64px;min-height:44px;font-size:16px;text-align:center;font-weight:700}
+.inv-var-step{min-width:40px;min-height:44px;padding:0 8px;font-size:18px;line-height:1}
+.mk-sku-line{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5}
 .inv-lines-tbl input,.inv-lines-tbl select{width:100%;min-width:0;padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--input-bg,var(--card))}
 .inv-lines-tbl input:focus,.inv-lines-tbl select:focus{outline:none;border-color:var(--purple2);box-shadow:0 0 0 3px rgba(26,92,56,.12)}
 .inv-lines-tbl .col-qty{width:88px}.inv-lines-tbl .col-price{width:118px}

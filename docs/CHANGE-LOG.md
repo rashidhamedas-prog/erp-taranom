@@ -14,6 +14,15 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۸ — انتخاب رنگ فروش/بازاریاب + merge به main (SW v209)
+
+- **فروش:** پنجرهٔ رنگ×سایز با فیلتر رنگ، تعداد پیش‌فرض صفر، دکمهٔ +/− لمسی؛ دکمهٔ «انتخاب رنگ» روی کارت کاتالوگ وقتی کالا ماتریس دارد.
+- **بازاریاب:** همان picker با `dest=marketer`؛ سبد `variant_id`/رنگ/سایز را به فاکتورساز می‌برد؛ «تغییر رنگ» در سبد.
+- **فایل‌ها:** `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-color-pick-v208.js`
+- **تست:** color-pick ۲۹/۲۹؛ sms ۲۲/۲۲
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v209
+
 ### ۱۴۰۵/۰۶/۱۸ — رفع ریشه‌ای باگ‌های نرم تولید (P0/P1) + سخت‌گیری E2E (SW v208)
 
 - **رسید ثابت/متغیر:** گیت وضعیت شکسته بود (`draft`/`completed` عبور می‌کردند). فقط `released`/`in_progress`؛ draft → `E_NOT_RELEASED`؛ completed → `E_ALREADY_COMPLETED`.
