@@ -19,8 +19,8 @@
 - **شکاف:** دکمهٔ «انتخاب رنگ» فقط در فروش بازاریاب بود؛ صفحهٔ کاتالوگ میدانی/تلفنی دکمه نداشت و `is_style` دکمهٔ دروغ می‌ساخت.
 - **رفع:** `attachVariantFlags` روی `GET /products`؛ کاتالوگ فروش با `catalogAddToCart` → همان سبد بازاریاب؛ نوار سبد/فاکتور؛ picker رنگ‌اول (پیش‌فرض اولین رنگ).
 - **فایل‌ها:** `server/lib/product-variants/service.js`، `server/routes/products.js`، `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-color-pick-v210.js`
-- **تست:** `node server/scripts/test-sales-color-pick-v210.js`؛ sms پس از بک‌اند
-- **Deploy:** ⏳
+- **تست:** color-pick v210 ۲۲/۲۲؛ sms ۲۲/۲۲
+- **Deploy:** ✅ ایران overlay SFTP @ `60f5c14` — `app.js?v=210` / `erp-taranom-v210`؛ health HTTP 200
 - **SW:** erp-taranom-v210
 
 ### ۱۴۰۵/۰۶/۱۸ — انتخاب رنگ فروش/بازاریاب + merge به main (SW v209)
