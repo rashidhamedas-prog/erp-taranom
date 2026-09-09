@@ -20,8 +20,8 @@
 - **رفع رمز:** `server/lib/password-verify.js` همان مسیر ورود (trim هش، سقف ۱۲۸، dummy compare). مودال تأیید فرم جدا، دکمهٔ «درج عبارت»، ضبط رمز روی input، فرم ورود بعد از login خلع سلاح می‌شود، خطا داخل مودال می‌ماند.
 - **افتتاح سال خام:** `mode: 'open-clean'` فاکتور/سند/چک **و** کالا/مشتری/اشخاص/فرمول را پاک می‌کند. کاربران، کدینگ، انبار خالی و بانک/صندوق می‌مانند. ایجاد شرکت همچنان فایل جدا و بدون کپی اسناد است.
 - **فایل‌ها:** `server/lib/{password-verify,clean-slate}.js`, `server/routes/{fiscal-year,companies,auth,data-wipe}.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-password-verify-v213.js`
-- **تست:** `test-password-verify-v213.js`؛ `app.js` با `new Function`؛ `test-sms.js`
-- **Deploy:** ⏳
+- **تست:** `test-password-verify-v213.js` ۱۱/۱۱؛ `app.js` با `new Function`؛ `test-sms.js` ۲۲/۲۲؛ sqlite/`test-sync` روی Node ۲۴ این ماشین (ABI better-sqlite3) اجرا نشد
+- **Deploy:** ✅ ایران overlay SFTP @ `7401f51` — `app.js?v=213` / `erp-taranom-v213`؛ health HTTP 200
 - **SW:** erp-taranom-v213
 
 ### ۱۴۰۵/۰۶/۱۸ — چندشرکتی و سال مالی خام (SW v212)
