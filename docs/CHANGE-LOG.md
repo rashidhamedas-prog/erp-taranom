@@ -22,7 +22,7 @@
 - **SKIP QA:** کانبان پیش‌فرض پیگیری فروش؛ دکمهٔ خوانای چاپ + wrap؛ دستهٔ هزینه با fallback ثابت؛ دریافت میدانی از پیگیری/تاریخچه (نه سند حسابداری مستقیم). ایزولهٔ مشتری مدیر (C7) و CTA سبد خالی (F5) و هشدار موجودی (G3) عمداً عوض نشدند.
 - **فایل‌ها:** `server/lib/{catalog-cost-policy,staff-public}.js`، `server/routes/{auth,twofa,products,invoices}.js`، `server/public/{app.js,app.css,marketer-ui.js,index.html,sw.js}`، `server/scripts/test-sales-r11-warehouse-v207.js`
 - **تست:** `node server/scripts/test-sales-r11-warehouse-v207.js`؛ sms پس از بک‌اند
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `19f13a0` — `app.js?v=207` و `erp-taranom-v207`؛ PM2 restart. checkout سرور همان `claude/claude-md-docs-2ssrpy` ماند (dirty overlay).
 - **SW:** erp-taranom-v207
 
 ### ۱۴۰۵/۰۶/۱۸ — بچ E2E زنده تولید ۰→۱۰۰ + فیلد نوع کالا در API (ادمین)
@@ -34,8 +34,8 @@
 - **اجرا:** رمز فقط از env/`-Password` — در گیت ذخیره نمی‌شود. `force_logout_other` برای تعارض نشست وب.
 - **نتیجه زنده:** **۹۷ passed / ۰ failed** روی `erp.poshaktaranom.com` (TAG نمونه `E2ETCLGP8`؛ گزارش JSON در `server/.tmp-test-artifacts/`).
 - **فایل‌ها:** `server/scripts/test-production-e2e-live-batch.js`، `scripts/run-production-e2e-batch.{ps1,cmd}`، `server/lib/production/{estimate,engine-advanced}.js`، `server/routes/products.js`، `server/lib/catalog-cost-policy.js`، `server/package.json`، راهنما در `app.js`
-- **Deploy:** ✅ overlay ایران (estimate + engine-advanced + products/catalog-cost)
-- **SW:** راهنما همراه v207
+- **Deploy:** ✅ overlay ایران `ba6253b` (estimate + engine-advanced + products/catalog-cost + app.js راهنما)
+- **SW:** راهنما همراه v207 (کش SW جدا هنوز روی دستگاه‌ها تا رلیز v207 کامل)
 
 
 
