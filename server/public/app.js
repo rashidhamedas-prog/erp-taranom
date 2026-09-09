@@ -6803,18 +6803,74 @@ async function saveRbacMatrix(userId){
 async function fiscalRollover(){
   const label=el('fy-label')?.value?.trim(), start=el('fy-start')?.value?.trim(), end=el('fy-end')?.value?.trim();
   if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
-  if(!confirm('سال مالی جاری بسته و سال جدید افتتاح شود؟')) return;
+  if(!confirm('سال مالی جاری بسته می‌شود و سال جدید با انتقال مانده افتتاح می‌شود.\n\nفاکتورها و اسناد سال قبل حذف نمی‌شوند — در بایگانی همان سال می‌مانند.')) return;
   const r=await api('POST','/fiscal-year/rollover',{new_year_label:label,start_date:start,end_date:end});
-  if(r?.ok){ showToast('سال مالی جدید افتتاح شد'); el('fy-status').textContent='✅ '+label; }
+  if(r?.ok){ showToast('سال مالی جدید افتتاح شد (اسناد قبلی بایگانی شد)'); if(el('fy-status')) el('fy-status').textContent='✅ '+label; }
+}
+function openTypedConfirm(opts){
+  const phrase=opts.phrase||'';
+  const needPass=!!opts.needPassword;
+  openModal(`<div class="modal-head"><h3>${esc(opts.title||'تأیید عملیات حساس')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin:0 0 12px`)}">${opts.body||''}</p>
+      ${opts.warning?`<div class="warn" data-csp-style="${CSP.style(`margin:0 0 14px`)}">${opts.warning}</div>`:''}
+      <div class="fg"><label>عبارت تأیید را دقیقاً تایپ کنید — <b dir="ltr">${esc(phrase)}</b></label>
+        <input id="tc-phrase" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(phrase)}"></div>
+      ${needPass?`<div class="fg" data-csp-style="${CSP.style(`margin-top:10px`)}"><label>رمز عبور همین کاربر مدیر</label><input id="tc-pass" type="password" autocomplete="current-password"></div>`:''}
+    </div>
+    <div class="modal-foot">
+      <button class="btn red" data-csp-click="${CSP.bind('click',function(event){submitTypedConfirm()})}">${esc(opts.okLabel||'تأیید و اجرا')}</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+  window.__typedConfirm={ phrase, needPass, onOk:opts.onOk };
+  setTimeout(()=>{ try{ el('tc-phrase')?.focus(); }catch(_){} }, 50);
+}
+async function submitTypedConfirm(){
+  const cfg=window.__typedConfirm;
+  if(!cfg) return;
+  const typed=(el('tc-phrase')?.value||'').trim();
+  if(typed!==cfg.phrase){ showToast('عبارت تأیید نادرست است','error'); return; }
+  const pass=cfg.needPass?(el('tc-pass')?.value||''):'';
+  if(cfg.needPass && !pass){ showToast('رمز عبور الزامی است','error'); return; }
+  const onOk=cfg.onOk;
+  window.__typedConfirm=null;
+  closeModal();
+  if(typeof onOk==='function') await onOk({ password:pass, text:typed });
 }
 async function fiscalFactoryReset(){
-  const text=prompt('برای تأیید بازنشانی کامل، عبارت RESET-FISCAL را تایپ کنید:');
-  if(text!=='RESET-FISCAL') return;
-  const pass=prompt('رمز عبور مدیر را وارد کنید:');
-  if(!pass) return;
-  if(!confirm('هشدار نهایی: همه فاکتورها، اسناد و تراکنش‌ها حذف می‌شوند. ادامه؟')) return;
-  const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:pass});
-  if(r?.ok){ showToast('بازنشانی انجام شد — صفحه را رفرش کنید'); location.reload(); }
+  openTypedConfirm({
+    title:'بازنشانی کامل مالی',
+    body:'همه فاکتورها، اسناد حسابداری، چک، انبارگردانی و گردش حساب این شرکت پاک می‌شود. کالا و مشتری می‌ماند؛ موجودی کالا صفر می‌شود.',
+    warning:'این کار برگشت‌پذیر نیست مگر از نسخه پشتیبان. برای شروع سال خالی از «افتتاح سال خام» استفاده کنید.',
+    phrase:'RESET-FISCAL',
+    needPassword:true,
+    okLabel:'بازنشانی کامل',
+    onOk: async ({password,text})=>{
+      const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:password});
+      if(r?.ok){ showToast('بازنشانی انجام شد — صفحه تازه می‌شود'); location.reload(); }
+    }
+  });
+}
+async function fiscalOpenCleanFromSettings(){
+  const label=(el('fy-label')?.value||'').trim();
+  const start=(el('fy-start')?.value||'').trim();
+  const end=(el('fy-end')?.value||'').trim();
+  if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
+  openTypedConfirm({
+    title:'افتتاح سال مالی خام',
+    body:`سال «${esc(label)}» از تاریخ ${esc(start)} باز می‌شود و همه تراکنش‌های این شرکت پاک می‌گردند. اطلاعات پایه (کالا، مشتری، کدینگ) می‌ماند.`,
+    warning:'فاکتور، سند، چک و گردش حساب حذف می‌شوند. اگر فقط می‌خواهید سال جدید با حفظ تاریخچه باز شود، از «انتقال با مانده» استفاده کنید.',
+    phrase:'OPEN-CLEAN-YEAR',
+    needPassword:true,
+    okLabel:'افتتاح سال خام',
+    onOk: async ({password,text})=>{
+      const r=await api('POST','/fiscal-year/open-clean',{
+        label, start_date:start, end_date:end||'',
+        confirm_text:text, confirm_password:password, wipe_master:false
+      });
+      if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
+    }
+  });
 }
 async function fiscalLock(id){
   if(!confirm('سال مالی قفل شود؟ ثبت سند جدید در این سال مسدود می‌شود.')) return;
@@ -6832,12 +6888,24 @@ async function companyCreate(activate){
   const code=(el('co-new-code')?.value||'').trim();
   const fiscal_label=(el('co-new-fy')?.value||'').trim();
   const start_date=(el('co-new-start')?.value||'').trim();
-  if(!confirm(activate?'شرکت جدید ساخته و فوراً فعال شود؟ صفحه رفرش می‌شود.':'شرکت جدید با دادهٔ خام ساخته شود؟')) return;
-  const r=await api('POST','/companies',{name,code,fiscal_label,start_date,activate:!!activate});
-  if(r?.ok){
-    showToast('شرکت ایجاد شد');
+  const msg=activate
+    ? 'شرکت جدید با دیتابیس خالی (بدون فاکتور و سند) ساخته و فوراً فعال می‌شود. همه نشست‌ها باطل می‌شود و باید دوباره وارد شوید.'
+    : 'شرکت جدید با دیتابیس خالی ساخته می‌شود. شرکت فعلی و اسنادش دست‌نخورده می‌ماند تا وقتی «انتخاب» را بزنید.';
+  if(!confirm(msg)) return;
+  try{
+    const r=await api('POST','/companies',{name,code,fiscal_label,start_date,activate:!!activate});
+    if(!r?.ok) return;
+    const leftover=r.cleanliness||r.company?.cleanliness||{};
+    const dirty=Object.entries(leftover).filter(([,n])=>Number(n)>0);
+    if(dirty.length){
+      showToast('شرکت ساخته شد اما هنوز سند دارد: '+dirty.map(([k,n])=>k+'='+n).join('، '),'error');
+    }else{
+      showToast(activate?'شرکت خالی فعال شد — دوباره وارد شوید':'شرکت خالی ساخته شد. برای کار روی آن «انتخاب» را بزنید');
+    }
     if(r.reload||r.activated) location.reload();
     else settOpenTab('general');
+  }catch(e){
+    showToast(e?.message||e?.error||'ایجاد شرکت ناموفق بود','error');
   }
 }
 async function companyActivate(id){
@@ -15827,7 +15895,7 @@ async function renderFiscalPeriodTab(body){
   body.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>${lucide('calendar')} عملیات سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:14px`)}">
-        <b>سال فعال</b> مبنای ثبت سند و گزارش‌هاست. برای شروع از صفر از «افتتاح سال خام» استفاده کنید (تراکنش‌ها پاک می‌شوند؛ اطلاعات پایه می‌ماند مگر گزینهٔ پاک‌سازی پایه را بزنید).<br>
+        <b>سال فعال</b> مبنای ثبت سند است. <b>افتتاح سال خام</b> همه فاکتور، سند، چک و گردش این شرکت را پاک می‌کند؛ کالا و مشتری می‌ماند. <b>انتقال با مانده</b> اسناد را نگه می‌دارد و فقط سال جدید باز می‌کند.<br>
         <b>حذف سال</b> فقط برای سال غیرفعال؛ اگر سند داشته باشد نیاز به تأیید اجباری دارد.
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg);margin-bottom:14px`)}">
@@ -15858,7 +15926,8 @@ async function renderFiscalPeriodTab(body){
         <td>${y.is_active?'✓':''}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           ${!y.is_active?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){fiscalActivate((y.id))})}" title="فعال‌سازی">فعال</button>`:''}
-          ${y.status==='open'||y.status==='locked'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){fiscalCSP.resolve(y.status==='locked'?'Unlock':'Lock')((y.id))})}" title="${y.status==='locked'?'بازگشایی':'قفل'}">${y.status==='locked'?'باز':'قفل'}</button>`:''}
+          ${y.status==='open'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){fiscalLock((y.id))})}" title="قفل">قفل</button>`:''}
+          ${y.status==='locked'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){fiscalUnlock((y.id))})}" title="بازگشایی">باز</button>`:''}
           ${!y.is_active?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){fiscalDeleteYear((y.id),(y.txn_count||0))})}" title="حذف">حذف</button>`:''}
         </td>
       </tr>`).join('')||emptyRow(7)}</tbody></table>
@@ -15892,19 +15961,22 @@ async function fiscalOpenClean(){
   const start=(el('fy-op-start')?.value||'').trim();
   const end=(el('fy-op-end')?.value||'').trim();
   if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
-  const mode=prompt('حالت افتتاح خام:\n1 = فقط پاک‌سازی تراکنش‌ها (پایه می‌ماند)\n2 = پاک‌سازی تراکنش + پایه\nلغو = خالی بگذارید','1');
-  if(mode!=='1' && mode!=='2') return;
-  const text=prompt('عبارت OPEN-CLEAN-YEAR را تایپ کنید:');
-  if(text!=='OPEN-CLEAN-YEAR') return;
-  const pass=prompt('رمز عبور مدیر:');
-  if(!pass) return;
-  if(!confirm('هشدار: داده‌های تراکنشی این شرکت پاک و سال جدید باز می‌شود. ادامه؟')) return;
-  const r=await api('POST','/fiscal-year/open-clean',{
-    label, start_date:start, end_date:end||'',
-    confirm_text:text, confirm_password:pass,
-    wipe_master: mode==='2'
+  openTypedConfirm({
+    title:'افتتاح سال مالی خام',
+    body:`سال «${esc(label)}» از ${esc(start)} باز می‌شود. همه فاکتور، سند، چک و گردش این شرکت پاک می‌شود. کالا و مشتری می‌ماند.`,
+    warning:'اگر می‌خواهید تاریخچه سال قبل بماند، انصراف دهید و «انتقال با مانده» را بزنید.',
+    phrase:'OPEN-CLEAN-YEAR',
+    needPassword:true,
+    okLabel:'افتتاح سال خام',
+    onOk: async ({password,text})=>{
+      const r=await api('POST','/fiscal-year/open-clean',{
+        label, start_date:start, end_date:end||'',
+        confirm_text:text, confirm_password:password,
+        wipe_master:false
+      });
+      if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
+    }
   });
-  if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
 }
 async function fiscalRolloverFromOps(){
   const label=(el('fy-op-label')?.value||'').trim();
@@ -20253,8 +20325,8 @@ ROUTES.settings = async function(){
   const companiesPanel = coData.device ? '' : `
     <div class="panel"><div class="panel-head"><h4>${lucide('building')} چندشرکتی — انتخاب فضای کاری</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        هر شرکت دیتابیس و سال مالی مستقل دارد. با تعویض شرکت، کل برنامه روی داده‌های همان شرکت سوار می‌شود.
-        شرکت جدید از صفر (بدون تراکنش) ساخته می‌شود؛ کاربران فعلی برای ورود کپی می‌شوند.
+        هر شرکت یک فایل پایگاه جدا و سال مالی مستقل دارد. شرکت فعلی تا وقتی «انتخاب» نزنید عوض نمی‌شود.<br>
+        <b>ایجاد شرکت (خام)</b> فاکتور، سند، چک و گردش را از شرکت جدید حذف می‌کند؛ فقط کاربران ورود کپی می‌شوند. کالا و مشتری شرکت فعلی به شرکت جدید نمی‌آید.
       </div>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
         <div class="fg"><label>شرکت فعال</label>
@@ -20434,8 +20506,9 @@ ROUTES.settings = async function(){
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        <b>مسیر ۱ — انتقال (Rollover):</b> بستن سال جاری و افتتاح سال جدید با انتقال سود انباشته.<br>
-        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL. <b>در حالت کدینگ تفصیلی غیرفعال است.</b>
+        <b>انتقال با مانده:</b> سال جاری بسته می‌شود؛ فاکتورها و اسناد حذف نمی‌شوند و در بایگانی همان سال می‌مانند. سود و زیان همان سال به افتتاحیه سال جدید می‌رود.<br>
+        <b>افتتاح سال خام:</b> همه تراکنش‌های این شرکت پاک می‌شود و سال جدید از صفر باز می‌شود — کالا و مشتری می‌ماند. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + رمز.<br>
+        <b>بازنشانی کامل:</b> همان پاک‌سازی تراکنش با سال جدید از امروز. در حالت کدینگ تفصیلی غیرفعال است.
       </div>
       <div class="form-grid">
         <div class="fg"><label>برچسب سال جدید</label><input id="fy-label" placeholder="سال مالی 1405"></div>
@@ -20443,8 +20516,9 @@ ROUTES.settings = async function(){
         <div class="fg"><label>تاریخ پایان (اختیاری)</label><input id="fy-end" data-jdate placeholder="1405/12/29"></div>
       </div>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:10px`)}">
-        <button class="btn" data-csp-click="${CSP.bind('click',function(event){fiscalRollover()})}">${lucide('repeat')} انتقال به سال جدید</button>
-        <button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-fiscal-ops')})}">📅 عملیات کامل سال مالی</button>
+        <button class="btn" data-csp-click="${CSP.bind('click',function(event){fiscalOpenCleanFromSettings()})}">${lucide('plus')} افتتاح سال خام</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalRollover()})}">${lucide('repeat')} انتقال با مانده</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-fiscal-ops')})}">📅 عملیات کامل سال مالی</button>
         <button class="btn red" data-csp-click="${CSP.bind('click',function(event){fiscalFactoryReset()})}">بازنشانی کامل مالی</button>
         ${curFy?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalLock((curFy.id))})}">${lucide('lock')} قفل سال جاری</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalUnlock((curFy.id))})}">بازگشایی سال</button>`:''}
@@ -21565,7 +21639,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
         <li><b>وب‌سایت</b>: سینک موجودی Site-B2B (SKU) و در صورت نیاز ووکامرس — آزمایش اتصال از همین صفحه</li>
-        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
+        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
       </ul>
@@ -21652,7 +21726,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v211</b> است و اسکریپت‌ها با <code>?v=211</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v212</b> است و اسکریپت‌ها با <code>?v=212</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21732,16 +21806,15 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
       <h5>چندشرکتی و سال مالی</h5>
-      <p>از <b>تنظیمات → عمومی</b> می‌توانید چند شرکت تعریف کنید؛ هر شرکت دیتابیس مستقل دارد. با «انتخاب» شرکت، کل برنامه روی همان فضای کاری سوار می‌شود (صفحه رفرش می‌شود). کاربران فعلی برای ورود در شرکت جدید کپی می‌شوند.</p>
-      <p>از <b>حسابداری → عملیات سال مالی</b> یا تنظیمات → حسابداری:</p>
+      <p>از <b>تنظیمات → عمومی</b> چند شرکت بسازید؛ هر شرکت فایل پایگاه جدا دارد. «ایجاد شرکت (خام)» فاکتور و سند شرکت جدید را صفر می‌کند و کالا/مشتری شرکت فعلی را کپی نمی‌کند. تا وقتی «انتخاب» نزنید روی شرکت قبلی می‌مانید. پس از تعویض شرکت باید دوباره وارد شوید.</p>
+      <p>از <b>تنظیمات → حسابداری</b> یا <b>حسابداری → عملیات سال مالی</b>:</p>
       <ul>
-        <li><b>افتتاح سال خام</b>: پاک‌سازی تراکنش‌ها و باز کردن سال جدید از صفر (تأیید <code>OPEN-CLEAN-YEAR</code> + رمز). حالت ۱ پایه را نگه می‌دارد؛ حالت ۲ پایه را هم پاک می‌کند.</li>
-        <li><b>انتقال (Rollover)</b>: بستن سال جاری با انتقال مانده/سود انباشته.</li>
-        <li><b>فعال‌سازی سال</b>: سال انتخاب‌شده مبنای ثبت سند می‌شود.</li>
-        <li><b>حذف سال</b>: فقط سال غیرفعال؛ اگر سند داشته باشد نیاز به <code>DELETE-FISCAL-YEAR</code> دارد.</li>
-        <li><b>قفل / بازگشایی</b>: مسدود یا آزاد کردن ثبت سند روی سال فعال.</li>
+        <li><b>افتتاح سال خام</b>: پاک کردن همه تراکنش‌ها (فاکتور، سند، چک، گردش، انبارگردانی) و باز کردن سال جدید. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + رمز مدیر. اگر سندی باقی بماند سرور خطا می‌دهد و دروغ نمی‌گوید که پاک شده.</li>
+        <li><b>انتقال با مانده</b>: اسناد سال قبل حذف نمی‌شوند؛ سود و زیان همان سال به افتتاحیه سال جدید می‌رود.</li>
+        <li><b>بازنشانی کامل</b>: همان پاک‌سازی تراکنش با سال از امروز (<code dir="ltr">RESET-FISCAL</code>). در کدینگ تفصیلی مسدود است.</li>
+        <li><b>فعال‌سازی / قفل / حذف سال</b>: مبنای ثبت سند، مسدود کردن ثبت، یا حذف سال غیرفعال.</li>
       </ul>
-      <div class="tip">چندشرکتی فقط روی سرور مرکزی است؛ دستگاه‌های آفلاین روی یک دیتابیس می‌مانند.</div>
+      <div class="tip">چندشرکتی فقط روی سرور مرکزی است. دستگاه آفلاین روی یک پایگاه می‌ماند؛ بعد از سال خام، دستگاه باید از نو همگام شود.</div>
       <h5>سال مالی (خلاصه)</h5><p>مسیر سریع: تنظیمات → مدیریت سال مالی. برای کنترل کامل به «عملیات سال مالی» بروید.</p>
       <h5>ساخت سریع کالا در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>

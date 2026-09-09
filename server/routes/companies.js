@@ -88,9 +88,21 @@ router.post('/', auth, adminOnly, centralOnly, (req, res) => {
     if (activate) {
       activateCompanySafely(entry.id);
       audit(req.user.id, 'company_activate', 'company', entry.id, `فعال‌سازی شرکت ${entry.name}`);
-      return res.json({ ok: true, company: entry, activated: true, reload: true });
+      return res.json({
+        ok: true,
+        company: { id: entry.id, name: entry.name, code: entry.code, cleanliness: entry.cleanliness },
+        activated: true,
+        reload: true,
+        reauth: true,
+        cleanliness: entry.cleanliness,
+      });
     }
-    res.json({ ok: true, company: entry, activated: false });
+    res.json({
+      ok: true,
+      company: { id: entry.id, name: entry.name, code: entry.code, cleanliness: entry.cleanliness },
+      activated: false,
+      cleanliness: entry.cleanliness,
+    });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }

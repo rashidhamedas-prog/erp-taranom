@@ -6,6 +6,7 @@ const { acct } = require('../lib/coa-map');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { purgeTransactionalData, isWorkspaceClean } = require('../lib/clean-slate');
 
 function currentFiscalYear(db) {
   const activeId = db.prepare("SELECT value FROM settings WHERE key='active_fiscal_year_id'").get()?.value;
@@ -15,6 +16,46 @@ function currentFiscalYear(db) {
   }
   return db.prepare("SELECT * FROM fiscal_years WHERE status='open' ORDER BY id DESC LIMIT 1").get()
     || db.prepare('SELECT * FROM fiscal_years ORDER BY id DESC LIMIT 1').get();
+}
+
+function yearPnLNetRial(db, fyId) {
+  const hasType = db.prepare(`
+    SELECT 1 AS ok FROM chart_of_accounts
+    WHERE LOWER(COALESCE(type,'')) IN ('income','expense','revenue') LIMIT 1
+  `).get();
+  if (hasType) {
+    return db.prepare(`
+      SELECT COALESCE(SUM((${SQL_JL_CREDIT_RIAL}) - (${SQL_JL_DEBIT_RIAL})), 0) as net
+      FROM journal_lines jl
+      JOIN journal_entries je ON jl.entry_id=je.id
+      JOIN chart_of_accounts coa ON coa.code=jl.account_code
+      WHERE COALESCE(je.deleted_at,0)=0
+        AND (? IS NULL OR je.fiscal_year_id=?)
+        AND LOWER(COALESCE(coa.type,'')) IN ('income','expense','revenue')
+    `).get(fyId || null, fyId || null).net || 0;
+  }
+  // Fallback for charts without type: 4xxx income, 5xxx/6xxx expense — never 3xxx equity.
+  return db.prepare(`
+    SELECT COALESCE(SUM((${SQL_JL_CREDIT_RIAL}) - (${SQL_JL_DEBIT_RIAL})), 0) as net
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id=je.id
+    WHERE COALESCE(je.deleted_at,0)=0
+      AND (? IS NULL OR je.fiscal_year_id=?)
+      AND (
+        jl.account_code LIKE '4%'
+        OR jl.account_code LIKE '5%'
+        OR jl.account_code LIKE '6%'
+      )
+  `).get(fyId || null, fyId || null).net || 0;
+}
+
+function requireAdminPassword(db, userId, password) {
+  const user = db.prepare('SELECT password FROM users WHERE id=?').get(userId);
+  if (!user || !bcrypt.compareSync(password || '', user.password)) {
+    const err = new Error('رمز عبور نادرست است');
+    err.status = 403;
+    throw err;
+  }
 }
 
 function fyTxnCount(db, fyId) {
@@ -38,7 +79,8 @@ router.get('/', auth, adminOnly, (req, res) => {
       can_delete: !(current && current.id === y.id) && counts.journal_entries === 0,
     };
   });
-  res.json({ current, years: enriched });
+  const clean = isWorkspaceClean(db);
+  res.json({ current, years: enriched, cleanliness: clean.counts, workspace_clean: clean.clean });
 });
 
 // Pathway 1: Close current year, carry forward balances, open new year
@@ -48,12 +90,7 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const open = currentFiscalYear(db);
 
-  // درآمد/هزینه روی حساب‌های 3xxx — مبالغ از debit_rial/credit_rial (ریال)
-  const retained = db.prepare(`
-    SELECT COALESCE(SUM((${SQL_JL_CREDIT_RIAL}) - (${SQL_JL_DEBIT_RIAL})), 0) as net
-    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-    WHERE jl.account_code LIKE '3%' AND COALESCE(je.deleted_at,0)=0
-  `).get().net || 0;
+  const retained = yearPnLNetRial(db, open?.id || null);
 
   const receivables = db.prepare(`
     SELECT COALESCE(SUM(balance),0) as total FROM (
@@ -95,58 +132,71 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
   })();
 
   audit(req.user.id, 'fiscal_rollover', 'fiscal_year', result, `انتقال سال مالی → ${new_year_label}`);
-  res.json({ ok: true, fiscal_year_id: result });
+  res.json({ ok: true, fiscal_year_id: result, kept_documents: true });
 });
 
-const TXN_TABLES = [
-  'journal_lines', 'journal_entries', 'customer_ledger', 'person_ledger',
-  'settlements', 'invoices', 'purchase_invoices', 'supplier_payments',
-  'sales_returns', 'purchase_returns', 'expense_payments', 'incentive_payments',
-  'rep_payment_submissions', 'rep_expenses', 'rep_advances', 'payroll_records',
-  'production_runs', 'stocktaking_items', 'stocktaking_sessions',
-  'warehouse_moves', 'stock_logs', 'voucher_drafts', 'ai_insights',
-  'app_notifications',
-];
-
-function purgeTransactionalData(db) {
-  for (const t of TXN_TABLES) {
-    try { db.prepare(`DELETE FROM ${t}`).run(); } catch { /* table may not exist */ }
+function assertNotLegacyLocked(db, actionFa) {
+  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
+  if (coaMode === 'mahak' || coaMode === 'extended') {
+    const err = new Error(`در حالت کدینگ تفصیلی، ${actionFa} مجاز نیست — اسناد واردشده از سیستم قبلی حفظ می‌شوند.`);
+    err.status = 400;
+    throw err;
   }
-  try { db.prepare('UPDATE customers SET balance=0, churn_score=0').run(); } catch { /* ignore */ }
-  try { db.prepare('UPDATE products SET stock=0').run(); } catch { /* ignore */ }
-  try { db.prepare('UPDATE warehouse_stock SET qty=0').run(); } catch { /* ignore */ }
+  const legacyDocs = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system IN ('mahak','legacy') AND COALESCE(deleted_at,0)=0").get()?.c || 0;
+  if (legacyDocs > 0) {
+    const err = new Error(`${actionFa} با ${legacyDocs} سند واردشده از سیستم قبلی ممکن نیست.`);
+    err.status = 400;
+    throw err;
+  }
+}
+
+function openFreshYear(db, { label, startDate, endDate, userId, mode }) {
+  let fyId;
+  const result = purgeTransactionalData(db, {
+    mode,
+    after: () => {
+      db.prepare("UPDATE fiscal_years SET status='closed', closed_at=strftime('%s','now'), closed_by=? WHERE status IN ('open','locked')")
+        .run(userId);
+      const fy = db.prepare(`
+        INSERT INTO fiscal_years (label, start_date, end_date, status, created_by)
+        VALUES (?, ?, ?, 'open', ?)
+      `).run(label, startDate, endDate || '', userId);
+      fyId = fy.lastInsertRowid;
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)")
+        .run(String(fyId));
+    },
+  });
+  return { fyId, wipe: result };
 }
 
 // Pathway 2: Factory reset — purge transactions, keep master data
 router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
-  const { confirm_password, confirm_text } = req.body;
-  if (confirm_text !== 'RESET-FISCAL') return res.status(400).json({ error: 'متن تأیید نادرست است — RESET-FISCAL را تایپ کنید' });
-  const db = getDB();
-  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
-  if (coaMode && (coaMode.value === 'mahak' || coaMode.value === 'extended')) {
-    return res.status(400).json({ error: 'در حالت کدینگ تفصیلی، بازنشانی کامل مجاز نیست — اسناد واردشده از سیستم قبلی حفظ می‌شوند.' });
-  }
-  const legacyDocs = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system IN ('mahak','legacy') AND COALESCE(deleted_at,0)=0").get().c;
-  if (legacyDocs > 0) {
-    return res.status(400).json({ error: `بازنشانی کامل با ${legacyDocs} سند واردشده از سیستم قبلی ممکن نیست.` });
-  }
-  const user = db.prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
-  if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
-    return res.status(403).json({ error: 'رمز عبور نادرست است' });
-  }
-
-  db.transaction(() => {
-    purgeTransactionalData(db);
-    db.prepare("UPDATE fiscal_years SET status='closed' WHERE status='open'").run();
+  try {
+    const { confirm_password, confirm_text } = req.body || {};
+    if (confirm_text !== 'RESET-FISCAL') {
+      return res.status(400).json({ error: 'متن تأیید نادرست است — RESET-FISCAL را تایپ کنید' });
+    }
+    const db = getDB();
+    assertNotLegacyLocked(db, 'بازنشانی کامل');
+    requireAdminPassword(db, req.user.id, confirm_password);
     const label = 'سال مالی جدید ' + todayJalali().slice(0, 4);
-    const fy = db.prepare(`
-      INSERT INTO fiscal_years (label, start_date, status, created_by) VALUES (?, ?, 'open', ?)
-    `).run(label, todayJalali(), req.user.id);
-    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fy.lastInsertRowid));
-  })();
-
-  audit(req.user.id, 'fiscal_factory_reset', 'fiscal_year', null, 'بازنشانی کامل داده‌های مالی');
-  res.json({ ok: true });
+    const opened = openFreshYear(db, {
+      label,
+      startDate: todayJalali(),
+      endDate: '',
+      userId: req.user.id,
+      mode: 'transactions',
+    });
+    audit(req.user.id, 'fiscal_factory_reset', 'fiscal_year', opened.fyId, 'بازنشانی کامل داده‌های مالی');
+    res.json({
+      ok: true,
+      fiscal_year_id: opened.fyId,
+      reload: true,
+      cleanliness: opened.wipe.counts,
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code, leftover: e.leftover });
+  }
 });
 
 /**
@@ -155,48 +205,39 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
  * Confirm: OPEN-CLEAN-YEAR + password.
  */
 router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
-  const {
-    label, start_date, end_date,
-    confirm_password, confirm_text,
-    wipe_master,
-  } = req.body || {};
-  if (confirm_text !== 'OPEN-CLEAN-YEAR') {
-    return res.status(400).json({ error: 'متن تأیید نادرست است — OPEN-CLEAN-YEAR را تایپ کنید' });
-  }
-  if (!label || !start_date) {
-    return res.status(400).json({ error: 'برچسب و تاریخ شروع الزامی است' });
-  }
-  const db = getDB();
-  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
-  if (coaMode === 'mahak' || coaMode === 'extended') {
-    return res.status(400).json({ error: 'در حالت کدینگ تفصیلی، افتتاح سال خام مجاز نیست.' });
-  }
-  const user = db.prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
-  if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
-    return res.status(403).json({ error: 'رمز عبور نادرست است' });
-  }
-
-  const fyId = db.transaction(() => {
-    purgeTransactionalData(db);
-    if (wipe_master) {
-      for (const t of ['customers', 'orders', 'followups', 'suppliers', 'persons', 'parties',
-        'products', 'warehouse_stock', 'banks', 'cash_boxes', 'cheque_records']) {
-        try { db.prepare(`DELETE FROM ${t}`).run(); } catch { /* ignore */ }
-      }
+  try {
+    const {
+      label, start_date, end_date,
+      confirm_password, confirm_text,
+      wipe_master,
+    } = req.body || {};
+    if (confirm_text !== 'OPEN-CLEAN-YEAR') {
+      return res.status(400).json({ error: 'متن تأیید نادرست است — OPEN-CLEAN-YEAR را تایپ کنید' });
     }
-    db.prepare("UPDATE fiscal_years SET status='closed', closed_at=strftime('%s','now'), closed_by=? WHERE status IN ('open','locked')")
-      .run(req.user.id);
-    const fy = db.prepare(`
-      INSERT INTO fiscal_years (label, start_date, end_date, status, created_by)
-      VALUES (?, ?, ?, 'open', ?)
-    `).run(label, start_date, end_date || '', req.user.id);
-    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)")
-      .run(String(fy.lastInsertRowid));
-    return fy.lastInsertRowid;
-  })();
-
-  audit(req.user.id, 'fiscal_open_clean', 'fiscal_year', fyId, `افتتاح سال خام ${label}`);
-  res.json({ ok: true, fiscal_year_id: fyId, reload: true });
+    if (!label || !start_date) {
+      return res.status(400).json({ error: 'برچسب و تاریخ شروع الزامی است' });
+    }
+    const db = getDB();
+    assertNotLegacyLocked(db, 'افتتاح سال خام');
+    requireAdminPassword(db, req.user.id, confirm_password);
+    const opened = openFreshYear(db, {
+      label,
+      startDate: start_date,
+      endDate: end_date || '',
+      userId: req.user.id,
+      mode: wipe_master ? 'wipe_master' : 'transactions',
+    });
+    audit(req.user.id, 'fiscal_open_clean', 'fiscal_year', opened.fyId, `افتتاح سال خام ${label}`);
+    res.json({
+      ok: true,
+      fiscal_year_id: opened.fyId,
+      reload: true,
+      cleanliness: opened.wipe.counts,
+      wipe_master: !!wipe_master,
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code, leftover: e.leftover });
+  }
 });
 
 router.post('/:id/activate', auth, adminOnly, centralOnly, (req, res) => {

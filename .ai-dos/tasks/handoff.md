@@ -1,3 +1,12 @@
+## 2026-09-09T16:30:00+03:30 — FISCAL-COMPANY-CLEAN-V212 implemented
+
+- Root cause: incomplete TXN_TABLES + swallowed FK DELETE errors; `initDBOn` swapped the live SQLite handle.
+- Engine: `server/lib/clean-slate.js`. New company purges after schema init. Open-clean/factory-reset share it and fail if leftovers remain.
+- Rollover no longer treats 3xxx as P&L; keeps documents.
+- UI: typed confirm; settings primary action is clean year. Help + SW v212.
+- sqlite tests SKIP on this Windows Node 24 (better-sqlite3 ABI). app.js parses.
+- Next: commit + push + Iran overlay. Do not commit leftover `_deploy*` `_diag*` `motefareqe/`.
+
 ## 2026-09-08T02:50:00+03:30 — INVOICE-AMEND-SALES-UX-V205 deployed
 
 - Commit `3071357` on `feat/INVOICE-AMEND-SALES-UX-V205`; FF `origin/main`.

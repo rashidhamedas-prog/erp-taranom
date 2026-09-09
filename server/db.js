@@ -74,15 +74,14 @@ function reopenDatabase(newPath) {
   return db;
 }
 
-/** Run full schema init on an arbitrary DB handle (used when creating a company workspace). */
-function initDBOn(database) {
-  const prev = db;
-  db = database;
-  try {
-    initDB();
-  } finally {
-    db = prev;
-  }
+/**
+ * Run full schema init on an arbitrary DB handle (used when creating a company workspace).
+ * Must NOT swap the process-wide live handle — concurrent requests would otherwise
+ * write into the new empty company file.
+ */
+function initDBOn(database, opts) {
+  if (!database) throw new Error('initDBOn requires a database handle');
+  initDB(database, opts || {});
 }
 
 /** Copy login users (same password hashes) into a freshly-inited company DB. */
@@ -278,8 +277,9 @@ function seedWarehouseStock(db) {
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('warehouse_stock_seeded_v1','1')").run();
 }
 
-function initDB() {
-  const db = getDB();
+function initDB(database, opts) {
+  const db = database || getDB();
+  opts = opts || {};
   // Pragmas already applied in getDB(); keep FK ON explicit before schema DDL.
   db.pragma('foreign_keys = ON');
   db.exec(`
@@ -2389,7 +2389,7 @@ function initSyncSchema(db) {
   }
 
   try {
-    if (!isDevice()) {
+    if (!isDevice() && !opts.skipOpeningBackfill) {
       const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
       if (bf && !bf.skipped && bf.count) {

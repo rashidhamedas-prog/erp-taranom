@@ -1,5 +1,38 @@
 schema_version: 1
 tasks:
+  - id: "FISCAL-COMPANY-CLEAN-V212"
+    title: "Root-fix multi-company blank workspace + fiscal open-clean wipe"
+    status: "completed"
+    completed_at: "2026-09-09T16:45:00+03:30"
+    claimed_at: "2026-09-09T16:20:00+03:30"
+    review_status: "SELF_REVIEW_PENDING"
+    security_status: "SELF_REVIEW_APPROVED"
+    risk: "high"
+    owner: "cursor:fiscal-company-clean-v212"
+    roles:
+      implementer: "cursor:fiscal-company-clean-v212"
+    branch: "claude/claude-md-docs-2ssrpy"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/clean-slate.js"
+      - "server/lib/company-workspace.js"
+      - "server/db.js"
+      - "server/routes/fiscal-year.js"
+      - "server/routes/companies.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-clean-slate-v212.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "New company SQLite has 0 invoices/journals/settlements"
+      - "open-clean/factory-reset wipe all txn tables; leftover counts fail the API"
+      - "initDBOn does not swap the live db handle"
+      - "Settings UI distinguishes clean year vs rollover"
+      - "Help + SW v212"
+    non_goals:
+      - "Row-level company_id tenancy"
+      - "Desktop/Android full builds"
   - id: "INVOICE-AMEND-SALES-UX-V205"
     title: "VAT defaults + in-place invoice amend + sales invoice details + field-ops UX"
     status: "completed"

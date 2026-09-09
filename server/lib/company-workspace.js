@@ -146,10 +146,12 @@ function createCompanyWorkspace(opts) {
 
   // Create empty file then init via db module helpers without swapping live handle.
   const { applyConnectionPragmas, initDBOn, copyUsersInto } = require('../db');
+  const { purgeTransactionalData, snapshotTxnCounts } = require('./clean-slate');
   const fresh = new Database(dbFile, { timeout: 5000 });
+  let cleanliness;
   try {
     applyConnectionPragmas(fresh);
-    initDBOn(fresh);
+    initDBOn(fresh, { skipOpeningBackfill: true });
     if (sourceDb) copyUsersInto(fresh, sourceDb);
     // Company profile settings
     fresh.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('company_name',?)").run(String(name).trim());
@@ -158,13 +160,22 @@ function createCompanyWorkspace(opts) {
     const { todayJalali } = require('../jalali');
     const start = startDate || (todayJalali().slice(0, 4) + '/01/01');
     const label = fiscalLabel || ('سال مالی ' + start.slice(0, 4));
-    // Replace any seed FY with the requested clean year
+    // Seed FY from initDB + any opening-backfill journals must not leak into the new legal entity.
+    purgeTransactionalData(fresh, { mode: 'new-company' });
     fresh.prepare('DELETE FROM fiscal_years').run();
     const fy = fresh.prepare(`
       INSERT INTO fiscal_years (label, start_date, status, created_by) VALUES (?, ?, 'open', ?)
     `).run(label, start, createdByUserId || null);
     fresh.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)")
       .run(String(fy.lastInsertRowid));
+    cleanliness = snapshotTxnCounts(fresh);
+  } catch (e) {
+    try { fresh.close(); } catch { /* ignore */ }
+    try { fs.unlinkSync(dbFile); } catch { /* ignore */ }
+    for (const suf of ['-wal', '-shm']) {
+      try { fs.unlinkSync(dbFile + suf); } catch { /* ignore */ }
+    }
+    throw e;
   } finally {
     try { fresh.close(); } catch { /* ignore */ }
   }
@@ -180,7 +191,7 @@ function createCompanyWorkspace(opts) {
   reg.companies.push(entry);
   reg.nextId = id + 1;
   writeRegistry(reg);
-  return entry;
+  return { ...entry, cleanliness };
 }
 
 function setActiveCompanyId(id) {

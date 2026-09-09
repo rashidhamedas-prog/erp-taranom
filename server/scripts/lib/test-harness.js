@@ -55,6 +55,7 @@ function freshDb() {
   bust('../../lib/coa-map');
   bust('../../lib/production/schema');
   bust('../../lib/company-workspace');
+  bust('../../lib/clean-slate');
   bust('../../lib/ledger');
   bust('../../lib/money');
   bust('../../lib/security');
