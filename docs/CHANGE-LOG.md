@@ -14,6 +14,26 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۹ — اسکیل‌های `APK` و `EXE` (معماری کامل بیلد اندروید/دسکتاپ + منابع همیشه‌به‌روز)
+
+- **چه شد:** دو اسکیل پروژه‌ای در `.cursor/skills/APK/` (`name: apk`) و `.cursor/skills/EXE/` (`name: exe`)، هر یک با `SKILL.md` (< 200 خط) +
+  `architecture.md` (۱۲ بخش به الگوی tap-solution-architecture: فرضیات، زمینه، ماژول‌ها، مالکیت داده، API/رویداد، امنیت، استقرار، توالی‌های بحرانی،
+  تست، rollout/rollback، ریسک، تصمیم‌های نیازمند تأیید) + `build-pipeline.md` (اجرا/تأیید/انتشار/عیب‌یابی/CI پیش‌نویس) + `upgrade-plan.md`
+  (فازهای مدرن‌سازی با معیار پذیرش و بازگشت) + `resources.md` (منابع رسمی با فید RSS/Atom/JSON و جدول سیگنال→اقدام) + `scripts/check-updates.mjs`
+  (رادار فقط-خواندنی: pinned در ریپو در مقابل latest/EOL از npm، Google Maven، GitHub، endoflife.date، Adoptium؛ `--json/--strict/--offline`).
+- **یافته‌های وضعیت فعلی (۲۰۲۶-۰۹-۱۰):** Electron ^31 (EOL ۲۰۲۵-۰۱-۱۴) در مقابل 44.3.0؛ electron-builder 24 در مقابل 26.15 (27 alpha)؛
+  better-sqlite3 11.10/^9.4 در مقابل 13.0.3 (N-API، Node ≥ 22)؛ AGP 8.5.2/Gradle 8.7/NDK 25.1 در مقابل AGP 9.4/Gradle 9.7/NDK r30؛ targetSdk 34
+  (Android 16 = edge-to-edge اجباری + predictive back)؛ nodejs-mobile 18.20.4 (Node 18 EOL) با fork Node 24.18 prerelease؛ CI روی Node 20 (EOL)؛
+  `publish.url` جای‌گذار و `publisherName` تعریف‌نشده در `desktop/package.json`؛ بلوک `agentLog`/ingest باقی‌مانده در `assets/nodejs-project/main.js`؛
+  `scripts/release.ps1` و `docs/DESKTOP-UPDATE.md` هنوز به سرور قدیمی اشاره دارند. Azure Artifact Signing برای این شرکت در دسترس نیست → OV روی توکن.
+- **سیاست‌ها در اسکیل:** بدون بیلد کامل مگر درخواست صریح؛ APK/EXE هرگز به production؛ راز فقط خارج git؛ `.ps1` فقط ASCII؛ سقف Node مشترک با runtime اندروید.
+- **فایل‌ها:** `.cursor/skills/APK/{SKILL,architecture,build-pipeline,upgrade-plan,resources}.md`, `.cursor/skills/APK/scripts/check-updates.mjs`,
+  `.cursor/skills/EXE/{SKILL,architecture,build-pipeline,upgrade-plan,resources}.md`, `.cursor/skills/EXE/scripts/check-updates.mjs`
+- **تست:** هر دو `check-updates.mjs` آنلاین (پشت پروکسی محلی) و `--offline` اجرا شد؛ frontmatter معتبر (name کوچک، description < 1024)؛ لینک‌ها یک سطح؛ بدون راز.
+  هیچ بیلد APK/EXE اجرا نشد.
+- **Deploy:** — بدون تأثیر روی سرور (فقط ابزار توسعه در `.cursor/skills`؛ کد runtime تغییر نکرد)
+- **SW:** بدون تغییر (erp-taranom-v213)
+
 ### ۱۴۰۵/۰۶/۱۹ — رفع ورود ۵۰۰ پس از v213 (publicStaffUser)
 
 - **باگ:** در `server/routes/auth.js` هنگام اتصال `password-verify` ایمپورت `publicStaffUser` حذف شده بود → بعد از تطبیق رمز، `POST /api/auth/login` با ۵۰۰ می‌افتاد (`publicStaffUser is not defined`).
