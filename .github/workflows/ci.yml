@@ -46,7 +46,7 @@ jobs:
         working-directory: server
       - run: node scripts/test-sync-capture-repair.js 2>&1 | tee -a sync-security.log
         working-directory: server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: sync-security-log, path: server/sync-security.log }
 
@@ -70,7 +70,7 @@ jobs:
           node scripts/test-csp-browser.js 2>&1 | tee -a web-api-security.log
           node scripts/test-secure-html-response.js 2>&1 | tee -a web-api-security.log
         working-directory: server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: web-api-security-log, path: server/web-api-security.log }
 
@@ -94,7 +94,7 @@ jobs:
           node scripts/test-wave0-financial-hostile.js 2>&1 | tee -a core-dr.log
           node scripts/test-production-export.js 2>&1 | tee -a core-dr.log
         working-directory: server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: core-dr-log, path: server/core-dr.log }
 
@@ -109,7 +109,7 @@ jobs:
         working-directory: server
       - run: npm run test:production 2>&1 | tee production.log
         working-directory: server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: production-log, path: server/production.log }
 
@@ -149,6 +149,6 @@ jobs:
         working-directory: e2e
         env:
           CI: '1'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: playwright-log, path: e2e/playwright.log }
