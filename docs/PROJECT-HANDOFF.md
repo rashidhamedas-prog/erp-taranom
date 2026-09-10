@@ -11,7 +11,7 @@
 2. **هیچ رازی در گیت کامیت نشود**: رمز عبور، کلید API، توکن، رمز keystore. (چند مورد قدیمی هنوز در `BUILD.md`ها هست — در بخش امنیت پایین توضیح داده شده و باید پاک شوند.)
 3. **بعد از تغییر بک‌اند، هر دو تست اجرا شود**: `node server/scripts/test-sms.js` و `node server/scripts/test-sync.js`.
 4. **عملیات چندمرحله‌ای در `db.transaction()`**: هر عملیاتی که بیش از یک جدول را تغییر می‌دهد باید اتمیک باشد؛ توابع کمکی دفتر/سند داخل تراکنش خطا را دوباره پرتاب می‌کنند تا در صورت شکست، کل عملیات برگردد.
-5. **شاخهٔ توسعه**: `claude/claude-md-docs-2ssrpy`. روی این شاخه کار و push کنید.
+5. **شاخهٔ رسمی GitHub**: `main` (PR و CI). نام قدیمی `claude/claude-md-docs-2ssrpy` فقط alias هم‌تِیپ با `main` است تا checkout سرور ایران نشکند. مدل کامل: `docs/github.md`.
 
 ---
 
@@ -88,10 +88,11 @@ for f in $(find server -name "*.js" -not -path "*/node_modules/*"); do node --ch
 # اجرای محلی سرور مرکزی
 cd server && npm install && JWT_SECRET=<secret> PORT=3000 node server.js
 
-# استقرار روی سرور تولید (PM2)
-cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy \
-  && cd server && npm install && pm2 restart erp-taranom
+# استقرار روی سرور تولید ایران (فقط اگر درخت git تمیز است)
+cd /home/taranom/crm-taranom && git pull --ff-only origin main \
+  && cd server && npm install --omit=dev && pm2 restart erp-taranom
 ```
+درخت کثیف: overlay هدفمند — نه `git reset --hard` و نه `pm2 restart … --update-env`. جزئیات: `docs/08-deployment.md` و `docs/github.md`.
 - ساخت ویندوز: `cd desktop && npm install && npm run dist:win` (جزئیات: `desktop/BUILD-WINDOWS.md`)
 - ساخت اندروید: `android/BUILD.md` (نیازمند Android Studio + NDK + AAR مربوط به nodejs-mobile)
 - ساخت پکیج ZIP کامل: `bash scripts/package-release.sh`

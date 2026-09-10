@@ -3,7 +3,7 @@ ai_dos_version: "2.0.0"
 project:
   name: "ERP Taranom"
   type: "Node.js ERP/CRM with web, Android and Electron clients"
-  primary_branch: "claude/claude-md-docs-2ssrpy"
+  primary_branch: "main"
 roles:
   high_risk_requires_independent_reviewer: true
   high_risk_requires_security_review: true

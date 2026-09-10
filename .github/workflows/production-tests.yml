@@ -2,6 +2,7 @@ name: Production Module Tests
 
 on:
   push:
+    branches: [main]
     paths:
       - 'server/lib/production/**'
       - 'server/routes/production*.js'
@@ -14,11 +15,16 @@ on:
       - 'server/package.json'
       - '.github/workflows/production-tests.yml'
   pull_request:
+    branches: [main]
     paths:
       - 'server/lib/production/**'
       - 'server/routes/production*.js'
       - 'server/scripts/test-production*.js'
       - 'server/package.json'
+      - '.github/workflows/production-tests.yml'
+
+permissions:
+  contents: read
 
 jobs:
   production-tests:

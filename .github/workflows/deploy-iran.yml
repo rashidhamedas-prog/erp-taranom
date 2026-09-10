@@ -1,0 +1,64 @@
+name: Deploy Iran
+
+# Manual only. Never deploy on push.
+# Refuses a dirty VPS worktree. Does not use pm2 --update-env.
+# See docs/08-deployment.md and docs/github.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to fast-forward (usually main)'
+        required: false
+        default: 'main'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fast-forward Iran VPS
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 94.249.244.208
+          username: taranom
+          key: ${{ secrets.IRAN_SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 90s
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export DEPLOY_REF="${{ github.event.inputs.ref || 'main' }}"
+            APP_ROOT=/home/taranom/crm-taranom
+            cd "$APP_ROOT"
+
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "Refusing deploy: VPS worktree is dirty. Use a targeted SFTP overlay."
+              git status --porcelain | head -50
+              exit 1
+            fi
+
+            git fetch origin "$DEPLOY_REF"
+            echo "vps_branch=$(git rev-parse --abbrev-ref HEAD)"
+            git merge --ff-only "origin/$DEPLOY_REF"
+
+            cd "$APP_ROOT/server"
+            npm install --omit=dev
+
+            pm2 restart erp-taranom || pm2 start ecosystem.config.js --only erp-taranom
+
+            ok=0
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/system/health || true)
+              echo "health_try_$i:$code"
+              if [ "$code" = "200" ]; then ok=1; break; fi
+            done
+            curl -sS -o /dev/null -w 'ready:%{http_code}\n' http://127.0.0.1:3000/api/system/ready || true
+            curl -sS -o /dev/null -w 'root:%{http_code}\n' http://127.0.0.1:3000/ || true
+            grep -n erp-taranom-v "$APP_ROOT/server/public/sw.js" | head -1 || true
+            if [ "$ok" != "1" ]; then
+              pm2 logs erp-taranom --lines 80 --nostream || true
+              exit 1
+            fi

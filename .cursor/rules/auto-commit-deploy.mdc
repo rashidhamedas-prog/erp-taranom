@@ -8,9 +8,9 @@ alwaysApply: true
 برای این پروژه (`crm-taranom` / ERP ترنم) بعد از **هر تسک** که کد، docs، یا تنظیمات را عوض می‌کند:
 
 1. **هرگز نپرس** «آیا commit / deploy کنم؟» — خودت خودکار انجام بده.
-2. **Commit** روی شاخهٔ کاری (`claude/claude-md-docs-2ssrpy`) با پیام واضح؛ فقط فایل‌های مرتبط با همان تسک (نه لاگ/APK/uploads/.env).
-3. **Push** به `origin` همان شاخه.
-4. **Deploy ایران:** سرور `94.249.244.208` کاربر `taranom` مسیر `/home/taranom/crm-taranom` — `git pull --ff-only` + در صورت نیاز `npm install --omit=dev` در `server/` + `pm2 restart erp-taranom --update-env` + تأیید health HTTP 200.
+2. **Commit** روی شاخهٔ تسک (`feat|fix|chore|ai/...`) سپس merge/FF به `main`؛ alias قدیمی `claude/claude-md-docs-2ssrpy` را با `main` هم‌تِیپ نگه دار. فقط فایل‌های همان تسک (نه لاگ/APK/uploads/.env و نه `_deploy-*` یک‌بارمصرف).
+3. **Push** به `origin` (`main` + شاخهٔ تسک).
+4. **Deploy ایران:** سرور `94.249.244.208` کاربر `taranom` مسیر `/home/taranom/crm-taranom` — اگر درخت تمیز است `git pull --ff-only origin main` + در صورت نیاز `npm install --omit=dev` در `server/` + `pm2 restart erp-taranom` **بدون** `--update-env` + تأیید health HTTP 200. اگر درخت کثیف است overlay هدفمند، نه `reset --hard`.
 5. **CHANGE-LOG:** Deploy را `✅` کن با short hash؛ SW version را ذکر کن.
 6. اگر push یا SSH شکست خورد، یک‌بار با bundle/SFTP fallback (الگوی `scripts/_deploy-*.py`) تلاش کن و نتیجه را گزارش بده — باز هم نپرس؛ فقط رفع کن یا خطای غیرقابل‌رفع را بگو.
 

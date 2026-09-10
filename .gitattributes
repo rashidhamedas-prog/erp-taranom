@@ -1,0 +1,24 @@
+# Normalize text; keep Windows scripts CRLF; treat binaries as binary.
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.docx binary
+*.zip binary
+*.apk binary
+*.jar binary
+*.so binary
+*.node binary

@@ -1,0 +1,33 @@
+name: درخواست قابلیت
+description: تغییر محصول که باید با معماری فعلی سازگار باشد
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: نتیجه برای کاربر
+      description: چه کاری بعد از این تغییر برای کاربر ممکن می‌شود؟
+    validations:
+      required: true
+  - type: textarea
+    id: invariant
+    attributes:
+      label: اینورینت
+      description: سند حسابداری، موجودی، سینک، یا RBAC چه چیزی نباید بشکند؟
+    validations:
+      required: true
+  - type: dropdown
+    id: out_of_scope_check
+    attributes:
+      label: آیا در محدودهٔ ردشدهٔ HANDOFF است؟
+      description: مالیات/VAT، چندارزی، React/TS، ORM، حذف فیزیکی سند، بیلد کامل APK/EXE بدون درخواست.
+      options:
+        - خیر
+        - بله — نباید انجام شود مگر تأیید کتبی مالک
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: خارج از این کار

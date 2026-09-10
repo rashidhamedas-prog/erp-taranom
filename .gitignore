@@ -75,6 +75,19 @@ Desktop.ini
 .DS_Store
 __pycache__/
 *.pyc
+~$*
+
+# Local one-shot ops / scratch (never commit). Tracked copies stay tracked.
+motefareqe/
+server/.tmp-test-artifacts/
+scripts/_deploy-*
+scripts/_diag-*
+scripts/_verify-*
+scripts/_health-*
+scripts/_stamp-*
+scripts/_patch-*
+scripts/_fix-*
+server/scripts/_repro-*
 
 # Code signing secrets
 desktop/certs/

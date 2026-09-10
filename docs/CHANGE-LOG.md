@@ -14,6 +14,13 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۹ — معماری GitHub: `main` رسمی، قالب‌ها، CI/دیپلوی ایران
+
+- **چه شد:** مدل مخزن روی `main` تثبیت شد. قالب Issue/PR، CODEOWNERS، SECURITY، CONTRIBUTING، LICENSE، `.editorconfig`/`.gitattributes`. CI واحد (`ci.yml` + `e2e.yml`) به‌جای Wave0/W1 روی `main`. ورک‌فلو دیپلوی آلمان و overlay یک‌بارمصرف v184 حذف شد؛ دیپلوی ایران فقط دستی است و `--update-env` / `reset --hard` ندارد. اسکریپت‌های یک‌بارمصرف و `motefareqe/` از وضعیت git محلی خارج می‌مانند (gitignore).
+- **فایل‌ها:** `.github/**`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `docs/github.md`, `docs/PROJECT-HANDOFF.md`, `CLAUDE.md`, `.gitignore`
+- **Deploy:** GitHub-only — runtime ایران تغییر نمی‌کند. پس از merge، شاخه‌های ادغام‌شده prune می‌شوند.
+- **SW:** بدون تغییر
+
 ### ۱۴۰۵/۰۶/۱۹ — رفع ورود ۵۰۰ پس از v213 (publicStaffUser)
 
 - **باگ:** در `server/routes/auth.js` هنگام اتصال `password-verify` ایمپورت `publicStaffUser` حذف شده بود → بعد از تطبیق رمز، `POST /api/auth/login` با ۵۰۰ می‌افتاد (`publicStaffUser is not defined`).

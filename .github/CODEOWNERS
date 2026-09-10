@@ -1,0 +1,7 @@
+# Default owner for this private product repository.
+* @rashidhamedas-prog
+
+# GitHub / CI / deploy surface
+/.github/ @rashidhamedas-prog
+/scripts/deploy-production.sh @rashidhamedas-prog
+/scripts/DEPLOY-IRAN.md @rashidhamedas-prog

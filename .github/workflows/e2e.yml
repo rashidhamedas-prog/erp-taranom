@@ -1,13 +1,18 @@
-name: Wave 1 E2E Money Paths
+name: E2E money paths
 
 on:
   push:
-    branches: ['ai/W1-*', 'claude/claude-md-docs-2ssrpy']
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   playwright-money:
@@ -28,7 +33,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-w1-artifacts
+          name: playwright-e2e-artifacts
           path: |
             e2e/test-results
             e2e/playwright-report
