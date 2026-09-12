@@ -232,13 +232,22 @@ async function api(method, path, data, isFormData, silent){
         E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
         E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
       };
-      if(!silent) showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
+      if(!silent){
+        if(r.status===429) showToast(j.error || 'تعداد درخواست‌ها زیاد است — کمی صبر کنید','error');
+        else showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
+      }
       const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
     }
     if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
   }
-  if(!r.ok){ if(!silent) showToast('خطا رخ داد','error'); throw new Error('error'); }
+  if(!r.ok){
+    if(!silent){
+      if(r.status===429) showToast('تعداد درخواست‌ها زیاد است — کمی صبر کنید','error');
+      else showToast('خطا رخ داد','error');
+    }
+    throw new Error(r.status===429?'RATE_LIMIT':'error');
+  }
   if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
   return r;
 }
@@ -2225,7 +2234,7 @@ function initNotifications(){
 }
 async function pollNotifications(){
   try{
-    const d=await api('GET','/notifications/pending-actions')||{};
+    const d=await api('GET','/notifications/pending-actions', null, false, true)||{};
     const n=(d.notifications||[]).length;
     const badge=el('notifBadge');
     if(badge){ badge.textContent=n; badge.classList.toggle('hide',!n); }
@@ -19254,7 +19263,7 @@ async function tgNewChat(){
 async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
 async function refreshMsgBadge(){
   try{
-    const r=await api('GET','/messages/unread-count');
+    const r=await api('GET','/messages/unread-count', null, false, true);
     const b=el('msgBadge'); if(!b)return;
     if(r.count>0){ b.textContent=fmt(r.count); b.classList.remove('hide'); }
     else b.classList.add('hide');
@@ -19263,7 +19272,7 @@ async function refreshMsgBadge(){
 async function ensureUsersForMsg(){}
 async function refreshRemBadge(){
   try{
-    const rows=await api('GET','/reminders/due')||[];
+    const rows=await api('GET','/reminders/due', null, false, true)||[];
     const b=el('remBadge'); if(!b)return;
     if(rows.length>0){ b.textContent=rows.length; b.classList.remove('hide'); }
     else b.classList.add('hide');
@@ -21788,7 +21797,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v214</b> است و اسکریپت‌ها با <code>?v=214</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v215</b> است و اسکریپت‌ها با <code>?v=215</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

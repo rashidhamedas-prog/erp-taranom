@@ -200,10 +200,40 @@ app.use(express.static(path.join(__dirname, 'public'), {
 const INTERNAL_REPLAY_TOKEN = crypto.randomBytes(24).toString('hex');
 app.set('internalReplayToken', INTERNAL_REPLAY_TOKEN);
 
-// General API rate limit (generous — protects against runaway loops)
+// General API rate limit.
+// Office users often share one public IP (NAT). Key by bearer token when present
+// so one busy desk does not lock the whole company. Lightweight background polls
+// (badge/reminder) must not burn the budget or the UI shows endless «خطا رخ داد».
+const RATE_LIMIT_SKIP_PATHS = new Set([
+  '/api/system/health',
+  '/api/system/ready',
+  '/api/messages/unread-count',
+  '/api/notifications/pending-actions',
+  '/api/reminders/due',
+]);
+function rateLimitKey(req) {
+  const auth = String(req.headers.authorization || '');
+  if (auth.startsWith('Bearer ') && auth.length > 20) {
+    return 'tok:' + crypto.createHash('sha256').update(auth.slice(7, 120)).digest('hex').slice(0, 24);
+  }
+  return String(req.ip || req.socket?.remoteAddress || 'unknown');
+}
+function shouldSkipApiRateLimit(req) {
+  if (req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN) return true;
+  if (bootGate.isProbeRequest(req)) return true;
+  const url = String(req.originalUrl || req.url || '').split('?')[0];
+  return RATE_LIMIT_SKIP_PATHS.has(url);
+}
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false,
-  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN || bootGate.isProbeRequest(req)
+  windowMs: 15 * 60 * 1000,
+  max: 4000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: rateLimitKey,
+  // express-rate-limit v7: custom keyGenerator without IP is intentional (token/NAT)
+  validate: { keyGeneratorIpFallback: false },
+  skip: shouldSkipApiRateLimit,
+  message: { error: 'تعداد درخواست‌ها زیاد است. یک دقیقه صبر کنید و صفحه را تازه کنید.', code: 'RATE_LIMIT' },
 });
 app.use('/api', limiter);
 
