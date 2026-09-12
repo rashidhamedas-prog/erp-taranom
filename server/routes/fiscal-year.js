@@ -194,8 +194,9 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 /**
- * Open a brand-new fiscal year from zero: documents + customers + products.
- * Keeps users, COA, settings, empty warehouses/banks. Confirm: OPEN-CLEAN-YEAR + password.
+ * Open a brand-new fiscal year from zero: documents + customers + products + detail codes.
+ * Keeps users, base COA (group/kol/moein), settings, empty warehouses/banks (coa cleared).
+ * Confirm: OPEN-CLEAN-YEAR + password.
  */
 router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
   try {

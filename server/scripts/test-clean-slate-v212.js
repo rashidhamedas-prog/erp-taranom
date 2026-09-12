@@ -84,12 +84,51 @@ function main() {
     try {
       db.prepare("INSERT INTO products (name, sku, stock) VALUES (?,?,?)").run('کالای تست پاک‌سازی', 'SLATE-1', 7);
     } catch { /* schema variant */ }
+
+    // Seed floating detail + COA tafsili (the bug open-clean used to leave behind)
+    const { countTafsiliCoa, purgeDetailCoding } = require('../lib/clean-slate');
+    try {
+      db.prepare(`
+        INSERT INTO chart_of_accounts (code, name, type, parent_code, level, tafsili_type)
+        VALUES ('110300000001', 'تفصیلی تست مشتری', 'asset', '1103', 4, 'customer')
+      `).run();
+    } catch {
+      try {
+        db.prepare(`
+          INSERT INTO chart_of_accounts (code, name, type, parent_code, level)
+          VALUES ('1103-TEST-CUST', 'تفصیلی تست مشتری', 'asset', '1103', 4)
+        `).run();
+      } catch { /* schema */ }
+    }
+    try {
+      db.prepare("INSERT INTO detail_categories (code, name) VALUES (?,?)").run('DT', 'دسته تست');
+    } catch { /* optional */ }
+    try {
+      db.prepare("INSERT INTO detail_accounts (code, name) VALUES (?,?)").run('DA-1', 'تفصیلی شناور تست');
+    } catch { /* optional */ }
+    try {
+      db.prepare("UPDATE banks SET coa_code=? WHERE id=(SELECT id FROM banks LIMIT 1)")
+        .run('110300000001');
+    } catch { /* optional */ }
+    ok('seeded tafsili before open-clean', countTafsiliCoa(db) >= 1);
+
     const catalogWipe = purgeTransactionalData(db, { mode: 'open-clean' });
     eq('open-clean invoices', catalogWipe.counts.invoices || 0, 0);
     eq('open-clean customers', catalogWipe.counts.customers || 0, 0);
     eq('open-clean products', catalogWipe.counts.products || 0, 0);
+    eq('open-clean detail_accounts', catalogWipe.counts.detail_accounts || 0, 0);
+    eq('open-clean tafsili_coa', catalogWipe.tafsili_coa || 0, 0);
+    eq('open-clean countTafsiliCoa', countTafsiliCoa(db), 0);
     ok('users kept after open-clean', !!db.prepare("SELECT id FROM users WHERE username='admin'").get());
-    ok('coa kept after open-clean', (db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c || 0) > 0);
+    ok('base coa kept after open-clean', (db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c || 0) > 0);
+    ok('no level-4 coa left', (db.prepare('SELECT COUNT(*) c FROM chart_of_accounts WHERE level=4').get()?.c || 0) === 0);
+    try {
+      eq('banks coa_code cleared', db.prepare('SELECT COUNT(*) c FROM banks WHERE coa_code IS NOT NULL AND TRIM(coa_code)!=\'\'').get().c, 0);
+    } catch { /* no banks */ }
+
+    // Standalone purgeDetailCoding is idempotent on a clean tree
+    const again = purgeDetailCoding(db);
+    eq('idempotent tafsili purge', again.deleted_tafsili, 0);
 
     const ws = require('../lib/company-workspace');
     const entry = ws.createCompanyWorkspace({
