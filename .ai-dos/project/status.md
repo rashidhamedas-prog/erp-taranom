@@ -1,7 +1,9 @@
 # Project Status
 
-- Last verified: 2026-09-03
-- **Active:** none — `CHEQUE-OPENING-BOUNCE-STMT` completed (SW **v186**)
+- Last verified: 2026-09-10
+- **Active:** `GITHUB-HYGIENE` — GitHub architecture: `main` default, community files, CI/deploy, prune merged branches
+- **Iran last:** unchanged by this task (GitHub/docs/CI only)
+- Prior verified: 2026-09-03 v186 / later overlays through v213 on Iran
 - **Iran last:** overlay v186 ✅ code `89dbcf7`; health/ready/root 200; SW `erp-taranom-v186`; `db.js` not replaced
 - **Closed this hour:** `CHEQUE-OPENING-BOUNCE-STMT` · `LOGIN-RESILIENCE-V185`
 - **In flight:** none

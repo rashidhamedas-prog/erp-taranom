@@ -2,6 +2,8 @@
 
 کلید **خصوصی** هرگز داخل مخزن نیست. فقط کلید عمومی اینجا ثبت می‌شود تا معلوم باشد کدام هویت به `taranom@94.249.244.208` وصل می‌شود.
 
+دیپلوی GitHub Actions: [`.github/workflows/deploy-iran.yml`](../workflows/deploy-iran.yml) (فقط دستی).
+
 ## محل‌های مجاز کلید خصوصی
 
 1. **GitHub Actions Secret** (روش اصولی روی ریپو): `IRAN_SSH_PRIVATE_KEY`

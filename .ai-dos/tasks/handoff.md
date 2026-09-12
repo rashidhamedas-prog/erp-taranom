@@ -1,3 +1,11 @@
+## 2026-09-10T04:10:00+03:30 — GITHUB-HYGIENE in progress
+
+- Canonical GitHub branch is `main`; `claude/claude-md-docs-2ssrpy` kept as same-SHA alias.
+- Added community files, CODEOWNERS, CI on `main`, Iran-only manual deploy (no `--update-env`).
+- Removed Germany deploy workflow and v184 overlay workflow.
+- Local leftover `_deploy*` / `motefareqe/` stay untracked via gitignore.
+- Next: commit + push chore/GITHUB-HYGIENE, FF `main` + alias, prune merged remotes.
+
 ## 2026-09-09T16:30:00+03:30 — FISCAL-COMPANY-CLEAN-V212 implemented
 
 - Root cause: incomplete TXN_TABLES + swallowed FK DELETE errors; `initDBOn` swapped the live SQLite handle.

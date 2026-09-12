@@ -16,12 +16,19 @@
 
 ### ۱۴۰۵/۰۶/۲۱ — افتتاح سال خام: پاک‌سازی کدهای تفصیلی (SW v214)
 
-- **باگ:** \chart_of_accounts\ در ALWAYS_KEEP بود؛ افتتاح سال خام فاکتور/کالا را پاک می‌کرد ولی ردیف‌های تفصیلی (سطح ۴ / ۱۲رقمی / tafsili_type) می‌ماندند.
-- **رفع:** \purgeDetailCoding()\ در \server/lib/clean-slate.js\ — لینک coa_code/detail_account_id را خالی می‌کند، detail_accounts و detail_categories را حذف می‌کند، و فقط تفصیلی‌های COA را پاک می‌کند (گروه/کل/معین می‌مانند). در open-clean/full/wipe_master اجباری + probe.
-- **داده زنده:** روی DB فعال ایران یک‌بار \server/scripts/_purge-live-tafsili-v214.js\ اجرا می‌شود.
-- **فایل‌ها:** \server/lib/clean-slate.js\, \server/routes/fiscal-year.js\, \server/public/{app.js,index.html,sw.js}\, \server/scripts/{test-clean-slate-v212,_purge-live-tafsili-v214}.js\, \.cursor/skills/fiscal-company-workspace/SKILL.md- **Deploy:** ⏳ در حال اعمال
+- **باگ:** `chart_of_accounts` در ALWAYS_KEEP بود؛ افتتاح سال خام فاکتور/کالا را پاک می‌کرد ولی ردیف‌های تفصیلی (سطح ۴ / ۱۲رقمی / tafsili_type) می‌ماندند.
+- **رفع:** `purgeDetailCoding()` در `server/lib/clean-slate.js` — لینک coa_code/detail_account_id را خالی می‌کند، detail_accounts و detail_categories را حذف می‌کند، و فقط تفصیلی‌های COA را پاک می‌کند (گروه/کل/معین می‌مانند). در open-clean/full/wipe_master اجباری + probe.
+- **داده زنده:** روی DB فعال ایران یک‌بار `server/scripts/_purge-live-tafsili-v214.js` اجرا می‌شود.
+- **فایل‌ها:** `server/lib/clean-slate.js`, `server/routes/fiscal-year.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/{test-clean-slate-v212,_purge-live-tafsili-v214}.js`, `.cursor/skills/fiscal-company-workspace/SKILL.md`
+- **Deploy:** ⏳ در حال اعمال
 - **SW:** erp-taranom-v214
 
+### ۱۴۰۵/۰۶/۱۹ — معماری GitHub: `main` رسمی، قالب‌ها، CI/دیپلوی ایران
+
+- **چه شد:** مدل مخزن روی `main` تثبیت شد. قالب Issue/PR، CODEOWNERS، SECURITY، CONTRIBUTING، LICENSE، `.editorconfig`/`.gitattributes`. CI واحد (`ci.yml` + `e2e.yml`) به‌جای Wave0/W1 روی `main`. ورک‌فلو دیپلوی آلمان و overlay یک‌بارمصرف v184 حذف شد؛ دیپلوی ایران فقط دستی است و `--update-env` / `reset --hard` ندارد. اسکریپت‌های یک‌بارمصرف و `motefareqe/` از وضعیت git محلی خارج می‌مانند (gitignore).
+- **فایل‌ها:** `.github/**`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `docs/github.md`, `docs/PROJECT-HANDOFF.md`, `CLAUDE.md`, `.gitignore`
+- **Deploy:** GitHub-only — runtime ایران تغییر نمی‌کند. پس از merge، شاخه‌های ادغام‌شده prune می‌شوند.
+- **SW:** بدون تغییر
 ### ۱۴۰۵/۰۶/۱۹ — اسکیل‌های `APK` و `EXE` (معماری کامل بیلد اندروید/دسکتاپ + منابع همیشه‌به‌روز)
 
 - **چه شد:** دو اسکیل پروژه‌ای در `.cursor/skills/APK/` (`name: apk`) و `.cursor/skills/EXE/` (`name: exe`)، هر یک با `SKILL.md` (< 200 خط) +

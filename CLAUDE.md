@@ -10,14 +10,14 @@ Also append an entry to **`docs/CHANGE-LOG.md`** (date, commit hash, summary, ke
 
 ## ⚠️ MANDATORY RULE: Coordination with Cursor (dual-assistant workflow)
 
-This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm\erp-taranom`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
+This project is developed by **two assistants in parallel**: Cursor and Claude Code. Git on **`main`** is the shared channel — neither assistant can see the other's uncommitted work. The legacy branch name `claude/claude-md-docs-2ssrpy` must stay fast-forward-equal to `main` until the Iran VPS checkout is switched. See `docs/github.md`.
 
 Therefore, after **every** task (even docs-only or no-op sessions worth recording):
 
 1. **Read `docs/CHANGE-LOG.md` first** before starting any work — the other assistant may have already done it or changed the surrounding code.
 2. **Append an entry** at the top of the تاریخچه section (format is defined at the top of that file) describing what was done, key files, and deploy status — written so the other assistant is fully briefed without reading the diff.
-3. **Commit and push** to `claude/claude-md-docs-2ssrpy` in the same session. An unpushed change is invisible to the other assistant and to production.
-4. Before large or overlapping work, `git fetch` and rebase/align to `origin/claude/claude-md-docs-2ssrpy` to avoid collisions.
+3. **Commit and push** to a task branch, then merge to `main` (and FF the legacy alias). An unpushed change is invisible to the other assistant and to production.
+4. Before large or overlapping work, `git fetch` and rebase/align to `origin/main` to avoid collisions.
 
 ## Project Overview
 
@@ -107,22 +107,13 @@ All collections are ordered by `createdAt desc` in their Firestore queries.
 
 ## Production Server
 
-- **IP**: `45.90.98.99`
-- **SSH port**: `2299`
-- **User**: `taranom-admin`
-- **SSH key** (client-side, never commit): `C:\Users\DayaTech\.ssh\taranom_server`
-- **App path**: `/home/taranom-admin/crm-taranom`
-- **Process manager**: PM2, process name `erp-taranom`
-- **Branch**: `claude/claude-md-docs-2ssrpy`
+- **Only production:** Iran `94.249.244.208` (user `taranom`, SSH port `22`)
+- **App path:** `/home/taranom/crm-taranom`
+- **PM2:** `erp-taranom`
+- **GitHub default branch:** `main` (legacy alias `claude/claude-md-docs-2ssrpy` must stay at the same tip)
+- The Germany host `45.90.98.99` is **retired**. Do not deploy there.
+- SSH keys stay on the operator machine — never commit.
 
-Connect:
-```bash
-ssh -p 2299 -i C:\Users\DayaTech\.ssh\taranom_server taranom-admin@45.90.98.99
-```
-
-Deploy command (run on server):
-```bash
-cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy && cd server && npm install && pm2 restart erp-taranom
-```
+Deploy: `docs/08-deployment.md` — prefer a targeted overlay if the VPS tree is dirty; never `pm2 restart … --update-env` unless every secret is accounted for. Manual GitHub Action: `.github/workflows/deploy-iran.yml`.
 
 **Android APK policy:** build locally with `scripts/build-android.ps1` only. Never `scp` APK to production `/releases/`. Sideload to devices via USB or direct file transfer.

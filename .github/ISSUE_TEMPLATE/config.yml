@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: مستندات معماری و دست‌به‌دست
+    url: https://github.com/rashidhamedas-prog/erp-taranom/blob/main/docs/PROJECT-HANDOFF.md
+    about: قبل از Issue، وضعیت فعلی و قوانین طلایی را بخوانید.
+  - name: گزارش امنیتی (خصوصی)
+    url: https://github.com/rashidhamedas-prog/erp-taranom/security/advisories/new
+    about: آسیب‌پذیری را در Issue عمومی نگذارید.

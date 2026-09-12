@@ -28,7 +28,7 @@
 - فرانت‌اند: `server/public/index.html`.
 - سینک: `server/sync/{tables,capture,client}.js` + `server/routes/sync.js`.
 - ویندوز: `desktop/` (Electron). اندروید: `android/` (nodejs-mobile).
-- شاخهٔ کاری: `claude/claude-md-docs-2ssrpy`.
+- شاخهٔ رسمی: `main` (مدل GitHub: `docs/github.md`). نام قدیمی `claude/claude-md-docs-2ssrpy` فقط alias هم‌تِیپ است.
 
 ## اولویت کارهای بعدی (در PROJECT-HANDOFF.md بخش ۶)
 داخلی‌کردن CDNهای خارجی (فونت/Chart.js/html2canvas) ← سخت‌سازی امنیتی (HTTPS، JWT_SECRET، رمز اجباری، رمزنگاری بکاپ).
