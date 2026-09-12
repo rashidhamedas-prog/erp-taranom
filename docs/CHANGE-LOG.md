@@ -20,7 +20,7 @@
 - **رفع:** `purgeDetailCoding()` در `server/lib/clean-slate.js` — لینک coa_code/detail_account_id را خالی می‌کند، detail_accounts و detail_categories را حذف می‌کند، و فقط تفصیلی‌های COA را پاک می‌کند (گروه/کل/معین می‌مانند). در open-clean/full/wipe_master اجباری + probe.
 - **داده زنده:** روی DB فعال ایران یک‌بار `server/scripts/_purge-live-tafsili-v214.js` اجرا می‌شود.
 - **فایل‌ها:** `server/lib/clean-slate.js`, `server/routes/fiscal-year.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/{test-clean-slate-v212,_purge-live-tafsili-v214}.js`, `.cursor/skills/fiscal-company-workspace/SKILL.md`
-- **Deploy:** ⏳ در حال اعمال
+- **Deploy:** ✅ ایران overlay SFTP @ 27309a5 — حذف 602 تفصیلی زنده؛ COA 687→85؛ health 200؛ SW v214
 - **SW:** erp-taranom-v214
 
 ### ۱۴۰۵/۰۶/۱۹ — معماری GitHub: `main` رسمی، قالب‌ها، CI/دیپلوی ایران
