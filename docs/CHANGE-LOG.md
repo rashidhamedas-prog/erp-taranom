@@ -19,7 +19,7 @@
 - **علت:** سقف عمومی API برابر ۱۰۰۰ درخواست/۱۵دقیقه برای هر IP بود؛ چند تب + polling پیام/یادآور/اعلان پشت NAT اداری سریع به ۴۲۹ می‌رسید و UI فقط «خطا رخ داد» نشان می‌داد.
 - **رفع:** کلید محدودیت بر اساس توکن ورود (نه فقط IP)، سقف ۴۰۰۰، skip برای polling سبک، پیام ۴۲۹ واضح، silent برای badgeها.
 - **فایل‌ها:** server/server.js, server/public/{app.js,index.html,sw.js}
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 786215b — health 200؛ counters cleared
 - **SW:** erp-taranom-v215
 
 ### ۱۴۰۵/۰۶/۲۱ — افتتاح سال خام: پاک‌سازی کدهای تفصیلی (SW v214)
