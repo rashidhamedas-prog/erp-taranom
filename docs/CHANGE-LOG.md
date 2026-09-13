@@ -20,7 +20,7 @@
 - **اصلاح معماری:** کاتالوگ کالا سقف صفحهٔ جدا (`CATALOG_MAX_PAGE_SIZE=5000`) دارد. فرانت با `fetchCatalogList` همه صفحات را می‌گیرد و شمارنده = `pagination.total`. ثبت کالا روی مرکز `POST /excel/products/commit-import` است: فایل دوباره خوانده می‌شود (بدنهٔ کلاینت ملاک نیست)، ردیف نامعتبر جدا گزارش می‌شود، بقیه یکجا ثبت می‌شوند. دستگاه آفلاین همان مسیر تکی `/products/quick` را برای سینک نگه می‌دارد.
 - **فایل‌ها:** `server/lib/{pagination,product-quick}.js`, `server/routes/{excel,products}.js`, `server/sync/capture.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/{test-excel-products-catalog-v216,test-list-pagination}.js`
 - **تست:** `node server/scripts/test-excel-products-catalog-v216.js`؛ `node server/scripts/test-list-pagination.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 01b6883 — health/ready/root 200
 - **SW:** erp-taranom-v216
 
 ### ۱۴۰۵/۰۶/۲۱ — رفع «خطا رخ داد» / بارگذاری (rate-limit 429، SW v215)
