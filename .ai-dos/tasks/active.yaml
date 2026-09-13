@@ -2,9 +2,10 @@ schema_version: 1
 tasks:
   - id: "GITHUB-HYGIENE"
     title: "Professional GitHub architecture: main default, community files, CI/deploy, prune merged branches"
-    status: "in_progress"
+    status: "completed"
+    completed_at: \"2026-09-13T12:34:49+03:30\"
     claimed_at: "2026-09-10T03:55:00+03:30"
-    review_status: "SELF_REVIEW_PENDING"
+    review_status: "SELF_REVIEW_APPROVED"
     security_status: "SELF_REVIEW_APPROVED"
     risk: "medium"
     owner: "cursor:github-hygiene"
@@ -13,7 +14,8 @@ tasks:
       implementer: "cursor:github-hygiene"
     branch: "chore/GITHUB-HYGIENE"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - ".github/CODEOWNERS"
       - ".github/dependabot.yml"
       - ".github/PULL_REQUEST_TEMPLATE.md"
@@ -54,6 +56,8 @@ tasks:
       - "Changing Iran VPS checkout or PM2 env"
       - "Closing dependabot PRs"
       - "Committing leftover _deploy/_diag/motefareqe or invoices.js"
+    notes: >-
+      Closed 2026-09-13T12:34:49+03:30: merged to main/alias (1fb9ec1 lineage). GitHub/CI only; later fiscal v214 + rate-limit v215 already on Iran.
   - id: "FISCAL-COMPANY-CLEAN-V212"
     title: "Root-fix multi-company blank workspace + fiscal open-clean wipe"
     status: "completed"
@@ -67,7 +71,8 @@ tasks:
       implementer: "cursor:fiscal-company-clean-v212"
     branch: "claude/claude-md-docs-2ssrpy"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/lib/clean-slate.js"
       - "server/lib/company-workspace.js"
       - "server/db.js"
@@ -87,6 +92,8 @@ tasks:
     non_goals:
       - "Row-level company_id tenancy"
       - "Desktop/Android full builds"
+    notes: >-
+      Closed fully 2026-09-13T12:34:49+03:30: open-clean + tafsili purge v214 + rate-limit UI fix v215 deployed Iran; tip 108fd80 on main+alias. Claims released.
   - id: "INVOICE-AMEND-SALES-UX-V205"
     title: "VAT defaults + in-place invoice amend + sales invoice details + field-ops UX"
     status: "completed"
@@ -237,7 +244,8 @@ tasks:
       implementer: "cursor:login-resilience-v185"
     branch: "fix/LOGIN-RESILIENCE-V185"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/lib/boot-gate.js"
       - "server/lib/http-resilience.js"
       - "server/public/net-resilience.js"
@@ -248,7 +256,6 @@ tasks:
       - "server/public/i18n.js"
       - "server/scripts/test-login-resilience.js"
       - "docs/08-deployment.md"
-    released_claims:
       - "server/public/app.js"
       - "server/public/index.html"
       - "server/public/sw.js"
@@ -275,7 +282,8 @@ tasks:
       implementer: "cursor:settings-ops-v184"
     branch: "feat/SETTINGS-OPS-V184"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/routes/settings.js"
       - "server/lib/sms-dispatch.js"
       - "server/lib/website-stock-sync.js"
@@ -1046,7 +1054,8 @@ tasks:
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v3"
     base_commit: "8a1d699"
     claimed_at: "2026-08-15T00:34:00+03:30"
-    file_claims:
+    file_claims: []
+    released_claims:
       - ".ai-dos/tasks/active.yaml"
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"

@@ -1,3 +1,12 @@
+## 2026-09-13T12:34:49+03:30 — close deployed/merged tasks
+
+- Owner asked to close this session's work and all tasks already deploy/merge/pushed.
+- Closed `GITHUB-HYGIENE` (`completed`, claims released).
+- Confirmed closed + claims released: `FISCAL-COMPANY-CLEAN-V212` (incl. v214/v215 follow-ups).
+- Released leftover claims on completed: `LOGIN-RESILIENCE-V185`, `SETTINGS-OPS-V184`, `DEMO-V3-GUIDED-SALES`.
+- No `in_progress` tasks remain in `.ai-dos/tasks/active.yaml`.
+- Iran tip lineage: SW v215 / rate-limit fix @ `786215b`+docs `108fd80`.
+
 ## 2026-09-10T04:10:00+03:30 — GITHUB-HYGIENE in progress
 
 - Canonical GitHub branch is `main`; `claude/claude-md-docs-2ssrpy` kept as same-SHA alias.
