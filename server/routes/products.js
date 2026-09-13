@@ -596,6 +596,8 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     : prod.warehouse_id;
 
   const oldStock = prod.stock;
+  const excelHasMoves = !!(body.excel_upsert || body.from_excel)
+    && !!db.prepare('SELECT 1 FROM warehouse_moves WHERE product_id=? LIMIT 1').get(req.params.id);
   const nameVal = bodyHas(body, 'name') ? (name || prod.name) : prod.name;
   // Excel upsert: empty code must not wipe existing product code
   const codeVal = bodyHas(body, 'code')
@@ -603,7 +605,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     : (prod.code || '');
   const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
   const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
-  const stockVal = bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock);
+  const stockVal = excelHasMoves
+    ? parseQty(prod.stock)
+    : (bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock));
   const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
   const unitVal = bodyHas(body, 'unit') ? (unit || 'عدد') : (prod.unit || 'عدد');
   const noteVal = bodyHas(body, 'note') ? (note || '') : (prod.note || '');
@@ -667,7 +671,8 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
       .run(Math.round(Number(body.std_cost_rial) || 0), req.params.id);
   }
   // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
-  if (whId) {
+  // After warehouse circulation, Excel must not smash live qty.
+  if (whId && !excelHasMoves) {
     if (body.excel_upsert || body.from_excel) {
       db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
         .run(req.params.id, whId);

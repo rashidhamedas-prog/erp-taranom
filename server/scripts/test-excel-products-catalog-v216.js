@@ -30,6 +30,8 @@ ok(productsSrc.includes('createQuickProduct'), 'POST /products/quick delegates t
 ok(excelSrc.includes("router.post('/:entity/commit-import'"), 'excel commit-import route exists');
 ok(excelSrc.includes('applyExcelProductAction'), 'excel commit uses shared product writer');
 ok(excelSrc.includes('centralOnlyStrict'), 'commit-import is central-only');
+ok(excelSrc.includes("parseQty(field(r, 'موجودی'))"), 'excel product stock keeps 3-decimal qty');
+ok(!/Math\.trunc\(num\(field\(r, 'موجودی'\)\)\)/.test(excelSrc), 'excel product stock no longer truncates');
 ok(appSrc.includes('fetchCatalogList'), 'UI fetches remaining catalog pages');
 ok(appSrc.includes('commit-import'), 'UI prefers server commit');
 ok(appSrc.includes('pagination.total'), 'UI count uses pagination.total');
@@ -103,6 +105,13 @@ async function runDbTests(dataRows) {
 
   const alias = buildActions(db, 'products', [{ 'نام محصول': 'از ستون نام محصول', 'انبار اصلی': 'انبار اصلی' }]);
   ok(alias.length === 1 && alias[0].body.name === 'از ستون نام محصول', 'name alias نام محصول');
+
+  const fabric = buildActions(db, 'products', [{
+    'نام کالا*': 'پارچه تست متری',
+    'انبار اصلی': 'انبار اصلی',
+    موجودی: 0.265,
+  }]);
+  ok(fabric.length === 1 && fabric[0].body.stock === 0.265, `fractional stock kept (got ${fabric[0] && fabric[0].body.stock})`);
 
   if (dataRows && dataRows.length) {
     const livePlan = planExcelImport(db, 'products', dataRows);

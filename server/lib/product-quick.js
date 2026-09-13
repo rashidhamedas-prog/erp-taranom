@@ -125,7 +125,9 @@ function updateProductFromExcel(db, user, productId, body) {
   const { catName, catId } = src.category || src.category_id
     ? resolveCategory(db, { category: src.category || prod.category, category_id: src.category_id || prod.category_id })
     : { catName: prod.category || '', catId: prod.category_id };
-  const stockVal = src.stock != null ? parseQty(src.stock) : parseQty(prod.stock);
+  const requestedStock = src.stock != null ? parseQty(src.stock) : parseQty(prod.stock);
+  const hasMoves = !!db.prepare('SELECT 1 FROM warehouse_moves WHERE product_id=? LIMIT 1').get(productId);
+  const stockVal = hasMoves ? parseQty(prod.stock) : requestedStock;
   const whId = src.warehouse_id != null && src.warehouse_id !== ''
     ? (parseInt(src.warehouse_id, 10) || null)
     : prod.warehouse_id;
@@ -155,7 +157,7 @@ function updateProductFromExcel(db, user, productId, body) {
       src.sms_code != null ? (src.sms_code || '') : (prod.sms_code || ''),
       productId
     );
-  if (whId) {
+  if (whId && !hasMoves) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
       .run(productId, whId);
     db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
