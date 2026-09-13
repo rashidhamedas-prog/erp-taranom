@@ -7,6 +7,7 @@ const {
   listQueryPlan,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
+  CATALOG_MAX_PAGE_SIZE,
 } = require('../lib/pagination');
 
 let passed = 0;
@@ -30,6 +31,10 @@ const d2 = parseListQuery({ page: '2', limit: '10' });
 ok('limit alias', d2.pageSize === 10 && d2.page === 2 && d2.offset === 10);
 const d3 = parseListQuery({ pageSize: '999' });
 ok('caps pageSize', d3.pageSize === MAX_PAGE_SIZE);
+const dCat = parseListQuery({ limit: '500' }, { maxPageSize: CATALOG_MAX_PAGE_SIZE });
+ok('catalog allows 500', dCat.pageSize === 500);
+const dCatCap = parseListQuery({ pageSize: '9999' }, { maxPageSize: CATALOG_MAX_PAGE_SIZE });
+ok('catalog caps at 5000', dCatCap.pageSize === CATALOG_MAX_PAGE_SIZE);
 const d4 = parseListQuery({ filters: '{"city":"Mashhad"}' });
 ok('filters json', d4.filters && d4.filters.city === 'Mashhad');
 

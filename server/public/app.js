@@ -1680,6 +1680,32 @@ function listRows(resp){
   if(resp && Array.isArray(resp.rows)) return resp.rows;
   return [];
 }
+function listTotal(resp, rows){
+  const t = resp && resp.pagination && resp.pagination.total;
+  if(t != null && Number.isFinite(Number(t))) return Number(t);
+  return (rows || listRows(resp)).length;
+}
+/** کاتالوگ کامل: اگر سرور صفحه برید، بقیه صفحات را هم می‌گیرد. شمارنده = total نه length صفحه. */
+async function fetchCatalogList(path, extra){
+  const base = new URLSearchParams(extra || '');
+  base.set('page', '1');
+  base.set('pageSize', '500');
+  const sep = path.indexOf('?') >= 0 ? '&' : '?';
+  const first = await api('GET', path + sep + base.toString()) || {};
+  if(Array.isArray(first)) return { rows: first, total: first.length };
+  const rows = listRows(first);
+  const total = listTotal(first, rows);
+  if(!total || rows.length >= total) return { rows, total: total || rows.length };
+  const out = rows.slice();
+  const pageSize = Number(first.pagination && first.pagination.pageSize) || 500;
+  const pages = Math.ceil(total / pageSize);
+  for(let p = 2; p <= pages; p++){
+    base.set('page', String(p));
+    const resp = await api('GET', path + sep + base.toString()) || {};
+    out.push.apply(out, listRows(resp));
+  }
+  return { rows: out, total };
+}
 function navItems(){
   if(IN_ACC_SHELL){
     return accNavForRole();
@@ -2290,7 +2316,8 @@ async function ensureCustomersCache(){
 }
 async function ensureProductsCache(){
   if(CACHE.allProducts?.length) return CACHE.allProducts;
-  const list = await api('GET','/products')||[];
+  const catalog = await fetchCatalogList('/products');
+  const list = catalog.rows || [];
   CACHE.products = list; CACHE.allProducts = list;
   return list;
 }
@@ -4500,8 +4527,8 @@ async function reloadInvProductsForWarehouse(){
   // Never overwrite CACHE.allProducts with a WH subset (poisons catalog/BOM pickers).
   if(!whId){ CACHE._invProducts=[]; renderInvPicker(); return; }
   try{
-    const rows = await api('GET','/products?warehouse_id='+whId+'&pageSize=500') || [];
-    const list = Array.isArray(rows) ? rows : (rows.rows || rows.data || []);
+    const catalog = await fetchCatalogList('/products', { warehouse_id: String(whId), include_zero: '1' });
+    const list = catalog.rows || [];
     CACHE._invProducts = list;
     // Header warehouse only refreshes the picker. Per-line warehouse stays;
     // do not drop cart rows that belong to another warehouse.
@@ -6398,32 +6425,59 @@ async function excelImport(entity){
     const rowCount=prepared.row_count||0;
     const skipped=prepared.skipped_blank||0;
     const dupsCount=prepared.skipped_duplicates||0;
+    const invalidCount=prepared.skipped_invalid_count||0;
     const updatesCount=prepared.updates_count||0;
     const createsCount=prepared.creates_count!=null?prepared.creates_count:(count-updatesCount);
     const dups=prepared.duplicates||[];
+    const invalids=prepared.skipped_invalid||[];
     if(!count){ showToast('عملیاتی برای ثبت یافت نشد','error'); return; }
     let msg=`${fmt(createsCount)} ردیف جدید + ${fmt(updatesCount)} به‌روزرسانی آماده ثبت است`;
     if(dupsCount) msg+=`\n⚠️ ${fmt(dupsCount)} ردیف تکراری داخل فایل رد می‌شود`;
+    if(invalidCount) msg+=`\n⚠️ ${fmt(invalidCount)} ردیف نامعتبر (بدون نام / انبار) رد می‌شود`;
     if(skipped) msg+=`\n${fmt(skipped)} ردیف خالی رد شد`;
-    msg+=`\n(از ${fmt(rowCount)} ردیف اکسل)\nثبت نهایی انجام شود؟`;
+    msg+=`\n(از ${fmt(rowCount)} ردیف داده اکسل)\nثبت نهایی انجام شود؟`;
     if(!confirm(msg)) return;
+    const useServerCommit = prepared.commit_supported && !(APP_INFO && APP_INFO.role==='device');
     let ok=0; const failed=[];
-    for(let i=0;i<prepared.actions.length;i++){
-      const a=prepared.actions[i];
-      try{ await api(a.method||'POST',a.path,a.body||{}); ok++; }
-      catch(e){ failed.push({label:a.label||('عملیات '+(i+1)),error:e?.message||'خطای ثبت'}); }
+    let createdCount=createsCount, updatedCount=updatesCount, persisted=null;
+    let appliedServer=false;
+    if(useServerCommit){
+      try{
+        const fd2=new FormData(); fd2.append('file',file);
+        const committed=await api('POST','/excel/'+encodeURIComponent(entity)+'/commit-import',fd2,true);
+        ok=Number(committed.created_count||0)+Number(committed.updated_count||0);
+        createdCount=Number(committed.created_count||0);
+        updatedCount=Number(committed.updated_count||0);
+        persisted=committed.persisted_count;
+        (committed.failed||[]).forEach(x=>failed.push(x));
+        appliedServer=true;
+      }catch(e){
+        if(!(e && (e.code==='E_EXCEL_COMMIT_CLIENT' || e.code==='E_EXCEL_COMMIT_DEVICE' || e.status===403))){
+          return;
+        }
+      }
+    }
+    if(!appliedServer){
+      for(let i=0;i<prepared.actions.length;i++){
+        const a=prepared.actions[i];
+        try{ await api(a.method||'POST',a.path,a.body||{}); ok++; }
+        catch(e){ failed.push({label:a.label||('عملیات '+(i+1)),error:e?.message||'خطای ثبت'}); }
+      }
     }
     const dupReport=dups.slice(0,30).map(x=>`${x.label}: ${x.reason}`).join('\n');
-    if(failed.length||dupsCount||updatesCount){
+    const invalidReport=invalids.slice(0,30).map(x=>`ردیف ${x.row||'?'}: ${x.reason||x.label}`).join('\n');
+    if(failed.length||dupsCount||updatesCount||invalidCount||persisted!=null){
       const failReport=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
       openModal(`<div class="modal-head"><h3>${lucide('alert')} گزارش ورود اکسل</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
         <div class="modal-body">
-          <p>${fmt(ok)} عملیات موفق${updatesCount?` (شامل آپدیت تکراری‌ها)`:''}${dupsCount?`؛ <b data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(dupsCount)} رد داخل فایل</b>`:''}${failed.length?`؛ ${fmt(failed.length)} ناموفق`:''}.</p>
+          <p>${fmt(ok)} عملیات موفق (${fmt(createdCount)} جدید / ${fmt(updatedCount)} آپدیت)${dupsCount?`؛ <b data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(dupsCount)} رد داخل فایل</b>`:''}${invalidCount?`؛ ${fmt(invalidCount)} نامعتبر`:''}${failed.length?`؛ ${fmt(failed.length)} ناموفق`:''}${persisted!=null?`.<br>موجودی فعلی کاتالوگ: <b>${fmt(persisted)}</b> کالا`:''}.</p>
           ${dupReport?`<h4 data-csp-style="${CSP.style(`margin:10px 0 6px`)}">تکراری / آپدیت</h4><textarea readonly data-csp-style="${CSP.style(`width:100%;min-height:140px;direction:rtl`)}">${esc(dupReport)}</textarea>`:''}
+          ${invalidReport?`<h4 data-csp-style="${CSP.style(`margin:10px 0 6px`)}">ردیف نامعتبر</h4><textarea readonly data-csp-style="${CSP.style(`width:100%;min-height:80px;direction:rtl`)}">${esc(invalidReport)}</textarea>`:''}
           ${failReport?`<h4 data-csp-style="${CSP.style(`margin:10px 0 6px`)}">خطاها</h4><textarea readonly data-csp-style="${CSP.style(`width:100%;min-height:120px;direction:rtl`)}">${esc(failReport)}</textarea>`:''}
         </div>
         <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
     }else showToast(`${fmt(ok)} ردیف با موفقیت ثبت شد`);
+    CACHE.allProducts=null; CACHE.products=null;
     if(IN_ACC_SHELL&&accTab) await loadAccTab(accTab);
     else if(CURRENT_PAGE==='products') await refreshProd(true);
   };
@@ -15140,11 +15194,11 @@ function _accProductsRowsHtml(rows, canMut){
 async function refreshAccProductsTableOnly(){
   const catFilter=PRODUCT_CAT_FILTER;
   const search=PRODUCT_ACC_SEARCH;
-  let qp=['limit=500'];
-  if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
-  if(search) qp.push('search='+encodeURIComponent(search));
-  const resp=await api('GET','/products?'+qp.join('&'))||{};
-  const rows=listRows(resp);
+  const extra={};
+  if(catFilter) extra.category_id=String(catFilter);
+  if(search) extra.search=String(search);
+  const catalog=await fetchCatalogList('/products', extra);
+  const rows=catalog.rows||[];
   CACHE.allProducts=rows;
   const canMut=isAdmin()||ME.role==='accounting';
   const tbl=el('accProductsTbl');
@@ -15154,7 +15208,7 @@ async function refreshAccProductsTableOnly(){
   delete tbl.dataset.enhanced;
   const oldBar=tbl._bulkBar; if(oldBar) oldBar.remove();
   tbl.tBodies[0].innerHTML=_accProductsRowsHtml(rows, canMut);
-  if(countEl) countEl.textContent=fmt(rows.length)+' کالا';
+  if(countEl) countEl.textContent=fmt(catalog.total!=null?catalog.total:rows.length)+' کالا';
   if(typeof enhanceDataTable==='function'){
     enhanceDataTable(tbl,{
       selectable:canMut,
@@ -15173,11 +15227,11 @@ async function renderAccProductsTab(body){
   const catFilter=PRODUCT_CAT_FILTER;
   const search=PRODUCT_ACC_SEARCH;
   await ensureProductCategories();
-  let qp=['limit=500'];
-  if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
-  if(search) qp.push('search='+encodeURIComponent(search));
-  const resp=await api('GET','/products?'+qp.join('&'))||{};
-  const rows=listRows(resp);
+  const extra={};
+  if(catFilter) extra.category_id=String(catFilter);
+  if(search) extra.search=String(search);
+  const catalog=await fetchCatalogList('/products', extra);
+  const rows=catalog.rows||[];
   CACHE.allProducts=rows;
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
   const canMut=isAdmin()||ME.role==='accounting';
@@ -15199,7 +15253,7 @@ async function renderAccProductsTab(body){
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
           ${canMut?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){accNewProduct()})}">➕ کالای جدید</button>`:''}
           <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px`)}" autocomplete="off">
-          <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}" id="accProdCount">${fmt(rows.length)} کالا</span>
+          <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}" id="accProdCount">${fmt(catalog.total!=null?catalog.total:rows.length)} کالا</span>
         </div>
         <div class="tbl-wrap"><table class="tbl" id="accProductsTbl" data-bulk-delete="/products" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} کالا حذف شود؟ این عمل برگشت‌پذیر نیست!" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی</th><th data-col-kind="avg">قیمت ${moneyColLabel()}</th><th data-col-kind="avg">بهای تمام‌شده</th><th class="no-sort">عملیات</th>
@@ -21276,7 +21330,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
         <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای کارشناس حضوری و تلفنی، افزودن کالا به سبد <b>پک کامل را خودکار</b> می‌گذارد (بدون باز شدن لیست رنگ). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
-        <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
+        <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
@@ -21286,8 +21340,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>قالب و ورود اکسل بدون حذف صفر؛ گزارش موفق/ناموفق پس از ورود</li>
         <li>موتور اکسل سرور روی <b>exceljs</b> با سقف حجم/شیت/سلول و رد polyglot است (وابستگی آسیب‌پذیر SheetJS حذف شد)</li>
         <li>پس از تعویض شرکت فعال، همهٔ نشست‌های قبلی باطل می‌شوند و باید دوباره وارد شوید (امنیت چندشرکتی)</li>
-        <li>ردیف‌های خالی و بدون نام/تلفن (اشخاص) یا بدون نام کالا رد می‌شوند</li>
-        <li><b>داده تکراری هرگز ذخیره نمی‌شود</b> — فقط ردیف‌های جدید وارد می‌شوند و تعداد تکراری‌ها اعلام می‌گردد (اشخاص: تلفن/کد؛ کالا: کد/بارکد/نام)</li>
+        <li>ردیف‌های خالی و بدون نام/تلفن (اشخاص) یا بدون نام کالا رد می‌شوند و در گزارش جدا می‌آیند (ورود کالا با انبار نامعتبر کل فایل را متوقف نمی‌کند)</li>
+        <li>ورود کالا روی سرور مرکزی <b>یکجا</b> ثبت می‌شود و گزارش تطبیق می‌دهد: شناخته‌شده = جدید + آپدیت + ردشده + ناموفق. شمارندهٔ لیست باید با تعداد واقعی کالا یکی باشد</li>
+        <li><b>داده تکراری هرگز ذخیره نمی‌شود</b> — ردیف تکراری کالا/شخص/کدینگ به‌روزرسانی می‌شود و تعداد اعلام می‌گردد (اشخاص: تلفن/کد؛ کالا: کد/بارکد/نام)</li>
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
       </ul>`),
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
@@ -21797,7 +21852,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v215</b> است و اسکریپت‌ها با <code>?v=215</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v216</b> است و اسکریپت‌ها با <code>?v=216</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21993,7 +22048,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من) و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v210</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v216</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`

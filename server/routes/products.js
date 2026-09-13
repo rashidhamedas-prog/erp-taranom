@@ -9,7 +9,8 @@ const path = require('path');
 const fs = require('fs');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
-const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { listQueryPlan, listResponse, CATALOG_MAX_PAGE_SIZE } = require('../lib/pagination');
+const { nextProductCode, createQuickProduct } = require('../lib/product-quick');
 const { applyNameCodeBarcodeSkuSearch, attachAvailableQty } = require('../lib/inventory/product-line-search');
 const { applyCatalogCostPolicy } = require('../lib/catalog-cost-policy');
 const { attachVariantFlags } = require('../lib/product-variants');
@@ -100,16 +101,7 @@ const {
   addCatalogAclFilter,
 } = require('../lib/product-visibility');
 
-// Auto product code (کد کالا) when the user leaves it blank: sequential K-00001.
-function nextProductCode(db) {
-  const row = db.prepare("SELECT code FROM products WHERE code GLOB 'K-[0-9]*' ORDER BY id DESC LIMIT 1").get();
-  let n = 1;
-  if (row && row.code) {
-    const m = row.code.match(/K-(\d+)/);
-    if (m) n = parseInt(m[1], 10) + 1;
-  }
-  return `K-${String(n).padStart(5, '0')}`;
-}
+// Auto product code lives in lib/product-quick.js (shared with Excel commit).
 
 function saveImage(file) {
   if (!file || !file.uploadValidated || file.mimetype !== 'image/webp' || !Buffer.isBuffer(file.buffer)) {
@@ -173,7 +165,7 @@ router.get('/', auth, (req, res) => {
   }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  const pq = listQueryPlan(req.query);
+  const pq = listQueryPlan(req.query, { maxPageSize: CATALOG_MAX_PAGE_SIZE });
   // Visibility filter may reference `pc.*` — COUNT must use the same joins as the list query.
   const total = pq.paginate
     ? (db.prepare(`SELECT COUNT(*) AS c FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id ${whereSql}`).get(...params)?.c || 0)
@@ -463,89 +455,15 @@ ${labels}
 
 // Quick create from invoice modals — admin/accounting only (product master lives in accounting)
 router.post('/quick', auth, adminOrAccounting, (req, res) => {
-  const {
-    name, category_id, category, code, price, cost, warehouse_id, unit, stock, stock_alert,
-    note, colors, pack_size, barcode, full_name, product_type, product_index, tax_id,
-    consumer_price, location, opening_price, sms_code
-  } = req.body;
-  if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
-  const codeTrim = code && String(code).trim();
-  const barcodeTrim = barcode && String(barcode).trim();
-  if (codeTrim && db.prepare('SELECT id FROM products WHERE code=?').get(codeTrim)) {
-    return res.status(409).json({ error: 'کد کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
-  }
-  if (barcodeTrim && db.prepare('SELECT id FROM products WHERE barcode=?').get(barcodeTrim)) {
-    return res.status(409).json({ error: 'بارکد تکراری است — داده تکراری ذخیره نمی‌شود' });
-  }
-  if (db.prepare('SELECT id FROM products WHERE name=?').get(String(name).trim())) {
-    return res.status(409).json({ error: 'نام کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
-  }
-  let catName = category || '';
-  let catId = category_id || null;
-  if (catId) {
-    const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
-    if (!c) return res.status(400).json({ error: 'گروه کالا یافت نشد' });
-    if (c) catName = c.name;
-  } else if (catName) {
-    const c = db.prepare('SELECT id,name FROM product_categories WHERE name=?').get(catName);
-    if (c) { catId = c.id; catName = c.name; }
-  }
-  const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
-  const prodCode = (code && String(code).trim()) || nextProductCode(db);
-  const openingStock = Math.max(0, parseQty(stock, 0));
-  const costRial = Math.round(parseFloat(cost) || 0);
-  const openingPriceRial = Math.round(parseFloat(opening_price) || 0);
-  const unitCostForOpening = costRial || openingPriceRial;
   let pid;
   try {
-    pid = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO products (
-          user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
-          note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
-          location,opening_price,sms_code,tax_stuff_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, costRial,
-        openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
-        note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
-        String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
-        tax_id || '', parseFloat(consumer_price) || 0, location || '', openingPriceRial,
-        sms_code || '', String(req.body.tax_stuff_id || '').trim() || null
-      );
-      const productId = result.lastInsertRowid;
-      if (defaultWarehouse) {
-        db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-          .run(productId, defaultWarehouse, openingStock);
-      }
-      try {
-        const cc = allocTafsili(db, 'product', name);
-        if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, productId);
-      } catch (_) { /* optional in legacy mode */ }
-      if (openingStock > 0 && unitCostForOpening > 0) {
-        const { postProductOpeningInventory } = require('../lib/opening-post');
-        postProductOpeningInventory(db, {
-          productId,
-          qty: openingStock,
-          unitCostRial: unitCostForOpening,
-          userId: req.user.id,
-          srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
-        });
-      }
-      if (openingStock > 0) {
-        try {
-          db.prepare('INSERT INTO stock_logs (product_id,change,reason,user_id) VALUES (?,?,?,?)')
-            .run(productId, openingStock, 'موجودی اول دوره', req.user.id);
-        } catch (_) {}
-      }
-      return productId;
-    })();
+    pid = createQuickProduct(db, req.user, req.body || {});
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
     throw e;
   }
-  audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${name}`);
+  audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${(req.body && req.body.name) || ''}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
 

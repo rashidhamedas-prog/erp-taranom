@@ -8,6 +8,8 @@
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
+/** Master-data catalogs (products) must not silently look complete at 200 rows. */
+const CATALOG_MAX_PAGE_SIZE = 5000;
 
 const RESERVED_QUERY_KEYS = new Set([
   'page',
@@ -146,6 +148,7 @@ module.exports = {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
+  CATALOG_MAX_PAGE_SIZE,
   parseListQuery,
   wrapListResponse,
   paginatedJson: wrapListResponse,

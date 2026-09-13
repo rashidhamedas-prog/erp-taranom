@@ -1,8 +1,9 @@
 const router = require('express').Router();
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, centralOnlyStrict } = require('../middleware/auth');
 const { getDB, audit } = require('../db');
+const { applyExcelProductAction } = require('../lib/product-quick');
 
 const upload = createSecureUpload('xlsx');
 
@@ -157,6 +158,7 @@ const DEFINITIONS = {
     },
     guide: [
       'مبالغ فقط ریال هستند.',
+      'ستون نام: «نام کالا*» یا «نام کالا» یا «نام محصول». ردیف بدون نام یا انبار نامعتبر جدا گزارش می‌شود و بقیه ثبت می‌شوند.',
       'اگر ستون «موجودی» > 0 باشد و بهای تمام‌شده یا قیمت اول دوره پر باشد، سند «موجودی اول دوره» (اتومات/افتتاحیه) ثبت می‌شود.',
       'برای رسید انبار جداگانه از قالب warehouse-receipt با شرح «موجودی اول دوره» استفاده کنید.',
     ],
@@ -479,7 +481,8 @@ function dedupeExcelActions(db, entity, actions) {
   return { actions, duplicates, updates };
 }
 
-function buildActions(db, entity, rows) {
+function buildActions(db, entity, rows, hooks) {
+  const onSkip = (hooks && hooks.onSkip) || function noop() {};
   if (entity === 'parties') {
     const out = [];
     rows.forEach((r, i) => {
@@ -513,10 +516,20 @@ function buildActions(db, entity, rows) {
   if (entity === 'products') {
     const out = [];
     rows.forEach((r, i) => {
-      const name = field(r, 'نام کالا*', 'نام کالا');
-      if (!name) return;
+      const name = field(r, 'نام کالا*', 'نام کالا', 'نام محصول', 'name', 'Name', 'عنوان');
+      if (!name) {
+        onSkip({ row: i + 2, reason: 'نام کالا خالی است', label: `ردیف ${i + 2}` });
+        return;
+      }
       const whValue = field(r, 'انبار اصلی');
-      const wh = whValue ? requireRef(i + 2, 'انبار اصلی', warehouse(db, whValue)) : null;
+      let wh = null;
+      if (whValue) {
+        wh = warehouse(db, whValue);
+        if (!wh) {
+          onSkip({ row: i + 2, reason: `انبار اصلی «${text(whValue)}» یافت نشد`, label: name });
+          return;
+        }
+      }
       out.push(action('/products/quick', {
         name, full_name: field(r, 'نام کامل کالا'),
         code: field(r, 'کد کالا'), barcode: field(r, 'بارکد'), category: field(r, 'دسته'),
@@ -792,47 +805,142 @@ router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, async (
   }
 });
 
+async function parseExcelRows(file) {
+  const wb = await readWorkbook(file.buffer, { cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  // raw:true keeps Excel serial dates/numbers; excelDateCell/num coerce them
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+  const rows = rawRows.filter((r) => !isBlankExcelRow(r));
+  return { rawRows, rows, skipped_blank: rawRows.length - rows.length };
+}
+
+function planExcelImport(db, entity, rows) {
+  const skipped_invalid = [];
+  const built = buildActions(db, entity, rows, {
+    onSkip(item) { skipped_invalid.push(item); },
+  });
+  const planned = dedupeExcelActions(db, entity, built);
+  const updateCount = (planned.updates || []).length;
+  const skipOnly = (planned.duplicates || []).filter((d) => d.action === 'skip').length;
+  const createCount = planned.actions.filter((a) => a.upsert !== 'update').length;
+  return {
+    ...planned,
+    skipped_invalid,
+    updateCount,
+    skipOnly,
+    createCount,
+  };
+}
+
+function applyPlannedActions(db, user, entity, actions) {
+  const created = [];
+  const updated = [];
+  const failed = [];
+  if (entity === 'products') {
+    for (const a of actions) {
+      try {
+        const r = applyExcelProductAction(db, user, a);
+        if (r.upsert === 'update') updated.push({ id: r.id, label: a.label });
+        else created.push({ id: r.id, label: a.label });
+      } catch (e) {
+        failed.push({ label: a.label || 'کالا', error: e.message || 'خطای ثبت' });
+      }
+    }
+    return { created, updated, failed, server_applied: true };
+  }
+  return { created, updated, failed, server_applied: false, actions };
+}
+
 router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل اکسل انتخاب نشده است' });
   try {
-    const wb = await readWorkbook(req.file.buffer, { cellDates: true });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    // raw:true keeps Excel serial dates/numbers; excelDateCell/num coerce them
-    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
-    const rows = rawRows.filter((r) => !isBlankExcelRow(r));
-    const skipped_blank = rawRows.length - rows.length;
+    const { rows, skipped_blank } = await parseExcelRows(req.file);
     if (!rows.length) return res.status(400).json({ error: 'فایل اکسل فاقد ردیف داده است' });
     if (rows.length > 5000) return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است' });
-    const built = buildActions(getDB(), req.params.entity, rows);
-    const { actions, duplicates, updates } = dedupeExcelActions(getDB(), req.params.entity, built);
-    const updateCount = (updates || []).length;
-    const skipOnly = (duplicates || []).filter((d) => d.action === 'skip').length;
-    if (!actions.length && duplicates.length) {
+    const planned = planExcelImport(getDB(), req.params.entity, rows);
+    const { actions, duplicates, updates, skipped_invalid, updateCount, skipOnly, createCount } = planned;
+    if (!actions.length && (duplicates.length || skipped_invalid.length)) {
       return res.status(400).json({
-        error: `همه ردیف‌ها در فایل تکراری/نامعتبر بودند (${duplicates.length} مورد) — چیزی برای ثبت نیست`,
+        error: `همه ردیف‌ها در فایل تکراری/نامعتبر بودند (${duplicates.length + skipped_invalid.length} مورد) — چیزی برای ثبت نیست`,
         skipped_duplicates: skipOnly,
+        skipped_invalid_count: skipped_invalid.length,
+        skipped_invalid: skipped_invalid.slice(0, 50),
         updates_count: updateCount,
         duplicates: duplicates.slice(0, 50),
       });
     }
     if (!actions.length) return res.status(400).json({ error: 'هیچ عملیات معتبری از فایل ساخته نشد' });
-    const createCount = actions.filter((a) => a.upsert !== 'update').length;
     audit(req.user.id, 'prepare_excel_import', req.params.entity, null,
-      `آماده‌سازی ${rows.length} ردیف: ${createCount} جدید، ${updateCount} آپدیت، ${skipOnly} رد`);
+      `آماده‌سازی ${rows.length} ردیف: ${createCount} جدید، ${updateCount} آپدیت، ${skipOnly} رد تکراری، ${skipped_invalid.length} نامعتبر`);
     res.json({
       ok: true, entity: req.params.entity, title: req.excelDef.title,
       row_count: rows.length, skipped_blank,
       skipped_duplicates: skipOnly,
+      skipped_invalid_count: skipped_invalid.length,
+      skipped_invalid: skipped_invalid.slice(0, 50),
       updates_count: updateCount,
       creates_count: createCount,
       duplicates: duplicates.slice(0, 50),
       updates: (updates || []).slice(0, 50),
       actions_count: actions.length, actions,
+      commit_supported: req.params.entity === 'products',
     });
   } catch (e) {
     res.status(400).json({ error: `خطا در اعتبارسنجی فایل: ${e.message}` });
   }
 });
 
-router._test = { DEFINITIONS, exportRows, buildActions, dedupeExcelActions };
+/** Authoritative central commit: re-reads the file (does not trust client action bodies). */
+router.post('/:entity/commit-import', auth, adminOrAccounting, centralOnlyStrict, ensureDefinition, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'فایل اکسل انتخاب نشده است' });
+  try {
+    const { rows, skipped_blank } = await parseExcelRows(req.file);
+    if (!rows.length) return res.status(400).json({ error: 'فایل اکسل فاقد ردیف داده است' });
+    if (rows.length > 5000) return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است' });
+    const db = getDB();
+    const planned = planExcelImport(db, req.params.entity, rows);
+    const { actions, skipped_invalid, updateCount, skipOnly, createCount } = planned;
+    if (!actions.length) {
+      return res.status(400).json({
+        error: 'هیچ عملیات معتبری از فایل ساخته نشد',
+        row_count: rows.length,
+        skipped_blank,
+        skipped_invalid_count: skipped_invalid.length,
+        skipped_invalid: skipped_invalid.slice(0, 50),
+        skipped_duplicates: skipOnly,
+      });
+    }
+    const applied = applyPlannedActions(db, req.user, req.params.entity, actions);
+    if (!applied.server_applied) {
+      return res.status(409).json({
+        error: 'ثبت یکجای این نوع فایل روی سرور پشتیبانی نمی‌شود',
+        code: 'E_EXCEL_COMMIT_CLIENT',
+        actions,
+      });
+    }
+    const persisted = db.prepare('SELECT COUNT(*) AS c FROM products').get().c;
+    audit(req.user.id, 'commit_excel_import', req.params.entity, null,
+      `ثبت اکسل ${req.params.entity}: ${applied.created.length} جدید، ${applied.updated.length} آپدیت، ${applied.failed.length} ناموفق از ${rows.length} ردیف`);
+    res.json({
+      ok: applied.failed.length === 0,
+      entity: req.params.entity,
+      row_count: rows.length,
+      skipped_blank,
+      skipped_invalid_count: skipped_invalid.length,
+      skipped_invalid: skipped_invalid.slice(0, 50),
+      skipped_duplicates: skipOnly,
+      creates_count: createCount,
+      updates_count: updateCount,
+      created_count: applied.created.length,
+      updated_count: applied.updated.length,
+      failed_count: applied.failed.length,
+      failed: applied.failed.slice(0, 50),
+      persisted_count: persisted,
+    });
+  } catch (e) {
+    res.status(400).json({ error: `خطا در ثبت فایل: ${e.message}` });
+  }
+});
+
+router._test = { DEFINITIONS, exportRows, buildActions, dedupeExcelActions, planExcelImport, applyPlannedActions };
 module.exports = router;

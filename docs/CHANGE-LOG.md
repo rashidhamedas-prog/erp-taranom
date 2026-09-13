@@ -14,6 +14,15 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۲۲ — ورود اکسل کالا: ۳۱۹ ردیف شناخته / ۲۰۰ نمایش (SW v216)
+
+- **باگ:** `prepare-import` هر ردیف داده را می‌شمرد (مثلاً ۳۱۹) ولی لیست کالا `limit=500` می‌فرستاد و سرور سقف عمومی صفحه را روی **۲۰۰** می‌برد؛ شمارنده از `length` همان صفحه بود. ثبت تکی ۳۱۹ بار `POST /products/quick` هم پشت سقف نرخ v215 ممکن بود نیمه بماند.
+- **اصلاح معماری:** کاتالوگ کالا سقف صفحهٔ جدا (`CATALOG_MAX_PAGE_SIZE=5000`) دارد. فرانت با `fetchCatalogList` همه صفحات را می‌گیرد و شمارنده = `pagination.total`. ثبت کالا روی مرکز `POST /excel/products/commit-import` است: فایل دوباره خوانده می‌شود (بدنهٔ کلاینت ملاک نیست)، ردیف نامعتبر جدا گزارش می‌شود، بقیه یکجا ثبت می‌شوند. دستگاه آفلاین همان مسیر تکی `/products/quick` را برای سینک نگه می‌دارد.
+- **فایل‌ها:** `server/lib/{pagination,product-quick}.js`, `server/routes/{excel,products}.js`, `server/sync/capture.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/{test-excel-products-catalog-v216,test-list-pagination}.js`
+- **تست:** `node server/scripts/test-excel-products-catalog-v216.js`؛ `node server/scripts/test-list-pagination.js`
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v216
+
 ### ۱۴۰۵/۰۶/۲۱ — رفع «خطا رخ داد» / بارگذاری (rate-limit 429، SW v215)
 
 - **علت:** سقف عمومی API برابر ۱۰۰۰ درخواست/۱۵دقیقه برای هر IP بود؛ چند تب + polling پیام/یادآور/اعلان پشت NAT اداری سریع به ۴۲۹ می‌رسید و UI فقط «خطا رخ داد» نشان می‌داد.
