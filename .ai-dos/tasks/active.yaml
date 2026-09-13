@@ -57,7 +57,7 @@ tasks:
       - "Closing dependabot PRs"
       - "Committing leftover _deploy/_diag/motefareqe or invoices.js"
     notes: >-
-      Closed 2026-09-13T12:34:49+03:30: merged to main/alias (1fb9ec1 lineage). GitHub/CI only; later fiscal v214 + rate-limit v215 already on Iran.
+      Closed 2026-09-13T12:35:20+03:30: merged to main/alias (1fb9ec1 lineage). GitHub/CI only; later fiscal v214 + rate-limit v215 already on Iran.
   - id: "FISCAL-COMPANY-CLEAN-V212"
     title: "Root-fix multi-company blank workspace + fiscal open-clean wipe"
     status: "completed"
@@ -93,7 +93,7 @@ tasks:
       - "Row-level company_id tenancy"
       - "Desktop/Android full builds"
     notes: >-
-      Closed fully 2026-09-13T12:34:49+03:30: open-clean + tafsili purge v214 + rate-limit UI fix v215 deployed Iran; tip 108fd80 on main+alias. Claims released.
+      Closed fully 2026-09-13T12:35:20+03:30: open-clean + tafsili purge v214 + rate-limit UI fix v215 deployed Iran; tip 108fd80 on main+alias. Claims released.
   - id: "INVOICE-AMEND-SALES-UX-V205"
     title: "VAT defaults + in-place invoice amend + sales invoice details + field-ops UX"
     status: "completed"
