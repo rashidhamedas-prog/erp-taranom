@@ -21,7 +21,7 @@
 - **داده زنده:** موجودی همان ۳۰ ردیف از روی فایل دسکتاپ روی ایران هم‌تراز می‌شود (گردش انبار = ۰).
 - **فایل‌ها:** `server/routes/{excel,products}.js`, `server/lib/product-quick.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-excel-products-catalog-v216.js`
 - **تست:** `node server/scripts/test-excel-products-catalog-v216.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 2a6bd6d — health/ready/root 200؛ ۳۰ موجودی اعشاری هم‌تراز شد
 - **SW:** erp-taranom-v217
 
 ### ۱۴۰۵/۰۶/۲۲ — ورود اکسل کالا: ۳۱۹ ردیف شناخته / ۲۰۰ نمایش (SW v216)
