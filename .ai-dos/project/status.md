@@ -1,10 +1,10 @@
 # Project Status
 
-- Last verified: 2026-09-13
+- Last verified: 2026-09-17
 - **Active task:** none
-- **Closed this turn:** `GITHUB-HYGIENE` · `FISCAL-COMPANY-CLEAN-V212` (v212–v215 lineage) · leftover claims on LOGIN/SETTINGS/DEMO-V3
-- **Iran last:** overlay SW **erp-taranom-v215** (rate-limit 429 fix) @ `786215b` / docs `108fd80`; prior fiscal tafsili purge v214
-- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` @ `108fd80`
+- **Closed this turn:** `EXCEL-PRODUCTS-CATALOG-V216` (SW v216 catalog cap + v217 qty decimals)
+- **Iran last:** overlay SW **erp-taranom-v217** @ `2a6bd6d` / docs `e368607`; invoices proforma-only API gate overlaid in this close-out
+- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `feat/EXCEL-PRODUCTS-CATALOG-V216`
 - Prior history below kept for context.
 
 ## Working quality commands

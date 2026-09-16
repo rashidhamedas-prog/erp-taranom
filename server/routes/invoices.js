@@ -119,6 +119,19 @@ function resolveSalesChannel(req) {
   return '';
 }
 
+/** کارشناس فروش/بازاریاب فقط پیش‌فاکتور می‌زند؛ تبدیل و مرکز هزینه برای او بسته است. */
+function isSalesProformaOnlyRole(role) {
+  return role === 'field_sales' || role === 'inside_sales' || role === 'salesperson';
+}
+
+function canConvertProforma(req, inv) {
+  const role = req.user && req.user.role;
+  if (!req.user || !inv) return false;
+  if (isSalesProformaOnlyRole(role)) return false;
+  if (role === 'admin' || role === 'accounting' || role === 'sales_manager') return true;
+  return Number(inv.user_id) === Number(req.user.id);
+}
+
 // Validate & normalize invoice rows.
 // Price is always editable by both admin and salesperson (Phase 2 change).
 // Line-item discount is only honored when canDiscount is true — enforced
@@ -389,6 +402,15 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   let invType;
   try { invType = normalizeInvoiceType(type || 'proforma'); }
   catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (isSalesProformaOnlyRole(req.user.role)) {
+    if (isFirmSale(invType)) {
+      return res.status(403).json({
+        error: 'کارشناس فروش فقط می‌تواند پیش‌فاکتور ثبت کند',
+        code: 'E_SALES_PROFORMA_ONLY',
+      });
+    }
+    invType = 'proforma';
+  }
   const vatFlag = (vat_exempt === undefined || vat_exempt === null)
     ? defaultVatExempt(invType)
     : resolveVatExemptFlag(invType, vat_exempt);
@@ -425,7 +447,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   }
 
   const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(ownerUserId);
-  const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
+  const isSalesRep = isSalesProformaOnlyRole(req.user.role);
   let whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   // فروشنده: فقط انبار تعریف‌شده در کاربر — انتخاب انبار در اقلام مجاز نیست
   if (isSalesRep) {
@@ -440,7 +462,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   } else if (!whId && seller?.sales_warehouse_id) {
     whId = seller.sales_warehouse_id;
   }
-  const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
+  let ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
+  if (isSalesRep) ccId = null;
   const journalOpts = {
     payType: skipInvoiceCash ? 'credit' : storedPayType,
     bankId: skipInvoiceCash ? null : (bank_id || null),
@@ -651,7 +674,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   let { subtotal, discAmt, vatAmount, vatRate } = totals;
   let { final } = freightAdj;
 
-  const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
+  const isSalesRep = isSalesProformaOnlyRole(req.user.role);
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
   const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
   if (isSalesRep) {
@@ -665,7 +688,8 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   } else if (!whId && uWh?.sales_warehouse_id) {
     whId = uWh.sales_warehouse_id;
   }
-  const ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
+  let ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
+  if (isSalesRep) ccId = row.cost_center_id || null;
 
   let payPlan;
   try {
@@ -777,7 +801,14 @@ router.post('/:id/convert', auth, (req, res) => {
   const db = getDB();
   const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  if (!canConvertProforma(req, inv)) {
+    return res.status(403).json({
+      error: isSalesProformaOnlyRole(req.user.role)
+        ? 'تبدیل پیش‌فاکتور برای کارشناس فروش مجاز نیست — فقط مدیر یا حسابدار'
+        : 'دسترسی ندارید',
+      code: 'E_CONVERT_FORBIDDEN',
+    });
+  }
   if (inv.converted) return res.status(400).json({ error: 'قبلاً تبدیل شده' });
   if (isFirmSale(inv.type)) return res.status(400).json({ error: 'این فاکتور قبلاً قطعی است' });
 
@@ -798,7 +829,7 @@ router.post('/:id/convert', auth, (req, res) => {
   let convertWhId = req.body?.warehouse_id
     ? parseInt(req.body.warehouse_id, 10)
     : (inv.warehouse_id || null);
-  if (owner && (owner.role === 'field_sales' || owner.role === 'inside_sales')) {
+  if (owner && isSalesProformaOnlyRole(owner.role)) {
     if (!owner.sales_warehouse_id) {
       return res.status(400).json({ error: 'انبار فروش برای کاربر صادرکننده تعریف نشده' });
     }

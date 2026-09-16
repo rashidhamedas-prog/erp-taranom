@@ -1,4 +1,13 @@
-## 2026-09-13T12:35:20+03:30 — close deployed/merged tasks
+## 2026-09-17T02:45:00+03:30 — close Excel catalog + leftover invoice gate
+
+- Owner asked full commit/merge/push/deploy and close open tasks.
+- Closed `EXCEL-PRODUCTS-CATALOG-V216` (v216 list cap + v217 fractional qty). Claims released.
+- Committed leftover `server/routes/invoices.js` server gate matching existing UI (`isSalesProformaOnlyRole`).
+- `main` = `claude/claude-md-docs-2ssrpy` = `feat/EXCEL-PRODUCTS-CATALOG-V216`.
+- Iran SW **erp-taranom-v217**. Did not commit `_inspect/_repair/_run` or production docx.
+- No `in_progress` tasks remain. Dependabot PRs left open (hygiene non-goal).
+
+
 
 - Owner asked to close this session's work and all tasks already deploy/merge/pushed.
 - Closed `GITHUB-HYGIENE` (`completed`, claims released).

@@ -1,5 +1,44 @@
 schema_version: 1
 tasks:
+  - id: "EXCEL-PRODUCTS-CATALOG-V216"
+    title: "Excel product catalog past 200-row cap + 3-decimal opening qty"
+    status: "completed"
+    completed_at: "2026-09-17T02:45:00+03:30"
+    claimed_at: "2026-09-13T12:13:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "SELF_REVIEW_APPROVED"
+    risk: "high"
+    owner: "cursor:excel-products-catalog-v216"
+    roles:
+      implementer: "cursor:excel-products-catalog-v216"
+    branch: "feat/EXCEL-PRODUCTS-CATALOG-V216"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/lib/pagination.js"
+      - "server/lib/product-quick.js"
+      - "server/routes/excel.js"
+      - "server/routes/products.js"
+      - "server/sync/capture.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-excel-products-catalog-v216.js"
+      - "server/scripts/test-list-pagination.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "Catalog list cap 5000; UI count uses pagination.total"
+      - "Central POST /excel/products/commit-import re-reads the file"
+      - "Excel stock uses parseQty (3 decimals); no Math.trunc"
+      - "Excel update does not smash warehouse qty after warehouse_moves"
+      - "Iran SW v217; 318 products persisted; 30 fractional qtys repaired"
+    non_goals:
+      - "Committing leftover invoices.js until this close-out"
+      - "Desktop/Android full builds"
+      - "Committing one-off _inspect/_repair/_deploy scripts"
+    notes: >-
+      Closed 2026-09-17: main+alias @ e368607 lineage; invoices.js backend
+      proforma-only gate included in the same close-out commit.
   - id: "GITHUB-HYGIENE"
     title: "Professional GitHub architecture: main default, community files, CI/deploy, prune merged branches"
     status: "completed"
