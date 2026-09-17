@@ -33,6 +33,41 @@ Mitigations in product:
 
 Nginx origin should keep `proxy_connect_timeout` modest (e.g. 5s) so a dead process fails fast and the **client retry** can hit the new process. Do not enable Authenticated Origin Pulls.
 
+## Backup capacity / login incident (2026-09-17)
+
+The Iran VPS reached 100% filesystem usage because the same-device filesystem
+mirror accumulated every 15-minute backup without pruning. SQLite/session writes
+and backups then failed with `ENOSPC` / `database or disk is full`, which can make
+login appear to accept credentials but fail while issuing or persisting a session.
+
+- `server/backup.js` now prunes both primary and filesystem-mirror destinations
+  before allocating the next snapshot.
+- Retention is hard-bounded: 96 recent points plus 31 daily, 12 weekly and 12
+  monthly candidates (duplicates collapse across tiers).
+- Mirror pruning is fail-closed and requires the exact regular-file marker
+  `.erp-taranom-backup-root` containing `ERP_TARANOM_BACKUP_ROOT_V1`, directory
+  mode `0700`, marker mode `0600`, and ownership by the service user.
+- Mirror copies are checksum-verified in a temporary file and promoted by rename;
+  incomplete, checksum-mismatched and stale partial artifacts cannot win a
+  retention bucket.
+- The 2026-09-17 recovery deleted the user-authorized test backup history from
+  `/home/taranom/crm-offsite-backups` and `server/backups`; it did not delete the
+  production database, uploads, `_recover`, or the separate `rayan-erp` backups.
+
+Rollback for this incident is the preserved
+`server/_recover/backup.js.pre-login-disk-20260917`; restore it over
+`server/backup.js` and restart `erp-taranom` without `--update-env`. Keep the
+marker and never restore deleted test backup history merely to roll back code.
+
+## Direct DNS to the VPS
+
+`erp.poshaktaranom.com` currently stays **Proxied** with Cloudflare Full (strict).
+The origin presents a Cloudflare Origin CA certificate, which public browsers do
+not trust when Cloudflare is bypassed. Do not switch the record to DNS-only until
+a publicly trusted origin certificate is installed and verified, direct-origin
+firewall/rate-limit exposure is reviewed, TTL is lowered, and an immediate DNS
+rollback is prepared. Direct DNS does not fix application disk exhaustion.
+
 ## Evidence recipes (read-only / non-mutating)
 
 ### 1) Hash probe (local vs VPS)

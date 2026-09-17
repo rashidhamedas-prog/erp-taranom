@@ -16,9 +16,17 @@ process.env.DATA_ENCRYPTION_KEY = 'isolated-data-key-32-bytes-minimum!!';
 const { initDB, getDB } = require('../db');
 const {
   runBackup, decryptFile, verifyBackupPackage, restoreBackup, sameFilesystemDevice,
+  BACKUP_ROOT_MARKER, BACKUP_ROOT_MARKER_CONTENT,
 } = require('../backup');
 const AdmZip = require('adm-zip');
 const Database = require('better-sqlite3');
+
+fs.mkdirSync(process.env.BACKUP_OFFSITE_DIR, { recursive: true, mode: 0o700 });
+fs.writeFileSync(
+  path.join(process.env.BACKUP_OFFSITE_DIR, BACKUP_ROOT_MARKER),
+  BACKUP_ROOT_MARKER_CONTENT,
+  { mode: 0o600 }
+);
 
 let step = 0;
 function ok(msg) {

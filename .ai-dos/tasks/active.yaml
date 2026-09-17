@@ -1,5 +1,48 @@
 schema_version: 1
 tasks:
+  - id: "LOGIN-DISK-BACKUP-RETENTION"
+    title: "Restore production login by fixing exhausted VPS disk and mirrored-backup retention"
+    status: "completed"
+    completed_at: "2026-09-17T04:10:00+03:30"
+    claimed_at: "2026-09-17T00:00:00+03:30"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "codex:root"
+    roles:
+      orchestrator: "codex:root"
+      architect: "codex:root"
+      implementer: "codex:root"
+      reviewer: "codex:reviewer"
+      security: "codex:security"
+    branch: "fix/LOGIN-DISK-BACKUP-RETENTION"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/backup.js"
+      - "server/scripts/test-backup-retention.js"
+      - "server/scripts/test-backup-dr.js"
+      - "server/scripts/test-backup-offsite-policy.js"
+      - "docs/08-deployment.md"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/project/status.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+    acceptance_criteria:
+      - "VPS filesystem has safe free-space headroom and backup checksum remains verified"
+      - "Filesystem mirror backup destination follows the same bounded GFS retention as primary backups"
+      - "Login API and authenticated browser flow no longer fail because of ENOSPC"
+      - "Cloudflare/DNS decision is documented; DNS-only cutover is not performed before a browser-trusted origin certificate exists"
+      - "Required quality gates plus independent reviewer and security review are recorded"
+    non_goals:
+      - "Deleting business data or uploads"
+      - "Changing Cloudflare proxy mode before direct-origin TLS is ready"
+      - "Rewriting unrelated dirty local or VPS worktrees"
+    notes: >-
+      Production diagnosis found /dev/vda1 at 100% and 43G/7316 files in the
+      same-device BACKUP_OFFSITE_DIR mirror. Existing primary prune logic does
+      not prune the mirror. Preserve user-owned dirty files and use previewed,
+      bounded GFS cleanup only.
   - id: "EXCEL-PRODUCTS-CATALOG-V216"
     title: "Excel product catalog past 200-row cap + 3-decimal opening qty"
     status: "completed"

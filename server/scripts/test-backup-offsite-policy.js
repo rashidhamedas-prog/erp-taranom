@@ -22,7 +22,9 @@ delete process.env.BACKUP_OFFSITE_DIR;
 delete process.env.BACKUP_ALLOW_SAME_DEVICE;
 
 const { initDB } = require('../db');
-const { runBackup, sameFilesystemDevice } = require('../backup');
+const {
+  runBackup, sameFilesystemDevice, BACKUP_ROOT_MARKER, BACKUP_ROOT_MARKER_CONTENT,
+} = require('../backup');
 
 let passed = 0;
 let failed = 0;
@@ -52,7 +54,12 @@ function failedOffsite(resultOrError) {
     'production without S3/OFFSITE must fail');
 
   process.env.BACKUP_OFFSITE_DIR = path.join(root, 'offsite-same');
-  fs.mkdirSync(process.env.BACKUP_OFFSITE_DIR, { recursive: true });
+  fs.mkdirSync(process.env.BACKUP_OFFSITE_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(
+    path.join(process.env.BACKUP_OFFSITE_DIR, BACKUP_ROOT_MARKER),
+    BACKUP_ROOT_MARKER_CONTENT,
+    { mode: 0o600 }
+  );
   ok(sameFilesystemDevice(process.env.BACKUP_DIR, process.env.BACKUP_OFFSITE_DIR),
     'helper detects same device for local dirs');
 

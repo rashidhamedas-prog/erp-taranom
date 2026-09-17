@@ -2,8 +2,9 @@
 
 - Last verified: 2026-09-17
 - **Active task:** none
+- **Closed this turn:** production login/disk recovery + bounded backup retention
 - **Closed this turn:** `EXCEL-PRODUCTS-CATALOG-V216` (SW v216 catalog cap + v217 qty decimals)
-- **Iran last:** overlay SW **erp-taranom-v217** @ `2a6bd6d` / docs `e368607`; invoices proforma-only API gate overlaid in this close-out
+- **Iran last:** SW **erp-taranom-v217** plus `server/backup.js` retention overlay SHA-256 `62ffef6a…`; disk 22% used / 44G free; ready 200
 - **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `feat/EXCEL-PRODUCTS-CATALOG-V216`
 - Prior history below kept for context.
 

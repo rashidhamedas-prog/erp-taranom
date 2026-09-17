@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۶/۲۶ — رفع توقف ورود ناشی از پرشدن دیسک + retention بکاپ
+
+- **علت قطعی:** دیسک VPS ایران `100%` بود؛ mirror همان‌دیسک در `/home/taranom/crm-offsite-backups` به `43G / 7316 files` رسیده و لاگ‌ها `ENOSPC` و `database or disk is full` داشتند. این وضعیت نوشتن SQLite/session بعد از ورود را مختل می‌کرد؛ Cloudflare و origin هر دو پاسخ‌گو بودند.
+- **پاکسازی با اجازهٔ مالک:** تمام بکاپ‌های تست ERP ترنم در mirror (`43G`) و primary (`1.6G` + temp شکست‌خورده) حذف شد. دیتابیس، uploads، `_recover` و بکاپ‌های `rayan-erp` دست‌نخورده ماند. دیسک از `100% / 0 free` به `22% / 44G free` رسید.
+- **رفع دائمی:** retention پیش از snapshot روی primary و mirror اجرا می‌شود؛ سقف ۹۶ اخیر + ۳۱ روزانه + ۱۲ هفتگی + ۱۲ ماهانه؛ fail-closed، marker/realpath/owner/mode confinement، regular-file only، checksum-aware buckets، atomic mirror promotion و پاکسازی partial کهنه.
+- **Cloudflare:** رکورد `erp` همچنان Proxied روی `94.249.244.208` و SSL = Full (strict) است. DNS-only انجام نشد چون origin گواهی Cloudflare Origin CA دارد و مرورگر مستقیم آن را trust نمی‌کند؛ دسترسی ACME VPS نیز در probe با DNS timeout شکست خورد.
+- **Deploy:** `server/backup.js` overlay با SHA-256 `62ffef6ac0a0f13dd13d81ed493d892ff957cd21be74e47f6cd0b7b7c050d49e`؛ rollback در `_recover/backup.js.pre-login-disk-20260917`؛ `pm2 restart erp-taranom` بدون `--update-env`؛ ready/health/root = 200.
+- **تست production-isolated:** retention `5320→132` PASS؛ offsite policy `4/4`؛ encrypted DR/restore `14/14`؛ public login probe = JSON 401 صحیح با rate remaining `19/20` (مسیر auth سالم، بدون 5xx/ENOSPC).
+- **فایل‌ها:** `server/backup.js`, `server/scripts/{test-backup-retention,test-backup-dr,test-backup-offsite-policy}.js`, `docs/08-deployment.md`.
+
 ## ┘é╪º┘å┘ê┘å ╪¿╪▒╪º█î ╪»╪│╪¬█î╪º╪▒ (Cursor / Claude Code)
 
 ╪¿╪╣╪» ╪º╪▓ **┘ç╪▒ ╪¬╪│┌⌐** ┌⌐┘ç ┌⌐╪» █î╪º ╪¬┘å╪╕█î┘à╪º╪¬ ┘╛╪▒┘ê┌ÿ┘ç ╪▒╪º ╪╣┘ê╪╢ ┘à█îΓÇî┌⌐┘å╪»:

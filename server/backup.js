@@ -269,13 +269,48 @@ function createTarBackup(outPath, companySnaps) {
   return createZipBackup(outPath.replace(/\.tar\.gz$/, '.zip'), companySnaps);
 }
 
-function listBackups() {
-  ensureDir();
-  return fs.readdirSync(BACKUP_DIR)
-    .filter((f) => /^crm-backup-.*\.(tar\.gz|zip)(\.enc)?$/i.test(f))
+const BACKUP_ARCHIVE_RE = /^crm-backup-.*\.(tar\.gz|zip)(\.enc)?$/i;
+const BACKUP_ROOT_MARKER = '.erp-taranom-backup-root';
+const BACKUP_ROOT_MARKER_CONTENT = 'ERP_TARANOM_BACKUP_ROOT_V1\n';
+
+function pathsOverlap(left, right) {
+  const rel = path.relative(left, right);
+  return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel));
+}
+
+function assertManagedBackupDirectory(dir, primaryDir = BACKUP_DIR) {
+  const resolved = path.resolve(dir);
+  const st = fs.lstatSync(resolved);
+  if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('backup retention directory must be a real directory');
+  const real = fs.realpathSync(resolved);
+  if (real === path.parse(real).root) throw new Error('refusing backup retention on filesystem root');
+  const primaryReal = fs.realpathSync(path.resolve(primaryDir));
+  if (pathsOverlap(real, primaryReal) || pathsOverlap(primaryReal, real)) {
+    throw new Error('backup retention directory must not alias, contain, or be inside the primary backup directory');
+  }
+  const marker = path.join(real, BACKUP_ROOT_MARKER);
+  const markerSt = fs.lstatSync(marker);
+  if (!markerSt.isFile() || markerSt.isSymbolicLink()) throw new Error('backup retention marker must be a regular file');
+  if (fs.readFileSync(marker, 'utf8') !== BACKUP_ROOT_MARKER_CONTENT) throw new Error('backup retention marker is invalid');
+  if (process.platform !== 'win32') {
+    if ((st.mode & 0o077) !== 0 || (markerSt.mode & 0o077) !== 0) {
+      throw new Error('backup retention directory and marker must not grant group/other access');
+    }
+    if (st.uid !== markerSt.uid || (typeof process.getuid === 'function' && st.uid !== process.getuid())) {
+      throw new Error('backup retention directory and marker must be owned by the backup process user');
+    }
+  }
+  return real;
+}
+
+function listBackupsIn(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((f) => BACKUP_ARCHIVE_RE.test(f))
     .map((name) => {
-      const fp = path.join(BACKUP_DIR, name);
-      const st = fs.statSync(fp);
+      const fp = path.join(dir, name);
+      const st = fs.lstatSync(fp);
+      if (!st.isFile() || st.isSymbolicLink()) throw new Error(`unsafe backup archive entry: ${name}`);
       return {
         name,
         size: st.size,
@@ -287,15 +322,54 @@ function listBackups() {
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function pruneOld() {
-  // GFS-ish: keep all from last 24h, then daily/weekly/monthly buckets (cap total).
-  const items = listBackups();
-  const now = Date.now();
+function backupPairVerified(dir, item) {
+  try {
+    const sidecar = path.join(dir, item.name + '.sha256');
+    const sideSt = fs.lstatSync(sidecar);
+    if (!sideSt.isFile() || sideSt.isSymbolicLink() || sideSt.size > 512) return false;
+    const line = fs.readFileSync(sidecar, 'utf8').trim();
+    const match = /^([a-f0-9]{64})\s+(.+)$/i.exec(line);
+    if (!match || path.basename(match[2]) !== item.name) return false;
+    return sha256File(path.join(dir, item.name)).toLowerCase() === match[1].toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function listBackups() {
+  ensureDir();
+  return listBackupsIn(BACKUP_DIR);
+}
+
+function pruneBackupDirectory(dir, options = {}) {
+  // GFS-ish: at most 96 recent quarter-hour points, then bounded
+  // daily/weekly/monthly buckets. The hard recent cap also contains a broken
+  // scheduler that produces many backups inside one day.
+  let resolved = path.resolve(dir);
+  if (!fs.existsSync(resolved)) {
+    return { directory: resolved, scanned: 0, kept: 0, removed: 0, removed_sidecars: 0, freed_bytes: 0, failures: [] };
+  }
+  if (options.requireMarker === true) {
+    resolved = assertManagedBackupDirectory(resolved, options.primaryDir || BACKUP_DIR);
+  }
+  const items = listBackupsIn(resolved);
+  const now = Number(options.nowMs) || Date.now();
+  const dryRun = options.dryRun === true;
   const keep = new Set();
+  const verified = new Map();
+  const canKeep = (it) => {
+    if (options.verifyChecksum !== true) return true;
+    if (!verified.has(it.name)) verified.set(it.name, backupPairVerified(resolved, it));
+    return verified.get(it.name);
+  };
   const day = 86400000;
+  let recentKept = 0;
   for (const it of items) {
     const age = now - it.created_at * 1000;
-    if (age <= day) keep.add(it.name);
+    if (age <= day && recentKept < 96 && canKeep(it)) {
+      keep.add(it.name);
+      recentKept++;
+    }
   }
   const byDay = new Map();
   const byWeek = new Map();
@@ -305,19 +379,114 @@ function pruneOld() {
     const dayKey = d.toISOString().slice(0, 10);
     const weekKey = `${d.getUTCFullYear()}-W${Math.ceil((((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / day) + 1) / 7)}`;
     const monthKey = d.toISOString().slice(0, 7);
-    if (!byDay.has(dayKey)) byDay.set(dayKey, it.name);
-    if (!byWeek.has(weekKey)) byWeek.set(weekKey, it.name);
-    if (!byMonth.has(monthKey)) byMonth.set(monthKey, it.name);
+    const needDay = byDay.size < 31 && !byDay.has(dayKey);
+    const needWeek = byWeek.size < 12 && !byWeek.has(weekKey);
+    const needMonth = byMonth.size < 12 && !byMonth.has(monthKey);
+    if (!needDay && !needWeek && !needMonth) continue;
+    if (!canKeep(it)) continue;
+    if (needDay) byDay.set(dayKey, it.name);
+    if (needWeek) byWeek.set(weekKey, it.name);
+    if (needMonth) byMonth.set(monthKey, it.name);
   }
-  [...byDay.values()].slice(0, 31).forEach((n) => keep.add(n));
-  [...byWeek.values()].slice(0, 12).forEach((n) => keep.add(n));
-  [...byMonth.values()].slice(0, 12).forEach((n) => keep.add(n));
+  byDay.forEach((n) => keep.add(n));
+  byWeek.forEach((n) => keep.add(n));
+  byMonth.forEach((n) => keep.add(n));
+  let removed = 0;
+  let removedSidecars = 0;
+  let freedBytes = 0;
+  const failures = [];
   for (const old of items) {
     if (keep.has(old.name)) continue;
+    const archive = path.join(resolved, old.name);
+    const sidecar = archive + '.sha256';
     try {
-      fs.unlinkSync(path.join(BACKUP_DIR, old.name));
-      try { fs.unlinkSync(path.join(BACKUP_DIR, old.name + '.sha256')); } catch { /* */ }
-    } catch { /* */ }
+      const archiveBytes = fs.statSync(archive).size;
+      if (!dryRun) fs.unlinkSync(archive);
+      freedBytes += archiveBytes;
+      removed++;
+    } catch (error) {
+      failures.push({ name: old.name, error: String(error && error.code || error && error.message || error) });
+      continue;
+    }
+    if (fs.existsSync(sidecar)) {
+      try {
+        const sidecarBytes = fs.statSync(sidecar).size;
+        if (!dryRun) fs.unlinkSync(sidecar);
+        freedBytes += sidecarBytes;
+        removedSidecars++;
+      } catch (error) {
+        failures.push({ name: path.basename(sidecar), error: String(error && error.code || error && error.message || error) });
+      }
+    }
+  }
+  // Interrupted atomic mirror copies use a hidden partial name. Leave fresh
+  // files alone in case another process is finishing, but prune stale regular
+  // partials after 24 hours.
+  for (const name of fs.readdirSync(resolved)) {
+    if (!name.startsWith('.partial-crm-backup-')) continue;
+    const partial = path.join(resolved, name);
+    try {
+      const partialSt = fs.lstatSync(partial);
+      if (!partialSt.isFile() || partialSt.isSymbolicLink()) {
+        failures.push({ name, error: 'UNSAFE_PARTIAL_ENTRY' });
+        continue;
+      }
+      if (now - partialSt.mtimeMs <= day) continue;
+      if (!dryRun) fs.unlinkSync(partial);
+      freedBytes += partialSt.size;
+      removed++;
+    } catch (error) {
+      failures.push({ name, error: String(error && error.code || error && error.message || error) });
+    }
+  }
+  // Old releases left checksum sidecars behind. They are useful only while
+  // their exact archive exists, so remove bounded orphan metadata as well.
+  for (const name of fs.readdirSync(resolved)) {
+    if (!name.endsWith('.sha256')) continue;
+    const archiveName = name.slice(0, -'.sha256'.length);
+    if (!BACKUP_ARCHIVE_RE.test(archiveName)) continue;
+    if (fs.existsSync(path.join(resolved, archiveName))) continue;
+    const sidecar = path.join(resolved, name);
+    try {
+      freedBytes += fs.statSync(sidecar).size;
+      if (!dryRun) fs.unlinkSync(sidecar);
+      removedSidecars++;
+    } catch (error) {
+      failures.push({ name, error: String(error && error.code || error && error.message || error) });
+    }
+  }
+  return {
+    directory: resolved,
+    scanned: items.length,
+    kept: items.length - removed,
+    removed,
+    removed_sidecars: removedSidecars,
+    freed_bytes: freedBytes,
+    dry_run: dryRun,
+    failures,
+  };
+}
+
+function pruneOld() {
+  return pruneBackupDirectory(BACKUP_DIR);
+}
+
+function copyFilesystemBackupAtomic(finalPath, destDir, checksum) {
+  const fileName = path.basename(finalPath);
+  const target = path.join(destDir, fileName);
+  const nonce = crypto.randomBytes(6).toString('hex');
+  const tmpArchive = path.join(destDir, `.partial-${fileName}-${nonce}`);
+  const tmpSidecar = tmpArchive + '.sha256';
+  try {
+    fs.copyFileSync(finalPath, tmpArchive, fs.constants.COPYFILE_EXCL);
+    if (sha256File(tmpArchive) !== checksum) throw new Error('off-site filesystem checksum mismatch');
+    fs.writeFileSync(tmpSidecar, `${checksum}  ${fileName}\n`, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tmpArchive, target);
+    fs.renameSync(tmpSidecar, target + '.sha256');
+    return target;
+  } finally {
+    try { fs.unlinkSync(tmpArchive); } catch { /* renamed or absent */ }
+    try { fs.unlinkSync(tmpSidecar); } catch { /* renamed or absent */ }
   }
 }
 
@@ -452,6 +621,34 @@ async function runBackup() {
   try {
     ensureDir();
     const password = assertBackupPolicy();
+    // Reclaim bounded retention before allocating a new snapshot. Waiting
+    // until the end cannot recover a filesystem that is already full.
+    const localPrune = pruneOld();
+    if (localPrune.failures.length) {
+      throw new Error(`backup retention cleanup failed for ${localPrune.failures.length} local files`);
+    }
+    let filesystemOffsiteDir = null;
+    let demoForbidsOffsite = false;
+    try {
+      demoForbidsOffsite = require('./lib/demo-mode').isDemoMode();
+    } catch {
+      demoForbidsOffsite = /^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''));
+    }
+    if (!demoForbidsOffsite && !process.env.BACKUP_S3_URI && process.env.BACKUP_OFFSITE_DIR) {
+      filesystemOffsiteDir = assertManagedBackupDirectory(process.env.BACKUP_OFFSITE_DIR, BACKUP_DIR);
+      if (sameFilesystemDevice(BACKUP_DIR, filesystemOffsiteDir) && process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
+        if (isProduction()) throw new Error('BACKUP_OFFSITE_DIR is on the same device as BACKUP_DIR (not off-server)');
+        throw new Error('same-device offsite rejected (set BACKUP_ALLOW_SAME_DEVICE=1 for local drills)');
+      }
+      const offsitePrune = pruneBackupDirectory(filesystemOffsiteDir, {
+        requireMarker: true,
+        primaryDir: BACKUP_DIR,
+        verifyChecksum: true,
+      });
+      if (offsitePrune.failures.length) {
+        throw new Error(`backup retention cleanup failed for ${offsitePrune.failures.length} offsite files`);
+      }
+    }
     tmpDir = path.join(BACKUP_DIR, `.tmp-pkg-${crypto.randomBytes(6).toString('hex')}`);
     fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
     const companySnaps = await snapshotCompanyDbs(tmpDir);
@@ -493,12 +690,6 @@ async function runBackup() {
     fs.writeFileSync(finalPath + '.sha256', `${checksum}  ${path.basename(finalPath)}\n`, { mode: 0o600 });
 
     let offsite = { configured: false, ok: false, method: null };
-    let demoForbidsOffsite = false;
-    try {
-      demoForbidsOffsite = require('./lib/demo-mode').isDemoMode();
-    } catch {
-      demoForbidsOffsite = /^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''));
-    }
     if (demoForbidsOffsite) {
       offsite = { configured: false, ok: false, method: null, skipped: 'demo' };
     } else if (process.env.BACKUP_S3_URI) {
@@ -522,20 +713,8 @@ async function runBackup() {
     } else if (process.env.BACKUP_OFFSITE_DIR) {
       offsite.configured = true;
       offsite.method = 'fs';
-      const destDir = path.resolve(process.env.BACKUP_OFFSITE_DIR);
-      if (destDir === path.resolve(BACKUP_DIR)) throw new Error('BACKUP_OFFSITE_DIR must differ from BACKUP_DIR');
-      fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
-      if (sameFilesystemDevice(BACKUP_DIR, destDir) && process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
-        if (isProduction()) throw new Error('BACKUP_OFFSITE_DIR is on the same device as BACKUP_DIR (not off-server)');
-        // non-prod: warn but allow only with explicit flag; tests set the flag
-        if (process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
-          throw new Error('same-device offsite rejected (set BACKUP_ALLOW_SAME_DEVICE=1 for local drills)');
-        }
-      }
-      const target = path.join(destDir, path.basename(finalPath));
-      fs.copyFileSync(finalPath, target);
-      fs.copyFileSync(finalPath + '.sha256', target + '.sha256');
-      if (sha256File(target) !== checksum) throw new Error('off-site filesystem checksum mismatch');
+      const destDir = filesystemOffsiteDir || path.resolve(process.env.BACKUP_OFFSITE_DIR);
+      const target = copyFilesystemBackupAtomic(finalPath, destDir, checksum);
       offsite = { configured: true, method: 'fs', ok: true, target, error: null };
     }
 
@@ -722,6 +901,11 @@ module.exports = {
   readStatus,
   writeStatus,
   verifyS3ObjectChecksum,
+  pruneBackupDirectory,
+  assertManagedBackupDirectory,
+  copyFilesystemBackupAtomic,
+  BACKUP_ROOT_MARKER,
+  BACKUP_ROOT_MARKER_CONTENT,
   BACKUP_DIR,
   PACKAGE_VERSION,
 };
