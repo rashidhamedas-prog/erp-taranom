@@ -3,8 +3,8 @@
 - Last verified: 2026-09-22
 - **Active task:** none
 - **Closed this turn:** `PACK-SKU-CUSTOMER-SCOPE` — live pack, variant stock ledger, customer owner scope, num-fit (SW v218)
-- **Iran last:** pending deploy of SW **erp-taranom-v218**
-- **Primary tip:** `feat/pack-sku-customer-scope` (merge to `main` after tests)
+- **Iran last:** SW **erp-taranom-v218** overlay SFTP @ `c76f3ee` — health/ready/root 200 (dirty tree, no pull)
+- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `feat/pack-sku-customer-scope` @ `c76f3ee`
 - Prior history below kept for context.
 
 ## Working quality commands

@@ -17,7 +17,7 @@
 - **خارج از این تسک:** تولید، انبارگردانی و امانی هنوز سطح کالا هستند. انتقال کارشناس در rep-management مستقیم ستون‌ها را می‌نویسد.
 - **فایل‌ها:** server/lib/{customer-scope,sales-document,void-invoice,parties-sync}.js, server/lib/inventory/movement.js, server/routes/{customers,parties,followups,invoices,purchases,warehouses,accounting,product-variants}.js, server/{db.js,sync/tables.js}, server/public/{app.js,app.css,marketer-ui.js,sw.js}, server/scripts/{test-customer-owner-scope,test-variant-stock-movement,test-sync}.js
 - **SW:** erp-taranom-v218
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ c76f3ee — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی origin برابر erp-taranom-v218.
 
 ### ۱۴۰۵/۰۶/۲۶ — رفع توقف ورود ناشی از پرشدن دیسک + retention بکاپ
 
