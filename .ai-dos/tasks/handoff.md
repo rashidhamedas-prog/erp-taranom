@@ -1,3 +1,12 @@
+## 2026-09-22T11:00:00+03:30 — PACK-SKU-CUSTOMER-SCOPE applied
+
+- Live pack on invoice/purchase/warehouse for every role; variant ledger `inventory_movements` + `variant_warehouse_stock` (sync append + backfill v14).
+- Customer visibility is `user_id OR assigned_to`; one-shot align lets `assigned_to` win and copies party owner.
+- Numeric inputs use `num-fit`. SW `erp-taranom-v218`.
+- Tests on Node 20: customer-owner 23/23, variant-stock 21/21, sms 22/22, sync 44/44, diag mismatches=[].
+- Production, stocktaking, and consignments stay product-level. `rep-management` still writes owner columns directly.
+- Claims released. Deploy stamp follows Iran health check.
+
 ## 2026-09-22T09:15:00+03:30 — GitHub FF login-disk + close remaining tasks
 
 - Owner asked full commit/merge/push/deploy and close all open tasks.

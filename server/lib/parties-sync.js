@@ -71,27 +71,42 @@ function syncPartyToLegacy(db, partyId) {
       ? db.prepare('SELECT * FROM customers WHERE id=?').get(p.legacy_id)
       : db.prepare('SELECT * FROM customers WHERE party_id=?').get(partyId);
     if (!cust) {
+      const ownerId = p.user_id || 1;
       const r = db.prepare(`
         INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,party_id,party_group_id,
-          prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,coa_code,created_by,balance)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(p.user_id || 1, p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '',
+          prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,coa_code,created_by,assigned_to,balance)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(ownerId, p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '',
         p.phone, p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
         p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
         p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-        p.account_nature || '', p.coa_code || '', p.user_id || 1, p.opening_balance != null ? Number(p.opening_balance) : 0);
+        p.account_nature || '', p.coa_code || '', ownerId, ownerId, p.opening_balance != null ? Number(p.opening_balance) : 0);
       db.prepare('UPDATE parties SET legacy_table=?, legacy_id=? WHERE id=?').run('customers', r.lastInsertRowid, partyId);
     } else {
-      db.prepare(`
-        UPDATE customers SET biz=?, owner=?, city=?, province=?, address=?, phone=?, insta=?, type=?, status=?, note=?,
-          party_id=?, party_group_id=?, prefix=?, phone2=?, fax=?, mobile=?, email=?, economic_code=?, postal_code=?,
-          national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?, coa_code=?
-        WHERE id=?
-      `).run(p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '', p.phone,
-        p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
-        p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
-        p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-        p.account_nature || '', p.coa_code || '', cust.id);
+      if (p.user_id) {
+        db.prepare(`
+          UPDATE customers SET biz=?, owner=?, city=?, province=?, address=?, phone=?, insta=?, type=?, status=?, note=?,
+            party_id=?, party_group_id=?, prefix=?, phone2=?, fax=?, mobile=?, email=?, economic_code=?, postal_code=?,
+            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?, coa_code=?,
+            user_id=?, assigned_to=?
+          WHERE id=?
+        `).run(p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '', p.phone,
+          p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
+          p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
+          p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
+          p.account_nature || '', p.coa_code || '', p.user_id, p.user_id, cust.id);
+      } else {
+        db.prepare(`
+          UPDATE customers SET biz=?, owner=?, city=?, province=?, address=?, phone=?, insta=?, type=?, status=?, note=?,
+            party_id=?, party_group_id=?, prefix=?, phone2=?, fax=?, mobile=?, email=?, economic_code=?, postal_code=?,
+            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?, coa_code=?
+          WHERE id=?
+        `).run(p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '', p.phone,
+          p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
+          p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
+          p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
+          p.account_nature || '', p.coa_code || '', cust.id);
+      }
     }
   }
 

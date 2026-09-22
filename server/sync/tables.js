@@ -216,6 +216,9 @@ const SYNCABLE_TABLES = [
   // PROD-STITCH-PACK — FG receipt from lay (append-only)
   { name: 'cutting_packs',                     upsertKey: 'id' },
   { name: 'cutting_pack_bundles',              upsertKey: 'id' },
+  // Variant stock movements (append-only)
+  { name: 'inventory_movements',               upsertKey: 'id' },
+  { name: 'variant_warehouse_stock',           upsertKey: 'variant_id:warehouse_id', compositeKeys: ['variant_id', 'warehouse_id'] },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -475,6 +478,12 @@ const FK_COLUMNS = [
   ['parties', 'position_id'],
   // BOM op person attribution (append-only)
   ['bom_operations', 'person_id'],
+  // Variant stock movements (append-only)
+  ['inventory_movements', 'product_id'],
+  ['inventory_movements', 'variant_id'],
+  ['inventory_movements', 'warehouse_id'],
+  ['variant_warehouse_stock', 'variant_id'],
+  ['variant_warehouse_stock', 'warehouse_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

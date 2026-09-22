@@ -2,9 +2,10 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { tomanToRial } = require('../lib/money');
-const { syncPartyToLegacy, deactivatePartyCascade } = require('../lib/parties-sync');
+const { syncPartyToLegacy, deactivatePartyCascade, linkedCustomerIds } = require('../lib/parties-sync');
 const { allocTafsili } = require('../lib/coa-map');
 const { applyPartyBalances } = require('../lib/party-books');
+const { scopeUserId, assignCustomerOwner } = require('../lib/customer-scope');
 
 const PARTY_TYPES = ['customer', 'supplier', 'both', 'other'];
 const ROLE_KEYS = ['customer', 'supplier', 'employee', 'partner', 'marketer', 'other'];
@@ -184,6 +185,11 @@ router.get('/', auth, (req, res) => {
     params.push(q, q, q, q, q, q, q);
   }
   sql = appendUserPartyPrivacyFilter(sql, params, req);
+  const salesScope = scopeUserId(req);
+  if (salesScope != null) {
+    sql += ' AND p.user_id=?';
+    params.push(salesScope);
+  }
   const countSql = sql.replace(/SELECT[\s\S]+?FROM parties p/, 'SELECT COUNT(*) AS c FROM parties p');
   const total = db.prepare(countSql).get(...params)?.c || 0;
   const lim = Math.min(500, parseInt(limit, 10) || 200);
@@ -206,6 +212,10 @@ router.get('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (!assertCanViewUserLinkedParty(db, req, row.id)) {
     return res.status(403).json({ error: 'دسترسی به اطلاعات این کاربر مجاز نیست' });
+  }
+  const salesScope = scopeUserId(req);
+  if (salesScope != null && Number(row.user_id) !== Number(salesScope)) {
+    return res.status(403).json({ error: 'دسترسی به این شخص ندارید' });
   }
   res.json({ success: true, data: mapPartyRow(row) });
 });
@@ -266,6 +276,21 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, partyId); } catch (_) {}
       }
       try { syncPartyToLegacy(db, partyId); } catch (_) {}
+      const ownerId = (b.user_id != null || b.assigned_to != null)
+        ? (parseInt(b.user_id || b.assigned_to, 10) || null)
+        : null;
+      if (ownerId) {
+        for (const cid of linkedCustomerIds(db, partyId)) {
+          try {
+            assignCustomerOwner(db, {
+              customerId: cid,
+              ownerUserId: ownerId,
+              actorId: req.user.id,
+              note: 'انتساب از دفتر اشخاص (ایجاد)',
+            });
+          } catch (_) {}
+        }
+      }
       if (openRial) {
         const { postPartyOpeningBalance } = require('../lib/opening-post');
         postPartyOpeningBalance(db, {
@@ -361,6 +386,19 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
         try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, req.params.id); } catch (_) {}
       }
       try { syncPartyToLegacy(db, req.params.id); } catch (_) {}
+      if (b.user_id != null || b.assigned_to != null) {
+        const ownerId = parseInt(b.user_id || b.assigned_to, 10) || userId;
+        for (const cid of linkedCustomerIds(db, req.params.id)) {
+          try {
+            assignCustomerOwner(db, {
+              customerId: cid,
+              ownerUserId: ownerId,
+              actorId: req.user.id,
+              note: 'انتساب از دفتر اشخاص (ویرایش)',
+            });
+          } catch (_) {}
+        }
+      }
       if (req.user.role === 'admin' && openRial !== (row.opening_balance || 0)) {
         const oldJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='opening_balance' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1").get(req.params.id);
         if (oldJe) {

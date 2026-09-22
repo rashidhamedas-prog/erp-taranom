@@ -229,6 +229,21 @@ router.get('/summaries', auth, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// Live pack (in-stock SKUs) — must be before /:id
+router.get('/live-pack/:productId', auth, (req, res) => {
+  try {
+    const db = getDB();
+    ensureSchema(db);
+    const { expandLivePack } = require('../lib/inventory/movement');
+    const productId = parseInt(req.params.productId, 10);
+    if (!productId) return res.status(400).json({ error: 'product_id الزامی است' });
+    const warehouseId = req.query.warehouse_id != null && req.query.warehouse_id !== ''
+      ? parseInt(req.query.warehouse_id, 10)
+      : null;
+    res.json(expandLivePack(db, productId, warehouseId));
+  } catch (e) { sendErr(res, e); }
+});
+
 // ── Variants CRUD ───────────────────────────────────────────────────────
 
 router.get('/', auth, (req, res) => {

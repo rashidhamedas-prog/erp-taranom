@@ -10,6 +10,12 @@ const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const { applyCustomerBalances } = require('../lib/customer-books');
+const {
+  scopeUserId,
+  customerVisibilitySql,
+  assignCustomerOwner,
+  alignCustomerOwners,
+} = require('../lib/customer-scope');
 
 const excelUpload = createSecureUpload('xlsx');
 
@@ -69,11 +75,12 @@ async function sendWelcomeSMSToCust(db, phone) {
 }
 
 function getScope(req) {
-  // Accounting staff see all customers (read scope) — needed for statements & settlements
-  const seesAll = req.user.role === 'admin' || req.user.role === 'accounting';
-  if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
-  if (seesAll) return null; // all
-  return req.user.id;
+  // Admin/accounting see all (null). sales_manager is NOT see-all — same OR rule as reps.
+  const scoped = scopeUserId(req);
+  if (scoped === null && req.user.role === 'admin' && req.query.user_id) {
+    return parseInt(req.query.user_id);
+  }
+  return scoped;
 }
 
 /** Edit/delete: admin OR original creator (created_by). Assigned expert alone cannot mutate. */
@@ -86,6 +93,7 @@ function canMutateCustomer(user, row) {
 
 router.get('/', auth, (req, res) => {
   const db = getDB();
+  try { alignCustomerOwners(db); } catch (_) { /* one-shot; never block list */ }
   const scope = getScope(req);
   const pq = listQueryPlan(req.query);
   const hasPartyGroups = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='party_groups'").get();
@@ -93,8 +101,10 @@ router.get('/', auth, (req, res) => {
   const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
   // Hide CRM customers whose linked accounting party was soft-deleted
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
-  const whereSql = scope === null ? `WHERE 1=1${activeClause}` : `WHERE c.user_id=?${activeClause}`;
-  const params = scope === null ? [] : [scope];
+  const whereSql = scope === null
+    ? `WHERE 1=1${activeClause}`
+    : `WHERE ${customerVisibilitySql('c')}${activeClause}`;
+  const params = scope === null ? [] : [scope, scope];
   const total = pq.paginate
     ? (db.prepare(`SELECT COUNT(*) AS c FROM customers c ${whereSql}`).get(...params)?.c || 0)
     : 0;
@@ -116,22 +126,29 @@ router.post('/', auth, (req, res) => {
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
   const pgid = (canSetGroup && party_group_id) ? parseInt(party_group_id) : null;
-  // admin can assign customer to a specific salesperson; creator remains the admin
+  // admin can assign customer to a specific salesperson; creator remains created_by
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
   const createdBy = req.user.id;
   const newId = db.transaction(() => {
+    // Insert under creator first so assignCustomerOwner can record a real transfer when admin assigns.
     const result = db.prepare(
       `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
         prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid, pgid,
+    ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
       prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
   })();
-  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
   try { syncCustomerToParty(db, newId); } catch (_) {}
+  assignCustomerOwner(db, {
+    customerId: newId,
+    ownerUserId: uid,
+    actorId: req.user.id,
+    note: (req.user.role === 'admin' && assigned_to) ? 'انتساب هنگام ایجاد' : 'ایجاد مشتری',
+  });
+  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
   // حالت کدینگ محک (deprecated): فقط اگر coa_mode=mahak
   try {
     const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
@@ -171,15 +188,19 @@ router.put('/:id', auth, (req, res) => {
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
-  const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : row.user_id;
+  const ownerChosen = req.user.role === 'admin' && assigned_to != null && assigned_to !== '';
+  const uid = ownerChosen ? parseInt(assigned_to) : (row.user_id || row.assigned_to || req.user.id);
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = canSetGroup ? (group_id ? parseInt(group_id) : null) : row.group_id;
   const pgid = canSetGroup ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
   db.transaction(() => {
+    // Keep prior owner columns until assignCustomerOwner so history sees a real change.
+    const keepUserId = ownerChosen ? row.user_id : uid;
+    const keepAssigned = ownerChosen ? row.assigned_to : uid;
     db.prepare(`UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=?,party_group_id=?,
       prefix=?,phone2=?,fax=?,mobile=?,email=?,economic_code=?,postal_code=?,national_id=?,referrer=?,birth_date=?,company_name=?,account_nature=? WHERE id=?`)
-      .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, pgid,
+      .run(keepUserId, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, keepAssigned, autoF, gid, pgid,
         prefix ?? row.prefix ?? '', phone2 ?? row.phone2 ?? '', fax ?? row.fax ?? '', mobile ?? row.mobile ?? '',
         email ?? row.email ?? '', economic_code ?? row.economic_code ?? '', postal_code ?? row.postal_code ?? '',
         national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
@@ -187,9 +208,17 @@ router.put('/:id', auth, (req, res) => {
     if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
+    if (ownerChosen) {
+      assignCustomerOwner(db, {
+        customerId: req.params.id,
+        ownerUserId: uid,
+        actorId: req.user.id,
+        note: 'انتساب هنگام ویرایش',
+      });
+    }
   })();
   try { syncCustomerToParty(db, req.params.id); } catch (_) {}
-  if (!(req.user.role === 'admin' && assigned_to) && city && city !== row.city) {
+  if (!ownerChosen && city && city !== row.city) {
     assignCustomerByTerritory(db, req.params.id, city, province, req.user.id);
   }
   res.json({ ok: true });
@@ -217,7 +246,7 @@ router.get('/balances', auth, (req, res) => {
   if (scope === null) {
     rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE 1=1${activeClause}`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE c.user_id=?${activeClause}`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}${activeClause}`).all(scope, scope);
   }
   applyCustomerBalances(db, rows);
   rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
@@ -233,7 +262,7 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   if (scope === null) {
     rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE 1=1${activeClause} ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=?${activeClause} ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE ${customerVisibilitySql('c')}${activeClause} ORDER BY c.created_at DESC`).all(scope, scope);
   }
   applyCustomerBalances(db, rows);
   const isAdmin = req.user.role === 'admin';

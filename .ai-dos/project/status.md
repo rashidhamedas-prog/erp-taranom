@@ -1,11 +1,10 @@
 # Project Status
 
-- Last verified: 2026-09-17
+- Last verified: 2026-09-22
 - **Active task:** none
-- **Closed this turn:** GitHub FF of `LOGIN-DISK-BACKUP-RETENTION` onto `main` + alias
-- **Closed this turn:** `EXCEL-PRODUCTS-CATALOG-V216` (SW v216 catalog cap + v217 qty decimals)
-- **Iran last:** SW **erp-taranom-v217** plus `server/backup.js` retention overlay SHA-256 `62ffef6a…`; disk 22% used / 44G free; ready 200
-- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `fix/LOGIN-DISK-BACKUP-RETENTION`
+- **Closed this turn:** `PACK-SKU-CUSTOMER-SCOPE` — live pack, variant stock ledger, customer owner scope, num-fit (SW v218)
+- **Iran last:** pending deploy of SW **erp-taranom-v218**
+- **Primary tip:** `feat/pack-sku-customer-scope` (merge to `main` after tests)
 - Prior history below kept for context.
 
 ## Working quality commands

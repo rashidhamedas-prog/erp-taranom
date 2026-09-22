@@ -109,7 +109,21 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         const reversed = reverseStockBySource(db, 'invoice', row.id, {
           createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
         });
-        if (invRows.length) {
+        let skuMoves = 0;
+        try {
+          skuMoves = db.prepare(
+            "SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type='invoice_sku' AND doc_id=?"
+          ).get(row.id).c;
+        } catch (_) { skuMoves = 0; }
+        if (skuMoves) {
+          require('./inventory/movement').reverseStockDocument(db, {
+            docType: 'invoice_sku',
+            docId: row.id,
+            userId: user.id,
+            note: `بازگشت رنگ×سایز از لغو فاکتور ${row.num}`,
+            applyHeaderStock: false,
+          });
+        } else if (invRows.length) {
           for (const r of invRows) {
             if (!r.variant_id || r.row_type === 'income') continue;
             try {

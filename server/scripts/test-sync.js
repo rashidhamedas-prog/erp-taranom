@@ -276,7 +276,8 @@ const centralEnv = {
   await sleep(200);
   const offCust = (await req(A, 'POST', '/api/customers', at, { biz: 'مشتری در قطعی' })).body;
   const offInvRes = await req(A, 'POST', '/api/invoices', at, {
-    cust_id: offCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 5, price: 50000 }]
+    cust_id: offCust.id, type: 'final', warehouse_id: whId, pay_type: 'credit',
+    rows: [{ product_id: 1, qty: 5, price: 50000 }]
   });
   const offInv = offInvRes.body;
   if (!offInv || !offInv.id) {
@@ -313,8 +314,8 @@ const centralEnv = {
 
   console.log('— scenario 4: concurrent invoices from A and B → unique numbers —');
   const abCust = (await req(A, 'GET', '/api/customers', at)).body.find(c => c.biz === 'مشتری مشترک');
-  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 1, price: 50000 }] });
-  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 2, price: 50000 }] });
+  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', warehouse_id: whId, pay_type: 'credit', rows: [{ product_id: 1, qty: 1, price: 50000 }] });
+  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, pay_type: 'credit', rows: [{ product_id: 1, qty: 2, price: 50000 }] });
   await req(A, 'POST', '/api/sync/now', at);
   await req(B, 'POST', '/api/sync/now', bt);
   // B has now pulled the password/auth_epoch changed through device A; its
@@ -359,13 +360,15 @@ const centralEnv = {
   await req(C, 'PATCH', '/api/products/1/stock', ct, { stock: 1 });
   // B, seeing the stale higher stock, sells more than central now has:
   const oversellQty = Math.min(bStale, 5);
-  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
+  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, pay_type: 'credit', rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
   if (!(bInv.id >= 1e12)) console.log('   bInv response:', JSON.stringify(bInv));
   ok(bInv.id >= 1e12, `B created invoice locally against stale stock ${bStale} (qty ${oversellQty})`);
   await req(B, 'POST', '/api/sync/now', bt);
   await req(B, 'POST', '/api/sync/now', bt); // idempotent retry
   const confB = (await req(B, 'GET', '/api/sync/conflicts', bt)).body;
-  ok(confB.length === 1 && confB[0].reason.includes('کافی نیست'), `oversell flagged exactly once (${confB[0] && confB[0].reason})`);
+  const oversellReason = (confB[0] && confB[0].reason) || '';
+  ok(confB.length === 1 && (oversellReason.includes('کافی نیست') || oversellReason.includes('E_NEGATIVE_STOCK')),
+    `oversell flagged exactly once (${oversellReason})`);
   const cStock = (await req(C, 'GET', '/api/products', ct)).body.find(p => p.code === 'M-1').stock;
   ok(cStock === 1, `central stock untouched by conflicted op (${cStock})`);
   // cleanup: discard so final balance checks run on a conflict-free state

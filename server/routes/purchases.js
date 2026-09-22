@@ -244,14 +244,23 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         supplierId: supplier_id,
       });
     } else {
+      const { postStockMovement } = require('../lib/inventory/movement');
+      let lineIdx = 0;
       for (const r of built.rows) {
         const rowWh = r.warehouse_id || whId;
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
-        if (rowWh) {
-          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-            .run(r.product_id, rowWh, r.qty);
-        }
+        postStockMovement(db, {
+          productId: r.product_id,
+          variantId: r.variant_id || null,
+          warehouseId: rowWh || null,
+          qtyDelta: Number(r.qty) || 0,
+          docType: 'purchase',
+          docId: invId,
+          docLine: lineIdx,
+          userId: req.user.id,
+          note: `افزودن موجودی از فاکتور خرید ${num}`,
+          allowNegative: true,
+        });
+        lineIdx += 1;
         try {
           const fabric = require('../lib/inventory/fabric-rolls');
           if (fabric.isFabricPurchaseLine(db, r, rowWh)) {
@@ -332,6 +341,15 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
         const reversed = reverseStockBySource(db, 'purchase', row.id, {
           createdBy: req.user.id, date: todayJalali(), note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
         });
+        try {
+          require('../lib/inventory/movement').reverseStockDocument(db, {
+            docType: 'purchase_sku',
+            docId: row.id,
+            userId: req.user.id,
+            note: `بازگشت رنگ×سایز از حذف فاکتور خرید ${row.num}`,
+            applyHeaderStock: false,
+          });
+        } catch (_) { /* no sku layer on older docs */ }
         if (!reversed.length) {
           const invRows = JSON.parse(row.rows || '[]');
           for (const r of invRows) {
@@ -344,13 +362,29 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
           }
         }
       } else {
-        const invRows = JSON.parse(row.rows || '[]');
-        for (const r of invRows) {
-          const rowWh = r.warehouse_id || row.warehouse_id;
-          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
-          if (rowWh) {
-            db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+        const { reverseStockDocument, postStockMovement } = require('../lib/inventory/movement');
+        const reversed = reverseStockDocument(db, {
+          docType: 'purchase', docId: row.id, userId: req.user.id,
+          note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
+        });
+        if (!reversed.length) {
+          const invRows = JSON.parse(row.rows || '[]');
+          let lineIdx = 0;
+          for (const r of invRows) {
+            const rowWh = r.warehouse_id || row.warehouse_id;
+            postStockMovement(db, {
+              productId: r.product_id,
+              variantId: r.variant_id || null,
+              warehouseId: rowWh || null,
+              qtyDelta: -(Number(r.qty) || 0),
+              docType: 'purchase_void',
+              docId: row.id,
+              docLine: lineIdx,
+              userId: req.user.id,
+              note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
+              allowNegative: true,
+            });
+            lineIdx += 1;
           }
         }
       }
@@ -556,6 +590,20 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
           updateAvg: true,
           batchId: r.batch_id || null,
         });
+        if (!r.batch_id) {
+          require('../lib/inventory/movement').postVariantLayer(db, {
+            productId: r.product_id,
+            variantId: r.variant_id || null,
+            warehouseId: whId,
+            qtyDelta: -(Number(r.qty) || 0),
+            docType: 'purchase_return_sku',
+            docId: retId,
+            docLine: built.rows.indexOf(r),
+            userId: req.user.id,
+            note: `برگشت از خرید #${retId} / رنگ×سایز`,
+            allowNegative: true,
+          });
+        }
       }
     } else {
       for (const r of built.rows) {
@@ -594,6 +642,15 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
       const reversed = reverseStockBySource(db, 'purchase_return', row.id, {
         createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
       });
+      try {
+        require('../lib/inventory/movement').reverseStockDocument(db, {
+          docType: 'purchase_return_sku',
+          docId: row.id,
+          userId: req.user.id,
+          note: `ابطال رنگ×سایز برگشت از خرید #${row.id}`,
+          applyHeaderStock: false,
+        });
+      } catch (_) { /* older returns have no sku layer */ }
       if (!reversed.length) {
         const invRows = JSON.parse(row.rows || '[]');
         for (const r of invRows) {

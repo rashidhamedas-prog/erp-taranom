@@ -671,10 +671,12 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .mk-sku-line{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5}
 .inv-lines-tbl input,.inv-lines-tbl select{width:100%;min-width:0;padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--input-bg,var(--card))}
 .inv-lines-tbl input:focus,.inv-lines-tbl select:focus{outline:none;border-color:var(--purple2);box-shadow:0 0 0 3px rgba(26,92,56,.12)}
-.inv-lines-tbl .col-qty{width:88px}.inv-lines-tbl .col-price{width:118px}
-.inv-lines-tbl .col-disc{width:72px}.inv-lines-tbl .col-disc-amt{width:100px}
+.inv-lines-tbl .col-qty{min-width:4.5ch;width:auto}.inv-lines-tbl .col-price{min-width:6ch;width:auto}
+.inv-lines-tbl .col-disc{min-width:4.5ch;width:auto}.inv-lines-tbl .col-disc-amt{min-width:5ch;width:auto}
 .inv-lines-tbl .col-wh{width:130px}.inv-lines-tbl .col-sum{width:110px;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .inv-lines-tbl .col-rm{width:44px;text-align:center}
+.inv-lines-tbl input.num-fit{width:auto;max-width:100%}
+.num-fit{field-sizing:content;min-width:4.5ch;max-width:100%;font-variant-numeric:tabular-nums}
 .inv-lines-tbl .rm{background:var(--bad-bg);color:var(--red);border:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1}
 .inv-lines-tbl .rm:hover{filter:brightness(.95)}
 .inv-lines-tbl .desc-row td{padding-top:0;border-bottom:1px dashed var(--border);background:transparent!important}

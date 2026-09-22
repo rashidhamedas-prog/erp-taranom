@@ -3,12 +3,50 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
+const {
+  postStockMovement, hasActiveMatrixVariants, variantWarehouseQty,
+} = require('../lib/inventory/movement');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
 const { voidWarehouseMove } = require('../lib/void-warehouse-move');
 const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
 
+function parseVariantId(body) {
+  if (!body || body.variant_id == null || body.variant_id === '') return null;
+  const n = parseInt(body.variant_id, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** After inventory_ledger applies product×warehouse stock, record variant movement. */
+function postWhVariantMovement(db, {
+  productId, variantId, warehouseId, qtyDelta, docType, docId, docLine, userId, note, batchId,
+}) {
+  if (batchId) return null; // fabric/batch keeps existing batch path — no variant movement
+  if (hasActiveMatrixVariants(db, productId) && !variantId) {
+    throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
+      code: 'E_VARIANT_REQUIRED', status: 400,
+    });
+  }
+  if (!variantId && !hasActiveMatrixVariants(db, productId)) {
+    // Non-matrix: ledger already moved header stock; still record audit movement without re-applying
+    return postStockMovement(db, {
+      productId, variantId: null, warehouseId, qtyDelta,
+      docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
+      allowNegative: true, applyHeaderStock: false, writeStockLog: false,
+    });
+  }
+  return postStockMovement(db, {
+    productId, variantId, warehouseId, qtyDelta,
+    docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
+    allowNegative: true, applyHeaderStock: false, writeStockLog: false,
+  });
+}
+
+function availableForIssue(db, productId, warehouseId, variantId) {
+  if (variantId) return variantWarehouseQty(db, variantId, warehouseId);
+  return warehouseQty(db, productId, warehouseId);
+}
 
 // Stock overview — all warehouses with product quantities
 router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
@@ -244,6 +282,7 @@ router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
 router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   const { product_id, warehouse_id, qty, date, note, unit_cost_rial, batch_id } = req.body;
   const q = parseQty(qty);
+  const variantId = parseVariantId(req.body);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
@@ -253,6 +292,11 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   let moveId, led;
   try {
     db.transaction(() => {
+      if (hasActiveMatrixVariants(db, +product_id) && !variantId && !batch_id) {
+        throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
+          code: 'E_VARIANT_REQUIRED', status: 400,
+        });
+      }
       led = postInventoryMovement(db, {
         eventType: 'receipt',
         productId: +product_id,
@@ -273,6 +317,11 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
         led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
       moveId = result.lastInsertRowid;
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
+      postWhVariantMovement(db, {
+        productId: +product_id, variantId, warehouseId: +warehouse_id, qtyDelta: q,
+        docType: 'wh_receipt', docId: moveId, docLine: 0, userId: req.user.id,
+        note: `رسید انبار (${warehouse.name})`, batchId: batch_id ? +batch_id : null,
+      });
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -284,11 +333,15 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
 router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
   const { product_id, warehouse_id, qty, date, note, batch_id } = req.body;
   const q = parseQty(qty);
+  const variantId = parseVariantId(req.body);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  const available = warehouseQty(db, product_id, warehouse_id);
+  if (hasActiveMatrixVariants(db, +product_id) && !variantId && !batch_id) {
+    return res.status(400).json({ error: 'برای کالای ماتریسی انتخاب واریانت الزامی است', code: 'E_VARIANT_REQUIRED' });
+  }
+  const available = availableForIssue(db, product_id, warehouse_id, variantId);
   if (available < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
   const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
   let moveId, led;
@@ -313,6 +366,11 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
         led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
       moveId = result.lastInsertRowid;
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
+      postWhVariantMovement(db, {
+        productId: +product_id, variantId, warehouseId: +warehouse_id, qtyDelta: -q,
+        docType: 'wh_issue', docId: moveId, docLine: 0, userId: req.user.id,
+        note: `حواله انبار (${warehouse?.name || warehouse_id})`, batchId: batch_id ? +batch_id : null,
+      });
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -324,13 +382,17 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
 router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
   const { product_id, from_warehouse_id, to_warehouse_id, qty, date, note } = req.body;
   const q = parseQty(qty);
+  const variantId = parseVariantId(req.body);
   if (!product_id || !from_warehouse_id || !to_warehouse_id) return res.status(400).json({ error: 'کالا، انبار مبدأ و مقصد الزامی است' });
   if (!q || q <= 0) return res.status(400).json({ error: 'تعداد انتقال معتبر الزامی است' });
   if (String(from_warehouse_id) === String(to_warehouse_id)) return res.status(400).json({ error: 'انبار مبدأ و مقصد نمی‌تواند یکسان باشد' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  const available = warehouseQty(db, product_id, from_warehouse_id);
+  if (hasActiveMatrixVariants(db, +product_id) && !variantId) {
+    return res.status(400).json({ error: 'برای کالای ماتریسی انتخاب واریانت الزامی است', code: 'E_VARIANT_REQUIRED' });
+  }
+  const available = availableForIssue(db, product_id, from_warehouse_id, variantId);
   if (available <= 0) return res.status(400).json({ error: 'این کالا در انبار مبدأ موجود نیست' });
   if (q > available) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
   const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(to_warehouse_id);
@@ -365,8 +427,6 @@ router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
         createdBy: req.user.id,
         updateAvg: false,
       });
-      // Transfer must not double-count products.stock: out then in → net 0 on total
-      // postInventoryMovement adjusts products.stock both times; net zero — OK.
       const result = db.prepare(`
         INSERT INTO warehouse_moves
           (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
@@ -375,6 +435,16 @@ router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
         req.user.id, ledOut.id, unit, ledOut.amount_rial);
       moveId = result.lastInsertRowid;
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(moveId, ledOut.id, ledIn.id);
+      postWhVariantMovement(db, {
+        productId: +product_id, variantId, warehouseId: +from_warehouse_id, qtyDelta: -q,
+        docType: 'wh_transfer_out', docId: moveId, docLine: 0, userId: req.user.id,
+        note: `خروج انتقال به ${toWarehouse.name}`,
+      });
+      postWhVariantMovement(db, {
+        productId: +product_id, variantId, warehouseId: +to_warehouse_id, qtyDelta: q,
+        docType: 'wh_transfer_in', docId: moveId, docLine: 0, userId: req.user.id,
+        note: `ورود انتقال از ${fromWarehouse?.name || from_warehouse_id}`,
+      });
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -424,7 +494,7 @@ router.post('/lookup-options', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true, list });
 });
 
-/** Multi-line warehouse document — lines: [{product_id, qty}] */
+/** Multi-line warehouse document — lines: [{product_id, qty, variant_id?}] */
 router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
   const { type, warehouse_id, from_warehouse_id, to_warehouse_id, lines, date, note } = req.body;
   if (!['receipt', 'issue', 'transfer'].includes(type)) return res.status(400).json({ error: 'نوع سند نامعتبر است' });
@@ -434,12 +504,20 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
   try {
     db.transaction(() => {
       let totalAmountRial = 0;
+      let lineIdx = 0;
       for (const line of lines) {
         const product_id = parseInt(line.product_id, 10);
         const qty = parseQty(line.qty);
+        const variantId = parseVariantId(line);
+        const batchId = line.batch_id ? parseInt(line.batch_id, 10) : null;
         if (!product_id || !qty || qty <= 0) throw invErr('E_INV_QTY', 400);
         const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
         if (!product) throw invErr('E_PRODUCT_NOT_FOUND', 404);
+        if (hasActiveMatrixVariants(db, product_id) && !variantId && !batchId) {
+          throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
+            code: 'E_VARIANT_REQUIRED', status: 400,
+          });
+        }
         const d = date || todayJalali();
         if (type === 'receipt') {
           const whId = parseInt(warehouse_id || to_warehouse_id, 10);
@@ -463,11 +541,16 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           `).run('receipt', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
+          postWhVariantMovement(db, {
+            productId: product_id, variantId, warehouseId: whId, qtyDelta: qty,
+            docType: 'wh_receipt', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
+            note: `رسید انبار (${warehouse.name})`, batchId,
+          });
           totalAmountRial += Math.round(Number(led.amount_rial) || 0);
         } else if (type === 'issue') {
           const whId = parseInt(warehouse_id || from_warehouse_id, 10);
           if (!whId) throw new Error('انبار مبدأ الزامی است');
-          const available = warehouseQty(db, product_id, whId);
+          const available = availableForIssue(db, product_id, whId, variantId);
           if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
           const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
           const led = postInventoryMovement(db, {
@@ -483,13 +566,18 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           `).run('issue', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
+          postWhVariantMovement(db, {
+            productId: product_id, variantId, warehouseId: whId, qtyDelta: -qty,
+            docType: 'wh_issue', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
+            note: `حواله انبار (${warehouse?.name || whId})`, batchId,
+          });
           totalAmountRial += Math.round(Number(led.amount_rial) || 0);
         } else {
           const fromId = parseInt(from_warehouse_id, 10);
           const toId = parseInt(to_warehouse_id, 10);
           if (!fromId || !toId) throw new Error('انبار مبدأ و مقصد الزامی است');
           if (fromId === toId) throw new Error('انبار مبدأ و مقصد نمی‌تواند یکسان باشد');
-          const available = warehouseQty(db, product_id, fromId);
+          const available = availableForIssue(db, product_id, fromId, variantId);
           if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
           const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toId);
           const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromId);
@@ -511,7 +599,18 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           `).run('transfer', product_id, fromId, toId, qty, d, note || '', req.user.id, ledOut.id, unit, ledOut.amount_rial);
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(r.lastInsertRowid, ledOut.id, ledIn.id);
           ids.push(r.lastInsertRowid);
+          postWhVariantMovement(db, {
+            productId: product_id, variantId, warehouseId: fromId, qtyDelta: -qty,
+            docType: 'wh_transfer_out', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
+            note: `خروج انتقال به ${toWarehouse?.name}`,
+          });
+          postWhVariantMovement(db, {
+            productId: product_id, variantId, warehouseId: toId, qtyDelta: qty,
+            docType: 'wh_transfer_in', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
+            note: `ورود انتقال از ${fromWarehouse?.name}`,
+          });
         }
+        lineIdx += 1;
       }
       if (type !== 'transfer' && totalAmountRial > 0) {
         const inventory = acct(db, 'coa_inventory');

@@ -4507,7 +4507,7 @@ function renderInvPicker(){
     const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
     const needsColor=productNeedsColorPick(p);
     const colorBtn=needsColor
-      ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">${(typeof isRepRole==='function'&&isRepRole(ME?.role))?'➕ افزودن پک':'🎨 انتخاب رنگ'}</button>`
+      ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">➕ افزودن پک</button>`
       : '';
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
@@ -4736,16 +4736,27 @@ async function addToCart(pid){
   try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
-    if(typeof isRepRole==='function' && isRepRole(ME?.role)){
-      applyAutoLivePack(p, pack, 'invoice');
-      return;
-    }
-    openInvVariantSplitModal(p, pack);
+    applyAutoLivePack(p, pack, 'invoice');
     return;
   }
   addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1 });
   renderCart();
   renderInvPicker();
+}
+function bindNumFit(root){
+  const scope=root&&root.querySelectorAll?root:document;
+  scope.querySelectorAll('input.num-fit').forEach(function(inp){
+    const sync=function(){
+      const raw=String(inp.value==null?'':inp.value);
+      const len=Math.max(4, raw.length||4);
+      inp.setAttribute('size', String(len));
+    };
+    if(!inp.dataset.numFitBound){
+      inp.dataset.numFitBound='1';
+      inp.addEventListener('input', sync);
+    }
+    sync();
+  });
 }
 function bumpInvVarQty(vid, delta){
   const root=document.getElementById('nestedActiveModal')||document;
@@ -5059,16 +5070,16 @@ function renderCart(){
       const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && negProd.has(Number(r.product_id));
       const qtyCell=(isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
-        : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">')
+        : '<input type="number" class="num-fit" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">')
         +(lineNeg?'<div class="inv-line-neg">پس از فاکتور موجودی منفی می‌شود</div>':'');
       const freightHint=lineFreight?('<div class="muted" data-csp-style="'+CSP.style('font-size:10px;font-weight:500')+'">کرایه '+fmt(lineFreight)+(freight?(' · '+Math.round(lineFreight*100/freight)+'٪'):'')+'</div>'):'';
       return ''
       +'<tr>'
         +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+packNote+'</td>'
         +'<td class="col-qty">'+qtyCell+'</td>'
-        +'<td class="col-price"><input type="text" inputmode="numeric" class="money" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
-        +(showLineDisc?'<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
-          +'<td class="col-disc-amt"><input type="number" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
+        +'<td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
+        +(showLineDisc?'<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
+          +'<td class="col-disc-amt"><input type="number" class="num-fit" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
         +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
         +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
         +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
@@ -5096,6 +5107,7 @@ function renderCart(){
       <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
     </div>`;
   if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
+  try{ bindNumFit(el('cartRows')); }catch(_){}
 }
 let invPayRows=[];
 function parseInvMoney(v){
@@ -8184,13 +8196,41 @@ function enhanceAccTables(root){
 let genCart = [];
 let genCartDiscInputId = null; // set per-modal; null = no overall discount
 let GEN_CART_PRICE_FIELD = 'price'; // 'price' for sales-return, 'cost' for purchases
-function genCartAdd(pid){
+async function genCartAdd(pid){
   const p = findInvProduct(pid) || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid)) || (CACHE.products||[]).find(x=>Number(x.id)===Number(pid));
   if(!p){ try{ showToast('کالا یافت نشد','error'); }catch(_){ } return; }
   const pidN = Number(p.id);
-  const ex = genCart.find(r=>Number(r.product_id)===pidN && !r.batch_id && !r.is_fabric_roll);
   const defPrice = GEN_CART_PRICE_FIELD==='cost' ? (p.cost||0) : (p.price||0);
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+pidN); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(pack.matrix.length){
+    const live=pack.live||[];
+    if(!live.length){
+      showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
+      return;
+    }
+    live.forEach(function(v){
+      const vid=Number(v.id)||null;
+      const ex=genCart.find(r=>Number(r.product_id)===pidN && Number(r.variant_id||0)===Number(vid||0) && !r.batch_id && !r.is_fabric_roll);
+      if(ex) ex.qty += 1;
+      else genCart.push({
+        product_id:pidN, name:p.name, qty:1, price:defPrice, disc:0, disc_amount:0, description:'',
+        warehouse_id:headerPurchaseWarehouseId(),
+        variant_id:vid,
+        color_id:v.color_id||null,
+        size_id:v.size_id||null,
+        color_name:v.color_name||'',
+        size_name:v.size_name||'',
+        color:v.color_name||''
+      });
+    });
+    showToast('پک کامل ('+fmt(live.length)+' قطعه) به سبد اضافه شد');
+    renderGenCart();
+    return;
+  }
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
+  const ex = genCart.find(r=>Number(r.product_id)===pidN && !r.variant_id && !r.batch_id && !r.is_fabric_roll);
   if(ex) ex.qty += defaultQty;
   else genCart.push({product_id:pidN,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:headerPurchaseWarehouseId()});
   renderGenCart();
@@ -8222,11 +8262,11 @@ function renderGenCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${esc(r.name)}${r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:''}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
-        <td class="col-price"><input type="text" inputmode="numeric" class="money" value="${moneyInit(r.price)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=moneyParseInput(this);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
-        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
-        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(genCart,(i),'amt');renderGenCart()})}"></td>`:''}
+        <td class="cn">${esc(r.name)}${(r.color_name||r.size_name)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc([r.color_name,r.size_name].filter(Boolean).join(' · '))}</div>`:(r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:'')}</td>
+        <td class="col-qty"><input type="number" class="num-fit" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
+        <td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="${moneyInit(r.price)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=moneyParseInput(this);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
+        ${showLineDisc?`<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
+        <td class="col-disc-amt"><input type="number" class="num-fit" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(genCart,(i),'amt');renderGenCart()})}"></td>`:''}
         <td class="col-wh"><select data-csp-change="${CSP.bind('change',function(event){genCart[(i)].warehouse_id=+this.value||null})}">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select></td>
         <td class="col-sum mono">${fmt(lineSum)}${freightShares[i]?`<div class="muted" data-csp-style="${CSP.style(`font-size:10px;font-weight:500`)}">کرایه ${fmt(freightShares[i])}${freight?(' · '+Math.round(freightShares[i]*100/freight)+'٪'):''}</div>`:''}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="${CSP.bind('click',function(event){genCart.splice((i),1);renderGenCart()})}">×</button></td>
@@ -8256,6 +8296,7 @@ function renderGenCart(){
   }
   window._poLastFinal = poFinal;
   if(typeof syncPoCashPayAmount==='function') syncPoCashPayAmount();
+  try{ bindNumFit(rowsEl); }catch(_){}
 }
 function genProductSearchHtml(){
   return `<div data-csp-style="${CSP.style(`position:relative`)}">
@@ -10160,25 +10201,82 @@ async function whSearchProduct(i,q){
     }).join('');
   }catch(e){ box.hidden=true; }
 }
-function whPickProduct(i,id,label,available){
+async function whPickProduct(i,id,label,available){
   if(!whDocLines[i]) return;
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+Number(id)); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(pack.matrix.length){
+    const live=pack.live||[];
+    if(!live.length){
+      showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
+      return;
+    }
+    const newLines=live.map(function(v){
+      const cname=v.color_name||'';
+      const sname=v.size_name||'';
+      const bits=[label, [cname,sname].filter(Boolean).join(' / ')].filter(Boolean);
+      return {
+        product_id:id,
+        product_label:bits.join(' — '),
+        available:v.stock!=null?Number(v.stock):available,
+        qty:1,
+        variant_id:Number(v.id)||null,
+        color_id:v.color_id||null,
+        size_id:v.size_id||null,
+        color_name:cname,
+        size_name:sname
+      };
+    });
+    whDocLines.splice(i, 1, ...newLines);
+    renderWhDocLines();
+    showToast('پک کامل ('+fmt(live.length)+' قطعه) اضافه شد');
+    return;
+  }
   whDocLines[i].product_id=id;
   whDocLines[i].product_label=label;
   whDocLines[i].available=available;
+  whDocLines[i].variant_id=null;
+  whDocLines[i].color_id=null;
+  whDocLines[i].size_id=null;
+  whDocLines[i].color_name='';
+  whDocLines[i].size_name='';
   const inp=el('wh-q-'+i); if(inp) inp.value=label;
   const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
   const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود قابل‌فروش: '+fmt(available)):'';
+}
+function whDocLinesPayload(){
+  for(let i=0;i<whDocLines.length;i++){
+    const l=whDocLines[i];
+    if(!l || !l.product_id || !(+l.qty>0)) continue;
+    const p=findInvProduct(l.product_id)
+      || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(l.product_id))
+      || (CACHE.products||[]).find(x=>Number(x.id)===Number(l.product_id));
+    if(p && productNeedsColorPick(p) && !l.variant_id){
+      showToast('کالای ماتریسی بدون رنگ/سایز مجاز نیست','error');
+      return null;
+    }
+  }
+  return whDocLines.map(l=>({
+    product_id:+l.product_id,
+    qty:+l.qty||0,
+    variant_id:l.variant_id?+l.variant_id:null
+  })).filter(l=>l.product_id&&l.qty>0);
 }
 function whDocLinesHtml(){
   return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th></th></tr></thead>
     <tbody id="whDocBody">${whDocLines.map((l,i)=>`<tr>
       <td>${whProductPickerHtml(i,l)}</td>
-      <td><input type="number" min="1" value="${l.qty||1}" data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].qty=+this.value||1})}" data-csp-style="${CSP.style(`width:80px`)}"></td>
+      <td><input type="number" class="num-fit" min="1" value="${l.qty||1}" data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].qty=+this.value||1})}"></td>
       <td>${whDocLines.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){whDocLines.splice((i),1);renderWhDocLines()})}">×</button>`:''}</td>
     </tr>`).join('')}</tbody></table></div>
     <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){whDocLines.push({product_id:'',qty:1});renderWhDocLines()})}">➕ کالای دیگر</button>`;
 }
-function renderWhDocLines(){ const box=el('whDocLines'); if(box) box.innerHTML=whDocLinesHtml(); }
+function renderWhDocLines(){
+  const box=el('whDocLines');
+  if(box) box.innerHTML=whDocLinesHtml();
+  try{ bindNumFit(box||document); }catch(_){}
+}
 function warehouseReceiptModal(){
   whDocLines=[{product_id:'',qty:1}];
   openModal(`
@@ -10192,10 +10290,12 @@ function warehouseReceiptModal(){
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveWarehouseReceipt()})}">💾 ثبت رسید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  try{ bindNumFit(el('whDocLines')); }catch(_){}
 }
 async function saveWarehouseReceipt(){
   const warehouse_id=+el('wr-warehouse').value;
-  const lines=whDocLines.map(l=>({product_id:+l.product_id, qty:+l.qty||0})).filter(l=>l.product_id&&l.qty>0);
+  const lines=whDocLinesPayload();
+  if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   try{
     const r=await api('POST','/warehouses/moves/batch',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value});
@@ -10215,10 +10315,12 @@ function warehouseIssueModal(){
     <div class="modal-foot"><button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveWarehouseIssue()})}">💾 ثبت حواله</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  try{ bindNumFit(el('whDocLines')); }catch(_){}
 }
 async function saveWarehouseIssue(){
   const warehouse_id=+el('wi-warehouse').value;
-  const lines=whDocLines.map(l=>({product_id:+l.product_id, qty:+l.qty||0})).filter(l=>l.product_id&&l.qty>0);
+  const lines=whDocLinesPayload();
+  if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   try{
     const r=await api('POST','/warehouses/moves/batch',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value});
@@ -10239,10 +10341,12 @@ function warehouseTransferModal(){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveWarehouseTransfer()})}">💾 ثبت انتقال</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  try{ bindNumFit(el('whDocLines')); }catch(_){}
 }
 async function saveWarehouseTransfer(){
   const from_warehouse_id=+el('wt-from').value, to_warehouse_id=+el('wt-to').value;
-  const lines=whDocLines.map(l=>({product_id:+l.product_id, qty:+l.qty||0})).filter(l=>l.product_id&&l.qty>0);
+  const lines=whDocLinesPayload();
+  if(lines==null) return;
   if(!from_warehouse_id||!to_warehouse_id||!lines.length){ showToast('انبارها و حداقل یک کالا الزامی است','error'); return; }
   try{
     const r=await api('POST','/warehouses/moves/batch',{type:'transfer',from_warehouse_id,to_warehouse_id,lines,date:el('wt-date').value,note:el('wt-note').value});
@@ -14107,8 +14211,10 @@ async function savePurchaseInvoice(){
         disc:r.disc||0, disc_amount:r.disc_amount||0,
         description:r.description||'', warehouse_id:r.warehouse_id||headerPurchaseWarehouseId()||null,
         batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
-        color:r.color||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
-        roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0
+        color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+        roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
+        variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
+        color_name:r.color_name||'', size_name:r.size_name||''
       }))
     });
     closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
@@ -14289,9 +14395,9 @@ async function loadSrReturnRows(){
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
     <th>کالا</th><th>تعداد فروخته‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
   </tr></thead><tbody>${d.rows.map(r=>`<tr>
-    <td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
+    <td>${esc(r.name)}${(r.color_name||r.color||r.size_name)?` <span class="muted">${esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" class="sr-qty-input" data-csp-style="${CSP.style(`width:80px`)}"></td>
+    <td><input type="number" class="num-fit sr-qty-input" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-vid="${r.variant_id||''}"></td>
   </tr>`).join('')}</tbody></table></div>`;
 }
 async function saveSalesReturn(){
@@ -14299,7 +14405,7 @@ async function saveSalesReturn(){
   const invoice_id=+el('sr-invoice')?.value||0;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(!invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
-  const rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,qty:+inp.value||0})).filter(r=>r.qty>0);
+  const rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,variant_id:+inp.dataset.vid||null,qty:+inp.value||0})).filter(r=>r.qty>0);
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
     await api('POST','/accounting/sales-returns',{cust_id,invoice_id,date:el('sr-date').value,note:el('sr-note').value,rows});
@@ -21329,7 +21435,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای کارشناس حضوری و تلفنی، افزودن کالا به سبد <b>پک کامل را خودکار</b> می‌گذارد (بدون باز شدن لیست رنگ). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -21478,7 +21584,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
       </ul>
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
-        <li>پس از انتخاب ماتریس، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
+        <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
         <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
       </ul>
       <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
@@ -21620,7 +21726,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
       <ul>
         <li>کالاها از <b>بیشترین موجودی به کمترین</b> مرتب می‌شوند</li>
-        <li>اگر کالا ماتریس رنگ×سایز داشته باشد، کارشناس حضوری/تلفنی با «افزودن پک» کل پک زنده را یکجا به سبد می‌برد — لیست رنگ باز نمی‌شود. در سبد هر کالا <b>یک ردیف</b> است و زیر نام، رنگ‌ها و تعداد سایزبندی دیده می‌شود. «ویرایش رنگ/سایز» همان پنجره را برای اصلاح باز می‌کند. مدیر/حسابدار همچنان هنگام افزودن می‌تواند رنگ را انتخاب کند. ذخیره فاکتور همچنان per-SKU است</li>
+        <li>اگر کالا ماتریس رنگ×سایز داشته باشد، با «افزودن پک» <b>هر نقش</b> کل پک زنده را یکجا به سبد می‌برد — لیست رنگ باز نمی‌شود. در سبد هر کالا <b>یک ردیف</b> است و زیر نام، رنگ‌ها و تعداد سایزبندی دیده می‌شود. «ویرایش رنگ/سایز» همان پنجره را برای اصلاح باز می‌کند. ذخیره فاکتور همچنان per-SKU است</li>
         <li>کالای بدون ماتریس مثل قبل به‌اندازه <b>تعداد در پک</b> اضافه می‌شود</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
@@ -21674,13 +21780,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد پنجرهٔ انتخاب رنگ/سایز را باز می‌کند و پک = رنگ موجود × سایز موجود است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زنده رنگ×سایز شکسته می‌شود و هر خط <code>variant_id</code> می‌فرستد. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>
@@ -22094,7 +22200,7 @@ function renderSalesGuide(){
         <li>اعداد از دادهٔ واقعی است و واحد همه مبالغ <b>ریال</b> است</li>
         <li>پیش‌فاکتور فروش قطعی نیست؛ فاکتور ابطال‌شده در KPI نمی‌آید</li>
         <li>فیلتر تاریخ/مرحله را اعمال کنید؛ کلیک روی هر کارت آمار جزئیات همان شاخص را باز می‌کند (فروش قطعی = فاکتور معمولی و رسمی)</li>
-        <li>شما فقط مشتریان و فروش خودتان را می‌بینید</li>
+        <li>شما مشتریانی را می‌بینید که مالک یا کارشناس‌شان خودتان هستید، به‌علاوه فروش خودتان</li>
       </ul>`),
     helpSec('🧾','صدور فاکتور',`
       <h5>مراحل</h5><ol>
@@ -22119,7 +22225,7 @@ function renderSalesGuide(){
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>
       <ul>
-        <li>کالای رنگی: پک زنده (رنگ‌های موجود × سایزهای موجود) خودکار اضافه می‌شود. در سبد «ویرایش رنگ/سایز» همان پنجره را باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
+        <li>کالای رنگی: پک زنده (رنگ‌های موجود × سایزهای موجود) برای همه نقش‌ها خودکار اضافه می‌شود. در سبد «ویرایش رنگ/سایز» همان پنجره را باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
         <li>کالای بدون ماتریس: هر بار افزودن = <b>تعداد در پک</b></li>
         <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
         <li>اگر انبار فروش روی حساب شما ثبت شده باشد، بنر «انبار فروش» در کاتالوگ بازاریاب دیده می‌شود و فاکتورساز همان انبار را قفل می‌کند</li>

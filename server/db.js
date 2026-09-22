@@ -1504,7 +1504,7 @@ function initDB(database, opts) {
   catch (e) { console.warn('⚠️ ایندکس یکتای شماره فاکتور خرید ایجاد نشد:', e.message); }
 
   // ---- Sync engine schema (offline-first desktop/mobile devices) ----
-  initSyncSchema(db);
+  initSyncSchema(db, opts);
 
   // ---- Backfill accounting entries for operations recorded before the engine existed ----
   backfillAccounting(db);
@@ -1531,7 +1531,8 @@ function ensureSyncColumnsForAllTables(db) {
   }
 }
 
-function initSyncSchema(db) {
+function initSyncSchema(db, opts) {
+  opts = opts || {};
   const { SYNCABLE_TABLES } = require('./sync/tables');
 
   // First pass — tables that already exist from earlier initDB DDL.
@@ -2382,6 +2383,13 @@ function initSyncSchema(db) {
   }
 
   try {
+    require('./lib/inventory/movement').ensureInventorySchema(db);
+  } catch (e) {
+    console.error('❌ inventory movements schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
     require('./lib/qa-gaps-schema').ensureQaGapsSchema(db);
   } catch (e) {
     console.error('❌ qa-gaps schema init failed:', e.message);
@@ -2668,6 +2676,19 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v13','1')").run();
+    }
+    const backfillV14 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v14'").get();
+    if (!backfillV14 || backfillV14.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v14 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v14','1')").run();
     }
   }
 

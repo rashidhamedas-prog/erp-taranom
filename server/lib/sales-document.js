@@ -335,8 +335,19 @@ function postSaleStockMovements(db, {
       const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
       consumeFabricRollOnSale(db, { batchId, qty: need });
     }
-    if (r.variant_id) {
-      require('./product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');
+    if (!isFabric) {
+      require('./inventory/movement').postVariantLayer(db, {
+        productId: r.product_id,
+        variantId: r.variant_id || null,
+        warehouseId: whId,
+        qtyDelta: -need,
+        docType: 'invoice_sku',
+        docId: sourceId,
+        docLine: movements.length,
+        userId,
+        note: (note || 'فروش') + ' / رنگ×سایز',
+        allowNegative: true,
+      });
     }
     movements.push(mv);
     cogsRial += Math.round(Number(mv.amount_rial) || 0);
@@ -370,6 +381,24 @@ function postPurchaseStockMovements(db, {
           : (amountOverride != null && qty ? amountOverride / qty : (Number(r.price) || 0))
       ) || 0
     );
+    let isFabricLine = false;
+    try {
+      isFabricLine = require('./inventory/fabric-rolls').isFabricPurchaseLine(db, r, whId);
+    } catch (_) { isFabricLine = false; }
+    if (!isFabricLine) {
+      require('./inventory/movement').postVariantLayer(db, {
+        productId: r.product_id,
+        variantId: r.variant_id || null,
+        warehouseId: whId,
+        qtyDelta: qty,
+        docType: 'purchase_sku',
+        docId: sourceId,
+        docLine: movements.length,
+        userId,
+        note: (note || 'خرید') + ' / رنگ×سایز',
+        allowNegative: true,
+      });
+    }
     const mv = postInventoryMovement(db, {
       eventType: 'purchase',
       productId: r.product_id,
@@ -422,6 +451,20 @@ function postSaleReturnStockMovements(db, {
       Number(r.cost_rial != null ? r.cost_rial : (Number(r.unit_cost) || 0)) || 0
     );
     const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+    if (!batchId) {
+      require('./inventory/movement').postVariantLayer(db, {
+        productId: r.product_id,
+        variantId: r.variant_id || null,
+        warehouseId: whId,
+        qtyDelta: qty,
+        docType: 'sale_return_sku',
+        docId: sourceId,
+        docLine: movements.length,
+        userId,
+        note: (note || 'برگشت از فروش') + ' / رنگ×سایز',
+        allowNegative: true,
+      });
+    }
     const mv = postInventoryMovement(db, {
       eventType: 'sale_return',
       productId: r.product_id,

@@ -1374,13 +1374,17 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
   const inv = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.invoiceId);
   if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
   const invRows = JSON.parse(inv.rows || '[]');
+  const lineKey = (r) => (r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`);
   const alreadyReturned = {};
   db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
-    JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+    JSON.parse(pr.rows || '[]').forEach(r => {
+      const k = lineKey(r);
+      alreadyReturned[k] = (alreadyReturned[k] || 0) + r.qty;
+    });
   });
   const rows = invRows.map(r => ({
-    ...r, already_returned: alreadyReturned[r.product_id] || 0,
-    max_returnable: r.qty - (alreadyReturned[r.product_id] || 0)
+    ...r, already_returned: alreadyReturned[lineKey(r)] || 0,
+    max_returnable: r.qty - (alreadyReturned[lineKey(r)] || 0)
   })).filter(r => r.max_returnable > 0);
   res.json({ invoice: inv, rows });
 });
@@ -1401,9 +1405,15 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     if (!inv) return res.status(400).json({ error: 'فاکتور یافت نشد یا متعلق به این مشتری نیست' });
     if (!parentWhId && inv.warehouse_id) parentWhId = parseInt(inv.warehouse_id, 10);
     invoiceLineMap = {};
-    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
+    JSON.parse(inv.rows || '[]').forEach(r => {
+      const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+      invoiceLineMap[k] = r;
+    });
     db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(invoice_id).forEach(pr => {
-      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
+      JSON.parse(pr.rows || '[]').forEach(r => {
+        const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+        alreadyReturnedMap[k] = (alreadyReturnedMap[k] || 0) + r.qty;
+      });
     });
   }
 
@@ -1416,10 +1426,12 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     let qty = Math.max(0.001, parseQty(r.qty, 1));
     let price, disc = 0, discAmt = 0;
     let lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
+    let origLine = null;
     if (invoiceLineMap) {
-      const origLine = invoiceLineMap[pid];
+      const key = r.variant_id ? `v:${r.variant_id}` : `p:${pid}`;
+      origLine = invoiceLineMap[key] || invoiceLineMap[`p:${pid}`];
       if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور وجود ندارد` });
-      const already = alreadyReturnedMap[pid] || 0;
+      const already = alreadyReturnedMap[key] || alreadyReturnedMap[`p:${pid}`] || 0;
       const maxReturnable = origLine.qty - already;
       if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
       price = origLine.price;
@@ -1439,6 +1451,9 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
       warehouse_id: lineWh || parentWhId || null,
       unit_cost: avgRial,
       cost_rial: avgRial,
+      variant_id: (origLine && origLine.variant_id) || r.variant_id || null,
+      color_name: (origLine && (origLine.color_name || origLine.color)) || r.color_name || '',
+      size_name: (origLine && origLine.size_name) || r.size_name || '',
     });
   }
   if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
@@ -1515,6 +1530,15 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
         const reversed = reverseStockBySource(db, 'sales_return', row.id, {
           createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از فروش #${row.id}`,
         });
+        try {
+          require('../lib/inventory/movement').reverseStockDocument(db, {
+            docType: 'sale_return_sku',
+            docId: row.id,
+            userId: req.user.id,
+            note: `ابطال رنگ×سایز برگشت از فروش #${row.id}`,
+            applyHeaderStock: false,
+          });
+        } catch (_) { /* older returns have no sku layer */ }
         if (!reversed.length) {
           const invRows = JSON.parse(row.rows || '[]');
           for (const r of invRows) {

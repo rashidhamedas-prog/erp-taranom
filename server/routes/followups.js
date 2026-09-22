@@ -5,12 +5,15 @@ const notif = require('../lib/notifications');
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
+
 function getScope(req) {
-  // هم‌راستا با crmScopeUserId — مدیر فروش هم دید کامل CRM دارد
-  const full = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
-  if (full && req.query.user_id) return parseInt(req.query.user_id);
-  if (full) return null;
-  return req.user.id;
+  // Admin/accounting see all. sales_manager does NOT see the whole team.
+  const scoped = scopeUserId(req);
+  if (scoped === null && (req.user.role === 'admin' || req.user.role === 'accounting') && req.query.user_id) {
+    return parseInt(req.query.user_id);
+  }
+  return scoped;
 }
 
 router.get('/', auth, (req, res) => {
@@ -23,10 +26,13 @@ router.get('/', auth, (req, res) => {
     WHERE c.id=f.cust_id
       AND (c.party_id IS NULL OR EXISTS (SELECT 1 FROM parties p WHERE p.id=c.party_id AND p.is_active=1))
   )`;
+  // Non-admin: own followups OR followups on a customer visible via user_id/assigned_to
   const where = scope === null
     ? `WHERE ${activeCust}`
-    : `WHERE f.user_id=? AND ${activeCust}`;
-  const params = scope === null ? [] : [scope];
+    : `WHERE (f.user_id=? OR EXISTS (
+         SELECT 1 FROM customers cx WHERE cx.id=f.cust_id AND ${customerVisibilitySql('cx')}
+       )) AND ${activeCust}`;
+  const params = scope === null ? [] : [scope, scope, scope];
   const total = pq.paginate
     ? (db.prepare(`SELECT COUNT(*) AS c FROM followups f ${where}`).get(...params)?.c || 0)
     : 0;
@@ -38,6 +44,8 @@ router.get('/', auth, (req, res) => {
 });
 
 function assertCustomerInScope(req, db, custId) {
+  // Mutate gate kept narrow: admin/accounting (and legacy sales_manager) or customers.user_id === me.
+  // Do not widen to assigned_to here.
   const full = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   const own = db.prepare('SELECT id, user_id FROM customers WHERE id=?').get(custId);
   if (!own) {
@@ -57,8 +65,10 @@ router.get('/by-customer/:cust_id', auth, requirePermission('followups', 'view')
   const db = getDB();
   const scope = getScope(req);
   if (scope != null) {
-    const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(req.params.cust_id);
-    if (!own || own.user_id !== scope) return res.status(403).json({ error: 'دسترسی به این مشتری ندارید' });
+    const own = db.prepare(
+      `SELECT id FROM customers WHERE id=? AND ${customerVisibilitySql('customers')}`
+    ).get(req.params.cust_id, scope, scope);
+    if (!own) return res.status(403).json({ error: 'دسترسی به این مشتری ندارید' });
   }
   const rows = db.prepare(
     'SELECT f.*,u.name as salesperson FROM followups f LEFT JOIN users u ON f.user_id=u.id WHERE f.cust_id=? ORDER BY f.created_at DESC LIMIT 200'
@@ -145,7 +155,10 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   if (scope === null) {
     rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id ORDER BY f.created_at DESC').all();
   } else {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? ORDER BY f.created_at DESC').all(scope);
+    rows = db.prepare(
+      `SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id
+       WHERE (f.user_id=? OR ${customerVisibilitySql('c')}) ORDER BY f.created_at DESC`
+    ).all(scope, scope, scope);
   }
   const data = rows.map(r => ({
     'مشتری': r.cust_biz, 'تاریخ': r.date, 'ساعت': r.time, 'نوع تماس': r.type,

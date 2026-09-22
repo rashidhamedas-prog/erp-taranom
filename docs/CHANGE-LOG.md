@@ -5,6 +5,20 @@
 
 ---
 
+### ۱۴۰۵/۰۶/۳۱ — پک زنده رنگ×سایز، حرکت موجودی واریانت، مشتریِ هر کاربر (SW v218)
+
+- **پک فروش:** افزودن کالا در فاکتور، برای همه نقش‌ها یک پک زنده ثبت می‌کند: تعداد ۱ روی هر رنگ×سایز که موجودی دارد. ویرایش رنگ/سایز قبل از ذخیره باقی است. سبد خرید و حواله/رسید انبار هم همان ترکیب را خط‌به‌خط با variant_id می‌فرستند.
+- **موجودی:** دفتر inventory_movements و تصویر variant_warehouse_stock. فروش، خرید و برگشت دائمی لایه واریانت را جدا از موجودی سربرگ می‌نویسند تا دوبار کسر نشود. کالای ماتریس بدون رنگ/سایز خطای E_VARIANT_REQUIRED می‌دهد. طاقه پارچه روی مسیر batch می‌ماند. اگر کالا فقط یک انبار داشته باشد، موجودی افتتاحیه واریانت همان‌جا seed می‌شود؛ چندانباره تا شمارش تخصیص نمی‌خورد.
+- **مشتری:** غیر از مدیر و حسابدار، مشتری دیده می‌شود اگر user_id یا assigned_to همان کاربر باشد. هم‌ترازی یک‌باره assigned_to را برنده می‌کند و کارشناس طرف‌حساب را روی مشتری کپی می‌کند. پیگیری‌ها همان دامنه را دارند.
+- **فیلد عدد:** مبلغ و تعداد با num-fit به اندازه عدد باز می‌شوند.
+- **سینک:** دو جدول به انتهای SYNCABLE_TABLES و sync_seq_backfill_v14. تشخیص شکاف: mismatches=[].
+- **رفع بوت:** skipOpeningBackfill به initSyncSchema می‌رسد؛ دیگر opts is not defined روی افتتاحیه انبار پرتاب نمی‌شود.
+- **تست:** customer-owner 23/23، variant-stock 21/21، sms 22/22، sync 44/44 (فاکتورهای هارنس نسیه؛ فروش بیش از موجودی همچنان یک تعارض E_NEGATIVE_STOCK و موجودی مرکز دست‌نخورده).
+- **خارج از این تسک:** تولید، انبارگردانی و امانی هنوز سطح کالا هستند. انتقال کارشناس در rep-management مستقیم ستون‌ها را می‌نویسد.
+- **فایل‌ها:** server/lib/{customer-scope,sales-document,void-invoice,parties-sync}.js, server/lib/inventory/movement.js, server/routes/{customers,parties,followups,invoices,purchases,warehouses,accounting,product-variants}.js, server/{db.js,sync/tables.js}, server/public/{app.js,app.css,marketer-ui.js,sw.js}, server/scripts/{test-customer-owner-scope,test-variant-stock-movement,test-sync}.js
+- **SW:** erp-taranom-v218
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۶/۲۶ — رفع توقف ورود ناشی از پرشدن دیسک + retention بکاپ
 
 - **علت قطعی:** دیسک VPS ایران `100%` بود؛ mirror همان‌دیسک در `/home/taranom/crm-offsite-backups` به `43G / 7316 files` رسیده و لاگ‌ها `ENOSPC` و `database or disk is full` داشتند. این وضعیت نوشتن SQLite/session بعد از ورود را مختل می‌کرد؛ Cloudflare و origin هر دو پاسخ‌گو بودند.

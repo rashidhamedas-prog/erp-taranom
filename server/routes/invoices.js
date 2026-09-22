@@ -251,9 +251,12 @@ function warehouseAllowsNegative(db, whId) {
 
 // Deduct stock for each row; returns error message if stock insufficient.
 // Also returns { usedWarehouses: [{id,name}] } via out param on success when 3rd-party wants toast info.
+// Pass metaOut.docId (invoice id) for idempotent inventory_movements keys.
 function deductStock(db, rows, warehouseId, userId, metaOut) {
+  const { postStockMovement } = require('../lib/inventory/movement');
   const used = new Map();
   const productRows = (rows || []).filter(r => r.row_type !== 'income' && r.product_id);
+  const docId = metaOut && (metaOut.docId != null ? metaOut.docId : metaOut.invoiceId);
   for (const r of productRows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
@@ -283,6 +286,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
     }
   }
+  let lineIdx = 0;
   for (const r of productRows) {
     if (isFabricRollLine(r)) {
       const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
@@ -293,26 +297,25 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       continue;
     }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
-    // Read the product BEFORE decrementing products.stock so the warehouse_stock
-    // row can be seeded consistently with the read path's fallback below.
-    const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
-    db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
     const whName = whId ? (used.get(whId) || '') : '';
-    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-      r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : '')
-    );
-    if (whId) {
-      const seedQty = (prod && prod.warehouse_id === whId) ? prod.stock : 0;
-      db.prepare(`
-        INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
-        ON CONFLICT(product_id,warehouse_id) DO NOTHING
-      `).run(r.product_id, whId, seedQty);
-      db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?')
-        .run(r.qty, r.product_id, whId);
+    try {
+      postStockMovement(db, {
+        productId: r.product_id,
+        variantId: r.variant_id || null,
+        warehouseId: whId || null,
+        qtyDelta: -(Number(r.qty) || 0),
+        docType: 'invoice',
+        docId: docId != null ? docId : null,
+        docLine: lineIdx,
+        userId: userId || 0,
+        note: 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : ''),
+        allowNegative: true,
+      });
+    } catch (e) {
+      if (e && e.code === 'E_VARIANT_REQUIRED') throw e;
+      throw e;
     }
-    if (r.variant_id) {
-      require('../lib/product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');
-    }
+    lineIdx += 1;
   }
   if (metaOut) metaOut.usedWarehouses = [...used.entries()].map(([id, name]) => ({ id, name }));
   return null;
@@ -513,7 +516,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             allocMethod, vatFlag, ccId,
             parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
-      const stockMeta = {};
+      const stockMeta = { docId: invId };
       let saleCogsRial = 0;
 
       if (isFirmSale(invType)) {
@@ -784,6 +787,26 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
     });
   }
   try {
+    // When deductStock posted inventory_movements, reverse those first and clear
+    // stock_deducted so voidInvoiceFully does not double-restore header stock.
+    // Legacy / perpetual docs (no inventory_movements) keep void-invoice path.
+    if (row.stock_deducted) {
+      const { reverseStockDocument } = require('../lib/inventory/movement');
+      db.transaction(() => {
+        const movCount = db.prepare(
+          "SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type='invoice' AND doc_id=?"
+        ).get(row.id).c;
+        if (movCount > 0) {
+          reverseStockDocument(db, {
+            docType: 'invoice',
+            docId: row.id,
+            userId: req.user.id,
+            note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
+          });
+          db.prepare('UPDATE invoices SET stock_deducted=0 WHERE id=?').run(row.id);
+        }
+      })();
+    }
     const result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
     res.json({
       ok: true,
@@ -792,7 +815,7 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
       title: result.title,
     });
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message || 'خطا در ابطال' });
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در ابطال', code: e.code });
   }
 });
 
@@ -873,7 +896,7 @@ router.post('/:id/convert', auth, (req, res) => {
           });
           saleCogsRial = stocked.cogsRial;
         } else {
-          const stockErr = deductStock(db, rows, convertWhId, req.user.id);
+          const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id });
           if (stockErr) throw new Error(stockErr);
         }
         stockDeducted = 1;

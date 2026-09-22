@@ -283,7 +283,7 @@
             <div class="price">${fmt(p.price)} ریال</div>
             <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')}</div>
             <div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${(Number(p.colors)>1)?'🎨 '+fmt(p.colors)+' رنگ · ':''}📦 ${pack} عدد/پک</div>
-            <button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.addToCart((p.id))})}">${(Number(p.colors)>1||Number(p.has_variants)===1||Number(p.is_style)===1)?'🎨 انتخاب رنگ':('➕ افزودن به سبد ('+pack+' عدد)')}</button>
+            <button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.addToCart((p.id))})}">${(Number(p.colors)>1||Number(p.has_variants)===1||Number(p.is_style)===1)?'➕ افزودن پک':('➕ افزودن به سبد ('+pack+' عدد)')}</button>
           </div>
         </div>`;
     }).join('');
@@ -586,7 +586,7 @@
         const sub = isPack ? groupSubtitle(indices) : skuLabel(c);
         const qtyCell = isPack
           ? `<span class="mono">${fmt(qty)}</span>`
-          : `<input type="number" min="1" step="1" inputmode="numeric" value="${c.qty}" data-csp-style="${CSP.style(`width:70px;min-height:44px`)}" data-csp-change="${CSP.bind('change',function(event){MarketerUI.setQty((i),+this.value)})}">`;
+          : `<input type="number" class="num-fit" min="1" step="1" inputmode="numeric" value="${c.qty}" data-csp-style="${CSP.style(`min-height:44px`)}" data-csp-change="${CSP.bind('change',function(event){MarketerUI.setQty((i),+this.value)})}">`;
         const editBtn = (isPack || c.variant_id)
           ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){MarketerUI.editCartProduct((c.product_id))})}">🎨 ویرایش رنگ/سایز</button>`
           : '';
@@ -611,6 +611,7 @@
         <button class="btn" data-csp-click="${CSP.bind('click',function(event){document.getElementById('mkTabInv').click()})}">ادامه → ثبت فاکتور</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){MarketerUI.goCatalog()})}">بازگشت به کاتالوگ</button>
       </div>`;
+    try { if (typeof bindNumFit === 'function') bindNumFit(body); } catch (_) {}
   }
 
   function setQty(i, q) {
