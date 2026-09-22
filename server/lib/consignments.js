@@ -306,10 +306,13 @@ function listConsignments(db, { direction, status } = {}) {
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   return db.prepare(`
     SELECT c.*, p.name AS product_name, p.code AS product_code,
-      pe.name AS person_name
+      pe.name AS person_name, pc.name AS color_name, ps.name AS size_name
     FROM consignments c
     LEFT JOIN products p ON c.product_id = p.id
     LEFT JOIN persons pe ON c.person_id = pe.id
+    LEFT JOIN product_variants pv ON pv.id = c.variant_id
+    LEFT JOIN product_colors pc ON pc.id = pv.color_id
+    LEFT JOIN product_sizes ps ON ps.id = pv.size_id
     ${whereSql}
     ORDER BY c.created_at DESC
   `).all(...params);
@@ -332,6 +335,15 @@ function createConsignment(db, body, user) {
   const date = body.date || todayJalali();
   const partyName = person.name;
   const partyPhone = person.phone || '';
+
+  const { resolveApparelLines, postApparelLines } = require('./inventory/apparel-lines');
+  const apparelLines = resolveApparelLines(db, {
+    productId: product.id, qty: q, variantId: body.variant_id, variantLines: body.variant_lines,
+  });
+  if (apparelLines.length > 1) {
+    throw httpErr(400, 'امانی را برای هر رنگ و سایز جدا ثبت کنید', 'E_VARIANT_REQUIRED');
+  }
+  const variantId = apparelLines.length ? apparelLines[0].variantId : null;
 
   return db.transaction(() => {
     let issueLedgerId = null;
@@ -359,14 +371,21 @@ function createConsignment(db, body, user) {
       INSERT INTO consignments (
         direction, party_name, party_phone, product_id, qty, unit_price,
         date, note, status, created_by,
-        person_id, warehouse_id, unit_price_rial, issue_ledger_id, record_status
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        person_id, warehouse_id, unit_price_rial, issue_ledger_id, record_status, variant_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       direction, partyName, partyPhone, product.id, q, priceRial,
       date, body.note || '', OPEN_STATUS, user.id,
-      person.id, warehouse.id, priceRial, issueLedgerId, 'active'
+      person.id, warehouse.id, priceRial, issueLedgerId, 'active', variantId
     );
     const id = result.lastInsertRowid;
+    if (direction === 'out' && apparelLines.length) {
+      postApparelLines(db, {
+        productId: product.id, warehouseId: warehouse.id, lines: apparelLines,
+        docType: 'consignment_issue', docId: id, userId: user.id,
+        note: `ارسال امانی به ${partyName}`, sign: -1, allowNegative: false,
+      });
+    }
     if (issueLedgerId) {
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(id, issueLedgerId);
     }
@@ -437,6 +456,25 @@ function settleEffects(db, row, path, body, user) {
   throw httpErr(400, 'مسیر تسویه نامعتبر است', 'E_CONSIGNMENT_PATH');
 }
 
+function postConsignmentVariant(db, row, user, docType, note, sign) {
+  if (!row.variant_id) {
+    const { resolveApparelLines } = require('./inventory/apparel-lines');
+    resolveApparelLines(db, { productId: row.product_id, qty: row.qty });
+    return;
+  }
+  require('./inventory/apparel-lines').postApparelLines(db, {
+    productId: row.product_id,
+    warehouseId: row.warehouse_id,
+    lines: [{ variantId: row.variant_id, qty: row.qty }],
+    docType,
+    docId: row.id,
+    userId: user.id,
+    note,
+    sign,
+    allowNegative: false,
+  });
+}
+
 function applySettle(db, row, path, { date, note, user, body }) {
   const effects = settleEffects(db, row, path, body, user);
   let invoiceId = null;
@@ -458,6 +496,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
       createdBy: user.id,
       updateAvg: true,
     });
+    postConsignmentVariant(db, row, user, 'consignment_return', note || `برگشت امانی از ${row.party_name}`, 1);
   }
 
   if (path === 'sale') {
@@ -504,6 +543,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
       createdBy: user.id,
       updateAvg: true,
     });
+    postConsignmentVariant(db, row, user, 'consignment_purchase', note || `خرید قطعی امانی #${row.id}`, 1);
     if (effects.amt > 0) {
       assertJournalIdempotent(db, 'consignment_purchase', row.id);
       settleJeId = postToLedger(db, {
@@ -606,6 +646,12 @@ function voidConsignment(db, id, user, { reason } = {}) {
     reverseStockBySource(db, 'consignment', fresh.id, {
       createdBy: user.id, date, note: `ابطال امانی #${fresh.id}`,
     });
+    const { reverseApparelDoc } = require('./inventory/apparel-lines');
+    for (const docType of ['consignment_issue', 'consignment_return', 'consignment_purchase']) {
+      reverseApparelDoc(db, {
+        docType, docId: fresh.id, userId: user.id, note: `ابطال امانی #${fresh.id}`,
+      });
+    }
     db.prepare(`
       UPDATE consignments SET status='reversed', record_status='reversed' WHERE id=?
     `).run(fresh.id);

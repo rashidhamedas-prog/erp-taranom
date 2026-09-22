@@ -69,8 +69,8 @@ router.get('/overhead-suggest', auth, adminOrAccounting, (req, res) => {
     if (from) { prodWhere.push('date>=?'); prodParams.push(from); }
     if (to) { prodWhere.push('date<=?'); prodParams.push(to); }
     const prodSql = prodWhere.length
-      ? `SELECT COALESCE(SUM(qty_produced),0) s FROM production_runs WHERE ${prodWhere.join(' AND ')}`
-      : 'SELECT COALESCE(SUM(qty_produced),0) s FROM production_runs';
+      ? `SELECT COALESCE(SUM(qty_produced),0) s FROM production_runs WHERE COALESCE(voided,0)=0 AND ${prodWhere.join(' AND ')}`
+      : 'SELECT COALESCE(SUM(qty_produced),0) s FROM production_runs WHERE COALESCE(voided,0)=0';
     periodQty = db.prepare(prodSql).get(...prodParams).s || 0;
   }
 
@@ -105,25 +105,49 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const whId = warehouse_id || product.warehouse_id || null;
 
   const doStock = !!update_stock, doCost = !!update_cost;
-  const result = db.prepare(
-    `INSERT INTO production_runs (product_id,qty_produced,material_cost,labor_cost,overhead_cost,packaging_cost,waste_qty,waste_cost,date,note,stock_added,cost_updated,previous_cost,warehouse_id,created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(product_id, qty, matC, labC, ovC, pkgC, wsQ, wsC, date || todayJalali(), note || '',
-        doStock ? 1 : 0, doCost ? 1 : 0, product.cost, whId, req.user.id);
-  const runId = result.lastInsertRowid;
-
-  if (doStock) {
-    db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(qty, product_id);
-    if (whId) {
-      db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?')
-        .run(product_id, whId, qty, qty);
-      db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, product_id);
+  let apparelLines = [];
+  try {
+    if (doStock) {
+      apparelLines = require('../lib/inventory/apparel-lines').resolveApparelLines(db, {
+        productId: product_id, qty,
+        variantId: req.body.variant_id, variantLines: req.body.variant_lines,
+      });
     }
-    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-      .run(product_id, req.user.id, qty, `تولید داخلی (اجرای تولید #${runId})`);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_VARIANT_REQUIRED' });
   }
-  if (doCost) {
-    db.prepare('UPDATE products SET cost=? WHERE id=?').run(Math.round(unitCost), product_id);
+
+  let runId;
+  try {
+    runId = db.transaction(() => {
+      const result = db.prepare(
+        `INSERT INTO production_runs (product_id,qty_produced,material_cost,labor_cost,overhead_cost,packaging_cost,waste_qty,waste_cost,date,note,stock_added,cost_updated,previous_cost,warehouse_id,created_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).run(product_id, qty, matC, labC, ovC, pkgC, wsQ, wsC, date || todayJalali(), note || '',
+            doStock ? 1 : 0, doCost ? 1 : 0, product.cost, whId, req.user.id);
+      const id = result.lastInsertRowid;
+      if (doStock) {
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(qty, product_id);
+        if (whId) {
+          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?')
+            .run(product_id, whId, qty, qty);
+          db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, product_id);
+        }
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+          .run(product_id, req.user.id, qty, `تولید داخلی (اجرای تولید #${id})`);
+        require('../lib/inventory/apparel-lines').postApparelLines(db, {
+          productId: product_id, warehouseId: whId, lines: apparelLines,
+          docType: 'production_run', docId: id, userId: req.user.id,
+          note: `تولید داخلی #${id}`, sign: 1, allowNegative: true,
+        });
+      }
+      if (doCost) {
+        db.prepare('UPDATE products SET cost=? WHERE id=?').run(Math.round(unitCost), product_id);
+      }
+      return id;
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_PRODUCTION' });
   }
   audit(req.user.id, 'create', 'production_run', runId, `ثبت اجرای تولید: ${qty} عدد ${product.name} — بهای واحد ${Math.round(unitCost)}`);
   res.json({ id: runId, ok: true, unit_cost: unitCost, total_cost: totalCost });
@@ -133,21 +157,32 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM production_runs WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.stock_added) {
-    db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(row.qty_produced, row.product_id);
-    if (row.warehouse_id) {
-      db.prepare('UPDATE warehouse_stock SET qty=MAX(0,qty-?) WHERE product_id=? AND warehouse_id=?')
-        .run(row.qty_produced, row.product_id, row.warehouse_id);
-    }
-    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-      .run(row.product_id, req.user.id, -row.qty_produced, `ابطال اجرای تولید #${row.id}`);
+  if (row.voided) return res.status(409).json({ error: 'این اجرا قبلاً ابطال شده است' });
+  try {
+    db.transaction(() => {
+      if (row.stock_added) {
+        require('../lib/inventory/apparel-lines').reverseApparelDoc(db, {
+          docType: 'production_run', docId: row.id, userId: req.user.id,
+          note: `ابطال اجرای تولید #${row.id}`,
+        });
+        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(row.qty_produced, row.product_id);
+        if (row.warehouse_id) {
+          db.prepare('UPDATE warehouse_stock SET qty=MAX(0,qty-?) WHERE product_id=? AND warehouse_id=?')
+            .run(row.qty_produced, row.product_id, row.warehouse_id);
+        }
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+          .run(row.product_id, req.user.id, -row.qty_produced, `ابطال اجرای تولید #${row.id}`);
+      }
+      if (row.cost_updated && row.previous_cost != null) {
+        db.prepare('UPDATE products SET cost=? WHERE id=?').run(row.previous_cost, row.product_id);
+      }
+      db.prepare('UPDATE production_runs SET voided=1, stock_added=0 WHERE id=?').run(row.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_PRODUCTION' });
   }
-  if (row.cost_updated && row.previous_cost != null) {
-    db.prepare('UPDATE products SET cost=? WHERE id=?').run(row.previous_cost, row.product_id);
-  }
-  db.prepare('DELETE FROM production_runs WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'production_run', req.params.id, `حذف اجرای تولید #${req.params.id}`);
-  res.json({ ok: true });
+  audit(req.user.id, 'void', 'production_run', req.params.id, `ابطال اجرای تولید #${req.params.id}`);
+  res.json({ ok: true, voided: true });
 });
 
 module.exports = router;

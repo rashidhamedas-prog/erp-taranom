@@ -484,6 +484,9 @@ const FK_COLUMNS = [
   ['inventory_movements', 'warehouse_id'],
   ['variant_warehouse_stock', 'variant_id'],
   ['variant_warehouse_stock', 'warehouse_id'],
+  // Apparel lines on count and consignment (append-only)
+  ['consignments', 'variant_id'],
+  ['stocktaking_items', 'variant_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

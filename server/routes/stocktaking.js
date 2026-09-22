@@ -3,6 +3,7 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { applyCycleCount, voidCycleCount } = require('../lib/inventory/cycle-count');
+const { hasActiveMatrixVariants } = require('../lib/inventory/movement');
 const { round3, parseQty } = require('../lib/round3');
 
 function productsForWarehouse(db, warehouseId) {
@@ -15,17 +16,49 @@ function productsForWarehouse(db, warehouseId) {
     ORDER BY p.name
   `).all(warehouseId, warehouseId, warehouseId, warehouseId);
   const seen = new Set();
-  return rows.filter(r => {
+  const products = rows.filter(r => {
     if (seen.has(r.id)) return false;
     seen.add(r.id);
     return (r.warehouse_id === parseInt(warehouseId, 10)) || (r.wh_qty != null && r.wh_qty > 0);
-  }).map(r => ({
-    product_id: r.id,
-    code: r.code,
-    name: r.name,
-    unit: r.unit,
-    system_qty: round3(r.wh_qty != null ? r.wh_qty : (r.warehouse_id === parseInt(warehouseId, 10) ? (r.stock || 0) : 0))
-  }));
+  });
+  const out = [];
+  for (const r of products) {
+    if (hasActiveMatrixVariants(db, r.id)) {
+      const variants = db.prepare(`
+        SELECT pv.id, pv.stock, pc.name AS color_name, ps.name AS size_name,
+          COALESCE(vws.qty, 0) AS wh_qty
+        FROM product_variants pv
+        LEFT JOIN product_colors pc ON pc.id = pv.color_id
+        LEFT JOIN product_sizes ps ON ps.id = pv.size_id
+        LEFT JOIN variant_warehouse_stock vws
+          ON vws.variant_id = pv.id AND vws.warehouse_id = ?
+        WHERE pv.product_id=? AND pv.active=1 AND COALESCE(pv.is_default,0)=0
+        ORDER BY pc.sort_order, ps.sort_order, pv.id
+      `).all(warehouseId, r.id);
+      for (const v of variants) {
+        out.push({
+          product_id: r.id,
+          variant_id: v.id,
+          code: r.code,
+          name: r.name,
+          color_name: v.color_name || '',
+          size_name: v.size_name || '',
+          unit: r.unit,
+          system_qty: round3(v.wh_qty),
+        });
+      }
+      continue;
+    }
+    out.push({
+      product_id: r.id,
+      variant_id: null,
+      code: r.code,
+      name: r.name,
+      unit: r.unit,
+      system_qty: round3(r.wh_qty != null ? r.wh_qty : (r.warehouse_id === parseInt(warehouseId, 10) ? (r.stock || 0) : 0)),
+    });
+  }
+  return out;
 }
 
 function qtyFromConfirmed(it, fallback) {
@@ -86,11 +119,14 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   `).get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
   const items = db.prepare(`
-    SELECT i.*, p.code, p.name, p.unit
+    SELECT i.*, p.code, p.name, p.unit, pc.name AS color_name, ps.name AS size_name
     FROM stocktaking_items i
     JOIN products p ON i.product_id=p.id
+    LEFT JOIN product_variants pv ON pv.id=i.variant_id
+    LEFT JOIN product_colors pc ON pc.id=pv.color_id
+    LEFT JOIN product_sizes ps ON ps.id=pv.size_id
     WHERE i.session_id=?
-    ORDER BY p.name
+    ORDER BY p.name, pc.name, ps.name
   `).all(session.id);
   items.forEach(it => { it.variance = round3((it.counted_qty || 0) - (it.system_qty || 0)); });
   res.json({ session, items });
@@ -110,12 +146,12 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const sessionId = result.lastInsertRowid;
   const prods = productsForWarehouse(db, whId);
   const ins = db.prepare(`
-    INSERT INTO stocktaking_items (session_id,product_id,system_qty,counted_qty,count1_qty,confirmed_count)
-    VALUES (?,?,?,?,?,1)
+    INSERT INTO stocktaking_items (session_id,product_id,variant_id,system_qty,counted_qty,count1_qty,confirmed_count)
+    VALUES (?,?,?,?,?,?,1)
   `);
   for (const p of prods) {
     const sys = round3(p.system_qty || 0);
-    ins.run(sessionId, p.product_id, sys, sys, sys);
+    ins.run(sessionId, p.product_id, p.variant_id || null, sys, sys, sys);
   }
   audit(req.user.id, 'create', 'stocktaking', sessionId, `شروع انبارگردانی انبار #${whId}`);
   res.json({ id: sessionId, item_count: prods.length });

@@ -198,18 +198,21 @@ function backflushStageMaterials(db, {
     }
     const amount = Math.round(L.qty_final * unitCost);
 
+    let issued = null;
     if (L.qty_final > 0) {
       assertFabricIssueAllowed(db, {
         productId: L.product_id,
         qty: L.qty_final,
         orderId: po.id,
       });
-      issueFromStock(db, {
+      issued = issueFromStock(db, {
         productId: L.product_id,
         warehouseId: whId,
         qty: L.qty_final,
         userId,
         note: `مرحله ${stage.seq} — ${po.order_no}`,
+        variantId: L.variant_id,
+        variantLines: L.variant_lines,
       });
     }
 
@@ -217,7 +220,7 @@ function backflushStageMaterials(db, {
     try { docNo = allocateNumber(db, 'material_issue', 'MI'); }
     catch { docNo = `MI-${Date.now()}`; }
 
-    db.prepare(`
+    const stageIssue = db.prepare(`
       INSERT INTO production_material_issues
         (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
          qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
@@ -230,6 +233,13 @@ function backflushStageMaterials(db, {
       amount, Math.round(L.qty_final * (L.unit_cost_rial || unitCost)),
       whId, date, period, userId
     );
+    if (issued && issued.variantLines && issued.variantLines.length) {
+      require('../inventory/apparel-lines').postApparelLines(db, {
+        productId: L.product_id, warehouseId: whId, lines: issued.variantLines,
+        docType: 'production_issue', docId: stageIssue.lastInsertRowid, userId,
+        note: `مرحله ${stage.seq} — ${po.order_no}`, sign: -1, allowNegative: false,
+      });
+    }
 
     if (L.line_kind === 'packaging') pkgRial += amount;
     else matRial += amount;
@@ -792,6 +802,12 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const qtyGood = num(body.qty_produced != null ? body.qty_produced : last.qty_out);
     if (qtyGood <= 0) throw err('E_QTY_INVALID', 422);
 
+    const fgLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
+      productId: po.product_id, qty: qtyGood,
+      variantId: body.variant_id, variantLines: body.variant_lines,
+      sizeBreakdown: body.size_breakdown || po.size_breakdown,
+      color: body.color || po.color,
+    });
     const unitCost = Math.round(wipNet / qtyGood);
     const avg = updateMovingAverage(db, {
       productId: po.product_id,
@@ -816,6 +832,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       docNo, orderId, po.product_id, qtyGood, unitCost, wipNet, po.warehouse_fg_id,
       avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
     ).lastInsertRowid;
+    require('../inventory/apparel-lines').postApparelLines(db, {
+      productId: po.product_id, warehouseId: po.warehouse_fg_id,
+      lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
+      note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
+    });
 
     const je7 = postEvent(db, {
       event: 'PRD-07',
@@ -1161,14 +1182,16 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       const varQRial = Math.round(varQty * SP);
       const amount = Math.round(AQ * AP);
 
+      let issued = null;
       if (AQ > 0) {
-        issueFromStock(db, {
+        issued = issueFromStock(db, {
           productId: L.product_id, warehouseId: po.warehouse_raw_id, qty: AQ, userId,
           note: `حواله مرحله ${stage.seq}`,
+          variantId: L.variant_id, variantLines: L.variant_lines,
         });
       }
 
-      db.prepare(`
+      const stageIssue = db.prepare(`
         INSERT INTO production_material_issues
           (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
            qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
@@ -1180,6 +1203,14 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
         'issue', SQ, AQ, varQty, AP, SP, amount, Math.round(SQ * SP),
         varPRial, varQRial, po.warehouse_raw_id, date, period, L.reason || '', userId
       );
+      if (issued && issued.variantLines && issued.variantLines.length) {
+        require('../inventory/apparel-lines').postApparelLines(db, {
+          productId: L.product_id, warehouseId: po.warehouse_raw_id,
+          lines: issued.variantLines, docType: 'production_issue',
+          docId: stageIssue.lastInsertRowid, userId,
+          note: `حواله مرحله ${stage.seq}`, sign: -1, allowNegative: false,
+        });
+      }
 
       const kind = prod.item_type === 'packaging' ? 'packaging' : 'material';
       if (kind === 'packaging') pkgRial += amount;

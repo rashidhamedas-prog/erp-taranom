@@ -28,21 +28,18 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
   }
 
   db.transaction(() => {
-    for (const it of items) {
-      const counted = Math.max(0, parseQty(it.counted_qty));
-      const system = Number(it.system_qty) || 0;
-      const diff = counted - system;
-      if (diff === 0) continue;
-
-      const prod = db.prepare('SELECT * FROM products WHERE id=?').get(it.product_id);
-      if (!prod) continue;
+    const { postApparelLines } = require('./apparel-lines');
+    const variantGroups = new Map();
+    function bookHeader(productId, diff, note) {
+      if (!diff) return null;
+      const prod = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
+      if (!prod) return null;
       const unit = Math.round(Number(prod.average_cost_rial) || 0)
         || Math.round((Number(prod.cost) || 0) * 10);
       const amount = Math.round(Math.abs(diff) * unit);
-
       const led = postInventoryMovement(db, {
         eventType: 'cycle_count',
-        productId: it.product_id,
+        productId,
         warehouseId: session.warehouse_id,
         qty: diff,
         unitCostRial: unit,
@@ -50,15 +47,10 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
         sourceType: 'stocktaking',
         sourceId: session.id,
         date: session.date || '',
-        note: `انبارگردانی #${session.id}`,
+        note,
         createdBy,
         updateAvg: diff > 0,
       });
-
-      db.prepare(`
-        UPDATE stocktaking_items SET unit_cost_rial=?, amount_rial=?, ledger_id=? WHERE id=?
-      `).run(unit, amount * Math.sign(diff), led.id, it.id);
-
       const b = bucket(session.warehouse_id);
       if (diff > 0) {
         totalGainRial += amount;
@@ -66,6 +58,66 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
       } else {
         totalLossRial += amount;
         b.loss += amount;
+      }
+      return { led, unit, amount };
+    }
+
+    for (const it of items) {
+      const counted = Math.max(0, parseQty(it.counted_qty));
+      const system = Number(it.system_qty) || 0;
+      const diff = counted - system;
+      if (it.variant_id) {
+        if (!variantGroups.has(it.product_id)) variantGroups.set(it.product_id, []);
+        variantGroups.get(it.product_id).push({ it, counted, diff });
+        continue;
+      }
+      if (diff === 0) continue;
+      const booked = bookHeader(it.product_id, diff, `انبارگردانی #${session.id}`);
+      if (!booked) continue;
+      db.prepare(`
+        UPDATE stocktaking_items SET unit_cost_rial=?, amount_rial=?, ledger_id=? WHERE id=?
+      `).run(booked.unit, booked.amount * Math.sign(diff), booked.led.id, it.id);
+    }
+
+    for (const [productId, rows] of variantGroups) {
+      for (const row of rows) {
+        if (!row.diff) continue;
+        postApparelLines(db, {
+          productId,
+          warehouseId: session.warehouse_id,
+          lines: [{ variantId: row.it.variant_id, qty: Math.abs(row.diff) }],
+          docType: 'stocktaking_sku',
+          docId: session.id,
+          docLineStart: row.it.id,
+          userId: createdBy,
+          note: `انبارگردانی #${session.id}`,
+          sign: row.diff > 0 ? 1 : -1,
+          allowNegative: false,
+        });
+      }
+      const countedSum = rows.reduce((acc, row) => acc + row.counted, 0);
+      const ws = db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(productId, session.warehouse_id);
+      let headerQty = ws ? Number(ws.qty) || 0 : 0;
+      if (!ws) {
+        const anyWh = db.prepare('SELECT COUNT(*) c FROM warehouse_stock WHERE product_id=?').get(productId).c;
+        const owned = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(productId);
+        if (!anyWh && owned) {
+          headerQty = Number(owned.stock) || 0;
+          db.prepare(
+            'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
+          ).run(productId, session.warehouse_id, headerQty);
+        } else if (owned && owned.warehouse_id === session.warehouse_id) {
+          headerQty = Number(owned.stock) || 0;
+        }
+      }
+      const headerDiff = countedSum - headerQty;
+      const booked = bookHeader(productId, headerDiff, `انبارگردانی رنگ×سایز #${session.id}`);
+      if (booked) {
+        db.prepare(`
+          UPDATE stocktaking_items SET unit_cost_rial=?, amount_rial=?, ledger_id=? WHERE id=?
+        `).run(booked.unit, booked.amount * Math.sign(headerDiff), booked.led.id, rows[0].it.id);
       }
     }
 
@@ -144,6 +196,12 @@ function voidCycleCount(db, sessionId, { createdBy } = {}) {
         note: `ابطال انبارگردانی #${session.id}`,
       });
     }
+    require('./apparel-lines').reverseApparelDoc(db, {
+      docType: 'stocktaking_sku',
+      docId: session.id,
+      userId: createdBy,
+      note: `ابطال انبارگردانی #${session.id}`,
+    });
     if (session.je_id) {
       reverseJournalEntry(db, session.je_id, {
         userId: createdBy,

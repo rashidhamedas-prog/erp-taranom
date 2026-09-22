@@ -2701,6 +2701,9 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'consignments', 'issue_ledger_id', 'INTEGER');
   ensureColumn(db, 'consignments', 'record_status', "TEXT DEFAULT 'active'");
   ensureColumn(db, 'consignments', 'unit_price_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'consignments', 'variant_id', 'INTEGER');
+  ensureColumn(db, 'stocktaking_items', 'variant_id', 'INTEGER');
+  ensureColumn(db, 'production_runs', 'voided', 'INTEGER DEFAULT 0');
 
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.

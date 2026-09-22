@@ -1,3 +1,10 @@
+## 2026-09-22T16:25:00+03:30 — APPAREL-OPS-VARIANT
+
+- Invariant: a matrix product moves on-hand only through a named color×size in the same transaction as the header qty. Reversal of the variant layer uses `applyHeaderStock:false`.
+- Production issue/FG/scrap/simple run, cycle count, and consignment post that layer. Simple production runs void in place.
+- Tests on Node 20: apparel-ops 12/12, production-fixed 37/37, variant-stock 21/21, sms 22/22, sync 44/44.
+- SW `erp-taranom-v219`. Deploy pending overlay (Iran tree stays dirty).
+
 ## 2026-09-22T11:00:00+03:30 — PACK-SKU-CUSTOMER-SCOPE applied
 
 - Live pack on invoice/purchase/warehouse for every role; variant ledger `inventory_movements` + `variant_warehouse_stock` (sync append + backfill v14).

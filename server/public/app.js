@@ -6628,12 +6628,12 @@ async function stkOpenDetail(id){
       const v=counted-(it.system_qty||0);
       return `<tr data-stk-id="${it.id}">
         <td class="mono">${esc(it.code||'-')}</td>
-        <td>${esc(it.name||'-')}</td>
+        <td>${esc(it.name||'-')}${(it.color_name||it.size_name)?` <span class="muted">${esc([it.color_name,it.size_name].filter(Boolean).join(' / '))}</span>`:''}</td>
         <td>${esc(it.unit||'-')}</td>
         <td class="mono">${fmt(it.system_qty||0)}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c1" value="${c1}" data-csp-style="${CSP.style(`width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">`:`<span class="mono">${fmt(c1)}</span>`}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c2" value="${c2}" data-csp-style="${CSP.style(`width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">`:`<span class="mono">${c2===''?'—':fmt(c2)}</span>`}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c3" value="${c3}" data-csp-style="${CSP.style(`width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">`:`<span class="mono">${c3===''?'—':fmt(c3)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmt(c1)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c2 num-fit" value="${c2}">`:`<span class="mono">${c2===''?'—':fmt(c2)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c3 num-fit" value="${c3}">`:`<span class="mono">${c3===''?'—':fmt(c3)}</span>`}</td>
         <td>${editable?`<input type="text" class="stk-tag" value="${esc(it.count_tag||'')}" placeholder="تگ" data-csp-style="${CSP.style(`width:80px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">`:`<span>${esc(it.count_tag||'-')}</span>`}</td>
         <td>${editable?`<select class="stk-conf" data-csp-style="${CSP.style(`padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">
           <option value="1" ${conf===1?'selected':''}>۱</option>
@@ -6644,6 +6644,7 @@ async function stkOpenDetail(id){
       </tr>`;
     }).join('')||emptyRow(10)}</tbody></table></div></div>
     ${s.note?`<div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">یادداشت: ${esc(s.note)}</div>`:''}`;
+  if(typeof bindNumFit==='function') bindNumFit(box);
 }
 function stkNewModal(){
   const whs=CACHE.warehouses||CACHE._prodWarehouses||[];
@@ -10387,7 +10388,7 @@ async function renderConsignmentsTab(body){
       <th>جهت</th><th>شخص</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
-      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}</td>
+      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}${(r.color_name||r.size_name)?` <span class="muted">${esc([r.color_name,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td>
       <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
       <td class="mono">${escDate(r.date)}</td>
       <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
@@ -10417,7 +10418,8 @@ async function consignmentModal(){
       <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label>${personSelect('cs-person')}</div>
       <div class="fg"><label>انبار *</label><select id="cs-warehouse">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg full"><label>کالا *</label>${productSelect('cs-product')}</div>
-      <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
+      <div class="fg full" id="cs-variant-wrap" hidden><label>رنگ و سایز *</label><select id="cs-variant"></select></div>
+      <div class="fg"><label>تعداد *</label><input id="cs-qty" class="num-fit" type="number" min="1"></div>
       <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
       <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="cs-note"></textarea></div>
@@ -10425,6 +10427,23 @@ async function consignmentModal(){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveConsignment()})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  const prodInput=el('cs-product-input');
+  if(prodInput) prodInput.addEventListener('change', csLoadVariants);
+  if(el('cs-product')?.value) csLoadVariants();
+  if(typeof bindNumFit==='function') bindNumFit(el('modalRoot'));
+}
+async function csLoadVariants(){
+  const wrap=el('cs-variant-wrap'); const sel=el('cs-variant');
+  const pid=+el('cs-product')?.value;
+  if(!wrap||!sel) return;
+  if(!pid){ wrap.hidden=true; sel.innerHTML=''; return; }
+  let rows=[];
+  try{ rows=await api('GET','/product-variants?product_id='+pid+'&include_default=0')||[]; }
+  catch(e){ rows=[]; }
+  rows=(rows||[]).filter(v=>!v.is_default);
+  if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; return; }
+  wrap.hidden=false;
+  sel.innerHTML='<option value="">— انتخاب رنگ و سایز —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}</option>`).join('');
 }
 function filterCsPersons(){ /* personSelect روی فرم امانی */ }
 async function saveConsignment(){
@@ -10432,10 +10451,15 @@ async function saveConsignment(){
   const warehouse_id=+el('cs-warehouse').value||undefined;
   if(!person_id){ showToast('انتخاب شخص الزامی است','error'); return; }
   if(!product_id||!qty){ showToast('کالا و تعداد معتبر الزامی است','error'); return; }
+  if(!el('cs-variant-wrap') || el('cs-variant-wrap').hidden) await csLoadVariants();
+  const variant_id=+el('cs-variant')?.value||undefined;
+  if(el('cs-variant-wrap') && !el('cs-variant-wrap').hidden && !variant_id){
+    showToast('رنگ و سایز را انتخاب کنید','error'); return;
+  }
   try{
     await api('POST','/consignments',{
       direction:el('cs-direction').value, person_id, warehouse_id,
-      product_id, qty, unit_price:+el('cs-price').value||0, unit_price_rial:+el('cs-price').value||0,
+      product_id, variant_id, qty, unit_price:+el('cs-price').value||0, unit_price_rial:+el('cs-price').value||0,
       date:el('cs-date').value, note:el('cs-note').value
     });
     closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
@@ -12618,6 +12642,8 @@ function prodOrderErrMsg(e){
     E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا در «فرمول تولید» بسازید و فعال کنید',
     E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
     E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
+    E_VARIANT_REQUIRED:'برای این کالا تعداد هر رنگ و سایز را مشخص کنید',
+    E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید یکی نیست',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
     E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
   };
@@ -12733,6 +12759,11 @@ async function prodOrderReceiptModal(id){
   const defQty=remain>0?remain:planned||1;
   try{ preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+encodeURIComponent(defQty)); }catch(e){ preview=null; }
   const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(preview.costs.unit_cost_rial)+' ریال'):'دستمزد از فرمول ساخت/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
+  let variants=[];
+  try{
+    variants=(await api('GET','/product-variants?product_id='+order.product_id+'&include_default=0')||[]).filter(v=>!v.is_default);
+  }catch(e){ variants=[]; }
+  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pr-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="0"></td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع این ردیف‌ها باید با تعداد سالم برابر باشد.</p></div>`:'';
   showModal('رسید تولید — '+esc(order.order_no||''),`
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
@@ -12742,6 +12773,7 @@ async function prodOrderReceiptModal(id){
       <div class="fg"><label>تاریخ</label><input id="pr-date" value="${todayJalali()}"></div>
       <div class="fg full"><label><input type="checkbox" id="pr-partial" data-csp-style="${CSP.style(`width:auto`)}" ${remain>0&&defQty<planned?'checked':''}> رسید جزئی (سفارش در جریان می‌ماند)</label></div>
     </div>
+    ${varBlock}
     <p id="pr-hint" data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);margin-top:8px`)}">${esc(unitHint)}</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
@@ -12764,6 +12796,13 @@ async function prodOrderReceiptSave(id, forcePartial){
     showToast('مقدار سالم یا ضایعات را وارد کنید','error'); return;
   }
   const isPartial=forcePartial===true || !!el('pr-partial')?.checked;
+  const variant_lines=[...document.querySelectorAll('.pr-vqty')].map(inp=>({
+    variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
+  })).filter(l=>l.qty>0);
+  if(document.querySelector('.pr-vqty')){
+    const sum=variant_lines.reduce((a,l)=>a+l.qty,0);
+    if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با تعداد سالم برابر باشد','error'); return; }
+  }
   if(!isPartial && !confirm('ثبت نهایی — سفارش تکمیل می‌شود. ادامه؟')) return;
   try{
     const r=await api('POST','/production/orders/'+id+'/receipt',{
@@ -12772,7 +12811,8 @@ async function prodOrderReceiptSave(id, forcePartial){
       waste_normal:+el('pr-wn').value||0,
       waste_abnormal:+el('pr-wa').value||0,
       is_partial:isPartial?1:0,
-      auto_labor:true
+      auto_labor:true,
+      variant_lines
     });
     closeModal();
     showToast('ثبت شد — بهای واحد '+fmt(r.costs?.unit_cost_rial||0)+' ریال');
@@ -12811,7 +12851,16 @@ async function prodOrderIssueModal(id){
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}">ثبت حواله</button>
     </div>`);
-  lines.forEach((L,i)=>prodIssueRecalc(i));
+  lines.forEach((L,i)=>{
+    prodIssueRecalc(i);
+    api('GET','/product-variants?product_id='+L.product_id+'&include_default=0').then(vars=>{
+      const active=(vars||[]).filter(v=>!v.is_default);
+      if(!active.length) return;
+      const row=document.querySelector('#pim-rows tr[data-idx="'+i+'"] td');
+      if(!row || row.querySelector('.pim-variant')) return;
+      row.insertAdjacentHTML('beforeend', '<div><select class="pim-variant"><option value="">رنگ/سایز</option>'+active.map(v=>'<option value="'+v.id+'">'+esc(v.color_name||'')+' / '+esc(v.size_name||'')+'</option>').join('')+'</select></div>');
+    }).catch(()=>{});
+  });
 }
 function prodIssueRecalc(i){
   const row=document.querySelector(`#pim-rows tr[data-idx="${i}"]`);
@@ -12869,6 +12918,7 @@ async function prodOrderIssueSave(id){
   rows.forEach(row=>{
     materials.push({
       product_id:+row.dataset.pid,
+      variant_id:+row.querySelector('.pim-variant')?.value||undefined,
       qty_actual:+row.querySelector('.pim-qty-actual').value||0,
       reason:row.querySelector('.pim-reason')?.value||'',
     });
@@ -13146,7 +13196,7 @@ async function renderProductionTab(body){
       <td class="mono">${fmt(r.total_cost)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.round(r.unit_cost))}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:${r.margin>=0?'var(--green)':'var(--red)'}`)}">${fmt(Math.round(r.margin))}</td>
       <td class="mono">${Math.round(r.efficiency*100)}٪</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteProductionRun((r.id))})}">🗑️</button></td>
+      <td>${r.voided?`<span class="tag">ابطال‌شده</span>`:`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteProductionRun((r.id))})}">🚫 ابطال</button>`}</td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">این بخش صرفاً برای تحلیل هزینه و کارایی تولید است و سند حسابداری ایجاد نمی‌کند (سیستم دفتر مواد اولیه/در جریان ساخت جداگانه ندارد). در صورت فعال بودن گزینه‌های مربوطه، موجودی کالای ساخته‌شده و بهای تمام‌شده محصول به‌روزرسانی می‌شود.</div>`;
 }
@@ -13167,11 +13217,12 @@ async function productionModal(){
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کالای تولیدی *</label>${productSelect('pd-product')}</div>
+      <div class="fg full" id="pd-variant-wrap" hidden><label>رنگ و سایز *</label><select id="pd-variant"></select></div>
       <div class="fg"><label>انبار مقصد</label>
         <select id="pd-warehouse"><option value="">— انبار محصول —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
         </select></div>
-      <div class="fg"><label>تعداد تولیدی *</label><input id="pd-qty" type="number" min="1"></div>
+      <div class="fg"><label>تعداد تولیدی *</label><input id="pd-qty" class="num-fit" type="number" min="1"></div>
       <div class="fg"><label>تعداد ضایعات</label><input id="pd-waste-qty" type="number" min="0" value="0"></div>
       <div class="fg"><label>هزینه مواد اولیه (ت)</label><input id="pd-material" type="number" min="0" value="0"></div>
       <div class="fg"><label>هزینه دستمزد (ت)</label><input id="pd-labor" type="number" min="0" value="0"></div>
@@ -13190,6 +13241,23 @@ async function productionModal(){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductionRun()})}">💾 ثبت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  const prodInput=el('pd-product-input');
+  if(prodInput) prodInput.addEventListener('change', pdLoadVariants);
+  if(el('pd-product')?.value) pdLoadVariants();
+  if(typeof bindNumFit==='function') bindNumFit(el('modalRoot'));
+}
+async function pdLoadVariants(){
+  const wrap=el('pd-variant-wrap'); const sel=el('pd-variant');
+  const pid=+el('pd-product')?.value;
+  if(!wrap||!sel) return;
+  if(!pid){ wrap.hidden=true; sel.innerHTML=''; return; }
+  let rows=[];
+  try{ rows=await api('GET','/product-variants?product_id='+pid+'&include_default=0')||[]; }
+  catch(e){ rows=[]; }
+  rows=(rows||[]).filter(v=>!v.is_default);
+  if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; return; }
+  wrap.hidden=false;
+  sel.innerHTML='<option value="">— انتخاب رنگ و سایز —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}</option>`).join('');
 }
 async function suggestProductionOverhead(){
   const qty=+el('pd-qty').value||1;
@@ -13207,6 +13275,11 @@ async function suggestProductionOverhead(){
 async function saveProductionRun(){
   const product_id=+el('pd-product').value, qty_produced=+el('pd-qty').value;
   if(!product_id||!qty_produced){ showToast('کالا و تعداد تولیدی الزامی است','error'); return; }
+  if(!el('pd-variant-wrap') || el('pd-variant-wrap').hidden) await pdLoadVariants();
+  const variant_id=+el('pd-variant')?.value||undefined;
+  if(el('pd-variant-wrap') && !el('pd-variant-wrap').hidden && el('pd-update-stock').checked && !variant_id){
+    showToast('رنگ و سایز را انتخاب کنید','error'); return;
+  }
   const ohEl=el('pd-overhead');
   if(ohEl && !(+ohEl.value)){
     try{
@@ -13216,7 +13289,7 @@ async function saveProductionRun(){
   }
   try{
     await api('POST','/production',{
-      product_id, qty_produced,
+      product_id, qty_produced, variant_id,
       material_cost:+el('pd-material').value||0, labor_cost:+el('pd-labor').value||0,
       overhead_cost:+el('pd-overhead').value||0, packaging_cost:+el('pd-packaging').value||0,
       waste_qty:+el('pd-waste-qty').value||0, waste_cost:+el('pd-waste-cost').value||0,
@@ -13228,8 +13301,8 @@ async function saveProductionRun(){
   }catch(e){}
 }
 async function deleteProductionRun(id){
-  if(!confirm('این اجرای تولید حذف شود؟ در صورت افزایش موجودی/بهای تمام‌شده، هر دو بازگردانده می‌شوند.')) return;
-  try{ await api('DELETE','/production/'+id); showToast('حذف شد'); loadAccTab('production'); }catch(e){}
+  if(!confirm('این اجرای تولید ابطال شود؟ موجودی و بهای تمام‌شده برمی‌گردد و ردیف حذف نمی‌شود.')) return;
+  try{ await api('DELETE','/production/'+id); showToast('اجرای تولید ابطال شد'); loadAccTab('production'); }catch(e){}
 }
 
 /* ============================================================
@@ -21548,7 +21621,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>بازسازی اسناد کالا (<code>rebuild-product-docs.js</code>): برای هر کالا تفصیلی موجودی، کاردکس «موجودی اول دوره»، رسید انبار، دفتر موجودی، و در صورت داشتن بها سند حسابداری افتتاحیه ساخته می‌شود</li>
         <li>نسخه <b>دسکتاپ</b> دسترسی کامل برای کاربران/تنظیمات/عملیات دارد و می‌تواند مرجع باشد</li>
         <li>فاکتور: توضیحات ردیف در چاپ، تخفیف ٪↔مبلغ دوطرفه (ردیف و کل)، جمع تخفیف ردیف‌ها در جمع فاکتور</li>
-        <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی با <b>سه شمارش + تگ</b></li>
+        <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی با <b>سه شمارش + تگ</b> و برای کالای رنگ×سایز یک ردیف برای هر ترکیب</li>
         <li>دریافت: نقد / واریز بانکی / چک (هم‌تراز پرداخت)</li>
         <li>دسته‌بندی هزینه سلسله‌مراتبی (والد + کد معین/کل)؛ سمت و جایگاه اشخاص</li>
         <li>پورتال اتوماسیون: پرداخت در انتظار تأیید حسابداری، هزینه اضافه روی خروجی نهایی، امکانات/وظایف دپارتمان</li>
@@ -22037,7 +22110,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>اقدامات در انتظار و اعلان‌ها</h5><p>داشبورد مدیر ویجت «اقدامات در انتظار» دارد؛ آیکن 🔔 اعلان‌های فاکتور و پیگیری جدید را نشان می‌دهد.</p>
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
-      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
+      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. کالای رنگ و سایز ردیف‌جدا شمارش می‌شود. اعمال اصلاحات سند حسابداری را فقط به اندازه اختلاف موجودی سربرگ می‌سازد. رسید تولید، اجرای تولید ساده و کالای امانی هم بدون انتخاب رنگ و سایز ثبت نمی‌شوند. ابطال اجرای تولید ردیف را حذف نمی‌کند.</p>
       <h5>چندشرکتی و سال مالی</h5>
       <p>از <b>تنظیمات → عمومی</b> چند شرکت بسازید؛ هر شرکت فایل پایگاه جدا دارد. «ایجاد شرکت (خام)» فاکتور و سند شرکت جدید را صفر می‌کند و کالا/مشتری شرکت فعلی را کپی نمی‌کند. تا وقتی «انتخاب» نزنید روی شرکت قبلی می‌مانید. پس از تعویض شرکت باید دوباره وارد شوید.</p>
       <p>از <b>تنظیمات → حسابداری</b> یا <b>حسابداری → عملیات سال مالی</b>:</p>

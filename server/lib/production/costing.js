@@ -36,9 +36,14 @@ function ensureWhRow(db, productId, warehouseId) {
 /**
  * Issue (consume) stock. Throws E_NEGATIVE_STOCK unless allow-negative setting.
  */
-function issueFromStock(db, { productId, warehouseId, qty, userId, note }) {
+function issueFromStock(db, { productId, warehouseId, qty, userId, note, variantId, variantLines, sizeBreakdown, color }) {
   const q = Number(qty) || 0;
-  if (q <= 0) return { ok: true, qty: 0 };
+  if (q <= 0) return { ok: true, qty: 0, variantLines: [] };
+
+  const { resolveApparelLines } = require('../inventory/apparel-lines');
+  const apparelLines = resolveApparelLines(db, {
+    productId, qty: q, variantId, variantLines, sizeBreakdown, color,
+  });
 
   const prod = db.prepare('SELECT id, stock, name FROM products WHERE id=?').get(productId);
   if (!prod) throw err('E_NOT_FOUND', 404, { productId });
@@ -74,7 +79,7 @@ function issueFromStock(db, { productId, warehouseId, qty, userId, note }) {
     'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
   ).run(productId, userId || null, -q, note || 'مصرف تولید');
 
-  return { ok: true, qty: q, remaining: avail - q };
+  return { ok: true, qty: q, remaining: avail - q, variantLines: apparelLines };
 }
 
 /**
@@ -129,11 +134,17 @@ function updateMovingAverage(db, { productId, warehouseId, qtyIn, amountRial, us
 
 function receiveScrap(db, {
   productId, qty, unitRial, warehouseId, userId, orderId, date, period, nrvAmount,
+  variantId, variantLines, sizeBreakdown, color,
 }) {
   const q = Number(qty) || 0;
   const unit = Math.round(Number(unitRial) || 0);
   const amt = nrvAmount != null ? Math.round(nrvAmount) : Math.round(q * unit);
   if (q <= 0) return { amount_rial: 0 };
+
+  const { resolveApparelLines, postApparelLines } = require('../inventory/apparel-lines');
+  const apparelLines = resolveApparelLines(db, {
+    productId, qty: q, variantId, variantLines, sizeBreakdown, color,
+  });
 
   const prod = db.prepare('SELECT id, stock, average_cost_rial FROM products WHERE id=?').get(productId);
   if (!prod) throw err('E_NOT_FOUND', 404, { productId });
@@ -158,7 +169,16 @@ function receiveScrap(db, {
     'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
   ).run(productId, userId || null, q, `ضایعات قابل فروش — سفارش ${orderId || ''}`);
 
-  return { amount_rial: amt, unit_rial: unit, qty: q, date, period };
+  if (orderId && apparelLines.length) {
+    postApparelLines(db, {
+      productId, warehouseId, lines: apparelLines,
+      docType: 'production_scrap', docId: orderId, docLineStart: productId,
+      userId, note: `ضایعات قابل فروش — سفارش ${orderId || ''}`,
+      sign: 1, allowNegative: true,
+    });
+  }
+
+  return { amount_rial: amt, unit_rial: unit, qty: q, date, period, variantLines: apparelLines };
 }
 
 function restoreStock(db, { productId, warehouseId, qty, userId, note }) {

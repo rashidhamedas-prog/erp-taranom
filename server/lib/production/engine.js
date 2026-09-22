@@ -352,12 +352,14 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         qty: L.qty_final,
         orderId,
       });
-      issueFromStock(db, {
+      const issued = issueFromStock(db, {
         productId: L.product_id,
         warehouseId: po.warehouse_raw_id,
         qty: L.qty_final,
         userId,
         note: `تولید ${po.order_no}`,
+        variantId: L.variant_id,
+        variantLines: L.variant_lines,
       });
 
       let stdCost = 0;
@@ -370,7 +372,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       try { docNo = allocateNumber(db, 'material_issue', 'MI'); }
       catch { docNo = `MI-${Date.now()}`; }
 
-      db.prepare(`
+      const issueInfo = db.prepare(`
         INSERT INTO production_material_issues
           (doc_no, order_id, cost_center_id, product_id, bom_line_id, issue_type,
            qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
@@ -384,6 +386,14 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         Math.round(L.qty_final * (unitCost - stdCost)),
         po.warehouse_raw_id, date, period, userId
       );
+      if (issued.variantLines && issued.variantLines.length) {
+        require('../inventory/apparel-lines').postApparelLines(db, {
+          productId: L.product_id, warehouseId: po.warehouse_raw_id,
+          lines: issued.variantLines, docType: 'production_issue',
+          docId: issueInfo.lastInsertRowid, userId,
+          note: `تولید ${po.order_no}`, sign: -1, allowNegative: false,
+        });
+      }
 
       if (L.line_kind === 'packaging') pkgRial += amount;
       else matRial += amount;
@@ -595,6 +605,12 @@ function postReceiptFixed(db, { orderId, body, userId }) {
 
     let unitCost = 0, receiptId = null;
     if (qtyGood > 0) {
+      const fgLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
+        productId: po.product_id, qty: qtyGood,
+        variantId: body.variant_id, variantLines: body.variant_lines,
+        sizeBreakdown: body.size_breakdown || po.size_breakdown,
+        color: body.color || po.color,
+      });
       unitCost = Math.round(wipNet / qtyGood);
       const avg = updateMovingAverage(db, {
         productId: po.product_id,
@@ -624,6 +640,11 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         body.is_partial ? 1 : 0,
         avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
       ).lastInsertRowid;
+      require('../inventory/apparel-lines').postApparelLines(db, {
+        productId: po.product_id, warehouseId: po.warehouse_fg_id,
+        lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
+        note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
+      });
 
       const je6 = postEvent(db, {
         event: 'PRD-07',
@@ -889,6 +910,10 @@ function reverseOrder(db, orderId, userId, reason = '') {
         'INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)'
       ).run(r.product_id, userId, -r.qty, `ابطال رسید ${po.order_no}`);
       db.prepare(`UPDATE production_receipts SET status='reversed' WHERE id=?`).run(r.id);
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'production_fg', docId: r.id, userId,
+        note: `ابطال رسید ${po.order_no}`,
+      });
     }
 
     // Restore materials (issue does not change average_cost)
@@ -898,6 +923,10 @@ function reverseOrder(db, orderId, userId, reason = '') {
         warehouseId: i.warehouse_id,
         qty: i.qty_actual,
         userId,
+        note: `ابطال مصرف ${po.order_no}`,
+      });
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'production_issue', docId: i.id, userId,
         note: `ابطال مصرف ${po.order_no}`,
       });
       db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
@@ -916,6 +945,10 @@ function reverseOrder(db, orderId, userId, reason = '') {
       }
       db.prepare(`UPDATE production_waste SET status='reversed' WHERE id=?`).run(w.id);
     }
+    require('../inventory/apparel-lines').reverseApparelDoc(db, {
+      docType: 'production_scrap', docId: orderId, userId,
+      note: `ابطال ضایعات ${po.order_no}`,
+    });
 
     for (const o of ohs) {
       db.prepare(`UPDATE production_overhead_applications SET status='reversed' WHERE id=?`).run(o.id);
@@ -1068,12 +1101,19 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
       }
 
       const amount = Math.round(AQ * unitCost);
+      let apparelLines = [];
       if (AQ > 0) {
-        issueFromStock(db, {
+        const issued = issueFromStock(db, {
           productId: L.product_id, warehouseId: whId, qty: AQ, userId,
           note: `حواله ${issueNo}`,
+          variantId: L.variant_id, variantLines: L.variant_lines,
         });
+        apparelLines = issued.variantLines || [];
       } else if (AQ < 0) {
+        apparelLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
+          productId: L.product_id, qty: -AQ,
+          variantId: L.variant_id, variantLines: L.variant_lines,
+        });
         recalcAvgOnReturn(db, {
           productId: L.product_id, warehouseId: whId, qty: -AQ,
           unitCostRial: unitCost, userId,
@@ -1081,7 +1121,7 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
         });
       }
 
-      db.prepare(`
+      const issueInfo = db.prepare(`
         INSERT INTO production_material_issues
           (doc_no, order_id, cost_center_id, product_id, bom_line_id, issue_type,
            qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
@@ -1096,6 +1136,13 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
         varPRial, varQRial, whId, L.substitute_of_product_id || null,
         date, period, L.reason || '', userId
       );
+      if (apparelLines.length) {
+        require('../inventory/apparel-lines').postApparelLines(db, {
+          productId: L.product_id, warehouseId: whId, lines: apparelLines,
+          docType: 'production_issue', docId: issueInfo.lastInsertRowid, userId,
+          note: `حواله ${issueNo}`, sign: AQ < 0 ? 1 : -1, allowNegative: false,
+        });
+      }
 
       const kind = s?.kind || (prod.item_type === 'packaging' ? 'packaging' : 'material');
       if (kind === 'packaging') pkgRial += amount;
@@ -1338,6 +1385,12 @@ function postReceiptVariable(db, { orderId, body, userId }) {
 
     let unitCost = 0, receiptId = null;
     if (qtyGood > 0) {
+      const fgLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
+        productId: po.product_id, qty: qtyGood,
+        variantId: body.variant_id, variantLines: body.variant_lines,
+        sizeBreakdown: body.size_breakdown || po.size_breakdown,
+        color: body.color || po.color,
+      });
       unitCost = Math.round(wipNet / qtyGood);
       const avg = updateMovingAverage(db, {
         productId: po.product_id, warehouseId: po.warehouse_fg_id,
@@ -1356,6 +1409,11 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         docNo, orderId, po.product_id, qtyGood, unitCost, wipNet, po.warehouse_fg_id,
         body.is_partial ? 1 : 0, avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
       ).lastInsertRowid;
+      require('../inventory/apparel-lines').postApparelLines(db, {
+        productId: po.product_id, warehouseId: po.warehouse_fg_id,
+        lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
+        note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
+      });
 
       const je6 = postEvent(db, {
         event: 'PRD-07', sourceId: receiptId, date,
