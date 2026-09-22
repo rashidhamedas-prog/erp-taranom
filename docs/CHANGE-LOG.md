@@ -15,7 +15,7 @@
 - **تست (Node 20):** apparel-ops 12/12، production-fixed 37/37، variant-stock 21/21، sms 22/22، sync 44/44، تشخیص شکاف mismatches=[].
 - **فایل‌ها:** server/lib/inventory/{apparel-lines,cycle-count}.js, server/lib/production/{costing,engine,engine-advanced}.js, server/lib/consignments.js, server/routes/{production,stocktaking}.js, server/{db.js,sync/tables.js}, server/public/{app.js,sw.js}, server/scripts/test-apparel-ops-v219.js
 - **SW:** erp-taranom-v219
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ e6679ff — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی origin برابر erp-taranom-v219. HEAD سرور همان 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۶/۳۱ — پک زنده رنگ×سایز، حرکت موجودی واریانت، مشتریِ هر کاربر (SW v218)
 

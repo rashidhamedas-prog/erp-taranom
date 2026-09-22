@@ -1,10 +1,10 @@
 # Project Status
 
 - Last verified: 2026-09-22
-- **Active task:** `APPAREL-OPS-VARIANT` — production, stocktaking, and consignment color×size layer (SW v219)
-- **Closed this turn:** `PACK-SKU-CUSTOMER-SCOPE` — live pack, variant stock ledger, customer owner scope, num-fit (SW v218)
-- **Iran last:** SW **erp-taranom-v218** overlay SFTP @ `c76f3ee` — health/ready/root 200 (dirty tree, no pull)
-- **Primary tip:** `main` @ `81f031d` plus uncommitted apparel-ops
+- **Active task:** none — `APPAREL-OPS-VARIANT` closed
+- **Closed this turn:** `APPAREL-OPS-VARIANT` — production, stocktaking, and consignment color×size layer (SW v219)
+- **Iran last:** SW **erp-taranom-v219** overlay SFTP @ `e6679ff` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
+- **Primary tip:** `main` @ `e6679ff`
 - Prior: `main` = `claude/claude-md-docs-2ssrpy` = `feat/pack-sku-customer-scope` @ `c76f3ee`
 - Prior history below kept for context.
 
