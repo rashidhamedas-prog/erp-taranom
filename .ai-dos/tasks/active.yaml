@@ -42,7 +42,7 @@ tasks:
       Production diagnosis found /dev/vda1 at 100% and 43G/7316 files in the
       same-device BACKUP_OFFSITE_DIR mirror. Existing primary prune logic does
       not prune the mirror. Preserve user-owned dirty files and use previewed,
-      bounded GFS cleanup only.
+      bounded GFS cleanup only. GitHub FF to main+alias completed 2026-09-22.
   - id: "EXCEL-PRODUCTS-CATALOG-V216"
     title: "Excel product catalog past 200-row cap + 3-decimal opening qty"
     status: "completed"

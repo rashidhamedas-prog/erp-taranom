@@ -1,3 +1,12 @@
+## 2026-09-22T09:15:00+03:30 — GitHub FF login-disk + close remaining tasks
+
+- Owner asked full commit/merge/push/deploy and close all open tasks.
+- `LOGIN-DISK-BACKUP-RETENTION` was completed on Iran overlay but not on GitHub `main`; FF from `fix/LOGIN-DISK-BACKUP-RETENTION`.
+- `EXCEL-PRODUCTS-CATALOG-V216` already completed (SW v217). invoices.js overlay stamped.
+- All `.ai-dos/tasks/active.yaml` items remain `completed`/`superseded`; claims empty.
+- Did not commit leftover production docx or `_inspect/_repair/_run/_deploy` scripts.
+- Dependabot PRs left open (hygiene non-goal).
+
 ## 2026-09-17T02:45:00+03:30 — close Excel catalog + leftover invoice gate
 
 - Owner asked full commit/merge/push/deploy and close open tasks.

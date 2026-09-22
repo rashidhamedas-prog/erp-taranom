@@ -2,10 +2,10 @@
 
 - Last verified: 2026-09-17
 - **Active task:** none
-- **Closed this turn:** production login/disk recovery + bounded backup retention
+- **Closed this turn:** GitHub FF of `LOGIN-DISK-BACKUP-RETENTION` onto `main` + alias
 - **Closed this turn:** `EXCEL-PRODUCTS-CATALOG-V216` (SW v216 catalog cap + v217 qty decimals)
 - **Iran last:** SW **erp-taranom-v217** plus `server/backup.js` retention overlay SHA-256 `62ffef6a…`; disk 22% used / 44G free; ready 200
-- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `feat/EXCEL-PRODUCTS-CATALOG-V216`
+- **Primary tip:** `main` = `claude/claude-md-docs-2ssrpy` = `fix/LOGIN-DISK-BACKUP-RETENTION`
 - Prior history below kept for context.
 
 ## Working quality commands

@@ -14,6 +14,7 @@
 - **Deploy:** `server/backup.js` overlay با SHA-256 `62ffef6ac0a0f13dd13d81ed493d892ff957cd21be74e47f6cd0b7b7c050d49e`؛ rollback در `_recover/backup.js.pre-login-disk-20260917`؛ `pm2 restart erp-taranom` بدون `--update-env`؛ ready/health/root = 200.
 - **تست production-isolated:** retention `5320→132` PASS؛ offsite policy `4/4`؛ encrypted DR/restore `14/14`؛ public login probe = JSON 401 صحیح با rate remaining `19/20` (مسیر auth سالم، بدون 5xx/ENOSPC).
 - **فایل‌ها:** `server/backup.js`, `server/scripts/{test-backup-retention,test-backup-dr,test-backup-offsite-policy}.js`, `docs/08-deployment.md`.
+- **GitHub:** FF به `main` + alias `claude/claude-md-docs-2ssrpy` از `fix/LOGIN-DISK-BACKUP-RETENTION`.
 
 ## ┘é╪º┘å┘ê┘å ╪¿╪▒╪º█î ╪»╪│╪¬█î╪º╪▒ (Cursor / Claude Code)
 
@@ -28,7 +29,7 @@
 
 - **چه شد:** تسک ورود اکسل کالا (v216/v217) بسته شد. گیت بک‌اند `invoices.js` که از قبل با UI هم‌خوان بود ولی commit نشده بود ثبت شد: کارشناس فروش/بازاریاب فقط پیش‌فاکتور می‌زند و تبدیل برای او ۴۰۳ است.
 - **فایل‌ها:** `server/routes/invoices.js`, `.ai-dos/tasks/{active.yaml,handoff.md}`, `.ai-dos/project/status.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP invoices.js با lineage `ccccd56` — health/ready/root 200
 - **SW:** بدون تغییر (erp-taranom-v217)
 
 ### ۱۴۰۵/۰۶/۲۲ — ورود اکسل کالا: موجودی متری اعشاری (SW v217)
