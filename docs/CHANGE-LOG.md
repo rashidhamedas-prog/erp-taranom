@@ -13,7 +13,7 @@
 - **تست (Node 20):** variant-stock-report ۲۴/۲۴، sms ۲۲/۲۲، sync ۴۴/۴۴.
 - **فایل‌ها:** server/lib/inventory/variant-report.js, server/routes/warehouses.js, server/public/{variant-stock-report.js,app.js,app.css,acc-nav.js,index.html,sw.js}, server/scripts/test-variant-stock-report.js
 - **SW:** erp-taranom-v223
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 1e825cb — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی سرور erp-taranom-v223. HEAD سرور همان 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۷/۰۱ — دامنهٔ CRM هم‌تراز فهرست مشتری و برچسب نقش (SW v222)
 
