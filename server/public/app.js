@@ -1622,6 +1622,7 @@ const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
+  'acc-variant-stock-report':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
   'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-fabric-roll-kardex':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
@@ -7573,7 +7574,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -8148,6 +8149,8 @@ async function loadAccTab(tab){
     await renderDetailAccountsTab(body);
   } else if(tab==='units'){
     await renderUnitsTab(body);
+  } else if(tab==='variant-stock-report'){
+    await renderVariantStockReportTab(body);
   } else if(tab==='warehouse-report'){
     await renderWarehouseReportTab(body);
   } else if(tab==='sync-devices'){
@@ -21901,6 +21904,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
+        <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زنده رنگ×سایز شکسته می‌شود و هر خط <code>variant_id</code> می‌فرستد. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>

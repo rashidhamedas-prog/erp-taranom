@@ -11,6 +11,7 @@ const { acct } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
 const { voidWarehouseMove } = require('../lib/void-warehouse-move');
 const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
+const { buildVariantStockReport } = require('../lib/inventory/variant-report');
 
 function parseVariantId(body) {
   if (!body || body.variant_id == null || body.variant_id === '') return null;
@@ -146,6 +147,15 @@ router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
     });
   })();
   res.json({ filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero }, rows: overview });
+});
+
+/** Color × size stock dashboard. Snapshot, not a date-ranged ledger. */
+router.get('/stock/variant-report', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildVariantStockReport(getDB(), req.query));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || String(e) });
+  }
 });
 
 // INV-03 — shared picker for receipt/issue/transfer lines (before /:id)
