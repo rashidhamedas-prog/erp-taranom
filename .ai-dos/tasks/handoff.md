@@ -3,7 +3,7 @@
 - Invariant: receivables stay the sum of positive balances of unique customer tafsili codes. A shared code is counted once. `asOf` still cuts journal `entry_date` and ledger `date`.
 - Accounting overview no longer runs one SUM per customer. Cheque due alerts compare Jalali strings; blank due dates are ignored. The accounting dashboard shows those alerts.
 - Tests on Node 20: dashboard-hotpath 6/6. `test-stmt-gl-cheque-v180.js` still 17/21 on HEAD before this change (endorse closing).
-- SW `erp-taranom-v221`. Deploy pending.
+- SW `erp-taranom-v221`. Iran overlay SFTP @ 6529a32 — health/ready/root 200. Dirty tree, no pull; server HEAD stayed 8a5cd54.
 
 ## 2026-09-23T13:20:00+03:30 — STOCKTAKE-COLOR-SIZE
 

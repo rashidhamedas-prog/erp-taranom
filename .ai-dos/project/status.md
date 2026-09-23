@@ -1,9 +1,9 @@
 # Project Status
 
 - Last verified: 2026-09-23
-- **Active task:** none — dashboard hotpath closed locally, deploy pending
+- **Active task:** none — dashboard hotpath closed
 - **Closed this turn:** dashboard AR balance is one grouped query per book; Jalali cheque alert is visible on the accounting dashboard (SW v221)
-- **Iran last:** SW **erp-taranom-v220** overlay SFTP @ `4f75a74` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
+- **Iran last:** SW **erp-taranom-v221** overlay SFTP @ `6529a32` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
 - **Primary tip:** `main` @ `4f75a74`
 - Prior: `main` = `claude/claude-md-docs-2ssrpy` = `feat/pack-sku-customer-scope` @ `c76f3ee`
 - Prior history below kept for context.

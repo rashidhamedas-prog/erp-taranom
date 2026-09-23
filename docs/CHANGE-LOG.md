@@ -13,7 +13,7 @@
 - **تست (Node 20):** dashboard-hotpath 6/6، sms 22/22. رگرسیون statement v180 همان ۴ شکست قبلی را دارد (خرج چک در مانده دفتر کل) و از این تغییر نیست. پرچم نامعتبر `keyGeneratorIpFallback` در express-rate-limit 7.5 دیگر خطای بوت نمی‌نویسد.
 - **فایل‌ها:** server/lib/customer-books.js, server/routes/dashboard.js, server/server.js, server/public/{app.js,index.html,sw.js}, server/scripts/test-dashboard-hotpath.js
 - **SW:** erp-taranom-v221
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 6529a32 — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی سرور erp-taranom-v221. HEAD سرور همان 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۷/۰۱ — انبارگردانی به ردیف رنگ×سایز (SW v220)
 
