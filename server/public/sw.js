@@ -1,5 +1,5 @@
 ﻿// ERP Taranom - service worker: network-first for HTML+JS+CSS, cache-first for images
-const CACHE = 'erp-taranom-v220';
+const CACHE = 'erp-taranom-v221';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();

@@ -230,8 +230,8 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: rateLimitKey,
-  // express-rate-limit v7: custom keyGenerator without IP is intentional (token/NAT)
-  validate: { keyGeneratorIpFallback: false },
+  // Custom key (token hash or IP) is intentional behind office NAT.
+  // express-rate-limit 7.5 rejects the old keyGeneratorIpFallback validation flag.
   skip: shouldSkipApiRateLimit,
   message: { error: 'تعداد درخواست‌ها زیاد است. یک دقیقه صبر کنید و صفحه را تازه کنید.', code: 'RATE_LIMIT' },
 });

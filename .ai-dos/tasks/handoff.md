@@ -1,3 +1,10 @@
+## 2026-09-23T14:10:00+03:30 — DASHBOARD-HOTPATH
+
+- Invariant: receivables stay the sum of positive balances of unique customer tafsili codes. A shared code is counted once. `asOf` still cuts journal `entry_date` and ledger `date`.
+- Accounting overview no longer runs one SUM per customer. Cheque due alerts compare Jalali strings; blank due dates are ignored. The accounting dashboard shows those alerts.
+- Tests on Node 20: dashboard-hotpath 6/6. `test-stmt-gl-cheque-v180.js` still 17/21 on HEAD before this change (endorse closing).
+- SW `erp-taranom-v221`. Deploy pending.
+
 ## 2026-09-23T13:20:00+03:30 — STOCKTAKE-COLOR-SIZE
 
 - Invariant: an open count of a matrix product is one line per color×size. Untouched lines do not write off a header qty that is not yet on those SKUs.

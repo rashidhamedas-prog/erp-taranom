@@ -7458,9 +7458,13 @@ ROUTES['acc-dash'] = async function(){
   if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const ovQ=accDateTo?'?asOf='+encodeURIComponent(accDateTo):'';
-  const ov = await api('GET','/accounting/overview'+ovQ);
+  const [ov, alertPack, pendingRep] = await Promise.all([
+    api('GET','/accounting/overview'+ovQ),
+    api('GET','/dashboard/alerts', null, false, true).catch(()=>null),
+    api('GET','/reps/payments/pending').catch(()=>[]),
+  ]);
   if(!ov) return;
-  const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
+  const dashAlerts = (alertPack && alertPack.data && alertPack.data.alerts) || [];
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
   const recv = Number(ov.totalReceivable != null ? ov.totalReceivable : ov.outstanding)||0;
@@ -7477,6 +7481,7 @@ ROUTES['acc-dash'] = async function(){
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">مانده‌ها از دفتر کل تا ${esc(cutoffLabel)}</span>
     </div>
     ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(ov.outstandingLedger||0)}) با دفتر کل (${fmt(recv)}) یکی نیست. عدد کارت‌ها از دفتر کل است.</div></div>`:''}
+    ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
@@ -21557,7 +21562,8 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از تفصیلی خودش است (بستانکاران جدا جمع می‌شوند) — نه خالص کل پرتفوی. کارت و دفتر مشتری با همین روش مقایسه می‌شوند</li>
+        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از تفصیلی خودش است (بستانکاران جدا جمع می‌شوند) — نه خالص کل پرتفوی. کد تفصیلی مشترک فقط یک‌بار جمع می‌شود. کارت و دفتر مشتری با همین روش مقایسه می‌شوند</li>
+        <li><b>هشدار بالای داشبورد حسابداری:</b> چک در جریان با تاریخ سررسید شمسیِ پر، اگر سررسیدش گذشته یا تا ۷ روز آینده باشد؛ کالای زیر حد موجودی؛ سند پیش‌نویس. تاریخ خالی چک شمرده نمی‌شود</li>
         <li><b>صورت‌حساب مشتری</b> ردیف‌ها را از همان تفصیلی دفتر کل می‌سازد (خرج چک، سند دستی، فاکتور). دفتر مشتری نمای دوم است</li>
         <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
         <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>

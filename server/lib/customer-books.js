@@ -775,25 +775,12 @@ function eachUniqueCustomerCoa(db, fn) {
   }
 }
 
-function glCustomersTafsiliBalance(db, { asOf } = {}) {
+function foldSignedRows(rows) {
   let debit = 0;
   let credit = 0;
   let display = 0;
   let creditor = 0;
-  eachUniqueCustomerCoa(db, (_c, code) => {
-    const params = [code];
-    let asOfSql = '';
-    if (asOf) { asOfSql = ' AND je.entry_date <= ?'; params.push(asOf); }
-    const row = db.prepare(`
-      SELECT
-        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
-        COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
-      FROM journal_lines jl
-      JOIN journal_entries je ON jl.entry_id = je.id
-      WHERE jl.account_code = ?
-        AND ${JE_ALIVE}
-        ${asOfSql}
-    `).get(...params);
+  for (const row of rows) {
     const d = Number(row.debit || 0);
     const cr = Number(row.credit || 0);
     debit += d;
@@ -801,41 +788,50 @@ function glCustomersTafsiliBalance(db, { asOf } = {}) {
     const signed = d - cr;
     if (signed > 0) display += signed;
     else if (signed < 0) creditor += -signed;
-  });
-  return {
-    debit, credit, signed: debit - credit,
-    display,
-    creditor,
-  };
+  }
+  return { debit, credit, signed: debit - credit, display, creditor };
+}
+
+function glCustomersTafsiliBalance(db, { asOf } = {}) {
+  const params = [];
+  let asOfSql = '';
+  if (asOf) { asOfSql = ' AND je.entry_date <= ?'; params.push(asOf); }
+  const rows = db.prepare(`
+    SELECT
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
+      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id = je.id
+    WHERE ${JE_ALIVE}
+      ${asOfSql}
+      AND jl.account_code IN (
+        SELECT coa_code FROM customers
+        WHERE coa_code IS NOT NULL AND TRIM(coa_code) <> ''
+      )
+    GROUP BY jl.account_code
+  `).all(...params);
+  return foldSignedRows(rows);
 }
 
 /** Same unique-code set as GL — so dashboard compares apples to apples. */
 function customerLedgerTafsiliBalance(db, { asOf } = {}) {
-  let debit = 0;
-  let credit = 0;
-  let display = 0;
-  let creditor = 0;
-  eachUniqueCustomerCoa(db, (c) => {
-    const params = [c.id];
-    let asOfSql = '';
-    if (asOf) { asOfSql = ' AND date <= ?'; params.push(asOf); }
-    const row = db.prepare(`
-      SELECT COALESCE(SUM(debit),0) AS debit, COALESCE(SUM(credit),0) AS credit
-      FROM customer_ledger WHERE customer_id=? ${asOfSql}
-    `).get(...params);
-    const d = Number(row.debit || 0);
-    const cr = Number(row.credit || 0);
-    debit += d;
-    credit += cr;
-    const signed = d - cr;
-    if (signed > 0) display += signed;
-    else if (signed < 0) creditor += -signed;
-  });
-  return {
-    debit, credit, signed: debit - credit,
-    display,
-    creditor,
-  };
+  const params = [];
+  let asOfSql = '';
+  if (asOf) { asOfSql = ' AND cl.date <= ?'; params.push(asOf); }
+  const rows = db.prepare(`
+    SELECT
+      COALESCE(SUM(cl.debit), 0) AS debit,
+      COALESCE(SUM(cl.credit), 0) AS credit
+    FROM (
+      SELECT MIN(id) AS id
+      FROM customers
+      WHERE coa_code IS NOT NULL AND TRIM(coa_code) <> ''
+      GROUP BY coa_code
+    ) c
+    LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${asOfSql}
+    GROUP BY c.id
+  `).all(...params);
+  return foldSignedRows(rows);
 }
 
 /**
