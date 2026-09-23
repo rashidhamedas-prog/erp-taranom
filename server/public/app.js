@@ -6616,10 +6616,30 @@ async function stkOpenDetail(id){
       <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b data-csp-style="${CSP.style(`color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}`)}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
     </div>
     <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>کد</th><th>کالا</th><th>واحد</th><th>سیستم</th>
+      <th>کد</th><th>کالا</th><th>رنگ</th><th>سایز</th><th>واحد</th><th>سیستم</th>
       <th>شمارش ۱</th><th>شمارش ۲</th><th>شمارش ۳</th>
       <th>تگ</th><th>تأیید</th><th>اختلاف</th>
-    </tr></thead><tbody>${items.map(it=>{
+    </tr></thead><tbody>${stkDetailRows(items, editable)||emptyRow(12)}</tbody></table></div></div>
+    ${s.note?`<div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">یادداشت: ${esc(s.note)}</div>`:''}`;
+  if(typeof bindNumFit==='function') bindNumFit(box);
+}
+function stkDetailRows(items, editable){
+  const groups=[];
+  const index={};
+  (items||[]).forEach(it=>{
+    const key=String(it.product_id);
+    if(index[key]==null){
+      index[key]=groups.length;
+      groups.push({ items:[], name:it.name, code:it.code, header:+it.header_qty||0 });
+    }
+    groups[index[key]].items.push(it);
+  });
+  return groups.map(g=>{
+    const matrix=g.items.some(it=>it.variant_id);
+    const sysSum=g.items.reduce((a,it)=>a+(+it.system_qty||0),0);
+    const gap=Math.round((g.header-sysSum)*1000)/1000;
+    const banner=matrix?`<tr><td colspan="12" data-csp-style="${CSP.style(`background:var(--surface);font-size:12px`)}"><b>${esc(g.name||'-')}</b> <span class="muted">${esc(g.code||'')}</span> — موجودی سربرگ ${fmt(g.header)} — جمع سیستم رنگ×سایز ${fmt(sysSum)}${Math.abs(gap)>0.001?` — <span data-csp-style="${CSP.style(`color:var(--orange,#b86e00)`)}">تخصیص‌نیافته ${fmt(gap)}</span>`:''}</td></tr>`:'';
+    return banner+g.items.map(it=>{
       const conf=parseInt(it.confirmed_count,10)||1;
       const c1=it.count1_qty!=null?it.count1_qty:(it.counted_qty||0);
       const c2=it.count2_qty!=null?it.count2_qty:'';
@@ -6628,7 +6648,9 @@ async function stkOpenDetail(id){
       const v=counted-(it.system_qty||0);
       return `<tr data-stk-id="${it.id}">
         <td class="mono">${esc(it.code||'-')}</td>
-        <td>${esc(it.name||'-')}${(it.color_name||it.size_name)?` <span class="muted">${esc([it.color_name,it.size_name].filter(Boolean).join(' / '))}</span>`:''}</td>
+        <td>${esc(it.name||'-')}</td>
+        <td>${esc(it.color_name||'—')}</td>
+        <td>${esc(it.size_name||'—')}</td>
         <td>${esc(it.unit||'-')}</td>
         <td class="mono">${fmt(it.system_qty||0)}</td>
         <td>${editable?`<input type="number" min="0" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmt(c1)}</span>`}</td>
@@ -6642,9 +6664,8 @@ async function stkOpenDetail(id){
         </select>`:`<span class="mono">${conf}</span>`}</td>
         <td class="mono" data-csp-style="${CSP.style(`font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}`)}">${v>0?'+':''}${fmt(v)}</td>
       </tr>`;
-    }).join('')||emptyRow(10)}</tbody></table></div></div>
-    ${s.note?`<div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">یادداشت: ${esc(s.note)}</div>`:''}`;
-  if(typeof bindNumFit==='function') bindNumFit(box);
+    }).join('');
+  }).join('');
 }
 function stkNewModal(){
   const whs=CACHE.warehouses||CACHE._prodWarehouses||[];
@@ -22110,7 +22131,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>اقدامات در انتظار و اعلان‌ها</h5><p>داشبورد مدیر ویجت «اقدامات در انتظار» دارد؛ آیکن 🔔 اعلان‌های فاکتور و پیگیری جدید را نشان می‌دهد.</p>
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
-      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. کالای رنگ و سایز ردیف‌جدا شمارش می‌شود. اعمال اصلاحات سند حسابداری را فقط به اندازه اختلاف موجودی سربرگ می‌سازد. رسید تولید، اجرای تولید ساده و کالای امانی هم بدون انتخاب رنگ و سایز ثبت نمی‌شوند. ابطال اجرای تولید ردیف را حذف نمی‌کند.</p>
+      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. کالای رنگ و سایز برای هر رنگ و هر سایز یک ردیف شمارش دارد (ستون‌های رنگ و سایز). شمارش بازِ قدیمی هم با باز شدن جزئیات به همین ردیف‌ها شکسته می‌شود. اگر موجودی سربرگ هنوز روی رنگ×سایز ننشسته باشد، بالای کالا «تخصیص‌نیافته» دیده می‌شود و تا وقتی شمارش را عوض نکنید موجودی سربرگ صفر نمی‌شود. اعمال اصلاحات سند حسابداری را فقط به اندازه اختلاف جمع شمارش با موجودی سربرگ می‌سازد. رسید تولید، اجرای تولید ساده و کالای امانی هم بدون انتخاب رنگ و سایز ثبت نمی‌شوند. ابطال اجرای تولید ردیف را حذف نمی‌کند.</p>
       <h5>چندشرکتی و سال مالی</h5>
       <p>از <b>تنظیمات → عمومی</b> چند شرکت بسازید؛ هر شرکت فایل پایگاه جدا دارد. «ایجاد شرکت (خام)» فاکتور و سند شرکت جدید را صفر می‌کند و کالا/مشتری شرکت فعلی را کپی نمی‌کند. تا وقتی «انتخاب» نزنید روی شرکت قبلی می‌مانید. پس از تعویض شرکت باید دوباره وارد شوید.</p>
       <p>از <b>تنظیمات → حسابداری</b> یا <b>حسابداری → عملیات سال مالی</b>:</p>

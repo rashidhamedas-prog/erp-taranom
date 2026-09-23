@@ -25,7 +25,7 @@ const db = dbMod.getDB();
 const { resolveApparelLines } = require('../lib/inventory/apparel-lines');
 const { issueFromStock } = require('../lib/production/costing');
 const { createConsignment, voidConsignment } = require('../lib/consignments');
-const { applyCycleCount, voidCycleCount } = require('../lib/inventory/cycle-count');
+const { applyCycleCount, voidCycleCount, syncSessionVariantLines } = require('../lib/inventory/cycle-count');
 
 function variantQty(id) {
   return db.prepare('SELECT stock FROM product_variants WHERE id=?').get(id).stock;
@@ -124,6 +124,29 @@ try {
   ok(variantQty(c1) === 10 && variantQty(c2) === 10, 'count writes each SKU from zero');
   voidCycleCount(db, sid, { createdBy: userId });
   ok(variantQty(c1) === 0 && variantQty(c2) === 0 && headerQty(countPid) === 20, 'void count reverses only the SKU layer');
+
+  const oldPid = db.prepare(
+    "INSERT INTO products (user_id, name, code, stock, warehouse_id, average_cost_rial, cost) VALUES (?, 'کت','M-3',20,?,1000,100)"
+  ).run(userId, wh).lastInsertRowid;
+  db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,20)').run(oldPid, wh);
+  const o1 = db.prepare(
+    'INSERT INTO product_variants (product_id, color_id, size_id, stock, active, is_default) VALUES (?,?,?,8,1,0)'
+  ).run(oldPid, color, sizeA).lastInsertRowid;
+  const o2 = db.prepare(
+    'INSERT INTO product_variants (product_id, color_id, size_id, stock, active, is_default) VALUES (?,?,?,12,1,0)'
+  ).run(oldPid, color, sizeB).lastInsertRowid;
+  const oldSid = db.prepare(
+    "INSERT INTO stocktaking_sessions (warehouse_id, date, status, created_by) VALUES (?, '1405/07/01', 'draft', ?)"
+  ).run(wh, userId).lastInsertRowid;
+  db.prepare(
+    'INSERT INTO stocktaking_items (session_id, product_id, system_qty, counted_qty, count1_qty) VALUES (?,?,?,?,?)'
+  ).run(oldSid, oldPid, 20, 20, 20);
+  const exploded = syncSessionVariantLines(db, oldSid);
+  const countLines = db.prepare('SELECT variant_id, system_qty, counted_qty FROM stocktaking_items WHERE session_id=? ORDER BY variant_id').all(oldSid);
+  ok(exploded.replaced === 1 && countLines.length === 2, 'an old style-level count becomes one row per color and size');
+  ok(countLines.every((row) => row.variant_id) && countLines[0].variant_id === o1 && countLines[1].variant_id === o2, 'exploded rows name each SKU');
+  applyCycleCount(db, oldSid, { createdBy: userId });
+  ok(headerQty(oldPid) === 20 && variantQty(o1) === 8 && variantQty(o2) === 12, 'untouched exploded count does not write off the header');
 } catch (e) {
   console.error(e);
   process.exit(1);

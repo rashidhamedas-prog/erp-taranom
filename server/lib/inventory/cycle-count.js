@@ -6,15 +6,77 @@
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
 const { postInventoryMovement, reverseInventoryMovement, inventoryAccountForWarehouse, invErr } = require('./ledger');
-const { parseQty } = require('../round3');
+const { round3, parseQty } = require('../round3');
 const { reverseJournalEntry } = require('../void-journal');
 const { todayJalali } = require('../../jalali');
+
+function variantLinesForProduct(db, productId, warehouseId) {
+  const { hasActiveMatrixVariants, variantWarehouseQty } = require('./movement');
+  if (!hasActiveMatrixVariants(db, productId)) return [];
+  const variants = db.prepare(`
+    SELECT pv.id
+    FROM product_variants pv
+    LEFT JOIN product_colors pc ON pc.id = pv.color_id
+    LEFT JOIN product_sizes ps ON ps.id = pv.size_id
+    WHERE pv.product_id=? AND pv.active=1 AND COALESCE(pv.is_default,0)=0
+    ORDER BY pc.sort_order, ps.sort_order, pv.id
+  `).all(productId);
+  return variants.map((v) => ({
+    variant_id: v.id,
+    system_qty: variantWarehouseQty(db, v.id, warehouseId),
+  }));
+}
+
+/**
+ * Open sessions must count each color×size.
+ * A header-only line on a matrix product is replaced.
+ * New lines start counted = system so an untouched sheet does not move stock.
+ */
+function syncSessionVariantLines(db, sessionId) {
+  const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(sessionId);
+  if (!session || session.status === 'adjusted') return { replaced: 0, added: 0 };
+  const { hasActiveMatrixVariants } = require('./movement');
+  let replaced = 0;
+  let added = 0;
+  const run = db.transaction(() => {
+    const items = db.prepare('SELECT * FROM stocktaking_items WHERE session_id=?').all(session.id);
+    const byProduct = new Map();
+    for (const it of items) {
+      if (!byProduct.has(it.product_id)) byProduct.set(it.product_id, []);
+      byProduct.get(it.product_id).push(it);
+    }
+    const ins = db.prepare(`
+      INSERT INTO stocktaking_items
+        (session_id, product_id, variant_id, system_qty, counted_qty, count1_qty, confirmed_count)
+      VALUES (?,?,?,?,?,?,1)
+    `);
+    for (const [productId, rows] of byProduct) {
+      if (!hasActiveMatrixVariants(db, productId)) continue;
+      const wanted = variantLinesForProduct(db, productId, session.warehouse_id);
+      const have = new Set(rows.filter((r) => r.variant_id).map((r) => r.variant_id));
+      for (const line of wanted) {
+        if (have.has(line.variant_id)) continue;
+        const sys = round3(line.system_qty);
+        ins.run(session.id, productId, line.variant_id, sys, sys, sys);
+        added += 1;
+      }
+      for (const row of rows) {
+        if (row.variant_id) continue;
+        db.prepare('DELETE FROM stocktaking_items WHERE id=?').run(row.id);
+        replaced += 1;
+      }
+    }
+  });
+  run();
+  return { replaced, added };
+}
 
 function applyCycleCount(db, sessionId, { createdBy } = {}) {
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(sessionId);
   if (!session) throw invErr('E_STK_NOT_FOUND', 404);
   if (session.status === 'adjusted') throw invErr('E_STK_ALREADY', 409);
 
+  syncSessionVariantLines(db, session.id);
   const items = db.prepare('SELECT * FROM stocktaking_items WHERE session_id=?').all(session.id);
   let totalGainRial = 0;
   let totalLossRial = 0;
@@ -96,6 +158,8 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
         });
       }
       const countedSum = rows.reduce((acc, row) => acc + row.counted, 0);
+      const systemSum = rows.reduce((acc, row) => acc + (Number(row.it.system_qty) || 0), 0);
+      const untouched = rows.every((row) => Math.abs(row.counted - (Number(row.it.system_qty) || 0)) < 0.001);
       const ws = db.prepare(
         'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
       ).get(productId, session.warehouse_id);
@@ -112,7 +176,8 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
           headerQty = Number(owned.stock) || 0;
         }
       }
-      const headerDiff = countedSum - headerQty;
+      let headerDiff = countedSum - headerQty;
+      if (untouched && Math.abs(systemSum - headerQty) > 0.001) headerDiff = 0;
       const booked = bookHeader(productId, headerDiff, `انبارگردانی رنگ×سایز #${session.id}`);
       if (booked) {
         db.prepare(`
@@ -223,4 +288,9 @@ function voidCycleCount(db, sessionId, { createdBy } = {}) {
   return { ok: true };
 }
 
-module.exports = { applyCycleCount, voidCycleCount };
+module.exports = {
+  applyCycleCount,
+  voidCycleCount,
+  syncSessionVariantLines,
+  variantLinesForProduct,
+};

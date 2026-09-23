@@ -2,8 +2,8 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { applyCycleCount, voidCycleCount } = require('../lib/inventory/cycle-count');
-const { hasActiveMatrixVariants } = require('../lib/inventory/movement');
+const { applyCycleCount, voidCycleCount, syncSessionVariantLines } = require('../lib/inventory/cycle-count');
+const { hasActiveMatrixVariants, variantWarehouseQty } = require('../lib/inventory/movement');
 const { round3, parseQty } = require('../lib/round3');
 
 function productsForWarehouse(db, warehouseId) {
@@ -25,16 +25,13 @@ function productsForWarehouse(db, warehouseId) {
   for (const r of products) {
     if (hasActiveMatrixVariants(db, r.id)) {
       const variants = db.prepare(`
-        SELECT pv.id, pv.stock, pc.name AS color_name, ps.name AS size_name,
-          COALESCE(vws.qty, 0) AS wh_qty
+        SELECT pv.id, pc.name AS color_name, ps.name AS size_name
         FROM product_variants pv
         LEFT JOIN product_colors pc ON pc.id = pv.color_id
         LEFT JOIN product_sizes ps ON ps.id = pv.size_id
-        LEFT JOIN variant_warehouse_stock vws
-          ON vws.variant_id = pv.id AND vws.warehouse_id = ?
         WHERE pv.product_id=? AND pv.active=1 AND COALESCE(pv.is_default,0)=0
         ORDER BY pc.sort_order, ps.sort_order, pv.id
-      `).all(warehouseId, r.id);
+      `).all(r.id);
       for (const v of variants) {
         out.push({
           product_id: r.id,
@@ -44,7 +41,7 @@ function productsForWarehouse(db, warehouseId) {
           color_name: v.color_name || '',
           size_name: v.size_name || '',
           unit: r.unit,
-          system_qty: round3(v.wh_qty),
+          system_qty: variantWarehouseQty(db, v.id, warehouseId),
         });
       }
       continue;
@@ -95,15 +92,20 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 
 router.get('/:id/tags', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const session = db.prepare('SELECT id FROM stocktaking_sessions WHERE id=?').get(req.params.id);
+  const session = db.prepare('SELECT id, status FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
+  if (session.status !== 'adjusted') syncSessionVariantLines(db, session.id);
   const items = db.prepare(`
-    SELECT i.id, i.product_id, i.system_qty, i.counted_qty, i.count1_qty, i.count2_qty, i.count3_qty,
-      i.count_tag, i.confirmed_count, p.code, p.name, p.unit
+    SELECT i.id, i.product_id, i.variant_id, i.system_qty, i.counted_qty, i.count1_qty, i.count2_qty, i.count3_qty,
+      i.count_tag, i.confirmed_count, p.code, p.name, p.unit,
+      pc.name AS color_name, ps.name AS size_name
     FROM stocktaking_items i
     JOIN products p ON i.product_id=p.id
+    LEFT JOIN product_variants pv ON pv.id=i.variant_id
+    LEFT JOIN product_colors pc ON pc.id=pv.color_id
+    LEFT JOIN product_sizes ps ON ps.id=pv.size_id
     WHERE i.session_id=?
-    ORDER BY i.count_tag, p.name
+    ORDER BY i.count_tag, p.name, pc.name, ps.name
   `).all(session.id);
   res.json({ session_id: session.id, items });
 });
@@ -118,16 +120,19 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
     WHERE s.id=?
   `).get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
+  if (session.status !== 'adjusted') syncSessionVariantLines(db, session.id);
   const items = db.prepare(`
-    SELECT i.*, p.code, p.name, p.unit, pc.name AS color_name, ps.name AS size_name
+    SELECT i.*, p.code, p.name, p.unit, pc.name AS color_name, ps.name AS size_name,
+      COALESCE(ws.qty, CASE WHEN p.warehouse_id=? THEN p.stock ELSE 0 END) AS header_qty
     FROM stocktaking_items i
     JOIN products p ON i.product_id=p.id
     LEFT JOIN product_variants pv ON pv.id=i.variant_id
     LEFT JOIN product_colors pc ON pc.id=pv.color_id
     LEFT JOIN product_sizes ps ON ps.id=pv.size_id
+    LEFT JOIN warehouse_stock ws ON ws.product_id=p.id AND ws.warehouse_id=?
     WHERE i.session_id=?
-    ORDER BY p.name, pc.name, ps.name
-  `).all(session.id);
+    ORDER BY p.name, pc.name, ps.name, i.id
+  `).all(session.warehouse_id, session.warehouse_id, session.id);
   items.forEach(it => { it.variance = round3((it.counted_qty || 0) - (it.system_qty || 0)); });
   res.json({ session, items });
 });
