@@ -4,7 +4,7 @@
 - Activity drilldown used `a.date` (column is `activity_date`) and counted only `owner_user_id`. Probe before: drill error `no such column: a.date`, open complaints 0. After: drill count 1 including the assigned customer, open complaints 1.
 - User list badges call `roleLabel`. `inside_sales` and `distribution_office` production*.view are explicit none.
 - Probe: crm scope equals customer scope for sales_manager (id 2, not null). Timeline and profile of an assigned-only customer are 200.
-- SW `erp-taranom-v222`. Deploy pending. `test-crm-pro-rbac` 17 pass; `pipeline_not_a_stage` still 200 because v211 maps unknown `pipeline_*` to open opportunities.
+- SW `erp-taranom-v222`. Iran overlay SFTP @ 2da84ef — health/ready/root 200. Dirty tree, no pull; server HEAD stayed 8a5cd54.
 
 ## 2026-09-23T14:10:00+03:30 — DASHBOARD-HOTPATH
 
