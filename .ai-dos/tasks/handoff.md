@@ -3,7 +3,7 @@
 - Invariant: an open count of a matrix product is one line per color×size. Untouched lines do not write off a header qty that is not yet on those SKUs.
 - Opening a draft/completed session replaces a style-level line. Apply uses the same split. UI columns are رنگ and سایز, with an unallocated banner.
 - Tests on Node 20: apparel-ops 15/15, sms 22/22, sync 44/44, diag mismatches=[].
-- SW `erp-taranom-v220`. Deploy pending overlay.
+- SW `erp-taranom-v220`. Iran overlay SFTP @ 4f75a74 — health/ready/root 200. Dirty tree, no pull; server HEAD stayed 8a5cd54.
 
 ## 2026-09-22T16:25:00+03:30 — APPAREL-OPS-VARIANT
 

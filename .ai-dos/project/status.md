@@ -1,10 +1,10 @@
 # Project Status
 
 - Last verified: 2026-09-23
-- **Active task:** `STOCKTAKE-COLOR-SIZE` — open stocktaking counts each color×size (SW v220)
-- **Closed this turn:** `APPAREL-OPS-VARIANT` — production, stocktaking, and consignment color×size layer (SW v219)
-- **Iran last:** SW **erp-taranom-v219** overlay SFTP @ `e6679ff` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
-- **Primary tip:** `main` @ `13e9d14` plus stocktaking color×size
+- **Active task:** none — `STOCKTAKE-COLOR-SIZE` closed
+- **Closed this turn:** `STOCKTAKE-COLOR-SIZE` — open stocktaking counts each color×size (SW v220)
+- **Iran last:** SW **erp-taranom-v220** overlay SFTP @ `4f75a74` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
+- **Primary tip:** `main` @ `4f75a74`
 - Prior: `main` = `claude/claude-md-docs-2ssrpy` = `feat/pack-sku-customer-scope` @ `c76f3ee`
 - Prior history below kept for context.
 

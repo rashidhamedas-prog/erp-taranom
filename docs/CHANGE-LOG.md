@@ -13,7 +13,7 @@
 - **تست (Node 20):** apparel-ops 15/15، sms 22/22، sync 44/44، تشخیص شکاف mismatches=[].
 - **فایل‌ها:** server/lib/inventory/cycle-count.js, server/routes/stocktaking.js, server/public/{app.js,sw.js}, server/scripts/test-apparel-ops-v219.js
 - **SW:** erp-taranom-v220
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 4f75a74 — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی سرور erp-taranom-v220. HEAD سرور همان 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۶/۳۱ — رنگ×سایز در تولید، انبارگردانی و امانی (SW v219)
 
