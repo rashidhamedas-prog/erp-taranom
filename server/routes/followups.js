@@ -5,7 +5,7 @@ const notif = require('../lib/notifications');
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
-const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
+const { scopeUserId, customerVisibilitySql, customerVisibleTo } = require('../lib/customer-scope');
 
 function getScope(req) {
   // Admin/accounting see all. sales_manager does NOT see the whole team.
@@ -44,16 +44,15 @@ router.get('/', auth, (req, res) => {
 });
 
 function assertCustomerInScope(req, db, custId) {
-  // Mutate gate kept narrow: admin/accounting (and legacy sales_manager) or customers.user_id === me.
-  // Do not widen to assigned_to here.
-  const full = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
-  const own = db.prepare('SELECT id, user_id FROM customers WHERE id=?').get(custId);
+  // Same boundary as the customer list: admin/accounting, or user_id / assigned_to.
+  const full = req.user.role === 'admin' || req.user.role === 'accounting';
+  const own = db.prepare('SELECT id FROM customers WHERE id=?').get(custId);
   if (!own) {
     const err = new Error(full ? 'مشتری یافت نشد' : 'دسترسی به این مشتری ندارید');
     err.status = full ? 404 : 403;
     throw err;
   }
-  if (!full && Number(own.user_id) !== Number(req.user.id)) {
+  if (!full && !customerVisibleTo(db, custId, req.user.id)) {
     const err = new Error('دسترسی به این مشتری ندارید');
     err.status = 403;
     throw err;

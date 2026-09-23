@@ -669,7 +669,7 @@ function applyAppLanguage(){
     if(typeof applyTheme==='function') applyTheme(currentTheme());
     if(ME && typeof buildNav==='function'){
       if(IN_ACC_SHELL) el('brandRole').textContent='🧮 '+T('ماژول حسابداری');
-      else el('brandRole').textContent=isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
+      else el('brandRole').textContent=shellBrand();
       if(el('userRole')) el('userRole').textContent=roleLabel(ME.role);
       buildNav();
       if(CURRENT_PAGE && typeof go==='function') go(CURRENT_PAGE);
@@ -1863,7 +1863,7 @@ async function enterAccountingShell(nextPage){
 function exitAccountingShell(){
   IN_ACC_SHELL = false;
   if(window.WinMgr) WinMgr.closeAll();
-  el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
+  el('brandRole').textContent = shellBrand();
   buildNav();
   go(ME.role==='accounting'||ME.role==='sales_manager'?'customers':'dash');
 }
@@ -2043,9 +2043,23 @@ function roleLabel(r){
   if(r==='accounting') return T('حسابدار');
   if(r==='sales_manager') return T('مدیر فروش');
   if(r==='inside_sales') return T('کارشناس داخلی');
-  if(r==='field_sales') return T('کارشناس میدانی');
+  if(r==='field_sales'||r==='salesperson') return T('کارشناس میدانی');
   if(r==='distribution_office') return T('دفتر پخش');
+  if(r==='production_manager') return T('مدیر تولید');
+  if(r==='production_operator') return T('اپراتور تولید');
+  if(r==='unit_manager') return T('مدیر واحد عملیاتی');
+  if(r==='department_manager') return T('مدیر بخش');
   return T('کارشناس فروش');
+}
+function roleTag(r){
+  const cls = r==='admin'?'t-vip':r==='accounting'?'t-proposal':r==='inside_sales'?'t-inside':(r==='field_sales'||r==='salesperson')?'t-field':'t-proposal';
+  return `<span class="tag ${cls}">${esc(roleLabel(r))}</span>`;
+}
+function shellBrand(){
+  if(isAdmin()) return T('پنل مدیریت');
+  if(ME&&(ME.role==='accounting'||ME.role==='sales_manager')) return T('پنل حسابداری');
+  if(ME&&(ME.role==='production_manager'||ME.role==='production_operator'||ME.role==='unit_manager'||ME.role==='department_manager')) return T('پنل تولید');
+  return T('پنل فروش');
 }
 /* Render a contextual help tooltip icon */
 function hlp(tip){ return `<span class="hlp" data-tip="${tip.replace(/"/g,'&quot;')}">?</span>`; }
@@ -2097,7 +2111,7 @@ async function boot(){
   syncServerTime(); // refresh offset after login (non-blocking)
   el('userName').textContent = ME.name;
   el('userRole').textContent = roleLabel(ME.role);
-  el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
+  el('brandRole').textContent = shellBrand();
   el('avatar').textContent = (ME.name||'؟').trim().charAt(0);
   syncAcctDrawerUser();
   buildNav();
@@ -6747,7 +6761,7 @@ async function loadSettUsersPanel(){
       <table class="tbl"><thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>تلفن</th><th>آخرین ورود</th><th>وضعیت</th><th>عملیات</th></tr></thead>
       <tbody>${CACHE.users.map(u=>`<tr>
         <td>${esc(u.name)}</td><td class="mono">@${esc(u.username)}</td>
-        <td>${u.role==='admin'?'<span class="tag t-vip">مدیر</span>':u.role==='accounting'?'<span class="tag t-proposal">حسابدار</span>':u.role==='inside_sales'?'<span class="tag t-inside">داخلی</span>':'<span class="tag t-field">میدانی</span>'}</td>
+        <td>${roleTag(u.role)}</td>
         <td class="mono">${esc(u.phone||'-')}</td>
         <td class="muted">${u.last_login?new Date(u.last_login*1000).toLocaleDateString('fa-IR'):'هرگز'}</td>
         <td>${u.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
@@ -6770,7 +6784,7 @@ async function userModal(id){
       <div class="fg"><label>نام * ${hlp('نام کامل کاربر — در فاکتورها و گزارش‌ها با همین نام نمایش داده می‌شود.')}</label><input id="u-name" value="${esc(u.name||'')}"></div>
       <div class="fg"><label>نام کاربری * ${hlp('شناسه ورود به سیستم — بعد از ساخت قابل تغییر نیست.')}</label><input id="u-username" value="${esc(u.username||'')}" ${id?'readonly':''}></div>
       <div class="fg"><label>تلفن ${hlp('شماره موبایل کاربر — یادآورهای پیامکی پیگیری به این شماره ارسال می‌شود.')}</label><input id="u-phone" value="${esc(u.phone||'')}"></div>
-      <div class="fg"><label>نقش ${hlp('میدانی/داخلی: کارشناس فروش با دسترسی به مشتریان خود. حسابدار: دسترسی کامل به بخش حسابداری و مشاهده همه مشتریان. مدیر: دسترسی کامل به همه بخش‌ها.')}</label><select id="u-role">
+      <div class="fg"><label>نقش ${hlp('حضوری و تلفنی و دفتر پخش و مدیر فروش فقط مشتریان خودشان را می‌بینند. حسابدار و مدیر سیستم همه مشتریان را می‌بینند. مدیر سیستم به تنظیمات هم دسترسی دارد.')}</label><select id="u-role">
         <option value="field_sales" ${(u.role==='field_sales'||u.role==='salesperson')?'selected':''}>کارشناس میدانی (حضوری)</option>
         <option value="inside_sales" ${u.role==='inside_sales'?'selected':''}>کارشناس داخلی (تلفنی)</option>
         <option value="distribution_office" ${u.role==='distribution_office'?'selected':''}>دفتر پخش</option>
@@ -21610,7 +21624,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مبالغ API و کارت‌ها <b>ریال</b> هستند</li>
         <li>فیلتر سراسری روی همه KPI، نمودار و drill-down یکسان اعمال می‌شود؛ بازه روی تاریخ ایجاد فرصت و تاریخ فاکتور است — برای کل پایپ‌لاین بازه را «همه» بگذارید</li>
         <li>کلیک روی کارت یا ستون نمودار جزئیات صفحه‌بندی‌شده و لینک به مشتری/فاکتور را باز می‌کند — همهٔ شاخص‌ها (مطالبات، فروش قطعی، ریزش، شکایت و …) شناخته‌شده‌اند</li>
-        <li>کارشناس فروش فقط دادهٔ خود را می‌بیند و نمی‌تواند با user_id دامنه را باز کند</li>
+        <li>مدیر سیستم و حسابدار همهٔ مشتریان را می‌بینند. بقیهٔ نقش‌ها، از جمله مدیر فروش، فقط مشتریانی را می‌بینند که <b>کارشناس</b> یا <b>منتصب</b> خودشان باشند. داشبورد CRM، فرصت، پیگیری و فعالیت همین دامنه را دارند و با <code>user_id</code> باز نمی‌شود</li>
+        <li>فهرست کاربران برچسب همان نقش را نشان می‌دهد (کارشناس داخلی، دفتر پخش، مدیر تولید، اپراتور). کارشناس تلفنی و دفتر پخش به‌صورت پیش‌فرض ماژول تولید را نمی‌بینند</li>
         <li>سگمنت VIP/A/B/C/ریزش از تنظیمات CRM و فاکتور قطعی محاسبه می‌شود</li>
       </ul>`),
     helpSec('↑','دکمه بالا (سطح والد)',`
@@ -22293,7 +22308,7 @@ function renderSalesGuide(){
         <li><b>سفارش اول / برنده / تکراری</b> پس از فاکتور قطعی</li>
         <li><b>از دست رفته</b> فقط با دلیل باخت</li>
       </ul>
-      <div class="tip">کشیدن کارت در کانبان پس از تأیید، مرحله را در سرور ذخیره می‌کند. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد. کارشناس فقط دادهٔ خودش را می‌بیند.</div>`),
+      <div class="tip">کشیدن کارت در کانبان پس از تأیید، مرحله را در سرور ذخیره می‌کند. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد. کارشناس و مدیر فروش فقط مشتریِ خود یا مشتریِ منتسب به خود را می‌بینند.</div>`),
     helpSec('📉','داشبورد CRM',`
       <p>از منو <b>پیگیری CRM → داشبورد و گزارش‌های CRM</b> قیف، روند فروش قطعی، پایپ‌لاین، عملکرد و اقدامات فوری را ببینید.</p>
       <ul>

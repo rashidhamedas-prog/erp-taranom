@@ -6,6 +6,7 @@ const {
 } = require('../lib/crm-analytics');
 const analytics = require('../lib/crm-pro-analytics');
 const crmPro = require('../lib/crm-pro');
+const { customerVisibleTo } = require('../lib/customer-scope');
 
 const crmView = [auth, requirePermission('followups', 'view')];
 const crmEdit = [auth, requirePermission('followups', 'edit')];
@@ -164,8 +165,8 @@ router.post('/opportunities', ...crmEdit, (req, res) => {
     const customerId = parseInt(req.body.customer_id || req.body.cust_id, 10);
     if (!customerId) return res.status(400).json({ error: 'مشتری الزامی است' });
     if (scope) {
-      const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(customerId);
-      if (own && own.user_id !== scope) return res.status(403).json({ error: 'دسترسی ندارید' });
+      const own = db.prepare('SELECT id FROM customers WHERE id=?').get(customerId);
+      if (own && !customerVisibleTo(db, customerId, scope)) return res.status(403).json({ error: 'دسترسی ندارید' });
     }
     const stage = crmPro.normalizeStage(req.body.pipeline_stage || 'lead');
     if (stage === 'lost' && !String(req.body.lost_reason || '').trim()) {
@@ -219,7 +220,10 @@ router.get('/activities', ...crmView, (req, res) => {
     const db = getDB();
     const f = analytics.parseFilters(req.query, crmScopeUserId(req));
     const where = ['1=1']; const params = [];
-    if (f.user_id) { where.push('a.owner_user_id=?'); params.push(f.user_id); }
+    if (f.user_id) {
+      where.push('(a.owner_user_id=? OR a.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?))');
+      params.push(f.user_id, f.user_id, f.user_id);
+    }
     if (f.customer_id) { where.push('a.customer_id=?'); params.push(f.customer_id); }
     if (f.activity_type) { where.push('a.type=?'); params.push(f.activity_type); }
     if (f.status) { where.push('a.status=?'); params.push(f.status); }
@@ -242,8 +246,8 @@ router.post('/activities', ...crmEdit, (req, res) => {
     const customerId = parseInt(req.body.customer_id || req.body.cust_id, 10);
     if (!customerId) return res.status(400).json({ error: 'مشتری الزامی است' });
     if (scope) {
-      const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(customerId);
-      if (own && own.user_id !== scope) return res.status(403).json({ error: 'دسترسی ندارید' });
+      const own = db.prepare('SELECT id FROM customers WHERE id=?').get(customerId);
+      if (own && !customerVisibleTo(db, customerId, scope)) return res.status(403).json({ error: 'دسترسی ندارید' });
     }
     const now = Math.floor(Date.now() / 1000);
     const cust = db.prepare('SELECT party_id FROM customers WHERE id=?').get(customerId);

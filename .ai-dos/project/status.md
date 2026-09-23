@@ -1,11 +1,12 @@
 # Project Status
 
 - Last verified: 2026-09-23
-- **Active task:** none — dashboard hotpath closed
-- **Closed this turn:** dashboard AR balance is one grouped query per book; Jalali cheque alert is visible on the accounting dashboard (SW v221)
+- **Active task:** CRM-USER-SCOPE — local, not yet on Iran
+- **This turn:** CRM visibility matches the customer list (`user_id` or `assigned_to`). Sales manager is scoped. Activity drilldown reads `activity_date` and includes assigned customers. Inside sales and distribution office have no default production view. Role badges use `roleLabel`.
 - **Iran last:** SW **erp-taranom-v221** overlay SFTP @ `6529a32` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
-- **Primary tip:** `main` @ `4f75a74`
-- Prior: `main` = `claude/claude-md-docs-2ssrpy` = `feat/pack-sku-customer-scope` @ `c76f3ee`
+- **SW pending:** erp-taranom-v222
+- **Primary tip:** `main` @ `e848899` (local CRM changes uncommitted)
+- Prior: dashboard hotpath closed at SW v221.
 - Prior history below kept for context.
 
 ## Working quality commands

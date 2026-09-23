@@ -2,12 +2,10 @@
  * Shared CRM scope + cheque helpers (no analytics cycle).
  */
 const { todayJalali, addDaysToJalali } = require('../jalali');
+const { scopeUserId } = require('./customer-scope');
 
 function crmScopeUserId(req) {
-  const role = req.user?.role;
-  if (role === 'admin' || role === 'accounting') return null;
-  if (role === 'sales_manager') return null;
-  return req.user.id;
+  return scopeUserId(req);
 }
 
 function resolveEffectiveUserId(scopeUserId, filters = {}) {
@@ -87,28 +85,28 @@ function chequeKpis(db, userId, { dueDays = 14 } = {}) {
           AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')
           AND cr.due_date<>'' AND cr.due_date<=?
           AND (
-            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
+            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?)' : '0'}
             ${hasCustCol && hasPartyCol ? ' OR ' : ''}
-            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
+            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE (user_id=? OR assigned_to=?) AND party_id IS NOT NULL)' : ''}
           )
       `;
       const params = [dueLimit];
-      if (hasCustCol) params.push(userId);
-      if (hasPartyCol) params.push(userId);
+      if (hasCustCol) params.push(userId, userId);
+      if (hasPartyCol) params.push(userId, userId);
       chequesDue = db.prepare(dueSql).get(...params)?.c || 0;
       const bounceSql = `
         SELECT COUNT(*) AS c FROM cheque_records cr
         WHERE COALESCE(cr.record_status,'posted')<>'reversed'
           AND COALESCE(cr.lifecycle_status,cr.status)='bounced'
           AND (
-            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
+            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?)' : '0'}
             ${hasCustCol && hasPartyCol ? ' OR ' : ''}
-            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
+            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE (user_id=? OR assigned_to=?) AND party_id IS NOT NULL)' : ''}
           )
       `;
       const bParams = [];
-      if (hasCustCol) bParams.push(userId);
-      if (hasPartyCol) bParams.push(userId);
+      if (hasCustCol) bParams.push(userId, userId);
+      if (hasPartyCol) bParams.push(userId, userId);
       chequesBounced = db.prepare(bounceSql).get(...bParams)?.c || 0;
     } else if (userId == null) {
       chequesDue = db.prepare(`

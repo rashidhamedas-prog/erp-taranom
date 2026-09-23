@@ -8,6 +8,7 @@ const {
   computeCustomerMetrics,
 } = require('./crm-pro');
 const { resolveEffectiveUserId, chequeKpis } = require('./crm-analytics-scope');
+const { customerVisibilitySql } = require('./customer-scope');
 
 const INTERVALS = new Set(['day', 'week', 'month']);
 const INVOICE_TYPES = new Set(['proforma', 'normal', 'final']);
@@ -108,7 +109,10 @@ function appliedFilters(f) {
 }
 
 function addCustFilters(where, params, f, alias = 'c') {
-  if (f.user_id) { where.push(`${alias}.user_id=?`); params.push(f.user_id); }
+  if (f.user_id) {
+    where.push(customerVisibilitySql(alias));
+    params.push(f.user_id, f.user_id);
+  }
   if (f.province) { where.push(`(${alias}.province=? OR ${alias}.city LIKE ?)`); params.push(f.province, '%' + f.province + '%'); }
   if (f.city) { where.push(`${alias}.city=?`); params.push(f.city); }
   if (f.party_group_id) {
@@ -161,7 +165,10 @@ function addInvFilters(where, params, f, alias = 'i') {
 }
 
 function addFuFilters(where, params, f, alias = 'f') {
-  if (f.user_id) { where.push(`${alias}.user_id=?`); params.push(f.user_id); }
+  if (f.user_id) {
+    where.push(`(${alias}.user_id=? OR EXISTS (SELECT 1 FROM customers cx WHERE cx.id=${alias}.cust_id AND (cx.user_id=? OR cx.assigned_to=?)))`);
+    params.push(f.user_id, f.user_id, f.user_id);
+  }
   if (f.from) { where.push(`${alias}.date>=?`); params.push(f.from); }
   if (f.to) { where.push(`${alias}.date<=?`); params.push(f.to); }
   if (f.customer_id) { where.push(`${alias}.cust_id=?`); params.push(f.customer_id); }
@@ -173,8 +180,8 @@ function addFuFilters(where, params, f, alias = 'f') {
 
 function addOppFilters(where, params, f, alias = 'o') {
   if (f.user_id) {
-    where.push(`(${alias}.owner_user_id=? OR ${alias}.customer_id IN (SELECT id FROM customers WHERE user_id=?))`);
-    params.push(f.user_id, f.user_id);
+    where.push(`(${alias}.owner_user_id=? OR ${alias}.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?))`);
+    params.push(f.user_id, f.user_id, f.user_id);
   }
   if (f.from) {
     const b = jalaliDayBounds(f.from);
@@ -330,7 +337,7 @@ function computeKpiSet(db, f) {
   let receivables = 0;
   try {
     receivables = f.user_id
-      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE c.user_id=?`).get(f.user_id)?.bal || 0
+      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE (c.user_id=? OR c.assigned_to=?)`).get(f.user_id, f.user_id)?.bal || 0
       : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get()?.bal || 0;
     receivables = Math.round(Number(receivables) || 0);
   } catch (_) {}
@@ -338,7 +345,7 @@ function computeKpiSet(db, f) {
   let overdueRecv = 0;
   try {
     const recvWhere = ['1=1']; const recvParams = [];
-    if (f.user_id) { recvWhere.push('c.user_id=?'); recvParams.push(f.user_id); }
+    if (f.user_id) { recvWhere.push('(c.user_id=? OR c.assigned_to=?)'); recvParams.push(f.user_id, f.user_id); }
     overdueRecv = db.prepare(`
       SELECT COALESCE(SUM(x.bal),0) AS bal FROM (
         SELECT cl.customer_id, SUM(cl.debit-cl.credit) AS bal
@@ -389,8 +396,8 @@ function computeKpiSet(db, f) {
   try {
     openComplaints = db.prepare(`
       SELECT COUNT(*) AS c FROM crm_activities a
-      WHERE a.type='complaint' AND a.status='open' ${f.user_id ? 'AND a.owner_user_id=?' : ''}
-    `).get(...(f.user_id ? [f.user_id] : []))?.c || 0;
+      WHERE a.type='complaint' AND a.status='open' ${f.user_id ? 'AND (a.owner_user_id=? OR a.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?))' : ''}
+    `).get(...(f.user_id ? [f.user_id, f.user_id, f.user_id] : []))?.c || 0;
   } catch (_) {}
 
   return {
@@ -553,11 +560,14 @@ function buildExpertPerformance(db, filters, scopeUserId) {
     const followups = db.prepare(`SELECT COUNT(*) AS c FROM followups WHERE user_id=?`).get(r.id)?.c || 0;
     let collected = 0;
     try {
+      const collectedParams = [r.id, r.id];
+      if (f.from) collectedParams.push(f.from);
+      if (f.to) collectedParams.push(f.to);
       collected = db.prepare(`
         SELECT COALESCE(SUM(COALESCE(s.amount_rial, ROUND(s.amount),0)),0) AS a
-        FROM settlements s JOIN customers c ON c.id=s.cust_id WHERE c.user_id=?
+        FROM settlements s JOIN customers c ON c.id=s.cust_id WHERE (c.user_id=? OR c.assigned_to=?)
         ${f.from ? 'AND s.date>=?' : ''} ${f.to ? 'AND s.date<=?' : ''}
-      `).get(...[r.id, f.from || null, f.to || null].filter((x) => x != null && x !== ''))?.a || 0;
+      `).get(...collectedParams)?.a || 0;
     } catch (_) {}
     const conv = safeRate(won, won + lost);
     const target = Number(r.monthly_target) || 0;
@@ -637,7 +647,7 @@ function buildSourcePerformance(db, filters, scopeUserId) {
 function buildSegmentReport(db, filters, scopeUserId) {
   const f = parseFilters(filters, scopeUserId);
   const where = ['1=1']; const params = [];
-  if (f.user_id) { where.push('c.user_id=?'); params.push(f.user_id); }
+  if (f.user_id) { where.push('(c.user_id=? OR c.assigned_to=?)'); params.push(f.user_id, f.user_id); }
   if (f.segment) { where.push('s.effective_segment=?'); params.push(f.segment); }
   const rows = db.prepare(`
     SELECT s.effective_segment AS segment, COUNT(*) AS cnt,
@@ -653,7 +663,7 @@ function buildSegmentReport(db, filters, scopeUserId) {
 function buildChurnRisk(db, filters, scopeUserId) {
   const f = parseFilters(filters, scopeUserId);
   const where = ["s.effective_segment IN ('churn_risk','inactive')"]; const params = [];
-  if (f.user_id) { where.push('c.user_id=?'); params.push(f.user_id); }
+  if (f.user_id) { where.push('(c.user_id=? OR c.assigned_to=?)'); params.push(f.user_id, f.user_id); }
   const limit = parseLimit(f.limit, 50);
   const offset = (f.page - 1) * limit;
   const total = db.prepare(`
@@ -675,7 +685,7 @@ function buildReceivables(db, filters, scopeUserId) {
   let receivables = 0;
   try {
     receivables = f.user_id
-      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE c.user_id=?`).get(f.user_id)?.bal || 0
+      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE (c.user_id=? OR c.assigned_to=?)`).get(f.user_id, f.user_id)?.bal || 0
       : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get()?.bal || 0;
   } catch (_) {}
   return {
@@ -739,17 +749,20 @@ function buildUrgentActions(db, filters, scopeUserId) {
     churn = db.prepare(`
       SELECT s.customer_id AS id, s.customer_id AS cust_id, c.biz AS cust_biz, s.reason AS subject, 'churn_risk' AS kind
       FROM crm_customer_segments s JOIN customers c ON c.id=s.customer_id
-      WHERE s.effective_segment='churn_risk' ${f.user_id ? 'AND c.user_id=?' : ''}
+      WHERE s.effective_segment='churn_risk' ${f.user_id ? 'AND (c.user_id=? OR c.assigned_to=?)' : ''}
       LIMIT 20
-    `).all(...(f.user_id ? [f.user_id] : []));
+    `).all(...(f.user_id ? [f.user_id, f.user_id] : []));
   } catch (_) {}
   return { overdue_followups: overdue, stale_opportunities: stale, churn_risk: churn, applied_filters: appliedFilters(f) };
 }
 
 function customerProfile(db, customerId, scopeUserId) {
-  const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(customerId);
+  const own = db.prepare('SELECT user_id, assigned_to FROM customers WHERE id=?').get(customerId);
   if (scopeUserId) {
-    if (!own || Number(own.user_id) !== Number(scopeUserId)) {
+    const ownerMatch = !!(own && Number(own.user_id) === Number(scopeUserId));
+    const assignedMatch = !!(own && own.assigned_to != null && Number(own.assigned_to) === Number(scopeUserId));
+    const denied = !(ownerMatch || assignedMatch);
+    if (denied) {
       const err = new Error('دسترسی به این مشتری ندارید');
       err.status = 403;
       throw err;

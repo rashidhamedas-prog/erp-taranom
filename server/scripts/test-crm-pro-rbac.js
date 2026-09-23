@@ -33,7 +33,11 @@ try {
   ok('timeline 403 other customer', denied);
   ok('resolve ignores 0', resolveEffectiveUserId(ua, { user_id: '0' }) === ua);
   const { crmScopeUserId } = require('../lib/crm-analytics-scope');
-  ok('sales_manager scope null', crmScopeUserId({ user: { id: 9, role: 'sales_manager' } }) == null);
+  ok('sales_manager scoped to self', crmScopeUserId({ user: { id: 9, role: 'sales_manager' } }) === 9);
+  const drift = db.prepare(`INSERT INTO customers (user_id,assigned_to,biz,phone,status) VALUES (?,?,'کج','3','active')`).run(ub, ua).lastInsertRowid;
+  let driftOk = false;
+  try { buildTimeline(db, { customerId: drift, scopeUserId: ua }); driftOk = true; } catch (_) { driftOk = false; }
+  ok('timeline allows assigned_to', driftOk);
   ok('accounting scope null', crmScopeUserId({ user: { id: 8, role: 'accounting' } }) == null);
   ok('admin scope null', crmScopeUserId({ user: { id: 1, role: 'admin' } }) == null);
   ok('field_sales scoped', crmScopeUserId({ user: { id: ua, role: 'field_sales' } }) === ua);

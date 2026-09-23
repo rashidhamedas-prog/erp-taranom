@@ -8,6 +8,7 @@ const {
   crmScopeUserId, resolveEffectiveUserId, tableHasColumn,
   chequeRowsForCustomer, chequeKpis,
 } = require('./crm-analytics-scope');
+const { customerVisibilitySql } = require('./customer-scope');
 
 function sqlInvoiceAmountRial(alias = 'i') {
   const a = alias ? `${alias}.` : '';
@@ -25,7 +26,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
 
   const custWhere = ['1=1'];
   const custParams = [];
-  if (userId) { custWhere.push('c.user_id=?'); custParams.push(userId); }
+  if (userId) { custWhere.push(customerVisibilitySql('c')); custParams.push(userId, userId); }
   if (province) { custWhere.push('(c.city LIKE ? OR c.province=?)'); custParams.push('%' + province + '%', province); }
   if (partyGroupId) {
     custWhere.push('EXISTS (SELECT 1 FROM parties p WHERE p.legacy_table=\'customers\' AND p.legacy_id=c.id AND p.party_group_id=?)');
@@ -48,7 +49,10 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
 
   const fuWhere = ['1=1'];
   const fuParams = [];
-  if (userId) { fuWhere.push('f.user_id=?'); fuParams.push(userId); }
+  if (userId) {
+    fuWhere.push('(f.user_id=? OR EXISTS (SELECT 1 FROM customers cx WHERE cx.id=f.cust_id AND (cx.user_id=? OR cx.assigned_to=?)))');
+    fuParams.push(userId, userId, userId);
+  }
   if (from) { fuWhere.push('f.date>=?'); fuParams.push(from); }
   if (to) { fuWhere.push('f.date<=?'); fuParams.push(to); }
 
@@ -141,8 +145,8 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
           SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal
           FROM customer_ledger cl
           JOIN customers c ON c.id=cl.customer_id
-          WHERE c.user_id=?
-        `).get(userId)
+          WHERE (c.user_id=? OR c.assigned_to=?)
+        `).get(userId, userId)
       : db.prepare('SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger').get();
     receivablesRial = Math.round(Number(q?.bal) || 0);
   } catch (_) {}
@@ -223,8 +227,11 @@ function buildTimeline(db, {
   if (!custId) return { events: [], total: 0, applied_filters: { customer_id: null } };
 
   if (scopeUserId) {
-    const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(custId);
-    if (own && own.user_id !== scopeUserId) {
+    const own = db.prepare('SELECT user_id, assigned_to FROM customers WHERE id=?').get(custId);
+    const ownerMatch = !!(own && Number(own.user_id) === Number(scopeUserId));
+    const assignedMatch = !!(own && own.assigned_to != null && Number(own.assigned_to) === Number(scopeUserId));
+    const denied = !!(own && !ownerMatch && !assignedMatch);
+    if (denied) {
       const err = new Error('دسترسی به این مشتری ندارید');
       err.status = 403;
       throw err;
@@ -520,10 +527,10 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
     }
     if (f.user_id) {
       where.push(`(
-        COALESCE(cr.customer_id,0) IN (SELECT id FROM customers WHERE user_id=?)
-        OR COALESCE(cr.party_id,0) IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)
+        COALESCE(cr.customer_id,0) IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?)
+        OR COALESCE(cr.party_id,0) IN (SELECT party_id FROM customers WHERE (user_id=? OR assigned_to=?) AND party_id IS NOT NULL)
       )`);
-      params.push(f.user_id, f.user_id);
+      params.push(f.user_id, f.user_id, f.user_id, f.user_id);
     }
     return finish(
       `SELECT cr.id, cr.party_name AS cust_biz, cr.due_date AS date,
@@ -561,17 +568,20 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
     const hasAct = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_activities'").get();
     if (hasAct) {
       const where = ['1=1']; const params = [];
-      if (f.user_id) { where.push('a.owner_user_id=?'); params.push(f.user_id); }
+      if (f.user_id) {
+        where.push('(a.owner_user_id=? OR a.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?))');
+        params.push(f.user_id, f.user_id, f.user_id);
+      }
       if (m === 'activities_open') where.push("a.status='open'");
       if (m === 'open_complaints') { where.push("a.status='open'"); where.push("a.type='complaint'"); }
       if (m === 'activities_done') where.push("a.status IN ('done','closed')");
-      if (m === 'activities_today') { where.push("COALESCE(a.due_date,a.date)=?"); params.push(todayJalali()); }
+      if (m === 'activities_today') { where.push("COALESCE(a.due_date,a.activity_date)=?"); params.push(todayJalali()); }
       if (m === 'activities_overdue') {
         where.push("a.status='open' AND COALESCE(a.due_date,'')<>'' AND a.due_date<?");
         params.push(todayJalali());
       }
       return finish(
-        `SELECT a.id, a.subject AS title, COALESCE(a.due_date,a.date,'') AS date, a.status, a.customer_id AS cust_id,
+        `SELECT a.id, a.subject AS title, COALESCE(a.due_date,a.activity_date,'') AS date, a.status, a.customer_id AS cust_id,
            c.biz AS cust_biz
          FROM crm_activities a LEFT JOIN customers c ON c.id=a.customer_id
          WHERE ${where.join(' AND ')} ORDER BY a.id DESC LIMIT ? OFFSET ?`,

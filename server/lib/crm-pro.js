@@ -5,6 +5,7 @@
 const { firmSaleTypeSql } = require('./sales-document');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const { normalizeStage, defaultProb, mapFollowupType } = require('./crm-pro-schema');
+const { customerVisibleTo } = require('./customer-scope');
 
 const PIPELINE_STAGES = [
   'lead', 'qualified', 'proposal', 'negotiation', 'first_order', 'won', 'repeat', 'lost',
@@ -47,8 +48,7 @@ function weightedRial(amount, prob) {
 function assertOpportunityAccess(db, opp, scopeUserId) {
   if (scopeUserId == null || !opp) return;
   if (Number(opp.owner_user_id) !== Number(scopeUserId)) {
-    const cust = db.prepare('SELECT user_id FROM customers WHERE id=?').get(opp.customer_id);
-    if (!cust || Number(cust.user_id) !== Number(scopeUserId)) {
+    if (!opp.customer_id || !customerVisibleTo(db, opp.customer_id, scopeUserId)) {
       const err = new Error('دسترسی به این فرصت ندارید');
       err.status = 403;
       throw err;

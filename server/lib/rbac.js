@@ -112,6 +112,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: VIEW_ONLY,
+    production: { ...NONE },
+    production_bom: { ...NONE },
+    production_cost: { ...NONE },
+    production_close: { ...NONE },
+    production_reports: { ...NONE },
   },
   distribution_office: {
     customers: VIEW_ONLY,
@@ -127,6 +132,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+    production: { ...NONE },
+    production_bom: { ...NONE },
+    production_cost: { ...NONE },
+    production_close: { ...NONE },
+    production_reports: { ...NONE },
   },
   production_manager: {
     customers: VIEW_ONLY,
