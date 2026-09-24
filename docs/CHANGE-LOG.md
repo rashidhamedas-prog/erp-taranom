@@ -14,7 +14,7 @@
 - **تست:** void-cheque-v227 ۱۳/۱۳، amount-pay ۲۲/۲۲، sms ۲۲/۲۲.
 - **فایل‌ها:** server/lib/{void-settlement,void-invoice,amend-invoice,invoice-print}.js, server/routes/invoices.js, server/public/{invoice-print.css,sw.js}, server/scripts/test-invoice-void-cheque-v227.js
 - **SW:** erp-taranom-v227
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ dc5cfda — health/ready/root 200. SW erp-taranom-v227.
 
 ### ۱۴۰۵/۰۷/۰۳ — دسترسی بخش‌به‌بخش حسابداری برای کاربران (SW v227)
 
