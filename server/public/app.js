@@ -353,7 +353,12 @@ function balFooterPairHtml(rows, colsBefore, colsAfter){
 }
 const REF_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
 function refDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=REF_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">مرجع ${esc(String(docNo))}</span>`; }
-function payTypeLabel(pt){ return {cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'}[pt]||pt||'نقد'; }
+function payTypeLabel(pt){
+  return {
+    cash:'نقد', cheque:'چک', credit:'نسیه', bank_transfer:'واریز بانکی', bank:'واریز بانکی',
+    pos_card:'کارتخوان', mixed:'چندمرحله‌ای'
+  }[pt]||pt||'نقد';
+}
 function moneyColLabel(){ return `(${currencyUnit()})`; }
 function fmtCompact(n){
   n=Number(n)||0;
@@ -498,7 +503,8 @@ function collectInvoiceStockWarnings(cart){
   Object.keys(byProd).forEach(pid=>{
     const g=byProd[pid];
     const p=typeof findInvProduct==='function'?findInvProduct(pid):null;
-    const avail=p?Number(p.wh_qty!=null?p.wh_qty:(p.stock||0)):0;
+    const held=invoiceHeldQty('product', pid);
+    const avail=(p?Number(p.wh_qty!=null?p.wh_qty:(p.stock||0)):0)+held;
     if(g.qty>avail+1e-9){
       issues.push({
         kind:'product', product_id:Number(pid),
@@ -509,8 +515,10 @@ function collectInvoiceStockWarnings(cart){
   });
   Object.keys(bySku).forEach(vid=>{
     const g=bySku[vid];
-    if(g.qty>g.avail+1e-9){
-      issues.push({kind:'sku', name:g.name||'SKU', need:g.qty, avail:g.avail, after:g.avail-g.qty});
+    const heldSku=invoiceHeldQty('sku', vid);
+    const availSku=g.avail+heldSku;
+    if(g.qty>availSku+1e-9){
+      issues.push({kind:'sku', name:g.name||'SKU', need:g.qty, avail:availSku, after:availSku-g.qty});
     }
   });
   return issues;
@@ -528,6 +536,27 @@ function renderInvoiceStockWarn(){
     <div class="inv-stock-warn-title">⚠️ ${esc(title)}</div>
     <ul>${issues.map(i=>'<li><b>'+esc(i.name)+'</b> — نیاز '+fmtQty(i.need)+'، موجود '+fmt(i.avail)+'، پس از فاکتور <b>'+fmt(i.after)+'</b></li>').join('')}</ul>
   </div>`;
+}
+function invoiceHeldQty(kind, id){
+  const b=window._invStockBaseline;
+  if(!b || !window._invBuilderId) return 0;
+  const map=kind==='sku'?b.sku:b.prod;
+  return Number(map && map[String(id)])||0;
+}
+function captureInvoiceStockBaseline(inv){
+  window._invStockBaseline=null;
+  if(!inv || !Number(inv.stock_deducted) || inv.type==='proforma') return;
+  const prod={}, sku={};
+  (inv.rows||[]).forEach(r=>{
+    if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
+    const pid=String(r.product_id||'');
+    if(pid) prod[pid]=(prod[pid]||0)+(Number(r.qty)||0);
+    if(r.variant_id){
+      const vid=String(r.variant_id);
+      sku[vid]=(sku[vid]||0)+(Number(r.qty)||0);
+    }
+  });
+  window._invStockBaseline={prod, sku};
 }
 function invoiceNegativeStockWarn(cart){
   const issues=collectInvoiceStockWarnings(cart);
@@ -810,7 +839,7 @@ function custSelect(id, selectedId, optional=false){
   const ph=optional?'مشتری مرتبط (اختیاری)...':'جستجو: نام، موبایل، کد...';
   return `<div class="cust-sw" data-cs-id="${esc(id)}">
     <input type="hidden" id="${esc(id)}" value="${selectedId||''}" data-optional="${optional?1:0}">
-    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="${ph}" value="${sel?esc(sel.biz):''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="${ph}" value="${sel?esc(sel.biz):''}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="nofill_${esc(id)}">
     <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
   </div>`;
 }
@@ -833,7 +862,7 @@ function initCustSearches(scope){
       else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') hideGenericDrop(id);
       else hideCustDrop(id);
     };
-    inp.addEventListener('focus',()=>show());
+    inp.addEventListener('focus',()=>{ if(!(inp.value||'').trim()) show(); });
     inp.addEventListener('input',()=>show());
     inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hide(); });
   });
@@ -1657,22 +1686,41 @@ const ACC_PROD_PERM_MAP={
   'acc-production-monthly-profit':['production_reports','view'],
   'acc-production-cost-sheet':['production_reports','view'],
 };
+function accItemResource(it){
+  if(!it) return null;
+  if(it.access) return it.access;
+  if(typeof accResourceForNav==='function') return accResourceForNav(it.id);
+  return null;
+}
 function filterAccNavItem(it){
-  if(it.id==='acc-production-access' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
-  if(it.id==='acc-production-monthly-profit' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
-  const pp=ACC_PROD_PERM_MAP[it.id];
-  if(pp && typeof canPerm==='function' && !canPerm(pp[0], pp[1])) return false;
+  if(!it) return false;
+  if(it.id==='exit-acc-shell' || it.id==='help') return true;
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
-  return !key || flags[key]!=='0';
+  if(key && flags[key]==='0') return false;
+  if(ME?.role==='admin') return true;
+  if(typeof showAccountingTab==='function' && !showAccountingTab()) return false;
+  const resource=accItemResource(it);
+  if(!resource) return ME?.role==='accounting';
+  return typeof canPerm==='function' && canPerm(resource, 'view');
 }
 function accNavForRole(){
-  let nav=accNavFlat().filter(filterAccNavItem);
-  if(ME?.role==='sales_manager'){
-    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
-    nav=nav.filter(it=>allowed.has(it.id));
+  return accNavFlat().filter(filterAccNavItem);
+}
+function firstAllowedAccPage(){
+  const hit=(accNavForRole()||[]).find(it=>String(it.id||'').startsWith('acc-'));
+  return hit?hit.id:null;
+}
+function withAccountingTab(items){
+  const show=typeof showAccountingTab==='function' && showAccountingTab();
+  const has=items.some(it=>it.id==='accounting');
+  if(show && !has){
+    const idx=items.findIndex(it=>it.id==='messages');
+    const entry={id:'accounting', icon:'💰', label:'حسابداری'};
+    items=idx>=0?[...items.slice(0,idx), entry, ...items.slice(idx)]:[...items, entry];
   }
-  return nav;
+  if(!show && has) items=items.filter(it=>it.id!=='accounting');
+  return items;
 }
 /** نرمال‌سازی پاسخ لیست Wave1: آرایه خام یا {data,pagination} */
 function listRows(resp){
@@ -1720,14 +1768,14 @@ function navItems(){
       const entry={ id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' };
       items = hi>=0 ? [...items.slice(0,hi), entry, ...items.slice(hi)] : [...items, entry];
     }
-    return items;
+    return withAccountingTab(items);
   }
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING.filter(filterMainNavItem);
     if(isDeviceClient()){
       items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
     }
-    return items;
+    return withAccountingTab(items);
   }
   let items = NAV_SALES.filter(filterMainNavItem);
   if(isRepRole(ME?.role)){
@@ -1736,7 +1784,7 @@ function navItems(){
   if(isDeviceClient()){
     items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
   }
-  return items;
+  return withAccountingTab(items);
 }
 function isDeviceClient(){
   const p = detectClientPlatform();
@@ -1808,17 +1856,13 @@ function buildNav(){
   if(IN_ACC_SHELL){
     el('nav').innerHTML = ACC_NAV_SECTIONS.map((sec, secIdx)=>{
       const secItems = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
-      let items = secItems.filter(filterAccNavItem);
-      if(ME?.role==='sales_manager'){
-        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
-        items=items.filter(it=>allowed.has(it.id));
-      }
+      const items = secItems.filter(filterAccNavItem);
       if(!items.length) return '';
       const collapsed = ACC_NAV_COLLAPSED.has(secIdx);
       let bodyHtml='';
       if(sec.subgroups && sec.subgroups.length){
         bodyHtml = sec.subgroups.map((sg)=>{
-          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help'].includes(it.id));
+          const sgItems=(sg.items||[]).filter(filterAccNavItem);
           if(!sgItems.length) return '';
           return `<div class="nav-acc-sub">
             <div class="nav-acc-sub-title">${T(sg.title)}</div>
@@ -1843,20 +1887,26 @@ function buildNav(){
 // Accounting shell's Persons Statement page, preselected on this customer.
 async function viewCustStatementFromDash(custId){
   stmtCustId = String(custId);
-  IN_ACC_SHELL = true;
-  el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
-  buildNav();
-  if(!CACHE.moduleFlags){
-    api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
-  }
-  go('acc-statement');
+  enterAccountingShell('acc-statement');
 }
 async function enterAccountingShell(nextPage){
+  if(typeof showAccountingTab==='function' && !showAccountingTab()){
+    showToast('دسترسی به تب حسابداری ندارید','error');
+    return;
+  }
   IN_ACC_SHELL = true;
   collapseAllAccNav();
   el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
-  go(nextPage || 'acc-dash');
+  let target = nextPage || 'acc-dash';
+  const spec = accNavFlat().find(x=>x.id===target);
+  if(!spec || !filterAccNavItem(spec)) target = firstAllowedAccPage();
+  if(!target){
+    const view=el('view');
+    if(view) view.innerHTML='<div class="empty">تب حسابداری روشن است، ولی هنوز بخشی داخل آن برای شما باز نشده. در دسترسی‌های کاربر، مشاهدهٔ همان بخش را تیک بزنید.</div>';
+    return;
+  }
+  go(target);
   if(!CACHE.moduleFlags){
     api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
   }
@@ -1931,6 +1981,20 @@ function go(page){
   if (ROUTE_REDIRECTS[page]) page = ROUTE_REDIRECTS[page];
   if(page==='accounting'){ enterAccountingShell(); return; }
   if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
+  if(String(page||'').startsWith('acc-')){
+    const spec=typeof accNavFlat==='function'?accNavFlat().find(x=>x.id===page):null;
+    const allowed=spec?filterAccNavItem(spec):(ME&&(ME.role==='admin'||ME.role==='accounting'));
+    if((typeof showAccountingTab==='function' && !showAccountingTab()) || !allowed){
+      showToast('به این بخش حسابداری دسترسی ندارید','error');
+      return;
+    }
+    if(!IN_ACC_SHELL){
+      IN_ACC_SHELL=true;
+      collapseAllAccNav();
+      if(el('brandRole')) el('brandRole').textContent='🧮 '+T('ماژول حسابداری');
+      buildNav();
+    }
+  }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
   // تاریخچهٔ ناوبری برای دکمه بازگشت (به‌جز حرکت برگشتی)
   if(!_navGoingBack && CURRENT_PAGE && CURRENT_PAGE!==page){
@@ -2074,14 +2138,28 @@ function canEditCustomer(c){
   return creator === ME.id;
 }
 let USER_PERMS = null;
+const SALES_MANAGER_ACC_RESOURCES=new Set(['acc_dash','acc_reps','acc_commissions','acc_receivables','acc_sales_invoices','acc_statement','acc_settlements']);
 function canPerm(resource, action){
   if(!ME) return false;
   if(ME.role==='admin') return true;
-  if(!USER_PERMS) return ME.role==='accounting' && ['accounting','invoices','customers','products','stocktaking'].includes(resource);
+  if(!USER_PERMS){
+    if(ME.role==='accounting' && (resource==='accounting' || String(resource).startsWith('acc_'))) return true;
+    if(ME.role==='accounting' && ['invoices','customers','products','stocktaking'].includes(resource)) return true;
+    if(ME.role==='sales_manager' && action==='view' && (resource==='accounting' || SALES_MANAGER_ACC_RESOURCES.has(resource))) return true;
+    return false;
+  }
   return !!(USER_PERMS[resource] && USER_PERMS[resource][action]);
 }
+function showAccountingTab(){
+  if(!ME) return false;
+  if(ME.role==='admin') return true;
+  if(!USER_PERMS) return ME.role==='accounting' || ME.role==='sales_manager';
+  return !!(USER_PERMS.accounting && USER_PERMS.accounting.view);
+}
 function canAccounting(){ return ME && (ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'); }
-function canRepAdmin(){ return canAccounting(); }
+function canRepAdmin(){
+  return canAccounting() || canPerm('reps','view') || canPerm('acc_reps','view');
+}
 
 function disarmLoginAutofill(){
   const u=el('loginUser'), p=el('loginPass'), f=el('loginForm');
@@ -2095,10 +2173,52 @@ function armLoginAutofill(){
   if(u){ u.setAttribute('autocomplete','username'); }
   if(f) f.removeAttribute('autocomplete');
 }
+function markNoFieldHistory(inp){
+  if(!inp || inp.dataset.noHist==='1') return;
+  const type=(inp.getAttribute('type')||'text').toLowerCase();
+  if(['password','hidden','checkbox','radio','file','submit','button','range','color'].includes(type)) return;
+  const ac=inp.getAttribute('autocomplete')||'';
+  if(ac==='current-password'||ac==='new-password'||ac==='username'||ac==='one-time-code') return;
+  inp.dataset.noHist='1';
+  inp.setAttribute('autocomplete','off');
+  inp.setAttribute('autocapitalize','off');
+  inp.setAttribute('autocorrect','off');
+  inp.setAttribute('spellcheck','false');
+  if(!inp.getAttribute('name')) inp.setAttribute('name','nofill_'+Math.random().toString(36).slice(2,9));
+  inp.addEventListener('pointerdown', function(){
+    if(this.readOnly || this.dataset.dpBound) return;
+    this.setAttribute('readonly','readonly');
+    const self=this;
+    setTimeout(function(){ if(!self.dataset.dpBound) self.removeAttribute('readonly'); }, 40);
+  });
+}
+function disarmFieldHistory(root){
+  const scope=root&&root.querySelectorAll?root:document;
+  scope.querySelectorAll('input,textarea').forEach(markNoFieldHistory);
+  scope.querySelectorAll('form').forEach(f=>{
+    if((f.getAttribute('autocomplete')||'')==='on' || !f.getAttribute('autocomplete')) f.setAttribute('autocomplete','off');
+  });
+}
+let _noHistObs=null;
+function watchFieldHistory(){
+  disarmFieldHistory(document);
+  if(_noHistObs || typeof MutationObserver==='undefined') return;
+  _noHistObs=new MutationObserver(function(list){
+    list.forEach(function(m){
+      m.addedNodes&&m.addedNodes.forEach(function(n){
+        if(!n||n.nodeType!==1) return;
+        if(n.matches&&n.matches('input,textarea')) markNoFieldHistory(n);
+        if(n.querySelectorAll) disarmFieldHistory(n);
+      });
+    });
+  });
+  _noHistObs.observe(document.body||document.documentElement,{childList:true,subtree:true});
+}
 async function boot(){
   el('login').style.display='none';
   el('app').style.display='block';
   disarmLoginAutofill();
+  try{ watchFieldHistory(); }catch(_){}
   let stored = JSON.parse(localStorage.getItem('crm_user')||'null');
   setME(stored);
   try{
@@ -2115,9 +2235,10 @@ async function boot(){
   el('brandRole').textContent = shellBrand();
   el('avatar').textContent = (ME.name||'؟').trim().charAt(0);
   syncAcctDrawerUser();
+  try{ USER_PERMS = await api('GET','/rbac/me')||{}; }catch{ USER_PERMS=null; }
   buildNav();
   await loadInitial();
-  go(ME.role==='accounting'||ME.role==='sales_manager'?'accounting':'dash');
+  go((ME.role==='accounting'||ME.role==='sales_manager') && showAccountingTab() ? 'accounting' : 'dash');
   refreshMsgBadge();
   refreshRemBadge();
   setInterval(refreshMsgBadge, 30000);
@@ -2125,7 +2246,6 @@ async function boot(){
   initSyncUI();
   initAppUpdate();
   bindBarcodeWedgeListener();
-  try{ USER_PERMS = await api('GET','/rbac/me')||{}; }catch{ USER_PERMS=null; }
   window.__canSeeCost = !!(ME.role==='admin' || ME.role==='accounting' || canPerm('production_cost','view'));
   initOmnibox();
   initNotifications();
@@ -2782,6 +2902,46 @@ function openModal(html, lg){
   wireModalChrome();
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
+  hardenFormAutofill(el('modalRoot'));
+}
+/** جلوگیری از پیشنهاد/پر شدن خودکار مرورگر روی فیلدهای عملیاتی ERP (جستجو، مشتری، مبلغ، …). */
+function hardenFormAutofill(root){
+  const scope = root || document;
+  try{
+    scope.querySelectorAll('form').forEach(f=>{
+      if(!f.getAttribute('autocomplete')) f.setAttribute('autocomplete','off');
+    });
+    scope.querySelectorAll('input, textarea, select').forEach(inp=>{
+      if(!inp || inp.tagName==='BUTTON') return;
+      const type = String(inp.type || '').toLowerCase();
+      if(type==='hidden' || type==='file' || type==='checkbox' || type==='radio' || type==='submit' || type==='button') return;
+      const ac = String(inp.getAttribute('autocomplete') || '');
+      if(ac==='current-password' || ac==='new-password' || ac==='username' || ac==='one-time-code') return;
+      inp.setAttribute('autocomplete','off');
+      inp.setAttribute('autocorrect','off');
+      inp.setAttribute('autocapitalize','off');
+      if(type!=='password') inp.setAttribute('spellcheck','false');
+      const id = String(inp.id || '');
+      const cls = String(inp.className || '');
+      const ph = String(inp.placeholder || '');
+      const isSearchish = type==='search' || /\bsearch\b|cust-si|si-input/i.test(cls) || /Search|search|جستجو|بارکد|اسکن/i.test(id+ph)
+        || /^(inv-|c-|p-|cust|po-|stl|rp-)/i.test(id);
+      if(isSearchish || type==='text' || type==='search' || type==='tel' || type==='email' || type==='number' || inp.tagName==='TEXTAREA'){
+        if(!inp.name || !String(inp.name).startsWith('nofill_')){
+          inp.name = 'nofill_' + (id || ('f'+Math.random().toString(36).slice(2,8)));
+        }
+      }
+      if(isSearchish && !inp.dataset.autofillHardened){
+        inp.dataset.autofillHardened = '1';
+        if(!inp.readOnly){
+          inp.setAttribute('readonly','readonly');
+          const unlock = ()=>{ try{ inp.removeAttribute('readonly'); }catch(_){} };
+          inp.addEventListener('focus', unlock, { once:true });
+          inp.addEventListener('touchstart', unlock, { once:true, passive:true });
+        }
+      }
+    });
+  }catch(_){}
 }
 function wireModalChrome(){
   const modal=el('activeModal');
@@ -4259,7 +4419,7 @@ function renderInvTable(){
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
   const isAdmin=ME.role==='admin';
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
-  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
+  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی',bank:'واریز بانکی',pos_card:'کارتخوان',mixed:'چندمرحله‌ای'};
 
   el('invTable').innerHTML=`<table class="tbl" id="crmInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
     <th>شماره</th><th>خریدار / مشتری</th><th>نوع فاکتور</th><th>تاریخ صدور</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
@@ -4360,8 +4520,12 @@ async function _openInvBuilder(id){
     ? !!Number(inv.vat_exempt)
     : (mkMeta && mkMeta.vatExempt!=null ? !!mkMeta.vatExempt : defaultVatExemptForType(builderType));
   const isFinalEdit = !!(inv && inv.type==='final');
-  const isAmendEdit = !!(inv && (inv.type==='proforma' || inv.type==='normal'));
+  const canAmendFirm = ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'
+    || (typeof canPerm==='function' && canPerm('invoices','update'));
+  const allowSaveEdit = !isFinalEdit || canAmendFirm;
+  const isAmendEdit = !!(inv && (inv.type==='proforma' || inv.type==='normal' || (inv.type==='final' && canAmendFirm)));
   window._invBuilderId = id || 0;
+  captureInvoiceStockBaseline(inv);
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':(salesProformaOnly?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -4406,34 +4570,36 @@ async function _openInvBuilder(id){
             <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
           </select>
         </div>
-        <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز. نقد/چک/واریز/کارتخوان: مبلغ و مقصد را مشخص کنید. چندمرحله‌ای برای ترکیب نقد+کارت.')}</label><select id="inv-pay-type" data-csp-change="${CSP.bind('change',function(event){toggleInvPayFields()})}">
+        <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز بدون دریافت. نقد→صندوق، واریز→بانک، کارتخوان→در جریان، چک→اسناد دریافتنی (نزد صندوق) با مشخصات صیادی. چندمرحله‌ای: ترکیب چند روش تا سقف مبلغ فاکتور؛ مانده روی حساب مشتری.')}</label><select id="inv-pay-type" data-csp-change="${CSP.bind('change',function(event){toggleInvPayFields()})}">
           <option value="credit" ${inv&&inv.pay_type==='credit'?'selected':''}>نسیه (حساب باز)</option>
           <option value="cash" ${!inv||inv.pay_type==='cash'||!inv.pay_type?'selected':''}>نقد</option>
-          <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک</option>
+          <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک دریافتی</option>
           <option value="bank_transfer" ${inv&&(inv.pay_type==='bank_transfer'||inv.pay_type==='bank')?'selected':''}>واریز بانکی</option>
           <option value="pos_card" ${inv&&inv.pay_type==='pos_card'?'selected':''}>کارتخوان</option>
+          ${inv&&inv.pay_type==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
         </select></div>
         <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
           <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder()})}">
           <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
-        <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز/چک به بانک</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
+        <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز به حساب بانکی</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
           <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
         </select></div>
         <div class="fg" id="inv-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دریافت در صندوق *</label><select id="inv-cashbox">
           <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':(!inv && defCashBoxId && Number(b.id)===Number(defCashBoxId)?'selected':'')}>${esc(b.name)}</option>`).join('')}
         </select></div>
         ${payPosFieldHtml('inv')}
-        <div class="fg" id="inv-checkcat-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="inv-checkcat"><option value="">—</option></select></div>
+        <div class="fg" id="inv-checkcat-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک (پرداختنی)</label><select id="inv-checkcat"><option value="">—</option></select></div>
         <div class="fg full" id="inv-multi-wrap" data-csp-style="${CSP.style(`display:none`)}">
           <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
-            <input type="checkbox" id="inv-multi" data-csp-change="${CSP.bind('change',function(){toggleInvPayFields()})}" data-csp-style="${CSP.style(`width:auto`)}"> پرداخت طی چند مرحله (مثلاً بخشی نقد، بخشی کارتخوان)
+            <input type="checkbox" id="inv-multi" data-csp-change="${CSP.bind('change',function(){toggleInvPayFields()})}" data-csp-style="${CSP.style(`width:auto`)}" ${inv&&inv.pay_type==='mixed'?'checked':''}> پرداخت طی چند مرحله (مثلاً بخشی نقد، بخشی چک / کارتخوان)
           </label>
         </div>
         <div class="fg full" id="inv-multi-block" data-csp-style="${CSP.style(`display:none`)}">
-          <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر ردیف یک نوع پرداخت با مبلغ و مقصد جدا است. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود.</div>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر ردیف یک نوع پرداخت با مبلغ و مقصد جدا است. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود. برای چک دریافتی همهٔ مشخصات صیادی الزامی است.</div>
           <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
             <th>مبلغ (ریال)</th><th>نوع</th><th>مقصد</th><th></th>
           </tr></thead><tbody id="invPayRowsBody"></tbody></table></div>
+          <div id="invPayChequeCards"></div>
           <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invPayAddRow();renderInvPayRows()})}">➕ مرحله دیگر</button>
         </div>
         <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
@@ -4441,10 +4607,18 @@ async function _openInvBuilder(id){
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
       <div id="chequeFields" data-csp-style="${CSP.style(`${!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">چک دریافتی به حساب اسناد دریافتنی (نزد صندوق) ثبت می‌شود — تا وصول به بانک/صندوق نمی‌رود.</div>
         <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-          <div class="fg"><label>مدت چک (روز) ${hlp('فاصله روزهای سررسید چک از تاریخ فاکتور.')}</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
-          <div class="fg"><label>تاریخ سررسید ${hlp('تاریخ وصول چک — در بخش مدیریت چک‌های حسابداری پیگیری می‌شود.')}</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
-          <div class="fg full"><label>اطلاعات چک ${hlp('بانک، شماره صیادی یا هر جزئیات دیگر چک — روی فاکتور چاپ می‌شود.')}</label><input id="inv-cheque-info" value="${esc(inv&&inv.cheque_info?inv.cheque_info:'')}"></div>
+          <div class="fg"><label>نام بانک *</label><input id="inv-cheque-bank" value="${esc(inv&&inv.cheque_bank?inv.cheque_bank:'')}" placeholder="مثال: ملی"></div>
+          <div class="fg"><label>شعبه *</label><input id="inv-cheque-branch" value="${esc(inv&&inv.cheque_branch?inv.cheque_branch:'')}"></div>
+          <div class="fg"><label>شماره حساب *</label><input id="inv-cheque-account" dir="ltr" value="${esc(inv&&inv.cheque_account?inv.cheque_account:'')}"></div>
+          <div class="fg"><label>شبا (اختیاری)</label><input id="inv-cheque-sheba" dir="ltr" value="${esc(inv&&inv.cheque_sheba?inv.cheque_sheba:'')}" placeholder="IR..."></div>
+          <div class="fg"><label>شماره چک *</label><input id="inv-cheque-number" dir="ltr" value="${esc(inv&&inv.cheque_number?inv.cheque_number:'')}"></div>
+          <div class="fg"><label>شناسه صیاد ۱۶ رقمی *</label><input id="inv-cheque-sayadi" dir="ltr" class="mono" value="${esc(inv&&(inv.cheque_sayadi||inv.sayadi)?(inv.cheque_sayadi||inv.sayadi):'')}"></div>
+          <div class="fg"><label>تاریخ سررسید *</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
+          <div class="fg"><label>مدت چک (روز)</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
+          <div class="fg full"><label>نام صادرکننده *</label><input id="inv-cheque-owner" value="${esc(inv&&inv.cheque_owner?inv.cheque_owner:'')}"></div>
+          <div class="fg full"><label>توضیحات چک</label><input id="inv-cheque-info" value="${esc(inv&&inv.cheque_info?inv.cheque_info:'')}"></div>
         </div>
       </div>
       <div class="inv-layout">
@@ -4467,8 +4641,9 @@ async function _openInvBuilder(id){
           <div id="invStockWarn" hidden></div>
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
-          ${isFinalEdit?`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این فرم ذخیره نمی‌شود. برای اصلاح باید <b>ابطال</b> کنید؛ ویرایش مستقیم سند جدید یا سند معکوس ثبت نمی‌کند.</div>`:`<button id="inv-save-btn" class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${id?'💾 ذخیره تغییرات':'💾 ذخیره فاکتور'}</button>
-          ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود.</p>`:''}`}
+          ${allowSaveEdit?`<button id="inv-save-btn" class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${id?'💾 ذخیره تغییرات':'💾 ذخیره فاکتور'}</button>
+          ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود. موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود.</p>`:''}`
+          :`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این نقش قابل ذخیره نیست. برای اصلاح با مدیر/حسابدار هماهنگ کنید یا ابطال کنید.</div>`}
           ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
           ${id&&inv&&inv.type==='proforma'&&!inv.converted&&canConvertProforma()?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
@@ -4478,7 +4653,27 @@ async function _openInvBuilder(id){
   renderInvPicker();
   renderCart();
   hydrateInvPayRows(inv);
+  if(inv && inv.pay_type==='cheque'){
+    let ch=null;
+    try{
+      const parsed=inv.pay_splits_json?JSON.parse(inv.pay_splits_json):null;
+      if(Array.isArray(parsed) && parsed[0] && parsed[0].pay_type==='cheque') ch=parsed[0];
+    }catch(_){}
+    const set=(id,v)=>{ const e=el(id); if(e && v!=null && v!=='') e.value=String(v); };
+    if(ch){
+      set('inv-cheque-bank', ch.cheque_bank);
+      set('inv-cheque-branch', ch.cheque_branch);
+      set('inv-cheque-account', ch.cheque_account||ch.account_number);
+      set('inv-cheque-number', ch.cheque_number);
+      set('inv-cheque-sayadi', ch.sayadi||ch.cheque_sayadi);
+      set('inv-cheque-owner', ch.cheque_owner||ch.issuer);
+      set('inv-cheque-sheba', ch.sheba||ch.cheque_sheba);
+      set('inv-cheque-due', ch.cheque_due||ch.cheque_due_date);
+      set('inv-cheque-info', ch.cheque_info);
+    }
+  }
   toggleInvPayFields();
+  hardenFormAutofill(el('modalRoot'));
   const whSel = el('inv-warehouse');
   if (whSel && !whSel.dataset.whBound) {
     whSel.dataset.whBound = '1';
@@ -5110,7 +5305,22 @@ function renderCart(){
   if(discAmtEl && !discAmt && disc){ discAmt=Math.round(subtotal*disc/100); discAmtEl.value=discAmt; }
   else if(discAmtEl && discAmt && subtotal>0){ disc=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el('inv-disc'); if(pe && document.activeElement!==pe) pe.value=disc; }
   const chargedFreight = freightSeller ? 0 : freight;
-  const final = subtotal-discAmt+chargedFreight;
+  const vatExempt = !!(el('inv-vat-exempt')&&el('inv-vat-exempt').checked);
+  let vatAmount = 0;
+  let vatRate = 0;
+  if(!vatExempt){
+    vatRate = invoiceVatRatePct();
+    let taxable = 0;
+    invCart.forEach(r=>{
+      const gross=(Number(r.qty)||0)*(Number(r.price)||0);
+      const net=Math.max(0, gross-(showLineDisc?lineDiscApplied(r):0));
+      if(!lineVatClassExempt(r)) taxable += net;
+    });
+    if(subtotal>0 && discAmt>0) taxable = Math.round(taxable * (1 - discAmt/subtotal));
+    else taxable = Math.max(0, taxable);
+    vatAmount = Math.round(taxable * vatRate / 100);
+  }
+  const final = subtotal-discAmt+vatAmount+chargedFreight;
   window._invLastFinal = final;
   if(typeof syncInvCashPayAmount==='function') syncInvCashPayAmount();
   el('cartTot').innerHTML = `
@@ -5118,6 +5328,7 @@ function renderCart(){
       ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
       <div class="inv-summary-row"><span>جمع ناخالص کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
       <div class="inv-summary-row"><span>تخفیف کلی فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(discAmt)} ریال</span></div>
+      ${!vatExempt?`<div class="inv-summary-row"><span>مالیات بر ارزش افزوده (${fmt(vatRate)}٪):</span><span class="mono">${fmt(vatAmount)} ریال</span></div>`:''}
       ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
       <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
     </div>`;
@@ -5202,26 +5413,61 @@ function invDestHtml(row, i){
       ${(CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}" ${Number(row.terminal_id)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
     </select>`;
   }
+  if(pt==='cheque'){
+    return `<span class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6`)}">اسناد دریافتنی<br>(نزد صندوق)</span>`;
+  }
   return `<select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].bank_id=+this.value||null})}">
     <option value="">— بانک —</option>
     ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${Number(row.bank_id)===Number(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
   </select>`;
+}
+function invPayEnsureChequeDefaults(row){
+  if(!row) return;
+  if(row.cheque_due==null) row.cheque_due=todayJalali();
+  ['cheque_bank','cheque_branch','cheque_account','cheque_number','sayadi','cheque_owner','sheba','cheque_info'].forEach(k=>{
+    if(row[k]==null) row[k]='';
+  });
+}
+function renderInvPayChequeCards(){
+  const box=el('invPayChequeCards'); if(!box) return;
+  const idxs=[];
+  (invPayRows||[]).forEach((r,i)=>{ if((r.pay_type||'')==='cheque'){ invPayEnsureChequeDefaults(r); idxs.push(i); } });
+  if(!idxs.length){ box.innerHTML=''; return; }
+  box.innerHTML=idxs.map(i=>{
+    const r=invPayRows[i];
+    return `<div class="chq-card" data-inv-chq-i="${i}" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0;background:var(--well)`)}">
+      <b data-csp-style="${CSP.style(`display:block;margin-bottom:8px;color:var(--purple)`)}">چک دریافتی — مرحله ${toFa(i+1)}</b>
+      <div class="form-grid">
+        <div class="fg"><label>نام بانک *</label><input data-k="cheque_bank" value="${esc(r.cheque_bank||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_bank=this.value})}"></div>
+        <div class="fg"><label>شعبه *</label><input data-k="cheque_branch" value="${esc(r.cheque_branch||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_branch=this.value})}"></div>
+        <div class="fg"><label>شماره حساب *</label><input data-k="cheque_account" dir="ltr" value="${esc(r.cheque_account||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_account=this.value})}"></div>
+        <div class="fg"><label>شبا</label><input data-k="sheba" dir="ltr" value="${esc(r.sheba||'')}" placeholder="IR..." data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].sheba=this.value})}"></div>
+        <div class="fg"><label>شماره چک *</label><input data-k="cheque_number" dir="ltr" value="${esc(r.cheque_number||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_number=this.value})}"></div>
+        <div class="fg"><label>شناسه صیاد *</label><input data-k="sayadi" dir="ltr" class="mono" value="${esc(r.sayadi||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].sayadi=this.value})}"></div>
+        <div class="fg"><label>سررسید *</label><input data-k="cheque_due" data-jdate value="${esc(r.cheque_due||'')}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].cheque_due=this.value})}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_due=this.value})}"></div>
+        <div class="fg"><label>صادرکننده *</label><input data-k="cheque_owner" value="${esc(r.cheque_owner||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_owner=this.value})}"></div>
+        <div class="fg full"><label>توضیحات</label><input data-k="cheque_info" value="${esc(r.cheque_info||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].cheque_info=this.value})}"></div>
+      </div>
+    </div>`;
+  }).join('');
+  attachDatepickers(box);
 }
 function renderInvPayRows(){
   const body=el('invPayRowsBody'); if(!body) return;
   if(!invPayRows.length) invPayRows=[{amount:'',pay_type:'cash'}];
   body.innerHTML=invPayRows.map((r,i)=>`<tr>
     <td><input class="money" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value})}"></td>
-    <td><select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].pay_type=this.value;renderInvPayRows()})}">
+    <td><select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].pay_type=this.value;if(this.value==='cheque')invPayEnsureChequeDefaults(invPayRows[(i)]);renderInvPayRows()})}">
       <option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option>
       <option value="bank_transfer" ${(r.pay_type==='bank_transfer'||r.pay_type==='bank')?'selected':''}>واریز بانکی</option>
-      <option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option>
+      <option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک دریافتی</option>
       <option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option>
     </select></td>
     <td>${invDestHtml(r,i)}</td>
     <td>${invPayRows.length>1?`<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){invPayRows.splice((i),1);renderInvPayRows()})}">حذف</button>`:''}</td>
   </tr>`).join('');
   body.querySelectorAll('input.money').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
+  renderInvPayChequeCards();
 }
 function invPayAddRow(){
   invPayRows=invPayRows||[];
@@ -5229,16 +5475,42 @@ function invPayAddRow(){
 }
 function collectInvPaySplits(){
   if(!el('inv-multi')?.checked) return null;
+  try{
+    const box=el('invPayChequeCards');
+    if(box){
+      box.querySelectorAll('.chq-card').forEach(card=>{
+        const i=+card.dataset.invChqI;
+        if(!invPayRows[i]) return;
+        card.querySelectorAll('[data-k]').forEach(inp=>{ invPayRows[i][inp.dataset.k]=inp.value; });
+      });
+    }
+  }catch(_){}
   return invPayRows.map(r=>{
     const raw=parseInvMoney(r.amount);
     const amount=typeof fromInputAmount==='function'?fromInputAmount(raw):raw;
-    return {
+    const base={
       pay_type:r.pay_type||'cash',
       amount,
       bank_id:r.bank_id||null,
       cash_box_id:r.cash_box_id||null,
       terminal_id:r.terminal_id||null
     };
+    if((r.pay_type||'')==='cheque'){
+      Object.assign(base,{
+        cheque_bank:r.cheque_bank||'',
+        cheque_branch:r.cheque_branch||'',
+        cheque_account:r.cheque_account||'',
+        cheque_number:r.cheque_number||'',
+        sayadi:r.sayadi||'',
+        cheque_sayadi:r.sayadi||'',
+        cheque_owner:r.cheque_owner||'',
+        sheba:r.sheba||'',
+        cheque_due:r.cheque_due||'',
+        cheque_due_date:r.cheque_due||'',
+        cheque_info:r.cheque_info||''
+      });
+    }
+    return base;
   }).filter(s=>s.amount>0);
 }
 function hydrateInvPayRows(inv){
@@ -5246,35 +5518,55 @@ function hydrateInvPayRows(inv){
   if(!inv) return;
   let parsed=null;
   try{ parsed=inv.pay_splits_json?JSON.parse(inv.pay_splits_json):null; }catch(_){ parsed=null; }
-  if(Array.isArray(parsed) && parsed.length>1){
-    invPayRows=parsed.map(s=>({
-      amount:String(s.amount||s.amount_rial||''),
-      pay_type:s.pay_type||'cash',
-      bank_id:s.bank_id||null,
-      cash_box_id:s.cash_box_id||null,
-      terminal_id:s.terminal_id||s.pos_terminal_id||null
-    }));
-    const m=el('inv-multi'); if(m) m.checked=true;
+  if(Array.isArray(parsed) && parsed.length){
+    invPayRows=parsed.map(s=>{
+      const row={
+        amount:String(s.amount||s.amount_rial||''),
+        pay_type:s.pay_type||'cash',
+        bank_id:s.bank_id||null,
+        cash_box_id:s.cash_box_id||null,
+        terminal_id:s.terminal_id||s.pos_terminal_id||null
+      };
+      if(row.pay_type==='cheque'){
+        Object.assign(row,{
+          cheque_bank:s.cheque_bank||'',
+          cheque_branch:s.cheque_branch||'',
+          cheque_account:s.cheque_account||s.account_number||'',
+          cheque_number:s.cheque_number||'',
+          sayadi:s.sayadi||s.cheque_sayadi||'',
+          cheque_owner:s.cheque_owner||s.issuer||'',
+          sheba:s.sheba||s.cheque_sheba||'',
+          cheque_due:s.cheque_due||s.cheque_due_date||'',
+          cheque_info:s.cheque_info||''
+        });
+      }
+      return row;
+    });
+    if(parsed.length>1 || inv.pay_type==='mixed'){
+      const m=el('inv-multi'); if(m) m.checked=true;
+    }
   }
   if(inv.pos_terminal_id){ const ps=el('inv-pos'); if(ps) ps.value=String(inv.pos_terminal_id); }
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
-  const multi = !!el('inv-multi')?.checked;
+  const multi = !!el('inv-multi')?.checked || pt==='mixed';
+  if(pt==='mixed' && el('inv-multi')) el('inv-multi').checked=true;
   const cf = el('chequeFields'); if(cf) cf.style.display = (!multi && pt==='cheque') ? '' : 'none';
-  const bw = el('inv-bank-wrap'); if(bw) bw.style.display = (!multi && (pt==='bank_transfer'||pt==='bank'||pt==='cheque'))?'flex':'none';
+  const bw = el('inv-bank-wrap'); if(bw) bw.style.display = (!multi && (pt==='bank_transfer'||pt==='bank'))?'flex':'none';
   const cw = el('inv-cashbox-wrap'); if(cw) cw.style.display = (!multi && pt==='cash')?'flex':'none';
-  const ccw = el('inv-checkcat-wrap'); if(ccw) ccw.style.display = (!multi && pt==='cheque')?'flex':'none';
+  const ccw = el('inv-checkcat-wrap'); if(ccw) ccw.style.display = 'none';
   const pos = el('inv-pos-fg'); if(pos) pos.style.display = (!multi && pt==='pos_card')?'flex':'none';
-  const amt = el('inv-pay-amt-wrap'); if(amt) amt.style.display = (!multi && pt && pt!=='credit')?'flex':'none';
+  const amt = el('inv-pay-amt-wrap'); if(amt) amt.style.display = (!multi && pt && pt!=='credit' && pt!=='mixed')?'flex':'none';
   const mw = el('inv-multi-wrap'); if(mw) mw.style.display = (pt && pt!=='credit')?'flex':'none';
   const mb = el('inv-multi-block'); if(mb) mb.style.display = multi?'block':'none';
-  if(pt==='cheque') updateCheckCategoryOptions('inv');
   if(multi){
     if(!invPayRows.length){
-      const first=pt==='credit'?'cash':pt;
-      const second=first==='pos_card'?'cash':'pos_card';
+      const first=(pt==='credit'||pt==='mixed')?'cash':pt;
+      const second=first==='pos_card'?'cash':(first==='cheque'?'cash':'pos_card');
       invPayRows=[{amount:'',pay_type:first},{amount:'',pay_type:second}];
+      if(first==='cheque') invPayEnsureChequeDefaults(invPayRows[0]);
+      if(second==='cheque') invPayEnsureChequeDefaults(invPayRows[1]);
     }
     renderInvPayRows();
   }
@@ -5292,36 +5584,67 @@ function syncInvTypeDependentFields(applyVatDefault){
   if(mo) mo.style.display = type==='final' ? '' : 'none';
 }
 async function saveInvoice(id){
-  if(id && el('inv-type')?.value==='final'){
-    showToast('ویرایش فاکتور رسمی ممکن نیست؛ ابتدا ابطال کنید','error');
+  const canAmendFirm = ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'
+    || (typeof canPerm==='function' && canPerm('invoices','update'));
+  if(id && el('inv-type')?.value==='final' && !canAmendFirm){
+    showToast('ویرایش فاکتور رسمی برای این نقش مجاز نیست','error');
     return;
   }
+  try{ if(typeof renderCart==='function') renderCart(); }catch(_){}
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
   if(!invoiceNegativeStockWarn(invCart)) return;
   let pay_type = el('inv-pay-type')?.value || 'cash';
+  if(pay_type==='mixed') pay_type='credit';
   const splits=collectInvPaySplits();
   if(splits){
     if(!splits.length){ showToast('حداقل یک مبلغ برای پرداخت چندمرحله‌ای وارد کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='pos_card' && !s.terminal_id)){ showToast('برای هر قسط کارتخوان، دستگاه را انتخاب کنید','error'); return; }
+    if(splits.some(s=>s.pay_type==='cash' && !s.cash_box_id)){ showToast('برای هر قسط نقد، صندوق را انتخاب کنید','error'); return; }
+    if(splits.some(s=>s.pay_type==='bank_transfer' && !s.bank_id)){ showToast('برای هر قسط واریز، بانک را انتخاب کنید','error'); return; }
+    const badChq=splits.find(s=>s.pay_type==='cheque' && (!String(s.cheque_bank||'').trim()||!String(s.sayadi||s.cheque_sayadi||'').trim()||!String(s.cheque_due||s.cheque_due_date||'').trim()||!String(s.cheque_number||'').trim()||!String(s.cheque_owner||'').trim()||!String(s.cheque_branch||'').trim()||!String(s.cheque_account||'').trim()));
+    if(badChq){ showToast('برای چک دریافتی همهٔ فیلدهای الزامی (بانک، شعبه، حساب، شماره، صیاد، سررسید، صادرکننده) را پر کنید','error'); return; }
   }else if(pay_type==='pos_card' && !(+el('inv-pos')?.value)){
     showToast('کارتخوان را انتخاب کنید','error'); return;
   }else if(pay_type==='cash' && !(+el('inv-cashbox')?.value)){
     showToast('صندوق را انتخاب کنید','error'); return;
+  }else if(pay_type==='bank_transfer' && !(+el('inv-bank')?.value)){
+    showToast('حساب بانکی واریز را انتخاب کنید','error'); return;
+  }else if(pay_type==='cheque'){
+    const missing=[];
+    if(!(el('inv-cheque-bank')?.value||'').trim()) missing.push('بانک');
+    if(!(el('inv-cheque-branch')?.value||'').trim()) missing.push('شعبه');
+    if(!(el('inv-cheque-account')?.value||'').trim()) missing.push('شماره حساب');
+    if(!(el('inv-cheque-number')?.value||'').trim()) missing.push('شماره چک');
+    if(!/^\d{16}$/.test(String(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,''))) missing.push('صیاد ۱۶ رقمی');
+    if(!(el('inv-cheque-due')?.value||'').trim()) missing.push('سررسید');
+    if(!(el('inv-cheque-owner')?.value||'').trim()) missing.push('صادرکننده');
+    if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی است','error'); return; }
   }
   if(!splits && pay_type==='cash'){
     const chkAmt=invPayAmountRial();
     const chkFinal=Number(window._invLastFinal)||0;
     if(chkAmt>chkFinal){ showToast('مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
   }
+  const discAmtSave=Math.max(0, Math.round(Number(el('inv-disc-amt')?.value)||0));
   const data = {
     cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
     disc:+el('inv-disc').value||0,
+    disc_amt: discAmtSave,
     pay_type,
     cheque_duration: pay_type==='cheque' ? (el('inv-cheque-dur')?.value||'') : '',
     cheque_due_date: pay_type==='cheque' ? (el('inv-cheque-due')?.value||'') : '',
     cheque_info: pay_type==='cheque' ? (el('inv-cheque-info')?.value||'') : '',
+    cheque_bank: pay_type==='cheque' ? (el('inv-cheque-bank')?.value||'') : '',
+    cheque_branch: pay_type==='cheque' ? (el('inv-cheque-branch')?.value||'') : '',
+    cheque_account: pay_type==='cheque' ? (el('inv-cheque-account')?.value||'') : '',
+    cheque_number: pay_type==='cheque' ? (el('inv-cheque-number')?.value||'') : '',
+    cheque_sayadi: pay_type==='cheque' ? (el('inv-cheque-sayadi')?.value||'') : '',
+    sayadi: pay_type==='cheque' ? (el('inv-cheque-sayadi')?.value||'') : '',
+    cheque_owner: pay_type==='cheque' ? (el('inv-cheque-owner')?.value||'') : '',
+    cheque_sheba: pay_type==='cheque' ? (el('inv-cheque-sheba')?.value||'') : '',
+    sheba: pay_type==='cheque' ? (el('inv-cheque-sheba')?.value||'') : '',
     bank_id:+el('inv-bank')?.value||null,
     cash_box_id:+el('inv-cashbox')?.value||null,
     check_category_id:+el('inv-checkcat')?.value||null,
@@ -5358,7 +5681,8 @@ async function saveInvoice(id){
     if(pay_type==='pos_card') data.pos_terminal_id=+el('inv-pos')?.value||null;
     if(pay_type==='cash'){ data.bank_id=null; data.pos_terminal_id=null; }
     else if(pay_type==='pos_card'){ data.bank_id=null; data.cash_box_id=null; }
-    else if(pay_type==='bank_transfer'||pay_type==='bank'||pay_type==='cheque'){ data.cash_box_id=null; data.pos_terminal_id=null; }
+    else if(pay_type==='bank_transfer'||pay_type==='bank'){ data.cash_box_id=null; data.pos_terminal_id=null; }
+    else if(pay_type==='cheque'){ data.cash_box_id=null; data.pos_terminal_id=null; data.bank_id=null; }
   }
   try{
     const saved=id?await api('PUT','/invoices/'+id,data):await api('POST','/invoices',data);
@@ -6881,40 +7205,163 @@ async function userModal(id){
     }
   }catch(_){ const box=el('u-cat-access'); if(box) box.innerHTML='<span class="muted">خطا در بارگذاری گروه‌ها</span>'; }
 }
+const RBAC_ACT_FA={ view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی' };
+const RBAC_RES_FA={
+  customers:'مشتریان', parties:'اشخاص', products:'کالاها', invoices:'فاکتورها',
+  followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار هوشمند',
+  settings:'تنظیمات', backup:'پشتیبان‌گیری', users:'کاربران', stocktaking:'انبارگردانی',
+  messages:'پیام‌ها', reps:'نمایندگان فروش', dashboard:'داشبورد',
+  journal_vouchers:'اسناد حسابداری', payroll:'حقوق و دستمزد', fixed_assets:'دارایی ثابت',
+  moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت',
+  production_cost:'بهای تمام‌شده تولید', production_close:'بستن دوره تولید',
+  production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
+  bank_reconciliation:'مغایرت‌گیری بانکی'
+};
+const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
+function rbacActionBoxes(resource, actions, permissions, label){
+  return actions.map(a=>{
+    const on=permissions[resource]&&permissions[resource][a];
+    return `<label title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${esc(resource)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc(label+' — '+(RBAC_ACT_FA[a]||a))}"> ${esc(RBAC_ACT_FA[a]||a)}</label>`;
+  }).join('');
+}
+function rbacAccountingPanelHtml(actions, permissions){
+  const sections=(typeof ACC_NAV_SECTIONS!=='undefined')?ACC_NAV_SECTIONS:[];
+  const groups=sections.map((sec, si)=>{
+    const rows=[];
+    const push=(it, sub)=>{
+      const res=typeof accResourceForNav==='function'?accResourceForNav(it.id):null;
+      if(!res||!it) return;
+      const note=RBAC_ADMIN_ONLY_NAV.has(it.id)?' <span class="muted">فقط مدیر سیستم اجرا می‌کند</span>':'';
+      const subBit=sub?`<span class="muted">${esc(sub)} · </span>`:'';
+      rows.push(`<div class="rbac-acc-item" data-acc-item data-acc-label="${esc(it.label||'')}">
+        <div>${subBit}<b>${esc(it.label||it.id)}</b>${note}</div>
+        <div class="rbac-acc-actions">${rbacActionBoxes(res, actions, permissions, it.label||it.id)}</div>
+      </div>`);
+    };
+    (sec.items||[]).forEach(it=>push(it,''));
+    (sec.subgroups||[]).forEach(sg=>(sg.items||[]).forEach(it=>push(it, sg.title)));
+    if(!rows.length) return '';
+    return `<section class="rbac-acc-group" data-acc-group="${si}">
+      <div class="rbac-acc-head">
+        <b>${esc(sec.title)}</b>
+        <span data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccGroup(this,'view')})}">فقط مشاهده</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccGroup(this,'all')})}">کامل</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccGroup(this,'clear')})}">برداشتن</button>
+        </span>
+      </div>
+      ${rows.join('')}
+    </section>`;
+  }).join('');
+  const master=rbacActionBoxes('accounting', actions, permissions, 'تب حسابداری');
+  return `<section class="rbac-acc" id="rbacAccPanel">
+    <div class="rbac-acc-head">
+      <h4 data-csp-style="${CSP.style(`margin:0`)}">دسترسی حسابداری</h4>
+      <span data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccSections('view')})}">مشاهدهٔ همهٔ بخش‌ها</button>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccSections('all')})}">دسترسی کامل حسابداری</button>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAccSections('clear')})}">برداشتن بخش‌ها</button>
+      </span>
+    </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:0 0 8px`)}">تیک <b>مشاهده</b> روی «تب حسابداری» تب را به منوی اصلی این کاربر اضافه می‌کند. هر بخشی که مشاهده‌اش روشن باشد، داخل همان تب دیده می‌شود. ایجاد، ویرایش، حذف، تأیید و خروجی فقط همان کار را روی همان بخش باز می‌کند.</p>
+    <div class="rbac-acc-item" data-acc-label="تب حسابداری">
+      <div><b>تب حسابداری</b></div>
+      <div class="rbac-acc-actions">${master}</div>
+    </div>
+    <p id="rbacAccHint" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:6px 0`)}"></p>
+    <input id="rbacAccQ" placeholder="جستجوی بخش، مثلاً چک یا حقوق" aria-label="جستجوی بخش حسابداری">
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.7;margin:6px 0 0`)}">تنظیمات سیستم، دستگاه‌ها، پشتیبان، سال مالی و مشخصات شرکت در منو می‌آیند، ولی اجرای آن‌ها همچنان فقط برای مدیر سیستم است.</p>
+    ${groups}
+  </section>`;
+}
+function rbacSyncTwins(resource, action, checked){
+  document.querySelectorAll('#rbacMatrix input[data-r="'+resource+'"][data-a="'+action+'"]').forEach(el=>{ el.checked=checked; });
+}
+function rbacEnsureAccountingView(){
+  rbacSyncTwins('accounting','view', true);
+  rbacSyncAccHint();
+}
+function rbacSyncAccHint(){
+  const on=!!document.querySelector('#rbacMatrix input[data-r="accounting"][data-a="view"]:checked');
+  const hint=document.getElementById('rbacAccHint');
+  if(!hint) return;
+  hint.textContent=on
+    ? 'تب حسابداری در منوی این کاربر دیده می‌شود. هر بخشی که مشاهده‌اش تیک خورده داخل همان تب می‌آید.'
+    : 'تا وقتی مشاهدهٔ تب حسابداری خاموش است، هیچ بخش حسابداری در منو دیده نمی‌شود — حتی اگر پایین تیک خورده باشد.';
+}
+function rbacGrantAccGroup(btn, mode){
+  const box=btn&&btn.closest?btn.closest('[data-acc-group]'):null;
+  if(!box) return;
+  box.querySelectorAll('input[data-r]').forEach(cb=>{
+    if(mode==='all') cb.checked=true;
+    else if(mode==='view') cb.checked=cb.dataset.a==='view';
+    else cb.checked=false;
+    rbacSyncTwins(cb.dataset.r, cb.dataset.a, cb.checked);
+  });
+  if(mode!=='clear') rbacEnsureAccountingView();
+  else rbacSyncAccHint();
+}
+function rbacGrantAccSections(mode){
+  document.querySelectorAll('#rbacAccPanel [data-acc-group] input[data-r]').forEach(cb=>{
+    if(mode==='all') cb.checked=true;
+    else if(mode==='view') cb.checked=cb.dataset.a==='view';
+    else cb.checked=false;
+    rbacSyncTwins(cb.dataset.r, cb.dataset.a, cb.checked);
+  });
+  if(mode==='all'){
+    document.querySelectorAll('#rbacMatrix input[data-r="accounting"]').forEach(cb=>{ cb.checked=true; });
+  } else if(mode==='view'){
+    rbacEnsureAccountingView();
+  }
+  rbacSyncAccHint();
+}
+function bindRbacMatrix(){
+  const root=document.getElementById('rbacMatrix');
+  if(!root) return;
+  root.addEventListener('change', (e)=>{
+    const cb=e.target;
+    if(!cb || !cb.dataset || !cb.dataset.r) return;
+    rbacSyncTwins(cb.dataset.r, cb.dataset.a, cb.checked);
+    if(String(cb.dataset.r).startsWith('acc_') && cb.checked) rbacEnsureAccountingView();
+    else rbacSyncAccHint();
+  });
+  const q=document.getElementById('rbacAccQ');
+  if(q) q.addEventListener('input', ()=>{
+    const n=(q.value||'').trim();
+    document.querySelectorAll('#rbacAccPanel [data-acc-item]').forEach(row=>{
+      const label=row.getAttribute('data-acc-label')||'';
+      row.hidden = !!(n && !label.includes(n));
+    });
+    document.querySelectorAll('#rbacAccPanel [data-acc-group]').forEach(g=>{
+      g.hidden=![...g.querySelectorAll('[data-acc-item]')].some(r=>!r.hidden);
+    });
+  });
+  rbacSyncAccHint();
+}
 async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
   if(!data) return;
   const { resources, actions, permissions } = data;
-  const RBAC_RES_FA={
-    customers:'مشتریان', parties:'اشخاص', products:'کالاها', invoices:'فاکتورها',
-    followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار هوشمند',
-    settings:'تنظیمات', backup:'پشتیبان‌گیری', users:'کاربران', stocktaking:'انبارگردانی',
-    messages:'پیام‌ها', reps:'نمایندگان فروش', dashboard:'داشبورد',
-    journal_vouchers:'اسناد حسابداری', payroll:'حقوق و دستمزد', fixed_assets:'دارایی ثابت',
-    moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت',
-    production_cost:'بهای تمام‌شده تولید', production_close:'بستن دوره تولید',
-    production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
-    bank_reconciliation:'مغایرت‌گیری بانکی'
-  };
-  const RBAC_ACT_FA={
-    view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی'
-  };
   const uName=(CACHE.users||[]).find(x=>x.id===userId)?.name||('#'+userId);
-  const rows=resources.map(r=>`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
+  const general=(resources||[]).filter(r=>r!=='accounting' && !String(r).startsWith('acc_'));
+  const rows=general.map(r=>`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
     const on=permissions[r]&&permissions[r][a];
-    return `<td data-csp-style="${CSP.style(`text-align:center`)}" title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${r}" data-a="${a}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
+    return `<td data-csp-style="${CSP.style(`text-align:center`)}" title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${esc(r)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
   }).join('')}</tr>`).join('');
   openModal(`<div class="modal-head"><h3>🔐 دسترسی‌های کاربر — ${esc(uName)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">تیک هر خانه یعنی آن عملیات برای این بخش مجاز است. مقادیر پیش‌فرض از نقش کاربر می‌آید؛ تغییرات اینجا فقط برای همین کاربر ذخیره می‌شود.</p>
+    <div class="modal-body" id="rbacMatrix">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">مقادیر پیش‌فرض از نقش کاربر می‌آید. آنچه اینجا ذخیره شود فقط برای همین کاربر است.</p>
       <div data-csp-style="${CSP.style(`margin:0 0 12px;display:flex;flex-wrap:wrap;gap:8px`)}">
         <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){rbacGrantInvoiceFull()})}">✅ دسترسی کامل فاکتور (مشاهده/ایجاد/ویرایش/خروجی)</button>
         <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAll()})}">دسترسی کامل همه بخش‌ها</button>
       </div>
+      ${rbacAccountingPanelHtml(actions, permissions)}
+      <h4 data-csp-style="${CSP.style(`margin:16px 0 8px`)}">سایر بخش‌ها</h4>
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${esc(RBAC_ACT_FA[a]||a)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
     </div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveRbacMatrix((userId))})}">💾 ذخیره دسترسی‌ها</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  bindRbacMatrix();
 }
 function rbacGrantInvoiceFull(){
   document.querySelectorAll('#modalRoot input[data-r="invoices"]').forEach(cb=>{
@@ -6934,6 +7381,10 @@ async function saveRbacMatrix(userId){
     perms[r][a]=cb.checked;
   });
   await api('PUT','/rbac/matrix/'+userId,{permissions:perms});
+  if(ME && Number(ME.id)===Number(userId)){
+    try{ USER_PERMS = await api('GET','/rbac/me')||{}; }catch{ /* keep previous */ }
+    try{ buildNav(); }catch(_){}
+  }
   showToast('دسترسی‌ها ذخیره شد'); closeModal();
 }
 async function fiscalRollover(){
@@ -9038,7 +9489,7 @@ async function renderSalesInvoicesTab(body, typeLock){
     return true;
   }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   const typeLabel={proforma:'پیش‌فاکتور',normal:'فاکتور معمولی',final:'فاکتور رسمی'};
-  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
+  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی',bank:'واریز بانکی',pos_card:'کارتخوان',mixed:'چندمرحله‌ای'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
   const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : (lock==='normal' ? '➕ فاکتور معمولی' : '➕ فاکتور جدید');
   body.innerHTML=`
@@ -21730,10 +22181,12 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
         <li>اگر ثبت فاکتور موجودی کالا را منفی کند، نوار هشدار زنده در سبد دیده می‌شود (نیاز / موجود / مانده پس از فاکتور). ذخیره مسدود نیست — فقط هشدار است. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
-        <li><b>نوع پرداخت:</b> نسیه، نقد، چک، واریز بانکی، و <b>کارتخوان</b>. بعد از انتخاب نوع، فیلد <b>مبلغ این پرداخت</b> می‌آید</li>
-        <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند. صندوق برای نقد اجباری است</li>
-        <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب مثلاً بخشی نقد و بخشی کارت؛ هر ردیف مبلغ و مقصد جدا دارد. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود</li>
-        <li><b>چاپ فاکتور فروش/خرید:</b> رنگ و سایز جدا ردیف نمی‌شوند؛ یک ردیف کالا + خلاصه زیرش. ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
+        <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است</li>
+        <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
+        <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود</li>
+        <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (`disc_amt`) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
+        <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
+        <li><b>چاپ:</b> خطوط و نوشته‌ها و اعداد همهٔ قالب‌ها مشکی‌زاغ است. رنگ و سایز جدا ردیف نمی‌شوند؛ ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ</li>
       </ul>`),
     helpSec('📞','پیگیری CRM',`
       <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> و <b>داشبورد و گزارش‌های CRM</b>.</p>
@@ -21943,8 +22396,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا فاکتور رسمی</li>
         <li><b>مالیات:</b> پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>؛ رسمی پیش‌فرض <b>مشمول</b>. در فاکتور جدید با تغییر نوع، تیک معافیت با پیش‌فرض همان نوع هماهنگ می‌شود؛ در ویرایش مقدار ذخیره‌شده دست نمی‌خورد</li>
-        <li><b>ویرایش معمولی و پیش‌فاکتور</b> همان فاکتور و همان سند حسابداری را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود</li>
-        <li><b>فاکتور رسمی</b> از فرم ویرایش ذخیره نمی‌شود؛ برای اصلاح باید <b>ابطال</b> کنید</li>
+        <li><b>ویرایش</b> همان فاکتور و همان سند حسابداری را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود؛ موجودی فقط اختلاف اقلام را اعمال می‌کند</li>
+        <li><b>فاکتور رسمی</b> برای مدیر/حسابدار/مدیر فروش (و نقش با دسترسی ویرایش) قابل ذخیره درجا است؛ اگر سند مودیان قفل باشد سرور جلوی تغییر را می‌گیرد</li>
         <li>کارشناس حضوری/تلفنی جزئیات پرداخت، صندوق، بانک، چک، کرایه و مالیات را در فاکتور می‌بیند؛ انبار مبدأ از حساب او قفل است و بهای تمام‌شده در پاسخ کالا/فاکتور برای او نیست</li>
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
         <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
@@ -22089,7 +22542,10 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>دعوت امن کاربر از روی شخص</h5><p>پس از ثبت شخص/کارمند، مدیر یا حسابدار از فهرست اشخاص یا فرم شخص دکمه <b>دعوت ورود</b> را می‌زند و <b>نقش ورود را خودش انتخاب می‌کند</b> (پیش‌فرض کارشناس میدانی). <b>مدیر سیستم را نمی‌توان با دعوت ساخت</b>؛ حسابدار فقط توسط مدیر سیستم دعوت می‌شود و حسابدار نمی‌تواند حسابدار دعوت کند. نقش ذخیره‌شده روی دعوت اعمال می‌شود و دعوت‌شونده نمی‌تواند نقش را در پذیرش عوض کند. لینک یک‌بارمصرف با مسیر <code>/invite?token=</code> و اعتبار پیش‌فرض <b>۷۲ ساعت</b> است. توکن تصادفی است و فقط هش آن ذخیره می‌شود — رمز ثابت یا شناخته‌شده ساخته نمی‌شود. دعوت‌شونده خودش نام کاربری و رمز (حداقل ۸ کاراکتر، حرف و عدد) را انتخاب می‌کند و <code>must_change_password</code> صفر می‌ماند. لینک منقضی یا استفاده‌شده رد می‌شود. دعوت فقط روی سرور مرکزی است و به دستگاه‌ها سینک نمی‌شود.</p>
       <h5>رمز موقت و تغییر اجباری</h5><p>رمزی که هنگام ساخت کاربر، ویرایش (فیلد رمز)، یا بازنشانی رمز تعیین می‌کنید <b>موقتی</b> است و باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد — در غیر این صورت ذخیره نمی‌شود. کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند. پس از تغییر رمز روی سرور مرکزی، موبایل/دسکتاپ باید آنلاین باشد تا همگام‌سازی هش جدید را بگیرد (بعد از wipe معمولاً pair مجدد لازم است). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
-      <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
+      <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>
+      <h5>دسترسی بخش‌های حسابداری</h5>
+      <p>در ویرایش کاربر، دکمه <b>دسترسی‌ها</b> بخش «دسترسی حسابداری» را باز می‌کند. تیک <b>مشاهده</b> روی «تب حسابداری» همان تب را به منوی کاربر اضافه می‌کند. هر ردیف پایین، یک صفحهٔ داخل همان تب است: اگر مشاهده‌اش روشن باشد در منوی حسابداری دیده می‌شود. ایجاد، ویرایش، حذف، تأیید و خروجی فقط همان عمل را روی همان صفحه باز می‌کند.</p>
+      <p>نقش حسابدار از قبل همهٔ این بخش‌ها را دارد. برای کارشناس یا مدیر فروش فقط همان بخش‌هایی را روشن کنید که باید ببینند. تنظیمات سیستم، دستگاه‌ها، پشتیبان و عملیات سال مالی حتی با تیک، فقط توسط مدیر سیستم اجرا می‌شوند.</p>`),
     helpSec('👤','حذف کامل کاربر',`
       <p>در تنظیمات → کاربران، دکمه <b>حذف کامل</b> کاربر را از سیستم پاک می‌کند (نه فقط غیرفعال):</p>
       <ul>
@@ -23295,6 +23751,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   }
   // Sync toggle-button labels + meta theme-color with the pre-paint theme
   applyTheme(currentTheme());
+  try{ hardenFormAutofill(document); }catch(_){}
   // Sync server time first (no auth needed) so all date defaults are accurate
   await syncServerTime();
   // B2B portal deep link (#portal) — customers land here directly

@@ -779,8 +779,12 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css?v=204" rel="stylesheet">
-<style>${themeCss(templateId, dims)}</style>
+<link href="/invoice-print.css?v=226" rel="stylesheet">
+<style>${themeCss(templateId, dims)}
+html.inv-print .sheet,html.inv-print .sheet *:not(.pbtn){color:#000!important;-webkit-text-fill-color:#000!important;border-color:#000!important;outline-color:#000!important;text-shadow:none!important;background-color:#fff!important;background-image:none!important}
+html.inv-print .watermark span{color:#000!important;border-color:#000!important;opacity:.2}
+html.inv-print table,html.inv-print th,html.inv-print td,html.inv-print .sheet{border-color:#000!important}
+</style>
 </head>
 <body>
   <div class="sheet">

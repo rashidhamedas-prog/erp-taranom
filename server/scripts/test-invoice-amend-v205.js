@@ -42,7 +42,7 @@ ok(
     && !invoicesSrc.includes('فاکتور قطعی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید'),
   'PUT no longer 409s all firm sales'
 );
-ok(/if \(row\.type === 'normal'\)/.test(invoicesSrc), 'PUT normal → amend path');
+ok(/row\.type === 'normal' \|\| row\.type === 'final'/.test(invoicesSrc), 'PUT normal and final → amend path');
 ok(ledgerSrc.includes('function rewriteJournalEntry'), 'ledger.js rewriteJournalEntry');
 ok(/module\.exports = \{[^}]*rewriteJournalEntry/.test(ledgerSrc.replace(/\n/g, ' ')),
   'rewriteJournalEntry exported');
@@ -60,7 +60,7 @@ const putBlock = invoicesSrc.slice(
   invoicesSrc.indexOf("router.put('/:id'"),
   invoicesSrc.indexOf("router.delete('/:id'")
 );
-ok(putBlock.includes("row.type === 'final'"), 'PUT locks official/final');
+ok(putBlock.includes("row.type === 'final'"), 'PUT still names official/final');
 ok(putBlock.includes('amendPostedInvoiceInPlace'), 'PUT normal uses in-place amend');
 ok(putBlock.includes("row.type === 'proforma'") || putBlock.includes("type === 'proforma'"),
   'PUT proforma still updates row only');
@@ -305,7 +305,9 @@ try {
       cust_id: custId, type: 'final', date: todayJalali(),
       pay_type: 'credit', warehouse_id: whId, disc: 0, rows: [line],
     });
-    ok(putFinal.status === 409, 'PUT final → 409', putFinal.status + ' ' + JSON.stringify(putFinal.data));
+    ok(putFinal.status === 200 && putFinal.data && putFinal.data.amended === true,
+      'PUT final → amend in-place 200',
+      putFinal.status + ' ' + JSON.stringify(putFinal.data && (putFinal.data.error || { amended: putFinal.data.amended, id: putFinal.data.id })).slice(0, 240));
   }
 
   server.close();
