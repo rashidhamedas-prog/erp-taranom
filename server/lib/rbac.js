@@ -1,4 +1,7 @@
 // Granular RBAC — default matrix by role + per-user overrides in user_permissions.
+const {
+  ACC_SECTION_RESOURCES, isAccSectionResource, accSectionDefault, LEGACY_PARENTS,
+} = require('./accounting-access');
 
 const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export'];
 
@@ -10,6 +13,8 @@ const RESOURCES = [
   'production', 'production_bom', 'production_cost', 'production_close', 'production_reports',
   // Portal + gap accounting (append-only)
   'portal', 'budgeting', 'bank_reconciliation',
+  // Accounting shell sections (append-only). Master gate remains `accounting`.
+  ...ACC_SECTION_RESOURCES,
 ];
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -220,7 +225,9 @@ function fillRoleDefaults(role) {
   const base = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.field_sales;
   const out = {};
   for (const r of RESOURCES) {
-    out[r] = { ...(base[r] || VIEW_ONLY) };
+    if (base[r]) out[r] = { ...base[r] };
+    else if (isAccSectionResource(r)) out[r] = accSectionDefault(role, r);
+    else out[r] = { ...VIEW_ONLY };
   }
   return out;
 }
@@ -239,7 +246,13 @@ function hasPermission(db, user, resource, action) {
   if (!user) return false;
   if (user.role === 'admin') return true;
   const perms = getUserPermissions(db, user.id, user.role);
-  return !!(perms[resource] && perms[resource][action]);
+  if (perms[resource] && perms[resource][action]) return true;
+  const aliases = LEGACY_PARENTS[resource];
+  if (!aliases) return false;
+  for (const section of aliases) {
+    if (perms[section] && perms[section][action]) return true;
+  }
+  return false;
 }
 
 function isManagerRole(role) {
@@ -290,8 +303,23 @@ function applyBranchScopeSql(user, alias) {
   return { sql: ` AND (${col} IS NULL OR ${col}=?)`, params: [mine] };
 }
 
+/** Copy of the matrix with section grants also satisfying their legacy resource. For /rbac/me only. */
+function applyLegacyGrants(perms) {
+  const out = {};
+  for (const [key, flags] of Object.entries(perms || {})) out[key] = { ...flags };
+  for (const [parent, sections] of Object.entries(LEGACY_PARENTS)) {
+    if (!out[parent]) continue;
+    const next = { ...out[parent] };
+    for (const action of ACTIONS) {
+      if (sections.some((section) => out[section] && out[section][action])) next[action] = true;
+    }
+    out[parent] = next;
+  }
+  return out;
+}
+
 module.exports = {
   ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS,
-  getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults,
+  getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults, applyLegacyGrants,
   assertMakerChecker, assertBranchScope, applyBranchScopeSql,
 };

@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
-const { ACTIONS, RESOURCES, getUserPermissions, fillRoleDefaults } = require('../lib/rbac');
+const { ACTIONS, RESOURCES, getUserPermissions, fillRoleDefaults, applyLegacyGrants } = require('../lib/rbac');
 
 router.get('/matrix/:userId', auth, adminOnly, (req, res) => {
   const db = getDB();
@@ -37,7 +37,7 @@ router.put('/matrix/:userId', auth, adminOnly, centralOnly, (req, res) => {
 
 router.get('/me', auth, (req, res) => {
   const db = getDB();
-  res.json(getUserPermissions(db, req.user.id, req.user.role));
+  res.json(applyLegacyGrants(getUserPermissions(db, req.user.id, req.user.role)));
 });
 
 module.exports = router;

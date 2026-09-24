@@ -333,6 +333,13 @@ const ACC_NAV_SECTIONS = [
   ]},
 ];
 
+/** Same formula as server/lib/accounting-access.js resourceForNav. */
+function accResourceForNav(navId) {
+  const id = String(navId || '');
+  if (!id.startsWith('acc-')) return null;
+  return 'acc_' + id.slice(4).replace(/-/g, '_');
+}
+
 function accNavFlat() {
   const out = [];
   for (const sec of ACC_NAV_SECTIONS) {

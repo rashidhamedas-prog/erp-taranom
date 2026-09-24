@@ -1529,6 +1529,19 @@ body.erp-demo-mode{padding-top:32px}
 .vsr-low{box-shadow:inset 0 0 0 2px var(--orange)}
 .vsr-gap{box-shadow:inset 0 0 0 2px var(--red)}
 .vsr-swatch{width:14px;height:14px;border-radius:50%;border:1px solid var(--border);display:inline-block;vertical-align:middle;margin-left:6px}
+.rbac-acc{border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin:0 0 14px;background:var(--well)}
+.rbac-acc-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.rbac-acc-group{margin-top:10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px 10px}
+.rbac-acc-item{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:7px 0;border-top:1px dashed var(--border)}
+.rbac-acc-actions{display:flex;flex-wrap:wrap;gap:8px 12px;justify-content:flex-end}
+.rbac-acc-actions label{font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap}
+#rbacAccQ{width:100%;margin:8px 0;min-height:36px}
+@media (max-width:720px){
+  .rbac-acc-item{flex-direction:column}
+}
+@media (prefers-reduced-motion: reduce){
+  .rbac-acc,.rbac-acc *{transition:none !important;animation:none !important}
+}
 .vsr-swatch-empty{background:var(--well)}
 .vsr-row-total{font-weight:800}
 @media (max-width:800px){

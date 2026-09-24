@@ -126,18 +126,35 @@ function adminOnly(req, res, next) {
   next();
 }
 
+function requestPath(req) {
+  const raw = String(req.originalUrl || req.url || '').split('?')[0];
+  try { return decodeURIComponent(raw); } catch { return raw; }
+}
+
+/**
+ * Non-admin, non-accounting users pass a role gate only for an accounting
+ * section they were explicitly granted. Unmapped paths stay closed.
+ */
+function delegatedAccountingAllowed(req) {
+  if (!req.user || req.user.role === 'admin' || req.user.role === 'accounting') return false;
+  const { matchAccResources, flagsAllowMethod } = require('../lib/accounting-access');
+  const { getUserPermissions } = require('../lib/rbac');
+  const resources = matchAccResources(requestPath(req));
+  if (!resources.length) return false;
+  const perms = getUserPermissions(getDB(), req.user.id, req.user.role);
+  return resources.some((resource) => flagsAllowMethod(perms[resource], req.method, requestPath(req)));
+}
+
 function adminOrAccounting(req, res, next) {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'accounting') {
-    return res.status(403).json({ error: 'دسترسی ندارید' });
-  }
-  next();
+  if (req.user?.role === 'admin' || req.user?.role === 'accounting') return next();
+  if (delegatedAccountingAllowed(req)) return next();
+  return res.status(403).json({ error: 'دسترسی ندارید' });
 }
 
 function repModuleAdmin(req, res, next) {
-  if (!['admin', 'accounting', 'sales_manager'].includes(req.user?.role)) {
-    return res.status(403).json({ error: 'دسترسی ندارید' });
-  }
-  next();
+  if (req.user && ['admin', 'accounting', 'sales_manager'].includes(req.user.role)) return next();
+  if (delegatedAccountingAllowed(req)) return next();
+  return res.status(403).json({ error: 'دسترسی ندارید' });
 }
 
 function isDesktopPlatform() {
