@@ -31,7 +31,7 @@ ok(appJs.includes('allowSaveEdit'), 'firm invoice save gate allowSaveEdit');
 ok(appJs.includes('اسناد دریافتنی'), 'cheque destination label اسناد دریافتنی');
 ok(payJs.includes('assertReceivedCheque'), 'backend assertReceivedCheque');
 ok(printCss.includes('Jet black') || printCss.includes('#000 !important'), 'print jet-black rules');
-ok(/erp-taranom-v226/.test(sw), 'SW v226');
+ok(/erp-taranom-v22[67]/.test(sw), 'SW v226+');
 
 const { calcDocTotals } = require('../lib/vat');
 const { applyFreightToDocTotals } = require('../lib/sales-document');

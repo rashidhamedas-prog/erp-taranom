@@ -103,6 +103,26 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
       settlementsReversed++;
     }
 
+    // POS receipts are JE'd on pos_receipt, not settlement — void them explicitly.
+    try {
+      const pos = require('./pos');
+      const receipts = db.prepare(
+        "SELECT id FROM pos_receipts WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'"
+      ).all(row.id);
+      for (const rec of receipts) {
+        try { db.prepare('UPDATE pos_receipts SET idempotency_key=NULL WHERE id=?').run(rec.id); } catch (_) {}
+        try {
+          pos.voidReceipt(db, rec.id, user, { reason: `ابطال فاکتور ${row.num}` });
+        } catch (_) { /* already reversed / batched edge */ }
+      }
+    } catch (_) { /* pos module optional in some harnesses */ }
+
+    // Belt-and-suspenders: any remaining cheque register rows for this invoice.
+    try {
+      const { reverseChequeRecordsForInvoice } = require('./void-settlement');
+      reverseChequeRecordsForInvoice(db, row.id);
+    } catch (_) { /* optional */ }
+
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
       if (perpetualDocsEnabled(db)) {

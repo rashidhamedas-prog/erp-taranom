@@ -461,10 +461,23 @@ html.inv-print .sheet *:not(.pbtn):not(img):not(svg):not(path) {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-html.inv-print .watermark span {
+html.inv-print .sheet *::before,
+html.inv-print .sheet *::after {
   color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
   border-color: #000 !important;
-  opacity: .18;
+  background-image: none !important;
+  opacity: 1 !important;
+}
+html.inv-print .sheet *:not(.pbtn):not(img):not(svg):not(path):not(.watermark):not(.watermark *) {
+  opacity: 1 !important;
+}
+html.inv-print .off-gold,
+html.inv-print .prem-rule,
+html.inv-print .party::before {
+  background: #000 !important;
+  background-image: none !important;
+  opacity: 1 !important;
 }
 html.inv-print table,
 html.inv-print th,

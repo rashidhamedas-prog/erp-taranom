@@ -361,12 +361,30 @@ function rewriteInvoiceTimeSettlements(db, {
   }
 
   if (splits.length !== invoiceTime.length) {
-    if (splits.length === 0 && invoiceTime.length === 0) return;
-    throw httpErr(
-      409,
-      'تعداد اقساط پرداخت هنگام فاکتور تغییر کرده است؛ برای تغییر تعداد قسط، فاکتور را ابطال و دوباره ثبت کنید',
-      'E_AMEND_SPLIT_COUNT'
-    );
+    // Any subsequent settlement (cash/bank/cheque/POS) blocks changing the
+    // invoice-time split set — otherwise POS receipts/settlements desync.
+    if (later.length) {
+      throw httpErr(
+        409,
+        'این فاکتور تسویهٔ جدا از ثبت فاکتور دارد؛ نوع پرداخت را عوض نکنید مگر آن تسویه ابطال شود',
+        'E_AMEND_SPLIT_COUNT'
+      );
+    }
+    const { reverseSettlementInTx } = require('./void-settlement');
+    for (const sett of invoiceTime) reverseSettlementInTx(db, sett, userId);
+    try {
+      db.prepare(
+        "UPDATE cheque_records SET record_status='reversed' WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'"
+      ).run(row.id);
+    } catch (_) { /* column arrives with boot migration */ }
+    if (splits.length) {
+      const { applyInvoicePaySplits } = require('./invoice-payments');
+      applyInvoicePaySplits(db, {
+        invoiceId: row.id, custId, date, splits, userId, num,
+        chequeHeader: body,
+      });
+    }
+    return;
   }
 
   for (let i = 0; i < splits.length; i++) {
@@ -376,17 +394,28 @@ function rewriteInvoiceTimeSettlements(db, {
     const payType = s.pay_type;
     const chequeInfo = s.cheque_info || (body && body.cheque_info) || '';
     const chequeDue = s.cheque_due || (body && body.cheque_due_date) || '';
+    const structured = [s.cheque_bank, s.cheque_number, s.sayadi].filter(Boolean).join(' — ');
+    const detail = structured || chequeInfo;
     const note = s.note || `دریافت هنگام فاکتور ${num}` + (splits.length > 1 ? ` — قسط ${i + 1}` : '');
-    const settNote = chequeInfo ? `${note}${note ? ' — ' : ''}${chequeInfo}` : note;
+    const settNote = detail ? `${note}${note ? ' — ' : ''}${detail}` : note;
+    const { settlementAssetAccount } = require('./invoice-payments');
+    const cash = settlementAssetAccount(db, s);
+    const accountCode = payType === 'cheque' ? String(cash.code || '') : '';
     db.prepare(`
       UPDATE settlements
       SET cust_id=?, amount=?, amount_rial=?, pay_type=?, date=?, note=?,
-          bank_id=?, cash_box_id=?, check_category_id=?, cheque_due=?
+          bank_id=?, cash_box_id=?, check_category_id=?, cheque_due=?,
+          cheque_bank=?, cheque_sayadi=?, cheque_number=?, cheque_account=?,
+          cheque_amount=?, cheque_owner=?, cheque_branch=?, cheque_sheba=?, account_code=?
       WHERE id=?
     `).run(
       custId, amountRial, amountRial, payType, date || '', settNote,
-      s.bank_id || null, s.cash_box_id || null, s.check_category_id || null,
-      chequeDue, sett.id
+      s.bank_id || null, s.cash_box_id || null, payType === 'cheque' ? null : (s.check_category_id || null),
+      chequeDue,
+      s.cheque_bank || '', s.sayadi || '', s.cheque_number || '', s.cheque_account || '',
+      payType === 'cheque' ? amountRial : 0, s.cheque_owner || '', s.cheque_branch || '', s.sheba || '',
+      accountCode,
+      sett.id
     );
     db.prepare(`
       UPDATE customer_ledger
@@ -397,7 +426,6 @@ function rewriteInvoiceTimeSettlements(db, {
       `تسویه هنگام فاکتور — ${amountRial.toLocaleString('fa-IR')} ریال`,
       amountRial, sett.id
     );
-    const cash = resolveCashAccount(db, payType, s.bank_id, s.cash_box_id);
     const recv = receivableAcct(db, custId);
     const jeId = rewriteJournalEntry(db, {
       sourceType: 'settlement', sourceId: sett.id,
@@ -411,6 +439,62 @@ function rewriteInvoiceTimeSettlements(db, {
     });
     if (!jeId) {
       throw httpErr(409, 'سند تسویه هنگام فاکتور پیدا نشد', 'E_AMEND_SETTLEMENT_JE');
+    }
+
+    // Keep cheque register in sync with settlement on same-count amend.
+    try {
+      if (payType === 'cheque') {
+        const sayadi = String(s.sayadi || '').replace(/\D/g, '');
+        if (sayadi) {
+          const dup = db.prepare(`
+            SELECT id FROM cheque_records
+            WHERE sayadi=? AND direction='in' AND COALESCE(record_status,'posted')<>'reversed'
+              AND COALESCE(settlement_id,0)<>?
+          `).get(sayadi, sett.id);
+          if (dup) {
+            throw httpErr(409, 'شناسه صیاد این چک قبلاً ثبت شده است', 'E_CHEQUE_SAYADI_DUP');
+          }
+        }
+        const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
+        const existing = db.prepare(`
+          SELECT id FROM cheque_records
+          WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+        `).get(sett.id);
+        if (existing) {
+          db.prepare(`
+            UPDATE cheque_records SET
+              cheque_number=?, receive_date=?, due_date=?, bank_name=?, branch=?,
+              sayadi=?, sheba=?, account_number=?, party_name=?, customer_id=?,
+              amount=?, note=?, invoice_id=?, status='نزد صندوق', lifecycle_status='in_hand'
+            WHERE id=?
+          `).run(
+            s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
+            sayadi || '', s.sheba || '', s.cheque_account || '',
+            (cust && (cust.biz || cust.owner)) || '', custId,
+            amountRial, settNote, row.id, existing.id
+          );
+        } else {
+          db.prepare(`
+            INSERT INTO cheque_records
+              (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
+               account_number, party_name, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
+            VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(
+            s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
+            sayadi || '', s.sheba || '', s.cheque_account || '',
+            (cust && (cust.biz || cust.owner)) || '', custId,
+            'نزد صندوق', amountRial, settNote, row.id, sett.id, 'in_hand'
+          );
+        }
+      } else {
+        db.prepare(`
+          UPDATE cheque_records SET record_status='reversed'
+          WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+        `).run(sett.id);
+      }
+    } catch (e) {
+      if (e && e.status) throw e;
+      /* cheque_records optional on old DBs */
     }
   }
 }
@@ -459,14 +543,14 @@ function amendPostedInvoiceInPlace(db, {
   salesChannel,
 }) {
   if (!row) throw httpErr(404, 'یافت نشد');
-  if (row.type === 'final') {
-    throw httpErr(409, 'فاکتور رسمی ثبت‌شده قفل است؛ برای اصلاح، آن را ابطال کنید', 'E_FINAL_LOCKED');
+  if (row.type === 'final' && newType !== 'final') {
+    throw httpErr(409, 'تغییر نوع فاکتور رسمی از ویرایش مجاز نیست', 'E_TYPE_LOCKED');
   }
-  if (isFirmSale(newType) && newType !== 'normal') {
-    throw httpErr(409, 'تبدیل فاکتور معمولی به رسمی فقط از عملیات «تبدیل» انجام می‌شود', 'E_CONVERT_ONLY');
-  }
-  if (newType !== 'normal' || row.type !== 'normal') {
+  if (row.type === 'normal' && newType !== 'normal') {
     throw httpErr(409, 'تغییر نوع فاکتور معمولی از این مسیر مجاز نیست', 'E_TYPE_LOCKED');
+  }
+  if (row.type !== 'normal' && row.type !== 'final') {
+    throw httpErr(409, 'این نوع فاکتور از مسیر اصلاح درجا پشتیبانی نمی‌شود', 'E_TYPE_LOCKED');
   }
   if (row.status === 'reversed' || (row.deleted_at && Number(row.deleted_at) !== 0)) {
     throw httpErr(400, 'این فاکتور ابطال یا حذف شده و قابل ویرایش نیست', 'E_INVOICE_DEAD');

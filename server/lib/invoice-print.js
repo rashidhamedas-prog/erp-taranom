@@ -779,11 +779,13 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css?v=226" rel="stylesheet">
+<link href="/invoice-print.css?v=227" rel="stylesheet">
 <style>${themeCss(templateId, dims)}
-html.inv-print .sheet,html.inv-print .sheet *:not(.pbtn){color:#000!important;-webkit-text-fill-color:#000!important;border-color:#000!important;outline-color:#000!important;text-shadow:none!important;background-color:#fff!important;background-image:none!important}
-html.inv-print .watermark span{color:#000!important;border-color:#000!important;opacity:.2}
+html.inv-print .sheet,html.inv-print .sheet *:not(.pbtn):not(img):not(svg):not(path){color:#000!important;-webkit-text-fill-color:#000!important;border-color:#000!important;outline-color:#000!important;text-shadow:none!important;box-shadow:none!important;background-color:#fff!important;background-image:none!important;opacity:1!important}
+html.inv-print .sheet *::before,html.inv-print .sheet *::after{color:#000!important;border-color:#000!important;background-image:none!important;opacity:1!important}
+html.inv-print .watermark span{color:#000!important;border-color:#000!important;opacity:.18}
 html.inv-print table,html.inv-print th,html.inv-print td,html.inv-print .sheet{border-color:#000!important}
+html.inv-print .off-gold,html.inv-print .prem-rule,html.inv-print .party::before{background:#000!important;background-image:none!important}
 </style>
 </head>
 <body>

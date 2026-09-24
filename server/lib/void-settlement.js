@@ -18,6 +18,28 @@ function recvAcct(db, custId) {
   return acct(db, 'coa_receivable');
 }
 
+function reverseChequeRecordsForSettlement(db, settlementId) {
+  if (!settlementId) return;
+  try {
+    db.prepare(`
+      UPDATE cheque_records
+      SET record_status='reversed'
+      WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+    `).run(settlementId);
+  } catch (_) { /* table/column may lag on very old DBs */ }
+}
+
+function reverseChequeRecordsForInvoice(db, invoiceId) {
+  if (!invoiceId) return;
+  try {
+    db.prepare(`
+      UPDATE cheque_records
+      SET record_status='reversed'
+      WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'
+    `).run(invoiceId);
+  } catch (_) { /* optional */ }
+}
+
 function reverseSettlementInTx(db, settlement, userId) {
   if (!settlement || settlement.status === 'reversed') return null;
   let cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
@@ -25,6 +47,14 @@ function reverseSettlementInTx(db, settlement, userId) {
   if (overrideCode) {
     const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
     if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+  } else if (String(settlement.pay_type || '') === 'cheque') {
+    // Received notes receivable — never fall back to default bank on reverse.
+    try {
+      const { settlementAssetAccount } = require('./invoice-payments');
+      cash = settlementAssetAccount(db, { pay_type: 'cheque' });
+    } catch (_) {
+      try { cash = acct(db, 'coa_cheques_receivable'); } catch (__) { /* keep resolveCashAccount */ }
+    }
   }
   createLedgerEntry(db, {
     customer_id: settlement.cust_id, date: todayJalali(), entry_type: 'reversal',
@@ -62,7 +92,13 @@ function reverseSettlementInTx(db, settlement, userId) {
 
   db.prepare("UPDATE settlements SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
     .run(reversalId, userId, settlement.id);
+  reverseChequeRecordsForSettlement(db, settlement.id);
   return reversalId;
 }
 
-module.exports = { reverseSettlementInTx, recvAcct };
+module.exports = {
+  reverseSettlementInTx,
+  recvAcct,
+  reverseChequeRecordsForInvoice,
+  reverseChequeRecordsForSettlement,
+};

@@ -397,11 +397,14 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let built;
-  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
+  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const discPct = parseFloat(disc) || 0;
+  const discAmtOverride = (req.body && req.body.disc_amt != null && req.body.disc_amt !== '')
+    ? Math.max(0, Math.round(Number(req.body.disc_amt) || 0))
+    : null;
   let invType;
   try { invType = normalizeInvoiceType(type || 'proforma'); }
   catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
@@ -417,7 +420,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const vatFlag = (vat_exempt === undefined || vat_exempt === null)
     ? defaultVatExempt(invType)
     : resolveVatExemptFlag(invType, vat_exempt);
-  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag });
+  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag, discAmt: discAmtOverride });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
@@ -637,7 +640,8 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const canEditAny = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
+  if (!canEditAny && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   try {
     assertInvoiceEditableForMoadian(row);
   } catch (e) {
@@ -646,14 +650,14 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
-  if (row.type === 'final') {
-    return res.status(409).json({ error: 'فاکتور رسمی ثبت‌شده قفل است؛ برای اصلاح، آن را ابطال کنید' });
+  if (row.type === 'final' && isFirmSale(type || row.type) && String(type || row.type) !== 'final') {
+    return res.status(409).json({ error: 'تغییر نوع فاکتور رسمی از ویرایش مجاز نیست', code: 'E_TYPE_LOCKED' });
   }
   if (isFirmSale(type || row.type) && row.type === 'proforma') {
     return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
   }
   let built;
-  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
+  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
   let newType;
@@ -665,9 +669,23 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   if (newType !== row.type) {
     return res.status(409).json({ error: 'تغییر نوع فاکتور از ویرایش مجاز نیست', code: 'E_TYPE_LOCKED' });
   }
+  if (row.type === 'final') {
+    const canAmendFinal = req.user.role === 'admin'
+      || req.user.role === 'accounting'
+      || req.user.role === 'sales_manager';
+    if (!canAmendFinal) {
+      return res.status(403).json({
+        error: 'ویرایش فاکتور رسمی فقط برای مدیر، حسابدار یا مدیر فروش مجاز است',
+        code: 'E_FINAL_AMEND_ROLE',
+      });
+    }
+  }
   const vatFlag = resolveVatExemptFlag(newType, vat_exempt, row.vat_exempt);
   const discPct = parseFloat(disc) || 0;
-  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag });
+  const discAmtOverride = (req.body && req.body.disc_amt != null && req.body.disc_amt !== '')
+    ? Math.max(0, Math.round(Number(req.body.disc_amt) || 0))
+    : null;
+  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag, discAmt: discAmtOverride });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method)
     ? freight_alloc_method
@@ -713,7 +731,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
     freightRial, freightType: freight_type,
   };
 
-  if (row.type === 'normal') {
+  if (row.type === 'normal' || row.type === 'final') {
     try {
       resolveCashPaid(req.body || {}, final);
       if (storedPayType === 'cash' && !payPlan.splits.length) {
