@@ -13,7 +13,7 @@
 - **تست (Node 20):** backup-schedule ۲۳/۲۳، retention PASS، offsite ۴/۴، DR ۱۴/۱۴، sms ۲۲/۲۲، sync ۴۴/۴۴.
 - **فایل‌ها:** server/backup.js, server/server.js, server/middleware/demo-guard.js, server/sync/capture.js, server/public/{app.js,index.html,sw.js}, server/scripts/test-backup-schedule.js
 - **SW:** erp-taranom-v224
-- **پاکسازی سرور:** آرشیوهای `crm-backup-*` و `crm-latest*` از پوشهٔ اصلی (۱۰۲) و آینه (۱۰۳) حذف شدند؛ حدود ۵٫۲ گیگابایت. نشان آفسایت و فایل زمان‌بندی ماندند. دیسک از ۳۲٪ به ۲۳٪ رسید (۴۴ گیگابایت آزاد). دیتابیس، آپلودها و `rayan-erp` دست نخوردند.
+- **پاکسازی سرور:** آرشیوهای قبلی `crm-backup-*` و `crm-latest*` از پوشهٔ اصلی (۱۰۲) و آینه (۱۰۳) حذف شدند؛ حدود ۵٫۲ گیگابایت. نشان آفسایت و فایل زمان‌بندی ماندند. دیسک از ۳۲٪ به ۲۳٪ رسید (۴۴ گیگابایت آزاد). دیتابیس، آپلودها و `rayan-erp` دست نخوردند. چون زمان‌بندی روشن است و پوشه خالی بود، همان دقیقه یک نسخهٔ تازه ساخته شد.
 - **Deploy:** ✅ ایران overlay SFTP @ 5d78dfa — health/ready/root 200. درخت سرور کثیف بود؛ git pull انجام نشد. SW روی سرور erp-taranom-v224. HEAD سرور همان 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۷/۰۱ — داشبورد گزارش رنگ و سایز انبار (SW v223)
