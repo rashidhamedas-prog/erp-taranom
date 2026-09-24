@@ -32,6 +32,7 @@ const BLOCKLIST = [
   '/api/onboarding', '/api/excel',
   '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
   '/api/admin/backup-download', '/api/admin/backup-restore',
+  '/api/admin/backup-schedule', '/api/admin/backup-purge',
   '/api/admin/restore-product-stock-wipe',
   '/api/crm/automations',
 ];

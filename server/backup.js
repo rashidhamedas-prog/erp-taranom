@@ -322,14 +322,25 @@ function listBackupsIn(dir) {
     .sort((a, b) => b.created_at - a.created_at);
 }
 
-function backupPairVerified(dir, item) {
+function sidecarWellFormed(dir, item) {
   try {
     const sidecar = path.join(dir, item.name + '.sha256');
     const sideSt = fs.lstatSync(sidecar);
     if (!sideSt.isFile() || sideSt.isSymbolicLink() || sideSt.size > 512) return false;
     const line = fs.readFileSync(sidecar, 'utf8').trim();
     const match = /^([a-f0-9]{64})\s+(.+)$/i.exec(line);
-    if (!match || path.basename(match[2]) !== item.name) return false;
+    return !!(match && path.basename(match[2]) === item.name);
+  } catch {
+    return false;
+  }
+}
+
+function backupPairVerified(dir, item) {
+  try {
+    if (!sidecarWellFormed(dir, item)) return false;
+    const line = fs.readFileSync(path.join(dir, item.name + '.sha256'), 'utf8').trim();
+    const match = /^([a-f0-9]{64})\s+/i.exec(line);
+    if (!match) return false;
     return sha256File(path.join(dir, item.name)).toLowerCase() === match[1].toLowerCase();
   } catch {
     return false;
@@ -338,13 +349,127 @@ function backupPairVerified(dir, item) {
 
 function listBackups() {
   ensureDir();
-  return listBackupsIn(BACKUP_DIR);
+  return listBackupsIn(BACKUP_DIR).map((item) => ({
+    ...item,
+    verified: sidecarWellFormed(BACKUP_DIR, item),
+  }));
+}
+
+const DEFAULT_BACKUP_SCHEDULE = Object.freeze({
+  enabled: true,
+  interval_min: 60,
+  window_start: '00:00',
+  window_end: '00:00',
+  retention: Object.freeze({ recent: 24, daily: 14, weekly: 8, monthly: 6 }),
+  keep_newest: 8,
+});
+
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function normalizeClock(value, fallback) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return fallback;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return fallback;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function clockToMinutes(value) {
+  const [hour, minute] = normalizeClock(value, '00:00').split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+function tehranClockMinutes(now) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tehran',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  let hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+  if (hour === 24) hour = 0;
+  return hour * 60 + minute;
+}
+
+function normalizeSchedule(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const retention = src.retention && typeof src.retention === 'object' ? src.retention : {};
+  let interval = clampInt(src.interval_min, 15, 1440, DEFAULT_BACKUP_SCHEDULE.interval_min);
+  interval = Math.round(interval / 5) * 5;
+  if (interval < 15) interval = 15;
+  if (interval > 1440) interval = 1440;
+  const enabled = src.enabled === false || src.enabled === 0 || src.enabled === '0' || src.enabled === 'false'
+    ? false
+    : true;
+  return {
+    enabled,
+    interval_min: interval,
+    window_start: normalizeClock(src.window_start, DEFAULT_BACKUP_SCHEDULE.window_start),
+    window_end: normalizeClock(src.window_end, DEFAULT_BACKUP_SCHEDULE.window_end),
+    retention: {
+      recent: clampInt(retention.recent, 4, 96, DEFAULT_BACKUP_SCHEDULE.retention.recent),
+      daily: clampInt(retention.daily, 1, 31, DEFAULT_BACKUP_SCHEDULE.retention.daily),
+      weekly: clampInt(retention.weekly, 1, 12, DEFAULT_BACKUP_SCHEDULE.retention.weekly),
+      monthly: clampInt(retention.monthly, 1, 24, DEFAULT_BACKUP_SCHEDULE.retention.monthly),
+    },
+    keep_newest: clampInt(
+      src.keep_newest != null ? src.keep_newest : src.keep_manual_last,
+      1,
+      30,
+      DEFAULT_BACKUP_SCHEDULE.keep_newest,
+    ),
+  };
+}
+
+function withinBackupWindow(schedule, now) {
+  const start = clockToMinutes(schedule.window_start);
+  const end = clockToMinutes(schedule.window_end);
+  if (start === end) return true;
+  const current = tehranClockMinutes(now);
+  if (start < end) return current >= start && current < end;
+  return current >= start || current < end;
+}
+
+function scheduleDue(schedule, now, lastSuccessMs) {
+  const normalized = normalizeSchedule(schedule);
+  if (!normalized.enabled) return { due: false, reason: 'disabled', schedule: normalized };
+  if (!withinBackupWindow(normalized, now)) return { due: false, reason: 'window', schedule: normalized };
+  const last = Number(lastSuccessMs) || 0;
+  const elapsedMin = last ? (now.getTime() - last) / 60000 : Infinity;
+  if (elapsedMin < normalized.interval_min) {
+    return { due: false, reason: 'interval', schedule: normalized, elapsed_min: elapsedMin };
+  }
+  return { due: true, reason: 'due', schedule: normalized, elapsed_min: elapsedMin };
+}
+
+function getBackupSchedule() {
+  const status = readStatus();
+  if (!status.schedule) return normalizeSchedule(DEFAULT_BACKUP_SCHEDULE);
+  return normalizeSchedule({ ...DEFAULT_BACKUP_SCHEDULE, ...status.schedule, retention: { ...DEFAULT_BACKUP_SCHEDULE.retention, ...(status.schedule.retention || {}) } });
+}
+
+function saveBackupSchedule(patch) {
+  const current = getBackupSchedule();
+  const src = patch && typeof patch === 'object' ? patch : {};
+  const next = normalizeSchedule({
+    ...current,
+    ...src,
+    retention: { ...current.retention, ...(src.retention || {}) },
+  });
+  writeStatus({ schedule: next });
+  return next;
 }
 
 function pruneBackupDirectory(dir, options = {}) {
-  // GFS-ish: at most 96 recent quarter-hour points, then bounded
-  // daily/weekly/monthly buckets. The hard recent cap also contains a broken
-  // scheduler that produces many backups inside one day.
+  // GFS-ish retention. Omitted options keep the historical caps so existing
+  // retention tests stay stable. A saved schedule passes explicit caps.
   let resolved = path.resolve(dir);
   if (!fs.existsSync(resolved)) {
     return { directory: resolved, scanned: 0, kept: 0, removed: 0, removed_sidecars: 0, freed_bytes: 0, failures: [] };
@@ -363,12 +488,27 @@ function pruneBackupDirectory(dir, options = {}) {
     return verified.get(it.name);
   };
   const day = 86400000;
+  const legacyCaps = !options.retention;
+  const recentCap = legacyCaps ? 96 : clampInt(options.retention.recent, 4, 96, 24);
+  const dailyCap = legacyCaps ? 31 : clampInt(options.retention.daily, 1, 31, 14);
+  const weeklyCap = legacyCaps ? 12 : clampInt(options.retention.weekly, 1, 12, 8);
+  const monthlyCap = legacyCaps ? 12 : clampInt(options.retention.monthly, 1, 24, 6);
+  const keepNewest = legacyCaps ? 0 : clampInt(options.keepNewest, 0, 96, 0);
   let recentKept = 0;
   for (const it of items) {
     const age = now - it.created_at * 1000;
-    if (age <= day && recentKept < 96 && canKeep(it)) {
+    if (age <= day && recentKept < recentCap && canKeep(it)) {
       keep.add(it.name);
       recentKept++;
+    }
+  }
+  if (keepNewest > 0) {
+    let pinned = 0;
+    for (const it of items) {
+      if (pinned >= keepNewest) break;
+      if (!canKeep(it)) continue;
+      keep.add(it.name);
+      pinned++;
     }
   }
   const byDay = new Map();
@@ -379,9 +519,9 @@ function pruneBackupDirectory(dir, options = {}) {
     const dayKey = d.toISOString().slice(0, 10);
     const weekKey = `${d.getUTCFullYear()}-W${Math.ceil((((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / day) + 1) / 7)}`;
     const monthKey = d.toISOString().slice(0, 7);
-    const needDay = byDay.size < 31 && !byDay.has(dayKey);
-    const needWeek = byWeek.size < 12 && !byWeek.has(weekKey);
-    const needMonth = byMonth.size < 12 && !byMonth.has(monthKey);
+    const needDay = byDay.size < dailyCap && !byDay.has(dayKey);
+    const needWeek = byWeek.size < weeklyCap && !byWeek.has(weekKey);
+    const needMonth = byMonth.size < monthlyCap && !byMonth.has(monthKey);
     if (!needDay && !needWeek && !needMonth) continue;
     if (!canKeep(it)) continue;
     if (needDay) byDay.set(dayKey, it.name);
@@ -468,7 +608,11 @@ function pruneBackupDirectory(dir, options = {}) {
 }
 
 function pruneOld() {
-  return pruneBackupDirectory(BACKUP_DIR);
+  const schedule = getBackupSchedule();
+  return pruneBackupDirectory(BACKUP_DIR, {
+    retention: schedule.retention,
+    keepNewest: schedule.keep_newest,
+  });
 }
 
 function copyFilesystemBackupAtomic(finalPath, destDir, checksum) {
@@ -538,6 +682,7 @@ function compareFingerprints(a, b) {
  */
 function getBackupHealth(options = {}) {
   const status = readStatus();
+  const schedule = getBackupSchedule();
   const last = status.last || null;
   const drill = status.last_drill || null;
   const latest = getLatestBackupFile();
@@ -546,7 +691,8 @@ function getBackupHealth(options = {}) {
     : null;
   const free = diskFreeBytes(BACKUP_DIR);
   const minFreeMb = Number(options.minFreeMb || process.env.BACKUP_MIN_FREE_MB || 512);
-  const maxAgeMin = Number(options.maxAgeMin || process.env.BACKUP_MAX_AGE_MIN || 20);
+  const defaultMaxAge = Math.max(20, schedule.interval_min * 2);
+  const maxAgeMin = Number(options.maxAgeMin || process.env.BACKUP_MAX_AGE_MIN || defaultMaxAge);
   const maxDrillAgeDays = Number(options.maxDrillAgeDays || process.env.BACKUP_MAX_DRILL_AGE_DAYS || 8);
   const alerts = [];
   if (!last || last.ok === false) alerts.push({ code: 'BACKUP_LAST_FAILED', severity: 'critical', message: last?.error || 'no successful backup' });
@@ -577,6 +723,7 @@ function getBackupHealth(options = {}) {
     latest_age_min: latestAgeMin,
     disk_free_bytes: free,
     offsite_configured: !!(process.env.BACKUP_S3_URI || process.env.BACKUP_OFFSITE_DIR),
+    schedule,
     alerts,
     updated_at: status.updated_at || null,
   };
@@ -617,6 +764,7 @@ async function runBackup() {
   if (backupLock) return { ok: false, error: 'backup already running' };
   backupLock = true;
   const started = Date.now();
+  try { writeStatus({ last_attempt_at: new Date().toISOString() }); } catch { /* status must not block the snapshot */ }
   let tmpDir = null;
   try {
     ensureDir();
@@ -634,6 +782,7 @@ async function runBackup() {
     } catch {
       demoForbidsOffsite = /^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''));
     }
+    const schedule = getBackupSchedule();
     if (!demoForbidsOffsite && !process.env.BACKUP_S3_URI && process.env.BACKUP_OFFSITE_DIR) {
       filesystemOffsiteDir = assertManagedBackupDirectory(process.env.BACKUP_OFFSITE_DIR, BACKUP_DIR);
       if (sameFilesystemDevice(BACKUP_DIR, filesystemOffsiteDir) && process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
@@ -644,6 +793,8 @@ async function runBackup() {
         requireMarker: true,
         primaryDir: BACKUP_DIR,
         verifyChecksum: true,
+        retention: schedule.retention,
+        keepNewest: schedule.keep_newest,
       });
       if (offsitePrune.failures.length) {
         throw new Error(`backup retention cleanup failed for ${offsitePrune.failures.length} offsite files`);
@@ -730,6 +881,7 @@ async function runBackup() {
         duration_ms: Date.now() - started, companies: manifest.companies.length,
         fingerprints,
         disk_free_bytes: diskFreeBytes(BACKUP_DIR),
+        finished_at: new Date().toISOString(),
       },
     });
     console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒' : ''}`);
@@ -883,6 +1035,249 @@ function restoreBackup(archivePath, options = {}) {
   }
 }
 
+const LATEST_POINTER_NAMES = [
+  'crm-latest.zip.enc', 'crm-latest.tar.gz.enc', 'crm-latest.zip', 'crm-latest.tar.gz',
+];
+
+function backupHttpError(status, message, code) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code || null;
+  return err;
+}
+
+function confinedDir(dir) {
+  const resolved = path.resolve(dir);
+  const st = fs.lstatSync(resolved);
+  if (!st.isDirectory() || st.isSymbolicLink()) throw backupHttpError(500, 'پوشهٔ پشتیبان نامعتبر است', 'UNSAFE_DIR');
+  return fs.realpathSync(resolved);
+}
+
+function unlinkRegularInside(dirReal, filePath) {
+  const st = fs.lstatSync(filePath);
+  if (!st.isFile() || st.isSymbolicLink()) throw backupHttpError(400, 'فایل پشتیبان نامعتبر است', 'UNSAFE_FILE');
+  const real = fs.realpathSync(filePath);
+  const rel = path.relative(dirReal, real);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw backupHttpError(400, 'مسیر پشتیبان مجاز نیست', 'PATH_ESCAPE');
+  fs.unlinkSync(filePath);
+  return st.size;
+}
+
+function unlinkArchivePair(dir, name) {
+  if (!BACKUP_ARCHIVE_RE.test(name)) throw backupHttpError(400, 'نام فایل پشتیبان نامعتبر است', 'BAD_NAME');
+  const dirReal = confinedDir(dir);
+  const archive = path.join(dirReal, name);
+  if (!fs.existsSync(archive)) return { removed: false, bytes: 0 };
+  let bytes = unlinkRegularInside(dirReal, archive);
+  const sidecar = archive + '.sha256';
+  if (fs.existsSync(sidecar)) {
+    try { bytes += unlinkRegularInside(dirReal, sidecar); } catch { /* sidecar is optional metadata */ }
+  }
+  return { removed: true, bytes };
+}
+
+function removeLatestPointers(dir) {
+  const dirReal = confinedDir(dir);
+  let bytes = 0;
+  for (const name of LATEST_POINTER_NAMES) {
+    const fp = path.join(dirReal, name);
+    if (!fs.existsSync(fp)) continue;
+    try { bytes += unlinkRegularInside(dirReal, fp); } catch { /* pointer may already be gone */ }
+  }
+  return bytes;
+}
+
+function dropMatchingLatestPointer(checksum) {
+  if (!checksum) return 0;
+  let bytes = 0;
+  const dirReal = confinedDir(BACKUP_DIR);
+  for (const name of LATEST_POINTER_NAMES) {
+    const fp = path.join(dirReal, name);
+    if (!fs.existsSync(fp)) continue;
+    try {
+      if (sha256File(fp) !== checksum) continue;
+      bytes += unlinkRegularInside(dirReal, fp);
+    } catch { /* leave an unreadable pointer for the next backup */ }
+  }
+  return bytes;
+}
+
+function offsiteDirOrError() {
+  if (!process.env.BACKUP_OFFSITE_DIR) return { dir: null, error: null };
+  try {
+    return { dir: assertManagedBackupDirectory(process.env.BACKUP_OFFSITE_DIR, BACKUP_DIR), error: null };
+  } catch (error) {
+    return { dir: null, error: error.message };
+  }
+}
+
+function removeS3Name(name) {
+  if (!process.env.BACKUP_S3_URI || !BACKUP_ARCHIVE_RE.test(name)) return null;
+  const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + name;
+  const rm = spawnSync('aws', ['s3', 'rm', target, '--only-show-errors'], { encoding: 'utf8', timeout: 120000 });
+  spawnSync('aws', ['s3', 'rm', target + '.sha256', '--only-show-errors'], { encoding: 'utf8', timeout: 60000 });
+  if (rm.status !== 0) return { ok: false, error: String(rm.stderr || rm.error || 's3 rm failed').trim(), target };
+  return { ok: true, target };
+}
+
+function verifiedOtherThan(dir, name) {
+  return listBackupsIn(dir).some((item) => item.name !== name && sidecarWellFormed(dir, item));
+}
+
+function deleteBackupArchive(name, options = {}) {
+  if (backupLock) throw backupHttpError(409, 'پشتیبان‌گیری در حال اجراست — کمی بعد دوباره حذف کنید', 'BACKUP_BUSY');
+  const confirmName = options.confirmName != null ? String(options.confirmName) : '';
+  if (!name || name !== confirmName || !BACKUP_ARCHIVE_RE.test(name) || /[\\/]/.test(name) || name.includes('..')) {
+    throw backupHttpError(400, 'برای حذف، نام فایل را دقیقاً تأیید کنید', 'CONFIRM_NAME');
+  }
+  const fp = resolveBackupFile(name);
+  if (!fp) throw backupHttpError(404, 'فایل پشتیبان یافت نشد', 'NOT_FOUND');
+  const verified = sidecarWellFormed(BACKUP_DIR, { name });
+  const offsite = offsiteDirOrError();
+  const offsiteOther = offsite.dir ? verifiedOtherThan(offsite.dir, name) : false;
+  if (verified && !verifiedOtherThan(BACKUP_DIR, name) && !offsiteOther && options.force !== true) {
+    throw backupHttpError(403, 'این تنها نسخهٔ تأییدشده است. حذف فقط با تأیید اجباری ممکن است', 'LAST_VERIFIED');
+  }
+  let checksum = null;
+  try {
+    const line = fs.readFileSync(fp + '.sha256', 'utf8').trim();
+    const match = /^([a-f0-9]{64})\s+/i.exec(line);
+    checksum = match ? match[1].toLowerCase() : null;
+  } catch { checksum = null; }
+  const local = unlinkArchivePair(BACKUP_DIR, name);
+  let freed = local.bytes + dropMatchingLatestPointer(checksum);
+  if (listBackupsIn(BACKUP_DIR).length === 0) freed += removeLatestPointers(BACKUP_DIR);
+  let offsiteResult = null;
+  if (offsite.dir) {
+    try {
+      const removed = unlinkArchivePair(offsite.dir, name);
+      offsiteResult = { ok: true, removed: removed.removed, bytes: removed.bytes };
+      freed += removed.bytes;
+    } catch (error) {
+      offsiteResult = { ok: false, error: error.message };
+    }
+  } else if (offsite.error) {
+    offsiteResult = { ok: false, error: offsite.error };
+  }
+  return {
+    ok: true,
+    name,
+    freed_bytes: freed,
+    force: options.force === true,
+    offsite: offsiteResult,
+    s3: removeS3Name(name),
+  };
+}
+
+function isPurgePartial(name) {
+  return name.startsWith('.partial-') && (name.includes('crm-backup') || /\.(zip|tar\.gz)(\.enc)?$/i.test(name));
+}
+
+function purgePartials(dirReal) {
+  let bytes = 0;
+  let removed = 0;
+  for (const name of fs.readdirSync(dirReal)) {
+    if (!isPurgePartial(name) || name.includes('..')) continue;
+    const fp = path.join(dirReal, name);
+    try {
+      bytes += unlinkRegularInside(dirReal, fp);
+      removed++;
+    } catch { /* leave unsafe entries in place */ }
+  }
+  return { removed, bytes };
+}
+
+function purgeBackupArchives(options = {}) {
+  if (backupLock) throw backupHttpError(409, 'پشتیبان‌گیری در حال اجراست', 'BACKUP_BUSY');
+  if (!options || options.confirm !== 'PURGE-ALL-BACKUPS') {
+    throw backupHttpError(400, 'عبارت تأیید پاکسازی نادرست است', 'CONFIRM_PURGE');
+  }
+  let freed = 0;
+  let removed = 0;
+  const failures = [];
+  for (const item of listBackupsIn(BACKUP_DIR)) {
+    try {
+      const result = unlinkArchivePair(BACKUP_DIR, item.name);
+      if (result.removed) removed++;
+      freed += result.bytes;
+    } catch (error) {
+      failures.push({ name: item.name, error: error.message });
+    }
+  }
+  freed += removeLatestPointers(BACKUP_DIR);
+  const partials = purgePartials(confinedDir(BACKUP_DIR));
+  freed += partials.bytes;
+  removed += partials.removed;
+  const offsite = offsiteDirOrError();
+  let offsiteRemoved = 0;
+  if (offsite.dir) {
+    for (const item of listBackupsIn(offsite.dir)) {
+      try {
+        const result = unlinkArchivePair(offsite.dir, item.name);
+        if (result.removed) offsiteRemoved++;
+        freed += result.bytes;
+      } catch (error) {
+        failures.push({ name: item.name, error: error.message, where: 'offsite' });
+      }
+    }
+    freed += removeLatestPointers(offsite.dir);
+    const offPartials = purgePartials(offsite.dir);
+    freed += offPartials.bytes;
+    offsiteRemoved += offPartials.removed;
+  }
+  let s3 = null;
+  if (process.env.BACKUP_S3_URI) {
+    const rm = spawnSync('aws', [
+      's3', 'rm', process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/',
+      '--recursive', '--exclude', '*', '--include', 'crm-backup-*', '--only-show-errors',
+    ], { encoding: 'utf8', timeout: 180000 });
+    s3 = { ok: rm.status === 0, error: rm.status === 0 ? null : String(rm.stderr || rm.error || 's3 rm failed').trim() };
+  }
+  return {
+    ok: failures.length === 0,
+    removed,
+    offsite_removed: offsiteRemoved,
+    offsite_error: offsite.error,
+    freed_bytes: freed,
+    failures,
+    s3,
+  };
+}
+
+function lastSuccessMs() {
+  const status = readStatus();
+  const stamp = status.last && status.last.ok && status.last.finished_at;
+  const parsed = stamp ? Date.parse(stamp) : NaN;
+  if (Number.isFinite(parsed)) return parsed;
+  try {
+    const latest = getLatestBackupFile();
+    if (latest && fs.existsSync(latest)) return fs.statSync(latest).mtimeMs;
+  } catch { /* */ }
+  return 0;
+}
+
+function lastAttemptMs() {
+  const status = readStatus();
+  const parsed = status.last_attempt_at ? Date.parse(status.last_attempt_at) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function maybeRunScheduledBackup(now = new Date()) {
+  if (backupLock) return { ok: true, skipped: 'busy' };
+  const schedule = getBackupSchedule();
+  const decision = scheduleDue(schedule, now, Math.max(lastSuccessMs(), lastAttemptMs()));
+  let due = decision.due;
+  if (!due && schedule.enabled && withinBackupWindow(schedule, now)) {
+    try {
+      const empty = listBackupsIn(BACKUP_DIR).length === 0;
+      const retryMs = Math.min(schedule.interval_min, 15) * 60000;
+      if (empty && (now.getTime() - lastAttemptMs()) >= retryMs) due = true;
+    } catch { /* an unsafe directory must not start a backup */ }
+  }
+  if (!due) return { ok: true, skipped: decision.reason, schedule };
+  return runBackup();
+}
+
 module.exports = {
   runBackup,
   listBackups,
@@ -904,6 +1299,14 @@ module.exports = {
   pruneBackupDirectory,
   assertManagedBackupDirectory,
   copyFilesystemBackupAtomic,
+  normalizeSchedule,
+  scheduleDue,
+  getBackupSchedule,
+  saveBackupSchedule,
+  deleteBackupArchive,
+  purgeBackupArchives,
+  maybeRunScheduledBackup,
+  DEFAULT_BACKUP_SCHEDULE,
   BACKUP_ROOT_MARKER,
   BACKUP_ROOT_MARKER_CONTENT,
   BACKUP_DIR,

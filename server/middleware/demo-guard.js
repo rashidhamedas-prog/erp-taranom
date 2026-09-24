@@ -7,6 +7,8 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const BLOCKED_PREFIXES = [
   '/api/admin/backup-restore',
   '/api/admin/backup-now',
+  '/api/admin/backup-purge',
+  '/api/admin/backup-schedule',
   '/api/settings/test-sms',
   '/api/license/activate',
   '/api/license/deactivate',
@@ -98,6 +100,9 @@ function demoGuard(req, res, next) {
 
   if (startsWithAny(p, BLOCKED_PREFIXES)) {
     return deny(req, res, 'blocked_prefix');
+  }
+  if (method === 'DELETE' && p.startsWith('/api/admin/backups/')) {
+    return deny(req, res, 'blocked_backup_delete');
   }
   if (BLOCKED_EXACT.has(p) && MUTATING.has(method)) {
     return deny(req, res, 'blocked_settings');

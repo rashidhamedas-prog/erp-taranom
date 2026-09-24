@@ -9,7 +9,10 @@ const { initDB, getDB, isDevice, audit } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
+const {
+  runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth,
+  maybeRunScheduledBackup, getBackupSchedule, saveBackupSchedule, deleteBackupArchive, purgeBackupArchives,
+} = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
 const { assertDemoBoot, refreshMaintenanceFlag, isDemoMode } = require('./lib/demo-mode');
 try {
@@ -402,6 +405,48 @@ app.get('/api/admin/backups', auth, adminOnly, centralOnlyStrict, (req, res) => 
   res.json(listBackups());
 });
 
+app.get('/api/admin/backup-schedule', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  res.json(getBackupSchedule());
+});
+
+app.put('/api/admin/backup-schedule', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try {
+    const schedule = saveBackupSchedule(req.body || {});
+    audit(req.user.id, 'backup_schedule', 'system_backup', null, JSON.stringify(schedule), req);
+    res.json({ ok: true, schedule });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'برنامهٔ پشتیبان نامعتبر است' });
+  }
+});
+
+app.delete('/api/admin/backups/:name', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try {
+    const forceRaw = req.body && req.body.force;
+    const result = deleteBackupArchive(req.params.name, {
+      confirmName: req.body && req.body.confirm_name,
+      force: forceRaw === true || forceRaw === 1 || forceRaw === '1' || forceRaw === 'true',
+    });
+    audit(req.user.id, 'backup_delete', 'system_backup', null, JSON.stringify({
+      name: result.name, freed_bytes: result.freed_bytes, force: result.force,
+    }), req);
+    res.json(result);
+  } catch (e) {
+    res.status(Number(e.status) || 500).json({ error: e.message || 'حذف پشتیبان ناموفق بود', code: e.code || null });
+  }
+});
+
+app.post('/api/admin/backup-purge', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try {
+    const result = purgeBackupArchives({ confirm: req.body && req.body.confirm });
+    audit(req.user.id, 'backup_purge', 'system_backup', null, JSON.stringify({
+      removed: result.removed, freed_bytes: result.freed_bytes,
+    }), req);
+    res.json(result);
+  } catch (e) {
+    res.status(Number(e.status) || 500).json({ error: e.message || 'پاکسازی پشتیبان ناموفق بود', code: e.code || null });
+  }
+});
+
 app.get('/api/admin/backup-health', auth, adminOnly, centralOnlyStrict, (req, res) => {
   res.json(getBackupHealth());
 });
@@ -785,10 +830,12 @@ if (!isDevice() && !isDemoMode()) {
   // Every minute: timed follow-up SMS
   cron.schedule('* * * * *', runTimedFollowupSMS);
 
-  // Daily at 00:00: full app backup → local file + Gmail
-  // Wave-0 RPO: WAL-safe snapshot every 15 minutes. Off-site upload is
-  // mandatory when BACKUP_S3_URI is configured.
-  cron.schedule('*/15 * * * *', runBackup);
+  // Backup tick every minute. Interval, Tehran window, and retention come from
+  // the admin schedule (default: every 60 minutes, all day). A fixed */15
+  // cron filled the disk when the same-disk mirror was not pruned in time.
+  cron.schedule('* * * * *', () => {
+    maybeRunScheduledBackup().catch((e) => console.error('cron backup error:', e.message));
+  });
 
   // Daily at 02:00: AI churn scoring + insights (heuristics always; Claude narratives if configured)
   cron.schedule('0 2 * * *', async () => {

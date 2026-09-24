@@ -21168,11 +21168,12 @@ function toggleSmsProviderHint(provider){
 }
 async function triggerBackupNow(){
   if(!guardBackupAccess()) return;
-  const st=el('backup-status'); if(st) st.textContent='در حال پشتیبان‌گیری...';
-  const r=await api('POST','/admin/backup-now');
-  if(!st) return;
-  if(r?.ok) st.textContent=`✅ پشتیبان ساخته شد${r.sizeMB?' ('+r.sizeMB+' MB)':''} ${r.email?'و به '+r.email+' ارسال شد':'(ایمیل تنظیم نشده)'}`;
-  else st.textContent='❌ خطا: '+(r?.error||'نامشخص');
+  const st=el('bk-status')||el('backup-status'); if(st) st.textContent='در حال پشتیبان‌گیری...';
+  try{
+    const r=await api('POST','/admin/backup-now');
+    if(st) st.textContent=r?.ok?`✅ پشتیبان ساخته شد${r.sizeMB?' ('+r.sizeMB+' MB)':''}`:('❌ خطا: '+(r?.error||'نامشخص'));
+    if(r?.ok) refreshSettBackup();
+  }catch(e){ if(st) st.textContent='❌ '+(e.message||'خطا'); }
 }
 
 /* ============================================================
@@ -21193,34 +21194,95 @@ async function loadSettBackupPanel(){
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const settings = await api('GET','/settings').catch(()=>({}));
   const health = await api('GET','/admin/backup-health').catch(()=>null);
+  const schedule = await api('GET','/admin/backup-schedule').catch(()=>(health&&health.schedule)||{
+    enabled:true, interval_min:60, window_start:'00:00', window_end:'00:00',
+    retention:{recent:24,daily:14,weekly:8,monthly:6}, keep_newest:8
+  });
+  const ret = schedule.retention||{};
   const encOn = !!(settings && settings.backup_password_has_value);
+  const freeGb = health && health.disk_free_bytes!=null ? (health.disk_free_bytes/1024/1024/1024).toFixed(1) : null;
   const alertsHtml = (health && health.alerts && health.alerts.length)
     ? `<div class="warn" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">${health.alerts.map(a=>`• ${esc(a.message||a.code)}`).join('<br>')}</div>`
-    : (health && health.ok ? `<div class="ok" data-csp-style="${CSP.style(`margin-bottom:12px`)}">وضعیت بکاپ سالم — سن آخرین: ${fmt(health.latest_age_min||0)} دقیقه</div>` : '');
+    : (health && health.ok ? `<div class="ok" data-csp-style="${CSP.style(`margin-bottom:12px`)}">وضعیت بکاپ سالم — سن آخرین: ${fmt(health.latest_age_min||0)} دقیقه${freeGb!=null?' · فضای آزاد '+freeGb+' گیگابایت':''}</div>` : '');
   box.innerHTML=`
     <div class="panel">
-      <div class="panel-head"><h4>پشتیبان‌گیری پیشرفته</h4></div>
+      <div class="panel-head"><h4>وضعیت پشتیبان</h4></div>
       <div class="panel-body">
         ${alertsHtml}
-        <p data-csp-style="${CSP.style(`font-size:13px;color:var(--muted);margin-bottom:16px`)}">
-          پشتیبان خودکار هر ۱۵ دقیقه. شامل دیتابیس شرکت‌ها، تصاویر عمومی و فایل‌های خصوصی.
-          مقصد off-server: <code dir="ltr">BACKUP_OFFSITE_DIR</code> یا <code dir="ltr">BACKUP_S3_URI</code>.
+        <p data-csp-style="${CSP.style(`font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.9`)}">
+          هر پشتیبان شامل دیتابیس شرکت‌ها، تصاویر عمومی و فایل‌های خصوصی است و با AES-256-GCM رمز می‌شود.
+          زمان‌بندی زیر را خودتان تنظیم می‌کنید. پیشنهاد: هر <b>۶۰ دقیقه</b>؛ فاصلهٔ ۱۵ دقیقه دیسک را سریع پر می‌کند.
         </p>
-        <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px`)}">
-          <button class="btn green" data-csp-click="${CSP.bind('click',function(event){downloadBackup()})}">ساخت و دانلود آخرین پشتیبان</button>
-          <button class="btn" data-csp-click="${CSP.bind('click',function(event){refreshBackupList()})}">بروزرسانی لیست</button>
+        <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px`)}">
+          <button class="btn green" data-csp-click="${CSP.bind('click',function(event){triggerBackupNow()})}">پشتیبان همین حالا</button>
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){downloadBackup()})}">دانلود آخرین پشتیبان</button>
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){refreshBackupList()})}">بروزرسانی</button>
           <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){restoreProductStockWipe()})}" title="اگر با آپلود عکس، موجودی/پک/قیمت/کد خالی شده">↩ بازیابی موجودی/قیمت/کد پس از آپلود عکس</button>
           <span id="bk-status" data-csp-style="${CSP.style(`font-size:13px;color:var(--muted);align-self:center`)}"></span>
         </div>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>رمزنگاری</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
+      </div>
+    </div>
+
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:16px`)}">
+      <div class="panel-head"><h4>پشتیبان خودکار</h4></div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div class="fg"><label>وضعیت</label>
+            <select id="bk-auto">
+              <option value="1" ${schedule.enabled!==false?'selected':''}>فعال</option>
+              <option value="0" ${schedule.enabled===false?'selected':''}>خاموش</option>
+            </select>
+          </div>
+          <div class="fg"><label>هر چند دقیقه (۱۵ تا ۱۴۴۰، گام ۵)</label>
+            <input id="bk-interval" type="number" min="15" max="1440" step="5" value="${esc(schedule.interval_min||60)}">
+          </div>
+          <div class="fg"><label>از ساعت (تهران)</label>
+            <input id="bk-win-start" type="time" value="${esc(schedule.window_start||'00:00')}">
+          </div>
+          <div class="fg"><label>تا ساعت — اگر هر دو ۰۰:۰۰ باشد تمام‌روز است</label>
+            <input id="bk-win-end" type="time" value="${esc(schedule.window_end||'00:00')}">
+          </div>
+          <div class="fg"><label>نگه‌داری نسخه‌های ۲۴ ساعت اخیر</label>
+            <input id="bk-keep-recent" type="number" min="4" max="96" value="${esc(ret.recent||24)}">
+          </div>
+          <div class="fg"><label>روزانه</label>
+            <input id="bk-keep-daily" type="number" min="1" max="31" value="${esc(ret.daily||14)}">
+          </div>
+          <div class="fg"><label>هفتگی</label>
+            <input id="bk-keep-weekly" type="number" min="1" max="12" value="${esc(ret.weekly||8)}">
+          </div>
+          <div class="fg"><label>ماهانه</label>
+            <input id="bk-keep-monthly" type="number" min="1" max="24" value="${esc(ret.monthly||6)}">
+          </div>
+          <div class="fg"><label>حداقل چند نسخهٔ آخر همیشه بماند</label>
+            <input id="bk-keep-newest" type="number" min="1" max="30" value="${esc(schedule.keep_newest||8)}">
+          </div>
+        </div>
+        <button class="btn green" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){saveBackupSchedule()})}">ذخیرهٔ زمان‌بندی</button>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px;line-height:1.8`)}">مقصد خارج از سرور از محیط سرور می‌آید (<code dir="ltr">BACKUP_OFFSITE_DIR</code> یا <code dir="ltr">BACKUP_S3_URI</code>) و از این صفحه عوض نمی‌شود.</p>
+      </div>
+    </div>
+
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:16px`)}">
+      <div class="panel-head"><h4>نسخه‌های روی سرور</h4></div>
+      <div class="panel-body">
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>رمز</th><th>نشان</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
           ${(backups||[]).map(b=>`<tr>
             <td class="mono" dir="ltr">${esc(b.name)}</td>
             <td>${esc(b.sizeMB)} MB</td>
             <td>${b.encrypted?'🔒':'—'}</td>
+            <td>${b.verified?'دارد':'ندارد'}</td>
             <td>${new Date(b.created_at*1000).toLocaleString('fa-IR')}</td>
-            <td><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){downloadNamedBackup(`${String((CSP.htmlDecode(String(esc(b.name)))) ?? '')}`)})}">دانلود</button></td>
-          </tr>`).join('') || '<tr><td colspan="5" class="muted">هنوز پشتیبانی ثبت نشده</td></tr>'}
+            <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+              <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){downloadNamedBackup(`${String((CSP.htmlDecode(String(esc(b.name)))) ?? '')}`)})}">دانلود</button>
+              <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){deleteNamedBackup(`${String((CSP.htmlDecode(String(esc(b.name)))) ?? '')}`)})}">حذف از سرور</button>
+            </td>
+          </tr>`).join('') || '<tr><td colspan="6" class="muted">هنوز پشتیبانی ثبت نشده</td></tr>'}
         </tbody></table></div>
+        <div data-csp-style="${CSP.style(`margin-top:14px`)}">
+          <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){purgeAllBackups()})}">پاکسازی همهٔ نسخه‌های روی سرور</button>
+          <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">پاکسازی، آرشیوها را از پوشهٔ اصلی و آینهٔ خارج از سرور حذف می‌کند. دیتابیس زنده و فایل‌های آپلود دست نمی‌خورند. اگر پشتیبان خودکار روشن باشد، نسخهٔ بعدی طبق زمان‌بندی ساخته می‌شود.</p>
+        </div>
       </div>
     </div>
 
@@ -21261,6 +21323,61 @@ async function loadSettBackupPanel(){
 }
 function refreshSettBackup(){ if(el('sett-mount-backup')) loadSettBackupPanel(); else settOpenTab('backup'); }
 async function refreshBackupList(){ refreshSettBackup(); }
+async function saveBackupSchedule(){
+  if(!guardBackupAccess()) return;
+  const body={
+    enabled: el('bk-auto')?.value!=='0',
+    interval_min: Number(el('bk-interval')?.value),
+    window_start: el('bk-win-start')?.value||'00:00',
+    window_end: el('bk-win-end')?.value||'00:00',
+    keep_newest: Number(el('bk-keep-newest')?.value),
+    retention:{
+      recent: Number(el('bk-keep-recent')?.value),
+      daily: Number(el('bk-keep-daily')?.value),
+      weekly: Number(el('bk-keep-weekly')?.value),
+      monthly: Number(el('bk-keep-monthly')?.value),
+    }
+  };
+  try{
+    const r=await api('PUT','/admin/backup-schedule', body);
+    showToast(r?.ok?'زمان‌بندی پشتیبان ذخیره شد':'ذخیره ناموفق','ok');
+    refreshSettBackup();
+  }catch(e){ showToast(e.message||'ذخیره ناموفق','error'); }
+}
+async function deleteNamedBackup(name){
+  if(!guardBackupAccess()) return;
+  const typed=prompt('برای حذف این پشتیبان از روی سرور، نام فایل را دقیقاً بنویسید:\n'+name);
+  if(typed==null) return;
+  if(String(typed).trim()!==name){ showToast('نام واردشده با فایل یکی نیست','error'); return; }
+  try{
+    await api('DELETE','/admin/backups/'+encodeURIComponent(name), {confirm_name:name, force:false}, false, true);
+    showToast('پشتیبان از سرور حذف شد');
+    refreshSettBackup();
+  }catch(e){
+    if(e.code==='LAST_VERIFIED'){
+      if(!confirm('این تنها نسخهٔ تأییدشده است. حذف آن بازیابی را سخت می‌کند. حذف اجباری انجام شود؟')) return;
+      try{
+        await api('DELETE','/admin/backups/'+encodeURIComponent(name), {confirm_name:name, force:true});
+        showToast('تنها نسخهٔ تأییدشده حذف شد');
+        refreshSettBackup();
+      }catch(e2){ showToast(e2.message||'حذف ناموفق','error'); }
+      return;
+    }
+    showToast(e.message||'حذف ناموفق','error');
+  }
+}
+async function purgeAllBackups(){
+  if(!guardBackupAccess()) return;
+  if(!confirm('همهٔ فایل‌های پشتیبان از روی سرور و آینهٔ خارج از سرور حذف شوند؟ دیتابیس زنده حذف نمی‌شود.')) return;
+  const typed=prompt('برای تأیید، این عبارت را دقیقاً بنویسید:\nPURGE-ALL-BACKUPS');
+  if(typed==null) return;
+  if(String(typed).trim()!=='PURGE-ALL-BACKUPS'){ showToast('عبارت تأیید نادرست است','error'); return; }
+  try{
+    const r=await api('POST','/admin/backup-purge',{confirm:'PURGE-ALL-BACKUPS'});
+    showToast('پاکسازی انجام شد — '+fmt(r?.removed||0)+' فایل');
+    refreshSettBackup();
+  }catch(e){ showToast(e.message||'پاکسازی ناموفق','error'); }
+}
 async function restoreProductStockWipe(){
   if(!guardBackupAccess()) return;
   if(!confirm('موجودی کالاهایی که صفر شده‌اند از موجودی انبار (و در صورت نیاز از پشتیبان) بازگردانی شود؟\nتعداد در پک / قیمت / کد کالا هم از بکاپ‌های tar.gz پر می‌شود.')) return;
@@ -22036,7 +22153,9 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
         <li>تب «پشتیبان» در تنظیمات و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
-        <li>پشتیبان خودکار هر <b>۱۵ دقیقه</b> (WAL-safe، چندشرکتی، private-uploads، رمزنگاری AES-GCM)</li>
+        <li>پشتیبان خودکار <b>قابل تنظیم</b> است: فاصله از ۱۵ دقیقه تا یک شبانه‌روز (پیشنهاد ۶۰ دقیقه)، پنجرهٔ ساعت تهران، و تعداد نگهداری اخیر/روزانه/هفتگی/ماهانه. پیش‌فرض هر ۶۰ دقیقه است تا دیسک مثل زمان‌بند ثابت ۱۵دقیقه‌ای پر نشود</li>
+        <li>هر نسخه را می‌توان از همین صفحه <b>از روی سرور حذف کرد</b> (نام فایل باید عیناً تأیید شود). اگر تنها نسخهٔ تأییدشده باشد، حذف اجباری جدا می‌خواهد. «پاکسازی همهٔ نسخه‌ها» فقط با عبارت <code dir="ltr">PURGE-ALL-BACKUPS</code></li>
+        <li>بسته همچنان WAL-safe، چندشرکتی، شامل private-uploads و رمزنگاری AES-GCM است</li>
         <li>وضعیت سلامت از API <code dir="ltr">/api/admin/backup-health</code> (سن آخرین بکاپ، دیسک، drill هفتگی، هشدارها)</li>
         <li>مقصد off-server: <code dir="ltr">BACKUP_S3_URI</code> (با تأیید download/SHA) یا volume جدا با <code dir="ltr">BACKUP_OFFSITE_DIR</code> — same-VPS کافی نیست</li>
         <li>تأیید بدون بازیابی: <code dir="ltr">npm run backup:verify -- --file …</code>؛ drill ایزوله: <code dir="ltr">npm run backup:weekly-drill</code></li>
