@@ -7,7 +7,7 @@
 
 ### ۱۴۰۵/۰۷/۰۳ — پیگیری بازبینی: ابطال چک/POS و گیت ویرایش رسمی (SW v227)
 
-- **ابطال فاکتور:** cheque_records و رسید کارتخوان همراه تسویه reverse می‌شوند؛ برگشت چک بدون ccount_code دیگر به بانک پیش‌فرض نمی‌رود و از اسناد دریافتنی برمی‌گردد.
+- **ابطال فاکتور:** cheque_records و رسید کارتخوان همراه تسویه reverse می‌شوند؛ برگشت چک بدون account_code دیگر به بانک پیش‌فرض نمی‌رود و از اسناد دریافتنی برمی‌گردد.
 - **اصلاح پرداخت:** تغییر تعداد اقساط با تسویهٔ بعدی (حتی POS) مسدود است؛ در اصلاح هم‌تعداد، رجیستر چک با settlement همگام می‌شود و کد حساب از COA نقشه خوانده می‌شود (نه هاردکد 1109).
 - **دسترسی:** ویرایش فاکتور رسمی فقط admin/accounting/sales_manager؛ تخفیف ردیف برای مدیر فروش با سرور هم‌تراز شد.
 - **چاپ:** پوشش ::before/::after و opacity برای مشکی‌زاغ کامل‌تر.
@@ -24,7 +24,7 @@
 - **تست (Node 20):** accounting-access ۳۷۹/۳۷۹، sms ۲۲/۲۲؛ سینتکس app.js با `node --check` پاس. test-sync روی این ماشین به‌خاطر ABI ناسازگار better-sqlite3 با Node سیستم اجرا نشد (موتور سینک تغییر نکرد).
 - **فایل‌ها:** server/lib/accounting-access.js, server/lib/rbac.js, server/middleware/auth.js, server/routes/rbac.js, server/public/{acc-nav.js,app.js,app.css,index.html,sw.js}, server/scripts/test-accounting-access.js
 - **SW:** erp-taranom-v227
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 0857772 — health/ready/root 200. SW erp-taranom-v227. HAS_ACC=yes.
 
 ### ۱۴۰۵/۰۷/۰۳ — فاکتور فروش: مبلغ، پرداخت، چک، چاپ مشکی، autocomplete (SW v226)
 
