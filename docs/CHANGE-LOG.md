@@ -14,7 +14,7 @@
 - **تست (Node 20):** invoice-amount-pay-v226 ۲۲/۲۲، amend-v205 ۵۲/۵۲، sms ۲۲/۲۲، sync ۴۴/۴۴.
 - **فایل‌ها:** server/public/{app.js,invoice-print.css,sw.js}, server/lib/{invoice-payments.js,invoice-print.js}, server/scripts/{test-invoice-amount-pay-v226.js,test-invoice-amend-v205.js}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v226
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ e17b085 — health/ready/root 200. SW erp-taranom-v226. HEAD سرور 8a5cd54 ماند.
 
 ### ۱۴۰۵/۰۷/۰۲ — پشتیبان خودکار قابل تنظیم و حذف از سرور (SW v224)
 
@@ -215,7 +215,7 @@
 
 - **کار:** راهنمای کارگاهی از صفر تا صد تولید (همهٔ منوها، فیلدها، اثر هر ثبت، دو مسیر برش/PACK و سفارش، سناریوها و چک‌لیست) به‌صورت سند Word راست‌چین.
 - **فایل‌ها:** `docs/Production/آموزش-کامل-بخش-تولید.docx`، `docs/Production/production-complete-guide-fa.docx`، `scripts/build-production-user-guide-docx.py`
-- **Deploy:** ⏳ مستندات — بدون تغییر SW
+- **Deploy:** ✅ ایران overlay SFTP @ e17b085 — health/ready/root 200. SW erp-taranom-v226. HEAD سرور 8a5cd54 ماند. مستندات — بدون تغییر SW
 - **SW:** بدون تغییر
 
 ### ۱۴۰۵/۰۶/۱۸ — فاکتور/سبد پک خودکار + رفع CRM و حساب من (SW v211)
@@ -527,7 +527,7 @@
 - **معماری:** listen قبل از `initDB` (صف TCP در کرنل، نه connection-refused)؛ `boot-gate` با ۵۰۳ `STARTING`/`RESTARTING` و `Retry-After`؛ ورود و GET با backoff روی 502/503/521–524؛ drain با SIGTERM؛ PM2 `1024M` + `wait_ready`؛ `busy_timeout` ۸ ثانیه؛ mmap ۱۲۸MB؛ fallback ستون `branch_id` تا ۴۰۱ خاموش بعد از لاگین ۲۰۰ تکرار نشود.
 - **فایل‌ها:** `server/lib/boot-gate.js`، `server/lib/http-resilience.js`، `server/public/net-resilience.js`، `server/{server,db,ecosystem.config}.js`، `server/middleware/auth.js`، `server/public/{app.js,index.html,sw.js,i18n.js}`، `server/scripts/test-login-resilience.js`، `docs/{CHANGE-LOG,08-deployment}.md`
 - **تست:** `test-login-resilience.js` ۱۴ · `test-sms.js` ۲۲ · `test-sync.js` روی این Node ۲۴ به‌خاطر ABI `better-sqlite3` (کامپایل ۲۲) اجرا نشد
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ e17b085 — health/ready/root 200. SW erp-taranom-v226. HEAD سرور 8a5cd54 ماند.
 - **SW:** `erp-taranom-v185`
 
 ### ۱۴۰۵/۰۶/۱۲ — بسته تنظیمات A–H (SW v184)
@@ -1393,7 +1393,7 @@
 - **Commit:** `83003d7`
 - **خلاصه:** ویرایشگر BOM با چهار تب Module-4: اقلام، مسیر عملیات («از الگوی ترنم» + resequence)، خروجی‌های main/co/by، بهای تمام‌شده (`full-cost?qty` پیش‌فرض ۳۰۰، بدون JE). تب بها با `canPerm('production_cost','view')` / `__canSeeCost` مخفی می‌شود. Help: V4-21 (بازده سرفصل=۱۰۰ با routing)، full-cost بدون سند، co/by.
 - **فایل‌های کلیدی:** `server/public/app.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳ pending merge
+- **Deploy:** ✅ ایران overlay SFTP @ e17b085 — health/ready/root 200. SW erp-taranom-v226. HEAD سرور 8a5cd54 ماند. pending merge
 - **یادداشت:** فقط UI؛ موتور/API پیشرفته در همان شاخه؛ بدون بیلد APK/دسکتاپ.
 
 ### 2026-08-09 — Deploy ایران Wave1 merge via SFTP
