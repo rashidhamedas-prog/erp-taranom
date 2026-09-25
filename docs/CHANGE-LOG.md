@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — UX صفحه ورود کارکنان و پورتال (SW v228)
+
+- **ADR:** کامپوننت React/Next/shadcn (sign-in-card-2) به‌خاطر فرانت تک‌فایل ERP (server/public) نصب نشد؛ الگوی بصری (پرتو، ambient، tilt، loading) با پالت سبز ترنم و RTL در همان HTML/CSS/JS پیاده شد. ورود Google عمداً نیست (JWT داخلی).
+- **UX:** نمایش رمز، مرا به خاطر بسپار (فقط username)، اسپینر ورود بدون خراب کردن DOM، tilt سه‌بعدی دسکتاپ، reduced-motion، پوستهٔ مشترک پورتال B2B.
+- **باگ:** handlerهای CSP چشم/remember قبلاً ثبت نشده بودند؛ i18n دیگر label اسپینر و SVG پورتال را پاک نمی‌کند.
+- **فایل‌ها:** server/public/{index.html,app.css,app.js,sw.js}, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v228
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۳ — پیگیری بازبینی: ابطال چک/POS و گیت ویرایش رسمی (SW v227)
 
 - **ابطال فاکتور:** cheque_records و رسید کارتخوان همراه تسویه reverse می‌شوند؛ برگشت چک بدون account_code دیگر به بانک پیش‌فرض نمی‌رود و از اسناد دریافتنی برمی‌گردد.

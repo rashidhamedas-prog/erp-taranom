@@ -17,47 +17,104 @@
 <link rel="stylesheet" href="/prod-ui.css?v=187">
 <script src="/vendor/html2canvas.min.js" defer></script>
 <script src="/marketer-ui.js?v=211" defer></script>
-<link rel="stylesheet" href="/app.css?v=227">
+<link rel="stylesheet" href="/app.css?v=229">
 </head>
 <body>
 
 <!-- ===== LOGIN ===== -->
 <div id="login">
-  <button class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">🌙 حالت تاریک</button>
-  <div class="login-card">
-    <div class="logo"><img src="/logo-sm.png" alt="ترنم" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">🌿</span></div>
-    <h1>ERP ترنم</h1>
-    <p>سامانه یکپارچه ERP پوشاک ترنم</p>
-    <form id="loginForm">
-      <div class="field">
-        <label>نام کاربری</label>
-        <input id="loginUser" autocomplete="username" placeholder="admin">
+  <div class="login-ambient" aria-hidden="true">
+    <div class="login-ambient-grad"></div>
+    <div class="login-ambient-noise"></div>
+    <div class="login-ambient-glow login-ambient-glow-top"></div>
+    <div class="login-ambient-glow login-ambient-glow-a"></div>
+    <div class="login-ambient-glow login-ambient-glow-b"></div>
+  </div>
+  <button type="button" class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">🌙 حالت تاریک</button>
+  <div class="login-stage" id="loginStage">
+    <div class="login-card" id="loginCard">
+      <div class="login-card-beam" aria-hidden="true">
+        <span class="login-beam login-beam-t"></span>
+        <span class="login-beam login-beam-r"></span>
+        <span class="login-beam login-beam-b"></span>
+        <span class="login-beam login-beam-l"></span>
       </div>
-      <div class="field">
-        <label>رمز عبور</label>
-        <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••">
-      </div>
-      <button type="submit">ورود به سامانه</button>
-      <div data-csp-style="s_b7423d859ccaaa96e8e2796f">
-        <a href="#" data-csp-click="s_8a71e98e13b13714a42fa7d9" data-csp-style="s_312d3494f9edb044d48d7d47">رمز عبور را فراموش کرده‌اید؟</a>
-      </div>
-      <div id="b2bEntryLink" data-csp-style="s_72c16271d8964e133a24f4fb">
-        <a href="#portal" data-csp-click="s_d33d3fedc02f222946db0f9f" data-csp-style="s_2675f5bf9c94991eeed5b080" data-i18n="portal-entry">🛒 ورود پورتال مشتریان</a>
-      </div>
-      <div id="deviceResetLink" data-csp-style="s_b4d1d87a041bda3f347aec63">
-        <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">اتصال خراب است؟ قطع اتصال و اتصال مجدد</a>
-      </div>
-      <div class="login-err" id="loginErr"></div>
-    </form>
-    <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br>ساخته‌شده توسط شرکت ترانه اندیشه پردازان ریان<br><span data-csp-style="s_81407354a30c7015e96f6ae2">اولین ورود: admin / admin123</span></div>
+      <div class="logo"><img src="/logo-sm.png" alt="ترنم" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">🌿</span></div>
+      <h1>ERP ترنم</h1>
+      <p class="login-sub">سامانه یکپارچه ERP پوشاک ترنم</p>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="loginUser">نام کاربری</label>
+          <div class="login-input-wrap">
+            <span class="login-ico" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            <input id="loginUser" autocomplete="username" placeholder="admin" enterkeyhint="next" dir="ltr">
+          </div>
+        </div>
+        <div class="field">
+          <label for="loginPass">رمز عبور</label>
+          <div class="login-input-wrap">
+            <span class="login-ico" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••" enterkeyhint="go" dir="ltr">
+            <button type="button" class="login-eye" id="loginPassToggle" data-csp-click="s_c4e81a92f0b37d65e8a14c2b" aria-label="نمایش رمز عبور" title="نمایش/پنهان رمز">
+              <svg class="login-eye-show" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="login-eye-hide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M10.7 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17.4 17.4 0 0 1-1.6 2.4"/><path d="M6.6 6.6C3.9 8.5 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1"/><path d="m2 2 20 20"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="login-row">
+          <label class="login-remember" for="loginRemember">
+            <input type="checkbox" id="loginRemember" data-csp-change="s_d7f19b03e2a48c56f1d90e3a">
+            <span>مرا به خاطر بسپار</span>
+          </label>
+          <a href="#" class="login-forgot" data-csp-click="s_8a71e98e13b13714a42fa7d9">رمز عبور را فراموش کرده‌اید؟</a>
+        </div>
+        <button type="submit" class="login-submit" id="loginSubmitBtn">
+          <span class="login-submit-label">ورود به سامانه</span>
+          <span class="login-submit-spin" aria-hidden="true"></span>
+        </button>
+        <div id="b2bEntryLink" data-csp-style="s_72c16271d8964e133a24f4fb">
+          <a href="#portal" class="login-portal-link" data-csp-click="s_d33d3fedc02f222946db0f9f" data-i18n="portal-entry">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+            <span class="login-portal-label">ورود پورتال مشتریان</span>
+          </a>
+        </div>
+        <div id="deviceResetLink" data-csp-style="s_b4d1d87a041bda3f347aec63">
+          <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">اتصال خراب است؟ قطع اتصال و اتصال مجدد</a>
+        </div>
+        <div class="login-err" id="loginErr" role="alert" aria-live="polite"></div>
+      </form>
+      <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br>ساخته‌شده توسط شرکت ترانه اندیشه پردازان ریان<br><span data-csp-style="s_81407354a30c7015e96f6ae2">اولین ورود: admin / admin123</span></div>
+    </div>
   </div>
 </div>
 
 <!-- ===== B2B CUSTOMER PORTAL ===== -->
 <div id="b2bPortal">
+  <div class="login-ambient" aria-hidden="true">
+    <div class="login-ambient-grad"></div>
+    <div class="login-ambient-noise"></div>
+    <div class="login-ambient-glow login-ambient-glow-top"></div>
+    <div class="login-ambient-glow login-ambient-glow-a"></div>
+    <div class="login-ambient-glow login-ambient-glow-b"></div>
+  </div>
+  <button type="button" class="theme-toggle-btn b2b-theme-toggle" data-csp-click="s_0a3f6e8040676843de3f04aa">🌙 حالت تاریک</button>
   <div class="b2b-wrap">
-    <span class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">← بازگشت به ورود کارکنان</span>
-    <div class="b2b-card" id="b2bContent"></div>
+    <button type="button" class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">← بازگشت به ورود کارکنان</button>
+    <div class="login-stage b2b-login-stage" id="b2bLoginStage">
+      <div class="b2b-card login-card-shell" id="b2bLoginShell">
+        <div class="login-card-beam" aria-hidden="true">
+          <span class="login-beam login-beam-t"></span>
+          <span class="login-beam login-beam-r"></span>
+          <span class="login-beam login-beam-b"></span>
+          <span class="login-beam login-beam-l"></span>
+        </div>
+        <div id="b2bContent"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -157,7 +214,7 @@
 <script src="/prod-ui.js?v=176" defer></script>
 <script src="/demo-shell.js?v=176"></script>
 <script src="/net-resilience.js?v=187"></script>
-<script src="/app.js?v=227"></script>
+<script src="/app.js?v=229"></script>
 <script src="/variant-stock-report.js?v=223"></script>
 </body>
 </html>

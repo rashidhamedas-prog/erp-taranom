@@ -682,14 +682,16 @@ function applyAppLanguage(){
   try{
     const loginH=document.querySelector('#login h1');
     if(loginH) loginH.textContent=T('ERP ترنم');
-    const loginP=document.querySelector('#login .login-card > p');
+    const loginP=document.querySelector('#login .login-sub') || document.querySelector('#login .login-card > p');
     if(loginP) loginP.textContent=T('سامانه یکپارچه ERP پوشاک ترنم');
-    const loginBtn=document.querySelector('#loginForm button[type="submit"]');
-    if(loginBtn) loginBtn.textContent=T('ورود به سامانه');
-    const forgot=document.querySelector('#loginForm a');
+    const loginLbl=document.querySelector('#loginForm .login-submit-label');
+    if(loginLbl) loginLbl.textContent=T('ورود به سامانه');
+    const forgot=document.querySelector('#loginForm .login-forgot');
     if(forgot) forgot.textContent=T('رمز عبور را فراموش کرده‌اید؟');
-    const pe=document.querySelector('[data-i18n="portal-entry"]');
-    if(pe) pe.innerHTML='🛒 '+T('ورود پورتال مشتریان');
+    const remLbl=document.querySelector('#loginForm .login-remember span');
+    if(remLbl) remLbl.textContent=T('مرا به خاطر بسپار');
+    const pe=document.querySelector('[data-i18n="portal-entry"] .login-portal-label') || document.querySelector('[data-i18n="portal-entry"]');
+    if(pe) pe.textContent=T('ورود پورتال مشتریان');
     const hint=el('omniboxHint');
     if(hint) hint.textContent=T('جستجو — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها');
     const brandH=document.querySelector('.sidebar .brand h2');
@@ -1175,18 +1177,73 @@ document.addEventListener('click',e=>{ if(!e.target.closest('.cust-sw')) documen
 /* ============================================================
    AUTH
 ============================================================ */
+const LOGIN_REMEMBER_KEY='crm_login_user';
+function setLoginLoading(on){
+  const btn=el('loginSubmitBtn') || el('loginForm')?.querySelector('button[type="submit"]');
+  if(!btn) return;
+  btn.disabled=!!on;
+  btn.classList.toggle('is-loading', !!on);
+  btn.setAttribute('aria-busy', on ? 'true' : 'false');
+}
+function toggleLoginPasswordVisibility(){
+  const pass=el('loginPass');
+  const card=el('loginCard');
+  const btn=el('loginPassToggle');
+  if(!pass) return;
+  const show=pass.type==='password';
+  pass.type=show ? 'text' : 'password';
+  if(card) card.classList.toggle('is-show-pass', show);
+  if(btn) btn.setAttribute('aria-label', show ? 'پنهان کردن رمز عبور' : 'نمایش رمز عبور');
+}
+function persistLoginRemember(){
+  try{
+    const cb=el('loginRemember');
+    const u=(el('loginUser')?.value||'').trim();
+    if(cb && cb.checked && u) localStorage.setItem(LOGIN_REMEMBER_KEY, u);
+    else localStorage.removeItem(LOGIN_REMEMBER_KEY);
+  }catch(_){}
+}
+function restoreLoginRemember(){
+  try{
+    const saved=localStorage.getItem(LOGIN_REMEMBER_KEY);
+    if(!saved) return;
+    const u=el('loginUser');
+    const cb=el('loginRemember');
+    if(u && !u.value) u.value=saved;
+    if(cb) cb.checked=true;
+  }catch(_){}
+}
+function bindLoginCardTilt(stageEl, cardEl){
+  if(!stageEl || !cardEl) return;
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if(window.matchMedia('(pointer: coarse)').matches) return;
+  const max=9;
+  const onMove=(e)=>{
+    const r=stageEl.getBoundingClientRect();
+    if(!r.width || !r.height) return;
+    const x=((e.clientX-r.left)/r.width)-0.5;
+    const y=((e.clientY-r.top)/r.height)-0.5;
+    cardEl.style.transform=`rotateY(${(-x*max*2).toFixed(2)}deg) rotateX(${(y*max*2).toFixed(2)}deg)`;
+  };
+  const onLeave=()=>{ cardEl.style.transform=''; };
+  stageEl.addEventListener('mousemove', onMove);
+  stageEl.addEventListener('mouseleave', onLeave);
+}
+function initLoginShellUX(){
+  restoreLoginRemember();
+  bindLoginCardTilt(el('loginStage'), el('loginCard'));
+  bindLoginCardTilt(el('b2bLoginStage'), el('b2bLoginShell'));
+}
 el('loginForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   el('loginErr').textContent='';
   const username = el('loginUser').value.trim();
   const password = el('loginPass').value;
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
-  const submitBtn = el('loginForm').querySelector('button[type="submit"]') || el('loginForm').querySelector('button');
-  const submitLabel = submitBtn ? submitBtn.textContent : '';
   const net = window.NetResilience;
   const setLoginErr = (msg)=>{ el('loginErr').textContent = msg || ''; };
   try{
-    if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'در حال اتصال…'; }
+    setLoginLoading(true);
     setLoginErr('در حال اتصال به سرور…');
     if(net && net.waitUntilReady){
       await net.waitUntilReady(null, { attempts: 6, timeoutMs: 4000 });
@@ -1235,6 +1292,7 @@ el('loginForm').addEventListener('submit', async (e)=>{
       return;
     }
     if(j.twofa_required){ show2FALogin(j.pre_token); return; }
+    persistLoginRemember();
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     setME(j.user);
@@ -1251,7 +1309,7 @@ el('loginForm').addEventListener('submit', async (e)=>{
     const classified = net && net.classifyTransportError ? net.classifyTransportError(err) : null;
     setLoginErr((classified && classified.message) || 'خطای ارتباط با سرور');
   } finally {
-    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = submitLabel || 'ورود به سامانه'; }
+    setLoginLoading(false);
   }
 });
 function getLoginDevicePayload(){
@@ -20263,24 +20321,52 @@ function closeB2BPortal(){
 function b2bErr(msg){ const e=el('b2b-err'); if(e) e.textContent=msg||''; }
 function renderB2BLogin(){
   B2B={customer:null,tab:'catalog',cart:[],catalog:[]};
+  el('b2bLoginStage')?.classList.add('is-narrow');
+  el('b2bLoginShell')?.classList.add('is-login');
   el('b2bContent').innerHTML=`
-    <div class="b2b-head"><h2>🛒 پورتال مشتریان ترنم</h2><p class="muted">سفارش آنلاین · صورتحساب · تاریخچه فاکتور</p></div>
-    <div class="form-grid">
-      <div class="fg full"><label>شماره موبایل</label><input id="b2b-phone" placeholder="09123456789" dir="ltr" inputmode="tel"></div>
-      <div class="fg full"><label>رمز عبور</label><input id="b2b-pass" type="password" autocomplete="current-password"></div>
+    <div class="b2b-head">
+      <img class="b2b-logo" src="/logo-sm.png" alt="ترنم" data-csp-error="${CSP.bind('error',function(){this.style.display='none'})}">
+      <h2>پورتال مشتریان ترنم</h2>
+      <p class="muted">سفارش آنلاین · صورتحساب · تاریخچه فاکتور</p>
     </div>
-    <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-top:14px;flex-wrap:wrap`)}">
-      <button class="btn green" data-csp-style="${CSP.style(`flex:1`)}" data-csp-click="${CSP.bind('click',function(event){b2bLogin()})}">ورود</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){b2bRequestOtp()})}">ورود با کد پیامکی</button>
+    <div class="b2b-login-fields">
+      <div class="field">
+        <label for="b2b-phone">شماره موبایل</label>
+        <div class="login-input-wrap">
+          <span class="login-ico" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+          </span>
+          <input id="b2b-phone" placeholder="09123456789" dir="ltr" inputmode="tel" autocomplete="tel">
+        </div>
+      </div>
+      <div class="field">
+        <label for="b2b-pass">رمز عبور</label>
+        <div class="login-input-wrap">
+          <span class="login-ico" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          <input id="b2b-pass" type="password" autocomplete="current-password" dir="ltr" placeholder="••••••••">
+        </div>
+      </div>
     </div>
-    <div id="b2b-otp-box" data-csp-style="${CSP.style(`display:none;margin-top:12px`)}">
-      <div class="fg full"><label>کد پیامک شده</label><input id="b2b-otp" dir="ltr" maxlength="6" inputmode="numeric"></div>
-      <button class="btn" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){b2bVerifyOtp()})}">تأیید کد</button>
+    <div class="b2b-login-actions">
+      <button type="button" class="login-submit" data-csp-click="${CSP.bind('click',function(event){b2bLogin()})}">
+        <span class="login-submit-label">ورود به پورتال</span>
+      </button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){b2bRequestOtp()})}">ورود با کد پیامکی</button>
     </div>
-    <div class="login-err" id="b2b-err"></div>
-    <p data-csp-style="${CSP.style(`margin-top:16px;font-size:11px;color:var(--muted);line-height:1.8;text-align:right`)}">
-      دسترسی به پورتال باید توسط مدیر فروش برای شما فعال شده باشد.
-    </p>`;
+    <div id="b2b-otp-box" data-csp-style="${CSP.style(`display:none;margin-top:12px;text-align:right`)}">
+      <div class="field"><label for="b2b-otp">کد پیامک‌شده</label>
+        <div class="login-input-wrap">
+          <input id="b2b-otp" dir="ltr" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="------">
+        </div>
+      </div>
+      <button type="button" class="login-submit" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){b2bVerifyOtp()})}">
+        <span class="login-submit-label">تأیید کد و ورود</span>
+      </button>
+    </div>
+    <div class="login-err" id="b2b-err" role="alert" aria-live="polite"></div>
+    <p class="b2b-login-hint">دسترسی به پورتال باید توسط مدیر فروش برای شما فعال شده باشد.</p>`;
 }
 async function b2bLogin(){
   b2bErr('');
@@ -20314,6 +20400,8 @@ function b2bLogout(){
 }
 async function b2bBoot(){
   B2B.cart=[];
+  el('b2bLoginStage')?.classList.remove('is-narrow');
+  el('b2bLoginShell')?.classList.remove('is-login');
   el('b2bContent').innerHTML=`
     <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       <div><strong>${esc(B2B.customer?.biz||'پورتال مشتریان')}</strong></div>
@@ -22606,6 +22694,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>نوع سند در قالب اکسل فهرست اسناد: <code>opening</code> / افتتاحیه / موجودی اول دوره → افتتاحیه. مبالغ اکسل اسناد حسابداری <b>ریال</b> هستند.</li>
       </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
+      <h5>صفحه ورود (کارکنان و پورتال)</h5><ul>
+        <li>پس‌زمینهٔ سبز برند ترنم با کارت شیشه‌ای، پرتو نور محیطی، و شیب سه‌بعدی ملایم روی دسکتاپ (روی لمسی و <code>prefers-reduced-motion</code> خاموش است).</li>
+        <li>نمایش/پنهان رمز، «مرا به خاطر بسپار» (فقط نام کاربری روی همین دستگاه؛ رمز ذخیره نمی‌شود)، اسپینر ورود، و تم تاریک از گوشهٔ صفحه.</li>
+        <li>پورتال مشتریان (<code dir="ltr">/#portal</code>) همان پوستهٔ بصری را دارد؛ ورود با رمز یا کد پیامکی. ورود با Google در این سامانه وجود ندارد (احراز هویت داخلی JWT).</li>
+      </ul>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
         <li>تب «پشتیبان» در تنظیمات و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
@@ -22840,7 +22933,7 @@ function renderSalesGuide(){
       <p>داده‌های نسخه نمایشی واقعی نیستند و برای جلسهٔ فروش ساخته شده‌اند.</p>`),
     helpSec('🚀','شروع کار',`
       <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم ERP ترنم استفاده کنید.</p>
-      <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید.</p>
+      <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید. روی صفحه ورود می‌توانید رمز را نمایش دهید، «مرا به خاطر بسپار» را فقط برای نام کاربری فعال کنید، و تم تاریک را از گوشهٔ صفحه عوض کنید.</p>
       <h5>اولین قدم‌ها</h5><ol>
         <li>از منو سمت چپ بخش مشتریان را باز کنید</li>
         <li>مشتریان فعلی خود را ببینید یا مشتری جدید اضافه کنید</li>
@@ -22849,7 +22942,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من) و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v217</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v228</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -23797,6 +23890,10 @@ CSP.register('s_91b2cd2e2a63e0751b4932b9','click',function(event){factoryResetDe
 CSP.register('s_d33d3fedc02f222946db0f9f','click',function(event){openB2BPortal();return false});
 CSP.register('s_8a71e98e13b13714a42fa7d9','click',function(event){openForgotPass();return false});
 CSP.register('s_2f0e41562cb9debea9944bb0','error',function(event){this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='block'}});
+CSP.register('s_c4e81a92f0b37d65e8a14c2b','click',function(event){toggleLoginPasswordVisibility()});
+CSP.register('s_d7f19b03e2a48c56f1d90e3a','change',function(event){persistLoginRemember()});
+
+try{ initLoginShellUX(); }catch(_){}
 
 /* Static styles migrated from index.html. */
 CSP.registerStyle('s_0539973dc9f6c0ea8f34890a',"flex:1");

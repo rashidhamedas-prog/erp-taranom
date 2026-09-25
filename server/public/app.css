@@ -74,31 +74,129 @@ input,select,textarea{font-family:inherit;font-size:14px}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
 
-/* ===== Login ===== */
+/* ===== Login (staff + shared ambient) — زمرد / طلا، بدون بنفش ===== */
 #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-  background:var(--hero);padding:20px;z-index:1000}
-.login-card{background:var(--card);border-radius:20px;padding:38px 30px;width:100%;max-width:380px;
-  box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center;overflow:hidden}
+  background:#123F28;padding:20px;z-index:1000;overflow:hidden}
+.login-ambient{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.login-ambient-grad{position:absolute;inset:0;background:
+  radial-gradient(ellipse 80% 60% at 50% 20%,rgba(46,125,79,.55),transparent 70%),
+  radial-gradient(ellipse 70% 50% at 50% 100%,rgba(201,168,67,.18),transparent 65%),
+  linear-gradient(165deg,#163F2A 0%,#1A5C38 45%,#0F2A1C 100%)}
+html[data-theme="dark"] .login-ambient-grad{background:
+  radial-gradient(ellipse 70% 50% at 50% 15%,rgba(61,220,140,.22),transparent 70%),
+  radial-gradient(ellipse 60% 45% at 50% 100%,rgba(231,200,118,.12),transparent 65%),
+  linear-gradient(165deg,#0A1210 0%,#101A15 50%,#0D1512 100%)}
+.login-ambient-noise{position:absolute;inset:0;opacity:.04;mix-blend-mode:soft-light;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:180px 180px}
+.login-ambient-glow{position:absolute;border-radius:50%;filter:blur(70px);opacity:.35}
+.login-ambient-glow-top{width:min(120vw,720px);height:min(55vh,420px);top:-18%;left:50%;transform:translateX(-50%);
+  border-radius:0 0 50% 50%;background:rgba(74,160,110,.35);filter:blur(80px);
+  animation:loginGlowPulse 8s ease-in-out infinite alternate}
+.login-ambient-glow-a{width:min(70vw,420px);height:min(70vw,420px);top:-8%;right:-8%;background:rgba(46,125,79,.45);
+  animation:loginGlowPulse 8s ease-in-out infinite alternate}
+.login-ambient-glow-b{width:min(55vw,360px);height:min(55vw,360px);bottom:-12%;left:-6%;background:rgba(201,168,67,.22);
+  animation:loginGlowPulse 10s ease-in-out infinite alternate-reverse}
+@keyframes loginGlowPulse{from{opacity:.22;transform:scale(.96)}to{opacity:.42;transform:scale(1.04)}}
+.login-ambient-glow-top{animation-name:loginGlowTop}
+@keyframes loginGlowTop{
+  from{opacity:.2;transform:translateX(-50%) scale(.98)}
+  to{opacity:.4;transform:translateX(-50%) scale(1.03)}
+}
+.login-stage{position:relative;z-index:1;width:100%;max-width:400px;perspective:1500px}
+.login-card,.login-card-shell{position:relative;background:var(--card);border-radius:22px;padding:36px 28px;width:100%;
+  box-shadow:0 24px 64px rgba(8,28,18,.38),0 0 0 1px rgba(255,255,255,.06);text-align:center;overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .35s ease,transform .12s ease-out;will-change:transform}
+.login-card:hover,.login-card-shell:hover{box-shadow:0 28px 72px rgba(8,28,18,.45),0 0 0 1px rgba(201,168,67,.22)}
+.login-card::before,.login-card-shell::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.035;
+  background-image:linear-gradient(135deg,rgba(255,255,255,.9) .5px,transparent .5px),linear-gradient(45deg,rgba(255,255,255,.9) .5px,transparent .5px);
+  background-size:28px 28px}
+.login-card-beam{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:inherit;z-index:0}
+.login-beam{position:absolute;opacity:.55;filter:blur(1.5px)}
+.login-beam-t{top:0;right:-45%;height:2px;width:48%;
+  background:linear-gradient(90deg,transparent,rgba(201,168,67,.85),transparent);
+  animation:loginBeamX 3.2s ease-in-out infinite}
+.login-beam-b{bottom:0;left:-45%;height:2px;width:48%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  animation:loginBeamXRev 3.2s ease-in-out infinite 1.2s}
+.login-beam-r{top:-45%;left:0;width:2px;height:48%;
+  background:linear-gradient(180deg,transparent,rgba(201,168,67,.7),transparent);
+  animation:loginBeamY 3.2s ease-in-out infinite .6s}
+.login-beam-l{bottom:-45%;right:0;width:2px;height:48%;
+  background:linear-gradient(180deg,transparent,rgba(255,255,255,.45),transparent);
+  animation:loginBeamYRev 3.2s ease-in-out infinite 1.8s}
+@keyframes loginBeamX{0%{right:-48%;opacity:.15}45%{opacity:.9}100%{right:110%;opacity:.12}}
+@keyframes loginBeamXRev{0%{left:-48%;opacity:.15}45%{opacity:.85}100%{left:110%;opacity:.12}}
+@keyframes loginBeamY{0%{top:-48%;opacity:.15}45%{opacity:.85}100%{top:110%;opacity:.12}}
+@keyframes loginBeamYRev{0%{bottom:-48%;opacity:.15}45%{opacity:.8}100%{bottom:110%;opacity:.12}}
+.login-card .logo,.login-card h1,.login-card .login-sub,.login-card form,.login-card .login-hint,
+#b2bContent{position:relative;z-index:1}
 .login-card .logo{font-size:54px;margin-bottom:8px}
-.login-card .logo img{height:110px;width:auto;max-width:100%;display:block;margin:0 auto 6px;object-fit:contain}
+.login-card .logo img{height:104px;width:auto;max-width:100%;display:block;margin:0 auto 6px;object-fit:contain;
+  filter:drop-shadow(0 6px 14px rgba(26,92,56,.18))}
 .login-card .logo img + span{display:none}
 .login-card .logo img.is-broken{display:none}
 .login-card .logo img.is-broken + span{display:inline}
-#login > .theme-toggle-btn{
+#login > .theme-toggle-btn,.b2b-theme-toggle{
   position:fixed;top:14px;left:14px;z-index:1001;
-  background:rgba(255,255,255,.15);color:#fff;border:none;padding:8px 14px;
-  border-radius:20px;font-size:12px;font-weight:700;backdrop-filter:blur(4px)}
-.login-card h1{color:var(--purple);font-size:24px;margin-bottom:4px}
-.login-card p{color:var(--muted);font-size:13px;margin-bottom:24px}
-.login-card .field{text-align:right;margin-bottom:14px}
-.login-card label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
-.login-card input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;outline:none}
-.login-card input:focus{border-color:var(--purple2)}
-.login-card button{width:100%;background:var(--purple);color:var(--on-accent);border:none;padding:13px;border-radius:10px;
-  font-size:15px;font-weight:600;margin-top:8px}
-.login-card button:hover{background:var(--purple2)}
-.login-err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}
-.login-hint{margin-top:18px;font-size:11px;color:#9ca3af}
+  background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.18);padding:8px 14px;
+  border-radius:20px;font-size:12px;font-weight:700;backdrop-filter:blur(8px);cursor:pointer}
+.login-card h1{color:var(--purple);font-size:24px;margin-bottom:4px;letter-spacing:-.02em}
+.login-card .login-sub,.login-card > p{color:var(--muted);font-size:13px;margin-bottom:22px}
+.login-card .field,.b2b-login-fields .field{text-align:right;margin-bottom:12px}
+.login-card .field > label,.b2b-login-fields .field > label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted);font-weight:600}
+.login-input-wrap{position:relative;display:flex;align-items:center}
+.login-ico{position:absolute;right:12px;width:18px;height:18px;color:var(--muted);pointer-events:none;display:flex;
+  transition:color .2s ease}
+.login-ico svg{width:18px;height:18px}
+.login-input-wrap:focus-within .login-ico{color:var(--purple)}
+.login-card .login-input-wrap input,.b2b-login-fields .login-input-wrap input{width:100%;padding:12px 42px 12px 42px;border:1.5px solid var(--input-border);
+  border-radius:12px;outline:none;background:var(--input-bg);color:var(--text);transition:border-color .2s,box-shadow .2s,background .2s,transform .2s}
+.login-card .login-input-wrap:focus-within,.b2b-login-fields .login-input-wrap:focus-within{transform:scale(1.01)}
+.login-card .login-input-wrap input:focus,.b2b-login-fields .login-input-wrap input:focus{border-color:var(--purple2);box-shadow:0 0 0 3px rgba(46,125,79,.18)}
+html[data-theme="dark"] .login-card .login-input-wrap input:focus,
+html[data-theme="dark"] .b2b-login-fields .login-input-wrap input:focus{box-shadow:0 0 0 3px rgba(61,220,140,.2)}
+.login-eye{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:none;background:transparent;
+  color:var(--muted);border-radius:10px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.login-eye:hover,.login-eye:focus-visible{color:var(--purple);background:var(--purple-light);outline:none}
+.login-eye svg{width:18px;height:18px}
+.login-card.is-show-pass .login-eye-show{display:none}
+.login-card.is-show-pass .login-eye-hide{display:block!important}
+.login-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:4px 0 14px;text-align:right}
+.login-remember{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;margin:0;font-weight:500}
+.login-remember input{width:16px;height:16px;accent-color:var(--purple);cursor:pointer}
+.login-forgot{font-size:12px;color:var(--purple);font-weight:600;text-decoration:none}
+.login-forgot:hover{text-decoration:underline;color:var(--purple2)}
+.login-submit{width:100%;background:var(--purple);color:var(--on-accent);border:none;padding:13px 16px;border-radius:12px;
+  font-size:15px;font-weight:700;margin-top:2px;position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:48px;box-shadow:0 10px 24px -12px rgba(26,92,56,.65);transition:background .2s,transform .15s,box-shadow .2s;cursor:pointer;font-family:inherit}
+.login-submit:hover:not(:disabled){background:var(--purple2);transform:translateY(-1px)}
+.login-submit:active:not(:disabled){transform:translateY(0)}
+.login-submit:disabled{opacity:.72;cursor:wait}
+.login-submit.is-loading .login-submit-label{visibility:hidden}
+.login-submit-spin{display:none;position:absolute;width:18px;height:18px;border:2px solid rgba(255,255,255,.35);
+  border-top-color:var(--on-accent);border-radius:50%;animation:loginSpin .7s linear infinite}
+.login-submit.is-loading .login-submit-spin{display:block}
+@keyframes loginSpin{to{transform:rotate(360deg)}}
+.login-portal-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;font-size:13px;
+  color:var(--purple);font-weight:700;padding:8px 12px;border-radius:10px;border:1px solid transparent;transition:background .2s,border-color .2s}
+.login-portal-link svg{width:16px;height:16px;flex-shrink:0}
+.login-portal-link:hover{background:var(--purple-light);border-color:rgba(26,92,56,.2)}
+.login-err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;text-align:center}
+.login-hint{margin-top:18px;font-size:11px;color:#9ca3af;line-height:1.7}
+html[data-theme="dark"] .login-hint{color:var(--muted)}
+.b2b-login-stage{width:100%;margin:0 auto;transition:max-width .25s ease}
+.b2b-login-stage.is-narrow{max-width:420px}
+#b2bLoginShell{padding:28px}
+#b2bLoginShell.is-login{padding:32px 26px}
+#b2bContent{position:relative;z-index:1}
+@media (prefers-reduced-motion:reduce){
+  .login-ambient-glow,.login-beam,.login-submit-spin{animation:none!important}
+  .login-stage .login-card,.login-stage .login-card-shell{transform:none!important;transition:none}
+  .login-submit:hover:not(:disabled),
+  .login-card .login-input-wrap:focus-within,
+  .b2b-login-fields .login-input-wrap:focus-within{transform:none}
+}
 
 /* ===== Layout — Soft Bento ===== */
 #app{display:none}
@@ -1078,11 +1176,16 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 #updateBanner .x-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;flex-shrink:0}
 
 /* ===== B2B customer portal ===== */
-#b2bPortal{display:none;min-height:100vh;background:linear-gradient(135deg,var(--purple) 0%,#7c3aed 100%);align-items:flex-start;justify-content:center;padding:24px 14px}
+#b2bPortal{display:none;position:relative;min-height:100vh;background:#123F28;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:hidden}
+#b2bPortal > .login-ambient{z-index:0}
+#b2bPortal > .b2b-wrap{position:relative;z-index:1}
 .b2b-wrap{width:100%;max-width:960px}
-.b2b-card{background:var(--card);border-radius:16px;padding:26px;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+.b2b-card{background:var(--card);border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(8,28,18,.38),0 0 0 1px rgba(255,255,255,.06)}
+.b2b-card.b2b-login-card{max-width:420px;margin:0 auto;text-align:center}
 .b2b-head{text-align:center;margin-bottom:18px}
-.b2b-head h2{color:var(--purple);margin-bottom:4px}
+.b2b-head .b2b-logo{height:72px;width:auto;max-width:100%;object-fit:contain;margin:0 auto 10px;display:block;
+  filter:drop-shadow(0 6px 12px rgba(26,92,56,.16))}
+.b2b-head h2{color:var(--purple);margin-bottom:4px;font-size:22px}
 .b2b-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
 .b2b-tabs button{flex:1;min-width:90px;padding:10px;border:1.5px solid var(--border);background:var(--card);border-radius:10px;font-family:inherit;cursor:pointer;font-size:13px}
 .b2b-tabs button.active{background:var(--purple);color:var(--on-accent);border-color:var(--purple)}
@@ -1091,7 +1194,13 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .b2b-prod.unavail{opacity:.55}
 .b2b-prod img{width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:6px}
 .b2b-cart{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border)}
-.b2b-back{color:rgba(255,255,255,.92);font-size:13px;cursor:pointer;display:inline-block;margin-bottom:12px}
+.b2b-back{color:rgba(255,255,255,.94);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  margin-bottom:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:8px 14px;border-radius:999px;
+  font-family:inherit;backdrop-filter:blur(6px)}
+.b2b-back:hover{background:rgba(255,255,255,.2)}
+.b2b-login-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.b2b-login-actions .btn,.b2b-login-actions .login-submit{flex:1;min-width:120px;min-height:48px;border-radius:12px;font-weight:700}
+.b2b-login-hint{margin-top:16px;font-size:11px;color:var(--muted);line-height:1.8;text-align:right}
 /* Production cost sheet: formerly injected as an inline <style> block. */
 #pcs-print-sheet{background:var(--card);padding:20px;border:1px solid var(--border);border-radius:8px;max-width:210mm;margin:0 auto}
 #pcs-print-sheet h2{margin:0 0 4px;font-size:18px;color:var(--purple)}
