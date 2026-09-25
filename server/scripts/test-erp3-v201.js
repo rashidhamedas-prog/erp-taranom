@@ -44,8 +44,8 @@ const {
 } = require('../lib/invoice-payments');
 
 try {
-  const full = resolveInvoicePayments({ pay_type: 'cash', pay_amount: 100000 }, 100000);
-  ok(full.splits.length === 0 && full.skipInvoiceCash === false, 'نقد کامل = مسیر قدیمی صندوق');
+  const full = resolveInvoicePayments({ pay_type: 'cash', pay_amount: 100000, cash_box_id: 1 }, 100000);
+  ok(full.splits.length === 1 && full.skipInvoiceCash === true, 'نقد کامل = settlement جدا');
 } catch (e) { ok(false, 'نقد کامل', e.message); }
 
 try {

@@ -47,9 +47,15 @@ try {
 }
 
 try {
-  const full = resolveInvoicePayments({ pay_type: 'cash', pay_amount: 100000 }, 100000);
-  ok(full.splits.length === 0 && full.skipInvoiceCash === false, 'نقد کامل = بدون قسط، skipInvoiceCash=false');
+  const full = resolveInvoicePayments({ pay_type: 'cash', pay_amount: 100000, cash_box_id: 1 }, 100000);
+  ok(full.splits.length === 1 && full.skipInvoiceCash === true && full.splits[0].amount === 100000, 'نقد کامل = یک settlement و skipInvoiceCash');
 } catch (e) { ok(false, 'نقد کامل resolveInvoicePayments', e.message); }
+try {
+  resolveInvoicePayments({ pay_type: 'cash', pay_amount: 100000 }, 100000);
+  ok(false, 'نقد کامل بدون صندوق باید رد شود');
+} catch (e) {
+  ok(e.code === 'E_CASH_BOX_REQUIRED', 'نقد کامل بدون صندوق E_CASH_BOX_REQUIRED', e.code);
+}
 
 try {
   const part = resolveInvoicePayments({ pay_type: 'cash', pay_amount: 40000, cash_box_id: 2 }, 100000);
@@ -72,8 +78,10 @@ try {
   ok(e.code === 'E_PAY_SPLIT_OVER', 'جمع اقساط بیشتر E_PAY_SPLIT_OVER', e.code);
 }
 
-const emptyCash = resolveInvoicePayments({ pay_type: 'cash' }, 100000);
-ok(emptyCash.splits.length === 0 && emptyCash.skipInvoiceCash === false, 'pay_amount خالی نقد کامل می‌ماند');
+try {
+  const emptyCash = resolveInvoicePayments({ pay_type: 'cash', cash_box_id: 2 }, 100000);
+  ok(emptyCash.splits.length === 1 && emptyCash.skipInvoiceCash === true && emptyCash.splits[0].amount === 100000, 'pay_amount خالی = نقد کامل به‌صورت settlement');
+} catch (e) { ok(false, 'pay_amount خالی نقد کامل', e.message); }
 
 const purchasesSrc = fs.readFileSync(path.join(__dirname, '../routes/purchases.js'), 'utf8');
 const invoicesSrc = fs.readFileSync(path.join(__dirname, '../routes/invoices.js'), 'utf8');
@@ -85,9 +93,10 @@ const purchasePost = purchasesSrc.slice(
 );
 ok(
   purchasePost.includes('payableAcct')
-    && purchasePost.includes('if (paid > 0)')
+    && purchasePost.includes('applyPurchasePaySplits')
+    && !purchasePost.includes("description: 'پرداخت هنگام خرید'")
     && !/pType === 'credit' \? payableAcct/.test(purchasePost),
-  'purchases POST: payableAcct در مسیر نقد (نه فقط نسیه)'
+  'purchases POST: AP-only + applyPurchasePaySplits'
 );
 ok(purchasesSrc.includes('pay_amount') && purchasesSrc.includes('pay_amount_rial'), 'purchases pay_amount');
 ok(purchasesSrc.includes('E_CASH_BOX_REQUIRED'), 'purchases E_CASH_BOX_REQUIRED');

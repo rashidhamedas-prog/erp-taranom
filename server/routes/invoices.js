@@ -1016,8 +1016,12 @@ router.get('/:id/print', auth, (req, res) => {
   const tmpl = String(req.query.template || '');
   try {
     const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    const { loadInvoiceReceipts } = require('../lib/invoice-payments');
+    const receipts = loadInvoiceReceipts(db, inv.id);
     const html = renderInvoicePrintHtml({
       inv, rows, settings, paper,
+      settlements: receipts.settlements,
+      posReceipts: receipts.pos,
       templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
     });
     return sendSecureHtml(res, html, { allowPrintScript: true });

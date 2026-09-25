@@ -1021,6 +1021,7 @@ function initDB(database, opts) {
   ensureColumn(db, 'settlements', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'supplier_payments', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'pay_splits_json', 'TEXT');
   ensureColumn(db, 'purchase_invoices', 'pay_amount_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
@@ -2027,6 +2028,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'party_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'customer_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'lifecycle_status', "TEXT DEFAULT ''");
+  ensureColumn(db, 'cheque_records', 'invoice_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'settlement_id', 'INTEGER');
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
@@ -2704,6 +2707,17 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'consignments', 'variant_id', 'INTEGER');
   ensureColumn(db, 'stocktaking_items', 'variant_id', 'INTEGER');
   ensureColumn(db, 'production_runs', 'voided', 'INTEGER DEFAULT 0');
+
+  // One-shot: create settlements for firm invoices that posted cash/bank inside the sale JE.
+  try {
+    const { repairMissingInvoiceSettlements } = require('./lib/repair-invoice-settlements');
+    const summary = repairMissingInvoiceSettlements(db);
+    if (!summary.skipped) {
+      console.log('✅ invoice_settlement_unify_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('invoice_settlement_unify_v1:', e.message);
+  }
 
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.

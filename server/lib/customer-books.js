@@ -13,7 +13,8 @@ const {
   normalizeFreightType, freightChargedToCounterparty,
 } = require('./sales-document');
 
-const IMMEDIATE_PAY = new Set(['cash', 'bank', 'bank_transfer', 'cheque']);
+// Cheque is اسناد دریافتنی until cleared — never cash/bank on the sale voucher.
+const IMMEDIATE_PAY = new Set(['cash', 'bank', 'bank_transfer']);
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
 const ENTRY_ALIVE = `COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')`;
 const REPAIR_FLAG = 'customer_books_repair_v1';

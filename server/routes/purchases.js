@@ -13,7 +13,10 @@ const { getDB, audit, resolveCashAccount, allocateNumber, isDevice } = require('
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { assertJournalLinesBalanced } = require('../lib/customer-books');
-const { resolveCashPaid, assertCashBoxRequired, isImmediatePayType } = require('../lib/cash-on-document');
+const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
+const {
+  resolvePurchasePayments, applyPurchasePaySplits, persistPurchasePayPlan, headerPayTypeFromSplits,
+} = require('../lib/purchase-payments');
 const { reverseJournalEntry } = require('../lib/void-journal');
 
 function getSetting(db, key) {
@@ -172,8 +175,21 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
   };
   try {
     const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    let settlements = [];
+    try {
+      settlements = db.prepare(`
+        SELECT sp.*, b.name AS bank_name, cb.name AS cash_box_name,
+               sp.amount AS amount_rial
+        FROM supplier_payments sp
+        LEFT JOIN banks b ON b.id=sp.bank_id
+        LEFT JOIN cash_boxes cb ON cb.id=sp.cash_box_id
+        WHERE sp.purchase_invoice_id=? AND COALESCE(sp.status,'posted')<>'reversed'
+        ORDER BY sp.id
+      `).all(row.id);
+    } catch (_) { settlements = []; }
     const html = renderInvoicePrintHtml({
       inv, rows, settings, paper,
+      settlements,
       templateOverride: 'casual-simple',
     });
     return sendSecureHtml(res, html, { allowPrintScript: true });
@@ -212,17 +228,29 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
-  const chqDur = pType === 'cheque' ? String(cheque_duration || '') : '';
-  const chqDue = pType === 'cheque' ? String(cheque_due_date || '') : '';
-  const chqInfo = pType === 'cheque' ? String(cheque_info || '') : '';
-  let cashPaid;
+  let payPlan;
   try {
-    assertCashBoxRequired(pType, cash_box_id);
-    cashPaid = resolveCashPaid({ pay_type: pType, pay_amount: req.body.pay_amount }, final);
+    payPlan = resolvePurchasePayments(req.body || {}, final);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const storedPayType = payPlan.splits.length
+    ? headerPayTypeFromSplits(payPlan.splits, pType, final)
+    : pType;
+  const payAmountRial = payPlan.splits.length
+    ? payPlan.splits.reduce((a, s) => a + s.amount, 0)
+    : 0;
+  const chqDur = storedPayType === 'cheque' ? String(cheque_duration || '') : '';
+  const chqDue = storedPayType === 'cheque' ? String(cheque_due_date || '') : '';
+  const chqInfo = storedPayType === 'cheque' ? String(cheque_info || '') : '';
+  try {
+    resolveCashPaid(req.body || {}, final);
+    if (storedPayType === 'cash' && !payPlan.splits.length) {
+      assertCashBoxRequired('cash', cash_box_id);
+    }
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
   }
-  const paid = isImmediatePayType(pType) ? cashPaid.paid : 0;
 
   let created;
   try {
@@ -233,7 +261,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const result = db.prepare(
       `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,pay_amount_rial)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId, paid);
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, storedPayType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId, payAmountRial);
     const invId = result.lastInsertRowid;
 
     if (perpetualDocsEnabled(db)) {
@@ -279,12 +307,6 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       supplier_id, date: date || '', entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
       description: `فاکتور خرید ${num}`, debit: 0, credit: final, user_id: req.user.id
     });
-    if (paid > 0) {
-      createSupplierLedgerEntry(db, {
-        supplier_id, date: date || '', entry_type: 'payment', ref_type: 'purchase', ref_id: invId,
-        description: `پرداخت هنگام خرید ${num}`, debit: paid, credit: 0, user_id: req.user.id
-      });
-    }
 
     assertJournalIdempotent(db, 'purchase', invId);
     const invAcct = coaAcct(db, 'coa_inventory');
@@ -294,18 +316,20 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const jLines = [{ code: invAcct.code, name: invAcct.name, debit: inventoryDebit, credit: 0 }];
     if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: rialToLedger(vatAmount), credit: 0, description: 'مالیات خرید' });
     jLines.push({ code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(final) });
-    if (paid > 0) {
-      const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
-      const cash = resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
-      jLines.push({ code: payable.code, name: payable.name, debit: rialToLedger(paid), credit: 0, description: 'پرداخت هنگام خرید' });
-      jLines.push({ code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(paid), description: 'پرداخت هنگام خرید' });
-    }
     assertJournalLinesBalanced(jLines, 'فاکتور خرید');
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
       description: `فاکتور خرید ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id, lines: jLines,
       costCenterId: ccId,
     });
+    persistPurchasePayPlan(db, invId, payPlan, req.body || {});
+    if (payPlan.splits.length) {
+      applyPurchasePaySplits(db, {
+        purchaseId: invId, supplierId: supplier_id, date: entryDate,
+        splits: payPlan.splits, userId: req.user.id, num,
+        chequeHeader: { cheque_info, cheque_due_date },
+      });
+    }
     return { invId, num };
   })();
   } catch (e) {

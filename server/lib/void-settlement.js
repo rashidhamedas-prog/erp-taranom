@@ -40,8 +40,28 @@ function reverseChequeRecordsForInvoice(db, invoiceId) {
   } catch (_) { /* optional */ }
 }
 
+function settlementHasLiveJe(db, settlementId) {
+  try {
+    return !!db.prepare(`
+      SELECT 1 FROM journal_entries
+      WHERE ref_type='settlement' AND ref_id=?
+        AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      LIMIT 1
+    `).get(settlementId);
+  } catch (_) {
+    return false;
+  }
+}
+
 function reverseSettlementInTx(db, settlement, userId) {
   if (!settlement || settlement.status === 'reversed') return null;
+  // Shadow/backfill rows (amounts already on invoice JE) — mark reversed without second GL.
+  if (!settlementHasLiveJe(db, settlement.id)) {
+    db.prepare("UPDATE settlements SET status='reversed',reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(userId, settlement.id);
+    reverseChequeRecordsForSettlement(db, settlement.id);
+    return null;
+  }
   let cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
   const overrideCode = String(settlement.account_code || '').trim();
   if (overrideCode) {

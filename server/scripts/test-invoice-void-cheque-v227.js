@@ -33,7 +33,7 @@ ok(!amend.includes("payType === 'cheque' ? '1109'"), 'amend no longer hardcodes 
 ok(invRoutes.includes('E_FINAL_AMEND_ROLE'), 'final amend role gate');
 ok(/canDiscount = req\.user\.role === 'admin' \|\| req\.user\.role === 'accounting' \|\| req\.user\.role === 'sales_manager'/.test(invRoutes),
   'sales_manager canDiscount on POST/PUT');
-ok(/erp-taranom-v227/.test(sw), 'SW v227');
+ok(/erp-taranom-v22[79]/.test(sw), 'SW v227+');
 ok(printCss.includes('::before') && printCss.includes('::after'), 'print CSS covers pseudo-elements');
 
 const { reverseChequeRecordsForInvoice, reverseChequeRecordsForSettlement } = require('../lib/void-settlement');

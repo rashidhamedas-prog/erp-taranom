@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — یکپارچه‌سازی دریافت/پرداخت هنگام فاکتور (SW v229)
+
+- **ناوردا:** سند فاکتور فروش فقط بدهی مشتری (AR)؛ هر دریافت نقد/واریز/چک/کارتخوان (تک یا چندمرحله) → ردیف `settlements` + سند جدا. فاکتور خرید فقط بستانکار تأمین (AP)؛ پرداخت فوری → `supplier_payments` + سند جدا.
+- **چاپ:** هر مرحله دریافت/پرداخت با نوع و مبلغ (و مقصد) روی چاپ فروش و خرید.
+- **بک‌فیل:** `invoice_settlement_unify_v1` برای فاکتورهای قدیمی که نقد/واریز داخل سند فاکتور داشتند، ردیف settlement بدون سند مجدد می‌سازد (مانده فاکتور و چاپ درست می‌شود؛ GL دوبار نمی‌خورد).
+- **چک:** ارقام فارسی صیاد/شبا در سرور و کلاینت نرمال می‌شوند؛ شبا اختیاری با `IR`+۲۴ رقم؛ مبلغ چندمرحله از DOM خوانده می‌شود.
+- **تست:** settlement-unify-v229 ۱۳/۱۳، cash-v204 ۲۵/۲۵، sms ۲۲/۲۲.
+- **فایل‌ها:** server/lib/{invoice-payments,purchase-payments,repair-invoice-settlements,invoice-print}.js, server/routes/{invoices,purchases}.js, server/db.js, server/public/{app.js,sw.js}, server/scripts/test-invoice-settlement-unify-v229.js
+- **SW:** erp-taranom-v229
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۴ — UX صفحه ورود کارکنان و پورتال (SW v228)
 
 - **ADR:** کامپوننت React/Next/shadcn (sign-in-card-2) به‌خاطر فرانت تک‌فایل ERP (server/public) نصب نشد؛ الگوی بصری (پرتو، ambient، tilt، loading) با پالت سبز ترنم و RTL در همان HTML/CSS/JS پیاده شد. ورود Google عمداً نیست (JWT داخلی).

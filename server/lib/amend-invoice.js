@@ -427,19 +427,28 @@ function rewriteInvoiceTimeSettlements(db, {
       amountRial, sett.id
     );
     const recv = receivableAcct(db, custId);
-    const jeId = rewriteJournalEntry(db, {
-      sourceType: 'settlement', sourceId: sett.id,
-      date: date || '',
-      description: `تسویه هنگام فاکتور`,
-      createdBy: userId,
-      lines: [
-        { code: cash.code, name: cash.name, debit: rialToLedger(amountRial), credit: 0 },
-        { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(amountRial) },
-      ],
-    });
-    if (!jeId) {
-      throw httpErr(409, 'سند تسویه هنگام فاکتور پیدا نشد', 'E_AMEND_SETTLEMENT_JE');
+    const hasSettJe = !!db.prepare(`
+      SELECT 1 FROM journal_entries
+      WHERE ref_type='settlement' AND ref_id=?
+        AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      LIMIT 1
+    `).get(sett.id);
+    if (hasSettJe) {
+      const jeId = rewriteJournalEntry(db, {
+        sourceType: 'settlement', sourceId: sett.id,
+        date: date || '',
+        description: `تسویه هنگام فاکتور`,
+        createdBy: userId,
+        lines: [
+          { code: cash.code, name: cash.name, debit: rialToLedger(amountRial), credit: 0 },
+          { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(amountRial) },
+        ],
+      });
+      if (!jeId) {
+        throw httpErr(409, 'سند تسویه هنگام فاکتور پیدا نشد', 'E_AMEND_SETTLEMENT_JE');
+      }
     }
+    // else: shadow/backfill settlement (cash already on invoice JE) — row fields only
 
     // Keep cheque register in sync with settlement on same-count amend.
     try {

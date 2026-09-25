@@ -466,8 +466,66 @@ function themeCss(id, dims) {
   return common + (themes[id] || themes['formal-official']);
 }
 
+function payTypeFa(pt) {
+  return {
+    cash: 'نقد',
+    cheque: 'چک',
+    credit: 'نسیه',
+    bank_transfer: 'واریز بانکی',
+    bank: 'واریز بانکی',
+    pos_card: 'کارتخوان',
+    mixed: 'چندمرحله‌ای',
+  }[pt] || pt || '—';
+}
+
 function payLabel(inv) {
-  return { cash: 'نقد', cheque: 'چک', credit: 'نسیه', bank_transfer: 'واریز بانکی' }[inv.pay_type] || inv.pay_type || 'نقد';
+  return payTypeFa(inv && inv.pay_type);
+}
+
+function normalizePrintReceipts(opts) {
+  const list = [];
+  const settlements = (opts && opts.settlements) || [];
+  const pos = (opts && opts.posReceipts) || [];
+  for (const s of settlements) {
+    const dest = s.bank_name || s.cash_box_name || s.cheque_bank || s.account_code || '';
+    list.push({
+      kind: 'settlement',
+      pay_type: s.pay_type,
+      label: payTypeFa(s.pay_type),
+      amount: Math.round(Number(s.amount_rial != null ? s.amount_rial : s.amount) || 0),
+      dest: dest || (s.pay_type === 'cheque' ? 'اسناد دریافتنی' : ''),
+      detail: s.pay_type === 'cheque'
+        ? [s.cheque_number, s.cheque_sayadi, s.cheque_due].filter(Boolean).join(' · ')
+        : (s.note || ''),
+    });
+  }
+  for (const p of pos) {
+    list.push({
+      kind: 'pos',
+      pay_type: 'pos_card',
+      label: 'کارتخوان',
+      amount: Math.round(Number(p.amount_rial != null ? p.amount_rial : p.amount) || 0),
+      dest: p.terminal_name || 'در جریان',
+      detail: p.note || '',
+    });
+  }
+  return list;
+}
+
+function receiptsHtml(receipts, payable, isPurchase) {
+  if (!receipts || !receipts.length) return '';
+  const paid = receipts.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const remain = Math.max(0, Math.round(Number(payable) || 0) - paid);
+  const verb = isPurchase ? 'پرداخت' : 'دریافت';
+  const rows = receipts.map((r, i) => `
+    <div class="line"><span>${esc(verb)} ${faNum(i + 1)} — ${esc(r.label)}${r.dest ? ` (${esc(r.dest)})` : ''}${r.detail ? ` · ${esc(r.detail)}` : ''}</span><span class="num">${faNum(r.amount)} ریال</span></div>`).join('');
+  return `
+    <div class="sum-box receipts-box" style="margin-top:8px">
+      <div class="line" style="font-weight:700"><span>${esc(verb)}‌های ثبت‌شده</span><span></span></div>
+      ${rows}
+      <div class="line"><span>جمع ${esc(verb)}</span><span class="num">${faNum(paid)} ریال</span></div>
+      <div class="line"><span>مانده</span><span class="num">${faNum(remain)} ریال</span></div>
+    </div>`;
 }
 
 function renderInvoicePrintHtml(opts) {
@@ -496,6 +554,8 @@ function renderInvoicePrintHtml(opts) {
   const counterpartyTitle = isPurchase ? 'مشخصات فروشنده' : 'مشخصات خریدار';
   const companyPartyTitle = isPurchase ? 'مشخصات خریدار' : 'مشخصات فروشنده';
   const t = computePrintTotals(inv, rows);
+  const receipts = normalizePrintReceipts(opts);
+  const receiptsBlock = receiptsHtml(receipts, t.payable, isPurchase);
   const emptyColspan = isA5 ? 6 : 9;
   const isProvisional = String(inv.num || '').startsWith('موقت');
   const companyName = settings.company_name || 'پوشاک ترنم';
@@ -510,6 +570,10 @@ function renderInvoicePrintHtml(opts) {
   if (customize.show_payment && inv.pay_type === 'cheque') {
     if (inv.cheque_duration) payExtra += ` · مدت ${esc(inv.cheque_duration)} روز`;
     if (inv.cheque_due_date) payExtra += ` · سررسید ${esc(inv.cheque_due_date)}`;
+  }
+  if (customize.show_payment && receipts.length) {
+    const paidSum = receipts.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    payExtra += ` · ${isPurchase ? 'پرداخت' : 'دریافت'} ${faNum(paidSum)} ریال`;
   }
 
   const noteHtml = (customize.show_note && inv.note)
@@ -571,7 +635,7 @@ function renderInvoicePrintHtml(opts) {
       ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
       <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
       ${t.mismatch ? `<div class="line warn-line"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
-    </div>`;
+    </div>${receiptsBlock}`;
 
   const stamps = `
     <div class="stamps">

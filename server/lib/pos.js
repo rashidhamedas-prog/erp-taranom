@@ -311,7 +311,9 @@ function postReceipt(db, body, user) {
   const key = idemKey(body.idempotency_key);
   if (key) {
     const existing = findIdempotentReceipt(db, key);
-    if (existing) throw httpErr(409, 'این دریافت قبلاً ثبت شده است', 'E_POS_IDEMPOTENT', { id: existing.id });
+    if (existing && existing.status !== 'reversed') {
+      throw httpErr(409, 'این دریافت قبلاً ثبت شده است', 'E_POS_IDEMPOTENT', { id: existing.id });
+    }
   }
   const terminal = db.prepare('SELECT * FROM pos_terminals WHERE id=?').get(Number(body.terminal_id));
   if (!terminal) throw httpErr(400, 'کارتخوان معتبر نیست', 'E_POS_TERMINAL');

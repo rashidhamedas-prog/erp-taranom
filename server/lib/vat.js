@@ -16,7 +16,9 @@ function lineVatExempt(vatClass) {
 function calcDocTotals(db, builtRows, discPct, options = {}) {
   const rate = options.vatRate != null ? options.vatRate : getVatRate(db);
   const subtotal = builtRows.subtotal || 0;
-  const discAmt = Math.round(subtotal * (parseFloat(discPct) || 0) / 100);
+  const discAmt = options.discAmt != null && options.discAmt !== ''
+    ? Math.max(0, Math.round(Number(options.discAmt) || 0))
+    : Math.round(subtotal * (parseFloat(discPct) || 0) / 100);
   const netBeforeVat = subtotal - discAmt;
 
   if (options.vatExempt) {

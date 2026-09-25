@@ -1,8 +1,9 @@
 'use strict';
 /**
- * Invoice mixed / partial payments.
- * Invoice JE always keeps customer AR for the full amount when splits exist.
- * Each split posts a settlement (cash/bank/cheque) or POS in-transit receipt.
+ * Invoice payments — single path:
+ * Invoice JE always posts full AR (customer debit). Every immediate receipt
+ * (cash/bank/cheque/POS, full or partial, single or multi) becomes a settlement
+ * (or POS in-transit receipt) with its own JE / customer_ledger credit.
  */
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
@@ -17,6 +18,23 @@ function normalizePayType(pt) {
   return t;
 }
 
+function toAsciiDigits(s) {
+  return String(s == null ? '' : s)
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+}
+
+function digitsOnly(v) {
+  return toAsciiDigits(v).replace(/\D/g, '');
+}
+
+function normalizeSheba(v) {
+  let s = toAsciiDigits(v).replace(/\s/g, '').toUpperCase();
+  if (!s) return '';
+  if (/^\d{24}$/.test(s)) s = `IR${s}`;
+  return s;
+}
+
 function splitFromHeader(body, amount) {
   const b = body || {};
   return {
@@ -27,7 +45,7 @@ function splitFromHeader(body, amount) {
     terminal_id: b.pos_terminal_id || b.terminal_id,
     check_category_id: b.check_category_id,
     cheque_info: b.cheque_info,
-    cheque_due: b.cheque_due_date,
+    cheque_due: b.cheque_due_date || b.cheque_due,
     cheque_bank: b.cheque_bank,
     cheque_branch: b.cheque_branch,
     cheque_account: b.cheque_account,
@@ -36,10 +54,6 @@ function splitFromHeader(body, amount) {
     cheque_owner: b.cheque_owner,
     sheba: b.cheque_sheba || b.sheba,
   };
-}
-
-function digitsOnly(v) {
-  return String(v || '').replace(/\D/g, '');
 }
 
 /** Received Sayadi cheque — در جریان / نزد صندوق، not cash until collected. */
@@ -60,9 +74,9 @@ function assertReceivedCheque(s, index) {
     e.code = 'E_CHEQUE_FIELDS';
     throw e;
   }
-  const sheba = String(s.sheba || '').replace(/\s/g, '').toUpperCase();
+  const sheba = normalizeSheba(s.sheba);
   if (sheba && !/^IR\d{24}$/.test(sheba)) {
-    const e = new Error(`چک دریافتی (ردیف ${n}): شبای واردشده معتبر نیست`);
+    const e = new Error(`چک دریافتی (ردیف ${n}): شبای واردشده معتبر نیست (IR + ۲۴ رقم)`);
     e.status = 400;
     e.code = 'E_CHEQUE_SHEBA';
     throw e;
@@ -85,23 +99,29 @@ function normalizeInvoicePaySplits(body, invoiceFinal) {
   return splits;
 }
 
-/** New client sends pay_splits; old cash/cheque invoices keep the invoice-JE cash pair. */
+/**
+ * Every non-credit immediate receipt becomes settlement splits.
+ * Invoice JE must use payType credit (skipInvoiceCash) whenever splits exist.
+ */
 function resolveInvoicePayments(body, invoiceFinal) {
   const finalAmt = moneyRial(invoiceFinal);
   const b = body || {};
-  if (Array.isArray(b.pay_splits)) {
+  if (Array.isArray(b.pay_splits) && b.pay_splits.length > 0) {
     const splits = normalizeInvoicePaySplits(b, finalAmt);
-    return { splits, skipInvoiceCash: splits.length > 0 };
+    return { splits, skipInvoiceCash: true };
   }
-  resolveCashPaid(b, finalAmt);
   const pt = normalizePayType(b.pay_type);
-  const declared = b.pay_amount != null && b.pay_amount !== '' ? moneyRial(b.pay_amount) : null;
-  // Cheque is always a received-note settlement (اسناد دریافتنی), even when it covers the whole invoice.
-  const needsSplit = pt === 'pos_card' || pt === 'cheque' || (declared != null && declared > 0 && declared < finalAmt - 0.5);
-  if (!needsSplit || !SPLIT_TYPES.has(pt)) {
+  if (!pt || pt === 'credit') {
     return { splits: [], skipInvoiceCash: false };
   }
-  const one = normalizeOneSplit(splitFromHeader(b, declared != null ? declared : finalAmt), 0);
+  if (!SPLIT_TYPES.has(pt)) {
+    return { splits: [], skipInvoiceCash: false };
+  }
+  const { paid } = resolveCashPaid(b, finalAmt);
+  if (paid <= 0) {
+    return { splits: [], skipInvoiceCash: false };
+  }
+  const one = normalizeOneSplit(splitFromHeader(b, paid), 0);
   assertSplits([one], finalAmt);
   return { splits: [one], skipInvoiceCash: true };
 }
@@ -129,7 +149,7 @@ function normalizeOneSplit(s, index) {
     cheque_number: String(s.cheque_number || '').trim(),
     sayadi: digitsOnly(s.sayadi || s.cheque_sayadi),
     cheque_owner: String(s.cheque_owner || s.issuer || '').trim(),
-    sheba: String(s.sheba || s.cheque_sheba || '').replace(/\s/g, '').toUpperCase(),
+    sheba: normalizeSheba(s.sheba || s.cheque_sheba),
     note: String(s.note || '').trim(),
   };
 }
@@ -215,6 +235,13 @@ function persistInvoicePayPlan(db, invoiceId, payPlan, body) {
     db.prepare('UPDATE invoices SET pay_splits_json=?, pay_amount_rial=?, pos_terminal_id=? WHERE id=?')
       .run(splits.length ? JSON.stringify(splits) : null, amount, terminal, invoiceId);
   } catch (_) { /* columns may lag until boot ensureColumn */ }
+  try {
+    const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
+    const finalAmt = moneyRial(finalRow && (finalRow.final_rial != null ? finalRow.final_rial : finalRow.final));
+    const settled = moneyRial(amount);
+    db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
+      .run(settled, Math.max(0, finalAmt - settled), invoiceId);
+  } catch (_) { /* optional columns */ }
 }
 
 function paymentsFromStoredInvoice(inv, invoiceFinal) {
@@ -243,7 +270,7 @@ function paymentsFromStoredInvoice(inv, invoiceFinal) {
 }
 
 function applyInvoicePaySplits(db, {
-  invoiceId, custId, date, splits, userId, num, chequeHeader,
+  invoiceId, custId, date, splits, userId, num, chequeHeader, skipJournal,
 }) {
   if (!splits || !splits.length) return [];
   const when = date || todayJalali();
@@ -251,6 +278,10 @@ function applyInvoicePaySplits(db, {
   splits.forEach((s, i) => {
     const note = s.note || `دریافت هنگام فاکتور ${num || invoiceId}` + (splits.length > 1 ? ` — قسط ${i + 1}` : '');
     if (s.pay_type === 'pos_card') {
+      if (skipJournal) {
+        ids.push({ kind: 'pos_skipped', id: null });
+        return;
+      }
       const pos = require('./pos');
       const rec = pos.postReceipt(db, {
         terminal_id: s.terminal_id,
@@ -265,14 +296,21 @@ function applyInvoicePaySplits(db, {
       return;
     }
     const settlementId = insertInvoiceSettlement(db, {
-      userId, custId, invoiceId, split: s, date: when, note, chequeHeader,
+      userId, custId, invoiceId, split: s, date: when, note, chequeHeader, skipJournal,
     });
     ids.push({ kind: 'settlement', id: settlementId });
   });
+  try {
+    const paid = splits.reduce((a, s) => a + moneyRial(s.amount), 0);
+    const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
+    const finalAmt = moneyRial(finalRow && (finalRow.final_rial != null ? finalRow.final_rial : finalRow.final));
+    db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
+      .run(paid, Math.max(0, finalAmt - paid), invoiceId);
+  } catch (_) { /* optional */ }
   return ids;
 }
 
-function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, note, chequeHeader }) {
+function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, note, chequeHeader, skipJournal }) {
   const { createLedgerEntry } = require('../db');
   const { recvAcct } = lazyRecv();
   const amountRial = split.amount;
@@ -324,6 +362,9 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
       'نزد صندوق', amountRial, settNote, invoiceId, settlementId, 'in_hand'
     );
   }
+  if (skipJournal) {
+    return settlementId;
+  }
   const payLabel = pay_type === 'cheque' ? 'چک'
     : (pay_type === 'bank_transfer' || pay_type === 'bank') ? 'واریز بانکی' : 'نقد';
   createLedgerEntry(db, {
@@ -364,6 +405,28 @@ function lazyRecv() {
   };
 }
 
+function loadInvoiceReceipts(db, invoiceId) {
+  const settlements = db.prepare(`
+    SELECT s.*, b.name AS bank_name, cb.name AS cash_box_name
+    FROM settlements s
+    LEFT JOIN banks b ON b.id=s.bank_id
+    LEFT JOIN cash_boxes cb ON cb.id=s.cash_box_id
+    WHERE s.invoice_id=? AND COALESCE(s.status,'posted')<>'reversed'
+    ORDER BY s.id
+  `).all(invoiceId);
+  let pos = [];
+  try {
+    pos = db.prepare(`
+      SELECT pr.*, t.name AS terminal_name
+      FROM pos_receipts pr
+      LEFT JOIN pos_terminals t ON t.id=pr.terminal_id
+      WHERE pr.invoice_id=? AND COALESCE(pr.status,'posted') NOT IN ('reversed','void')
+      ORDER BY pr.id
+    `).all(invoiceId);
+  } catch (_) { pos = []; }
+  return { settlements, pos };
+}
+
 module.exports = {
   normalizeInvoicePaySplits,
   resolveInvoicePayments,
@@ -373,5 +436,9 @@ module.exports = {
   persistInvoicePayPlan,
   paymentsFromStoredInvoice,
   settlementAssetAccount,
+  loadInvoiceReceipts,
+  digitsOnly,
+  toAsciiDigits,
+  normalizeSheba,
   SPLIT_TYPES,
 };

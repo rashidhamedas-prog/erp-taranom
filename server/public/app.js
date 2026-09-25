@@ -583,7 +583,8 @@ function wantsEnDigits(t){
   const im=(t.getAttribute('inputmode')||'').toLowerCase();
   if(im==='numeric'||im==='decimal'||im==='tel') return true;
   if(t.classList.contains('money')||t.classList.contains('en-digits')||t.hasAttribute('data-jdate')) return true;
-  return /phone|mobile|qty|price|amount|percent|rate|hour|barcode|sheba|card|balance|stock|-num|-no$|-code|otp/i.test(t.id||t.name||'');
+  const key=(t.id||'')+(t.name||'')+(t.getAttribute('data-k')||'');
+  return /phone|mobile|qty|price|amount|percent|rate|hour|barcode|sheba|sayadi|card|balance|stock|-num|-no$|-code|otp|cheque_account|cheque_number|account/i.test(key);
 }
 /** فیلدهای مبلغی — جداکننده سه‌رقمی خودکار (قانون ثابت برنامه) */
 function isMoneyField(t){
@@ -5513,8 +5514,8 @@ function renderInvPayChequeCards(){
 function renderInvPayRows(){
   const body=el('invPayRowsBody'); if(!body) return;
   if(!invPayRows.length) invPayRows=[{amount:'',pay_type:'cash'}];
-  body.innerHTML=invPayRows.map((r,i)=>`<tr>
-    <td><input class="money" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value})}"></td>
+  body.innerHTML=invPayRows.map((r,i)=>`<tr data-i="${i}">
+    <td><input class="money" data-k="amount" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].amount=this.value})}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value})}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].pay_type=this.value;if(this.value==='cheque')invPayEnsureChequeDefaults(invPayRows[(i)]);renderInvPayRows()})}">
       <option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option>
       <option value="bank_transfer" ${(r.pay_type==='bank_transfer'||r.pay_type==='bank')?'selected':''}>واریز بانکی</option>
@@ -5534,18 +5535,45 @@ function invPayAddRow(){
 function collectInvPaySplits(){
   if(!el('inv-multi')?.checked) return null;
   try{
+    const body=el('invPayRowsBody')||document.querySelector('#invPayRowsBody');
+    if(body){
+      body.querySelectorAll('tr[data-i], tr').forEach((tr, idx)=>{
+        const i=tr.dataset.i!=null?+tr.dataset.i:idx;
+        if(!invPayRows[i]) return;
+        const amtInp=tr.querySelector('input.money, input[data-k="amount"]');
+        if(amtInp) invPayRows[i].amount=amtInp.value;
+        const ptSel=tr.querySelector('select');
+        if(ptSel && ptSel.value) invPayRows[i].pay_type=ptSel.value;
+        const bank=tr.querySelector('select[data-k="bank_id"], select.inv-pay-bank');
+        if(bank) invPayRows[i].bank_id=+bank.value||null;
+        const cb=tr.querySelector('select[data-k="cash_box_id"], select.inv-pay-cashbox');
+        if(cb) invPayRows[i].cash_box_id=+cb.value||null;
+        const term=tr.querySelector('select[data-k="terminal_id"], select.inv-pay-pos');
+        if(term) invPayRows[i].terminal_id=+term.value||null;
+      });
+    }
     const box=el('invPayChequeCards');
     if(box){
       box.querySelectorAll('.chq-card').forEach(card=>{
         const i=+card.dataset.invChqI;
         if(!invPayRows[i]) return;
-        card.querySelectorAll('[data-k]').forEach(inp=>{ invPayRows[i][inp.dataset.k]=inp.value; });
+        card.querySelectorAll('[data-k]').forEach(inp=>{
+          let v=inp.value;
+          if(inp.dataset.k==='sayadi'||inp.dataset.k==='sheba'||inp.dataset.k==='cheque_account'||inp.dataset.k==='cheque_number'){
+            v=typeof toEnDigits==='function'?toEnDigits(v):v;
+          }
+          invPayRows[i][inp.dataset.k]=v;
+        });
       });
     }
   }catch(_){}
   return invPayRows.map(r=>{
     const raw=parseInvMoney(r.amount);
     const amount=typeof fromInputAmount==='function'?fromInputAmount(raw):raw;
+    const sayadi=typeof toEnDigits==='function'?toEnDigits(r.sayadi||'').replace(/\D/g,''):(String(r.sayadi||'').replace(/\D/g,''));
+    let sheba=typeof toEnDigits==='function'?toEnDigits(r.sheba||''):String(r.sheba||'');
+    sheba=sheba.replace(/\s/g,'').toUpperCase();
+    if(/^\d{24}$/.test(sheba)) sheba='IR'+sheba;
     const base={
       pay_type:r.pay_type||'cash',
       amount,
@@ -5557,12 +5585,13 @@ function collectInvPaySplits(){
       Object.assign(base,{
         cheque_bank:r.cheque_bank||'',
         cheque_branch:r.cheque_branch||'',
-        cheque_account:r.cheque_account||'',
-        cheque_number:r.cheque_number||'',
-        sayadi:r.sayadi||'',
-        cheque_sayadi:r.sayadi||'',
+        cheque_account:typeof toEnDigits==='function'?toEnDigits(r.cheque_account||''): (r.cheque_account||''),
+        cheque_number:typeof toEnDigits==='function'?toEnDigits(r.cheque_number||''):(r.cheque_number||''),
+        sayadi,
+        cheque_sayadi:sayadi,
         cheque_owner:r.cheque_owner||'',
-        sheba:r.sheba||'',
+        sheba,
+        cheque_sheba:sheba,
         cheque_due:r.cheque_due||'',
         cheque_due_date:r.cheque_due||'',
         cheque_info:r.cheque_info||''
@@ -5661,8 +5690,20 @@ async function saveInvoice(id){
     if(splits.some(s=>s.pay_type==='pos_card' && !s.terminal_id)){ showToast('برای هر قسط کارتخوان، دستگاه را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='cash' && !s.cash_box_id)){ showToast('برای هر قسط نقد، صندوق را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='bank_transfer' && !s.bank_id)){ showToast('برای هر قسط واریز، بانک را انتخاب کنید','error'); return; }
-    const badChq=splits.find(s=>s.pay_type==='cheque' && (!String(s.cheque_bank||'').trim()||!String(s.sayadi||s.cheque_sayadi||'').trim()||!String(s.cheque_due||s.cheque_due_date||'').trim()||!String(s.cheque_number||'').trim()||!String(s.cheque_owner||'').trim()||!String(s.cheque_branch||'').trim()||!String(s.cheque_account||'').trim()));
-    if(badChq){ showToast('برای چک دریافتی همهٔ فیلدهای الزامی (بانک، شعبه، حساب، شماره، صیاد، سررسید، صادرکننده) را پر کنید','error'); return; }
+    const badChq=splits.find(s=>{
+      if(s.pay_type!=='cheque') return false;
+      const say=toEnDigits(s.sayadi||s.cheque_sayadi||'').replace(/\D/g,'');
+      return !String(s.cheque_bank||'').trim()||!/^\d{16}$/.test(say)||!String(s.cheque_due||s.cheque_due_date||'').trim()||!String(s.cheque_number||'').trim()||!String(s.cheque_owner||'').trim()||!String(s.cheque_branch||'').trim()||!String(s.cheque_account||'').trim();
+    });
+    if(badChq){ showToast('برای چک دریافتی همهٔ فیلدهای الزامی را پر کنید؛ صیاد باید دقیقاً ۱۶ رقم باشد','error'); return; }
+    const badSheba=splits.find(s=>{
+      if(s.pay_type!=='cheque') return false;
+      let sh=toEnDigits(s.sheba||s.cheque_sheba||'').replace(/\s/g,'').toUpperCase();
+      if(!sh) return false;
+      if(/^\d{24}$/.test(sh)) sh='IR'+sh;
+      return !/^IR\d{24}$/.test(sh);
+    });
+    if(badSheba){ showToast('شبای چک باید IR به‌علاوه ۲۴ رقم باشد (یا خالی بماند)','error'); return; }
   }else if(pay_type==='pos_card' && !(+el('inv-pos')?.value)){
     showToast('کارتخوان را انتخاب کنید','error'); return;
   }else if(pay_type==='cash' && !(+el('inv-cashbox')?.value)){
@@ -5675,10 +5716,16 @@ async function saveInvoice(id){
     if(!(el('inv-cheque-branch')?.value||'').trim()) missing.push('شعبه');
     if(!(el('inv-cheque-account')?.value||'').trim()) missing.push('شماره حساب');
     if(!(el('inv-cheque-number')?.value||'').trim()) missing.push('شماره چک');
-    if(!/^\d{16}$/.test(String(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,''))) missing.push('صیاد ۱۶ رقمی');
+    const sayadiEn=toEnDigits(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,'');
+    if(!/^\d{16}$/.test(sayadiEn)) missing.push('صیاد ۱۶ رقمی');
     if(!(el('inv-cheque-due')?.value||'').trim()) missing.push('سررسید');
     if(!(el('inv-cheque-owner')?.value||'').trim()) missing.push('صادرکننده');
-    if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی است','error'); return; }
+    let shebaEn=toEnDigits(el('inv-cheque-sheba')?.value||'').replace(/\s/g,'').toUpperCase();
+    if(shebaEn){
+      if(/^\d{24}$/.test(shebaEn)) shebaEn='IR'+shebaEn;
+      if(!/^IR\d{24}$/.test(shebaEn)) missing.push('شبا (IR+۲۴ رقم)');
+    }
+    if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی/معتبر نیست','error'); return; }
   }
   if(!splits && pay_type==='cash'){
     const chkAmt=invPayAmountRial();
@@ -5698,11 +5745,11 @@ async function saveInvoice(id){
     cheque_branch: pay_type==='cheque' ? (el('inv-cheque-branch')?.value||'') : '',
     cheque_account: pay_type==='cheque' ? (el('inv-cheque-account')?.value||'') : '',
     cheque_number: pay_type==='cheque' ? (el('inv-cheque-number')?.value||'') : '',
-    cheque_sayadi: pay_type==='cheque' ? (el('inv-cheque-sayadi')?.value||'') : '',
-    sayadi: pay_type==='cheque' ? (el('inv-cheque-sayadi')?.value||'') : '',
+    cheque_sayadi: pay_type==='cheque' ? toEnDigits(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,'') : '',
+    sayadi: pay_type==='cheque' ? toEnDigits(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,'') : '',
     cheque_owner: pay_type==='cheque' ? (el('inv-cheque-owner')?.value||'') : '',
-    cheque_sheba: pay_type==='cheque' ? (el('inv-cheque-sheba')?.value||'') : '',
-    sheba: pay_type==='cheque' ? (el('inv-cheque-sheba')?.value||'') : '',
+    cheque_sheba: pay_type==='cheque' ? (()=>{ let s=toEnDigits(el('inv-cheque-sheba')?.value||'').replace(/\s/g,'').toUpperCase(); if(/^\d{24}$/.test(s)) s='IR'+s; return s; })() : '',
+    sheba: pay_type==='cheque' ? (()=>{ let s=toEnDigits(el('inv-cheque-sheba')?.value||'').replace(/\s/g,'').toUpperCase(); if(/^\d{24}$/.test(s)) s='IR'+s; return s; })() : '',
     bank_id:+el('inv-bank')?.value||null,
     cash_box_id:+el('inv-cashbox')?.value||null,
     check_category_id:+el('inv-checkcat')?.value||null,
@@ -22271,6 +22318,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
         <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است</li>
         <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
+        <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر مرحله با مبلغ دیده می‌شود. صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
