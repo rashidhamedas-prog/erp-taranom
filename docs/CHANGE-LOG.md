@@ -12,7 +12,7 @@
 - **امضا:** کادر «مهر شرکت» حذف؛ دو کادر خریدار/فروشنده کوچک‌تر و دوستونه.
 - **فایل‌ها:** server/lib/{repair-spurious-settlement-voids,invoice-print,invoice-payments}.js, server/routes/invoices.js, server/db.js, server/public/sw.js
 - **SW:** erp-taranom-v230
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 7d8f00c — repair fixed=1 (معصومی CL بدون ابطال؛ JE74 reversed). health/ready/root 200. SW erp-taranom-v230.
 
 ### ۱۴۰۵/۰۷/۰۴ — یکپارچه‌سازی دریافت/پرداخت هنگام فاکتور (SW v229)
 
