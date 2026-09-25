@@ -2719,6 +2719,17 @@ function initSyncSchema(db, opts) {
     console.warn('invoice_settlement_unify_v1:', e.message);
   }
 
+  // One-shot: undo mistaken settlement voids that put AR back when cash was already on the sale JE.
+  try {
+    const { repairSpuriousSettlementVoids } = require('./lib/repair-spurious-settlement-voids');
+    const summary = repairSpuriousSettlementVoids(db);
+    if (!summary.skipped) {
+      console.log('✅ spurious_settlement_void_repair_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('spurious_settlement_void_repair_v1:', e.message);
+  }
+
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.
   try {

@@ -1016,17 +1016,25 @@ router.get('/:id/print', auth, (req, res) => {
   const tmpl = String(req.query.template || '');
   try {
     const { renderInvoicePrintHtml } = require('../lib/invoice-print');
-    const { loadInvoiceReceipts } = require('../lib/invoice-payments');
-    const receipts = loadInvoiceReceipts(db, inv.id);
+    let settlements = [];
+    let posReceipts = [];
+    try {
+      const { loadInvoiceReceipts } = require('../lib/invoice-payments');
+      const receipts = loadInvoiceReceipts(db, inv.id);
+      settlements = receipts.settlements || [];
+      posReceipts = receipts.pos || [];
+    } catch (re) {
+      console.warn('invoice print receipts:', re && re.message);
+    }
     const html = renderInvoicePrintHtml({
       inv, rows, settings, paper,
-      settlements: receipts.settlements,
-      posReceipts: receipts.pos,
+      settlements,
+      posReceipts,
       templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
     });
     return sendSecureHtml(res, html, { allowPrintScript: true });
   } catch (e) {
-    console.error('invoice print:', e && e.message);
+    console.error('invoice print:', e && e.stack || e);
     return res.status(500).send('خطا در ساخت چاپ فاکتور');
   }
 });

@@ -338,11 +338,11 @@ function themeCss(id, dims) {
   .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb;display:flex;flex-direction:column;justify-content:center}
   .words-num{font-size:.92em;font-weight:700;color:#12271C}
   .words-fa{font-size:.86em;color:#1A5C38;margin-top:4px;font-weight:700;line-height:1.6;border-top:1px dashed #c5d6cc;padding-top:4px}
-  .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;width:100%}
-  .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268;display:flex;flex-direction:column;justify-content:space-between}
+  .stamps{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;width:70%;max-width:420px;margin-inline:auto}
+  .stamp{border:1px solid #c5d6cc;border-radius:6px;min-height:42px;text-align:center;padding:6px 8px;font-size:.72em;color:#5F7268;display:flex;flex-direction:column;justify-content:space-between}
   .stamp.dash{border-style:dashed;border-color:#2E7D4F}
-  .stamp .t{font-weight:800;color:#1A5C38;margin-bottom:4px}
-  .stamp-line{border-bottom:1px dotted #a8c4b8;margin-top:24px}
+  .stamp .t{font-weight:800;color:#1A5C38;margin-bottom:2px;font-size:.95em}
+  .stamp-line{border-bottom:1px dotted #a8c4b8;margin-top:14px}
   .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;width:100%}
   .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;min-width:0}
   .party h4{background:#eef5f0;color:#1A5C38;padding:5px 8px;font-size:.85em;font-weight:800;border-bottom:1px solid #c5d6cc}
@@ -640,7 +640,6 @@ function renderInvoicePrintHtml(opts) {
   const stamps = `
     <div class="stamps">
       <div class="stamp"><div class="t">مهر و امضای خریدار</div><div class="stamp-line"></div></div>
-      <div class="stamp dash"><div class="t">مهر شرکت</div><div class="stamp-line"></div></div>
       <div class="stamp"><div class="t">مهر و امضای فروشنده</div><div class="stamp-line"></div></div>
     </div>`;
 

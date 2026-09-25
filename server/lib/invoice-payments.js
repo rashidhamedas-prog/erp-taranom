@@ -406,14 +406,25 @@ function lazyRecv() {
 }
 
 function loadInvoiceReceipts(db, invoiceId) {
-  const settlements = db.prepare(`
-    SELECT s.*, b.name AS bank_name, cb.name AS cash_box_name
-    FROM settlements s
-    LEFT JOIN banks b ON b.id=s.bank_id
-    LEFT JOIN cash_boxes cb ON cb.id=s.cash_box_id
-    WHERE s.invoice_id=? AND COALESCE(s.status,'posted')<>'reversed'
-    ORDER BY s.id
-  `).all(invoiceId);
+  let settlements = [];
+  try {
+    settlements = db.prepare(`
+      SELECT s.*, b.name AS bank_name, cb.name AS cash_box_name
+      FROM settlements s
+      LEFT JOIN banks b ON b.id=s.bank_id
+      LEFT JOIN cash_boxes cb ON cb.id=s.cash_box_id
+      WHERE s.invoice_id=? AND COALESCE(s.status,'posted')<>'reversed'
+      ORDER BY s.id
+    `).all(invoiceId);
+  } catch (_) {
+    try {
+      settlements = db.prepare(`
+        SELECT s.* FROM settlements s
+        WHERE s.invoice_id=? AND COALESCE(s.status,'posted')<>'reversed'
+        ORDER BY s.id
+      `).all(invoiceId);
+    } catch (__) { settlements = []; }
+  }
   let pos = [];
   try {
     pos = db.prepare(`
