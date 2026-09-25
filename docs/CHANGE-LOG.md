@@ -12,7 +12,7 @@
 - **باگ:** handlerهای CSP چشم/remember قبلاً ثبت نشده بودند؛ i18n دیگر label اسپینر و SVG پورتال را پاک نمی‌کند.
 - **فایل‌ها:** server/public/{index.html,app.css,app.js,sw.js}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v228
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 1649336 — health/ready/root 200. SW erp-taranom-v228.
 
 ### ۱۴۰۵/۰۷/۰۳ — پیگیری بازبینی: ابطال چک/POS و گیت ویرایش رسمی (SW v227)
 
