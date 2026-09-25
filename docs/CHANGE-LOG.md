@@ -14,7 +14,7 @@
 - **تست:** settlement-unify-v229 ۱۳/۱۳، cash-v204 ۲۵/۲۵، sms ۲۲/۲۲.
 - **فایل‌ها:** server/lib/{invoice-payments,purchase-payments,repair-invoice-settlements,invoice-print}.js, server/routes/{invoices,purchases}.js, server/db.js, server/public/{app.js,sw.js}, server/scripts/test-invoice-settlement-unify-v229.js
 - **SW:** erp-taranom-v229
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 4d90575 — health/ready/root 200. SW erp-taranom-v229.
 
 ### ۱۴۰۵/۰۷/۰۴ — UX صفحه ورود کارکنان و پورتال (SW v228)
 
