@@ -6,6 +6,7 @@ const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { firmSaleTypeSql } = require('../lib/sales-document');
 const { buildCashFlowReport } = require('../lib/cash-flow');
+const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -539,6 +540,25 @@ router.get('/financial-ratios', auth, adminOrAccounting, (req, res) => {
 
 router.get('/kpi-dashboard', auth, adminOrAccounting, (req, res) => {
   res.json(buildKpiDashboard(getDB()));
+});
+
+/** داشبورد نقدینگی بانک و صندوق — مانده زنده + گردش بازه + IAS 7 + تطبیق + الزامات */
+router.get('/treasury-dashboard', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildTreasuryDashboard(getDB(), req.query.from, req.query.to));
+  } catch (e) {
+    console.error('GET /adv-reports/treasury-dashboard', e && e.message);
+    res.status(200).json({
+      from: req.query.from || '',
+      to: req.query.to || '',
+      health_score: 0,
+      kpis: { total_liquidity_rial: 0 },
+      banks: [],
+      cash_boxes: [],
+      alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد نقدینگی در دسترس نیست', action_nav: 'acc-treasury-dashboard' }],
+      warning: 'داشبورد نقدینگی در دسترس نیست',
+    });
+  }
 });
 
 module.exports = router;
