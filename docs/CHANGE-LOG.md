@@ -14,7 +14,7 @@
 - **تست:** test-invoice-variant-wh-v233؛ sms.
 - **فایل‌ها:** server/public/{app.js,marketer-ui.js,sw.js}, server/routes/product-variants.js, server/scripts/test-invoice-variant-wh-v233.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v233
-- **Deploy:** pending
+- **Deploy:** ✅ ایران overlay SFTP @ 19e0212 — `/` `/health` `/ready` 200. SW erp-taranom-v233.
 
 ### ۱۴۰۵/۰۷/۰۴ — چاپ مانده پس از دریافت + هدر مینیمال + موجودی انبار + مانده لیست (SW v232)
 
