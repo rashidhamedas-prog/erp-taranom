@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { ensureCustomerTafsili } = require('../lib/party-tafsili');
-const { getDB, audit, isDevice } = require('../db');
+const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
@@ -9,7 +9,7 @@ const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
-const { applyCustomerBalances, syncCustomerOpeningBooks } = require('../lib/customer-books');
+const { applyCustomerBalances } = require('../lib/customer-books');
 const {
   scopeUserId,
   customerVisibilitySql,
@@ -26,9 +26,18 @@ const LEDGER_BAL_JOIN = `LEFT JOIN (
 ) lb ON lb.customer_id=c.id`;
 const BAL_COL = 'COALESCE(lb.balance,0)';
 
-// Opening must hit customer_ledger AND the tafsili JE together (no ledger-only hole).
+// Keep the customer's opening-ledger line in sync with the admin-set opening balance.
+// Deletes any existing opening line and re-inserts one dated at the customer's own
+// created_at so it still sorts first in the statement.
 function syncOpeningLedger(db, customerId, bal, createdAt, userId) {
-  syncCustomerOpeningBooks(db, customerId, bal, createdAt, userId);
+  db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(customerId);
+  if (bal) {
+    createLedgerEntry(db, {
+      customer_id: customerId, date: '', entry_type: 'opening', ref_type: 'opening', ref_id: customerId,
+      description: 'مانده اولیه حساب', debit: bal > 0 ? bal : 0, credit: bal < 0 ? -bal : 0,
+      user_id: userId, created_at: createdAt || 1
+    });
+  }
 }
 
 // Normalize Arabic characters to Persian and convert Arabic/Persian digits to ASCII
@@ -129,7 +138,6 @@ router.post('/', auth, (req, res) => {
     ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
       prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
-    try { ensureCustomerTafsili(db, created.id); } catch (_) {}
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
   })();
@@ -141,7 +149,8 @@ router.post('/', auth, (req, res) => {
     note: (req.user.role === 'admin' && assigned_to) ? 'انتساب هنگام ایجاد' : 'ایجاد مشتری',
   });
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
-  // Tafsili already allocated inside the create transaction when possible.
+  // Always allocate 12-digit tafsili under receivable (CRM path used by distribution_office etc.)
+  // Previously gated on coa_mode=mahak → CUST-* parties without coa_code.
   try {
     const cc = ensureCustomerTafsili(db, newId);
     if (cc) row.coa_code = cc;
@@ -195,7 +204,6 @@ router.put('/:id', auth, (req, res) => {
         national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
         company_name ?? row.company_name ?? '', account_nature ?? row.account_nature ?? '', req.params.id);
     if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
-      try { ensureCustomerTafsili(db, req.params.id); } catch (_) {}
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
     if (ownerChosen) {
