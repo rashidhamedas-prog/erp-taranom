@@ -89,11 +89,10 @@ function mergeGroup(members) {
   const qty = members.reduce((a, r) => a + (Number(r.qty) || 0), 0);
   const sum = members.reduce((a, r) => a + lineNet(r), 0);
   const discAmount = members.reduce((a, r) => a + lineDiscOf(r), 0);
-  let description = compactSummary(members);
-  const notes = uniqueNotes(members);
-  if (notes.length) {
-    description = description ? description + ' — ' + notes.join('، ') : notes.join('، ');
-  }
+  // چاپ فشرده: رنگ×سایز روی فاکتور چاپ نمی‌شود (فقط نام کالا + تعداد جمع‌شده).
+  // یادداشت دستی کاربر (description) اگر غیر از خلاصهٔ واریانت باشد نگه داشته می‌شود.
+  const notes = uniqueNotes(members).filter((n) => !looksLikeVariantSummary(n));
+  const description = notes.length ? notes.join('، ') : '';
   const productCode = first.code || '';
   return Object.assign({}, first, {
     name: first.name || '',
@@ -106,7 +105,20 @@ function mergeGroup(members) {
     code: productCode,
     sku: productCode,
     description,
+    color_name: '',
+    size_name: '',
+    color: '',
   });
+}
+
+/** خلاصهٔ رنگ/سایز تولیدشده توسط سیستم — در چاپ نباید بیاید */
+function looksLikeVariantSummary(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  // مثل «مشکی، سفید · L×۲ XL×۱» یا «مشکی L×۲»
+  if (/[·•]/.test(s) && /×/.test(s)) return true;
+  if (/×\s*[\d۰-۹]+/.test(s) && s.length < 80) return true;
+  return false;
 }
 
 function truncateDesc(desc, max) {
@@ -126,7 +138,10 @@ function collapsePrintRows(rows, opts) {
     const r = list[i];
     if (!canCollapse(r)) {
       seen[i] = true;
-      out.push(r);
+      const cleaned = Object.assign({}, r, {
+        description: looksLikeVariantSummary(r.description) ? '' : String(r.description || '').trim(),
+      });
+      out.push(cleaned);
       continue;
     }
     const key = groupKey(r);
@@ -154,4 +169,6 @@ module.exports = {
   collapsePrintRows,
   lineNet,
   lineDiscOf,
+  looksLikeVariantSummary,
+  compactSummary,
 };

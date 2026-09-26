@@ -7,17 +7,17 @@ html.inv-print {
   min-height: 100%;
   direction: rtl;
 }
-html.inv-print.paper-a4 { --sheet-max: 210mm; --sheet-h: 297mm; --pad: 16px; --font: 11.5px; --logo-h: 52px; }
-html.inv-print.paper-a5 { --sheet-max: 148mm; --sheet-h: 210mm; --pad: 12px; --font: 10px; --logo-h: 40px; }
-html.inv-print.paper-thermal { --sheet-max: 300px; --sheet-h: auto; --pad: 10px; --font: 11px; --logo-h: 42px; }
-html.inv-print.paper-thermal-58 { --sheet-max: 220px; --sheet-h: auto; --pad: 8px; --font: 10px; --logo-h: 36px; }
+html.inv-print.paper-a4 { --sheet-max: 210mm; --pad: 9px; --font: 10.5px; --logo-h: 36px; }
+html.inv-print.paper-a5 { --sheet-max: 148mm; --pad: 7px; --font: 9px; --logo-h: 28px; }
+html.inv-print.paper-thermal { --sheet-max: 300px; --pad: 8px; --font: 11px; --logo-h: 36px; }
+html.inv-print.paper-thermal-58 { --sheet-max: 220px; --pad: 6px; --font: 10px; --logo-h: 32px; }
 
 html.inv-print body {
   font-family: 'Vazirmatn', Tahoma, sans-serif;
   background: #EEF3EF;
   color: #12271C;
-  padding: 16px;
-  font-size: var(--font, 11.5px);
+  padding: 10px;
+  font-size: var(--font, 10.5px);
   width: 100%;
   min-width: 100%;
   min-height: 100vh;
@@ -34,14 +34,14 @@ html.inv-print .sheet {
   background: #fff;
   position: relative;
   box-sizing: border-box;
-  box-shadow: 0 12px 32px rgba(18, 39, 28, .08);
+  box-shadow: 0 8px 20px rgba(18, 39, 28, .07);
 }
-html.inv-print.paper-a4 .sheet { max-width: 210mm; min-height: 297mm; page: inv-a4; }
-html.inv-print.paper-a5 .sheet { max-width: 148mm; min-height: 210mm; page: inv-a5; }
+html.inv-print.paper-a4 .sheet { max-width: 210mm; page: inv-a4; }
+html.inv-print.paper-a5 .sheet { max-width: 148mm; page: inv-a5; }
 html.inv-print.paper-thermal .sheet { max-width: 300px; page: inv-thermal; }
 html.inv-print.paper-thermal-58 .sheet { max-width: 220px; page: inv-thermal; }
-html.inv-print .pad { padding: var(--pad, 16px); width: 100%; box-sizing: border-box; }
-html.inv-print .num { font-variant-numeric: tabular-nums; }
+html.inv-print .pad { padding: var(--pad, 9px); width: 100%; box-sizing: border-box; }
+html.inv-print .num { font-variant-numeric: tabular-nums; font-weight: 800; }
 html.inv-print .rtl { text-align: right; }
 html.inv-print .brand-row { display: flex; gap: 10px; align-items: center; }
 html.inv-print .brand-sub { font-size: .85em; color: #5F7268; }
@@ -118,7 +118,7 @@ html.inv-print table.items {
 html.inv-print table.items th,
 html.inv-print table.items td {
   border: 1px solid #c5d6cc;
-  padding: 6px 4px;
+  padding: 3px 3px;
   text-align: center;
   vertical-align: middle;
 }
@@ -126,9 +126,10 @@ html.inv-print table.items th {
   background: #1A5C38;
   color: #fff;
   font-weight: 700;
-  font-size: .9em;
-  line-height: 1.3;
+  font-size: .85em;
+  line-height: 1.25;
 }
+html.inv-print table.items td.num { font-weight: 800; }
 html.inv-print table.items tbody tr:nth-child(even) { background: #f6faf7; }
 html.inv-print .expert {
   display: flex;
@@ -199,59 +200,64 @@ html.inv-print .words {
   flex-direction: column;
   justify-content: center;
 }
-html.inv-print .words-num { font-size: .92em; font-weight: 700; color: #12271C; }
+html.inv-print .words-num { font-size: .9em; font-weight: 800; color: #12271C; }
 html.inv-print .words-fa {
-  font-size: .86em;
+  font-size: .8em;
   color: #1A5C38;
-  margin-top: 4px;
+  margin-top: 2px;
   font-weight: 700;
-  line-height: 1.6;
+  line-height: 1.45;
   border-top: 1px dashed #c5d6cc;
-  padding-top: 4px;
+  padding-top: 2px;
 }
-html.inv-print .stamps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; width: 100%; }
+html.inv-print .stamps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; width: 65%; max-width: 360px; margin-inline: auto; }
 html.inv-print .stamp {
   border: 1px solid #c5d6cc;
-  border-radius: 8px;
-  min-height: 70px;
+  border-radius: 4px;
+  min-height: 28px;
   text-align: center;
-  padding: 8px;
-  font-size: .8em;
+  padding: 4px 6px;
+  font-size: .68em;
   color: #5F7268;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
 html.inv-print .stamp.dash { border-style: dashed; border-color: #2E7D4F; }
-html.inv-print .stamp .t { font-weight: 800; color: #1A5C38; margin-bottom: 4px; }
-html.inv-print .stamp-line { border-bottom: 1px dotted #a8c4b8; margin-top: 24px; }
-html.inv-print .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; width: 100%; }
-html.inv-print .party { border: 1px solid #c5d6cc; border-radius: 8px; overflow: hidden; min-width: 0; }
+html.inv-print .stamp .t { font-weight: 800; color: #1A5C38; margin-bottom: 1px; }
+html.inv-print .stamp-line { border-bottom: 1px dotted #a8c4b8; margin-top: 10px; }
+html.inv-print .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 5px; width: 100%; }
+html.inv-print .party { border: 1px solid #c5d6cc; border-radius: 5px; overflow: hidden; min-width: 0; }
 html.inv-print .party h4 {
   background: #eef5f0;
   color: #1A5C38;
-  padding: 5px 8px;
-  font-size: .85em;
+  padding: 3px 6px;
+  font-size: .78em;
   font-weight: 800;
   border-bottom: 1px solid #c5d6cc;
 }
-html.inv-print .party .b { padding: 7px 8px; line-height: 1.75; font-size: .88em; }
+html.inv-print .party .b { padding: 4px 6px; line-height: 1.45; font-size: .8em; }
 html.inv-print .party .b b { color: #5F7268; font-weight: 600; }
 html.inv-print .meta-strip {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 0;
   border: 1px solid #c5d6cc;
-  border-radius: 8px;
+  border-radius: 5px;
   overflow: hidden;
-  margin-bottom: 8px;
-  font-size: .78em;
+  margin-bottom: 5px;
+  font-size: .72em;
   width: 100%;
 }
-html.inv-print .meta-strip .c { padding: 6px 7px; border-left: 1px solid #c5d6cc; background: #fbfdfb; min-width: 0; }
+html.inv-print .meta-strip .c { padding: 3px 5px; border-left: 1px solid #c5d6cc; background: #fbfdfb; min-width: 0; }
 html.inv-print .meta-strip b { display: block; color: #5F7268; font-weight: 600; }
 html.inv-print .meta-strip span { font-weight: 700; }
-html.inv-print .sum-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 10px; margin-top: 10px; width: 100%; }
+html.inv-print .sum-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 6px; margin-top: 6px; width: 100%; }
+html.inv-print .sum-box .line { padding: 3px 7px; }
+html.inv-print .sum-box .line .num { font-weight: 800; }
+html.inv-print .print-top-meta { padding: 4px 8px; font-size: .88em; }
+html.inv-print .expert { padding: 4px 7px; margin: 4px 0; border-radius: 6px; }
+html.inv-print .words { padding: 5px 7px; line-height: 1.55; font-size: .82em; }
 html.inv-print .pad,
 html.inv-print table.items,
 html.inv-print .parties,
@@ -432,10 +438,10 @@ html.inv-print.paper-a5 .stamps { grid-template-columns: 1fr 1fr; }
   }
   html.inv-print .pbtn { display: none !important; }
   /* ISO 216 portrait — named pages track html.paper-* (sync with ISO_PAPER in invoice-print.js). */
-  @page inv-a4 { size: 210mm 297mm; margin: 8mm; }
-  @page inv-a5 { size: 148mm 210mm; margin: 8mm; }
+  @page inv-a4 { size: 210mm 297mm; margin: 6mm; }
+  @page inv-a5 { size: 148mm 210mm; margin: 5mm; }
   @page inv-thermal { size: auto; margin: 2mm; }
-  @page { margin: 8mm; }
+  @page { margin: 6mm; }
 }
 @media screen and (max-width: 420px) {
   html.inv-print .parties,
@@ -508,6 +514,7 @@ html.inv-print .num,
 html.inv-print .mono {
   color: #000 !important;
   -webkit-text-fill-color: #000 !important;
+  font-weight: 800 !important;
 }
 @media print {
   html.inv-print .sheet,

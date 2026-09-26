@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
+
+- **مشکل:** کادرهای بزرگ و فضای خالی باعث می‌شد فاکتور ۳ ردیفی دو صفحه شود؛ رنگ×سایز زیر نام کالا چاپ می‌شد.
+- **اصلاح طراحی:** پدینگ/فونت/مهر فشرده؛ حذف `min-height` اجباری برگه؛ حاشیهٔ `@page` A5=5mm / A4=6mm؛ مبالغ `.num` با `font-weight:800`.
+- **دادهٔ چاپ:** `collapsePrintRows` دیگر خلاصهٔ رنگ×سایز نمی‌سازد (فقط یادداشت دستی)؛ واریانت‌های هم‌قیمت همچنان در یک ردیف جمع می‌شوند.
+- **تست:** test-invoice-print-density-v246 (۳۷)؛ test-print-collapse-v204 (۲۶)؛ paper-iso-v243 (۲۵)؛ sms ۲۲.
+- **فایل‌ها:** server/lib/{invoice-print,print-line-collapse}.js, server/public/{invoice-print.css,app.js,sw.js,index.html}, server/scripts/test-{invoice-print-density-v246,print-collapse-v204,invoice-paper-iso-v243}.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v246
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۶ — هم‌ترازی دفتر مشتری و دفتر کل تفصیلی (SW v245)
 
 - **هشدارهای UI:** داشبورد مطالبات و صورت‌حساب (مثل خانم صدوقی، کد `110301000002`) ماندهٔ دفتر مشتری را با GL تفصیلی یکی نمی‌دیدند.

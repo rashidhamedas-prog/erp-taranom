@@ -44,8 +44,8 @@ ok(c1.length === 1, '3 SKUs collapse to 1 row', c1.length);
 ok(c1[0] && c1[0].qty === 5, 'collapsed qty is sum', c1[0] && c1[0].qty);
 ok(c1[0] && String(c1[0].name).indexOf('مشکی') === -1, 'product name has no color in title', c1[0] && c1[0].name);
 const d1 = String(c1[0] && c1[0].description || '');
-ok(d1.indexOf('مشکی') !== -1 && d1.indexOf('سفید') !== -1, 'summary has color names', d1);
-ok(/L×[۲2]/.test(d1) && /XL×[۱1]/.test(d1) && /M×[۲2]/.test(d1), 'summary has size×qty', d1);
+ok(d1.indexOf('مشکی') === -1 && d1.indexOf('سفید') === -1, 'print summary omits color names', d1);
+ok(!/L×/.test(d1) && !/XL×/.test(d1), 'print summary omits size×qty', d1);
 ok(c1[0] && c1[0].code === 'P-10' && c1[0].sku === 'P-10', 'code/sku is product code not SKU barcode');
 
 // 2) دو قیمت متفاوت → دو ردیف
@@ -66,8 +66,12 @@ const c3 = collapsePrintRows(noCollapse);
 ok(c3.length === noCollapse.length, 'fabric/income/no-variant stay 1:1', c3.length);
 
 const oneSku = collapsePrintRows([sku()]);
-ok(oneSku.length === 1 && /مشکی/.test(String(oneSku[0].description)) && /L×[۲2]/.test(String(oneSku[0].description)),
-  'single SKU still gets compact summary', oneSku[0] && oneSku[0].description);
+ok(oneSku.length === 1 && !/مشکی/.test(String(oneSku[0].description || '')) && !/L×/.test(String(oneSku[0].description || '')),
+  'single SKU has no color/size on print desc', oneSku[0] && oneSku[0].description);
+
+// note دستی می‌ماند
+const withNote = collapsePrintRows([sku({ description: 'سفارشی مشتری' })]);
+ok(/سفارشی مشتری/.test(String(withNote[0].description || '')), 'manual note kept on print');
 
 // 4) HTML چاپ — یک tr داده در tbody اقلام
 const inv = {
@@ -85,18 +89,20 @@ const tbody = (html.match(/<table class="items">[\s\S]*?<tbody>([\s\S]*?)<\/tbod
 const dataRows = tbody.match(/<tr[\s>]/g) || [];
 ok(dataRows.length === 1, 'print HTML has one item data row', dataRows.length + ' in: ' + tbody.slice(0, 180));
 ok(html.indexOf('مانتو شومیزی') !== -1, 'print HTML has product name');
-ok(/مشکی/.test(html) && /سفید/.test(html) && /L×[۲2]/.test(html), 'print HTML has compact summary');
+ok(!/مشکی/.test(html) && !/سفید/.test(html) && !/L×[۲2]/.test(html), 'print HTML has no color/size summary');
+ok(/font-weight:800/.test(html) || /\.num\{[^}]*font-weight:800/.test(html), 'amounts use bold .num');
 
-// 5) XSS
+// 5) XSS — در description دستی
 const xssRows = [
-  sku({ color_name: '</td><script>alert(1)</script>', size_name: 'L', qty: 2 }),
+  sku({ description: '</td><script>alert(1)</script>', color_name: 'مشکی', size_name: 'L', qty: 2 }),
 ];
 const xssHtml = renderInvoicePrintHtml({
   inv, rows: xssRows, settings: { company_name: 'پوشاک ترنم' }, paper: 'A4',
 });
 ok(xssHtml.indexOf('<script>') === -1, 'script tag not raw in HTML');
 ok(xssHtml.indexOf('&lt;/td&gt;') !== -1 || xssHtml.indexOf('&lt;script&gt;') !== -1,
-  'color_name XSS is escaped', xssHtml.includes('script') ? 'has escaped script' : 'missing escape');
+  'description XSS is escaped', xssHtml.includes('script') ? 'has escaped script' : 'missing escape');
+ok(!/مشکی/.test(xssHtml), 'color_name not printed even on XSS row');
 
 // 6) جمع خالص ردیف‌های جمع‌شده = جمع اصلی
 function nets(list) {
@@ -121,9 +127,9 @@ const buyBody = (buyHtml.match(/<table class="items">[\s\S]*?<tbody>([\s\S]*?)<\
 const buyRows = buyBody.match(/<tr[\s>]/g) || [];
 ok(buyRows.length === 1, 'purchase print also collapses to 1 row', buyRows.length);
 ok(buyHtml.indexOf('فاکتور خرید') !== -1, 'purchase label present');
-ok(/مشکی/.test(buyHtml) && /L×[۲2]/.test(buyHtml), 'purchase HTML has compact summary');
+ok(!/مشکی/.test(buyHtml) && !/L×[۲2]/.test(buyHtml), 'purchase HTML omits color/size');
 
-// حرارتی: همان جمع + برش توضیح
+// حرارتی: جمع بدون رنگ/سایز؛ اگر توضیح دستی بلند باشد بریده می‌شود
 const longSku = [];
 for (let i = 0; i < 12; i++) {
   longSku.push(sku({
@@ -132,13 +138,15 @@ for (let i = 0; i < 12; i++) {
     size_name: 'XXL',
     qty: 3,
     sum: 3000000,
+    description: i === 0 ? ('یادداشت-بلند-' + 'الف'.repeat(80)) : '',
   }));
 }
 const thermalCollapsed = collapsePrintRows(longSku, { thermal: true });
 ok(thermalCollapsed.length === 1, 'thermal collapse still 1 row');
-ok(String(thermalCollapsed[0].description).length <= 71, 'thermal description truncated to 70+…',
-  String(thermalCollapsed[0].description).length);
-ok(/…$/.test(thermalCollapsed[0].description), 'thermal truncate uses …');
+ok(!/رنگ‌بلند/.test(String(thermalCollapsed[0].description || '')), 'thermal omits color names');
+ok(String(thermalCollapsed[0].description || '').length <= 71, 'thermal long note truncated to 70+…',
+  String(thermalCollapsed[0].description || '').length);
+ok(/…$/.test(String(thermalCollapsed[0].description || '')), 'thermal truncate uses …');
 
 console.log(fail ? `\nFAILED ${fail} / ${pass + fail}` : `\nAll ${pass} checks passed`);
 process.exit(fail ? 1 : 0);
