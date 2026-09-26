@@ -15,7 +15,7 @@
 - **تست:** test-treasury-dashboard-v242 (۱۸/۱۸)؛ sms ۲۲/۲۲؛ parse app.js / portal-ui.js.
 - **فایل‌ها:** server/lib/treasury-dashboard.js, server/routes/adv-reports.js, server/lib/accounting-access.js, server/public/{acc-nav.js,portal-ui.js,app.js,app.css,index.html,sw.js}, server/scripts/test-treasury-dashboard-v242.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v242
-- **Deploy:** ⏳ در حال استقرار
+- **Deploy:** ✅ ایران overlay SFTP @ e56ca9f — health/ready/root 200؛ SW erp-taranom-v242؛ pm2 restart بدون --update-env. درخت سرور کثیف بود؛ pull انجام نشد.
 
 ### ۱۴۰۵/۰۷/۰۴ — مانده مشتری از دفتر خودش + تطبیق بانک استاندارد (SW v241)
 
