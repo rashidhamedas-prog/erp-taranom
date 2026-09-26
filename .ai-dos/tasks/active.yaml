@@ -4,8 +4,8 @@ tasks:
     title: "Windows EXE offline deliverable (installer + updater + evidence)"
     status: "in_progress"
     claimed_at: "2026-09-27T02:26:00+03:30"
-    review_status: "PENDING"
-    security_status: "PENDING"
+    review_status: "APPROVED_WITH_NOTES"
+    security_status: "APPROVED_WITH_NOTES"
     risk: "high"
     owner: "cursor:desktop-exe-deliver"
     roles:
@@ -18,6 +18,8 @@ tasks:
     worktree: "D:/proje/erp-taranom-desktop-exe"
     deliver_dir: "D:/proje/ERP EXE"
     file_claims:
+      - "server/public/app.js"
+      - "server/public/sw.js"
       - "desktop/package.json"
       - "desktop/main.js"
       - "desktop/preload.js"

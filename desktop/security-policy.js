@@ -9,8 +9,7 @@ const ALLOWED_EXTERNAL_HOSTS = Object.freeze([
 
 /** GitHub Releases host for this product only — used by updater, not shell.openExternal. */
 const UPDATE_GITHUB_REPO_PREFIX = '/rashidhamedas-prog/erp-taranom/releases/';
-const ALLOWED_UPDATE_ASSET_HOSTS = Object.freeze([
-  'github.com',
+const ALLOWED_UPDATE_CDN_HOSTS = Object.freeze([
   'objects.githubusercontent.com',
   'release-assets.githubusercontent.com'
 ]);
@@ -59,20 +58,30 @@ function isAllowedExternalUrl(value) {
   );
 }
 
-function isAllowedGithubReleaseUrl(url) {
+function isGithubReleasePageUrl(url) {
   if (!url || url.protocol !== 'https:' || !hasNoCredentials(url)) return false;
   if (url.port !== '' && url.port !== '443') return false;
-  if (url.hostname === 'github.com') {
-    return url.pathname.startsWith(UPDATE_GITHUB_REPO_PREFIX);
-  }
-  return ALLOWED_UPDATE_ASSET_HOSTS.includes(url.hostname);
+  return url.hostname === 'github.com' && url.pathname.startsWith(UPDATE_GITHUB_REPO_PREFIX);
 }
 
-/** Update feed/installer downloads: Taranom HTTPS hosts or this repo's GitHub Releases. */
-function isAllowedUpdateUrl(value) {
+function isGithubReleaseCdnUrl(url) {
+  if (!url || url.protocol !== 'https:' || !hasNoCredentials(url)) return false;
+  if (url.port !== '' && url.port !== '443') return false;
+  return ALLOWED_UPDATE_CDN_HOSTS.includes(url.hostname);
+}
+
+/**
+ * Update feed/installer downloads.
+ * Initial hop: Taranom HTTPS or github.com/.../releases/... for this repo only.
+ * Redirect hop: may also be GitHub release CDN hosts (never as the first URL).
+ */
+function isAllowedUpdateUrl(value, options = {}) {
   if (isAllowedExternalUrl(value)) return true;
   const url = parseUrl(value);
-  return !!(url && isAllowedGithubReleaseUrl(url));
+  if (!url) return false;
+  if (isGithubReleasePageUrl(url)) return true;
+  if (options.allowCdnRedirect === true && isGithubReleaseCdnUrl(url)) return true;
+  return false;
 }
 
 function normalizeSha256(value) {
@@ -200,13 +209,15 @@ function hardenWebviewPreferences(webPreferences) {
 
 module.exports = {
   ALLOWED_EXTERNAL_HOSTS,
-  ALLOWED_UPDATE_ASSET_HOSTS,
+  ALLOWED_UPDATE_CDN_HOSTS,
   UPDATE_GITHUB_REPO_PREFIX,
   MAX_UPDATE_BYTES,
   isLoopbackUrl,
   isAllowedChildWindowUrl,
   isAllowedExternalUrl,
   isAllowedUpdateUrl,
+  isGithubReleasePageUrl,
+  isGithubReleaseCdnUrl,
   normalizeSha256,
   normalizeUpdateSize,
   normalizePublisherNames,

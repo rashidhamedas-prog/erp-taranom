@@ -1,4 +1,10 @@
-﻿## 2026-09-27T02:40:00+03:30 — DESKTOP-EXE-DELIVER (in progress → build delivered)
+﻿## 2026-09-27T02:50:00+03:30 — DESKTOP-EXE-DELIVER review follow-up
+
+- Independent Reviewer APPROVED_WITH_NOTES; Security APPROVED_WITH_NOTES (0C/0H/2M).
+- Fixed: auto-install gated by evaluateUpdateInstallPolicy; safe-point fail-closed (no install after error/busy budget); CDN only on redirect hop; Help+SW v247; tests 20/20 + 18/18.
+- Installer artifact unchanged (2.0.12 already built); code hardening only — rebuild optional for next public cut.
+- Still NOT release-ready; branch ai/DESKTOP-EXE-DELIVER; main merge pending owner.
+## 2026-09-27T02:40:00+03:30 — DESKTOP-EXE-DELIVER (in progress → build delivered)
 
 - Claimed `DESKTOP-EXE-DELIVER` on branch `ai/DESKTOP-EXE-DELIVER`, worktree `D:/proje/erp-taranom-desktop-exe`.
 - Built signed NSIS x64 **2.0.12** → `D:\proje\ERP EXE\ERP Taranom Setup 2.0.12.exe`

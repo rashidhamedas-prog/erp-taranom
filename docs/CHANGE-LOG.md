@@ -5,6 +5,13 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: remediation بازبینی (fail-closed + CDN)
+
+- **Reviewer + Security:** APPROVED_WITH_NOTES → نصب خودکار فقط با `evaluateUpdateInstallPolicy`؛ fail-closed اگر safe-point آماده نباشد؛ CDN گیت‌هاب فقط پس از ریدایرکت از `github.com/.../releases/`؛ Help+SW v247.
+- **فایل‌ها:** desktop/{main.js,security-policy.js,scripts/test-*}, server/public/{app.js,sw.js}, docs/DESKTOP-EXE-DELIVERY.md
+- **SW:** erp-taranom-v247
+- **Deploy:** ⏳ شاخه `ai/DESKTOP-EXE-DELIVER` — بدون انتشار عمومی / بدون Iran
+
 ### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: publisherName، آپدیت GitHub، نقطهٔ امن نصب
 
 - **هدف:** تحویل installer ویندوز x64 مستقل آفلاین در `D:\proje\ERP EXE` (بیلد محلی؛ انتشار عمومی/آپلود VPS بدون تأیید جداگانه نیست).

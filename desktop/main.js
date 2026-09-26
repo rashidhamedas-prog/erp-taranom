@@ -36,7 +36,7 @@ let signedUpdaterPolicyReady = false;
 let manualInstallInFlight = null;
 let safeInstallTimer = null;
 let safeInstallAttempts = 0;
-let activeMutations = 0;
+let busyInstallAttempts = 0;
 const hardenedSessions = new WeakSet();
 
 let updateState = {
@@ -277,7 +277,10 @@ async function checkForUpdates(port) {
 async function fetchWithSafeRedirects(initialUrl, maxRedirects = 3) {
   let currentUrl = initialUrl;
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-    if (!isAllowedUpdateUrl(currentUrl)) throw new Error('Update URL is not allowed');
+    const allowCdnRedirect = redirectCount > 0;
+    if (!isAllowedUpdateUrl(currentUrl, { allowCdnRedirect })) {
+      throw new Error('Update URL is not allowed');
+    }
     const response = await fetch(currentUrl, {
       redirect: 'manual',
       headers: { 'User-Agent': `ERP-Taranom/${pkg.version || '0'}` }
@@ -286,7 +289,9 @@ async function fetchWithSafeRedirects(initialUrl, maxRedirects = 3) {
       const location = response.headers.get('location');
       if (!location || redirectCount === maxRedirects) throw new Error('Unsafe or excessive update redirect');
       const nextUrl = new URL(location, currentUrl).toString();
-      if (!isAllowedUpdateUrl(nextUrl)) throw new Error('Update redirect left the trusted host allowlist');
+      if (!isAllowedUpdateUrl(nextUrl, { allowCdnRedirect: true })) {
+        throw new Error('Update redirect left the trusted host allowlist');
+      }
       if (response.body) await response.body.cancel();
       currentUrl = nextUrl;
       continue;
@@ -458,30 +463,55 @@ function clearSafeInstallTimer() {
 function scheduleSafeInstall(port) {
   clearSafeInstallTimer();
   safeInstallAttempts = 0;
+  busyInstallAttempts = 0;
+  const BUSY_MAX = 90;
+  const ERROR_MAX = 5;
   const attempt = async () => {
-    safeInstallAttempts += 1;
     if (updateState.status !== 'ready' || updateState.installerSource !== 'electron-updater') return;
-    if (activeMutations > 0) {
-      safeInstallTimer = setTimeout(attempt, 2000);
+
+    const policy = evaluateUpdateInstallPolicy({
+      state: updateState,
+      updaterAvailable: !!autoUpdater,
+      requireSigned: signedUpdatesRequired()
+    });
+    if (!policy.ok || policy.mode !== 'electron-updater') {
+      setUpdateError('Update is not ready for a verified install');
       return;
     }
+
     const probe = await probeDesktopSafePoint(port);
-    // Outbox may remain pending — userData survives upgrade. Block only while writes are active.
-    if (!probe.ok && probe.activeMutations > 0) {
-      if (safeInstallAttempts < 90) safeInstallTimer = setTimeout(attempt, 2000);
+    if (probe.ok === true) {
+      updateState.status = 'installing';
+      broadcastUpdateState();
+      try {
+        autoUpdater.quitAndInstall(false, true);
+      } catch (error) {
+        setUpdateError(error && error.message);
+      }
       return;
     }
-    if (!probe.ok && safeInstallAttempts < 5) {
+
+    const mutationsBusy = Number(probe.activeMutations) > 0 || probe.reason === 'mutations_active';
+    if (mutationsBusy) {
+      busyInstallAttempts += 1;
+      if (busyInstallAttempts >= BUSY_MAX) {
+        setUpdateError('Update install deferred: local writes are still active');
+        return;
+      }
       safeInstallTimer = setTimeout(attempt, 2000);
+      if (typeof safeInstallTimer.unref === 'function') safeInstallTimer.unref();
       return;
     }
-    updateState.status = 'installing';
-    broadcastUpdateState();
-    try {
-      autoUpdater.quitAndInstall(false, true);
-    } catch (error) {
-      setUpdateError(error && error.message);
+
+    safeInstallAttempts += 1;
+    if (safeInstallAttempts >= ERROR_MAX) {
+      setUpdateError(
+        `Update install deferred until the local database is ready (${probe.reason || 'not_safe'})`
+      );
+      return;
     }
+    safeInstallTimer = setTimeout(attempt, 2000);
+    if (typeof safeInstallTimer.unref === 'function') safeInstallTimer.unref();
   };
   safeInstallTimer = setTimeout(attempt, 1500);
   if (typeof safeInstallTimer.unref === 'function') safeInstallTimer.unref();

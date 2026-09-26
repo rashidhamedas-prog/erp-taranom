@@ -10,21 +10,22 @@
 
 | برچسب | معنی | وضعیت این تحویل |
 |---|---|---|
-| **build موفق** | `electron-builder` بدون خطا installer ساخت | پس از اجرای pipeline در همین سند پر می‌شود |
-| **installer قابل اجرا** | NSIS روی ویندوز x64 نصب/اجرا می‌شود؛ سرور embedded بالا می‌آید | smoke جزئی؛ نه همهٔ سناریوهای پذیرش |
+| **build موفق** | `electron-builder` بدون خطا installer ساخت | **بله** — `ERP Taranom Setup 2.0.12.exe` در `D:\proje\ERP EXE` |
+| **installer قابل اجرا** | NSIS روی ویندوز x64 نصب/اجرا می‌شود؛ سرور embedded بالا می‌آید | **بله (smoke unpacked)**؛ نه همهٔ سناریوهای پذیرش |
 | **نسخهٔ آمادهٔ انتشار** | feed عمومی + OV/شهرت SmartScreen + آزمون پذیرش کامل + تأیید مالک | **خیر — آمادهٔ انتشار عمومی نیست** |
 
 ## معماری (تأیید شده از کد)
 
-Electron main سرور `server/` را با `SYNC_ROLE=device` روی `127.0.0.1` اجرا می‌کند؛ renderer فقط loopback را می‌بیند. داده در `%APPDATA%/erp-taranom-desktop/` است. آپدیت: electron-updater + fallback manifest با SHA-256 و تأیید Authenticode وقتی `REQUIRE_SIGNED_UPDATES=1`.
+Electron main سرور `server/` را با `SYNC_ROLE=device` روی `127.0.0.1` اجرا می‌کند؛ renderer فقط loopback را می‌بیند. داده در `%APPDATA%\ERP Taranom\` است (`productName`). آپدیت: electron-updater + fallback manifest با SHA-256 و تأیید Authenticode وقتی `REQUIRE_SIGNED_UPDATES=1` (تطبیق نام ناشر، نه SmartScreen/OV).
 
 ## شکاف‌هایی که در این نوبت بسته شد
 
 1. `build.win.publisherName = ["Poshak Taranom"]` هم‌تراز CN گواهی.
 2. `publish.generic.url` از placeholder به `https://erp.poshaktaranom.com/releases/`.
-3. `isAllowedUpdateUrl` برای GitHub Releases همین ریپو (بدون باز کردن `shell.openExternal` به github).
-4. نقطهٔ امن نصب: شمارش mutationهای API + `POST /api/system/desktop-safe-point` (WAL checkpoint) + نصب خودکار پس از `update-downloaded` بدون تأیید اضافه؛ outbox مانع نصب نیست (در userData می‌ماند).
-5. bump نسخه به `2.0.12`.
+3. `isAllowedUpdateUrl` برای GitHub Releases همین ریپو؛ CDN فقط به‌عنوان hop ریدایرکت (نه URL اولیه).
+4. نقطهٔ امن نصب fail-closed + `evaluateUpdateInstallPolicy` قبل از `quitAndInstall`؛ outbox مانع نصب نیست.
+5. bump نسخه به `2.0.12`؛ Help + SW v247.
+6. follow-up پس از [Independent review](90449754-39da-46fe-90e4-cb95b5a7b976) و [Security review](95162f99-eba9-4a03-87d2-e7f5c6fee7b2).
 
 ## امضا و SmartScreen
 
@@ -36,8 +37,8 @@ Electron main سرور `server/` را با `SYNC_ROLE=device` روی `127.0.0.1`
 
 | آزمون | نتیجه |
 |---|---|
-| `desktop/scripts/test-security-policy.js` | **19/19 PASS** |
-| `desktop/scripts/test-main-hardening-static.js` | **16/16 PASS** |
+| `desktop/scripts/test-security-policy.js` | **20/20 PASS** (شامل رد CDN به‌عنوان hop اول) |
+| `desktop/scripts/test-main-hardening-static.js` | **18/18 PASS** (شامل fail-closed + policy روی auto-install) |
 | `desktop/scripts/test-local-secret-store.js` | **8/8 PASS** |
 | `scripts/test-platform-security.js` | **7/7 PASS** |
 | `scripts/compare-embedded-hash.js` (هدف desktop) | **drift=0** (android در این نوبت prepare نشد) |
@@ -46,6 +47,14 @@ Electron main سرور `server/` را با `SYNC_ROLE=device` روی `127.0.0.1`
 | Smoke `win-unpacked` EXE | **PASS** — loopback، `%APPDATA%\ERP Taranom\crm.db` + `jwt-secret.dpapi`، فونت محلی، update-feed 200 |
 | نصب کامل NSIS + همهٔ سناریوهای §۱۳ مأموریت | **UNVERIFIED در این نوبت** |
 | صف ۱۰هزار عملیات / toxiproxy / benchmark p95 | **UNVERIFIED** |
+
+## بازبینی مستقل
+
+- Reviewer: **APPROVED_WITH_NOTES** → follow-up: fail-closed safe-point، `evaluateUpdateInstallPolicy` قبل از auto-install، CDN فقط روی redirect.
+- Security: **APPROVED_WITH_NOTES** (0 Critical / 0 High / 2 Medium) → همان remediationها اعمال شد.
+
+`REQUIRE_SIGNED_UPDATES=1` یعنی تطبیق **نام ناشر Authenticode** با `publisherName`؛ معادل اعتماد CA مایکروسافت یا شهرت SmartScreen نیست.
+
 
 ## مسیر بیلد تکرارپذیر
 

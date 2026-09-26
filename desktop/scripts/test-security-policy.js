@@ -91,6 +91,15 @@ test('update allowlist accepts this repo GitHub Releases and rejects other repos
   assert.strictEqual(isAllowedExternalUrl('https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.12/a.exe'), false);
 });
 
+test('GitHub CDN URLs are rejected as the initial hop and allowed only as redirects', () => {
+  const cdn = 'https://objects.githubusercontent.com/github-production-release-asset/123/abc';
+  const releaseCdn = 'https://release-assets.githubusercontent.com/github-production-release-asset/123/abc';
+  assert.strictEqual(isAllowedUpdateUrl(cdn), false);
+  assert.strictEqual(isAllowedUpdateUrl(releaseCdn), false);
+  assert.strictEqual(isAllowedUpdateUrl(cdn, { allowCdnRedirect: true }), true);
+  assert.strictEqual(isAllowedUpdateUrl(releaseCdn, { allowCdnRedirect: true }), true);
+});
+
 test('SHA-256 and size normalization is strict', () => {
   assert.strictEqual(normalizeSha256('A'.repeat(64)), 'a'.repeat(64));
   assert.strictEqual(normalizeSha256('../bad'), null);
