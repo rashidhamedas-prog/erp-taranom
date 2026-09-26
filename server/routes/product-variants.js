@@ -209,8 +209,26 @@ router.get('/style/:productId', auth, (req, res) => {
     const productId = parseInt(req.params.productId, 10);
     const meta = styleMetadata(db, productId);
     if (!meta) return res.status(404).json({ error: 'مدل یافت نشد' });
-    const variants = listVariants(db, productId, { include_default: true });
-    res.json({ ...meta, product_id: productId, variants });
+    let variants = listVariants(db, productId, { include_default: true });
+    // When warehouse_id is given, expose per-warehouse qty (missing row = 0), not global stock.
+    const warehouseId = req.query.warehouse_id != null && req.query.warehouse_id !== ''
+      ? parseInt(req.query.warehouse_id, 10)
+      : null;
+    if (warehouseId && Number.isFinite(warehouseId)) {
+      let qtyStmt = null;
+      try {
+        qtyStmt = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?');
+      } catch (_) { qtyStmt = null; }
+      variants = variants.map((v) => {
+        let stock = 0;
+        if (qtyStmt) {
+          const row = qtyStmt.get(v.id, warehouseId);
+          stock = row ? Number(row.qty) || 0 : 0;
+        }
+        return { ...v, stock, warehouse_id: warehouseId };
+      });
+    }
+    res.json({ ...meta, product_id: productId, variants, warehouse_id: warehouseId || null });
   } catch (e) { sendErr(res, e); }
 });
 

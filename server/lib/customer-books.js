@@ -720,42 +720,79 @@ function repairGlLinesToLedger(db) {
 
 /**
  * Signed live balance per customer (debit − credit).
- * Prefers the customer's tafsili in the general ledger; falls back to customer_ledger.
+ * Same rule as buildStatement (no date filter):
+ * - with coa_code → GL sum on account_code LIKE coa_code||'%'
+ * - without → customer_ledger + firm invoices missing from the ledger
  * Runs the one-shot book repair first so CRM lists match the statement.
  */
 function customerSignedBalanceMap(db) {
   ensureCustomerBooksRepaired(db);
   const map = new Map();
+  const source = new Map(); // customer_id → 'gl' | 'customer_ledger'
   const led = db.prepare(`
     SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
     FROM customer_ledger GROUP BY customer_id
   `).all();
-  for (const r of led) map.set(Number(r.customer_id), Number(r.bal) || 0);
+  for (const r of led) {
+    map.set(Number(r.customer_id), Number(r.bal) || 0);
+    source.set(Number(r.customer_id), 'customer_ledger');
+  }
 
-  const glRows = db.prepare(`
-    SELECT c.id AS customer_id,
-      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS signed
-    FROM customers c
-    JOIN journal_lines jl ON jl.account_code = c.coa_code
-    JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE c.coa_code IS NOT NULL AND TRIM(c.coa_code)<>''
-      AND ${JE_ALIVE}
-    GROUP BY c.id
+  // Match attachMissingInvoiceRows: firm sales not yet in customer_ledger.
+  const missing = db.prepare(`
+    SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
+    FROM invoices i
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_ledger cl
+        WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
+          AND COALESCE(cl.entry_type,'')<>'reversal'
+      )
+    GROUP BY i.cust_id
   `).all();
-  for (const r of glRows) map.set(Number(r.customer_id), Number(r.signed) || 0);
+  for (const r of missing) {
+    const id = Number(r.customer_id);
+    map.set(id, (map.get(id) || 0) + (Number(r.add_amt) || 0));
+    if (!source.has(id)) source.set(id, 'customer_ledger');
+  }
+
+  // Prefer GL when the customer has a tafsili — same LIKE prefix as the statement.
+  const withCoa = db.prepare(`
+    SELECT id, coa_code FROM customers
+    WHERE coa_code IS NOT NULL AND TRIM(coa_code)<>''
+  `).all();
+  const glStmt = db.prepare(`
+    SELECT
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS signed,
+      COUNT(*) AS n
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code LIKE ?
+      AND ${JE_ALIVE}
+  `);
+  for (const c of withCoa) {
+    const like = String(c.coa_code) + '%';
+    const row = glStmt.get(like);
+    if (row && Number(row.n) > 0) {
+      map.set(Number(c.id), Number(row.signed) || 0);
+      source.set(Number(c.id), 'gl');
+    }
+  }
+  map._source = source;
   return map;
 }
 
 function applyCustomerBalances(db, rows) {
   if (!rows || !rows.length) return rows;
   const map = customerSignedBalanceMap(db);
+  const source = map._source || new Map();
   for (const r of rows) {
     if (!r || r.id == null) continue;
     const id = Number(r.id);
     if (map.has(id)) {
       r.ledger_balance = r.balance;
       r.balance = map.get(id);
-      r.balance_source = 'gl';
+      r.balance_source = source.get(id) || 'customer_ledger';
     }
   }
   return rows;

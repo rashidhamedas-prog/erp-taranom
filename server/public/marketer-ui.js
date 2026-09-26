@@ -372,7 +372,11 @@
     const p = (window._mkProds || []).find(x => Number(x.id) === Number(productId));
     if (!p) return;
     let style = null;
-    try { style = await api('GET', '/product-variants/style/' + Number(p.id)); }
+    try {
+      const wh = salesWarehouseId();
+      const q = wh ? ('?warehouse_id=' + encodeURIComponent(wh)) : '';
+      style = await api('GET', '/product-variants/style/' + Number(p.id) + q);
+    }
     catch (_) { style = null; }
     const pack = (typeof livePackFromStyle === 'function')
       ? livePackFromStyle(style)
@@ -489,7 +493,11 @@
       }
     });
     let style = null;
-    try { style = await api('GET', '/product-variants/style/' + Number(p.id)); }
+    try {
+      const wh = salesWarehouseId();
+      const q = wh ? ('?warehouse_id=' + encodeURIComponent(wh)) : '';
+      style = await api('GET', '/product-variants/style/' + Number(p.id) + q);
+    }
     catch (_) { style = null; }
     const pack = (typeof livePackFromStyle === 'function')
       ? livePackFromStyle(style)

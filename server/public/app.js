@@ -5001,8 +5001,12 @@ function applyAutoLivePack(p, pack, dest){
 async function addToCart(pid){
   const p = findInvProduct(pid);
   if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
+  const whId=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
   let style=null;
-  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  try{
+    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
+    style=await api('GET','/product-variants/style/'+Number(p.id)+q);
+  }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
     applyAutoLivePack(p, pack, 'invoice');
@@ -5267,8 +5271,12 @@ async function editInvCartPack(indices){
   if(!rows.length) return;
   const p=findInvProduct(rows[0].product_id);
   if(!p){ showToast('کالا یافت نشد','error'); return; }
+  const whId=rows[0].warehouse_id || (typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null);
   let style=null;
-  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  try{
+    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
+    style=await api('GET','/product-variants/style/'+Number(p.id)+q);
+  }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(!pack.matrix.length && !pack.pool.length){ showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return; }
   openInvVariantSplitModal(p, pack, { existing: rows, replaceIndices: indices });
@@ -22431,7 +22439,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر مرحله با مبلغ دیده می‌شود. صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
         <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
-        <li><b>چاپ با دریافت:</b> بلوک دریافت‌های ثبت‌شده بدون خطای امنیتی HTML ساخته می‌شود (استایل فقط از CSS قالب).</li>
+        <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
+        <li><b>رنگ/سایز در فاکتور:</b> موجودی هر رنگ×سایز بر اساس <b>انبار مبدأ انتخاب‌شده</b> است، نه جمع همهٔ انبارها.</li>
+        <li><b>مانده لیست مشتریان:</b> همان قاعدهٔ صورتحساب (دفتر کل با تفصیلی، یا دفتر مشتری + فاکتورهای جاافتاده) — برای همه نقش‌ها.</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
         <li><b>چاپ:</b> خطوط و نوشته‌ها و اعداد همهٔ قالب‌ها مشکی‌زاغ است. رنگ و سایز جدا ردیف نمی‌شوند؛ ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ</li>

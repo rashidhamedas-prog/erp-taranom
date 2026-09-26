@@ -337,6 +337,9 @@ function themeCss(id, dims) {
   .sum-box .line.pay .gold{color:#C9A843}
   .receipts-box{margin-top:8px}
   .receipts-box .receipts-head{font-weight:700}
+  .print-top-meta{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:.95em;font-weight:700;border-bottom:1px solid #c5d6cc;background:#fff;width:100%;box-sizing:border-box}
+  .print-top-meta .print-top-num .num{font-weight:800}
+  .print-top-meta .print-top-date{font-weight:700}
   .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb;display:flex;flex-direction:column;justify-content:center}
   .words-num{font-size:.92em;font-weight:700;color:#12271C}
   .words-fa{font-size:.86em;color:#1A5C38;margin-top:4px;font-weight:700;line-height:1.6;border-top:1px dashed #c5d6cc;padding-top:4px}
@@ -557,8 +560,21 @@ function renderInvoicePrintHtml(opts) {
   const companyPartyTitle = isPurchase ? 'مشخصات خریدار' : 'مشخصات فروشنده';
   const t = computePrintTotals(inv, rows);
   const receipts = normalizePrintReceipts(opts);
-  const receiptsBlock = receiptsHtml(receipts, t.payable, isPurchase);
+  // Prefer settlement sum (POS also creates a settlement); avoid double-count.
+  const paidSett = receipts.filter((r) => r.kind === 'settlement')
+    .reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const paidPos = receipts.filter((r) => r.kind === 'pos')
+    .reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const paidTotal = paidSett > 0 ? paidSett : paidPos;
+  const invoiceFinal = t.payable;
+  const duePayable = Math.max(0, invoiceFinal - paidTotal);
+  const receiptsBlock = receiptsHtml(receipts, invoiceFinal, isPurchase);
   const emptyColspan = isA5 ? 6 : 9;
+  const topMeta = `
+    <div class="print-top-meta">
+      <span class="print-top-num"><b>شماره:</b> <span class="num">${esc(inv.num || '')}</span></span>
+      <span class="print-top-date"><b>تاریخ:</b> ${esc(inv.date || '—')}</span>
+    </div>`;
   const isProvisional = String(inv.num || '').startsWith('موقت');
   const companyName = settings.company_name || 'پوشاک ترنم';
   const companyAddr = settings.company_address || '';
@@ -616,10 +632,10 @@ function renderInvoicePrintHtml(opts) {
     <div><b>تلفن:</b> ${esc(inv.cust_phone || '—')}</div>
     ${custPostalCode ? `<div><b>کد پستی:</b> ${esc(custPostalCode)}</div>` : ''}`;
 
-  const payableWords = numToPersianWords(t.payable);
+  const payableWords = numToPersianWords(duePayable);
   const wordsHtml = `
     <div class="words">
-      <div class="words-num"><b>مبلغ قابل پرداخت:</b> <span class="num">${faNum(t.payable)}</span> ریال</div>
+      <div class="words-num"><b>مبلغ قابل پرداخت:</b> <span class="num">${faNum(duePayable)}</span> ریال</div>
       <div class="words-fa"><b>به حروف:</b> ${esc(payableWords)} ریال</div>
       ${noteHtml || '<div class="thanks">با تشکر از انتخاب شما</div>'}
     </div>`;
@@ -635,7 +651,8 @@ function renderInvoicePrintHtml(opts) {
       ${customize.show_discount && (t.discAmt || t.discPct) ? `<div class="line"><span>تخفیف کل${t.discPct ? ` (${faNum(t.discPct)}٪)` : ''}</span><span class="num">${faNum(t.discAmt)} ریال</span></div>` : ''}
       ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(freightTypeFa(inv.freight_type))})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
       ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
-      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
+      ${paidTotal > 0 ? `<div class="line"><span>مبلغ فاکتور</span><span class="num">${faNum(invoiceFinal)} ریال</span></div>` : ''}
+      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(duePayable)} ریال</span></div>
       ${t.mismatch ? `<div class="line warn-line"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
     </div>${receiptsBlock}`;
 
@@ -649,12 +666,11 @@ function renderInvoicePrintHtml(opts) {
 
   if (isThermal) {
     bodyInner = `
+      ${topMeta}
       <div class="pad">
         <div class="center">
           ${logo}
           <div class="thermal-brand">${esc(companyName)}</div>
-          <div class="thermal-kind">فاکتور حرارتی · ${dims.thermalMm}mm</div>
-          <div class="thermal-number">${esc(inv.num || '')} · ${esc(inv.date || '—')}</div>
           ${customize.show_company_phone && companyPhone ? `<div>${esc(companyPhone)}</div>` : ''}
         </div>
         <hr class="dash">
@@ -675,6 +691,7 @@ function renderInvoicePrintHtml(opts) {
       ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
   } else if (templateId === 'casual-simple') {
     bodyInner = `
+      ${topMeta}
       <div class="pad">
         <div class="top-simple">
           <div class="brand-row">
@@ -684,10 +701,6 @@ function renderInvoicePrintHtml(opts) {
               <div class="brand-sub">${esc(subtitle)} · ${esc(typeLabel)}</div>
             </div>
           </div>
-          <div class="inv-meta"><div class="box">
-            <div class="row"><span>شماره</span><span class="num">${esc(inv.num || '')}</span></div>
-            <div class="row"><span>تاریخ</span><span>${esc(inv.date || '—')}</span></div>
-          </div></div>
         </div>
         <div class="parties">
           <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
@@ -714,6 +727,7 @@ function renderInvoicePrintHtml(opts) {
   } else if (templateId === 'formal-premium') {
     // لوکس: هیرو برند سبز/طلایی + خط تزئینی طلایی + قاب گرادیانی
     bodyInner = `
+      ${topMeta}
       <div class="hero">
         <div class="brand-row">
           ${logo}
@@ -721,11 +735,6 @@ function renderInvoicePrintHtml(opts) {
             <div class="name">${esc(companyName)}</div>
             <div class="sub">${esc(subtitle)} · صورتحساب فروش کالا و خدمات</div>
           </div>
-        </div>
-        <div class="meta">
-          <div class="tag">${esc(typeLabel)}</div>
-          <div><span class="num">${esc(inv.num || '')}</span></div>
-          <div>${esc(inv.date || '—')} · ${dims.paper}</div>
         </div>
       </div>
       <div class="prem-rule"></div>
@@ -751,8 +760,9 @@ function renderInvoicePrintHtml(opts) {
       </div>
       ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
   } else if (templateId === 'formal-modern') {
-    // مدرن ERP: هدر گرادیانی با چیپ‌های متادیتا + کارت‌های نرم
+    // مدرن ERP: هدر گرادیانی + کارت‌های نرم
     bodyInner = `
+      ${topMeta}
       <div class="mod-header">
         <div class="brand-row">
           ${logo}
@@ -760,12 +770,6 @@ function renderInvoicePrintHtml(opts) {
             <div class="name">${esc(companyName)}</div>
             <div class="brand-sub">${esc(subtitle)} · ${esc(typeLabel)}</div>
           </div>
-        </div>
-        <div class="mod-chips">
-          <div class="mod-chip"><b>شماره</b><span class="num">${esc(inv.num || '')}</span></div>
-          <div class="mod-chip"><b>تاریخ</b><span>${esc(inv.date || '—')}</span></div>
-          <div class="mod-chip"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
-          <div class="mod-chip"><b>کاغذ</b><span>${dims.paper}</span></div>
         </div>
       </div>
       <div class="pad">
@@ -786,13 +790,9 @@ function renderInvoicePrintHtml(opts) {
       </div>
       ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
   } else {
-    // اداری / مالیاتی (formal-official): بنر سبز رسمی + هویت شرکت + جعبه‌های فروشنده/خریدار
+    // اداری / مالیاتی (formal-official): ردیف شماره/تاریخ + هویت شرکت + جعبه‌های فروشنده/خریدار
     bodyInner = `
-      <div class="off-banner">
-        <div class="serial"><b>شماره:</b> <span class="num">${esc(inv.num || '')}</span><br><b>تاریخ:</b> ${esc(inv.date || '—')}</div>
-        <div class="title">صورتحساب فروش کالا و خدمات</div>
-        <div class="kind">${esc(typeLabel)}</div>
-      </div>
+      ${topMeta}
       <div class="off-gold"></div>
       <div class="pad">
         <div class="off-ident">
