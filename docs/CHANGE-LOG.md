@@ -15,7 +15,7 @@
 - **تست:** test-customer-live-balance-v241 (۱۱/۱۱)؛ test-bank-recon-bridge-v241 (۱۷/۱۷)؛ test-acc-stitch-p2 (۷۸)؛ test-stmt-gl-cheque-v180 (۲۱)؛ test-cheque-opening-bounce-v186 (۲۱)؛ test-bank-recon-import (۲۳)؛ sms ۲۲/۲۲؛ sync ۴۴/۴۴ با Node ۲۰.
 - **فایل‌ها:** server/lib/{customer-books,party-books,cheque-party-books,bank-recon,gap-accounting-schema,coa-map}.js, server/routes/{accounting,dashboard,bank-reconciliation}.js, server/sync/tables.js, server/public/{app.js,portal-ui.js,sw.js,index.html}, server/scripts/test-{customer-live-balance-v241,bank-recon-bridge-v241,acc-stitch-p2,stmt-gl-cheque-v180,cheque-opening-bounce-v186,bank-recon-import,arch-erp-rar-v183}.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v241
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 49d6e61 — health/ready/root 200؛ SW erp-taranom-v241؛ pm2 restart بدون --update-env. درخت سرور کثیف بود؛ pull انجام نشد.
 
 ### ۱۴۰۵/۰۷/۰۴ — نمایش رنگ×سایز تفکیک انبار در UI (SW v240)
 
