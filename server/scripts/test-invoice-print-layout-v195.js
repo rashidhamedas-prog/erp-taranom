@@ -43,6 +43,10 @@ ok(css.includes('table.items th'), 'layout css styles item table headers');
 
 ok(paperDims('A5').sheetMax === '148mm', 'A5 sheetMax is 148mm');
 ok(paperDims('A4').sheetMax === '210mm', 'A4 sheetMax is 210mm');
+ok(paperDims('A5').pageSizeCss === '148mm 210mm', 'A5 pageSizeCss ISO');
+ok(paperDims('A4').pageSizeCss === '210mm 297mm', 'A4 pageSizeCss ISO');
+ok(css.includes('@page inv-a5 { size: 148mm 210mm;'), 'layout css @page A5 ISO');
+ok(css.includes('page: inv-a5'), 'layout css named page inv-a5');
 
 const a5 = renderInvoicePrintHtml({ ...sample, paper: 'A5', templateOverride: 'casual-simple' });
 ok(a5.includes('class="inv-print paper-a5 tmpl-casual-simple"'), 'A5 html classes', a5.slice(a5.indexOf('<html'), a5.indexOf('>') + 1));
@@ -50,6 +54,7 @@ ok(a5.includes('/invoice-print.css'), 'links layout stylesheet');
 ok(a5.includes('align-items:center'), 'inline theme also centers');
 ok(a5.includes('min-width:100vw'), 'inline theme fills viewport');
 ok(a5.includes('max-width:148mm'), 'A5 max-width is paper size');
+ok(a5.includes('@page{size:148mm 210mm'), 'A5 html @page is ISO mm');
 ok(!a5.includes('max-width:640px'), 'A5 html has no 640px breakpoint');
 ok(a5.includes('@media screen and (max-width:420px)'), 'A5 stacks only below 420px');
 ok(!/\sstyle\s*=/i.test(a5), 'still no inline style attributes');

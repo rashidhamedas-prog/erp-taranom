@@ -11,10 +11,20 @@
 - **محتوا:** KPI دریافتنی/پرداختنی باز، در جریان وصول، سررسید گذشته و ۱۴ روز آینده؛ پل تطبیق GL با ۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹؛ پیری سررسید؛ صیاد ۱۶رقمی؛ چک‌لیست الزامات؛ موجودی برگه دسته چک، بانک بدون دسته، پرداختنی ثبت‌شده.
 - **API:** `GET /api/adv-reports/cheque-dashboard` و `GET /api/adv-reports/chequebook-dashboard` — بدون پرتاب خطا به HTTP.
 - **UI:** `portal-ui.js` (الگوی `trsy-*`) + `chq-gl-grid` در `app.css`؛ `acc-nav.js`، `accounting-access.js`، `app.js` راهنما.
-- **تست:** test-cheque-dashboards-v244؛ sms + sync پس از تغییر بک‌اند.
+- **تست:** test-cheque-dashboards-v244 (۱۷/۱۷)؛ sms ۲۲/۲۲؛ parse app.js / portal-ui.js.
 - **فایل‌ها:** server/lib/{cheque-dashboard,chequebook-dashboard}.js, server/routes/adv-reports.js, server/lib/accounting-access.js, server/public/{acc-nav.js,portal-ui.js,app.js,app.css,index.html,sw.js}, server/scripts/test-cheque-dashboards-v244.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v244
 - **Deploy:** ⏳
+
+### ۱۴۰۵/۰۷/۰۵ — چاپ فاکتور: کاغذ A5/A4 طبق ISO 216 (SW v243)
+
+- **باگ:** انتخاب A5 در ویزارد چاپ استاندارد نبود؛ پیش‌نمایش فقط عرض ۱۴۸mm داشت ولی در `invoice-print.css` قانون `@page size` خالی بود. وقتی استایل اینلاین زیر CSP بلاک می‌شد، مرورگر روی A4 پیش‌فرض چاپ می‌کرد و برگه کش می‌آمد.
+- **ریشه:** دو مسیر CSS (اینلاین `themeCss` + فایل خارجی) هم‌تراز نبودند؛ ابعاد فقط با keyword و بدون ارتفاع ISO بودند.
+- **اصلاح:** `ISO_PAPER` منبع واحد (A4=210×297، A5=148×210mm)؛ `pageSizeCss` صریح میلی‌متر؛ named pages در CSS (`@page inv-a5` / `inv-a4`)؛ `min-height` برگه؛ راهنما و برچسب UI با ابعاد ISO.
+- **جلوگیری از تکرار:** تست `test-invoice-paper-iso-v243` drift بین `paperDims` و CSS را قفل می‌کند.
+- **فایل‌ها:** server/lib/invoice-print.js, server/public/{invoice-print.css,app.js,sw.js,index.html}, server/scripts/test-invoice-{paper-iso-v243,print-layout-v195}.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v243
+- **Deploy:** ✅ ایران overlay SFTP @ 17bb53c — root 200؛ SW erp-taranom-v243؛ `@page inv-a5 size: 148mm 210mm` و `ISO_PAPER` روی VPS تأیید شد؛ pm2 restart بدون --update-env. درخت سرور کثیف بود؛ pull کامل انجام نشد. GitHub Action به‌خاطر dirty tree رد شد.
 
 ### ۱۴۰۵/۰۷/۰۵ — داشبورد گزارش‌دهی بانک و صندوق / نقدینگی (SW v242)
 
