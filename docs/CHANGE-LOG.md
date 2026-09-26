@@ -13,7 +13,7 @@
 - **تست:** invoice-print-balance-v232؛ sms.
 - **فایل‌ها:** server/lib/{invoice-print,customer-books}.js, server/routes/product-variants.js, server/public/{app.js,marketer-ui.js,sw.js}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v232
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ b468fa8 — health/ready/root 200. SW erp-taranom-v232.
 
 ### ۱۴۰۵/۰۷/۰۴ — ویرایش فاکتور: افزودن دریافت + چاپ + دفتر زنده (SW v231)
 
