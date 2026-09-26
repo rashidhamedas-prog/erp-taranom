@@ -3,7 +3,7 @@
 // Electron with SYNC_ROLE=device. The renderer only loads the loopback server.
 'use strict';
 
-const { app, BrowserWindow, shell, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain, safeStorage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -12,6 +12,7 @@ const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const pkg = require('./package.json');
 const { getOrCreateLocalJwtSecret } = require('./local-secret-store');
+const { clampWindowToWorkArea } = require('./work-area');
 const {
   isLoopbackUrl,
   isAllowedChildWindowUrl,
@@ -617,14 +618,26 @@ async function createWindow() {
     return;
   }
 
+  // Stay inside the Windows work area (never under the taskbar) from first paint.
+  const display = screen.getPrimaryDisplay();
+  const wa = display.workArea;
+  const initW = Math.min(1360, Math.max(900, wa.width - 80));
+  const initH = Math.min(860, Math.max(600, wa.height - 80));
+  const initX = wa.x + Math.max(0, Math.floor((wa.width - initW) / 2));
+  const initY = wa.y + Math.max(0, Math.floor((wa.height - initH) / 2));
+
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    x: initX,
+    y: initY,
+    width: initW,
+    height: initH,
     minWidth: 900,
     minHeight: 600,
     title: 'ERP Taranom',
     icon: path.join(__dirname, 'build', 'icon.png'),
     autoHideMenuBar: true,
+    // True OS fullscreen covers the taskbar; maximize + workArea clamp is enough.
+    fullscreenable: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -640,6 +653,18 @@ async function createWindow() {
   });
 
   hardenSession(mainWindow.webContents.session);
+
+  const scheduleWorkAreaClamp = () => {
+    setImmediate(() => {
+      try { clampWindowToWorkArea(mainWindow, screen); } catch { /* ignore */ }
+    });
+  };
+  mainWindow.on('maximize', scheduleWorkAreaClamp);
+  mainWindow.on('enter-full-screen', scheduleWorkAreaClamp);
+  mainWindow.on('resize', () => {
+    if (mainWindow.isMaximized() || mainWindow.isFullScreen()) scheduleWorkAreaClamp();
+  });
+  screen.on('display-metrics-changed', scheduleWorkAreaClamp);
 
   const localUrl = `http://127.0.0.1:${port}`;
   const tryLoad = attempt => {

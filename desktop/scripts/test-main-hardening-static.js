@@ -24,7 +24,9 @@ const checks = [
   ['auto install requires evaluateUpdateInstallPolicy', /function scheduleSafeInstall[\s\S]*evaluateUpdateInstallPolicy\(/],
   ['auto install fails closed when safe-point is not ready', /Update install deferred until the local database is ready/],
   ['preload forwards only bounded update metadata', /installUpdate:\s*payload\s*=>\s*ipcRenderer\.invoke\('desktop:install-update',\s*sanitizeInstallPayload\(payload\)\)/],
-  ['preload listener provides unsubscribe cleanup', /removeListener\('desktop:update-status',\s*listener\)/]
+  ['preload listener provides unsubscribe cleanup', /removeListener\('desktop:update-status',\s*listener\)/],
+  ['Windows maximize is clamped to display workArea', /clampWindowToWorkArea\(mainWindow,\s*screen\)/],
+  ['OS fullscreen is disabled so taskbar stays visible', /fullscreenable:\s*false/]
 ];
 
 let passed = 0;
