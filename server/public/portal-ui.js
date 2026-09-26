@@ -1610,6 +1610,263 @@
     } catch (_) { /* chart optional */ }
   }
 
+  async function renderChequeDashboardTab(body) {
+    body.innerHTML = `
+      <div class="trsy-wrap">
+        <div class="trsy-hero">
+          <div>
+            <div class="trsy-kicker">چک · گزارش مدیریتی</div>
+            <h3 class="trsy-title">داشبورد چک و الزامات</h3>
+            <p class="trsy-lead">پرتفوی دریافتنی و پرداختنی، پل تطبیق با دفتر کل (۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹)، صیاد، پیری سررسید و چک‌لیست الزامات.</p>
+          </div>
+          <div class="trsy-hero-actions">
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('cheque-dashboard'); })}">↻ بروزرسانی</button>
+            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-cheque-register'); })}">دفتر چک</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-chequebook-report'); })}">دسته چک</button>
+          </div>
+        </div>
+        <div id="chqDashBody"><div class="muted">در حال بارگذاری داشبورد چک…</div></div>
+      </div>`;
+    await loadChequeDashboard();
+  }
+
+  async function loadChequeDashboard() {
+    const box = document.getElementById('chqDashBody');
+    if (!box) return;
+    box.innerHTML = '<div class="muted">در حال بارگذاری داشبورد چک…</div>';
+    const qp = [];
+    if (typeof accDateFrom !== 'undefined' && accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
+    if (typeof accDateTo !== 'undefined' && accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/cheque-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
+    } catch (e) {
+      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
+      return;
+    }
+    const k = d.kpis || {};
+    const gl = d.gl_bridge || {};
+    const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
+    const health = Number(d.health_score) || 0;
+    const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+    const varTone = (n) => Math.abs(Number(n) || 0) > 500000 ? 'var(--red)' : 'var(--green)';
+
+    box.innerHTML = `
+      <div class="trsy-meta">
+        <span class="inv-badge moadian-approved">🟢 پرتفوی + مانده دفتر کل</span>
+        <span>تاریخ گزارش: <b>${esc(d.as_of || '—')}</b></span>
+        <span>بروزرسانی: ${esc(liveAt)}</span>
+        <span class="trsy-chip ${healthCls}">سلامت الزامات ${fmt(health)}٪</span>
+      </div>
+      <div class="rep-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📥</div>
+          <div class="kpi-label">دریافتنی باز (۱۱۰۹)</div>
+          <div class="kpi-val">${fmt(k.recv_open_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.recv_open_count || 0)} فقره · دفتر ${fmt(gl.gl_recv_1109_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">🏦</div>
+          <div class="kpi-label">در جریان وصول (۱۱۱۶)</div>
+          <div class="kpi-val">${fmt(k.recv_collection_rial || 0)}</div>
+          <div class="kpi-sub">دفتر ${fmt(gl.gl_collection_1116_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📤</div>
+          <div class="kpi-label">پرداختنی باز (۲۱۰۹)</div>
+          <div class="kpi-val">${fmt(k.pay_open_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.pay_open_count || 0)} فقره · دفتر ${fmt(gl.gl_pay_2109_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⏰</div>
+          <div class="kpi-label">سررسید گذشته</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${(k.overdue_recv_count || 0) ? 'var(--red)' : 'inherit'}`)}">${fmt(k.overdue_recv_count || 0)}</div>
+          <div class="kpi-sub">${fmt(k.overdue_recv_rial || 0)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📅</div>
+          <div class="kpi-label">۱۴ روز آینده</div>
+          <div class="kpi-val">${fmt(k.due_14d_count || 0)}</div>
+          <div class="kpi-sub">${fmt(k.due_14d_rial || 0)} ریال · امانی ${fmt(k.trust_open_count || 0)}</div>
+        </div>
+      </div>
+      <div class="trsy-grid-2">
+        <div class="panel">
+          <div class="panel-head"><h4>🔗 پل تطبیق دفتر کل</h4></div>
+          <div class="panel-body">
+            <div class="chq-gl-grid">
+              <div class="chq-gl-card">
+                <div class="muted">۱۱۰۹ اسناد دریافتنی</div>
+                <div class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(gl.gl_recv_1109_rial || 0)}</div>
+                <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">عملیاتی ${fmt(gl.ops_recv_rial || 0)}</div>
+                <div class="mono" data-csp-style="${CSP.style(`color:${varTone(gl.variance_recv_rial)};font-size:12px`)}">Δ ${fmt(gl.variance_recv_rial || 0)}</div>
+              </div>
+              <div class="chq-gl-card">
+                <div class="muted">۱۱۱۶ در جریان وصول</div>
+                <div class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(gl.gl_collection_1116_rial || 0)}</div>
+                <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">عملیاتی ${fmt(gl.ops_collection_rial || 0)}</div>
+                <div class="mono" data-csp-style="${CSP.style(`color:${varTone(gl.variance_collection_rial)};font-size:12px`)}">Δ ${fmt(gl.variance_collection_rial || 0)}</div>
+              </div>
+              <div class="chq-gl-card">
+                <div class="muted">۲۱۰۹ اسناد پرداختنی</div>
+                <div class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(gl.gl_pay_2109_rial || 0)}</div>
+                <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">عملیاتی ${fmt(gl.ops_pay_rial || 0)}</div>
+                <div class="mono" data-csp-style="${CSP.style(`color:${varTone(gl.variance_pay_rial)};font-size:12px`)}">Δ ${fmt(gl.variance_pay_rial || 0)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>✅ الزامات و صیاد</h4></div>
+          <div class="panel-body">
+            <div class="trsy-compliance">
+              ${(d.compliance || []).map((c) => `
+                <button type="button" class="trsy-comp-row" data-csp-click="${CSP.bind('click', function () { if (c.action_nav) go(c.action_nav); })}">
+                  ${treasuryStatusChip(c.status)}
+                  <div class="trsy-comp-text">
+                    <div class="trsy-comp-label">${esc(c.label)}</div>
+                    <div class="trsy-comp-detail">${esc(c.detail)}</div>
+                  </div>
+                  <span class="trsy-comp-go">‹</span>
+                </button>`).join('') || '<div class="empty">موردی نیست</div>'}
+            </div>
+            <div class="trsy-conc" data-csp-style="${CSP.style(`margin-top:10px`)}">
+              صیاد معتبر: <b>${fmt((d.sayadi && d.sayadi.rate_pct) || 0)}٪</b>
+              · ${fmt((d.sayadi && d.sayadi.valid_count) || 0)} / ${fmt((d.sayadi && d.sayadi.total_open) || 0)} چک باز
+            </div>
+          </div>
+        </div>
+      </div>
+      ${(d.alerts || []).length ? `
+      <div class="panel trsy-alerts" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>🔔 اقدام‌های پیشنهادی</h4></div>
+        <div class="panel-body"><div class="trsy-alert-list">
+          ${(d.alerts || []).map((a) => `
+            <button type="button" class="trsy-alert-item" data-csp-click="${CSP.bind('click', function () { if (a.action_nav) go(a.action_nav); })}">
+              ${treasuryStatusChip(a.severity)}
+              <div><b>${esc(a.title)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:2px`)}">${esc(a.detail)}</div></div>
+            </button>`).join('')}
+        </div></div>
+      </div>` : ''}
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>📊 پیری سررسید (دریافتنی باز)</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>بازه</th><th>تعداد</th><th data-col-kind="money">مبلغ</th>
+            </tr></thead><tbody>${(d.aging || []).map((a) => `<tr>
+              <td>${esc(a.label || a.bucket)}</td><td class="mono">${fmt(a.count || 0)}</td><td class="mono">${fmt(a.amount_rial || 0)}</td>
+            </tr>`).join('') || emptyRow(3)}</tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>⚠️ سررسید گذشته / نزدیک</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>شماره</th><th>طرف</th><th>سررسید</th><th data-col-kind="money">مبلغ</th>
+            </tr></thead><tbody>${[
+              ...((d.highlights && d.highlights.overdue) || []).map((r) => `<tr>
+                <td class="mono">${esc(r.cheque_number || '—')}</td><td>${esc(r.party_name || '—')}</td>
+                <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${esc(r.due_date || '—')}</td><td class="mono">${fmt(r.amount_rial || 0)}</td></tr>`),
+              ...((d.highlights && d.highlights.due_soon) || []).slice(0, 4).map((r) => `<tr>
+                <td class="mono">${esc(r.cheque_number || '—')}</td><td>${esc(r.party_name || '—')}</td>
+                <td class="mono">${esc(r.due_date || '—')}</td><td class="mono">${fmt(r.amount_rial || 0)}</td></tr>`),
+            ].join('') || emptyRow(4)}</tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="trsy-footnote muted">مبالغ به <b>ریال</b>. «عملیاتی» از وضعیت چرخه چک؛ «دفتر» مانده زنده حساب‌های ۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹.</div>`;
+    if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+  }
+
+  async function renderChequebookReportTab(body) {
+    body.innerHTML = `
+      <div class="trsy-wrap">
+        <div class="trsy-hero">
+          <div>
+            <div class="trsy-kicker">دفتر چک · موجودی برگه</div>
+            <h3 class="trsy-title">گزارش دفتر چک و دسته</h3>
+            <p class="trsy-lead">موجودی برگه هر دسته، مصرف سریال، بانک بدون دسته، و چک‌های پرداختنی ثبت‌شدهٔ تحویل‌نشده.</p>
+          </div>
+          <div class="trsy-hero-actions">
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('chequebook-report'); })}">↻ بروزرسانی</button>
+            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-check-categories'); })}">دسته چک‌ها</button>
+          </div>
+        </div>
+        <div id="chqBookBody"><div class="muted">در حال بارگذاری…</div></div>
+      </div>`;
+    await loadChequebookReport();
+  }
+
+  async function loadChequebookReport() {
+    const box = document.getElementById('chqBookBody');
+    if (!box) return;
+    box.innerHTML = '<div class="muted">در حال بارگذاری…</div>';
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/chequebook-dashboard', null, false, true) || {};
+    } catch (e) {
+      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن گزارش ناموفق بود')}</div>`;
+      return;
+    }
+    const k = d.kpis || {};
+    const health = Number(d.health_score) || 0;
+    const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+    box.innerHTML = `
+      <div class="trsy-meta">
+        <span>تاریخ: <b>${esc(d.as_of || '—')}</b></span>
+        <span class="trsy-chip ${healthCls}">سلامت ${fmt(health)}٪</span>
+      </div>
+      <div class="rep-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card"><div class="kpi-icon">📒</div><div class="kpi-label">دسته چک</div><div class="kpi-val">${fmt(k.book_count || 0)}</div><div class="kpi-sub">${fmt(k.active_books || 0)} فعال</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">📄</div><div class="kpi-label">برگه کل</div><div class="kpi-val">${fmt(k.total_leaves || 0)}</div><div class="kpi-sub">مصرف ${fmt(k.used_leaves || 0)} · باقی ${fmt(k.remaining_leaves || 0)}</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">⚠️</div><div class="kpi-label">کم‌موجود</div><div class="kpi-val">${fmt(k.low_stock_books || 0)}</div><div class="kpi-sub">بانک بدون دسته ${fmt(k.banks_without_books || 0)}</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">📤</div><div class="kpi-label">پرداختنی ثبت‌شده</div><div class="kpi-val">${fmt(k.undelivered_pay_count || 0)}</div><div class="kpi-sub">${fmt(k.undelivered_pay_rial || 0)} ریال</div></div>
+      </div>
+      <div class="trsy-grid-2">
+        <div class="panel">
+          <div class="panel-head"><h4>📑 موجودی دسته‌ها</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>دسته</th><th>بانک</th><th>برگه</th><th>مصرف</th><th>باقی</th><th>٪</th>
+            </tr></thead><tbody>${(d.books || []).map((b) => `<tr>
+              <td><b>${esc(b.name)}</b>${b.alerts && b.alerts.length ? ' ⚠️' : ''}</td>
+              <td>${esc(b.bank_name)}</td>
+              <td class="mono">${fmt(b.leaf_count || 0)}</td>
+              <td class="mono">${fmt(b.used_leaves || 0)}</td>
+              <td class="mono">${b.remaining_leaves != null ? fmt(b.remaining_leaves) : '—'}</td>
+              <td><div class="trsy-share-cell"><span class="mono">${fmt(b.fill_pct || 0)}٪</span>${treasuryShareBar(b.fill_pct)}</div></td>
+            </tr>`).join('') || emptyRow(6)}</tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>✅ الزامات</h4></div>
+          <div class="panel-body"><div class="trsy-compliance">
+            ${(d.compliance || []).map((c) => `
+              <button type="button" class="trsy-comp-row" data-csp-click="${CSP.bind('click', function () { if (c.action_nav) go(c.action_nav); })}">
+                ${treasuryStatusChip(c.status)}
+                <div class="trsy-comp-text"><div class="trsy-comp-label">${esc(c.label)}</div><div class="trsy-comp-detail">${esc(c.detail)}</div></div>
+                <span class="trsy-comp-go">‹</span>
+              </button>`).join('') || '<div class="empty">موردی نیست</div>'}
+          </div>
+          ${(d.banks_without || []).length ? `<div class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">بانک بدون دسته: ${(d.banks_without || []).map((b) => esc(b.bank_name)).join('، ')}</div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>📤 آخرین چک‌های پرداختنی (دفتر)</h4></div>
+        <div class="panel-body tbl-wrap">
+          <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>شماره</th><th>طرف</th><th>سررسید</th><th>چرخه</th><th data-col-kind="money">مبلغ</th>
+          </tr></thead><tbody>${(d.recent_payable || []).map((r) => `<tr>
+            <td class="mono">${esc(r.cheque_number || '—')}</td><td>${esc(r.party_name || '—')}</td>
+            <td class="mono">${esc(r.due_date || '—')}</td><td class="mono muted">${esc(r.lifecycle_status || '—')}</td><td class="mono">${fmt(r.amount_rial || 0)}</td>
+          </tr>`).join('') || emptyRow(5)}</tbody></table>
+        </div>
+      </div>`;
+    if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+  }
+
   async function reloadReport(kind) {
     const q = el(kind === 'vat' ? 'vat-q' : 's169-q')?.value || (todayJalali().slice(0, 4) + '-Q1');
     const boxId = kind === 'vat' ? 'vatReportBox' : 's169ReportBox';
@@ -1861,6 +2118,10 @@
     renderKpiDashboardTab,
     renderTreasuryDashboardTab,
     loadTreasuryDashboard,
+    renderChequeDashboardTab,
+    loadChequeDashboard,
+    renderChequebookReportTab,
+    loadChequebookReport,
     selectUnit,
     openCreateUnitModal,
     openEditUnitModal,
@@ -1937,5 +2198,9 @@
   global.renderKpiDashboardTab = renderKpiDashboardTab;
   global.renderTreasuryDashboardTab = renderTreasuryDashboardTab;
   global.loadTreasuryDashboard = loadTreasuryDashboard;
+  global.renderChequeDashboardTab = renderChequeDashboardTab;
+  global.loadChequeDashboard = loadChequeDashboard;
+  global.renderChequebookReportTab = renderChequebookReportTab;
+  global.loadChequebookReport = loadChequebookReport;
 
 }(typeof globalThis !== 'undefined' ? globalThis : window));

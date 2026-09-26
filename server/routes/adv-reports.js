@@ -7,6 +7,8 @@ const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { firmSaleTypeSql } = require('../lib/sales-document');
 const { buildCashFlowReport } = require('../lib/cash-flow');
 const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
+const { buildChequeDashboard } = require('../lib/cheque-dashboard');
+const { buildChequebookDashboard } = require('../lib/chequebook-dashboard');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -557,6 +559,38 @@ router.get('/treasury-dashboard', auth, adminOrAccounting, (req, res) => {
       cash_boxes: [],
       alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد نقدینگی در دسترس نیست', action_nav: 'acc-treasury-dashboard' }],
       warning: 'داشبورد نقدینگی در دسترس نیست',
+    });
+  }
+});
+
+/** داشبورد چک و الزامات — پرتفوی + پل GL 1109/1116/2109 + صیاد + پیری */
+router.get('/cheque-dashboard', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildChequeDashboard(getDB(), req.query.from, req.query.to));
+  } catch (e) {
+    console.error('GET /adv-reports/cheque-dashboard', e && e.message);
+    res.status(200).json({
+      health_score: 0,
+      kpis: { recv_open_rial: 0 },
+      gl_bridge: {},
+      alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد چک در دسترس نیست', action_nav: 'acc-cheque-dashboard' }],
+      warning: 'داشبورد چک در دسترس نیست',
+    });
+  }
+});
+
+/** گزارش دفتر چک و دسته — موجودی برگه و صدور پرداختنی */
+router.get('/chequebook-dashboard', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildChequebookDashboard(getDB()));
+  } catch (e) {
+    console.error('GET /adv-reports/chequebook-dashboard', e && e.message);
+    res.status(200).json({
+      health_score: 0,
+      kpis: { book_count: 0 },
+      books: [],
+      alerts: [{ severity: 'fail', title: 'خطای گزارش', detail: 'گزارش دفتر چک در دسترس نیست', action_nav: 'acc-chequebook-report' }],
+      warning: 'گزارش دفتر چک در دسترس نیست',
     });
   }
 });
