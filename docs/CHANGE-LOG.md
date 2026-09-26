@@ -24,7 +24,7 @@
 - **تست:** test-cheque-dashboards-v244 (۱۷/۱۷)؛ sms ۲۲/۲۲؛ parse app.js / portal-ui.js.
 - **فایل‌ها:** server/lib/{cheque-dashboard,chequebook-dashboard}.js, server/routes/adv-reports.js, server/lib/accounting-access.js, server/public/{acc-nav.js,portal-ui.js,app.js,app.css,index.html,sw.js}, server/scripts/test-cheque-dashboards-v244.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v244
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 71e5f4d — health/ready/root 200؛ SW erp-taranom-v244 روی VPS؛ pm2 restart بدون --update-env. (بعداً SW v245 برای تعمیر دفتر مشتری روی main بالا رفت.)
 
 ### ۱۴۰۵/۰۷/۰۵ — چاپ فاکتور: کاغذ A5/A4 طبق ISO 216 (SW v243)
 
