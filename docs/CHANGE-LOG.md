@@ -5,20 +5,29 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — موجودی رنگ×سایز تفکیک انبار + رفع حواله آفاق/درسا (SW v238)
+
+- **ریشه:** ۱) حواله/انتقال پک رنگ را بدون `warehouse_id` (موجودی سراسری) می‌ساخت؛ رنگ‌های انبار کیمیا روی مبدأ «محصول» ظاهر می‌شدند و سرور با VWS=۰ رد می‌کرد. ۲) `variantWarehouseQty` / `expandLivePack` برای انبار بدون ردیف به `product_variants.stock` برمی‌گشتند. ۳) اولین حرکت به انبار جدید VWS را با موجودی سراسری seed می‌کرد → دوبرابر شدن (مثل درسا). ۴) UI ماتریس کالا فقط عدد سراسری نشان می‌داد.
+- **اصلاح:** ATP انبار بدون ردیف = ۰؛ seed VWS همیشه ۰؛ heal یک‌باره `vws_wh_reconcile_v1`؛ `stock-matrix` و فرم کالا با انتخاب انبار؛ حواله پک زندهٔ همان مبدأ؛ `stock_by_warehouse` در style API.
+- **تست:** test-variant-wh-scope-v238 (۱۷/۱۷)؛ test-variant-stock-movement؛ sms ۲۲/۲۲.
+- **فایل‌ها:** server/lib/inventory/movement.js, server/lib/product-variants/service.js, server/routes/product-variants.js, server/public/{app.js,sw.js}, server/scripts/test-variant-wh-scope-v238.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v238
+- **Deploy:** pending
+
 ### ۱۴۰۵/۰۷/۰۴ — تعمیر افتتاحیهٔ یتیم بانک/صندوق (ملت ۹۹۵۵) (SW v236)
 
 - **ریشهٔ production:** بانک ملت ۹۹۵۵ `opening_balance_rial≈۵٫۰۷ میلیارد` و `opening_balance_je_id=522` داشت ولی max JE فقط ۹۱ بود — سند افتتاحیه غایب؛ مانده زنده فقط تسویه‌های بعدی (~۱۴۷م).
 - **اصلاح:** اگر `opening_balance_je_id` به JE زنده اشاره نکند، پاک و دوباره `bank_opening`/`cash_opening` روی `1102-{id}` یا `coa_code` پست می‌شود (با fallback تاریخ امروز اگر سال مالی بسته باشد). دیگر به معین کنترل `1102` خام پست نمی‌شود.
 - **فایل‌ها:** server/routes/{banks,cash-boxes}.js, server/public/sw.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v236
-- **Deploy:** pending
+- **Deploy:** ✅ ایران SFTP overlay @ 2444691 — health/ready/root 200. repair ۱۳ بانک incl. ملت ۹۹۵۵ live=۵٬۲۲۳٬۴۸۷٬۹۰۷. SW erp-taranom-v236.
 
 ### ۱۴۰۵/۰۷/۰۴ — پاک‌سازی ابزارگذاری دیباگ داشبورد (SW v237)
 
 - حذف `fetch`/append به `debug-abef47` از `app.js` و مسیرهای admin/customers؛ فیکس زنده بودن داشبورد (v236) باقی ماند.
 - **فایل‌ها:** server/public/{app.js,sw.js}, server/routes/{admin,customers}.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v237
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP — instrumentation removed؛ health 200؛ SW erp-taranom-v237.
 
 ### ۱۴۰۵/۰۷/۰۴ — داشبورد زنده + هم‌ترازی بازه/نقش/CRM (SW v236)
 
