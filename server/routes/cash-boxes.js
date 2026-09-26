@@ -12,11 +12,25 @@ const { reverseJournalEntry } = require('../lib/void-journal');
 function postCashOpeningJe(db, box, openingRial, userId) {
   const amt = Math.round(Number(openingRial) || 0);
   if (amt <= 0) return null;
-  if (box.opening_balance_je_id) return box.opening_balance_je_id;
-  const cashAcct = box.coa_code
-    ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(box.coa_code)
-    : null;
-  const cashCode = cashAcct || acct(db, 'coa_cash_default') || { code: box.coa_code || ('1101-' + box.id), name: box.name };
+  if (box.opening_balance_je_id) {
+    const live = db.prepare(
+      "SELECT id FROM journal_entries WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')"
+    ).get(box.opening_balance_je_id);
+    if (live) return box.opening_balance_je_id;
+    db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
+    box = { ...box, opening_balance_je_id: null };
+  }
+  const existing = db.prepare(
+    "SELECT id FROM journal_entries WHERE ref_type='cash_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1"
+  ).get(box.id);
+  if (existing) {
+    db.prepare('UPDATE cash_boxes SET opening_balance_je_id=? WHERE id=?').run(existing.id, box.id);
+    return existing.id;
+  }
+  syncCashBoxAccount(db, box);
+  const joinCode = resolveCashJoinCode(db, box);
+  const cashAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(joinCode);
+  const cashCode = cashAcct || { code: joinCode, name: box.name };
   const openingAccount = acct(db, 'coa_opening_balance');
   const valueToman = rialToLedger(amt);
   const journalId = postToLedger(db, {
@@ -34,6 +48,25 @@ function postCashOpeningJe(db, box, openingRial, userId) {
   db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=COALESCE(opening_balance_date,?) WHERE id=?')
     .run(amt, journalId, todayJalali(), box.id);
   return journalId;
+}
+
+function repairCashOpeningIfNeeded(db, box, userId) {
+  const amt = Math.round(Number(box.opening_balance_rial) || 0);
+  if (amt <= 0) return box;
+  try {
+    postCashOpeningJe(db, box, amt, userId || 1);
+  } catch (e) {
+    if (e && (e.status === 422 || /سال مالی|fiscal/i.test(String(e.message || '')))) {
+      try {
+        postCashOpeningJe(db, { ...box, opening_balance_je_id: null, opening_balance_date: todayJalali() }, amt, userId || 1);
+      } catch (e2) {
+        console.error('cash opening repair retry', box.id, e2 && e2.message);
+      }
+    } else {
+      console.error('cash opening repair', box.id, e && e.message);
+    }
+  }
+  return db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(box.id) || box;
 }
 
 router.get('/', auth, (req, res) => {
@@ -78,7 +111,8 @@ function glBalanceOnCode(db, accountCode) {
 router.get('/balances', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const boxes = db.prepare('SELECT * FROM cash_boxes ORDER BY name').all();
-  const rows = boxes.map((b) => {
+  const rows = boxes.map((raw) => {
+    const b = repairCashOpeningIfNeeded(db, raw, req.user && req.user.id);
     const joinCode = resolveCashJoinCode(db, b);
     let balance = glBalanceOnCode(db, joinCode);
     if (balance === 0) {

@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — تعمیر افتتاحیهٔ یتیم بانک/صندوق (ملت ۹۹۵۵) (SW v236)
+
+- **ریشهٔ production:** بانک ملت ۹۹۵۵ `opening_balance_rial≈۵٫۰۷ میلیارد` و `opening_balance_je_id=522` داشت ولی max JE فقط ۹۱ بود — سند افتتاحیه غایب؛ مانده زنده فقط تسویه‌های بعدی (~۱۴۷م).
+- **اصلاح:** اگر `opening_balance_je_id` به JE زنده اشاره نکند، پاک و دوباره `bank_opening`/`cash_opening` روی `1102-{id}` یا `coa_code` پست می‌شود (با fallback تاریخ امروز اگر سال مالی بسته باشد). دیگر به معین کنترل `1102` خام پست نمی‌شود.
+- **فایل‌ها:** server/routes/{banks,cash-boxes}.js, server/public/sw.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v236
+- **Deploy:** pending
+
 ### ۱۴۰۵/۰۷/۰۴ — پاک‌سازی ابزارگذاری دیباگ داشبورد (SW v237)
 
 - حذف `fetch`/append به `debug-abef47` از `app.js` و مسیرهای admin/customers؛ فیکس زنده بودن داشبورد (v236) باقی ماند.
@@ -27,7 +35,7 @@
 - **تست:** test-bank-cash-live-v235 (۱۰/۱۰ با Node ۲۰)؛ sms ۲۲/۲۲؛ sync ۴۴/۴۴ با Node ۲۰.
 - **فایل‌ها:** server/lib/cash-flow.js, server/routes/{banks,cash-boxes,check-categories,dashboard}.js, server/db.js, server/public/{app.js,sw.js}, server/scripts/test-bank-cash-live-v235.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v235
-- **Deploy:** pending
+- **Deploy:** ✅ ایران SFTP overlay @ 87451d1 — `/health` `/ready` `/` 200. SW erp-taranom-v235.
 
 ### ۱۴۰۵/۰۷/۰۴ — تفصیلی خودکار برای مشتری CRM / دفتر پخش (SW v234)
 

@@ -146,10 +146,44 @@ const usedSql = db.prepare(`
 `).get(catId, catId, catId);
 ok(Number(usedSql.c) >= 0, 'used_leaves SQL runs');
 
-// Ensure banks.js source no longer references broken key
+// Ensure banks.js source no longer references broken key + has stale-JE repair
 const banksSrc = fs.readFileSync(path.join(__dirname, '../routes/banks.js'), 'utf8');
 ok(!/acct\(db,\s*'coa_bank'\)/.test(banksSrc), 'banks.js does not call acct(coa_bank)');
-ok(/coa_bank_default/.test(banksSrc), 'banks.js uses coa_bank_default');
+ok(/repairBankOpeningIfNeeded/.test(banksSrc), 'banks.js repairs stale opening JE');
+ok(/opening_balance_je_id=NULL/.test(banksSrc), 'banks.js clears missing opening JE pointer');
+ok(/'1102-' \+ bank\.id|"1102-" \+ bank\.id|`1102-\$\{bank\.id\}`|joinCode/.test(banksSrc), 'banks.js targets instrument code not bare 1102');
+
+// Behavioral: stale je_id + opening_rial → after posting to 1102-{id}, live includes opening
+const b2 = db.prepare(`
+  INSERT INTO banks (name, account_number, active, opening_balance_rial, opening_balance_je_id, opening_balance_date)
+  VALUES (?,?,?,?,?,?)
+`).run('ملت 9955', '7617449955', 1, 5_076_687_907, 999999, '1405/01/01');
+const b2id = b2.lastInsertRowid;
+syncBankAccount(db, db.prepare('SELECT * FROM banks WHERE id=?').get(b2id));
+// Mimic repair: clear stale + post
+db.prepare('UPDATE banks SET opening_balance_je_id=NULL WHERE id=?').run(b2id);
+let b2row = db.prepare('SELECT * FROM banks WHERE id=?').get(b2id);
+const join2 = '1102-' + b2id;
+const openAcct = acct(db, 'coa_opening_balance');
+const jid = postToLedger(db, {
+  sourceType: 'bank_opening',
+  sourceId: b2id,
+  date: '1405/01/01',
+  description: 'repair opening',
+  createdBy: 1,
+  voucherType: 'opening',
+  lines: [
+    { code: join2, name: b2row.name, debit: rialToLedger(b2row.opening_balance_rial), credit: 0 },
+    { code: openAcct.code, name: openAcct.name, debit: 0, credit: rialToLedger(b2row.opening_balance_rial) },
+  ],
+});
+db.prepare('UPDATE banks SET opening_balance_je_id=? WHERE id=?').run(jid, b2id);
+const live2 = db.prepare(`
+  SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}),0) AS bal
+  FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+  WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
+`).get(join2);
+ok(Math.round(Number(live2.bal)) === 5_076_687_907, 'repaired opening lands on 1102-{id} (=5.07B)');
 
 console.log(`\nPASS ${passed} assertions — bank-cash-live-v235`);
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}

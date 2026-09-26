@@ -15,11 +15,27 @@ const { reverseJournalEntry } = require('../lib/void-journal');
 function postBankOpeningJe(db, bank, openingRial, userId) {
   const amt = Math.round(Number(openingRial) || 0);
   if (amt <= 0) return null;
-  if (bank.opening_balance_je_id) return bank.opening_balance_je_id;
-  const bankAcct = bank.coa_code
-    ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(bank.coa_code)
-    : null;
-  const bankCode = bankAcct || acct(db, 'coa_bank_default') || { code: bank.coa_code || ('1102-' + bank.id), name: bank.name };
+  if (bank.opening_balance_je_id) {
+    const live = db.prepare(
+      "SELECT id FROM journal_entries WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')"
+    ).get(bank.opening_balance_je_id);
+    if (live) return bank.opening_balance_je_id;
+    // Stale pointer (JE wiped / company reset) — clear and re-post
+    db.prepare('UPDATE banks SET opening_balance_je_id=NULL WHERE id=?').run(bank.id);
+    bank = { ...bank, opening_balance_je_id: null };
+  }
+  const existing = db.prepare(
+    "SELECT id FROM journal_entries WHERE ref_type='bank_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1"
+  ).get(bank.id);
+  if (existing) {
+    db.prepare('UPDATE banks SET opening_balance_je_id=? WHERE id=?').run(existing.id, bank.id);
+    return existing.id;
+  }
+  // Prefer instrument tafsili (1102-{id} or mapped coa), never the bare control 1102
+  syncBankAccount(db, bank);
+  const joinCode = resolveBankJoinCode(db, bank);
+  const bankAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(joinCode);
+  const bankCode = bankAcct || { code: joinCode, name: bank.name };
   const openingAccount = acct(db, 'coa_opening_balance');
   const valueToman = rialToLedger(amt);
   const journalId = postToLedger(db, {
@@ -37,6 +53,25 @@ function postBankOpeningJe(db, bank, openingRial, userId) {
   db.prepare('UPDATE banks SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=COALESCE(opening_balance_date,?) WHERE id=?')
     .run(amt, journalId, todayJalali(), bank.id);
   return journalId;
+}
+
+function repairBankOpeningIfNeeded(db, bank, userId) {
+  const amt = Math.round(Number(bank.opening_balance_rial) || 0);
+  if (amt <= 0) return bank;
+  try {
+    postBankOpeningJe(db, bank, amt, userId || 1);
+  } catch (e) {
+    if (e && (e.status === 422 || /سال مالی|fiscal/i.test(String(e.message || '')))) {
+      try {
+        postBankOpeningJe(db, { ...bank, opening_balance_je_id: null, opening_balance_date: todayJalali() }, amt, userId || 1);
+      } catch (e2) {
+        console.error('bank opening repair retry', bank.id, e2 && e2.message);
+      }
+    } else {
+      console.error('bank opening repair', bank.id, e && e.message);
+    }
+  }
+  return db.prepare('SELECT * FROM banks WHERE id=?').get(bank.id) || bank;
 }
 
 router.get('/', auth, (req, res) => {
@@ -83,7 +118,8 @@ function glBalanceOnCode(db, accountCode) {
 router.get('/balances', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const banks = db.prepare('SELECT * FROM banks ORDER BY name').all();
-  const rows = banks.map((b) => {
+  const rows = banks.map((raw) => {
+    const b = repairBankOpeningIfNeeded(db, raw, req.user && req.user.id);
     const joinCode = resolveBankJoinCode(db, b);
     let balance = glBalanceOnCode(db, joinCode);
     // If mapped code is silent but orphan 1102-{id} has activity, surface that (legacy drift)
