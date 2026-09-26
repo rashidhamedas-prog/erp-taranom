@@ -7,6 +7,14 @@ const ALLOWED_EXTERNAL_HOSTS = Object.freeze([
   'erp.poshaktaranom.com'
 ]);
 
+/** GitHub Releases host for this product only — used by updater, not shell.openExternal. */
+const UPDATE_GITHUB_REPO_PREFIX = '/rashidhamedas-prog/erp-taranom/releases/';
+const ALLOWED_UPDATE_ASSET_HOSTS = Object.freeze([
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com'
+]);
+
 const MAX_UPDATE_BYTES = 1024 * 1024 * 1024;
 
 function parseUrl(value) {
@@ -51,6 +59,22 @@ function isAllowedExternalUrl(value) {
   );
 }
 
+function isAllowedGithubReleaseUrl(url) {
+  if (!url || url.protocol !== 'https:' || !hasNoCredentials(url)) return false;
+  if (url.port !== '' && url.port !== '443') return false;
+  if (url.hostname === 'github.com') {
+    return url.pathname.startsWith(UPDATE_GITHUB_REPO_PREFIX);
+  }
+  return ALLOWED_UPDATE_ASSET_HOSTS.includes(url.hostname);
+}
+
+/** Update feed/installer downloads: Taranom HTTPS hosts or this repo's GitHub Releases. */
+function isAllowedUpdateUrl(value) {
+  if (isAllowedExternalUrl(value)) return true;
+  const url = parseUrl(value);
+  return !!(url && isAllowedGithubReleaseUrl(url));
+}
+
 function normalizeSha256(value) {
   const digest = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return /^[a-f0-9]{64}$/.test(digest) ? digest : null;
@@ -88,7 +112,7 @@ function validateManualUpdateMetadata(input, expected) {
   const inputSha256 = normalizeSha256(input && input.sha256);
   const inputSize = normalizeUpdateSize(input && input.size);
 
-  if (!isAllowedExternalUrl(expectedUrl) || !expectedSha256 || !expectedSize) {
+  if (!isAllowedUpdateUrl(expectedUrl) || !expectedSha256 || !expectedSize) {
     return { ok: false, code: 'E_UPDATE_METADATA_MISSING' };
   }
   if (!input || input.url !== expectedUrl || inputSha256 !== expectedSha256 || inputSize !== expectedSize) {
@@ -176,10 +200,13 @@ function hardenWebviewPreferences(webPreferences) {
 
 module.exports = {
   ALLOWED_EXTERNAL_HOSTS,
+  ALLOWED_UPDATE_ASSET_HOSTS,
+  UPDATE_GITHUB_REPO_PREFIX,
   MAX_UPDATE_BYTES,
   isLoopbackUrl,
   isAllowedChildWindowUrl,
   isAllowedExternalUrl,
+  isAllowedUpdateUrl,
   normalizeSha256,
   normalizeUpdateSize,
   normalizePublisherNames,

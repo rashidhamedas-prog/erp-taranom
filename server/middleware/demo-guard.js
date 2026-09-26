@@ -37,6 +37,7 @@ const EXPIRED_EXEMPT = [
   '/api/demo/status',
   '/api/system/health',
   '/api/system/ready',
+  '/api/system/desktop-safe-point',
   '/api/system/time',
   '/api/system/app-info',
 ];

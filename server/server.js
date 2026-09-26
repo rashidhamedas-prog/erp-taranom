@@ -291,6 +291,27 @@ app.use('/api/admin/backup-restore', heavyLimiter);
 const { requestGuard: companyRequestGuard } = require('./lib/company-switch-guard');
 app.use('/api', companyRequestGuard);
 
+// Track in-flight mutating API calls so the desktop updater can wait for a safe point.
+let desktopActiveMutations = 0;
+app.use('/api', (req, res, next) => {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return next();
+  const pathOnly = String(req.path || '').split('?')[0];
+  if (pathOnly === '/system/desktop-safe-point' || pathOnly === '/api/system/desktop-safe-point') {
+    return next();
+  }
+  desktopActiveMutations += 1;
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    desktopActiveMutations = Math.max(0, desktopActiveMutations - 1);
+  };
+  res.on('finish', settle);
+  res.on('close', settle);
+  next();
+});
+
 // Liveness/readiness before schema init. Kernel can accept TCP during initDB
 // instead of returning connection-refused (Cloudflare 521 / browser Failed to fetch).
 app.get('/api/system/health', (req, res) => {
@@ -305,6 +326,44 @@ app.get('/api/system/health', (req, res) => {
     maintenance: !!(demo.enabled && demo.maintenance),
     starting: st.code === 'STARTING',
     restarting: st.code === 'RESTARTING',
+    active_mutations: desktopActiveMutations,
+  });
+});
+app.post('/api/system/desktop-safe-point', (req, res) => {
+  if (process.env.APP_PLATFORM !== 'desktop') {
+    return res.status(404).json({ ok: false, error: 'not_desktop' });
+  }
+  let pendingOutbox = 0;
+  let checkpointOk = false;
+  let reason = null;
+  try {
+    const db = getDB();
+    try {
+      db.pragma('wal_checkpoint(PASSIVE)');
+      checkpointOk = true;
+    } catch (error) {
+      reason = error && error.message ? error.message : 'checkpoint_failed';
+    }
+    try {
+      const row = db.prepare(
+        `SELECT COUNT(*) AS c FROM sync_outbox WHERE status IN ('pending','sending','failed')`
+      ).get();
+      pendingOutbox = row && row.c ? Number(row.c) : 0;
+    } catch {
+      pendingOutbox = 0;
+    }
+  } catch (error) {
+    reason = error && error.message ? error.message : 'db_unavailable';
+  }
+  const safe = checkpointOk && desktopActiveMutations === 0;
+  res.json({
+    ok: true,
+    safe,
+    reason: safe ? null : (reason || (desktopActiveMutations > 0 ? 'mutations_active' : 'not_ready')),
+    active_mutations: desktopActiveMutations,
+    pending_outbox: pendingOutbox,
+    // Pending outbox is retained across upgrades (userData). It does not block install.
+    outbox_blocks_install: false
   });
 });
 app.get('/api/system/ready', (req, res) => {

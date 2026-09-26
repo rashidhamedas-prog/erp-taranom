@@ -16,6 +16,7 @@ const {
   isLoopbackUrl,
   isAllowedChildWindowUrl,
   isAllowedExternalUrl,
+  isAllowedUpdateUrl,
   normalizeSha256,
   normalizeUpdateSize,
   normalizePublisherNames,
@@ -33,6 +34,9 @@ let autoUpdater = null;
 let embeddedPort = null;
 let signedUpdaterPolicyReady = false;
 let manualInstallInFlight = null;
+let safeInstallTimer = null;
+let safeInstallAttempts = 0;
+let activeMutations = 0;
 const hardenedSessions = new WeakSet();
 
 let updateState = {
@@ -167,7 +171,7 @@ async function applyUpdateFeed(port) {
     const response = await fetch(`http://127.0.0.1:${port}/api/system/update-feed`);
     if (!response.ok) return false;
     const body = await response.json();
-    if (!isAllowedExternalUrl(body && body.url)) return false;
+    if (!isAllowedUpdateUrl(body && body.url)) return false;
     const feedUrl = new URL(body.url);
     feedUrl.hash = '';
     feedUrl.search = '';
@@ -221,7 +225,7 @@ async function checkUpdateViaManifest(port) {
     if (update.update_available) {
       const sha256 = normalizeSha256(update.sha256);
       const size = normalizeUpdateSize(update.size);
-      if (!update.downloadable || !isAllowedExternalUrl(update.url) || !sha256 || !size) {
+      if (!update.downloadable || !isAllowedUpdateUrl(update.url) || !sha256 || !size) {
         throw new Error('The update manifest does not contain a safe downloadable installer');
       }
       updateState.status = 'available-fallback';
@@ -273,7 +277,7 @@ async function checkForUpdates(port) {
 async function fetchWithSafeRedirects(initialUrl, maxRedirects = 3) {
   let currentUrl = initialUrl;
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-    if (!isAllowedExternalUrl(currentUrl)) throw new Error('Update URL is not allowed');
+    if (!isAllowedUpdateUrl(currentUrl)) throw new Error('Update URL is not allowed');
     const response = await fetch(currentUrl, {
       redirect: 'manual',
       headers: { 'User-Agent': `ERP-Taranom/${pkg.version || '0'}` }
@@ -282,7 +286,7 @@ async function fetchWithSafeRedirects(initialUrl, maxRedirects = 3) {
       const location = response.headers.get('location');
       if (!location || redirectCount === maxRedirects) throw new Error('Unsafe or excessive update redirect');
       const nextUrl = new URL(location, currentUrl).toString();
-      if (!isAllowedExternalUrl(nextUrl)) throw new Error('Update redirect left the trusted host allowlist');
+      if (!isAllowedUpdateUrl(nextUrl)) throw new Error('Update redirect left the trusted host allowlist');
       if (response.body) await response.body.cancel();
       currentUrl = nextUrl;
       continue;
@@ -425,6 +429,64 @@ async function installUpdate(payload) {
   }
 }
 
+async function probeDesktopSafePoint(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/system/desktop-safe-point`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
+    const body = await response.json();
+    return {
+      ok: body && body.safe === true,
+      reason: body && body.reason,
+      activeMutations: body && body.active_mutations,
+      pendingOutbox: body && body.pending_outbox
+    };
+  } catch (error) {
+    return { ok: false, reason: error && error.message };
+  }
+}
+
+function clearSafeInstallTimer() {
+  if (safeInstallTimer) {
+    clearTimeout(safeInstallTimer);
+    safeInstallTimer = null;
+  }
+}
+
+function scheduleSafeInstall(port) {
+  clearSafeInstallTimer();
+  safeInstallAttempts = 0;
+  const attempt = async () => {
+    safeInstallAttempts += 1;
+    if (updateState.status !== 'ready' || updateState.installerSource !== 'electron-updater') return;
+    if (activeMutations > 0) {
+      safeInstallTimer = setTimeout(attempt, 2000);
+      return;
+    }
+    const probe = await probeDesktopSafePoint(port);
+    // Outbox may remain pending — userData survives upgrade. Block only while writes are active.
+    if (!probe.ok && probe.activeMutations > 0) {
+      if (safeInstallAttempts < 90) safeInstallTimer = setTimeout(attempt, 2000);
+      return;
+    }
+    if (!probe.ok && safeInstallAttempts < 5) {
+      safeInstallTimer = setTimeout(attempt, 2000);
+      return;
+    }
+    updateState.status = 'installing';
+    broadcastUpdateState();
+    try {
+      autoUpdater.quitAndInstall(false, true);
+    } catch (error) {
+      setUpdateError(error && error.message);
+    }
+  };
+  safeInstallTimer = setTimeout(attempt, 1500);
+  if (typeof safeInstallTimer.unref === 'function') safeInstallTimer.unref();
+}
+
 function registerUpdateIpc(port) {
   ipcMain.removeHandler('desktop:get-update-status');
   ipcMain.removeHandler('desktop:check-update');
@@ -499,6 +561,9 @@ function setupAutoUpdate(port) {
     updateState.installerSource = 'electron-updater';
     updateState.signatureVerified = signedUpdatesRequired() && signedUpdaterPolicyReady;
     broadcastUpdateState();
+    // Install at the first safe point without an extra in-app confirmation.
+    // Outbox and userData survive; we only wait until local mutations settle.
+    scheduleSafeInstall(port);
   });
 
   autoUpdater.on('error', () => {

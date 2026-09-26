@@ -1,3 +1,16 @@
+﻿## 2026-09-27T02:40:00+03:30 — DESKTOP-EXE-DELIVER (in progress → build delivered)
+
+- Claimed `DESKTOP-EXE-DELIVER` on branch `ai/DESKTOP-EXE-DELIVER`, worktree `D:/proje/erp-taranom-desktop-exe`.
+- Built signed NSIS x64 **2.0.12** → `D:\proje\ERP EXE\ERP Taranom Setup 2.0.12.exe`
+  - SHA-256 `68C8472BED77387048B938A9E67E17DCF60358F80344B74771FF869DF66697C8`
+  - Authenticode CN=Poshak Taranom + DigiCert timestamp; Status UnknownError without local trust of self-signed root
+- Code fixes: publisherName, update allowlist for this repo's GitHub Releases, desktop-safe-point + auto install after download, mutation counter
+- Gates: security-policy 19/19, main-hardening 16/16, local-secret-store 8/8, platform-security 7/7, sms 22/22
+- `test-sync.js`: NOT PASS this host — better-sqlite3 native ABI mismatch in shared `server/node_modules` under Node 24 (environment); not treated as product PASS
+- Smoke unpacked EXE: Listen `127.0.0.1`, userData `%APPDATA%\ERP Taranom\` with crm.db + jwt-secret.dpapi, UI assets + update-feed 200
+- **NOT** release-ready: no gh release, no Iran binary upload, manifest left at 2.0.10 until owner publishes
+- Independent Reviewer + Security: requested this turn
+
 ## 2026-09-23T15:40:00+03:30 — CRM-USER-SCOPE
 
 - Invariant: admin and accounting see every customer. Every other role, including sales_manager, sees a customer only when `user_id` or `assigned_to` is themselves. CRM timeline, profile, opportunities, followups, and activities use that boundary. A foreign opportunity stays denied.

@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: publisherName، آپدیت GitHub، نقطهٔ امن نصب
+
+- **هدف:** تحویل installer ویندوز x64 مستقل آفلاین در `D:\proje\ERP EXE` (بیلد محلی؛ انتشار عمومی/آپلود VPS بدون تأیید جداگانه نیست).
+- **پوسته:** `publisherName=Poshak Taranom`؛ feed پیش‌فرض `erp.poshaktaranom.com/releases`؛ `isAllowedUpdateUrl` برای GitHub Releases همین ریپو (بدون باز کردن shell به github).
+- **نقطهٔ امن:** شمارش mutationهای API + `POST /api/system/desktop-safe-point` (WAL checkpoint)؛ نصب خودکار پس از دانلود بدون تأیید اضافه؛ outbox مانع نصب نیست.
+- **اسناد:** `docs/DESKTOP-OFFLINE-MODULE-MATRIX.md`، `docs/DESKTOP-EXE-DELIVERY.md` (تمایز build / قابل‌اجرا / آمادهٔ انتشار).
+- **فایل‌ها:** desktop/{package.json,main.js,security-policy.js,scripts/test-security-policy.js}, server/{server.js,lib/boot-gate.js,middleware/demo-guard.js}, docs/*, .ai-dos/tasks/*
+- **SW:** بدون تغییر وب (بدون bump SW)
+- **Deploy:** ⏳ فقط بیلد محلی — انتشار feed/manifest عمومی و Iran deploy متادیتا منتظر تأیید مالک
+
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
 
 - **مشکل:** کادرهای بزرگ و فضای خالی باعث می‌شد فاکتور ۳ ردیفی دو صفحه شود؛ رنگ×سایز زیر نام کالا چاپ می‌شد.

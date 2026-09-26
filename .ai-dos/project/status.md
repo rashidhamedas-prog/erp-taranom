@@ -1,12 +1,10 @@
 # Project Status
 
-- Last verified: 2026-09-23
-- **Active task:** none — CRM user scope closed
-- **Closed this turn:** CRM visibility matches the customer list. Activity drilldown reads `activity_date`. Inside sales and distribution office have no default production view.
-- **Iran last:** SW **erp-taranom-v222** overlay SFTP @ `2da84ef` — health/ready/root 200 (dirty tree, no pull; server HEAD still `8a5cd54`)
-- **Primary tip:** `main` @ `2da84ef`
-- Prior: dashboard hotpath closed at SW v221.
-- Prior history below kept for context.
+- Last verified: 2026-09-27
+- **Active task:** `DESKTOP-EXE-DELIVER` — Windows EXE 2.0.12 built to `D:/proje/ERP EXE` (build OK + smoke; not public-release-ready)
+- **Iran last:** unchanged by this task (no binary/metadata production publish)
+- **Primary tip:** follow `main` after merge of `ai/DESKTOP-EXE-DELIVER`
+- Prior: CRM user scope / dashboard / print density — see CHANGE-LOG
 
 ## Working quality commands
 
@@ -16,18 +14,11 @@
 - `node --check server/public/app.js`
 - `node server/scripts/check-ui-encoding.js`
 - `node server/scripts/check-audit-waivers.js`
-- `node server/scripts/test-crm-pro-analytics.js`
-- `node server/scripts/test-crm-pro-rbac.js`
-- `node server/scripts/test-crm-pro-ui-smoke.js`
-- `node server/scripts/test-crm-pro-performance.js`
-- `node server/scripts/test-acc-crm-dashboard.js`
-- `node server/scripts/test-acc-crm-reports.js`
-- `node server/scripts/test-acc-crm-phase6.js`
-- `node server/scripts/test-acc-crm-perpetual.js`
-- `node server/scripts/test-acc-crm-party.js`
 - `node server/scripts/test-sms.js`
-- `node server/scripts/test-sync.js`
-- `node server/scripts/_diag-sync-gaps-b16e78.js`
-- `npm.cmd --prefix server run test:production`
-- `node scripts/prepare-embedded-server.js all`
-- `node scripts/compare-embedded-hash.js`
+- `node server/scripts/test-sync.js` (requires better-sqlite3 matching current Node ABI)
+- `node desktop/scripts/test-security-policy.js`
+- `node desktop/scripts/test-main-hardening-static.js`
+- `node desktop/scripts/test-local-secret-store.js`
+- `node scripts/test-platform-security.js`
+- `node scripts/prepare-embedded-server.js desktop && node scripts/compare-embedded-hash.js` (desktop target drift=0)
+- Desktop build: `powershell -File scripts/build-desktop-signed.ps1` then copy to `D:\proje\ERP EXE`
