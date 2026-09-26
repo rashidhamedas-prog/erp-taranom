@@ -371,13 +371,20 @@
     loadCart();
     const p = (window._mkProds || []).find(x => Number(x.id) === Number(productId));
     if (!p) return;
+    const wh = salesWarehouseId();
+    if (!wh) {
+      showToast('انبار فروش شما تنظیم نشده — با مدیر تماس بگیرید', 'error');
+      return;
+    }
     let style = null;
     try {
-      const wh = salesWarehouseId();
-      const q = wh ? ('?warehouse_id=' + encodeURIComponent(wh)) : '';
-      style = await api('GET', '/product-variants/style/' + Number(p.id) + q);
+      style = await api('GET', '/product-variants/style/' + Number(p.id) + '?warehouse_id=' + encodeURIComponent(wh));
     }
     catch (_) { style = null; }
+    if (style && style.warehouse_id != null && Number(style.warehouse_id) !== Number(wh)) {
+      showToast('موجودی این انبار از سرور نیامد — صفحه را یک‌بار تازه کنید', 'error');
+      return;
+    }
     const pack = (typeof livePackFromStyle === 'function')
       ? livePackFromStyle(style)
       : { matrix: [], live: [], pack: packQty(p) };
@@ -390,7 +397,11 @@
         showToast('پنجره انتخاب رنگ در دسترس نیست', 'error');
         return;
       }
-      openInvVariantSplitModal(p, pack, { dest: 'marketer' });
+      openInvVariantSplitModal(p, pack, {
+        dest: 'marketer',
+        warehouseId: wh,
+        warehouseName: warehouseNameFromCache(wh)
+      });
       return;
     }
     const stock = Number(p.stock) || 0;
@@ -492,13 +503,20 @@
         replaceIndices.push(i);
       }
     });
+    const wh = salesWarehouseId();
+    if (!wh) {
+      showToast('انبار فروش شما تنظیم نشده — با مدیر تماس بگیرید', 'error');
+      return;
+    }
     let style = null;
     try {
-      const wh = salesWarehouseId();
-      const q = wh ? ('?warehouse_id=' + encodeURIComponent(wh)) : '';
-      style = await api('GET', '/product-variants/style/' + Number(p.id) + q);
+      style = await api('GET', '/product-variants/style/' + Number(p.id) + '?warehouse_id=' + encodeURIComponent(wh));
     }
     catch (_) { style = null; }
+    if (style && style.warehouse_id != null && Number(style.warehouse_id) !== Number(wh)) {
+      showToast('موجودی این انبار از سرور نیامد — صفحه را یک‌بار تازه کنید', 'error');
+      return;
+    }
     const pack = (typeof livePackFromStyle === 'function')
       ? livePackFromStyle(style)
       : { matrix: [], live: [], pack: 1 };
@@ -510,7 +528,13 @@
       showToast('پنجره انتخاب رنگ در دسترس نیست', 'error');
       return;
     }
-    openInvVariantSplitModal(p, pack, { dest: 'marketer', existing: existing, replaceIndices: replaceIndices });
+    openInvVariantSplitModal(p, pack, {
+      dest: 'marketer',
+      existing: existing,
+      replaceIndices: replaceIndices,
+      warehouseId: wh,
+      warehouseName: warehouseNameFromCache(wh)
+    });
   }
 
   function cartEmptyHtml() {

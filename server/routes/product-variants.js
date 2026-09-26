@@ -214,7 +214,18 @@ router.get('/style/:productId', auth, (req, res) => {
     const warehouseId = req.query.warehouse_id != null && req.query.warehouse_id !== ''
       ? parseInt(req.query.warehouse_id, 10)
       : null;
-    if (warehouseId && Number.isFinite(warehouseId)) {
+    const scoped = !!(warehouseId && Number.isFinite(warehouseId));
+    let stockScope = scoped ? 'warehouse' : 'global';
+    let warehouseName = null;
+    if (scoped) {
+      try {
+        const wh = db.prepare('SELECT name, code FROM warehouses WHERE id=?').get(warehouseId);
+        if (wh) {
+          const n = String(wh.name || '').trim();
+          const c = wh.code ? String(wh.code).trim() : '';
+          warehouseName = (n + (c ? ` (${c})` : '')) || null;
+        }
+      } catch (_) { /* warehouses table may be absent on old DBs */ }
       let qtyStmt = null;
       try {
         qtyStmt = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?');
@@ -228,7 +239,14 @@ router.get('/style/:productId', auth, (req, res) => {
         return { ...v, stock, warehouse_id: warehouseId };
       });
     }
-    res.json({ ...meta, product_id: productId, variants, warehouse_id: warehouseId || null });
+    res.json({
+      ...meta,
+      product_id: productId,
+      variants,
+      warehouse_id: scoped ? warehouseId : null,
+      stock_scope: stockScope,
+      warehouse_name: warehouseName,
+    });
   } catch (e) { sendErr(res, e); }
 });
 

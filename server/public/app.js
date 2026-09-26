@@ -4920,6 +4920,40 @@ async function saveInvProdQuick(){
 function headerInvoiceWarehouseId(){
   return +el('inv-warehouse')?.value || ME?.sales_warehouse_id || null;
 }
+function warehouseNameById(id){
+  const n=Number(id);
+  if(!Number.isFinite(n) || n<=0) return '';
+  const rows=CACHE.warehouses||CACHE._prodWarehouses||[];
+  const w=rows.find(x=>Number(x.id)===n);
+  if(w) return String(w.name||'')+(w.code?(' ('+w.code+')'):'');
+  if(ME && Number(ME.sales_warehouse_id)===n) return String(ME.sales_warehouse_name||('انبار '+n));
+  return 'انبار '+n;
+}
+/** انبار ردیف فاکتور: select زندهٔ سبد → ردیف cart → هدر → انبار فروش کاربر */
+function resolveInvLineWarehouseId(indices){
+  const ix=Array.isArray(indices)?indices:[];
+  if(ix.length){
+    const root=el('cartRows');
+    const sel=root && root.querySelector
+      ? root.querySelector('select[data-inv-pack-ix="'+String(ix[0])+'"]')
+      : null;
+    if(sel && sel.value!=='' && sel.value!=null){
+      const fromDom=+sel.value;
+      if(Number.isFinite(fromDom) && fromDom>0){
+        ix.forEach(i=>{ if(invCart[i]) invCart[i].warehouse_id=fromDom; });
+        return fromDom;
+      }
+    }
+  }
+  for(let k=0;k<ix.length;k++){
+    const r=invCart[ix[k]];
+    const w=r && r.warehouse_id!=null && r.warehouse_id!=='' ? +r.warehouse_id : 0;
+    if(Number.isFinite(w) && w>0) return w;
+  }
+  const header=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+  if(header) return +header;
+  return ME?.sales_warehouse_id ? +ME.sales_warehouse_id : null;
+}
 function headerPurchaseWarehouseId(){
   return +el('po-warehouse')?.value || null;
 }
@@ -4949,8 +4983,9 @@ function addCartRow(p, extra){
   const pidN=Number(p.id);
   const variantId=extra&&extra.variant_id?Number(extra.variant_id):null;
   const qty=extra&&extra.qty!=null?Math.max(0.001, Number(extra.qty)||0): (p.pack_size>1?p.pack_size:1);
-  const wh=headerInvoiceWarehouseId();
-  const ex=invCart.find(r=>Number(r.product_id)===pidN && Number(r.variant_id||0)===Number(variantId||0) && !r.batch_id);
+  const whExtra=extra&&extra.warehouse_id!=null&&extra.warehouse_id!==''?+extra.warehouse_id:null;
+  const wh=(Number.isFinite(whExtra)&&whExtra>0)?whExtra:headerInvoiceWarehouseId();
+  const ex=invCart.find(r=>Number(r.product_id)===pidN && Number(r.variant_id||0)===Number(variantId||0) && Number(r.warehouse_id||0)===Number(wh||0) && !r.batch_id);
   if(ex) ex.qty += qty;
   else invCart.push({
     product_id:pidN, name:p.name, qty, price:(extra&&extra.price!=null)?extra.price:p.price, disc:0, warehouse_id:wh,
@@ -5002,17 +5037,21 @@ async function addToCart(pid){
   const p = findInvProduct(pid);
   if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
   const whId=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+  if(!whId){ showToast('ابتدا انبار مبدأ فاکتور را انتخاب کنید','error'); return; }
   let style=null;
   try{
-    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
-    style=await api('GET','/product-variants/style/'+Number(p.id)+q);
+    style=await api('GET','/product-variants/style/'+Number(p.id)+'?warehouse_id='+encodeURIComponent(whId));
   }catch(_){ style=null; }
+  if(style && style.warehouse_id!=null && Number(style.warehouse_id)!==Number(whId)){
+    showToast('موجودی این انبار از سرور نیامد — دوباره تلاش کنید','error');
+    return;
+  }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
     applyAutoLivePack(p, pack, 'invoice');
     return;
   }
-  addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1 });
+  addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1, warehouse_id: whId });
   renderCart();
   renderInvPicker();
 }
@@ -5062,12 +5101,14 @@ function filterInvVariantColor(name){
 function openInvVariantSplitModal(p, pack, opts){
   opts=opts||{};
   const dest=opts.dest==='marketer'?'marketer':'invoice';
-  const rows=(pack.live&&pack.live.length)?pack.live:(pack.matrix||[]);
+  // Always show the full color×size matrix; stock numbers are already warehouse-scoped.
+  const rows=(pack.matrix&&pack.matrix.length)?pack.matrix:(pack.live||[]);
+  const whLabel=opts.warehouseName || warehouseNameById(opts.warehouseId);
   const qtyMap={};
   (opts.existing||[]).forEach(r=>{ if(r.variant_id) qtyMap[String(r.variant_id)]=Number(r.qty)||0; });
   const replaceIndices=opts.replaceIndices||null;
-  window._variantPick={ dest: dest, product: p, replaceIndices: replaceIndices };
-  const confirmOpts={ dest: dest };
+  window._variantPick={ dest: dest, product: p, replaceIndices: replaceIndices, warehouse_id: opts.warehouseId||null };
+  const confirmOpts={ dest: dest, warehouse_id: opts.warehouseId||null };
   if(replaceIndices) confirmOpts.replaceIndices=replaceIndices.slice();
   const splitConfirmBind=CSP.bind('click',function(){
     confirmInvVariantSplit(Number(p.id), confirmOpts);
@@ -5087,7 +5128,8 @@ function openInvVariantSplitModal(p, pack, opts){
   const firstColor=colorMeta.length?colorMeta[0].name:'*';
   const hint=dest==='marketer'
     ? '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).'
-    : '۱) رنگ را انتخاب کنید  ۲) سایز و تعداد را بزنید. پک زنده = '+fmt(pack.pack)+' عدد.';
+    : '۱) رنگ را انتخاب کنید  ۲) سایز و تعداد را بزنید. پک زنده = '+fmt(pack.pack)+' عدد.'
+      +(whLabel?(' موجودی نمایش‌داده‌شده فقط «'+whLabel+'» است (نه جمع همهٔ انبارها).'):'');
   openNestedModal(`
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
@@ -5110,10 +5152,10 @@ function openInvVariantSplitModal(p, pack, opts){
         return `<tr data-vcolor="${esc(v.color_name||'')}">
         <td>${esc(v.color_name||'—')}</td>
         <td>${esc(v.size_name||'—')}</td>
-        <td class="mono">${fmt(v.stock||0)}</td>
+        <td class="mono">${fmt(Number(v.stock)||0)}</td>
         <td><div class="inv-var-qty-cell">
           <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${minus}">−</button>
-          <input type="number" min="0" step="1" inputmode="numeric" value="${defQty}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${v.stock||0}">
+          <input type="number" min="0" step="1" inputmode="numeric" value="${defQty}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${Number(v.stock)||0}">
           <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${plus}">+</button>
         </div></td>
       </tr>`;
@@ -5159,15 +5201,25 @@ function confirmInvVariantSplit(pid, opts){
       showToast('سبد بازاریاب در دسترس نیست','error');
       return;
     }
-    MarketerUI.addVariantLines(p, next, { replaceIndices: replaceIndices });
+    MarketerUI.addVariantLines(p, next, { replaceIndices: replaceIndices, warehouse_id: pick.warehouse_id||opts.warehouse_id||null });
     closeNestedModal();
     return;
+  }
+  let lineWh=(pick.warehouse_id!=null&&pick.warehouse_id!=='')?+pick.warehouse_id:null;
+  if(!(Number.isFinite(lineWh)&&lineWh>0) && opts.warehouse_id!=null&&opts.warehouse_id!==''){
+    lineWh=+opts.warehouse_id;
+  }
+  if(!(Number.isFinite(lineWh)&&lineWh>0) && Array.isArray(replaceIndices) && replaceIndices.length){
+    lineWh=resolveInvLineWarehouseId(replaceIndices);
   }
   if(Array.isArray(replaceIndices) && replaceIndices.length){
     const drop=replaceIndices.slice().sort((a,b)=>b-a);
     drop.forEach(i=>{ if(i>=0&&i<invCart.length) invCart.splice(i,1); });
   }
-  next.forEach(row=>addCartRow(p, row));
+  next.forEach(row=>{
+    if(Number.isFinite(lineWh)&&lineWh>0) row.warehouse_id=lineWh;
+    addCartRow(p, row);
+  });
   closeNestedModal();
   try{ renderCart(); }catch(_){}
   try{ renderInvPicker(); }catch(_){}
@@ -5271,15 +5323,26 @@ async function editInvCartPack(indices){
   if(!rows.length) return;
   const p=findInvProduct(rows[0].product_id);
   if(!p){ showToast('کالا یافت نشد','error'); return; }
-  const whId=rows[0].warehouse_id || (typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null);
+  const whId=resolveInvLineWarehouseId(indices);
+  if(!whId){ showToast('انبار این ردیف مشخص نیست — انبار مبدأ را انتخاب کنید','error'); return; }
   let style=null;
   try{
-    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
-    style=await api('GET','/product-variants/style/'+Number(p.id)+q);
+    style=await api('GET','/product-variants/style/'+Number(p.id)+'?warehouse_id='+encodeURIComponent(whId));
   }catch(_){ style=null; }
+  if(!style || !Array.isArray(style.variants)){
+    showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return;
+  }
+  if(style.warehouse_id==null || Number(style.warehouse_id)!==Number(whId)){
+    showToast('موجودی این انبار از سرور نیامد — صفحه را یک‌بار تازه کنید','error'); return;
+  }
   const pack=livePackFromStyle(style);
   if(!pack.matrix.length && !pack.pool.length){ showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return; }
-  openInvVariantSplitModal(p, pack, { existing: rows, replaceIndices: indices });
+  openInvVariantSplitModal(p, pack, {
+    existing: rows,
+    replaceIndices: indices,
+    warehouseId: whId,
+    warehouseName: warehouseNameById(whId)
+  });
 }
 function removeInvCartGroup(indices){
   indices.slice().sort((a,b)=>b-a).forEach(i=>{ if(i>=0 && i<invCart.length) invCart.splice(i,1); });
@@ -5357,7 +5420,7 @@ function renderCart(){
         +'<td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
         +(showLineDisc?'<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
           +'<td class="col-disc-amt"><input type="number" class="num-fit" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
-        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
+        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-inv-pack-ix="'+i+'" data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
         +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
         +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
       +'</tr>'
@@ -22440,7 +22503,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
         <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
-        <li><b>رنگ/سایز در فاکتور:</b> موجودی هر رنگ×سایز بر اساس <b>انبار مبدأ انتخاب‌شده</b> است، نه جمع همهٔ انبارها.</li>
+        <li><b>رنگ/سایز در فاکتور:</b> در ویرایش فاکتور هم موجودی مودال رنگ/سایز فقط انبار همان ردیف است؛ نام انبار در توضیح مودال می‌آید. بدون انبار ردیف مودال باز نمی‌شود.</li>
         <li><b>مانده لیست مشتریان:</b> همان قاعدهٔ صورتحساب (دفتر کل با تفصیلی، یا دفتر مشتری + فاکتورهای جاافتاده) — برای همه نقش‌ها.</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>

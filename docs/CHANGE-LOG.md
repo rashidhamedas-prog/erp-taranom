@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — ویرایش فاکتور: مودال رنگ/سایز فقط انبار همان ردیف (SW v233)
+
+- **ویرایش سبد:** `editInvCartPack` انبار را از select ردیف (`data-inv-pack-ix`) یا ردیف/هدر می‌گیرد؛ بدون انبار مودال باز نمی‌شود. `confirmInvVariantSplit` همان انبار را روی خطوط جدید نگه می‌دارد.
+- **API:** GET `/product-variants/style/:id?warehouse_id=` → موجودی از `variant_warehouse_stock` + `stock_scope`/`warehouse_name`.
+- **مودال:** ماتریس کامل رنگ×سایز؛ توضیح با نام انبار («موجودی نمایش‌داده‌شده فقط …»). بازاریاب هم همین scope را دارد.
+- **نکتهٔ داده:** برای «کت فوتر تیارا» موجودی انبار کیمیا با فیلد سراسری واریانت یکی است؛ انبار محصول اعداد متفاوت دارد — برای مقایسه انبار محصول را انتخاب کنید.
+- **تست:** test-invoice-variant-wh-v233؛ sms.
+- **فایل‌ها:** server/public/{app.js,marketer-ui.js,sw.js}, server/routes/product-variants.js, server/scripts/test-invoice-variant-wh-v233.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v233
+- **Deploy:** pending
+
 ### ۱۴۰۵/۰۷/۰۴ — چاپ مانده پس از دریافت + هدر مینیمال + موجودی انبار + مانده لیست (SW v232)
 
 - **چاپ:** «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌ها؛ بالای صفحه فقط شماره (راست) و تاریخ (چپ).
