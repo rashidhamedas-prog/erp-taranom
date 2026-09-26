@@ -13,7 +13,7 @@
 - **تست:** test-invoice-print-density-v246 (۳۷)؛ test-print-collapse-v204 (۲۶)؛ paper-iso-v243 (۲۵)؛ sms ۲۲.
 - **فایل‌ها:** server/lib/{invoice-print,print-line-collapse}.js, server/public/{invoice-print.css,app.js,sw.js,index.html}, server/scripts/test-{invoice-print-density-v246,print-collapse-v204,invoice-paper-iso-v243}.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v246
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 9de559e — sys_health/sys_ready/root 200؛ SW v246؛ فشرده‌سازی + بدون رنگ/سایز + مبالغ بولد؛ pm2 restart بدون --update-env.
 
 ### ۱۴۰۵/۰۷/۰۶ — هم‌ترازی دفتر مشتری و دفتر کل تفصیلی (SW v245)
 
