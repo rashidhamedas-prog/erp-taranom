@@ -117,6 +117,7 @@ const ACC_TAB_RESOLVE = {
   'acc-vat-return': 'vat-return',
   'acc-seasonal-169': 'seasonal-169',
   'acc-cash-flow-std': 'cash-flow-std',
+  'acc-treasury-dashboard': 'treasury-dashboard',
   'acc-kpi-dashboard': 'kpi-dashboard',
   'acc-settings': 'company-settings',
   'acc-backup': 'company-settings',
@@ -187,6 +188,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-petty-cash-ops', icon: '👛', label: 'تنخواه‌گردان' },
     ]},
     { title: 'گزارشات', items: [
+      { id: 'acc-treasury-dashboard', icon: '📊', label: 'داشبورد بانک و صندوق' },
       { id: 'acc-bank-recon', icon: '🏦', label: 'تطبیق بانک' },
       { id: 'acc-pos-report', icon: '💳', label: 'گزارش کارتخوان' },
       { id: 'acc-cash-flow-std', icon: '💧', label: 'صورت جریان وجوه نقد' },

@@ -1324,6 +1324,292 @@
     if (typeof fitStatNums === 'function') fitStatNums();
   }
 
+  function treasuryStatusChip(status) {
+    const map = {
+      ok: { cls: 'trsy-ok', label: 'سالم' },
+      warn: { cls: 'trsy-warn', label: 'هشدار' },
+      fail: { cls: 'trsy-fail', label: 'نیازمند اقدام' },
+      high: { cls: 'trsy-fail', label: 'بحرانی' },
+      medium: { cls: 'trsy-warn', label: 'توجه' },
+    };
+    const m = map[status] || map.warn;
+    return `<span class="trsy-chip ${m.cls}">${m.label}</span>`;
+  }
+
+  function treasuryShareBar(pct) {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    return `<div class="trsy-bar" title="${p}٪"><i data-csp-style="${CSP.style(`width:${p}%`)}"></i></div>`;
+  }
+
+  function treasuryMoneyTone(n) {
+    const v = Number(n) || 0;
+    if (v < 0) return 'var(--red)';
+    if (v > 0) return 'var(--green)';
+    return 'var(--text)';
+  }
+
+  async function renderTreasuryDashboardTab(body) {
+    body.innerHTML = `
+      <div class="trsy-wrap">
+        <div class="trsy-hero">
+          <div>
+            <div class="trsy-kicker">بانک و صندوق · گزارش مدیریتی</div>
+            <h3 class="trsy-title">داشبورد نقدینگی و الزامات</h3>
+            <p class="trsy-lead">یک نگاه واحد به مانده زنده دفتر، جریان دوره، تطبیق بانک و چک‌لیست الزامات حسابداری — بدون پیچیدگی اضافه.</p>
+          </div>
+          <div class="trsy-hero-actions">
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('treasury-dashboard'); })}">↻ بروزرسانی</button>
+            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-bank-recon'); })}">تطبیق بانک</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-cash-flow-std'); })}">جریان وجوه</button>
+          </div>
+        </div>
+        <div id="trsyBody"><div class="muted">در حال بارگذاری داشبورد خزانه…</div></div>
+      </div>`;
+    await loadTreasuryDashboard();
+  }
+
+  async function loadTreasuryDashboard() {
+    const box = document.getElementById('trsyBody');
+    if (!box) return;
+    box.innerHTML = '<div class="muted">در حال بارگذاری داشبورد خزانه…</div>';
+    const qp = [];
+    if (typeof accDateFrom !== 'undefined' && accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
+    if (typeof accDateTo !== 'undefined' && accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/treasury-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
+    } catch (e) {
+      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
+      return;
+    }
+    window._trsyLast = d;
+    const k = d.kpis || {};
+    const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
+    const health = Number(d.health_score) || 0;
+    const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+    const sec = d.cash_flow && d.cash_flow.sections ? d.cash_flow.sections : {};
+    const cfLabel = { operating: 'عملیاتی', investing: 'سرمایه‌گذاری', financing: 'تأمین مالی' };
+
+    const instrumentRows = (rows, kindLabel) => (rows || []).map((r) => `
+      <tr>
+        <td><b>${esc(r.name)}</b>${r.alerts && r.alerts.length ? ` ${r.alerts.map(() => '⚠️').join('')}` : ''}</td>
+        <td class="mono muted">${esc(r.coa_code || '—')}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${treasuryMoneyTone(r.balance_rial)}`)}">${fmt(r.balance_rial || 0)}</td>
+        <td class="mono muted">${fmt(r.opening_balance_rial || 0)}</td>
+        <td>
+          <div class="trsy-share-cell">
+            <span class="mono">${fmt(r.share_pct || 0)}٪</span>
+            ${treasuryShareBar(r.share_pct)}
+          </div>
+        </td>
+        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(kindLabel === 'بانک' ? 'acc-banks' : 'acc-cash-boxes'); })}">لیست</button>
+        </td>
+      </tr>`).join('') || emptyRow(6);
+
+    box.innerHTML = `
+      <div class="trsy-meta">
+        <span class="inv-badge moadian-approved">🟢 اعداد زنده از دفتر کل</span>
+        <span>بازه: <b>${esc(d.from || 'ابتدا')}</b> تا <b>${esc(d.to || 'اکنون')}</b> — فیلتر از نوار بالای صفحه</span>
+        <span>بروزرسانی: ${esc(liveAt)}</span>
+        <span class="trsy-chip ${healthCls}">سلامت الزامات ${fmt(health)}٪</span>
+      </div>
+
+      <div class="rep-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">💎</div>
+          <div class="kpi-label">نقدینگی کل (دفتر)</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.total_liquidity_rial)}`)}">${fmt(k.total_liquidity_rial || 0)}</div>
+          <div class="kpi-sub">ریال · بانک + صندوق (IAS نقد)</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-banks'); })}">
+          <div class="kpi-icon">🏦</div>
+          <div class="kpi-label">مانده بانک‌ها</div>
+          <div class="kpi-val">${fmt(k.banks_total_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.bank_count_active || 0)} بانک فعال</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-cash-boxes'); })}">
+          <div class="kpi-icon">💰</div>
+          <div class="kpi-label">مانده صندوق‌ها</div>
+          <div class="kpi-val">${fmt(k.cash_total_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.cash_count_active || 0)} صندوق · تنخواه ${fmt(k.petty_cash_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⬇️</div>
+          <div class="kpi-label">ورود نقد دوره</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(k.period_inflow_rial || 0)}</div>
+          <div class="kpi-sub">بدهکار حساب‌های نقد/بانک</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⬆️</div>
+          <div class="kpi-label">خروج نقد دوره</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(k.period_outflow_rial || 0)}</div>
+          <div class="kpi-sub">خالص دوره: <b data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.period_net_rial)}`)}">${fmt(k.period_net_rial || 0)}</b></div>
+        </div>
+      </div>
+
+      <div class="trsy-grid-2">
+        <div class="panel">
+          <div class="panel-head"><h4>✅ چک‌لیست الزامات گزارش‌دهی</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طبق استاندارد تطبیق بانک و IAS 7</span>
+          </div>
+          <div class="panel-body">
+            <div class="trsy-compliance">
+              ${(d.compliance || []).map((c) => `
+                <button type="button" class="trsy-comp-row" data-csp-click="${CSP.bind('click', function () { if (c.action_nav) go(c.action_nav); })}">
+                  ${treasuryStatusChip(c.status)}
+                  <div class="trsy-comp-text">
+                    <div class="trsy-comp-label">${esc(c.label)}</div>
+                    <div class="trsy-comp-detail">${esc(c.detail)}</div>
+                  </div>
+                  <span class="trsy-comp-go">‹</span>
+                </button>`).join('') || '<div class="empty">موردی نیست</div>'}
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>💧 جریان وجوه نقد (IAS 7)</h4>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-cash-flow-std'); })}">گزارش کامل</button>
+          </div>
+          <div class="panel-body">
+            ${d.cash_flow && d.cash_flow.warning ? `<div class="empty" data-csp-style="${CSP.style(`margin-bottom:8px`)}">${esc(d.cash_flow.warning)}</div>` : ''}
+            <div class="trsy-cf-grid">
+              ${['operating', 'investing', 'financing'].map((key) => {
+                const s = sec[key] || {};
+                return `<div class="trsy-cf-card">
+                  <div class="trsy-cf-name">${cfLabel[key]}</div>
+                  <div class="trsy-cf-net mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(s.net_rial)}`)}">${fmt(s.net_rial || 0)}</div>
+                  <div class="trsy-cf-io muted">ورودی ${fmt(s.inflow_rial || 0)} · خروجی ${fmt(s.outflow_rial || 0)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div class="trsy-cf-total">خالص جریان دوره:
+              <b class="mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(d.cash_flow && d.cash_flow.total_net_rial)}`)}">${fmt((d.cash_flow && d.cash_flow.total_net_rial) || 0)}</b> ریال
+            </div>
+            <div class="trsy-conc">
+              تمرکز نقدینگی:
+              <b>${esc((d.concentration && d.concentration.top_name) || '—')}</b>
+              · ${fmt((d.concentration && d.concentration.top_pct) || 0)}٪
+              ${treasuryStatusChip((d.concentration && d.concentration.risk) || 'ok')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${(d.alerts || []).length ? `
+      <div class="panel trsy-alerts" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>🔔 اقدام‌های پیشنهادی</h4></div>
+        <div class="panel-body">
+          <div class="trsy-alert-list">
+            ${(d.alerts || []).map((a) => `
+              <button type="button" class="trsy-alert-item" data-csp-click="${CSP.bind('click', function () { if (a.action_nav) go(a.action_nav); })}">
+                ${treasuryStatusChip(a.severity)}
+                <div><b>${esc(a.title)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:2px`)}">${esc(a.detail)}</div></div>
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>` : ''}
+
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>🏦 ترکیب بانک‌ها</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده زنده دفتر</span>
+          </div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>بانک</th><th>کد</th><th data-col-kind="money">مانده</th><th data-col-kind="money">اول دوره</th><th>سهم</th><th class="no-sort"></th>
+            </tr></thead><tbody>${instrumentRows(d.banks, 'بانک')}</tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>💰 ترکیب صندوق‌ها</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">شامل تنخواه</span>
+          </div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>صندوق</th><th>کد</th><th data-col-kind="money">مانده</th><th data-col-kind="money">اول دوره</th><th>سهم</th><th class="no-sort"></th>
+            </tr></thead><tbody>${instrumentRows(d.cash_boxes, 'صندوق')}</tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>🧾 وضعیت تطبیق بانک</h4>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-bank-recon'); })}">باز کردن</button>
+          </div>
+          <div class="panel-body">
+            <div class="trsy-recon-kpis">
+              <div><span class="muted">صورت باز</span><b class="mono">${fmt((d.reconciliation && d.reconciliation.open_count) || 0)}</b></div>
+              <div><span class="muted">بسته‌شده</span><b class="mono">${fmt((d.reconciliation && d.reconciliation.closed_count) || 0)}</b></div>
+              <div><span class="muted">اقلام تطبیق‌نشده</span><b class="mono">${fmt((d.reconciliation && d.reconciliation.unmatched_open_items) || 0)}</b></div>
+            </div>
+            ${((d.reconciliation && d.reconciliation.open) || []).length ? `
+            <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>بانک</th><th>تاریخ صورت</th><th data-col-kind="money">مانده صورت</th><th data-col-kind="money">مانده دفتر</th><th data-col-kind="money">اختلاف خام</th><th>تطبیق‌نشده</th>
+            </tr></thead><tbody>${(d.reconciliation.open || []).map((r) => `<tr>
+              <td>${esc(r.bank_name)}</td>
+              <td class="mono">${esc(r.statement_date || '—')}</td>
+              <td class="mono">${fmt(r.statement_balance_rial || 0)}</td>
+              <td class="mono">${fmt(r.live_book_balance_rial || 0)}</td>
+              <td class="mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(-(Math.abs(r.raw_difference_rial || 0)))}`)}">${fmt(r.raw_difference_rial || 0)}</td>
+              <td class="mono">${fmt((r.unmatched_items || 0) + (r.unmatched_lines || 0))}</td>
+            </tr>`).join('')}</tbody></table></div>` : '<div class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">صورت بازی نیست. برای بانک‌های ریالی از «تطبیق بانک» صورت جدید بسازید.</div>'}
+            ${((d.reconciliation && d.reconciliation.banks_without_open) || []).length ? `
+            <div class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">بانک ریالی بدون صورت باز:
+              ${(d.reconciliation.banks_without_open || []).slice(0, 8).map((b) => esc(b.name)).join('، ')}${(d.reconciliation.banks_without_open || []).length > 8 ? '…' : ''}
+            </div>` : ''}
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>📈 روند ماهانه ورود/خروج نقد</h4></div>
+          <div class="panel-body">
+            <div class="crm-chart-box" data-csp-style="${CSP.style(`height:220px`)}"><canvas id="trsyMonthChart"></canvas></div>
+            <div class="trsy-cheque-strip">
+              <div><span class="muted">چک دریافتنی در جریان</span><b class="mono">${fmt((d.cheques && d.cheques.pending_in_rial) || 0)}</b></div>
+              <div><span class="muted">چک پرداختنی باز</span><b class="mono">${fmt((d.cheques && d.cheques.pending_out_rial) || 0)}</b></div>
+              <div><span class="muted">سررسیدگذشته دریافتنی</span><b class="mono" data-csp-style="${CSP.style(`color:${(d.cheques && d.cheques.overdue_in_count) ? 'var(--red)' : 'inherit'}`)}">${fmt((d.cheques && d.cheques.overdue_in_count) || 0)} · ${fmt((d.cheques && d.cheques.overdue_in_rial) || 0)}</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trsy-footnote muted">
+        مبالغ به <b>ریال</b> است. مانده‌ها از دفتر کل روی کد تفصیلی بانک/صندوق خوانده می‌شوند (نه فقط فیلد اطلاعات پایه).
+        اقلام زمان‌بندی تطبیق بانک (چک معوق / واریز در راه) سند نمی‌زنند؛ بستن فقط با اختلاف توجیه‌شدهٔ صفر مجاز است.
+      </div>`;
+
+    if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+    try {
+      const months = d.monthly_net || [];
+      const canvas = document.getElementById('trsyMonthChart');
+      if (canvas && typeof Chart !== 'undefined') {
+        if (window._trsyChart) { try { window._trsyChart.destroy(); } catch (_) { /* */ } }
+        window._trsyChart = new Chart(canvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: months.map((m) => m.month),
+            datasets: [
+              { label: 'ورود', data: months.map((m) => m.inflow_rial || 0), backgroundColor: 'rgba(34,197,94,0.55)', borderRadius: 6 },
+              { label: 'خروج', data: months.map((m) => m.outflow_rial || 0), backgroundColor: 'rgba(239,68,68,0.45)', borderRadius: 6 },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { font: { family: 'Vazirmatn, Tahoma' } } } },
+            scales: {
+              x: { ticks: { font: { family: 'Vazirmatn, Tahoma', size: 11 } } },
+              y: { ticks: { font: { family: 'Vazirmatn, Tahoma', size: 10 }, callback: (v) => (Number(v) || 0).toLocaleString('fa-IR') } },
+            },
+          },
+        });
+      } else if (canvas && !months.length) {
+        canvas.parentElement.innerHTML = '<div class="empty">در این بازه گردش ماهانه‌ای نیست</div>';
+      }
+    } catch (_) { /* chart optional */ }
+  }
+
   async function reloadReport(kind) {
     const q = el(kind === 'vat' ? 'vat-q' : 's169-q')?.value || (todayJalali().slice(0, 4) + '-Q1');
     const boxId = kind === 'vat' ? 'vatReportBox' : 's169ReportBox';
@@ -1573,6 +1859,8 @@
     renderSeasonal169Tab,
     renderCashFlowStdTab,
     renderKpiDashboardTab,
+    renderTreasuryDashboardTab,
+    loadTreasuryDashboard,
     selectUnit,
     openCreateUnitModal,
     openEditUnitModal,
@@ -1647,5 +1935,7 @@
   global.renderSeasonal169Tab = renderSeasonal169Tab;
   global.renderCashFlowStdTab = renderCashFlowStdTab;
   global.renderKpiDashboardTab = renderKpiDashboardTab;
+  global.renderTreasuryDashboardTab = renderTreasuryDashboardTab;
+  global.loadTreasuryDashboard = loadTreasuryDashboard;
 
 }(typeof globalThis !== 'undefined' ? globalThis : window));

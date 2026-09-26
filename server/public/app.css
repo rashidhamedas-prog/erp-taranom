@@ -1703,3 +1703,79 @@ body.erp-demo-mode{padding-top:32px}
 @media (prefers-reduced-motion:reduce){
   .vsr-kpi,.vsr-cell,.vsr-view{transition:none}
 }
+
+/* ===== داشبورد نقدینگی بانک و صندوق (treasury) ===== */
+.trsy-wrap{display:flex;flex-direction:column;gap:14px}
+.trsy-hero{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;
+  padding:16px 18px;border-radius:16px;
+  background:linear-gradient(135deg, rgba(26,92,56,0.08), rgba(26,92,56,0.02));
+  border:1px solid var(--border);
+}
+.trsy-kicker{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.02em;margin-bottom:4px}
+.trsy-title{margin:0 0 6px;font-size:18px;font-weight:800;color:var(--text)}
+.trsy-lead{margin:0;font-size:13px;line-height:1.85;color:var(--muted);max-width:52ch}
+.trsy-hero-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.trsy-meta{
+  display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;
+  font-size:12px;color:var(--muted);margin-bottom:4px
+}
+.trsy-kpi .rep-kpi-card{cursor:default}
+.trsy-kpi .rep-kpi-card[data-csp-click]{cursor:pointer}
+.trsy-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.trsy-chip{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;
+  font-size:11px;font-weight:700;border:1px solid transparent;white-space:nowrap
+}
+.trsy-ok{background:rgba(34,197,94,.12);color:#15803d;border-color:rgba(34,197,94,.25)}
+.trsy-warn{background:rgba(245,158,11,.12);color:#b45309;border-color:rgba(245,158,11,.28)}
+.trsy-fail{background:rgba(239,68,68,.12);color:#b91c1c;border-color:rgba(239,68,68,.28)}
+.trsy-bar{
+  height:6px;border-radius:999px;background:var(--well);overflow:hidden;min-width:64px;flex:1
+}
+.trsy-bar>i{display:block;height:100%;background:var(--green);border-radius:999px}
+.trsy-share-cell{display:flex;align-items:center;gap:8px;min-width:110px}
+.trsy-compliance{display:flex;flex-direction:column;gap:8px}
+.trsy-comp-row{
+  display:flex;align-items:flex-start;gap:10px;width:100%;text-align:right;
+  padding:10px 12px;border-radius:12px;border:1px solid var(--border);
+  background:var(--card);cursor:pointer;font:inherit;color:inherit
+}
+.trsy-comp-row:hover{border-color:var(--green);background:var(--well)}
+.trsy-comp-text{flex:1;min-width:0}
+.trsy-comp-label{font-size:13px;font-weight:700;margin-bottom:2px}
+.trsy-comp-detail{font-size:12px;color:var(--muted);line-height:1.7}
+.trsy-comp-go{color:var(--muted);font-size:16px;line-height:1;padding-top:2px}
+.trsy-cf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}
+.trsy-cf-card{
+  padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--well)
+}
+.trsy-cf-name{font-size:12px;color:var(--muted);margin-bottom:6px}
+.trsy-cf-net{font-size:16px;font-weight:800}
+.trsy-cf-io{font-size:11px;margin-top:4px;line-height:1.6}
+.trsy-cf-total{text-align:center;font-size:13px;font-weight:600;padding:8px 0 4px}
+.trsy-conc{font-size:12px;color:var(--muted);text-align:center;margin-top:6px;display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
+.trsy-alert-list{display:flex;flex-direction:column;gap:8px}
+.trsy-alert-item{
+  display:flex;align-items:flex-start;gap:10px;width:100%;text-align:right;
+  padding:10px 12px;border-radius:12px;border:1px solid var(--border);
+  background:var(--card);cursor:pointer;font:inherit;color:inherit
+}
+.trsy-alert-item:hover{border-color:var(--orange)}
+.trsy-recon-kpis,.trsy-cheque-strip{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px
+}
+.trsy-recon-kpis>div,.trsy-cheque-strip>div{
+  padding:10px;border-radius:10px;background:var(--well);border:1px solid var(--border);
+  display:flex;flex-direction:column;gap:4px
+}
+.trsy-recon-kpis .muted,.trsy-cheque-strip .muted{font-size:11px}
+.trsy-recon-kpis b,.trsy-cheque-strip b{font-size:14px}
+.trsy-cheque-strip{margin-top:12px}
+.trsy-footnote{font-size:11px;line-height:1.85;margin-top:8px}
+@media (max-width:900px){
+  .trsy-grid-2,.trsy-cf-grid,.trsy-recon-kpis,.trsy-cheque-strip{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  .trsy-comp-row,.trsy-alert-item,.trsy-bar>i{transition:none}
+}

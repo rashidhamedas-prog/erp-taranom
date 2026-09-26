@@ -65,6 +65,7 @@ const ACC_ITEMS = {
   'acc-bank-recon': { apis: ['/api/bank-reconciliation'] },
   'acc-pos-report': { apis: ['/api/pos'] },
   'acc-cash-flow-std': { apis: ['/api/adv-reports/cash-flow'] },
+  'acc-treasury-dashboard': { apis: ['/api/adv-reports/treasury-dashboard', '/api/adv-reports/cash-flow', '/api/banks', '/api/cash-boxes', '/api/bank-reconciliation'] },
   'acc-incomes': { apis: ['/api/accounting/general', '/api/accounting/income-statement'] },
   'acc-expenses': { apis: ['/api/expenses'] },
   'acc-expense-categories': { apis: ['/api/expenses/categories'] },

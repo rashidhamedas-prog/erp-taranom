@@ -1642,7 +1642,7 @@ const LU = (()=> {
     'acc-portal-units':'building', 'acc-portal-my-dept':'factory',
     'acc-bank-recon':'landmark', 'acc-budgeting':'chart', 'acc-reserves':'landmark',
     'acc-vat-return':'receipt', 'acc-seasonal-169':'clipboard', 'acc-cash-flow-std':'banknote',
-    'acc-kpi-dashboard':'trending',
+    'acc-treasury-dashboard':'trending', 'acc-kpi-dashboard':'trending',
   };
   const out = {};
   for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key] || d.file);
@@ -6075,14 +6075,14 @@ async function printInvoice(id, paper, template){
     openNestedModal(`
       <div class="modal-head"><h3>🖨️ انتخاب قالب ${formal?'رسمی':'عادی'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:20px`)}">
-        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">قالب و اندازه کاغذ را انتخاب کنید. پیش‌فرض کاغذ: <b>${defPaper}</b></p>
+        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">قالب و اندازه کاغذ را انتخاب کنید (استاندارد ISO ۲۱۶). پیش‌فرض: <b>${defPaper==='A5'?'A5 · ۱۴۸×۲۱۰mm':'A4 · ۲۱۰×۲۹۷mm'}</b></p>
         ${tmpls.map(([tid,title,desc])=>`
           <div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px`)}">
             <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:4px`)}">${esc(title)}</div>
             <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(desc)}</div>
             <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A4',`${String((tid) ?? '')}`)})}">A4</button>
-              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A5',`${String((tid) ?? '')}`)})}">A5</button>
+              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A4',`${String((tid) ?? '')}`)})}">A4 · ۲۱۰×۲۹۷</button>
+              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A5',`${String((tid) ?? '')}`)})}">A5 · ۱۴۸×۲۱۰</button>
             </div>
           </div>`).join('')}
         <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId))})}">بازگشت</button>
@@ -8692,6 +8692,8 @@ async function loadAccTab(tab){
     await renderSeasonal169Tab(body);
   } else if(tab==='cash-flow-std'){
     await renderCashFlowStdTab(body);
+  } else if(tab==='treasury-dashboard'){
+    await renderTreasuryDashboardTab(body);
   } else if(tab==='kpi-dashboard'){
     await renderKpiDashboardTab(body);
   } else if(tab==='cheques'){
@@ -21452,10 +21454,10 @@ function invoiceTemplateSettingsHtml(s){
     <h5 data-csp-style="${CSP.style(`margin:0 0 8px;color:var(--purple)`)}">۴) سایز کاغذ پیش‌فرض (A4 / A5)</h5>
     <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px`)}">
       <label data-csp-style="${CSP.style(`cursor:pointer;border:1.5px solid ${paper==='A4'?'var(--purple)':'var(--border)'};background:${paper==='A4'?'var(--purple-light)':'var(--card)'};border-radius:10px;padding:10px 16px`)}">
-        <input type="radio" name="s-invoice_paper_size" value="A4" ${paper==='A4'?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> A4 (۲۱×۲۹.۷)
+        <input type="radio" name="s-invoice_paper_size" value="A4" ${paper==='A4'?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> A4 (210×297mm — ISO)
       </label>
       <label data-csp-style="${CSP.style(`cursor:pointer;border:1.5px solid ${paper==='A5'?'var(--purple)':'var(--border)'};background:${paper==='A5'?'var(--purple-light)':'var(--card)'};border-radius:10px;padding:10px 16px`)}">
-        <input type="radio" name="s-invoice_paper_size" value="A5" ${paper==='A5'?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> A5 (۱۴.۸×۲۱)
+        <input type="radio" name="s-invoice_paper_size" value="A5" ${paper==='A5'?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> A5 (148×210mm — ISO)
       </label>
     </div>
     <h5 data-csp-style="${CSP.style(`margin:0 0 8px;color:var(--purple)`)}">۵) شخصی‌سازی چاپ</h5>
@@ -22637,7 +22639,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کرایه:</b> سرشکن به نسبت مبلغ/مقدار/مساوی روی ردیف‌ها. عهده خریدار به مبلغ طرف‌حساب و درآمد متفرقه می‌رود؛ عهده فروشنده هزینه توزیع است و به بدهی مشتری/تأمین‌کننده اضافه نمی‌شود</li>
         <li><b>طاقه:</b> انبار ردیف همان انبار طاقه است. موجودی طاقه از متر زنده دسته است (رسید خرید حتی اگر در گذشته بدون شناسه دسته ثبت شده باشد با شماره طاقه ترمیم می‌شود). پیام «متر طاقه ۰۰۰۷ کافی نیست» یعنی شماره طاقه، نه شماره فاکتور</li>
         <li>تخفیف سربرگ فاکتور فروش سند را تراز می‌کند (بستانکار فروش = ناخالص کالا؛ تخفیف جدا بدهکار است). حذف طاقه از سبد و ذخیرهٔ بقیه با تخفیف دیگر «سند تراز نیست» نمی‌دهد</li>
-        <li><b>چاپ:</b> از لیست یا داخل فرم فاکتور. ویزارد چاپ فرم باز را نمی‌بندد. شناسه از فاکتور انتخاب‌شده نگه داشته می‌شود. حسابدار همهٔ فاکتورها را می‌بیند/چاپ می‌کند. اگر سند پیدا نشود همان متن سرور نمایش داده می‌شود. پیش‌نمایش A4/A5 وسط صفحه و به عرض کاغذ است (به راست نمی‌چسبد)</li>
+        <li><b>چاپ:</b> از لیست یا داخل فرم فاکتور. ویزارد چاپ فرم باز را نمی‌بندد. شناسه از فاکتور انتخاب‌شده نگه داشته می‌شود. حسابدار همهٔ فاکتورها را می‌بیند/چاپ می‌کند. اگر سند پیدا نشود همان متن سرور نمایش داده می‌شود. کاغذ طبق ISO 216 است: A4=210×297mm و A5=148×210mm؛ پیش‌نمایش وسط صفحه و هم‌اندازهٔ همان کاغذ است</li>
         <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
         <li>اگر ثبت فاکتور موجودی کالا را منفی کند، نوار هشدار زنده در سبد دیده می‌شود (نیاز / موجود / مانده پس از فاکتور). ذخیره مسدود نیست — فقط هشدار است. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
@@ -23124,7 +23126,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v240</b> است و اسکریپت‌ها با <code>?v=240</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v242</b> است و اسکریپت‌ها با <code>?v=242</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
