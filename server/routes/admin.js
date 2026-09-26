@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, invalidateUserCache, revokeUserSessions } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly, invalidateUserCache, revokeUserSessions } = require('../middleware/auth');
 const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
@@ -195,17 +195,33 @@ router.put('/users/:id/catalog-categories', auth, adminOnly, centralOnly, (req, 
   res.json({ ok: true, category_ids: ids });
 });
 
-// Admin dashboard - per-salesperson stats (using final invoices for revenue)
-router.get('/dashboard', auth, adminOnly, (req, res) => {
+// Company dashboard - per-salesperson stats (admin + accounting)
+router.get('/dashboard', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(req.query.from), st = safeDate(req.query.to);
   const dateClause = sf || st
     ? ` AND date >= '${sf || ''}' AND date <= '${st || '9999'}'`
     : '';
+  const periodActive = !!(sf || st);
   const users = db.prepare("SELECT id,name,username FROM users WHERE active=1").all();
-  const custMap = Object.fromEntries(
-    db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
+  // Ownership: user_id OR assigned_to (same visibility rule as CRM)
+  const custMap = {};
+  for (const c of db.prepare('SELECT user_id, assigned_to FROM customers').all()) {
+    const seen = new Set();
+    for (const uid of [c.user_id, c.assigned_to]) {
+      if (uid == null || seen.has(uid)) continue;
+      seen.add(uid);
+      custMap[uid] = (custMap[uid] || 0) + 1;
+    }
+  }
+  // Period: distinct customers with firm sales by invoice issuer
+  const periodCustMap = Object.fromEntries(
+    db.prepare(
+      `SELECT user_id, COUNT(DISTINCT cust_id) c FROM invoices
+       WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause}
+       GROUP BY user_id`
+    ).all().map((r) => [r.user_id, r.c])
   );
   const salesMap = Object.fromEntries(
     db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
@@ -215,16 +231,19 @@ router.get('/dashboard', auth, adminOnly, (req, res) => {
   );
   const stats = users.map(u => ({
     ...u,
-    custCount: custMap[u.id] || 0,
+    custCount: periodActive ? (periodCustMap[u.id] || 0) : (custMap[u.id] || 0),
+    custCountOwned: custMap[u.id] || 0,
+    custCountPeriod: periodCustMap[u.id] || 0,
     totalSales: salesMap[u.id] || 0,
     totalDebt: 0,
-    openFup: fupMap[u.id] || 0
+    openFup: fupMap[u.id] || 0,
+    periodActive
   }));
   res.json(stats);
 });
 
-// Aggregate overview across ALL users (revenue from final invoices only)
-router.get('/stats/overview', auth, adminOnly, (req, res) => {
+// Aggregate overview across ALL users (revenue from firm invoices)
+router.get('/stats/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(req.query.from), st = safeDate(req.query.to);
@@ -238,7 +257,7 @@ router.get('/stats/overview', auth, adminOnly, (req, res) => {
   const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${notDeleted}${dateClause}`).get().c
   const totalProducts = db.prepare('SELECT COUNT(*) c FROM products').get().c;
   const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE status='open'").get().c;
-  const lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=stock_alert').get().c;
+  const lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=COALESCE(stock_alert,5)').get().c;
   res.json({ totalCustomers, totalRevenue, totalInvoices, totalProforma, totalProducts, openFollowups, lowStock,
              totalOrders: 0, totalPaid: 0, totalDebt: 0 });
 });
@@ -289,8 +308,8 @@ router.get('/audit', auth, adminOnly, (req, res) => {
   res.json({ rows, total, page, limit });
 });
 
-// Customer balances — admin sees all, others handled in /customers/balances
-router.get('/customer-balances', auth, adminOnly, (req, res) => {
+// Customer balances — admin/accounting see all; sales use /customers/balances
+router.get('/customer-balances', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const LEDGER_BAL_JOIN = `LEFT JOIN (
     SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
@@ -307,14 +326,15 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
     LEFT JOIN parties p ON p.id=c.party_id
   `).all();
   applyCustomerBalances(db, rows);
-  res.json(rows
+  const filtered = rows
     .filter((r) => {
       const bal = Math.abs(Number(r.balance) || 0);
       const inactive = r.party_id != null && Number(r.party_is_active) === 0;
       if (inactive && bal < 1) return false;
       return bal > 0;
     })
-    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0)));
+    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+  res.json(filtered);
 });
 
 // Repair: restore products.stock / pack_size / price / code wiped by image-only PUT bug

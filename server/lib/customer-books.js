@@ -798,6 +798,28 @@ function applyCustomerBalances(db, rows) {
   return rows;
 }
 
+/**
+ * Sum of positive (debtor) live balances — same formula as dashboard list.
+ * Optional scope: user_id OR assigned_to.
+ */
+function sumPositiveCustomerBalancesRial(db, userId) {
+  let rows;
+  if (userId != null) {
+    rows = db.prepare(
+      'SELECT id, 0 AS balance FROM customers WHERE user_id=? OR assigned_to=?'
+    ).all(userId, userId);
+  } else {
+    rows = db.prepare('SELECT id, 0 AS balance FROM customers').all();
+  }
+  applyCustomerBalances(db, rows);
+  let debit = 0;
+  for (const r of rows) {
+    const b = Number(r.balance) || 0;
+    if (b > 0) debit += b;
+  }
+  return Math.round(debit);
+}
+
 function eachUniqueCustomerCoa(db, fn) {
   const customers = db.prepare(`
     SELECT id, coa_code FROM customers
@@ -990,6 +1012,7 @@ module.exports = {
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
   applyCustomerBalances,
+  sumPositiveCustomerBalancesRial,
   repairCustomerBooks,
   repairGlLinesToLedger,
   repairLedgerSignedToGl,

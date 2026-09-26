@@ -336,10 +336,8 @@ function computeKpiSet(db, f) {
 
   let receivables = 0;
   try {
-    receivables = f.user_id
-      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE (c.user_id=? OR c.assigned_to=?)`).get(f.user_id, f.user_id)?.bal || 0
-      : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get()?.bal || 0;
-    receivables = Math.round(Number(receivables) || 0);
+    const { sumPositiveCustomerBalancesRial } = require('./customer-books');
+    receivables = sumPositiveCustomerBalancesRial(db, f.user_id || null);
   } catch (_) {}
 
   let overdueRecv = 0;
@@ -684,9 +682,8 @@ function buildReceivables(db, filters, scopeUserId) {
   const chq = chequeKpis(db, f.user_id, { dueDays: getSettingInt(db, 'crm_cheque_due_days', 14) });
   let receivables = 0;
   try {
-    receivables = f.user_id
-      ? db.prepare(`SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal FROM customer_ledger cl JOIN customers c ON c.id=cl.customer_id WHERE (c.user_id=? OR c.assigned_to=?)`).get(f.user_id, f.user_id)?.bal || 0
-      : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get()?.bal || 0;
+    const { sumPositiveCustomerBalancesRial } = require('./customer-books');
+    receivables = sumPositiveCustomerBalancesRial(db, f.user_id || null);
   } catch (_) {}
   return {
     receivables_rial: Math.round(Number(receivables) || 0),

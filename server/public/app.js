@@ -1664,6 +1664,7 @@ const NAV_SALES = [
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_ACCOUNTING = [
+  {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
@@ -3130,38 +3131,32 @@ function pendingActionClick(route, entityType, entityId){
   else { if(dest) go(dest); after(); }
   if(entityType&&entityId) api('POST','/notifications/entity-viewed',{entity_type:entityType,entity_id:entityId}).catch(()=>{});
 }
+function canSeeCompanyDash(){ return ME && (ME.role==='admin' || ME.role==='accounting'); }
+let _dashRenderGen = 0;
 async function renderDashContent(){
   const body = el('dashContent'); if(!body) return;
+  const gen = ++_dashRenderGen;
   const dq = (dashDateFrom||dashDateTo)
     ? '?'+(dashDateFrom?'from='+encodeURIComponent(dashDateFrom):'')+(dashDateFrom&&dashDateTo?'&':'')+(dashDateTo?'to='+encodeURIComponent(dashDateTo):'')
     : '';
-  const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
-  // Interactive widgets (pending actions) must not be restored from HTML cache:
-  // CSP action ids in the snapshot go stale and clicks become no-ops.
-  const skipCache = (window._pendingActions||[]).length>0;
-  if(!skipCache && _dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
-    // #region agent log
-    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H1',location:'app.js:renderDashContent',message:'dash_html_cache_hit',data:{role:ME&&ME.role,dk,ageMs:Date.now()-_dashHtmlCache.t,from:dashDateFrom,to:dashDateTo,preset:dashPreset},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    body.innerHTML = _dashHtmlCache.html;
-    requestAnimationFrame(fitStatNums);
-    return;
-  }
+  const periodOn = !!(dashDateFrom||dashDateTo);
+  // Live reports: never restore stale HTML; always refetch (H1)
+  _dashHtmlCache = { key:'', html:'', t:0 };
   body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
-  if(ME.role==='admin'){
+  if(canSeeCompanyDash()){
     const [ov, board, balances] = await Promise.all([
-      apiCached('GET','/admin/stats/overview'+dq),
-      apiCached('GET','/admin/dashboard'+dq),
-      apiCached('GET','/admin/customer-balances',60000)
+      api('GET','/admin/stats/overview'+dq),
+      api('GET','/admin/dashboard'+dq),
+      api('GET','/admin/customer-balances')
     ]);
+    if(gen !== _dashRenderGen) return;
     if(!ov) return;
     window._adminBalRows = (balances||[]);
     const balRows = window._adminBalRows;
     const balT = balTotals(balRows);
-    // #region agent log
-    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H1-H3-H5',location:'app.js:renderDashContent:admin',message:'admin_dash_payload',data:{role:ME&&ME.role,from:dashDateFrom,to:dashDateTo,ov:{c:ov.totalCustomers,rev:ov.totalRevenue,inv:ov.totalInvoices,pf:ov.totalProforma,prod:ov.totalProducts,fup:ov.openFollowups,low:ov.lowStock},boardLen:(board||[]).length,boardSalesSum:(board||[]).reduce((a,u)=>a+(Number(u.totalSales)||0),0),balRows:(balRows||[]).length,balT:{debit:balT.debit,credit:balT.credit,net:balT.net,netAbs:balT.netAbs},srcMix:(balRows||[]).slice(0,5).map(r=>({id:r.id,src:r.balance_source||null,bal:Number(r.balance)||0}))},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const pending = window._pendingActions || [];
+    const custCol = periodOn ? 'مشتریان (بازه)' : 'مشتریان';
+    const salesCol = periodOn ? 'فروش (بازه)' : 'فروش';
     body.innerHTML = `
       ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){pollNotifications().then(()=>renderDashContent())})}">بروز</button></div>
@@ -3169,9 +3164,9 @@ async function renderDashContent(){
           <b>${esc(a.title)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(a.body||'')}</div></div>`).join('')}</div></div>`:''}
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(ov.totalCustomers),'کل مشتریان')}
-        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل'+(dq?' · بازه':''))}
-        ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' · بازه':''))}
-        ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(dq?' · بازه':''))}
+        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل'+(periodOn?' · بازه':''))}
+        ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور قطعی'+(periodOn?' · بازه':''))}
+        ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(periodOn?' · بازه':''))}
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
@@ -3180,24 +3175,27 @@ async function renderDashContent(){
         ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       <div class="panel">
-        <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
+        <div class="panel-head"><h4>عملکرد کارشناسان${periodOn?' · بازه فروش':''}</h4>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻ زنده</button>
+        </div>
         <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack">
-            <thead><tr><th>کارشناس</th><th data-col-kind="qty">مشتریان</th><th data-col-kind="money">فروش</th><th data-col-kind="qty">پیگیری</th></tr></thead>
+            <thead><tr><th>کارشناس</th><th data-col-kind="qty">${custCol}</th><th data-col-kind="money">${salesCol}</th><th data-col-kind="qty">پیگیری باز</th></tr></thead>
             <tbody>${(board||[]).map(u=>`<tr>
               <td data-label="کارشناس">${esc(u.name)}</td>
-              <td data-label="مشتریان">${fmt(u.custCount)}</td>
-              <td data-label="فروش" class="mono">${fmt(u.totalSales)}</td>
-              <td data-label="پیگیری">${fmt(u.openFup)}</td></tr>`).join('')||emptyRow(4)}</tbody>
+              <td data-label="${esc(custCol)}">${fmt(u.custCount)}</td>
+              <td data-label="${esc(salesCol)}" class="mono">${fmt(u.totalSales)}</td>
+              <td data-label="پیگیری باز">${fmt(u.openFup)}</td></tr>`).join('')||emptyRow(4)}</tbody>
           </table>
         </div>
       </div>
       ${balRows.length?`<div class="panel">
-        <div class="panel-head"><h4>مانده مشتریان</h4>
+        <div class="panel-head"><h4>مانده مشتریان (زنده)</h4>
           <select data-csp-change="${CSP.bind('change',function(event){filterDashBalances(this.value)})}">
             <option value="">همه کارشناسان</option>
             ${[...new Set(balRows.map(c=>c.salesperson||'').filter(Boolean))].map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
           </select>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻</button>
         </div>
         <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack" id="dashBalTbl">
@@ -3211,25 +3209,21 @@ async function renderDashContent(){
           </table>
         </div>
       </div>`:''}`;
-    _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
     requestAnimationFrame(fitStatNums);
     if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   } else {
-    const balances = await apiCached('GET','/customers/balances',30000);
+    const balances = await api('GET','/customers/balances');
     let followups, invoices;
-    if(_followupsFetched && _invoicesFetched){
-      followups = CACHE.followups;
-      invoices = CACHE.invoices;
-    } else {
-      [followups, invoices] = await Promise.all([
-        api('GET','/followups'),
-        api('GET','/invoices')
-      ]);
-      CACHE.followups=followups||[]; CACHE.invoices=invoices||[];
-      _followupsFetched=true; _invoicesFetched=true;
-    }
+    [followups, invoices] = await Promise.all([
+      api('GET','/followups'),
+      api('GET','/invoices')
+    ]);
+    if(gen !== _dashRenderGen) return;
+    CACHE.followups=followups||[]; CACHE.invoices=invoices||[];
+    _followupsFetched=true; _invoicesFetched=true;
     let myComm = { totalComm:0, commRate:{cash:0,cheque:0} };
-    try { myComm = await apiCached('GET','/accounting/my-commission'+dq,60000) || myComm; } catch(e){}
+    try { myComm = await api('GET','/accounting/my-commission'+dq) || myComm; } catch(e){}
+    if(gen !== _dashRenderGen) return;
     const invList=Array.isArray(invoices)?invoices:(invoices&&(invoices.data||invoices.rows))||[];
     const isFirmInv=i=>i && (i.type==='final'||i.type==='normal') && (i.status||'posted')!=='reversed' && !i.deleted_at;
     let finalInvs = invList.filter(isFirmInv);
@@ -3242,15 +3236,12 @@ async function renderDashContent(){
     const openF = (followups||[]).filter(f=>f.status==='open').length;
     const balRows = (balances||[]);
     const balT = balTotals(balRows);
-    // #region agent log
-    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H2',location:'app.js:renderDashContent:nonAdmin',message:'nonadmin_dash_payload',data:{role:ME&&ME.role,from:dashDateFrom,to:dashDateTo,custCache:(CACHE.customers||[]).length,sales,finalCount:finalInvs.length,proforma:allInvs.filter(i=>i.type==='proforma').length,openF,balRows:(balRows||[]).length,balT:{debit:balT.debit,credit:balT.credit,net:balT.net},invoiceCacheHit:!!(_followupsFetched&&_invoicesFetched),commSales},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     body.innerHTML = `
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
-        ${statCard('g','💰', fmt(sales),'فروش کل'+(dq?' · بازه':''))}
-        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور قطعی'+(dq?' · بازه':''))}
-        ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' · بازه':''))}
+        ${statCard('g','💰', fmt(sales),'فروش کل'+(periodOn?' · بازه':''))}
+        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور قطعی'+(periodOn?' · بازه':''))}
+        ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(periodOn?' · بازه':''))}
         ${statCard('b','📞', fmt(openF),'پیگیری باز')}
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
@@ -3261,7 +3252,9 @@ async function renderDashContent(){
       </div>
       ${myComm.basisLabel?`<div class="muted" data-csp-style="${CSP.style(`margin:-4px 0 12px;font-size:11px`)}">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
-        <div class="panel-head"><h4>مانده مشتریان من</h4></div>
+        <div class="panel-head"><h4>مانده مشتریان من (زنده)</h4>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻</button>
+        </div>
         <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack">
             <thead><tr>
@@ -3291,7 +3284,6 @@ async function renderDashContent(){
           </tr>`).join('')||emptyRow(4)}</tbody></table>
         </div>
       </div>`;
-    _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
     requestAnimationFrame(fitStatNums);
     if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }
@@ -6376,22 +6368,46 @@ async function loadProdSkuChips(productId){
   let colors=[], sizes=[], style=null;
   try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
   try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
-  if(productId){ try{ style=await api('GET','/product-variants/style/'+productId); }catch(_){ style=null; } }
+  await ensureWarehouses();
+  const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
+  const prod=window._prodModalProduct||{};
+  const defaultWh=Number(window._prodMatrixWhId||el('p-warehouse')?.value||prod.warehouse_id||(whs[0]&&whs[0].id)||0)||0;
+  window._prodMatrixWhId=defaultWh;
+  if(productId){
+    try{
+      const qs=defaultWh?('?warehouse_id='+encodeURIComponent(String(defaultWh))):'';
+      style=await api('GET','/product-variants/style/'+productId+qs);
+    }catch(_){ style=null; }
+  }
   const usedC=new Set((style&&style.variants||[]).map(v=>Number(v.color_id)).filter(Boolean));
   const usedS=new Set((style&&style.variants||[]).map(v=>Number(v.size_id)).filter(Boolean));
   const packHint=style&&style.pack_size_auto?`پک زنده فعلی: ${fmt(style.pack_size_auto)} (${fmt(style.live_colors||0)} رنگ × ${fmt(style.live_sizes||0)} سایز)`:'';
   window._prodStyleVariants=(style&&style.variants)||[];
+  window._prodStockByWh=(style&&style.stock_by_warehouse)||[];
+  const byWhHtml=(window._prodStockByWh||[]).length
+    ? `<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin:6px 0;line-height:1.8')}">تفکیک عددی انبارها: ${(window._prodStockByWh).map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`
+    : '';
+  const whSel=whs.length?`<div class="fg" data-csp-style="${CSP.style('margin:8px 0')}"><label>انبار برای موجودی رنگ×سایز ${hlp('اعداد ماتریس فقط موجودی همین انبار است (مثلاً انبار کیمیا جدا از انبار محصول). با عوض کردن انبار، جدول همان انبار را نشان می‌دهد.')}</label>
+    <select id="p-matrix-wh" data-csp-change="${CSP.bind('change',function(){onProdMatrixWarehouseChange((productId||0))})}">
+      ${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(defaultWh)?'selected':''}>${esc(w.name)}</option>`).join('')}
+    </select></div>`:'';
   box.innerHTML=`
     <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU و موجودی هر خانه ساخته می‌شود. پک فاکتور = رنگ موجود × سایز موجود.')}</label>
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-color" value="${c.id}" ${usedC.has(Number(c.id))?'checked':''}> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>'}</div>
     <label>سایزهای این کالا</label>
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0`)}">${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-size" value="${s.id}" ${usedS.has(Number(s.id))?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>'}</div>
-    ${packHint?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">${esc(packHint)}</div>`:''}
+    ${whSel}${byWhHtml}
+    ${packHint?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">${esc(packHint)}${style&&style.warehouse_name?' — نمایش: '+esc(style.warehouse_name):''}</div>`:''}
     <div id="p-stock-matrix-wrap"></div>`;
   box.querySelectorAll('.p-chip-color,.p-chip-size').forEach(inp=>{
     inp.addEventListener('change', ()=>renderProdStockGrid());
   });
   renderProdStockGrid();
+}
+async function onProdMatrixWarehouseChange(productId){
+  window._prodMatrixWhId=Number(el('p-matrix-wh')?.value||0)||0;
+  if(productId) await loadProdSkuChips(productId);
+  if(productId) await refreshProdVariantsPanel(productId);
 }
 function selectedProdChips(){
   return {
@@ -6403,6 +6419,7 @@ function renderProdStockGrid(){
   const wrap=el('p-stock-matrix-wrap'); if(!wrap) return;
   const {colors,sizes}=selectedProdChips();
   const stockFg=el('p-stock-fg')||el('p-stock')?.closest('.fg');
+  const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0))?.name||'';
   if(colors.length && sizes.length){
     if(stockFg) stockFg.style.display='none';
     const vars=window._prodStyleVariants||[];
@@ -6410,10 +6427,10 @@ function renderProdStockGrid(){
       const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
       return v&&v.stock!=null?v.stock:0;
     };
-    wrap.innerHTML=`<label>موجودی رنگ × سایز ${hlp('هر خانه تعداد همان ترکیب است. جمع خانه‌ها موجودی کالا می‌شود و پک زنده = رنگ‌های با موجودی × سایزهای با موجودی.')}</label>
+    wrap.innerHTML=`<label>موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. جمع خانه‌های همهٔ انبارها موجودی کل کالا می‌شود.')}</label>
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
       <tbody>${colors.map(c=>`<tr><th>${esc(c.name)}</th>${sizes.map(s=>`<td><input type="number" min="0" step="1" class="p-stock-cell" data-color="${c.id}" data-size="${s.id}" value="${qtyOf(c.id,s.id)}" data-csp-style="${CSP.style(`width:72px`)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ با ذخیره، همین جدول به انبار و پک زنده می‌رسد.</div>`;
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ با ذخیره، همین جدول فقط روی انبار انتخاب‌شده نوشته می‌شود و موجودی انبارهای دیگر دست‌نخورده می‌ماند.</div>`;
   }else{
     if(stockFg) stockFg.style.display='';
     wrap.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-top:6px`)}">برای موجودی تفکیکی حداقل یک رنگ و یک سایز را تیک بزنید.</div>`;
@@ -6428,14 +6445,20 @@ async function refreshProdVariantsPanel(productId){
   const box=el('p-variants-panel'); if(!box||!productId) return;
   box.innerHTML='در حال بارگذاری...';
   try{
-    const style=await api('GET','/product-variants/style/'+productId);
+    const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||0;
+    const qs=wh?('?warehouse_id='+encodeURIComponent(String(wh))):'';
+    const style=await api('GET','/product-variants/style/'+productId+qs);
     const vars=(style&&style.variants)||[];
     const matrix=vars.filter(v=>!v.is_default && v.active!==0);
+    const whLabel=style&&style.warehouse_name?esc(style.warehouse_name):'همه انبارها (جمع)';
+    const byWh=(style&&style.stock_by_warehouse)||[];
+    const byWhLine=byWh.length?`<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:8px')}">تفکیک انبار: ${byWh.map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`:'';
     if(!matrix.length){
-      box.innerHTML='<span class="muted">هنوز SKU رنگ×سایز ساخته نشده — «ساخت ماتریس» را بزنید.</span>';
+      box.innerHTML=byWhLine+'<span class="muted">هنوز SKU رنگ×سایز ساخته نشده — «ساخت ماتریس» را بزنید.</span>';
       return;
     }
-    box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
+    box.innerHTML=`${byWhLine}<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:6px')}">اعداد جدول برای: <b>${whLabel}</b></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
       ${matrix.map(v=>`<tr>
         <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
         <td>${esc(v.color_name||v.color_code||'—')}</td>
@@ -6445,8 +6468,8 @@ async function refreshProdVariantsPanel(productId){
       </tr>`).join('')}
     </tbody></table></div>
     <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap`)}">
-      <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){saveProdVariantStocks((productId))})}">ذخیره موجودی رنگ×سایز</button>
-      <span class="muted">${fmt(matrix.length)} ترکیب فعال — پک زنده از خانه‌های غیرصفر ساخته می‌شود</span>
+      <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){saveProdVariantStocks((productId))})}">ذخیره موجودی رنگ×سایز همین انبار</button>
+      <span class="muted">${fmt(matrix.length)} ترکیب فعال — پک زنده از خانه‌های غیرصفر همین انبار ساخته می‌شود</span>
     </div>`;
   }catch(e){
     box.innerHTML=`<span style="color:var(--red)">${esc(e.message||'خطا در بارگذاری واریانت')}</span>`;
@@ -6513,9 +6536,10 @@ async function saveProdVariantStocks(productId){
     color_id:+inp.dataset.color, size_id:+inp.dataset.size, qty:+inp.value||0
   })).filter(c=>c.color_id&&c.size_id);
   if(!cells.length){ showToast('ترکیب رنگ×سایز نیست','error'); return; }
+  const warehouse_id=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||undefined;
   try{
-    await api('POST','/product-variants/stock-matrix',{ product_id:Number(productId), cells });
-    showToast('موجودی رنگ×سایز ذخیره شد');
+    await api('POST','/product-variants/stock-matrix',{ product_id:Number(productId), cells, warehouse_id });
+    showToast('موجودی رنگ×سایز انبار ذخیره شد');
     await refreshProdVariantsPanel(productId);
     await loadProdSkuChips(productId);
   }catch(e){ showToast(e.message||'خطا','error'); }
@@ -6786,7 +6810,7 @@ async function saveProduct(id){
       try{
         await api('POST','/product-variants/stock-matrix',{
           product_id:Number(savedId), cells,
-          warehouse_id:el('p-warehouse')?.value||undefined
+          warehouse_id:el('p-matrix-wh')?.value||el('p-warehouse')?.value||undefined
         });
       }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ثبت موجودی رنگ×سایز ناموفق بود','error'); }
     }
@@ -22568,18 +22592,18 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>در صفحات اصلی (غیر از داشبورد) → برگشت به <b>داشبورد</b></li>
       </ul>`),
     helpSec('📊','داشبورد',`
-      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. <b>فروش کل</b> جمع فاکتورهای قطعی (معمولی و رسمی، غیر ابطال‌شده) است. برای کارشناس حضوری/تلفنی پیش‌فرض بازه «همه» است تا با «حساب من» یکی باشد. روی <b>موبایل</b> رابط به‌صورت <b>مینیمال تک‌ستونه</b> است: KPIها به‌صورت لیست عمودی (بدون برش متن)، جداول به‌صورت کارت، فیلتر بازه تمام‌عرض، تاپ‌بار خلوت (منو + عنوان + اعلان + وضعیت همگام کوتاه)، و فیلدهای فرم با ارتفاع لمسی و فونت ۱۶px.</p>
-      <div class="tip">دکمه ☰ بالای صفحه، در نسخه دسکتاپ (ویندوز) نیز فعال است و مانند موبایل منوی کناری را جمع/باز می‌کند — تجربه یکسان در همه دستگاه‌ها.</div>
+      <p>داشبورد نمای زنده از وضعیت کسب‌وکار است. <b>فروش کل</b> و شمار فاکتور/پیش‌فاکتور با فیلتر بازه به‌روز می‌شوند (فاکتور قطعی = معمولی + رسمی، غیر ابطال‌شده). <b>مانده مشتریان</b> همیشه زنده از دفتر کل/دفتر مشتری است (همان قاعدهٔ صورتحساب) و به فیلتر بازه وابسته نیست. برای کارشناس حضوری/تلفنی پیش‌فرض بازه «همه» است تا با «حساب من» یکی باشد.</p>
+      <div class="tip">دکمه ↻ / «زنده» و هر بار ورود به داشبورد، اعداد را دوباره از سرور می‌خواند (کش HTML داشبورد خاموش است).</div>
       <h5>امکانات</h5><ul>
-        <li>آمار تعداد مشتریان، فاکتورها و پیگیری‌های باز</li>
-        <li>جدول عملکرد هر کارشناس: تعداد مشتری، فروش کل، پیگیری‌های باز</li>
-        <li>جدول مانده حساب مشتریان با فیلتر کارشناس و <b>جمع کل زنده</b> — دکمه «صورت‌حساب» کنار هر مشتری</li>
+        <li>آمار مشتریان، کالاها، پیگیری باز و موجودی کم (سراسری / زنده)</li>
+        <li>جدول عملکرد کارشناس: در حالت بازه، ستون مشتریان = مشتریانی با فروش قطعی در همان بازه؛ فروش = جمع فاکتور همان بازه؛ پیگیری باز = تعداد زنده</li>
+        <li>جدول مانده با فیلتر کارشناس و دکمه صورت‌حساب — مدیر و حسابدار همه را می‌بینند؛ بقیه نقش‌ها فقط مشتریان خود/منتصب</li>
       </ul>
       <h5>فیلتر زمانی</h5><ul>
         <li>پیش‌فرض داشبورد <b>ماه جاری</b> است</li>
         <li>گزینه‌های آماده: <b>هفته جاری</b> (از شنبه)، <b>ماه جاری</b>، <b>ماه قبل</b>، همه، بازه دلخواه</li>
-        <li>با انتخاب «بازه دلخواه» تاریخ شروع و پایان را دستی وارد کنید</li>
-        <li>همه جمع‌ها و آمارها بلافاصله با تغییر فیلتر به‌روز می‌شوند</li>
+        <li>برچسب «· بازه» فقط روی کارت‌هایی است که واقعاً با فیلتر محدود می‌شوند (فروش و شمار فاکتور)</li>
+        <li>مطالبات داشبورد CRM هم با همان فرمول ماندهٔ زنده (GL/دفتر) هم‌تراز شده است</li>
       </ul>`),
     helpSec('🆕','قابلیت‌های جدید (حسابداری، چک، جستجو)',`
       <p>در این نسخه چند بهبود مهم اعمال شده است:</p>
@@ -22862,7 +22886,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
         <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
-      <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
+      <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
       <div class="tip">برای محاسبه درست سود ناخالص، «بهای تمام‌شده» هر محصول را در بخش محصولات وارد کنید.</div>
       <div class="tip">در فرم دریافت از مشتری، نقد فقط صندوق را نشان می‌دهد و واریز/چک فقط بانک را؛ در ثبت چندقسطی هر قسط مقصد خودش را دارد. در پرداخت به تأمین‌کننده و فاکتور خرید هم انتخاب بانک یا صندوق مسیر سند را مشخص می‌کند. فیلد «دسته چک» فقط برای چک‌هایی که خودمان صادر می‌کنیم نمایش داده می‌شود.</div>

@@ -140,15 +140,8 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
 
   let receivablesRial = 0;
   try {
-    const q = userId
-      ? db.prepare(`
-          SELECT COALESCE(SUM(cl.debit-cl.credit),0) AS bal
-          FROM customer_ledger cl
-          JOIN customers c ON c.id=cl.customer_id
-          WHERE (c.user_id=? OR c.assigned_to=?)
-        `).get(userId, userId)
-      : db.prepare('SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger').get();
-    receivablesRial = Math.round(Number(q?.bal) || 0);
+    const { sumPositiveCustomerBalancesRial } = require('./customer-books');
+    receivablesRial = sumPositiveCustomerBalancesRial(db, userId || null);
   } catch (_) {}
 
   const inactiveCustomers = db.prepare(`
