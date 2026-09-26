@@ -7,10 +7,10 @@ html.inv-print {
   min-height: 100%;
   direction: rtl;
 }
-html.inv-print.paper-a4 { --sheet-max: 210mm; --pad: 16px; --font: 11.5px; --logo-h: 52px; }
-html.inv-print.paper-a5 { --sheet-max: 148mm; --pad: 12px; --font: 10px; --logo-h: 40px; }
-html.inv-print.paper-thermal { --sheet-max: 300px; --pad: 10px; --font: 11px; --logo-h: 42px; }
-html.inv-print.paper-thermal-58 { --sheet-max: 220px; --pad: 8px; --font: 10px; --logo-h: 36px; }
+html.inv-print.paper-a4 { --sheet-max: 210mm; --sheet-h: 297mm; --pad: 16px; --font: 11.5px; --logo-h: 52px; }
+html.inv-print.paper-a5 { --sheet-max: 148mm; --sheet-h: 210mm; --pad: 12px; --font: 10px; --logo-h: 40px; }
+html.inv-print.paper-thermal { --sheet-max: 300px; --sheet-h: auto; --pad: 10px; --font: 11px; --logo-h: 42px; }
+html.inv-print.paper-thermal-58 { --sheet-max: 220px; --sheet-h: auto; --pad: 8px; --font: 10px; --logo-h: 36px; }
 
 html.inv-print body {
   font-family: 'Vazirmatn', Tahoma, sans-serif;
@@ -36,10 +36,10 @@ html.inv-print .sheet {
   box-sizing: border-box;
   box-shadow: 0 12px 32px rgba(18, 39, 28, .08);
 }
-html.inv-print.paper-a4 .sheet { max-width: 210mm; }
-html.inv-print.paper-a5 .sheet { max-width: 148mm; }
-html.inv-print.paper-thermal .sheet { max-width: 300px; }
-html.inv-print.paper-thermal-58 .sheet { max-width: 220px; }
+html.inv-print.paper-a4 .sheet { max-width: 210mm; min-height: 297mm; page: inv-a4; }
+html.inv-print.paper-a5 .sheet { max-width: 148mm; min-height: 210mm; page: inv-a5; }
+html.inv-print.paper-thermal .sheet { max-width: 300px; page: inv-thermal; }
+html.inv-print.paper-thermal-58 .sheet { max-width: 220px; page: inv-thermal; }
 html.inv-print .pad { padding: var(--pad, 16px); width: 100%; box-sizing: border-box; }
 html.inv-print .num { font-variant-numeric: tabular-nums; }
 html.inv-print .rtl { text-align: right; }
@@ -426,17 +426,16 @@ html.inv-print.paper-a5 .stamps { grid-template-columns: 1fr 1fr; }
   html.inv-print .sheet {
     max-width: 100% !important;
     width: 100% !important;
+    min-height: 0 !important;
     box-shadow: none !important;
     border-radius: 0 !important;
   }
   html.inv-print .pbtn { display: none !important; }
+  /* ISO 216 portrait — named pages track html.paper-* (sync with ISO_PAPER in invoice-print.js). */
+  @page inv-a4 { size: 210mm 297mm; margin: 8mm; }
+  @page inv-a5 { size: 148mm 210mm; margin: 8mm; }
+  @page inv-thermal { size: auto; margin: 2mm; }
   @page { margin: 8mm; }
-  html.inv-print.paper-a5 { }
-}
-html.inv-print.paper-a4 { }
-@media print {
-  html.inv-print.paper-thermal,
-  html.inv-print.paper-thermal-58 { }
 }
 @media screen and (max-width: 420px) {
   html.inv-print .parties,

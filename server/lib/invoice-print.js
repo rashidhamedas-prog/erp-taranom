@@ -15,6 +15,15 @@ const THERMAL_ID = 'thermal';
 /** @deprecated kept for migrating old settings */
 const LEGACY_CASUAL = ['casual-compact', 'casual-receipt'];
 
+/**
+ * ISO 216 portrait paper sizes (mm) — single source of truth for print.
+ * A4 = 210×297, A5 = 148×210. Never invent custom "A5-like" sizes.
+ */
+const ISO_PAPER = Object.freeze({
+  A4: Object.freeze({ widthMm: 210, heightMm: 297, pageMargin: '8mm' }),
+  A5: Object.freeze({ widthMm: 148, heightMm: 210, pageMargin: '8mm' }),
+});
+
 const DEFAULT_CUSTOMIZE = {
   show_logo: true,
   show_company_phone: true,
@@ -144,17 +153,26 @@ function paperDims(paper, settings) {
     return {
       paper: 'THERMAL',
       thermalMm: mm,
+      widthMm: mm,
+      heightMm: 0,
       sheetMax: mm === 58 ? '220px' : '300px',
+      pageSizeCss: `${mm}mm auto`,
+      pageMargin: '2mm',
       pad: mm === 58 ? '8px' : '10px',
       font: mm === 58 ? '10px' : '11px',
       logoH: mm === 58 ? '36px' : '42px',
     };
   }
   const isA5 = p === 'A5';
+  const iso = isA5 ? ISO_PAPER.A5 : ISO_PAPER.A4;
   return {
     paper: isA5 ? 'A5' : 'A4',
     thermalMm: 0,
-    sheetMax: isA5 ? '148mm' : '210mm',
+    widthMm: iso.widthMm,
+    heightMm: iso.heightMm,
+    sheetMax: `${iso.widthMm}mm`,
+    pageSizeCss: `${iso.widthMm}mm ${iso.heightMm}mm`,
+    pageMargin: iso.pageMargin,
     pad: isA5 ? '12px' : '16px',
     font: isA5 ? '10px' : '11.5px',
     logoH: isA5 ? '40px' : '52px',
@@ -291,16 +309,17 @@ function expertHtml(inv, customize) {
 }
 
 function themeCss(id, dims) {
-  const pageSize = dims.paper === 'THERMAL'
-    ? `${dims.thermalMm}mm auto`
-    : dims.paper;
-  const pageMargin = dims.paper === 'THERMAL' ? '2mm' : '8mm';
+  // Explicit mm (ISO 216) — more reliable than named keywords like "A5" across print engines.
+  const pageSize = dims.pageSizeCss
+    || (dims.paper === 'THERMAL' ? `${dims.thermalMm}mm auto` : dims.paper);
+  const pageMargin = dims.pageMargin || (dims.paper === 'THERMAL' ? '2mm' : '8mm');
+  const sheetMinH = dims.heightMm > 0 ? `min-height:${dims.heightMm}mm;` : '';
 
   const common = `
   *{box-sizing:border-box;margin:0;padding:0}
   html{width:100%;min-width:100vw;min-height:100%;direction:rtl}
   body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:16px;font-size:${dims.font};width:100%;min-width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;box-sizing:border-box}
-  .sheet{width:100%;max-width:${dims.sheetMax};margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box;box-shadow:0 12px 32px rgba(18,39,28,.08)}
+  .sheet{width:100%;max-width:${dims.sheetMax};${sheetMinH}margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box;box-shadow:0 12px 32px rgba(18,39,28,.08)}
   .pad{padding:${dims.pad};width:100%;box-sizing:border-box}
   .num{font-variant-numeric:tabular-nums}
   .rtl{text-align:right}
@@ -844,7 +863,7 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css?v=227" rel="stylesheet">
+<link href="/invoice-print.css?v=243" rel="stylesheet">
 <style>${themeCss(templateId, dims)}
 html.inv-print .sheet,html.inv-print .sheet *:not(.pbtn):not(img):not(svg):not(path){color:#000!important;-webkit-text-fill-color:#000!important;border-color:#000!important;outline-color:#000!important;text-shadow:none!important;box-shadow:none!important;background-color:#fff!important;background-image:none!important;opacity:1!important}
 html.inv-print .sheet *::before,html.inv-print .sheet *::after{color:#000!important;border-color:#000!important;background-image:none!important;opacity:1!important}
@@ -865,7 +884,7 @@ html.inv-print .off-gold,html.inv-print .prem-rule,html.inv-print .party::before
 }
 
 module.exports = {
-  FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE,
+  FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE, ISO_PAPER,
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
   renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
   collapsePrintRows,

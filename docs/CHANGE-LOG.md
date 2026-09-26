@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — چاپ فاکتور: کاغذ A5/A4 طبق ISO 216 (SW v243)
+
+- **باگ:** انتخاب A5 در ویزارد چاپ استاندارد نبود؛ پیش‌نمایش فقط عرض ۱۴۸mm داشت ولی در `invoice-print.css` قانون `@page size` خالی بود. وقتی استایل اینلاین زیر CSP بلاک می‌شد، مرورگر روی A4 پیش‌فرض چاپ می‌کرد و برگه کش می‌آمد.
+- **ریشه:** دو مسیر CSS (اینلاین `themeCss` + فایل خارجی) هم‌تراز نبودند؛ ابعاد فقط با keyword و بدون ارتفاع ISO بودند.
+- **اصلاح:** `ISO_PAPER` منبع واحد (A4=210×297، A5=148×210mm)؛ `pageSizeCss` صریح میلی‌متر؛ named pages در CSS (`@page inv-a5` / `inv-a4`)؛ `min-height` برگه؛ راهنما و برچسب UI با ابعاد ISO.
+- **جلوگیری از تکرار:** تست `test-invoice-paper-iso-v243` drift بین `paperDims` و CSS را قفل می‌کند.
+- **فایل‌ها:** server/lib/invoice-print.js, server/public/{invoice-print.css,app.js,sw.js,index.html}, server/scripts/test-invoice-{paper-iso-v243,print-layout-v195}.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v243
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۵ — داشبورد گزارش‌دهی بانک و صندوق / نقدینگی (SW v242)
 
 - **قابلیت:** در منوی حسابداری → بانک و صندوق → گزارشات، صفحهٔ **داشبورد بانک و صندوق (نقدینگی)** اضافه شد.
