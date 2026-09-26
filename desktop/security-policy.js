@@ -7,6 +7,13 @@ const ALLOWED_EXTERNAL_HOSTS = Object.freeze([
   'erp.poshaktaranom.com'
 ]);
 
+/** GitHub Releases host for this product only — used by updater, not shell.openExternal. */
+const UPDATE_GITHUB_REPO_PREFIX = '/rashidhamedas-prog/erp-taranom/releases/';
+const ALLOWED_UPDATE_CDN_HOSTS = Object.freeze([
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com'
+]);
+
 const MAX_UPDATE_BYTES = 1024 * 1024 * 1024;
 
 function parseUrl(value) {
@@ -51,6 +58,32 @@ function isAllowedExternalUrl(value) {
   );
 }
 
+function isGithubReleasePageUrl(url) {
+  if (!url || url.protocol !== 'https:' || !hasNoCredentials(url)) return false;
+  if (url.port !== '' && url.port !== '443') return false;
+  return url.hostname === 'github.com' && url.pathname.startsWith(UPDATE_GITHUB_REPO_PREFIX);
+}
+
+function isGithubReleaseCdnUrl(url) {
+  if (!url || url.protocol !== 'https:' || !hasNoCredentials(url)) return false;
+  if (url.port !== '' && url.port !== '443') return false;
+  return ALLOWED_UPDATE_CDN_HOSTS.includes(url.hostname);
+}
+
+/**
+ * Update feed/installer downloads.
+ * Initial hop: Taranom HTTPS or github.com/.../releases/... for this repo only.
+ * Redirect hop: may also be GitHub release CDN hosts (never as the first URL).
+ */
+function isAllowedUpdateUrl(value, options = {}) {
+  if (isAllowedExternalUrl(value)) return true;
+  const url = parseUrl(value);
+  if (!url) return false;
+  if (isGithubReleasePageUrl(url)) return true;
+  if (options.allowCdnRedirect === true && isGithubReleaseCdnUrl(url)) return true;
+  return false;
+}
+
 function normalizeSha256(value) {
   const digest = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return /^[a-f0-9]{64}$/.test(digest) ? digest : null;
@@ -88,7 +121,7 @@ function validateManualUpdateMetadata(input, expected) {
   const inputSha256 = normalizeSha256(input && input.sha256);
   const inputSize = normalizeUpdateSize(input && input.size);
 
-  if (!isAllowedExternalUrl(expectedUrl) || !expectedSha256 || !expectedSize) {
+  if (!isAllowedUpdateUrl(expectedUrl) || !expectedSha256 || !expectedSize) {
     return { ok: false, code: 'E_UPDATE_METADATA_MISSING' };
   }
   if (!input || input.url !== expectedUrl || inputSha256 !== expectedSha256 || inputSize !== expectedSize) {
@@ -176,10 +209,15 @@ function hardenWebviewPreferences(webPreferences) {
 
 module.exports = {
   ALLOWED_EXTERNAL_HOSTS,
+  ALLOWED_UPDATE_CDN_HOSTS,
+  UPDATE_GITHUB_REPO_PREFIX,
   MAX_UPDATE_BYTES,
   isLoopbackUrl,
   isAllowedChildWindowUrl,
   isAllowedExternalUrl,
+  isAllowedUpdateUrl,
+  isGithubReleasePageUrl,
+  isGithubReleaseCdnUrl,
   normalizeSha256,
   normalizeUpdateSize,
   normalizePublisherNames,

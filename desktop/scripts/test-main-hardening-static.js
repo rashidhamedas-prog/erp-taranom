@@ -21,6 +21,8 @@ const checks = [
   ['manual download uses the behavioral integrity verifier', /createUpdateIntegrityVerifier\(metadata\.sha256,\s*metadata\.size\)/],
   ['signed fallback uses Authenticode verifier', /verifyUpdateCodeSignature\(publishers,\s*installerPath\)/],
   ['IPC sender is restricted to the loopback main renderer', /event\.sender\s*!==\s*mainWindow\.webContents[\s\S]*isLoopbackUrl\(senderUrl,\s*port\)/],
+  ['auto install requires evaluateUpdateInstallPolicy', /function scheduleSafeInstall[\s\S]*evaluateUpdateInstallPolicy\(/],
+  ['auto install fails closed when safe-point is not ready', /Update install deferred until the local database is ready/],
   ['preload forwards only bounded update metadata', /installUpdate:\s*payload\s*=>\s*ipcRenderer\.invoke\('desktop:install-update',\s*sanitizeInstallPayload\(payload\)\)/],
   ['preload listener provides unsubscribe cleanup', /removeListener\('desktop:update-status',\s*listener\)/],
   ['Windows maximize is clamped to display workArea', /clampWindowToWorkArea\(mainWindow,\s*screen\)/],

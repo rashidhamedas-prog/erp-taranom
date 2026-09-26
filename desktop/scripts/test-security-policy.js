@@ -6,6 +6,7 @@ const {
   isLoopbackUrl,
   isAllowedChildWindowUrl,
   isAllowedExternalUrl,
+  isAllowedUpdateUrl,
   normalizeSha256,
   normalizeUpdateSize,
   normalizePublisherNames,
@@ -71,6 +72,32 @@ test('external allowlist rejects credentials, non-443 ports, and lookalike hosts
     'javascript:alert(1)'
   ];
   for (const value of rejected) assert.strictEqual(isAllowedExternalUrl(value), false, value);
+});
+
+test('update allowlist accepts this repo GitHub Releases and rejects other repos', () => {
+  assert.strictEqual(
+    isAllowedUpdateUrl('https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.12/ERP-Taranom-Setup-2.0.12.exe'),
+    true
+  );
+  assert.strictEqual(
+    isAllowedUpdateUrl('https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.12/latest.yml'),
+    true
+  );
+  assert.strictEqual(isAllowedUpdateUrl('https://erp.poshaktaranom.com/releases/latest.yml'), true);
+  assert.strictEqual(
+    isAllowedUpdateUrl('https://github.com/evil/other/releases/download/v1/setup.exe'),
+    false
+  );
+  assert.strictEqual(isAllowedExternalUrl('https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.12/a.exe'), false);
+});
+
+test('GitHub CDN URLs are rejected as the initial hop and allowed only as redirects', () => {
+  const cdn = 'https://objects.githubusercontent.com/github-production-release-asset/123/abc';
+  const releaseCdn = 'https://release-assets.githubusercontent.com/github-production-release-asset/123/abc';
+  assert.strictEqual(isAllowedUpdateUrl(cdn), false);
+  assert.strictEqual(isAllowedUpdateUrl(releaseCdn), false);
+  assert.strictEqual(isAllowedUpdateUrl(cdn, { allowCdnRedirect: true }), true);
+  assert.strictEqual(isAllowedUpdateUrl(releaseCdn, { allowCdnRedirect: true }), true);
 });
 
 test('SHA-256 and size normalization is strict', () => {

@@ -4,7 +4,11 @@
  * Boot / drain gate — liveness stays up while schema init or SIGTERM drain runs.
  * Readiness and business APIs wait until markReady(); new work is refused while draining.
  */
-const PROBE_PATHS = new Set(['/api/system/health', '/api/system/ready']);
+const PROBE_PATHS = new Set([
+  '/api/system/health',
+  '/api/system/ready',
+  '/api/system/desktop-safe-point'
+]);
 
 let ready = false;
 let draining = false;

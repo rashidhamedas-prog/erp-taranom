@@ -10,10 +10,27 @@
 - **مشکل:** با بزرگ‌کردن پنجرهٔ EXE، پایین برنامه (سایدبار/دکمه‌ها/کارت‌ها) زیر تسک‌بار ویندوز می‌رفت.
 - **ریشه:** روی ویندوز، Maximize گاهی از `workArea` بزرگ‌تر می‌شود و ناحیهٔ تسک‌بار را هم می‌پوشاند؛ `100vh` هم برای شل UI مناسب نبود.
 - **اصلاح:** `desktop/work-area.js` + clamp بعد از maximize/resize؛ `fullscreenable:false`؛ شروع پنجره داخل workArea؛ CSS شل با `100dvh`؛ راهنما به‌روز شد.
-- **تست:** test-work-area (۶)؛ test-main-hardening-static (۱۸)؛ sms.
+- **تست:** test-work-area (۶)؛ test-main-hardening-static (۲۰)؛ sms.
 - **فایل‌ها:** desktop/{main.js,work-area.js,scripts/test-work-area.js,scripts/test-main-hardening-static.js}, server/public/{app.css,app.js,sw.js,index.html}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v247
-- **Deploy:** ✅ ایران overlay SFTP @ 4583238 — sys_health/sys_ready/root 200؛ SW v247؛ clamp maximize→workArea روی دسکتاپ؛ pm2 restart بدون --update-env.
+- **Deploy:** ✅ ایران overlay SFTP @ 4583238 / merge main — sys_health/sys_ready/root 200؛ SW v247؛ clamp maximize→workArea؛ pm2 restart بدون --update-env.
+
+### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: remediation بازبینی (fail-closed + CDN)
+
+- **Reviewer + Security:** APPROVED_WITH_NOTES → نصب خودکار فقط با `evaluateUpdateInstallPolicy`؛ fail-closed اگر safe-point آماده نباشد؛ CDN گیت‌هاب فقط پس از ریدایرکت از `github.com/.../releases/`؛ Help+SW v247.
+- **فایل‌ها:** desktop/{main.js,security-policy.js,scripts/test-*}, server/public/{app.js,sw.js}, docs/DESKTOP-EXE-DELIVERY.md
+- **SW:** erp-taranom-v247
+- **Deploy:** ✅ merge به `main` همراه workArea clamp (بدون انتشار عمومی installer جداگانه)
+
+### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: publisherName، آپدیت GitHub، نقطهٔ امن نصب
+
+- **هدف:** تحویل installer ویندوز x64 مستقل آفلاین در `D:\proje\ERP EXE` (بیلد محلی؛ انتشار عمومی/آپلود VPS بدون تأیید جداگانه نیست).
+- **پوسته:** `publisherName=Poshak Taranom`؛ feed پیش‌فرض `erp.poshaktaranom.com/releases`؛ `isAllowedUpdateUrl` برای GitHub Releases همین ریپو (بدون باز کردن shell به github).
+- **نقطهٔ امن:** شمارش mutationهای API + `POST /api/system/desktop-safe-point` (WAL checkpoint)؛ نصب خودکار پس از دانلود بدون تأیید اضافه؛ outbox مانع نصب نیست.
+- **اسناد:** `docs/DESKTOP-OFFLINE-MODULE-MATRIX.md`، `docs/DESKTOP-EXE-DELIVERY.md` (تمایز build / قابل‌اجرا / آمادهٔ انتشار).
+- **فایل‌ها:** desktop/{package.json,main.js,security-policy.js,scripts/test-security-policy.js}, server/{server.js,lib/boot-gate.js,middleware/demo-guard.js}, docs/*, .ai-dos/tasks/*
+- **SW:** بدون تغییر وب در آن کامیت (بعداً SW v247 با workArea)
+- **Deploy:** بیلد محلی @ `ba99aa0`؛ merge به `main` در همین نوبت
 
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
 
