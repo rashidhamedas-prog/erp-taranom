@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — دسکتاپ: Maximize دیگر زیر تسک‌بار ویندوز نمی‌رود (SW v247)
+
+- **مشکل:** با بزرگ‌کردن پنجرهٔ EXE، پایین برنامه (سایدبار/دکمه‌ها/کارت‌ها) زیر تسک‌بار ویندوز می‌رفت.
+- **ریشه:** روی ویندوز، Maximize گاهی از `workArea` بزرگ‌تر می‌شود و ناحیهٔ تسک‌بار را هم می‌پوشاند؛ `100vh` هم برای شل UI مناسب نبود.
+- **اصلاح:** `desktop/work-area.js` + clamp بعد از maximize/resize؛ `fullscreenable:false`؛ شروع پنجره داخل workArea؛ CSS شل با `100dvh`؛ راهنما به‌روز شد.
+- **تست:** test-work-area (۶)؛ test-main-hardening-static (۱۸)؛ sms.
+- **فایل‌ها:** desktop/{main.js,work-area.js,scripts/test-work-area.js,scripts/test-main-hardening-static.js}, server/public/{app.css,app.js,sw.js,index.html}, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v247
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
 
 - **مشکل:** کادرهای بزرگ و فضای خالی باعث می‌شد فاکتور ۳ ردیفی دو صفحه شود؛ رنگ×سایز زیر نام کالا چاپ می‌شد.
