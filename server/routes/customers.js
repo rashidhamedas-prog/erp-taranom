@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { ensureCustomerTafsili } = require('../lib/party-tafsili');
-const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
+const { getDB, audit, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
@@ -9,7 +9,7 @@ const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
-const { applyCustomerBalances } = require('../lib/customer-books');
+const { applyCustomerBalances, syncCustomerOpeningBooks } = require('../lib/customer-books');
 const {
   scopeUserId,
   customerVisibilitySql,
@@ -30,14 +30,7 @@ const BAL_COL = 'COALESCE(lb.balance,0)';
 // Deletes any existing opening line and re-inserts one dated at the customer's own
 // created_at so it still sorts first in the statement.
 function syncOpeningLedger(db, customerId, bal, createdAt, userId) {
-  db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(customerId);
-  if (bal) {
-    createLedgerEntry(db, {
-      customer_id: customerId, date: '', entry_type: 'opening', ref_type: 'opening', ref_id: customerId,
-      description: 'مانده اولیه حساب', debit: bal > 0 ? bal : 0, credit: bal < 0 ? -bal : 0,
-      user_id: userId, created_at: createdAt || 1
-    });
-  }
+  syncCustomerOpeningBooks(db, customerId, bal, createdAt, userId);
 }
 
 // Normalize Arabic characters to Persian and convert Arabic/Persian digits to ASCII
@@ -138,6 +131,7 @@ router.post('/', auth, (req, res) => {
     ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
       prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
+    try { ensureCustomerTafsili(db, created.id); } catch (_) {}
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
   })();
@@ -204,6 +198,7 @@ router.put('/:id', auth, (req, res) => {
         national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
         company_name ?? row.company_name ?? '', account_nature ?? row.account_nature ?? '', req.params.id);
     if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
+      try { ensureCustomerTafsili(db, req.params.id); } catch (_) {}
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
     if (ownerChosen) {

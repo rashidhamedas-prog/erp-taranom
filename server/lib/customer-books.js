@@ -15,14 +15,26 @@ const {
 
 // Cheque is اسناد دریافتنی until cleared — never cash/bank on the sale voucher.
 const IMMEDIATE_PAY = new Set(['cash', 'bank', 'bank_transfer']);
-const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
+const JE_NOT_DELETED = `COALESCE(je.deleted_at,0)=0`;
+const JE_HAS_PAIR_REVERSE = `EXISTS (
+  SELECT 1 FROM journal_entries _rev
+  WHERE COALESCE(_rev.deleted_at,0)=0
+    AND _rev.description LIKE ('ابطال سند #' || je.id || '%')
+)`;
+const JE_BALANCE = `${JE_NOT_DELETED} AND (
+  COALESCE(je.status,'posted') NOT IN ('reversed','void')
+  OR ${JE_HAS_PAIR_REVERSE}
+)`;
+const JE_ALIVE = `${JE_NOT_DELETED} AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
 const ENTRY_ALIVE = `COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')`;
 const REPAIR_FLAG = 'customer_books_repair_v1';
 const REPAIR_FLAG_V2 = 'customer_books_repair_v2';
 const REPAIR_FLAG_OPENING_CHEQUE = 'opening_cheque_ledger_mirror_v1';
+const AR_CONTROL_RECLASS = 'ar_control_reclass';
 
 const STMT_REF_ALIAS = {
   invoice_ar_reclass: 'invoice',
+  invoice_payment: 'invoice',
   cheque_endorse: 'cheque',
   cheque_in: 'cheque',
   cheque_clear: 'cheque',
@@ -32,6 +44,7 @@ const STMT_REF_ALIAS = {
   opening_reclass: 'opening',
   opening_balance: 'opening',
   opening_cheque: 'opening',
+  [AR_CONTROL_RECLASS]: 'reversal',
 };
 
 function normalizeStmtRefType(refType) {
@@ -42,6 +55,8 @@ function normalizeStmtRefType(refType) {
 }
 
 function stmtEntryType(refType, normalized) {
+  const raw = String(refType || '');
+  if (raw === 'invoice_payment') return 'settlement';
   const n = normalized || normalizeStmtRefType(refType);
   if (n === 'invoice') return 'invoice';
   if (n === 'invoice_payment' || n === 'settlement') return 'settlement';
@@ -414,6 +429,9 @@ function repairOpeningControlToTafsili(db) {
 }
 
 function repairLedgerOpeningsToGl(db) {
+  let isDeviceFn = () => false;
+  try { isDeviceFn = require('../db').isDevice; } catch (_) {}
+  if (typeof isDeviceFn === 'function' && isDeviceFn()) return 0;
   const opening = acct(db, 'coa_opening_balance');
   const rows = db.prepare(`
     SELECT cl.customer_id, cl.date, cl.debit, cl.credit, cl.user_id, c.coa_code
@@ -425,14 +443,13 @@ function repairLedgerOpeningsToGl(db) {
   for (const o of rows) {
     const already = db.prepare(`
       SELECT 1 FROM journal_entries
-      WHERE ref_type IN ('opening_ledger','opening_balance','opening_reclass')
-        AND ${ENTRY_ALIVE}
+      WHERE ${ENTRY_ALIVE}
         AND (
           (ref_type='opening_ledger' AND ref_id=?)
-          OR EXISTS (
+          OR (ref_type IN ('opening_balance','opening_reclass') AND EXISTS (
             SELECT 1 FROM journal_lines jl
             WHERE jl.entry_id=journal_entries.id AND jl.account_code=?
-          )
+          ))
         )
       LIMIT 1
     `).get(o.customer_id, o.coa_code);
@@ -462,6 +479,191 @@ function repairLedgerOpeningsToGl(db) {
     n++;
   }
   return n;
+}
+
+
+function resolveCustomerIdFromArJe(db, refType, refId) {
+  const rt = String(refType || '');
+  if (refId == null || refId === '') return null;
+  const rid = Number(refId);
+  if (!Number.isFinite(rid)) return null;
+  if (rt === 'invoice' || rt === 'invoice_void' || rt === 'invoice_ar_reclass'
+      || rt === 'invoice_reversal' || rt.startsWith('invoice_')) {
+    const r = db.prepare('SELECT cust_id FROM invoices WHERE id=?').get(rid);
+    return r ? r.cust_id : null;
+  }
+  if (rt === 'settlement' || rt === 'settlement_void' || rt === 'settlement_reversal'
+      || rt.startsWith('settlement')) {
+    const r = db.prepare('SELECT cust_id FROM settlements WHERE id=?').get(rid);
+    return r ? r.cust_id : null;
+  }
+  if (rt === 'pos_receipt' || rt === 'pos_receipt_reversal' || rt.startsWith('pos_receipt')) {
+    try {
+      const r = db.prepare('SELECT cust_id FROM pos_receipts WHERE id=?').get(rid);
+      if (r && r.cust_id) return r.cust_id;
+    } catch (_) {}
+    const srow = db.prepare('SELECT cust_id FROM settlements WHERE id=?').get(rid);
+    return srow ? srow.cust_id : null;
+  }
+  if (rt === 'opening_ledger') return rid;
+  if (rt === 'opening_balance' || rt === 'opening_reclass') {
+    const p = db.prepare(
+      "SELECT legacy_id FROM parties WHERE id=? AND legacy_table='customers'"
+    ).get(rid);
+    return p && p.legacy_id ? p.legacy_id : null;
+  }
+  if (rt === 'cheque_in' || rt === 'cheque_bounce' || rt === 'cheque_endorse'
+      || rt === 'cheque_clear' || rt.startsWith('cheque_')) {
+    try {
+      const r = db.prepare('SELECT customer_id FROM cheque_records WHERE id=?').get(rid);
+      return r && r.customer_id ? r.customer_id : null;
+    } catch (_) { return null; }
+  }
+  if (rt === 'sales_return' || rt.includes('sales_return')) {
+    try {
+      const r = db.prepare('SELECT cust_id FROM sales_returns WHERE id=?').get(rid);
+      return r ? r.cust_id : null;
+    } catch (_) { return null; }
+  }
+  return null;
+}
+
+function reclassifyControlArToCustomerLeaf(db) {
+  let isDeviceFn = () => false;
+  try { isDeviceFn = require('../db').isDevice; } catch (_) {}
+  if (typeof isDeviceFn === 'function' && isDeviceFn()) {
+    return { skipped: true, reason: 'device', moved: 0 };
+  }
+  const { todayJalali } = require('../jalali');
+  const recv = acct(db, 'coa_receivable');
+  const rows = db.prepare(`
+    SELECT jl.id AS line_id, je.id AS entry_id, je.ref_type, je.ref_id, je.entry_date, je.created_by,
+           ${SQL_JL_DEBIT_RIAL} AS debit_rial, ${SQL_JL_CREDIT_RIAL} AS credit_rial
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code = ?
+      AND ${JE_BALANCE}
+      AND je.ref_type NOT IN (?, 'opening_balance', 'opening_reclass', 'opening_ledger')
+      AND (${SQL_JL_DEBIT_RIAL} > 0 OR ${SQL_JL_CREDIT_RIAL} > 0)
+    ORDER BY je.entry_date, je.id, jl.id
+  `).all(recv.code, AR_CONTROL_RECLASS);
+  let moved = 0;
+  let skippedFy = 0;
+  for (const row of rows) {
+    const already = db.prepare(`
+      SELECT 1 FROM journal_entries
+      WHERE ref_type=? AND ref_id=? AND ${ENTRY_ALIVE}
+      LIMIT 1
+    `).get(AR_CONTROL_RECLASS, row.line_id);
+    if (already) continue;
+    const custId = resolveCustomerIdFromArJe(db, row.ref_type, row.ref_id);
+    if (!custId) continue;
+    const cust = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId);
+    if (!cust || !cust.coa_code || String(cust.coa_code).trim() === '' || cust.coa_code === recv.code) continue;
+    const dest = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(cust.coa_code);
+    if (!dest || dest.code === recv.code) continue;
+    const net = Math.round(Number(row.debit_rial) || 0) - Math.round(Number(row.credit_rial) || 0);
+    if (!net) continue;
+    const abs = Math.abs(net);
+    const lines = net > 0
+      ? [
+        { code: dest.code, name: dest.name, debit: rialToLedger(abs), credit: 0 },
+        { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(abs) },
+      ]
+      : [
+        { code: recv.code, name: recv.name, debit: rialToLedger(abs), credit: 0 },
+        { code: dest.code, name: dest.name, debit: 0, credit: rialToLedger(abs) },
+      ];
+    const base = {
+      sourceType: AR_CONTROL_RECLASS,
+      sourceId: row.line_id,
+      description: 'انتقال دریافتنی از ' + recv.code + ' به تفصیلی ' + dest.code + ' (سطر ' + row.line_id + ')',
+      createdBy: row.created_by || null,
+      voucherType: 'auto',
+      lines,
+    };
+    try {
+      db.transaction(() => {
+        try {
+          postToLedger(db, { ...base, date: row.entry_date || todayJalali() });
+        } catch (e) {
+          if (e && (e.status === 422 || /سال مالی|قفل/.test(String(e.message || '')))) {
+            postToLedger(db, {
+              ...base,
+              date: todayJalali(),
+              description: base.description + ' — تاریخ اصل ' + (row.entry_date || '-'),
+            });
+            skippedFy += 1;
+          } else throw e;
+        }
+      })();
+      moved += 1;
+    } catch (e) {
+      console.error('ar_control_reclass line', row.line_id, e.message);
+    }
+  }
+  if (moved) console.log('✅ ar_control_reclass moved=' + moved + ' fyFallback=' + skippedFy);
+  return { moved, skippedFy };
+}
+
+function syncCustomerOpeningBooks(db, customerId, balRial, createdAt, userId) {
+  const { createLedgerEntry } = require('../db');
+  const bal = Math.round(Number(balRial) || 0);
+  db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(customerId);
+  if (bal) {
+    createLedgerEntry(db, {
+      customer_id: customerId,
+      date: '',
+      entry_type: 'opening',
+      ref_type: 'opening',
+      ref_id: customerId,
+      description: 'مانده اولیه حساب',
+      debit: bal > 0 ? bal : 0,
+      credit: bal < 0 ? -bal : 0,
+      user_id: userId,
+      created_at: createdAt || 1,
+    });
+  }
+  const old = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='opening_ledger' AND ref_id=? AND ${ENTRY_ALIVE}
+  `).all(customerId);
+  for (const je of old) {
+    db.prepare('UPDATE journal_entries SET deleted_at=? WHERE id=?')
+      .run(Math.floor(Date.now() / 1000), je.id);
+  }
+  if (!bal) return { ledger: false, journal: false };
+  let coa = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(customerId);
+  if (!coa || !coa.coa_code) {
+    try {
+      const { ensureCustomerTafsili } = require('./party-tafsili');
+      ensureCustomerTafsili(db, customerId);
+      coa = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(customerId);
+    } catch (_) {}
+  }
+  if (!coa || !coa.coa_code) return { ledger: true, journal: false };
+  const dest = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(coa.coa_code);
+  if (!dest) return { ledger: true, journal: false };
+  const opening = acct(db, 'coa_opening_balance');
+  const abs = Math.abs(bal);
+  postToLedger(db, {
+    sourceType: 'opening_ledger',
+    sourceId: customerId,
+    date: '',
+    description: 'مانده اولیه حساب (هم‌تراز دفتر مشتری)',
+    createdBy: userId || null,
+    voucherType: 'opening',
+    lines: bal > 0
+      ? [
+        { code: dest.code, name: dest.name, debit: rialToLedger(abs), credit: 0 },
+        { code: opening.code, name: opening.name, debit: 0, credit: rialToLedger(abs) },
+      ]
+      : [
+        { code: opening.code, name: opening.name, debit: rialToLedger(abs), credit: 0 },
+        { code: dest.code, name: dest.name, debit: 0, credit: rialToLedger(abs) },
+      ],
+  });
+  return { ledger: true, journal: true };
 }
 
 function repairMissingInvoiceBooks(db) {
@@ -603,7 +805,7 @@ function listCustomerGlMovements(db, customerId) {
     JOIN journal_entries je ON je.id = jl.entry_id
     LEFT JOIN users u ON u.id = je.created_by
     WHERE jl.account_code LIKE ?
-      AND ${JE_ALIVE}
+      AND ${JE_BALANCE}
       AND (${SQL_JL_DEBIT_RIAL} > 0 OR ${SQL_JL_CREDIT_RIAL} > 0)
     ORDER BY je.entry_date ASC, COALESCE(je.created_at,0) ASC, je.id ASC, jl.id ASC
   `).all(like);
@@ -688,7 +890,8 @@ function repairGlLinesToLedger(db) {
         FROM journal_lines jl
         JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = ?
-          AND ${JE_ALIVE}
+          AND ${JE_BALANCE}
+          AND je.ref_type <> 'ar_control_reclass'
           AND (${SQL_JL_DEBIT_RIAL} > 0 OR ${SQL_JL_CREDIT_RIAL} > 0)
         ORDER BY je.entry_date, je.id, jl.id
       `).all(code);
@@ -917,7 +1120,7 @@ function glCustomersTafsiliBalance(db, { asOf } = {}) {
       COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
     FROM journal_lines jl
     JOIN journal_entries je ON jl.entry_id = je.id
-    WHERE ${JE_ALIVE}
+    WHERE ${JE_BALANCE}
       ${asOfSql}
       AND jl.account_code IN (
         SELECT coa_code FROM customers
@@ -969,7 +1172,8 @@ function repairLedgerSignedToGl(db) {
         FROM journal_lines jl
         JOIN journal_entries je ON jl.entry_id = je.id
         WHERE jl.account_code = ?
-          AND ${JE_ALIVE}
+          AND ${JE_BALANCE}
+          AND je.ref_type <> 'ar_control_reclass'
       `).get(code);
       const glSigned = Math.round(Number(glRow.debit || 0) - Number(glRow.credit || 0));
       const ledRow = db.prepare(`
@@ -1112,6 +1316,26 @@ function ensureCustomerBooksRepaired(db) {
     console.error('customer-books repair:', e.message);
     v1 = { error: e.message };
   }
+  let openingCtl = 0;
+  try {
+    openingCtl = repairOpeningControlToTafsili(db);
+  } catch (e) {
+    console.error('customer-books opening control→leaf:', e.message);
+  }
+  let reclass = {};
+  try {
+    reclass = reclassifyControlArToCustomerLeaf(db);
+  } catch (e) {
+    console.error('customer-books ar reclass:', e.message);
+    reclass = { error: e.message };
+  }
+  let openingGl = { openingGl: 0 };
+  try {
+    openingGl = { openingGl: repairLedgerOpeningsToGl(db) };
+  } catch (e) {
+    console.error('customer-books opening→GL:', e.message);
+    openingGl = { error: e.message };
+  }
   let v2 = {};
   try {
     v2 = repairGlLinesToLedger(db);
@@ -1126,7 +1350,7 @@ function ensureCustomerBooksRepaired(db) {
     console.error('opening cheque ledger repair:', e.message);
     openingCheque = { error: e.message };
   }
-  return { ...v1, v2, v3: { skipped: true }, openingCheque };
+  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque };
 }
 
 module.exports = {
@@ -1151,7 +1375,11 @@ module.exports = {
   sumPositiveCustomerBalancesRial,
   repairCustomerBooks,
   repairGlLinesToLedger,
+  repairLedgerOpeningsToGl,
+  reclassifyControlArToCustomerLeaf,
+  syncCustomerOpeningBooks,
   repairLedgerSignedToGl,
   ensureCustomerBooksRepaired,
   isFirmSale,
+  AR_CONTROL_RECLASS,
 };

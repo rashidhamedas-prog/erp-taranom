@@ -118,7 +118,14 @@ function safeJalaliDate(v) {
   return /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s) ? s : null;
 }
 
-const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
+const JE_ALIVE = `${DELETED_FILTER} AND (
+  COALESCE(je.status,'posted') NOT IN ('reversed','void')
+  OR EXISTS (
+    SELECT 1 FROM journal_entries _rev
+    WHERE COALESCE(_rev.deleted_at,0)=0
+      AND _rev.description LIKE ('ابطال سند #' || je.id || '%')
+  )
+)`;
 
 function assertPostableAccount(db, code) {
   const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);

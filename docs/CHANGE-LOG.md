@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — هم‌ترازی دفتر مشتری و دفتر کل تفصیلی (SW v245)
+
+- **هشدارهای UI:** داشبورد مطالبات و صورت‌حساب (مثل خانم صدوقی، کد `110301000002`) ماندهٔ دفتر مشتری را با GL تفصیلی یکی نمی‌دیدند.
+- **ریشه:** ۱) `party_tafsili_backfill` فقط `coa_code` می‌ساخت و خطوط تاریخی روی کنترل `1103` می‌ماندند. ۲) تعمیر v1 یک‌بارمصرف بود. ۳) `syncOpeningLedger` فقط دفتر می‌نوشت. ۴) فیلتر `reversed` بدون جفت ابطال ماندهٔ یک‌طرفه می‌ساخت.
+- **اصلاح:** `reclassifyControlArToCustomerLeaf` سند متعادل کنترل→برگ (بدون `books_align`)؛ fallback تاریخ امروز برای سال مالی؛ فقط مرکز. `repairLedgerOpeningsToGl` + `repairOpeningControlToTafsili` در هر `ensureCustomerBooksRepaired`. `syncCustomerOpeningBooks` دفتر+سند. alias `invoice_payment`. فیلتر مانده = posted یا reversedِ جفت‌دار.
+- **تست:** test-ar-control-reclass-v243 (۱۲/۱۲)؛ test-customer-live-balance-v241 هم‌تراز؛ sms ۲۲/۲۲.
+- **فایل‌ها:** server/lib/customer-books.js, server/routes/{accounting,customers}.js, server/public/{app.js,sw.js,index.html}, server/scripts/test-{ar-control-reclass-v243,customer-live-balance-v241,acc-stitch-p2}.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v245
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۶ — داشبورد چک و گزارش دفتر چک (SW v244)
 
 - **قابلیت:** در منوی حسابداری → چک → گزارشات، دو صفحه اضافه شد: **داشبورد چک و الزامات** و **گزارش دفتر چک و دسته**.
