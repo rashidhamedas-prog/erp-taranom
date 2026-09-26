@@ -391,9 +391,10 @@ function isLeaf(code) {
     VALUES (?, '1405/04/10', 'opening', 'مانده دفتر بدون سند', ?, 0, ?)
   `).run(ledCust, LEDGER_ONLY, admin.id);
   r = await api('GET', '/api/accounting/statement/' + ledCust);
-  ok(r.data?.books_mismatch === true, 'ledger-only opening vs empty GL is mismatch');
+  ok(r.data?.books_mismatch !== true, 'ledger-only opening is aligned via opening_ledger JE', r.data?.books_mismatch);
   ok(Number(r.data?.closing) === LEDGER_ONLY, 'ledger-only primary close is the customer book', r.data?.closing);
   ok(Number(r.data?.ledger_closing) === LEDGER_ONLY, 'ledger_closing keeps book', r.data?.ledger_closing);
+  ok(Number(r.data?.gl_closing_rial) === LEDGER_ONLY, 'opening JE lands on tafsili', r.data?.gl_closing_rial);
   r = await api('GET', '/api/accounting/receivables');
   const ledRow = (r.data || []).find((x) => Number(x.id) === Number(ledCust));
   ok(Number(ledRow?.outstanding) === LEDGER_ONLY, 'ledger-only outstanding uses the customer book', ledRow?.outstanding);

@@ -85,9 +85,9 @@ ok(map._source.get(Number(custId)) === 'customer_ledger', 'source is customer_le
 const stmt = buildStatement(db, custId);
 ok(stmt && stmt.closing === EXPECT, 'statement closing is the customer book', stmt && stmt.closing);
 ok(stmt.ledger_closing === EXPECT, 'ledger_closing matches', stmt.ledger_closing);
-ok(stmt.gl_closing_rial === -RECEIPT, 'GL tafsili is only the receipt', stmt.gl_closing_rial);
-ok(stmt.books_mismatch === true, 'mismatch stays visible');
-ok(stmt.source === 'customer_ledger', 'statement source is the customer book', stmt.source);
+ok(stmt.gl_closing_rial === EXPECT, 'GL tafsili includes opening + receipt', stmt.gl_closing_rial);
+ok(stmt.books_mismatch !== true, 'books aligned after opening→GL repair', stmt.books_mismatch);
+ok(stmt.source === 'aligned', 'statement source is aligned', stmt.source);
 ok((stmt.entries || []).some(e => e.entry_type === 'opening' && e.debit === HISTORY), 'history row is on the statement');
 ok((stmt.entries || []).some(e => e.credit === RECEIPT), 'receipt row is on the statement');
 const last = stmt.entries[stmt.entries.length - 1];
