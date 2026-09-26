@@ -13,7 +13,7 @@
 - **تست:** test-work-area (۶)؛ test-main-hardening-static (۲۰)؛ sms.
 - **فایل‌ها:** desktop/{main.js,work-area.js,scripts/test-work-area.js,scripts/test-main-hardening-static.js}, server/public/{app.css,app.js,sw.js,index.html}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v247
-- **Deploy:** ✅ ایران overlay SFTP @ 4583238 / merge main — sys_health/sys_ready/root 200؛ SW v247؛ clamp maximize→workArea؛ pm2 restart بدون --update-env.
+- **Deploy:** ✅ ایران overlay SFTP @ ef0b1e4 — sys_health/sys_ready/root 200؛ SW v247؛ merge EXE 2.0.12 + clamp maximize→workArea؛ pm2 restart بدون --update-env.
 
 ### ۱۴۰۵/۰۷/۰۵ — دسکتاپ EXE 2.0.12: remediation بازبینی (fail-closed + CDN)
 
