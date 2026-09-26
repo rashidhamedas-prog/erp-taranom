@@ -5,7 +5,7 @@ const { rialToToman, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/m
 const { DELETED_FILTER } = require('../lib/ledger');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 const { firmSaleTypeSql } = require('../lib/sales-document');
-const { glCustomersTafsiliBalance, customerSignedBalanceMap } = require('../lib/customer-books');
+const { canonicalCustomerFold, customerSignedBalanceMap } = require('../lib/customer-books');
 
 function ok(data, message = '') {
   return { success: true, data, message };
@@ -35,7 +35,7 @@ router.get('/summary', auth, (req, res) => {
 
   let receivables = 0, payables = 0;
   try {
-    receivables = glCustomersTafsiliBalance(db).signed;
+    receivables = canonicalCustomerFold(db).signed;
     payables = db.prepare('SELECT COALESCE(SUM(credit)-SUM(debit),0) b FROM supplier_ledger').get()?.b || 0;
   } catch (_) { /* */ }
 

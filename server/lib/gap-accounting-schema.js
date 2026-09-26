@@ -98,6 +98,11 @@ function initGapAccountingSchema(db) {
   `);
   ensureColumn(db, 'bank_reconciliation_items', 'match_confidence', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'bank_reconciliation_items', 'statement_line_id', 'INTEGER');
+  ensureColumn(db, 'bank_reconciliation_items', 'item_kind', "TEXT DEFAULT 'unclassified'");
+  ensureColumn(db, 'bank_reconciliation_items', 'line_date', 'TEXT');
+  ensureColumn(db, 'bank_reconciliation_items', 'voided', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'bank_reconciliations', 'reversal_je_id', 'INTEGER');
+  ensureColumn(db, 'bank_reconciliations', 'voided_at', 'INTEGER');
   ensureColumn(db, 'bank_statement_lines', 'match_confidence', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'bank_statement_lines', 'matched_ref_type', 'TEXT');
   ensureColumn(db, 'bank_statement_lines', 'matched_ref_id', 'INTEGER');

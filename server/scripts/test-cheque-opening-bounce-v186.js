@@ -143,7 +143,7 @@ function jeNetRial(accountCode, sourceType, sourceId) {
   ok(led && Number(led.debit) === AMT && Number(led.credit) === 0, 'customer_ledger bounce debit', led);
 
   r = await api('GET', '/api/accounting/statement/' + custId);
-  ok(r.status === 200 && r.data.source === 'gl', 'statement source gl after bounce', r.data.source);
+  ok(r.status === 200 && r.data.source === 'aligned', 'statement source aligned after bounce', r.data.source);
   ok(Math.abs(Number(r.data.closing) - AMT) <= 1, 'statement closing += bounced amount', r.data.closing);
   const bounceRow = (r.data.entries || []).find((e) =>
     (e.raw_ref_type === 'cheque_bounce' || e.ref_type === 'cheque_bounce')
@@ -166,7 +166,7 @@ function jeNetRial(accountCode, sourceType, sourceId) {
   ok(appJs.includes('به بدهی طرف حساب در صورت‌حساب اضافه می‌شود'), 'bounce confirm mentions statement');
   ok(appJs.includes('برگشت مبلغ را به بدهی صورت‌حساب'), 'opening tab hint');
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(sw.includes('erp-taranom-v186'), 'SW v186');
+  ok(sw.includes('erp-taranom-v241'), 'SW cache bumped');
 
   try { new Function(appJs); ok('app.js parses', true); }
   catch (e) { ok('app.js parses', false, e.message); }

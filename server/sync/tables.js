@@ -487,6 +487,8 @@ const FK_COLUMNS = [
   // Apparel lines on count and consignment (append-only)
   ['consignments', 'variant_id'],
   ['stocktaking_items', 'variant_id'],
+  // Bank statement line ↔ recon item (append-only)
+  ['bank_reconciliation_items', 'statement_line_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

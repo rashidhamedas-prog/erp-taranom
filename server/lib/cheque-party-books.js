@@ -173,16 +173,9 @@ function postChequeInReceipt(db, row, userId, date) {
   const desc = `${isOpeningCheque(row) ? 'چک اول دوره' : 'ثبت چک'} ${row.cheque_number || row.id}`;
 
   if (isOpeningCheque(row)) {
-    postChequePartyBooks(db, {
-      chequeId: row.id,
-      customerId: credit.customerId,
-      personId: credit.personId,
-      date: when,
-      description: desc,
-      amountRial,
-      userId,
-      refType: 'cheque_in',
-    });
+    // Dr notes receivable / Cr opening equity. Not a customer receipt.
+    // A subledger credit would show a creditor balance the tafsili never had.
+    // Bounce is the first posting on the customer book.
     return row.journal_entry_id || null;
   }
 

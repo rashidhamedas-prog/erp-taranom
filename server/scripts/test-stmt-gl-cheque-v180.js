@@ -135,22 +135,23 @@ function ok(cond, label, extra) {
   r = await api('GET', '/api/accounting/statement/' + custId);
   ok(r.status === 200, 'statement 200');
   const chequeRow = (r.data.entries || []).find((e) =>
-    e.ref_type === 'cheque' && Number(e.ref_id) === Number(chequeId)
+    (e.ref_type === 'cheque_endorse' || e.ref_type === 'cheque') && Number(e.ref_id) === Number(chequeId) && Number(e.debit) === CHEQUE
   );
   ok(!!chequeRow && Number(chequeRow.debit) === CHEQUE, 'statement shows endorsed cheque', chequeRow);
-  const expectClose = DEBTOR + CHEQUE;
-  ok(Math.abs(Number(r.data.closing) - expectClose) <= 1, 'GL closing includes cheque', r.data.closing);
-  ok(Math.abs(Number(r.data.ledger_closing) - expectClose) <= 1, 'ledger closing includes cheque', r.data.ledger_closing);
+  // Receipt credits AR; endorsing that cheque back debits AR. Net stays the opening.
+  const expectClose = DEBTOR;
+  ok(Math.abs(Number(r.data.closing) - expectClose) <= 1, 'statement closing is net customer book', r.data.closing);
+  ok(Math.abs(Number(r.data.ledger_closing) - expectClose) <= 1, 'ledger closing is net customer book', r.data.ledger_closing);
   ok(r.data.books_mismatch !== true, 'no statement mismatch when rows from GL', r.data.books_mismatch);
-  ok(r.data.source === 'gl', 'statement source is gl', r.data.source);
+  ok(r.data.source === 'aligned', 'statement source is aligned when books match', r.data.source);
 
   const kpi = glCustomersTafsiliBalance(db);
-  ok(Math.abs(Number(kpi.display) - expectClose) <= 1, 'KPI display = debtor only (not net)', kpi);
+  ok(Math.abs(Number(kpi.display) - expectClose) <= 1, 'KPI display = net debtor', kpi);
   ok(Math.abs(Number(kpi.creditor) - CREDITOR) <= 1, 'KPI creditor separate', kpi);
 
   r = await api('GET', '/api/accounting/overview');
   ok(r.status === 200, 'overview 200');
-  ok(Math.abs(Number(r.data.totalReceivable) - expectClose) <= 1, 'overview AR uses per-customer GL', r.data.totalReceivable);
+  ok(Math.abs(Number(r.data.totalReceivable) - expectClose) <= 1, 'overview AR uses the customer book', r.data.totalReceivable);
   ok(r.data.books_mismatch !== true, 'overview books match after v2', r.data.books_mismatch);
 
   db.prepare("DELETE FROM settings WHERE key='customer_books_repair_v2'").run();
@@ -172,7 +173,7 @@ function ok(cond, label, extra) {
   ok(!!orphan && Number(orphan.debit) === orphanAmt, 'orphan GL line now on customer_ledger', orphan);
 
   const again = repairGlLinesToLedger(db);
-  ok(again.skipped === true, 'v2 repair is idempotent', again);
+  ok(again.ledgerFromGl === 0, 'v2 repair is idempotent', again);
 
   const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
   ok(appJs.includes('function findInvProduct'), 'addToCart uses findInvProduct');

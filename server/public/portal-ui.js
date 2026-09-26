@@ -826,38 +826,70 @@
     } catch (e) {}
   }
 
+  function bankReconStatusLabel(status) {
+    if (status === 'closed') return 'بسته';
+    if (status === 'void') return 'باطل';
+    return 'باز';
+  }
+  function bankReconKindOptions(selected) {
+    const opts = [
+      ['unclassified', 'بدون طبقه'],
+      ['outstanding_check', 'چک معوق'],
+      ['deposit_in_transit', 'واریز در راه'],
+      ['bank_charge', 'کارمزد بانک'],
+      ['bank_interest', 'سود سپرده'],
+      ['book_error', 'اصلاح دفتر'],
+    ];
+    return opts.map(([v, l]) => `<option value="${v}" ${selected === v ? 'selected' : ''}>${l}</option>`).join('');
+  }
+
   async function renderBankReconTab(body) {
     if (!CACHE.banks) CACHE.banks = await api('GET', '/banks') || [];
     const rows = await api('GET', '/bank-reconciliation') || [];
     let detail = '';
     if (_bankReconId) {
       const r = await api('GET', '/bank-reconciliation/' + _bankReconId) || {};
-      const diff = (r.statement_balance_rial || 0) - (r.book_balance_rial || 0);
-      const open = r.status !== 'closed';
+      const b = r.bridge || {};
+      const open = r.status === 'open';
+      const liveBook = r.live_book_balance_rial != null ? r.live_book_balance_rial : (r.book_balance_rial || 0);
       detail = `
         <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
-          <div class="panel-head"><h4>تطبیق #${fmt(r.id)} — ${esc(r.bank_name)}</h4>
+          <div class="panel-head"><h4>تطبیق #${fmt(r.id)} — ${esc(r.bank_name || '')}</h4>
             <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
               ${open ? `<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBankReconItemModal((r.id))})}">➕ ردیف</button>` : ''}
+              ${open ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBankReconImport((r.id))})}">📥 واردات صورتحساب</button>` : ''}
+              ${open ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.autoMatchBankRecon((r.id))})}">⚡ تطبیق خودکار</button>` : ''}
               ${open ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.matchBankReconItems((r.id))})}">🔗 تطبیق انتخاب‌شده</button>` : ''}
-              ${open ? `<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){PortalUI.closeBankRecon((r.id))})}">🔒 بستن تطبیق</button>` : ''}
+              ${open ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.refreshBankReconBook((r.id))})}">↻ مانده دفتر</button>` : ''}
+              ${open ? `<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){PortalUI.closeBankRecon((r.id))})}">🔒 بستن</button>` : ''}
+              ${r.status !== 'void' ? `<button class="btn sm danger" data-csp-click="${CSP.bind('click',function(event){PortalUI.voidBankRecon((r.id))})}">ابطال</button>` : ''}
             </div>
           </div>
           <div class="panel-body">
             <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-              ${statCard('b', '📒', fmt(r.book_balance_rial || 0), 'مانده دفتر (ریال)')}
-              ${statCard('o', '🏦', fmt(r.statement_balance_rial || 0), 'مانده صورت‌حساب (ریال)')}
-              ${statCard('r', 'Δ', fmt(diff), 'اختلاف (ریال)')}
+              ${statCard('b', '📒', fmt(liveBook), 'مانده دفتر زنده')}
+              ${statCard('o', '🏦', fmt(r.statement_balance_rial || 0), 'مانده صورتحساب')}
+              ${statCard('g', '✓', fmt(b.adjusted_statement_rial || 0), 'صورتحساب تعدیل‌شده')}
+              ${statCard('r', 'Δ', fmt(b.unexplained_rial || 0), 'اختلاف توجیه‌نشده')}
             </div>
+            <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">
+              چک معوق ${fmt(b.outstanding_checks_rial || 0)} · واریز در راه ${fmt(b.deposits_in_transit_rial || 0)} ·
+              کارمزد ${fmt(b.bank_charges_rial || 0)} · سود ${fmt(b.bank_interest_rial || 0)} ·
+              بدون طبقه ${fmt(b.unclassified_rial || 0)}.
+              بستن فقط وقتی اختلاف صفر است و ردیف بدون طبقه نمانده. چک معوق و واریز در راه سند نمی‌زنند.
+            </p>
             <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-              ${open ? '<th></th>' : ''}<th>طرف</th><th>شرح</th><th>مبلغ (ریال)</th><th>تطبیق</th>
-            </tr></thead><tbody>${(r.items || []).map(it => `<tr>
+              ${open ? '<th></th>' : ''}<th>طرف</th><th>طبقه</th><th>شرح</th><th>مبلغ (ریال)</th><th>تطبیق</th>
+            </tr></thead><tbody>${(r.items || []).filter(it => !it.voided).map(it => `<tr>
               ${open ? `<td><input type="checkbox" class="br-match" value="${it.id}" ${it.matched ? 'disabled' : ''}></td>` : ''}
               <td>${it.side === 'bank' ? 'بانک' : 'دفتر'}</td>
+              <td>${open && !it.matched
+                ? `<select data-csp-change="${CSP.bind('change', function(event){ PortalUI.classifyBankItem(r.id, it.id, this.value); })}">${bankReconKindOptions(it.item_kind || 'unclassified')}</select>`
+                : esc(it.item_kind || '-')}</td>
               <td>${esc(it.description || '-')}</td>
               <td class="mono">${fmt(it.amount_rial || 0)}</td>
               <td>${it.matched ? '✅' : '—'}</td>
-            </tr>`).join('') || emptyRow(open ? 5 : 4)}</tbody></table></div>
+            </tr>`).join('') || emptyRow(open ? 6 : 5)}</tbody></table></div>
           </div>
         </div>`;
     }
@@ -873,7 +905,7 @@
         <td class="mono">${escDate(r.statement_date)}</td>
         <td class="mono">${fmt(r.statement_balance_rial || 0)}</td>
         <td class="mono">${fmt(r.book_balance_rial || 0)}</td>
-        <td><span class="tag ${r.status === 'closed' ? 't-done' : ''}">${esc(r.status)}</span></td>
+        <td><span class="tag ${r.status === 'closed' ? 't-done' : ''}">${bankReconStatusLabel(r.status)}</span></td>
         <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.showBankRecon((r.id))})}">مشاهده</button></td>
       </tr>`).join('') || emptyRow(7)}</tbody></table></div>${detail}`;
     if (typeof fitStatNums === 'function') fitStatNums();
@@ -920,6 +952,15 @@
           <option value="bank">بانک (صورت‌حساب)</option>
           <option value="book">دفتر</option>
         </select></div>
+        <div class="fg"><label>طبقه</label><select id="bri-kind">
+          <option value="unclassified">بدون طبقه</option>
+          <option value="outstanding_check">چک معوق (سند نمی‌زند)</option>
+          <option value="deposit_in_transit">واریز در راه (سند نمی‌زند)</option>
+          <option value="bank_charge">کارمزد بانک</option>
+          <option value="bank_interest">سود سپرده</option>
+          <option value="book_error">اصلاح دفتر (مبلغ مثبت = افزایش بانک)</option>
+        </select></div>
+        <div class="fg"><label>تاریخ ردیف</label><input id="bri-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg"><label>مبلغ (ریال) *</label><input id="bri-amt" class="money" inputmode="numeric"></div>
         <div class="fg full"><label>شرح</label><input id="bri-desc"></div>
         <div class="fg"><label><input type="checkbox" id="bri-stmt" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> خط صورت‌حساب</label></div>
@@ -933,6 +974,8 @@
     try {
       await api('POST', `/bank-reconciliation/${reconId}/items`, {
         side: el('bri-side')?.value || 'bank',
+        item_kind: el('bri-kind')?.value || 'unclassified',
+        line_date: el('bri-date')?.value || '',
         description: el('bri-desc')?.value || '',
         amount_rial,
         statement_line: el('bri-stmt')?.checked ? 1 : 0,
@@ -950,10 +993,64 @@
   }
 
   async function closeBankRecon(id) {
-    if (!confirm('تطبیق بسته شود؟ در صورت اختلاف، سند تعدیل خودکار ثبت می‌شود.')) return;
+    if (!confirm('تطبیق بسته شود؟ فقط اگر اختلاف صفر باشد. کارمزد و سود به تفصیلی همین بانک سند می‌خورند؛ چک معوق و واریز در راه سند نمی‌زنند.')) return;
     try {
       await api('POST', '/bank-reconciliation/' + id + '/close', {});
       showToast('تطبیق بسته شد'); loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function classifyBankItem(reconId, itemId, item_kind) {
+    try {
+      await api('POST', `/bank-reconciliation/${reconId}/classify`, { item_id: itemId, item_kind });
+      loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function openBankReconImport(reconId) {
+    openModal(`
+      <div class="modal-head"><h3>📥 واردات صورتحساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">ستون‌ها: تاریخ، مبلغ، شرح، پیگیری — یا تاریخ، برداشت، واریز، شرح، پیگیری. تاریخ به صورت ۱۴۰۵/۰۱/۱۵ با ارقام لاتین و خط مورب.</p>
+        <textarea id="br-csv" data-csp-style="${CSP.style(`width:100%;min-height:140px;font-family:monospace`)}" placeholder="date,amount_rial,description,ref"></textarea>
+      </div>
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveBankReconImport((reconId))})}">وارد کردن</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  }
+
+  async function saveBankReconImport(reconId) {
+    const csv_text = el('br-csv')?.value || '';
+    if (!csv_text.trim()) { showToast('متن صورتحساب خالی است', 'error'); return; }
+    try {
+      const r = await api('POST', `/bank-reconciliation/${reconId}/import-lines`, { csv_text });
+      closeModal();
+      showToast((r && r.imported != null) ? ('وارد شد: ' + r.imported) : 'وارد شد');
+      loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function autoMatchBankRecon(reconId) {
+    try {
+      const r = await api('POST', `/bank-reconciliation/${reconId}/auto-match-1to1`, {});
+      showToast(r ? ('تطبیق خودکار: ' + (r.matched || 0)) : 'انجام شد');
+      loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function refreshBankReconBook(reconId) {
+    try {
+      await api('POST', `/bank-reconciliation/${reconId}/refresh-book`, {});
+      showToast('مانده دفتر تازه شد');
+      loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function voidBankRecon(id) {
+    if (!confirm('این تطبیق باطل شود؟ اگر سند تعدیل دارد، همان سند برمی‌گردد.')) return;
+    try {
+      await api('POST', '/bank-reconciliation/' + id + '/void', {});
+      showToast('تطبیق باطل شد');
+      loadAccTab('bank-recon');
     } catch (e) {}
   }
 
@@ -1518,7 +1615,8 @@
     openBankReconItemModal,
     saveBankReconItem,
     matchBankReconItems,
-    closeBankRecon,
+    closeBankRecon, classifyBankItem, openBankReconImport, saveBankReconImport,
+    autoMatchBankRecon, refreshBankReconBook, voidBankRecon,
     showBudgetVariance,
     openBudgetModal,
     saveBudget,

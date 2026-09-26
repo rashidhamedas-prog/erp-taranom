@@ -3764,8 +3764,8 @@ function renderAccReceivablesBody(body){
         <td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:800`)}">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
       </tr></tfoot></table></div>
-      ${rows.some(r=>r.books_mismatch)?`<div class="panel" data-csp-style="${CSP.style(`margin-top:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: برای برخی مشتریان مانده دفتر مشتری با دفتر کل یکی نیست. ستون مانده از دفتر کل تا تاریخ قطع است؛ دفتر مشتری فقط نمای دوم است.</div></div>`:''}
-      <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده بدهکار/بستانکار از دفتر کل (حساب کنترل یا تفصیلی مشتری) تا تاریخ نوار حسابداری خوانده می‌شود. دفتر مشتری فقط وقتی جداگانه نشان داده می‌شود که با دفتر کل اختلاف داشته باشد.</div>`;
+      ${rows.some(r=>r.books_mismatch)?`<div class="panel" data-csp-style="${CSP.style(`margin-top:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: برای برخی مشتریان مانده دفتر کل تفصیلی با دفتر مشتری یکی نیست. ستون مانده از دفتر مشتری (تاریخچه کامل، شامل دریافت‌ها) است. دفتر کل تفصیلی فقط گردشِ ثبت‌شده روی همان کد را نشان می‌دهد و تاریخچهٔ قبل از تخصیص تفصیلی را ندارد.</div></div>`:''}
+      <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده بدهکار/بستانکار از دفتر مشتری است (به‌اضافه فاکتور قطعی که هنوز ردیف دفتر ندارد). اگر کد تفصیلی دارد و با دفتر کل فرق دارد، هشدار بالا می‌آید؛ عدد ستون عوض نمی‌شود.</div>`;
 }
 
 ROUTES.followups = async function(){
@@ -8303,15 +8303,15 @@ ROUTES['acc-dash'] = async function(){
       <input id="accFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateFrom}" data-csp-change="${CSP.bind('change',function(event){accDateFrom=this.value})}">
       <input id="accTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateTo}" data-csp-change="${CSP.bind('change',function(event){accDateTo=this.value})}">
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">مانده‌ها از دفتر کل تا ${esc(cutoffLabel)}</span>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">مطالبات از دفتر مشتری تا ${esc(cutoffLabel)}؛ پرداختنی از دفتر کل</span>
     </div>
-    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(ov.outstandingLedger||0)}) با دفتر کل (${fmt(recv)}) یکی نیست. عدد کارت‌ها از دفتر کل است.</div></div>`:''}
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(recv)}) با دفتر کل تفصیلی (${fmt(ov.totalReceivableGl||0)}) یکی نیست. کارت مطالبات از دفتر مشتری است و تاریخچهٔ قبل از تفصیلی را هم دارد.</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
-      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان — دفتر کل (ت)')}
-      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان — دفتر کل (ت)'):''}
+      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان — دفتر مشتری (ت)')}
+      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان — دفتر مشتری (ت)'):''}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
@@ -18746,7 +18746,7 @@ async function loadStatement(){
   const d=await api('GET','/accounting/statement/'+stmtCustId+stmtQuery());
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت صورت‌حساب</div>'; return; }
   const bal=v=>`${fmt(Math.abs(v||0))} ${(v||0)>0?'بد':'بس'}`;
-  const mismatchBanner=d.books_mismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(Math.abs(d.ledger_closing||0))}) با دفتر کل (${fmt(Math.abs(d.closing||0))}) یکی نیست. عدد اصلی و خروجی از دفتر کل است.</div></div>`:'';
+  const mismatchBanner=d.books_mismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(Math.abs(d.closing||0))}) با دفتر کل تفصیلی (${fmt(Math.abs(d.gl_closing_rial||0))}) یکی نیست. ردیف‌ها و مانده نهایی از دفتر مشتری است؛ دفتر کل فقط گردش روی کد تفصیلی را دارد.</div></div>`:'';
   box.innerHTML=`
     ${mismatchBanner}
     <div class="panel">
@@ -18782,8 +18782,8 @@ async function loadStatement(){
         </table>
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-        مانده نهایی (دفتر کل): <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
-        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">نمای دوم — مانده دفتر مشتری: ${fmt(Math.abs(d.ledger_closing||0))} ریال ${(d.ledger_closing||0)>0?'(بدهکار)':'(بستانکار)'} · حساب ${esc(d.gl_account_code)}</div>`:''}
+        مانده نهایی (دفتر مشتری): <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">مانده دفتر کل تفصیلی: ${fmt(Math.abs(d.gl_closing_rial||0))} ریال ${(d.gl_closing_rial||0)>0?'(بدهکار)':'(بستانکار)'} · حساب ${esc(d.gl_account_code)}</div>`:''}
       </div>
     </div>`;
 }
@@ -22606,9 +22606,9 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از تفصیلی خودش است (بستانکاران جدا جمع می‌شوند) — نه خالص کل پرتفوی. کد تفصیلی مشترک فقط یک‌بار جمع می‌شود. کارت و دفتر مشتری با همین روش مقایسه می‌شوند</li>
+        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از دفتر مشتری است (بستانکاران جدا). سندِ فقط روی تفصیلی، اگر در دفتر نباشد، یک‌بار به دفتر صاحب آن کد (کمترین شناسه) کپی می‌شود. کارت مطالبات همین رقم است؛ دفتر کل تفصیلی کنارش برای مغایرت است</li>
         <li><b>هشدار بالای داشبورد حسابداری:</b> چک در جریان با تاریخ سررسید شمسیِ پر، اگر سررسیدش گذشته یا تا ۷ روز آینده باشد؛ کالای زیر حد موجودی؛ سند پیش‌نویس. تاریخ خالی چک شمرده نمی‌شود</li>
-        <li><b>صورت‌حساب مشتری</b> ردیف‌ها را از همان تفصیلی دفتر کل می‌سازد (خرج چک، سند دستی، فاکتور). دفتر مشتری نمای دوم است</li>
+        <li><b>صورت‌حساب مشتری</b> ردیف‌ها و ماندهٔ نهایی از دفتر مشتری است (فاکتور، دریافت، چک، افتتاحیه). اگر سندی فقط روی تفصیلی باشد و در دفتر نباشد، به دفتر همان مشتری می‌آید. دفتر کل تفصیلی رقم دوم است و تاریخچهٔ قبل از تفصیلی را جایگزین نمی‌کند. چک دریافتنی اول دوره تا زمان برگشت در این مانده نمی‌آید؛ برگشت، مبلغ را بدهکار می‌کند</li>
         <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
         <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
@@ -22648,7 +22648,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
         <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
         <li><b>رنگ/سایز در فاکتور:</b> در ویرایش فاکتور هم موجودی مودال رنگ/سایز فقط انبار همان ردیف است؛ نام انبار در توضیح مودال می‌آید. بدون انبار ردیف مودال باز نمی‌شود. چیپ‌های رنگ/سایز و خلاصهٔ picker هم از <code>/summaries?warehouse_id=</code> انبار انتخاب‌شده می‌آیند (نه موجودی سراسری).</li>
-        <li><b>مانده لیست مشتریان:</b> همان قاعدهٔ صورتحساب (دفتر کل با تفصیلی، یا دفتر مشتری + فاکتورهای جاافتاده) — برای همه نقش‌ها.</li>
+        <li><b>مانده لیست مشتریان و صورتحساب:</b> همیشه از دفتر مشتری است (به‌اضافه فاکتور قطعی جاافتاده). اگر کد تفصیلی تازه باشد و سندهای قدیمی هنوز روی حساب کنترل باشند، مانده دفتر کل تفصیلی کمتر نشان داده می‌شود و فقط به‌صورت هشدار می‌آید — جایگزین مانده واقعی نمی‌شود. صفحه اصلی، کارت مشتری، مطالبات و داشبورد همین رقم را می‌خوانند.</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
         <li><b>چاپ:</b> خطوط و نوشته‌ها و اعداد همهٔ قالب‌ها مشکی‌زاغ است. رنگ و سایز جدا ردیف نمی‌شوند؛ ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ</li>
@@ -23270,7 +23270,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فصلی ماده ۱۶۹</b>: لیست فاکتورهای فروش و خرید فصل برای ارسال</li>
         <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش <b>همه</b> صندوق‌ها و بانک‌ها. ردیف سند ناقص گزارش را خراب نمی‌کند</li>
         <li><b>داشبورد KPI</b>: DSO، DIO، DPO، چرخه نقد و تمرکز فروش مشتریان</li>
-        <li><b>تطبیق بانک</b>: ثبت مانده صورت‌حساب، واردات ردیف‌های صورتحساب (JSON/CSV)، تطبیق خودکار ۱:۱ با مبلغ دقیق و تاریخ ±۱ روز (اطمینان ۱۰۰)، بستن با سند تعدیل فقط از مسیر تأیید/بستن</li>
+        <li><b>تطبیق بانک</b>: برای هر بانک ریالی یک صورت باز. مانده دفتر از حساب تفصیلی همان بانک است. واردات CSV (مبلغ، یا ستون برداشت/واریز)، تطبیق ۱:۱ مبلغ و تاریخ ±۱ روز، و تطبیق دستی فقط وقتی جمع دو طرف برابر باشد. اقلام زمان‌بندی (چک معوق، واریز در راه) سند نمی‌زنند. کارمزد و سود سپرده هنگام بستن، فقط اگر اختلاف صفر شده باشد، به تفصیلی همان بانک در برابر حساب کارمزد (۶۱۱۵) یا سود سپرده (۴۱۱۵) سند می‌خورند. بستن با اختلاف توجیه‌نشده رد می‌شود. ابطال تطبیق بسته‌شده سند تعدیل را برمی‌گرداند</li>
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
         <li><b>اندوخته و ذخایر</b>: اندوخته قانونی، ذخیره مطالبات مشکوک‌الوصول، NRV موجودی، فهرست کالاهای راکد</li>
       </ul>`),
@@ -23329,7 +23329,7 @@ function renderSalesGuide(){
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v240</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
-      <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
+      <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>

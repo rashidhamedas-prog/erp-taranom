@@ -19,6 +19,7 @@ const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') N
 const ENTRY_ALIVE = `COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')`;
 const REPAIR_FLAG = 'customer_books_repair_v1';
 const REPAIR_FLAG_V2 = 'customer_books_repair_v2';
+const REPAIR_FLAG_OPENING_CHEQUE = 'opening_cheque_ledger_mirror_v1';
 
 const STMT_REF_ALIAS = {
   invoice_ar_reclass: 'invoice',
@@ -638,18 +639,21 @@ function openingAmtKey(debit, credit) {
 }
 
 /**
- * One-shot: every live GL line on a customer tafsili gets a matching customer_ledger row.
+ * Every live GL line on a customer tafsili gets a matching customer_ledger row.
+ * Idempotent: a journal posted after the first run is still copied.
+ * A shared coa is copied once, onto the lowest customer id.
  * Matches invoice_ar_reclass→invoice and opening_*→opening so cash-invoice repair is not doubled.
  */
 function repairGlLinesToLedger(db) {
-  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(REPAIR_FLAG_V2);
-  if (flag && flag.value === '1') return { skipped: true, ledgerFromGl: 0 };
+  // Idempotent. The old one-shot flag skipped every journal posted after the
+  // first overview, so a tafsili voucher never reached the customer book.
   const { createLedgerEntry } = require('../db');
   let inserted = 0;
   const run = db.transaction(() => {
     const customers = db.prepare(`
       SELECT id, coa_code FROM customers
       WHERE coa_code IS NOT NULL AND TRIM(coa_code)<>''
+      ORDER BY id
     `).all();
     const seen = new Set();
     for (const c of customers) {
@@ -657,13 +661,17 @@ function repairGlLinesToLedger(db) {
       if (seen.has(code)) continue;
       seen.add(code);
       const ledRows = db.prepare(
-        'SELECT ref_type, ref_id, debit, credit FROM customer_ledger WHERE customer_id=?'
+        'SELECT ref_type, ref_id, debit, credit, entry_type FROM customer_ledger WHERE customer_id=?'
       ).all(c.id);
       const counts = new Map();
       const bump = (key) => { if (key) counts.set(key, (counts.get(key) || 0) + 1); };
       for (const r of ledRows) {
         bump(ledgerMatchKey(r.ref_type, r.ref_id, r.debit, r.credit));
         if (normalizeStmtRefType(r.ref_type) === 'opening') bump(openingAmtKey(r.debit, r.credit));
+        if (String(r.entry_type || '') === 'reversal') {
+          const idPart = r.ref_id == null || r.ref_id === '' ? '' : String(r.ref_id);
+          bump(`reversal|${idPart}|${Math.round(Number(r.debit) || 0)}|${Math.round(Number(r.credit) || 0)}`);
+        }
       }
       const used = new Map();
       const consume = (key) => {
@@ -690,7 +698,9 @@ function repairGlLinesToLedger(db) {
         const primary = ledgerMatchKey(g.ref_type, g.ref_id, debit, credit);
         const opening = normalizeStmtRefType(g.ref_type) === 'opening'
           ? openingAmtKey(debit, credit) : null;
-        if (consume(primary) || consume(opening)) continue;
+        const idPart = g.ref_id == null || g.ref_id === '' ? '' : String(g.ref_id);
+        const reversal = `reversal|${idPart}|${debit}|${credit}`;
+        if (consume(primary) || consume(opening) || consume(reversal)) continue;
         createLedgerEntry(db, {
           customer_id: c.id,
           date: g.entry_date || '',
@@ -707,6 +717,25 @@ function repairGlLinesToLedger(db) {
         consume(primary);
         if (opening) { bump(opening); consume(opening); }
       }
+      // A synthetic books_align debit (repair v3) stands in for these lines.
+      // Once the lines themselves are on the book, the plug double-counts.
+      // Drop it only when the book without it is closer to the live GL.
+      const glSigned = Math.round(glLines.reduce((s, g) => s + (Number(g.debit) || 0) - (Number(g.credit) || 0), 0));
+      const alignRow = db.prepare(`
+        SELECT COALESCE(SUM(debit)-SUM(credit),0) AS n
+        FROM customer_ledger WHERE customer_id=? AND ref_type='books_align'
+      `).get(c.id);
+      const alignNet = Math.round(Number(alignRow && alignRow.n) || 0);
+      if (alignNet !== 0) {
+        const ledNow = db.prepare(`
+          SELECT COALESCE(SUM(debit)-SUM(credit),0) AS n FROM customer_ledger WHERE customer_id=?
+        `).get(c.id);
+        const ledSigned = Math.round(Number(ledNow && ledNow.n) || 0);
+        const without = ledSigned - alignNet;
+        if (Math.abs(without - glSigned) + 0.5 < Math.abs(ledSigned - glSigned)) {
+          db.prepare(`DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='books_align'`).run(c.id);
+        }
+      }
     }
     db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
       .run(REPAIR_FLAG_V2);
@@ -720,10 +749,8 @@ function repairGlLinesToLedger(db) {
 
 /**
  * Signed live balance per customer (debit − credit).
- * Same rule as buildStatement (no date filter):
- * - with coa_code → GL sum on account_code LIKE coa_code||'%'
- * - without → customer_ledger + firm invoices missing from the ledger
- * Runs the one-shot book repair first so CRM lists match the statement.
+ * Same rule as buildStatement: customer_ledger + firm invoices missing from it.
+ * A partial tafsili GL must not replace this figure.
  */
 function customerSignedBalanceMap(db) {
   ensureCustomerBooksRepaired(db);
@@ -756,30 +783,58 @@ function customerSignedBalanceMap(db) {
     if (!source.has(id)) source.set(id, 'customer_ledger');
   }
 
-  // Prefer GL when the customer has a tafsili — same LIKE prefix as the statement.
-  const withCoa = db.prepare(`
-    SELECT id, coa_code FROM customers
-    WHERE coa_code IS NOT NULL AND TRIM(coa_code)<>''
-  `).all();
-  const glStmt = db.prepare(`
-    SELECT
-      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS signed,
-      COUNT(*) AS n
-    FROM journal_lines jl
-    JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE jl.account_code LIKE ?
-      AND ${JE_ALIVE}
-  `);
-  for (const c of withCoa) {
-    const like = String(c.coa_code) + '%';
-    const row = glStmt.get(like);
-    if (row && Number(row.n) > 0) {
-      map.set(Number(c.id), Number(row.signed) || 0);
-      source.set(Number(c.id), 'gl');
-    }
-  }
+  // Do not replace the subledger with a partial tafsili GL. A new coa_code
+  // (party_tafsili_backfill) does not move historical control-account lines, so
+  // the first receipt on that tafsili would hide the real balance. GL is shown
+  // beside the statement only as a diagnostic until the two books agree.
   map._source = source;
   return map;
+}
+
+/**
+ * Sum of live customer balances from the subledger (same rule as the statement).
+ * Positive signed = debtor. Supports an as-of Jalali cutoff on ledger/invoice dates.
+ */
+function canonicalCustomerFold(db, { asOf } = {}) {
+  ensureCustomerBooksRepaired(db);
+  const asOfSql = asOf ? ' AND cl.date <= ?' : '';
+  const rows = db.prepare(`
+    SELECT c.id AS customer_id,
+      COALESCE(SUM(cl.debit),0) AS debit,
+      COALESCE(SUM(cl.credit),0) AS credit
+    FROM customers c
+    LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${asOfSql}
+    GROUP BY c.id
+  `).all(...(asOf ? [asOf] : []));
+  const byId = new Map();
+  for (const r of rows) {
+    byId.set(Number(r.customer_id), {
+      debit: Number(r.debit) || 0,
+      credit: Number(r.credit) || 0,
+    });
+  }
+  const missParams = [];
+  let missAsOf = '';
+  if (asOf) { missAsOf = ' AND i.date <= ?'; missParams.push(asOf); }
+  const missing = db.prepare(`
+    SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
+    FROM invoices i
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
+      ${missAsOf}
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_ledger cl
+        WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
+          AND COALESCE(cl.entry_type,'')<>'reversal'
+      )
+    GROUP BY i.cust_id
+  `).all(...missParams);
+  for (const r of missing) {
+    const id = Number(r.customer_id);
+    const cur = byId.get(id) || { debit: 0, credit: 0 };
+    cur.debit += Number(r.add_amt) || 0;
+    byId.set(id, cur);
+  }
+  return foldSignedRows([...byId.values()]);
 }
 
 function applyCustomerBalances(db, rows) {
@@ -895,8 +950,11 @@ function customerLedgerTafsiliBalance(db, { asOf } = {}) {
 }
 
 /**
- * Incremental: each unique customer tafsili gets a balancing customer_ledger
- * row so signed ledger = signed GL. Safe to run on every overview.
+ * One-way debit plug (GL − ledger, only when positive) onto the lowest id
+ * that shares the coa. Do not call from ensureCustomerBooksRepaired:
+ * a later credit never reduces the plug, and a shared code lands on the
+ * wrong customer. Unmatched lines are copied by repairGlLinesToLedger.
+ * Kept for an explicit maintenance call.
  */
 function repairLedgerSignedToGl(db) {
   const { createLedgerEntry } = require('../db');
@@ -969,6 +1027,83 @@ function repairCustomerBooks(db) {
   return result;
 }
 
+/**
+ * Opening cheques post Dr notes / Cr equity, but older builds also credited
+ * customer_ledger. That phantom credit zeroed a later bounce. Reverse it once.
+ */
+function repairOpeningChequeLedgerMirrors(db) {
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(REPAIR_FLAG_OPENING_CHEQUE);
+  if (flag && flag.value === '1') return { skipped: true, reversed: 0 };
+  const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
+  let reversed = 0;
+  const run = db.transaction(() => {
+    let rows = [];
+    try {
+      rows = db.prepare(`
+        SELECT cl.customer_id, cl.ref_id, cl.debit, cl.credit, cl.date, cl.user_id
+        FROM customer_ledger cl
+        JOIN cheque_records cr ON cr.id = cl.ref_id
+        WHERE cl.ref_type='cheque_in' AND COALESCE(cl.entry_type,'')<>'reversal'
+          AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
+      `).all();
+    } catch (_) { rows = []; }
+    for (const led of rows) {
+      const rev = db.prepare(`
+        SELECT 1 FROM customer_ledger
+        WHERE ref_type='cheque_in' AND ref_id=? AND customer_id=? AND entry_type='reversal'
+        LIMIT 1
+      `).get(led.ref_id, led.customer_id);
+      if (rev) continue;
+      createLedgerEntry(db, {
+        customer_id: led.customer_id,
+        date: led.date || '',
+        entry_type: 'reversal',
+        ref_type: 'cheque_in',
+        ref_id: led.ref_id,
+        description: 'اصلاح: چک اول دوره دریافت از مشتری نیست',
+        debit: Math.round(Number(led.credit) || 0),
+        credit: Math.round(Number(led.debit) || 0),
+        user_id: led.user_id || null,
+      });
+      reversed += 1;
+    }
+    try {
+      const personRows = db.prepare(`
+        SELECT pl.person_id, pl.ref_id, pl.debit, pl.credit, pl.date, pl.user_id
+        FROM person_ledger pl
+        JOIN cheque_records cr ON cr.id = pl.ref_id
+        WHERE pl.ref_type='cheque_in' AND COALESCE(pl.entry_type,'')<>'reversal'
+          AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
+      `).all();
+      for (const led of personRows) {
+        const rev = db.prepare(`
+          SELECT 1 FROM person_ledger
+          WHERE ref_type='cheque_in' AND ref_id=? AND person_id=? AND entry_type='reversal'
+          LIMIT 1
+        `).get(led.ref_id, led.person_id);
+        if (rev) continue;
+        createPersonLedgerEntry(db, {
+          person_id: led.person_id,
+          date: led.date || '',
+          entry_type: 'reversal',
+          ref_type: 'cheque_in',
+          ref_id: led.ref_id,
+          description: 'اصلاح: چک اول دوره دریافت از شخص نیست',
+          debit: Math.round(Number(led.credit) || 0),
+          credit: Math.round(Number(led.debit) || 0),
+          user_id: led.user_id || null,
+        });
+        reversed += 1;
+      }
+    } catch (_) { /* person_ledger optional */ }
+    db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
+      .run(REPAIR_FLAG_OPENING_CHEQUE);
+  });
+  run();
+  if (reversed) console.log(`✅ اعتبار چک اول دوره از دفتر طرف حساب برداشته شد (${reversed} ردیف)`);
+  return { reversed };
+}
+
 function ensureCustomerBooksRepaired(db) {
   let v1 = {};
   try {
@@ -984,14 +1119,14 @@ function ensureCustomerBooksRepaired(db) {
     console.error('customer-books repair v2:', e.message);
     v2 = { error: e.message };
   }
-  let v3 = {};
+  let openingCheque = {};
   try {
-    v3 = repairLedgerSignedToGl(db);
+    openingCheque = repairOpeningChequeLedgerMirrors(db);
   } catch (e) {
-    console.error('customer-books repair v3:', e.message);
-    v3 = { error: e.message };
+    console.error('opening cheque ledger repair:', e.message);
+    openingCheque = { error: e.message };
   }
-  return { ...v1, v2, v3 };
+  return { ...v1, v2, v3: { skipped: true }, openingCheque };
 }
 
 module.exports = {
@@ -1011,6 +1146,7 @@ module.exports = {
   glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
+  canonicalCustomerFold,
   applyCustomerBalances,
   sumPositiveCustomerBalancesRial,
   repairCustomerBooks,

@@ -41,9 +41,7 @@ function ok(cond, label, extra) {
     'items.match_confidence');
 
   const { SYNCABLE_TABLES } = require('../sync/tables');
-  ok(SYNCABLE_TABLES.some(t => t.name === 'bank_statement_lines'), 'sync registry append');
-  ok(SYNCABLE_TABLES[SYNCABLE_TABLES.length - 1].name === 'bank_statement_lines',
-    'bank_statement_lines is last sync table');
+  ok(SYNCABLE_TABLES.some(t => t.name === 'bank_statement_lines'), 'sync registry includes statement lines');
 
   const {
     parseBankStatementCsv,

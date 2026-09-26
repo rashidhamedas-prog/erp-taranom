@@ -302,7 +302,7 @@ function isLeaf(code) {
   console.log('\n— ACC-01 stable tafsili —');
   const partyIns = db.prepare(`
     INSERT INTO parties (person_code, party_type, full_name, phone, coa_code)
-    VALUES ('P-ACC01','customer','هویت پایدار','09120001111','11039901')
+    VALUES ('P-ACC01','customer','هویت پایدار','09120001111','11039801')
   `).run();
   const partyId = partyIns.lastInsertRowid;
   r = await api('PUT', '/api/parties/' + partyId, {
@@ -313,7 +313,7 @@ function isLeaf(code) {
   });
   ok(r.status === 200 || r.data?.success, 'PUT party ok', r.status + ' ' + JSON.stringify(r.data));
   const afterPut = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(partyId);
-  ok(afterPut.coa_code === '11039901', 'coa_code unchanged after PUT rewrite attempt', afterPut.coa_code);
+  ok(afterPut.coa_code === '11039801', 'coa_code unchanged after PUT rewrite attempt', afterPut.coa_code);
 
   const custId = db.prepare(
     "INSERT INTO customers (user_id, biz, phone, coa_code) VALUES (?, 'مشتری GL', '09120002222', '11039901')"
@@ -359,7 +359,7 @@ function isLeaf(code) {
   ok(Number(r.data?.gl_closing_rial) === AR_RIAL,
     'statement gl_closing_rial matches posted AR', r.data?.gl_closing_rial);
   ok(Number(r.data?.closing) === AR_RIAL, 'statement primary closing is GL', r.data?.closing);
-  ok(r.data?.source === 'gl', 'statement source=gl', r.data?.source);
+  ok(r.data?.source === 'aligned', 'statement source=aligned when books match', r.data?.source);
 
   r = await api('GET', '/api/accounting/statement/' + custId + '?to=1405/04/10');
   ok(Number(r.data?.closing) === AR_RIAL, 'statement closing as-of to', r.data?.closing);
@@ -392,11 +392,11 @@ function isLeaf(code) {
   `).run(ledCust, LEDGER_ONLY, admin.id);
   r = await api('GET', '/api/accounting/statement/' + ledCust);
   ok(r.data?.books_mismatch === true, 'ledger-only opening vs empty GL is mismatch');
-  ok(Number(r.data?.closing) === 0, 'ledger-only primary close is GL 0', r.data?.closing);
+  ok(Number(r.data?.closing) === LEDGER_ONLY, 'ledger-only primary close is the customer book', r.data?.closing);
   ok(Number(r.data?.ledger_closing) === LEDGER_ONLY, 'ledger_closing keeps book', r.data?.ledger_closing);
   r = await api('GET', '/api/accounting/receivables');
   const ledRow = (r.data || []).find((x) => Number(x.id) === Number(ledCust));
-  ok(Number(ledRow?.outstanding) === 0, 'ledger-only outstanding uses GL 0', ledRow?.outstanding);
+  ok(Number(ledRow?.outstanding) === LEDGER_ONLY, 'ledger-only outstanding uses the customer book', ledRow?.outstanding);
 
   const OVERPAY = 1_000_000;
   postToLedger(db, {
@@ -414,9 +414,10 @@ function isLeaf(code) {
   r = await api('GET', '/api/accounting/statement/' + custId);
   ok(Number(r.data?.closing) === afterOver, 'overpay → creditor GL closing', r.data?.closing);
   r = await api('GET', '/api/accounting/overview');
-  ok(Number(r.data?.totalReceivable) === 0, 'overpay zeroes GL AR display', r.data?.totalReceivable);
+  ok(Number(r.data?.totalReceivable) === LEDGER_ONLY,
+    'overpay leaves the ledger-only customer receivable', r.data?.totalReceivable);
   ok(Number(r.data?.creditorBalance) === Math.abs(afterOver),
-    'overpay → creditorBalance from GL', r.data?.creditorBalance);
+    'overpay → creditorBalance from the customer book', r.data?.creditorBalance);
   r = await api('GET', '/api/accounting/receivables');
   const overRow = (r.data || []).find((x) => Number(x.id) === Number(custId));
   ok(Number(overRow?.outstanding) === afterOver, 'receivables outstanding creditor after overpay', overRow?.outstanding);

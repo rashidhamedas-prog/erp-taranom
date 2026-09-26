@@ -74,6 +74,8 @@ const LEGACY = {
   // POS-01/02 — card in-transit + dedicated fee (1118/6114 unused in existing chart)
   coa_card_in_transit:        { code: '1118', name: 'وجوه در راه کارتخوان' },
   coa_card_fee:               { code: '6114', name: 'کارمزد کارتخوان' },
+  coa_bank_fee:               { code: '6115', name: 'کارمزد خدمات بانکی' },
+  coa_bank_interest:          { code: '4115', name: 'سود سپرده بانکی' },
   // GRNI — goods received not invoiced (append-only)
   coa_grni:                   { code: '2112', name: 'کالای دریافت‌شده فاکتورنشده (GRNI)' },
 };
@@ -283,6 +285,8 @@ function baseCoaTree() {
     ['6112', 'هزینه مطالبات مشکوک‌الوصول', 'expense', '6000', 2],
     ['6113', 'هزینه کاهش ارزش موجودی', 'expense', '6000', 2],
     ['6114', 'کارمزد کارتخوان', 'expense', '6000', 2],
+    ['6115', 'کارمزد خدمات بانکی', 'expense', '6000', 2],
+    ['4115', 'سود سپرده بانکی', 'revenue', '4000', 2],
     ['9999', 'اصلاحات و تعدیلات', 'equity', null, 1],
   ];
 }

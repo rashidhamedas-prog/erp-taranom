@@ -1,36 +1,20 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
-const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
-const { assertSafeRial, rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { reverseJournalEntry } = require('../lib/void-journal');
+const { assertSafeRial } = require('../lib/money');
 const { todayJalali, addDaysToJalali } = require('../jalali');
+const {
+  normalizeKind, assertJalaliDate, assertRialBank, computeBookBalance,
+  resolveBankPostingAccount, computeBridge, adjustmentLines, POSTING_KINDS,
+} = require('../lib/bank-recon');
 
 function permit(action) {
   return (req, res, next) => {
     if (req.user?.role === 'admin' || req.user?.role === 'accounting') return next();
     return requirePermission('bank_reconciliation', action)(req, res, next);
   };
-}
-
-function bankAccountCode(db, bankId) {
-  const bank = db.prepare('SELECT coa_code FROM banks WHERE id=?').get(bankId);
-  if (bank?.coa_code) return bank.coa_code;
-  return '1102-' + bankId;
-}
-
-function computeBookBalance(db, bankId, asOfDate) {
-  const code = bankAccountCode(db, bankId);
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) bal
-    FROM journal_lines jl
-    JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE (jl.account_code = ? OR jl.account_code LIKE ?)
-      AND COALESCE(je.deleted_at, 0) = 0
-      AND COALESCE(je.status, 'approved') <> 'reversed'
-      AND (? = '' OR je.entry_date <= ?)
-  `).get(code, code + '-%', asOfDate || '', asOfDate || '');
-  return Math.round(row?.bal || 0);
 }
 
 /** Normalize imported amount to INTEGER rial (rejects non-finite / unsafe). */
@@ -73,24 +57,35 @@ function parseBankStatementCsv(text) {
   const header = split(lines[0]).map(h => h.toLowerCase());
   const looksHeader = header.some(h => /date|amount|مبلغ|تاریخ/.test(h));
   if (looksHeader) start = 1;
+  const findCol = (re) => header.findIndex(h => re.test(h));
   const idx = {
-    date: Math.max(0, header.findIndex(h => /date|تاریخ/.test(h))),
-    amount: Math.max(0, header.findIndex(h => /amount|مبلغ|rial/.test(h))),
-    description: Math.max(0, header.findIndex(h => /desc|شرح|description/.test(h))),
-    ref: Math.max(0, header.findIndex(h => /ref|reference|شناسه|پیگیری/.test(h))),
+    date: findCol(/date|تاریخ/),
+    amount: findCol(/amount|مبلغ|rial/),
+    withdraw: findCol(/برداشت|withdraw/),
+    deposit: findCol(/واریز|deposit/),
+    description: findCol(/desc|شرح|description/),
+    ref: findCol(/ref|reference|شناسه|پیگیری/),
   };
   if (!looksHeader) {
     idx.date = 0; idx.amount = 1; idx.description = 2; idx.ref = 3;
+    idx.withdraw = -1; idx.deposit = -1;
   }
+  const cell = (cols, i) => (i >= 0 ? (cols[i] || '') : '');
   const rows = [];
   for (let i = start; i < lines.length; i++) {
     const cols = split(lines[i]);
     if (!cols.length || cols.every(c => !c)) continue;
+    let amount = cell(cols, idx.amount);
+    if ((amount === '' || idx.amount < 0) && (idx.withdraw >= 0 || idx.deposit >= 0)) {
+      const w = Number(String(cell(cols, idx.withdraw)).replace(/,/g, '')) || 0;
+      const d = Number(String(cell(cols, idx.deposit)).replace(/,/g, '')) || 0;
+      amount = d - w;
+    }
     rows.push({
-      date: cols[idx.date] || '',
-      amount_rial: cols[idx.amount] || '',
-      description: cols[idx.description] || '',
-      ref: cols[idx.ref] || '',
+      date: cell(cols, idx.date),
+      amount_rial: amount,
+      description: cell(cols, idx.description),
+      ref: cell(cols, idx.ref),
     });
   }
   return rows;
@@ -114,19 +109,47 @@ function ensureOpen(recon) {
     throw err;
   }
   if (recon.status === 'closed') throw new Error('تطبیق بسته شده و قابل ویرایش نیست');
+  if (recon.status === 'void') throw new Error('تطبیق باطل شده است');
+}
+
+function activeItems(db, reconId) {
+  const items = db.prepare(`
+    SELECT * FROM bank_reconciliation_items WHERE reconciliation_id=? ORDER BY id
+  `).all(reconId);
+  const voidedBankItemIds = new Set(
+    db.prepare(`
+      SELECT bank_item_id AS id FROM bank_statement_lines
+      WHERE reconciliation_id=? AND (COALESCE(deleted_at,0)!=0 OR status='void')
+        AND bank_item_id IS NOT NULL
+    `).all(reconId).map(r => r.id)
+  );
+  return items.filter(i => !Number(i.voided) && !(i.side === 'bank' && voidedBankItemIds.has(i.id)));
+}
+
+function bridgeFor(db, recon) {
+  const liveBook = computeBookBalance(db, recon.bank_id, recon.statement_date);
+  return {
+    live_book_balance_rial: liveBook,
+    bridge: computeBridge(recon.statement_balance_rial, liveBook, activeItems(db, recon.id)),
+  };
 }
 
 router.post('/', auth, permit('create'), (req, res) => {
   try {
     const { bank_id, statement_date, statement_balance_rial, notes } = req.body;
     const bankId = parseInt(bank_id, 10);
-    const stmtDate = String(statement_date || '').trim();
+    const stmtDate = assertJalaliDate(statement_date);
     const stmtBal = Math.round(Number(statement_balance_rial) || 0);
-    if (!bankId || !stmtDate) throw new Error('بانک و تاریخ صورت‌حساب الزامی است');
+    if (!bankId) throw new Error('بانک و تاریخ صورت‌حساب الزامی است');
 
     const db = getDB();
-    const bank = db.prepare('SELECT id FROM banks WHERE id=?').get(bankId);
-    if (!bank) throw new Error('بانک یافت نشد');
+    const bank = db.prepare('SELECT id, is_foreign, currency, coa_code FROM banks WHERE id=?').get(bankId);
+    assertRialBank(bank);
+    const open = db.prepare(`
+      SELECT id FROM bank_reconciliations
+      WHERE bank_id=? AND status='open' LIMIT 1
+    `).get(bankId);
+    if (open) throw new Error('برای این بانک یک تطبیق باز وجود دارد؛ ابتدا همان را ببندید یا باطل کنید');
 
     const bookBal = computeBookBalance(db, bankId, stmtDate);
     const r = db.prepare(`
@@ -174,7 +197,8 @@ router.get('/:id', auth, permit('view'), (req, res) => {
     WHERE reconciliation_id=? AND COALESCE(deleted_at, 0) = 0 AND COALESCE(status, 'active') <> 'void'
     ORDER BY id
   `).all(recon.id);
-  res.json({ ...recon, items, statement_lines });
+  const live = bridgeFor(db, recon);
+  res.json({ ...recon, items, statement_lines, ...live });
 });
 
 router.post('/:id/items', auth, permit('edit'), (req, res) => {
@@ -186,17 +210,20 @@ router.post('/:id/items', auth, permit('edit'), (req, res) => {
     const rows = Array.isArray(req.body.items) ? req.body.items : [req.body];
     const ins = db.prepare(`
       INSERT INTO bank_reconciliation_items
-        (reconciliation_id, side, ref_type, ref_id, description, amount_rial, matched, statement_line, match_confidence)
-      VALUES (?,?,?,?,?,?,?,?,?)
+        (reconciliation_id, side, ref_type, ref_id, description, amount_rial, matched, statement_line, match_confidence, item_kind, line_date)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
     `);
     const created = db.transaction(() => rows.map(row => {
       const side = row.side === 'bank' ? 'bank' : 'book';
       const amt = Math.round(Number(row.amount_rial) || 0);
       if (!amt) throw new Error('مبلغ آیتم نامعتبر است');
+      const kind = normalizeKind(row.item_kind);
+      const lineDate = row.line_date ? assertJalaliDate(row.line_date) : null;
       const r = ins.run(
         recon.id, side, row.ref_type || null, row.ref_id || null,
         row.description || '', amt, row.matched ? 1 : 0, row.statement_line ? 1 : 0,
-        row.match_confidence != null ? Math.round(Number(row.match_confidence) || 0) : 0
+        row.match_confidence != null ? Math.round(Number(row.match_confidence) || 0) : 0,
+        kind, lineDate
       );
       return db.prepare('SELECT * FROM bank_reconciliation_items WHERE id=?').get(r.lastInsertRowid);
     }))();
@@ -248,6 +275,13 @@ router.post('/:id/import-lines', auth, permit('edit'), (req, res) => {
         const amountRial = normalizeAmountRial(row.amount_rial != null ? row.amount_rial : row.amount);
         const description = String(row.description || row.desc || '').trim();
         const ref = String(row.ref || row.reference || '').trim();
+        const dup = db.prepare(`
+          SELECT id FROM bank_statement_lines
+          WHERE reconciliation_id=? AND line_date=? AND amount_rial=? AND COALESCE(ref,'')=?
+            AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'active')<>'void'
+          LIMIT 1
+        `).get(recon.id, lineDate, amountRial, ref);
+        if (dup) continue;
 
         const itemR = insItem.run(recon.id, description || ref || 'ردیف صورت‌حساب', amountRial);
         const bankItemId = itemR.lastInsertRowid;
@@ -303,8 +337,9 @@ router.post('/:id/void-lines', auth, permit('edit'), (req, res) => {
         if (line.bank_item_id) {
           db.prepare(`
             UPDATE bank_reconciliation_items
-            SET matched=0, match_confidence=0, description=COALESCE(description,'') || ' [ابطال صورت‌حساب]'
-            WHERE id=? AND reconciliation_id=? AND matched=0
+            SET matched=0, match_confidence=0, voided=1,
+                description=COALESCE(description,'') || ' [ابطال صورت‌حساب]'
+            WHERE id=? AND reconciliation_id=?
           `).run(line.bank_item_id, recon.id);
           // Keep the book-side item row (R13) but flag as voided via description; soft-hide via amount 0 not allowed.
           // Mark matched=1 with zero effect is wrong — leave unmatched bank item; close path treats unmatched bank.
@@ -470,18 +505,105 @@ router.post('/:id/match', auth, permit('edit'), (req, res) => {
     const recon = loadReconOr404(db, req.params.id);
     ensureOpen(recon);
 
-    const ids = Array.isArray(req.body.item_ids) ? req.body.item_ids.map(Number) : [];
-    if (!ids.length) throw new Error('شناسه آیتم‌ها الزامی است');
+    const ids = Array.isArray(req.body.item_ids) ? req.body.item_ids.map(Number).filter(Boolean) : [];
+    if (ids.length < 2) throw new Error('حداقل یک ردیف بانک و یک ردیف دفتر لازم است');
 
     db.transaction(() => {
+      const rows = ids.map(id => db.prepare(`
+        SELECT * FROM bank_reconciliation_items
+        WHERE reconciliation_id=? AND id=? AND COALESCE(voided,0)=0
+      `).get(recon.id, id)).filter(Boolean);
+      if (rows.length !== ids.length) throw new Error('برخی ردیف‌ها برای این تطبیق پیدا نشد');
+      const bankSum = rows.filter(r => r.side === 'bank').reduce((s, r) => s + Math.abs(Number(r.amount_rial) || 0), 0);
+      const bookSum = rows.filter(r => r.side === 'book').reduce((s, r) => s + Math.abs(Number(r.amount_rial) || 0), 0);
+      if (!bankSum || !bookSum || bankSum !== bookSum) {
+        throw new Error('جمع مبلغ طرف بانک و دفتر باید برابر و غیرصفر باشد');
+      }
       const stmt = db.prepare(`
-        UPDATE bank_reconciliation_items SET matched=1
+        UPDATE bank_reconciliation_items SET matched=1, match_confidence=100
         WHERE reconciliation_id=? AND id=?
       `);
       for (const id of ids) stmt.run(recon.id, id);
+      const bankItems = rows.filter(r => r.side === 'bank' && r.statement_line_id);
+      for (const b of bankItems) {
+        db.prepare(`
+          UPDATE bank_statement_lines
+          SET matched=1, match_confidence=100, matched_item_id=?
+          WHERE id=? AND reconciliation_id=? AND COALESCE(status,'active')<>'void'
+        `).run(b.id, b.statement_line_id, recon.id);
+      }
     })();
 
+    audit(req.user.id, 'match', 'bank_reconciliation', recon.id, `تطبیق دستی ${ids.length} ردیف`);
     res.json({ ok: true, matched: ids.length });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/classify', auth, permit('edit'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    ensureOpen(recon);
+    const itemId = parseInt(req.body?.item_id, 10);
+    const kind = normalizeKind(req.body?.item_kind);
+    if (!itemId) throw new Error('ردیف الزامی است');
+    const item = db.prepare(`
+      SELECT id, matched FROM bank_reconciliation_items
+      WHERE id=? AND reconciliation_id=? AND COALESCE(voided,0)=0
+    `).get(itemId, recon.id);
+    if (!item) throw new Error('ردیف یافت نشد');
+    if (item.matched) throw new Error('ردیف تطبیق‌شده را نمی‌توان طبقه‌بندی کرد');
+    db.prepare('UPDATE bank_reconciliation_items SET item_kind=? WHERE id=?').run(kind, itemId);
+    audit(req.user.id, 'classify', 'bank_reconciliation', recon.id, `طبقه ${kind} برای ردیف ${itemId}`);
+    res.json({ ok: true, item_kind: kind, ...bridgeFor(db, recon) });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/unmatch', auth, permit('edit'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    ensureOpen(recon);
+    const ids = Array.isArray(req.body.item_ids) ? req.body.item_ids.map(Number).filter(Boolean) : [];
+    if (!ids.length) throw new Error('شناسه آیتم‌ها الزامی است');
+    db.transaction(() => {
+      for (const id of ids) {
+        const item = db.prepare(`
+          SELECT * FROM bank_reconciliation_items WHERE id=? AND reconciliation_id=?
+        `).get(id, recon.id);
+        if (!item) continue;
+        db.prepare(`
+          UPDATE bank_reconciliation_items SET matched=0, match_confidence=0 WHERE id=?
+        `).run(id);
+        if (item.statement_line_id) {
+          db.prepare(`
+            UPDATE bank_statement_lines
+            SET matched=0, match_confidence=0, matched_ref_type=NULL, matched_ref_id=NULL, matched_item_id=NULL
+            WHERE id=? AND reconciliation_id=?
+          `).run(item.statement_line_id, recon.id);
+        }
+      }
+    })();
+    audit(req.user.id, 'unmatch', 'bank_reconciliation', recon.id, `لغو تطبیق ${ids.length} ردیف`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/refresh-book', auth, permit('edit'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    ensureOpen(recon);
+    const bookBal = computeBookBalance(db, recon.bank_id, recon.statement_date);
+    db.prepare('UPDATE bank_reconciliations SET book_balance_rial=? WHERE id=?').run(bookBal, recon.id);
+    const fresh = loadReconOr404(db, recon.id);
+    res.json({ ok: true, ...bridgeFor(db, fresh), book_balance_rial: bookBal });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message });
   }
@@ -492,62 +614,86 @@ router.post('/:id/close', auth, permit('approve'), (req, res) => {
     const db = getDB();
     const recon = loadReconOr404(db, req.params.id);
     if (!recon) return res.status(404).json({ error: 'یافت نشد' });
-    if (recon.status === 'closed') throw new Error('تطبیق قبلاً بسته شده است');
-
-    const items = db.prepare(`
-      SELECT * FROM bank_reconciliation_items WHERE reconciliation_id=?
-    `).all(recon.id);
-
-    // Exclude soft-voided statement-linked bank items from difference calc
-    const voidedBankItemIds = new Set(
-      db.prepare(`
-        SELECT bank_item_id AS id FROM bank_statement_lines
-        WHERE reconciliation_id=? AND (COALESCE(deleted_at,0)!=0 OR status='void')
-          AND bank_item_id IS NOT NULL
-      `).all(recon.id).map(r => r.id)
-    );
-
-    const activeItems = items.filter(i => !(i.side === 'bank' && voidedBankItemIds.has(i.id)));
-
-    const unmatchedBook = activeItems.filter(i => i.side === 'book' && !i.matched)
-      .reduce((s, i) => s + (i.amount_rial || 0), 0);
-    const unmatchedBank = activeItems.filter(i => i.side === 'bank' && !i.matched)
-      .reduce((s, i) => s + (i.amount_rial || 0), 0);
-    const reconciledBook = recon.book_balance_rial - unmatchedBook + unmatchedBank;
-    const diff = recon.statement_balance_rial - reconciledBook;
+    if (recon.status === 'void') throw new Error('تطبیق باطل شده است');
+    if (recon.status === 'closed') {
+      return res.json({ ok: true, already: true, adjustment_je_id: recon.adjustment_je_id, ...bridgeFor(db, recon) });
+    }
 
     const result = db.transaction(() => {
-      let adjustmentJeId = recon.adjustment_je_id || null;
-      if (Math.abs(diff) > 0) {
-        const bankAcct = acct(db, 'coa_bank_default');
-        const adjAcct = acct(db, 'coa_adjustment');
-        const absRial = Math.abs(diff);
-        const amt = rialToLedger(absRial);
-        const lines = diff > 0
-          ? [
-            { code: bankAcct.code, name: bankAcct.name, debit: amt, credit: 0, debit_rial: absRial },
-            { code: adjAcct.code, name: adjAcct.name, debit: 0, credit: amt, credit_rial: absRial },
-          ]
-          : [
-            { code: adjAcct.code, name: adjAcct.name, debit: amt, credit: 0, debit_rial: absRial },
-            { code: bankAcct.code, name: bankAcct.name, debit: 0, credit: amt, credit_rial: absRial },
-          ];
-        adjustmentJeId = postToLedger(db, {
-          sourceType: 'bank_recon_adjustment', sourceId: recon.id,
-          date: recon.statement_date || todayJalali(),
-          description: `تعدیل تطبیق بانک #${recon.id}`,
+      const current = loadReconOr404(db, recon.id);
+      if (current.status === 'closed') {
+        return { already: true, adjustment_je_id: current.adjustment_je_id, bridge: bridgeFor(db, current).bridge };
+      }
+      const liveBook = computeBookBalance(db, current.bank_id, current.statement_date);
+      const items = activeItems(db, current.id);
+      const bridge = computeBridge(current.statement_balance_rial, liveBook, items);
+      if (!bridge.can_close) {
+        const err = new Error(
+          bridge.unclassified_rial
+            ? 'ردیف‌های بدون طبقه‌بندی مانده است؛ چک معوق، واریز در راه، کارمزد یا سود را مشخص کنید'
+            : `اختلاف توجیه‌نشده ${bridge.unexplained_rial} ریال است و تا صفر نشود تطبیق بسته نمی‌شود`
+        );
+        err.status = 400;
+        throw err;
+      }
+      let adjustmentJeId = current.adjustment_je_id || null;
+      const needsPost = items.some(i => !Number(i.matched) && !Number(i.voided) && POSTING_KINDS.has(normalizeKind(i.item_kind)));
+      const lines = needsPost
+        ? adjustmentLines(db, resolveBankPostingAccount(db, current.bank_id).account, items)
+        : [];
+      if (lines.length) {
+        const existing = db.prepare(`
+          SELECT id FROM journal_entries
+          WHERE ref_type='bank_recon_adjustment' AND ref_id=?
+            AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+          LIMIT 1
+        `).get(current.id);
+        adjustmentJeId = existing ? existing.id : postToLedger(db, {
+          sourceType: 'bank_recon_adjustment', sourceId: current.id,
+          date: current.statement_date || todayJalali(),
+          description: `تعدیل تطبیق بانک #${current.id}`,
           createdBy: req.user.id, lines,
         });
       }
       db.prepare(`
         UPDATE bank_reconciliations
-        SET status='closed', adjustment_je_id=?, closed_at=strftime('%s','now')
-        WHERE id=?
-      `).run(adjustmentJeId, recon.id);
-      return { adjustment_je_id: adjustmentJeId, difference_rial: diff, reconciled_book_rial: reconciledBook };
+        SET status='closed', book_balance_rial=?, adjustment_je_id=?, closed_at=strftime('%s','now')
+        WHERE id=? AND status='open'
+      `).run(liveBook, adjustmentJeId, current.id);
+      return { adjustment_je_id: adjustmentJeId, bridge, difference_rial: 0 };
     })();
 
     audit(req.user.id, 'close', 'bank_reconciliation', recon.id, `بستن تطبیق بانک`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/void', auth, permit('approve'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    if (!recon) return res.status(404).json({ error: 'یافت نشد' });
+    if (recon.status === 'void') throw new Error('تطبیق قبلاً باطل شده است');
+    const result = db.transaction(() => {
+      let reversalId = null;
+      if (recon.adjustment_je_id) {
+        reversalId = reverseJournalEntry(db, recon.adjustment_je_id, {
+          userId: req.user.id,
+          date: todayJalali(),
+          reason: req.body?.reason || 'ابطال تطبیق بانک',
+          sourceType: 'bank_recon_adjustment_reversal',
+        });
+      }
+      db.prepare(`
+        UPDATE bank_reconciliations
+        SET status='void', reversal_je_id=?, voided_at=strftime('%s','now')
+        WHERE id=?
+      `).run(reversalId, recon.id);
+      return { reversal_je_id: reversalId };
+    })();
+    audit(req.user.id, 'void', 'bank_reconciliation', recon.id, 'ابطال تطبیق بانک');
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message });

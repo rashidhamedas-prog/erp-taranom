@@ -128,7 +128,7 @@ try {
 }
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok('SW v183', sw.includes('erp-taranom-v183'));
+ok('SW cache current', sw.includes('erp-taranom-v241'));
 
 try { db.close(); } catch (_) {}
 for (const suffix of ['', '-wal', '-shm']) {

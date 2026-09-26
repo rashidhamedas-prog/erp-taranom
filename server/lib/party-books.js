@@ -21,6 +21,7 @@ function tableExists(db, name) {
  */
 function partySignedBalanceMap(db) {
   const map = new Map();
+  const fromSubledger = new Set();
 
   if (!tableExists(db, 'parties')) return map;
 
@@ -43,6 +44,7 @@ function partySignedBalanceMap(db) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
         map.set(pid, Math.round(Number(r.bal) || 0));
+        fromSubledger.add(pid);
       }
     } catch (_) { /* optional */ }
   }
@@ -62,6 +64,7 @@ function partySignedBalanceMap(db) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
         map.set(pid, Math.round(Number(r.bal) || 0));
+        fromSubledger.add(pid);
       }
     } catch (_) { /* optional */ }
   }
@@ -94,12 +97,16 @@ function partySignedBalanceMap(db) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
         const payable = Math.round(Number(r.payable) || 0);
-        if (payable !== 0) map.set(pid, -payable);
+        if (payable !== 0) {
+          map.set(pid, -payable);
+          fromSubledger.add(pid);
+        }
       }
     } catch (_) { /* optional */ }
   }
 
-  // GL on parties.coa_code is authoritative when the tafsili has posted lines
+  // GL replaces the subledger only when there is no subledger, or the two agree.
+  // A freshly allocated tafsili must not hide person/customer history.
   try {
     const glRows = db.prepare(`
       SELECT p.id AS party_id,
@@ -112,7 +119,12 @@ function partySignedBalanceMap(db) {
       GROUP BY p.id
     `).all();
     for (const r of glRows) {
-      map.set(Number(r.party_id), Math.round(Number(r.signed) || 0));
+      const pid = Number(r.party_id);
+      const glSigned = Math.round(Number(r.signed) || 0);
+      const cur = map.has(pid) ? map.get(pid) : 0;
+      if (!fromSubledger.has(pid) || Math.abs(cur - glSigned) <= 1) {
+        map.set(pid, glSigned);
+      }
     }
   } catch (_) { /* optional */ }
 
