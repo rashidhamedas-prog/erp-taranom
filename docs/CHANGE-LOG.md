@@ -14,7 +14,7 @@
 - **تست:** invoice-amend-receipt-v231؛ sms.
 - **فایل‌ها:** server/lib/{cash-on-document,invoice-payments,amend-invoice,invoice-print}.js, server/public/{app.js,app.css,sw.js}, server/scripts/test-invoice-amend-receipt-v231.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v231
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ f24a5ea — health/ready/root 200. SW erp-taranom-v231.
 
 ### ۱۴۰۵/۰۷/۰۴ — رفع ابطال اشتباه تسویه + چاپ/امضا (SW v230)
 
