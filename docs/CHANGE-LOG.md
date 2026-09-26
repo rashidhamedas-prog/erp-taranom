@@ -11,10 +11,10 @@
 - **API:** `variantLineSummary(db, productId, warehouseId)` + `GET /summaries?warehouse_id=`؛ style از قبل scoped بود.
 - **UI:** `hydrateInvVarSum` / picker فاکتور / کاتالوگ فروش؛ جزئیات رنگ×سایز با جدول انبار؛ خرید `genCartAdd` با انبار مقصد؛ امانی `csLoadVariants` با qty انبار؛ بازاریاب کاتالوگ با `warehouse_id=sales_warehouse`.
 - **Cache:** SW `erp-taranom-v240`؛ `app.js` / `marketer-ui.js` `?v=240`.
-- **تست:** test-variant-wh-display-v240 (۱۳/۱۳).
+- **تست:** test-variant-wh-display-v240 (۱۳/۱۳)؛ sms ۲۲/۲۲؛ test-sync روی این ماشین به‌خاطر ABI better-sqlite3 (Node سیستم) اجرا نشد — همان محدودیت قبلی.
 - **فایل‌ها:** server/lib/product-variants/service.js, server/routes/product-variants.js, server/public/{app.js,marketer-ui.js,sw.js,index.html}, server/scripts/test-variant-wh-display-v240.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v240
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ ایران overlay SFTP @ 7a98009 — health/ready/root 200؛ SW erp-taranom-v240؛ pm2 erp-taranom online.
 
 ### ۱۴۰۵/۰۷/۰۴ — رفع ورود وب: راهنمای گمراه‌کننده + بازیابی admin (SW v239)
 
