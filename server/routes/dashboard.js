@@ -19,15 +19,7 @@ router.get('/summary', auth, (req, res) => {
 
   let cashBank = 0;
   try {
-    const rows = db.prepare(`
-      SELECT jl.account_code,
-        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0)
-        - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS bal
-      FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
-      WHERE ${DELETED_FILTER} AND (jl.account_code LIKE '1101%' OR jl.account_code LIKE '1102%')
-      GROUP BY jl.account_code
-    `).all();
-    cashBank = rows.reduce((s, r) => s + r.bal, 0);
+    cashBank = require('../lib/cash-flow').sumCashBankBalanceRial(db);
   } catch (_) { /* empty db */ }
 
   const today = require('../jalali').todayJalali();

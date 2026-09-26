@@ -41,21 +41,62 @@ router.get('/', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM cash_boxes ORDER BY name').all());
 });
 
+function resolveCashJoinCode(db, box) {
+  let code = String(box.coa_code || '').trim();
+  if (code) return code;
+  try {
+    const name = String(box.name || '').trim();
+    if (name) {
+      const hit = db.prepare(`
+        SELECT code FROM chart_of_accounts
+        WHERE name LIKE '%' || ? || '%'
+          AND (code LIKE '206002%' OR code LIKE '1101%')
+        ORDER BY CASE WHEN code LIKE '206002%' THEN 0 ELSE 1 END, length(code) DESC
+        LIMIT 1
+      `).get(name);
+      if (hit && hit.code) {
+        db.prepare("UPDATE cash_boxes SET coa_code=? WHERE id=? AND COALESCE(coa_code,'')=''").run(hit.code, box.id);
+        return hit.code;
+      }
+    }
+  } catch (_) { /* */ }
+  return '1101-' + box.id;
+}
+
+function glBalanceOnCode(db, accountCode) {
+  const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS bal
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code = ?
+      AND COALESCE(je.deleted_at,0)=0
+  `).get(accountCode);
+  return Math.round(Number(row && row.bal) || 0);
+}
+
 router.get('/balances', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
-  const rows = db.prepare(`
-    SELECT cb.*,
-      COALESCE((
-        SELECT SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL})
-        FROM journal_lines jl
-        JOIN journal_entries je ON je.id = jl.entry_id
-        WHERE jl.account_code = COALESCE(NULLIF(cb.coa_code,''), '1101-' || cb.id)
-          AND COALESCE(je.deleted_at,0)=0
-      ), 0) as balance
-    FROM cash_boxes cb
-    ORDER BY cb.name
-  `).all();
+  const boxes = db.prepare('SELECT * FROM cash_boxes ORDER BY name').all();
+  const rows = boxes.map((b) => {
+    const joinCode = resolveCashJoinCode(db, b);
+    let balance = glBalanceOnCode(db, joinCode);
+    if (balance === 0) {
+      const legacy = '1101-' + b.id;
+      if (legacy !== joinCode) {
+        const legBal = glBalanceOnCode(db, legacy);
+        if (legBal !== 0) balance = legBal;
+      }
+    }
+    const openingStored = Math.round(Number(b.opening_balance_rial) || 0);
+    return {
+      ...b,
+      coa_code: String(b.coa_code || '').trim() || (joinCode.startsWith('1101-') ? b.coa_code : joinCode),
+      balance,
+      opening_balance_rial: openingStored,
+      opening_effective_rial: openingStored > 0 ? openingStored : balance,
+    };
+  });
   res.json(rows);
 });
 

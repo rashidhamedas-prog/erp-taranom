@@ -51,15 +51,26 @@ function safeAcctCode(db, key) {
   }
 }
 
-/** All cash + bank control/tafsili codes (defaults, mapped banks/boxes, 1101/1102*). */
+/** All cash + bank control/tafsili codes (defaults, mapped banks/boxes, 1101/1102*, Mahak 206*). */
 function collectCashBankCodes(db) {
   const codes = new Set();
   const add = (c) => {
     const s = String(c || '').trim();
     if (s) codes.add(s);
   };
-  add(safeAcctCode(db, 'coa_cash_default') || '1101');
-  add(safeAcctCode(db, 'coa_bank_default') || '1102');
+  const cashRoot = safeAcctCode(db, 'coa_cash_default') || '1101';
+  const bankRoot = safeAcctCode(db, 'coa_bank_default') || '1102';
+  add(cashRoot);
+  add(bankRoot);
+  // Children under mapped roots (Mahak: 206001… / 206002… without hyphen)
+  for (const root of [cashRoot, bankRoot]) {
+    if (!root || root.length < 3) continue;
+    try {
+      for (const r of db.prepare('SELECT code FROM chart_of_accounts WHERE code LIKE ?').all(root + '%')) {
+        add(r.code);
+      }
+    } catch (_) { /* */ }
+  }
   try {
     for (const r of db.prepare("SELECT coa_code FROM banks WHERE COALESCE(coa_code,'')<>''").all()) add(r.coa_code);
   } catch (_) { /* banks.coa_code may be absent */ }
@@ -70,6 +81,7 @@ function collectCashBankCodes(db) {
     for (const r of db.prepare(`
       SELECT code FROM chart_of_accounts
       WHERE code LIKE '1101%' OR code LIKE '1102%'
+         OR code LIKE '206001%' OR code LIKE '206002%'
     `).all()) add(r.code);
   } catch (_) { /* */ }
   return [...codes];
@@ -98,9 +110,37 @@ function isCashBankCode(code, cashSet) {
   if (!c) return false;
   if (cashSet.has(c)) return true;
   for (const root of cashSet) {
-    if (root && c.startsWith(root + '-')) return true;
+    if (!root) continue;
+    if (c === root) return true;
+    if (c.startsWith(root + '-')) return true;
+    // Mahak 12-digit under 206001 / 206002 (no hyphen between levels)
+    if (root.length >= 4 && c.length > root.length && c.startsWith(root)) return true;
   }
-  return c.startsWith('1101') || c.startsWith('1102');
+  return c.startsWith('1101') || c.startsWith('1102')
+    || c.startsWith('206001') || c.startsWith('206002');
+}
+
+/** Dashboard / KPI: net cash+bank from posted GL (includes Mahak bank/cash codes). */
+function sumCashBankBalanceRial(db) {
+  try {
+    const cashSet = new Set(collectCashBankCodes(db));
+    const rows = db.prepare(`
+      SELECT jl.account_code,
+        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0)
+        - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS bal
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE ${jeAliveSql(db)}
+      GROUP BY jl.account_code
+    `).all();
+    let total = 0;
+    for (const r of rows) {
+      if (isCashBankCode(r.account_code, cashSet)) total += Number(r.bal) || 0;
+    }
+    return Math.round(total);
+  } catch (_) {
+    return 0;
+  }
 }
 
 function buildCashFlowReport(db, from, to) {
@@ -173,4 +213,10 @@ function buildCashFlowReport(db, from, to) {
   }
 }
 
-module.exports = { buildCashFlowReport, collectCashBankCodes, emptyReport, isCashBankCode };
+module.exports = {
+  buildCashFlowReport,
+  collectCashBankCodes,
+  emptyReport,
+  isCashBankCode,
+  sumCashBankBalanceRial,
+};

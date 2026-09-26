@@ -13,7 +13,22 @@ router.get('/', auth, (req, res) => {
   const rows = bank_id
     ? db.prepare('SELECT cc.*, b.name as bank_name FROM check_categories cc LEFT JOIN banks b ON cc.bank_id=b.id WHERE cc.bank_id=? ORDER BY cc.id DESC').all(bank_id)
     : db.prepare('SELECT cc.*, b.name as bank_name FROM check_categories cc LEFT JOIN banks b ON cc.bank_id=b.id ORDER BY cc.id DESC').all();
-  res.json(rows);
+  // Serial usage across payable docs that issue our cheque leaves
+  const usedStmt = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM purchase_invoices WHERE check_category_id=?)
+    + (SELECT COUNT(*) FROM supplier_payments WHERE check_category_id=?)
+    + (SELECT COUNT(*) FROM incentive_payments WHERE check_category_id=?)
+    AS c
+  `);
+  const enriched = rows.map((r) => {
+    let used = 0;
+    try { used = Number(usedStmt.get(r.id, r.id, r.id)?.c) || 0; } catch (_) { used = 0; }
+    const leafCount = Number(r.leaf_count) || 0;
+    const remaining = leafCount > 0 ? Math.max(0, leafCount - used) : null;
+    return { ...r, used_leaves: used, remaining_leaves: remaining };
+  });
+  res.json(enriched);
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {

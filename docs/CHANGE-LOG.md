@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — بانک/صندوق زنده + داشبورد محک (ملت ۹۹۵۵) (SW v235)
+
+- **ریشه:** موجودی بانک‌های محک (مثل ملت ۹۹۵۵ = `206001501012`) در دفتر بود ولی داشبورد فقط `1101%/1102%` می‌دید؛ تب بانک با fallback بی‌صدا به `/banks` مانده ۰ نشان می‌داد؛ `postBankOpeningJe` کلید اشتباه `coa_bank` داشت؛ `syncBankAccount` حساب یتیم `1102-{id}` می‌ساخت.
+- **اصلاح:** `sumCashBankBalanceRial` / `collectCashBankCodes` شامل `206001/206002`؛ heal `coa_code` از نام؛ UI ستون اول‌دوره + هشدار خطای balances؛ دسته‌چک `used_leaves`/`remaining_leaves`؛ برچسب تنخواه ریال.
+- **تست:** test-bank-cash-live-v235 (۱۰/۱۰ با Node ۲۰)؛ sms ۲۲/۲۲؛ sync ۴۴/۴۴ با Node ۲۰.
+- **فایل‌ها:** server/lib/cash-flow.js, server/routes/{banks,cash-boxes,check-categories,dashboard}.js, server/db.js, server/public/{app.js,sw.js}, server/scripts/test-bank-cash-live-v235.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v235
+- **Deploy:** pending
+
 ### ۱۴۰۵/۰۷/۰۴ — تفصیلی خودکار برای مشتری CRM / دفتر پخش (SW v234)
 
 - **ریشه:** ایجاد مشتری از مسیر CRM (`POST /api/customers`) فقط وقتی `coa_mode=mahak` بود `allocTafsili` می‌زد؛ دفتر پخش/بازاریاب مشتری می‌ساخت → party با کد `CUST-…` بدون `coa_code` (ستون تفصیلی «-»). مسیر دفتر اشخاص (`P-…`) همیشه تفصیلی می‌ساخت.

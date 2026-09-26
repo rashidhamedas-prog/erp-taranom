@@ -19,7 +19,7 @@ function postBankOpeningJe(db, bank, openingRial, userId) {
   const bankAcct = bank.coa_code
     ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(bank.coa_code)
     : null;
-  const bankCode = bankAcct || acct(db, 'coa_bank') || { code: bank.coa_code || ('1102-' + bank.id), name: bank.name };
+  const bankCode = bankAcct || acct(db, 'coa_bank_default') || { code: bank.coa_code || ('1102-' + bank.id), name: bank.name };
   const openingAccount = acct(db, 'coa_opening_balance');
   const valueToman = rialToLedger(amt);
   const journalId = postToLedger(db, {
@@ -44,22 +44,66 @@ router.get('/', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM banks ORDER BY name').all());
 });
 
+function resolveBankJoinCode(db, bank) {
+  let code = String(bank.coa_code || '').trim();
+  if (code) return code;
+  // Heal Mahak/legacy rows that never got coa_code but have a matching tafsili
+  try {
+    const name = String(bank.name || '').trim();
+    if (name) {
+      const hit = db.prepare(`
+        SELECT code FROM chart_of_accounts
+        WHERE name LIKE '%' || ? || '%'
+          AND (code LIKE '206001%' OR code LIKE '1102%')
+        ORDER BY CASE WHEN code LIKE '206001%' THEN 0 ELSE 1 END, length(code) DESC
+        LIMIT 1
+      `).get(name);
+      if (hit && hit.code) {
+        db.prepare("UPDATE banks SET coa_code=? WHERE id=? AND COALESCE(coa_code,'')=''").run(hit.code, bank.id);
+        return hit.code;
+      }
+    }
+  } catch (_) { /* */ }
+  return '1102-' + bank.id;
+}
+
+function glBalanceOnCode(db, accountCode) {
+  const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS bal
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code = ?
+      AND COALESCE(je.deleted_at,0)=0
+  `).get(accountCode);
+  return Math.round(Number(row && row.bal) || 0);
+}
+
 // Live ledger balances for all banks (opening JE + subsequent movements).
 router.get('/balances', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
-  const rows = db.prepare(`
-    SELECT b.*,
-      COALESCE((
-        SELECT SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL})
-        FROM journal_lines jl
-        JOIN journal_entries je ON je.id = jl.entry_id
-        WHERE jl.account_code = COALESCE(NULLIF(b.coa_code,''), '1102-' || b.id)
-          AND COALESCE(je.deleted_at,0)=0
-      ), 0) as balance
-    FROM banks b
-    ORDER BY b.name
-  `).all();
+  const banks = db.prepare('SELECT * FROM banks ORDER BY name').all();
+  const rows = banks.map((b) => {
+    const joinCode = resolveBankJoinCode(db, b);
+    let balance = glBalanceOnCode(db, joinCode);
+    // If mapped code is silent but orphan 1102-{id} has activity, surface that (legacy drift)
+    if (balance === 0) {
+      const legacy = '1102-' + b.id;
+      if (legacy !== joinCode) {
+        const legBal = glBalanceOnCode(db, legacy);
+        if (legBal !== 0) balance = legBal;
+      }
+    }
+    const openingStored = Math.round(Number(b.opening_balance_rial) || 0);
+    return {
+      ...b,
+      coa_code: b.coa_code || (joinCode.startsWith('1102-') ? b.coa_code : joinCode),
+      balance,
+      opening_balance_rial: openingStored,
+      // For Mahak imports: master opening is 0 but GL has the opening lines
+      opening_effective_rial: openingStored > 0 ? openingStored : balance,
+    };
+  });
   res.json(rows);
 });
 

@@ -3140,6 +3140,9 @@ async function renderDashContent(){
   // CSP action ids in the snapshot go stale and clicks become no-ops.
   const skipCache = (window._pendingActions||[]).length>0;
   if(!skipCache && _dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
+    // #region agent log
+    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H1',location:'app.js:renderDashContent',message:'dash_html_cache_hit',data:{role:ME&&ME.role,dk,ageMs:Date.now()-_dashHtmlCache.t,from:dashDateFrom,to:dashDateTo,preset:dashPreset},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     body.innerHTML = _dashHtmlCache.html;
     requestAnimationFrame(fitStatNums);
     return;
@@ -3155,6 +3158,9 @@ async function renderDashContent(){
     window._adminBalRows = (balances||[]);
     const balRows = window._adminBalRows;
     const balT = balTotals(balRows);
+    // #region agent log
+    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H1-H3-H5',location:'app.js:renderDashContent:admin',message:'admin_dash_payload',data:{role:ME&&ME.role,from:dashDateFrom,to:dashDateTo,ov:{c:ov.totalCustomers,rev:ov.totalRevenue,inv:ov.totalInvoices,pf:ov.totalProforma,prod:ov.totalProducts,fup:ov.openFollowups,low:ov.lowStock},boardLen:(board||[]).length,boardSalesSum:(board||[]).reduce((a,u)=>a+(Number(u.totalSales)||0),0),balRows:(balRows||[]).length,balT:{debit:balT.debit,credit:balT.credit,net:balT.net,netAbs:balT.netAbs},srcMix:(balRows||[]).slice(0,5).map(r=>({id:r.id,src:r.balance_source||null,bal:Number(r.balance)||0}))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const pending = window._pendingActions || [];
     body.innerHTML = `
       ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
@@ -3236,6 +3242,9 @@ async function renderDashContent(){
     const openF = (followups||[]).filter(f=>f.status==='open').length;
     const balRows = (balances||[]);
     const balT = balTotals(balRows);
+    // #region agent log
+    fetch('http://127.0.0.1:7679/ingest/e86bc367-f6fa-440c-bb64-e6508cfc7759',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'abef47'},body:JSON.stringify({sessionId:'abef47',runId:'dash-pre',hypothesisId:'H2',location:'app.js:renderDashContent:nonAdmin',message:'nonadmin_dash_payload',data:{role:ME&&ME.role,from:dashDateFrom,to:dashDateTo,custCache:(CACHE.customers||[]).length,sales,finalCount:finalInvs.length,proforma:allInvs.filter(i=>i.type==='proforma').length,openF,balRows:(balRows||[]).length,balT:{debit:balT.debit,credit:balT.credit,net:balT.net},invoiceCacheHit:!!(_followupsFetched&&_invoicesFetched),commSales},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     body.innerHTML = `
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
@@ -17463,16 +17472,28 @@ async function revokeUserSession(sessionId){
    Trial Balance / Balance Sheet like any other account.
 ============================================================ */
 async function renderBanksTab(body){
-  const banks=await api('GET','/banks/balances').catch(()=>null) || await api('GET','/banks')||[];
+  let banks=[], balErr=null;
+  try{
+    banks=await api('GET','/banks/balances')||[];
+  }catch(e){
+    balErr=e;
+    banks=await api('GET','/banks').catch(()=>[])||[];
+  }
   CACHE.banks=banks;
   body.innerHTML=`
+    ${balErr?`<div class="empty" data-csp-style="${CSP.style(`margin-bottom:10px;color:var(--red)`)}">خواندن موجودی زنده ناموفق بود — لیست بدون مانده نمایش داده شد. نقش حسابداری لازم است یا اتصال را بررسی کنید.</div>`:''}
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){bankModal()})}">➕ بانک جدید</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/banks" data-bulk-label="حذف" data-bulk-confirm="{n} بانک حذف شود؟"><thead><tr>
-      <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th data-col-kind="money">موجودی زنده (ریال)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
-    </tr></thead><tbody>${banks.map(b=>`<tr data-id="${b.id}">
+      <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th data-col-kind="money">موجودی زنده (ریال)</th><th data-col-kind="money">اول دوره (ریال)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${banks.map(b=>{
+      const live=Number(b.balance!=null?b.balance:0);
+      const openStored=Number(b.opening_balance_rial||0);
+      const openShow=openStored>0?openStored:(Number(b.opening_effective_rial||0)>0&&live?live:openStored);
+      return `<tr data-id="${b.id}">
       <td>${esc(b.name)}</td><td class="mono">${esc(b.account_number||'-')}</td><td>${esc(b.branch||'-')}</td>
       <td class="mono muted">${entityCoaDisplay(b,'1102-')}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${Number(b.balance||0)<0?'var(--red)':'var(--green)'}`)}">${fmt(Number(b.balance||0))}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${live<0?'var(--red)':'var(--green)'}`)}">${fmt(live)}</td>
+      <td class="mono muted">${fmt(openShow)}${!openStored&&openShow?`<div data-csp-style="${CSP.style(`font-size:10px`)}">از دفتر</div>`:''}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){bankModal((b.id))})}">✏️</button>
@@ -17480,8 +17501,9 @@ async function renderBanksTab(body){
         ${b.opening_balance_je_id?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidBankOpening((b.id))})}" title="ابطال موجودی اول دوره">⛔ افتتاحیه</button>`:''}
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteBank((b.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(7)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">موجودی زنده از دفتر کل (سند افتتاحیه + دریافت/پرداخت‌ها) خوانده می‌شود.</div>`;
+    </tr>`;
+    }).join('')||emptyRow(8)}</tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">موجودی زنده از دفتر کل روی کد تفصیلی بانک (سند افتتاحیه/محک + دریافت/پرداخت) خوانده می‌شود — نه فقط فیلد اطلاعات پایه.</div>`;
 }
 function bankModal(id){
   const b=id?(CACHE.banks||[]).find(x=>x.id===id):{active:1};
@@ -17557,14 +17579,16 @@ async function renderCheckCategoriesTab(body){
       ${(CACHE.banks||[]).length?'':`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">ابتدا از تب «بانک‌ها» یک بانک بسازید</span>`}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام دسته چک</th><th>بانک</th><th>از سریال</th><th>تا سریال</th><th>وضعیت</th><th>عملیات</th>
+      <th>نام دسته چک</th><th>بانک</th><th>از سریال</th><th>تا سریال</th><th>مصرف‌شده</th><th>باقی</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(c=>`<tr>
       <td>${esc(c.name)}</td><td>${esc(c.bank_name||'-')}</td>
       <td class="mono">${esc(c.serial_from||'-')}</td><td class="mono">${esc(c.serial_to||'-')}</td>
+      <td class="mono">${fmt(Number(c.used_leaves||0))}</td>
+      <td class="mono">${c.remaining_leaves==null?'—':fmt(c.remaining_leaves)}</td>
       <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){checkCategoryModal((c.id))})}">✏️</button>
           <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteCheckCategory((c.id))})}">🗑️</button></td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 async function checkCategoryModal(id){
   const list=id?await api('GET','/check-categories'):[];
@@ -17611,16 +17635,28 @@ async function deleteCheckCategory(id){
    is simultaneously its own chart-of-accounts ledger row (1101-<id>).
 ============================================================ */
 async function renderCashBoxesTab(body){
-  const boxes=await api('GET','/cash-boxes/balances').catch(()=>null) || await api('GET','/cash-boxes')||[];
+  let boxes=[], balErr=null;
+  try{
+    boxes=await api('GET','/cash-boxes/balances')||[];
+  }catch(e){
+    balErr=e;
+    boxes=await api('GET','/cash-boxes').catch(()=>[])||[];
+  }
   CACHE.cashBoxes=boxes;
   body.innerHTML=`
+    ${balErr?`<div class="empty" data-csp-style="${CSP.style(`margin-bottom:10px;color:var(--red)`)}">خواندن موجودی زنده ناموفق بود — لیست بدون مانده نمایش داده شد.</div>`:''}
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){cashBoxModal()})}">➕ صندوق جدید</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/cash-boxes" data-bulk-label="حذف" data-bulk-confirm="{n} صندوق حذف شود؟"><thead><tr>
-      <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th data-col-kind="money">موجودی زنده (ریال)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
-    </tr></thead><tbody>${boxes.map(b=>`<tr data-id="${b.id}">
+      <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th data-col-kind="money">موجودی زنده (ریال)</th><th data-col-kind="money">اول دوره (ریال)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${boxes.map(b=>{
+      const live=Number(b.balance!=null?b.balance:0);
+      const openStored=Number(b.opening_balance_rial||0);
+      const openShow=openStored>0?openStored:(Number(b.opening_effective_rial||0)>0&&live?live:openStored);
+      return `<tr data-id="${b.id}">
       <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
       <td class="mono muted">${entityCoaDisplay(b,'1101-')}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${Number(b.balance||0)<0?'var(--red)':'var(--green)'}`)}">${fmt(Number(b.balance||0))}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${live<0?'var(--red)':'var(--green)'}`)}">${fmt(live)}</td>
+      <td class="mono muted">${fmt(openShow)}${!openStored&&openShow?`<div data-csp-style="${CSP.style(`font-size:10px`)}">از دفتر</div>`:''}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){cashBoxModal((b.id))})}">✏️</button>
@@ -17628,8 +17664,9 @@ async function renderCashBoxesTab(body){
         ${b.opening_balance_je_id?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidCashOpening((b.id))})}" title="ابطال موجودی اول دوره">⛔ افتتاحیه</button>`:''}
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteCashBox((b.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">موجودی زنده از دفتر کل خوانده می‌شود. موجودی اول دوره در فرم ویرایش قابل ثبت است.</div>`;
+    </tr>`;
+    }).join('')||emptyRow(7)}</tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">موجودی زنده از دفتر کل روی کد تفصیلی صندوق خوانده می‌شود (افتتاحیه UI یا ورود محک).</div>`;
 }
 function cashBoxModal(id){
   const b=id?(CACHE.cashBoxes||[]).find(x=>x.id===id):{active:1};
@@ -17704,7 +17741,7 @@ async function renderPettyCashTab(body){
   }
   const pettyBalances=petty.map(b=>balMap[b.id]||0);
   body.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>نام صندوق</th><th>مسئول</th><th>موجودی فعلی (ت)</th><th>عملیات</th>
+    <th>نام صندوق</th><th>مسئول</th><th>موجودی فعلی (ریال)</th><th>عملیات</th>
   </tr></thead><tbody>${petty.map((b,i)=>`<tr>
     <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(pettyBalances[i]||0)}</td>
@@ -22470,6 +22507,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
+        <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
