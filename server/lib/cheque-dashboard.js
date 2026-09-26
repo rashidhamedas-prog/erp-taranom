@@ -1,0 +1,404 @@
+'use strict';
+/**
+ * Cheque portfolio dashboard — matched to portal-ui renderChequeDashboardTab.
+ * GL bridge 1109 / 1116 / 2109, aging, sayadi compliance, alerts.
+ * Never throws to HTTP.
+ */
+
+const { todayJalali } = require('../jalali');
+const { glBalanceOnCode } = require('./treasury-dashboard');
+
+const GL_RECV = '1109';
+const GL_COLLECTION = '1116';
+const GL_PAY = '2109';
+
+const CLOSED_IN = new Set(['cleared', 'bounced', 'cancelled', 'void', 'paid']);
+const CLOSED_OUT = new Set(['cleared', 'cancelled', 'void', 'paid', 'issued', 'expensed']);
+const COLLECTION_LC = new Set(['in_collection']);
+
+function tableExists(db, name) {
+  try {
+    return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  } catch (_) {
+    return false;
+  }
+}
+
+function tableHasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch (_) {
+    return false;
+  }
+}
+
+function chequeAmountExpr(db) {
+  if (tableHasColumn(db, 'cheque_records', 'amount_rial')) return 'COALESCE(amount_rial, amount, 0)';
+  return 'COALESCE(amount, 0)';
+}
+
+function isAliveSql(db) {
+  const parts = ['1=1'];
+  if (tableHasColumn(db, 'cheque_records', 'reversed_at')) {
+    parts.push('COALESCE(reversed_at,0)=0');
+  }
+  if (tableHasColumn(db, 'cheque_records', 'record_status')) {
+    parts.push("COALESCE(record_status,'posted') NOT IN ('void','reversed')");
+  }
+  return parts.join(' AND ');
+}
+
+function lifecycleCol(db) {
+  if (tableHasColumn(db, 'cheque_records', 'lifecycle_status')) return 'lifecycle_status';
+  if (tableHasColumn(db, 'cheque_records', 'status')) return 'status';
+  return null;
+}
+
+function isSayadiValid(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  return d.length === 16;
+}
+
+function daysUntilDue(due, today) {
+  if (!due || !today) return null;
+  try {
+    const p = (s) => {
+      const parts = String(s).split(/[/-]/).map((x) => parseInt(x, 10));
+      if (parts.length < 3) return null;
+      return parts[0] * 372 + parts[1] * 31 + parts[2];
+    };
+    const a = p(due);
+    const b = p(today);
+    if (a == null || b == null) return null;
+    return a - b;
+  } catch (_) {
+    return null;
+  }
+}
+
+function agingBucket(days) {
+  if (days == null) return 'unknown';
+  if (days < 0) return 'overdue';
+  if (days <= 7) return '0_7';
+  if (days <= 30) return '8_30';
+  if (days <= 90) return '31_90';
+  return '90_plus';
+}
+
+function emptyPayload(from, to, warning) {
+  return {
+    generated_at: Date.now(),
+    as_of: todayJalali(),
+    from: from || '',
+    to: to || '',
+    health_score: 0,
+    warning: warning || '',
+    kpis: {
+      recv_open_rial: 0,
+      recv_collection_rial: 0,
+      pay_open_rial: 0,
+      recv_open_count: 0,
+      pay_open_count: 0,
+      overdue_recv_count: 0,
+      overdue_recv_rial: 0,
+      due_14d_count: 0,
+      due_14d_rial: 0,
+      bounced_count: 0,
+      trust_open_count: 0,
+    },
+    gl_bridge: {
+      gl_recv_1109_rial: 0,
+      gl_collection_1116_rial: 0,
+      gl_pay_2109_rial: 0,
+      ops_recv_rial: 0,
+      ops_collection_rial: 0,
+      ops_pay_rial: 0,
+      variance_recv_rial: 0,
+      variance_collection_rial: 0,
+      variance_pay_rial: 0,
+    },
+    aging: [],
+    sayadi: { total_open: 0, valid_count: 0, missing_count: 0, invalid_count: 0, rate_pct: 0 },
+    compliance: [],
+    alerts: warning ? [{
+      severity: 'fail',
+      title: 'خطای داشبورد',
+      detail: warning,
+      action_nav: 'acc-cheque-dashboard',
+    }] : [],
+    highlights: { overdue: [], due_soon: [] },
+  };
+}
+
+function healthScore(compliance) {
+  const items = compliance || [];
+  if (!items.length) return 0;
+  let ok = 0;
+  for (const c of items) {
+    if (c.status === 'ok') ok++;
+    else if (c.status === 'warn') ok += 0.5;
+  }
+  return Math.round((ok / items.length) * 100);
+}
+
+function buildCompliance(kpis, gl, sayadi) {
+  const list = [];
+  const tol = 500_000;
+  const vRecv = Math.abs(gl.variance_recv_rial || 0);
+  const vCol = Math.abs(gl.variance_collection_rial || 0);
+  const vPay = Math.abs(gl.variance_pay_rial || 0);
+  list.push({
+    id: 'gl_recv_bridge',
+    label: 'تطبیق اسناد دریافتنی (۱۱۰۹)',
+    detail: vRecv <= tol
+      ? 'مانده دفتر با پرتفوی عملیاتی هم‌خوان است'
+      : `اختلاف ${vRecv.toLocaleString('fa-IR')} ریال — بررسی اسناد و چرخه چک`,
+    status: vRecv <= tol ? 'ok' : (vRecv <= tol * 10 ? 'warn' : 'fail'),
+    action_nav: 'acc-journal-docs',
+  });
+  list.push({
+    id: 'gl_collection_bridge',
+    label: 'تطبیق در جریان وصول (۱۱۱۶)',
+    detail: vCol <= tol
+      ? 'مانده دفتر با چک‌های واگذارشده هم‌خوان است'
+      : `اختلاف ${vCol.toLocaleString('fa-IR')} ریال`,
+    status: vCol <= tol ? 'ok' : (vCol <= tol * 10 ? 'warn' : 'fail'),
+    action_nav: 'acc-cheque-register',
+  });
+  list.push({
+    id: 'gl_pay_bridge',
+    label: 'تطبیق اسناد پرداختنی (۲۱۰۹)',
+    detail: vPay <= tol
+      ? 'مانده دفتر با چک‌های پرداختنی باز هم‌خوان است'
+      : `اختلاف ${vPay.toLocaleString('fa-IR')} ریال`,
+    status: vPay <= tol ? 'ok' : (vPay <= tol * 10 ? 'warn' : 'fail'),
+    action_nav: 'acc-cheques-pay',
+  });
+  list.push({
+    id: 'sayadi_compliance',
+    label: 'شناسه صیاد ۱۶ رقمی',
+    detail: sayadi.missing_count + sayadi.invalid_count === 0
+      ? 'همه چک‌های باز صیاد معتبر دارند'
+      : `${sayadi.missing_count} بدون صیاد · ${sayadi.invalid_count} نامعتبر`,
+    status: (sayadi.missing_count + sayadi.invalid_count) === 0 ? 'ok'
+      : (sayadi.rate_pct >= 80 ? 'warn' : 'fail'),
+    action_nav: 'acc-cheques-recv',
+  });
+  list.push({
+    id: 'overdue_recv',
+    label: 'سررسید گذشته (دریافتنی)',
+    detail: kpis.overdue_recv_count === 0
+      ? 'چک دریافتنی سررسیدگذشته باز ندارید'
+      : `${kpis.overdue_recv_count} فقره · ${(kpis.overdue_recv_rial || 0).toLocaleString('fa-IR')} ریال`,
+    status: kpis.overdue_recv_count === 0 ? 'ok' : (kpis.overdue_recv_count <= 3 ? 'warn' : 'fail'),
+    action_nav: 'acc-cheque-register',
+  });
+  return list;
+}
+
+function buildAlerts(kpis, gl, sayadi, highlights) {
+  const alerts = [];
+  if (kpis.overdue_recv_count > 0) {
+    alerts.push({
+      severity: kpis.overdue_recv_count > 5 ? 'fail' : 'warn',
+      title: 'چک دریافتنی سررسیدگذشته',
+      detail: `${kpis.overdue_recv_count} فقره نیازمند پیگیری وصول یا برگشت`,
+      action_nav: 'acc-cheque-register',
+    });
+  }
+  if (sayadi.missing_count > 0) {
+    alerts.push({
+      severity: 'warn',
+      title: 'صیاد ناقص',
+      detail: `${sayadi.missing_count} چک باز بدون شناسه ۱۶ رقمی`,
+      action_nav: 'acc-cheques-recv',
+    });
+  }
+  if (Math.abs(gl?.variance_recv_rial || 0) > 5_000_000) {
+    alerts.push({
+      severity: 'fail',
+      title: 'اختلاف دفتر ۱۱۰۹',
+      detail: 'مانده حساب اسناد دریافتنی با پرتفوی عملیاتی فاصله دارد',
+      action_nav: 'acc-trial-balance',
+    });
+  }
+  if (kpis.due_14d_count > 0) {
+    alerts.push({
+      severity: 'warn',
+      title: 'سررسید ۱۴ روز آینده',
+      detail: `${kpis.due_14d_count} چک دریافتنی نزدیک سررسید`,
+      action_nav: 'acc-cheque-dashboard',
+    });
+  }
+  void highlights;
+  return alerts;
+}
+
+function buildChequeDashboard(db, from, to) {
+  void from;
+  void to;
+  try {
+    if (!tableExists(db, 'cheque_records')) {
+      return emptyPayload(from, to, 'جدول چک در دسترس نیست');
+    }
+    const amt = chequeAmountExpr(db);
+    const alive = isAliveSql(db);
+    const lc = lifecycleCol(db);
+    const today = todayJalali();
+
+    const rows = db.prepare(`
+      SELECT id, direction, ${lc ? lc : "''"} AS lc, due_date, sayadi, party_name, cheque_number, ${amt} AS amount_rial
+      FROM cheque_records
+      WHERE ${alive}
+    `).all();
+
+    const kpis = {
+      recv_open_rial: 0,
+      recv_collection_rial: 0,
+      pay_open_rial: 0,
+      recv_open_count: 0,
+      pay_open_count: 0,
+      overdue_recv_count: 0,
+      overdue_recv_rial: 0,
+      due_14d_count: 0,
+      due_14d_rial: 0,
+      bounced_count: 0,
+      trust_open_count: 0,
+    };
+
+    const agingMap = {
+      overdue: { bucket: 'overdue', label: 'سررسید گذشته', count: 0, amount_rial: 0 },
+      '0_7': { bucket: '0_7', label: '۰–۷ روز', count: 0, amount_rial: 0 },
+      '8_30': { bucket: '8_30', label: '۸–۳۰ روز', count: 0, amount_rial: 0 },
+      '31_90': { bucket: '31_90', label: '۳۱–۹۰ روز', count: 0, amount_rial: 0 },
+      '90_plus': { bucket: '90_plus', label: 'بیش از ۹۰ روز', count: 0, amount_rial: 0 },
+      unknown: { bucket: 'unknown', label: 'بدون سررسید', count: 0, amount_rial: 0 },
+    };
+
+    let sayadiTotal = 0;
+    let sayadiValid = 0;
+    let sayadiMissing = 0;
+    let sayadiInvalid = 0;
+    const overdueList = [];
+    const dueSoonList = [];
+
+    for (const r of rows) {
+      const dir = String(r.direction || '').trim();
+      const lcVal = String(r.lc || '').trim().toLowerCase();
+      const amtR = Math.round(Number(r.amount_rial) || 0);
+      if (lcVal === 'bounced') kpis.bounced_count++;
+
+      const isIn = dir === 'in';
+      const isOut = dir === 'out';
+      const closedIn = CLOSED_IN.has(lcVal);
+      const closedOut = CLOSED_OUT.has(lcVal);
+
+      if (isIn && COLLECTION_LC.has(lcVal)) {
+        kpis.recv_collection_rial += amtR;
+      } else if (isIn && !closedIn) {
+        kpis.recv_open_rial += amtR;
+        kpis.recv_open_count++;
+        sayadiTotal++;
+        if (!String(r.sayadi || '').trim()) sayadiMissing++;
+        else if (isSayadiValid(r.sayadi)) sayadiValid++;
+        else sayadiInvalid++;
+
+        const days = daysUntilDue(r.due_date, today);
+        const bucket = agingBucket(days);
+        if (agingMap[bucket]) {
+          agingMap[bucket].count++;
+          agingMap[bucket].amount_rial += amtR;
+        }
+        if (days != null && days < 0) {
+          kpis.overdue_recv_count++;
+          kpis.overdue_recv_rial += amtR;
+          overdueList.push({
+            id: r.id,
+            cheque_number: r.cheque_number,
+            party_name: r.party_name,
+            due_date: r.due_date,
+            amount_rial: amtR,
+            days_overdue: -days,
+          });
+        } else if (days != null && days >= 0 && days <= 14) {
+          kpis.due_14d_count++;
+          kpis.due_14d_rial += amtR;
+          dueSoonList.push({
+            id: r.id,
+            cheque_number: r.cheque_number,
+            party_name: r.party_name,
+            due_date: r.due_date,
+            amount_rial: amtR,
+            days_left: days,
+          });
+        }
+      } else if (isOut && !closedOut && (lcVal === '' || lcVal === 'registered')) {
+        kpis.pay_open_rial += amtR;
+        kpis.pay_open_count++;
+        sayadiTotal++;
+        if (!String(r.sayadi || '').trim()) sayadiMissing++;
+        else if (isSayadiValid(r.sayadi)) sayadiValid++;
+        else sayadiInvalid++;
+      }
+    }
+
+    if (tableExists(db, 'trust_checks')) {
+      try {
+        const tr = db.prepare(`
+          SELECT COUNT(*) AS n FROM trust_checks
+          WHERE COALESCE(status,'open') NOT IN ('returned','closed','cancelled')
+        `).get();
+        kpis.trust_open_count = Number(tr && tr.n) || 0;
+      } catch (_) { /* */ }
+    }
+
+    const gl_bridge = {
+      gl_recv_1109_rial: glBalanceOnCode(db, GL_RECV),
+      gl_collection_1116_rial: glBalanceOnCode(db, GL_COLLECTION),
+      gl_pay_2109_rial: glBalanceOnCode(db, GL_PAY),
+      ops_recv_rial: kpis.recv_open_rial,
+      ops_collection_rial: kpis.recv_collection_rial,
+      ops_pay_rial: kpis.pay_open_rial,
+      variance_recv_rial: glBalanceOnCode(db, GL_RECV) - kpis.recv_open_rial,
+      variance_collection_rial: glBalanceOnCode(db, GL_COLLECTION) - kpis.recv_collection_rial,
+      variance_pay_rial: glBalanceOnCode(db, GL_PAY) - kpis.pay_open_rial,
+    };
+    const sayadi = {
+      total_open: sayadiTotal,
+      valid_count: sayadiValid,
+      missing_count: sayadiMissing,
+      invalid_count: sayadiInvalid,
+      rate_pct: sayadiTotal > 0 ? Math.round((sayadiValid / sayadiTotal) * 100) : 100,
+    };
+
+    overdueList.sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0));
+    dueSoonList.sort((a, b) => (a.days_left || 0) - (b.days_left || 0));
+
+    const compliance = buildCompliance(kpis, gl_bridge, sayadi);
+    const alerts = buildAlerts(kpis, gl_bridge, sayadi, { overdue: overdueList, due_soon: dueSoonList });
+
+    return {
+      generated_at: Date.now(),
+      as_of: today,
+      from: from || '',
+      to: to || '',
+      health_score: healthScore(compliance),
+      warning: '',
+      kpis,
+      gl_bridge,
+      aging: Object.values(agingMap).filter((a) => a.count > 0 || a.bucket === 'overdue'),
+      sayadi,
+      compliance,
+      alerts,
+      highlights: {
+        overdue: overdueList.slice(0, 8),
+        due_soon: dueSoonList.slice(0, 8),
+      },
+    };
+  } catch (e) {
+    console.error('cheque-dashboard:', e && e.message);
+    return emptyPayload(from, to, 'داشبورد چک با خطا ساخته شد');
+  }
+}
+
+module.exports = { buildChequeDashboard };

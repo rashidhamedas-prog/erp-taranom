@@ -83,6 +83,8 @@ const ACC_ITEMS = {
   'acc-cheques-pay': { apis: ['/api/accounting/cheques', '/api/cheque-records'] },
   'acc-trust-checks': { apis: ['/api/trust-checks'] },
   'acc-cheque-register': { apis: ['/api/cheque-records', '/api/accounting/cheques'] },
+  'acc-cheque-dashboard': { apis: ['/api/adv-reports/cheque-dashboard', '/api/cheque-records', '/api/accounting/cheques'] },
+  'acc-chequebook-report': { apis: ['/api/adv-reports/chequebook-dashboard', '/api/check-categories', '/api/cheque-records'] },
   'acc-coa-codes': { apis: ['/api/accounting/chart-of-accounts', '/api/accounting/coa'] },
   'acc-account-groups': { apis: ['/api/accounting/chart-of-accounts', '/api/accounting/coa'] },
   'acc-ledger-accounts': { apis: ['/api/accounting/chart-of-accounts', '/api/accounting/coa'] },

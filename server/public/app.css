@@ -1779,3 +1779,11 @@ body.erp-demo-mode{padding-top:32px}
 @media (prefers-reduced-motion:reduce){
   .trsy-comp-row,.trsy-alert-item,.trsy-bar>i{transition:none}
 }
+
+/* ===== داشبورد چک — پل GL ===== */
+.chq-gl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.chq-gl-card{
+  padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--well);
+  display:flex;flex-direction:column;gap:6px;line-height:1.5
+}
+@media (max-width:900px){.chq-gl-grid{grid-template-columns:1fr}}

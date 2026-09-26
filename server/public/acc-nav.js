@@ -118,6 +118,8 @@ const ACC_TAB_RESOLVE = {
   'acc-seasonal-169': 'seasonal-169',
   'acc-cash-flow-std': 'cash-flow-std',
   'acc-treasury-dashboard': 'treasury-dashboard',
+  'acc-cheque-dashboard': 'cheque-dashboard',
+  'acc-chequebook-report': 'chequebook-report',
   'acc-kpi-dashboard': 'kpi-dashboard',
   'acc-settings': 'company-settings',
   'acc-backup': 'company-settings',
@@ -224,6 +226,10 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-cheques-pay', icon: '📤', label: 'چک‌های پرداختی' },
       { id: 'acc-trust-checks', icon: '🔖', label: 'چک‌های امانی' },
       { id: 'acc-cheque-register', icon: '📒', label: 'دفتر چک' },
+    ]},
+    { title: 'گزارشات', items: [
+      { id: 'acc-cheque-dashboard', icon: '📊', label: 'داشبورد چک و الزامات' },
+      { id: 'acc-chequebook-report', icon: '📒', label: 'گزارش دفتر چک و دسته' },
     ]},
   ]},
   { title: 'حسابداری', subgroups: [

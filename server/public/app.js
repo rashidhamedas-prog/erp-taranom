@@ -1642,7 +1642,8 @@ const LU = (()=> {
     'acc-portal-units':'building', 'acc-portal-my-dept':'factory',
     'acc-bank-recon':'landmark', 'acc-budgeting':'chart', 'acc-reserves':'landmark',
     'acc-vat-return':'receipt', 'acc-seasonal-169':'clipboard', 'acc-cash-flow-std':'banknote',
-    'acc-treasury-dashboard':'trending', 'acc-kpi-dashboard':'trending',
+    'acc-treasury-dashboard':'trending', 'acc-cheque-dashboard':'trending', 'acc-chequebook-report':'book',
+    'acc-kpi-dashboard':'trending',
   };
   const out = {};
   for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key] || d.file);
@@ -8437,6 +8438,8 @@ ROUTES['acc-payments']=()=>go('acc-settlements');
 ROUTES['acc-receipts']=()=>go('acc-settlements');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-cheque-register']=()=>renderAccPage('cheque-register','📒','دفتر چک');
+ROUTES['acc-cheque-dashboard']=()=>renderAccPage('cheque-dashboard','📊','داشبورد چک و الزامات');
+ROUTES['acc-chequebook-report']=()=>renderAccPage('chequebook-report','📒','گزارش دفتر چک و دسته');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
 ROUTES['acc-reps']=()=>renderAccPage('reps','👔','مدیریت نمایندگان فروش');
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
@@ -8694,6 +8697,10 @@ async function loadAccTab(tab){
     await renderCashFlowStdTab(body);
   } else if(tab==='treasury-dashboard'){
     await renderTreasuryDashboardTab(body);
+  } else if(tab==='cheque-dashboard'){
+    await renderChequeDashboardTab(body);
+  } else if(tab==='chequebook-report'){
+    await renderChequebookReportTab(body);
   } else if(tab==='kpi-dashboard'){
     await renderKpiDashboardTab(body);
   } else if(tab==='cheques'){
@@ -23126,7 +23133,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v243</b> است و اسکریپت‌ها با <code>?v=243</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v244</b> است و اسکریپت‌ها با <code>?v=244</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -23273,6 +23280,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش <b>همه</b> صندوق‌ها و بانک‌ها. ردیف سند ناقص گزارش را خراب نمی‌کند</li>
         <li><b>داشبورد KPI</b>: DSO، DIO، DPO، چرخه نقد و تمرکز فروش مشتریان</li>
         <li><b>تطبیق بانک</b>: برای هر بانک ریالی یک صورت باز. مانده دفتر از حساب تفصیلی همان بانک است. واردات CSV (مبلغ، یا ستون برداشت/واریز)، تطبیق ۱:۱ مبلغ و تاریخ ±۱ روز، و تطبیق دستی فقط وقتی جمع دو طرف برابر باشد. اقلام زمان‌بندی (چک معوق، واریز در راه) سند نمی‌زنند. کارمزد و سود سپرده هنگام بستن، فقط اگر اختلاف صفر شده باشد، به تفصیلی همان بانک در برابر حساب کارمزد (۶۱۱۵) یا سود سپرده (۴۱۱۵) سند می‌خورند. بستن با اختلاف توجیه‌نشده رد می‌شود. ابطال تطبیق بسته‌شده سند تعدیل را برمی‌گرداند</li>
+        <li><b>داشبورد بانک و صندوق (نقدینگی)</b>: در منوی بانک و صندوق ← گزارشات. مانده زنده دفتر، ورود/خروج بازه، جریان وجوه سه‌بخشی (IAS 7)، تطبیق بانک باز، تمرکز نقدینگی، روند ماهانه و چک‌لیست الزامات</li>
+        <li><b>داشبورد چک و الزامات</b>: در منوی چک ← گزارشات. پرتفوی دریافتنی/پرداختنی، در جریان وصول، پیری سررسید، سررسید نزدیک، پل تطبیق با دفتر کل (۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹)، صیاد ۱۶رقمی، طرف حساب، چک برگشتی و امانی</li>
+        <li><b>گزارش دفتر چک و دسته</b>: موجودی برگه دسته‌ها، مصرف سریال، بانک بدون دسته، پرداختنی‌های ثبت‌شدهٔ تحویل‌نشده و آخرین صدورهای دفتر</li>
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
         <li><b>اندوخته و ذخایر</b>: اندوخته قانونی، ذخیره مطالبات مشکوک‌الوصول، NRV موجودی، فهرست کالاهای راکد</li>
       </ul>`),

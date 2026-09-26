@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — داشبورد چک و گزارش دفتر چک (SW v244)
+
+- **قابلیت:** در منوی حسابداری → چک → گزارشات، دو صفحه اضافه شد: **داشبورد چک و الزامات** و **گزارش دفتر چک و دسته**.
+- **محتوا:** KPI دریافتنی/پرداختنی باز، در جریان وصول، سررسید گذشته و ۱۴ روز آینده؛ پل تطبیق GL با ۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹؛ پیری سررسید؛ صیاد ۱۶رقمی؛ چک‌لیست الزامات؛ موجودی برگه دسته چک، بانک بدون دسته، پرداختنی ثبت‌شده.
+- **API:** `GET /api/adv-reports/cheque-dashboard` و `GET /api/adv-reports/chequebook-dashboard` — بدون پرتاب خطا به HTTP.
+- **UI:** `portal-ui.js` (الگوی `trsy-*`) + `chq-gl-grid` در `app.css`؛ `acc-nav.js`، `accounting-access.js`، `app.js` راهنما.
+- **تست:** test-cheque-dashboards-v244 (۱۷/۱۷)؛ sms ۲۲/۲۲؛ parse app.js / portal-ui.js.
+- **فایل‌ها:** server/lib/{cheque-dashboard,chequebook-dashboard}.js, server/routes/adv-reports.js, server/lib/accounting-access.js, server/public/{acc-nav.js,portal-ui.js,app.js,app.css,index.html,sw.js}, server/scripts/test-cheque-dashboards-v244.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v244
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۵ — چاپ فاکتور: کاغذ A5/A4 طبق ISO 216 (SW v243)
 
 - **باگ:** انتخاب A5 در ویزارد چاپ استاندارد نبود؛ پیش‌نمایش فقط عرض ۱۴۸mm داشت ولی در `invoice-print.css` قانون `@page size` خالی بود. وقتی استایل اینلاین زیر CSP بلاک می‌شد، مرورگر روی A4 پیش‌فرض چاپ می‌کرد و برگه کش می‌آمد.
