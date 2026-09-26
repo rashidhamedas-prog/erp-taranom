@@ -12,7 +12,7 @@
 - **عملیات:** رمز موقت admin با `must_change_password=1` + پاک‌سازی rate-limit ورود (یک‌بار روی ایران).
 - **فایل‌ها:** server/public/{index.html,app.js,app.css,sw.js}, server/routes/auth.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v239
-- **Deploy:** pending
+- **Deploy:** ✅ ایران overlay SFTP @ 4add502 — health/ready/root 200؛ SW erp-taranom-v239؛ login probe admin موقت → 200 + must_change_password.
 
 ### ۱۴۰۵/۰۷/۰۴ — موجودی رنگ×سایز تفکیک انبار + رفع حواله آفاق/درسا (SW v238)
 
