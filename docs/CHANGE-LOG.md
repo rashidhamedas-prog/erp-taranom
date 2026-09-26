@@ -12,7 +12,7 @@
 - **تست:** test-variant-wh-scope-v238 (۱۷/۱۷)؛ test-variant-stock-movement؛ sms ۲۲/۲۲.
 - **فایل‌ها:** server/lib/inventory/movement.js, server/lib/product-variants/service.js, server/routes/product-variants.js, server/public/{app.js,sw.js}, server/scripts/test-variant-wh-scope-v238.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v238
-- **Deploy:** pending
+- **Deploy:** ✅ ایران overlay SFTP @ dc72e9b — health/root 200؛ heal vws_wh_reconcile_v1؛ SW erp-taranom-v238
 
 ### ۱۴۰۵/۰۷/۰۴ — تعمیر افتتاحیهٔ یتیم بانک/صندوق (ملت ۹۹۵۵) (SW v236)
 
