@@ -13,7 +13,7 @@
 - **تست:** test-work-area (۶)؛ test-main-hardening-static (۱۸)؛ sms.
 - **فایل‌ها:** desktop/{main.js,work-area.js,scripts/test-work-area.js,scripts/test-main-hardening-static.js}, server/public/{app.css,app.js,sw.js,index.html}, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v247
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 4583238 — sys_health/sys_ready/root 200؛ SW v247؛ clamp maximize→workArea روی دسکتاپ؛ pm2 restart بدون --update-env.
 
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
 
