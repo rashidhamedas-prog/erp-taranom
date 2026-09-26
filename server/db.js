@@ -2730,6 +2730,17 @@ function initSyncSchema(db, opts) {
     console.warn('spurious_settlement_void_repair_v1:', e.message);
   }
 
+  // One-shot: CRM customers created outside mahak mode got CUST-* parties without coa_code.
+  try {
+    const { backfillMissingPartyTafsili } = require('./lib/party-tafsili');
+    const summary = backfillMissingPartyTafsili(db);
+    if (!summary.skipped) {
+      console.log('✅ party_tafsili_backfill_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('party_tafsili_backfill_v1:', e.message);
+  }
+
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.
   try {
@@ -3072,6 +3083,14 @@ function resolveCashAccount(db, payType, bankId, cashBoxId) {
 // Balance Sheet exactly like any other account.
 function syncBankAccount(db, bank) {
   try {
+    const mapped = String(bank.coa_code || '').trim();
+    // Mahak / allocated tafsili: keep the real COA row in sync; do not create orphan 1102-{id}
+    if (mapped && !mapped.startsWith('1102-')) {
+      db.prepare(`
+        UPDATE chart_of_accounts SET name=COALESCE(NULLIF(?,''), name) WHERE code=?
+      `).run(bank.name || '', mapped);
+      return;
+    }
     db.prepare(`
       INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)
       ON CONFLICT(code) DO UPDATE SET name=excluded.name
@@ -3082,6 +3101,13 @@ function syncBankAccount(db, bank) {
 // Same as syncBankAccount but for cash boxes, nested under 1101 (موجودی صندوق).
 function syncCashBoxAccount(db, box) {
   try {
+    const mapped = String(box.coa_code || '').trim();
+    if (mapped && !mapped.startsWith('1101-')) {
+      db.prepare(`
+        UPDATE chart_of_accounts SET name=COALESCE(NULLIF(?,''), name) WHERE code=?
+      `).run(box.name || '', mapped);
+      return;
+    }
     db.prepare(`
       INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)
       ON CONFLICT(code) DO UPDATE SET name=excluded.name

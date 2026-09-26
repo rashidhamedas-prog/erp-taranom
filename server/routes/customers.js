@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
+const { ensureCustomerTafsili } = require('../lib/party-tafsili');
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
@@ -149,13 +149,11 @@ router.post('/', auth, (req, res) => {
     note: (req.user.role === 'admin' && assigned_to) ? 'انتساب هنگام ایجاد' : 'ایجاد مشتری',
   });
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
-  // حالت کدینگ محک (deprecated): فقط اگر coa_mode=mahak
+  // Always allocate 12-digit tafsili under receivable (CRM path used by distribution_office etc.)
+  // Previously gated on coa_mode=mahak → CUST-* parties without coa_code.
   try {
-    const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
-    if (mode === 'mahak') {
-      const cc = allocTafsili(db, 'customer', biz);
-      if (cc) { db.prepare('UPDATE customers SET coa_code=? WHERE id=?').run(cc, newId); row.coa_code = cc; }
-    }
+    const cc = ensureCustomerTafsili(db, newId);
+    if (cc) row.coa_code = cc;
   } catch (_) {}
   if (!(req.user.role === 'admin' && assigned_to) && (city || province)) {
     assignCustomerByTerritory(db, newId, city, province, req.user.id);
@@ -218,6 +216,7 @@ router.put('/:id', auth, (req, res) => {
     }
   })();
   try { syncCustomerToParty(db, req.params.id); } catch (_) {}
+  try { ensureCustomerTafsili(db, req.params.id); } catch (_) {}
   if (!ownerChosen && city && city !== row.city) {
     assignCustomerByTerritory(db, req.params.id, city, province, req.user.id);
   }

@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — تفصیلی خودکار برای مشتری CRM / دفتر پخش (SW v234)
+
+- **ریشه:** ایجاد مشتری از مسیر CRM (`POST /api/customers`) فقط وقتی `coa_mode=mahak` بود `allocTafsili` می‌زد؛ دفتر پخش/بازاریاب مشتری می‌ساخت → party با کد `CUST-…` بدون `coa_code` (ستون تفصیلی «-»). مسیر دفتر اشخاص (`P-…`) همیشه تفصیلی می‌ساخت.
+- **اصلاح:** `ensureCustomerTafsili` / `ensureSupplierTafsili` همیشه روی create/update؛ تعمیر یک‌باره `party_tafsili_backfill_v1` برای رکوردهای قدیمی (از جمله CUST-0024/0025).
+- **راهنما:** بخش «کد تفصیلی اشخاص و مشتریان»؛ حذف نکتهٔ غلط «نصب عادی تغییری ندارد».
+- **تست:** test-crm-customer-tafsili-v234؛ sms؛ sync.
+- **فایل‌ها:** server/lib/party-tafsili.js, server/routes/{customers,suppliers}.js, server/db.js, server/public/{app.js,sw.js,index.html}, server/scripts/test-crm-customer-tafsili-v234.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v234
+- **Deploy:** ⏳
+
+
 ### ۱۴۰۵/۰۷/۰۴ — ویرایش فاکتور: مودال رنگ/سایز فقط انبار همان ردیف (SW v233)
 
 - **ویرایش سبد:** `editInvCartPack` انبار را از select ردیف (`data-inv-pack-ix`) یا ردیف/هدر می‌گیرد؛ بدون انبار مودال باز نمی‌شود. `confirmInvVariantSplit` همان انبار را روی خطوط جدید نگه می‌دارد.

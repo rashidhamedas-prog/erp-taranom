@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
+const { ensureSupplierTafsili } = require('../lib/party-tafsili');
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -36,15 +36,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const result = db.prepare(
     `INSERT INTO suppliers (name,phone,address,note,balance,party_group_id,${PARTY_MAHAK_COLS.join(',')}) VALUES (?,?,?,?,?,?,${PARTY_MAHAK_COLS.map(() => '?').join(',')})`
   ).run(name, phone || '', address || '', note || '', bal, pgid, ...mvals);
-  try {
-    const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
-    if (mode === 'mahak') {
-      const cc = allocTafsili(db, 'supplier', name);
-      if (cc) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid);
-    }
-  } catch (_) {}
   const supplierId = result.lastInsertRowid;
   try { syncSupplierToParty(db, supplierId); } catch (_) {}
+  // Always allocate tafsili (was gated on coa_mode=mahak — same bug as CRM customers)
+  try { ensureSupplierTafsili(db, supplierId); } catch (_) {}
   // Opening balance becomes the first supplier-ledger entry (credit = we owe them)
   if (bal !== 0) {
     db.prepare('INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -65,6 +60,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   db.prepare(`UPDATE suppliers SET name=?,phone=?,address=?,note=?,party_group_id=?,${mset} WHERE id=?`)
     .run(name || row.name, phone || '', address || '', note || '', pgid, ...mvals, req.params.id);
   try { syncSupplierToParty(db, req.params.id); } catch (_) {}
+  try { ensureSupplierTafsili(db, req.params.id); } catch (_) {}
   res.json({ ok: true });
 });
 
