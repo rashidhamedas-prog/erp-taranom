@@ -158,24 +158,32 @@ function ensureInventorySchema(db) {
   try { seedVariantWarehouseOpening(db); } catch (e) {
     console.warn('seedVariantWarehouseOpening:', e.message);
   }
+  try { reconcileVariantWarehouseProjections(db); } catch (e) {
+    console.warn('reconcileVariantWarehouseProjections:', e.message);
+  }
 }
 
-function ensureVariantWhRow(db, variantId, warehouseId, seedQty) {
+/**
+ * Ensure a VWS row exists. Always seed 0 — never copy product_variants.stock.
+ * Seeding with global stock on first touch of a destination warehouse caused
+ * phantom double-count (transfer-in: insert global then +qty).
+ */
+function ensureVariantWhRow(db, variantId, warehouseId, _seedQtyIgnored) {
   if (!variantId || !warehouseId) return;
   db.prepare(`
     INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty)
-    VALUES (?,?,?)
+    VALUES (?,?,0)
     ON CONFLICT(variant_id, warehouse_id) DO NOTHING
-  `).run(variantId, warehouseId, round3(seedQty || 0));
+  `).run(variantId, warehouseId);
 }
 
-function ensureProductWhRow(db, productId, warehouseId, seedQty) {
+function ensureProductWhRow(db, productId, warehouseId, _seedQtyIgnored) {
   if (!productId || !warehouseId) return;
   db.prepare(`
     INSERT INTO warehouse_stock (product_id, warehouse_id, qty)
-    VALUES (?,?,?)
+    VALUES (?,?,0)
     ON CONFLICT(product_id, warehouse_id) DO NOTHING
-  `).run(productId, warehouseId, round3(seedQty || 0));
+  `).run(productId, warehouseId);
 }
 
 /**
@@ -247,7 +255,7 @@ function postStockMovement(db, opts) {
     }
 
     if (warehouseId) {
-      ensureVariantWhRow(db, variantId, warehouseId, Number(v.stock) || 0);
+      ensureVariantWhRow(db, variantId, warehouseId);
       const cur = db.prepare(
         'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
       ).get(variantId, warehouseId);
@@ -274,8 +282,7 @@ function postStockMovement(db, opts) {
     );
 
     if (warehouseId) {
-      const seedQty = (prod.warehouse_id === warehouseId) ? (Number(prod.stock) || 0) : 0;
-      ensureProductWhRow(db, productId, warehouseId, seedQty);
+      ensureProductWhRow(db, productId, warehouseId);
       const ws = db.prepare(
         'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
       ).get(productId, warehouseId);
@@ -389,7 +396,8 @@ function reverseStockDocument(db, { docType, docId, userId, note, applyHeaderSto
 
 /**
  * Live pack lines for sales: active non-default variants with stock > 0.
- * Prefer variant_warehouse_stock when warehouseId set and rows exist for the product.
+ * When warehouseId is set, ALWAYS read variant_warehouse_stock (missing row = 0).
+ * Never fall back to global product_variants.stock for a scoped warehouse.
  */
 function expandLivePack(db, productId, warehouseId) {
   const pid = parseInt(productId, 10);
@@ -411,16 +419,7 @@ function expandLivePack(db, productId, warehouseId) {
   `).all(pid);
 
   const whId = warehouseId != null && warehouseId !== '' ? parseInt(warehouseId, 10) : null;
-  let useWh = false;
-  if (whId && tableExists(db, 'variant_warehouse_stock') && variants.length) {
-    const ids = variants.map((v) => v.variant_id);
-    const ph = ids.map(() => '?').join(',');
-    const cnt = db.prepare(`
-      SELECT COUNT(*) AS c FROM variant_warehouse_stock
-      WHERE warehouse_id=? AND variant_id IN (${ph})
-    `).get(whId, ...ids);
-    useWh = (Number(cnt && cnt.c) || 0) > 0;
-  }
+  const useWh = !!(whId && Number.isFinite(whId) && tableExists(db, 'variant_warehouse_stock'));
 
   const vwsGet = useWh
     ? db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?')
@@ -463,17 +462,120 @@ function expandLivePack(db, productId, warehouseId) {
   };
 }
 
-/** Available qty at variant×warehouse (falls back to product_variants.stock). */
+/**
+ * Available qty at variant×warehouse.
+ * With warehouseId: missing VWS row = 0 (no global fallback).
+ * Without warehouseId: product_variants.stock (company-wide total).
+ */
 function variantWarehouseQty(db, variantId, warehouseId) {
   if (!variantId) return 0;
   if (warehouseId && tableExists(db, 'variant_warehouse_stock')) {
     const row = db.prepare(
       'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
     ).get(variantId, warehouseId);
-    if (row) return round3(Number(row.qty) || 0);
+    return row ? round3(Number(row.qty) || 0) : 0;
   }
   const v = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(variantId);
   return round3(Number(v && v.stock) || 0);
+}
+
+/**
+ * One-shot: collapse phantom double-count from VWS seed-with-global bug,
+ * then rebuild warehouse_stock / products.stock from VWS for matrix SKUs.
+ * Idempotent via settings flag vws_wh_reconcile_v1.
+ */
+function reconcileVariantWarehouseProjections(db) {
+  if (!tableExists(db, 'variant_warehouse_stock') || !tableExists(db, 'product_variants')) {
+    return { skipped: true };
+  }
+  if (!tableExists(db, 'settings')) {
+    return { skipped: true, reason: 'no_settings' };
+  }
+  const flag = db.prepare("SELECT value FROM settings WHERE key='vws_wh_reconcile_v1'").get();
+  if (flag && String(flag.value) === '1') return { already: true };
+
+  const variants = db.prepare(`
+    SELECT id, product_id, stock FROM product_variants
+    WHERE active=1 AND COALESCE(is_default,0)=0
+  `).all();
+  const vwsRows = db.prepare(
+    'SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock WHERE variant_id=?'
+  );
+  const vwsUpd = db.prepare(
+    'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
+  );
+  const varUpd = db.prepare('UPDATE product_variants SET stock=? WHERE id=?');
+
+  let scaled = 0;
+  for (const v of variants) {
+    const rows = vwsRows.all(v.id);
+    if (!rows.length) continue;
+    const sum = rows.reduce((a, r) => a + round3(Number(r.qty) || 0), 0);
+    const global = round3(Number(v.stock) || 0);
+    if (sum > global + 0.001 && global >= 0) {
+      if (global === 0 || sum <= 0) {
+        for (const r of rows) vwsUpd.run(0, v.id, r.warehouse_id);
+      } else {
+        const factor = global / sum;
+        let assigned = 0;
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i];
+          let next;
+          if (i === rows.length - 1) next = round3(global - assigned);
+          else {
+            next = round3((Number(r.qty) || 0) * factor);
+            assigned = round3(assigned + next);
+          }
+          if (next < 0) next = 0;
+          vwsUpd.run(next, v.id, r.warehouse_id);
+        }
+      }
+      scaled += 1;
+    }
+  }
+
+  // Rebuild warehouse_stock + products.stock from VWS for matrix products
+  const matrixProducts = db.prepare(`
+    SELECT DISTINCT product_id AS id FROM product_variants
+    WHERE active=1 AND COALESCE(is_default,0)=0
+  `).all();
+  const sumByWh = db.prepare(`
+    SELECT vws.warehouse_id AS warehouse_id, COALESCE(SUM(vws.qty),0) AS qty
+    FROM variant_warehouse_stock vws
+    JOIN product_variants pv ON pv.id=vws.variant_id
+    WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
+    GROUP BY vws.warehouse_id
+  `);
+  const wsUpsert = db.prepare(`
+    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
+    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
+  `);
+  const prodUpd = db.prepare('UPDATE products SET stock=? WHERE id=?');
+  let rebuilt = 0;
+  for (const p of matrixProducts) {
+    const whs = sumByWh.all(p.id);
+    let total = 0;
+    for (const w of whs) {
+      const q = round3(Number(w.qty) || 0);
+      total = round3(total + q);
+      wsUpsert.run(p.id, w.warehouse_id, q);
+    }
+    prodUpd.run(total, p.id);
+    const vids = db.prepare(`
+      SELECT id FROM product_variants
+      WHERE product_id=? AND active=1 AND COALESCE(is_default,0)=0
+    `).all(p.id);
+    for (const row of vids) {
+      const s = db.prepare(
+        'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
+      ).get(row.id);
+      varUpd.run(round3(Number(s && s.s) || 0), row.id);
+    }
+    rebuilt += 1;
+  }
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('vws_wh_reconcile_v1','1')").run();
+  return { scaled, rebuilt };
 }
 
 module.exports = {
@@ -485,4 +587,5 @@ module.exports = {
   hasActiveMatrixVariants,
   variantWarehouseQty,
   seedVariantWarehouseOpening,
+  reconcileVariantWarehouseProjections,
 };

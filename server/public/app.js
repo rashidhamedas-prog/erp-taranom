@@ -11017,13 +11017,20 @@ async function whSearchProduct(i,q){
 }
 async function whPickProduct(i,id,label,available){
   if(!whDocLines[i]) return;
+  const wh=whLineWarehouseId();
   let style=null;
-  try{ style=await api('GET','/product-variants/style/'+Number(id)); }catch(_){ style=null; }
+  try{
+    const qs=wh?('?warehouse_id='+encodeURIComponent(String(wh))):'';
+    style=await api('GET','/product-variants/style/'+Number(id)+qs);
+  }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
     const live=pack.live||[];
     if(!live.length){
-      showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
+      const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(wh))?.name||'';
+      showToast(whName
+        ?('در «'+whName+'» هیچ رنگ/سایز موجودی برای این کالا نیست — انبار مبدأ را عوض کنید یا موجودی همان انبار را ببینید')
+        :'هیچ رنگ/سایز موجودی برای این کالا نیست','error');
       return;
     }
     const newLines=live.map(function(v){
@@ -11033,7 +11040,7 @@ async function whPickProduct(i,id,label,available){
       return {
         product_id:id,
         product_label:bits.join(' — '),
-        available:v.stock!=null?Number(v.stock):available,
+        available:v.stock!=null?Number(v.stock):(v.sku_stock!=null?Number(v.sku_stock):available),
         qty:1,
         variant_id:Number(v.id)||null,
         color_id:v.color_id||null,
@@ -11044,7 +11051,7 @@ async function whPickProduct(i,id,label,available){
     });
     whDocLines.splice(i, 1, ...newLines);
     renderWhDocLines();
-    showToast('پک کامل ('+fmt(live.length)+' قطعه) اضافه شد');
+    showToast('پک زنده انبار مبدأ ('+fmt(live.length)+' قطعه) اضافه شد');
     return;
   }
   whDocLines[i].product_id=id;
@@ -11121,7 +11128,7 @@ function warehouseIssueModal(){
   openModal(`
     <div class="modal-head"><h3>⬆️ حواله انبار (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="wi-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="wi-note"></div>
       <div class="fg full" id="whDocLines">${whDocLinesHtml()}</div>
@@ -11146,7 +11153,7 @@ function warehouseTransferModal(){
   openModal(`
     <div class="modal-head"><h3>🔄 انتقال بین انبارها (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>انبار مبدأ *</label><select id="wt-from">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مبدأ *</label><select id="wt-from" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>انبار مقصد *</label><select id="wt-to">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="wt-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="wt-note"></div>
@@ -11156,6 +11163,11 @@ function warehouseTransferModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   try{ bindNumFit(el('whDocLines')); }catch(_){}
+}
+function whOnSourceWarehouseChange(){
+  whDocLines=[{product_id:'',qty:1}];
+  renderWhDocLines();
+  showToast('انبار مبدأ عوض شد — کالاها را دوباره انتخاب کنید','info');
 }
 async function saveWarehouseTransfer(){
   const from_warehouse_id=+el('wt-from').value, to_warehouse_id=+el('wt-to').value;
@@ -22858,7 +22870,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زنده رنگ×سایز شکسته می‌شود و هر خط <code>variant_id</code> می‌فرستد. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود (رنگ‌هایی که فقط در انبار دیگر هستند ظاهر نمی‌شوند). با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود تا دوباره انتخاب کنید. هر خط <code>variant_id</code> می‌فرستد. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>

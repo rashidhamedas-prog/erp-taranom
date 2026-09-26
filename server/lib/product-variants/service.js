@@ -467,7 +467,12 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
     WHERE product_id=? AND color_id=? AND size_id=? AND active=1
     LIMIT 1
   `);
-  let sum = 0;
+  const warehouseId = opts.warehouse_id != null && opts.warehouse_id !== ''
+    ? parseInt(opts.warehouse_id, 10)
+    : (product.warehouse_id ? parseInt(product.warehouse_id, 10) : null);
+  const hasVws = !!db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='variant_warehouse_stock'"
+  ).get();
   const updated = [];
   for (const cell of list) {
     const colorId = Number(cell.color_id);
@@ -479,23 +484,67 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
     }
     const row = findMatrix.get(productId, colorId, sizeId);
     if (!row) continue;
-    db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(qty, row.id);
-    sum += qty;
-    updated.push({ id: row.id, color_id: colorId, size_id: sizeId, stock: qty });
+    if (hasVws && warehouseId) {
+      db.prepare(`
+        INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty)
+        VALUES (?,?,?)
+        ON CONFLICT(variant_id, warehouse_id) DO UPDATE SET qty=excluded.qty
+      `).run(row.id, warehouseId, qty);
+      const sumAll = db.prepare(
+        'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
+      ).get(row.id);
+      const global = Number(sumAll && sumAll.s) || 0;
+      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(global, row.id);
+      updated.push({
+        id: row.id, color_id: colorId, size_id: sizeId,
+        stock: global, warehouse_id: warehouseId, warehouse_qty: qty,
+      });
+    } else {
+      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(qty, row.id);
+      updated.push({ id: row.id, color_id: colorId, size_id: sizeId, stock: qty });
+    }
+  }
+
+  // Rebuild product + warehouse totals from VWS (or sum of cells if no VWS)
+  let productStock = 0;
+  if (hasVws) {
+    const byWh = db.prepare(`
+      SELECT vws.warehouse_id AS warehouse_id, COALESCE(SUM(vws.qty),0) AS qty
+      FROM variant_warehouse_stock vws
+      JOIN product_variants pv ON pv.id=vws.variant_id
+      WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
+      GROUP BY vws.warehouse_id
+    `).all(productId);
+    for (const w of byWh) {
+      const q = Number(w.qty) || 0;
+      productStock += q;
+      db.prepare(`
+        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
+        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
+      `).run(productId, w.warehouse_id, q);
+    }
+    if (!byWh.length && warehouseId) {
+      db.prepare(`
+        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)
+        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=0
+      `).run(productId, warehouseId);
+    }
+  } else {
+    productStock = updated.reduce((a, u) => a + (Number(u.stock) || 0), 0);
+    if (warehouseId) {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)')
+        .run(productId, warehouseId);
+      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+        .run(productStock, productId, warehouseId);
+    }
   }
   db.prepare('UPDATE products SET stock=?, colors=? WHERE id=?').run(
-    sum, Math.max(1, colorIds.length || Number(product.colors) || 1), productId
+    productStock, Math.max(1, colorIds.length || Number(product.colors) || 1), productId
   );
-  const warehouseId = opts.warehouse_id || product.warehouse_id;
-  if (warehouseId) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)')
-      .run(productId, warehouseId);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(sum, productId, warehouseId);
-  }
   return {
     product_id: productId,
-    stock: sum,
+    stock: productStock,
+    warehouse_id: warehouseId || null,
     updated,
     pack: packSizeFor(db, productId),
     variants: listVariants(db, productId, { include_default: false }),

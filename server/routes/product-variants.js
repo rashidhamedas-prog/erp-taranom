@@ -246,6 +246,21 @@ router.get('/style/:productId', auth, (req, res) => {
       warehouse_id: scoped ? warehouseId : null,
       stock_scope: stockScope,
       warehouse_name: warehouseName,
+      stock_by_warehouse: (() => {
+        try {
+          return db.prepare(`
+            SELECT w.id AS warehouse_id, w.name AS warehouse_name,
+              COALESCE(SUM(vws.qty),0) AS qty
+            FROM variant_warehouse_stock vws
+            JOIN product_variants pv ON pv.id=vws.variant_id
+            JOIN warehouses w ON w.id=vws.warehouse_id
+            WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
+            GROUP BY w.id
+            HAVING qty > 0
+            ORDER BY w.name
+          `).all(productId);
+        } catch (_) { return []; }
+      })(),
     });
   } catch (e) { sendErr(res, e); }
 });
