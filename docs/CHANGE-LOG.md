@@ -13,7 +13,7 @@
 - **اسناد:** `docs/DESKTOP-OFFLINE-MODULE-MATRIX.md`، `docs/DESKTOP-EXE-DELIVERY.md` (تمایز build / قابل‌اجرا / آمادهٔ انتشار).
 - **فایل‌ها:** desktop/{package.json,main.js,security-policy.js,scripts/test-security-policy.js}, server/{server.js,lib/boot-gate.js,middleware/demo-guard.js}, docs/*, .ai-dos/tasks/*
 - **SW:** بدون تغییر وب (بدون bump SW)
-- **Deploy:** ⏳ فقط بیلد محلی — انتشار feed/manifest عمومی و Iran deploy متادیتا منتظر تأیید مالک
+- **Deploy:** ⏳ فقط بیلد محلی @ `ba99aa0` — انتشار feed/manifest عمومی و merge به `main`/Iran deploy متادیتا منتظر تأیید مالک
 
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور فشرده: بدون رنگ/سایز، مبالغ بولد (SW v246)
 
