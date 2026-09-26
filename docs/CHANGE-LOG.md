@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۴ — نمایش رنگ×سایز تفکیک انبار در UI (SW v240)
+
+- **ناوردا:** با انتخاب انبار، موجودی رنگ×سایز مثل عدد کلی فقط از `variant_warehouse_stock` همان انبار است (بدون ردیف = ۰؛ بدون fallback سراسری).
+- **API:** `variantLineSummary(db, productId, warehouseId)` + `GET /summaries?warehouse_id=`؛ style از قبل scoped بود.
+- **UI:** `hydrateInvVarSum` / picker فاکتور / کاتالوگ فروش؛ جزئیات رنگ×سایز با جدول انبار؛ خرید `genCartAdd` با انبار مقصد؛ امانی `csLoadVariants` با qty انبار؛ بازاریاب کاتالوگ با `warehouse_id=sales_warehouse`.
+- **Cache:** SW `erp-taranom-v240`؛ `app.js` / `marketer-ui.js` `?v=240`.
+- **تست:** test-variant-wh-display-v240 (۱۳/۱۳).
+- **فایل‌ها:** server/lib/product-variants/service.js, server/routes/product-variants.js, server/public/{app.js,marketer-ui.js,sw.js,index.html}, server/scripts/test-variant-wh-display-v240.js, docs/CHANGE-LOG.md
+- **SW:** erp-taranom-v240
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۷/۰۴ — رفع ورود وب: راهنمای گمراه‌کننده + بازیابی admin (SW v239)
 
 - **ریشه:** روی وب مرکزی هنوز «اولین ورود: admin / admin123» نمایش داده می‌شد در حالی که رمز ادمین عوض شده بود → ۴۰۱ `LOGIN_REJECTED`. لینک «اتصال خراب…» هم تا لود کامل `app.js` (~۲MB) بدون `display:none` CSS دیده می‌شد.

@@ -274,8 +274,12 @@ router.get('/summaries', auth, (req, res) => {
       .map((x) => parseInt(x, 10))
       .filter((n) => Number.isFinite(n) && n > 0)
       .slice(0, 80);
+    const warehouseId = req.query.warehouse_id != null && req.query.warehouse_id !== ''
+      ? parseInt(req.query.warehouse_id, 10)
+      : null;
+    const scopedWh = warehouseId && Number.isFinite(warehouseId) ? warehouseId : null;
     const out = {};
-    for (const id of ids) out[id] = variantLineSummary(db, id);
+    for (const id of ids) out[id] = variantLineSummary(db, id, scopedWh);
     res.json(out);
   } catch (e) { sendErr(res, e); }
 });

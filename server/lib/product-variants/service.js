@@ -608,14 +608,41 @@ function attachVariantFlags(db, rows) {
   return rows;
 }
 
-function variantLineSummary(db, productId) {
+/**
+ * Live color×size summary for catalog/invoice picker chips.
+ * With warehouseId: qty from variant_warehouse_stock only (missing row = 0).
+ * Without warehouseId: product_variants.stock (company-wide).
+ */
+function variantLineSummary(db, productId, warehouseId) {
   const pack = packSizeFor(db, productId);
   if (!pack.has_matrix) {
-    return { line: '', colors: [], sizes: [], live_colors: 0, live_sizes: 0, has_matrix: 0 };
+    return {
+      line: '', colors: [], sizes: [], live_colors: 0, live_sizes: 0, has_matrix: 0,
+      warehouse_id: null, stock_scope: 'none',
+    };
   }
   let variants = [];
   try { variants = listVariants(db, productId, { include_default: false }); } catch (_) { variants = []; }
-  const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
+
+  const whId = warehouseId != null && warehouseId !== '' ? parseInt(warehouseId, 10) : null;
+  const scoped = !!(whId && Number.isFinite(whId));
+  let qtyStmt = null;
+  if (scoped) {
+    try {
+      qtyStmt = db.prepare(
+        'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
+      );
+    } catch (_) { qtyStmt = null; }
+  }
+
+  const live = variants.filter((v) => {
+    if (scoped) {
+      if (!qtyStmt) return false;
+      const row = qtyStmt.get(v.id, whId);
+      return row ? (Number(row.qty) || 0) > 0 : false;
+    }
+    return (Number(v.stock) || 0) > 0;
+  });
   const colors = [...new Set(live.map((v) => String(v.color_name || '').trim()).filter(Boolean))];
   const sizes = [...new Set(live.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
   const line = [colors.length ? colors.join('، ') : '', sizes.length ? sizes.join(' ') : ''].filter(Boolean).join(' · ');
@@ -623,9 +650,11 @@ function variantLineSummary(db, productId) {
     line,
     colors,
     sizes,
-    live_colors: pack.live_colors,
-    live_sizes: pack.live_sizes,
+    live_colors: colors.length,
+    live_sizes: sizes.length,
     has_matrix: 1,
+    warehouse_id: scoped ? whId : null,
+    stock_scope: scoped ? 'warehouse' : 'global',
   };
 }
 

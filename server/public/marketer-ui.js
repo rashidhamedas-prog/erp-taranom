@@ -236,6 +236,11 @@
     if (mkFilter.category) qs.set('category', mkFilter.category);
     if (mkFilter.search) qs.set('search', mkFilter.search);
     if (mkFilter.stock_status && mkFilter.stock_status !== 'all') qs.set('stock_status', mkFilter.stock_status);
+    const wh = salesWarehouseId();
+    if (wh) {
+      qs.set('warehouse_id', String(wh));
+      qs.set('include_zero', '1');
+    }
     return await api('GET', '/products?' + qs.toString()) || [];
   }
 
@@ -264,15 +269,18 @@
     }
     // Always show pack on button; prefer shared catalog card when available
     if (typeof productCardHtml === 'function') {
+      const wh = salesWarehouseId();
       grid.innerHTML = list.map(p => productCardHtml(p, {
         addToCartFn: 'MarketerUI.addToCart',
         showWarehouse: false,
-        selectable: false
+        selectable: false,
+        warehouseFilter: wh || ''
       })).join('');
       return;
     }
     grid.innerHTML = list.map(p => {
-      const low = p.stock <= p.stock_alert;
+      const stockQty = p.wh_qty != null ? p.wh_qty : (p.stock || 0);
+      const low = stockQty <= (p.stock_alert || 5);
       const pack = packQty(p);
       return `
         <div class="pcard">
@@ -281,7 +289,7 @@
             <div class="name">${esc(p.name)}</div>
             <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
             <div class="price">${fmt(p.price)} ریال</div>
-            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')}</div>
+            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(stockQty)} ${esc(p.unit || '')}</div>
             <div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${(Number(p.colors)>1)?'🎨 '+fmt(p.colors)+' رنگ · ':''}📦 ${pack} عدد/پک</div>
             <button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.addToCart((p.id))})}">${(Number(p.colors)>1||Number(p.has_variants)===1||Number(p.is_style)===1)?'➕ افزودن پک':('➕ افزودن به سبد ('+pack+' عدد)')}</button>
           </div>
@@ -404,7 +412,7 @@
       });
       return;
     }
-    const stock = Number(p.stock) || 0;
+    const stock = Number(p.wh_qty != null ? p.wh_qty : p.stock) || 0;
     const qty = packQty(p);
     const row = cart.find(c => Number(c.product_id) === Number(productId) && !c.variant_id);
     const already = row ? (Number(row.qty) || 0) : 0;
