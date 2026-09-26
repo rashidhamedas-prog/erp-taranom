@@ -118,9 +118,7 @@ function safeJalaliDate(v) {
   return /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s) ? s : null;
 }
 
-// Balance + statement GL: include reversed originals so they cancel with their
-// live reversal rows (same rule as trial balance). Listing filters stay separate.
-const JE_ALIVE = DELETED_FILTER;
+const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
 
 function assertPostableAccount(db, code) {
   const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
