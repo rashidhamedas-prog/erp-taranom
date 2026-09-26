@@ -13,7 +13,7 @@
 - **تست:** test-crm-customer-tafsili-v234؛ sms؛ sync.
 - **فایل‌ها:** server/lib/party-tafsili.js, server/routes/{customers,suppliers}.js, server/db.js, server/public/{app.js,sw.js,index.html}, server/scripts/test-crm-customer-tafsili-v234.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v234
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ f8c7521 — root 200؛ SW erp-taranom-v234. بک‌فیل: CUST-00024 معصومی=`110301000001`، CUST-00025 صدوقی=`110301000002`.
 
 
 ### ۱۴۰۵/۰۷/۰۴ — ویرایش فاکتور: مودال رنگ/سایز فقط انبار همان ردیف (SW v233)
