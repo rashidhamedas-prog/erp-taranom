@@ -13,7 +13,7 @@
 - **جلوگیری از تکرار:** تست `test-invoice-paper-iso-v243` drift بین `paperDims` و CSS را قفل می‌کند.
 - **فایل‌ها:** server/lib/invoice-print.js, server/public/{invoice-print.css,app.js,sw.js,index.html}, server/scripts/test-invoice-{paper-iso-v243,print-layout-v195}.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v243
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 17bb53c — root 200؛ SW erp-taranom-v243؛ `@page inv-a5 size: 148mm 210mm` و `ISO_PAPER` روی VPS تأیید شد؛ pm2 restart بدون --update-env. درخت سرور کثیف بود؛ pull کامل انجام نشد. GitHub Action به‌خاطر dirty tree رد شد.
 
 ### ۱۴۰۵/۰۷/۰۵ — داشبورد گزارش‌دهی بانک و صندوق / نقدینگی (SW v242)
 
