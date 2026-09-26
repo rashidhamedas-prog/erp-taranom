@@ -13,7 +13,7 @@
 - **تست:** test-ar-control-reclass-v243 (۱۲/۱۲)؛ test-customer-live-balance-v241 هم‌تراز؛ sms ۲۲/۲۲.
 - **فایل‌ها:** server/lib/customer-books.js, server/routes/{accounting,customers}.js, server/public/{app.js,sw.js,index.html}, server/scripts/test-{ar-control-reclass-v243,customer-live-balance-v241,acc-stitch-p2}.js, docs/CHANGE-LOG.md
 - **SW:** erp-taranom-v245
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ 71daa93 / 2c0c27c — health/ready/root 200؛ SW erp-taranom-v245؛ `reclassifyControlArToCustomerLeaf` روی سرور؛ pm2 restart بدون --update-env. درخت سرور کثیف بود؛ pull کامل انجام نشد.
 
 ### ۱۴۰۵/۰۷/۰۶ — داشبورد چک و گزارش دفتر چک (SW v244)
 
