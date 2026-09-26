@@ -35,8 +35,15 @@ function loginIp(req) {
 }
 
 function rejectLogin(res, retryAfter = 0) {
-  if (retryAfter > 0) res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
-  return res.status(retryAfter > 0 ? 429 : 401).json({
+  if (retryAfter > 0) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
+    return res.status(429).json({
+      error: 'تعداد تلاش ورود بیش از حد مجاز است. چند دقیقه صبر کنید یا از بازیابی رمز (پیامک) استفاده کنید.',
+      code: 'LOGIN_RATE_LIMITED',
+      retry_after: Math.max(1, Math.ceil(retryAfter)),
+    });
+  }
+  return res.status(401).json({
     error: LOGIN_FAILURE_MESSAGE,
     code: 'LOGIN_REJECTED',
   });

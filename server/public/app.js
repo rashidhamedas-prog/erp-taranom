@@ -1286,6 +1286,11 @@ el('loginForm').addEventListener('submit', async (e)=>{
     }
     if(!r.ok){
       let msg = j.error || (classified && classified.message) || 'خطا در ورود';
+      if(r.status===429){
+        msg = j.error || 'تعداد تلاش ورود زیاد بوده است. چند دقیقه صبر کنید یا از «رمز را فراموش کرده‌اید؟» استفاده کنید.';
+      } else if(r.status===401){
+        msg = (j.error || msg) + ' — اگر رمز را به‌خاطر ندارید، «رمز را فراموش کرده‌اید؟» را بزنید (کد پیامکی). رمز کارخانه‌ای admin123 فقط برای دستگاه unpaired است، نه وب مرکزی.';
+      }
       if(APP_INFO && APP_INFO.role==='device'){
         msg += ' — اگر اتصال خراب است، لینک «قطع اتصال و اتصال مجدد» پایین همین صفحه را بزنید';
       }
@@ -23092,7 +23097,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فعال/غیرفعال‌سازی فقط از نسخه وب (سرور مرکزی) انجام می‌شود</li>
         <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
         <li><b>وب کروم:</b> همهٔ رویدادهای رابط کاربری از registry امن و فایل‌های اسکریپت محلی اجرا می‌شوند؛ CSP استفاده از رویداد و اسکریپت inline را مسدود می‌کند. اگر دکمه‌ای واکنش نداشت، Console و گزارش CSP را برای پشتیبانی ارسال کنید.</li>
-        <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. اولین ورود مدیر: <b>admin / admin123</b> — بعد از ورود، تغییر رمز اجباری است.</li>
+        <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. روی وب مرکزی رمز کارخانه‌ای نشان داده نمی‌شود؛ اگر رمز را فراموش کردید از «رمز را فراموش کرده‌اید؟» (پیامک به موبایل ثبت‌شده) استفاده کنید. <code>admin / admin123</code> فقط برای ورود موقت دستگاه unpaired است و پس از اولین ورود وب باید عوض شده باشد.</li>
         <li><b>ساخت ادمین دوم رمز ادمین اول را عوض نمی‌کند.</b> هر مدیر فقط روی یک مرورگر وب همزمان وارد می‌ماند. اگر بعد از ساخت کاربر جدید، ورود <code>admin</code> خطا داد، معمولاً نشست وب قبلی هنوز باز است — در پنجره تأیید، قطع نشست قبلی را بپذیرید؛ این یعنی رمز اشتباه نیست.</li>
       </ul>`),
     helpSec('🤖','دستیار فروش AI',`
@@ -23247,7 +23252,7 @@ function renderSalesGuide(){
       <p>داده‌های نسخه نمایشی واقعی نیستند و برای جلسهٔ فروش ساخته شده‌اند.</p>`),
     helpSec('🚀','شروع کار',`
       <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم ERP ترنم استفاده کنید.</p>
-      <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید. روی صفحه ورود می‌توانید رمز را نمایش دهید، «مرا به خاطر بسپار» را فقط برای نام کاربری فعال کنید، و تم تاریک را از گوشهٔ صفحه عوض کنید.</p>
+      <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید. روی صفحه ورود وب مرکزی رمز کارخانه‌ای نشان داده نمی‌شود — در صورت فراموشی از «رمز را فراموش کرده‌اید؟» (پیامک) استفاده کنید. می‌توانید رمز را نمایش دهید، «مرا به خاطر بسپار» را فقط برای نام کاربری فعال کنید، و تم تاریک را از گوشهٔ صفحه عوض کنید.</p>
       <h5>اولین قدم‌ها</h5><ol>
         <li>از منو سمت چپ بخش مشتریان را باز کنید</li>
         <li>مشتریان فعلی خود را ببینید یا مشتری جدید اضافه کنید</li>
@@ -24169,7 +24174,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   fetch('/api/system/app-info').then(r=>r.json()).then(info=>{
     APP_INFO = APP_INFO || info;
     if(info && info.role==='central' && info.b2b_portal){ const l=el('b2bEntryLink'); if(l) l.style.display='block'; }
-    if(info && info.role==='device'){ const d=el('deviceResetLink'); if(d) d.style.display='block'; }
+    if(info && info.role==='device'){
+      document.body.classList.add('erp-device-login');
+      const d=el('deviceResetLink'); if(d) d.style.display='block';
+      const fh=el('loginFactoryHint'); if(fh){ fh.hidden=false; fh.style.display='inline'; }
+      const ch=el('loginCentralHint'); if(ch) ch.style.display='none';
+    } else {
+      document.body.classList.remove('erp-device-login');
+      const fh=el('loginFactoryHint'); if(fh){ fh.hidden=true; fh.style.display='none'; }
+      const ch=el('loginCentralHint'); if(ch) ch.style.display='';
+    }
   }).catch(()=>{});
   const token = localStorage.getItem('crm_token');
   if(token){

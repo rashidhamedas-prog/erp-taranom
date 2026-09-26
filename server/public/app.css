@@ -185,6 +185,13 @@ html[data-theme="dark"] .b2b-login-fields .login-input-wrap input:focus{box-shad
 .login-err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;text-align:center}
 .login-hint{margin-top:18px;font-size:11px;color:#9ca3af;line-height:1.7}
 html[data-theme="dark"] .login-hint{color:var(--muted)}
+/* Device-only factory-reset must stay hidden on central until app-info confirms role=device.
+   Relying solely on late CSP.registerStyle caused a visible false affordance while app.js (~2MB) loads. */
+#deviceResetLink{display:none;text-align:center;margin-top:12px}
+#loginFactoryHint{display:none}
+body.erp-device-login #loginFactoryHint{display:inline}
+body.erp-device-login #loginCentralHint{display:none}
+body.erp-device-login #deviceResetLink{display:block}
 .b2b-login-stage{width:100%;margin:0 auto;transition:max-width .25s ease}
 .b2b-login-stage.is-narrow{max-width:420px}
 #b2bLoginShell{padding:28px}
