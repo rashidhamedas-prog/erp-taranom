@@ -6,8 +6,18 @@
 
 const IMMEDIATE_PAY = new Set(['cash', 'cheque', 'bank', 'bank_transfer']);
 
+/** Parse rial amounts from number or localized/Persian digit strings. */
 function moneyRial(v) {
-  return Math.max(0, Math.round(Number(v) || 0));
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') {
+    return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+  }
+  const ascii = String(v)
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[^\d.-]/g, '');
+  const n = Number(ascii);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
 }
 
 function normalizePayType(pt) {

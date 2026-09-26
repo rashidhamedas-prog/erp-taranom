@@ -1455,6 +1455,42 @@ body.erp-demo-mode{padding-top:32px}
   padding-top: 10px;
   border-top: 2px solid var(--purple);
 }
+.inv-receipt-live {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.inv-receipt-live-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.inv-receipt-step {
+  margin-bottom: 2px;
+}
+.inv-receipt-after {
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 0;
+  border-bottom: none;
+}
+.inv-receipt-after.ok,
+.inv-receipt-remain.ok {
+  color: var(--green);
+  font-weight: 600;
+}
+.inv-receipt-after.red,
+.inv-receipt-remain.red {
+  color: var(--red);
+  font-weight: 700;
+}
+.inv-receipt-remain {
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+}
 
 .inv-actions-cell {
   display: flex;

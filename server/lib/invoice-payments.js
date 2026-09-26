@@ -94,7 +94,15 @@ function assertReceivedCheque(s, index) {
 function normalizeInvoicePaySplits(body, invoiceFinal) {
   const finalAmt = moneyRial(invoiceFinal);
   const raw = Array.isArray(body && body.pay_splits) ? body.pay_splits : [];
-  const splits = raw.map((s, i) => normalizeOneSplit(s, i)).filter((s) => s.amount > 0);
+  const mapped = raw.map((s, i) => normalizeOneSplit(s, i));
+  const zeroIdx = mapped.findIndex((s) => !(s.amount > 0));
+  if (zeroIdx >= 0 && mapped.length > 0) {
+    const e = new Error(`قسط ${zeroIdx + 1}: مبلغ دریافت باید بزرگ‌تر از صفر باشد`);
+    e.status = 400;
+    e.code = 'E_PAY_SPLIT_AMOUNT';
+    throw e;
+  }
+  const splits = mapped.filter((s) => s.amount > 0);
   assertSplits(splits, finalAmt);
   return splits;
 }
@@ -269,14 +277,39 @@ function paymentsFromStoredInvoice(inv, invoiceFinal) {
   }, invoiceFinal);
 }
 
+function recomputeInvoiceSettledBalances(db, invoiceId) {
+  try {
+    const receipts = loadInvoiceReceipts(db, invoiceId);
+    const paidSett = (receipts.settlements || []).reduce(
+      (a, s) => a + moneyRial(s.amount_rial != null ? s.amount_rial : s.amount), 0
+    );
+    const paidPos = (receipts.pos || []).reduce(
+      (a, p) => a + moneyRial(p.amount_rial != null ? p.amount_rial : p.amount), 0
+    );
+    // POS receipts already create a settlement row with the same amount — count settlements only
+    // when both exist for the same cash movement. Prefer settlement sum; if no settlements, use POS.
+    const paid = paidSett > 0 ? paidSett : paidPos;
+    const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
+    const finalAmt = moneyRial(finalRow && (finalRow.final_rial != null ? finalRow.final_rial : finalRow.final));
+    db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
+      .run(paid, Math.max(0, finalAmt - paid), invoiceId);
+    return { paid, balance_due: Math.max(0, finalAmt - paid) };
+  } catch (_) {
+    return null;
+  }
+}
+
 function applyInvoicePaySplits(db, {
-  invoiceId, custId, date, splits, userId, num, chequeHeader, skipJournal,
+  invoiceId, custId, date, splits, userId, num, chequeHeader, skipJournal, startIndex,
 }) {
   if (!splits || !splits.length) return [];
   const when = date || todayJalali();
+  const base = Math.max(0, Math.round(Number(startIndex) || 0));
   const ids = [];
   splits.forEach((s, i) => {
-    const note = s.note || `دریافت هنگام فاکتور ${num || invoiceId}` + (splits.length > 1 ? ` — قسط ${i + 1}` : '');
+    const absI = base + i;
+    const note = s.note || `دریافت هنگام فاکتور ${num || invoiceId}`
+      + ((base + splits.length) > 1 ? ` — قسط ${absI + 1}` : '');
     if (s.pay_type === 'pos_card') {
       if (skipJournal) {
         ids.push({ kind: 'pos_skipped', id: null });
@@ -290,7 +323,7 @@ function applyInvoicePaySplits(db, {
         cust_id: custId,
         date: when,
         note,
-        idempotency_key: `inv-${invoiceId}-pos-${i}-${s.amount}`,
+        idempotency_key: `inv-${invoiceId}-pos-${absI}-${s.amount}`,
       }, { id: userId });
       ids.push({ kind: 'pos', id: rec && (rec.receiptId || rec.id) });
       return;
@@ -300,13 +333,7 @@ function applyInvoicePaySplits(db, {
     });
     ids.push({ kind: 'settlement', id: settlementId });
   });
-  try {
-    const paid = splits.reduce((a, s) => a + moneyRial(s.amount), 0);
-    const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
-    const finalAmt = moneyRial(finalRow && (finalRow.final_rial != null ? finalRow.final_rial : finalRow.final));
-    db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
-      .run(paid, Math.max(0, finalAmt - paid), invoiceId);
-  } catch (_) { /* optional */ }
+  recomputeInvoiceSettledBalances(db, invoiceId);
   return ids;
 }
 
@@ -444,6 +471,7 @@ module.exports = {
   headerPayTypeFromSplits,
   usesSplitPosting,
   applyInvoicePaySplits,
+  recomputeInvoiceSettledBalances,
   persistInvoicePayPlan,
   paymentsFromStoredInvoice,
   settlementAssetAccount,

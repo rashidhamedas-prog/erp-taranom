@@ -335,6 +335,8 @@ function themeCss(id, dims) {
   .sum-box .line{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid #c5d6cc}
   .sum-box .line.pay{background:#163F2A;color:#fff;font-weight:800;border:0}
   .sum-box .line.pay .gold{color:#C9A843}
+  .receipts-box{margin-top:8px}
+  .receipts-box .receipts-head{font-weight:700}
   .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb;display:flex;flex-direction:column;justify-content:center}
   .words-num{font-size:.92em;font-weight:700;color:#12271C}
   .words-fa{font-size:.86em;color:#1A5C38;margin-top:4px;font-weight:700;line-height:1.6;border-top:1px dashed #c5d6cc;padding-top:4px}
@@ -520,8 +522,8 @@ function receiptsHtml(receipts, payable, isPurchase) {
   const rows = receipts.map((r, i) => `
     <div class="line"><span>${esc(verb)} ${faNum(i + 1)} — ${esc(r.label)}${r.dest ? ` (${esc(r.dest)})` : ''}${r.detail ? ` · ${esc(r.detail)}` : ''}</span><span class="num">${faNum(r.amount)} ریال</span></div>`).join('');
   return `
-    <div class="sum-box receipts-box" style="margin-top:8px">
-      <div class="line" style="font-weight:700"><span>${esc(verb)}‌های ثبت‌شده</span><span></span></div>
+    <div class="sum-box receipts-box">
+      <div class="line receipts-head"><span>${esc(verb)}‌های ثبت‌شده</span><span></span></div>
       ${rows}
       <div class="line"><span>جمع ${esc(verb)}</span><span class="num">${faNum(paid)} ریال</span></div>
       <div class="line"><span>مانده</span><span class="num">${faNum(remain)} ریال</span></div>

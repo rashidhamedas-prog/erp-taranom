@@ -24,7 +24,7 @@ const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const invRoutes = fs.readFileSync(path.join(__dirname, '../routes/invoices.js'), 'utf8');
 
-ok(/erp-taranom-v229/.test(sw), 'SW v229');
+ok(/erp-taranom-v22[9]|erp-taranom-v23\d/.test(sw), 'SW v229+');
 ok(printJs.includes('receiptsHtml') && printJs.includes('normalizePrintReceipts'), 'print receipts helpers');
 ok(invRoutes.includes('loadInvoiceReceipts'), 'print route loads receipts');
 ok(appJs.includes('toEnDigits(el(\'inv-cheque-sayadi\')') || appJs.includes("toEnDigits(el('inv-cheque-sayadi')"), 'client sayadi toEnDigits');

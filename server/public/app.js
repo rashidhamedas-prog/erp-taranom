@@ -391,11 +391,11 @@ function formatMoneyInput(elm){
   const pos=Math.max(0, elm.value.length-fromEnd);
   try{ elm.setSelectionRange(pos,pos); }catch(e){}
 }
-function moneyVal(id){ const e=el(id); if(!e) return 0; const raw=parseInt((e.value||'').replace(/[^\d]/g,''))||0; return fromInputAmount(raw); }
+function moneyVal(id){ const e=el(id); if(!e) return 0; const raw=parseInt(toEnDigits(e.value||'').replace(/[^\d]/g,''),10)||0; return fromInputAmount(raw); }
 // Pre-fill a money input with a formatted initial value (stored Rial → display unit)
 function moneyInit(v){ v=toDisplayAmount(parseInt(v)||0); return v?Number(v).toLocaleString('en-US'):''; }
 function moneyParseInput(elm){
-  return parseInt(String((elm&&elm.value)||'').replace(/[^\d]/g,''),10)||0;
+  return parseInt(toEnDigits(String((elm&&elm.value)||'')).replace(/[^\d]/g,''),10)||0;
 }
 function freightTypeIsSeller(v){
   const t=String(v||'').trim().toLowerCase();
@@ -4638,7 +4638,7 @@ async function _openInvBuilder(id){
           ${inv&&inv.pay_type==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
         </select></div>
         <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
-          <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder()})}">
+          <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder();if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}">
           <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
         <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز به حساب بانکی</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
           <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
@@ -5390,13 +5390,15 @@ function renderCart(){
       ${!vatExempt?`<div class="inv-summary-row"><span>مالیات بر ارزش افزوده (${fmt(vatRate)}٪):</span><span class="mono">${fmt(vatAmount)} ریال</span></div>`:''}
       ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
       <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
+      <div id="inv-receipt-live" class="inv-receipt-live" aria-live="polite"></div>
     </div>`;
+  if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
   if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
   try{ bindNumFit(el('cartRows')); }catch(_){}
 }
 let invPayRows=[];
 function parseInvMoney(v){
-  return parseInt(String(v||'').replace(/[^\d]/g,''),10)||0;
+  return parseInt(toEnDigits(String(v||'')).replace(/[^\d]/g,''),10)||0;
 }
 function invPayAmountRial(){
   if(typeof moneyVal==='function' && el('inv-pay-amount')) return moneyVal('inv-pay-amount');
@@ -5430,25 +5432,116 @@ function syncInvCashPayAmount(){
 }
 function renderInvCashRemainder(){
   const hint=el('inv-pay-remain');
-  if(!hint) return;
-  const pt=el('inv-pay-type')?.value;
-  if(!invPayAmountVisible() || pt!=='cash'){
+  if(hint){
+    // Legacy single-line hint kept for a11y; live ledger under grand total is canonical.
     hint.textContent='';
     hint.className='pay-remain muted';
+  }
+  if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
+}
+function invPayDestLabel(pt, row){
+  if(pt==='cash'){
+    const id=row&&row.cash_box_id;
+    const b=(CACHE.cashBoxes||[]).find(x=>Number(x.id)===Number(id));
+    return b?b.name:'صندوق';
+  }
+  if(pt==='bank_transfer'||pt==='bank'){
+    const id=row&&row.bank_id;
+    const b=(CACHE.banks||[]).find(x=>Number(x.id)===Number(id));
+    return b?b.name:'بانک';
+  }
+  if(pt==='pos_card'){
+    const id=row&&row.terminal_id;
+    const t=(CACHE.posTerminals||[]).find(x=>Number(x.id)===Number(id));
+    return t?(t.name||t.terminal_id||'کارتخوان'):'کارتخوان';
+  }
+  if(pt==='cheque'){
+    const say=toEnDigits((row&&(row.sayadi||row.cheque_sayadi))||'').replace(/\D/g,'');
+    return say?('صیاد '+say.slice(0,4)+'…'):'اسناد دریافتنی';
+  }
+  return '';
+}
+function collectLiveInvReceipts(){
+  const final=Number(window._invLastFinal)||0;
+  const multi=!!el('inv-multi')?.checked || el('inv-pay-type')?.value==='mixed';
+  const rows=[];
+  if(multi){
+    (invPayRows||[]).forEach((r,i)=>{
+      const amt=parseInvMoney(r.amount);
+      if(!(amt>0)) return;
+      const pt=r.pay_type||'cash';
+      rows.push({
+        i:i+1,
+        pay_type:pt,
+        label:(typeof payTypeLabel==='function'?payTypeLabel(pt):(pt==='cheque'?'چک':pt)),
+        dest:invPayDestLabel(pt,r),
+        amount:amt
+      });
+    });
+  }else{
+    const pt=el('inv-pay-type')?.value;
+    if(pt && pt!=='credit' && pt!=='mixed'){
+      const amt=invPayAmountRial();
+      if(amt>0){
+        const fake={
+          cash_box_id:+el('inv-cashbox')?.value||null,
+          bank_id:+el('inv-bank')?.value||null,
+          terminal_id:+el('inv-pos')?.value||null,
+          sayadi:el('inv-cheque-sayadi')?.value||''
+        };
+        rows.push({
+          i:1,
+          pay_type:pt,
+          label:(typeof payTypeLabel==='function'?payTypeLabel(pt):pt),
+          dest:invPayDestLabel(pt,fake),
+          amount:amt
+        });
+      }
+    }
+  }
+  return { final, rows };
+}
+function renderInvReceiptLedger(){
+  const box=el('inv-receipt-live');
+  if(!box) return;
+  const { final, rows }=collectLiveInvReceipts();
+  const pt=el('inv-pay-type')?.value;
+  if((!rows.length) && (!pt || pt==='credit')){
+    box.innerHTML=`
+      <div class="inv-receipt-live-head">دریافت‌ها</div>
+      <div class="inv-summary-row muted"><span>بدون دریافت (نسیه)</span><span class="mono">—</span></div>
+      <div class="inv-summary-row inv-receipt-remain"><span>مانده روی حساب مشتری</span><span class="mono">${fmt(final)} ریال</span></div>`;
     return;
   }
-  const paid=invPayAmountRial();
-  const final=Number(window._invLastFinal)||0;
-  if(paid>final){
-    hint.className='pay-remain red';
-    hint.textContent='مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد';
-  }else if(paid===final){
-    hint.className='pay-remain muted';
-    hint.textContent='کل مبلغ به صندوق انتخابی می‌رود';
-  }else{
-    hint.className='pay-remain orange';
-    hint.textContent='الباقی '+fmt(final-paid)+' ریال در حساب مشتری می‌ماند';
+  if(!rows.length){
+    box.innerHTML=`
+      <div class="inv-receipt-live-head">دریافت‌ها</div>
+      <div class="inv-summary-row muted"><span>مبلغ دریافت را وارد کنید</span><span class="mono">—</span></div>
+      <div class="inv-summary-row inv-receipt-remain"><span>مانده روی حساب مشتری</span><span class="mono">${fmt(final)} ریال</span></div>`;
+    return;
   }
+  let paid=0;
+  let over=false;
+  const lines=rows.map(r=>{
+    paid+=r.amount;
+    const remainAfter=final-paid;
+    if(remainAfter<0) over=true;
+    return `<div class="inv-receipt-step">
+      <div class="inv-summary-row"><span>${toFa(r.i)} · ${esc(r.label)}${r.dest?' · '+esc(r.dest):''}</span><span class="mono">${fmt(r.amount)} ریال</span></div>
+      <div class="inv-summary-row inv-receipt-after ${remainAfter<0?'red':(remainAfter===0?'ok':'')}">
+        <span>مانده پس از این دریافت</span><span class="mono">${fmt(Math.max(0,remainAfter))} ریال${remainAfter<0?' (مازاد)':''}</span>
+      </div>
+    </div>`;
+  }).join('');
+  const remain=final-paid;
+  box.innerHTML=`
+    <div class="inv-receipt-live-head">دریافت‌ها</div>
+    ${lines}
+    <div class="inv-summary-row"><span>جمع دریافت‌ها</span><span class="mono">${fmt(paid)} ریال</span></div>
+    <div class="inv-summary-row inv-receipt-remain ${over?'red':(remain===0?'ok':'')}">
+      <span>${over?'جمع دریافت از مبلغ فاکتور بیشتر است':'مانده روی حساب مشتری'}</span>
+      <span class="mono">${fmt(Math.max(0,remain))} ریال</span>
+    </div>`;
 }
 function defaultInvCashBoxIfNew(){
   const cb=el('inv-cashbox');
@@ -5515,7 +5608,7 @@ function renderInvPayRows(){
   const body=el('invPayRowsBody'); if(!body) return;
   if(!invPayRows.length) invPayRows=[{amount:'',pay_type:'cash'}];
   body.innerHTML=invPayRows.map((r,i)=>`<tr data-i="${i}">
-    <td><input class="money" data-k="amount" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].amount=this.value})}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value})}"></td>
+    <td><input class="money" data-k="amount" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].amount=this.value;if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value;if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].pay_type=this.value;if(this.value==='cheque')invPayEnsureChequeDefaults(invPayRows[(i)]);renderInvPayRows()})}">
       <option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option>
       <option value="bank_transfer" ${(r.pay_type==='bank_transfer'||r.pay_type==='bank')?'selected':''}>واریز بانکی</option>
@@ -5527,10 +5620,11 @@ function renderInvPayRows(){
   </tr>`).join('');
   body.querySelectorAll('input.money').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
   renderInvPayChequeCards();
+  if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
 }
 function invPayAddRow(){
   invPayRows=invPayRows||[];
-  invPayRows.push({amount:'',pay_type:'pos_card'});
+  invPayRows.push({amount:'',pay_type:'cheque'});
 }
 function collectInvPaySplits(){
   if(!el('inv-multi')?.checked) return null;
@@ -5629,7 +5723,17 @@ function hydrateInvPayRows(inv){
       }
       return row;
     });
-    if(parsed.length>1 || inv.pay_type==='mixed'){
+    // On edit, always expose multi-stage UI so an extra receipt can be appended.
+    const m=el('inv-multi'); if(m) m.checked=true;
+  }else if(inv.pay_type && inv.pay_type!=='credit' && Number(inv.pay_amount_rial)>0){
+    invPayRows=[{
+      amount:String(inv.pay_amount_rial||''),
+      pay_type:inv.pay_type==='bank'?'bank_transfer':inv.pay_type,
+      bank_id:inv.bank_id||null,
+      cash_box_id:inv.cash_box_id||null,
+      terminal_id:inv.pos_terminal_id||null
+    }];
+    if(inv.id || window._invBuilderId){
       const m=el('inv-multi'); if(m) m.checked=true;
     }
   }
@@ -5650,15 +5754,14 @@ function toggleInvPayFields(){
   if(multi){
     if(!invPayRows.length){
       const first=(pt==='credit'||pt==='mixed')?'cash':pt;
-      const second=first==='pos_card'?'cash':(first==='cheque'?'cash':'pos_card');
-      invPayRows=[{amount:'',pay_type:first},{amount:'',pay_type:second}];
+      invPayRows=[{amount:'',pay_type:first}];
       if(first==='cheque') invPayEnsureChequeDefaults(invPayRows[0]);
-      if(second==='cheque') invPayEnsureChequeDefaults(invPayRows[1]);
     }
     renderInvPayRows();
   }
   if(pt==='cash' && !multi) defaultInvCashBoxIfNew();
   syncInvCashPayAmount();
+  if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
 }
 function toggleChequeFields(){ toggleInvPayFields(); }
 function syncInvTypeDependentFields(applyVatDefault){
@@ -5687,6 +5790,13 @@ async function saveInvoice(id){
   const splits=collectInvPaySplits();
   if(splits){
     if(!splits.length){ showToast('حداقل یک مبلغ برای پرداخت چندمرحله‌ای وارد کنید','error'); return; }
+    const stagedRows=(invPayRows||[]).length;
+    if(stagedRows>splits.length){
+      showToast('مبلغ همهٔ مراحل دریافت را وارد کنید (مرحلهٔ بدون مبلغ ذخیره نمی‌شود)','error'); return;
+    }
+    const splitSum=splits.reduce((a,s)=>a+(Number(s.amount)||0),0);
+    const chkFinal=Number(window._invLastFinal)||0;
+    if(splitSum>chkFinal){ showToast('جمع دریافت‌ها نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
     if(splits.some(s=>s.pay_type==='pos_card' && !s.terminal_id)){ showToast('برای هر قسط کارتخوان، دستگاه را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='cash' && !s.cash_box_id)){ showToast('برای هر قسط نقد، صندوق را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='bank_transfer' && !s.bank_id)){ showToast('برای هر قسط واریز، بانک را انتخاب کنید','error'); return; }
@@ -5727,10 +5837,10 @@ async function saveInvoice(id){
     }
     if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی/معتبر نیست','error'); return; }
   }
-  if(!splits && pay_type==='cash'){
+  if(!splits && pay_type && pay_type!=='credit'){
     const chkAmt=invPayAmountRial();
     const chkFinal=Number(window._invLastFinal)||0;
-    if(chkAmt>chkFinal){ showToast('مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
+    if(chkAmt>chkFinal){ showToast('مبلغ دریافت نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
   }
   const discAmtSave=Math.max(0, Math.round(Number(el('inv-disc-amt')?.value)||0));
   const data = {
@@ -22319,7 +22429,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است</li>
         <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
         <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر مرحله با مبلغ دیده می‌شود. صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
-        <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود</li>
+        <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
+        <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
+        <li><b>چاپ با دریافت:</b> بلوک دریافت‌های ثبت‌شده بدون خطای امنیتی HTML ساخته می‌شود (استایل فقط از CSS قالب).</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
         <li><b>چاپ:</b> خطوط و نوشته‌ها و اعداد همهٔ قالب‌ها مشکی‌زاغ است. رنگ و سایز جدا ردیف نمی‌شوند؛ ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ</li>

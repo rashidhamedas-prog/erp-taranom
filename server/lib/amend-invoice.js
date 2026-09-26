@@ -337,7 +337,9 @@ function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial }) {
 }
 
 function isInvoiceTimeSettlement(s) {
-  return String((s && s.note) || '').includes('هنگام فاکتور');
+  const note = String((s && s.note) || '');
+  // Invoice-time cash/bank/cheque + POS posted with the invoice builder.
+  return note.includes('هنگام فاکتور') || note.includes('دریافت کارتخوان');
 }
 
 function listLiveSettlements(db, invoiceId) {
@@ -348,6 +350,127 @@ function listLiveSettlements(db, invoiceId) {
   `).all(invoiceId);
 }
 
+function patchOneInvoiceTimeSettlement(db, {
+  sett, split: s, custId, date, userId, num, body, installmentIndex, installmentTotal, invoiceId,
+}) {
+  const invId = invoiceId != null ? invoiceId : sett.invoice_id;
+  const amountRial = Math.round(Number(s.amount) || 0);
+  const payType = s.pay_type;
+  const chequeInfo = s.cheque_info || (body && body.cheque_info) || '';
+  const chequeDue = s.cheque_due || (body && body.cheque_due_date) || '';
+  const structured = [s.cheque_bank, s.cheque_number, s.sayadi].filter(Boolean).join(' — ');
+  const detail = structured || chequeInfo;
+  const note = s.note || `دریافت هنگام فاکتور ${num}`
+    + (installmentTotal > 1 ? ` — قسط ${installmentIndex + 1}` : '');
+  const settNote = detail ? `${note}${note ? ' — ' : ''}${detail}` : note;
+  const { settlementAssetAccount, digitsOnly } = require('./invoice-payments');
+  const cash = settlementAssetAccount(db, s);
+  const accountCode = payType === 'cheque' ? String(cash.code || '') : '';
+  db.prepare(`
+    UPDATE settlements
+    SET cust_id=?, amount=?, amount_rial=?, pay_type=?, date=?, note=?,
+        bank_id=?, cash_box_id=?, check_category_id=?, cheque_due=?,
+        cheque_bank=?, cheque_sayadi=?, cheque_number=?, cheque_account=?,
+        cheque_amount=?, cheque_owner=?, cheque_branch=?, cheque_sheba=?, account_code=?
+    WHERE id=?
+  `).run(
+    custId, amountRial, amountRial, payType, date || '', settNote,
+    s.bank_id || null, s.cash_box_id || null, payType === 'cheque' ? null : (s.check_category_id || null),
+    chequeDue,
+    s.cheque_bank || '', s.sayadi || '', s.cheque_number || '', s.cheque_account || '',
+    payType === 'cheque' ? amountRial : 0, s.cheque_owner || '', s.cheque_branch || '', s.sheba || '',
+    accountCode,
+    sett.id
+  );
+  db.prepare(`
+    UPDATE customer_ledger
+    SET customer_id=?, date=?, description=?, debit=0, credit=?
+    WHERE ref_type='settlement' AND ref_id=? AND entry_type='settlement'
+  `).run(
+    custId, date || '',
+    `تسویه هنگام فاکتور — ${amountRial.toLocaleString('fa-IR')} ریال`,
+    amountRial, sett.id
+  );
+  const recv = receivableAcct(db, custId);
+  const hasSettJe = !!db.prepare(`
+    SELECT 1 FROM journal_entries
+    WHERE ref_type='settlement' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    LIMIT 1
+  `).get(sett.id);
+  if (hasSettJe) {
+    const jeId = rewriteJournalEntry(db, {
+      sourceType: 'settlement', sourceId: sett.id,
+      date: date || '',
+      description: `تسویه هنگام فاکتور`,
+      createdBy: userId,
+      lines: [
+        { code: cash.code, name: cash.name, debit: rialToLedger(amountRial), credit: 0 },
+        { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(amountRial) },
+      ],
+    });
+    if (!jeId) {
+      throw httpErr(409, 'سند تسویه هنگام فاکتور پیدا نشد', 'E_AMEND_SETTLEMENT_JE');
+    }
+  }
+  // else: shadow/backfill settlement (cash already on invoice JE) — row fields only
+
+  try {
+    if (payType === 'cheque') {
+      const sayadi = digitsOnly(s.sayadi || '');
+      if (sayadi) {
+        const dup = db.prepare(`
+          SELECT id FROM cheque_records
+          WHERE sayadi=? AND direction='in' AND COALESCE(record_status,'posted')<>'reversed'
+            AND COALESCE(settlement_id,0)<>?
+        `).get(sayadi, sett.id);
+        if (dup) {
+          throw httpErr(409, 'شناسه صیاد این چک قبلاً ثبت شده است', 'E_CHEQUE_SAYADI_DUP');
+        }
+      }
+      const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
+      const existing = db.prepare(`
+        SELECT id FROM cheque_records
+        WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+      `).get(sett.id);
+      if (existing) {
+        db.prepare(`
+          UPDATE cheque_records SET
+            cheque_number=?, receive_date=?, due_date=?, bank_name=?, branch=?,
+            sayadi=?, sheba=?, account_number=?, party_name=?, customer_id=?,
+            amount=?, note=?, invoice_id=?, status='نزد صندوق', lifecycle_status='in_hand'
+          WHERE id=?
+        `).run(
+          s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
+          sayadi || '', s.sheba || '', s.cheque_account || '',
+          (cust && (cust.biz || cust.owner)) || '', custId,
+          amountRial, settNote, invId, existing.id
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO cheque_records
+            (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
+             account_number, party_name, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
+          VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
+          sayadi || '', s.sheba || '', s.cheque_account || '',
+          (cust && (cust.biz || cust.owner)) || '', custId,
+          'نزد صندوق', amountRial, settNote, invId, sett.id, 'in_hand'
+        );
+      }
+    } else {
+      db.prepare(`
+        UPDATE cheque_records SET record_status='reversed'
+        WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+      `).run(sett.id);
+    }
+  } catch (e) {
+    if (e && e.status) throw e;
+    /* cheque_records optional on old DBs */
+  }
+}
+
 function rewriteInvoiceTimeSettlements(db, {
   row, payPlan, custId, date, userId, num, body,
 }) {
@@ -355,14 +478,39 @@ function rewriteInvoiceTimeSettlements(db, {
   const invoiceTime = live.filter(isInvoiceTimeSettlement);
   const later = live.filter((s) => !isInvoiceTimeSettlement(s));
   const splits = (payPlan && payPlan.splits) || [];
+  const { applyInvoicePaySplits, recomputeInvoiceSettledBalances } = require('./invoice-payments');
 
   if (later.length && Number(custId) !== Number(row.cust_id)) {
     throw httpErr(409, 'این فاکتور تسویه بعدی دارد؛ تغییر مشتری مجاز نیست', 'E_AMEND_CUST_SETTLED');
   }
 
+  // Append new invoice-time stages without voiding existing ones (audit-friendly).
+  if (splits.length > invoiceTime.length) {
+    if (later.length) {
+      throw httpErr(
+        409,
+        'این فاکتور تسویهٔ جدا از ثبت فاکتور دارد؛ نوع پرداخت را عوض نکنید مگر آن تسویه ابطال شود',
+        'E_AMEND_SPLIT_COUNT'
+      );
+    }
+    for (let i = 0; i < invoiceTime.length; i++) {
+      patchOneInvoiceTimeSettlement(db, {
+        sett: invoiceTime[i], split: splits[i], custId, date, userId, num, body,
+        installmentIndex: i, installmentTotal: splits.length, invoiceId: row.id,
+      });
+    }
+    const tail = splits.slice(invoiceTime.length);
+    applyInvoicePaySplits(db, {
+      invoiceId: row.id, custId, date, splits: tail, userId, num,
+      chequeHeader: body, startIndex: invoiceTime.length,
+    });
+    recomputeInvoiceSettledBalances(db, row.id);
+    return;
+  }
+
   if (splits.length !== invoiceTime.length) {
-    // Any subsequent settlement (cash/bank/cheque/POS) blocks changing the
-    // invoice-time split set — otherwise POS receipts/settlements desync.
+    // Fewer stages (or full rewrite): reverse invoice-time set and recreate.
+    // Blocked when later settlements exist — otherwise POS/cash desync.
     if (later.length) {
       throw httpErr(
         409,
@@ -378,134 +526,23 @@ function rewriteInvoiceTimeSettlements(db, {
       ).run(row.id);
     } catch (_) { /* column arrives with boot migration */ }
     if (splits.length) {
-      const { applyInvoicePaySplits } = require('./invoice-payments');
       applyInvoicePaySplits(db, {
         invoiceId: row.id, custId, date, splits, userId, num,
         chequeHeader: body,
       });
+    } else {
+      recomputeInvoiceSettledBalances(db, row.id);
     }
     return;
   }
 
   for (let i = 0; i < splits.length; i++) {
-    const s = splits[i];
-    const sett = invoiceTime[i];
-    const amountRial = Math.round(Number(s.amount) || 0);
-    const payType = s.pay_type;
-    const chequeInfo = s.cheque_info || (body && body.cheque_info) || '';
-    const chequeDue = s.cheque_due || (body && body.cheque_due_date) || '';
-    const structured = [s.cheque_bank, s.cheque_number, s.sayadi].filter(Boolean).join(' — ');
-    const detail = structured || chequeInfo;
-    const note = s.note || `دریافت هنگام فاکتور ${num}` + (splits.length > 1 ? ` — قسط ${i + 1}` : '');
-    const settNote = detail ? `${note}${note ? ' — ' : ''}${detail}` : note;
-    const { settlementAssetAccount } = require('./invoice-payments');
-    const cash = settlementAssetAccount(db, s);
-    const accountCode = payType === 'cheque' ? String(cash.code || '') : '';
-    db.prepare(`
-      UPDATE settlements
-      SET cust_id=?, amount=?, amount_rial=?, pay_type=?, date=?, note=?,
-          bank_id=?, cash_box_id=?, check_category_id=?, cheque_due=?,
-          cheque_bank=?, cheque_sayadi=?, cheque_number=?, cheque_account=?,
-          cheque_amount=?, cheque_owner=?, cheque_branch=?, cheque_sheba=?, account_code=?
-      WHERE id=?
-    `).run(
-      custId, amountRial, amountRial, payType, date || '', settNote,
-      s.bank_id || null, s.cash_box_id || null, payType === 'cheque' ? null : (s.check_category_id || null),
-      chequeDue,
-      s.cheque_bank || '', s.sayadi || '', s.cheque_number || '', s.cheque_account || '',
-      payType === 'cheque' ? amountRial : 0, s.cheque_owner || '', s.cheque_branch || '', s.sheba || '',
-      accountCode,
-      sett.id
-    );
-    db.prepare(`
-      UPDATE customer_ledger
-      SET customer_id=?, date=?, description=?, debit=0, credit=?
-      WHERE ref_type='settlement' AND ref_id=? AND entry_type='settlement'
-    `).run(
-      custId, date || '',
-      `تسویه هنگام فاکتور — ${amountRial.toLocaleString('fa-IR')} ریال`,
-      amountRial, sett.id
-    );
-    const recv = receivableAcct(db, custId);
-    const hasSettJe = !!db.prepare(`
-      SELECT 1 FROM journal_entries
-      WHERE ref_type='settlement' AND ref_id=?
-        AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
-      LIMIT 1
-    `).get(sett.id);
-    if (hasSettJe) {
-      const jeId = rewriteJournalEntry(db, {
-        sourceType: 'settlement', sourceId: sett.id,
-        date: date || '',
-        description: `تسویه هنگام فاکتور`,
-        createdBy: userId,
-        lines: [
-          { code: cash.code, name: cash.name, debit: rialToLedger(amountRial), credit: 0 },
-          { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(amountRial) },
-        ],
-      });
-      if (!jeId) {
-        throw httpErr(409, 'سند تسویه هنگام فاکتور پیدا نشد', 'E_AMEND_SETTLEMENT_JE');
-      }
-    }
-    // else: shadow/backfill settlement (cash already on invoice JE) — row fields only
-
-    // Keep cheque register in sync with settlement on same-count amend.
-    try {
-      if (payType === 'cheque') {
-        const sayadi = String(s.sayadi || '').replace(/\D/g, '');
-        if (sayadi) {
-          const dup = db.prepare(`
-            SELECT id FROM cheque_records
-            WHERE sayadi=? AND direction='in' AND COALESCE(record_status,'posted')<>'reversed'
-              AND COALESCE(settlement_id,0)<>?
-          `).get(sayadi, sett.id);
-          if (dup) {
-            throw httpErr(409, 'شناسه صیاد این چک قبلاً ثبت شده است', 'E_CHEQUE_SAYADI_DUP');
-          }
-        }
-        const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
-        const existing = db.prepare(`
-          SELECT id FROM cheque_records
-          WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
-        `).get(sett.id);
-        if (existing) {
-          db.prepare(`
-            UPDATE cheque_records SET
-              cheque_number=?, receive_date=?, due_date=?, bank_name=?, branch=?,
-              sayadi=?, sheba=?, account_number=?, party_name=?, customer_id=?,
-              amount=?, note=?, invoice_id=?, status='نزد صندوق', lifecycle_status='in_hand'
-            WHERE id=?
-          `).run(
-            s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
-            sayadi || '', s.sheba || '', s.cheque_account || '',
-            (cust && (cust.biz || cust.owner)) || '', custId,
-            amountRial, settNote, row.id, existing.id
-          );
-        } else {
-          db.prepare(`
-            INSERT INTO cheque_records
-              (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
-               account_number, party_name, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
-            VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-          `).run(
-            s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
-            sayadi || '', s.sheba || '', s.cheque_account || '',
-            (cust && (cust.biz || cust.owner)) || '', custId,
-            'نزد صندوق', amountRial, settNote, row.id, sett.id, 'in_hand'
-          );
-        }
-      } else {
-        db.prepare(`
-          UPDATE cheque_records SET record_status='reversed'
-          WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
-        `).run(sett.id);
-      }
-    } catch (e) {
-      if (e && e.status) throw e;
-      /* cheque_records optional on old DBs */
-    }
+    patchOneInvoiceTimeSettlement(db, {
+      sett: invoiceTime[i], split: splits[i], custId, date, userId, num, body,
+      installmentIndex: i, installmentTotal: splits.length, invoiceId: row.id,
+    });
   }
+  recomputeInvoiceSettledBalances(db, row.id);
 }
 
 function rewriteCommissionInPlace(db, { row, invLike, userId, date }) {
