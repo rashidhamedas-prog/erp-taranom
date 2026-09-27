@@ -11,8 +11,9 @@
 3. Worktree `ai/ANDROID-NATIVE-SALES` + claim بدون دست‌زدن به فایل‌های DESKTOP.
 4. ثبت شکاف‌های sync مشترک (ارجاع به NATIVE-WINDOWS-SYNC-GAPS).
 5. فهرست مسدودکننده: keystore ops، دستگاه آزمون، آزادسازی AI-DOS registry.
+6. **اسکلت `android-native/` تحویل شد** (Compose RTL، Room v1، outbox تراکنشی، sync API stub، parity VAT/Round3 با مرجع Node؛ `assembleDebug` روی این ماشین به‌خاطر نبود JDK/SDK اجرا نشد).
 
-**خروج:** تأیید مالک روی ADR → شروع اسکلت.
+**خروج:** تأیید مالک روی ADR → شروع برش عمودی (فاز ۱). JDK 17 + Android SDK روی ماشین بیلد الزامی است.
 
 ## فاز ۱ — اسکلت + برش عمودی
 

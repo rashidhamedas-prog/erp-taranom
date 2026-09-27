@@ -56,10 +56,13 @@
 
 بدون A، یا Node باقی می‌ماند (خلاف مأموریت) یا نوشتن مالی آفلاین واقعی نیست.
 
-## F) تصحیح ماتریس فروش (از اکتشاف CRM)
+## G) وضعیت اسکلت (`android-native/`) — ۱۴۰۵/۰۷/۰۵
 
-- FS/IS: فقط پیش‌فاکتور؛ فاکتور قطعی/تبدیل = SM (یا بالاتر).
-- دریافت میدانی = pending تا تأیید admin/accounting.
-- سبد باید از روز اول در DB باشد (نه localStorage).
-- اختلاف تخفیف `marketer-ui.js` vs `buildRows`: مرجع parity = سرور.
-- قبل از اتکا به تعارض تماس/ویزیت: تسک جدا برای `PATH_TABLE_MAP` روی `/api/reps/:id/calls|visits`.
+تحویل توسط [Scaffold android-native Kotlin app](e928b3d4-e4fd-40e5-b8fe-56789fdc6eca):
+
+- ۵۶ فایل · ۵ ماژول Gradle · AndroidX · Compose RTL · بدون WebView
+- Room v1 + `insertWithOutbox` تراکنشی · release fail-closed بدون debug-sign
+- `applicationId` release=`ir.taranom.crm` · debug suffix `.native.debug` · `versionCode 100`
+- Parity VAT/Round3: الگوریتم در برابر `server/lib/*.js` با **۱۶۷/۱۶۷** تطبیق (شامل تلهٔ `round` نیمه‌بالا JS vs banker's Kotlin)
+- **مسدود:** این ماشین JDK/Android SDK ندارد ⇒ `assembleDebug` / `:core:domain:test` اجرا نشد
+- اسرار: `keystore.properties` / `local.properties` در درخت نیست (gitignore)

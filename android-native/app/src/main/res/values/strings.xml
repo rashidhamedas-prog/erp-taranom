@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- زبان پیش‌فرض محصول: فارسی (RTL). ترجمهٔ انگلیسی در صورت نیاز values-en/. -->
+<resources>
+    <string name="app_name">فروش ترنم</string>
+
+    <string name="nav_login">ورود محلی</string>
+    <string name="nav_customers">مشتریان</string>
+    <string name="nav_sync">وضعیت همگام‌سازی</string>
+
+    <string name="login_title">ورود محلی</string>
+    <string name="login_subtitle">پس از فعال‌سازی دستگاه، ورود بدون اینترنت انجام می‌شود.</string>
+    <string name="login_username">نام کاربری</string>
+    <string name="login_password">گذرواژه</string>
+    <string name="login_submit">ورود</string>
+    <string name="login_placeholder_note">اسکلت فاز ۰ — اعتبارسنجی محلی در فاز ۱ اضافه می‌شود.</string>
+
+    <string name="customers_title">مشتریان من</string>
+    <string name="customers_empty">هنوز مشتری‌ای روی این دستگاه نیست.</string>
+    <string name="customers_placeholder_note">اسکلت فاز ۰ — فهرست از دیتابیس محلی در فاز ۱ می‌آید.</string>
+
+    <string name="sync_title">وضعیت همگام‌سازی</string>
+    <string name="sync_state_offline">آفلاین — صف روی دستگاه محفوظ است</string>
+    <string name="sync_pending_label">عملیات در انتظار ارسال</string>
+    <string name="sync_last_pull_label">آخرین دریافت از مرکز</string>
+    <string name="sync_never">هرگز</string>
+    <string name="sync_placeholder_note">اسکلت فاز ۰ — موتور sync در فاز ۱ وصل می‌شود.</string>
+
+    <string name="action_back">بازگشت</string>
+</resources>
