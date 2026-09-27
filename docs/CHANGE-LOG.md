@@ -11,7 +11,7 @@
 - **Fixtures:** golden-expanded ۱۴۲ assert (RBAC+فروش+R13)؛ airgap-smoke ۱۲؛ `run-all-gates.js` همه سبز
 - **فاز ۰:** هدف ≥۱۵۰ assert برآورده (۱۶۳ از goldenها)
 - **راهنما/SW:** SW `erp-taranom-v252`
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP @ `8f2c515` — health/ready/root 200؛ SW `erp-taranom-v252`
 
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۱ بومی: Domain Host invoke + اسکلت WPF + print fixtures (SW v251)
 
