@@ -29,6 +29,7 @@ ksp {
 
 dependencies {
     api(project(":core:model"))
+    api(project(":core:domain"))
     api(libs.kotlinx.coroutines.core)
 
     implementation(libs.androidx.room.runtime)

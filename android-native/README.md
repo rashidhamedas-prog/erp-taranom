@@ -8,8 +8,8 @@
 > · شواهد: [`NATIVE-ANDROID-EVIDENCE.md`](../docs/architecture/NATIVE-ANDROID-EVIDENCE.md)
 > · قرارداد sync: [`docs/OFFLINE-SYNC.md`](../docs/OFFLINE-SYNC.md)
 
-وضعیت فعلی: **اسکلت فاز ۰** — ناوبری و ماژول‌ها سرجایشان هستند، منطق فروش در
-موج‌های بعد پر می‌شود.
+وضعیت فعلی: **فاز ۲/۳ UI** — CRM میدانی، کاتالوگ، پیش‌نویس پایدار، اسناد مالی
+محدود (RBAC) و Room v2؛ موتور HTTP سینک هنوز در `sync:impl` است.
 
 ## چرا WebView نیست
 
@@ -30,12 +30,15 @@ android-native/
 ├── app/                 اپ Compose (تنها ماژول اندرویدیِ اجراشدنی)
 ├── core/model/          مدل دامنه + ثابت‌های شناسهٔ provisional (Kotlin خالص)
 ├── core/domain/         محاسبات فروش + fixtureهای parity   (Kotlin خالص)
-├── core/database/       Room: customers / sales_drafts / outbox_ops
-└── sync/api/            قرارداد SyncClient + DeviceCredentials (بدون HTTP)
+├── core/database/       Room v2: CRM + catalog + drafts/lines + finance + conflicts
+├── sync/api/            قرارداد SyncClient + DeviceCredentials (بدون HTTP)
+├── sync/impl/           کلاینت HTTP/HMAC/Ed25519 (فاز ۱)
+├── update/              پارس manifest.json + گیت دانلود APK امضاشده (JVM)
+└── migrate/             LegacyDbMigrator + بکاپ امن بدون HMAC خام (JVM)
 ```
 
-`core:model`، `core:domain` و `sync:api` عمداً **Kotlin خالص** (JVM) هستند تا
-تست‌های دامنه بدون Android SDK و شبیه‌ساز اجرا شوند.
+`core:model`، `core:domain`، `sync:api`، `update` و `migrate` عمداً **Kotlin خالص**
+(JVM) هستند تا تست‌های سیاست بدون Android SDK و شبیه‌ساز اجرا شوند.
 
 ## نسخه‌های قفل‌شده
 
@@ -82,7 +85,7 @@ Kotlin 2.x است، پس Compose Compiler به‌صورت **Gradle Plugin** اض
 
 cd android-native
 
-.\gradlew :core:domain:test        # تست‌های parity — بدون نیاز به Android SDK
+.\gradlew :core:domain:test :update:test :migrate:test   # JVM — بدون Android SDK
 .\gradlew :app:assembleDebug       # APK دیباگ (side-by-side با legacy)
 .\gradlew :app:assembleRelease     # بدون keystore ⇒ عمداً fail می‌شود
 ```
@@ -129,9 +132,11 @@ cd android-native
 
 ## دیتابیس محلی
 
-`taranom-sales.db` (نسخهٔ اسکیما ۱) — منبع حقیقت دستگاه، **نه cache**.
+`taranom-sales.db` (نسخهٔ اسکیما ۲) — منبع حقیقت دستگاه، **نه cache**.
 
-- `customers`, `sales_drafts`, `outbox_ops`
+- v1: `customers`, `sales_drafts`, `outbox_ops`
+- v2: `sales_draft_lines`, `followups`, `visit_logs`, `call_logs`, `products`,
+  `product_variants`, `invoices`, `receipts`, `sales_returns`, `sync_conflicts`
 - `fallbackToDestructiveMigration` **هرگز**: پاک‌شدن دیتابیس یعنی از دست رفتن
   صف `pending`، یعنی سندی که فروشنده ثبت کرده و مرکز هنوز ندیده.
 - نوشتن دامنه + درج ردیف outbox در **یک تراکنش** (`insertWithOutbox`) — همان
@@ -141,13 +146,39 @@ cd android-native
 - مسیر legacy (`files/crm-data/crm.db`) دست‌نخورده می‌ماند تا migrator فاز ۵
   بتواند از آن بخواند.
 
-## کارهای باز (فاز ۰ عمداً انجام نداده)
+## آپدیت امضاشده + WorkManager (فاز ۴)
+
+- ماژول `:update` همان قرارداد `server/lib/app-update.js` /
+  `server/public/releases/manifest.json` را پیاده می‌کند:
+  `version`/`versionCode`/`url`/`sha256`/`size`، resolve مسیر نسبی، allowlist
+  میزبان (`erp.poshaktaranom.com` / `poshaktaranom.com`)، دانلود فقط وقتی
+  integrity کامل باشد (fail-closed).
+- `UpdateCheckWorker` / `SyncCheckWorker` با `BackgroundSchedulers` در
+  `Application.onCreate` به‌صورت periodic ثبت می‌شوند؛ خرابی feed فروش آفلاین
+  را متوقف نمی‌کند. نصب PackageInstaller هنوز پس از تأیید UI است.
+
+## مهاجرت legacy + بکاپ امن (فاز ۴–۵)
+
+- مسیرهای تشخیص: `filesDir/crm-data/crm.db` سپس `filesDir/data/crm.db`
+  (فقط خواندن؛ محصول `android/` بازنویسی نمی‌شود).
+- `LegacyDbMigrator`: کپی `customers` + `sync_outbox` pending؛ **هرگز**
+  `device_token` / HMAC / کلید خصوصی replay را plaintext کپی یا export نمی‌کند.
+- هویت: conflict `device_id` ⇒ abort؛ unpaired + legacy id ⇒ hint + **re-pair**
+  (نه کپی کور توکن).
+- `SecureBackupCodec`: AES-GCM + PBKDF2؛ payload با `secrets_exported:false`؛
+  وجود کلیدهای ممنوع در JSON ⇒ throw.
+- در boot فقط **dry-run** migrator اجرا می‌شود تا wipe بی‌صدا رخ ندهد.
+
+## کارهای باز
 
 - فونت وزیرمتن داخل APK (فعلاً فونت سیستم) — ADR §۱۱
 - Hilt به‌جای `TaranomDatabaseProvider` — ADR §۴.۲
-- جدول `sales_draft_lines` + migration نسخهٔ ۲
-- `sync:impl` (HTTP واقعی) — فعلاً `UnpairedSyncClient` هر تماس را رد می‌کند
-- ورود محلی واقعی با Keystore؛ صفحهٔ فعلی فقط اسکلت فرم است
+- سیم‌کشی کامل `SyncCheckWorker` به `sync:impl` + pairing واقعی (ایجنت sync)
+- دانلود/نصب APK با verify signer/package (پورت کامل MainActivity legacy)
+- تأیید UI برای migrate واقعی (الان dry-run در ایجنت migrate)
+- ورود محلی واقعی با Keystore؛ صفحهٔ فعلی اسکلت فرم است
+- policy store نقش‌ها از سرور (فعلاً `SessionRoles` پیش‌فرض field_sales)
+- تصاویر واقعی کاتالوگ (فعلاً placeholder)
 - آیکون برند (فعلاً وکتور موقت، بدون فایل باینری در گیت)
 - SQLCipher: فقط پس از ADR-AND-002
 - `POST /api/sync/pair` امروز admin-only است؛ مسیر فروشندهٔ میدانی تصمیم مالک

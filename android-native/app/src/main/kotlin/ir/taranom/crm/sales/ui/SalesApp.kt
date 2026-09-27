@@ -16,10 +16,22 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import ir.taranom.crm.sales.ui.navigation.SalesDestination
+import ir.taranom.crm.sales.ui.screens.CallLogScreen
 import ir.taranom.crm.sales.ui.screens.CartOrderScreen
+import ir.taranom.crm.sales.ui.screens.CatalogScreen
+import ir.taranom.crm.sales.ui.screens.ConflictReviewScreen
 import ir.taranom.crm.sales.ui.screens.CustomersListScreen
+import ir.taranom.crm.sales.ui.screens.FollowupsScreen
+import ir.taranom.crm.sales.ui.screens.HelpGuideScreen
+import ir.taranom.crm.sales.ui.screens.InvoiceListScreen
 import ir.taranom.crm.sales.ui.screens.LoginLocalScreen
+import ir.taranom.crm.sales.ui.screens.MoreHubScreen
+import ir.taranom.crm.sales.ui.screens.PersonalReportsScreen
+import ir.taranom.crm.sales.ui.screens.ReceiptScreen
+import ir.taranom.crm.sales.ui.screens.ReturnScreen
 import ir.taranom.crm.sales.ui.screens.SyncStatusScreen
+import ir.taranom.crm.sales.ui.screens.VisitLogScreen
+import ir.taranom.crm.sales.ui.session.SessionRoles
 
 @Composable
 fun SalesApp() {
@@ -68,21 +80,33 @@ fun SalesApp() {
             composable(SalesDestination.LoginLocal.route) {
                 LoginLocalScreen(
                     onSignedIn = {
+                        SessionRoles.signIn(userId = 1L)
                         navController.navigate(SalesDestination.CustomersList.route) {
                             popUpTo(SalesDestination.LoginLocal.route) { inclusive = true }
                         }
                     },
                 )
             }
-            composable(SalesDestination.CustomersList.route) {
-                CustomersListScreen()
+            composable(SalesDestination.CustomersList.route) { CustomersListScreen() }
+            composable(SalesDestination.Catalog.route) { CatalogScreen() }
+            composable(SalesDestination.CartOrder.route) { CartOrderScreen() }
+            composable(SalesDestination.More.route) {
+                MoreHubScreen(
+                    onOpen = { dest ->
+                        navController.navigate(dest.route) { launchSingleTop = true }
+                    },
+                )
             }
-            composable(SalesDestination.CartOrder.route) {
-                CartOrderScreen()
-            }
-            composable(SalesDestination.SyncStatus.route) {
-                SyncStatusScreen()
-            }
+            composable(SalesDestination.Followups.route) { FollowupsScreen() }
+            composable(SalesDestination.VisitLog.route) { VisitLogScreen() }
+            composable(SalesDestination.CallLog.route) { CallLogScreen() }
+            composable(SalesDestination.Invoices.route) { InvoiceListScreen() }
+            composable(SalesDestination.Returns.route) { ReturnScreen() }
+            composable(SalesDestination.Receipts.route) { ReceiptScreen() }
+            composable(SalesDestination.Conflicts.route) { ConflictReviewScreen() }
+            composable(SalesDestination.Reports.route) { PersonalReportsScreen() }
+            composable(SalesDestination.SyncStatus.route) { SyncStatusScreen() }
+            composable(SalesDestination.Help.route) { HelpGuideScreen() }
         }
     }
 }

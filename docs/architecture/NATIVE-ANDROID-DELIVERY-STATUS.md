@@ -15,11 +15,26 @@
 | visits/calls sync capture map | `server/sync/capture.js` → `rep_visit_logs` / `rep_call_logs` |
 | Release signing fail-closed | `app/build.gradle.kts` |
 | JDK 17 on build PC | `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot` |
+| **Phase 2 CRM + catalog UI (Room)** | Followups, Visit/Call logs, Catalog+variant picker, draft restore |
+| **Phase 3 limited finance screens** | Invoice list/create, Return, Receipt (RBAC-gated), Conflicts, Personal reports |
+| Room migration **v1→v2** | followups, visit/call logs, products/variants, draft lines, invoices/receipts/returns, sync_conflicts |
+| In-app HelpGuideScreen | `HelpGuideScreen` + Persian `strings.xml` |
+
+## Still stubbed / owned elsewhere
+
+| Item | Notes |
+|---|---|
+| `sync:impl` HTTP + Ed25519 + SyncEngine | Other agent — catalog/customers stay empty until pull |
+| Local auth Keystore | Login form still accepts any non-empty credentials |
+| Policy store / real RBAC from server | `SessionRoles` defaults to `field_sales`; final invoice/return/receipt gated |
+| Coil/real product images | Placeholder icon only |
+| R13 full reverse UX on mobile | Not wired; server rules still apply on replay |
+| APK assemble/release | Blocked on Android SDK + keystore on this host |
+| Independent Reviewer + Security | PENDING before GA |
 
 ## In progress (parallel agents)
 
 - `sync:impl` HTTP + Ed25519 + SyncEngine
-- Sales UI vertical (cart/followups/catalog wired to Room)
 - Updater + LegacyDbMigrator + WorkManager
 
 ## Blocked on this host (environment)
@@ -35,6 +50,7 @@
 
 - Native `versionCode` **100** / `3.0.0-alpha01` (release `applicationId` `ir.taranom.crm`)
 - Legacy remains `android/` until migrator green
+- Room schema **version 2**
 
 ## Next commands (on SDK machine)
 

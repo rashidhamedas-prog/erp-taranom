@@ -19,10 +19,16 @@ data class OutboxOp(
     val userId: Long,
     /** نسخهٔ ردیف پایه هنگام ثبت — مبنای تشخیص تعارض در مرکز. */
     val baseVersion: Long? = null,
+    /** Primary entity table for provisional→central id map (creates). */
+    val entityTable: String? = null,
+    /** Local provisional id of the primary entity (creates). */
+    val entityLocalId: Long? = null,
     /** ردیف‌های ساخته/تغییرکردهٔ محلی؛ کلاینت بومی خودش تولید می‌کند. */
     val capturedRowsJson: String? = null,
     /** امضای Ed25519 هر عملیات. کلید خصوصی هرگز از دستگاه خارج نمی‌شود. */
     val replayProof: String? = null,
+    val fileHash: String? = null,
+    val fileField: String? = null,
     val status: OutboxStatus = OutboxStatus.PENDING,
     val attemptCount: Int = 0,
     val lastError: String? = null,

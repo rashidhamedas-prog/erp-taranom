@@ -10,8 +10,7 @@ import ir.taranom.crm.sales.core.model.SyncState
  * سربرگ پیش‌نویس/سبد فروش. از روز اول روی دیسک است تا تماس، چرخش صفحه یا
  * kill شدن فرایند پیش‌نویس فروشنده را نبرد (ADR §۱۱ و EVIDENCE §C).
  *
- * TODO(فاز ۱): جدول `sales_draft_lines` + migration نسخهٔ ۲. در فاز ۰ فقط
- * سربرگ ذخیره می‌شود تا اسکلت با یک اسکیمای نسخهٔ ۱ پایدار بسته شود.
+ * خطوط در جدول `sales_draft_lines` (migration v2) ذخیره می‌شوند.
  */
 @Entity(
     tableName = "sales_drafts",

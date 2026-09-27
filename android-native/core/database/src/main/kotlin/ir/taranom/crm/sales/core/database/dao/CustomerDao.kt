@@ -23,6 +23,9 @@ interface CustomerDao {
     )
     fun observeScoped(ownerUserId: Long?): Flow<List<CustomerEntity>>
 
+    @Query("SELECT COUNT(*) FROM customers")
+    suspend fun countAll(): Int
+
     @Query("SELECT * FROM customers WHERE local_id = :localId")
     suspend fun findByLocalId(localId: Long): CustomerEntity?
 

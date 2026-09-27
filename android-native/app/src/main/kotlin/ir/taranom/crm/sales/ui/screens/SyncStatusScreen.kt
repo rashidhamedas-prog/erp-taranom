@@ -1,5 +1,6 @@
 package ir.taranom.crm.sales.ui.screens
 
+import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,22 +12,31 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import ir.taranom.crm.sales.R
+import ir.taranom.crm.sales.core.database.TaranomDatabaseProvider
 import ir.taranom.crm.sales.ui.theme.TaranomSalesTheme
 
-/**
- * Placeholder وضعیت همگام‌سازی.
- *
- * فاز ۱: شمارش واقعی صف از `outbox_ops` + تفکیک صریح حالت‌ها. «آفلاین» هرگز با
- * «توکن منقضی» یکی نمایش داده نمی‌شود (ADR §۸.۲).
- */
 @Composable
-fun SyncStatusScreen(
+fun SyncStatusScreen() {
+    val context = LocalContext.current
+    val db = remember { TaranomDatabaseProvider.get(context.applicationContext as Application) }
+    val pending by db.outboxDao().observePendingCount().collectAsState(initial = 0)
+    val conflicts by db.outboxDao().observeConflictCount().collectAsState(initial = 0)
+    SyncStatusContent(pendingOps = pending, conflictOps = conflicts, lastPullLabel = null)
+}
+
+@Composable
+fun SyncStatusContent(
     pendingOps: Int = 0,
+    conflictOps: Int = 0,
     lastPullLabel: String? = null,
 ) {
     Column(
@@ -53,6 +63,10 @@ fun SyncStatusScreen(
                 StatusRow(
                     label = stringResource(R.string.sync_pending_label),
                     value = pendingOps.toString(),
+                )
+                StatusRow(
+                    label = stringResource(R.string.sync_conflicts_label),
+                    value = conflictOps.toString(),
                 )
                 StatusRow(
                     label = stringResource(R.string.sync_last_pull_label),
@@ -83,5 +97,5 @@ private fun StatusRow(label: String, value: String) {
 @Preview(showBackground = true)
 @Composable
 private fun SyncStatusScreenPreview() {
-    TaranomSalesTheme { SyncStatusScreen(pendingOps = 3) }
+    TaranomSalesTheme { SyncStatusContent(pendingOps = 3, conflictOps = 1) }
 }
