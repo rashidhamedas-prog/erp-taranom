@@ -5,6 +5,13 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — hotfix Electron: work-area.js در files بیلد (نصب محلی)
+
+- **علت:** `ERP Taranom Setup 2.0.13` بدون `work-area.js` بسته‌بندی شده → خطای `Cannot find module './work-area'`
+- **رفع فوری:** کپی به `%LocalAppData%\Programs\ERP Taranom\resources\app\work-area.js`
+- **دائمی:** `desktop/package.json` → `build.files` شامل `work-area.js` (بیلد بعدی)
+- **Deploy وب:** نیاز نیست؛ بیلد مجدد EXE فقط با درخواست صریح
+
 ### ۱۴۰۵/۰۷/۰۵ — بستهٔ native WPF+Host + Migration + airgap checklist (SW v253)
 
 - **WPF:** صفحات مشتری/کالا/فاکتور (پیش‌فاکتور سریع)/انبار/گزارش + بکاپ/Sync + MigrationWizard Electron→ProgramData
