@@ -13,7 +13,7 @@
 - **Docs:** `docs/native/GA-STATUS.md`؛ AIRGAP به‌روز
 - **راهنما/SW:** Help فاز ۱ نزدیک GA؛ SW `erp-taranom-v253`
 - **باقی GA:** MSI/OV امضا، update بومی، عمق فرم‌ها، بازنشستگی Electron
-- **Deploy:** ⏳ همین نوبت
+- **Deploy:** ✅ ایران overlay SFTP @ `59a17c8` — health/ready/root 200؛ SW `erp-taranom-v253`
 
 ### ۱۴۰۵/۰۷/۰۵ — موج‌های ۲→۱۰: smoke دامنه روی Domain Host pipe (SW v252)
 
