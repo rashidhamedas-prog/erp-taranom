@@ -5,6 +5,7 @@
 
     <string name="nav_login">ورود محلی</string>
     <string name="nav_customers">مشتریان</string>
+    <string name="nav_cart">سبد / پیش‌فاکتور</string>
     <string name="nav_sync">وضعیت همگام‌سازی</string>
 
     <string name="login_title">ورود محلی</string>
@@ -17,6 +18,13 @@
     <string name="customers_title">مشتریان من</string>
     <string name="customers_empty">هنوز مشتری‌ای روی این دستگاه نیست.</string>
     <string name="customers_placeholder_note">اسکلت فاز ۰ — فهرست از دیتابیس محلی در فاز ۱ می‌آید.</string>
+
+    <string name="cart_hint">محاسبهٔ محلی جمع سند با همان قواعد سرور (تخفیف مبلغ بر درصد مقدم است).</string>
+    <string name="field_customer_id">شناسه مشتری</string>
+    <string name="field_product_id">شناسه کالا</string>
+    <string name="field_qty">مقدار</string>
+    <string name="field_price_rial">قیمت واحد (ریال)</string>
+    <string name="action_preview_proforma">پیش‌نمایش پیش‌فاکتور محلی</string>
 
     <string name="sync_title">وضعیت همگام‌سازی</string>
     <string name="sync_state_offline">آفلاین — صف روی دستگاه محفوظ است</string>

@@ -5,10 +5,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.ui.graphics.vector.ImageVector
 import ir.taranom.crm.sales.R
 
-/** مقصدهای فاز ۰. صفحات فروش (کاتالوگ، سبد، سند، وصول) در موج‌های بعد اضافه می‌شوند. */
 enum class SalesDestination(
     val route: String,
     @StringRes val labelRes: Int,
@@ -17,6 +17,7 @@ enum class SalesDestination(
 ) {
     LoginLocal("login-local", R.string.nav_login, Icons.Filled.Lock, inBottomBar = false),
     CustomersList("customers", R.string.nav_customers, Icons.Filled.Person, inBottomBar = true),
+    CartOrder("cart", R.string.nav_cart, Icons.Filled.ShoppingCart, inBottomBar = true),
     SyncStatus("sync-status", R.string.nav_sync, Icons.Filled.Refresh, inBottomBar = true),
     ;
 
