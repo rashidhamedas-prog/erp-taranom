@@ -5,6 +5,13 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: طرح فازبندی ۰→۱۱
+
+- **منبع:** برنامه‌ریز ECC — برش عمودی، موج‌های ماژولی، air-gap ۱۲گامی، مهاجرت Electron، stop-gateها
+- **فایل:** `docs/architecture/NATIVE-WINDOWS-PHASE-PLAN.md`
+- **تعارض ثبت‌شده:** ADR-03 برنامه‌ریز = Full C# از روز اول؛ ADR والد = Node Host سپس پورت — نیازمند قفل مالک قبل از P1
+- **Deploy:** docs-only
+
 ### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: الحاق inventory + شکاف Sync
 
 - **Inventory:** ۷۴ قابلیت از ۸۱ route / ~۸۸۰ endpoint → `docs/architecture/NATIVE-WINDOWS-CAPABILITY-INVENTORY.md`

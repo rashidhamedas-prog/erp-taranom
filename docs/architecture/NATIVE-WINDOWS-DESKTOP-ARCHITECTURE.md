@@ -409,6 +409,9 @@ check → download(resume) → verify signature/hash → wait safe point
 | P5 | UpdateWorker + Installer امضا + Migrate-Electron | L | pilot install |
 | P6 | تکمیل ماتریس + hardening + گزارش امنیت + GA | L | air-gap کامل |
 
+**طرح موج‌به‌موج تفصیلی (۰→۱۱، air-gap ۱۲گامی، مهاجرت Electron):** [`NATIVE-WINDOWS-PHASE-PLAN.md`](./NATIVE-WINDOWS-PHASE-PLAN.md)  
+⚠️ آن سند ADR-03 را «Full C# از روز اول» پیشنهاد می‌کند؛ **والد این فایل Primary را Node Host می‌داند** تا مالک یکی را قفل کند (بخش ۱۴).
+
 **توقف‌گاه‌ها:** شکست پاریتی مالی؛ پیشنهاد برگشت به Electron؛ LWW؛ وابستگی اجباری آنلاین برای login.
 
 ---
@@ -428,14 +431,15 @@ check → download(resume) → verify signature/hash → wait safe point
 
 ## ۱۴) تصمیم‌های نیازمند تأیید مالک
 
-1. تأیید **WPF + Domain Host فازبندی** در برابر Full C# از روز اول.
+1. تأیید **WPF + Domain Host فازبندی (A)** در برابر **Full C# از روز اول (B)** — تعارض صریح با طرح فازبندی؛ بدون قفل، فاز ۱ شروع نشود.
 2. میزبان HTTPS ایرانی برای installer/update.
 3. خرید/استفاده گواهی OV Authenticode.
 4. سیاست موجودی/اعتبار دستگاه: سهمیه vs پذیرش مشروط.
 5. روزهای grace لایسنس آفلاین پس از expiry.
-6. per-machine vs per-user install.
-7. زمان نگهداشت Electron موازی برای کاربران فعلی.
+6. per-machine vs per-user install (و MSI/WiX vs NSIS/Velopack).
+7. زمان نگهداشت Electron موازی (پیشنهاد طرح: freeze قابلیت از پایان موج ۳).
 8. آیا WebView2 فقط برای پیش‌نمایش PDF کمکی مجاز است؟ (پیشنهاد: PDF از طریق چاپگر/PdfSharp بدون WebView)
+9. هدف runtime: .NET 8 LTS یا .NET 9.
 
 ---
 
