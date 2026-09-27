@@ -12,7 +12,7 @@
 - **متادیتا:** `desktop/package.json` 2.0.13؛ `server/public/releases/{manifest.json,latest.yml}`
 - **راهنما/SW:** Help ویندوز ۲.۰.۱۳ + OEM؛ SW `erp-taranom-v248`
 - **فایل‌ها:** docs/architecture/NATIVE-WINDOWS-*, desktop/package.json, server/public/{app.js,index.html,sw.js,releases/*}, docs/DESKTOP-EXE-DELIVERY.md, docs/CHANGE-LOG.md
-- **Deploy:** ⏳ پس از push (installer روی VPS آپلود نمی‌شود — فقط متادیتا/وب)
+- **Deploy:** ✅ ایران overlay SFTP (app.js/index/sw/releases) @ `abef40b` — health/root تأیید؛ installer روی VPS نیست
 
 ### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: تکمیل سند Sync (قرارداد + شکاف‌ها)
 
