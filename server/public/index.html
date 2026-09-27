@@ -3,21 +3,21 @@
 <head>
 <script src="/csp-runtime.js?v=202"></script>
 <meta charset="UTF-8">
-<!-- Force HTTPS on production host — http:// + CF/nginx 301 turns POST login into GET and breaks Chrome. -->
+<!-- Force HTTPS on production host � http:// + CF/nginx 301 turns POST login into GET and breaks Chrome. -->
 <script src="/boot.js?v=161"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>ERP ترنم</title>
+<title>ERP ????</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1A5C38">
 <link rel="apple-touch-icon" href="/logo.png">
-<!-- همه دارایی‌ها محلی هستند — هیچ وابستگی به CDN خارجی (Google Fonts / jsDelivr)
-     تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
-     اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
+<!-- ??? ????????? ???? ????? � ??? ??????? ?? CDN ????? (Google Fonts / jsDelivr)
+     ?? ??? ????????/??????? ????? ?? ?????? ???? ? ???? ???????? ???.
+     ?????????? defer ????? ?? ???? ???? ?? ????? ?????. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <link rel="stylesheet" href="/prod-ui.css?v=187">
 <script src="/vendor/html2canvas.min.js" defer></script>
 <script src="/marketer-ui.js?v=240" defer></script>
-<link rel="stylesheet" href="/app.css?v=247">
+<link rel="stylesheet" href="/app.css?v=248">
 </head>
 <body>
 
@@ -30,7 +30,7 @@
     <div class="login-ambient-glow login-ambient-glow-a"></div>
     <div class="login-ambient-glow login-ambient-glow-b"></div>
   </div>
-  <button type="button" class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">🌙 حالت تاریک</button>
+  <button type="button" class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">?? ???? ?????</button>
   <div class="login-stage" id="loginStage">
     <div class="login-card" id="loginCard">
       <div class="login-card-beam" aria-hidden="true">
@@ -39,12 +39,12 @@
         <span class="login-beam login-beam-b"></span>
         <span class="login-beam login-beam-l"></span>
       </div>
-      <div class="logo"><img src="/logo-sm.png" alt="ترنم" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">🌿</span></div>
-      <h1>ERP ترنم</h1>
-      <p class="login-sub">سامانه یکپارچه ERP پوشاک ترنم</p>
+      <div class="logo"><img src="/logo-sm.png" alt="????" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">??</span></div>
+      <h1>ERP ????</h1>
+      <p class="login-sub">?????? ??????? ERP ????? ????</p>
       <form id="loginForm" novalidate>
         <div class="field">
-          <label for="loginUser">نام کاربری</label>
+          <label for="loginUser">??? ??????</label>
           <div class="login-input-wrap">
             <span class="login-ico" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -53,13 +53,13 @@
           </div>
         </div>
         <div class="field">
-          <label for="loginPass">رمز عبور</label>
+          <label for="loginPass">??? ????</label>
           <div class="login-input-wrap">
             <span class="login-ico" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             </span>
-            <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••" enterkeyhint="go" dir="ltr">
-            <button type="button" class="login-eye" id="loginPassToggle" data-csp-click="s_c4e81a92f0b37d65e8a14c2b" aria-label="نمایش رمز عبور" title="نمایش/پنهان رمز">
+            <input id="loginPass" type="password" autocomplete="current-password" placeholder="��������" enterkeyhint="go" dir="ltr">
+            <button type="button" class="login-eye" id="loginPassToggle" data-csp-click="s_c4e81a92f0b37d65e8a14c2b" aria-label="????? ??? ????" title="?????/????? ???">
               <svg class="login-eye-show" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg class="login-eye-hide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M10.7 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17.4 17.4 0 0 1-1.6 2.4"/><path d="M6.6 6.6C3.9 8.5 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1"/><path d="m2 2 20 20"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
             </button>
@@ -68,26 +68,26 @@
         <div class="login-row">
           <label class="login-remember" for="loginRemember">
             <input type="checkbox" id="loginRemember" data-csp-change="s_d7f19b03e2a48c56f1d90e3a">
-            <span>مرا به خاطر بسپار</span>
+            <span>??? ?? ???? ?????</span>
           </label>
-          <a href="#" class="login-forgot" data-csp-click="s_8a71e98e13b13714a42fa7d9">رمز عبور را فراموش کرده‌اید؟</a>
+          <a href="#" class="login-forgot" data-csp-click="s_8a71e98e13b13714a42fa7d9">??? ???? ?? ?????? ?????????</a>
         </div>
         <button type="submit" class="login-submit" id="loginSubmitBtn">
-          <span class="login-submit-label">ورود به سامانه</span>
+          <span class="login-submit-label">???? ?? ??????</span>
           <span class="login-submit-spin" aria-hidden="true"></span>
         </button>
         <div id="b2bEntryLink" data-csp-style="s_72c16271d8964e133a24f4fb">
           <a href="#portal" class="login-portal-link" data-csp-click="s_d33d3fedc02f222946db0f9f" data-i18n="portal-entry">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
-            <span class="login-portal-label">ورود پورتال مشتریان</span>
+            <span class="login-portal-label">???? ?????? ???????</span>
           </a>
         </div>
         <div id="deviceResetLink" data-csp-style="s_b4d1d87a041bda3f347aec63">
-          <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">اتصال خراب است؟ قطع اتصال و اتصال مجدد</a>
+          <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">????? ???? ???? ??? ????? ? ????? ????</a>
         </div>
         <div class="login-err" id="loginErr" role="alert" aria-live="polite"></div>
       </form>
-      <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br>ساخته‌شده توسط شرکت ترانه اندیشه پردازان ریان<br><span id="loginFactoryHint" hidden>ورود موقت دستگاه: admin / admin123</span><span id="loginCentralHint">رمز را فراموش کرده‌اید؟ از لینک بالای دکمه ورود استفاده کنید.</span></div>
+      <div class="login-hint">???? ? � ????? ???? ????<br>????????? ???? ???? ????? ?????? ??????? ????<br><span id="loginFactoryHint" hidden>???? ???? ??????: admin / admin123</span><span id="loginCentralHint">??? ?? ?????? ????????? ?? ???? ????? ???? ???? ??????? ????.</span></div>
     </div>
   </div>
 </div>
@@ -101,9 +101,9 @@
     <div class="login-ambient-glow login-ambient-glow-a"></div>
     <div class="login-ambient-glow login-ambient-glow-b"></div>
   </div>
-  <button type="button" class="theme-toggle-btn b2b-theme-toggle" data-csp-click="s_0a3f6e8040676843de3f04aa">🌙 حالت تاریک</button>
+  <button type="button" class="theme-toggle-btn b2b-theme-toggle" data-csp-click="s_0a3f6e8040676843de3f04aa">?? ???? ?????</button>
   <div class="b2b-wrap">
-    <button type="button" class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">← بازگشت به ورود کارکنان</button>
+    <button type="button" class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">? ?????? ?? ???? ???????</button>
     <div class="login-stage b2b-login-stage" id="b2bLoginStage">
       <div class="b2b-card login-card-shell" id="b2bLoginShell">
         <div class="login-card-beam" aria-hidden="true">
@@ -123,8 +123,8 @@
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="/logo-sm.png" alt="ترنم" data-csp-style="s_eac40dfc10b359d5a4cf922f" data-csp-error="s_df4c0d7e38b6cc7e74737b3b"><span class="emoji" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">🌿</span>
-        <div><h2>ERP ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
+        <img src="/logo-sm.png" alt="????" data-csp-style="s_eac40dfc10b359d5a4cf922f" data-csp-error="s_df4c0d7e38b6cc7e74737b3b"><span class="emoji" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">??</span>
+        <div><h2>ERP ????</h2><small id="brandRole">??? ??????</small></div>
       </div>
       <nav class="nav" id="nav"></nav>
     </aside>
@@ -132,17 +132,17 @@
     <div class="main">
       <header class="topbar">
         <div class="left">
-          <button class="menu-btn" data-csp-click="s_c9e66d3feb6b2f566def08cd">☰</button>
-          <button type="button" class="back-btn" id="navBackBtn" data-csp-click="s_b137eab182cd94efdc4cb9ff" title="بالا — سطح والد (مثل Up ویندوز)" aria-label="بالا">↑</button>
-          <h3 id="pageTitle">داشبورد</h3>
+          <button class="menu-btn" data-csp-click="s_c9e66d3feb6b2f566def08cd">?</button>
+          <button type="button" class="back-btn" id="navBackBtn" data-csp-click="s_b137eab182cd94efdc4cb9ff" title="???? � ??? ???? (??? Up ??????)" aria-label="????">?</button>
+          <h3 id="pageTitle">???????</h3>
         </div>
         <div class="right">
-          <button class="notif-bell" id="notifBell" data-csp-click="s_63eae3c3ff5aaa2014c528ad" title="اعلان‌ها" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
-          <button class="btn sm ghost omnibox-btn" data-csp-click="s_eae5bb7bea204d72bcc746fe" title="جستجوی سریع" data-i18n-title="جستجوی سریع">⌕</button>
-          <span id="syncBadge" class="sync-badge" data-csp-style="s_590bbb077b0c9725d5b47577" data-csp-click="s_fb8c1c32e9e1ff06b920a521" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
+          <button class="notif-bell" id="notifBell" data-csp-click="s_63eae3c3ff5aaa2014c528ad" title="????????" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">??<span class="nbadge hide" id="notifBadge">0</span></button>
+          <button class="btn sm ghost omnibox-btn" data-csp-click="s_eae5bb7bea204d72bcc746fe" title="?????? ????" data-i18n-title="?????? ????">?</button>
+          <span id="syncBadge" class="sync-badge" data-csp-style="s_590bbb077b0c9725d5b47577" data-csp-click="s_fb8c1c32e9e1ff06b920a521" title="????? ?????????? ?? ???? ?????"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
-            <div class="avatar" id="avatar">؟</div>
+            <div class="avatar" id="avatar">?</div>
             <div><div id="userName" data-csp-style="s_cd7e45eab35dac2ab4b04e89"></div><div class="muted" id="userRole" data-csp-style="s_6eddd132309c5e3ab4002ee1"></div></div>
           </div>
         </div>
@@ -151,20 +151,20 @@
     </div>
   </div>
 
-  <!-- Account menu: power FAB + slide sheet (گوشه صفحه) -->
-  <button type="button" id="acctFab" class="acct-fab" data-csp-click="s_9b185f50004721adce7b118b" title="حساب کاربری" aria-label="منوی حساب کاربری" aria-expanded="false" aria-controls="acctDrawer">
+  <!-- Account menu: power FAB + slide sheet (???? ????) -->
+  <button type="button" id="acctFab" class="acct-fab" data-csp-click="s_9b185f50004721adce7b118b" title="???? ??????" aria-label="???? ???? ??????" aria-expanded="false" aria-controls="acctDrawer">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
   </button>
   <div id="acctDrawerBackdrop" data-csp-click="s_269de94ec79e9ce3fd67c88b" aria-hidden="true"></div>
-  <div id="acctDrawer" role="dialog" aria-label="منوی حساب کاربری">
+  <div id="acctDrawer" role="dialog" aria-label="???? ???? ??????">
     <div class="acct-drawer-user">
-      <b id="acctDrawerName">—</b>
-      <span id="acctDrawerUser">—</span>
+      <b id="acctDrawerName">�</b>
+      <span id="acctDrawerUser">�</span>
     </div>
-    <button type="button" class="acct-drawer-btn theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa">🌙 حالت تاریک</button>
-    <button type="button" class="acct-drawer-btn" id="acctBtnPass" data-csp-click="s_110ae53daa7846d2c65aed69">🔑 تغییر رمز</button>
-    <button type="button" class="acct-drawer-btn" id="acctBtnSec" data-csp-click="s_4e7d7c95264ab8f6dabb9cf0">🔐 امنیت</button>
-    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut" data-csp-click="s_dadb5187cd6da35c90fa46c6">🚪 خروج</button>
+    <button type="button" class="acct-drawer-btn theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa">?? ???? ?????</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnPass" data-csp-click="s_110ae53daa7846d2c65aed69">?? ????? ???</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnSec" data-csp-click="s_4e7d7c95264ab8f6dabb9cf0">?? ?????</button>
+    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut" data-csp-click="s_dadb5187cd6da35c90fa46c6">?? ????</button>
   </div>
 </div>
 
@@ -175,8 +175,8 @@
 <!-- ===== Command Palette ===== -->
 <div id="omniboxOverlay" class="omnibox-overlay" data-csp-click="s_98243680aa7a1fddf176be9d">
   <div class="omnibox" data-csp-click="s_f26edef237d1ca483e326664">
-    <input id="omniboxInput" placeholder="جستجو: مشتری، کالا، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
-    <div class="omnibox-hint" id="omniboxHint">جستجو — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها</div>
+    <input id="omniboxInput" placeholder="?????: ?????? ????? ??????? ?????? ? ????????..." autocomplete="off">
+    <div class="omnibox-hint" id="omniboxHint">????? � ???????? ??????? ???????? ? ???? ??????</div>
     <div class="omnibox-results" id="omniboxResults"></div>
   </div>
 </div>
@@ -190,16 +190,16 @@
 
 <!-- ===== PWA Install Banner ===== -->
 <div id="installBanner">
-  <span data-csp-style="s_0539973dc9f6c0ea8f34890a">📲 ERP ترنم را نصب کنید</span>
-  <button data-csp-click="s_bd89716ecaf3f58812e129cb">نصب</button>
-  <button class="x-btn" data-csp-click="s_da9b2690edba9947065eb54b">×</button>
+  <span data-csp-style="s_0539973dc9f6c0ea8f34890a">?? ERP ???? ?? ??? ????</span>
+  <button data-csp-click="s_bd89716ecaf3f58812e129cb">???</button>
+  <button class="x-btn" data-csp-click="s_da9b2690edba9947065eb54b">�</button>
 </div>
 
 <!-- ===== App Update Banner (desktop / android) ===== -->
 <div id="updateBanner">
   <span id="updateBannerText" data-csp-style="s_0539973dc9f6c0ea8f34890a"></span>
-  <button data-csp-click="s_9c24b892a420b6732a4ee6ca">⬇️ دانلود</button>
-  <button class="x-btn" data-csp-click="s_a5607849c3b6f80a439ea4e2">×</button>
+  <button data-csp-click="s_9c24b892a420b6732a4ee6ca">?? ??????</button>
+  <button class="x-btn" data-csp-click="s_a5607849c3b6f80a439ea4e2">�</button>
 </div>
 
 <!-- ===== Toasts ===== -->
@@ -214,7 +214,7 @@
 <script src="/prod-ui.js?v=176" defer></script>
 <script src="/demo-shell.js?v=176"></script>
 <script src="/net-resilience.js?v=187"></script>
-<script src="/app.js?v=247"></script>
+<script src="/app.js?v=248"></script>
 <script src="/variant-stock-report.js?v=223"></script>
 </body>
 </html>

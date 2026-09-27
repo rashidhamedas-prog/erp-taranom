@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — قفل ADR بومی + EXE 2.0.13 به `D:\proje\ERP EXE` (SW v248)
+
+- **تصمیم‌ها:** Node Host Primary؛ WPF .NET 8؛ لایسنس Ed25519 آفلاین+grace ۳۰روز؛ Brand Pack برای فروش با نام تجاری دیگر؛ Electron = پل موقت تا GA بومی — `docs/architecture/NATIVE-WINDOWS-DECISIONS-LOCKED.md`
+- **بیلد:** `ERP Taranom Setup 2.0.13.exe` → `D:\proje\ERP EXE` · SHA256=`3D9308A616A2AAE23515173EBE98D01F055069FE148944D6F6EA901624E9C63E`
+- **متادیتا:** `desktop/package.json` 2.0.13؛ `server/public/releases/{manifest.json,latest.yml}`
+- **راهنما/SW:** Help ویندوز ۲.۰.۱۳ + OEM؛ SW `erp-taranom-v248`
+- **فایل‌ها:** docs/architecture/NATIVE-WINDOWS-*, desktop/package.json, server/public/{app.js,index.html,sw.js,releases/*}, docs/DESKTOP-EXE-DELIVERY.md, docs/CHANGE-LOG.md
+- **Deploy:** ⏳ پس از push (installer روی VPS آپلود نمی‌شود — فقط متادیتا/وب)
+
 ### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: تکمیل سند Sync (قرارداد + شکاف‌ها)
 
 - گزارش کامل بازبینی sync (capture/push/pull/تعارض/خرابی‌ها) در `NATIVE-WINDOWS-SYNC-GAPS.md` ادغام شد

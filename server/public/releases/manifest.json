@@ -4,13 +4,13 @@
     "notes": "پاک‌سازی go-live + کدینگ پایه + cascade حذف تفصیلی — SW v99."
   },
   "desktop": {
-    "version": "2.0.10",
-    "url": "/releases/ERP-Taranom-Setup-2.0.10.exe",
-    "feed_url": "/releases/latest.yml",
-    "sha256": "2D427958647788EDB7F416E44A285E013E3048CB46A4D973618043B6EC6D4456",
-    "sha512": "el9Hfdz45zIBg9MC1FAL4viIvqxl65D0DuGHdSleugGY6l8m0m8cyw8fyWtqryefMD+qWGj3RdgFs09KsK5Gbg==",
-    "size": 100270552,
-    "notes": "آپدیت 2.0.10 امضاشده (Authenticode خودامضا CN=Poshak Taranom). SHA256=2D427958647788EDB7F416E44A285E013E3048CB46A4D973618043B6EC6D4456 — روی PC دیگر SmartScreen ممکن است ناشناس بماند تا گواهی تجاری."
+    "version": "2.0.13",
+    "url": "/releases/ERP-Taranom-Setup-2.0.13.exe",
+    "feed_url": "https://erp.poshaktaranom.com/releases/",
+    "sha256": "3D9308A616A2AAE23515173EBE98D01F055069FE148944D6F6EA901624E9C63E",
+    "sha512": "tLfFTmR/DbbHZOZa1IHLfcZn3Znd4XHy8lJ7pA/SSM/VpNosREQXg4/GnMLtkqd6aNrP0fWhYrS7GTlvvtnLOQ==",
+    "size": 102046856,
+    "notes": "پل تجاری دسکتاپ 2.0.13 — ADR بومی قفل؛ OEM/white-label. SHA256=3D9308A616A2AAE23515173EBE98D01F055069FE148944D6F6EA901624E9C63E"
   },
   "android": {
     "version": "2.0.33",

@@ -429,17 +429,25 @@ check → download(resume) → verify signature/hash → wait safe point
 
 ---
 
-## ۱۴) تصمیم‌های نیازمند تأیید مالک
+## ۱۴) تصمیم‌های قفل‌شده (۱۴۰۵/۰۷/۰۵)
 
-1. تأیید **WPF + Domain Host فازبندی (A)** در برابر **Full C# از روز اول (B)** — تعارض صریح با طرح فازبندی؛ بدون قفل، فاز ۱ شروع نشود.
-2. میزبان HTTPS ایرانی برای installer/update.
-3. خرید/استفاده گواهی OV Authenticode.
-4. سیاست موجودی/اعتبار دستگاه: سهمیه vs پذیرش مشروط.
-5. روزهای grace لایسنس آفلاین پس از expiry.
-6. per-machine vs per-user install (و MSI/WiX vs NSIS/Velopack).
-7. زمان نگهداشت Electron موازی (پیشنهاد طرح: freeze قابلیت از پایان موج ۳).
-8. آیا WebView2 فقط برای پیش‌نمایش PDF کمکی مجاز است؟ (پیشنهاد: PDF از طریق چاپگر/PdfSharp بدون WebView)
-9. هدف runtime: .NET 8 LTS یا .NET 9.
+مرجع کامل + مدل OEM/white-label: [`NATIVE-WINDOWS-DECISIONS-LOCKED.md`](./NATIVE-WINDOWS-DECISIONS-LOCKED.md)
+
+| # | موضوع | قفل |
+|---|---|---|
+| 1 | دامنه | **A — Node Host** سپس پورت C#؛ نه Full C# از روز اول |
+| 2 | UI | .NET 8 LTS + WPF |
+| 3 | لایسنس تجاری | Ed25519 آفلاین؛ بدون heartbeat؛ grace ۳۰روز (نوشتن بسته) |
+| 4 | فروش با نام دیگر | Brand Pack (نام/آیکون/appId)؛ منطق مشترک |
+| 5 | موجودی | پذیرش مشروط + تعارض تا وقتی سهمیه OEM آماده شود |
+| 6 | نصب | per-machine؛ داده زیر ProgramData\<BrandId> |
+| 7 | EXE امروز | Electron پل موقت → `D:\proje\ERP EXE`؛ بومی مسیر GA |
+| 8 | PDF | بدون WebView؛ PdfSharp/چاپ بومی در GA |
+| 9 | میزبان update / OV | هنوز نیاز تأمین عملیاتی (میزبان HTTPS ایرانی + OV سازنده) |
+
+### هنوز باز (عملیاتی، نه معماری)
+- نام تجاری دقیق SKU بعدی (Brand Pack) — تا اعلام مالک، نمایش فعلی «ERP Taranom» می‌ماند.
+- خرید گواهی OV و URL نهایی فید.
 
 ---
 
