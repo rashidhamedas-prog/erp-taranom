@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — فاز ۰ بومی: OPERATION-CONTRACT + schema_hash + اسکلت win-native (SW v249)
+
+- **مولدها:** `scripts/native/generate-operation-contract.js` (۱۷۰ جدول / ≈۴۷۳ mutating / ۹۷ PATH_MAP) و `scripts/native/schema-hash.js` (۲۰۷ جدول / ۳۸۱ ایندکس / ۱۵ تریگر؛ Node 20)
+- **artifacts پایدار:** `docs/native/OPERATION-CONTRACT.{md,json,sha256}` · `schema.v1.{sql,sha256,meta.json}` · `AIRGAP-CHECKLIST.md`
+- **اسکلت:** `win-native/` + DomainHost README؛ Brand Pack نمونه `branding/taranom/brand.json`
+- **فاز:** `NATIVE-WINDOWS-PHASE-PLAN.md` جدول وضعیت فاز ۰ (۴/۱۰ انجام؛ fixture/runner باقی)
+- **جزئی:** export `BLOCKLIST`/`BLOCK_PATTERNS` از `capture.js`؛ `test-sync` با `process.execPath` (سازگار Node 20)
+- **راهنما/SW:** Help فاز ۰ بومی؛ SW `erp-taranom-v249`
+- **تست:** sms ۲۲؛ sync ۴۴؛ app.js parse OK
+- **Deploy:** در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۵ — قفل ADR بومی + EXE 2.0.13 به `D:\proje\ERP EXE` (SW v248)
 
 - **تصمیم‌ها:** Node Host Primary؛ WPF .NET 8؛ لایسنس Ed25519 آفلاین+grace ۳۰روز؛ Brand Pack برای فروش با نام تجاری دیگر؛ Electron = پل موقت تا GA بومی — `docs/architecture/NATIVE-WINDOWS-DECISIONS-LOCKED.md`

@@ -401,4 +401,10 @@ function captureMiddleware(req, res, next) {
   next();
 }
 
-module.exports = { captureMiddleware, tableForPath, PATH_TABLE_MAP };
+module.exports = {
+  captureMiddleware,
+  tableForPath,
+  PATH_TABLE_MAP,
+  BLOCKLIST,
+  BLOCK_PATTERNS,
+};

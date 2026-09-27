@@ -46,7 +46,7 @@ function ok(cond, label) {
 
 const procs = {};
 function start(name, env) {
-  const p = spawn('node', [SERVER], { cwd: CWD, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(process.execPath, [SERVER], { cwd: CWD, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   p.stdout.on('data', () => {});
   p.stderr.on('data', d => console.error(`[${name}]`, d.toString().slice(0, 200)));
   procs[name] = p;

@@ -1,0 +1,27 @@
+{
+  "brandId": "taranom",
+  "productName": "ERP Taranom",
+  "shortName": "ترنم",
+  "appId": "ir.taranom.crm.desktop",
+  "publisherName": "Poshak Taranom",
+  "manufacturerId": "tap-rayan",
+  "manufacturerDisplay": "طراح اندیشه پردازان رایان",
+  "localeDefault": "fa-IR",
+  "dir": "rtl",
+  "theme": {
+    "primary": "#1A5C38",
+    "accent": "#C4A35A"
+  },
+  "paths": {
+    "programData": "Taranom\\ERP",
+    "appDataLegacyElectron": "erp-taranom-desktop"
+  },
+  "license": {
+    "issuer": "tap-rayan",
+    "graceDaysAfterExpiry": 30,
+    "graceMode": "read_only_reports",
+    "requireOnlineHeartbeat": false
+  },
+  "helpTitle": "راهنمای ERP ترنم",
+  "notes": "Brand Pack نمونه — برای OEM فقط این فایل + آیکون‌ها عوض شود؛ منطق مشترک است."
+}

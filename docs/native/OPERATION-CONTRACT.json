@@ -1,0 +1,2524 @@
+{
+  "content_sha256": "5c27a2b1b46142359ef3ad569b9ea4e9d8fddd1973011a685ae6a9985a638ff0",
+  "source": {
+    "capture": "server/sync/capture.js",
+    "tables": "server/sync/tables.js",
+    "routes": "server/routes/*.js"
+  },
+  "counts": {
+    "route_files": 81,
+    "endpoints_by_method": {
+      "get": 406,
+      "post": 326,
+      "put": 62,
+      "patch": 10,
+      "delete": 75
+    },
+    "mutating_endpoints_approx": 473,
+    "syncable_tables": 170,
+    "path_table_map": 97,
+    "fk_columns": 259
+  },
+  "id_space": {
+    "PROVISIONAL_FLOOR": 1000000000000,
+    "DEVICE_SPAN": 100000000,
+    "TABLE_SPAN": 1000000,
+    "LEGACY_TABLE_SLOTS": 100,
+    "OVERFLOW_FLOOR": 1010000000000
+  },
+  "blocklist": [
+    "/api/auth",
+    "/api/users",
+    "/api/sync",
+    "/api/api-keys",
+    "/api/messages",
+    "/api/v1",
+    "/api/ai",
+    "/api/b2b",
+    "/api/onboarding",
+    "/api/excel",
+    "/api/admin/backup",
+    "/api/admin/backups",
+    "/api/admin/backup-now",
+    "/api/admin/backup-download",
+    "/api/admin/backup-restore",
+    "/api/admin/backup-schedule",
+    "/api/admin/backup-purge",
+    "/api/admin/restore-product-stock-wipe",
+    "/api/crm/automations"
+  ],
+  "block_patterns": [
+    "\\/import",
+    "\\/export",
+    "\\/backup",
+    "\\/backfill",
+    "\\/stock$"
+  ],
+  "path_table_map": [
+    {
+      "prefix": "/api/admin/users",
+      "table": "users"
+    },
+    {
+      "prefix": "/api/settings",
+      "table": "settings"
+    },
+    {
+      "prefix": "/api/rbac/matrix",
+      "table": "user_permissions"
+    },
+    {
+      "prefix": "/api/accounting/settlements",
+      "table": "settlements"
+    },
+    {
+      "prefix": "/api/accounting/account-payments",
+      "table": "journal_entries"
+    },
+    {
+      "prefix": "/api/accounting/account-receipts",
+      "table": "journal_entries"
+    },
+    {
+      "prefix": "/api/accounting/sales-returns",
+      "table": "sales_returns"
+    },
+    {
+      "prefix": "/api/accounting/invoices",
+      "table": "invoices"
+    },
+    {
+      "prefix": "/api/accounting/vouchers/drafts",
+      "table": "voucher_drafts"
+    },
+    {
+      "prefix": "/api/accounting/vouchers/templates",
+      "table": "journal_templates"
+    },
+    {
+      "prefix": "/api/accounting/vouchers",
+      "table": "journal_entries"
+    },
+    {
+      "prefix": "/api/accounting/cost-centers",
+      "table": "cost_centers"
+    },
+    {
+      "prefix": "/api/accounting/customer-groups",
+      "table": "customer_groups"
+    },
+    {
+      "prefix": "/api/purchases/returns",
+      "table": "purchase_returns"
+    },
+    {
+      "prefix": "/api/purchases/payments",
+      "table": "supplier_payments"
+    },
+    {
+      "prefix": "/api/purchases/goods-receipts",
+      "table": "goods_receipts"
+    },
+    {
+      "prefix": "/api/purchases/orders",
+      "table": "purchase_orders"
+    },
+    {
+      "prefix": "/api/purchases/three-way-match",
+      "table": "three_way_matches"
+    },
+    {
+      "prefix": "/api/purchases/gr-invoices",
+      "table": "purchase_invoices"
+    },
+    {
+      "prefix": "/api/purchases",
+      "table": "purchase_invoices"
+    },
+    {
+      "prefix": "/api/rfq",
+      "table": "rfqs"
+    },
+    {
+      "prefix": "/api/branches",
+      "table": "branches"
+    },
+    {
+      "prefix": "/api/persons/categories",
+      "table": "person_categories"
+    },
+    {
+      "prefix": "/api/persons",
+      "table": "persons"
+    },
+    {
+      "prefix": "/api/customers",
+      "table": "customers"
+    },
+    {
+      "prefix": "/api/parties",
+      "table": "parties"
+    },
+    {
+      "prefix": "/api/invoices",
+      "table": "invoices"
+    },
+    {
+      "prefix": "/api/followups",
+      "table": "followups"
+    },
+    {
+      "prefix": "/api/crm/opportunities",
+      "table": "crm_opportunities"
+    },
+    {
+      "prefix": "/api/crm/activities",
+      "table": "crm_activities"
+    },
+    {
+      "prefix": "/api/crm/segmentation",
+      "table": "crm_customer_segments"
+    },
+    {
+      "prefix": "/api/product-variants/colors",
+      "table": "product_colors"
+    },
+    {
+      "prefix": "/api/product-variants/sizes",
+      "table": "product_sizes"
+    },
+    {
+      "prefix": "/api/product-variants/generate-matrix",
+      "table": "product_variants"
+    },
+    {
+      "prefix": "/api/product-variants/stock-matrix",
+      "table": "product_variants"
+    },
+    {
+      "prefix": "/api/product-variants/ensure-default",
+      "table": "product_variants"
+    },
+    {
+      "prefix": "/api/product-variants/style",
+      "table": "product_variants"
+    },
+    {
+      "prefix": "/api/product-variants",
+      "table": "product_variants"
+    },
+    {
+      "prefix": "/api/products",
+      "table": "products"
+    },
+    {
+      "prefix": "/api/product-categories",
+      "table": "product_categories"
+    },
+    {
+      "prefix": "/api/suppliers",
+      "table": "suppliers"
+    },
+    {
+      "prefix": "/api/banks",
+      "table": "banks"
+    },
+    {
+      "prefix": "/api/cash-boxes",
+      "table": "cash_boxes"
+    },
+    {
+      "prefix": "/api/check-categories",
+      "table": "check_categories"
+    },
+    {
+      "prefix": "/api/expenses",
+      "table": "expense_payments"
+    },
+    {
+      "prefix": "/api/transfers",
+      "table": "account_transfers"
+    },
+    {
+      "prefix": "/api/trust-checks",
+      "table": "trust_checks"
+    },
+    {
+      "prefix": "/api/warehouses/moves",
+      "table": "warehouse_moves"
+    },
+    {
+      "prefix": "/api/warehouses/stock",
+      "table": "warehouse_stock"
+    },
+    {
+      "prefix": "/api/warehouses",
+      "table": "warehouses"
+    },
+    {
+      "prefix": "/api/stocktaking",
+      "table": "stocktaking_sessions"
+    },
+    {
+      "prefix": "/api/consignments",
+      "table": "consignments"
+    },
+    {
+      "prefix": "/api/pos/receipts",
+      "table": "pos_receipts"
+    },
+    {
+      "prefix": "/api/pos/batches",
+      "table": "pos_settlement_batches"
+    },
+    {
+      "prefix": "/api/pos/terminals",
+      "table": "pos_terminals"
+    },
+    {
+      "prefix": "/api/detail-accounts/categories",
+      "table": "detail_categories"
+    },
+    {
+      "prefix": "/api/detail-accounts",
+      "table": "detail_accounts"
+    },
+    {
+      "prefix": "/api/units",
+      "table": "units_of_measure"
+    },
+    {
+      "prefix": "/api/fixed-assets",
+      "table": "fixed_assets"
+    },
+    {
+      "prefix": "/api/production/cost-centers/rates",
+      "table": "cost_center_rates"
+    },
+    {
+      "prefix": "/api/production/boms",
+      "table": "bom_headers"
+    },
+    {
+      "prefix": "/api/production/orders",
+      "table": "production_orders"
+    },
+    {
+      "prefix": "/api/production/execution",
+      "table": "production_orders"
+    },
+    {
+      "prefix": "/api/production/cutting-lays",
+      "table": "cutting_lays"
+    },
+    {
+      "prefix": "/api/production/mrp",
+      "table": "mrp_runs"
+    },
+    {
+      "prefix": "/api/production/cost-centers",
+      "table": "cost_centers"
+    },
+    {
+      "prefix": "/api/production/user-cost-centers",
+      "table": "user_cost_centers"
+    },
+    {
+      "prefix": "/api/production/close",
+      "table": "production_period_close"
+    },
+    {
+      "prefix": "/api/production",
+      "table": "production_runs"
+    },
+    {
+      "prefix": "/api/inventory/fabric-rolls",
+      "table": "inventory_batches"
+    },
+    {
+      "prefix": "/api/inventory/batches",
+      "table": "inventory_batches"
+    },
+    {
+      "prefix": "/api/inventory/serials",
+      "table": "inventory_serials"
+    },
+    {
+      "prefix": "/api/inventory/reservations",
+      "table": "inventory_reservations"
+    },
+    {
+      "prefix": "/api/inventory/landed-cost",
+      "table": "landed_cost_docs"
+    },
+    {
+      "prefix": "/api/inventory/ledger",
+      "table": "inventory_ledger"
+    },
+    {
+      "prefix": "/api/inventory/adjust",
+      "table": "inventory_ledger"
+    },
+    {
+      "prefix": "/api/payroll/employee-groups",
+      "table": "employee_groups"
+    },
+    {
+      "prefix": "/api/payroll/group-salary-structures",
+      "table": "group_salary_structures"
+    },
+    {
+      "prefix": "/api/payroll",
+      "table": "payroll_records"
+    },
+    {
+      "prefix": "/api/reminders",
+      "table": "reminders"
+    },
+    {
+      "prefix": "/api/orders",
+      "table": "orders"
+    },
+    {
+      "prefix": "/api/party-groups",
+      "table": "party_groups"
+    },
+    {
+      "prefix": "/api/fx/rates",
+      "table": "exchange_rates"
+    },
+    {
+      "prefix": "/api/fx/currencies",
+      "table": "currencies"
+    },
+    {
+      "prefix": "/api/person-positions",
+      "table": "person_positions"
+    },
+    {
+      "prefix": "/api/pricing-rules",
+      "table": "pricing_rules"
+    },
+    {
+      "prefix": "/api/portal/parameters",
+      "table": "op_parameters"
+    },
+    {
+      "prefix": "/api/portal/units",
+      "table": "op_units"
+    },
+    {
+      "prefix": "/api/portal/departments",
+      "table": "op_departments"
+    },
+    {
+      "prefix": "/api/bank-reconciliation",
+      "table": "bank_reconciliations"
+    },
+    {
+      "prefix": "/api/budgeting",
+      "table": "budgets"
+    },
+    {
+      "prefix": "/api/reserves",
+      "table": "legal_reserve_entries"
+    },
+    {
+      "prefix": "/api/cheque-records",
+      "table": "cheque_records"
+    },
+    {
+      "prefix": "/api/sms-module/rules",
+      "table": "sms_rules"
+    },
+    {
+      "prefix": "/api/sms-module/templates",
+      "table": "sms_templates"
+    },
+    {
+      "prefix": "/api/sms-module/options",
+      "table": "sms_options"
+    },
+    {
+      "prefix": "/api/sms-module/scheduled",
+      "table": "sms_scheduled"
+    }
+  ],
+  "syncable_tables": [
+    {
+      "index": 0,
+      "name": "users",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 1,
+      "name": "settings",
+      "upsertKey": "key",
+      "compositeKeys": null
+    },
+    {
+      "index": 2,
+      "name": "chart_of_accounts",
+      "upsertKey": "code",
+      "compositeKeys": null
+    },
+    {
+      "index": 3,
+      "name": "customer_groups",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 4,
+      "name": "person_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 5,
+      "name": "cost_centers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 6,
+      "name": "warehouses",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 7,
+      "name": "banks",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 8,
+      "name": "cash_boxes",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 9,
+      "name": "check_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 10,
+      "name": "suppliers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 11,
+      "name": "customers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 12,
+      "name": "persons",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 13,
+      "name": "products",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 14,
+      "name": "orders",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 15,
+      "name": "followups",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 16,
+      "name": "invoices",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 17,
+      "name": "settlements",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 18,
+      "name": "sales_returns",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 19,
+      "name": "purchase_invoices",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 20,
+      "name": "purchase_returns",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 21,
+      "name": "supplier_payments",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 22,
+      "name": "expense_payments",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 23,
+      "name": "account_transfers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 24,
+      "name": "trust_checks",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 25,
+      "name": "warehouse_moves",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 26,
+      "name": "consignments",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 27,
+      "name": "production_runs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 28,
+      "name": "payroll_records",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 29,
+      "name": "incentive_payments",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 30,
+      "name": "stock_logs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 31,
+      "name": "customer_ledger",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 32,
+      "name": "supplier_ledger",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 33,
+      "name": "person_ledger",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 34,
+      "name": "journal_entries",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 35,
+      "name": "journal_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 36,
+      "name": "journal_templates",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 37,
+      "name": "voucher_drafts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 38,
+      "name": "messages",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 39,
+      "name": "reminders",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 40,
+      "name": "product_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 41,
+      "name": "warehouse_stock",
+      "upsertKey": "product_id:warehouse_id",
+      "compositeKeys": [
+        "product_id",
+        "warehouse_id"
+      ]
+    },
+    {
+      "index": 42,
+      "name": "rep_assignment_history",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 43,
+      "name": "rep_ledger",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 44,
+      "name": "rep_expenses",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 45,
+      "name": "rep_advances",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 46,
+      "name": "rep_commission_rules",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 47,
+      "name": "rep_commission_tiers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 48,
+      "name": "rep_settlements",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 49,
+      "name": "rep_territories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 50,
+      "name": "rep_visit_logs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 51,
+      "name": "rep_call_logs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 52,
+      "name": "stocktaking_sessions",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 53,
+      "name": "stocktaking_items",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 54,
+      "name": "parties",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 55,
+      "name": "detail_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 56,
+      "name": "detail_accounts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 57,
+      "name": "fiscal_years",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 58,
+      "name": "units_of_measure",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 59,
+      "name": "bom_headers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 60,
+      "name": "bom_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 61,
+      "name": "bom_operations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 62,
+      "name": "bom_outputs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 63,
+      "name": "bom_change_log",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 64,
+      "name": "cost_center_rates",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 65,
+      "name": "overhead_allocation_rules",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 66,
+      "name": "overhead_allocation_weights",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 67,
+      "name": "production_orders",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 68,
+      "name": "production_order_stages",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 69,
+      "name": "production_material_issues",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 70,
+      "name": "production_labor_entries",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 71,
+      "name": "production_overhead_applications",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 72,
+      "name": "production_waste",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 73,
+      "name": "production_rework",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 74,
+      "name": "production_receipts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 75,
+      "name": "production_subcontract",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 76,
+      "name": "production_variances",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 77,
+      "name": "production_period_close",
+      "upsertKey": "period_label",
+      "compositeKeys": null
+    },
+    {
+      "index": 78,
+      "name": "production_estimates",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 79,
+      "name": "production_estimate_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 80,
+      "name": "mrp_runs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 81,
+      "name": "mrp_requirements",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 82,
+      "name": "production_reservations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 83,
+      "name": "inventory_ledger",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 84,
+      "name": "inventory_cost_layers",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 85,
+      "name": "inventory_batches",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 86,
+      "name": "inventory_serials",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 87,
+      "name": "inventory_reservations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 88,
+      "name": "landed_cost_docs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 89,
+      "name": "landed_cost_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 90,
+      "name": "landed_cost_allocations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 91,
+      "name": "payroll_periods",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 92,
+      "name": "salary_structures",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 93,
+      "name": "payroll_tax_brackets",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 94,
+      "name": "payroll_year_end_bonuses",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 95,
+      "name": "projects",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 96,
+      "name": "report_configurations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 97,
+      "name": "vat_records",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 98,
+      "name": "currencies",
+      "upsertKey": "code",
+      "compositeKeys": null
+    },
+    {
+      "index": 99,
+      "name": "exchange_rates",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 100,
+      "name": "person_positions",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 101,
+      "name": "pricing_rules",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 102,
+      "name": "op_units",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 103,
+      "name": "op_unit_warehouses",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 104,
+      "name": "op_unit_persons",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 105,
+      "name": "op_departments",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 106,
+      "name": "op_parameters",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 107,
+      "name": "op_parameter_items",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 108,
+      "name": "op_parameter_dept_log",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 109,
+      "name": "bank_reconciliations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 110,
+      "name": "bank_reconciliation_items",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 111,
+      "name": "doubtful_debt_provisions",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 112,
+      "name": "inventory_nrv_provisions",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 113,
+      "name": "inventory_nrv_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 114,
+      "name": "legal_reserve_entries",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 115,
+      "name": "payroll_labor_settings",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 116,
+      "name": "payroll_monthly_accruals",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 117,
+      "name": "budgets",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 118,
+      "name": "budget_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 119,
+      "name": "op_dept_capabilities",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 120,
+      "name": "op_dept_tasks",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 121,
+      "name": "op_unit_module_links",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 122,
+      "name": "op_parameter_extra_costs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 123,
+      "name": "op_field_followups",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 124,
+      "name": "expense_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 125,
+      "name": "op_dept_delegations",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 126,
+      "name": "product_images",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 127,
+      "name": "user_catalog_categories",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 128,
+      "name": "sms_templates",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 129,
+      "name": "sms_options",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 130,
+      "name": "sms_scheduled",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 131,
+      "name": "marketer_carts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 132,
+      "name": "party_groups",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 133,
+      "name": "cheque_records",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 134,
+      "name": "fixed_assets",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 135,
+      "name": "fixed_asset_depreciation",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 136,
+      "name": "user_cost_centers",
+      "upsertKey": "user_id:cost_center_id",
+      "compositeKeys": [
+        "user_id",
+        "cost_center_id"
+      ]
+    },
+    {
+      "index": 137,
+      "name": "rep_payment_submissions",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 138,
+      "name": "sms_rules",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 139,
+      "name": "employee_groups",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 140,
+      "name": "group_salary_structures",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 141,
+      "name": "bank_statement_lines",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 142,
+      "name": "product_colors",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 143,
+      "name": "product_sizes",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 144,
+      "name": "product_style_colors",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 145,
+      "name": "product_style_sizes",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 146,
+      "name": "product_variants",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 147,
+      "name": "crm_lead_sources",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 148,
+      "name": "crm_campaigns",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 149,
+      "name": "crm_opportunities",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 150,
+      "name": "crm_activities",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 151,
+      "name": "crm_stage_history",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 152,
+      "name": "crm_customer_segments",
+      "upsertKey": "customer_id",
+      "compositeKeys": [
+        "customer_id"
+      ]
+    },
+    {
+      "index": 153,
+      "name": "crm_segment_history",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 154,
+      "name": "crm_files",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 155,
+      "name": "pos_terminals",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 156,
+      "name": "pos_receipts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 157,
+      "name": "pos_settlement_batches",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 158,
+      "name": "pos_settlement_items",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 159,
+      "name": "cutting_lays",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 160,
+      "name": "cutting_lay_rolls",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 161,
+      "name": "branches",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 162,
+      "name": "rfqs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 163,
+      "name": "purchase_orders",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 164,
+      "name": "goods_receipts",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 165,
+      "name": "three_way_matches",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 166,
+      "name": "cutting_packs",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 167,
+      "name": "cutting_pack_bundles",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 168,
+      "name": "inventory_movements",
+      "upsertKey": "id",
+      "compositeKeys": null
+    },
+    {
+      "index": 169,
+      "name": "variant_warehouse_stock",
+      "upsertKey": "variant_id:warehouse_id",
+      "compositeKeys": [
+        "variant_id",
+        "warehouse_id"
+      ]
+    }
+  ],
+  "fk_columns": [
+    [
+      "customers",
+      "group_id"
+    ],
+    [
+      "customers",
+      "user_id"
+    ],
+    [
+      "customers",
+      "assigned_to"
+    ],
+    [
+      "customers",
+      "party_id"
+    ],
+    [
+      "customers",
+      "party_group_id"
+    ],
+    [
+      "orders",
+      "cust_id"
+    ],
+    [
+      "followups",
+      "cust_id"
+    ],
+    [
+      "invoices",
+      "cust_id"
+    ],
+    [
+      "settlements",
+      "cust_id"
+    ],
+    [
+      "settlements",
+      "invoice_id"
+    ],
+    [
+      "settlements",
+      "bank_id"
+    ],
+    [
+      "settlements",
+      "cash_box_id"
+    ],
+    [
+      "sales_returns",
+      "cust_id"
+    ],
+    [
+      "sales_returns",
+      "invoice_id"
+    ],
+    [
+      "customer_ledger",
+      "customer_id"
+    ],
+    [
+      "purchase_invoices",
+      "supplier_id"
+    ],
+    [
+      "purchase_invoices",
+      "bank_id"
+    ],
+    [
+      "purchase_invoices",
+      "cash_box_id"
+    ],
+    [
+      "purchase_invoices",
+      "check_category_id"
+    ],
+    [
+      "purchase_returns",
+      "supplier_id"
+    ],
+    [
+      "purchase_returns",
+      "purchase_invoice_id"
+    ],
+    [
+      "supplier_payments",
+      "supplier_id"
+    ],
+    [
+      "supplier_payments",
+      "purchase_invoice_id"
+    ],
+    [
+      "supplier_payments",
+      "bank_id"
+    ],
+    [
+      "supplier_payments",
+      "cash_box_id"
+    ],
+    [
+      "supplier_ledger",
+      "supplier_id"
+    ],
+    [
+      "persons",
+      "category_id"
+    ],
+    [
+      "person_ledger",
+      "person_id"
+    ],
+    [
+      "payroll_records",
+      "person_id"
+    ],
+    [
+      "products",
+      "warehouse_id"
+    ],
+    [
+      "stock_logs",
+      "product_id"
+    ],
+    [
+      "warehouse_moves",
+      "product_id"
+    ],
+    [
+      "warehouse_moves",
+      "from_warehouse_id"
+    ],
+    [
+      "warehouse_moves",
+      "to_warehouse_id"
+    ],
+    [
+      "consignments",
+      "product_id"
+    ],
+    [
+      "production_runs",
+      "product_id"
+    ],
+    [
+      "expense_payments",
+      "bank_id"
+    ],
+    [
+      "expense_payments",
+      "cash_box_id"
+    ],
+    [
+      "expense_payments",
+      "cost_center_id"
+    ],
+    [
+      "account_transfers",
+      "from_id"
+    ],
+    [
+      "account_transfers",
+      "to_id"
+    ],
+    [
+      "journal_entries",
+      "cost_center_id"
+    ],
+    [
+      "journal_lines",
+      "entry_id"
+    ],
+    [
+      "check_categories",
+      "bank_id"
+    ],
+    [
+      "rep_expenses",
+      "rep_id"
+    ],
+    [
+      "rep_advances",
+      "rep_id"
+    ],
+    [
+      "rep_ledger",
+      "rep_id"
+    ],
+    [
+      "rep_commission_rules",
+      "rep_id"
+    ],
+    [
+      "rep_commission_tiers",
+      "rep_id"
+    ],
+    [
+      "rep_settlements",
+      "rep_id"
+    ],
+    [
+      "rep_visit_logs",
+      "rep_id"
+    ],
+    [
+      "rep_visit_logs",
+      "customer_id"
+    ],
+    [
+      "rep_call_logs",
+      "rep_id"
+    ],
+    [
+      "rep_call_logs",
+      "customer_id"
+    ],
+    [
+      "rep_assignment_history",
+      "customer_id"
+    ],
+    [
+      "rep_assignment_history",
+      "from_rep_id"
+    ],
+    [
+      "rep_assignment_history",
+      "to_rep_id"
+    ],
+    [
+      "bom_lines",
+      "bom_id"
+    ],
+    [
+      "bom_lines",
+      "component_product_id"
+    ],
+    [
+      "bom_operations",
+      "bom_id"
+    ],
+    [
+      "bom_operations",
+      "cost_center_id"
+    ],
+    [
+      "bom_outputs",
+      "bom_id"
+    ],
+    [
+      "bom_outputs",
+      "product_id"
+    ],
+    [
+      "production_orders",
+      "product_id"
+    ],
+    [
+      "production_orders",
+      "bom_id"
+    ],
+    [
+      "production_orders",
+      "cost_center_id"
+    ],
+    [
+      "production_order_stages",
+      "order_id"
+    ],
+    [
+      "production_order_stages",
+      "cost_center_id"
+    ],
+    [
+      "production_material_issues",
+      "order_id"
+    ],
+    [
+      "production_material_issues",
+      "product_id"
+    ],
+    [
+      "production_labor_entries",
+      "order_id"
+    ],
+    [
+      "production_overhead_applications",
+      "order_id"
+    ],
+    [
+      "production_overhead_applications",
+      "cost_center_id"
+    ],
+    [
+      "production_waste",
+      "order_id"
+    ],
+    [
+      "production_receipts",
+      "order_id"
+    ],
+    [
+      "production_receipts",
+      "product_id"
+    ],
+    [
+      "production_subcontract",
+      "order_id"
+    ],
+    [
+      "production_subcontract",
+      "supplier_id"
+    ],
+    [
+      "production_estimate_lines",
+      "estimate_id"
+    ],
+    [
+      "mrp_requirements",
+      "run_id"
+    ],
+    [
+      "production_reservations",
+      "order_id"
+    ],
+    [
+      "inventory_ledger",
+      "product_id"
+    ],
+    [
+      "inventory_ledger",
+      "warehouse_id"
+    ],
+    [
+      "inventory_cost_layers",
+      "product_id"
+    ],
+    [
+      "inventory_cost_layers",
+      "warehouse_id"
+    ],
+    [
+      "inventory_batches",
+      "product_id"
+    ],
+    [
+      "inventory_batches",
+      "warehouse_id"
+    ],
+    [
+      "inventory_serials",
+      "product_id"
+    ],
+    [
+      "inventory_serials",
+      "warehouse_id"
+    ],
+    [
+      "inventory_serials",
+      "batch_id"
+    ],
+    [
+      "inventory_reservations",
+      "product_id"
+    ],
+    [
+      "inventory_reservations",
+      "warehouse_id"
+    ],
+    [
+      "landed_cost_lines",
+      "doc_id"
+    ],
+    [
+      "landed_cost_allocations",
+      "doc_id"
+    ],
+    [
+      "landed_cost_allocations",
+      "product_id"
+    ],
+    [
+      "salary_structures",
+      "person_id"
+    ],
+    [
+      "payroll_records",
+      "period_id"
+    ],
+    [
+      "payroll_year_end_bonuses",
+      "person_id"
+    ],
+    [
+      "vat_records",
+      "journal_line_id"
+    ],
+    [
+      "persons",
+      "position_id"
+    ],
+    [
+      "pricing_rules",
+      "scope_id"
+    ],
+    [
+      "op_units",
+      "manager_person_id"
+    ],
+    [
+      "op_units",
+      "manager2_person_id"
+    ],
+    [
+      "op_units",
+      "manager3_person_id"
+    ],
+    [
+      "op_unit_warehouses",
+      "unit_id"
+    ],
+    [
+      "op_unit_warehouses",
+      "warehouse_id"
+    ],
+    [
+      "op_unit_persons",
+      "unit_id"
+    ],
+    [
+      "op_unit_persons",
+      "person_id"
+    ],
+    [
+      "op_departments",
+      "unit_id"
+    ],
+    [
+      "op_departments",
+      "manager_person_id"
+    ],
+    [
+      "op_departments",
+      "warehouse_id"
+    ],
+    [
+      "op_parameters",
+      "unit_id"
+    ],
+    [
+      "op_parameters",
+      "current_department_id"
+    ],
+    [
+      "op_parameters",
+      "destination_warehouse_id"
+    ],
+    [
+      "op_parameter_items",
+      "parameter_id"
+    ],
+    [
+      "op_parameter_items",
+      "product_id"
+    ],
+    [
+      "op_parameter_dept_log",
+      "parameter_id"
+    ],
+    [
+      "op_parameter_dept_log",
+      "department_id"
+    ],
+    [
+      "op_parameter_dept_log",
+      "payment_person_id"
+    ],
+    [
+      "op_parameter_dept_log",
+      "converted_product_id"
+    ],
+    [
+      "bank_reconciliations",
+      "bank_id"
+    ],
+    [
+      "bank_reconciliation_items",
+      "reconciliation_id"
+    ],
+    [
+      "inventory_nrv_lines",
+      "provision_id"
+    ],
+    [
+      "inventory_nrv_lines",
+      "product_id"
+    ],
+    [
+      "budget_lines",
+      "budget_id"
+    ],
+    [
+      "payroll_monthly_accruals",
+      "person_id"
+    ],
+    [
+      "op_dept_delegations",
+      "department_id"
+    ],
+    [
+      "op_dept_delegations",
+      "delegate_person_id"
+    ],
+    [
+      "product_images",
+      "product_id"
+    ],
+    [
+      "user_catalog_categories",
+      "user_id"
+    ],
+    [
+      "user_catalog_categories",
+      "category_id"
+    ],
+    [
+      "sms_options",
+      "template_id"
+    ],
+    [
+      "sms_scheduled",
+      "template_id"
+    ],
+    [
+      "marketer_carts",
+      "user_id"
+    ],
+    [
+      "suppliers",
+      "party_id"
+    ],
+    [
+      "suppliers",
+      "party_group_id"
+    ],
+    [
+      "parties",
+      "party_group_id"
+    ],
+    [
+      "persons",
+      "party_group_id"
+    ],
+    [
+      "cheque_records",
+      "collection_bank_id"
+    ],
+    [
+      "cheque_records",
+      "journal_entry_id"
+    ],
+    [
+      "fixed_asset_depreciation",
+      "asset_id"
+    ],
+    [
+      "user_cost_centers",
+      "user_id"
+    ],
+    [
+      "user_cost_centers",
+      "cost_center_id"
+    ],
+    [
+      "rep_payment_submissions",
+      "rep_id"
+    ],
+    [
+      "rep_payment_submissions",
+      "cust_id"
+    ],
+    [
+      "rep_payment_submissions",
+      "settlement_id"
+    ],
+    [
+      "sms_rules",
+      "template_id"
+    ],
+    [
+      "sms_rules",
+      "party_group_id"
+    ],
+    [
+      "sms_rules",
+      "user_id"
+    ],
+    [
+      "persons",
+      "employee_group_id"
+    ],
+    [
+      "group_salary_structures",
+      "employee_group_id"
+    ],
+    [
+      "bank_statement_lines",
+      "reconciliation_id"
+    ],
+    [
+      "bank_statement_lines",
+      "matched_item_id"
+    ],
+    [
+      "bank_statement_lines",
+      "bank_item_id"
+    ],
+    [
+      "product_style_colors",
+      "product_id"
+    ],
+    [
+      "product_style_colors",
+      "color_id"
+    ],
+    [
+      "product_style_sizes",
+      "product_id"
+    ],
+    [
+      "product_style_sizes",
+      "size_id"
+    ],
+    [
+      "product_variants",
+      "product_id"
+    ],
+    [
+      "product_variants",
+      "color_id"
+    ],
+    [
+      "product_variants",
+      "size_id"
+    ],
+    [
+      "products",
+      "default_variant_id"
+    ],
+    [
+      "bom_operations",
+      "subcontract_supplier_id"
+    ],
+    [
+      "bom_outputs",
+      "stage_cost_center_id"
+    ],
+    [
+      "crm_opportunities",
+      "party_id"
+    ],
+    [
+      "crm_opportunities",
+      "customer_id"
+    ],
+    [
+      "crm_opportunities",
+      "owner_user_id"
+    ],
+    [
+      "crm_opportunities",
+      "campaign_id"
+    ],
+    [
+      "crm_opportunities",
+      "won_invoice_id"
+    ],
+    [
+      "crm_activities",
+      "party_id"
+    ],
+    [
+      "crm_activities",
+      "customer_id"
+    ],
+    [
+      "crm_activities",
+      "opportunity_id"
+    ],
+    [
+      "crm_activities",
+      "owner_user_id"
+    ],
+    [
+      "crm_activities",
+      "followup_id"
+    ],
+    [
+      "crm_stage_history",
+      "opportunity_id"
+    ],
+    [
+      "crm_stage_history",
+      "changed_by"
+    ],
+    [
+      "crm_customer_segments",
+      "party_id"
+    ],
+    [
+      "crm_segment_history",
+      "customer_id"
+    ],
+    [
+      "crm_files",
+      "party_id"
+    ],
+    [
+      "crm_files",
+      "customer_id"
+    ],
+    [
+      "crm_files",
+      "opportunity_id"
+    ],
+    [
+      "followups",
+      "opportunity_id"
+    ],
+    [
+      "followups",
+      "party_id"
+    ],
+    [
+      "consignments",
+      "person_id"
+    ],
+    [
+      "consignments",
+      "warehouse_id"
+    ],
+    [
+      "consignments",
+      "invoice_id"
+    ],
+    [
+      "consignments",
+      "settle_je_id"
+    ],
+    [
+      "consignments",
+      "issue_ledger_id"
+    ],
+    [
+      "pos_terminals",
+      "bank_id"
+    ],
+    [
+      "pos_receipts",
+      "terminal_id"
+    ],
+    [
+      "pos_receipts",
+      "invoice_id"
+    ],
+    [
+      "pos_receipts",
+      "cust_id"
+    ],
+    [
+      "pos_receipts",
+      "settlement_id"
+    ],
+    [
+      "pos_receipts",
+      "journal_id"
+    ],
+    [
+      "pos_settlement_batches",
+      "terminal_id"
+    ],
+    [
+      "pos_settlement_batches",
+      "bank_id"
+    ],
+    [
+      "pos_settlement_batches",
+      "journal_id"
+    ],
+    [
+      "pos_settlement_items",
+      "batch_id"
+    ],
+    [
+      "pos_settlement_items",
+      "receipt_id"
+    ],
+    [
+      "inventory_batches",
+      "supplier_id"
+    ],
+    [
+      "inventory_batches",
+      "ledger_id"
+    ],
+    [
+      "inventory_batches",
+      "journal_id"
+    ],
+    [
+      "inventory_batches",
+      "reversal_journal_id"
+    ],
+    [
+      "cutting_lays",
+      "product_id"
+    ],
+    [
+      "cutting_lays",
+      "bom_id"
+    ],
+    [
+      "cutting_lays",
+      "warehouse_id"
+    ],
+    [
+      "cutting_lays",
+      "fabric_product_id"
+    ],
+    [
+      "cutting_lays",
+      "journal_id"
+    ],
+    [
+      "cutting_lays",
+      "waste_journal_id"
+    ],
+    [
+      "cutting_lays",
+      "reversal_journal_id"
+    ],
+    [
+      "cutting_lay_rolls",
+      "lay_id"
+    ],
+    [
+      "cutting_lay_rolls",
+      "batch_id"
+    ],
+    [
+      "cutting_lay_rolls",
+      "ledger_id"
+    ],
+    [
+      "cheque_records",
+      "party_id"
+    ],
+    [
+      "cheque_records",
+      "endorse_party_id"
+    ],
+    [
+      "cheque_records",
+      "endorse_supplier_id"
+    ],
+    [
+      "trust_checks",
+      "party_id"
+    ],
+    [
+      "users",
+      "branch_id"
+    ],
+    [
+      "rfqs",
+      "party_id"
+    ],
+    [
+      "rfqs",
+      "supplier_id"
+    ],
+    [
+      "rfqs",
+      "cust_id"
+    ],
+    [
+      "rfqs",
+      "branch_id"
+    ],
+    [
+      "purchase_orders",
+      "supplier_id"
+    ],
+    [
+      "purchase_orders",
+      "rfq_id"
+    ],
+    [
+      "purchase_orders",
+      "branch_id"
+    ],
+    [
+      "purchase_orders",
+      "warehouse_id"
+    ],
+    [
+      "goods_receipts",
+      "purchase_order_id"
+    ],
+    [
+      "goods_receipts",
+      "supplier_id"
+    ],
+    [
+      "goods_receipts",
+      "branch_id"
+    ],
+    [
+      "goods_receipts",
+      "warehouse_id"
+    ],
+    [
+      "goods_receipts",
+      "journal_id"
+    ],
+    [
+      "three_way_matches",
+      "purchase_order_id"
+    ],
+    [
+      "three_way_matches",
+      "goods_receipt_id"
+    ],
+    [
+      "three_way_matches",
+      "purchase_invoice_id"
+    ],
+    [
+      "orders",
+      "reservation_id"
+    ],
+    [
+      "orders",
+      "warehouse_id"
+    ],
+    [
+      "purchase_invoices",
+      "goods_receipt_id"
+    ],
+    [
+      "purchase_invoices",
+      "purchase_order_id"
+    ],
+    [
+      "cutting_lays",
+      "production_order_id"
+    ],
+    [
+      "cutting_packs",
+      "lay_id"
+    ],
+    [
+      "cutting_packs",
+      "production_order_id"
+    ],
+    [
+      "cutting_packs",
+      "product_id"
+    ],
+    [
+      "cutting_packs",
+      "warehouse_id"
+    ],
+    [
+      "cutting_packs",
+      "journal_id"
+    ],
+    [
+      "cutting_packs",
+      "ledger_id"
+    ],
+    [
+      "cutting_packs",
+      "reversal_journal_id"
+    ],
+    [
+      "cutting_pack_bundles",
+      "pack_id"
+    ],
+    [
+      "cutting_pack_bundles",
+      "product_id"
+    ],
+    [
+      "persons",
+      "party_id"
+    ],
+    [
+      "parties",
+      "position_id"
+    ],
+    [
+      "bom_operations",
+      "person_id"
+    ],
+    [
+      "inventory_movements",
+      "product_id"
+    ],
+    [
+      "inventory_movements",
+      "variant_id"
+    ],
+    [
+      "inventory_movements",
+      "warehouse_id"
+    ],
+    [
+      "variant_warehouse_stock",
+      "variant_id"
+    ],
+    [
+      "variant_warehouse_stock",
+      "warehouse_id"
+    ],
+    [
+      "consignments",
+      "variant_id"
+    ],
+    [
+      "stocktaking_items",
+      "variant_id"
+    ],
+    [
+      "bank_reconciliation_items",
+      "statement_line_id"
+    ]
+  ],
+  "samples": {
+    "/api/customers": "customers",
+    "/api/invoices/1": "invoices",
+    "/api/warehouses/moves": "warehouse_moves",
+    "/api/warehouses": "warehouses"
+  }
+}

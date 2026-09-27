@@ -41,18 +41,21 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 
 ## فاز ۰ — انجماد + fixture طلایی — **L**
 
-1. هفت ADR امضا‌شده (به‌ویژه ۰۱ و ۰۳).
-2. Snapshot اسکیما + `schema_hash` + دروازهٔ CI drift.
-3. `OPERATION-CONTRACT.md` تولیدشده از ۴۷۳ مسیر mutating + `PATH_TABLE_MAP` (artifact commit‌شده).
-4. هارنس fixture: request/actor/clock → DB delta (اولویت: مشتری/سفارش/فاکتور/JE/موجودی/R13).
-5. fixture پول/VAT/گردکردن جدا.
-6. fixture چاپ (paper-ISO / density).
-7. ماتریس RBAC داده‌ای.
-8. Runner دوگانه Node vs C# (یا Node Host) با نرخ parity per-module.
-9. اسکلت `win-native/` + CI.
-10. ماتریس موج‌ها از inventory.
+| # | مورد | وضعیت ۱۴۰۵/۰۷/۰۵ |
+|---|---|---|
+| 1 | هفت ADR امضا‌شده (به‌ویژه ۰۱ و ۰۳) | ✅ DECISIONS-LOCKED |
+| 2 | Snapshot اسکیما + `schema_hash` | ✅ `docs/native/schema.v1.*` (مولد `scripts/native/schema-hash.js`) — CI drift هنوز باز |
+| 3 | `OPERATION-CONTRACT` از capture/tables | ✅ `docs/native/OPERATION-CONTRACT.*` (۱۷۰ جدول / ≈۴۷۳ mutating) |
+| 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ⏳ بعدی |
+| 5 | fixture پول/VAT/گردکردن | ⏳ |
+| 6 | fixture چاپ (paper-ISO / density) | ⏳ (تست‌های موجود را می‌توان به harness وصل کرد) |
+| 7 | ماتریس RBAC داده‌ای | ⏳ |
+| 8 | Runner دوگانه Node vs Host/C# | ⏳ |
+| 9 | اسکلت `win-native/` + Brand Pack | ✅ `win-native/` + `branding/taranom/` — CI اسکلت هنوز باز |
+| 10 | ماتریس موج‌ها از inventory | ⏳ از CAPABILITY-INVENTORY |
 
-**خروج:** ADR قفل؛ ≥۱۵۰ fixture برش عمودی؛ runner سبز روی مرجع Node.
+**خروج هدف فاز ۰:** ADR قفل؛ ≥۱۵۰ fixture برش عمودی؛ runner سبز روی مرجع Node.  
+**تاکنون:** قرارداد + schema_hash + اسکلت + چک‌لیست air-gap commit‌شده؛ fixture/runner باقی است.
 
 ---
 
