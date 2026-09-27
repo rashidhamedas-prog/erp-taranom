@@ -25,7 +25,7 @@ $appExe = if ($Stage) {
 }
 
 if (-not $RepoRoot) {
-  throw "Repo root unknown. Ensure SERVER_ROOT.txt points to …\server inside the stage package."
+  throw "Repo root unknown. Ensure SERVER_ROOT.txt points to ...\server inside the stage package."
 }
 
 $node20 = Join-Path $RepoRoot ".tools\node20\node-v20.18.1-win-x64\node.exe"
@@ -60,7 +60,7 @@ if ($portableRt) {
 }
 
 $hostLog = Join-Path $dataDir "domain-host.log"
-Write-Host "Starting Domain Host (Node=$node20)…"
+Write-Host "Starting Domain Host (Node=$node20)..."
 Write-Host "  HostDir=$hostDir"
 Write-Host "  RepoRoot=$RepoRoot"
 Write-Host "  Log=$hostLog"
@@ -93,7 +93,7 @@ if (-not $ready) {
     Write-Host (Get-Content (Join-Path $dataDir "domain-host.err.log") -Raw)
   }
   if (Test-Path $hostLog) { Write-Host (Get-Content $hostLog -Raw) }
-  throw "Host failed — see $dataDir\domain-host.err.log"
+  throw "Host failed - see $dataDir\domain-host.err.log"
 }
 Write-Host "Host ready. PID=$($hostProc.Id)"
 
