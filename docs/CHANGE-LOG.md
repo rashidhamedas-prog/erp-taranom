@@ -10,8 +10,8 @@
 - **کد:** `android-native/` — Compose UI کامل فروش (CRM/کاتالوگ/سبد/فاکتور/وصول/تعارض/گزارش/راهنما)، Room v2، `sync:impl` (HMAC+Ed25519+OkHttp+SyncEngine)، `:migrate` fail-closed، `:update` manifest/sha256، WorkManager stubs.
 - **تست JVM:** `:core:domain:test` `:sync:impl:test` `:migrate:test` `:update:test` **BUILD SUCCESSFUL** (JDK 17).
 - **مسدود APK این میزبان:** SDK platforms/build-tools خالی؛ دانلود Google 404 از پروکسی — `assembleDebug` اینجا اجرا نشد.
-- **Deploy ایران:** فقط اگر `server/sync/capture.js` هنوز روی VPS نباشد (visits/calls) — بدون APK تا بیلد امضاشده.
-- **وضعیت:** 🔄 کد فازها روی `ai/ANDROID-NATIVE-SALES`؛ APK/air-gap/Reviewer+Security باز.
+- **Deploy ایران:** ✅ overlay SFTP `server/sync/capture.js` + CHANGE-LOG @ `11cc430` — health/ready/root 200؛ SW `erp-taranom-v253`؛ بدون APK.
+- **وضعیت:** ✅ merge به `main`؛ APK/air-gap/Reviewer+Security باز.
 
 ### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: Wave 0 اسکلت + دامنه + capture visits/calls
 
