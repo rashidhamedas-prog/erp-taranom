@@ -5,6 +5,20 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — موج‌های ۲→۱۰: smoke دامنه روی Domain Host pipe (SW v252)
+
+- **پوشش:** wave2 stock/variant · wave3 treasury · wave4 purchase · wave5 accounting reports · wave6 production · wave7 reports · wave8 CRM/POS · wave9-10 payroll/assets/RBAC/backup
+- **Gate:** همه در `scripts/native/run-all-gates.js`
+- **باقی تا GA بومی:** صفحات کامل WPF، MSI امضا، Migration از Electron، عمق چک/BOM costing
+- **Deploy:** docs/tests @ همین نوبت؛ runtime وب همان v252
+
+### ۱۴۰۵/۰۷/۰۵ — موج ۲/۳ بومی: stock/variant + treasury smoke روی Host (SW v252)
+
+- **Wave2:** `test-wave2-stock.js` رنگ/سایز/موجودی/انتقال انبار از pipe (۱۲)
+- **Wave3:** `test-wave3-treasury.js` بانک/صندوق/تسویه/چک لیست (۸)
+- **Gate:** `run-all-gates` شامل موج ۲ و ۳
+- **Deploy:** docs+tests — SW همان v252 مگر Help عوض نشود
+
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۰/۱ بومی: Host 0.3 SyncWorker+backup، fixtures ۱۴۲، air-gap gate (SW v252)
 
 - **Host 0.3:** `sync.*` + `backup.local/list`؛ WPF Login/Customers/بکاپ/Sync

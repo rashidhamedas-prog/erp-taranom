@@ -16,6 +16,12 @@ const steps = [
   ['win-native/DomainHost/scripts/test-airgap-smoke.js'],
   ['win-native/DomainHost/scripts/test-wave2-stock.js'],
   ['win-native/DomainHost/scripts/test-wave3-treasury.js'],
+  ['win-native/DomainHost/scripts/test-wave4-purchase.js'],
+  ['win-native/DomainHost/scripts/test-wave5-accounting.js'],
+  ['win-native/DomainHost/scripts/test-wave6-production.js'],
+  ['win-native/DomainHost/scripts/test-wave7-reports.js'],
+  ['win-native/DomainHost/scripts/test-wave8-crm-pos.js'],
+  ['win-native/DomainHost/scripts/test-wave9-10-ops.js'],
 ];
 
 let failed = 0;

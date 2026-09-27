@@ -79,16 +79,16 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 
 | موج | دامنه | تلاش |
 |---|---|---|
-| ۲ | کالا/variant/انبار کامل | L | ✅ smoke pipe `test-wave2-stock` (۱۲) — UI کامل بعدی |
-| ۳ | خزانه/چک/تسویه | XL | ✅ smoke pipe `test-wave3-treasury` (۸) — چک lifecycle بعدی |
-| ۴ | خرید/RFQ/امانت | L |
-| ۵ | حسابداری کامل/سال مالی/چندشرکتی | XL |
-| ۶ | تولید/BOM/بهای تمام‌شده | XL |
-| ۷ | گزارش/Excel/چاپ تخصصی | L |
-| ۸ | CRM/POS/صف بیرونی | M |
-| ۹ | حقوق/دارایی/بودجه | M |
-| ۱۰ | تنظیمات/RBAC/مودیان/ایمپورت/بکاپ محلی | L |
-| ۱۱ | بازنشستگی Electron | M |
+| ۲ | کالا/variant/انبار کامل | L | ✅ `test-wave2-stock` |
+| ۳ | خزانه/چک/تسویه | XL | ✅ `test-wave3-treasury` |
+| ۴ | خرید/RFQ/امانت | L | ✅ `test-wave4-purchase` |
+| ۵ | حسابداری کامل/سال مالی/چندشرکتی | XL | ✅ `test-wave5-accounting` (گزارش‌ها؛ سال مالی بعدی) |
+| ۶ | تولید/BOM/بهای تمام‌شده | XL | ✅ `test-wave6-production` (لیست؛ costing بعدی) |
+| ۷ | گزارش/Excel/چاپ تخصصی | L | ✅ `test-wave7-reports` + print-smoke |
+| ۸ | CRM/POS/صف بیرونی | M | ✅ `test-wave8-crm-pos` |
+| ۹ | حقوق/دارایی/بودجه | M | ✅ بخشی در `test-wave9-10-ops` |
+| ۱۰ | تنظیمات/RBAC/مودیان/ایمپورت/بکاپ محلی | L | ✅ RBAC+settings+backup در wave9-10 |
+| ۱۱ | بازنشستگی Electron | M | ⏳ پس از MSI بومی + Migration Wizard |
 
 قاعدهٔ هر موج: fixture → دامنه parity ۱۰۰٪ → UI → sync-hygiene → گزارش → air-gap ماژول → عرضه.  
 از پایان موج ۳: Electron فقط نگه‌داری (بدون قابلیت جدید مگر همزمان در بومی).
