@@ -12,7 +12,7 @@
 - **Print gate:** `scripts/native/run-print-fixtures.js` (paper-iso / density / collapse)
 - **راهنما/SW:** Help Host v0.2؛ SW `erp-taranom-v251`
 - **تست:** pipe ۷؛ invoke ۱۵؛ print ۳؛ 
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP @ `56f16b8` — health/ready/root 200؛ SW `erp-taranom-v251`
 
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۰→۱ بومی: golden fixtures + Domain Host pipe + drift gate (SW v250)
 
