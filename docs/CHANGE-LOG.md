@@ -13,7 +13,7 @@
 - **پذیرش:** آزمون air-gap کامل (مسدودسازی همهٔ مسیر مرکز + reboot) قبل از GA.
 - **فایل‌ها:** `docs/architecture/NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md`؛ canvas خلاصه در IDE.
 - **Deploy:** فقط docs — بدون تغییر runtime تولید؛ Electron فعلی تا مهاجرت حفظ می‌شود.
-- **وضعیت:** ⏳ در انتظار تأیید ۸ تصمیم مالک (بخش ۱۴ سند)
+- **وضعیت:** ✅ push به `main` @ `a3776e5`؛ Deploy ایران برای docs به‌خاطر جلسهٔ architecture (بدون تغییر runtime) انجام نشد — در صورت نیاز `git pull` روی VPS. در انتظار تأیید ۸ تصمیم مالک (بخش ۱۴ سند)
 
 ### ۱۴۰۵/۰۷/۰۵ — دسکتاپ: Maximize دیگر زیر تسک‌بار ویندوز نمی‌رود (SW v247)
 
