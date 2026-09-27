@@ -14,6 +14,8 @@ const steps = [
   ['win-native/DomainHost/scripts/test-pipe-ping.js'],
   ['win-native/DomainHost/scripts/test-invoke-slice.js'],
   ['win-native/DomainHost/scripts/test-airgap-smoke.js'],
+  ['win-native/DomainHost/scripts/test-wave2-stock.js'],
+  ['win-native/DomainHost/scripts/test-wave3-treasury.js'],
 ];
 
 let failed = 0;
