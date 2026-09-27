@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی (Native Windows) — سند ADR
+
+- **حکم:** محصول نهایی دسکتاپ = UI بومی WPF (.NET 8) + Domain Host بدون UI وب؛ Electron/WebView/PWA/localhost-as-product ممنوع.
+- **Primary:** WPF + Headless Node (Named Pipe)؛ **Fallback:** WPF + C# Domain با golden parity.
+- **شبکه فقط:** sync کسب‌وکار + update امضاشده (Velopack/معادل؛ نه electron-updater به‌عنوان الزام).
+- **پذیرش:** آزمون air-gap کامل (مسدودسازی همهٔ مسیر مرکز + reboot) قبل از GA.
+- **فایل‌ها:** `docs/architecture/NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md`؛ canvas خلاصه در IDE.
+- **Deploy:** فقط docs — بدون تغییر runtime تولید؛ Electron فعلی تا مهاجرت حفظ می‌شود.
+- **وضعیت:** ⏳ در انتظار تأیید ۸ تصمیم مالک (بخش ۱۴ سند)
+
 ### ۱۴۰۵/۰۷/۰۵ — دسکتاپ: Maximize دیگر زیر تسک‌بار ویندوز نمی‌رود (SW v247)
 
 - **مشکل:** با بزرگ‌کردن پنجرهٔ EXE، پایین برنامه (سایدبار/دکمه‌ها/کارت‌ها) زیر تسک‌بار ویندوز می‌رفت.
