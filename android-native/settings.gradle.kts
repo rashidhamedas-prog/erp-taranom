@@ -27,6 +27,6 @@ include(":core:model")
 include(":core:database")
 include(":core:domain")
 include(":sync:api")
+include(":sync:impl")
 include(":migrate")
 include(":update")
-// :sync:impl — جدا توسط ایجنت sync؛ تا commit آن ماژول، include نشود
