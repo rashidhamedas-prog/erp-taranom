@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: الحاق inventory + شکاف Sync
+
+- **Inventory:** ۷۴ قابلیت از ۸۱ route / ~۸۸۰ endpoint → `docs/architecture/NATIVE-WINDOWS-CAPABILITY-INVENTORY.md`
+- **Sync gaps:** اتمیسیته outbox، wipe در resetPairing، oversell/credit، tombstone vs pending → `NATIVE-WINDOWS-SYNC-GAPS.md`
+- **ارجاع در ADR:** `NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md` §۵.۲ و فاز P0/P1 به‌روز شد
+- **Deploy:** docs-only؛ بدون تغییر runtime
+- **وضعیت:** ✅ push به `main` (این کامیت)
+
 ### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی (Native Windows) — سند ADR
 
 - **حکم:** محصول نهایی دسکتاپ = UI بومی WPF (.NET 8) + Domain Host بدون UI وب؛ Electron/WebView/PWA/localhost-as-product ممنوع.

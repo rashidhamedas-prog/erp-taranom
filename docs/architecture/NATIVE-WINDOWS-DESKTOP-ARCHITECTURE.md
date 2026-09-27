@@ -151,17 +151,25 @@
 | `Taranom.UpdateWorker` | بررسی/دانلود/تأیید امضا/نصب امن | Velopack یا معادل |
 | مرکز (`server/`) | حقیقت سازمانی + بازپخش | بدون تغییر قرارداد عمومی |
 
-### ۵.۲ ماتریس تطبیق (استخوان‌بندی — تکمیل با inventory کامل)
+### ۵.۲ ماتریس تطبیق
 
-**پایهٔ موجود (Electron/device):** `docs/DESKTOP-OFFLINE-MODULE-MATRIX.md` — پوشش آفلاین فعلی با `SYNC_ROLE=device` و محدودیت‌های `centralOnly`/`centralOnlyStrict`.
+**Inventory کامل سرور (۷۴ ردیف):** [`NATIVE-WINDOWS-CAPABILITY-INVENTORY.md`](./NATIVE-WINDOWS-CAPABILITY-INVENTORY.md)  
+(۸۱ route · ~۸۸۰ endpoint · ۱۷۱ syncable · ۶۲ `centralOnly*`)
 
-**شکاف اجباری نسبت به مأموریت بومی (باید در ماتریس جدید حل شود):**
-- نصب تمیز + **مدیر محلی** بدون سرور (امروز pairing/کاربران سازمانی پررنگ‌ترند).
-- **Backup/restore محلی** روی دسکتاپ بومی (امروز `centralOnlyStrict` بکاپ ادمین را فقط مرکز می‌داند).
-- UI بومی جایگزین وب؛ ماتریس باید ستون «معادل بومی WPF» بگیرد نه «همان index.html».
-- آزمون پذیرش = air-gap کامل، نه فقط offline Wi-Fi.
+**شکاف‌های Sync که قبل از GA باید بسته شوند:** [`NATIVE-WINDOWS-SYNC-GAPS.md`](./NATIVE-WINDOWS-SYNC-GAPS.md)
+
+**پایهٔ Electron فعلی:** `docs/DESKTOP-OFFLINE-MODULE-MATRIX.md`
+
+**شکاف اجباری نسبت به مأموریت بومی:**
+- نصب تمیز + **مدیر محلی** بدون سرور
+- **Backup/restore محلی** (امروز `centralOnlyStrict`)
+- UI بومی WPF (نه همان `index.html`)
+- اتمیسیتهٔ دامنه+outbox در یک تراکنش (امروز capture پس از commit)
+- air-gap کامل؛ بدون wipe خودکار صف در repair
 
 وضعیت‌ها: `todo` | `slice` | `parity` | `done` | `central-external` | `local-admin-new` | `policy-change`
+
+خلاصهٔ موج اول (جزئیات در inventory):
 
 | قابلیت سرور | گردش کار | معادل بومی | دادهٔ محلی | آزمون تطبیق | وضعیت |
 |---|---|---|---|---|---|
@@ -393,8 +401,8 @@ check → download(resume) → verify signature/hash → wait safe point
 
 | فاز | محتوا | تلاش نسبی | دروازه خروج |
 |---|---|---|---|
-| P0 | انجماد معماری، inventory کامل ماتریس، استخراج golden fixtures، ADR تأیید مالک | M | تأیید ADR + میزبان/گواهی |
-| P1 | Skeleton WPF + Local DB + Local Auth + Domain Host pipe + مسیر slice فروش | XL | air-gap روی slice |
+| P0 | انجماد ADR، inventory (✅)، fixtures طلایی، بستن اتمیسیته outbox در طراحی Host، ADR تأیید مالک | M | تأیید ADR + میزبان/گواهی |
+| P1 | Skeleton WPF + LocalAuth + Domain Host pipe + مسیر فروش + SyncWorker بدون wipe خودکار | XL | air-gap روی slice |
 | P2 | SyncWorker سازگار + conflict UX | L | test-sync سازگار |
 | P3 | خزانه/چک/خرید | XL | parity fixtures |
 | P4 | انبار پیشرفته/تولید/حقوق | XL | ماتریس ≥ پوشش ACC_NAV |
@@ -452,6 +460,8 @@ check → download(resume) → verify signature/hash → wait safe point
 
 - وضعیت فعلی Electron: `.cursor/skills/EXE/architecture.md`, `desktop/main.js`
 - سینک: `docs/OFFLINE-SYNC.md`, `server/sync/*`, `server/routes/sync.js`
+- **شکاف Sync بومی:** `docs/architecture/NATIVE-WINDOWS-SYNC-GAPS.md`
+- **Inventory قابلیت‌ها:** `docs/architecture/NATIVE-WINDOWS-CAPABILITY-INVENTORY.md`
 - لایسنس آفلاین: `server/routes/license.js`, `server/lib/license/*`
 - ناوبری ماژول‌ها: `server/public/acc-nav.js`, `ACC_MODULE_MAP` در `app.js`
 - Handoff (باید پس از GA بومی به‌روز شود): `docs/PROJECT-HANDOFF.md`
