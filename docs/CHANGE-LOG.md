@@ -13,7 +13,7 @@
 - **موج‌ها:** `docs/native/WAVE-MATRIX.md`؛ PHASE-PLAN وضعیت فاز ۰/۱ به‌روز
 - **راهنما/SW:** Help فاز ۰/۱؛ SW `erp-taranom-v250`
 - **تست:** pipe ۶؛ drift OK؛ golden ۲۱؛ sms/sync از قبل سبز
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP @ `5d91510` — health/ready/root 200؛ SW `erp-taranom-v250`
 
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۰ بومی: OPERATION-CONTRACT + schema_hash + اسکلت win-native (SW v249)
 
