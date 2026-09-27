@@ -5,34 +5,52 @@ package ir.taranom.crm.sales.sync.api
  * هویت دستگاه را عوض نمی‌کند، و صف کاربر قبلی با هویت کاربر جدید ارسال نمی‌شود
  * (ADR-AND-001 §۷.۴).
  *
- * پیاده‌سازی اندرویدی باید کلیدها را در Android Keystore نگه دارد؛ کلید خصوصی
- * Ed25519 **هرگز** از دستگاه خارج نمی‌شود و در لاگ نمی‌آید (ADR §۹).
+ * پیاده‌سازی باید توکن و کلید خصوصی Ed25519 را در ذخیره‌گاه امن نگه دارد
+ * (EncryptedSharedPreferences / Android Keystore). کلید خصوصی **هرگز** از
+ * دستگاه خارج نمی‌شود و در لاگ نمی‌آید (ADR §۹).
+ *
+ * Missing credentials ⇒ fail closed (هیچ درخواست sync بدون امضا ارسال نشود).
  */
 interface DeviceCredentials {
 
     /** `device_id` صادرشده توسط مرکز؛ تا قبل از pairing `null`. */
     val deviceId: Long?
 
-    val isPaired: Boolean get() = deviceId != null
+    /** Base URL of central (https://…); null if unpaired. */
+    val centralUrl: String?
 
-    /** مقدار هدر `Authorization: Device <id>:<token>`؛ اگر جفت نشده `null`. */
+    val isPaired: Boolean
+        get() = deviceId != null && !centralUrl.isNullOrBlank() && hasDeviceToken()
+
+    fun hasDeviceToken(): Boolean
+
+    /** `Authorization: Device <id>:<token>`؛ اگر جفت نشده `null`. */
     fun authorizationHeader(): String?
 
     /**
-     * HMAC بدنه/مسیر برای هدر `x-sync-signature`.
-     * @param canonicalPayload رشتهٔ canonical درخواست (مسیر + زمان + nonce + بدنه).
+     * HMAC-SHA256 hex of `"$timestamp:$nonce"` keyed by SHA-256(device_token),
+     * matching `server/sync/device-auth.js` `signature()`.
      */
-    fun signRequest(canonicalPayload: ByteArray): ByteArray
+    fun hmacSignature(timestampSec: Long, nonce: String): String
 
     /**
-     * امضای Ed25519 یک عملیات outbox برای `replay_proof`.
-     *
-     * ورودی باید **بایت‌به‌بایت** همان serialization پایدار سرور (`stableJson`)
-     * باشد؛ هر اختلاف ترتیب کلید ⇒ رد شدن عملیات در مرکز.
+     * Ed25519 `replay_proof` (base64url) over canonical stableJson envelope.
+     * @throws IllegalStateException if signing key missing (fail closed)
      */
-    fun replayProof(stableJsonBytes: ByteArray): ByteArray
+    fun signReplayProof(
+        seq: Long,
+        method: String,
+        path: String,
+        userId: Long,
+        body: Map<String, Any?>,
+        fileHash: String = "",
+        fileField: String = "",
+    ): String
 
-    /** nonce تازه برای هدر `x-sync-nonce`. */
+    /** PEM SPKI public key for pairing ceremony. */
+    fun replayPublicKeyPem(): String
+
+    /** nonce تازه برای هدر `x-sync-nonce` (۳۶ hex char = ۱۸ بایت). */
     fun freshNonce(): String
 
     /** ساعت دستگاه به ثانیهٔ یونیکس؛ اختلاف بیش از ۳۰۰ ثانیه رد می‌شود. */

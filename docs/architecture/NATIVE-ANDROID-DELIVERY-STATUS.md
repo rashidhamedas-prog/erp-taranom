@@ -11,7 +11,8 @@
 | AI-DOS task claimed; DESKTOP-EXE released | `.ai-dos/tasks/active.yaml` |
 | Compose skeleton (no WebView/Node) | `android-native/` |
 | VAT/Round3/LineBuilder/CustomerScope/DraftOrderService | `core/domain` + unit tests |
-| JVM tests | `:core:domain:test` **BUILD SUCCESSFUL** on JDK 17 |
+| JVM tests | `:core:domain:test` + `:sync:impl:test` **BUILD SUCCESSFUL** on JDK 17 |
+| **`sync:impl` wire client** | OkHttp + HMAC/nonce + Ed25519 `replay_proof` + `SyncEngine` + AES-GCM credential store |
 | visits/calls sync capture map | `server/sync/capture.js` → `rep_visit_logs` / `rep_call_logs` |
 | Release signing fail-closed | `app/build.gradle.kts` |
 | JDK 17 on build PC | `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot` |
@@ -24,7 +25,8 @@
 
 | Item | Notes |
 |---|---|
-| `sync:impl` HTTP + Ed25519 + SyncEngine | Other agent — catalog/customers stay empty until pull |
+| Full Room `PullApplier` for all SYNCABLE_TABLES | Engine applies via port; sales tables only partially wired |
+| EncryptedSharedPreferences wiring in `:app` | `StringKeyValueStore` + AES-GCM ready; prefs adapter documented in `EncryptedPrefsWiring` |
 | Local auth Keystore | Login form still accepts any non-empty credentials |
 | Policy store / real RBAC from server | `SessionRoles` defaults to `field_sales`; final invoice/return/receipt gated |
 | Coil/real product images | Placeholder icon only |
@@ -34,8 +36,8 @@
 
 ## In progress (parallel agents)
 
-- `sync:impl` HTTP + Ed25519 + SyncEngine
-- Updater + LegacyDbMigrator + WorkManager
+- Room pull apply for catalog/customers + WorkManager sync schedule
+- Updater + LegacyDbMigrator polish
 
 ## Blocked on this host (environment)
 

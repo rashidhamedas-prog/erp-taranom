@@ -6,8 +6,8 @@ import ir.taranom.crm.sales.core.model.OutboxOp
 data class PairResult(
     val deviceId: Long,
     val deviceToken: String,
-    /** کلید عمومی مرکز برای بررسی پاسخ‌ها، اگر ارائه شود. */
-    val centralPublicKey: String? = null,
+    val centralUrl: String,
+    val tokenExpiresAt: Long? = null,
 )
 
 /** سرنوشت یک عملیات پس از بازپخش در مرکز. */
@@ -20,6 +20,7 @@ sealed interface OpOutcome {
         val centralIds: Map<Long, Long> = emptyMap(),
         /** شمارهٔ رسمی صادرشده (`T-xxxx`) اگر سند شماره‌دار بود. */
         val assignedDocumentNumber: String? = null,
+        val resultJson: String? = null,
     ) : OpOutcome
 
     /**
@@ -72,19 +73,25 @@ data class RemoteFile(
 )
 
 /**
- * کلاینت همگام‌سازی. **فقط قرارداد** — پیاده‌سازی HTTP در فاز ۱ (`sync:impl`).
+ * کلاینت همگام‌سازی — قرارداد wire با `server/sync/client.js` / `routes/sync.js`.
  *
  * سه قاعدهٔ رفتاری که پیاده‌سازی باید تضمین کند:
  * 1. ترتیب صف حفظ شود و با اولین `Conflict`/`Deferred` ارسال متوقف شود.
- * 2. کلید ایدمپوتنسی هر عملیات `"<device_id>:<outbox_seq>"` باشد تا ارسال مجدد
- *    پس از قطعی وسط راه رکورد تکراری نسازد.
- * 3. خطای شبکه ≠ خطای احراز هویت: UI باید `آفلاین` را از `auth_expired` جدا
- *    نشان دهد (ADR §۸.۲).
+ * 2. کلید ایدمپوتنسی هر عملیات `"<device_id>:<outbox_seq>"` باشد.
+ * 3. خطای شبکه ≠ خطای احراز هویت: UI باید `آفلاین` را از `auth_expired` جدا نشان دهد.
  */
 interface SyncClient {
 
-    /** [SyncEndpoints.PAIR] — یک‌بار در عمر نصب (یا re-pair آگاهانه). */
-    suspend fun pair(pairingCode: String, deviceLabel: String): PairResult
+    /**
+     * [SyncEndpoints.PAIR] — admin username/password + Ed25519 public key.
+     * Fail-closed if credentials missing after pair.
+     */
+    suspend fun pair(
+        centralUrl: String,
+        username: String,
+        password: String,
+        deviceName: String,
+    ): PairResult
 
     /** [SyncEndpoints.PUSH] — ارسال صف به ترتیب `seq`. */
     suspend fun push(ops: List<OutboxOp>): PushResult
@@ -95,8 +102,8 @@ interface SyncClient {
     /** [SyncEndpoints.ROW] — خواندن نسخهٔ مرکزی یک ردیف برای نمایش تعارض. */
     suspend fun fetchRow(table: String, primaryKey: String): PulledRow?
 
-    /** [SyncEndpoints.FILES] — فهرست فایل‌های قابل دریافت. */
-    suspend fun listFiles(sinceSyncSeq: Long): List<RemoteFile>
+    /** [SyncEndpoints.FILES] — دریافت باینری فایل (query `path=subdir/name`). */
+    suspend fun downloadFile(subdir: String, fileName: String): ByteArray
 
     /** [SyncEndpoints.REPLAY_MULTIPART] — بازپخش عملیات با پیوست. */
     suspend fun replayMultipart(op: OutboxOp, fileBytes: ByteArray, fileName: String): OpOutcome

@@ -6,17 +6,18 @@ import ir.taranom.crm.sales.core.model.OutboxOp
 class SyncNotAvailableException(message: String) : IllegalStateException(message)
 
 /**
- * پیاده‌سازی stub فاز ۰.
- *
- * عمداً هیچ کاری «تقریبی» انجام نمی‌دهد و سکوت هم نمی‌کند: هر تماس استثنا
- * می‌دهد تا هیچ مسیری به‌اشتباه فکر نکند sync انجام شده. اپ باید بدون این
- * کلاینت هم کامل کار کند (آزمون air-gap، ADR §۱.۵ بند ۱).
+ * Stub fail-closed: every call throws so UI never believes sync succeeded offline.
  */
 class UnpairedSyncClient(
-    private val reason: String = "دستگاه جفت نشده است؛ کلاینت واقعی sync در فاز ۱ اضافه می‌شود.",
+    private val reason: String = "دستگاه جفت نشده است.",
 ) : SyncClient {
 
-    override suspend fun pair(pairingCode: String, deviceLabel: String): PairResult = fail()
+    override suspend fun pair(
+        centralUrl: String,
+        username: String,
+        password: String,
+        deviceName: String,
+    ): PairResult = fail()
 
     override suspend fun push(ops: List<OutboxOp>): PushResult = fail()
 
@@ -24,7 +25,7 @@ class UnpairedSyncClient(
 
     override suspend fun fetchRow(table: String, primaryKey: String): PulledRow? = fail()
 
-    override suspend fun listFiles(sinceSyncSeq: Long): List<RemoteFile> = fail()
+    override suspend fun downloadFile(subdir: String, fileName: String): ByteArray = fail()
 
     override suspend fun replayMultipart(
         op: OutboxOp,
