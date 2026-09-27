@@ -17,9 +17,6 @@ if (Test-Path (Join-Path $Here "DomainHost\host-main.js")) {
   $Stage = $null
 }
 
-$node20 = Join-Path $RepoRoot ".tools\node20\node-v20.18.1-win-x64\node.exe"
-if (-not (Test-Path $node20)) { $node20 = "node" }
-
 $hostDir = if ($Stage) { Join-Path $Stage "DomainHost" } else { Join-Path $RepoRoot "win-native\DomainHost" }
 $appExe = if ($Stage) {
   Get-ChildItem (Join-Path $Stage "app") -Filter "Taranom.App.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
@@ -27,9 +24,20 @@ $appExe = if ($Stage) {
   $null
 }
 
+if (-not $RepoRoot) {
+  throw "Repo root unknown. Ensure SERVER_ROOT.txt points to …\server inside the stage package."
+}
+
+$node20 = Join-Path $RepoRoot ".tools\node20\node-v20.18.1-win-x64\node.exe"
+if (-not (Test-Path $node20)) {
+  $found = Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+  if ($found) { $node20 = $found } else { throw "Node.js not found. Install Node 20 or place .tools\node20." }
+}
+
 $dataDir = Join-Path $env:ProgramData "Taranom\ERP"
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
+$env:ERP_REPO_ROOT = "$RepoRoot"
 $env:ERP_HOST_DATA = $dataDir
 $env:ERP_BRAND_ID = "taranom"
 $env:ERP_HOST_AUTOSTART = "1"
@@ -51,9 +59,43 @@ if ($portableRt) {
   Write-Host "DOTNET_ROOT=$portableRt"
 }
 
-Write-Host "Starting Domain Host..."
-$hostProc = Start-Process -FilePath $node20 -ArgumentList "host-main.js" -WorkingDirectory $hostDir -PassThru -WindowStyle Minimized
-Start-Sleep -Seconds 3
+$hostLog = Join-Path $dataDir "domain-host.log"
+Write-Host "Starting Domain Host (Node=$node20)…"
+Write-Host "  HostDir=$hostDir"
+Write-Host "  RepoRoot=$RepoRoot"
+Write-Host "  Log=$hostLog"
+
+# Kill stale host on same pipe (optional soft)
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -like "*host-main.js*" } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+
+$hostProc = Start-Process -FilePath $node20 -ArgumentList "host-main.js" `
+  -WorkingDirectory $hostDir -PassThru -WindowStyle Minimized `
+  -RedirectStandardOutput $hostLog -RedirectStandardError (Join-Path $dataDir "domain-host.err.log")
+
+# Wait until pipe accepts (up to ~20s)
+$ready = $false
+for ($i = 0; $i -lt 40; $i++) {
+  Start-Sleep -Milliseconds 500
+  if ($hostProc.HasExited) { break }
+  try {
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(".", "erp-taranom-domain", [System.IO.Pipes.PipeDirection]::InOut)
+    $pipe.Connect(200)
+    $pipe.Dispose()
+    $ready = $true
+    break
+  } catch { }
+}
+if (-not $ready) {
+  Write-Host "ERROR: Domain Host did not become ready."
+  if (Test-Path (Join-Path $dataDir "domain-host.err.log")) {
+    Write-Host (Get-Content (Join-Path $dataDir "domain-host.err.log") -Raw)
+  }
+  if (Test-Path $hostLog) { Write-Host (Get-Content $hostLog -Raw) }
+  throw "Host failed — see $dataDir\domain-host.err.log"
+}
+Write-Host "Host ready. PID=$($hostProc.Id)"
 
 if ($appExe -and (Test-Path $appExe)) {
   Write-Host "Starting WPF $appExe"

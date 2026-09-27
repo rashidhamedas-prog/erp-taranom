@@ -15,11 +15,44 @@ const path = require('path');
 const crypto = require('crypto');
 const { backupLocal, listLocalBackups } = require('./local-backup');
 
-const ROOT = path.join(__dirname, '..', '..');
+/** Repo root (has server/ + branding/) — works from win-native/DomainHost or staged TaranomNative/DomainHost. */
+function resolveRoot() {
+  if (process.env.ERP_REPO_ROOT && fs.existsSync(path.join(process.env.ERP_REPO_ROOT, 'server', 'server.js'))) {
+    return path.resolve(process.env.ERP_REPO_ROOT);
+  }
+  const candidates = [
+    path.join(__dirname, '..', '..'), // repo: win-native/DomainHost
+    path.join(__dirname, '..'), // staged: TaranomNative (branding here; server via SERVER_ROOT.txt)
+  ];
+  for (const c of candidates) {
+    const hasBrand = fs.existsSync(path.join(c, 'branding', 'taranom', 'brand.json'));
+    const hasServer = fs.existsSync(path.join(c, 'server', 'server.js'));
+    if (hasBrand && hasServer) return path.resolve(c);
+  }
+  // Staged package: branding beside DomainHost; SERVER_ROOT.txt points at …/server
+  const stage = path.join(__dirname, '..');
+  const ptr = path.join(stage, 'SERVER_ROOT.txt');
+  if (fs.existsSync(ptr)) {
+    const serverDir = fs.readFileSync(ptr, 'utf8').trim();
+    const repo = path.dirname(serverDir);
+    if (fs.existsSync(path.join(repo, 'server', 'server.js'))) return path.resolve(repo);
+  }
+  return path.resolve(candidates[0]);
+}
+
+const ROOT = resolveRoot();
 
 function loadBrand(brandId) {
-  const p = path.join(ROOT, 'branding', brandId || 'taranom', 'brand.json');
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
+  const id = brandId || 'taranom';
+  const candidates = [
+    path.join(ROOT, 'branding', id, 'brand.json'),
+    path.join(__dirname, '..', 'branding', id, 'brand.json'),
+    path.join(__dirname, '..', '..', 'branding', id, 'brand.json'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+  }
+  throw new Error('brand.json not found for ' + id + ' (ROOT=' + ROOT + ')');
 }
 
 function readSha(rel) {
