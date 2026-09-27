@@ -28,6 +28,10 @@ _code-overview-for-ai.md
 # Build / IDE / caches
 .tmp-build/
 .tmp-node22/
+.tools/dotnet8/
+.tools/node20/
+.tools/*.zip
+.tools/*.tgz
 .gradle-home/
 .gradle/
 **/build/
@@ -40,6 +44,8 @@ playwright-report/
 desktop/dist/
 android/app/build/
 android/.cxx/
+win-native/**/bin/
+win-native/**/obj/
 *.log
 android-build-*.log
 android-build-*.txt

@@ -21,4 +21,6 @@
 
 **خودکار:** `node win-native/DomainHost/scripts/test-airgap-smoke.js` — برش فروش+R13+بکاپ روی Host با runtime فقط-loopback (بدون وابستگی به مرکز).
 
-مرجع معماری: `docs/architecture/NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md` §۱۱.
+**گزارش پوشش:** `node scripts/native/run-airgap-checklist.js` → `docs/native/fixtures/airgap-checklist-run.json` (گام‌های قابل‌اتوماسیون؛ ۱ و ۱۲ تا installer امضا / WPF published دستی).
+
+مرجع معماری: `docs/architecture/NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md` §۱۱. · وضعیت GA: `docs/native/GA-STATUS.md`.

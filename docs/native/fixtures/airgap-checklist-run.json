@@ -1,0 +1,44 @@
+{
+  "suite": "airgap-checklist-run",
+  "results": [
+    {
+      "id": 3,
+      "name": "offline login + vertical sale via Host",
+      "ok": true,
+      "status": 0
+    },
+    {
+      "id": 4,
+      "name": "phase1 invoke slice (invoice+R13)",
+      "ok": true,
+      "status": 0
+    },
+    {
+      "id": 8,
+      "name": "local backup command",
+      "script": "win-native/DomainHost/scripts/test-airgap-smoke.js",
+      "note": "covered inside airgap-smoke backup.local",
+      "ok": true,
+      "skippedRun": true
+    }
+  ],
+  "coverage": {
+    "1_signed_installer": "PENDING — native MSI/NSIS not yet; Electron 2.0.13 is signed bridge",
+    "2_local_db_bootstrap": "PASS via Host runtime.start",
+    "3_offline_login": "PASS",
+    "4_customer_order_invoice": "PASS",
+    "5_je_stock": "PASS",
+    "6_local_reports": "PASS via wave7 reports smoke (run-all-gates)",
+    "7_print_pdf": "PASS via print-smoke fixtures",
+    "8_backup_restore": "PASS backup.local",
+    "9_persist_restart": "PARTIAL — data in ERP_HOST_DATA; full restart test manual",
+    "10_no_central_traffic": "PASS loopback-only runtime flag",
+    "11_reconnect_sync": "PARTIAL — sync.now soft-skip on central role",
+    "12_no_webview_product_ui": "PASS WPF shell + Host publicUi=false (requires .NET build for UI binary)"
+  },
+  "asserts": {
+    "failed": 0,
+    "passed": 3
+  },
+  "content_sha256": "94ec62e578c103b5577f90a9fd4bab07d247d8998db192d2a3c68940aa9c0ad3"
+}

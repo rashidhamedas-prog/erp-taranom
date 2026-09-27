@@ -22,6 +22,7 @@ const steps = [
   ['win-native/DomainHost/scripts/test-wave7-reports.js'],
   ['win-native/DomainHost/scripts/test-wave8-crm-pos.js'],
   ['win-native/DomainHost/scripts/test-wave9-10-ops.js'],
+  ['scripts/native/run-airgap-checklist.js'],
 ];
 
 let failed = 0;

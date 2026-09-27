@@ -1,46 +1,87 @@
 <Window x:Class="Taranom.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ERP Taranom (native)"
-        Height="640" Width="720"
+        Title="ERP Taranom — Native"
+        Height="720" Width="980"
         FlowDirection="RightToLeft"
         WindowStartupLocation="CenterScreen"
-        Background="#F4F1EA">
-  <DockPanel Margin="20">
-    <StackPanel DockPanel.Dock="Top">
-      <TextBlock x:Name="TitleText" Text="ERP Taranom" FontSize="26" FontWeight="SemiBold" Foreground="#1A5C38"/>
-      <TextBlock x:Name="HostStatus" Margin="0,4,0,0" Foreground="#666" FontSize="12"/>
-      <TextBlock x:Name="StatusText" Margin="0,8,0,12" TextWrapping="Wrap" FontSize="13"/>
-    </StackPanel>
+        Background="#EEF3EF">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#1A5C38" Padding="16,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel>
+          <TextBlock x:Name="TitleText" Text="ERP Taranom" FontSize="22" FontWeight="SemiBold" Foreground="White"/>
+          <TextBlock x:Name="HostStatus" Foreground="#C8E6D4" FontSize="12"/>
+        </StackPanel>
+        <TextBlock x:Name="UserBadge" Grid.Column="1" VerticalAlignment="Center" Foreground="White" FontSize="13"/>
+      </Grid>
+    </Border>
 
-    <StackPanel x:Name="LoginPanel" DockPanel.Dock="Top" Width="320" HorizontalAlignment="Right">
-      <TextBlock Text="ورود محلی" FontWeight="SemiBold" Margin="0,0,0,8"/>
-      <TextBox x:Name="UserBox" Text="admin" Margin="0,0,0,8" Padding="6"/>
-      <PasswordBox x:Name="PassBox" Margin="0,0,0,8" Padding="6"/>
-      <Button Content="ورود" Click="OnLoginClick" Padding="10,6" Background="#1A5C38" Foreground="White"/>
-    </StackPanel>
+    <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom" Margin="12" TextWrapping="Wrap" FontSize="12" Foreground="#444"/>
 
-    <Grid x:Name="WorkPanel" Visibility="Collapsed">
+    <Grid Margin="12">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="2*"/>
+        <ColumnDefinition Width="200"/>
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
-      <DockPanel Grid.Column="0" Margin="0,0,12,0">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-          <Button Content="تازه‌سازی" Click="OnRefreshCustomers" Margin="0,0,8,0" Padding="8,4"/>
-          <Button Content="بکاپ محلی" Click="OnBackup" Margin="0,0,8,0" Padding="8,4"/>
-          <Button Content="Sync اکنون" Click="OnSyncNow" Padding="8,4"/>
-        </StackPanel>
-        <ListBox x:Name="CustomerList"/>
-      </DockPanel>
-      <StackPanel Grid.Column="1">
-        <TextBlock Text="مشتری جدید" FontWeight="SemiBold" Margin="0,0,0,8"/>
-        <TextBox x:Name="NewBizBox" Margin="0,0,0,8" Padding="6"/>
-        <TextBox x:Name="NewPhoneBox" Margin="0,0,0,8" Padding="6"/>
-        <Button Content="ثبت مشتری" Click="OnCreateCustomer" Padding="10,6" Background="#C4A35A"/>
-        <TextBlock Text="وضعیت Sync" Margin="0,24,0,8" FontWeight="SemiBold"/>
-        <TextBlock x:Name="SyncStatus" TextWrapping="Wrap" FontSize="11" Foreground="#444"/>
+
+      <!-- Login -->
+      <StackPanel x:Name="LoginPanel" Grid.ColumnSpan="2" Width="340" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="ورود محلی (Domain Host)" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,12"/>
+        <TextBox x:Name="UserBox" Text="admin" Margin="0,0,0,8" Padding="8"/>
+        <PasswordBox x:Name="PassBox" Margin="0,0,0,8" Padding="8"/>
+        <Button Content="ورود" Click="OnLoginClick" Padding="12,8" Background="#1A5C38" Foreground="White" Margin="0,0,0,16"/>
+        <Button Content="ویزارد مهاجرت از Electron" Click="OnMigrationClick" Padding="10,6"/>
+        <Button Content="اتصال مجدد به Host" Click="OnReconnectClick" Padding="10,6" Margin="0,8,0,0"/>
       </StackPanel>
+
+      <!-- Nav -->
+      <StackPanel x:Name="NavPanel" Grid.Column="0" Visibility="Collapsed" Margin="0,0,12,0">
+        <Button Content="مشتریان" Click="OnNavCustomers" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="کالاها" Click="OnNavProducts" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="فاکتورها" Click="OnNavInvoices" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="گزارش‌ها" Click="OnNavReports" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="انبار" Click="OnNavWarehouses" Margin="0,0,0,6" Padding="10,8"/>
+        <Separator Margin="0,8"/>
+        <Button Content="بکاپ محلی" Click="OnBackup" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="Sync اکنون" Click="OnSyncNow" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="مهاجرت Electron" Click="OnMigrationClick" Margin="0,0,0,6" Padding="10,8"/>
+        <Button Content="خروج" Click="OnLogout" Padding="10,8"/>
+      </StackPanel>
+
+      <!-- Work area -->
+      <DockPanel x:Name="WorkPanel" Grid.Column="1" Visibility="Collapsed">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+          <TextBlock x:Name="PageTitle" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+          <Button x:Name="RefreshBtn" Content="تازه‌سازی" Click="OnRefresh" Padding="10,4" Margin="0,0,8,0"/>
+        </StackPanel>
+
+        <!-- Customers compose -->
+        <Border x:Name="CustomerCompose" DockPanel.Dock="Top" Padding="10" Background="White" BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,8" Visibility="Collapsed">
+          <StackPanel Orientation="Horizontal">
+            <TextBox x:Name="NewBizBox" Width="180" Margin="0,0,8,0" Padding="6" ToolTip="نام کسب‌وکار"/>
+            <TextBox x:Name="NewPhoneBox" Width="140" Margin="0,0,8,0" Padding="6" ToolTip="موبایل"/>
+            <Button Content="ثبت مشتری" Click="OnCreateCustomer" Padding="12,6" Background="#C4A35A"/>
+          </StackPanel>
+        </Border>
+
+        <!-- Quick proforma invoice -->
+        <Border x:Name="InvoiceCompose" DockPanel.Dock="Top" Padding="10" Background="White" BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,8" Visibility="Collapsed">
+          <StackPanel Orientation="Horizontal">
+            <TextBox x:Name="InvCustIdBox" Width="90" Margin="0,0,8,0" Padding="6" ToolTip="شناسه مشتری"/>
+            <TextBox x:Name="InvProductIdBox" Width="90" Margin="0,0,8,0" Padding="6" ToolTip="شناسه کالا"/>
+            <TextBox x:Name="InvQtyBox" Width="70" Margin="0,0,8,0" Padding="6" Text="1" ToolTip="تعداد"/>
+            <TextBox x:Name="InvPriceBox" Width="100" Margin="0,0,8,0" Padding="6" ToolTip="قیمت واحد"/>
+            <Button Content="پیش‌فاکتور سریع" Click="OnCreateInvoice" Padding="12,6" Background="#1A5C38" Foreground="White"/>
+          </StackPanel>
+        </Border>
+
+        <ListBox x:Name="MainList" FontSize="13"/>
+      </DockPanel>
     </Grid>
   </DockPanel>
 </Window>

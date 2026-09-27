@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — بستهٔ native WPF+Host + Migration + airgap checklist (SW v253)
+
+- **WPF:** صفحات مشتری/کالا/فاکتور (پیش‌فاکتور سریع)/انبار/گزارش + بکاپ/Sync + MigrationWizard Electron→ProgramData
+- **بیلد:** portable .NET 8 در `.tools/dotnet8`؛ `build-native-desktop.ps1` → `D:\proje\ERP EXE\native\TaranomNative\` (app + DomainHost + branding + portable shared runtime)
+- **اسکریپت:** `start-native-desktop.ps1` / `install-native-desktop.ps1`؛ `run-airgap-checklist.js` → fixtures
+- **Docs:** `docs/native/GA-STATUS.md`؛ AIRGAP به‌روز
+- **راهنما/SW:** Help فاز ۱ نزدیک GA؛ SW `erp-taranom-v253`
+- **باقی GA:** MSI/OV امضا، update بومی، عمق فرم‌ها، بازنشستگی Electron
+- **Deploy:** ⏳ همین نوبت
+
 ### ۱۴۰۵/۰۷/۰۵ — موج‌های ۲→۱۰: smoke دامنه روی Domain Host pipe (SW v252)
 
 - **پوشش:** wave2 stock/variant · wave3 treasury · wave4 purchase · wave5 accounting reports · wave6 production · wave7 reports · wave8 CRM/POS · wave9-10 payroll/assets/RBAC/backup
