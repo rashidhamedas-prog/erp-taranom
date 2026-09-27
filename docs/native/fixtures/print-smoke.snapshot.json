@@ -1,0 +1,29 @@
+{
+  "suite": "print-smoke",
+  "results": [
+    {
+      "test": "scripts/test-invoice-paper-iso-v243.js",
+      "ok": true,
+      "status": 0,
+      "tail": "  OK inline sheet has no forced A4 min-height |  | All 25 checks passed"
+    },
+    {
+      "test": "scripts/test-invoice-print-density-v246.js",
+      "ok": true,
+      "status": 0,
+      "tail": "  OK CSS amount bold |  | All 37 checks passed"
+    },
+    {
+      "test": "scripts/test-print-collapse-v204.js",
+      "ok": true,
+      "status": 0,
+      "tail": "  OK thermal truncate uses … |  | All 26 checks passed"
+    }
+  ],
+  "asserts": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "content_sha256": "f9a27b24efa76c5a9baed6c6c3b0074e40efdaee9476a614f42b0247c34abe44"
+}

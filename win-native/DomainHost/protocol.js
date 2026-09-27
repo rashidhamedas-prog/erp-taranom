@@ -2,11 +2,15 @@
 /**
  * Domain Host IPC protocol — newline-delimited JSON over Named Pipe / Unix socket.
  *
- * Request:  { "id": "...", "command": "ping|version|schema.hash|contract.hash|brand.get", "payload": {}, "idempotencyKey": null }
- * Response: { "id": "...", "ok": true|false, "result": ..., "error": { "code", "message" } }
+ * Commands:
+ *   ping | version | schema.hash | contract.hash | brand.get
+ *   runtime.start | runtime.status | runtime.stop
+ *   auth.login | auth.logout | auth.me
+ *   api.call  { sessionId?, method, path, body?, idempotencyKey? }
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -19,15 +23,25 @@ function readSha(rel) {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8').trim();
 }
 
-function handleCommand(command, payload = {}, ctx = {}) {
+function createSessionStore() {
+  /** @type {Map<string, { token: string, user: object, createdAt: number }>} */
+  const sessions = new Map();
+  /** @type {Map<string, object>} */
+  const idempo = new Map();
+  return { sessions, idempo };
+}
+
+async function handleCommand(command, payload = {}, ctx = {}) {
+  const runtime = ctx.runtime;
+  const store = ctx.store;
   switch (command) {
     case 'ping':
       return { pong: true, ts: Date.now() };
     case 'version':
       return {
         host: 'domain-host',
-        version: '0.1.0',
-        phase: '1-stub',
+        version: '0.2.0',
+        phase: '1-invoke',
         node: process.versions.node,
         platform: process.platform,
       };
@@ -37,6 +51,104 @@ function handleCommand(command, payload = {}, ctx = {}) {
       return { sha256: readSha('docs/native/OPERATION-CONTRACT.sha256') };
     case 'brand.get':
       return loadBrand(payload.brandId || ctx.brandId || 'taranom');
+
+    case 'runtime.start':
+      return runtime.start();
+    case 'runtime.status':
+      return runtime.status;
+    case 'runtime.stop':
+      store.sessions.clear();
+      store.idempo.clear();
+      return runtime.stop();
+
+    case 'auth.login': {
+      await runtime.start();
+      let res = await runtime.fetch('POST', '/api/auth/login', {
+        body: { username: payload.username, password: payload.password },
+      });
+      if (res.status === 200 && res.body.must_change_password && res.body.token) {
+        const newPass = payload.newPassword || 'DomainHost1!';
+        await runtime.fetch('POST', '/api/auth/change-password', {
+          token: res.body.token,
+          body: { oldPass: payload.password, newPass },
+        });
+        res = await runtime.fetch('POST', '/api/auth/login', {
+          body: { username: payload.username, password: newPass },
+        });
+        res.body._passwordRotated = true;
+        res.body._newPasswordHint = 'rotated-for-host-session';
+      }
+      if (res.status !== 200 || !res.body.token) {
+        const err = new Error(res.body.error || res.body.message || 'login failed');
+        err.code = 'E_AUTH';
+        err.status = res.status;
+        throw err;
+      }
+      const sessionId = crypto.randomBytes(16).toString('hex');
+      store.sessions.set(sessionId, {
+        token: res.body.token,
+        user: {
+          id: res.body.user?.id,
+          username: res.body.user?.username || payload.username,
+          role: res.body.user?.role,
+          name: res.body.user?.name,
+        },
+        createdAt: Date.now(),
+      });
+      return {
+        sessionId,
+        user: store.sessions.get(sessionId).user,
+        passwordRotated: !!res.body._passwordRotated,
+      };
+    }
+
+    case 'auth.logout': {
+      if (payload.sessionId) store.sessions.delete(payload.sessionId);
+      return { loggedOut: true };
+    }
+
+    case 'auth.me': {
+      const sess = store.sessions.get(payload.sessionId);
+      if (!sess) {
+        const err = new Error('session not found');
+        err.code = 'E_SESSION';
+        throw err;
+      }
+      const res = await runtime.fetch('GET', '/api/auth/me', { token: sess.token });
+      return { status: res.status, body: res.body, user: sess.user };
+    }
+
+    case 'api.call': {
+      await runtime.start();
+      const method = String(payload.method || 'GET').toUpperCase();
+      const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+      if (mutating && payload.idempotencyKey) {
+        const hit = store.idempo.get(payload.idempotencyKey);
+        if (hit) return { ...hit, idempotentReplay: true };
+      }
+      let token = null;
+      if (payload.sessionId) {
+        const sess = store.sessions.get(payload.sessionId);
+        if (!sess) {
+          const err = new Error('session not found');
+          err.code = 'E_SESSION';
+          throw err;
+        }
+        token = sess.token;
+      } else if (payload.token) {
+        token = payload.token;
+      }
+      const res = await runtime.fetch(method, payload.path, {
+        token,
+        body: payload.body,
+      });
+      const out = { status: res.status, body: res.body };
+      if (mutating && payload.idempotencyKey && res.status >= 200 && res.status < 300) {
+        store.idempo.set(payload.idempotencyKey, out);
+      }
+      return out;
+    }
+
     default: {
       const err = new Error('unknown command: ' + command);
       err.code = 'E_UNKNOWN_COMMAND';
@@ -61,7 +173,11 @@ function formatErr(id, err) {
   return JSON.stringify({
     id: id || null,
     ok: false,
-    error: { code: err.code || 'E_HOST', message: err.message || String(err) },
+    error: {
+      code: err.code || 'E_HOST',
+      message: err.message || String(err),
+      status: err.status || null,
+    },
   }) + '\n';
 }
 
@@ -71,5 +187,6 @@ module.exports = {
   formatOk,
   formatErr,
   loadBrand,
+  createSessionStore,
   ROOT,
 };

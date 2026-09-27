@@ -6,28 +6,27 @@
 - **Domain Host** (Node headless، Named Pipe) مالک SQLite
 - Electron فقط پل تجاری موقت در `desktop/`
 
-## ساختار هدف
+## ساختار
 
 ```
 win-native/
-  DomainHost/          ← Node: بدون public UI؛ pipe + همان server logic
-  Taranom.App/         ← WPF (فاز بعد)
-  Taranom.Application/
-  Taranom.Domain/      ← پورت تدریجی C# با golden parity
-  branding/            ← symlink/copy از /branding/<brandId>
+  DomainHost/          ← Node Host v0.2: pipe + runtime داخلی 127.0.0.1
+  Taranom.App/         ← اسکلت WPF (.NET 8) + DomainPipeClient
+  branding/            ← از /branding/<brandId>
 ```
 
 ## فاز فعلی (۰→۱)
 
-- قرارداد + schema hash + drift gate + golden-vertical
-- Brand Pack: `branding/taranom/brand.json`
-- Host stub با Named Pipe: `win-native/DomainHost/host-main.js`
+- Host **v0.2:** `auth.*` + `api.call` + idempotency
+- fixtures: golden-vertical + print-smoke
+- WPF shell (نیاز به .NET 8 SDK برای `dotnet run`)
 
 ```powershell
 node scripts/native/check-drift.js
 node scripts/native/run-golden-fixtures.js
-node win-native/DomainHost/scripts/test-pipe-ping.js
+node scripts/native/run-print-fixtures.js
+node win-native/DomainHost/scripts/test-invoke-slice.js
 node win-native/DomainHost/host-main.js
 ```
 
-بیلد installer بومی هنوز شروع نشده — تا تکمیل invoke دامنه و اسکلت WPF.
+SyncWorker و air-gap هنوز باز است.

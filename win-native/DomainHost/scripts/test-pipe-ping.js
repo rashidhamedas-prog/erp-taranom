@@ -78,6 +78,7 @@ function invoke(command, payload) {
     check(ping.ok && ping.result && ping.result.pong === true, 'ping');
     const ver = await invoke('version');
     check(ver.ok && ver.result.host === 'domain-host', 'version');
+    check(ver.result.version === '0.2.0', 'version 0.2.0');
     const schema = await invoke('schema.hash');
     check(ver.ok && /^[a-f0-9]{64}$/.test(schema.result.sha256), 'schema.hash');
     const contract = await invoke('contract.hash');

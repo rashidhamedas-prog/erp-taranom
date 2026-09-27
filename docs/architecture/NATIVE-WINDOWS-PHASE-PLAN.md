@@ -48,14 +48,14 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 | 3 | `OPERATION-CONTRACT` از capture/tables | ✅ `docs/native/OPERATION-CONTRACT.*` (۱۷۰ جدول / ≈۴۷۳ mutating) |
 | 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ✅ `scripts/native/run-golden-fixtures.js` → `docs/native/fixtures/golden-vertical.*` (۲۱ assert) |
 | 5 | fixture پول/VAT/گردکردن | ✅ نمونه قیمت فرد در همان golden (integer rial) — گسترش VAT جدا بعدی |
-| 6 | fixture چاپ (paper-ISO / density) | ⏳ اتصال به تست‌های موجود v243/v246 |
+| 6 | fixture چاپ (paper-ISO / density) | ✅ `scripts/native/run-print-fixtures.js` → `docs/native/fixtures/print-smoke.*` |
 | 7 | ماتریس RBAC داده‌ای | ⏳ |
-| 8 | Runner دوگانه Node vs Host/C# | ✅ stub Host pipe (`test-pipe-ping`)؛ parity کامل دامنه بعدی |
-| 9 | اسکلت `win-native/` + Brand Pack | ✅ + Domain Host Named Pipe stub |
+| 8 | Runner دوگانه Node vs Host/C# | ✅ Host pipe + `test-invoke-slice` (parity دامنه از pipe) |
+| 9 | اسکلت `win-native/` + Brand Pack | ✅ + Domain Host 0.2 + اسکلت WPF |
 | 10 | ماتریس موج‌ها از inventory | ✅ `docs/native/WAVE-MATRIX.md` |
 
 **خروج هدف فاز ۰:** ADR قفل؛ ≥۱۵۰ fixture برش عمودی؛ runner سبز روی مرجع Node.  
-**تاکنون:** قرارداد + schema_hash + drift gate + golden-vertical (۲۱) + Host pipe stub + WAVE-MATRIX. باقی: گسترش fixture تا ≥۱۵۰، چاپ، RBAC، invoke دامنه.
+**تاکنون:** قرارداد + schema + drift + golden(۲۱) + print-smoke + Host invoke + WAVE-MATRIX. باقی: گسترش assert تا ≥۱۵۰، RBAC.
 
 ---
 
@@ -63,9 +63,9 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 
 | # | مورد | وضعیت |
 |---|---|---|
-| 1 | Domain Host Named Pipe + `ping/version/schema/contract/brand` | ✅ `win-native/DomainHost/` |
-| 2 | `invoke` دامنه (مشتری/فاکتور/R13) بدون UI وب | ⏳ |
-| 3 | WPF اسکلت + Bind به pipe | ⏳ |
+| 1 | Domain Host Named Pipe + متادیتا | ✅ |
+| 2 | `invoke` دامنه (`auth.*` + `api.call` + idempotency) بدون UI وب | ✅ `win-native/DomainHost` v0.2 — تست slice ۱۵ assert |
+| 3 | WPF اسکلت + Bind به pipe | ✅ سورس `win-native/Taranom.App/` (بیلد نیاز به .NET 8 SDK) |
 | 4 | SyncWorker پس‌زمینه | ⏳ |
 | 5 | air-gap ۱۲گامی PASS | ⏳ |
 

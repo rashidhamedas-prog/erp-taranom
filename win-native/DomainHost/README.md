@@ -1,36 +1,28 @@
-# Domain Host (Node) — فاز ۱ stub
+# Domain Host (Node) — فاز ۱ invoke
 
 ## اجرا
 
 ```powershell
-# از ریشهٔ مخزن، با Node 20:
 node win-native/DomainHost/host-main.js
 ```
 
 پیش‌فرض Windows: `\\.\pipe\erp-taranom-domain`  
-متغیرها: `ERP_BRAND_ID`, `ERP_HOST_PIPE`
+Runtime داخلی فقط روی `127.0.0.1` (بدون UI محصول).
 
-## پروتکل
+## فرمان‌ها
 
-خط‌به‌خط JSON (NDJSON). فرمان‌های فعلی:
-
-| command | نتیجه |
+| command | نقش |
 |---|---|
-| `ping` | `{ pong, ts }` |
-| `version` | نسخه Host |
-| `schema.hash` | SHA اسکیما از `docs/native/` |
-| `contract.hash` | SHA قرارداد عملیات |
-| `brand.get` | Brand Pack |
+| `ping` / `version` / `schema.hash` / `contract.hash` / `brand.get` | متادیتا |
+| `runtime.start` / `status` / `stop` | موتور Express داخلی |
+| `auth.login` / `logout` / `me` | نشست Host |
+| `api.call` | `{ sessionId, method, path, body, idempotencyKey? }` |
 
-## تست دود
+## تست
 
 ```powershell
 node win-native/DomainHost/scripts/test-pipe-ping.js
+node win-native/DomainHost/scripts/test-invoke-slice.js
 ```
 
-## بعدی
-
-- `invoke` دامنه از طریق همان handlers سرور (بدون سرو کردن `public/` به کاربر)
-- SyncWorker پس‌زمینه
-- ACL pipe برای کاربر جاری + توکن نشست
-- UI WPF فقط از این کانال می‌نویسد
+WPF: `win-native/Taranom.App/` (نیاز به .NET 8 SDK).

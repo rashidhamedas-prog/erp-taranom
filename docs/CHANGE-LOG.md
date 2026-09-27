@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — فاز ۱ بومی: Domain Host invoke + اسکلت WPF + print fixtures (SW v251)
+
+- **Host 0.2:** `runtime` داخلی روی ۱۲۷.۰.۰.۱؛ `auth.login/me`؛ `api.call` با idempotency؛ تست slice مشتری→فاکتور→R13 (۱۵ assert)
+- **WPF:** `win-native/Taranom.App/` (.NET 8) + `DomainPipeClient` — بیلد نیاز به SDK
+- **Print gate:** `scripts/native/run-print-fixtures.js` (paper-iso / density / collapse)
+- **راهنما/SW:** Help Host v0.2؛ SW `erp-taranom-v251`
+- **تست:** pipe ۷؛ invoke ۱۵؛ print ۳؛ 
+- **Deploy:** در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۰→۱ بومی: golden fixtures + Domain Host pipe + drift gate (SW v250)
 
 - **Golden:** `scripts/native/run-golden-fixtures.js` — مشتری→سفارش→خرید/موجودی→فاکتور→TB→R13 (۲۱ assert) → `docs/native/fixtures/golden-vertical.*`

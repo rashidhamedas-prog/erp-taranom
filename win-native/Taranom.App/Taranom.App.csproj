@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Taranom.App</RootNamespace>
+    <AssemblyName>Taranom.App</AssemblyName>
+    <ApplicationIcon />
+    <Description>ERP Taranom native WPF shell — Domain Host Named Pipe client (Phase 1 skeleton)</Description>
+  </PropertyGroup>
+</Project>
