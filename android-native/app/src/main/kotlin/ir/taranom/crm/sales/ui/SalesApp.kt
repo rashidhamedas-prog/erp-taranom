@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import ir.taranom.crm.sales.ui.navigation.SalesDestination
+import ir.taranom.crm.sales.ui.screens.CartOrderScreen
 import ir.taranom.crm.sales.ui.screens.CustomersListScreen
 import ir.taranom.crm.sales.ui.screens.LoginLocalScreen
 import ir.taranom.crm.sales.ui.screens.SyncStatusScreen
@@ -75,6 +76,9 @@ fun SalesApp() {
             }
             composable(SalesDestination.CustomersList.route) {
                 CustomersListScreen()
+            }
+            composable(SalesDestination.CartOrder.route) {
+                CartOrderScreen()
             }
             composable(SalesDestination.SyncStatus.route) {
                 SyncStatusScreen()
