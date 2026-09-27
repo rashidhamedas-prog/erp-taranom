@@ -14,7 +14,7 @@
 - **جزئی:** export `BLOCKLIST`/`BLOCK_PATTERNS` از `capture.js`؛ `test-sync` با `process.execPath` (سازگار Node 20)
 - **راهنما/SW:** Help فاز ۰ بومی؛ SW `erp-taranom-v249`
 - **تست:** sms ۲۲؛ sync ۴۴؛ app.js parse OK
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP (app.js/index/sw + docs) @ `632b083` — health/ready/root 200؛ SW `erp-taranom-v249`
 
 ### ۱۴۰۵/۰۷/۰۵ — قفل ADR بومی + EXE 2.0.13 به `D:\proje\ERP EXE` (SW v248)
 
