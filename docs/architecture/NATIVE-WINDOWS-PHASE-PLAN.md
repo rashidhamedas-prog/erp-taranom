@@ -46,28 +46,30 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 | 1 | هفت ADR امضا‌شده (به‌ویژه ۰۱ و ۰۳) | ✅ DECISIONS-LOCKED |
 | 2 | Snapshot اسکیما + `schema_hash` | ✅ `docs/native/schema.v1.*` (مولد `scripts/native/schema-hash.js`) — CI drift هنوز باز |
 | 3 | `OPERATION-CONTRACT` از capture/tables | ✅ `docs/native/OPERATION-CONTRACT.*` (۱۷۰ جدول / ≈۴۷۳ mutating) |
-| 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ✅ `scripts/native/run-golden-fixtures.js` → `docs/native/fixtures/golden-vertical.*` (۲۱ assert) |
-| 5 | fixture پول/VAT/گردکردن | ✅ نمونه قیمت فرد در همان golden (integer rial) — گسترش VAT جدا بعدی |
-| 6 | fixture چاپ (paper-ISO / density) | ✅ `scripts/native/run-print-fixtures.js` → `docs/native/fixtures/print-smoke.*` |
-| 7 | ماتریس RBAC داده‌ای | ⏳ |
-| 8 | Runner دوگانه Node vs Host/C# | ✅ Host pipe + `test-invoke-slice` (parity دامنه از pipe) |
-| 9 | اسکلت `win-native/` + Brand Pack | ✅ + Domain Host 0.2 + اسکلت WPF |
-| 10 | ماتریس موج‌ها از inventory | ✅ `docs/native/WAVE-MATRIX.md` |
+| 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ✅ golden-vertical ۲۱ + **golden-expanded ۱۴۲** |
+| 5 | fixture پول/VAT/گردکردن | ✅ در golden |
+| 6 | fixture چاپ (paper-ISO / density) | ✅ print-smoke |
+| 7 | ماتریس RBAC داده‌ای | ✅ داخل golden-expanded (نقش‌ها + admin resources) |
+| 8 | Runner دوگانه Node vs Host | ✅ invoke-slice + airgap-smoke روی pipe |
+| 9 | اسکلت `win-native/` + Brand Pack | ✅ Host 0.3 + WPF Login/Customers |
+| 10 | ماتریس موج‌ها از inventory | ✅ WAVE-MATRIX |
 
-**خروج هدف فاز ۰:** ADR قفل؛ ≥۱۵۰ fixture برش عمودی؛ runner سبز روی مرجع Node.  
-**تاکنون:** قرارداد + schema + drift + golden(۲۱) + print-smoke + Host invoke + WAVE-MATRIX. باقی: گسترش assert تا ≥۱۵۰، RBAC.
+**خروج هدف فاز ۰:** ADR قفل؛ ≥۱۵۰ fixture؛ runner سبز.  
+**وضعیت:** ✅ مجموع assertهای golden ≈۱۶۳ + print/pipe/airgap — `scripts/native/run-all-gates.js` سبز.
 
 ---
 
-## فاز ۱ — برش عمودی بومی — **XL** (شروع)
+## فاز ۱ — برش عمودی بومی — **XL**
 
 | # | مورد | وضعیت |
 |---|---|---|
 | 1 | Domain Host Named Pipe + متادیتا | ✅ |
-| 2 | `invoke` دامنه (`auth.*` + `api.call` + idempotency) بدون UI وب | ✅ `win-native/DomainHost` v0.2 — تست slice ۱۵ assert |
-| 3 | WPF اسکلت + Bind به pipe | ✅ سورس `win-native/Taranom.App/` (بیلد نیاز به .NET 8 SDK) |
-| 4 | SyncWorker پس‌زمینه | ⏳ |
-| 5 | air-gap ۱۲گامی PASS | ⏳ |
+| 2 | `api.call` / auth / idempotency | ✅ |
+| 3 | SyncWorker + backup.local | ✅ v0.3 |
+| 4 | WPF Login + Customers روی pipe | ✅ سورس (نیاز .NET 8 SDK برای بیلد) |
+| 5 | air-gap smoke خودکار | ✅ `test-airgap-smoke` |
+| 6 | MSI امضا / installer بومی | ⏳ (Electron پل تا GA) |
+| 7 | صفحات کامل فروش/گزارش WPF | ⏳ موج بعدی UI |
 
 **خروج:** parity ۱۰۰٪ روی fixtureهای slice؛ air-gap PASS؛ interop بومی+Electron+اندروید بدون رگرسیون `test-sync.js`؛ بدون listen/UI وب (و بدون `node.exe` **فقط اگر ADR-03=B**).
 

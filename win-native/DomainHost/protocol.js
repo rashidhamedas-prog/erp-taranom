@@ -7,10 +7,13 @@
  *   runtime.start | runtime.status | runtime.stop
  *   auth.login | auth.logout | auth.me
  *   api.call  { sessionId?, method, path, body?, idempotencyKey? }
+ *   sync.status | sync.now | sync.start | sync.stop
+ *   backup.local | backup.list
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { backupLocal, listLocalBackups } = require('./local-backup');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -24,24 +27,34 @@ function readSha(rel) {
 }
 
 function createSessionStore() {
-  /** @type {Map<string, { token: string, user: object, createdAt: number }>} */
   const sessions = new Map();
-  /** @type {Map<string, object>} */
   const idempo = new Map();
   return { sessions, idempo };
+}
+
+function sessionOrThrow(store, sessionId) {
+  const sess = store.sessions.get(sessionId);
+  if (!sess) {
+    const err = new Error('session not found');
+    err.code = 'E_SESSION';
+    throw err;
+  }
+  return sess;
 }
 
 async function handleCommand(command, payload = {}, ctx = {}) {
   const runtime = ctx.runtime;
   const store = ctx.store;
+  const syncWorker = ctx.syncWorker;
+
   switch (command) {
     case 'ping':
       return { pong: true, ts: Date.now() };
     case 'version':
       return {
         host: 'domain-host',
-        version: '0.2.0',
-        phase: '1-invoke',
+        version: '0.3.0',
+        phase: '1-sync-backup',
         node: process.versions.node,
         platform: process.platform,
       };
@@ -55,8 +68,9 @@ async function handleCommand(command, payload = {}, ctx = {}) {
     case 'runtime.start':
       return runtime.start();
     case 'runtime.status':
-      return runtime.status;
+      return { ...runtime.status, sync: syncWorker.status };
     case 'runtime.stop':
+      syncWorker.stop();
       store.sessions.clear();
       store.idempo.clear();
       return runtime.stop();
@@ -76,7 +90,6 @@ async function handleCommand(command, payload = {}, ctx = {}) {
           body: { username: payload.username, password: newPass },
         });
         res.body._passwordRotated = true;
-        res.body._newPasswordHint = 'rotated-for-host-session';
       }
       if (res.status !== 200 || !res.body.token) {
         const err = new Error(res.body.error || res.body.message || 'login failed');
@@ -95,6 +108,7 @@ async function handleCommand(command, payload = {}, ctx = {}) {
         },
         createdAt: Date.now(),
       });
+      syncWorker.setSessionToken(res.body.token);
       return {
         sessionId,
         user: store.sessions.get(sessionId).user,
@@ -104,16 +118,12 @@ async function handleCommand(command, payload = {}, ctx = {}) {
 
     case 'auth.logout': {
       if (payload.sessionId) store.sessions.delete(payload.sessionId);
+      syncWorker.setSessionToken(null);
       return { loggedOut: true };
     }
 
     case 'auth.me': {
-      const sess = store.sessions.get(payload.sessionId);
-      if (!sess) {
-        const err = new Error('session not found');
-        err.code = 'E_SESSION';
-        throw err;
-      }
+      const sess = sessionOrThrow(store, payload.sessionId);
       const res = await runtime.fetch('GET', '/api/auth/me', { token: sess.token });
       return { status: res.status, body: res.body, user: sess.user };
     }
@@ -128,13 +138,7 @@ async function handleCommand(command, payload = {}, ctx = {}) {
       }
       let token = null;
       if (payload.sessionId) {
-        const sess = store.sessions.get(payload.sessionId);
-        if (!sess) {
-          const err = new Error('session not found');
-          err.code = 'E_SESSION';
-          throw err;
-        }
-        token = sess.token;
+        token = sessionOrThrow(store, payload.sessionId).token;
       } else if (payload.token) {
         token = payload.token;
       }
@@ -148,6 +152,28 @@ async function handleCommand(command, payload = {}, ctx = {}) {
       }
       return out;
     }
+
+    case 'sync.status':
+      return syncWorker.status;
+    case 'sync.now': {
+      if (payload.sessionId) {
+        syncWorker.setSessionToken(sessionOrThrow(store, payload.sessionId).token);
+      }
+      return syncWorker.tick();
+    }
+    case 'sync.start':
+      if (payload.sessionId) {
+        syncWorker.setSessionToken(sessionOrThrow(store, payload.sessionId).token);
+      }
+      return syncWorker.start();
+    case 'sync.stop':
+      return syncWorker.stop();
+
+    case 'backup.local':
+      await runtime.start();
+      return backupLocal(runtime, payload);
+    case 'backup.list':
+      return { backups: listLocalBackups(runtime) };
 
     default: {
       const err = new Error('unknown command: ' + command);

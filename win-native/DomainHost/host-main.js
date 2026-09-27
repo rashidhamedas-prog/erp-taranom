@@ -1,16 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Headless Domain Host — Named Pipe (Windows) / Unix socket (dev).
- * Boots internal Express on 127.0.0.1 only; product UI must use this pipe.
- *
- * Env:
- *   ERP_BRAND_ID=taranom
- *   ERP_HOST_PIPE=\\.\pipe\erp-taranom-domain
- *   ERP_HOST_SOCK=...
- *   ERP_HOST_DATA=...
- *   ERP_HOST_SYNC_ROLE=central|device
- *   ERP_HOST_AUTOSTART=1  (default) — start runtime on listen
+ * Headless Domain Host v0.3 — Named Pipe + SyncWorker + local backup.
  */
 const net = require('net');
 const fs = require('fs');
@@ -19,12 +10,14 @@ const {
   handleCommand, parseLine, formatOk, formatErr, loadBrand, createSessionStore,
 } = require('./protocol');
 const { DomainRuntime } = require('./runtime');
+const { SyncWorker } = require('./sync-worker');
 
 const brandId = process.env.ERP_BRAND_ID || 'taranom';
 const brand = loadBrand(brandId);
 const store = createSessionStore();
 const runtime = new DomainRuntime({ brandId });
-const ctx = { brandId, brand, runtime, store };
+const syncWorker = new SyncWorker({ runtime });
+const ctx = { brandId, brand, runtime, store, syncWorker };
 const autostart = process.env.ERP_HOST_AUTOSTART !== '0';
 
 function defaultEndpoint() {
@@ -78,6 +71,8 @@ async function boot() {
       'ping', 'version', 'schema.hash', 'contract.hash', 'brand.get',
       'runtime.start', 'runtime.status', 'runtime.stop',
       'auth.login', 'auth.logout', 'auth.me', 'api.call',
+      'sync.status', 'sync.now', 'sync.start', 'sync.stop',
+      'backup.local', 'backup.list',
     ];
     console.log(JSON.stringify({
       event: 'listening',
@@ -86,6 +81,7 @@ async function boot() {
       productName: brand.productName,
       commands,
       publicUi: false,
+      version: '0.3.0',
     }));
     if (autostart) {
       try {
@@ -101,6 +97,7 @@ async function boot() {
 boot();
 
 async function shutdown() {
+  try { syncWorker.stop(); } catch { /* */ }
   try { await runtime.stop(); } catch { /* */ }
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 2000).unref();

@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — فاز ۰/۱ بومی: Host 0.3 SyncWorker+backup، fixtures ۱۴۲، air-gap gate (SW v252)
+
+- **Host 0.3:** `sync.*` + `backup.local/list`؛ WPF Login/Customers/بکاپ/Sync
+- **Fixtures:** golden-expanded ۱۴۲ assert (RBAC+فروش+R13)؛ airgap-smoke ۱۲؛ `run-all-gates.js` همه سبز
+- **فاز ۰:** هدف ≥۱۵۰ assert برآورده (۱۶۳ از goldenها)
+- **راهنما/SW:** SW `erp-taranom-v252`
+- **Deploy:** در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۱ بومی: Domain Host invoke + اسکلت WPF + print fixtures (SW v251)
 
 - **Host 0.2:** `runtime` داخلی روی ۱۲۷.۰.۰.۱؛ `auth.login/me`؛ `api.call` با idempotency؛ تست slice مشتری→فاکتور→R13 (۱۵ assert)

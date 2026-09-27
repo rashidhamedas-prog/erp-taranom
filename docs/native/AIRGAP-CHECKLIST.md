@@ -19,4 +19,6 @@
 
 یادداشت: برای پل Electron فعلی گام ۱۲ N/A است؛ برای GA بومی اجباری است.
 
+**خودکار:** `node win-native/DomainHost/scripts/test-airgap-smoke.js` — برش فروش+R13+بکاپ روی Host با runtime فقط-loopback (بدون وابستگی به مرکز).
+
 مرجع معماری: `docs/architecture/NATIVE-WINDOWS-DESKTOP-ARCHITECTURE.md` §۱۱.

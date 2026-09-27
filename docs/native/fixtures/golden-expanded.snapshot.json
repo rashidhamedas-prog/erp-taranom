@@ -1,0 +1,579 @@
+{
+  "suite": "golden-expanded",
+  "asserts": {
+    "passed": 142,
+    "failed": 0,
+    "total": 142
+  },
+  "events": [
+    {
+      "name": "login",
+      "ok": true
+    },
+    {
+      "name": "rbac matrix exists:admin",
+      "ok": true
+    },
+    {
+      "name": "rbac customers:admin",
+      "ok": true
+    },
+    {
+      "name": "rbac invoices:admin",
+      "ok": true
+    },
+    {
+      "name": "rbac customers.view bool:admin",
+      "ok": true
+    },
+    {
+      "name": "rbac matrix exists:accounting",
+      "ok": true
+    },
+    {
+      "name": "rbac customers:accounting",
+      "ok": true
+    },
+    {
+      "name": "rbac invoices:accounting",
+      "ok": true
+    },
+    {
+      "name": "rbac customers.view bool:accounting",
+      "ok": true
+    },
+    {
+      "name": "rbac matrix exists:sales_manager",
+      "ok": true
+    },
+    {
+      "name": "rbac customers:sales_manager",
+      "ok": true
+    },
+    {
+      "name": "rbac invoices:sales_manager",
+      "ok": true
+    },
+    {
+      "name": "rbac customers.view bool:sales_manager",
+      "ok": true
+    },
+    {
+      "name": "rbac matrix exists:field_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac customers:field_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac invoices:field_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac customers.view bool:field_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac matrix exists:inside_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac customers:inside_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac invoices:inside_sales",
+      "ok": true
+    },
+    {
+      "name": "rbac customers.view bool:inside_sales",
+      "ok": true
+    },
+    {
+      "name": "admin settings.view",
+      "ok": true
+    },
+    {
+      "name": "admin accounting.view",
+      "ok": true
+    },
+    {
+      "name": "accounting settings.view false",
+      "ok": true
+    },
+    {
+      "name": "accounting accounting.view",
+      "ok": true
+    },
+    {
+      "name": "field_sales accounting.view false",
+      "ok": true
+    },
+    {
+      "name": "field_sales settings.view false",
+      "ok": true
+    },
+    {
+      "name": "sales_manager accounting.view",
+      "ok": true
+    },
+    {
+      "name": "admin view:customers",
+      "ok": true
+    },
+    {
+      "name": "admin view:parties",
+      "ok": true
+    },
+    {
+      "name": "admin view:products",
+      "ok": true
+    },
+    {
+      "name": "admin view:invoices",
+      "ok": true
+    },
+    {
+      "name": "admin view:followups",
+      "ok": true
+    },
+    {
+      "name": "admin view:accounting",
+      "ok": true
+    },
+    {
+      "name": "admin view:reports",
+      "ok": true
+    },
+    {
+      "name": "admin view:ai",
+      "ok": true
+    },
+    {
+      "name": "admin view:settings",
+      "ok": true
+    },
+    {
+      "name": "admin view:backup",
+      "ok": true
+    },
+    {
+      "name": "admin view:users",
+      "ok": true
+    },
+    {
+      "name": "admin view:stocktaking",
+      "ok": true
+    },
+    {
+      "name": "admin view:messages",
+      "ok": true
+    },
+    {
+      "name": "admin view:reps",
+      "ok": true
+    },
+    {
+      "name": "admin view:dashboard",
+      "ok": true
+    },
+    {
+      "name": "admin view:journal_vouchers",
+      "ok": true
+    },
+    {
+      "name": "admin view:payroll",
+      "ok": true
+    },
+    {
+      "name": "admin view:fixed_assets",
+      "ok": true
+    },
+    {
+      "name": "admin view:moadian",
+      "ok": true
+    },
+    {
+      "name": "admin view:production",
+      "ok": true
+    },
+    {
+      "name": "admin view:production_bom",
+      "ok": true
+    },
+    {
+      "name": "admin view:production_cost",
+      "ok": true
+    },
+    {
+      "name": "admin view:production_close",
+      "ok": true
+    },
+    {
+      "name": "admin view:production_reports",
+      "ok": true
+    },
+    {
+      "name": "admin view:portal",
+      "ok": true
+    },
+    {
+      "name": "admin view:budgeting",
+      "ok": true
+    },
+    {
+      "name": "admin view:bank_reconciliation",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_dash",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_parties",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_party_groups",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_person_positions",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_customer_groups",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_receivables",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_statement",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_products",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_product_groups",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_product_colors",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_product_sizes",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_units",
+      "ok": true
+    },
+    {
+      "name": "admin view:acc_warehouses",
+      "ok": true
+    },
+    {
+      "name": "warehouse",
+      "ok": true
+    },
+    {
+      "name": "banks list",
+      "ok": true
+    },
+    {
+      "name": "cash-boxes list",
+      "ok": true
+    },
+    {
+      "name": "customer 0",
+      "ok": true
+    },
+    {
+      "name": "customer 1",
+      "ok": true
+    },
+    {
+      "name": "customer 2",
+      "ok": true
+    },
+    {
+      "name": "customer 3",
+      "ok": true
+    },
+    {
+      "name": "customer 4",
+      "ok": true
+    },
+    {
+      "name": "customer 5",
+      "ok": true
+    },
+    {
+      "name": "customer 6",
+      "ok": true
+    },
+    {
+      "name": "customer 7",
+      "ok": true
+    },
+    {
+      "name": "product 0",
+      "ok": true
+    },
+    {
+      "name": "product 1",
+      "ok": true
+    },
+    {
+      "name": "product 2",
+      "ok": true
+    },
+    {
+      "name": "product 3",
+      "ok": true
+    },
+    {
+      "name": "product 4",
+      "ok": true
+    },
+    {
+      "name": "product 5",
+      "ok": true
+    },
+    {
+      "name": "supplier",
+      "ok": true
+    },
+    {
+      "name": "bulk purchase",
+      "ok": true
+    },
+    {
+      "name": "stock10:1",
+      "ok": true
+    },
+    {
+      "name": "stock10:2",
+      "ok": true
+    },
+    {
+      "name": "stock10:3",
+      "ok": true
+    },
+    {
+      "name": "stock10:4",
+      "ok": true
+    },
+    {
+      "name": "stock10:5",
+      "ok": true
+    },
+    {
+      "name": "stock10:6",
+      "ok": true
+    },
+    {
+      "name": "order 0",
+      "ok": true
+    },
+    {
+      "name": "followup 0",
+      "ok": true
+    },
+    {
+      "name": "order 1",
+      "ok": true
+    },
+    {
+      "name": "followup 1",
+      "ok": true
+    },
+    {
+      "name": "order 2",
+      "ok": true
+    },
+    {
+      "name": "followup 2",
+      "ok": true
+    },
+    {
+      "name": "order 3",
+      "ok": true
+    },
+    {
+      "name": "followup 3",
+      "ok": true
+    },
+    {
+      "name": "order 4",
+      "ok": true
+    },
+    {
+      "name": "followup 4",
+      "ok": true
+    },
+    {
+      "name": "invoice 0",
+      "ok": true
+    },
+    {
+      "name": "invoice final int 0",
+      "ok": true
+    },
+    {
+      "name": "invoice 1",
+      "ok": true
+    },
+    {
+      "name": "invoice final int 1",
+      "ok": true
+    },
+    {
+      "name": "invoice 2",
+      "ok": true
+    },
+    {
+      "name": "invoice final int 2",
+      "ok": true
+    },
+    {
+      "name": "invoice 3",
+      "ok": true
+    },
+    {
+      "name": "invoice final int 3",
+      "ok": true
+    },
+    {
+      "name": "invoice 4",
+      "ok": true
+    },
+    {
+      "name": "invoice final int 4",
+      "ok": true
+    },
+    {
+      "name": "TB after sales",
+      "ok": true
+    },
+    {
+      "name": "balance sheet",
+      "ok": true
+    },
+    {
+      "name": "P&L general",
+      "ok": true
+    },
+    {
+      "name": "reports summary",
+      "ok": true
+    },
+    {
+      "name": "top customers",
+      "ok": true
+    },
+    {
+      "name": "monthly report",
+      "ok": true
+    },
+    {
+      "name": "settlement skipped no cashbox",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel 0",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel 1",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel 2",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel 3",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel 4",
+      "ok": true
+    },
+    {
+      "name": "TB after all R13",
+      "ok": true
+    },
+    {
+      "name": "stock restored:1",
+      "ok": true
+    },
+    {
+      "name": "stock restored:2",
+      "ok": true
+    },
+    {
+      "name": "stock restored:3",
+      "ok": true
+    },
+    {
+      "name": "stock restored:4",
+      "ok": true
+    },
+    {
+      "name": "stock restored:5",
+      "ok": true
+    },
+    {
+      "name": "stock restored:6",
+      "ok": true
+    },
+    {
+      "name": "GET /customers",
+      "ok": true
+    },
+    {
+      "name": "GET /products",
+      "ok": true
+    },
+    {
+      "name": "GET /orders",
+      "ok": true
+    },
+    {
+      "name": "GET /followups",
+      "ok": true
+    },
+    {
+      "name": "GET /invoices",
+      "ok": true
+    },
+    {
+      "name": "GET /suppliers",
+      "ok": true
+    },
+    {
+      "name": "GET /warehouses",
+      "ok": true
+    },
+    {
+      "name": "GET /accounting/cost-centers",
+      "ok": true
+    },
+    {
+      "name": "auth me",
+      "ok": true
+    },
+    {
+      "name": "rbac me",
+      "ok": true
+    }
+  ],
+  "content_sha256": "d726e073def5931700ee016bb25938b6478cbf91a12a1344bc06e405f0f3d439"
+}

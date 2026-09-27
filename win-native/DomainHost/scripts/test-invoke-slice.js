@@ -155,7 +155,14 @@ async function api(sessionId, method, p, body, idempotencyKey) {
     ok(Number(stock3.body.stock) === 3, 'stock restored=3', stock3.body.stock);
 
     const ver = await invoke('version');
-    ok(ver.result.version === '0.2.0', 'host version 0.2.0');
+    ok(ver.result.version === '0.3.0', 'host version 0.3.0');
+
+    const bak = await invoke('backup.local');
+    ok(bak.ok && bak.result.bytes > 0, 'backup.local', bak.result?.bytes);
+    const syncSt = await invoke('sync.status');
+    ok(syncSt.ok, 'sync.status');
+    const syncNow = await invoke('sync.now', { sessionId: sid });
+    ok(syncNow.ok, 'sync.now');
   } catch (e) {
     console.error(e);
     failed++;
