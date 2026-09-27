@@ -17,18 +17,17 @@ win-native/
   branding/            ← symlink/copy از /branding/<brandId>
 ```
 
-## فاز فعلی (۰)
+## فاز فعلی (۰→۱)
 
-- قرارداد عملیات: `docs/native/OPERATION-CONTRACT.*`
-- schema hash: `docs/native/schema.v1.*`
+- قرارداد + schema hash + drift gate + golden-vertical
 - Brand Pack: `branding/taranom/brand.json`
-- Host stub: `win-native/DomainHost/README.md`
-
-## فرمان‌های فاز ۰
+- Host stub با Named Pipe: `win-native/DomainHost/host-main.js`
 
 ```powershell
-node scripts/native/generate-operation-contract.js
-node scripts/native/schema-hash.js
+node scripts/native/check-drift.js
+node scripts/native/run-golden-fixtures.js
+node win-native/DomainHost/scripts/test-pipe-ping.js
+node win-native/DomainHost/host-main.js
 ```
 
-بیلد installer بومی هنوز شروع نشده — تا دستور صریح مالک و تکمیل فاز ۱.
+بیلد installer بومی هنوز شروع نشده — تا تکمیل invoke دامنه و اسکلت WPF.

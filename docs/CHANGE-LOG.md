@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — فاز ۰→۱ بومی: golden fixtures + Domain Host pipe + drift gate (SW v250)
+
+- **Golden:** `scripts/native/run-golden-fixtures.js` — مشتری→سفارش→خرید/موجودی→فاکتور→TB→R13 (۲۱ assert) → `docs/native/fixtures/golden-vertical.*`
+- **CI:** `scripts/native/check-drift.js` برای schema/contract
+- **Host:** `win-native/DomainHost/` Named Pipe + `ping/version/schema.hash/contract.hash/brand.get` + `test-pipe-ping`
+- **موج‌ها:** `docs/native/WAVE-MATRIX.md`؛ PHASE-PLAN وضعیت فاز ۰/۱ به‌روز
+- **راهنما/SW:** Help فاز ۰/۱؛ SW `erp-taranom-v250`
+- **تست:** pipe ۶؛ drift OK؛ golden ۲۱؛ sms/sync از قبل سبز
+- **Deploy:** در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۵ — فاز ۰ بومی: OPERATION-CONTRACT + schema_hash + اسکلت win-native (SW v249)
 
 - **مولدها:** `scripts/native/generate-operation-contract.js` (۱۷۰ جدول / ≈۴۷۳ mutating / ۹۷ PATH_MAP) و `scripts/native/schema-hash.js` (۲۰۷ جدول / ۳۸۱ ایندکس / ۱۵ تریگر؛ Node 20)

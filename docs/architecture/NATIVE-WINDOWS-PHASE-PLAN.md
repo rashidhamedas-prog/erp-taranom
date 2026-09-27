@@ -46,23 +46,28 @@ Parity کامل در یک پرش غیرممکن است → قرارداد عمل
 | 1 | هفت ADR امضا‌شده (به‌ویژه ۰۱ و ۰۳) | ✅ DECISIONS-LOCKED |
 | 2 | Snapshot اسکیما + `schema_hash` | ✅ `docs/native/schema.v1.*` (مولد `scripts/native/schema-hash.js`) — CI drift هنوز باز |
 | 3 | `OPERATION-CONTRACT` از capture/tables | ✅ `docs/native/OPERATION-CONTRACT.*` (۱۷۰ جدول / ≈۴۷۳ mutating) |
-| 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ⏳ بعدی |
-| 5 | fixture پول/VAT/گردکردن | ⏳ |
-| 6 | fixture چاپ (paper-ISO / density) | ⏳ (تست‌های موجود را می‌توان به harness وصل کرد) |
+| 4 | هارنس fixture طلایی (مشتری/سفارش/فاکتور/JE/موجودی/R13) | ✅ `scripts/native/run-golden-fixtures.js` → `docs/native/fixtures/golden-vertical.*` (۲۱ assert) |
+| 5 | fixture پول/VAT/گردکردن | ✅ نمونه قیمت فرد در همان golden (integer rial) — گسترش VAT جدا بعدی |
+| 6 | fixture چاپ (paper-ISO / density) | ⏳ اتصال به تست‌های موجود v243/v246 |
 | 7 | ماتریس RBAC داده‌ای | ⏳ |
-| 8 | Runner دوگانه Node vs Host/C# | ⏳ |
-| 9 | اسکلت `win-native/` + Brand Pack | ✅ `win-native/` + `branding/taranom/` — CI اسکلت هنوز باز |
-| 10 | ماتریس موج‌ها از inventory | ⏳ از CAPABILITY-INVENTORY |
+| 8 | Runner دوگانه Node vs Host/C# | ✅ stub Host pipe (`test-pipe-ping`)؛ parity کامل دامنه بعدی |
+| 9 | اسکلت `win-native/` + Brand Pack | ✅ + Domain Host Named Pipe stub |
+| 10 | ماتریس موج‌ها از inventory | ✅ `docs/native/WAVE-MATRIX.md` |
 
 **خروج هدف فاز ۰:** ADR قفل؛ ≥۱۵۰ fixture برش عمودی؛ runner سبز روی مرجع Node.  
-**تاکنون:** قرارداد + schema_hash + اسکلت + چک‌لیست air-gap commit‌شده؛ fixture/runner باقی است.
+**تاکنون:** قرارداد + schema_hash + drift gate + golden-vertical (۲۱) + Host pipe stub + WAVE-MATRIX. باقی: گسترش fixture تا ≥۱۵۰، چاپ، RBAC، invoke دامنه.
 
 ---
 
-## فاز ۱ — برش عمودی بومی — **XL**
+## فاز ۱ — برش عمودی بومی — **XL** (شروع)
 
-مشتری → سفارش → فاکتور → JE+انبار → گزارش محلی → sync  
-+ R13 از روز اول · شماره موقت · چاپ · Auth آفلاین · MSI حداقلی  
+| # | مورد | وضعیت |
+|---|---|---|
+| 1 | Domain Host Named Pipe + `ping/version/schema/contract/brand` | ✅ `win-native/DomainHost/` |
+| 2 | `invoke` دامنه (مشتری/فاکتور/R13) بدون UI وب | ⏳ |
+| 3 | WPF اسکلت + Bind به pipe | ⏳ |
+| 4 | SyncWorker پس‌زمینه | ⏳ |
+| 5 | air-gap ۱۲گامی PASS | ⏳ |
 
 **خروج:** parity ۱۰۰٪ روی fixtureهای slice؛ air-gap PASS؛ interop بومی+Electron+اندروید بدون رگرسیون `test-sync.js`؛ بدون listen/UI وب (و بدون `node.exe` **فقط اگر ADR-03=B**).
 

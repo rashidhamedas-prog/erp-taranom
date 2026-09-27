@@ -1,0 +1,105 @@
+{
+  "suite": "golden-vertical",
+  "SYNC_ROLE": "central",
+  "asserts": {
+    "passed": 21,
+    "failed": 0,
+    "total": 21
+  },
+  "events": [
+    {
+      "name": "admin login",
+      "ok": true
+    },
+    {
+      "name": "default warehouse",
+      "ok": true
+    },
+    {
+      "name": "product create",
+      "ok": true
+    },
+    {
+      "name": "customer create",
+      "ok": true
+    },
+    {
+      "name": "order create",
+      "ok": true
+    },
+    {
+      "name": "supplier create",
+      "ok": true
+    },
+    {
+      "name": "purchase stock-in",
+      "ok": true
+    },
+    {
+      "name": "stock after purchase = 5",
+      "ok": true
+    },
+    {
+      "name": "invoice create",
+      "ok": true
+    },
+    {
+      "name": "invoice final >= line total",
+      "ok": true
+    },
+    {
+      "name": "stock after sale = 3",
+      "ok": true
+    },
+    {
+      "name": "trial balance balanced after sale",
+      "ok": true
+    },
+    {
+      "name": "customer statement = invoice final",
+      "ok": true
+    },
+    {
+      "name": "odd-price invoice",
+      "ok": true
+    },
+    {
+      "name": "final is integer rial",
+      "ok": true
+    },
+    {
+      "name": "R13 cancel",
+      "ok": true
+    },
+    {
+      "name": "stock after R13 = 4",
+      "ok": true
+    },
+    {
+      "name": "trial balance after R13",
+      "ok": true
+    },
+    {
+      "name": "statement after R13 = odd invoice only",
+      "ok": true
+    },
+    {
+      "name": "statement cleared after both cancels",
+      "ok": true
+    },
+    {
+      "name": "stock restored to 5",
+      "ok": true
+    }
+  ],
+  "sample": {
+    "warehouse_id": 5,
+    "product_id": 1,
+    "customer_id": 1,
+    "order_id": 1,
+    "invoice_id": 1,
+    "sale_final": 2200000,
+    "odd_final": 366666
+  },
+  "content_sha256": "8b03043a3fe0a4d6035ee37e6ec37ac465a8b7f21d7aefe95eddaa6c228184d6"
+}

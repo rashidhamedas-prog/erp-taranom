@@ -1,0 +1,14 @@
+{
+  "name": "erp-taranom-domain-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless Domain Host for native Windows ERP (Named Pipe). No public UI.",
+  "main": "host-main.js",
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "scripts": {
+    "start": "node host-main.js",
+    "test:pipe": "node scripts/test-pipe-ping.js"
+  }
+}

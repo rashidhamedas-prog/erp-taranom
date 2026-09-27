@@ -1,19 +1,36 @@
-# Domain Host (Node) — اسکلت
+# Domain Host (Node) — فاز ۱ stub
 
-Host محلی بدون UI وب. فقط:
+## اجرا
 
-1. بارگذاری Brand Pack (`branding/<id>/brand.json`)
-2. باز کردن SQLite در `%ProgramData%\<brand.paths.programData>\`
-3. اجرای منطق دامنه / Express **بدون** سرو کردن `server/public` به‌عنوان محصول
-4. گوش‌دادن روی **Named Pipe** (نه ارائهٔ سایت به کاربر)
-5. SyncWorker در پس‌زمینه (همان `server/sync/client.js`)
+```powershell
+# از ریشهٔ مخزن، با Node 20:
+node win-native/DomainHost/host-main.js
+```
 
-## قیدها
+پیش‌فرض Windows: `\\.\pipe\erp-taranom-domain`  
+متغیرها: `ERP_BRAND_ID`, `ERP_HOST_PIPE`
 
-- UI WPF هرگز مستقیم DB نمی‌نویسد.
-- کانال pipe با ACL کاربر جاری + توکن نشست.
-- تا استخراج Application Service، پل موقت IPC→handlers مجاز است؛ HTTP loopback فقط داخلی Host، نه پنجرهٔ محصول.
+## پروتکل
+
+خط‌به‌خط JSON (NDJSON). فرمان‌های فعلی:
+
+| command | نتیجه |
+|---|---|
+| `ping` | `{ pong, ts }` |
+| `version` | نسخه Host |
+| `schema.hash` | SHA اسکیما از `docs/native/` |
+| `contract.hash` | SHA قرارداد عملیات |
+| `brand.get` | Brand Pack |
+
+## تست دود
+
+```powershell
+node win-native/DomainHost/scripts/test-pipe-ping.js
+```
 
 ## بعدی
 
-پیاده‌سازی `host-main.js` + پروتکل `Invoke(command, payload, idempotencyKey)` پس از سبز شدن schema_hash و OPERATION-CONTRACT در CI.
+- `invoke` دامنه از طریق همان handlers سرور (بدون سرو کردن `public/` به کاربر)
+- SyncWorker پس‌زمینه
+- ACL pipe برای کاربر جاری + توکن نشست
+- UI WPF فقط از این کانال می‌نویسد
