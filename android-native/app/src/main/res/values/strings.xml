@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- زبان پیش‌فرض محصول: فارسی (RTL). ترجمهٔ انگلیسی در صورت نیاز values-en/. -->
+<resources>
+    <string name="app_name">فروش ترنم</string>
+
+    <string name="nav_login">ورود محلی</string>
+    <string name="nav_customers">مشتریان</string>
+    <string name="nav_catalog">کاتالوگ</string>
+    <string name="nav_cart">سبد / پیش‌فاکتور</string>
+    <string name="nav_more">بیشتر</string>
+    <string name="nav_followups">پیگیری / برنامه روزانه</string>
+    <string name="nav_visits">ویزیت</string>
+    <string name="nav_calls">تماس</string>
+    <string name="nav_invoices">فاکتورها</string>
+    <string name="nav_returns">برگشت از فروش</string>
+    <string name="nav_receipts">وصول</string>
+    <string name="nav_conflicts">تعارض‌ها</string>
+    <string name="nav_reports">گزارش شخصی</string>
+    <string name="nav_sync">وضعیت همگام‌سازی</string>
+    <string name="nav_help">راهنما</string>
+
+    <string name="login_title">ورود محلی</string>
+    <string name="login_subtitle">پس از فعال‌سازی دستگاه، ورود بدون اینترنت انجام می‌شود.</string>
+    <string name="login_username">نام کاربری</string>
+    <string name="login_password">گذرواژه</string>
+    <string name="login_submit">ورود</string>
+    <string name="login_placeholder_note">اسکلت ورود — اعتبارسنجی Keystore در موج sync تکمیل می‌شود.</string>
+
+    <string name="customers_title">مشتریان من</string>
+    <string name="customers_empty">هنوز مشتری‌ای روی این دستگاه نیست.</string>
+    <string name="customers_room_note">فهرست از Room محلی (دامنهٔ مالکیت). پر شدن از pull سینک در موج sync.</string>
+
+    <string name="more_hint">پیگیری، ویزیت، اسناد مالی محدود، تعارض و گزارش از اینجا باز می‌شوند.</string>
+
+    <string name="cart_hint">محاسبهٔ محلی جمع سند با همان قواعد سرور. پیش‌نویس روی دیسک ذخیره و بازیابی می‌شود.</string>
+    <string name="cart_restored">پیش‌نویس قبلی بازیابی شد.</string>
+    <string name="cart_saved">پیش‌نویس روی دستگاه ذخیره شد.</string>
+    <string name="field_customer_id">شناسه مشتری</string>
+    <string name="field_product_id">شناسه کالا</string>
+    <string name="field_product_name">نام کالا</string>
+    <string name="field_qty">مقدار</string>
+    <string name="field_price_rial">قیمت واحد (ریال)</string>
+    <string name="field_variant_color">رنگ</string>
+    <string name="field_variant_size">سایز</string>
+    <string name="field_date_jalali">تاریخ (جلالی)</string>
+    <string name="field_subject">موضوع</string>
+    <string name="field_note">یادداشت</string>
+    <string name="field_duration_min">مدت (دقیقه)</string>
+    <string name="field_outcome">نتیجه تماس</string>
+    <string name="field_amount_rial">مبلغ (ریال)</string>
+    <string name="field_search_product">جستجوی کالا</string>
+    <string name="action_preview_proforma">پیش‌نمایش پیش‌فاکتور محلی</string>
+    <string name="action_save_draft">ذخیره پیش‌نویس پایدار</string>
+    <string name="action_save_followup">ثبت پیگیری</string>
+    <string name="action_save_visit">ثبت ویزیت</string>
+    <string name="action_save_call">ثبت تماس</string>
+    <string name="action_create_proforma">ایجاد پیش‌فاکتور محلی</string>
+    <string name="action_create_final_invoice">ایجاد فاکتور رسمی (در صورت نقش)</string>
+    <string name="action_save_return">ثبت برگشت</string>
+    <string name="action_save_receipt">ثبت وصول</string>
+    <string name="action_discard_conflict">انصراف از عملیات متعارض</string>
+    <string name="action_resolve_conflict">علامت حل‌شده</string>
+    <string name="action_use_product_only">بدون variant</string>
+    <string name="saved_local_outbox">روی دستگاه ذخیره و در صف ارسال ثبت شد.</string>
+
+    <string name="followups_hint">برنامهٔ روزانه و پیگیری‌های باز از Room؛ مسیر outbox: /api/followups</string>
+    <string name="visits_hint">ثبت ویزیت میدانی (بدون ضبط مکالمه). مسیر: /api/reps/:id/visits</string>
+    <string name="calls_hint">ثبت تماس فقط با مدت/نتیجه/یادداشت — ضبط صدا پشتیبانی نمی‌شود. مسیر: /api/reps/:id/calls</string>
+    <string name="catalog_empty">کاتالوگ خالی است؛ پس از pull سینک پر می‌شود. می‌توانید از سبد شناسه دستی وارد کنید.</string>
+    <string name="catalog_image_placeholder">جایگاه تصویر کالا</string>
+    <string name="variant_picker_title">انتخاب رنگ / سایز</string>
+    <string name="variant_none">برای این کالا variantی نیست.</string>
+    <string name="invoices_hint">اسناد محدود محلی با شماره موقت. شماره رسمی فقط از مرکز.</string>
+    <string name="rbac_denied">نقش شما اجازهٔ این بخش را ندارد.</string>
+    <string name="rbac_final_stub">فاکتور رسمی برای فروشندهٔ میدانی بسته است (RBAC). نقش داخل‌فروش/حسابداری لازم است.</string>
+    <string name="rbac_return_stub">برگشت از فروش برای نقش فعلی غیرفعال است — اسکلت صفحه تا وصل شدن policy store.</string>
+    <string name="rbac_receipt_stub">وصول برای نقش فعلی غیرفعال است — اسکلت صفحه تا وصل شدن policy store.</string>
+    <string name="conflicts_hint">تعارض outbox و پرچم‌های pull اینجا دیده می‌شوند. حذف فیزیکی صف ممنوع است.</string>
+    <string name="conflicts_empty">تعارض فعالی نیست.</string>
+    <string name="conflicts_outbox_section">صف ارسال (conflict)</string>
+    <string name="conflicts_pull_section">تعارض‌های pull</string>
+    <string name="reports_hint">تجمیع محلی از Room — بدون شبکه.</string>
+    <string name="report_customers">مشتریان</string>
+    <string name="report_followups">پیگیری باز</string>
+    <string name="report_visits">ویزیت‌ها</string>
+    <string name="report_calls">تماس‌ها</string>
+    <string name="report_drafts">پیش‌نویس باز</string>
+    <string name="report_invoices">اسناد</string>
+    <string name="report_receipts_total">جمع وصول (ریال)</string>
+    <string name="report_pending">صف ارسال</string>
+    <string name="report_conflicts">تعارض</string>
+
+    <string name="sync_title">وضعیت همگام‌سازی</string>
+    <string name="sync_state_offline">آفلاین — صف روی دستگاه محفوظ است</string>
+    <string name="sync_pending_label">عملیات در انتظار ارسال</string>
+    <string name="sync_conflicts_label">عملیات متعارض</string>
+    <string name="sync_last_pull_label">آخرین دریافت از مرکز</string>
+    <string name="sync_never">هرگز</string>
+    <string name="sync_placeholder_note">شمارش از outbox محلی. موتور HTTP سینک در ماژول sync:impl وصل می‌شود.</string>
+
+    <string name="help_intro">راهنمای فروشندهٔ میدانی — اپ بومی Compose بدون WebView.</string>
+    <string name="help_crm_title">CRM میدانی</string>
+    <string name="help_crm_body">مشتریان، پیگیری روزانه، ویزیت و تماس روی دستگاه ذخیره می‌شوند و در صف outbox برای مسیرهای /api/followups و /api/reps/…/visits|calls قرار می‌گیرند. ضبط مکالمه وجود ندارد.</string>
+    <string name="help_catalog_title">کاتالوگ و سبد</string>
+    <string name="help_catalog_body">کاتالوگ با جایگاه تصویر و انتخاب رنگ/سایز. سبد پیش‌نویس را روی دیسک نگه می‌دارد تا پس از بستن برنامه بازیابی شود.</string>
+    <string name="help_finance_title">اسناد مالی محدود</string>
+    <string name="help_finance_body">پیش‌فاکتور برای فروشندهٔ میدانی؛ فاکتور رسمی/برگشت/وصول بر اساس نقش (تا وصل policy store ممکن است قفل باشد). شماره رسمی فقط از مرکز.</string>
+    <string name="help_sync_title">همگام‌سازی و تعارض</string>
+    <string name="help_sync_body">صف pending و conflict در وضعیت سینک و صفحهٔ تعارض قابل مشاهده‌اند. حذف بی‌صدای صف ممنوع است.</string>
+
+    <string name="action_back">بازگشت</string>
+</resources>

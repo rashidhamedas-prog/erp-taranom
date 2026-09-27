@@ -5,6 +5,25 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: فاز ۱–۵ کد کامل (JVM green؛ APK منتظر SDK)
+
+- **کد:** `android-native/` — Compose UI کامل فروش (CRM/کاتالوگ/سبد/فاکتور/وصول/تعارض/گزارش/راهنما)، Room v2، `sync:impl` (HMAC+Ed25519+OkHttp+SyncEngine)، `:migrate` fail-closed، `:update` manifest/sha256، WorkManager stubs.
+- **تست JVM:** `:core:domain:test` `:sync:impl:test` `:migrate:test` `:update:test` **BUILD SUCCESSFUL** (JDK 17).
+- **مسدود APK این میزبان:** SDK platforms/build-tools خالی؛ دانلود Google 404 از پروکسی — `assembleDebug` اینجا اجرا نشد.
+- **Deploy ایران:** فقط اگر `server/sync/capture.js` هنوز روی VPS نباشد (visits/calls) — بدون APK تا بیلد امضاشده.
+- **وضعیت:** 🔄 کد فازها روی `ai/ANDROID-NATIVE-SALES`؛ APK/air-gap/Reviewer+Security باز.
+
+### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: Wave 0 اسکلت + دامنه + capture visits/calls
+
+- **حکم:** محصول نهایی موبایل فروش = Kotlin/Compose + Room + outbox؛ WebView/nodejs-mobile محصول نهایی نیست (`android/` تا مهاجرت حفظ).
+- **کد:** `android-native/` (Compose RTL، Room v1، fail-closed release signing، `core/domain` با JsMath/VAT/Round3/LineBuilder/DraftOrderService).
+- **Sync hygiene:** `tableForPath` برای `/api/reps/:id/visits|calls` → `rep_visit_logs` / `rep_call_logs`.
+- **تست:** `:core:domain:test` BUILD SUCCESSFUL روی JDK 17؛ `assembleDebug` روی این میزبان بدون Android SDK مسدود.
+- **AI-DOS:** تسک `ANDROID-NATIVE-SALES`؛ `DESKTOP-EXE-DELIVER` completed و claims آزاد.
+- **Docs:** `NATIVE-ANDROID-SALES-ARCHITECTURE.md` + matrix/phase/evidence/decisions/delivery-status.
+- **Deploy:** بدون APK ایران تا SDK+keystore روی ماشین بیلد؛ شاخه `ai/ANDROID-NATIVE-SALES`.
+- **وضعیت:** 🔄 ادامه فاز ۱–۵ (sync:impl + UI عمودی + migrator/updater)
+
 ### ۱۴۰۵/۰۷/۰۵ — hotfix Electron: work-area.js در files بیلد (نصب محلی)
 
 - **علت:** `ERP Taranom Setup 2.0.13` بدون `work-area.js` بسته‌بندی شده → خطای `Cannot find module './work-area'`

@@ -1,4 +1,15 @@
-﻿## 2026-09-27T02:50:00+03:30 — DESKTOP-EXE-DELIVER review follow-up
+﻿## 2026-09-27T18:15:00+03:30 — ANDROID-NATIVE-SALES (full phases authorized)
+
+- Owner authorized 100% continuation of all phases without further permission.
+- Claimed `ANDROID-NATIVE-SALES` on `ai/ANDROID-NATIVE-SALES` / `D:/proje/erp-taranom-android-native`.
+- Released `DESKTOP-EXE-DELIVER` claims (EXE already delivered; status → completed).
+- Decisions locked: `docs/architecture/NATIVE-ANDROID-DECISIONS-LOCKED.md` (Compose/Kotlin domain A, same applicationId, provisional stock).
+- Skeleton `android-native/` @ `5787673`; Wave 1–5 implementers in flight (sync:impl, sales vertical, updater/migrator).
+- Fixed `server/sync/capture.js` tableForPath for `/api/reps/:id/visits|calls` → `rep_visit_logs` / `rep_call_logs`.
+- JDK 17 installed (`Microsoft\jdk-17.0.20.101-hotspot`). Android SDK install in progress on this host.
+- No Iran APK publish until signed assembleRelease succeeds.
+
+## 2026-09-27T02:50:00+03:30 — DESKTOP-EXE-DELIVER review follow-up
 
 - Independent Reviewer APPROVED_WITH_NOTES; Security APPROVED_WITH_NOTES (0C/0H/2M).
 - Fixed: auto-install gated by evaluateUpdateInstallPolicy; safe-point fail-closed (no install after error/busy budget); CDN only on redirect hop; Help+SW v247; tests 20/20 + 18/18.

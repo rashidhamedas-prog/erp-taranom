@@ -1,10 +1,10 @@
 # Project Status
 
 - Last verified: 2026-09-27
-- **Active task:** `DESKTOP-EXE-DELIVER` — Windows EXE 2.0.12 built to `D:/proje/ERP EXE` (build OK + smoke; not public-release-ready)
-- **Iran last:** unchanged by this task (no binary/metadata production publish)
-- **Primary tip:** follow `main` after merge of `ai/DESKTOP-EXE-DELIVER`
-- Prior: CRM user scope / dashboard / print density — see CHANGE-LOG
+- **Active task:** `ANDROID-NATIVE-SALES` — native Compose sales app (`ai/ANDROID-NATIVE-SALES`, worktree `D:/proje/erp-taranom-android-native`)
+- Owner authorized full phases without further permission (2026-09-27)
+- Prior: `DESKTOP-EXE-DELIVER` completed (EXE 2.0.12); claims released
+- Iran last: unchanged by Android task until APK/manifest publish
 
 ## Working quality commands
 
@@ -16,9 +16,5 @@
 - `node server/scripts/check-audit-waivers.js`
 - `node server/scripts/test-sms.js`
 - `node server/scripts/test-sync.js` (requires better-sqlite3 matching current Node ABI)
-- `node desktop/scripts/test-security-policy.js`
-- `node desktop/scripts/test-main-hardening-static.js`
-- `node desktop/scripts/test-local-secret-store.js`
-- `node scripts/test-platform-security.js`
-- `node scripts/prepare-embedded-server.js desktop && node scripts/compare-embedded-hash.js` (desktop target drift=0)
+- Native Android: `cd android-native` then `.\gradlew.bat :core:domain:test :app:assembleDebug` (JDK 17 + Android SDK)
 - Desktop build: `powershell -File scripts/build-desktop-signed.ps1` then copy to `D:\proje\ERP EXE`

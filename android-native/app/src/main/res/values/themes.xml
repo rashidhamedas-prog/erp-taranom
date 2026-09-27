@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  تم XML فقط برای پنجرهٔ Activity تا اولین فریم Compose است؛ استایل واقعی در
+  ui/theme (Material 3) ساخته می‌شود. عمداً به appcompat/material وابسته نیست.
+-->
+<resources>
+    <style name="Theme.TaranomSales" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/taranom_surface</item>
+        <item name="android:statusBarColor">@color/taranom_primary</item>
+        <item name="android:navigationBarColor">@color/taranom_surface</item>
+    </style>
+</resources>

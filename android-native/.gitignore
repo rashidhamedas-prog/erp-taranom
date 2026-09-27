@@ -1,0 +1,15 @@
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+captures/
+.cxx/
+hs_err_pid*.log
+java_pid*.hprof
+
+# اسرار امضا — هرگز کامیت نمی‌شوند (نمونه در README.md)
+keystore.properties
+*.jks
+*.keystore

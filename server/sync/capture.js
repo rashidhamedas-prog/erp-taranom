@@ -161,6 +161,10 @@ function tableForPath(path) {
   if (path.startsWith('/api/reps/payments')) return 'rep_payment_submissions';
   if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
   if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';
+  // Visits/calls have :id mid-path — must resolve before generic null fallthrough
+  // (native Android sales + field ops remap/undo).
+  if (path.startsWith('/api/reps/') && /\/visits(?:\/|$)/.test(path)) return 'rep_visit_logs';
+  if (path.startsWith('/api/reps/') && /\/calls(?:\/|$)/.test(path)) return 'rep_call_logs';
   if (path === '/api/reps/transfer-customer') return 'customers';
   // PROD-P5: BOM child resources have :id between boms/ and ops|outputs —
   // PATH_TABLE_MAP prefixes cannot distinguish them from bom_headers.
