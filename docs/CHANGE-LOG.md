@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: Wave 0 اسکلت + دامنه + capture visits/calls
+
+- **حکم:** محصول نهایی موبایل فروش = Kotlin/Compose + Room + outbox؛ WebView/nodejs-mobile محصول نهایی نیست (`android/` تا مهاجرت حفظ).
+- **کد:** `android-native/` (Compose RTL، Room v1، fail-closed release signing، `core/domain` با JsMath/VAT/Round3/LineBuilder/DraftOrderService).
+- **Sync hygiene:** `tableForPath` برای `/api/reps/:id/visits|calls` → `rep_visit_logs` / `rep_call_logs`.
+- **تست:** `:core:domain:test` BUILD SUCCESSFUL روی JDK 17؛ `assembleDebug` روی این میزبان بدون Android SDK مسدود.
+- **AI-DOS:** تسک `ANDROID-NATIVE-SALES`؛ `DESKTOP-EXE-DELIVER` completed و claims آزاد.
+- **Docs:** `NATIVE-ANDROID-SALES-ARCHITECTURE.md` + matrix/phase/evidence/decisions/delivery-status.
+- **Deploy:** بدون APK ایران تا SDK+keystore روی ماشین بیلد؛ شاخه `ai/ANDROID-NATIVE-SALES`.
+- **وضعیت:** 🔄 ادامه فاز ۱–۵ (sync:impl + UI عمودی + migrator/updater)
+
 ### ۱۴۰۵/۰۷/۰۵ — معماری دسکتاپ بومی: الحاق inventory + شکاف Sync
 
 - **Inventory:** ۷۴ قابلیت از ۸۱ route / ~۸۸۰ endpoint → `docs/architecture/NATIVE-WINDOWS-CAPABILITY-INVENTORY.md`

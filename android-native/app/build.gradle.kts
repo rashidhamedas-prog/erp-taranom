@@ -92,19 +92,20 @@ android {
     }
 }
 
-// fail-closed: اگر کسی بدون keystore خروجی release بخواهد، همان لحظه خطا بگیرد
-// (نه APK بی‌امضا و نه امضای debug).
-gradle.taskGraph.whenReady { graph ->
-    val wantsRelease = graph.allTasks.any { t ->
-        t.project == project && t.name.endsWith("Release") &&
-                (t.name.startsWith("assemble") || t.name.startsWith("bundle") || t.name.startsWith("package"))
-    }
-    if (wantsRelease && !hasReleaseSigning) {
-        throw GradleException(
-            "کلید امضای release پیدا نشد. android-native/keystore.properties یا متغیرهای " +
-                "CRM_KEYSTORE_FILE / CRM_KEYSTORE_PASSWORD / CRM_KEY_ALIAS / CRM_KEY_PASSWORD را تنظیم کنید. " +
-                "fallback امضای debug برای کانال انتشار ممنوع است (ADR-AND-001)."
-        )
+// fail-closed: release بدون keystore ممنوع (نه APK بی‌امضا، نه debug-sign).
+tasks.configureEach {
+    if (name.endsWith("Release") &&
+        (name.startsWith("assemble") || name.startsWith("bundle") || name.startsWith("package"))
+    ) {
+        doFirst {
+            if (!hasReleaseSigning) {
+                throw GradleException(
+                    "کلید امضای release پیدا نشد. android-native/keystore.properties یا متغیرهای " +
+                        "CRM_KEYSTORE_FILE / CRM_KEYSTORE_PASSWORD / CRM_KEY_ALIAS / CRM_KEY_PASSWORD را تنظیم کنید. " +
+                        "fallback امضای debug برای کانال انتشار ممنوع است (ADR-AND-001)."
+                )
+            }
+        }
     }
 }
 

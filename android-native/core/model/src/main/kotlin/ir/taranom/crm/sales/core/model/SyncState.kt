@@ -1,10 +1,9 @@
 package ir.taranom.crm.sales.core.model
 
 /**
- * چرخهٔ حیات سند/عملیات روی دستگاه — ADR-AND-001 §۶.۱:
- * `draft → local_committed → pending_push → accepted_central | needs_attention | rejected → amended | voided`
- *
- * نکتهٔ سیاست: رد شدن در مرکز **هرگز** سند محلی را بی‌صدا حذف نمی‌کند.
+ * Document/op lifecycle on device — ADR-AND-001 §6.1
+ * draft → local_committed → pending_push → accepted_central | needs_attention | rejected → amended | voided
+ * Central rejection never silently deletes the local document.
  */
 enum class SyncState(val wireValue: String) {
     DRAFT("draft"),
@@ -14,8 +13,7 @@ enum class SyncState(val wireValue: String) {
     NEEDS_ATTENTION("needs_attention"),
     REJECTED("rejected"),
     AMENDED("amended"),
-    VOIDED("voided"),
-    ;
+    VOIDED("voided");
 
     companion object {
         fun fromWire(value: String?): SyncState =
@@ -24,15 +22,13 @@ enum class SyncState(val wireValue: String) {
 }
 
 /**
- * وضعیت ردیف outbox — همان چهار مقدار سرور (`pending|confirmed|conflict|discarded`).
- * افزودن مقدار جدید بدون هم‌ترازی با `server/sync/**` ممنوع است.
+ * Outbox row status — server values: pending|confirmed|conflict|discarded.
  */
 enum class OutboxStatus(val wireValue: String) {
     PENDING("pending"),
     CONFIRMED("confirmed"),
     CONFLICT("conflict"),
-    DISCARDED("discarded"),
-    ;
+    DISCARDED("discarded");
 
     companion object {
         fun fromWire(value: String?): OutboxStatus =

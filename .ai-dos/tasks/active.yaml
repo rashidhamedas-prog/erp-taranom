@@ -1,8 +1,47 @@
 schema_version: 1
 tasks:
+  - id: "ANDROID-NATIVE-SALES"
+    title: "Native Android sales app (Compose + Room + sync; not WebView)"
+    status: "in_progress"
+    claimed_at: "2026-09-27T18:10:00+03:30"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:android-native-sales"
+    roles:
+      orchestrator: "cursor:android-native-sales"
+      architect: "cursor:android-native-sales"
+      implementer: "cursor:android-native-sales"
+      reviewer: "cursor:independent-reviewer-android-native"
+      security: "cursor:independent-security-android-native"
+    branch: "ai/ANDROID-NATIVE-SALES"
+    worktree: "D:/proje/erp-taranom-android-native"
+    file_claims:
+      - "android-native/**"
+      - "docs/architecture/NATIVE-ANDROID-*.md"
+      - "server/sync/capture.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "server/public/releases/manifest.json"
+    acceptance_criteria:
+      - "Native Compose UI without WebView/Node for main sales flows"
+      - "Room DB + transactional outbox; air-gap vertical customer→order→sync"
+      - "Sync wire-compatible with central; visits/calls capture mapped"
+      - "Release APK fail-closed signing; migrator path from legacy documented"
+      - "Independent Reviewer + Security before treating as GA"
+    non_goals:
+      - "Full ERP desktop modules on phone"
+      - "Call recording / continuous GPS"
+    notes: >-
+      Owner 2026-09-27 authorized all phases without further permission.
+      Legacy android/ kept until migration green.
+
   - id: "DESKTOP-EXE-DELIVER"
     title: "Windows EXE offline deliverable (installer + updater + evidence)"
-    status: "in_progress"
+    status: "completed"
+    completed_at: "2026-09-27T03:00:00+03:30"
     claimed_at: "2026-09-27T02:26:00+03:30"
     review_status: "APPROVED_WITH_NOTES"
     security_status: "APPROVED_WITH_NOTES"
@@ -17,7 +56,8 @@ tasks:
     branch: "ai/DESKTOP-EXE-DELIVER"
     worktree: "D:/proje/erp-taranom-desktop-exe"
     deliver_dir: "D:/proje/ERP EXE"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/public/app.js"
       - "server/public/sw.js"
       - "desktop/package.json"

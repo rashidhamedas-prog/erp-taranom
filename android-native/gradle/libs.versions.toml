@@ -6,6 +6,7 @@ ksp = "2.0.21-1.0.25"
 composeBom = "2024.10.01"
 room = "2.6.1"
 coroutines = "1.8.1"
+work = "2.9.1"
 
 androidxCoreKtx = "1.13.1"
 androidxActivityCompose = "1.9.3"
@@ -36,6 +37,7 @@ androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "
 # Flow در امضای DAOها ظاهر می‌شود، پس صریح اعلام می‌شود و به transitive بودن
 # room-ktx تکیه نمی‌کنیم.
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 
 junit = { module = "junit:junit", version.ref = "junit4" }
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
