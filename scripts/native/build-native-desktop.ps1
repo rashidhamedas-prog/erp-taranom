@@ -67,6 +67,7 @@ $serverPtr = Join-Path $Stage "SERVER_ROOT.txt"
 Set-Content -Path $serverPtr -Value (Join-Path $Root "server") -Encoding UTF8
 
 Copy-Item (Join-Path $Root "scripts\native\start-native-desktop.ps1") (Join-Path $Stage "start-native-desktop.ps1") -Force
+Copy-Item (Join-Path $Root "scripts\native\start-native-desktop.cmd") (Join-Path $Stage "start-native-desktop.cmd") -Force
 Copy-Item (Join-Path $Root "scripts\native\install-native-desktop.ps1") (Join-Path $Stage "install-native-desktop.ps1") -Force
 
 $notes = @"
