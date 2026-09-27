@@ -114,6 +114,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:database"))
     implementation(project(":sync:api"))
+    implementation(project(":sync:impl"))
     implementation(project(":migrate"))
     implementation(project(":update"))
 

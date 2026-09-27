@@ -66,3 +66,57 @@
 - Parity VAT/Round3: الگوریتم در برابر `server/lib/*.js` با **۱۶۷/۱۶۷** تطبیق (شامل تلهٔ `round` نیمه‌بالا JS vs banker's Kotlin)
 - **مسدود:** این ماشین JDK/Android SDK ندارد ⇒ `assembleDebug` / `:core:domain:test` اجرا نشد
 - اسرار: `keystore.properties` / `local.properties` در درخت نیست (gitignore)
+
+## I) `sync:impl` — کلاینت HTTP واقعی (۱۴۰۵/۰۷/۰۵)
+
+ماژول JVM `:sync:impl` (بدون SDK اندروید):
+
+| جزء | پیاده‌سازی |
+|---|---|
+| HTTP | OkHttp → `/api/sync/pair\|push\|pull\|row\|files\|replay-multipart` |
+| Device auth | `Authorization: Device id:token` + HMAC-SHA256(`timestamp:nonce`) روی SHA-256(token) |
+| Replay | Ed25519 (JDK) + `stableJson` مرتب‌کلید = `server/sync/device-auth.js` |
+| Credentials | `DeviceCredentialStore` + AES-GCM `enc:v1:`؛ KV از EncryptedSharedPreferences/`StringKeyValueStore` |
+| Engine | push ترتیبی ≤۴۰۰، stop-at-first conflict/defer، pull افزایشی `sync_seq`، بدون overwrite provisional متعارض |
+| Pairing | admin username/password + `replay_public_key` (endpoint فعلی مرکز) |
+| Outbox | `DraftOrderService.buildProformaOutboxOp` + `OutboxDao.insertThenSign` / `SalesDraftDao.insertWithOutboxSigned` |
+
+تست JVM (JDK 17): `:sync:impl:test` = ۱۰ تست؛ `:core:domain:test` سبز (شامل DraftOrderService).
+
+## H) فاز ۴–۵ — updater + migrator + backup (۱۴۰۵/۰۷/۰۵)
+
+ماژول‌های JVM جدید (بدون بازنویسی `android/` legacy):
+
+| ماژول | نقش |
+|---|---|
+| `:update` | پارس `releases/manifest.json`، `VersionCompare` هم‌تراز `server/lib/app-update.js`، allowlist میزبان، `ApkUpdateEvaluator` fail-closed برای دانلود |
+| `:migrate` | `LegacyDbMigrator` + `FailClosedRules` هویت دستگاه + `SecureBackupCodec` (AES-GCM/PBKDF2، بدون export HMAC/token) |
+| `:app` work/* | `UpdateCheckWorker` / `SyncCheckWorker` + `BackgroundSchedulers` (WorkManager periodic) |
+| `:app` migrate/* | `AndroidLegacySqliteSource` (readonly `crm-data/crm.db` یا `data/crm.db`) + `RoomMigrationSink` |
+
+### قواعد fail-closed هویت (خلاصه)
+
+1. `native.device_id ≠ legacy.device_id` (هر دو موجود) ⇒ **abort** (`device_id_conflict`) — کپی کور ممنوع.
+2. native paired و legacy بدون id ⇒ **abort** (`native_already_paired_refuse_blind_copy`).
+3. native unpaired و legacy دارای `device_id` ⇒ فقط **hint** + یادداشت `identity_requires_repair`؛ `device_token`/HMAC/`enc:v1:` **کپی/export نمی‌شوند**.
+4. همان `device_id` ⇒ ادامهٔ کپی فروش؛ اسرار از AndroidKeystore همان نصب (`erp_taranom_jwt_aes_gcm_v1`) می‌مانند.
+5. برخورد `local_id` مشتری یا `seq` outbox ⇒ abort (بدون overwrite).
+6. بکاپ: هر کلید در `ForbiddenSecretKeys` یا مقدار `enc:v1:` در JSON ⇒ throw؛ `secrets_exported=false` اجباری.
+7. Boot فقط **dry-run** migrator؛ کپی واقعی نیازمند تأیید UI بعدی.
+
+### Updater
+
+- منبع: `GET {central}/releases/manifest.json` فقط روی HTTPS + hosts
+  `erp.poshaktaranom.com` / `poshaktaranom.com`.
+- دانلودپذیر فقط اگر `sha256` ۶۴hex + `size` معتبر + URL `.apk` روی همان hosts.
+- نصب PackageInstaller / verify signer هنوز TODO (الگوی legacy `MainActivity.verifyApkIdentityAndSigner`).
+
+### تست JVM
+
+```powershell
+$env:JAVA_HOME="C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot"
+cd android-native
+.\gradlew :update:test :migrate:test :core:domain:test
+```
+
+**مسدود assemble:** اگر `ANDROID_HOME` / `local.properties` نباشد، `:app:assembleDebug` اجرا نمی‌شود؛ ماژول‌های JVM مستقل‌اند.
