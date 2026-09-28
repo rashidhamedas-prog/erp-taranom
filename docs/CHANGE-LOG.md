@@ -16,10 +16,11 @@
 
 ### ۱۴۰۵/۰۷/۰۶ — رفع ۵۰۰ مانده مشتریان داشبورد دسکتاپ (SW v255)
 
-- **علت:** `applyCustomerBalances` / SQL parties روی DB محلی گاهی throw → toast/پنل «خطای داخلی سرور»
-- **رفع:** try/catch در `customerSignedBalanceMap` + fallback SQL بدون parties؛ داشبورد با `Promise.allSettled` مانده را جدا از KPI بارگذاری می‌کند
+- **علت:** `applyCustomerBalances` / SQL parties روی DB محلی گاهی throw؛ روی device، repair یک‌باره با sync روی SQLite قفل می‌خورد → toast/پنل «خطای داخلی سرور»
+- **رفع:** try/catch در `customerSignedBalanceMap` + fallback SQL بدون parties؛ روی `SYNC_ROLE=device` repair هنگام خواندن مانده رد می‌شود؛ داشبورد با `Promise.allSettled` مانده را جدا از KPI بارگذاری می‌کند؛ last-resort JSON بدون ۵۰۰ سخت
 - **فایل‌ها:** `server/lib/customer-books.js`, `routes/admin.js`, `routes/customers.js`, `public/app.js`
-- **Deploy:** ✅ ایران overlay SFTP @ `0c8237d` — health/ready/root 200؛ SW `erp-taranom-v255`؛ overlay روی نصب Electron محلی هم اعمال شد
+- **تأیید محلی:** probe DB Electron → `sql_parties=ok` ۷۲ / `apply=ok` / filtered ۳۷؛ پچ داخل `%LocalAppData%\Programs\ERP Taranom`
+- **Deploy:** ⏳ در حال push/deploy بعد از این commit
 
 ### ۱۴۰۵/۰۷/۰۶ — Desktop Setup 2.0.14: work-area + فارسی ورود (SW v254)
 

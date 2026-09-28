@@ -243,13 +243,31 @@ router.get('/balances', auth, (req, res) => {
     } else {
       rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}${activeClause}`).all(scope, scope);
     }
-    applyCustomerBalances(db, rows);
+    try {
+      applyCustomerBalances(db, rows);
+    } catch (applyErr) {
+      console.error('customers/balances apply fallback:', applyErr.message);
+    }
     rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
       .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
     res.json(rows);
   } catch (e) {
     console.error('customers/balances failed:', e.message);
-    res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
+    try {
+      const db = getDB();
+      const scope = getScope(req);
+      let rows;
+      if (scope === null) {
+        rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id`).all();
+      } else {
+        rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}`).all(scope, scope);
+      }
+      rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+        .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+      return res.json(rows);
+    } catch (e2) {
+      res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
+    }
   }
 });
 

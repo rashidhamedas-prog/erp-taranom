@@ -340,7 +340,11 @@ router.get('/customer-balances', auth, adminOrAccounting, (req, res) => {
         LEFT JOIN customer_groups cg ON cg.id=c.group_id
       `).all();
     }
-    applyCustomerBalances(db, rows);
+    try {
+      applyCustomerBalances(db, rows);
+    } catch (applyErr) {
+      console.error('customer-balances apply fallback:', applyErr.message);
+    }
     const filtered = rows
       .filter((r) => {
         const bal = Math.abs(Number(r.balance) || 0);
@@ -352,7 +356,26 @@ router.get('/customer-balances', auth, adminOrAccounting, (req, res) => {
     res.json(filtered);
   } catch (e) {
     console.error('customer-balances failed:', e.message);
-    res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
+    // Last resort: never blank the dashboard panel with a hard 500 if SQL alone works
+    try {
+      const db = getDB();
+      const LEDGER_BAL_JOIN = `LEFT JOIN (
+        SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
+        FROM customer_ledger GROUP BY customer_id
+      ) lb ON lb.customer_id=c.id`;
+      const BAL = 'COALESCE(lb.balance,0)';
+      const rows = db.prepare(`
+        SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
+               COALESCE(cg.nature,'debit') AS nature, u.name as salesperson
+        FROM customers c ${LEDGER_BAL_JOIN}
+        LEFT JOIN users u ON c.user_id=u.id
+        LEFT JOIN customer_groups cg ON cg.id=c.group_id
+      `).all().filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+        .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+      return res.json(rows);
+    } catch (e2) {
+      res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
+    }
   }
 });
 

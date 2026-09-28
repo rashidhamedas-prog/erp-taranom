@@ -956,10 +956,14 @@ function repairGlLinesToLedger(db) {
  * A partial tafsili GL must not replace this figure.
  */
 function customerSignedBalanceMap(db) {
-  try {
-    ensureCustomerBooksRepaired(db);
-  } catch (e) {
-    console.error('customerSignedBalanceMap repair:', e.message);
+  // Device/desktop: skip one-shot repairs on every balances read — avoids SQLITE_BUSY
+  // fighting the sync outbox and keeps the dashboard panel from 500ing.
+  if (process.env.SYNC_ROLE !== 'device') {
+    try {
+      ensureCustomerBooksRepaired(db);
+    } catch (e) {
+      console.error('customerSignedBalanceMap repair:', e.message);
+    }
   }
   const map = new Map();
   const source = new Map(); // customer_id → 'gl' | 'customer_ledger'
