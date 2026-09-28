@@ -32,6 +32,7 @@ const ALLOWED_KEYS = [
   'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
   'website_target', 'website_b2b_url', 'website_b2b_token', 'website_b2b_channel',
+  'website_wh_wholesale_id', 'website_wh_retail_id',
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',
@@ -72,6 +73,37 @@ router.post('/website-test', auth, adminOnly, centralOnly, async (req, res) => {
     res.json(result);
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message || 'آزمایش اتصال ناموفق' });
+  }
+});
+
+router.post('/website-dry-run', auth, adminOnly, centralOnly, async (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    const productId = parseInt(req.body && req.body.productId, 10);
+    if (!productId) return res.status(400).json({ ok: false, error: 'productId الزامی است' });
+    const result = await sync.dryRunProductMatrix(getDB(), productId);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'dry-run ناموفق' });
+  }
+});
+
+router.post('/website-full-sync', auth, adminOnly, centralOnly, async (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    const result = sync.enqueueFullSync(getDB());
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'همگام‌سازی کامل ناموفق' });
+  }
+});
+
+router.get('/website-outbox', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    res.json(sync.outboxStatus(getDB()));
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'خواندن outbox ناموفق' });
   }
 });
 

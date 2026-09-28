@@ -319,7 +319,11 @@ function postStockMovement(db, opts) {
     note
   );
 
-  return db.prepare('SELECT * FROM inventory_movements WHERE id=?').get(ins.lastInsertRowid);
+  const movement = db.prepare('SELECT * FROM inventory_movements WHERE id=?').get(ins.lastInsertRowid);
+  try {
+    require('../website-stock-sync').notifyStockChanged(db, productId);
+  } catch (_) { /* sync is best-effort */ }
+  return movement;
 }
 
 /**

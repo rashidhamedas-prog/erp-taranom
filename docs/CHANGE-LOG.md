@@ -5,12 +5,21 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — سینک ماتریس موجودی ERP → Site-B2B (SW v256)
+
+- **هدف:** موجودی قابل‌فروش سایت از ERP با انبار جدا برای عمده/تکی و ماتریس رنگ×سایز
+- **ERP:** بازنویسی `website-stock-sync` — outbox + debounce، qty از `variant_warehouse_stock`، push به `PUT /api/v1/erp/inventory/matrix`؛ hook روی `postStockMovement`؛ تنظیمات `website_wh_wholesale_id` / `website_wh_retail_id`؛ UI dry-run / full-sync / وضعیت صف
+- **سایت:** ماژول `erp-inventory` + `ERP_INVENTORY_API_KEY` + جدول `erp_variant_map` (در Site B2B)
+- **تست:** `node server/scripts/test-website-stock-matrix-v256.js`
+- **Deploy:** ⏳ در حال انجام
+- **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/lib/inventory/movement.js`, `server/routes/settings.js`, `server/public/{app.js,sw.js}`, `server/db.js`, `server/lib/update-md-schema.js`, `server/scripts/test-website-stock-matrix-v256.js`
+
 ### ۱۴۰۵/۰۷/۰۶ — رفع ۵۰۰ مانده مشتریان داشبورد دسکتاپ (SW v255)
 
 - **علت:** `applyCustomerBalances` / SQL parties روی DB محلی گاهی throw → toast/پنل «خطای داخلی سرور»
 - **رفع:** try/catch در `customerSignedBalanceMap` + fallback SQL بدون parties؛ داشبورد با `Promise.allSettled` مانده را جدا از KPI بارگذاری می‌کند
 - **فایل‌ها:** `server/lib/customer-books.js`, `routes/admin.js`, `routes/customers.js`, `public/app.js`
-- **Deploy:** ⏳ همین نوبت؛ روی دسکتاپ محلی هم overlay فایل‌های server
+- **Deploy:** ✅ ایران overlay SFTP @ `0c8237d` — health/ready/root 200؛ SW `erp-taranom-v255`؛ overlay روی نصب Electron محلی هم اعمال شد
 
 ### ۱۴۰۵/۰۷/۰۶ — Desktop Setup 2.0.14: work-area + فارسی ورود (SW v254)
 

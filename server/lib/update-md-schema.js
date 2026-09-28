@@ -102,11 +102,16 @@ function ensureUpdateMdSchema(db, ensureColumn) {
 
   const defaults = {
     website_stock_sync_enabled: '0',
-    website_stock_sync_mode: 'pull', // pull | push | both
+    website_stock_sync_mode: 'push', // pull | push | both
+    website_target: 'site_b2b',
     website_stock_webhook_url: '',
     website_wc_url: '',
     website_wc_key: '',
     website_wc_secret: '',
+    website_b2b_url: '',
+    website_b2b_token: '',
+    website_wh_wholesale_id: '',
+    website_wh_retail_id: '',
     rubika_bot_token: '',
     rubika_chat_id: '',
     rubika_invoice_enabled: '0',

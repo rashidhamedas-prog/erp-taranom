@@ -2393,6 +2393,12 @@ function initSyncSchema(db, opts) {
   }
 
   try {
+    require('./lib/website-stock-sync').ensureWebsiteStockOutbox(db);
+  } catch (e) {
+    console.warn('website_stock_outbox schema:', e.message);
+  }
+
+  try {
     require('./lib/qa-gaps-schema').ensureQaGapsSchema(db);
   } catch (e) {
     console.error('❌ qa-gaps schema init failed:', e.message);
