@@ -24,6 +24,13 @@
 - **Deploy:** بدون APK ایران تا SDK+keystore روی ماشین بیلد؛ شاخه `ai/ANDROID-NATIVE-SALES`.
 - **وضعیت:** 🔄 ادامه فاز ۱–۵ (sync:impl + UI عمودی + migrator/updater)
 
+### ۱۴۰۵/۰۷/۰۵ — hotfix Electron: فارسی صفحه ورود (index.html → ????)
+
+- **علت:** `index.html` داخل نصب ۲.۰.۱۳ با encoding خراب بسته شده بود (فارسی → `????`)؛ `app.js` سالم بود
+- **رفع فوری:** کپی UTF-8 از `server/public/index.html` به `%LocalAppData%\Programs\ERP Taranom\resources\app\server\public\`
+- **گارد:** `desktop/scripts/test-index-utf8.js`
+- **توجه:** Setup روی `D:\proje\ERP EXE` هنوز همان بیلد قدیمی است — نصب مجدد بدون بیلد جدید دوباره خراب می‌کند
+
 ### ۱۴۰۵/۰۷/۰۵ — hotfix Electron: work-area.js در files بیلد (نصب محلی)
 
 - **علت:** `ERP Taranom Setup 2.0.13` بدون `work-area.js` بسته‌بندی شده → خطای `Cannot find module './work-area'`
