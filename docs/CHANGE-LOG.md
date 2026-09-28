@@ -11,7 +11,7 @@
 - **ERP:** بازنویسی `website-stock-sync` — outbox + debounce، qty از `variant_warehouse_stock`، push به `PUT /api/v1/erp/inventory/matrix`؛ hook روی `postStockMovement`؛ تنظیمات `website_wh_wholesale_id` / `website_wh_retail_id`؛ UI dry-run / full-sync / وضعیت صف
 - **سایت:** ماژول `erp-inventory` + `ERP_INVENTORY_API_KEY` + جدول `erp_variant_map` (در Site B2B)
 - **تست:** `node server/scripts/test-website-stock-matrix-v256.js`
-- **Deploy:** ⏳ در حال انجام
+- **Deploy:** ✅ Site B2B `1b5a65c` Germany auto-deploy؛ ERP ایران overlay SFTP @ `b3996ba` — health/root 200؛ SW `erp-taranom-v256`؛ سینک به‌صورت پیش‌فرض خاموش تا انبارها+کلید تنظیم شوند
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/lib/inventory/movement.js`, `server/routes/settings.js`, `server/public/{app.js,sw.js}`, `server/db.js`, `server/lib/update-md-schema.js`, `server/scripts/test-website-stock-matrix-v256.js`
 
 ### ۱۴۰۵/۰۷/۰۶ — رفع ۵۰۰ مانده مشتریان داشبورد دسکتاپ (SW v255)
