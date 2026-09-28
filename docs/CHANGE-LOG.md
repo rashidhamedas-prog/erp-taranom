@@ -12,7 +12,7 @@
 - **بسته:** `desktop/package.json` files شامل `work-area.js`؛ گارد `test-index-utf8.js`؛ `repair-install.cmd` برای نصب خراب
 - **متادیتا:** `releases/{manifest.json,latest.yml}` نسخه 2.0.14
 - **راهنما/SW:** Help ۲.۰.۱۴؛ SW `erp-taranom-v254`
-- **Deploy:** ⏳ همین نوبت (متادیتا وب؛ exe فقط GitHub/پوشه محلی)
+- **Deploy:** ✅ ایران overlay SFTP @ `54ea414` — health/ready/root 200؛ SW `erp-taranom-v254`؛ Setup در `D:\proje\ERP EXE`
 
 ### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: فاز ۱–۵ کد کامل (JVM green؛ APK منتظر SDK)
 
