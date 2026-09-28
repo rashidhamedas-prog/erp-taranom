@@ -3183,14 +3183,27 @@ async function renderDashContent(){
   _dashHtmlCache = { key:'', html:'', t:0 };
   body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
   if(canSeeCompanyDash()){
-    const [ov, board, balances] = await Promise.all([
-      api('GET','/admin/stats/overview'+dq),
-      api('GET','/admin/dashboard'+dq),
-      api('GET','/admin/customer-balances')
-    ]);
+    let ov=null, board=[], balances=[], balErr=null;
+    try{
+      const settled = await Promise.allSettled([
+        api('GET','/admin/stats/overview'+dq),
+        api('GET','/admin/dashboard'+dq),
+        api('GET','/admin/customer-balances')
+      ]);
+      if(gen !== _dashRenderGen) return;
+      ov = settled[0].status==='fulfilled' ? settled[0].value : null;
+      board = settled[1].status==='fulfilled' ? (settled[1].value||[]) : [];
+      if(settled[2].status==='fulfilled') balances = settled[2].value||[];
+      else { balErr = (settled[2].reason && (settled[2].reason.message||settled[2].reason.code)) || 'خطای مانده مشتریان'; }
+    }catch(e){
+      balErr = e.message||'خطا';
+    }
     if(gen !== _dashRenderGen) return;
-    if(!ov) return;
-    window._adminBalRows = (balances||[]);
+    if(!ov){
+      body.innerHTML = `<div class="empty" data-csp-style="${CSP.style(`color:var(--red)`)}">${esc(balErr||'خطا در بارگذاری داشبورد')}</div>`;
+      return;
+    }
+    window._adminBalRows = Array.isArray(balances) ? balances : [];
     const balRows = window._adminBalRows;
     const balT = balTotals(balRows);
     const pending = window._pendingActions || [];
@@ -3228,7 +3241,10 @@ async function renderDashContent(){
           </table>
         </div>
       </div>
-      ${balRows.length?`<div class="panel">
+      ${balErr?`<div class="panel"><div class="panel-head"><h4>مانده مشتریان (زنده)</h4>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻</button></div>
+        <div class="panel-body"><div class="empty" data-csp-style="${CSP.style(`color:var(--red)`)}">خواندن مانده ناموفق بود: ${esc(balErr)} — دوباره ↻ بزنید.</div></div></div>`:''}
+      ${(!balErr && balRows.length)?`<div class="panel">
         <div class="panel-head"><h4>مانده مشتریان (زنده)</h4>
           <select data-csp-change="${CSP.bind('change',function(event){filterDashBalances(this.value)})}">
             <option value="">همه کارشناسان</option>
@@ -3251,7 +3267,9 @@ async function renderDashContent(){
     requestAnimationFrame(fitStatNums);
     if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   } else {
-    const balances = await api('GET','/customers/balances');
+    let balances=[], balErr=null;
+    try { balances = await api('GET','/customers/balances'); }
+    catch(e){ balErr = e.message||'خطای مانده'; balances = []; }
     let followups, invoices;
     [followups, invoices] = await Promise.all([
       api('GET','/followups'),
@@ -3273,7 +3291,7 @@ async function renderDashContent(){
     const commSales=Number(myComm.salesTotal)||0;
     const sales = (dashDateFrom||dashDateTo) ? salesFromInvs : (commSales||salesFromInvs);
     const openF = (followups||[]).filter(f=>f.status==='open').length;
-    const balRows = (balances||[]);
+    const balRows = Array.isArray(balances) ? balances : [];
     const balT = balTotals(balRows);
     body.innerHTML = `
       <div class="cards bento-hero">
@@ -3290,7 +3308,10 @@ async function renderDashContent(){
         ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       ${myComm.basisLabel?`<div class="muted" data-csp-style="${CSP.style(`margin:-4px 0 12px;font-size:11px`)}">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
-      ${balRows.length?`<div class="panel">
+      ${balErr?`<div class="panel"><div class="panel-head"><h4>مانده مشتریان من (زنده)</h4>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻</button></div>
+        <div class="panel-body"><div class="empty" data-csp-style="${CSP.style(`color:var(--red)`)}">خواندن مانده ناموفق بود: ${esc(balErr)}</div></div></div>`:''}
+      ${(!balErr && balRows.length)?`<div class="panel">
         <div class="panel-head"><h4>مانده مشتریان من (زنده)</h4>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){renderDashContent()})}">↻</button>
         </div>
@@ -21580,6 +21601,9 @@ ROUTES.settings = async function(){
     showToast(e.message||'خطا در بارگذاری تنظیمات','error');
     s = CACHE.settings = s || {};
   }
+  await ensureWarehouses().catch(()=>{});
+  const whOpts = (CACHE.warehouses||[]).filter(w=>w.active!==0)
+    .map(w=>`<option value="${w.id}">${esc(w.name)}${w.code?' ('+esc(w.code)+')':''}</option>`).join('');
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
   const curFy = fyData.current;
   const fyRows = (fyData.years||[]).slice(0,8);
@@ -21717,43 +21741,57 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const webPanel = `
-    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (Site-B2B / ووکامرس)</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (ماتریس رنگ×سایز)</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        مقصد اصلی: پروژه <b>Site-B2B</b> — کد کالای ERP با <code>sku</code> سایت جفت می‌شود و موجودی عمده با
-        <code dir="ltr">PATCH /api/v1/products/:id/stock</code> به‌روز می‌شود. ووکامرس اختیاری است.
+        ERP منبع حقیقت است. برای هر کانال (عمده / تکی) یک انبار انتخاب کنید؛ موجودی همان انبار
+        به‌صورت رنگ×سایز روی سایت نوشته می‌شود
+        (<code dir="ltr">PUT /api/v1/erp/inventory/matrix</code>).
+        کلید باید همان <code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت باشد — نه JWT ادمین.
       </div>
-      <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'ارتباط ERP با فروشگاه آنلاین')}</div>
+      <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'Push ماتریس از ERP به سایت بعد از هر حرکت انبار')}</div>
       <div class="form-grid">
         <div class="fg fg-md"><label>مقصد</label><select id="s-website_target">
-          <option value="site_b2b" ${(s.website_target||'site_b2b')==='site_b2b'?'selected':''}>Site-B2B (NestJS)</option>
-          <option value="woo" ${s.website_target==='woo'||s.website_target==='woocommerce'?'selected':''}>ووکامرس</option>
+          <option value="site_b2b" ${(s.website_target||'site_b2b')==='site_b2b'?'selected':''}>Site-B2B</option>
+          <option value="woo" ${s.website_target==='woo'||s.website_target==='woocommerce'?'selected':''}>ووکامرس (قدیمی)</option>
           <option value="both" ${s.website_target==='both'?'selected':''}>هر دو</option>
         </select></div>
         <div class="fg fg-md"><label>حالت</label><select id="s-website_stock_sync_mode">
-          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (سایت از ERP می‌خواند)</option>
-          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push از ERP به سایت</option>
-          <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
+          <option value="push" ${(s.website_stock_sync_mode||'push')==='push'?'selected':''}>Push از ERP به سایت</option>
+          <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>Push + Pull تشخیصی</option>
+          <option value="pull" ${s.website_stock_sync_mode==='pull'?'selected':''}>فقط Pull</option>
         </select></div>
-        <div class="fg full"><label>آدرس API سایت B2B</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>توکن JWT ادمین سایت</label><input id="s-website_b2b_token" type="text" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
-        <div class="fg fg-md"><label>کانال موجودی</label><select id="s-website_b2b_channel">
-          <option value="WHOLESALE" ${(s.website_b2b_channel||'WHOLESALE')==='WHOLESALE'?'selected':''}>عمده (WHOLESALE)</option>
-          <option value="RETAIL" ${s.website_b2b_channel==='RETAIL'?'selected':''}>خرده‌فروشی (RETAIL)</option>
-        </select></div>
-        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/api/…/stock"></div>
-        <div class="fg"><label>آدرس ووکامرس (اختیاری)</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>کلید مصرف‌کننده ووکامرس</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-        <div class="fg"><label>رمز مصرف‌کننده ووکامرس</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
-        <div class="fg full">
-          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال سایت</button>
-          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`margin-right:8px;font-size:12px`)}"></span>
+        <div class="fg full"><label>آدرس API سایت</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://api.poshaktaranom.com"></div>
+        <div class="fg"><label>کلید API موجودی سایت</label><input id="s-website_b2b_token" type="text" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
+        <div class="fg fg-md"><label>انبار عمده (WHOLESALE)</label>
+          <select id="s-website_wh_wholesale_id">
+            <option value="">— انتخاب انبار —</option>
+            ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_wholesale_id||'')===String(id)?' selected':''}`)}
+          </select>
         </div>
+        <div class="fg fg-md"><label>انبار تکی (RETAIL)</label>
+          <select id="s-website_wh_retail_id">
+            <option value="">— انتخاب انبار —</option>
+            ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_retail_id||'')===String(id)?' selected':''}`)}
+          </select>
+        </div>
+        <div class="fg full"><label>آدرس وب‌هوک موجودی (اختیاری)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://…"></div>
+        <div class="fg"><label>آدرس ووکامرس (اختیاری)</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr"></div>
+        <div class="fg"><label>کلید ووکامرس</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز ووکامرس</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال</button>
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
+          <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">وضعیت صف</button>
+          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}"></span>
+        </div>
+        <div class="fg full"><label>کد کالا برای dry-run (id عددی ERP)</label>
+          <input id="s-website-dryrun-pid" dir="ltr" placeholder="product id" data-csp-style="${CSP.style(`max-width:160px`)}">
+        </div>
+        <div id="s-website-outbox" class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;white-space:pre-wrap`)}"></div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
-          <b>Pull:</b> سایت با API Key از
-          <code dir="ltr">GET /api/v1/stock</code> و
-          <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
-          موجودی می‌گیرد (کد کالا = SKU).
-          <b>Push Site-B2B:</b> بعد از هر تغییر موجودی، ERP کالا را با SKU پیدا می‌کند و موجودی عمده را می‌نویسد.
+          <b>ماتریس:</b> کد کالا = sku سایت؛ رنگ و سایز ERP با نام رنگ/سایز سایت جفت می‌شود.
+          واریانت‌های جفت‌نشده در پاسخ dry-run و last_result صف دیده می‌شوند — ساخت خودکار انجام نمی‌شود.
         </div>
       </div>
     </div></div>`;
@@ -21961,8 +21999,53 @@ async function testWebsiteConnection(){
     if(st) st.textContent=e.message||'خطا';
   }
 }
+async function websiteStockDryRun(){
+  const st=el('s-website-test-status');
+  const pid=parseInt(el('s-website-dryrun-pid')?.value,10);
+  if(!pid){ showToast('شناسه کالا (product id) را وارد کنید','error'); return; }
+  if(st) st.textContent='dry-run…';
+  try{
+    const r=await api('POST','/settings/website-dry-run',{productId:pid});
+    const box=el('s-website-outbox');
+    const lines=(r.results||[]).map(x=>{
+      const um=(x.unmatched||[]).map(u=>u.erpVariantSku||u.reason).join(', ');
+      return `${x.channel||'?'}: ${x.ok?'OK':'FAIL'} matched=${x.matched||0} unmatched=${um||'—'}`;
+    });
+    if(box) box.textContent=lines.join('\n')||JSON.stringify(r,null,2);
+    if(st) st.textContent=r?.ok?'dry-run موفق':'dry-run با unmatched';
+    showToast(r?.ok?'نگاشت کامل است':'برخی واریانت‌ها جفت نشدند', r?.ok?'success':'error');
+  }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
+}
+async function websiteStockFullSync(){
+  if(!confirm('همگام‌سازی کامل همه کالاهای ماتریسی در صف قرار گیرد؟')) return;
+  const st=el('s-website-test-status');
+  if(st) st.textContent='در صف…';
+  try{
+    const r=await api('POST','/settings/website-full-sync',{});
+    if(st) st.textContent=`صف: ${r.enqueued||0} از ${r.products||0} کالا`;
+    showToast('همگام‌سازی کامل در صف قرار گرفت','success');
+    loadWebsiteOutbox();
+  }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
+}
+async function loadWebsiteOutbox(){
+  const box=el('s-website-outbox');
+  if(box) box.textContent='در حال بارگذاری…';
+  try{
+    const r=await api('GET','/settings/website-outbox');
+    const counts=Object.entries(r.counts||{}).map(([k,v])=>`${k}=${v}`).join(' · ')||'خالی';
+    const recent=(r.recent||[]).slice(0,12).map(row=>{
+      let um='';
+      try{
+        const lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{});
+        if(lr.unmatched&&lr.unmatched.length) um=' unmatched='+lr.unmatched.map(u=>u.erpVariantSku||u.reason).join(',');
+      }catch(_){}
+      return `#${row.id} p${row.product_id} ${row.channel} ${row.status}${row.last_error?' err='+row.last_error:''}${um}`;
+    }).join('\n');
+    if(box) box.textContent=`وضعیت صف: ${counts}\n${recent}`;
+  }catch(e){ if(box) box.textContent=e.message||'خطا'; }
+}
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_b2b_channel'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
   data.rubika_invoice_enabled = el('s-rubika_invoice_enabled')?.checked ? '1' : '0';
@@ -23135,7 +23218,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v254</b> است و اسکریپت‌ها با <code>?v=254</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v255</b> است و اسکریپت‌ها با <code>?v=255</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

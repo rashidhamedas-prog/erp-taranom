@@ -310,31 +310,50 @@ router.get('/audit', auth, adminOnly, (req, res) => {
 
 // Customer balances — admin/accounting see all; sales use /customers/balances
 router.get('/customer-balances', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const LEDGER_BAL_JOIN = `LEFT JOIN (
-    SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
-    FROM customer_ledger GROUP BY customer_id
-  ) lb ON lb.customer_id=c.id`;
-  const BAL = 'COALESCE(lb.balance,0)';
-  const rows = db.prepare(`
-    SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
-           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson,
-           p.is_active AS party_is_active, p.id AS party_id
-    FROM customers c ${LEDGER_BAL_JOIN}
-    LEFT JOIN users u ON c.user_id=u.id
-    LEFT JOIN customer_groups cg ON cg.id=c.group_id
-    LEFT JOIN parties p ON p.id=c.party_id
-  `).all();
-  applyCustomerBalances(db, rows);
-  const filtered = rows
-    .filter((r) => {
-      const bal = Math.abs(Number(r.balance) || 0);
-      const inactive = r.party_id != null && Number(r.party_is_active) === 0;
-      if (inactive && bal < 1) return false;
-      return bal > 0;
-    })
-    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
-  res.json(filtered);
+  try {
+    const db = getDB();
+    const LEDGER_BAL_JOIN = `LEFT JOIN (
+      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
+      FROM customer_ledger GROUP BY customer_id
+    ) lb ON lb.customer_id=c.id`;
+    const BAL = 'COALESCE(lb.balance,0)';
+    let rows;
+    try {
+      rows = db.prepare(`
+        SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
+               COALESCE(cg.nature,'debit') AS nature, u.name as salesperson,
+               p.is_active AS party_is_active, p.id AS party_id
+        FROM customers c ${LEDGER_BAL_JOIN}
+        LEFT JOIN users u ON c.user_id=u.id
+        LEFT JOIN customer_groups cg ON cg.id=c.group_id
+        LEFT JOIN parties p ON p.id=c.party_id
+      `).all();
+    } catch (sqlErr) {
+      // Older DBs without parties.is_active — fall back without party filter
+      console.error('customer-balances SQL fallback:', sqlErr.message);
+      rows = db.prepare(`
+        SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
+               COALESCE(cg.nature,'debit') AS nature, u.name as salesperson,
+               1 AS party_is_active, c.party_id AS party_id
+        FROM customers c ${LEDGER_BAL_JOIN}
+        LEFT JOIN users u ON c.user_id=u.id
+        LEFT JOIN customer_groups cg ON cg.id=c.group_id
+      `).all();
+    }
+    applyCustomerBalances(db, rows);
+    const filtered = rows
+      .filter((r) => {
+        const bal = Math.abs(Number(r.balance) || 0);
+        const inactive = r.party_id != null && Number(r.party_is_active) === 0;
+        if (inactive && bal < 1) return false;
+        return bal > 0;
+      })
+      .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+    res.json(filtered);
+  } catch (e) {
+    console.error('customer-balances failed:', e.message);
+    res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
+  }
 });
 
 // Repair: restore products.stock / pack_size / price / code wiped by image-only PUT bug

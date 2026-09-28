@@ -232,20 +232,25 @@ router.delete('/:id', auth, (req, res) => {
 
 // Customer balances for current user's customers (non-zero only)
 router.get('/balances', auth, (req, res) => {
-  const db = getDB();
-  const scope = getScope(req);
-  // Hide CRM customers whose linked accounting party was soft-deleted
-  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
-  let rows;
-  if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE 1=1${activeClause}`).all();
-  } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}${activeClause}`).all(scope, scope);
+  try {
+    const db = getDB();
+    const scope = getScope(req);
+    // Hide CRM customers whose linked accounting party was soft-deleted
+    const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
+    let rows;
+    if (scope === null) {
+      rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE 1=1${activeClause}`).all();
+    } else {
+      rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}${activeClause}`).all(scope, scope);
+    }
+    applyCustomerBalances(db, rows);
+    rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+      .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+    res.json(rows);
+  } catch (e) {
+    console.error('customers/balances failed:', e.message);
+    res.status(500).json({ error: 'خطای داخلی سرور', detail: e.message });
   }
-  applyCustomerBalances(db, rows);
-  rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
-    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
-  res.json(rows);
 });
 
 router.get('/export/excel', auth, adminOnly, async (req, res) => {

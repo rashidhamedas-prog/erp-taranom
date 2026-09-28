@@ -956,34 +956,49 @@ function repairGlLinesToLedger(db) {
  * A partial tafsili GL must not replace this figure.
  */
 function customerSignedBalanceMap(db) {
-  ensureCustomerBooksRepaired(db);
+  try {
+    ensureCustomerBooksRepaired(db);
+  } catch (e) {
+    console.error('customerSignedBalanceMap repair:', e.message);
+  }
   const map = new Map();
   const source = new Map(); // customer_id → 'gl' | 'customer_ledger'
-  const led = db.prepare(`
-    SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
-    FROM customer_ledger GROUP BY customer_id
-  `).all();
+  let led = [];
+  try {
+    led = db.prepare(`
+      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+      FROM customer_ledger GROUP BY customer_id
+    `).all();
+  } catch (e) {
+    console.error('customerSignedBalanceMap ledger:', e.message);
+    map._source = source;
+    return map;
+  }
   for (const r of led) {
     map.set(Number(r.customer_id), Number(r.bal) || 0);
     source.set(Number(r.customer_id), 'customer_ledger');
   }
 
   // Match attachMissingInvoiceRows: firm sales not yet in customer_ledger.
-  const missing = db.prepare(`
-    SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
-    FROM invoices i
-    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
-      AND NOT EXISTS (
-        SELECT 1 FROM customer_ledger cl
-        WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
-          AND COALESCE(cl.entry_type,'')<>'reversal'
-      )
-    GROUP BY i.cust_id
-  `).all();
-  for (const r of missing) {
-    const id = Number(r.customer_id);
-    map.set(id, (map.get(id) || 0) + (Number(r.add_amt) || 0));
-    if (!source.has(id)) source.set(id, 'customer_ledger');
+  try {
+    const missing = db.prepare(`
+      SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
+      FROM invoices i
+      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_ledger cl
+          WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
+            AND COALESCE(cl.entry_type,'')<>'reversal'
+        )
+      GROUP BY i.cust_id
+    `).all();
+    for (const r of missing) {
+      const id = Number(r.customer_id);
+      map.set(id, (map.get(id) || 0) + (Number(r.add_amt) || 0));
+      if (!source.has(id)) source.set(id, 'customer_ledger');
+    }
+  } catch (e) {
+    console.error('customerSignedBalanceMap missing invoices:', e.message);
   }
 
   // Do not replace the subledger with a partial tafsili GL. A new coa_code
@@ -1042,7 +1057,13 @@ function canonicalCustomerFold(db, { asOf } = {}) {
 
 function applyCustomerBalances(db, rows) {
   if (!rows || !rows.length) return rows;
-  const map = customerSignedBalanceMap(db);
+  let map;
+  try {
+    map = customerSignedBalanceMap(db);
+  } catch (e) {
+    console.error('applyCustomerBalances map failed:', e.message);
+    return rows; // keep SQL join balances (lb) already on rows
+  }
   const source = map._source || new Map();
   for (const r of rows) {
     if (!r || r.id == null) continue;

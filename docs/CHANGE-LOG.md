@@ -5,6 +5,13 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — رفع ۵۰۰ مانده مشتریان داشبورد دسکتاپ (SW v255)
+
+- **علت:** `applyCustomerBalances` / SQL parties روی DB محلی گاهی throw → toast/پنل «خطای داخلی سرور»
+- **رفع:** try/catch در `customerSignedBalanceMap` + fallback SQL بدون parties؛ داشبورد با `Promise.allSettled` مانده را جدا از KPI بارگذاری می‌کند
+- **فایل‌ها:** `server/lib/customer-books.js`, `routes/admin.js`, `routes/customers.js`, `public/app.js`
+- **Deploy:** ⏳ همین نوبت؛ روی دسکتاپ محلی هم overlay فایل‌های server
+
 ### ۱۴۰۵/۰۷/۰۶ — Desktop Setup 2.0.14: work-area + فارسی ورود (SW v254)
 
 - **علت:** Setup 2.0.13 بدون `work-area.js` → crash بعد از نصب؛ `index.html` گاهی `????`
