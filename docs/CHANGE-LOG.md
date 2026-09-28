@@ -20,7 +20,7 @@
 - **رفع:** try/catch در `customerSignedBalanceMap` + fallback SQL بدون parties؛ روی `SYNC_ROLE=device` repair هنگام خواندن مانده رد می‌شود؛ داشبورد با `Promise.allSettled` مانده را جدا از KPI بارگذاری می‌کند؛ last-resort JSON بدون ۵۰۰ سخت
 - **فایل‌ها:** `server/lib/customer-books.js`, `routes/admin.js`, `routes/customers.js`, `public/app.js`
 - **تأیید محلی:** probe DB Electron → `sql_parties=ok` ۷۲ / `apply=ok` / filtered ۳۷؛ پچ داخل `%LocalAppData%\Programs\ERP Taranom`
-- **Deploy:** ⏳ در حال push/deploy بعد از این commit
+- **Deploy:** ✅ ایران overlay SFTP @ `16d64d6` — health/ready/root 200؛ SW `erp-taranom-v256`؛ پچ داخل نصب Electron محلی هم اعمال شد
 
 ### ۱۴۰۵/۰۷/۰۶ — Desktop Setup 2.0.14: work-area + فارسی ورود (SW v254)
 
