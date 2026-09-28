@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const targets = [
   path.join(ROOT, 'server', 'public', 'index.html'),
   path.join(ROOT, 'desktop', 'server', 'public', 'index.html'),

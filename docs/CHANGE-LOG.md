@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — Desktop Setup 2.0.14: work-area + فارسی ورود (SW v254)
+
+- **علت:** Setup 2.0.13 بدون `work-area.js` → crash بعد از نصب؛ `index.html` گاهی `????`
+- **بیلد:** `ERP Taranom Setup 2.0.14.exe` → `D:\proje\ERP EXE` · SHA256=`096B7004D475691A7388F9E14A52FC3C5DE103193F2D51F42FD0E9D9E95266C7`
+- **بسته:** `desktop/package.json` files شامل `work-area.js`؛ گارد `test-index-utf8.js`؛ `repair-install.cmd` برای نصب خراب
+- **متادیتا:** `releases/{manifest.json,latest.yml}` نسخه 2.0.14
+- **راهنما/SW:** Help ۲.۰.۱۴؛ SW `erp-taranom-v254`
+- **Deploy:** ⏳ همین نوبت (متادیتا وب؛ exe فقط GitHub/پوشه محلی)
+
 ### ۱۴۰۵/۰۷/۰۵ — Android بومی فروش: فاز ۱–۵ کد کامل (JVM green؛ APK منتظر SDK)
 
 - **کد:** `android-native/` — Compose UI کامل فروش (CRM/کاتالوگ/سبد/فاکتور/وصول/تعارض/گزارش/راهنما)، Room v2، `sync:impl` (HMAC+Ed25519+OkHttp+SyncEngine)، `:migrate` fail-closed، `:update` manifest/sha256، WorkManager stubs.

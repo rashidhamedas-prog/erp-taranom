@@ -4,13 +4,12 @@
     "notes": "پاک‌سازی go-live + کدینگ پایه + cascade حذف تفصیلی — SW v99."
   },
   "desktop": {
-    "version": "2.0.13",
-    "url": "/releases/ERP-Taranom-Setup-2.0.13.exe",
-    "feed_url": "https://erp.poshaktaranom.com/releases/",
-    "sha256": "3D9308A616A2AAE23515173EBE98D01F055069FE148944D6F6EA901624E9C63E",
-    "sha512": "tLfFTmR/DbbHZOZa1IHLfcZn3Znd4XHy8lJ7pA/SSM/VpNosREQXg4/GnMLtkqd6aNrP0fWhYrS7GTlvvtnLOQ==",
-    "size": 102046856,
-    "notes": "پل تجاری دسکتاپ 2.0.13 — ADR بومی قفل؛ OEM/white-label در مسیر GA. SHA256=3D9308A616A2AAE23515173EBE98D01F055069FE148944D6F6EA901624E9C63E"
+    "version": "2.0.14",
+    "url": "https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.14/ERP%20Taranom%20Setup%202.0.14.exe",
+    "feed_url": "https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.14/",
+    "sha256": "096B7004D475691A7388F9E14A52FC3C5DE103193F2D51F42FD0E9D9E95266C7",
+    "size": 102048416,
+    "notes": "2.0.14: رفع crash ماژول work-area + فارسی صحیح صفحه ورود (جایگزین 2.0.13)."
   },
   "android": {
     "version": "2.0.33",
