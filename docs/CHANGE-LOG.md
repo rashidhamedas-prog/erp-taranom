@@ -6,7 +6,7 @@
 - **UI:** انتخاب رنگ از طاقه‌های موجود؛ لیست طاقه بعد از تشخیص پارچهٔ فرمول فیلتر می‌شود؛ پیوند سفارش رنگ و ماتریس را پیش‌پر می‌کند.
 - **تست:** `node server/scripts/test-fabric-cut-link-static-v269.js`
 - **فایل‌ها:** `fabric-rolls.js`, `cutting.js`, `production-cutting.js`, `public/{app.js,sw.js,index.html}`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ 231a443 — ایران overlay، root 200، SW v269؛ static 4/4
 
 ریخچه تغییرات اعمال‌شده — ERP ترنم
 

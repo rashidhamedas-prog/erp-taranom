@@ -48,6 +48,7 @@ router.get('/rolls', auth, requirePermission('production', 'view'), (req, res) =
       pattern: b.pattern,
       width_cm: b.width_cm,
       qty_on_hand: b.qty_on_hand,
+      qty_live: b.qty_live != null ? b.qty_live : b.qty_on_hand,
       product_id: b.product_id,
       product_name: b.product_name,
       warehouse_id: b.warehouse_id,
