@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — واریانت رنگ×سایز در BOM تا رسید تولید (SW v264)
+
+- **مدل:** BOM همچنان سطح style است؛ مصرف پارچه با `size_matrix` × `size_breakdown`؛ موجودی SKU با `product_variants` از مسیر apparel-lines.
+- **BOM:** `color_id` روی سرفصل؛ `component_color_mode`/`component_color_id` روی اقلام؛ اعتبار کلید ماتریس با سایزهای style؛ explode با `color` → `variant_lines` برای جزء ماتریسی قطعه‌ای؛ `createAlternative` رنگ را کپی می‌کند.
+- **اجرا:** سفارش ماتریسی بدون رنگ/تفکیک سایز رد می‌شود؛ backflush/explode رنگ سفارش را پاس می‌دهد؛ `variant_lines_json` روی receipts/issues/waste/runs؛ ضایعات قابل‌فروش variant می‌پذیرد؛ رسید برش لایه apparel می‌نویسد و `variant_id` روی bundle.
+- **UI:** ویرایشگر BOM (محدوده/رنگ + مودال ماتریس + رنگ جزء)؛ ایجاد سفارش با پنل رنگ×سایز؛ رسید از سفارش پیش‌پر؛ اجرای ساده با ماتریس چند SKU.
+- **تست:** `node server/scripts/test-production-variant-static-v261.js`؛ یکپارچه `test-production-variant-bom-v261.js` (نیاز به better-sqlite3 هم‌ABI).
+- **فایل‌ها:** `server/lib/production/{schema,bom,engine,engine-advanced,cutting}.js`, `inventory/apparel-lines.js`, `routes/{production-boms,production}.js`, `public/{app.js,sw.js}`, `scripts/test-production-variant-*.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۷ — کارمزد انتقال بانکی روی پرداخت خروجی (SW v263)
 
 - **Invariant:** وقتی `pay_type=bank` و `fee_rial>0`: Dr مقصد(اصل) + Dr ۶۱۱۵ کارمزد خدمات بانکی(کارمزد) / Cr بانک(اصل+کارمزد). دفتر طرف‌حساب/تأمین‌کننده/انگیزه فقط اصل را می‌بیند. نقد/چک کارمزد را صفر می‌کند. ابطال R13 همان سه خط را برمی‌گرداند.
