@@ -15,7 +15,7 @@
 - **پاکسازی:** اینسترومنت دیباگ جامانده روی پرود (`/api/_dbg/cedad3` در `server.js` و لاگ لاگین در `auth.js`) با deploy نسخهٔ تمیز `main` حذف شد.
 - **فایل‌ها:** `server/server.js`, `server/routes/auth.js`, `server/public/{app.js,index.html,sw.js}`, `docs/CHANGE-LOG.md`
 - **تست:** `node server/scripts/test-sms.js` → 22/0؛ `test-sync.js` روی سرور بعد از deploy؛ `new Function(app.js)` = OK.
-- **Deploy:** ⏳ overlay SFTP ایران + `pm2 restart erp-taranom` بدون `--update-env` + تأیید هدرها/سلامت (در همین نوبت تکمیل می‌شود).
+- **Deploy:** ✅ `1044285` — overlay SFTP ایران + `pm2 restart erp-taranom` (بدون `--update-env`، online). تأیید runtime: `app.js?v=268` → `public, max-age=31536000, immutable` (قبلاً no-store)؛ `/app.js` بدون نسخه → `no-cache`؛ `index.html`/`sw.js` → `no-store`؛ `POST /api/_dbg/cedad3` → 404 (پاکسازی cedad3)؛ login بد → 401 سالم؛ روی سرور `test-sms` 22/0 و `test-sync` 44/0؛ SW `erp-taranom-v268`.
 
 ### ۱۴۰۵/۰۷/۰۷ — واریانت رنگ×سایز در BOM تا رسید تولید (SW v267)
 
