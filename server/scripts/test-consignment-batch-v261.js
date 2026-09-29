@@ -89,13 +89,13 @@ function ok(cond, label, extra) {
   `).run().lastInsertRowid;
 
   const p1 = db.prepare(`
-    INSERT INTO products (name, code, stock, cost, price, warehouse_id)
-    VALUES ('کالای امانی A','CS-A',100,10000,20000,?)
-  `).run(wh.id).lastInsertRowid;
+    INSERT INTO products (name, code, stock, cost, price, warehouse_id, user_id)
+    VALUES ('کالای امانی A','CS-A',100,10000,20000,?,?)
+  `).run(wh.id, admin.id).lastInsertRowid;
   const p2 = db.prepare(`
-    INSERT INTO products (name, code, stock, cost, price, warehouse_id)
-    VALUES ('کالای امانی B','CS-B',80,8000,18000,?)
-  `).run(wh.id).lastInsertRowid;
+    INSERT INTO products (name, code, stock, cost, price, warehouse_id, user_id)
+    VALUES ('کالای امانی B','CS-B',80,8000,18000,?,?)
+  `).run(wh.id, admin.id).lastInsertRowid;
   db.prepare(`
     INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
     ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
