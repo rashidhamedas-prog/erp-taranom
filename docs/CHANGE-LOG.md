@@ -12,7 +12,7 @@
 - **جدول:** `.tbl-wrap` دیگر جعبهٔ اسکرول نیست؛ ردیف کامل دیده می‌شود و عرض جدول داخل فرم به کل پنجره می‌رسد. اسکرول مال خود صفحه/پنجره است.
 - **تست:** `node server/scripts/test-apparel-integer-ledger-v258.js`
 - **فایل‌ها:** `server/lib/inventory/{qty-policy,movement}.js`, `server/lib/product-variants/service.js`, `server/routes/products.js`, `server/public/{app.js,app.css,sw.js}`
-- **Deploy:** ✅ ایران overlay SFTP @ `b87aa0f` — root/ready 200؛ SW `erp-taranom-v259`؛ pm2 online؛ `qty-policy.js` روی سرور
+- **Deploy:** ✅ `b87aa0f` — ایران overlay، `pm2 restart` بدون `--update-env`، ready 200، SW `erp-taranom-v259`. بعد از بوت: کت ۷۱۵۷ واریانت ۶۴ انبار محصول ۱۲ و کیمیا ۲ (جمع ۱۴)؛ جمع دفتر کالا ۷۹ و با سربرگ یکی است؛ موجودی کسری واحد عدد = ۰؛ ۱۳ کالای متری اعشاری ماند.
 
 ### ۱۴۰۵/۰۷/۰۶ — چاپ: حذف برچسب رنگ/سایز از شرح کالا (SW v258)
 
