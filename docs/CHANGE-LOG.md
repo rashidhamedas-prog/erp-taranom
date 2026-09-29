@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — کش کالا/مشتری: جلوگیری از نشت فیلتر + هیدریت پیکر (SW v260)
+
+- **باگ ۱ (سرچ آفاق):** تب کالاهای حسابداری نتیجهٔ فیلتر `PRODUCT_ACC_SEARCH` را روی `CACHE.allProducts` می‌نوشت؛ `ensureProductsCache` همان زیرمجموعه را نگه می‌داشت → پیکر فاکتور/خرید فقط همان کالا را می‌دید.
+- **رفع ۱:** `setFullProductsCatalog` + پرچم `_allProductsIsFull`؛ لیست فیلترشدهٔ UI دیگر master catalog را عوض نمی‌کند؛ فقط وقتی سرچ/گروه خالی است کاتالوگ کامل ست می‌شود.
+- **باگ ۲ (عارف):** ۲۳ مشتری در DB با `user_id|assigned_to` درست بود، ولی `fupModal` / `_openInvBuilder` هرگز `ensureCustomersCache` را صدا نمی‌زدند → دراپ‌داون خالی.
+- **رفع ۲:** قبل از باز شدن پیگیری و فاکتورساز، `ensureCustomersCache` (با `listRows`) اجباری شد.
+- **تست:** `node server/scripts/test-cache-scope-v260.js`
+- **فایل‌ها:** `server/public/{app.js,sw.js}`, `server/scripts/test-cache-scope-v260.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۷ — موجودی قطعه‌ای صحیح + جدول بدون اسکرول داخلی (SW v259)
 
 - **علت اعشار:** heal نسخهٔ v238 موجودی رنگ×سایز را با `round3(qty * global/sum)` بین انبارها خرد کرد (مثلاً کت ۷۱۵۷: افتتاحیهٔ ۱۴ بعد از انتقال ۲ شد ۶٫۴۶۲). دفتر `inventory_movements` همان اعداد صحیح ذخیره‌شده را نگه داشته بود. نمایش فارسیِ `input type=number` اعشار را با ویرگول نشان می‌دهد (۶٫۴۶۲ ← `6,462`).

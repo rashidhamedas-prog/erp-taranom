@@ -25,7 +25,17 @@ function invalidateMasterCaches(){
   CACHE.customerGroups=null; CACHE.banks=null; CACHE.cashBoxes=null; CACHE.checkCategories=null;
   CACHE.persons=null; CACHE.personCategories=null; CACHE.costCenters=null;
   CACHE.suppliers=null; CACHE.parties=null; CACHE.chartOfAccounts=null;
+  // Master product catalog must be re-fetched after sync — never reuse a filtered subset.
+  CACHE._allProductsIsFull=false;
   clearPageCache();
+}
+/** Full unfiltered product catalog only. Filtered list UIs must NOT call this with search/category subsets. */
+function setFullProductsCatalog(rows){
+  const list=Array.isArray(rows)?rows:[];
+  CACHE.allProducts=list;
+  CACHE.products=list;
+  CACHE._allProductsIsFull=true;
+  return list;
 }
 async function ensureWarehouses(force){
   // Access/ACL UIs pass force=true for live master data (no stale CACHE).
@@ -996,7 +1006,10 @@ function showCustDrop(id, q){
   const inp=el(id+'-input'); if(!inp) return;
   const optional=el(id)?.dataset?.optional==='1';
   const term=(q||'').trim().toLowerCase();
-  let list=CACHE.customers;
+  let list=Array.isArray(CACHE.customers)?CACHE.customers:[];
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C2',location:'app.js:showCustDrop',message:'customer dropdown open',data:{id,term,cacheIsArray:Array.isArray(CACHE.customers),cacheLen:list.length,role:ME&&ME.role,userId:ME&&ME.id},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if(term){
     const words=term.split(/\s+/);
     list=list.filter(c=>{
@@ -2540,6 +2553,7 @@ async function loadInitial(){
     // Defer heavy lists: customers/products load on first page that needs them (invoice, CRM, …).
     // Previously admin/sales blocked boot on full /products + /customers payloads.
     CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.users=[];
+    CACHE._allProductsIsFull=false;
     invalidateMasterCaches();
     if(ME.role==='admin'){
       CACHE.settings = {};
@@ -2549,19 +2563,28 @@ async function loadInitial(){
   }catch(e){ console.error(e); }
 }
 async function ensureCustomersCache(){
-  if(CACHE.customers?.length) return CACHE.customers;
-  CACHE.customers = await api('GET','/customers')||[];
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C1',location:'app.js:ensureCustomersCache',message:'ensureCustomersCache entry',data:{hadCache:!!(CACHE.customers&&CACHE.customers.length),cacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,role:ME&&ME.role,userId:ME&&ME.id},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if(Array.isArray(CACHE.customers) && CACHE.customers.length) return CACHE.customers;
+  const resp = await api('GET','/customers');
+  CACHE.customers = listRows(resp);
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C1',location:'app.js:ensureCustomersCache:fetch',message:'customers fetched',data:{fetchedLen:CACHE.customers.length,isArray:true},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   return CACHE.customers;
 }
 async function ensureProductsCache(){
-  if(CACHE.allProducts?.length) return CACHE.allProducts;
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:ensureProductsCache',message:'ensureProductsCache entry',data:{allLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',prodFilterSearch:typeof prodFilter!=='undefined'?(prodFilter.search||''):''},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  // Only trust allProducts when marked as a complete (unfiltered) catalog.
+  if(CACHE._allProductsIsFull && CACHE.allProducts?.length) return CACHE.allProducts;
   const catalog = await fetchCatalogList('/products');
-  const list = catalog.rows || [];
-  CACHE.products = list; CACHE.allProducts = list;
-  return list;
+  return setFullProductsCatalog(catalog.rows || []);
 }
 
-async function reloadCustomers(){ CACHE.customers = await api('GET','/customers')||[]; }
+async function reloadCustomers(){ CACHE.customers = listRows(await api('GET','/customers')); }
 async function reloadProducts(q=''){ CACHE.products = await api('GET','/products'+q)||[]; }
 
 /* ============================================================
@@ -3418,7 +3441,7 @@ function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">مور�
 let custFilter = {q:'', status:'', user_id:''};
 let custSelected = new Set();
 ROUTES.customers = async function(){
-  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  await ensureCustomersCache();
   custSelected.clear();
   const v = el('view');
   v.innerHTML = `
@@ -4294,12 +4317,16 @@ async function crmKanbanDrop(ev, stage){
   }catch(e){ showToast(e.message||'خطا در ذخیره مرحله','error'); }
 }
 
-function fupModal(id, defaultStage, presetCustId){
+async function fupModal(id, defaultStage, presetCustId){
+  await ensureCustomersCache();
   const f = id ? CACHE.followups.find(x=>x.id===id) : {
     date:todayJalali(), pipeline_stage:defaultStage||'lead',
     interest_level:'mid', purchase_prob:50, status:'open', priority:'mid',
     cust_id:presetCustId||0
   };
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C3',location:'app.js:fupModal',message:'followup modal open',data:{id:id||0,custCacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,role:ME&&ME.role,userId:ME&&ME.id,calledEnsure:true},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const userOpts=(CACHE.users||[]).map(u=>`<option value="${u.id}" ${f.assigned_to===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش پیگیری':'پیگیری جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -4584,7 +4611,11 @@ function openInvBuilder(id){
 }
 async function _openInvBuilder(id){
   rememberPrintDocId(id);
+  await ensureCustomersCache();
   await ensureProductsCache();
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C3',location:'app.js:_openInvBuilder',message:'invoice builder open',data:{id:id||0,custCacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,allProdLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',role:ME&&ME.role,userId:ME&&ME.id,ensuredCustomers:true},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   await ensurePayCaches();
   let inv = null;
   if(id){
@@ -4832,6 +4863,9 @@ function renderInvPicker(){
   let prods=(CACHE._invProducts && CACHE._invProducts.length
     ? CACHE._invProducts
     : (CACHE.allProducts.length?CACHE.allProducts:CACHE.products)).slice();
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P2',location:'app.js:renderInvPicker',message:'invoice product picker',data:{whId,q,srcLen:prods.length,allLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,invLen:Array.isArray(CACHE._invProducts)?CACHE._invProducts.length:0,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',sample:(prods[0]&&prods[0].name)||null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if(q) prods=prods.filter(p=>textMatchesQuery((p.name||'')+' '+(p.code||'')+' '+(p.category||'')+' '+(p.barcode||''), q));
   const INV_PICK_LIMIT=60;
   const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
@@ -6153,8 +6187,9 @@ async function loadProductsFiltered(){
   if(prodFilter.stock_status && prodFilter.stock_status!=='all') qs.set('stock_status',prodFilter.stock_status);
   if(prodFilter.warehouse_id) qs.set('warehouse_id',prodFilter.warehouse_id);
   const noFilters = !prodFilter.category && !prodFilter.search && (!prodFilter.stock_status || prodFilter.stock_status==='all') && !prodFilter.warehouse_id;
-  CACHE.products = await api('GET','/products?'+qs.toString())||[];
-  if(noFilters) CACHE.allProducts = CACHE.products;
+  // View-local list for the products grid only — never poison the master catalog with filters.
+  CACHE.products = listRows(await api('GET','/products?'+qs.toString()));
+  if(noFilters) setFullProductsCatalog(CACHE.products);
 }
 ROUTES.products = function(){ productsPage(false); }; // ERP: view-only — CRUD in accounting
 ROUTES.catalog = function(){ if(ME?.role==='admin'||ME?.role==='accounting'){ showToast('کاتالوگ در این نقش در دسترس نیست','error'); return; } productsPage(false, {isCatalog:true}); };
@@ -16276,11 +16311,11 @@ async function deletePartyGroup(id){
 // codes (کل/معین/تفصیلی) are generated automatically on the server (allocTafsili).
 async function accNewProduct(){
   if(!CACHE.products) CACHE.products=CACHE.allProducts||await api('GET','/products')||[];
-  window._accProdRefresh=()=>{ CACHE.allProducts=null; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
+  window._accProdRefresh=()=>{ CACHE.allProducts=null; CACHE._allProductsIsFull=false; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
   await prodModal();
 }
 async function accEditProduct(id){
-  window._accProdRefresh=()=>{ CACHE.allProducts=null; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
+  window._accProdRefresh=()=>{ CACHE.allProducts=null; CACHE._allProductsIsFull=false; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
   await prodModal(id);
 }
 let PRODUCT_CAT_FILTER='';
@@ -16291,7 +16326,7 @@ async function deleteAccProduct(id){
   if(!confirm('این کالا حذف شود؟ این عمل برگشت‌پذیر نیست.')) return;
   try{
     await api('DELETE','/products/'+id);
-    CACHE.allProducts=null; CACHE.products=null; CACHE._prodMetaLoaded=false;
+    CACHE.allProducts=null; CACHE.products=null; CACHE._allProductsIsFull=false; CACHE._prodMetaLoaded=false;
     showToast('حذف شد'); loadAccTab('products');
   }catch(e){}
 }
@@ -16317,7 +16352,12 @@ async function refreshAccProductsTableOnly(){
   if(search) extra.search=String(search);
   const catalog=await fetchCatalogList('/products', extra);
   const rows=catalog.rows||[];
-  CACHE.allProducts=rows;
+  const writeMaster = !search && !catFilter;
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:refreshAccProductsTableOnly',message:'acc products refresh — master catalog write?',data:{search,catFilter,rowsLen:rows.length,total:catalog.total,willAssignAllProducts:writeMaster,isFull:!!CACHE._allProductsIsFull},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  // Invariant: filtered UI rows never overwrite CACHE.allProducts.
+  if(writeMaster) setFullProductsCatalog(rows);
   const canMut=isAdmin()||ME.role==='accounting';
   const tbl=el('accProductsTbl');
   const countEl=el('accProdCount');
@@ -16350,7 +16390,12 @@ async function renderAccProductsTab(body){
   if(search) extra.search=String(search);
   const catalog=await fetchCatalogList('/products', extra);
   const rows=catalog.rows||[];
-  CACHE.allProducts=rows;
+  const writeMaster = !search && !catFilter;
+  // #region agent log
+  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:renderAccProductsTab',message:'acc products tab — master catalog write?',data:{search,catFilter,rowsLen:rows.length,total:catalog.total,willAssignAllProducts:writeMaster,isFull:!!CACHE._allProductsIsFull},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  // Invariant: filtered UI rows never overwrite CACHE.allProducts.
+  if(writeMaster) setFullProductsCatalog(rows);
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
   const canMut=isAdmin()||ME.role==='accounting';
   body.innerHTML=`
@@ -22687,6 +22732,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
         <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است؛ اگر اعشار دیدید از دفتر حرکات انبار به همان عدد ذخیره‌شده برمی‌گردد. هر دو جدول فرم، موجودی همان انبار انتخاب‌شده را نشان می‌دهند. جدول‌ها ردیف کامل را بدون نوار غلطک داخلی نشان می‌دهند. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
+        <li><b>جستجوی کالا (کش سراسری):</b> فیلتر/سرچ در صفحهٔ کالاها فقط همان جدول را محدود می‌کند؛ کاتالوگ کامل برای فاکتور، خرید، BOM و پیکرها جدا نگه داشته می‌شود و با سرچ قبلی (مثلاً «آفاق») آلوده نمی‌شود</li>
+        <li><b>انتخاب مشتری در فاکتور/پیگیری:</b> قبل از باز شدن فرم، لیست مشتریان قابل‌مشاهدهٔ همان کاربر (مالک یا assigned_to) از سرور بارگذاری می‌شود — حتی اگر هنوز صفحهٔ مشتریان را باز نکرده باشید</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
@@ -23439,7 +23486,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من) و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v253</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v260</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
