@@ -23,7 +23,7 @@ router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare(`
     SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,u.branch_id,
-      u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,u.sales_warehouse_id,
+      u.commission_basis,u.monthly_target,u.incentive_locked,u.show_phone_on_invoice,u.created_at,u.party_id,u.sales_warehouse_id,
       p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
       p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
       p.email AS person_email,p.city AS person_city,p.province AS person_province,p.address AS person_address,
@@ -38,7 +38,8 @@ router.get('/users', auth, adminOnly, (req, res) => {
 router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const { name, username, password, phone, role = 'field_sales', commission_cash = 0, commission_cheque = 0,
     commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0, penalty_pct = 0, supervisor_commission_pct = 0,
-    rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
+    rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id,
+    show_phone_on_invoice } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
   if (!ALLOWED_ROLES.has(role)) return res.status(400).json({ error: 'نقش کاربر نامعتبر است' });
   const passErr = validatePassword(password);
@@ -64,13 +65,16 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
       employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0,
       sales_warehouse_id ? parseInt(sales_warehouse_id, 10) : null);
     ensureUserParty(db, result.lastInsertRowid, req.body);
+    const showPhone = show_phone_on_invoice === 0 || show_phone_on_invoice === false || show_phone_on_invoice === '0' ? 0 : 1;
+    db.prepare('UPDATE users SET show_phone_on_invoice=? WHERE id=?').run(showPhone, result.lastInsertRowid);
     return result;
   })();
   if (req.body.branch_id != null && req.body.branch_id !== '') {
     getDB().prepare('UPDATE users SET branch_id=? WHERE id=?').run(parseInt(req.body.branch_id, 10) || null, created.lastInsertRowid);
   }
   audit(req.user.id, 'create', 'user', created.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
-  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1, branch_id: req.body.branch_id || null });
+  const showPhoneOut = show_phone_on_invoice === 0 || show_phone_on_invoice === false || show_phone_on_invoice === '0' ? 0 : 1;
+  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1, show_phone_on_invoice: showPhoneOut, branch_id: req.body.branch_id || null });
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
@@ -78,7 +82,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force,
     commission_basis, monthly_target, quarterly_target, annual_target, bonus_pct, commission_fixed, penalty_pct, supervisor_commission_pct,
     rep_code, rep_subtype, territory, supervisor_id, employment_status,
-    bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
+    bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id, show_phone_on_invoice } = req.body;
   const db = getDB();
   const existing = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'کاربر یافت نشد' });
@@ -148,6 +152,10 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
         req.body.branch_id === '' || req.body.branch_id == null ? null : parseInt(req.body.branch_id, 10),
         req.params.id
       );
+    }
+    if (show_phone_on_invoice !== undefined) {
+      const showPhone = show_phone_on_invoice === 0 || show_phone_on_invoice === false || show_phone_on_invoice === '0' ? 0 : 1;
+      db.prepare('UPDATE users SET show_phone_on_invoice=? WHERE id=?').run(showPhone, req.params.id);
     }
   })();
   invalidateUserCache(+req.params.id);

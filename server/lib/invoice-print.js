@@ -222,17 +222,22 @@ function computePrintTotals(inv, rows) {
   };
 }
 
+function rowProductCode(r) {
+  return String((r && (r.code || r.sku || r.barcode)) || '').trim();
+}
+
 function buildFormalRows(rows, isA5) {
   return (rows || []).map((r, i) => {
     const desc = String(r.description || '').trim();
     const nameCell = desc
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
-    const code = esc(r.code || r.sku || r.barcode || '—');
+    const code = esc(rowProductCode(r) || '—');
     const disc = lineDiscOf(r);
     if (isA5) {
       return `<tr>
         <td>${faNum(i + 1)}</td>
+        <td class="num">${code}</td>
         <td class="rtl">${nameCell}</td>
         <td>${faNum(r.qty)}</td>
         <td class="num">${faNum(r.price)}</td>
@@ -260,9 +265,11 @@ function buildCasualRows(rows) {
     const nameCell = desc
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
+    const code = esc(rowProductCode(r) || '—');
     const disc = lineDiscOf(r);
     return `<tr>
       <td>${faNum(i + 1)}</td>
+      <td class="num">${code}</td>
       <td class="rtl">${nameCell}</td>
       <td>${esc(r.unit || 'عدد')}</td>
       <td>${faNum(r.qty)}</td>
@@ -276,12 +283,16 @@ function buildCasualRows(rows) {
 function buildThermalRows(rows) {
   return (rows || []).map((r) => {
     const desc = String(r.description || '').trim();
+    const code = rowProductCode(r);
     const nameCell = desc
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
+    const cell = code
+      ? `<div class="row-code">${esc(code)}</div>${nameCell}`
+      : nameCell;
     const disc = lineDiscOf(r);
     return `<tr>
-      <td class="rtl">${nameCell}</td>
+      <td class="rtl">${cell}</td>
       <td>${faNum(r.qty)}</td>
       <td class="num disc">${disc ? faNum(disc) : '—'}</td>
       <td class="num">${faNum(lineNet(r))}</td>
@@ -510,14 +521,24 @@ function payLabel(inv) {
   return payTypeFa(inv && inv.pay_type);
 }
 
+/**
+ * One POS tap writes both pos_receipts and a linked settlements row (settlement_id).
+ * Print must show one economic receipt — prefer the POS line (terminal name).
+ * Unlinked settlements (cash/bank/cheque) and unlinked POS still appear separately.
+ */
 function normalizePrintReceipts(opts) {
   const list = [];
   const settlements = (opts && opts.settlements) || [];
   const pos = (opts && opts.posReceipts) || [];
+  const linkedSettlementIds = new Set(
+    pos.map((p) => Number(p && p.settlement_id)).filter((id) => id > 0)
+  );
   for (const s of settlements) {
+    if (linkedSettlementIds.has(Number(s.id))) continue;
     const dest = s.bank_name || s.cash_box_name || s.cheque_bank || s.account_code || '';
     list.push({
       kind: 'settlement',
+      id: s.id,
       pay_type: s.pay_type,
       label: payTypeFa(s.pay_type),
       amount: Math.round(Number(s.amount_rial != null ? s.amount_rial : s.amount) || 0),
@@ -530,6 +551,8 @@ function normalizePrintReceipts(opts) {
   for (const p of pos) {
     list.push({
       kind: 'pos',
+      id: p.id,
+      settlement_id: p.settlement_id || null,
       pay_type: 'pos_card',
       label: 'کارتخوان',
       amount: Math.round(Number(p.amount_rial != null ? p.amount_rial : p.amount) || 0),
@@ -583,16 +606,12 @@ function renderInvoicePrintHtml(opts) {
   const companyPartyTitle = isPurchase ? 'مشخصات خریدار' : 'مشخصات فروشنده';
   const t = computePrintTotals(inv, rows);
   const receipts = normalizePrintReceipts(opts);
-  // Prefer settlement sum (POS also creates a settlement); avoid double-count.
-  const paidSett = receipts.filter((r) => r.kind === 'settlement')
-    .reduce((a, r) => a + (Number(r.amount) || 0), 0);
-  const paidPos = receipts.filter((r) => r.kind === 'pos')
-    .reduce((a, r) => a + (Number(r.amount) || 0), 0);
-  const paidTotal = paidSett > 0 ? paidSett : paidPos;
+  // After settlement_id dedupe, sum all visible receipt lines once.
+  const paidTotal = receipts.reduce((a, r) => a + (Number(r.amount) || 0), 0);
   const invoiceFinal = t.payable;
   const duePayable = Math.max(0, invoiceFinal - paidTotal);
   const receiptsBlock = receiptsHtml(receipts, invoiceFinal, isPurchase);
-  const emptyColspan = isA5 ? 6 : 9;
+  const emptyColspan = isA5 ? 7 : 9;
   const topMeta = `
     <div class="print-top-meta">
       <span class="print-top-num"><b>شماره:</b> <span class="num">${esc(inv.num || '')}</span></span>
@@ -612,9 +631,8 @@ function renderInvoicePrintHtml(opts) {
     if (inv.cheque_duration) payExtra += ` · مدت ${esc(inv.cheque_duration)} روز`;
     if (inv.cheque_due_date) payExtra += ` · سررسید ${esc(inv.cheque_due_date)}`;
   }
-  if (customize.show_payment && receipts.length) {
-    const paidSum = receipts.reduce((a, r) => a + (Number(r.amount) || 0), 0);
-    payExtra += ` · ${isPurchase ? 'پرداخت' : 'دریافت'} ${faNum(paidSum)} ریال`;
+  if (customize.show_payment && receipts.length && paidTotal > 0) {
+    payExtra += ` · ${isPurchase ? 'پرداخت' : 'دریافت'} ${faNum(paidTotal)} ریال`;
   }
 
   const noteHtml = (customize.show_note && inv.note)
@@ -664,7 +682,7 @@ function renderInvoicePrintHtml(opts) {
     </div>`;
 
   const formalHead = isA5
-    ? `<tr><th>ردیف</th><th>شرح</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr>`
+    ? `<tr><th>ردیف</th><th>کد</th><th>شرح</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr>`
     : `<tr><th>ردیف</th><th>کد</th><th>شرح کالا / خدمات</th><th>واحد</th><th>تعداد</th><th>فی (ریال)</th><th>مبلغ</th><th>تخفیف ردیف</th><th>پس از تخفیف</th></tr>`;
 
   const sumBox = `
@@ -729,16 +747,10 @@ function renderInvoicePrintHtml(opts) {
           <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
           <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
         </div>
-        <div class="meta-strip">
-          <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
-          <div class="c"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
-          <div class="c"><b>کاغذ</b><span>${dims.paper}</span></div>
-          <div class="c"><b>سررسید</b><span>${esc(inv.cheque_due_date || '—')}</span></div>
-        </div>
         ${expert}
         <table class="items">
-          <thead><tr><th>ردیف</th><th>شرح کالا</th><th>واحد</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr></thead>
-          <tbody>${buildCasualRows(rows) || '<tr><td colspan="7">بدون ردیف</td></tr>'}</tbody>
+          <thead><tr><th>ردیف</th><th>کد</th><th>شرح کالا</th><th>واحد</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr></thead>
+          <tbody>${buildCasualRows(rows) || '<tr><td colspan="8">بدون ردیف</td></tr>'}</tbody>
         </table>
         <div class="sum-grid">
           ${sumBox}
@@ -765,13 +777,6 @@ function renderInvoicePrintHtml(opts) {
         <div class="parties">
           <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
           <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
-        </div>
-        <div class="meta-strip">
-          <div class="c"><b>نوع فاکتور</b><span>فروش رسمی</span></div>
-          <div class="c"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
-          <div class="c"><b>سررسید</b><span>${esc(inv.cheque_due_date || '—')}</span></div>
-          <div class="c"><b>تاریخ</b><span>${esc(inv.date || '—')}</span></div>
-          <div class="c"><b>شماره</b><span class="num">${esc(inv.num || '')}</span></div>
         </div>
         ${expert}
         <table class="items">
@@ -834,13 +839,6 @@ function renderInvoicePrintHtml(opts) {
           <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
           <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
-        <div class="meta-strip">
-          <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
-          <div class="c"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
-          <div class="c"><b>سررسید</b><span>${esc(inv.cheque_due_date || '—')}</span></div>
-          <div class="c"><b>زیرعنوان</b><span>${esc(subtitle)}</span></div>
-          <div class="c"><b>مدل</b><span>اداری</span></div>
-        </div>
         ${expert}
         <table class="items">
           <thead>${formalHead}</thead>
@@ -866,7 +864,7 @@ function renderInvoicePrintHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/invoice-print.css?v=246" rel="stylesheet">
+<link href="/invoice-print.css?v=257" rel="stylesheet">
 <style>${themeCss(templateId, dims)}
 html.inv-print .sheet,html.inv-print .sheet *:not(.pbtn):not(img):not(svg):not(path){color:#000!important;-webkit-text-fill-color:#000!important;border-color:#000!important;outline-color:#000!important;text-shadow:none!important;box-shadow:none!important;background-color:#fff!important;background-image:none!important;opacity:1!important}
 html.inv-print .sheet *::before,html.inv-print .sheet *::after{color:#000!important;border-color:#000!important;background-image:none!important;opacity:1!important}
@@ -890,5 +888,5 @@ module.exports = {
   FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE, ISO_PAPER,
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
   renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
-  collapsePrintRows,
+  collapsePrintRows, normalizePrintReceipts, rowProductCode,
 };

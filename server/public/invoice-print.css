@@ -59,6 +59,13 @@ html.inv-print .row-desc {
   word-break: break-word;
   line-height: 1.45;
 }
+html.inv-print .row-code {
+  font-size: 9px;
+  color: #3d5a4a;
+  font-weight: 700;
+  letter-spacing: .02em;
+  margin-bottom: 1px;
+}
 html.inv-print .warn-line { color: #b45309; font-size: 11px; font-weight: 700; }
 html.inv-print .thanks { margin-top: 6px; color: #8A7020; font-size: .85em; font-weight: 600; }
 html.inv-print .logo-box {

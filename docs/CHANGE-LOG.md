@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور: dedupe دریافت POS + UI چاپ (SW v257)
+
+- **A — ریشه:** یک دریافت کارتخوان هنگام فاکتور هم `pos_receipts` و هم `settlements` لینک‌شده می‌سازد (یک رویداد اقتصادی، یک بستانکار مشتری). چاپ هر دو را جمع می‌زد → «دریافت‌های ثبت‌شده» ۲× و جمع ۱۹۱٫۲M در حالی که صورتحساب ۱× بود.
+- **A — رفع:** `normalizePrintReceipts` ردیف settlement با `settlement_id` لینک‌شده به POS را حذف می‌کند (ترمینال از POS می‌ماند)؛ `paidTotal`/`payExtra`/`جمع دریافت` یک رقم مشترک‌اند.
+- **B:** نوار `.meta-strip` (نوع/پرداخت/کاغذ/سررسید) از قالب‌های casual/premium/official حذف شد؛ شماره/تاریخ در `print-top-meta` می‌ماند.
+- **C:** ستون `users.show_phone_on_invoice` (پیش‌فرض ۱) + UI در تعریف کاربر؛ چاپ با `user_id` تلفن را پنهان می‌کند. تنظیم سراسری فقط نوار نام کارشناس است.
+- **D:** ستون «کد» در A5/casual؛ `buildRows` + enrich چاپ از `products.code` / `product_variants.sku`.
+- **تست:** `node server/scripts/test-invoice-print-fix-v257.js`
+- **فایل‌ها:** `invoice-print.js`, `invoice-print.css`, `print-line-collapse.js`, `invoices.js`, `admin.js`, `auth.js`, `db.js`, `app.js`, `sw.js`
+- **Deploy:** 🔄 در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۶ — سینک ماتریس موجودی ERP → Site-B2B (SW v256)
 
 - **هدف:** موجودی قابل‌فروش سایت از ERP با انبار جدا برای عمده/تکی و ماتریس رنگ×سایز

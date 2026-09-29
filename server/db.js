@@ -763,6 +763,8 @@ function initDB(database, opts) {
   ensureColumn(db, 'messages', 'image', 'TEXT');
   // Accounting module: sales incentive lock
   ensureColumn(db, 'users', 'incentive_locked', 'INTEGER DEFAULT 0');
+  // Per-expert: show mobile on invoice print (admin toggle; default on)
+  ensureColumn(db, 'users', 'show_phone_on_invoice', 'INTEGER DEFAULT 1');
   // Per-customer automatic follow-up on invoice (default on)
   ensureColumn(db, 'customers', 'auto_followup', 'INTEGER DEFAULT 1');
 

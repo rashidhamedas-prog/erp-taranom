@@ -93,7 +93,7 @@ function mergeGroup(members) {
   // یادداشت دستی کاربر (description) اگر غیر از خلاصهٔ واریانت باشد نگه داشته می‌شود.
   const notes = uniqueNotes(members).filter((n) => !looksLikeVariantSummary(n));
   const description = notes.length ? notes.join('، ') : '';
-  const productCode = first.code || '';
+  const productCode = first.code || first.sku || first.barcode || '';
   return Object.assign({}, first, {
     name: first.name || '',
     qty,

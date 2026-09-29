@@ -6499,9 +6499,18 @@ function renderProdStockGrid(){
   }
 }
 function collectProdStockCells(){
-  return [...document.querySelectorAll('.p-stock-cell')].map(inp=>({
-    color_id:+inp.dataset.color, size_id:+inp.dataset.size, qty:+inp.value||0
-  })).filter(c=>c.color_id&&c.size_id);
+  const map=new Map();
+  const add=(inp)=>{
+    const color_id=+inp.dataset.color, size_id=+inp.dataset.size;
+    if(!color_id||!size_id) return;
+    // ماتریس پوشاک = عدد صحیح؛ اعشار (۰٫۷۵) پذیرفته نمی‌شود
+    const q=Math.max(0, Math.round(parseQty(inp.value, 0)));
+    map.set(color_id+':'+size_id, { color_id, size_id, qty:q });
+  };
+  // اول ماتریس بالا، بعد لیست پایین (ویرایش لیست روی همان ترکیب غالب است)
+  document.querySelectorAll('.p-stock-cell').forEach(add);
+  document.querySelectorAll('.pv-stock-edit').forEach(add);
+  return [...map.values()];
 }
 async function refreshProdVariantsPanel(productId){
   const box=el('p-variants-panel'); if(!box||!productId) return;
@@ -7490,6 +7499,12 @@ async function userModal(id){
       <div class="fg"><label>نام * ${hlp('نام کامل کاربر — در فاکتورها و گزارش‌ها با همین نام نمایش داده می‌شود.')}</label><input id="u-name" value="${esc(u.name||'')}"></div>
       <div class="fg"><label>نام کاربری * ${hlp('شناسه ورود به سیستم — بعد از ساخت قابل تغییر نیست.')}</label><input id="u-username" value="${esc(u.username||'')}" ${id?'readonly':''}></div>
       <div class="fg"><label>تلفن ${hlp('شماره موبایل کاربر — یادآورهای پیامکی پیگیری به این شماره ارسال می‌شود.')}</label><input id="u-phone" value="${esc(u.phone||'')}"></div>
+      <div class="fg"><label>نمایش موبایل در فاکتور ${hlp('اگر خاموش باشد، در چاپ فاکتور فقط نام کارشناس فروش دیده می‌شود و شماره موبایل او چاپ نمی‌شود. این تنظیم برای هر کارشناس جداگانه است.')}</label>
+        <select id="u-show-phone-inv">
+          <option value="1" ${Number(u.show_phone_on_invoice)!==0?'selected':''}>بله — نام + موبایل</option>
+          <option value="0" ${Number(u.show_phone_on_invoice)===0?'selected':''}>خیر — فقط نام کارشناس</option>
+        </select>
+      </div>
       <div class="fg"><label>نقش ${hlp('حضوری و تلفنی و دفتر پخش و مدیر فروش فقط مشتریان خودشان را می‌بینند. حسابدار و مدیر سیستم همه مشتریان را می‌بینند. مدیر سیستم به تنظیمات هم دسترسی دارد.')}</label><select id="u-role">
         <option value="field_sales" ${(u.role==='field_sales'||u.role==='salesperson')?'selected':''}>کارشناس میدانی (حضوری)</option>
         <option value="inside_sales" ${u.role==='inside_sales'?'selected':''}>کارشناس داخلی (تلفنی)</option>
@@ -8034,7 +8049,7 @@ async function saveUser(id){
   const origCheque=parseFloat(el('u-comm-cheque')?.dataset.orig||0);
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
-    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()};
+    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()};
     openModal(`
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body">
@@ -8048,7 +8063,7 @@ async function saveUser(id){
       </div>`);
     return;
   }
-  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()});
+  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()});
 }
 async function confirmIncentiveChange(yes){
   closeModal();
@@ -8056,9 +8071,9 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,person}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,show_phone_on_invoice,person}){
   try{
-    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id};
+    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,show_phone_on_invoice:show_phone_on_invoice==null?1:(show_phone_on_invoice?1:0)};
     if(id){
       await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
       const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
@@ -21497,7 +21512,8 @@ function invoiceTemplateSettingsHtml(s){
       ${chk('s-inv-show_logo','نمایش لوگو',cust.show_logo!==false)}
       ${chk('s-inv-show_company_phone','تلفن شرکت',cust.show_company_phone!==false)}
       ${chk('s-inv-show_company_address','آدرس شرکت',cust.show_company_address!==false)}
-      ${chk('s-inv-show_seller','کارشناس فروش + موبایل',cust.show_seller!==false)}
+      ${chk('s-inv-show_seller','نوار کارشناس فروش (نام)',cust.show_seller!==false)}
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:-4px 0 8px;line-height:1.6`)}">نمایش موبایل کارشناس روی فاکتور از «تعریف کاربران → نمایش موبایل در فاکتور» برای هر کارشناس جداگانه تنظیم می‌شود.</div>
       ${chk('s-inv-show_payment','نوع پرداخت',cust.show_payment!==false)}
       ${chk('s-inv-show_discount','تخفیف‌ها (ردیف و کل)',cust.show_discount!==false)}
       ${chk('s-inv-show_note','توضیحات فاکتور',cust.show_note!==false)}
@@ -22735,7 +22751,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
         <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است</li>
         <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
-        <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر مرحله با مبلغ دیده می‌شود. صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
+        <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر رویداد اقتصادی یک‌بار دیده می‌شود (کارتخوان: ردیف POS و settlement لینک‌شده ادغام می‌شوند). صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
         <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
         <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
@@ -23127,7 +23143,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
-      <h5>قالب فاکتور</h5><p>سه مدل رسمی از هم جدا هستند: <b>اداری</b> (سه ستون + جدول سبز)، <b>مدرن ERP</b> (کارت و گرادیان)، <b>پریمیوم</b> (قاب سبز/طلایی). پیش‌فاکتور فقط <b>عادی ساده</b> است. حرارتی ۵۸/۸۰ میلی‌متر. پیش‌نمایش هر مدل در همین صفحه دیده می‌شود. شخصی‌سازی: لوگو بدون بک مشکی، تخفیف ردیفی، کارشناس + موبایل، پاورقی.</p>
+      <h5>قالب فاکتور</h5><p>سه مدل رسمی از هم جدا هستند: <b>اداری</b>، <b>مدرن ERP</b>، <b>پریمیوم</b>. پیش‌فاکتور فقط <b>عادی ساده</b> است. حرارتی ۵۸/۸۰ میلی‌متر. نوار میانی «نوع/پرداخت/کاغذ/سررسید» از چاپ حذف شده؛ شماره و تاریخ در بالای صفحه می‌مانند. در جدول اقلام ستون <b>کد کالا</b> نمایش داده می‌شود. نوار کارشناس فروش از شخصی‌سازی قالب روشن/خاموش می‌شود؛ نمایش موبایل هر کارشناس در «تعریف کاربران» جداگانه است. دریافت کارتخوان هنگام فاکتور در چاپ یک‌بار دیده می‌شود (بدون دوباره‌شماری settlement+POS).</p>
       <h5>تلگرام</h5><p>رمز ربات و شناسه گفتگو برای ارسال اعلان‌های سیستمی.</p>
       <h5>پیامک</h5><ul>
         <li><b>کاوه‌نگار</b>: API Key از پنل کاوه‌نگار</li>

@@ -140,6 +140,35 @@ function canConvertProforma(req, inv) {
 // product_id must be valid OR row_type='income' (Update 11 / I4).
 const { parseQty, round3 } = require('../lib/round3');
 
+function resolveProductCode(db, r, prod) {
+  const fromRow = String((r && (r.code || r.sku || r.barcode)) || '').trim();
+  if (fromRow) return fromRow;
+  if (r && r.variant_id) {
+    try {
+      const v = db.prepare('SELECT sku, barcode FROM product_variants WHERE id=?').get(r.variant_id);
+      if (v && (v.sku || v.barcode)) return String(v.sku || v.barcode || '').trim();
+    } catch (_) { /* optional */ }
+  }
+  if (prod) return String(prod.code || prod.barcode || '').trim();
+  if (r && r.product_id) {
+    try {
+      const p = db.prepare('SELECT code, barcode FROM products WHERE id=?').get(r.product_id);
+      if (p) return String(p.code || p.barcode || '').trim();
+    } catch (_) { /* optional */ }
+  }
+  return '';
+}
+
+/** Enrich stored invoice JSON rows with product/variant codes for print (legacy invoices too). */
+function enrichRowsProductCodes(db, rows) {
+  return (rows || []).map((r) => {
+    if (!r || r.row_type === 'income') return r;
+    const code = resolveProductCode(db, r, null);
+    if (!code) return r;
+    return Object.assign({}, r, { code, sku: r.sku || code });
+  });
+}
+
 function buildRows(db, inputRows, canDiscount) {
   const out = [];
   let subtotal = 0;
@@ -151,6 +180,7 @@ function buildRows(db, inputRows, canDiscount) {
     let name = '';
     let pid = null;
     let incomeCoa = null;
+    let productCode = '';
 
     if (rowType === 'income') {
       name = String(r.name || r.description || 'درآمد/خدمات').trim() || 'درآمد/خدمات';
@@ -166,6 +196,7 @@ function buildRows(db, inputRows, canDiscount) {
       if (r.price !== undefined && r.price !== null && r.price !== '') {
         price = parseFloat(r.price) || 0;
       }
+      productCode = resolveProductCode(db, r, prod);
     }
 
     const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
@@ -191,6 +222,7 @@ function buildRows(db, inputRows, canDiscount) {
           sizeId = v.size_id || sizeId;
           colorName = v.color_name || colorName;
           sizeName = v.size_name || sizeName;
+          if (!productCode && (v.sku || v.barcode)) productCode = String(v.sku || v.barcode || '').trim();
         } else {
           variantId = null;
         }
@@ -201,6 +233,8 @@ function buildRows(db, inputRows, canDiscount) {
       row_type: rowType,
       name,
       description,
+      code: productCode || '',
+      sku: productCode || '',
       qty,
       price,
       disc,
@@ -993,11 +1027,22 @@ router.post('/:id/convert', auth, (req, res) => {
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
-  const inv = loadInvoiceRow(db, req.params.id);
+  let inv = loadInvoiceRow(db, req.params.id);
   if (!inv) return res.status(404).send('فاکتور پیدا نشد');
   if (!canViewInvoice(req, inv)) return res.status(403).send('دسترسی ندارید');
   let rows = [];
   try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
+  rows = enrichRowsProductCodes(db, rows);
+
+  // Per-expert: hide seller phone on print when admin disabled it for that user.
+  if (inv.user_id) {
+    try {
+      const u = db.prepare('SELECT show_phone_on_invoice FROM users WHERE id=?').get(inv.user_id);
+      if (u && Number(u.show_phone_on_invoice) === 0) {
+        inv = Object.assign({}, inv, { seller_phone: '' });
+      }
+    } catch (_) { /* column may be missing on very old DBs until migrate */ }
+  }
 
   const settings = {
     company_name: getSetting(db, 'company_name'),
