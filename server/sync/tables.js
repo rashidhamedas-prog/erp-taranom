@@ -219,6 +219,8 @@ const SYNCABLE_TABLES = [
   // Variant stock movements (append-only)
   { name: 'inventory_movements',               upsertKey: 'id' },
   { name: 'variant_warehouse_stock',           upsertKey: 'variant_id:warehouse_id', compositeKeys: ['variant_id', 'warehouse_id'] },
+  // CON-03 multi-line consignment documents (append-only; parent of consignments.doc_id)
+  { name: 'consignment_docs',                  upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -489,6 +491,10 @@ const FK_COLUMNS = [
   ['stocktaking_items', 'variant_id'],
   // Bank statement line ↔ recon item (append-only)
   ['bank_reconciliation_items', 'statement_line_id'],
+  // CON-03 consignment document header ↔ lines (append-only)
+  ['consignment_docs', 'person_id'],
+  ['consignment_docs', 'warehouse_id'],
+  ['consignments', 'doc_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

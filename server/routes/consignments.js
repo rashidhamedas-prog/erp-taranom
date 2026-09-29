@@ -4,9 +4,13 @@ const { getDB } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const {
   listConsignments,
+  listConsignmentDocs,
+  getConsignmentDoc,
+  loadDocLines,
   createConsignment,
   settleConsignment,
   voidConsignment,
+  voidConsignmentDoc,
 } = require('../lib/consignments');
 
 function sendErr(res, e) {
@@ -14,12 +18,47 @@ function sendErr(res, e) {
   return res.status(status).json({ error: e.message, code: e.code || undefined });
 }
 
+router.get('/docs', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(listConsignmentDocs(db, {
+      direction: req.query.direction,
+      status: req.query.status,
+    }));
+  } catch (e) {
+    sendErr(res, e);
+  }
+});
+
+router.get('/docs/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const doc = getConsignmentDoc(db, req.params.id);
+    const lines = loadDocLines(db, doc.id);
+    res.json({ ...doc, lines });
+  } catch (e) {
+    sendErr(res, e);
+  }
+});
+
+router.post('/docs/:id/cancel', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(voidConsignmentDoc(db, req.params.id, req.user, {
+      reason: (req.body && req.body.reason) || '',
+    }));
+  } catch (e) {
+    sendErr(res, e);
+  }
+});
+
 router.get('/', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     const rows = listConsignments(db, {
       direction: req.query.direction,
       status: req.query.status,
+      doc_id: req.query.doc_id,
     });
     res.json(rows);
   } catch (e) {

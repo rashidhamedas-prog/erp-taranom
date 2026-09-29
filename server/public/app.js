@@ -11291,10 +11291,14 @@ async function saveWarehouseTransfer(){
    CONSIGNMENT GOODS (کالای امانی) — ownership stays with the original
    owner until settled. "out" reduces our stock immediately (goods leave
    physically); "in" never touches our stock (never ours to begin with).
+   CON-03: master document (consignment_docs) + multi-line create.
 ============================================================ */
-const CS_STATUS_LABEL={open:'باز',sold:'فروخته شد',settled:'فروخته شد',returned:'برگشت',purchased:'خرید قطعی',shortage:'کسری',reversed:'ابطال‌شده'};
-const CS_STATUS_COLOR={open:'var(--orange)',sold:'var(--green)',settled:'var(--green)',returned:'var(--muted)',purchased:'var(--green)',shortage:'var(--red)',reversed:'var(--muted)'};
+const CS_STATUS_LABEL={open:'باز',sold:'فروخته شد',settled:'فروخته شد',returned:'برگشت',purchased:'خرید قطعی',shortage:'کسری',reversed:'ابطال‌شده',partial:'جزئی'};
+const CS_STATUS_COLOR={open:'var(--orange)',sold:'var(--green)',settled:'var(--green)',returned:'var(--muted)',purchased:'var(--green)',shortage:'var(--red)',reversed:'var(--muted)',partial:'var(--orange)'};
 const CS_SETTLE_LABEL={return:'برگشت',sale:'فروش قطعی',purchase:'خرید قطعی',shortage:'کسری'};
+const CS_DOC_STATUS_LABEL={open:'باز',partial:'جزئی',settled:'تسویه‌شده',reversed:'ابطال‌شده'};
+let csDocLines=[{product_id:'',product_label:'',qty:1,unit_price_rial:0,variant_id:null}];
+let _csSearchTimer=null;
 async function renderConsignmentsTab(body){
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
   await ensureWarehouses();
@@ -11305,7 +11309,7 @@ async function renderConsignmentsTab(body){
   const rows=await api('GET','/consignments'+(qp.length?'?'+qp.join('&'):''))||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){consignmentModal()})}">➕ ثبت کالای امانی</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){consignmentModal()})}">➕ ثبت سند امانی (چند کالا)</button>
       <select id="csDirFilter" data-csp-change="${CSP.bind('change',function(event){loadAccTab('consignments')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
         <option value="">همه جهت‌ها</option>
         <option value="out" ${dirFilter==='out'?'selected':''}>ارسالی (نزد دیگران)</option>
@@ -11317,8 +11321,9 @@ async function renderConsignmentsTab(body){
       </select>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-      <th>جهت</th><th>شخص</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
+      <th>سند</th><th>جهت</th><th>شخص</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.doc_num||(r.doc_id?('#'+r.doc_id):'—'))}${r.line_no?`<span class="muted"> · ${fmt(r.line_no)}</span>`:''}</td>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
       <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}${(r.color_name||r.size_name)?` <span class="muted">${esc([r.color_name,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td>
       <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
@@ -11331,91 +11336,201 @@ async function renderConsignmentsTab(body){
           ${r.direction==='in'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'purchase',(r.direction))})}">🛒 خرید</button>`:''}
           <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'shortage',(r.direction))})}">⚠️ کسری</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){previewConsignmentSettle((r.id),(r.direction))})}">👁 پیش‌نمایش</button>`:''}
-        ${r.status!=='reversed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cancelConsignment((r.id))})}">🚫 ابطال</button>`:''}
+        ${r.status!=='reversed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cancelConsignment((r.id))})}">🚫 ابطال ردیف</button>`:''}
+        ${r.doc_id && r.status!=='reversed'?`<button class="btn sm ghost" title="ابطال کل سند" data-csp-click="${CSP.bind('click',function(event){cancelConsignmentDoc((r.doc_id))})}">📄⛔</button>`:''}
       </td>
-    </tr>`).join('')||emptyRow(8)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">شخص از فهرست اشخاص انتخاب می‌شود. فقط مسیر «فروش قطعی» فاکتور صادر می‌کند. ابطال فیزیکی نیست — موجودی و سند معکوس می‌شوند.</div>`;
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">ثبت تجمعی: سربرگ (جهت/شخص/انبار/تاریخ) یک‌بار، چند ردیف کالا در یک سند با شماره CS. تسویه خط‌به‌خط؛ ابطال سند همهٔ ردیف‌های فعال را معکوس می‌کند. ابطال فیزیکی نیست.</div>`;
+}
+function csLineWarehouseId(){ return Number(el('cs-warehouse')?.value||0)||0; }
+function csProductPickerHtml(i,l){
+  const label=l.product_label||'';
+  const atp=l.available!=null?('موجود: '+fmt(l.available)):'';
+  return `<div class="cs-prod-pick" data-csp-style="${CSP.style('position:relative')}">
+    <input id="cs-q-${i}" type="search" autocomplete="off"
+      placeholder="جستجوی کد / نام / SKU"
+      value="${esc(label)}"
+      data-csp-input="${CSP.bind('input',function(){csScheduleProductSearch((i),this.value)})}"
+      data-csp-focus="${CSP.bind('focus',function(){csScheduleProductSearch((i),this.value)})}">
+    <div id="cs-dd-${i}" hidden data-csp-style="${CSP.style('position:absolute;z-index:30;right:0;left:0;max-height:220px;overflow:auto;background:#fff;border:1px solid var(--border);border-radius:8px')}"></div>
+    <div id="cs-atp-${i}" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}">${atp}${l.color_name||l.size_name?(' · '+esc([l.color_name,l.size_name].filter(Boolean).join(' / '))):''}</div>
+  </div>`;
+}
+function csScheduleProductSearch(i,q){
+  clearTimeout(_csSearchTimer);
+  _csSearchTimer=setTimeout(function(){csSearchProduct(i,q);},250);
+}
+async function csSearchProduct(i,q){
+  const box=el('cs-dd-'+i);
+  if(!box) return;
+  const qs=new URLSearchParams({q:String(q||'').trim(),page:'1',pageSize:'20',include_zero:'1'});
+  const wh=csLineWarehouseId();
+  if(wh) qs.set('warehouse_id',String(wh));
+  try{
+    const resp=await api('GET','/warehouses/products/search?'+qs.toString());
+    const rows=listRows(resp);
+    if(!rows.length){
+      box.hidden=false;
+      box.innerHTML='<div class="muted" data-csp-style="'+CSP.style('padding:8px')+'">کالایی یافت نشد</div>';
+      return;
+    }
+    box.hidden=false;
+    box.innerHTML=rows.map(p=>{
+      const label=`${p.name||''} (${p.code||p.sku||'-'})`;
+      const avail=p.available!=null?p.available:0;
+      return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){csPickProduct((i),(p.id),label,p.available)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
+    }).join('');
+  }catch(e){ box.hidden=true; }
+}
+async function csPickProduct(i,id,label,available){
+  if(!csDocLines[i]) return;
+  const wh=csLineWarehouseId();
+  const direction=el('cs-direction')?.value||'out';
+  let style=null;
+  try{
+    const qs=wh?('?warehouse_id='+encodeURIComponent(String(wh))):'';
+    style=await api('GET','/product-variants/style/'+Number(id)+qs);
+  }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(pack.matrix.length){
+    let live=pack.live||[];
+    if(direction==='out'){
+      const stocked=live.filter(v=>(Number(v.stock)||0)>0);
+      if(stocked.length) live=stocked;
+    }
+    if(direction==='out' && !live.length){
+      showToast('در این انبار رنگ/سایز موجودی برای این کالا نیست','error');
+      return;
+    }
+    if(!live.length) live=pack.matrix.filter(v=>!v.is_default && v.active!==0);
+    if(!live.length){
+      showToast('برای این کالا رنگ/سایز تعریف نشده','error');
+      return;
+    }
+    const newLines=live.map(function(v){
+      const cname=v.color_name||'';
+      const sname=v.size_name||'';
+      const bits=[label, [cname,sname].filter(Boolean).join(' / ')].filter(Boolean);
+      return {
+        product_id:id,
+        product_label:bits.join(' — '),
+        available:v.stock!=null?Number(v.stock):(v.sku_stock!=null?Number(v.sku_stock):available),
+        qty:1,
+        unit_price_rial:csDocLines[i].unit_price_rial||0,
+        variant_id:Number(v.id)||null,
+        color_name:cname,
+        size_name:sname
+      };
+    });
+    csDocLines.splice(i, 1, ...newLines);
+    renderCsDocLines();
+    showToast(fmt(live.length)+' ردیف رنگ×سایز به سند اضافه شد');
+    return;
+  }
+  csDocLines[i].product_id=id;
+  csDocLines[i].product_label=label;
+  csDocLines[i].available=available;
+  csDocLines[i].variant_id=null;
+  csDocLines[i].color_name='';
+  csDocLines[i].size_name='';
+  const inp=el('cs-q-'+i); if(inp) inp.value=label;
+  const dd=el('cs-dd-'+i); if(dd) dd.hidden=true;
+  const atp=el('cs-atp-'+i); if(atp) atp.textContent=available!=null?('موجود: '+fmt(available)):'';
+}
+function csDocLinesPayload(){
+  for(let i=0;i<csDocLines.length;i++){
+    const l=csDocLines[i];
+    if(!l || !l.product_id || !(+l.qty>0)) continue;
+    const p=findInvProduct(l.product_id)
+      || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(l.product_id))
+      || (CACHE.products||[]).find(x=>Number(x.id)===Number(l.product_id));
+    if(p && productNeedsColorPick(p) && !l.variant_id){
+      showToast('کالای ماتریسی بدون رنگ/سایز مجاز نیست','error');
+      return null;
+    }
+  }
+  const lines=csDocLines.map(l=>({
+    product_id:+l.product_id,
+    qty:+l.qty||0,
+    variant_id:l.variant_id?+l.variant_id:null,
+    unit_price_rial:+l.unit_price_rial||0,
+    unit_price:+l.unit_price_rial||0
+  })).filter(l=>l.product_id&&l.qty>0);
+  const seen=new Set();
+  for(const l of lines){
+    const k=l.product_id+':'+String(l.variant_id||0);
+    if(seen.has(k)){ showToast('ردیف تکراری کالا+رنگ/سایز در سند مجاز نیست','error'); return null; }
+    seen.add(k);
+  }
+  return lines;
+}
+function csDocLinesHtml(){
+  return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    <th>کالا / رنگ×سایز</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th></th>
+  </tr></thead>
+    <tbody id="csDocBody">${csDocLines.map((l,i)=>`<tr>
+      <td>${csProductPickerHtml(i,l)}</td>
+      <td><input type="number" class="num-fit" min="1" value="${l.qty||1}" data-csp-change="${CSP.bind('change',function(event){csDocLines[(i)].qty=+this.value||1})}"></td>
+      <td><input type="number" min="0" value="${l.unit_price_rial||0}" data-csp-change="${CSP.bind('change',function(event){csDocLines[(i)].unit_price_rial=+this.value||0})}"></td>
+      <td>${csDocLines.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){csDocLines.splice((i),1);renderCsDocLines()})}">×</button>`:''}</td>
+    </tr>`).join('')}</tbody></table></div>
+    <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){csDocLines.push({product_id:'',product_label:'',qty:1,unit_price_rial:0,variant_id:null});renderCsDocLines()})}">➕ کالای دیگر</button>
+    <div class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:6px')}">جمع ردیف‌ها: <b class="mono">${fmt(csDocLines.filter(l=>l.product_id&&+l.qty>0).length)}</b> · جمع تعداد: <b class="mono">${fmt(csDocLines.reduce((s,l)=>s+(l.product_id?(+l.qty||0):0),0))}</b></div>`;
+}
+function renderCsDocLines(){
+  const box=el('csDocLines');
+  if(box) box.innerHTML=csDocLinesHtml();
+  try{ bindNumFit(box||document); }catch(_){}
+}
+function csOnHeaderChange(){
+  if(csDocLines.some(l=>l.product_id)){
+    csDocLines=[{product_id:'',product_label:'',qty:1,unit_price_rial:0,variant_id:null}];
+    renderCsDocLines();
+    showToast('انبار یا جهت عوض شد — کالاها را دوباره انتخاب کنید','info');
+  }
 }
 async function consignmentModal(){
   await ensureWarehouses();
   if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
   const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
+  csDocLines=[{product_id:'',product_label:'',qty:1,unit_price_rial:0,variant_id:null}];
   openModal(`
-    <div class="modal-head"><h3>🔄 ثبت کالای امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>🔄 ثبت سند کالای امانی (تجمعی)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>جهت *</label><select id="cs-direction">
+      <div class="fg"><label>جهت *</label><select id="cs-direction" data-csp-change="${CSP.bind('change',function(){csOnHeaderChange()})}">
         <option value="out">ارسالی (کالای ما نزد دیگران است)</option>
         <option value="in">دریافتی (کالای دیگران نزد ماست)</option>
       </select></div>
       <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label>${personSelect('cs-person')}</div>
-      <div class="fg"><label>انبار *</label><select id="cs-warehouse">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
-      <div class="fg full"><label>کالا *</label>${productSelect('cs-product')}</div>
-      <div class="fg full" id="cs-variant-wrap" hidden><label>رنگ و سایز *</label><select id="cs-variant"></select></div>
-      <div class="fg"><label>تعداد *</label><input id="cs-qty" class="num-fit" type="number" min="1"></div>
-      <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
+      <div class="fg"><label>انبار *</label><select id="cs-warehouse" data-csp-change="${CSP.bind('change',function(){csOnHeaderChange()})}">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>یادداشت</label><textarea id="cs-note"></textarea></div>
+      <div class="fg full"><label>یادداشت سند</label><textarea id="cs-note"></textarea></div>
+      <div class="fg full"><label>ردیف‌های کالا *</label><div id="csDocLines">${csDocLinesHtml()}</div></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveConsignment()})}">💾 ذخیره</button>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveConsignment()})}">💾 ثبت سند</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
-  const prodInput=el('cs-product-input');
-  if(prodInput) prodInput.addEventListener('change', csLoadVariants);
-  const csWh=el('cs-warehouse');
-  if(csWh) csWh.addEventListener('change', csLoadVariants);
-  const csDir=el('cs-direction');
-  if(csDir) csDir.addEventListener('change', csLoadVariants);
-  if(el('cs-product')?.value) csLoadVariants();
   if(typeof bindNumFit==='function') bindNumFit(el('modalRoot'));
-}
-async function csLoadVariants(){
-  const wrap=el('cs-variant-wrap'); const sel=el('cs-variant');
-  const pid=+el('cs-product')?.value;
-  if(!wrap||!sel) return;
-  if(!pid){ wrap.hidden=true; sel.innerHTML=''; return; }
-  const whId=+el('cs-warehouse')?.value||0;
-  const direction=el('cs-direction')?.value||'out';
-  let rows=[];
-  try{
-    if(whId){
-      const style=await api('GET','/product-variants/style/'+pid+'?warehouse_id='+encodeURIComponent(String(whId)));
-      rows=(style&&style.variants)||[];
-    }else{
-      rows=await api('GET','/product-variants?product_id='+pid+'&include_default=0')||[];
-    }
-  }catch(e){ rows=[]; }
-  rows=(rows||[]).filter(v=>!v.is_default && v.active!==0);
-  // ارسالی: ترجیح پک زندهٔ همان انبار (موجودی > ۰)
-  if(direction==='out'){
-    const live=rows.filter(v=>(Number(v.stock)||0)>0);
-    if(live.length) rows=live;
-  }
-  if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; return; }
-  wrap.hidden=false;
-  sel.innerHTML='<option value="">— انتخاب رنگ و سایز —</option>'+rows.map(v=>{
-    const qty=Number(v.stock);
-    const qtyPart=Number.isFinite(qty)?(' — موجودی '+fmt(qty)):'';
-    return `<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}${qtyPart}</option>`;
-  }).join('');
 }
 function filterCsPersons(){ /* personSelect روی فرم امانی */ }
 async function saveConsignment(){
-  const person_id=+el('cs-person').value, product_id=+el('cs-product').value, qty=+el('cs-qty').value;
+  const person_id=+el('cs-person').value;
   const warehouse_id=+el('cs-warehouse').value||undefined;
   if(!person_id){ showToast('انتخاب شخص الزامی است','error'); return; }
-  if(!product_id||!qty){ showToast('کالا و تعداد معتبر الزامی است','error'); return; }
-  if(!el('cs-variant-wrap') || el('cs-variant-wrap').hidden) await csLoadVariants();
-  const variant_id=+el('cs-variant')?.value||undefined;
-  if(el('cs-variant-wrap') && !el('cs-variant-wrap').hidden && !variant_id){
-    showToast('رنگ و سایز را انتخاب کنید','error'); return;
-  }
+  if(!warehouse_id){ showToast('انتخاب انبار الزامی است','error'); return; }
+  const lines=csDocLinesPayload();
+  if(lines==null) return;
+  if(!lines.length){ showToast('حداقل یک ردیف کالا الزامی است','error'); return; }
   try{
-    await api('POST','/consignments',{
+    const r=await api('POST','/consignments',{
       direction:el('cs-direction').value, person_id, warehouse_id,
-      product_id, variant_id, qty, unit_price:+el('cs-price').value||0, unit_price_rial:+el('cs-price').value||0,
-      date:el('cs-date').value, note:el('cs-note').value
+      lines, date:el('cs-date').value, note:el('cs-note').value
     });
-    closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
+    closeModal();
+    const n=r&&r.count?r.count:lines.length;
+    showToast('سند امانی '+(r&&r.doc_num?r.doc_num:'')+' با '+fmt(n)+' ردیف ثبت شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
   }catch(e){}
 }
 async function settleConsignment(id,path,direction){
@@ -11433,7 +11548,6 @@ async function settleConsignment(id,path,direction){
 async function saleInBuyerModal(id){
   if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=listRows(await api('GET','/customers'))||[];
   if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
-  const custOpts=(CACHE.customers||[]).map(c=>`<option value="${c.id}">${esc(c.biz||c.owner||('#'+c.id))}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>فروش قطعی امانی دریافتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -11472,8 +11586,17 @@ async function previewConsignmentSettle(id,direction){
   }catch(e){}
 }
 async function cancelConsignment(id){
-  if(!confirm('این امانی ابطال شود؟ ردیف می‌ماند؛ موجودی و اسناد معکوس می‌شوند (حذف فیزیکی نیست).')) return;
-  try{ await api('POST','/consignments/'+id+'/cancel',{}); showToast('امانی ابطال شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments'); }catch(e){}
+  if(!confirm('این ردیف امانی ابطال شود؟ ردیف می‌ماند؛ موجودی و اسناد معکوس می‌شوند (حذف فیزیکی نیست).')) return;
+  try{ await api('POST','/consignments/'+id+'/cancel',{}); showToast('ردیف امانی ابطال شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments'); }catch(e){}
+}
+async function cancelConsignmentDoc(docId){
+  if(!confirm('کل سند امانی ابطال شود؟ همهٔ ردیف‌های فعال معکوس می‌شوند (حذف فیزیکی نیست).')) return;
+  try{
+    const r=await api('POST','/consignments/docs/'+docId+'/cancel',{});
+    showToast('سند امانی ابطال شد'+(r&&r.voided_count?(' ('+fmt(r.voided_count)+' ردیف)'):''));
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
+  }catch(e){}
 }
 
 /* ============================================================
@@ -12350,24 +12473,113 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
   L=L||{};
   const type=L.line_type||'material';
   const exclude=excludeProductId!=null?excludeProductId:(window._prodBomEditProductId||0);
+  let matrixObj=null;
+  try{ matrixObj=L.size_matrix?(typeof L.size_matrix==='string'?JSON.parse(L.size_matrix):L.size_matrix):null; }catch(_){ matrixObj=null; }
+  const hasMatrix=matrixObj&&typeof matrixObj==='object'&&Object.keys(matrixObj).length>0;
+  const matrixBadge=hasMatrix?'📐':'—';
+  const colorMode=L.component_color_mode||'none';
   if(locked){
     return `<tr>
       <td>${type==='packaging'?'بسته‌بندی':'مواد'}</td>
       <td>${esc(L.product_name||('#'+L.component_product_id))}</td>
       <td class="num">${L.qty_per_base??0}</td>
       <td class="num">${L.scrap_percent??0}</td>
+      <td>${matrixBadge}</td>
+      <td>${esc(colorMode)}</td>
       <td></td>
     </tr>`;
   }
   const cid='pbe-comp-'+(L.id||('n'+Math.random().toString(36).slice(2,8)));
   const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude));
-  return `<tr class="pbe-line">
+  const matrixJson=hasMatrix?esc(JSON.stringify(matrixObj)):'';
+  return `<tr class="pbe-line" data-line-id="${L.id||''}">
     <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
     <td>${productSelect(cid, L.component_product_id, comps, {inputClass:'pbe-comp'})}</td>
     <td><input class="pbe-qty" type="number" step="any" min="0" value="${L.qty_per_base??1}" data-csp-style="${CSP.style(`width:90px`)}"></td>
     <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" data-csp-style="${CSP.style(`width:70px`)}"></td>
+    <td>
+      <input type="hidden" class="pbe-size-matrix" value="${matrixJson}">
+      <button type="button" class="btn sm ghost" title="ماتریس سایز" data-csp-click="${CSP.bind('click',function(event){prodBomOpenSizeMatrix(event.target.closest('tr'))})}">${hasMatrix?'📐 ویرایش':'📐'}</button>
+    </td>
+    <td>
+      <select class="pbe-color-mode" data-csp-style="${CSP.style(`width:110px`)}">
+        <option value="none" ${colorMode==='none'?'selected':''}>بدون</option>
+        <option value="inherit_fg" ${colorMode==='inherit_fg'?'selected':''}>از رنگ سفارش</option>
+        <option value="fixed" ${colorMode==='fixed'?'selected':''}>ثابت</option>
+      </select>
+      <input class="pbe-color-id" type="number" placeholder="color_id" value="${L.component_color_id||''}" data-csp-style="${CSP.style(`width:70px;margin-top:4px`)}" title="شناسه رنگ ثابت">
+    </td>
     <td>${L.id?`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteLine((L.bom_id||0),(L.id))})}">×</button>`:`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){this.closest('tr').remove()})}">×</button>`}</td>
   </tr>`;
+}
+async function prodBomFillColorSelect(selectedId){
+  const sel=el('pbe-color-id'); if(!sel) return;
+  try{
+    const rows=await api('GET','/product-variants/colors')||[];
+    const list=Array.isArray(rows)?rows:(rows.rows||[]);
+    sel.innerHTML='<option value="">—</option>'+list.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId)?'selected':''}>${esc(c.name||'')}</option>`).join('');
+  }catch(_){ /* optional */ }
+}
+async function prodBomOpenSizeMatrix(tr){
+  if(!tr) return;
+  const pid=window._prodBomEditProductId;
+  let sizes=[];
+  try{
+    const style=await api('GET','/product-variants/style/'+pid);
+    sizes=(style&&style.sizes)||[];
+    if(!sizes.length){
+      const all=await api('GET','/product-variants/sizes')||[];
+      sizes=(Array.isArray(all)?all:(all.rows||[])).map(s=>({id:s.id,name:s.name}));
+    }
+  }catch(_){
+    try{
+      const all=await api('GET','/product-variants/sizes')||[];
+      sizes=(Array.isArray(all)?all:(all.rows||[])).map(s=>({id:s.id,name:s.name}));
+    }catch(e2){ sizes=[]; }
+  }
+  if(!sizes.length){ showToast('سایز تعریف‌شده‌ای برای این محصول نیست','error'); return; }
+  let cur={};
+  try{ cur=JSON.parse(tr.querySelector('.pbe-size-matrix')?.value||'{}')||{}; }catch(_){ cur={}; }
+  const base=+tr.querySelector('.pbe-qty')?.value||0;
+  const rowsHtml=sizes.map(s=>{
+    const name=s.name||s.code||String(s.id);
+    const val=cur[name]!=null?cur[name]:(base||'');
+    return `<tr><td>${esc(name)}</td><td><input class="pbe-mx-qty" data-size="${esc(name)}" type="number" step="any" min="0" value="${val}" data-csp-style="${CSP.style(`width:100px`)}"></td></tr>`;
+  }).join('');
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay open';
+  overlay.id='pbe-size-matrix-modal';
+  overlay.innerHTML=`<div class="modal" data-csp-style="${CSP.style(`max-width:420px`)}">
+    <h3>ماتریس سایز — مصرف per قطعه</h3>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">اگر خالی بماند از مقدار پایه استفاده می‌شود.</p>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سایز</th><th>مصرف</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn secondary" type="button" id="pbe-mx-clear">پاک کردن</button>
+      <button class="btn secondary" type="button" id="pbe-mx-cancel">انصراف</button>
+      <button class="btn" type="button" id="pbe-mx-save">ذخیره</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>{ try{ overlay.remove(); }catch(_){} };
+  overlay.querySelector('#pbe-mx-cancel')?.addEventListener('click', close);
+  overlay.querySelector('#pbe-mx-clear')?.addEventListener('click', ()=>{
+    tr.querySelector('.pbe-size-matrix').value='';
+    const btn=tr.querySelector('button.btn.sm.ghost');
+    if(btn) btn.textContent='📐';
+    close();
+  });
+  overlay.querySelector('#pbe-mx-save')?.addEventListener('click', ()=>{
+    const out={};
+    overlay.querySelectorAll('.pbe-mx-qty').forEach(inp=>{
+      const v=+inp.value;
+      if(v>0) out[inp.dataset.size]=v;
+    });
+    const json=Object.keys(out).length?JSON.stringify(out):'';
+    tr.querySelector('.pbe-size-matrix').value=json;
+    const btn=tr.querySelector('button.btn.sm.ghost');
+    if(btn) btn.textContent=json?'📐 ویرایش':'📐';
+    close();
+  });
 }
 function prodBomAddLineRow(){
   const body=el('pbe-lines'); if(!body) return;
@@ -12380,6 +12592,9 @@ async function prodBomSaveHeader(id){
       name:el('pbe-name')?.value||'',
       base_qty:+el('pbe-base')?.value||1,
       yield_percent:+el('pbe-yield')?.value||100,
+      size_range:el('pbe-size-range')?.value||'',
+      color_variant:el('pbe-color-variant')?.value||'',
+      color_id:+el('pbe-color-id')?.value||null,
       note:el('pbe-note')?.value||''
     });
     showToast('سرفصل ذخیره شد');
@@ -12389,12 +12604,21 @@ async function prodBomSaveLines(id){
   const rows=[...document.querySelectorAll('#pbe-lines tr.pbe-line')];
   if(!rows.length){ showToast('حداقل یک قلم اضافه کنید','error'); return; }
   try{
-    const lines=rows.map(tr=>({
-      component_product_id:+tr.querySelector('.pbe-comp')?.value,
-      qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
-      scrap_percent:+tr.querySelector('.pbe-scrap')?.value||0,
-      line_type:tr.querySelector('.pbe-type')?.value||'material'
-    })).filter(L=>L.component_product_id&&L.qty_per_base>0);
+    const lines=rows.map(tr=>{
+      let size_matrix=null;
+      const raw=tr.querySelector('.pbe-size-matrix')?.value||'';
+      if(raw){ try{ size_matrix=JSON.parse(raw); }catch(_){ size_matrix=null; } }
+      const mode=tr.querySelector('.pbe-color-mode')?.value||'none';
+      return {
+        component_product_id:+tr.querySelector('.pbe-comp')?.value,
+        qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
+        scrap_percent:+tr.querySelector('.pbe-scrap')?.value||0,
+        line_type:tr.querySelector('.pbe-type')?.value||'material',
+        size_matrix: size_matrix||'',
+        component_color_mode: mode,
+        component_color_id: mode==='fixed'?(+tr.querySelector('.pbe-color-id')?.value||null):null
+      };
+    }).filter(L=>L.component_product_id&&L.qty_per_base>0);
     if(!lines.length){ showToast('اقلام معتبر نیست','error'); return; }
     await api('POST','/production/boms/'+id+'/lines/bulk',{replace:true, lines});
     showToast(toFa(lines.length)+' قلم ذخیره شد');
@@ -23087,7 +23311,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). در فرم ثبت، فهرست رنگ×سایز موجودی همان <b>انبار انتخاب‌شده</b> را نشان می‌دهد (عدد کنار هر گزینه)؛ برای <b>ارسالی</b> ترجیحاً فقط رنگ/سایز زندهٔ همان انبار. <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
+        <li><b>کالای امانی</b>: ثبت به‌صورت <b>سند تجمعی</b> (سربرگ جهت/شخص/انبار/تاریخ + چند ردیف کالا) با شمارهٔ CS. شخص از فهرست اشخاص است. در هر ردیف کالا با جستجو اضافه می‌شود؛ کالای ماتریسی به پک رنگ×سایز همان انبار شکسته می‌شود. <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. تسویه خط‌به‌خط با چهار مسیر: <b>برگشت</b>، <b>فروش قطعی</b> (تنها مسیر فاکتور؛ دریافتی نیازمند خریدار جدا)، <b>خرید قطعی</b> (فقط دریافتی)، <b>کسری</b>. ابطال ردیف یا <b>ابطال کل سند</b> فیزیکی نیست — موجودی و اسناد معکوس می‌شوند</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>

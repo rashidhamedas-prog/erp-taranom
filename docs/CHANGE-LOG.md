@@ -5,12 +5,23 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — کالای امانی تجمعی (سند master–detail) SW v262
+
+- **هدف:** ثبت چند کالا در یک سند امانی (نه تک‌ردیفی).
+- **معماری:** جدول `consignment_docs` + خطوط `consignments` با `doc_id`/`line_no`. ایجاد اتمیک؛ تسویه خط‌به‌خط؛ وضعیت سند مشتق؛ ابطال سند = R13.
+- **API:** `POST /consignments` با `lines[]`؛ `GET/POST /consignments/docs/:id[/cancel]`.
+- **سینک:** append `consignment_docs` + FK + `sync_seq_backfill_v15`.
+- **UI:** فرم چندردیفی؛ ستون شماره سند؛ راهنمای داخل برنامه.
+- **تست:** `node server/scripts/test-consignment-batch-v261.js` (روی ایران پس از deploy).
+- **فایل‌ها:** `server/lib/consignments.js`, `routes/consignments.js`, `db.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js}`, `scripts/test-consignment-batch-v261.js`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۷ — پاکسازی اینسترومنت دیباگ کش (SW v261)
 
 - اینسترومنت جلسهٔ `cedad3` از `app.js` حذف شد؛ منطق فیکس v260 (`setFullProductsCatalog` / `ensureCustomersCache`) بدون تغییر ماند.
 - **تست:** `node server/scripts/test-cache-scope-v260.js`
 - **فایل‌ها:** `server/public/{app.js,sw.js}`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `3643e4c` — ایران overlay SFTP، root 200، SW `erp-taranom-v261`
 
 ### ۱۴۰۵/۰۷/۰۷ — کش کالا/مشتری: جلوگیری از نشت فیلتر + هیدریت پیکر (SW v260)
 

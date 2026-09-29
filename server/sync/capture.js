@@ -49,6 +49,7 @@ const PATH_TABLE_MAP = [
   ['/api/settings', 'settings'],
   ['/api/rbac/matrix', 'user_permissions'],
   ['/api/accounting/settlements', 'settlements'],
+  ['/api/accounting/incentive-payments', 'incentive_payments'],
   ['/api/accounting/account-payments', 'journal_entries'],
   ['/api/accounting/account-receipts', 'journal_entries'],
   ['/api/accounting/sales-returns', 'sales_returns'],
@@ -98,7 +99,9 @@ const PATH_TABLE_MAP = [
   ['/api/warehouses/stock', 'warehouse_stock'],
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
-  ['/api/consignments', 'consignments'], // settle/cancel share this prefix
+  // Consignment docs BEFORE generic /api/consignments (settle/cancel on lines share prefix)
+  ['/api/consignments/docs', 'consignment_docs'],
+  ['/api/consignments', 'consignments'],
   // POS — longer prefixes first (receipts/batches before terminals)
   ['/api/pos/receipts', 'pos_receipts'],
   ['/api/pos/batches', 'pos_settlement_batches'],

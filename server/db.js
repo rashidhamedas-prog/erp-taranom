@@ -447,6 +447,25 @@ function initDB(database, opts) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    -- Master document for multi-line consignment registration (header + lines)
+    CREATE TABLE IF NOT EXISTS consignment_docs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      num TEXT,
+      direction TEXT NOT NULL,
+      person_id INTEGER,
+      party_name TEXT NOT NULL,
+      party_phone TEXT DEFAULT '',
+      warehouse_id INTEGER,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      status TEXT DEFAULT 'open',
+      record_status TEXT DEFAULT 'active',
+      line_count INTEGER DEFAULT 0,
+      qty_total REAL DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS payroll_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       person_id INTEGER NOT NULL,
@@ -1052,6 +1071,11 @@ function initDB(database, opts) {
   ensureColumn(db, 'expense_payments', 'reversal_journal_id', 'INTEGER');
   ensureColumn(db, 'expense_payments', 'reversed_at', 'INTEGER');
   ensureColumn(db, 'expense_payments', 'reversed_by', 'INTEGER');
+  // Bank transfer fee (کارمزد انتقال) — company expense on 6115; party ledgers ignore it
+  ensureColumn(db, 'expense_payments', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'supplier_payments', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'incentive_payments', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'account_transfers', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
@@ -1498,6 +1522,18 @@ function initDB(database, opts) {
   if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('journal_voucher')) {
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('journal_voucher');
   }
+  if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('consignment')) {
+    let maxCs = 0;
+    try {
+      for (const r of db.prepare(`SELECT num FROM consignment_docs WHERE num IS NOT NULL`).all()) {
+        const m = String(r.num).match(/(\d+)\s*$/);
+        if (m) maxCs = Math.max(maxCs, parseInt(m[1], 10));
+      }
+    } catch (_) { /* table may not exist yet on first boot */ }
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,?)').run('consignment', maxCs);
+  }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_consignment_docs_num_unique ON consignment_docs(num)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند امانی ایجاد نشد:', e.message); }
   // Backstop: business numbers must be unique. A legacy database can contain
   // historical duplicates from the COUNT(*)-based numbering; in that case the
   // index is skipped (logged) and only the atomic sequence protects new rows.
@@ -2701,9 +2737,40 @@ function initSyncSchema(db, opts) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v14','1')").run();
     }
+    const backfillV15 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v15'").get();
+    if (!backfillV15 || backfillV15.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v15 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v15','1')").run();
+    }
   }
 
-  // CON-01/CON-02 — person FK, warehouse, settle metadata (no new table)
+  // CON-01/CON-02 — person FK, warehouse, settle metadata
+  // CON-03 — master document (consignment_docs) + line linkage (doc_id)
+  db.exec(`CREATE TABLE IF NOT EXISTS consignment_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    num TEXT,
+    direction TEXT NOT NULL,
+    person_id INTEGER,
+    party_name TEXT NOT NULL,
+    party_phone TEXT DEFAULT '',
+    warehouse_id INTEGER,
+    date TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    status TEXT DEFAULT 'open',
+    record_status TEXT DEFAULT 'active',
+    line_count INTEGER DEFAULT 0,
+    qty_total REAL DEFAULT 0,
+    created_by INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  )`);
   ensureColumn(db, 'consignments', 'person_id', 'INTEGER');
   ensureColumn(db, 'consignments', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'consignments', 'invoice_id', 'INTEGER');
@@ -2713,6 +2780,10 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'consignments', 'record_status', "TEXT DEFAULT 'active'");
   ensureColumn(db, 'consignments', 'unit_price_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'consignments', 'variant_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'doc_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'line_no', 'INTEGER DEFAULT 1');
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_consignments_doc_id ON consignments(doc_id)'); }
+  catch (e) { console.warn('⚠️ idx_consignments_doc_id:', e.message); }
   ensureColumn(db, 'stocktaking_items', 'variant_id', 'INTEGER');
   ensureColumn(db, 'production_runs', 'voided', 'INTEGER DEFAULT 0');
 

@@ -293,10 +293,11 @@ function sketchPreview({ path, row, stockDelta, invoice, journal, nextStatus }) 
   };
 }
 
-function listConsignments(db, { direction, status } = {}) {
+function listConsignments(db, { direction, status, doc_id } = {}) {
   const where = [];
   const params = [];
   if (direction) { where.push('c.direction=?'); params.push(direction); }
+  if (doc_id) { where.push('c.doc_id=?'); params.push(Number(doc_id)); }
   if (status === 'settled') {
     where.push("c.status IN ('settled','sold')");
   } else if (status) {
@@ -306,99 +307,279 @@ function listConsignments(db, { direction, status } = {}) {
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   return db.prepare(`
     SELECT c.*, p.name AS product_name, p.code AS product_code,
-      pe.name AS person_name, pc.name AS color_name, ps.name AS size_name
+      pe.name AS person_name, pc.name AS color_name, ps.name AS size_name,
+      d.num AS doc_num, d.status AS doc_status, d.line_count AS doc_line_count
     FROM consignments c
     LEFT JOIN products p ON c.product_id = p.id
     LEFT JOIN persons pe ON c.person_id = pe.id
     LEFT JOIN product_variants pv ON pv.id = c.variant_id
     LEFT JOIN product_colors pc ON pc.id = pv.color_id
     LEFT JOIN product_sizes ps ON ps.id = pv.size_id
+    LEFT JOIN consignment_docs d ON d.id = c.doc_id
     ${whereSql}
-    ORDER BY c.created_at DESC
+    ORDER BY COALESCE(c.doc_id, c.id) DESC, COALESCE(c.line_no, 0) ASC, c.created_at DESC
   `).all(...params);
 }
 
-function createConsignment(db, body, user) {
-  const direction = body.direction;
-  if (!direction || !['in', 'out'].includes(direction)) {
-    throw httpErr(400, 'جهت امانت (نزد ما/نزد دیگری) الزامی است', 'E_DIRECTION');
-  }
-  const person = resolvePerson(db, body.person_id);
-  const q = parseQty(body.qty);
-  if (!body.product_id || !q || q <= 0) {
-    throw httpErr(400, 'کالا و تعداد معتبر الزامی است', 'E_QTY');
-  }
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(body.product_id);
-  if (!product) throw httpErr(404, 'کالا یافت نشد', 'E_PRODUCT_NOT_FOUND');
-  const warehouse = resolveWarehouse(db, body.warehouse_id);
-  const priceRial = unitPriceRialFrom(body);
-  const date = body.date || todayJalali();
-  const partyName = person.name;
-  const partyPhone = person.phone || '';
+function listConsignmentDocs(db, { direction, status } = {}) {
+  const where = [];
+  const params = [];
+  if (direction) { where.push('d.direction=?'); params.push(direction); }
+  if (status) { where.push('d.status=?'); params.push(status); }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  return db.prepare(`
+    SELECT d.*, pe.name AS person_name, w.name AS warehouse_name
+    FROM consignment_docs d
+    LEFT JOIN persons pe ON pe.id = d.person_id
+    LEFT JOIN warehouses w ON w.id = d.warehouse_id
+    ${whereSql}
+    ORDER BY d.created_at DESC, d.id DESC
+  `).all(...params);
+}
 
-  const { resolveApparelLines, postApparelLines } = require('./inventory/apparel-lines');
+function getConsignmentDoc(db, id) {
+  const doc = db.prepare(`
+    SELECT d.*, pe.name AS person_name, w.name AS warehouse_name
+    FROM consignment_docs d
+    LEFT JOIN persons pe ON pe.id = d.person_id
+    LEFT JOIN warehouses w ON w.id = d.warehouse_id
+    WHERE d.id=?
+  `).get(id);
+  if (!doc) throw httpErr(404, 'سند امانی یافت نشد', 'E_CONSIGNMENT_DOC_NOT_FOUND');
+  return doc;
+}
+
+function loadDocLines(db, docId) {
+  return listConsignments(db, { doc_id: docId });
+}
+
+function deriveDocStatus(lines) {
+  if (!lines || !lines.length) return 'open';
+  const statuses = lines.map((l) => l.status);
+  if (statuses.every((s) => s === 'reversed')) return 'reversed';
+  const open = statuses.filter((s) => s === OPEN_STATUS).length;
+  const settledLike = statuses.filter((s) => SETTLED_STATUSES.has(s)).length;
+  if (open === statuses.length) return 'open';
+  if (settledLike === statuses.length) return 'settled';
+  if (open === 0 && statuses.every((s) => SETTLED_STATUSES.has(s) || s === 'reversed')) return 'settled';
+  return 'partial';
+}
+
+function refreshDocStatus(db, docId) {
+  if (!docId) return null;
+  const lines = db.prepare('SELECT status, qty FROM consignments WHERE doc_id=?').all(docId);
+  if (!lines.length) return null;
+  const status = deriveDocStatus(lines);
+  const recordStatus = status === 'reversed' ? 'reversed' : 'active';
+  const qtyTotal = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  db.prepare(`
+    UPDATE consignment_docs
+    SET status=?, record_status=?, line_count=?, qty_total=?
+    WHERE id=?
+  `).run(status, recordStatus, lines.length, qtyTotal, docId);
+  return status;
+}
+
+function normalizeCreateLines(body) {
+  if (Array.isArray(body.lines) && body.lines.length) {
+    return body.lines.map((l, i) => ({
+      product_id: l.product_id,
+      variant_id: l.variant_id,
+      variant_lines: l.variant_lines,
+      qty: l.qty,
+      unit_price: l.unit_price,
+      unit_price_rial: l.unit_price_rial != null ? l.unit_price_rial : l.unit_price,
+      note: l.note || '',
+      _idx: i + 1,
+    }));
+  }
+  if (body.product_id) {
+    return [{
+      product_id: body.product_id,
+      variant_id: body.variant_id,
+      variant_lines: body.variant_lines,
+      qty: body.qty,
+      unit_price: body.unit_price,
+      unit_price_rial: body.unit_price_rial != null ? body.unit_price_rial : body.unit_price,
+      note: '',
+      _idx: 1,
+    }];
+  }
+  return [];
+}
+
+function assertUniqueLineKeys(lines) {
+  const seen = new Set();
+  for (const l of lines) {
+    const key = String(l.product_id) + ':' + String(l.variant_id || 0);
+    if (seen.has(key)) {
+      throw httpErr(400, 'در یک سند امانی نمی‌توان دو ردیف یکسان (کالا+رنگ/سایز) داشت', 'E_CONSIGNMENT_DUP_LINE');
+    }
+    seen.add(key);
+  }
+}
+
+function hydrateLineProduct(db, line) {
+  const q = parseQty(line.qty);
+  if (!line.product_id || !q || q <= 0) {
+    throw httpErr(400, 'کالا و تعداد معتبر برای هر ردیف الزامی است', 'E_QTY');
+  }
+  const product = db.prepare('SELECT * FROM products WHERE id=?').get(line.product_id);
+  if (!product) throw httpErr(404, 'کالا یافت نشد', 'E_PRODUCT_NOT_FOUND');
+  const { resolveApparelLines } = require('./inventory/apparel-lines');
   const apparelLines = resolveApparelLines(db, {
-    productId: product.id, qty: q, variantId: body.variant_id, variantLines: body.variant_lines,
+    productId: product.id, qty: q, variantId: line.variant_id, variantLines: line.variant_lines,
   });
   if (apparelLines.length > 1) {
     throw httpErr(400, 'امانی را برای هر رنگ و سایز جدا ثبت کنید', 'E_VARIANT_REQUIRED');
   }
   const variantId = apparelLines.length ? apparelLines[0].variantId : null;
+  return {
+    product,
+    qty: q,
+    priceRial: unitPriceRialFrom(line),
+    variantId,
+    apparelLines,
+    note: line.note || '',
+    lineNo: line._idx || 1,
+  };
+}
+
+/** Insert one line inside an open transaction (no nested db.transaction). */
+function insertConsignmentLine(db, {
+  direction, person, warehouse, date, headerNote, user,
+  hydrated, docId, lineNo,
+}) {
+  const { product, qty, priceRial, variantId, apparelLines, note } = hydrated;
+  const partyName = person.name;
+  const partyPhone = person.phone || '';
+  let issueLedgerId = null;
+  if (direction === 'out') {
+    const seedQty = product.warehouse_id === warehouse.id ? (Number(product.stock) || 0) : 0;
+    db.prepare(`
+      INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
+      ON CONFLICT(product_id, warehouse_id) DO NOTHING
+    `).run(product.id, warehouse.id, seedQty);
+    const mv = postInventoryMovement(db, {
+      eventType: 'issue',
+      productId: product.id,
+      warehouseId: warehouse.id,
+      qtyOut: qty,
+      sourceType: 'consignment',
+      sourceId: 0,
+      date,
+      note: `ارسال امانی به ${partyName}`,
+      createdBy: user.id,
+      updateAvg: false,
+    });
+    issueLedgerId = mv.id;
+  }
+  const result = db.prepare(`
+    INSERT INTO consignments (
+      direction, party_name, party_phone, product_id, qty, unit_price,
+      date, note, status, created_by,
+      person_id, warehouse_id, unit_price_rial, issue_ledger_id, record_status, variant_id,
+      doc_id, line_no
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    direction, partyName, partyPhone, product.id, qty, priceRial,
+    date, note || headerNote || '', OPEN_STATUS, user.id,
+    person.id, warehouse.id, priceRial, issueLedgerId, 'active', variantId,
+    docId || null, lineNo
+  );
+  const id = result.lastInsertRowid;
+  if (direction === 'out' && apparelLines.length) {
+    require('./inventory/apparel-lines').postApparelLines(db, {
+      productId: product.id, warehouseId: warehouse.id, lines: apparelLines,
+      docType: 'consignment_issue', docId: id, userId: user.id,
+      note: `ارسال امانی به ${partyName}`, sign: -1, allowNegative: false,
+    });
+  }
+  if (issueLedgerId) {
+    db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(id, issueLedgerId);
+  }
+  audit(user.id, 'create', 'consignment', id,
+    `کالای امانی ${direction === 'out' ? 'ارسالی به' : 'دریافتی از'} ${partyName}: ${qty} عدد ${product.name}`
+    + (docId ? ` (سند #${docId} خط ${lineNo})` : ''));
+  return db.prepare(`
+    SELECT c.*, p.name AS product_name, p.code AS product_code, pe.name AS person_name,
+      d.num AS doc_num
+    FROM consignments c
+    LEFT JOIN products p ON c.product_id=p.id
+    LEFT JOIN persons pe ON c.person_id=pe.id
+    LEFT JOIN consignment_docs d ON d.id=c.doc_id
+    WHERE c.id=?
+  `).get(id);
+}
+
+function createConsignmentDoc(db, body, user) {
+  const direction = body.direction;
+  if (!direction || !['in', 'out'].includes(direction)) {
+    throw httpErr(400, 'جهت امانت (نزد ما/نزد دیگری) الزامی است', 'E_DIRECTION');
+  }
+  const person = resolvePerson(db, body.person_id);
+  const warehouse = resolveWarehouse(db, body.warehouse_id);
+  const date = body.date || todayJalali();
+  const headerNote = body.note || '';
+  const rawLines = normalizeCreateLines(body);
+  if (!rawLines.length) {
+    throw httpErr(400, 'حداقل یک ردیف کالا الزامی است', 'E_CONSIGNMENT_LINES');
+  }
+  if (rawLines.length > 200) {
+    throw httpErr(400, 'حداکثر ۲۰۰ ردیف در یک سند امانی مجاز است', 'E_CONSIGNMENT_LINES_MAX');
+  }
+  assertUniqueLineKeys(rawLines);
+  const hydrated = rawLines.map((l) => hydrateLineProduct(db, l));
+  const seenHydrated = new Set();
+  for (const h of hydrated) {
+    const key = String(h.product.id) + ':' + String(h.variantId || 0);
+    if (seenHydrated.has(key)) {
+      throw httpErr(400, 'در یک سند امانی نمی‌توان دو ردیف یکسان (کالا+رنگ/سایز) داشت', 'E_CONSIGNMENT_DUP_LINE');
+    }
+    seenHydrated.add(key);
+  }
 
   return db.transaction(() => {
-    let issueLedgerId = null;
-    if (direction === 'out') {
-      const seedQty = product.warehouse_id === warehouse.id ? (Number(product.stock) || 0) : 0;
-      db.prepare(`
-        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-        ON CONFLICT(product_id, warehouse_id) DO NOTHING
-      `).run(product.id, warehouse.id, seedQty);
-      const mv = postInventoryMovement(db, {
-        eventType: 'issue',
-        productId: product.id,
-        warehouseId: warehouse.id,
-        qtyOut: q,
-        sourceType: 'consignment',
-        sourceId: 0,
-        date,
-        note: `ارسال امانی به ${partyName}`,
-        createdBy: user.id,
-        updateAvg: false,
-      });
-      issueLedgerId = mv.id;
-    }
-    const result = db.prepare(`
-      INSERT INTO consignments (
-        direction, party_name, party_phone, product_id, qty, unit_price,
-        date, note, status, created_by,
-        person_id, warehouse_id, unit_price_rial, issue_ledger_id, record_status, variant_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    const num = isDevice()
+      ? ('موقت-CS-' + Date.now().toString(36).toUpperCase())
+      : allocateNumber(db, 'consignment', 'CS');
+    const qtyTotal = hydrated.reduce((s, h) => s + h.qty, 0);
+    const docIns = db.prepare(`
+      INSERT INTO consignment_docs (
+        num, direction, person_id, party_name, party_phone, warehouse_id,
+        date, note, status, record_status, line_count, qty_total, created_by
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      direction, partyName, partyPhone, product.id, q, priceRial,
-      date, body.note || '', OPEN_STATUS, user.id,
-      person.id, warehouse.id, priceRial, issueLedgerId, 'active', variantId
+      num, direction, person.id, person.name, person.phone || '', warehouse.id,
+      date, headerNote, OPEN_STATUS, 'active', hydrated.length, qtyTotal, user.id
     );
-    const id = result.lastInsertRowid;
-    if (direction === 'out' && apparelLines.length) {
-      postApparelLines(db, {
-        productId: product.id, warehouseId: warehouse.id, lines: apparelLines,
-        docType: 'consignment_issue', docId: id, userId: user.id,
-        note: `ارسال امانی به ${partyName}`, sign: -1, allowNegative: false,
-      });
+    const docId = docIns.lastInsertRowid;
+    const lines = [];
+    for (let i = 0; i < hydrated.length; i++) {
+      lines.push(insertConsignmentLine(db, {
+        direction, person, warehouse, date, headerNote, user,
+        hydrated: hydrated[i], docId, lineNo: i + 1,
+      }));
     }
-    if (issueLedgerId) {
-      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(id, issueLedgerId);
-    }
-    audit(user.id, 'create', 'consignment', id,
-      `کالای امانی ${direction === 'out' ? 'ارسالی به' : 'دریافتی از'} ${partyName}: ${q} عدد ${product.name}`);
-    return db.prepare(`
-      SELECT c.*, p.name AS product_name, p.code AS product_code, pe.name AS person_name
-      FROM consignments c
-      LEFT JOIN products p ON c.product_id=p.id
-      LEFT JOIN persons pe ON c.person_id=pe.id
-      WHERE c.id=?
-    `).get(id);
+    audit(user.id, 'create', 'consignment_doc', docId,
+      `سند امانی ${num}: ${hydrated.length} ردیف / ${qtyTotal} عدد — ${direction === 'out' ? 'ارسالی به' : 'دریافتی از'} ${person.name}`);
+    const doc = getConsignmentDoc(db, docId);
+    // Backward-compatible shape: single-line callers still get line fields at top level.
+    const first = lines[0];
+    return {
+      ...first,
+      doc_id: docId,
+      doc_num: num,
+      num,
+      count: lines.length,
+      doc,
+      lines,
+    };
   })();
+}
+
+function createConsignment(db, body, user) {
+  return createConsignmentDoc(db, body, user);
 }
 
 function settleEffects(db, row, path, body, user) {
@@ -575,6 +756,8 @@ function applySettle(db, row, path, { date, note, user, body }) {
     WHERE id=?
   `).run(effects.nextStatus, path, invoiceId, settleJeId, note || '', note || row.note, row.id);
 
+  if (row.doc_id) refreshDocStatus(db, row.doc_id);
+
   audit(user.id, 'update', 'consignment', row.id, `تسویه امانی مسیر ${path} → ${effects.nextStatus}`);
   return {
     ok: true,
@@ -583,6 +766,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
     settle_path: path,
     invoice_id: invoiceId,
     settle_je_id: settleJeId,
+    doc_id: row.doc_id || null,
   };
 }
 
@@ -612,59 +796,113 @@ function settleConsignment(db, id, body, user) {
   })();
 }
 
+function voidConsignmentLineCore(db, fresh, user, { reason } = {}) {
+  const date = todayJalali();
+  if (fresh.invoice_id) {
+    try {
+      db.prepare('UPDATE invoices SET stock_deducted=0 WHERE id=?').run(fresh.invoice_id);
+      voidInvoiceFully(db, fresh.invoice_id, user, { reason: reason || 'consignment_cancel' });
+    } catch (e) {
+      if (e.status === 404 || (e.message && e.message.includes('ابطال شده'))) {
+        /* already voided */
+      } else {
+        throw e;
+      }
+    }
+  }
+  if (fresh.settle_je_id) {
+    const je = db.prepare('SELECT ref_type FROM journal_entries WHERE id=?').get(fresh.settle_je_id);
+    if (je && je.ref_type !== 'invoice') {
+      reverseJournalEntry(db, fresh.settle_je_id, {
+        userId: user.id, date, reason: reason || 'ابطال امانی',
+      });
+    }
+  }
+  reverseStockBySource(db, 'consignment', fresh.id, {
+    createdBy: user.id, date, note: `ابطال امانی #${fresh.id}`,
+  });
+  const { reverseApparelDoc } = require('./inventory/apparel-lines');
+  for (const docType of ['consignment_issue', 'consignment_return', 'consignment_purchase']) {
+    reverseApparelDoc(db, {
+      docType, docId: fresh.id, userId: user.id, note: `ابطال امانی #${fresh.id}`,
+    });
+  }
+  db.prepare(`
+    UPDATE consignments SET status='reversed', record_status='reversed' WHERE id=?
+  `).run(fresh.id);
+  audit(user.id, 'void', 'consignment', fresh.id, `ابطال کالای امانی #${fresh.id}`);
+  return { ok: true, id: fresh.id, status: 'reversed', record_status: 'reversed', doc_id: fresh.doc_id || null };
+}
+
 function voidConsignment(db, id, user, { reason } = {}) {
   const row = getConsignment(db, id);
   if (row.record_status === 'reversed' || row.status === 'reversed') {
     throw httpErr(409, 'این امانی قبلاً ابطال شده است', 'E_CONSIGNMENT_REVERSED');
   }
-  const date = todayJalali();
   return db.transaction(() => {
     const fresh = getConsignment(db, id);
     if (fresh.record_status === 'reversed' || fresh.status === 'reversed') {
       throw httpErr(409, 'این امانی قبلاً ابطال شده است', 'E_CONSIGNMENT_REVERSED');
     }
-    if (fresh.invoice_id) {
-      try {
-        db.prepare('UPDATE invoices SET stock_deducted=0 WHERE id=?').run(fresh.invoice_id);
-        voidInvoiceFully(db, fresh.invoice_id, user, { reason: reason || 'consignment_cancel' });
-      } catch (e) {
-        if (e.status === 404 || (e.message && e.message.includes('ابطال شده'))) {
-          /* already voided */
-        } else {
-          throw e;
-        }
-      }
+    const result = voidConsignmentLineCore(db, fresh, user, { reason });
+    if (fresh.doc_id) refreshDocStatus(db, fresh.doc_id);
+    return result;
+  })();
+}
+
+/** R13: void every line of a consignment document (no physical delete). */
+function voidConsignmentDoc(db, docId, user, { reason } = {}) {
+  const doc = getConsignmentDoc(db, docId);
+  if (doc.record_status === 'reversed' || doc.status === 'reversed') {
+    throw httpErr(409, 'این سند امانی قبلاً ابطال شده است', 'E_CONSIGNMENT_DOC_REVERSED');
+  }
+  return db.transaction(() => {
+    const freshDoc = getConsignmentDoc(db, docId);
+    if (freshDoc.record_status === 'reversed' || freshDoc.status === 'reversed') {
+      throw httpErr(409, 'این سند امانی قبلاً ابطال شده است', 'E_CONSIGNMENT_DOC_REVERSED');
     }
-    if (fresh.settle_je_id) {
-      const je = db.prepare('SELECT ref_type FROM journal_entries WHERE id=?').get(fresh.settle_je_id);
-      if (je && je.ref_type !== 'invoice') {
-        reverseJournalEntry(db, fresh.settle_je_id, {
-          userId: user.id, date, reason: reason || 'ابطال امانی',
-        });
-      }
+    const lines = db.prepare('SELECT * FROM consignments WHERE doc_id=? ORDER BY line_no ASC, id ASC').all(docId);
+    const voided = [];
+    for (const line of lines) {
+      if (line.record_status === 'reversed' || line.status === 'reversed') continue;
+      voided.push(voidConsignmentLineCore(db, line, user, { reason: reason || 'consignment_doc_cancel' }));
     }
-    reverseStockBySource(db, 'consignment', fresh.id, {
-      createdBy: user.id, date, note: `ابطال امانی #${fresh.id}`,
-    });
-    const { reverseApparelDoc } = require('./inventory/apparel-lines');
-    for (const docType of ['consignment_issue', 'consignment_return', 'consignment_purchase']) {
-      reverseApparelDoc(db, {
-        docType, docId: fresh.id, userId: user.id, note: `ابطال امانی #${fresh.id}`,
-      });
+    const status = refreshDocStatus(db, docId) || 'reversed';
+    db.prepare(`UPDATE consignment_docs SET status=?, record_status='reversed' WHERE id=?`)
+      .run(status === 'reversed' ? 'reversed' : status, docId);
+    // If any line was already settled+voided, derive may be settled; force reversed when all lines reversed.
+    const allRev = db.prepare(`
+      SELECT COUNT(*) AS c FROM consignments
+      WHERE doc_id=? AND status!='reversed'
+    `).get(docId).c === 0;
+    if (allRev) {
+      db.prepare(`UPDATE consignment_docs SET status='reversed', record_status='reversed' WHERE id=?`).run(docId);
     }
-    db.prepare(`
-      UPDATE consignments SET status='reversed', record_status='reversed' WHERE id=?
-    `).run(fresh.id);
-    audit(user.id, 'void', 'consignment', fresh.id, `ابطال کالای امانی #${fresh.id}`);
-    return { ok: true, id: fresh.id, status: 'reversed', record_status: 'reversed' };
+    audit(user.id, 'void', 'consignment_doc', docId,
+      `ابطال سند امانی ${freshDoc.num || '#' + docId}: ${voided.length} ردیف`);
+    return {
+      ok: true,
+      id: docId,
+      doc_id: docId,
+      num: freshDoc.num,
+      status: allRev ? 'reversed' : (refreshDocStatus(db, docId) || 'reversed'),
+      record_status: 'reversed',
+      voided_count: voided.length,
+      lines: voided,
+    };
   })();
 }
 
 module.exports = {
   listConsignments,
+  listConsignmentDocs,
+  getConsignmentDoc,
+  loadDocLines,
   createConsignment,
+  createConsignmentDoc,
   settleConsignment,
   voidConsignment,
+  voidConsignmentDoc,
   warehouseQty,
   unitPriceRialFrom,
   SETTLE_PATHS,
