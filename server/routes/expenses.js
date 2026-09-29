@@ -3,8 +3,8 @@ const { getDB, audit, resolveCashAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { postToLedger } = require('../lib/ledger');
-const { rialToLedger } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
+const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
 
 function resolveExpenseAccount(db, category, account_code) {
   if (account_code) {
@@ -101,30 +101,33 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     category, title, amount, pay_type, date, note, bank_id, cash_box_id,
-    check_category_id, cost_center_id, account_code, purchase_invoice_id, is_overhead
+    check_category_id, cost_center_id, account_code, purchase_invoice_id, is_overhead,
+    fee_rial, bank_fee_rial
   } = req.body;
   const amt = parseFloat(amount) || 0;
   if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
+  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
   const acc = resolveExpenseAccount(db, category, account_code);
   const expId = db.transaction(() => {
     const result = db.prepare(
-      `INSERT INTO expense_payments (category,title,amount,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(category || 'admin', title || '', amt, pay_type || 'cash', bank_id || null, cash_box_id || null,
+      `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(category || 'admin', title || '', amt, fee, pay_type || 'cash', bank_id || null, cash_box_id || null,
           check_category_id || null, cost_center_id || null, date || todayJalali(), note || '',
           req.user.id, acc.code, purchase_invoice_id || null, is_overhead ? 1 : 0);
     const expId = result.lastInsertRowid;
 
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const { lines } = outboundPaymentLines(db, {
+      amount: amt, feeRial: fee, payType: pay_type || 'cash',
+      dest: acc, cash, destDescription: title || '',
+    });
     const entryId = postToLedger(db, {
       sourceType: 'expense_payment', sourceId: expId,
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
       createdBy: req.user.id, costCenterId: cost_center_id || null,
-      lines: [
-        { code: acc.code, name: acc.name, debit: rialToLedger(amt), credit: 0, description: title || '' },
-        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
-      ]
+      lines,
     });
     db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
     return expId;
@@ -183,14 +186,14 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const acc = resolveExpenseAccount(db, row.category, row.account_code);
   db.transaction(() => {
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    const { lines } = outboundPaymentReversalLines(db, {
+      amount: row.amount, feeRial: row.fee_rial || 0, dest: acc, cash,
+    });
     const reversalId = postToLedger(db, {
       sourceType: 'expense_payment_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال پرداخت هزینه #${row.id}`, createdBy: req.user.id,
       costCenterId: row.cost_center_id || null,
-      lines: [
-        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
-        { code: acc.code, name: acc.name, debit: 0, credit: rialToLedger(row.amount) }
-      ]
+      lines,
     });
     try {
       db.prepare(`

@@ -27,6 +27,7 @@ const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
+const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
 const {
   postPurchaseStockMovements, reverseStockBySource,
   perpetualDocsEnabled, assertJournalIdempotent,
@@ -720,13 +721,14 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/payments', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id, account_code } = req.body;
+  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id, account_code, fee_rial, bank_fee_rial } = req.body;
   if (!supplier_id || !amount) return res.status(400).json({ error: 'تأمین‌کننده و مبلغ الزامی است' });
+  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
   const payId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32));
+      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32));
     const payId = result.lastInsertRowid;
 
     createSupplierLedgerEntry(db, {
@@ -739,13 +741,15 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
       const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
       if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
     }
+    const payable = payableAcct(db, supplier_id);
+    const { lines } = outboundPaymentLines(db, {
+      amount: parseFloat(amount), feeRial: fee, payType: pay_type || 'cash',
+      dest: payable, cash,
+    });
     postToLedger(db, {
       sourceType: 'supplier_payment', sourceId: payId,
       date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
-      lines: [
-        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: rialToLedger(amount), credit: 0 };})(),
-        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amount) }
-      ]
+      lines,
     });
     return payId;
   })();
@@ -785,13 +789,14 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
       const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
       if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
     }
+    const payable = payableAcct(db, row.supplier_id);
+    const { lines } = outboundPaymentReversalLines(db, {
+      amount: row.amount, feeRial: row.fee_rial || 0, dest: payable, cash,
+    });
     const reversalId = postToLedger(db, {
       sourceType: 'supplier_payment_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, createdBy: req.user.id,
-      lines: [
-        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
-        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
-      ]
+      lines,
     });
     try {
       db.prepare(`

@@ -1,14 +1,9 @@
 const router = require('express').Router();
 const { getDB, audit, resolveCashAccount } = require('../db');
 const { postToLedger } = require('../lib/ledger');
-const { rialToLedger } = require('../lib/money');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-
-// Internal account transfers: cash<->cash, cash<->bank, bank<->bank.
-// A transfer never touches a person's ledger — it's a pure movement between the
-// company's own asset accounts, posted as a single balanced journal entry
-// (Dr destination / Cr source).
+const { transferLines, transferReversalLines } = require('../lib/payment-bank-fee');
 
 const TYPES = ['cash', 'bank'];
 
@@ -36,36 +31,34 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { date, from_type, from_id, to_type, to_id, amount, note } = req.body;
+  const { date, from_type, from_id, to_type, to_id, amount, note, fee_rial, bank_fee_rial } = req.body;
   if (!TYPES.includes(from_type) || !TYPES.includes(to_type)) return res.status(400).json({ error: 'نوع حساب مبدأ/مقصد نامعتبر است' });
   const amt = parseFloat(amount) || 0;
   if (amt <= 0) return res.status(400).json({ error: 'مبلغ باید بزرگ‌تر از صفر باشد' });
   if (from_type === to_type && (from_id || null) === (to_id || null)) {
     return res.status(400).json({ error: 'حساب مبدأ و مقصد نمی‌تواند یکسان باشد' });
   }
+  const feeRaw = Math.max(0, Math.round(Number(fee_rial ?? bank_fee_rial) || 0));
+  const fee = from_type === 'bank' ? feeRaw : 0;
   const db = getDB();
   const transferId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,note,user_id) VALUES (?,?,?,?,?,?,?,?)'
-    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, note || '', req.user.id);
+      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,note,user_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, fee, note || '', req.user.id);
     const transferId = result.lastInsertRowid;
-
     const src = resolveSide(db, from_type, from_id);
     const dst = resolveSide(db, to_type, to_id);
+    const { lines } = transferLines(db, { amount: amt, feeRial: fee, fromType: from_type, src, dst });
     postToLedger(db, {
       sourceType: 'transfer', sourceId: transferId,
       date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
       createdBy: req.user.id,
-      lines: [
-        { code: dst.code, name: dst.name, debit: rialToLedger(amt), credit: 0 },
-        { code: src.code, name: src.name, debit: 0, credit: rialToLedger(amt) }
-      ]
+      lines,
     });
     return transferId;
   })();
-
   audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} ریال بین حساب‌های داخلی`);
-  res.json({ id: transferId, ok: true });
+  res.json({ id: transferId, ok: true, fee_rial: fee });
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
@@ -73,19 +66,15 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM account_transfers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این انتقال قبلاً ابطال شده است' });
-
   db.transaction(() => {
     const src = resolveSide(db, row.from_type, row.from_id);
     const dst = resolveSide(db, row.to_type, row.to_id);
+    const { lines } = transferReversalLines(db, { amount: row.amount, feeRial: row.fee_rial || 0, src, dst });
     const reversalId = postToLedger(db, {
       sourceType: 'transfer_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال انتقال وجه #${row.id}`, createdBy: req.user.id,
-      lines: [
-        { code: src.code, name: src.name, debit: rialToLedger(row.amount), credit: 0 },
-        { code: dst.code, name: dst.name, debit: 0, credit: rialToLedger(row.amount) }
-      ]
+      lines,
     });
-
     db.prepare("UPDATE account_transfers SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();

@@ -13869,6 +13869,7 @@ async function prodOrderCreateModal(){
           <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
+        <div class="fg full" id="po-variant-panel" hidden></div>
       </div>
       <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
@@ -13886,21 +13887,63 @@ function prodOrderFilterBoms(){
   const boms=(window._prodCreateBoms||[]).filter(b=>!pid||Number(b.product_id)===pid);
   sel.innerHTML='<option value="">— خودکار (پیش‌فرض فعال) —</option>'+
     boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}</option>`).join('');
+  prodOrderLoadVariantPanel(pid);
+}
+async function prodOrderLoadVariantPanel(pid){
+  const box=el('po-variant-panel'); if(!box) return;
+  if(!pid){ box.innerHTML=''; box.hidden=true; return; }
+  let meta=null;
+  try{ meta=await api('GET','/product-variants/style/'+pid); }catch(_){ meta=null; }
+  const variants=(meta?.variants||[]).filter(v=>!v.is_default);
+  if(!variants.length){ box.innerHTML=''; box.hidden=true; window._poMatrix=false; return; }
+  window._poMatrix=true;
+  const colors=[...new Map(variants.map(v=>[String(v.color_name||''),v.color_name||''])).entries()].filter(([k])=>k);
+  const sizes=[...new Map(variants.map(v=>[String(v.size_name||''),v.size_name||''])).entries()].filter(([k])=>k);
+  box.hidden=false;
+  box.innerHTML=`
+    <div class="fg full"><label>رنگ محصول *</label>
+      <select id="po-color">${colors.map(([n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
+    </div>
+    <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>سایز</th><th>تعداد</th></tr></thead><tbody>
+      ${sizes.map(([n])=>`<tr><td>${esc(n)}</td><td><input class="po-sz-qty num-fit" data-size="${esc(n)}" type="number" min="0" value="0"></td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px`)}">جمع سایزها = تعداد برنامه. برای کالای ماتریسی الزامی است.</p>`;
+  box.querySelectorAll('.po-sz-qty').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const sum=[...box.querySelectorAll('.po-sz-qty')].reduce((a,i)=>a+(+i.value||0),0);
+      if(el('po-qty')) el('po-qty').value=sum||'';
+    });
+  });
 }
 async function prodOrderCreateSave(){
   const pid=+el('po-product')?.value;
-  const qty=+el('po-qty')?.value;
-  if(!pid||!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
+  let qty=+el('po-qty')?.value;
+  if(!pid){ showToast('محصول را انتخاب کنید','error'); return; }
+  const body={
+    product_id:pid,
+    analysis_type:el('po-analysis').value, date:el('po-date').value,
+    note:el('po-note')?.value||''
+  };
+  if(window._poMatrix){
+    const color=el('po-color')?.value||'';
+    const size_breakdown={};
+    [...document.querySelectorAll('.po-sz-qty')].forEach(inp=>{
+      const v=+inp.value||0; if(v>0) size_breakdown[inp.dataset.size]=v;
+    });
+    const sum=Object.values(size_breakdown).reduce((a,b)=>a+b,0);
+    if(!color||!(sum>0)){ showToast('رنگ و تعداد per سایز را وارد کنید','error'); return; }
+    body.color=color;
+    body.size_breakdown=size_breakdown;
+    body.qty_planned=sum;
+  }else{
+    if(!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
+    body.qty_planned=qty;
+  }
+  const bomId=+el('po-bom')?.value; if(bomId) body.bom_id=bomId;
+  const whR=+el('po-wh-raw')?.value; if(whR) body.warehouse_raw_id=whR;
+  const whF=+el('po-wh-fg')?.value; if(whF) body.warehouse_fg_id=whF;
+  const cc=+el('po-cc')?.value; if(cc) body.cost_center_id=cc;
   try{
-    const body={
-      product_id:pid, qty_planned:qty,
-      analysis_type:el('po-analysis').value, date:el('po-date').value,
-      note:el('po-note')?.value||''
-    };
-    const bomId=+el('po-bom')?.value; if(bomId) body.bom_id=bomId;
-    const whR=+el('po-wh-raw')?.value; if(whR) body.warehouse_raw_id=whR;
-    const whF=+el('po-wh-fg')?.value; if(whF) body.warehouse_fg_id=whF;
-    const cc=+el('po-cc')?.value; if(cc) body.cost_center_id=cc;
     await api('POST','/production/orders',body);
     closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
   }catch(e){ /* toast already shown by api() with friendly message */ }
@@ -13944,7 +13987,14 @@ async function prodOrderReceiptModal(id){
   try{
     variants=(await api('GET','/product-variants?product_id='+order.product_id+'&include_default=0')||[]).filter(v=>!v.is_default);
   }catch(e){ variants=[]; }
-  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pr-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="0"></td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع این ردیف‌ها باید با تعداد سالم برابر باشد.</p></div>`:'';
+  let bd={};
+  try{ bd=order.size_breakdown?(typeof order.size_breakdown==='string'?JSON.parse(order.size_breakdown):order.size_breakdown):{}; }catch(_){ bd={}; }
+  const orderColor=String(order.color||'').trim();
+  const prefQty=(v)=>{
+    if(!orderColor||String(v.color_name||'')!==orderColor) return 0;
+    return Number(bd[v.size_name])||0;
+  };
+  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pr-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${prefQty(v)}"></td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع این ردیف‌ها باید با تعداد سالم برابر باشد.${orderColor?' رنگ سفارش: '+esc(orderColor):''}</p></div>`:'';
   showModal('رسید تولید — '+esc(order.order_no||''),`
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
@@ -14398,7 +14448,7 @@ async function productionModal(){
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کالای تولیدی *</label>${productSelect('pd-product')}</div>
-      <div class="fg full" id="pd-variant-wrap" hidden><label>رنگ و سایز *</label><select id="pd-variant"></select></div>
+      <div class="fg full" id="pd-variant-wrap" hidden><label>رنگ و سایز *</label><select id="pd-variant"></select><div id="pd-variant-matrix" hidden data-csp-style="${CSP.style(`margin-top:8px`)}"></div></div>
       <div class="fg"><label>انبار مقصد</label>
         <select id="pd-warehouse"><option value="">— انبار محصول —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
@@ -14429,16 +14479,23 @@ async function productionModal(){
 }
 async function pdLoadVariants(){
   const wrap=el('pd-variant-wrap'); const sel=el('pd-variant');
+  const matrixWrap=el('pd-variant-matrix');
   const pid=+el('pd-product')?.value;
   if(!wrap||!sel) return;
-  if(!pid){ wrap.hidden=true; sel.innerHTML=''; return; }
+  if(!pid){ wrap.hidden=true; sel.innerHTML=''; if(matrixWrap){ matrixWrap.hidden=true; matrixWrap.innerHTML=''; } return; }
   let rows=[];
   try{ rows=await api('GET','/product-variants?product_id='+pid+'&include_default=0')||[]; }
   catch(e){ rows=[]; }
   rows=(rows||[]).filter(v=>!v.is_default);
-  if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; return; }
+  if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; if(matrixWrap){ matrixWrap.hidden=true; matrixWrap.innerHTML=''; } return; }
   wrap.hidden=false;
-  sel.innerHTML='<option value="">— انتخاب رنگ و سایز —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}</option>`).join('');
+  sel.innerHTML='<option value="">— یک ترکیب (یا ماتریس پایین) —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}</option>`).join('');
+  if(matrixWrap){
+    matrixWrap.hidden=false;
+    matrixWrap.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد</th></tr></thead><tbody>
+      ${rows.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pd-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="0"></td></tr>`).join('')}
+    </tbody></table></div><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">اگر بیش از یک ترکیب می‌زنید، جمع باید با تعداد تولید برابر باشد.</p>`;
+  }
 }
 async function suggestProductionOverhead(){
   const qty=+el('pd-qty').value||1;
@@ -14457,9 +14514,17 @@ async function saveProductionRun(){
   const product_id=+el('pd-product').value, qty_produced=+el('pd-qty').value;
   if(!product_id||!qty_produced){ showToast('کالا و تعداد تولیدی الزامی است','error'); return; }
   if(!el('pd-variant-wrap') || el('pd-variant-wrap').hidden) await pdLoadVariants();
+  const variant_lines=[...document.querySelectorAll('.pd-vqty')].map(inp=>({
+    variant_id:+inp.dataset.vid, qty:+inp.value||0
+  })).filter(r=>r.variant_id&&r.qty>0);
   const variant_id=+el('pd-variant')?.value||undefined;
-  if(el('pd-variant-wrap') && !el('pd-variant-wrap').hidden && el('pd-update-stock').checked && !variant_id){
-    showToast('رنگ و سایز را انتخاب کنید','error'); return;
+  if(el('pd-variant-wrap') && !el('pd-variant-wrap').hidden && el('pd-update-stock').checked){
+    if(variant_lines.length){
+      const sum=variant_lines.reduce((a,r)=>a+r.qty,0);
+      if(Math.abs(sum-qty_produced)>0.001){ showToast('جمع ماتریس رنگ/سایز با تعداد تولید یکی نیست','error'); return; }
+    }else if(!variant_id){
+      showToast('رنگ و سایز را انتخاب کنید','error'); return;
+    }
   }
   const ohEl=el('pd-overhead');
   if(ohEl && !(+ohEl.value)){
@@ -14469,15 +14534,18 @@ async function saveProductionRun(){
     }catch(e){}
   }
   try{
-    await api('POST','/production',{
-      product_id, qty_produced, variant_id,
+    const body={
+      product_id, qty_produced,
       material_cost:+el('pd-material').value||0, labor_cost:+el('pd-labor').value||0,
       overhead_cost:+el('pd-overhead').value||0, packaging_cost:+el('pd-packaging').value||0,
       waste_qty:+el('pd-waste-qty').value||0, waste_cost:+el('pd-waste-cost').value||0,
       date:el('pd-date').value, note:el('pd-note').value,
       warehouse_id:+el('pd-warehouse')?.value||null,
       update_stock:el('pd-update-stock').checked, update_cost:el('pd-update-cost').checked
-    });
+    };
+    if(variant_lines.length) body.variant_lines=variant_lines;
+    else if(variant_id) body.variant_id=variant_id;
+    await api('POST','/production',body);
     closeModal(); showToast('اجرای تولید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('production');
   }catch(e){}
 }
@@ -15117,6 +15185,7 @@ async function supplierPaymentModal(id,name){
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
+      ${payBankFeeHtml('sp')}
       <div class="fg" id="sp-cashbox-fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -15221,7 +15290,14 @@ function payInstAmounts(prefix){
   if(!el(prefix+'-multi')?.checked) return null;
   return (_payInstRows[prefix]||[]).map(r=>parseInt(String(r.amount||'').replace(/[^\d]/g,''),10)||0).filter(n=>n>0);
 }
-// XOR: نقد→صندوق، بانک/چک→بانک، کارتخوان→ترمینال
+// XOR: نقد→صندوق، بانک/چک→بانک، کارتخوان→ترمینال؛ کارمزد انتقال فقط برای واریز بانکی
+function payBankFeeHtml(prefix){
+  return `<div class="fg" id="${prefix}-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط هنگام واریز بانکی — از حساب بانک کسر و در سند به حساب ۶۱۱۵ (کارمزد خدمات بانکی) ثبت می‌شود. مبلغ پرداخت به طرف‌حساب بدون کارمزد است.')}</label><input id="${prefix}-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>`;
+}
+function payFeeVal(prefix){
+  const n=moneyVal(prefix+'-fee');
+  return (n&&n>0)?n:0;
+}
 function toggleBankFields(prefix){
   const pt=el(prefix+'-paytype')?.value||'cash';
   const isCheque = pt==='cheque';
@@ -15232,10 +15308,15 @@ function toggleBankFields(prefix){
   const cashFg=payFg(prefix,'cashbox');
   const posFg=el(prefix+'-pos-fg');
   const ccWrap=el(prefix+'-cc-wrap');
+  const feeFg=el(prefix+'-fee-fg');
   if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
   if(cashFg) cashFg.style.display=isCash?'flex':'none';
   if(posFg) posFg.style.display=isPos?'flex':'none';
   if(ccWrap){ ccWrap.style.display=isCheque?'flex':'none'; if(isCheque) updateCheckCategoryOptions(prefix); }
+  if(feeFg){
+    feeFg.style.display=isBank?'flex':'none';
+    if(!isBank && el(prefix+'-fee')) el(prefix+'-fee').value='';
+  }
   if(!(isBank||isCheque) && el(prefix+'-bank')) el(prefix+'-bank').value='';
   if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
   if(!isPos && el(prefix+'-pos')) el(prefix+'-pos').value='';
@@ -15257,7 +15338,8 @@ async function saveSupplierPayment(id){
       date:el('sp-date').value, note:el('sp-note').value,
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
-      check_category_id:+el('sp-checkcat')?.value||null
+      check_category_id:+el('sp-checkcat')?.value||null,
+      fee_rial:payFeeVal('sp')
     });
     closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('suppliers');
   }catch(e){}
@@ -18737,6 +18819,7 @@ async function accountPaymentModal(){
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>پرداخت از</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
       <div class="fg" id="apay-bank-fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payBankFeeHtml('apay')}
       <div class="fg" id="apay-cashbox-fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg" id="apay-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="apay-checkcat"><option value="">—</option></select></div>
       <div class="fg full"><label>یادداشت</label><input id="apay-note"></div>
@@ -18758,11 +18841,14 @@ async function saveAccountPayment(){
   const amounts=parts && parts.length ? parts : [moneyVal('apay-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
+    let first=true;
     for(const amount of amounts){
       await api('POST','/accounting/account-payments',{
         account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
-        pay_type, bank_id, cash_box_id, check_category_id:+el('apay-checkcat')?.value||null
+        pay_type, bank_id, cash_box_id, check_category_id:+el('apay-checkcat')?.value||null,
+        fee_rial: first ? payFeeVal('apay') : 0
       });
+      first=false;
     }
     closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'payments');
@@ -18807,6 +18893,7 @@ async function personPaymentModal(){
       <div class="fg" id="pp-bank-fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
         <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
+      ${payBankFeeHtml('pp')}
       <div class="fg" id="pp-cashbox-fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
         <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -18866,11 +18953,14 @@ async function savePersonPayment(){
     pay_type, date:el('pp-date').value, note:el('pp-note').value,
     bank_id, cash_box_id,
     check_category_id:+el('pp-checkcat')?.value||null,
-    account_code:el('pp-account-code')?.value||''
+    account_code:el('pp-account-code')?.value||'',
+    fee_rial:payFeeVal('pp')
   };
   try{
+    let first=true;
     for(const amount of amounts){
-      const payload={...base, amount};
+      const payload={...base, amount, fee_rial: first ? base.fee_rial : 0};
+      first=false;
       if(kind==='supplier'){
         await api('POST','/purchases/payments',{...payload, supplier_id:target});
       } else if(kind==='incentive'){
@@ -18910,6 +19000,7 @@ async function expensePaymentModal(){
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
+      ${payBankFeeHtml('ex')}
       <div class="fg" id="ex-cashbox-fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -19011,6 +19102,7 @@ async function saveExpensePayment(){
   const amounts=parts && parts.length ? parts : [moneyVal('ex-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
+    let first=true;
     for(const amount of amounts){
       await api('POST','/expenses',{
         category:el('ex-category').value, title, amount,
@@ -19019,8 +19111,10 @@ async function saveExpensePayment(){
         check_category_id:+el('ex-checkcat')?.value||null,
         account_code:el('ex-account-code')?.value||null,
         purchase_invoice_id:+el('ex-purchase')?.value||null,
-        is_overhead:el('ex-overhead')?.checked||false
+        is_overhead:el('ex-overhead')?.checked||false,
+        fee_rial: first ? payFeeVal('ex') : 0
       });
+      first=false;
     }
     closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت هزینه ثبت شد'); loadAccTab('settlements');
   }catch(e){}
@@ -20442,11 +20536,12 @@ async function incentivePayModal(repId, repName, payable){
       <div class="fg full"><label>مانده قابل پرداخت</label><input value="${fmt(payable)} ریال" disabled data-csp-style="${CSP.style(`background:#f9fafb;color:var(--red);font-weight:700`)}"></div>
       <div class="fg"><label>مبلغ پرداخت (ریال) * ${hlp('مبلغی که به کارشناس پرداخت می‌کنید — از مانده انگیزه فروش او کم می‌شود.')}</label><input id="ip-amount" type="number" min="1" value="${payable>0?payable:''}" placeholder="0"></div>
       <div class="fg"><label>نوع پرداخت ${hlp('روش پرداخت انگیزه: نقد، چک یا واریز بانکی — در سند حسابداری خودکار ثبت می‌شود.')}</label><select id="ip-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ip')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="ip-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ip')})}">
+      <div class="fg" id="ip-bank-fg"><label>پرداخت از بانک</label><select id="ip-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ip')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="ip-cashbox">
+      ${payBankFeeHtml('ip')}
+      <div class="fg" id="ip-cashbox-fg"><label>پرداخت از صندوق</label><select id="ip-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -23289,14 +23384,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
         <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
-        <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
+        <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ). اگر مبدأ بانک باشد می‌توانید کارمزد انتقال ثبت کنید (۶۱۱۵). در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
@@ -23697,7 +23792,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من) و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v260</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v263</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),

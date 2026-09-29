@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — کارمزد انتقال بانکی روی پرداخت خروجی (SW v263)
+
+- **Invariant:** وقتی `pay_type=bank` و `fee_rial>0`: Dr مقصد(اصل) + Dr ۶۱۱۵ کارمزد خدمات بانکی(کارمزد) / Cr بانک(اصل+کارمزد). دفتر طرف‌حساب/تأمین‌کننده/انگیزه فقط اصل را می‌بیند. نقد/چک کارمزد را صفر می‌کند. ابطال R13 همان سه خط را برمی‌گرداند.
+- **لیب مشترک:** `server/lib/payment-bank-fee.js` — برای هزینه، تأمین‌کننده، انگیزه، پرداخت به حساب، انتقال وجه.
+- **اسکیما:** ستون `fee_rial` روی `expense_payments` / `supplier_payments` / `incentive_payments` / `account_transfers` (ensureColumn؛ از قبل در main).
+- **سینک:** `PATH_TABLE_MAP` برای `/api/accounting/incentive-payments` → `incentive_payments` (شکاف قبلی بسته شد).
+- **UI:** فیلد «کارمزد انتقال» در پرداخت به شخص / تأمین / هزینه / انگیزه / پرداخت به حساب وقتی نوع=واریز بانکی؛ در انتقال وجه وقتی مبدأ=بانک.
+- **تست:** `node server/scripts/test-payment-bank-fee-v261.js` (محلی Node24 بدون باینری better-sqlite3؛ اجرا روی ایران پس از deploy).
+- **فایل‌ها:** `server/lib/payment-bank-fee.js`, `routes/{expenses,purchases,accounting,transfers}.js`, `public/{app.js,sw.js}`, `scripts/test-payment-bank-fee-v261.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۷ — کالای امانی تجمعی (سند master–detail) SW v262
 
 - **هدف:** ثبت چند کالا در یک سند امانی (نه تک‌ردیفی).
