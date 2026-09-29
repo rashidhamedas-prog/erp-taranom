@@ -11,7 +11,7 @@
 - **رفع:** در `print-line-collapse` — `looksLikeVariantLabel` + `sanitizePrintName/Description/Line`؛ هویت چاپی = ستون کد (+ نام استایل تمیز). دادهٔ ذخیره‌شده عوض نمی‌شود.
 - **تست:** `node server/scripts/test-print-strip-variant-v258.js` + `test-print-collapse-v204.js`
 - **فایل‌ها:** `server/lib/print-line-collapse.js`, `server/public/{app.js,sw.js}`, `server/scripts/test-print-strip-variant-v258.js`
-- **Deploy:** 🔄 در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP @ `926b8a8` — root 200؛ SW `erp-taranom-v258`
 
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور: dedupe دریافت POS + UI چاپ (SW v257)
 
