@@ -13,7 +13,7 @@
 - **UI:** ویرایشگر BOM (محدوده/رنگ + مودال ماتریس + رنگ جزء)؛ ایجاد سفارش با پنل رنگ×سایز؛ رسید از سفارش پیش‌پر؛ اجرای ساده با ماتریس چند SKU.
 - **تست:** `node server/scripts/test-production-variant-static-v261.js`؛ یکپارچه `test-production-variant-bom-v261.js` (نیاز به better-sqlite3 هم‌ABI).
 - **فایل‌ها:** `server/lib/production/{schema,bom,engine,engine-advanced,cutting}.js`, `inventory/apparel-lines.js`, `routes/{production-boms,production}.js`, `public/{app.js,sw.js}`, `scripts/test-production-variant-*.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳ (در صف پس از تست/امنیت)
+- **Deploy:** ✅ 15cbedb — ایران overlay SFTP، pm2 restart بدون --update-env، root 200، SW erp-taranom-v267؛ static 6/6 PASS
 
 ### ۱۴۰۵/۰۷/۰۷ — لاگین: cache-bust SW v266 + instrumentation (پس از restore v265)
 
