@@ -14,7 +14,7 @@
 - **D:** ستون «کد» در A5/casual؛ `buildRows` + enrich چاپ از `products.code` / `product_variants.sku`.
 - **تست:** `node server/scripts/test-invoice-print-fix-v257.js`
 - **فایل‌ها:** `invoice-print.js`, `invoice-print.css`, `print-line-collapse.js`, `invoices.js`, `admin.js`, `auth.js`, `db.js`, `app.js`, `sw.js`
-- **Deploy:** 🔄 در حال انجام
+- **Deploy:** ✅ ایران overlay SFTP @ `9632122` — root 200؛ SW `erp-taranom-v257`؛ pm2 `erp-taranom` online
 
 ### ۱۴۰۵/۰۷/۰۶ — سینک ماتریس موجودی ERP → Site-B2B (SW v256)
 
