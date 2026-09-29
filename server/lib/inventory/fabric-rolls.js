@@ -76,6 +76,23 @@ function availableBatchMeters(db, batchId) {
   return Number(row?.qty_on_hand) || 0;
 }
 
+function normalizeFabricColor(raw) {
+  return String(raw == null ? '' : raw)
+    .trim()
+    .replace(/\u200c/g, '')
+    .replace(/[\u064A\u0649]/g, '\u06cc')
+    .replace(/\u0643/g, '\u06a9')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function colorsMatch(a, b) {
+  const na = normalizeFabricColor(a);
+  const nb = normalizeFabricColor(b);
+  if (!na || !nb) return false;
+  return na === nb;
+}
+
 function applyLiveRollQty(db, r) {
   if (!r || !r.id) return r;
   healUntaggedBatchReceipt(db, r.id);
@@ -193,6 +210,19 @@ function listFabricRolls(db, query = {}) {
   if (query.warehouse_id) { where.push('b.warehouse_id=?'); params.push(Number(query.warehouse_id)); }
   if (query.status) { where.push('b.status=?'); params.push(String(query.status)); }
   else { where.push("COALESCE(b.status,'active') <> 'reversed'"); }
+  if (query.color) {
+    where.push("IFNULL(b.color,'') LIKE ?");
+    params.push('%' + String(query.color).trim() + '%');
+  }
+  if (query.width_cm != null && query.width_cm !== '' && Number(query.width_cm) > 0) {
+    where.push('(b.width_cm=? OR IFNULL(b.width_cm,0)=0)');
+    params.push(Math.round(Number(query.width_cm)));
+  }
+  if (query.q) {
+    where.push("(b.batch_no LIKE ? OR IFNULL(p.name,'') LIKE ? OR IFNULL(b.color,'') LIKE ?)");
+    const like = '%' + String(query.q).trim() + '%';
+    params.push(like, like, like);
+  }
   const rows = db.prepare(`
     SELECT b.*, p.name AS product_name, w.code AS warehouse_code, w.name AS warehouse_name,
            s.name AS supplier_name
@@ -204,13 +234,20 @@ function listFabricRolls(db, query = {}) {
     ORDER BY b.id DESC
     LIMIT 500
   `).all(...params);
+  const wantColor = query.color ? normalizeFabricColor(query.color) : '';
+  const minLive = query.min_qty != null && query.min_qty !== '' ? Number(query.min_qty) : null;
+  const out = [];
   for (const r of rows) {
     applyLiveRollQty(db, r);
+    if (wantColor && !colorsMatch(r.color, query.color)) continue;
+    const live = Number(r.qty_live != null ? r.qty_live : r.qty_on_hand) || 0;
+    if (minLive != null && live + 1e-9 < minLive) continue;
     const meters = Number(r.qty_received != null ? r.qty_received : r.qty_on_hand) || 0;
     const unit = Math.round(Number(r.unit_cost_rial) || 0);
     r.amount_rial = assertSafeRial(Math.round(unit * meters), 'fabric list amount');
+    out.push(r);
   }
-  return rows;
+  return out;
 }
 
 function productUnitCostRial(prod) {
@@ -706,6 +743,8 @@ function updateFabricRoll(db, id, body, user) {
 }
 
 module.exports = {
+  normalizeFabricColor,
+  colorsMatch,
   listFabricRolls,
   listFabricCirculation,
   liveBatchMeters,

@@ -478,9 +478,38 @@ function postCuttingLay(db, body, user) {
   let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
   if (wasteAmt > amount) wasteAmt = amount;
   const date = String(body.date || todayJalali()).trim();
-  const color = String(body.color || '').trim();
+  let color = String(body.color || '').trim();
   const widthCm = Math.round(Number(body.width_cm) || 0);
   const po = resolveOptionalOrder(db, body.production_order_id, plan.product.id);
+  if (po && po.color) {
+    const { colorsMatch } = require('../inventory/fabric-rolls');
+    if (!color) color = String(po.color).trim();
+    else if (!colorsMatch(po.color, color)) {
+      throw httpErr(400, 'رنگ برش باید با رنگ سفارش تولید یکی باشد', 'E_CUT_PO_COLOR', {
+        po_color: po.color, lay_color: color,
+      });
+    }
+  }
+  if (!color) {
+    throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
+  }
+  {
+    const { colorsMatch } = require('../inventory/fabric-rolls');
+    for (const item of prepared) {
+      const batch = item.batch;
+      if (!colorsMatch(batch.color, color)) {
+        throw httpErr(400, 'طاقه باید همان رنگ برش/سفارش باشد', 'E_CUT_ROLL_COLOR', {
+          batch_no: batch.batch_no, roll_color: batch.color, lay_color: color,
+        });
+      }
+      const rollW = Math.round(Number(batch.width_cm) || 0);
+      if (widthCm > 0 && rollW > 0 && rollW !== widthCm) {
+        throw httpErr(400, 'عرض طاقه با عرض لایه‌چینی یکی نیست', 'E_CUT_ROLL_WIDTH', {
+          batch_no: batch.batch_no, roll_width: rollW, lay_width: widthCm,
+        });
+      }
+    }
+  }
 
   let layId;
   try {

@@ -10633,23 +10633,27 @@ async function renderCuttingLaysTab(body){
 }
 function cuttingLayModal(){
   window._cutIdemKey=newCutIdemKey();
+  window._cutFabricProductId=null;
   const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
   const list=prods.length?prods:(CACHE.allProducts||[]);
-  const rolls=window._cutRolls||[];
   showModal('لایه‌چینی و برش',`
     <div class="form-grid">
       <div class="fg"><label>کالای دوخته‌شده</label>${productSelect('cl-prod','',list)}</div>
       <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="2"></div>
       <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="10"></div>
       <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01"></div>
-      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="150"></div>
-      <div class="fg"><label>رنگ</label><input id="cl-color"></div>
-      <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="150" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}"></div>
+      <div class="fg"><label>رنگ *</label>
+        <select id="cl-color"><option value="">— انتخاب از طاقه‌های موجود —</option></select>
+        <input id="cl-color-extra" placeholder="یا رنگ دستی" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
+      </div>
+      <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
     </div>
+    <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
-    <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(s=>`<div class="fg"><label>${s}</label><input type="number" min="0" step="1" value="0" data-cut-size="${s}"></div>`).join('')}</div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌ها (متر برداشت) — انبار از طاقهٔ انتخاب‌شده تشخیص داده می‌شود</div>
-    <div id="cl-rolls">${rolls.map(b=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px`)}"><input type="checkbox" class="cl-roll" data-id="${b.id}" data-wh="${b.warehouse_id||''}" data-max="${b.qty_on_hand||0}"> ${esc(b.batch_no)} ${esc(b.color||'')} — مانده ${fmt(b.qty_on_hand||0)} متر <input type="number" class="cl-roll-m" data-csp-style="${CSP.style(`width:90px`)}" min="0" step="0.01" placeholder="متر"></label>`).join('')||'<span class="muted">طاقه فعالی نیست — اول دریافت طاقه در انبار مواد</span>'}</div>
+    <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(sz=>`<div class="fg"><label>${sz}</label><input type="number" min="0" step="1" value="0" data-cut-size="${sz}"></div>`).join('')}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده) — انبار از طاقه تشخیص داده می‌شود</div>
+    <div id="cl-rolls"><span class="muted">ابتدا کالا و رنگ را انتخاب کنید…</span></div>
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
@@ -10657,8 +10661,120 @@ function cuttingLayModal(){
     </div>`);
   const prodEl=el('cl-prod');
   const refreshSizes=async()=>{ cuttingRenderSizeGrid(await cuttingSizeLabelsForProduct(+prodEl?.value||0)); };
-  if(prodEl) prodEl.addEventListener('change', refreshSizes);
-  refreshSizes();
+  if(prodEl){
+    prodEl.addEventListener('change', async()=>{
+      await refreshSizes();
+      await cuttingResolveFabricAndRolls();
+    });
+  }
+  el('cl-color')?.addEventListener('change', ()=>{ if(el('cl-color-extra')) el('cl-color-extra').value=''; cuttingRefreshRollPicker(); });
+  refreshSizes().then(()=>cuttingResolveFabricAndRolls());
+}
+async function cuttingResolveFabricAndRolls(){
+  const pid=+el('cl-prod')?.value||0;
+  window._cutFabricProductId=null;
+  const hint=el('cl-fabric-hint');
+  if(!pid){
+    if(hint) hint.textContent='کالای دوخته‌شده را انتخاب کنید تا پارچهٔ فرمول و طاقه‌های مجاز مشخص شوند.';
+    cuttingRenderRollPicker([]);
+    return;
+  }
+  try{
+    const q='product_id='+encodeURIComponent(pid)
+      +'&marker_length_m=1&ply_count=1&size_breakdown='+encodeURIComponent(JSON.stringify({tmp:1}));
+    // preview needs real matrix — use size labels
+    const sizes=window._cutSizes||CUT_SIZES;
+    const bd={}; bd[sizes[0]||'38']=1;
+    const p=await api('GET','/production/cutting-lays/preview?product_id='+pid
+      +'&marker_length_m=1&ply_count=1&size_breakdown='+encodeURIComponent(JSON.stringify(bd)));
+    window._cutFabricProductId=p.fabric_product_id||null;
+    if(hint){
+      hint.textContent=window._cutFabricProductId
+        ? ('پارچهٔ فرمول: #'+window._cutFabricProductId+' — فقط طاقه‌های همین کالا با رنگ انتخابی نشان داده می‌شوند.')
+        : 'برای این کالا پارچهٔ متری در فرمول پیدا نشد؛ طاقه‌ها فیلتر کالا ندارند.';
+    }
+  }catch(e){
+    if(hint) hint.textContent=e.message||'خطا در تشخیص پارچهٔ فرمول';
+  }
+  await cuttingLoadRollColors();
+  await cuttingRefreshRollPicker();
+}
+async function cuttingLoadRollColors(){
+  const sel=el('cl-color'); if(!sel) return;
+  const prev=sel.value;
+  const qs=new URLSearchParams({status:'active', min_qty:'0.01'});
+  if(window._cutFabricProductId) qs.set('product_id', String(window._cutFabricProductId));
+  let rows=[];
+  try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
+  window._cutRollsAll=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  const colors=[...new Set(window._cutRollsAll.map(b=>String(b.color||'').trim()).filter(Boolean))];
+  sel.innerHTML='<option value="">— انتخاب از طاقه‌های موجود —</option>'+colors.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+  if(prev && colors.includes(prev)) sel.value=prev;
+}
+async function cuttingRefreshRollPicker(){
+  const color=(el('cl-color-extra')?.value||'').trim() || (el('cl-color')?.value||'').trim();
+  const width=+el('cl-w')?.value||0;
+  const qs=new URLSearchParams({status:'active', min_qty:'0.01'});
+  if(window._cutFabricProductId) qs.set('product_id', String(window._cutFabricProductId));
+  if(color) qs.set('color', color);
+  if(width>0) qs.set('width_cm', String(width));
+  let rows=[];
+  try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
+  rows=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  cuttingRenderRollPicker(rows, color);
+}
+function cuttingRenderRollPicker(rows, color){
+  const box=el('cl-rolls'); if(!box) return;
+  if(!color){
+    box.innerHTML='<span class="muted">رنگ را انتخاب کنید تا طاقه‌های هم‌رنگ از انبار مواد لیست شوند.</span>';
+    return;
+  }
+  if(!rows.length){
+    box.innerHTML='<span class="muted">طاقهٔ فعالی با این پارچه/رنگ/عرض نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.</span>';
+    return;
+  }
+  box.innerHTML=rows.map(b=>{
+    const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+    const w=b.width_cm?(' · عرض '+b.width_cm):'';
+    const pat=b.pattern?(' · '+esc(b.pattern)):'';
+    return '<label data-csp-style="'+CSP.style('display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;flex-wrap:wrap')+'">'
+      +'<input type="checkbox" class="cl-roll" data-id="'+b.id+'" data-wh="'+(b.warehouse_id||'')+'" data-max="'+live+'" data-color="'+esc(b.color||'')+'"> '
+      +'<span class="mono">'+esc(b.batch_no)+'</span> '
+      +esc(b.color||'')+pat+w
+      +' — مانده <b>'+fmt(live)+'</b> متر'
+      +(b.product_name?(' <span class="muted">('+esc(b.product_name)+')</span>'):'')
+      +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="متر"></label>';
+  }).join('');
+}
+async function cuttingApplyPo(){
+  const id=+el('cl-po')?.value||0;
+  if(!id) return;
+  try{
+    const po=await api('GET','/production/orders/'+id);
+    if(po && po.product_id && el('cl-prod')){
+      el('cl-prod').value=String(po.product_id);
+      // trigger product search select if custom widget
+      el('cl-prod').dispatchEvent(new Event('change'));
+    }
+    if(po && po.color){
+      if(el('cl-color-extra')) el('cl-color-extra').value=po.color;
+      await cuttingLoadRollColors();
+      if(el('cl-color')){
+        const opt=[...el('cl-color').options].find(o=>o.value===po.color);
+        if(opt) el('cl-color').value=po.color;
+      }
+    }
+    if(po && po.size_breakdown){
+      let bd=po.size_breakdown;
+      if(typeof bd==='string'){ try{ bd=JSON.parse(bd); }catch(_){ bd={}; } }
+      cuttingRenderSizeGrid(Object.keys(bd).length?Object.keys(bd):(window._cutSizes||CUT_SIZES));
+      Object.entries(bd).forEach(([sz,q])=>{
+        const inp=document.querySelector('#cl-size-grid [data-cut-size="'+String(sz).replace(/"/g,'')+'"]');
+        if(inp) inp.value=q;
+      });
+    }
+    await cuttingResolveFabricAndRolls();
+  }catch(e){ showToast(e.message||'سفارش یافت نشد','error'); }
 }
 function cuttingLayBreakdown(){
   const o={};
@@ -10695,7 +10811,7 @@ async function cuttingLaySave(){
   if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
   try{
     await api('POST','/production/cutting-lays',{
-      product_id:+el('cl-prod').value, color:el('cl-color').value.trim(),
+      product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
       marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
       actual_meters:actual, width_cm:+el('cl-w').value||0,
       production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
@@ -13827,6 +13943,11 @@ function prodOrderErrMsg(e){
     E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
     E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
     E_VARIANT_REQUIRED:'برای این کالا تعداد هر رنگ و سایز را مشخص کنید',
+        E_CUT_ROLL_COLOR:'رنگ طاقه با رنگ برش/سفارش یکی نیست',
+        E_CUT_ROLL_WIDTH:'عرض طاقه با عرض لایه‌چینی یکی نیست',
+        E_CUT_COLOR_REQUIRED:'رنگ برش الزامی است',
+        E_CUT_PO_COLOR:'رنگ برش با رنگ سفارش تولید یکی نیست',
+        E_CUT_ROLL_PRODUCT:'طاقه باید همان پارچهٔ فرمول باشد',
     E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید یکی نیست',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
     E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
@@ -23192,6 +23313,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
+        <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
         <li><b>رنگ×سایز در تولید:</b> BOM سطح استایل می‌ماند. در سرفصل محدوده سایز/برچسب رنگ؛ روی قلم پارچه با 📐 ماتریس سایز؛ برای جزء قطعه‌ای ماتریسی مود «از رنگ سفارش» یا «ثابت». سفارش ماتریسی بدون رنگ و تعداد per سایز ثبت نمی‌شود. رسید FG/اجرای ساده ماتریس می‌پذیرند؛ حواله و backflush مادهٔ ماتریسی بدون واریانت رد می‌شود. رسید برش لایهٔ رنگ×سایز را می‌نویسد.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
