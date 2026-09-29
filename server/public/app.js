@@ -1007,9 +1007,6 @@ function showCustDrop(id, q){
   const optional=el(id)?.dataset?.optional==='1';
   const term=(q||'').trim().toLowerCase();
   let list=Array.isArray(CACHE.customers)?CACHE.customers:[];
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C2',location:'app.js:showCustDrop',message:'customer dropdown open',data:{id,term,cacheIsArray:Array.isArray(CACHE.customers),cacheLen:list.length,role:ME&&ME.role,userId:ME&&ME.id},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if(term){
     const words=term.split(/\s+/);
     list=list.filter(c=>{
@@ -2563,21 +2560,12 @@ async function loadInitial(){
   }catch(e){ console.error(e); }
 }
 async function ensureCustomersCache(){
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C1',location:'app.js:ensureCustomersCache',message:'ensureCustomersCache entry',data:{hadCache:!!(CACHE.customers&&CACHE.customers.length),cacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,role:ME&&ME.role,userId:ME&&ME.id},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if(Array.isArray(CACHE.customers) && CACHE.customers.length) return CACHE.customers;
   const resp = await api('GET','/customers');
   CACHE.customers = listRows(resp);
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C1',location:'app.js:ensureCustomersCache:fetch',message:'customers fetched',data:{fetchedLen:CACHE.customers.length,isArray:true},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   return CACHE.customers;
 }
 async function ensureProductsCache(){
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:ensureProductsCache',message:'ensureProductsCache entry',data:{allLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',prodFilterSearch:typeof prodFilter!=='undefined'?(prodFilter.search||''):''},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   // Only trust allProducts when marked as a complete (unfiltered) catalog.
   if(CACHE._allProductsIsFull && CACHE.allProducts?.length) return CACHE.allProducts;
   const catalog = await fetchCatalogList('/products');
@@ -4324,9 +4312,6 @@ async function fupModal(id, defaultStage, presetCustId){
     interest_level:'mid', purchase_prob:50, status:'open', priority:'mid',
     cust_id:presetCustId||0
   };
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C3',location:'app.js:fupModal',message:'followup modal open',data:{id:id||0,custCacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,role:ME&&ME.role,userId:ME&&ME.id,calledEnsure:true},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const userOpts=(CACHE.users||[]).map(u=>`<option value="${u.id}" ${f.assigned_to===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش پیگیری':'پیگیری جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -4613,9 +4598,6 @@ async function _openInvBuilder(id){
   rememberPrintDocId(id);
   await ensureCustomersCache();
   await ensureProductsCache();
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'C3',location:'app.js:_openInvBuilder',message:'invoice builder open',data:{id:id||0,custCacheLen:Array.isArray(CACHE.customers)?CACHE.customers.length:-1,allProdLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',role:ME&&ME.role,userId:ME&&ME.id,ensuredCustomers:true},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   await ensurePayCaches();
   let inv = null;
   if(id){
@@ -4863,9 +4845,6 @@ function renderInvPicker(){
   let prods=(CACHE._invProducts && CACHE._invProducts.length
     ? CACHE._invProducts
     : (CACHE.allProducts.length?CACHE.allProducts:CACHE.products)).slice();
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P2',location:'app.js:renderInvPicker',message:'invoice product picker',data:{whId,q,srcLen:prods.length,allLen:Array.isArray(CACHE.allProducts)?CACHE.allProducts.length:0,isFull:!!CACHE._allProductsIsFull,invLen:Array.isArray(CACHE._invProducts)?CACHE._invProducts.length:0,accSearch:typeof PRODUCT_ACC_SEARCH!=='undefined'?PRODUCT_ACC_SEARCH:'',sample:(prods[0]&&prods[0].name)||null},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if(q) prods=prods.filter(p=>textMatchesQuery((p.name||'')+' '+(p.code||'')+' '+(p.category||'')+' '+(p.barcode||''), q));
   const INV_PICK_LIMIT=60;
   const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
@@ -12029,9 +12008,9 @@ async function prodBomEditModal(id, tab){
       ${canBomEdit?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>${canBomEdit?'حذف':''}</th>
+      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
     </tr></thead><tbody id="pbe-lines">
-      ${lines.map(L=>prodBomLineRowHtml(L, !canBomEdit, bom.product_id)).join('')||(!canBomEdit?`<tr><td colspan="5" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`:'')}
+      ${lines.map(L=>prodBomLineRowHtml(L, !canBomEdit, bom.product_id)).join('')||(!canBomEdit?`<tr><td colspan="7" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`:'')}
     </tbody></table></div>`;
   } else if(activeTab==='ops'){
     panel=prodBomOpsPanelHtml(id, ops, !canBomEdit, stageCCs);
@@ -12049,6 +12028,9 @@ async function prodBomEditModal(id, tab){
       <div class="fg"><label>نام</label><input id="pbe-name" value="${esc(bom.name||'')}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
+      <div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>برچسب رنگ</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>رنگ کاتالوگ (اختیاری)</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">—</option></select></div>
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${canBomEdit?'':'disabled'}>${esc(bom.note||'')}</textarea></div>
     </div>
     ${tabBar}
@@ -12060,6 +12042,7 @@ async function prodBomEditModal(id, tab){
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){prodBomActivate((id))})}">فعال‌سازی</button>`:''}
       ${bom.status==='active'&&(typeof canPerm==='function'&&canPerm('production_bom','edit'))?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomVersionUp((id))})}">نسخه جدید برای ویرایش</button>`:''}
     </div>`, true);
+  prodBomFillColorSelect(bom.color_id);
   if(canBomEdit && activeTab==='items' && !lines.length) prodBomAddLineRow();
 }
 function prodBomStageCcOpts(selected){
@@ -16353,9 +16336,6 @@ async function refreshAccProductsTableOnly(){
   const catalog=await fetchCatalogList('/products', extra);
   const rows=catalog.rows||[];
   const writeMaster = !search && !catFilter;
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:refreshAccProductsTableOnly',message:'acc products refresh — master catalog write?',data:{search,catFilter,rowsLen:rows.length,total:catalog.total,willAssignAllProducts:writeMaster,isFull:!!CACHE._allProductsIsFull},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   // Invariant: filtered UI rows never overwrite CACHE.allProducts.
   if(writeMaster) setFullProductsCatalog(rows);
   const canMut=isAdmin()||ME.role==='accounting';
@@ -16391,9 +16371,6 @@ async function renderAccProductsTab(body){
   const catalog=await fetchCatalogList('/products', extra);
   const rows=catalog.rows||[];
   const writeMaster = !search && !catFilter;
-  // #region agent log
-  fetch('http://127.0.0.1:7513/ingest/92e01601-0f40-42fb-95b7-cf3b640c5e7e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cedad3'},body:JSON.stringify({sessionId:'cedad3',runId:'post-fix',hypothesisId:'P1',location:'app.js:renderAccProductsTab',message:'acc products tab — master catalog write?',data:{search,catFilter,rowsLen:rows.length,total:catalog.total,willAssignAllProducts:writeMaster,isFull:!!CACHE._allProductsIsFull},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   // Invariant: filtered UI rows never overwrite CACHE.allProducts.
   if(writeMaster) setFullProductsCatalog(rows);
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
@@ -18102,16 +18079,24 @@ function transferModal(preferTo){
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>تاریخ</label><input id="tr-date" value="${todayJalali()}"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="tr-amount" type="text" inputmode="numeric" class="money" min="1"></div>
-      <div class="fg"><label>از (مبدأ) *</label><select id="tr-from-type" data-csp-change="${CSP.bind('change',function(event){updateTransferSideOptions('from')})}"><option value="cash">صندوق نقدی</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>از (مبدأ) *</label><select id="tr-from-type" data-csp-change="${CSP.bind('change',function(event){updateTransferSideOptions('from');toggleTransferFee()})}"><option value="cash">صندوق نقدی</option><option value="bank">بانک</option></select></div>
       <div class="fg"><label>حساب مبدأ</label><select id="tr-from-id">${transferSideOptions('cash')}</select></div>
       <div class="fg"><label>به (مقصد) *</label><select id="tr-to-type" data-csp-change="${CSP.bind('change',function(event){updateTransferSideOptions('to')})}"><option value="cash">صندوق نقدی</option><option value="bank" selected>بانک</option></select></div>
       <div class="fg"><label>حساب مقصد</label><select id="tr-to-id">${transferSideOptions('bank')}</select></div>
+      <div class="fg" id="tr-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط وقتی مبدأ بانک است — از بانک مبدأ کسر و در سند به حساب ۶۱۱۵ ثبت می‌شود.')}</label><input id="tr-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
       <div class="fg full"><label>شرح</label><input id="tr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTransfer()})}">💾 ثبت انتقال</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   el('tr-to-type').value=(preferTo==='cash'?'cash':'bank');
   updateTransferSideOptions('to');
+  toggleTransferFee();
+}
+function toggleTransferFee(){
+  const fromBank=el('tr-from-type')?.value==='bank';
+  const fg=el('tr-fee-fg');
+  if(fg) fg.style.display=fromBank?'flex':'none';
+  if(!fromBank && el('tr-fee')) el('tr-fee').value='';
 }
 function updateTransferSideOptions(side){
   const type=el('tr-'+side+'-type').value;
@@ -18124,7 +18109,8 @@ async function saveTransfer(){
     date:el('tr-date').value, amount,
     from_type:el('tr-from-type').value, from_id:el('tr-from-id').value||null,
     to_type:el('tr-to-type').value, to_id:el('tr-to-id').value||null,
-    note:el('tr-note').value
+    note:el('tr-note').value,
+    fee_rial: moneyVal('tr-fee')||0
   };
   try{
     await api('POST','/transfers',data);
@@ -20263,7 +20249,8 @@ async function saveIncentivePayment(repId){
       note:el('ip-note').value,
       bank_id:+el('ip-bank').value||null,
       cash_box_id:+el('ip-cashbox')?.value||null,
-      check_category_id:+el('ip-checkcat')?.value||null
+      check_category_id:+el('ip-checkcat')?.value||null,
+      fee_rial:payFeeVal('ip')
     });
     closeModal(); showToast('پرداخت انگیزه ثبت شد');
     loadAccTab('commissions');

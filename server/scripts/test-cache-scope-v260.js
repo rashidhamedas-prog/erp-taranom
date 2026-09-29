@@ -21,7 +21,7 @@ ok(!/CACHE\.allProducts\s*=\s*rows/.test(appJs), 'no raw CACHE.allProducts=rows 
 ok(/async function fupModal/.test(appJs) && /fupModal[\s\S]{0,400}await ensureCustomersCache/.test(appJs), 'fupModal awaits ensureCustomersCache');
 ok(/_openInvBuilder[\s\S]{0,300}await ensureCustomersCache/.test(appJs), '_openInvBuilder awaits ensureCustomersCache');
 ok(/ensureProductsCache[\s\S]{0,500}_allProductsIsFull/.test(appJs), 'ensureProductsCache trusts only full catalog');
-ok(/willAssignAllProducts:writeMaster/.test(appJs), 'post-fix instrumentation marks writeMaster');
+ok(!appJs.includes('127.0.0.1:7513'), 'debug ingest instrumentation removed');
 
 if (failed) process.exit(1);
 console.log('All cache-scope invariants OK');

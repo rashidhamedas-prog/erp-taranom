@@ -5,6 +5,13 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — پاکسازی اینسترومنت دیباگ کش (SW v261)
+
+- اینسترومنت جلسهٔ `cedad3` از `app.js` حذف شد؛ منطق فیکس v260 (`setFullProductsCatalog` / `ensureCustomersCache`) بدون تغییر ماند.
+- **تست:** `node server/scripts/test-cache-scope-v260.js`
+- **فایل‌ها:** `server/public/{app.js,sw.js}`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۷ — کش کالا/مشتری: جلوگیری از نشت فیلتر + هیدریت پیکر (SW v260)
 
 - **باگ ۱ (سرچ آفاق):** تب کالاهای حسابداری نتیجهٔ فیلتر `PRODUCT_ACC_SEARCH` را روی `CACHE.allProducts` می‌نوشت؛ `ensureProductsCache` همان زیرمجموعه را نگه می‌داشت → پیکر فاکتور/خرید فقط همان کالا را می‌دید.
