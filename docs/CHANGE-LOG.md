@@ -13,7 +13,7 @@
 - **رفع ۲:** قبل از باز شدن پیگیری و فاکتورساز، `ensureCustomersCache` (با `listRows`) اجباری شد.
 - **تست:** `node server/scripts/test-cache-scope-v260.js`
 - **فایل‌ها:** `server/public/{app.js,sw.js}`, `server/scripts/test-cache-scope-v260.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `331a165` — ایران overlay SFTP، root 200، SW `erp-taranom-v260` (اینسترومنت دیباگ تا تأیید کاربر نگه داشته شد)
 
 ### ۱۴۰۵/۰۷/۰۷ — موجودی قطعه‌ای صحیح + جدول بدون اسکرول داخلی (SW v259)
 
