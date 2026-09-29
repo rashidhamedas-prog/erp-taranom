@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
+const { parseStockQty, requiresIntegerQty } = require('../lib/inventory/qty-policy');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
@@ -490,24 +491,26 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     ? db.prepare('SELECT id FROM warehouses WHERE id=?').get(parseInt(warehouse_id, 10))
     : db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
+  const unitVal = unit || 'عدد';
+  const stockOpen = parseStockQty(stock, { unit: unitVal, integer: requiresIntegerQty(null, null, unitVal) });
   const result = db.prepare(
     `INSERT INTO products (
       user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
       pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
       location,opening_price,sms_code,tax_stuff_id
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseQty(stock),
-        parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, stockOpen,
+        parseInt(stock_alert) || 5, unitVal, note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
         parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
         String(tax_stuff_id || '').trim() || null);
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(result.lastInsertRowid, defaultWarehouse.id, parseQty(stock));
+      .run(result.lastInsertRowid, defaultWarehouse.id, stockOpen);
   }
   try {
-    const openQty = parseQty(stock);
+    const openQty = stockOpen;
     const unitCost = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
     if (openQty > 0 && unitCost > 0) {
       const { postProductOpeningInventory } = require('../lib/opening-post');
@@ -605,11 +608,14 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     : (prod.code || '');
   const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
   const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
-  const stockVal = excelHasMoves
-    ? parseQty(prod.stock)
-    : (bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock));
-  const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
   const unitVal = bodyHas(body, 'unit') ? (unit || 'عدد') : (prod.unit || 'عدد');
+  const intStock = requiresIntegerQty(db, Number(req.params.id), unitVal);
+  const stockVal = excelHasMoves
+    ? parseStockQty(prod.stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock })
+    : (bodyHas(body, 'stock')
+      ? parseStockQty(stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock })
+      : parseStockQty(prod.stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock }));
+  const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
   const noteVal = bodyHas(body, 'note') ? (note || '') : (prod.note || '');
   const colorsVal = bodyHas(body, 'colors')
     ? Math.max(1, parseInt(colors, 10) || 1)
@@ -710,7 +716,10 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const newStock = parseQty(stock);
+  const newStock = parseStockQty(stock, {
+    db, productId: Number(req.params.id), unit: prod.unit,
+    integer: requiresIntegerQty(db, Number(req.params.id), prod.unit),
+  });
   const change = newStock - (Number(prod.stock) || 0);
   db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
   // Keep the product's warehouse_stock in step with the manual override so the

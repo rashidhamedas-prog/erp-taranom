@@ -4,6 +4,11 @@
  * Matrix products require variant_id; fabric/batch callers must not use this path.
  */
 const { round3 } = require('../round3');
+const {
+  requiresIntegerQty,
+  allocateIntegers,
+  healApparelIntegerStock,
+} = require('./qty-policy');
 
 function movErr(code, status, message) {
   const e = new Error(message || code);
@@ -161,6 +166,9 @@ function ensureInventorySchema(db) {
   try { reconcileVariantWarehouseProjections(db); } catch (e) {
     console.warn('reconcileVariantWarehouseProjections:', e.message);
   }
+  try { healApparelIntegerStock(db); } catch (e) {
+    console.warn('healApparelIntegerStock:', e.message);
+  }
 }
 
 /**
@@ -211,9 +219,20 @@ function postStockMovement(db, opts) {
   const warehouseId = opts.warehouseId != null && opts.warehouseId !== ''
     ? parseInt(opts.warehouseId, 10)
     : null;
-  const qtyDelta = round3(opts.qtyDelta);
+  let qtyDelta = round3(opts.qtyDelta);
   if (!Number.isFinite(qtyDelta) || qtyDelta === 0) {
     throw movErr('E_INV_QTY', 400, 'qty_delta نامعتبر است');
+  }
+  // Apparel / piece goods: never accumulate fractional stock via movements
+  if (requiresIntegerQty(db, productId)) {
+    const rounded = Math.round(qtyDelta);
+    if (Math.abs(qtyDelta - rounded) > 0.001) {
+      throw movErr('E_QTY_NOT_INTEGER', 400, 'موجودی کالای قطعه‌ای باید عدد صحیح باشد');
+    }
+    qtyDelta = rounded;
+    if (qtyDelta === 0) {
+      throw movErr('E_INV_QTY', 400, 'qty_delta نامعتبر است');
+    }
   }
   const docType = String(opts.docType || '').trim();
   if (!docType) throw movErr('E_INV_ARGS', 400, 'doc_type الزامی است');
@@ -519,6 +538,11 @@ function reconcileVariantWarehouseProjections(db) {
     if (sum > global + 0.001 && global >= 0) {
       if (global === 0 || sum <= 0) {
         for (const r of rows) vwsUpd.run(0, v.id, r.warehouse_id);
+      } else if (requiresIntegerQty(db, v.product_id)) {
+        // Integer-safe scale (largest remainder) — never invent 0.667 from 2/3
+        const target = Math.round(global);
+        const next = allocateIntegers(rows.map((r) => Number(r.qty) || 0), target);
+        rows.forEach((r, i) => vwsUpd.run(next[i], v.id, r.warehouse_id));
       } else {
         const factor = global / sum;
         let assigned = 0;
@@ -592,4 +616,5 @@ module.exports = {
   variantWarehouseQty,
   seedVariantWarehouseOpening,
   reconcileVariantWarehouseProjections,
+  healApparelIntegerStock,
 };

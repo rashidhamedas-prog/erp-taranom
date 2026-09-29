@@ -285,11 +285,6 @@ function fmtPieceQty(n){
   const x=Math.round(Number(n)||0);
   return String(Object.is(x,-0)?0:x);
 }
-/** موجودی قطعه‌ای (عدد/رنگ×سایز) — فقط صحیح، بدون جداکننده تا input اعشار نسازد */
-function fmtPieceQty(n){
-  const x=Math.round(Number(n)||0);
-  return String(Object.is(x,-0)?0:x);
-}
 /** درصد — تا ۳ رقم اعشار با رند رقم سوم (هرگز Math.round روی درصد نزن) */
 function fmtPct(n){
   const x=round3(n);
@@ -6359,6 +6354,7 @@ async function prodModal(id){
     if((!p.images||!p.images.length) && p.image) p.images=[{id:0,filename:p.image,sort_order:0}];
   }
   window._prodModalProduct = p;
+  window._prodMatrixWhId = Number(p.warehouse_id)||window._prodMatrixWhId||0;
   const cats=CACHE.productCategories||[];
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -6538,13 +6534,13 @@ async function refreshProdVariantsPanel(productId){
       box.innerHTML=byWhLine+'<span class="muted">هنوز SKU رنگ×سایز ساخته نشده — «ساخت ماتریس» را بزنید.</span>';
       return;
     }
-    box.innerHTML=`${byWhLine}<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:6px')}">اعداد جدول برای: <b>${whLabel}</b></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
+    box.innerHTML=`${byWhLine}<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:6px')}">اعداد جدول برای: <b>${whLabel}</b> — عدد صحیح همین انبار</div>
+    <div class="tbl-wrap tbl-fit"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
       ${matrix.map(v=>`<tr>
         <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
         <td>${esc(v.color_name||v.color_code||'—')}</td>
         <td>${esc(v.size_name||v.size_code||'—')}</td>
-        <td><input type="number" min="0" class="pv-stock-edit" data-color="${v.color_id||0}" data-size="${v.size_id||0}" value="${v.stock||0}" data-csp-style="${CSP.style(`width:80px`)}"></td>
+        <td><input type="number" min="0" step="1" inputmode="numeric" class="pv-stock-edit" data-color="${v.color_id||0}" data-size="${v.size_id||0}" value="${fmtPieceQty(v.stock)}" data-csp-style="${CSP.style(`width:88px`)}"></td>
         <td class="mono" dir="ltr">${esc(v.barcode||'—')}</td>
       </tr>`).join('')}
     </tbody></table></div>
@@ -6614,7 +6610,8 @@ async function submitProdVariantMatrix(productId){
 }
 async function saveProdVariantStocks(productId){
   const cells=[...document.querySelectorAll('.pv-stock-edit')].map(inp=>({
-    color_id:+inp.dataset.color, size_id:+inp.dataset.size, qty:+inp.value||0
+    color_id:+inp.dataset.color, size_id:+inp.dataset.size,
+    qty:Math.max(0, Math.round(parseQty(inp.value, 0)))
   })).filter(c=>c.color_id&&c.size_id);
   if(!cells.length){ showToast('ترکیب رنگ×سایز نیست','error'); return; }
   const warehouse_id=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||undefined;
@@ -9080,15 +9077,7 @@ function enhanceAccTables(root){
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
     const wrap=t.closest('.tbl-wrap');
-    if(wrap && !wrap.classList.contains('tbl-scroll') && !wrap.classList.contains('tbl-no-sticky')){
-      if(wrap.getAttribute('data-scroll')==='1') wrap.classList.add('tbl-scroll');
-      else {
-        const siblingTables=(wrap.parentElement||document).querySelectorAll(':scope > .tbl-wrap table.tbl, :scope > div > .tbl-wrap table.tbl');
-        if(siblingTables.length>1) wrap.classList.add('tbl-scroll');
-        else if(!wrap.closest('.modal-body,.mdi-body') && t.getBoundingClientRect().height > Math.max(320, window.innerHeight * 0.62))
-          wrap.classList.add('tbl-scroll');
-      }
-    }
+    /* ردیف جدول باید کامل دیده شود؛ اسکرول داخلی جدول ساخته نمی‌شود. */
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
@@ -22696,7 +22685,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است؛ اگر اعشار دیدید از دفتر حرکات انبار به همان عدد ذخیره‌شده برمی‌گردد. هر دو جدول فرم، موجودی همان انبار انتخاب‌شده را نشان می‌دهند. جدول‌ها ردیف کامل را بدون نوار غلطک داخلی نشان می‌دهند. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),

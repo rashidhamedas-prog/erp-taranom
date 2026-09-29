@@ -359,14 +359,18 @@ function updateVariant(db, id, body) {
 
 /** Change stock on one SKU only — never touches siblings or products.stock unless requested. */
 function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set') {
+  const { parseStockQty, requiresIntegerQty } = require('../inventory/qty-policy');
   const row = db.prepare('SELECT * FROM product_variants WHERE id=?').get(id);
   if (!row) throw Object.assign(new Error('واریانت یافت نشد'), { status: 404 });
+  const integer = requiresIntegerQty(db, row.product_id);
   let next;
   if (mode === 'delta') {
-    next = (Number(row.stock) || 0) + Number(deltaOrAbsolute || 0);
+    const delta = parseStockQty(deltaOrAbsolute || 0, { integer, strict: integer });
+    next = (Number(row.stock) || 0) + delta;
   } else {
-    next = Number(deltaOrAbsolute);
+    next = parseStockQty(deltaOrAbsolute, { integer, strict: integer });
   }
+  if (integer) next = Math.round(next);
   if (!Number.isFinite(next)) {
     throw Object.assign(new Error('موجودی نامعتبر است'), { status: 400 });
   }
@@ -445,8 +449,10 @@ function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
  * Set per-SKU qty (color × size). Header products.stock and warehouse_stock
  * become the sum so live pack = in-stock colors × in-stock sizes.
  * Unchecked colors/sizes are deactivated so they leave the live pack.
+ * Matrix SKUs are always piece goods → INTEGER qty (qty-policy).
  */
 function applyStockMatrix(db, productId, cells, opts = {}) {
+  const { parseStockQty } = require('../inventory/qty-policy');
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) throw Object.assign(new Error('محصول یافت نشد'), { status: 404 });
   const list = Array.isArray(cells) ? cells : [];
@@ -478,7 +484,19 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
     const colorId = Number(cell.color_id);
     const sizeId = Number(cell.size_id);
     if (!colorId || !sizeId) continue;
-    const qty = Number(cell.qty);
+    let qty;
+    try {
+      qty = parseStockQty(cell.qty, {
+        db, productId, unit: product.unit, integer: true, strict: true, fallback: 0,
+      });
+    } catch (e) {
+      if (e && e.code === 'E_QTY_NOT_INTEGER') {
+        throw Object.assign(new Error('موجودی رنگ×سایز باید عدد صحیح باشد (مثلاً ۳ نه ۰٫۷۵)'), {
+          status: 400, code: 'E_QTY_NOT_INTEGER',
+        });
+      }
+      throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
+    }
     if (!Number.isFinite(qty) || qty < 0) {
       throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
     }
@@ -493,7 +511,7 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       const sumAll = db.prepare(
         'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
       ).get(row.id);
-      const global = Number(sumAll && sumAll.s) || 0;
+      const global = Math.round(Number(sumAll && sumAll.s) || 0);
       db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(global, row.id);
       updated.push({
         id: row.id, color_id: colorId, size_id: sizeId,
@@ -516,7 +534,7 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       GROUP BY vws.warehouse_id
     `).all(productId);
     for (const w of byWh) {
-      const q = Number(w.qty) || 0;
+      const q = Math.round(Number(w.qty) || 0);
       productStock += q;
       db.prepare(`
         INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
