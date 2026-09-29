@@ -704,6 +704,20 @@ function postCuttingPack(db, layId, body, user) {
       const id = ins.lastInsertRowid;
       assertJournalIdempotent(db, 'cutting_pack', id);
 
+      const sizes = Object.keys(breakdown);
+      const apparel = require('../inventory/apparel-lines');
+      const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
+      let fgLines = [];
+      if (hasActiveMatrixVariants(db, lay.product_id)) {
+        // Fail closed: resolve variants BEFORE header stock credit.
+        fgLines = apparel.resolveApparelLines(db, {
+          productId: lay.product_id, qty, sizeBreakdown: breakdown, color,
+        });
+        if (!fgLines.length) {
+          throw httpErr(400, 'برای کالای ماتریسی تفکیک رنگ×سایز الزامی است', 'E_VARIANT_REQUIRED');
+        }
+      }
+
       const led = postInventoryMovement(db, {
         eventType: 'production_receipt',
         productId: lay.product_id,
@@ -735,12 +749,27 @@ function postCuttingPack(db, layId, body, user) {
       db.prepare('UPDATE cutting_packs SET journal_id=?, ledger_id=? WHERE id=?')
         .run(journalId, led.id, id);
 
-      const sizes = Object.keys(breakdown);
+      if (fgLines.length) {
+        apparel.postApparelLines(db, {
+          productId: lay.product_id, warehouseId: wh.id, lines: fgLines,
+          docType: 'cutting_pack', docId: id, userId: user.id,
+          note: `رسید برش ${packNo}`, sign: 1, allowNegative: true,
+        });
+      }
+      const variantBySize = new Map();
+      for (const line of fgLines) {
+        const v = db.prepare(`
+          SELECT pv.id, ps.name AS size_name FROM product_variants pv
+          LEFT JOIN product_sizes ps ON ps.id = pv.size_id WHERE pv.id=?
+        `).get(line.variantId);
+        if (v) variantBySize.set(String(v.size_name || ''), line.variantId);
+      }
       if (!sizes.length) {
+        const onlyVid = fgLines.length === 1 ? fgLines[0].variantId : null;
         db.prepare(`
-          INSERT INTO cutting_pack_bundles (pack_id, product_id, color, size_code, qty, amount_rial, barcode, status)
-          VALUES (?,?,?,?,?,?,?, 'posted')
-        `).run(id, lay.product_id, color, '', qty, wipNet, nextBundleBarcode(db, packNo, 'ALL', color));
+          INSERT INTO cutting_pack_bundles (pack_id, product_id, color, size_code, qty, amount_rial, barcode, status, variant_id)
+          VALUES (?,?,?,?,?,?,?, 'posted', ?)
+        `).run(id, lay.product_id, color, '', qty, wipNet, nextBundleBarcode(db, packNo, 'ALL', color), onlyVid);
       } else {
         let allocated = 0;
         sizes.forEach((sz, idx) => {
@@ -750,10 +779,11 @@ function postCuttingPack(db, layId, body, user) {
             ? Math.max(0, wipNet - allocated)
             : Math.round(wipNet * q / qty);
           allocated += share;
+          const vid = variantBySize.get(String(sz)) || null;
           db.prepare(`
-            INSERT INTO cutting_pack_bundles (pack_id, product_id, color, size_code, qty, amount_rial, barcode, status)
-            VALUES (?,?,?,?,?,?,?, 'posted')
-          `).run(id, lay.product_id, color, sz, q, share, nextBundleBarcode(db, packNo, sz, color));
+            INSERT INTO cutting_pack_bundles (pack_id, product_id, color, size_code, qty, amount_rial, barcode, status, variant_id)
+            VALUES (?,?,?,?,?,?,?, 'posted', ?)
+          `).run(id, lay.product_id, color, sz, q, share, nextBundleBarcode(db, packNo, sz, color), vid);
         });
       }
       return id;
@@ -781,6 +811,10 @@ function voidCuttingPack(db, packId, user, { reason } = {}) {
         note: reason || 'ابطال رسید برش',
       });
     }
+    require('../inventory/apparel-lines').reverseApparelDoc(db, {
+      docType: 'cutting_pack', docId: pack.id, userId: user.id,
+      note: reason || 'ابطال رسید برش',
+    });
     let revJe = null;
     if (pack.journal_id) {
       revJe = reverseJournalEntry(db, pack.journal_id, {

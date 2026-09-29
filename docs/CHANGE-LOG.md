@@ -5,6 +5,23 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — واریانت رنگ×سایز در BOM تا رسید تولید (SW v267)
+
+- **مدل:** BOM همچنان سطح style است؛ مصرف پارچه با `size_matrix` × `size_breakdown`؛ موجودی SKU با `product_variants` از مسیر apparel-lines.
+- **BOM:** `color_id` روی سرفصل؛ `component_color_mode`/`component_color_id` روی اقلام؛ اعتبار کلید ماتریس با سایزهای style؛ explode با `color` → `variant_lines` برای جزء ماتریسی قطعه‌ای؛ `createAlternative` رنگ را کپی می‌کند.
+- **امنیت R13:** reverseStage پیشرفته هم reverseApparelDoc برای حواله/ضایعات salable می‌زند.\n- **اجرا:** سفارش ماتریسی بدون رنگ/تفکیک سایز رد می‌شود؛ backflush/explode رنگ سفارش را پاس می‌دهد؛ `variant_lines_json` روی receipts/issues/waste/runs؛ ضایعات قابل‌فروش variant می‌پذیرد؛ رسید برش لایه apparel می‌نویسد و `variant_id` روی bundle.
+- **UI:** ویرایشگر BOM (محدوده/رنگ + مودال ماتریس + رنگ جزء)؛ ایجاد سفارش با پنل رنگ×سایز؛ رسید از سفارش پیش‌پر؛ اجرای ساده با ماتریس چند SKU.
+- **تست:** `node server/scripts/test-production-variant-static-v261.js`؛ یکپارچه `test-production-variant-bom-v261.js` (نیاز به better-sqlite3 هم‌ABI).
+- **فایل‌ها:** `server/lib/production/{schema,bom,engine,engine-advanced,cutting}.js`, `inventory/apparel-lines.js`, `routes/{production-boms,production}.js`, `public/{app.js,sw.js}`, `scripts/test-production-variant-*.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳ (در صف پس از تست/امنیت)
+
+### ۱۴۰۵/۰۷/۰۷ — لاگین: cache-bust SW v266 + instrumentation (پس از restore v265)
+
+- **زمینه:** `app.js` پرود قبلاً با SyntaxError (`clicknd`) مرده بود و restore شد؛ مرورگرها ممکن است هنوز کش قدیمی داشته باشند.
+- **اقدام:** `sw.js` → `erp-taranom-v266`؛ `index.html` → `app.js?v=266`؛ لاگ موقت ورود در `auth.js` + `/api/_dbg/cedad3` + نقاط لاگین در `app.js` (session `cedad3`).
+- **تأیید سرور:** `parse=OK` / `clicknd=0` / `loginCode=401` (رمز غلط) / `dbg=true`.
+- **Deploy:** ✅ ایران overlay SFTP + `pm2 restart` — SW `erp-taranom-v266`
+
 ### ۱۴۰۵/۰۷/۰۷ — اضطراری: بازیابی login به‌خاطر SyntaxError در app.js (SW v265)
 
 - **علت:** روی پرود `app.js` خراب شده بود: `CSP.bind('clicknd('click',…)` → کل اسکریپت parse نمی‌شد؛ UI لاگین بدون handler می‌ماند (API لاگین سالم بود: health/ready 200، POST لاگین 401 برای رمز غلط).
@@ -13,15 +30,6 @@
 - **هشدار:** overlay ناقص/ادغام دستی روی `app.js` ممنوع بدون `new Function(app.js)` قبل از deploy.
 - **Deploy:** ✅ ایران overlay SFTP (restore) — SW `erp-taranom-v265`
 
-### ۱۴۰۵/۰۷/۰۷ — واریانت رنگ×سایز در BOM تا رسید تولید (SW v264)
-
-- **مدل:** BOM همچنان سطح style است؛ مصرف پارچه با `size_matrix` × `size_breakdown`؛ موجودی SKU با `product_variants` از مسیر apparel-lines.
-- **BOM:** `color_id` روی سرفصل؛ `component_color_mode`/`component_color_id` روی اقلام؛ اعتبار کلید ماتریس با سایزهای style؛ explode با `color` → `variant_lines` برای جزء ماتریسی قطعه‌ای؛ `createAlternative` رنگ را کپی می‌کند.
-- **اجرا:** سفارش ماتریسی بدون رنگ/تفکیک سایز رد می‌شود؛ backflush/explode رنگ سفارش را پاس می‌دهد؛ `variant_lines_json` روی receipts/issues/waste/runs؛ ضایعات قابل‌فروش variant می‌پذیرد؛ رسید برش لایه apparel می‌نویسد و `variant_id` روی bundle.
-- **UI:** ویرایشگر BOM (محدوده/رنگ + مودال ماتریس + رنگ جزء)؛ ایجاد سفارش با پنل رنگ×سایز؛ رسید از سفارش پیش‌پر؛ اجرای ساده با ماتریس چند SKU.
-- **تست:** `node server/scripts/test-production-variant-static-v261.js`؛ یکپارچه `test-production-variant-bom-v261.js` (نیاز به better-sqlite3 هم‌ABI).
-- **فایل‌ها:** `server/lib/production/{schema,bom,engine,engine-advanced,cutting}.js`, `inventory/apparel-lines.js`, `routes/{production-boms,production}.js`, `public/{app.js,sw.js}`, `scripts/test-production-variant-*.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۰۷ — کارمزد انتقال بانکی روی پرداخت خروجی (SW v263)
 

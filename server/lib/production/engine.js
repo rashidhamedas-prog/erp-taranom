@@ -66,8 +66,8 @@ function whSetting(db, key) {
 
 function createOrder(db, body, userId) {
   const productId = Number(body.product_id);
-  const qtyPlanned = num(body.qty_planned);
-  if (!productId || qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
+  let qtyPlanned = num(body.qty_planned);
+  if (!productId) throw err('E_QTY_INVALID', 422);
   const date = body.date || todayJalali();
   const period = body.period_label || jalaliPeriod(date);
   const analysisType = body.analysis_type || 'fixed';
@@ -96,10 +96,34 @@ function createOrder(db, body, userId) {
     ccId = cc?.id || null;
   }
 
-  // Standard snapshot
+  const sizeBdObj = body.size_breakdown
+    ? (typeof body.size_breakdown === 'string' ? safeJson(body.size_breakdown) : body.size_breakdown)
+    : null;
+  const sizeBd = sizeBdObj ? JSON.stringify(sizeBdObj) : '';
+  const color = String(body.color || '').trim();
+
+  const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
+  if (hasActiveMatrixVariants(db, productId)) {
+    if (!color || !sizeBdObj || typeof sizeBdObj !== 'object') {
+      throw err('E_VARIANT_REQUIRED', 400, {
+        detail: 'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز الزامی است',
+      });
+    }
+    const sum = Object.values(sizeBdObj).reduce((acc, v) => acc + (Number(v) || 0), 0);
+    if (sum <= 0) throw err('E_QTY_INVALID', 422);
+    if (qtyPlanned > 0 && Math.abs(sum - qtyPlanned) > 0.001) {
+      throw err('E_VARIANT_QTY', 400, { sum, qty_planned: qtyPlanned });
+    }
+    qtyPlanned = sum;
+  }
+  if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
+
   let stdMat = 0, stdLab = 0, stdOh = 0;
   try {
-    const ex = explodeBom(db, { bomId: bom.id, qty: qtyPlanned, priceBasis: 'std' });
+    const ex = explodeBom(db, {
+      bomId: bom.id, qty: qtyPlanned, priceBasis: 'std',
+      sizeBreakdown: sizeBdObj, color,
+    });
     stdMat = ex.totals.total_rial;
   } catch { /* ignore */ }
 
@@ -109,10 +133,6 @@ function createOrder(db, body, userId) {
   } catch {
     orderNo = `PO-${Date.now()}`;
   }
-
-  const sizeBd = body.size_breakdown
-    ? (typeof body.size_breakdown === 'string' ? body.size_breakdown : JSON.stringify(body.size_breakdown))
-    : '';
 
   const id = db.prepare(`
     INSERT INTO production_orders (
@@ -127,7 +147,7 @@ function createOrder(db, body, userId) {
     orderNo, productId, bom.id, bom.version, analysisType,
     body.production_mode || 'MTS',
     body.sales_order_id || null, body.customer_id || null,
-    qtyPlanned, sizeBd, body.color || '',
+    qtyPlanned, sizeBd, color,
     whRaw, whFg, ccId,
     date, period, fy.fiscalYearId || null,
     stdMat, stdLab, stdOh, stdMat + stdLab + stdOh,
@@ -154,6 +174,7 @@ function releaseOrder(db, orderId, userId) {
       bomId: po.bom_id,
       qty: po.qty_planned,
       sizeBreakdown: safeJson(po.size_breakdown),
+      color: po.color,
       priceBasis: 'average',
     });
 
@@ -335,6 +356,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       bomId: po.bom_id,
       qty: qtyStarted,
       sizeBreakdown: safeJson(po.size_breakdown),
+      color: po.color,
       priceBasis: 'average',
     });
 
@@ -393,6 +415,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
           docId: issueInfo.lastInsertRowid, userId,
           note: `تولید ${po.order_no}`, sign: -1, allowNegative: false,
         });
+        require('../inventory/apparel-lines').saveDocVariantLines(
+          db, 'production_material_issues', issueInfo.lastInsertRowid, issued.variantLines
+        );
       }
 
       if (L.line_kind === 'packaging') pkgRial += amount;
@@ -567,6 +592,10 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         orderId,
         date,
         period,
+        variantId: s.variant_id,
+        variantLines: s.variant_lines,
+        sizeBreakdown: s.size_breakdown,
+        color: s.color || po.color,
       });
 
       let docNo = '';
@@ -645,6 +674,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
         note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
       });
+      require('../inventory/apparel-lines').saveDocVariantLines(
+        db, 'production_receipts', receiptId, fgLines
+      );
 
       const je6 = postEvent(db, {
         event: 'PRD-07',
@@ -770,6 +802,7 @@ function previewReceiptFixed(db, { orderId, body }) {
     bomId: po.bom_id,
     qty: qtyStarted,
     sizeBreakdown: safeJson(po.size_breakdown),
+    color: po.color,
     priceBasis: 'average',
   });
 
@@ -979,6 +1012,7 @@ function issueTemplate(db, { orderId, qtyStarted }) {
     bomId: po.bom_id,
     qty,
     sizeBreakdown: safeJson(po.size_breakdown),
+    color: po.color,
     priceBasis: 'std',
   });
   return {
@@ -1142,6 +1176,9 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
           docType: 'production_issue', docId: issueInfo.lastInsertRowid, userId,
           note: `حواله ${issueNo}`, sign: AQ < 0 ? 1 : -1, allowNegative: false,
         });
+        require('../inventory/apparel-lines').saveDocVariantLines(
+          db, 'production_material_issues', issueInfo.lastInsertRowid, apparelLines
+        );
       }
 
       const kind = s?.kind || (prod.item_type === 'packaging' ? 'packaging' : 'material');
@@ -1364,8 +1401,18 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       const amt = Math.round(num(s.qty) * num(s.nrv_unit_rial));
       scrapCredit += amt;
       receiveScrap(db, {
-        productId: s.product_id, qty: s.qty, unitRial: s.nrv_unit_rial,
-        warehouseId: scrapWh, userId, orderId, date, period,
+        productId: s.product_id,
+        qty: s.qty,
+        unitRial: s.nrv_unit_rial,
+        warehouseId: scrapWh,
+        userId,
+        orderId,
+        date,
+        period,
+        variantId: s.variant_id,
+        variantLines: s.variant_lines,
+        sizeBreakdown: s.size_breakdown,
+        color: s.color || po.color,
       });
     }
     if (scrapCredit) {
@@ -1414,6 +1461,9 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
         note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
       });
+      require('../inventory/apparel-lines').saveDocVariantLines(
+        db, 'production_receipts', receiptId, fgLines
+      );
 
       const je6 = postEvent(db, {
         event: 'PRD-07', sourceId: receiptId, date,

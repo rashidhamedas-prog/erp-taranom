@@ -141,6 +141,7 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'production_runs')) {
     ensureColumn(db, 'production_runs', 'migrated_to_order_id', 'INTEGER');
     ensureColumn(db, 'production_runs', 'legacy', 'INTEGER DEFAULT 1');
+    ensureColumn(db, 'production_runs', 'variant_lines_json', "TEXT DEFAULT ''");
   }
   if (tableExists(db, 'persons')) {
     ensureColumn(db, 'persons', 'cost_center_id', 'INTEGER');
@@ -155,6 +156,23 @@ function ensureExistingColumns(db) {
   }
   if (tableExists(db, 'production_material_issues')) {
     ensureColumn(db, 'production_material_issues', 'variance_status', "TEXT DEFAULT 'memo'");
+    ensureColumn(db, 'production_material_issues', 'variant_lines_json', "TEXT DEFAULT ''");
+  }
+  if (tableExists(db, 'production_receipts')) {
+    ensureColumn(db, 'production_receipts', 'variant_lines_json', "TEXT DEFAULT ''");
+  }
+  if (tableExists(db, 'production_waste')) {
+    ensureColumn(db, 'production_waste', 'variant_lines_json', "TEXT DEFAULT ''");
+  }
+  if (tableExists(db, 'bom_headers')) {
+    ensureColumn(db, 'bom_headers', 'color_id', 'INTEGER');
+  }
+  if (tableExists(db, 'bom_lines')) {
+    ensureColumn(db, 'bom_lines', 'component_color_mode', "TEXT DEFAULT 'none'");
+    ensureColumn(db, 'bom_lines', 'component_color_id', 'INTEGER');
+  }
+  if (tableExists(db, 'cutting_pack_bundles')) {
+    ensureColumn(db, 'cutting_pack_bundles', 'variant_id', 'INTEGER');
   }
   if (tableExists(db, 'cost_center_rates')) {
     ensureColumn(db, 'cost_center_rates', 'monthly_labor_rate_rial', 'INTEGER DEFAULT 0');
@@ -217,6 +235,7 @@ function createTables(db) {
       yield_percent     REAL DEFAULT 100,
       size_range        TEXT DEFAULT '',
       color_variant     TEXT DEFAULT '',
+      color_id          INTEGER,
       note              TEXT DEFAULT '',
       approved_by       INTEGER,
       approved_at       INTEGER,
@@ -247,6 +266,8 @@ function createTables(db) {
       substitute_group      TEXT DEFAULT '',
       substitute_priority   INTEGER DEFAULT 0,
       size_matrix           TEXT DEFAULT '',
+      component_color_mode  TEXT DEFAULT 'none',
+      component_color_id    INTEGER,
       std_cost_rial         INTEGER DEFAULT 0,
       note                  TEXT DEFAULT '',
       created_at            INTEGER DEFAULT (strftime('%s','now')),
@@ -491,6 +512,7 @@ function createTables(db) {
       var_qty_rial     INTEGER DEFAULT 0,
       warehouse_id     INTEGER NOT NULL,
       substitute_of_product_id INTEGER,
+      variant_lines_json TEXT DEFAULT '',
       date             TEXT NOT NULL,
       period_label     TEXT DEFAULT '',
       je_id            INTEGER,
@@ -585,6 +607,7 @@ function createTables(db) {
       reason_code      TEXT DEFAULT '',
       reason_note      TEXT DEFAULT '',
       responsible_person_id INTEGER,
+      variant_lines_json TEXT DEFAULT '',
       date             TEXT NOT NULL,
       period_label     TEXT DEFAULT '',
       je_id            INTEGER,
@@ -635,6 +658,7 @@ function createTables(db) {
       cost_method      TEXT DEFAULT 'share',
       warehouse_id     INTEGER NOT NULL,
       size_breakdown   TEXT DEFAULT '',
+      variant_lines_json TEXT DEFAULT '',
       is_partial       INTEGER DEFAULT 0,
       prev_avg_rial    INTEGER DEFAULT 0,
       prev_stock_qty   REAL DEFAULT 0,

@@ -5,6 +5,7 @@
  */
 const { allocateNumber, audit } = require('../../db');
 const { todayJalali, addDaysToJalali } = require('../../jalali');
+const { CONTINUOUS_UNIT_RE, hasActiveMatrixVariants } = require('../inventory/qty-policy');
 
 function err(code, status = 422, extra = {}) {
   const e = new Error(code);
@@ -24,6 +25,99 @@ function safeJson(s) {
   if (!s) return null;
   if (typeof s === 'object') return s;
   try { return JSON.parse(s); } catch { return null; }
+}
+
+function allowedSizeNamesForProduct(db, productId) {
+  const style = db.prepare(`
+    SELECT ps.name
+    FROM product_style_sizes pss
+    JOIN product_sizes ps ON ps.id = pss.size_id
+    WHERE pss.product_id=? AND COALESCE(ps.active,1)=1
+    ORDER BY COALESCE(pss.sort_order, ps.sort_order, 0), ps.name
+  `).all(productId);
+  if (style.length) return new Set(style.map(r => String(r.name)));
+  const all = db.prepare(`
+    SELECT name FROM product_sizes WHERE COALESCE(active,1)=1 ORDER BY sort_order, name
+  `).all();
+  return new Set(all.map(r => String(r.name)));
+}
+
+function validateSizeMatrixKeys(db, fgProductId, sizeMatrixRaw) {
+  if (!sizeMatrixRaw) return null;
+  const m = typeof sizeMatrixRaw === 'string' ? safeJson(sizeMatrixRaw) : sizeMatrixRaw;
+  if (!m || typeof m !== 'object' || Array.isArray(m)) {
+    throw err('E_BOM_SIZE_MATRIX', 422, { detail: 'JSON شیء نامعتبر' });
+  }
+  const allowed = allowedSizeNamesForProduct(db, fgProductId);
+  if (!allowed.size) return m;
+  const invalid = Object.keys(m).filter(k => !allowed.has(String(k)));
+  if (invalid.length) {
+    throw err('E_BOM_SIZE_MATRIX', 422, {
+      detail: 'کلید سایز با سایزهای محصول هم‌خوان نیست',
+      invalid,
+      allowed: [...allowed],
+    });
+  }
+  return m;
+}
+
+function normalizeColorMode(raw) {
+  const m = String(raw || 'none').toLowerCase().trim();
+  if (m === 'inherit_fg' || m === 'inherit' || m === 'fixed') {
+    return m === 'inherit' ? 'inherit_fg' : m;
+  }
+  return 'none';
+}
+
+function resolveFgColorName(db, { color, colorId, bom }) {
+  if (color && String(color).trim()) return String(color).trim();
+  const cid = colorId != null ? colorId : bom?.color_id;
+  if (cid) {
+    const row = db.prepare('SELECT name FROM product_colors WHERE id=?').get(cid);
+    if (row?.name) return String(row.name);
+  }
+  if (bom?.color_variant) return String(bom.color_variant).trim();
+  return '';
+}
+
+function isContinuousComponent(db, productId) {
+  const p = db.prepare('SELECT unit FROM products WHERE id=?').get(productId);
+  return CONTINUOUS_UNIT_RE.test(String(p?.unit || ''));
+}
+
+function buildComponentVariantHint(db, line, { qty, sizeBreakdown, fgColor }) {
+  const productId = line.component_product_id;
+  if (!productId || isContinuousComponent(db, productId)) return null;
+  if (!hasActiveMatrixVariants(db, productId)) return null;
+  const mode = normalizeColorMode(line.component_color_mode);
+  let colorWant = '';
+  if (mode === 'fixed') {
+    if (line.component_color_id) {
+      const c = db.prepare('SELECT name FROM product_colors WHERE id=?').get(line.component_color_id);
+      colorWant = c?.name ? String(c.name) : '';
+    }
+  } else if (mode === 'inherit_fg') {
+    colorWant = fgColor || '';
+  } else if (mode === 'none' && fgColor && sizeBreakdown) {
+    colorWant = fgColor;
+  } else {
+    return null;
+  }
+  if (!colorWant && mode !== 'fixed') return null;
+  try {
+    const { resolveApparelLines } = require('../inventory/apparel-lines');
+    const lines = resolveApparelLines(db, {
+      productId, qty, sizeBreakdown, color: colorWant,
+    });
+    if (!lines.length) return null;
+    return {
+      variant_lines: lines.map(l => ({ variant_id: l.variantId, qty: l.qty })),
+      variant_id: lines.length === 1 ? lines[0].variantId : null,
+      color: colorWant,
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 function nextRev(rev) {
@@ -155,7 +249,7 @@ function resolveSubstitutes(db, lines, factor, yieldF) {
   return [...plain, ...picked].sort((a, b) => a.line_no - b.line_no);
 }
 
-function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null, priceOverrides = null }) {
+function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null, priceOverrides = null, color = null, colorId = null }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -169,6 +263,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
   const breakdown = sizeBreakdown
     ? (typeof sizeBreakdown === 'string' ? safeJson(sizeBreakdown) : sizeBreakdown)
     : null;
+  const fgColor = resolveFgColorName(db, { color, colorId, bom });
 
   for (const L of chosen) {
     let qtyNet;
@@ -190,6 +285,11 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
     const qtyGross = qtyNet / scrapF;
     const qtyFinal = round6(qtyGross / yieldF);
     const unitCost = getPrice(db, L.component_product_id, priceBasis, L, priceOverrides);
+    const hint = buildComponentVariantHint(db, L, {
+      qty: qtyFinal,
+      sizeBreakdown: breakdown,
+      fgColor,
+    });
     out.push({
       line_no: L.line_no,
       bom_line_id: L.id,
@@ -203,6 +303,11 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
       unit_cost_rial: unitCost,
       amount_rial: Math.round(qtyFinal * unitCost),
       level,
+      component_color_mode: normalizeColorMode(L.component_color_mode),
+      component_color_id: L.component_color_id || null,
+      variant_id: hint?.variant_id || null,
+      variant_lines: hint?.variant_lines || null,
+      size_matrix_applied: !!(matrix && breakdown),
     });
 
     const comp = db.prepare('SELECT is_manufactured FROM products WHERE id=?').get(L.component_product_id);
@@ -211,12 +316,13 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
         const childBom = resolveBom(db, { productId: L.component_product_id, date: todayJalali() });
         const child = explodeBom(db, {
           bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1, priceOverrides,
+          color: fgColor, sizeBreakdown: breakdown,
         });
         out.push(...child.lines.map(x => ({ ...x, parent_line_no: L.line_no })));
       } catch { /* no child bom — leaf */ }
     }
   }
-  return { bom, factor, lines: out, totals: sumTotals(out) };
+  return { bom, factor, lines: out, totals: sumTotals(out), color: fgColor };
 }
 
 /** Path-based cycle detection (visited set on the current ancestry path).
@@ -282,8 +388,11 @@ function validateBom(db, bomId) {
     }
     // V-14
     if (L.size_matrix) {
-      const m = safeJson(L.size_matrix);
-      if (!m || typeof m !== 'object') throw err('E_BOM_SIZE_MATRIX', 422);
+      validateSizeMatrixKeys(db, b.product_id, L.size_matrix);
+    }
+    const cmode = normalizeColorMode(L.component_color_mode);
+    if (cmode === 'fixed' && !L.component_color_id) {
+      throw err('E_BOM_COMP_COLOR', 422, { line_no: L.line_no });
     }
     // V-15
     const prod = db.prepare('SELECT item_type, is_manufactured, name FROM products WHERE id=?').get(L.component_product_id);
@@ -334,8 +443,8 @@ function createBom(db, body, userId) {
         code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
         base_qty, unit_id, status, valid_from, valid_to, is_default,
         is_multilevel, has_routing, has_coproducts, yield_percent,
-        size_range, color_variant, note, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?)
+        size_range, color_variant, color_id, note, created_by
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       code, productId, version, revision, body.name || '',
       body.bom_type || 'standard', body.alt_of_bom_id || null, body.alt_reason || '',
@@ -343,7 +452,8 @@ function createBom(db, body, userId) {
       body.valid_from || '', body.valid_to || '', body.is_default ? 1 : 0,
       body.is_multilevel ? 1 : 0, body.has_routing ? 1 : 0, body.has_coproducts ? 1 : 0,
       body.yield_percent != null ? body.yield_percent : 100,
-      body.size_range || '', body.color_variant || '', body.note || '', userId || null
+      body.size_range || '', body.color_variant || '', body.color_id || null,
+      body.note || '', userId || null
     );
     const id = info.lastInsertRowid;
     if (Array.isArray(body.lines)) {
@@ -361,7 +471,7 @@ function updateBomHeader(db, bomId, body, userId) {
     assertDraft(b);
     db.prepare(`
       UPDATE bom_headers SET name=?, base_qty=?, yield_percent=?, size_range=?, color_variant=?,
-        note=?, valid_from=?, valid_to=?, is_default=?, unit_id=?
+        color_id=?, note=?, valid_from=?, valid_to=?, is_default=?, unit_id=?
       WHERE id=?
     `).run(
       body.name != null ? body.name : b.name,
@@ -369,6 +479,7 @@ function updateBomHeader(db, bomId, body, userId) {
       body.yield_percent != null ? body.yield_percent : b.yield_percent,
       body.size_range != null ? body.size_range : b.size_range,
       body.color_variant != null ? body.color_variant : b.color_variant,
+      body.color_id !== undefined ? (body.color_id || null) : b.color_id,
       body.note != null ? body.note : b.note,
       body.valid_from != null ? body.valid_from : b.valid_from,
       body.valid_to != null ? body.valid_to : b.valid_to,
@@ -399,13 +510,22 @@ function addLine(db, bomId, body, userId, opts = {}) {
     if (body.component_product_id === b.product_id) throw err('E_BOM_SELF_REF', 422);
     const scrap = Number(body.scrap_percent) || 0;
     if (scrap < 0 || scrap >= 100) throw err('E_BOM_SCRAP_RANGE', 422);
+    const colorMode = normalizeColorMode(body.component_color_mode);
+    if (colorMode === 'fixed' && !(body.component_color_id || null)) {
+      throw err('E_BOM_COMP_COLOR', 422);
+    }
+    let sizeMatrixStr = '';
+    if (body.size_matrix) {
+      const m = validateSizeMatrixKeys(db, b.product_id, body.size_matrix);
+      sizeMatrixStr = JSON.stringify(m);
+    }
     const maxLine = db.prepare('SELECT COALESCE(MAX(line_no),0) m FROM bom_lines WHERE bom_id=?').get(bomId).m;
     const info = db.prepare(`
       INSERT INTO bom_lines (
         bom_id, line_no, component_product_id, qty_per_base, unit_id, scrap_percent, fixed_qty,
         line_type, stage_cost_center_id, backflush, is_optional, substitute_group, substitute_priority,
-        size_matrix, std_cost_rial, note
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        size_matrix, component_color_mode, component_color_id, std_cost_rial, note
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       bomId,
       body.line_no || maxLine + 1,
@@ -420,7 +540,9 @@ function addLine(db, bomId, body, userId, opts = {}) {
       body.is_optional ? 1 : 0,
       body.substitute_group || '',
       body.substitute_priority || 0,
-      body.size_matrix ? (typeof body.size_matrix === 'string' ? body.size_matrix : JSON.stringify(body.size_matrix)) : '',
+      sizeMatrixStr,
+      colorMode,
+      body.component_color_id || null,
       body.std_cost_rial || 0,
       body.note || ''
     );
@@ -442,11 +564,27 @@ function updateLine(db, bomId, lineId, body, userId) {
     if (body.component_product_id === b.product_id) throw err('E_BOM_SELF_REF', 422);
     const scrap = body.scrap_percent != null ? Number(body.scrap_percent) : L.scrap_percent;
     if (scrap < 0 || scrap >= 100) throw err('E_BOM_SCRAP_RANGE', 422);
+    const colorMode = body.component_color_mode != null
+      ? normalizeColorMode(body.component_color_mode)
+      : normalizeColorMode(L.component_color_mode);
+    const colorId = body.component_color_id !== undefined
+      ? (body.component_color_id || null)
+      : L.component_color_id;
+    if (colorMode === 'fixed' && !colorId) throw err('E_BOM_COMP_COLOR', 422);
+    let sizeMatrix = L.size_matrix;
+    if (body.size_matrix != null) {
+      if (body.size_matrix === '' || body.size_matrix === null) sizeMatrix = '';
+      else {
+        const m = validateSizeMatrixKeys(db, b.product_id, body.size_matrix);
+        sizeMatrix = JSON.stringify(m);
+      }
+    }
     db.prepare(`
       UPDATE bom_lines SET
         component_product_id=?, qty_per_base=?, unit_id=?, scrap_percent=?, fixed_qty=?,
         line_type=?, stage_cost_center_id=?, backflush=?, is_optional=?,
-        substitute_group=?, substitute_priority=?, size_matrix=?, std_cost_rial=?, note=?
+        substitute_group=?, substitute_priority=?, size_matrix=?,
+        component_color_mode=?, component_color_id=?, std_cost_rial=?, note=?
       WHERE id=?
     `).run(
       body.component_product_id != null ? body.component_product_id : L.component_product_id,
@@ -460,9 +598,9 @@ function updateLine(db, bomId, lineId, body, userId) {
       body.is_optional != null ? (body.is_optional ? 1 : 0) : L.is_optional,
       body.substitute_group != null ? body.substitute_group : L.substitute_group,
       body.substitute_priority != null ? body.substitute_priority : L.substitute_priority,
-      body.size_matrix != null
-        ? (typeof body.size_matrix === 'string' ? body.size_matrix : JSON.stringify(body.size_matrix))
-        : L.size_matrix,
+      sizeMatrix,
+      colorMode,
+      colorId,
       body.std_cost_rial != null ? body.std_cost_rial : L.std_cost_rial,
       body.note != null ? body.note : L.note,
       lineId
@@ -671,11 +809,12 @@ function createAlternative(db, bomId, reason, userId) {
     const info = db.prepare(`
       INSERT INTO bom_headers (
         code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
-        base_qty, unit_id, status, yield_percent, size_range, created_by
-      ) VALUES (?,?,1,'A',?,'alternative',?,?,?,?,'draft',?,?,?)
+        base_qty, unit_id, status, yield_percent, size_range, color_variant, color_id, created_by
+      ) VALUES (?,?,1,'A',?,'alternative',?,?,?,?,'draft',?,?,?,?,?)
     `).run(
       code, old.product_id, (old.name || '') + ' (جایگزین)', bomId, reason || '',
-      old.base_qty, old.unit_id, old.yield_percent, old.size_range, userId
+      old.base_qty, old.unit_id, old.yield_percent, old.size_range || '',
+      old.color_variant || '', old.color_id || null, userId
     );
     const newId = info.lastInsertRowid;
     copyChildRows(db, 'bom_lines', bomId, newId);
@@ -790,4 +929,6 @@ module.exports = {
   createBom, updateBomHeader, softDeleteBom, addLine, updateLine, deleteLine, replaceLines,
   getBom, listBoms, whereUsed, stdCost, compareBoms, bomTree, logBomChange,
   assertProductNotInBom, round6,
+  allowedSizeNamesForProduct, validateSizeMatrixKeys,
+  buildComponentVariantHint, normalizeColorMode, resolveFgColorName,
 };

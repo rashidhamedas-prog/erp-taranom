@@ -88,6 +88,7 @@ function reserveMaterials(db, po, qtyStart) {
     bomId: po.bom_id,
     qty: qtyStart,
     sizeBreakdown: safeJson(po.size_breakdown),
+    color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
   });
@@ -175,6 +176,7 @@ function stageMaterialLines(db, po, stage) {
     bomId: po.bom_id,
     qty: qtyStart,
     sizeBreakdown: safeJson(po.size_breakdown),
+    color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
   });
@@ -837,6 +839,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
       note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
     });
+    require('../inventory/apparel-lines').saveDocVariantLines(
+      db, 'production_receipts', receiptId, fgLines
+    );
 
     const je7 = postEvent(db, {
       event: 'PRD-07',
@@ -1064,11 +1069,21 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
         userId,
         note: `ابطال مرحله ${stage.seq} — ${po.order_no}`,
       });
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'production_issue', docId: i.id, userId,
+        note: `ابطال مرحله ${stage.seq} — ${po.order_no}`,
+      });
       db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
     }
 
     for (const w of wastes) {
       db.prepare(`UPDATE production_waste SET status='reversed' WHERE id=?`).run(w.id);
+    }
+    if (wastes.some(w => w.waste_type === 'salable')) {
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'production_scrap', docId: orderId, userId,
+        note: `ابطال مرحله ${stage.seq} — ضایعات ${po.order_no}`,
+      });
     }
     for (const s of subs) {
       db.prepare(`UPDATE production_subcontract SET status='reversed' WHERE id=?`).run(s.id);

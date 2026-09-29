@@ -140,6 +140,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
           docType: 'production_run', docId: id, userId: req.user.id,
           note: `تولید داخلی #${id}`, sign: 1, allowNegative: true,
         });
+        require('../lib/inventory/apparel-lines').saveDocVariantLines(
+          db, 'production_runs', id, apparelLines
+        );
       }
       if (doCost) {
         db.prepare('UPDATE products SET cost=? WHERE id=?').run(Math.round(unitCost), product_id);

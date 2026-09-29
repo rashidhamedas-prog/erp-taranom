@@ -218,6 +218,7 @@ router.get('/:id/explode', auth, requirePermission('production_bom', 'view'), (r
       bomId: Number(req.params.id),
       qty: Number(req.query.qty) || 1,
       sizeBreakdown,
+      color: req.query.color || null,
       priceBasis: req.query.price_basis || 'average',
     });
     return applyCostPolicy(getDB(), req.user, data);

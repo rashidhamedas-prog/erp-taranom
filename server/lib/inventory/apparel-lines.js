@@ -141,8 +141,27 @@ function reverseApparelDoc(db, opts) {
   });
 }
 
+function serializeVariantLinesJson(lines) {
+  if (!lines || !lines.length) return '';
+  return JSON.stringify(lines.map(l => ({
+    variant_id: l.variantId != null ? l.variantId : l.variant_id,
+    qty: round3(l.qty),
+  })).filter(l => l.variant_id && l.qty > 0));
+}
+
+function saveDocVariantLines(db, table, id, lines) {
+  const json = serializeVariantLinesJson(lines);
+  if (!id) return json;
+  try {
+    db.prepare(`UPDATE ${table} SET variant_lines_json=? WHERE id=?`).run(json || '', id);
+  } catch (_) { /* column may not exist mid-boot */ }
+  return json;
+}
+
 module.exports = {
   resolveApparelLines,
   postApparelLines,
   reverseApparelDoc,
+  serializeVariantLinesJson,
+  saveDocVariantLines,
 };
