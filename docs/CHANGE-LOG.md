@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۷ — اضطراری: بازیابی login به‌خاطر SyntaxError در app.js (SW v265)
+
+- **علت:** روی پرود `app.js` خراب شده بود: `CSP.bind('clicknd('click',…)` → کل اسکریپت parse نمی‌شد؛ UI لاگین بدون handler می‌ماند (API لاگین سالم بود: health/ready 200، POST لاگین 401 برای رمز غلط).
+- **رفع:** overlay `app.js` تمیز از `origin/main` + SW `erp-taranom-v265`؛ بکاپ `app.js.bak-login-*` روی سرور.
+- **تأیید:** قبل `parse=FAIL` / `clicknd=1`؛ بعد `parse=OK` / `clicknd=0`؛ root 200.
+- **هشدار:** overlay ناقص/ادغام دستی روی `app.js` ممنوع بدون `new Function(app.js)` قبل از deploy.
+- **Deploy:** ✅ ایران overlay SFTP (restore) — SW `erp-taranom-v265`
+
 ### ۱۴۰۵/۰۷/۰۷ — واریانت رنگ×سایز در BOM تا رسید تولید (SW v264)
 
 - **مدل:** BOM همچنان سطح style است؛ مصرف پارچه با `size_matrix` × `size_breakdown`؛ موجودی SKU با `product_variants` از مسیر apparel-lines.
@@ -24,7 +32,7 @@
 - **UI:** فیلد «کارمزد انتقال» در پرداخت به شخص / تأمین / هزینه / انگیزه / پرداخت به حساب وقتی نوع=واریز بانکی؛ در انتقال وجه وقتی مبدأ=بانک.
 - **تست:** `node server/scripts/test-payment-bank-fee-v261.js` (محلی Node24 بدون باینری better-sqlite3؛ اجرا روی ایران پس از deploy).
 - **فایل‌ها:** `server/lib/payment-bank-fee.js`, `routes/{expenses,purchases,accounting,transfers}.js`, `public/{app.js,sw.js}`, `scripts/test-payment-bank-fee-v261.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `191e39d` — ایران overlay SFTP، pm2 restart، root 200، SW `erp-taranom-v263`؛ تست سرور `26 passed, 0 failed`
 
 ### ۱۴۰۵/۰۷/۰۷ — کالای امانی تجمعی (سند master–detail) SW v262
 
