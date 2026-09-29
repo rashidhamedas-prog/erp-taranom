@@ -181,19 +181,28 @@ app.use('/uploads', express.static(UPLOADS_ROOT, {
 // Static assets (includes /logo.png if present; /uploads served separately below)
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
+    // Cache policy is keyed on the request carrying a version query (?v=).
+    // index.html + sw.js are always served fresh (no-store) and carry the map
+    // of bumped ?v= values, so a versioned asset URL is content-addressed and
+    // safe to cache immutably. This removes the repeated full re-download of
+    // the ~1.8MB app.js bundle on every page load (the previous no-store made
+    // the whole shell — including the login page's own code — refetch each
+    // visit, which is the main cause of slowness and login-page fragility).
+    // Unversioned assets fall back to revalidation (cheap 304), never no-store.
+    const hasVersion = !!(res.req && res.req.query && res.req.query.v);
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input|net-resilience)\.js$/i.test(filePath)
-      || /(?:^|[\\/])(?:app|prod-ui)\.css$/i.test(filePath)) {
-      // App shells + CSS must not stick on stale browser/CDN cache (query ?v= alone is not enough behind some proxies)
+    } else if (filePath.endsWith('sw.js') || filePath.endsWith('index.html')) {
+      // Service worker + shell HTML must always be revalidated so a new deploy
+      // (bumped ?v= map) is picked up immediately.
       res.setHeader('Cache-Control', 'no-store, must-revalidate');
-    } else if (/\.(js|css)$/i.test(filePath) && !filePath.endsWith('sw.js')) {
-      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
-    } else if (/\.(woff2?|png|svg|ico)$/i.test(filePath)) {
+    } else if (/\.(js|css)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', hasVersion
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache');
+    } else if (/\.(woff2?|png|svg|jpe?g|gif|ico|webp)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=86400');
-    } else if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
-      res.setHeader('Cache-Control', 'no-store, must-revalidate');
     }
   }
 }));

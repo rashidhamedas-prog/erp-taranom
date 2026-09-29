@@ -117,6 +117,9 @@ router.post('/login', (req, res) => {
   const identityState = rateLimitStatus('login_identity', username);
   const ipState = rateLimitStatus('login_ip', ip);
   if (!identityState.allowed || !ipState.allowed) {
+    // Observability: rate-limit blocks are otherwise invisible in audit_log and
+    // are a real cause of "can't log in" reports behind a shared NAT IP.
+    audit(null, 'login_blocked', 'user', null, `ورود مسدود شد (محدودیت نرخ تلاش): ${username}`, req);
     return rejectLogin(res, Math.max(identityState.retryAfter, ipState.retryAfter));
   }
 
@@ -157,7 +160,10 @@ router.post('/login', (req, res) => {
       const challenge = createLoginChallenge(user, deviceInput);
       return res.json({ twofa_required: true, pre_token: challenge.preToken });
     } catch (error) {
-      if (error.code === 'DEVICE_SESSION_ACTIVE') return loginConflict(res, error);
+      if (error.code === 'DEVICE_SESSION_ACTIVE') {
+        audit(user.id, 'login_conflict', 'user', user.id, `ورود رد شد: نشست فعال روی دستگاه ${error.existing?.device_slot || ''}`, req);
+        return loginConflict(res, error);
+      }
       throw error;
     }
   }
@@ -169,7 +175,10 @@ router.post('/login', (req, res) => {
     audit(user.id, 'login', 'user', user.id, 'ورود موفق و ایجاد نشست معتبر', req);
     return res.json(payload);
   } catch (error) {
-    if (error.code === 'DEVICE_SESSION_ACTIVE') return loginConflict(res, error);
+    if (error.code === 'DEVICE_SESSION_ACTIVE') {
+      audit(user.id, 'login_conflict', 'user', user.id, `ورود رد شد: نشست فعال روی دستگاه ${error.existing?.device_slot || ''}`, req);
+      return loginConflict(res, error);
+    }
     throw error;
   }
 });
