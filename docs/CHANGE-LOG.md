@@ -14,7 +14,7 @@
 - **UI:** فرم چندردیفی؛ ستون شماره سند؛ راهنمای داخل برنامه.
 - **تست:** `node server/scripts/test-consignment-batch-v261.js` (روی ایران پس از deploy).
 - **فایل‌ها:** `server/lib/consignments.js`, `routes/consignments.js`, `db.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js}`, `scripts/test-consignment-batch-v261.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `5fe901c` — ایران overlay SFTP، pm2 restart بدون `--update-env`، root 200، SW `erp-taranom-v262`؛ تست `test-consignment-batch-v261.js` → PASSED 28/0
 
 ### ۱۴۰۵/۰۷/۰۷ — پاکسازی اینسترومنت دیباگ کش (SW v261)
 
