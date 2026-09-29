@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۶ — چاپ: حذف برچسب رنگ/سایز از شرح کالا (SW v258)
+
+- **علت:** در «شرح کالا» متنی مثل «سفید-سایز 1 (مناسب از 38 تا 42)» از فیلد `name` ردیف می‌آمد؛ `looksLikeVariantSummary` فقط `description` با الگوی `×`/`·` را می‌گرفت و `name` را لمس نمی‌کرد.
+- **رفع:** در `print-line-collapse` — `looksLikeVariantLabel` + `sanitizePrintName/Description/Line`؛ هویت چاپی = ستون کد (+ نام استایل تمیز). دادهٔ ذخیره‌شده عوض نمی‌شود.
+- **تست:** `node server/scripts/test-print-strip-variant-v258.js` + `test-print-collapse-v204.js`
+- **فایل‌ها:** `server/lib/print-line-collapse.js`, `server/public/{app.js,sw.js}`, `server/scripts/test-print-strip-variant-v258.js`
+- **Deploy:** 🔄 در حال انجام
+
 ### ۱۴۰۵/۰۷/۰۶ — چاپ فاکتور: dedupe دریافت POS + UI چاپ (SW v257)
 
 - **A — ریشه:** یک دریافت کارتخوان هنگام فاکتور هم `pos_receipts` و هم `settlements` لینک‌شده می‌سازد (یک رویداد اقتصادی، یک بستانکار مشتری). چاپ هر دو را جمع می‌زد → «دریافت‌های ثبت‌شده» ۲× و جمع ۱۹۱٫۲M در حالی که صورتحساب ۱× بود.

@@ -280,6 +280,16 @@ function fmtQty(n){
   if(Object.is(x,-0)||x===0) return '0';
   return String(parseFloat(x.toFixed(3)));
 }
+/** موجودی قطعه‌ای (عدد/رنگ×سایز) — فقط صحیح، بدون جداکننده تا input اعشار نسازد */
+function fmtPieceQty(n){
+  const x=Math.round(Number(n)||0);
+  return String(Object.is(x,-0)?0:x);
+}
+/** موجودی قطعه‌ای (عدد/رنگ×سایز) — فقط صحیح، بدون جداکننده تا input اعشار نسازد */
+function fmtPieceQty(n){
+  const x=Math.round(Number(n)||0);
+  return String(Object.is(x,-0)?0:x);
+}
 /** درصد — تا ۳ رقم اعشار با رند رقم سوم (هرگز Math.round روی درصد نزن) */
 function fmtPct(n){
   const x=round3(n);
@@ -6490,8 +6500,8 @@ function renderProdStockGrid(){
       return v&&v.stock!=null?v.stock:0;
     };
     wrap.innerHTML=`<label>موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. جمع خانه‌های همهٔ انبارها موجودی کل کالا می‌شود.')}</label>
-      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
-      <tbody>${colors.map(c=>`<tr><th>${esc(c.name)}</th>${sizes.map(s=>`<td><input type="number" min="0" step="1" class="p-stock-cell" data-color="${c.id}" data-size="${s.id}" value="${qtyOf(c.id,s.id)}" data-csp-style="${CSP.style(`width:72px`)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="tbl-wrap tbl-fit"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
+      <tbody>${colors.map(c=>`<tr><th>${esc(c.name)}</th>${sizes.map(s=>`<td><input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(qtyOf(c.id,s.id))}" data-csp-style="${CSP.style(`width:88px`)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ با ذخیره، همین جدول فقط روی انبار انتخاب‌شده نوشته می‌شود و موجودی انبارهای دیگر دست‌نخورده می‌ماند.</div>`;
   }else{
     if(stockFg) stockFg.style.display='';
@@ -23503,7 +23513,7 @@ function renderSalesGuide(){
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ در لیست فاکتور دکمهٔ خوانای <b>چاپ</b> هست و اگر جا کم باشد زیر دکمهٔ تبدیل می‌پیچد. چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب و کاغذ ISO (A4 210×297 یا A5 148×210 میلی‌متر) را می‌پرسد. پیش‌نمایش وسط صفحه و هم‌اندازهٔ کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
-        <li>چاپ فاکتور فروش/خرید: رنگ/سایز چاپ نمی‌شود؛ واریانت‌های هم‌قیمت در یک ردیف با تعداد جمع می‌شوند</li>
+        <li>چاپ فاکتور فروش/خرید: فقط <b>کد کالا</b> (+ نام استایل تمیز در صورت وجود)؛ رنگ/سایز و برچسب‌هایی مثل «سفید-سایز ۱ (مناسب از …)» چاپ نمی‌شود؛ واریانت‌های هم‌قیمت در یک ردیف با تعداد جمع می‌شوند</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),

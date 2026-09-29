@@ -1,6 +1,9 @@
 /**
  * جمع‌کردن نمایشی ردیف‌های چاپ فاکتور (فروش و خرید).
  * دادهٔ ذخیره‌شده عوض نمی‌شود — فقط برای HTML چاپ.
+ *
+ * هویت چاپی کالا = کد کالا (+ نام استایل تمیز در صورت وجود).
+ * رنگ / سایز / برچسب واریانت روی فاکتور چاپ نمی‌شود.
  */
 'use strict';
 
@@ -84,17 +87,106 @@ function sharedDisc(members) {
   return first;
 }
 
+/** خلاصهٔ رنگ/سایز تولیدشده توسط سیستم — در چاپ نباید بیاید */
+function looksLikeVariantSummary(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  // مثل «مشکی، سفید · L×۲ XL×۱» یا «مشکی L×۲»
+  if (/[·•]/.test(s) && /×/.test(s)) return true;
+  if (/×\s*[\d۰-۹]+/.test(s) && s.length < 80) return true;
+  return false;
+}
+
+/**
+ * برچسب واریانت به‌صورت نام کالا — مثل «سفید-سایز 1 (مناسب از 38 تا 42)»
+ * یا تطبیق با color_name/size_name ردیف.
+ */
+function looksLikeVariantLabel(text, row) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (looksLikeVariantSummary(s)) return true;
+  // «…-سایز N» یا «سایز N (مناسب از …)»
+  if (/[-–]\s*سایز\s*[\d۰-۹A-Za-zآ-ی]+/u.test(s)) return true;
+  if (/^سایز\s*[\d۰-۹A-Za-zآ-ی]+/u.test(s)) return true;
+  if (/سایز\s*[\d۰-۹]+\s*\(/u.test(s)) return true;
+  if (/مناسب\s+از\s*[\d۰-۹]+/u.test(s)) return true;
+
+  const c = String((row && (row.color_name || row.color)) || '').trim();
+  const sz = String((row && row.size_name) || '').trim();
+  if (c && sz) {
+    const norms = [
+      `${c}-${sz}`, `${c}–${sz}`, `${c} ${sz}`, `${c}/${sz}`,
+      `${c} · ${sz}`, `${c}·${sz}`, `${c} - ${sz}`,
+    ];
+    if (norms.some((n) => s === n || s.endsWith(n) || s.endsWith(`-${n}`))) return true;
+  } else if (c && (s === c || s.endsWith(`-${c}`) || s.startsWith(`${c}-`))) {
+    if (/سایز/u.test(s)) return true;
+  }
+  return false;
+}
+
+/**
+ * نام چاپی تمیز: کد کالا در ستون جدا می‌ماند؛ رنگ/سایز از name حذف می‌شود.
+ * اگر کل name فقط برچسب واریانت باشد → رشتهٔ خالی (هویت = کد).
+ */
+function sanitizePrintName(name, row) {
+  let s = String(name || '').trim();
+  if (!s) return '';
+  if (looksLikeVariantLabel(s, row)) {
+    return '';
+  }
+  const c = String((row && (row.color_name || row.color)) || '').trim();
+  const sz = String((row && row.size_name) || '').trim();
+  if (c && sz) {
+    const suffixes = [
+      `-${c}-${sz}`, `–${c}–${sz}`, ` ${c}-${sz}`, `-${c} ${sz}`,
+      ` · ${c} · ${sz}`, ` · ${c}-${sz}`, `/${c}/${sz}`,
+    ];
+    for (const suf of suffixes) {
+      if (s.endsWith(suf)) {
+        s = s.slice(0, -suf.length).trim();
+        break;
+      }
+    }
+  }
+  // پسوند عمومی: -رنگ-سایز N (توضیح)
+  s = s.replace(/[-–]\s*\S+-سایز\s*[\d۰-۹A-Za-zآ-ی]+(?:\s*\([^)]*\))?$/u, '').trim();
+  s = s.replace(/\s*سایز\s*[\d۰-۹]+\s*\([^)]*مناسب[^)]*\)\s*$/u, '').trim();
+  if (looksLikeVariantLabel(s, row)) return '';
+  return s;
+}
+
+function sanitizePrintDescription(desc, row) {
+  const s = String(desc || '').trim();
+  if (!s) return '';
+  if (looksLikeVariantLabel(s, row)) return '';
+  return s;
+}
+
+/** یک ردیف آمادهٔ چاپ: بدون رنگ/سایز در نام و شرح */
+function sanitizePrintLine(r) {
+  if (!r || r.row_type === 'income') return r;
+  const name = sanitizePrintName(r.name, r);
+  const description = sanitizePrintDescription(r.description, r);
+  return Object.assign({}, r, {
+    name,
+    description,
+    color_name: '',
+    size_name: '',
+    color: '',
+  });
+}
+
 function mergeGroup(members) {
   const first = members[0];
   const qty = members.reduce((a, r) => a + (Number(r.qty) || 0), 0);
   const sum = members.reduce((a, r) => a + lineNet(r), 0);
   const discAmount = members.reduce((a, r) => a + lineDiscOf(r), 0);
-  // چاپ فشرده: رنگ×سایز روی فاکتور چاپ نمی‌شود (فقط نام کالا + تعداد جمع‌شده).
-  // یادداشت دستی کاربر (description) اگر غیر از خلاصهٔ واریانت باشد نگه داشته می‌شود.
-  const notes = uniqueNotes(members).filter((n) => !looksLikeVariantSummary(n));
+  // چاپ فشرده: رنگ×سایز روی فاکتور چاپ نمی‌شود (فقط نام تمیز + کد + تعداد جمع‌شده).
+  const notes = uniqueNotes(members).filter((n) => !looksLikeVariantLabel(n, first));
   const description = notes.length ? notes.join('، ') : '';
   const productCode = first.code || first.sku || first.barcode || '';
-  return Object.assign({}, first, {
+  return sanitizePrintLine(Object.assign({}, first, {
     name: first.name || '',
     qty,
     price: first.price,
@@ -105,20 +197,10 @@ function mergeGroup(members) {
     code: productCode,
     sku: productCode,
     description,
-    color_name: '',
-    size_name: '',
-    color: '',
-  });
-}
-
-/** خلاصهٔ رنگ/سایز تولیدشده توسط سیستم — در چاپ نباید بیاید */
-function looksLikeVariantSummary(text) {
-  const s = String(text || '').trim();
-  if (!s) return false;
-  // مثل «مشکی، سفید · L×۲ XL×۱» یا «مشکی L×۲»
-  if (/[·•]/.test(s) && /×/.test(s)) return true;
-  if (/×\s*[\d۰-۹]+/.test(s) && s.length < 80) return true;
-  return false;
+    color_name: first.color_name || '',
+    size_name: first.size_name || '',
+    color: first.color || '',
+  }));
 }
 
 function truncateDesc(desc, max) {
@@ -138,10 +220,7 @@ function collapsePrintRows(rows, opts) {
     const r = list[i];
     if (!canCollapse(r)) {
       seen[i] = true;
-      const cleaned = Object.assign({}, r, {
-        description: looksLikeVariantSummary(r.description) ? '' : String(r.description || '').trim(),
-      });
-      out.push(cleaned);
+      out.push(sanitizePrintLine(r));
       continue;
     }
     const key = groupKey(r);
@@ -170,5 +249,9 @@ module.exports = {
   lineNet,
   lineDiscOf,
   looksLikeVariantSummary,
+  looksLikeVariantLabel,
+  sanitizePrintName,
+  sanitizePrintDescription,
+  sanitizePrintLine,
   compactSummary,
 };

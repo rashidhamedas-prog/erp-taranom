@@ -31,7 +31,7 @@ const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const invRoutes = fs.readFileSync(path.join(__dirname, '../routes/invoices.js'), 'utf8');
 const dbJs = fs.readFileSync(path.join(__dirname, '../db.js'), 'utf8');
 
-ok(/erp-taranom-v257/.test(sw), 'SW v257');
+ok(/erp-taranom-v25[789]|erp-taranom-v2[6-9]\d/.test(sw), 'SW v257+');
 ok(!/class="meta-strip"/.test(printJs), 'meta-strip HTML removed from templates');
 ok(printJs.includes('linkedSettlementIds'), 'POS/settlement print dedupe present');
 ok(invRoutes.includes('enrichRowsProductCodes') && invRoutes.includes('show_phone_on_invoice'),
