@@ -13,7 +13,7 @@
 - **Cache-bust:** `app.css?v=276`، `app.js?v=276`، `mdi.js?v=276`، SW `erp-taranom-v276`.
 - **تست:** `node server/scripts/test-modal-viewport-portal-v276.js`
 - **فایل‌ها:** `server/public/{app.css,app.js,index.html,sw.js}`، `server/scripts/test-modal-viewport-portal-v276.js`، `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `d9c3c04` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v276`؛ `test-modal-viewport-portal-v276` 16/0؛ `test-sms` 22/0؛ `test-sync` 44/0؛ push: `main` + `fix/modal-viewport-portal-v276`
 
 ### ۱۴۰۵/۰۷/۰۹ — فیکس معماری sticky جدول داخل پوشه/کارت (SW v275)
 
