@@ -1,6 +1,6 @@
 /**
  * Marketer sales: Catalog → Cart → checkout → Invoice builder
- * Version marker: marketer-ui-v270 — keep in sync with SW / script ?v=
+ * Version marker: marketer-ui-v271 — keep in sync with SW / script ?v=
  *
  * Channel invariant (TAP lifecycle): فروش بازاریاب فقط پیش‌فاکتور می‌سازد.
  * تبدیل به معمولی/رسمی فقط با دکمه «تبدیل» توسط مدیر/حسابداری/مدیر فروش است.
@@ -769,6 +769,6 @@
     removeGroup,
     clearAfterInvoice,
     openInvoiceWithCart,
-    _ver: 'marketer-ui-v270'
+    _ver: 'marketer-ui-v271'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

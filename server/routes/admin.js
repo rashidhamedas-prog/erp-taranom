@@ -203,8 +203,12 @@ router.put('/users/:id/catalog-categories', auth, adminOnly, centralOnly, (req, 
   res.json({ ok: true, category_ids: ids });
 });
 
-// Company dashboard - per-salesperson stats (admin + accounting)
+// Company dashboard - per-salesperson stats (admin + accounting roles only)
 router.get('/dashboard', auth, adminOrAccounting, (req, res) => {
+  const { scopeUserId } = require('../lib/customer-scope');
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'داشبورد سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(req.query.from), st = safeDate(req.query.to);
@@ -252,6 +256,10 @@ router.get('/dashboard', auth, adminOrAccounting, (req, res) => {
 
 // Aggregate overview across ALL users (revenue from firm invoices)
 router.get('/stats/overview', auth, adminOrAccounting, (req, res) => {
+  const { scopeUserId } = require('../lib/customer-scope');
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'آمار سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(req.query.from), st = safeDate(req.query.to);
@@ -316,8 +324,12 @@ router.get('/audit', auth, adminOnly, (req, res) => {
   res.json({ rows, total, page, limit });
 });
 
-// Customer balances — admin/accounting see all; sales use /customers/balances
+// Customer balances — admin/accounting roles only; sales use /customers/balances
 router.get('/customer-balances', auth, adminOrAccounting, (req, res) => {
+  const { scopeUserId } = require('../lib/customer-scope');
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'مانده سراسری فقط برای مدیر و حسابداری است' });
+  }
   try {
     const db = getDB();
     const LEDGER_BAL_JOIN = `LEFT JOIN (

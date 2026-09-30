@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnlyStrict, managerOnly } = require('../middleware/auth');
 const ai = require('../services/ai');
+const { scopeUserId, customerVisibleTo } = require('../lib/customer-scope');
 
 function dedupeInsightRows(rows) {
   const seen = new Set();
@@ -15,14 +16,13 @@ function dedupeInsightRows(rows) {
   return out;
 }
 
-// Insights feed — managers see everything; salespeople see their own
+// Insights feed — admin/accounting see company; everyone else (incl. sales_manager) own portfolio
 router.get('/insights', auth, (req, res) => {
   const db = getDB();
   const kind = req.query.kind || null;
-  const isManager = ['admin', 'sales_manager'].includes(req.user.role);
-  const isFinance = req.user.role === 'accounting';
+  const uid = scopeUserId(req);
   let rows;
-  if (isManager || isFinance) {
+  if (uid == null) {
     rows = db.prepare(`
       SELECT a.*, c.biz as cust_biz, u.name as rep_name FROM ai_insights a
       LEFT JOIN customers c ON a.customer_id=c.id
@@ -35,10 +35,13 @@ router.get('/insights', auth, (req, res) => {
       SELECT a.*, c.biz as cust_biz FROM ai_insights a
       LEFT JOIN customers c ON a.customer_id=c.id
       WHERE a.kind<>'weekly_summary'
-        AND (a.user_id=? OR a.customer_id IN (SELECT id FROM customers WHERE user_id=?))
+        AND (
+          a.user_id=?
+          OR a.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?)
+        )
         ${kind ? 'AND a.kind=?' : ''}
       ORDER BY a.created_at DESC, a.score DESC LIMIT 100
-    `).all(...(kind ? [req.user.id, req.user.id, kind] : [req.user.id, req.user.id]));
+    `).all(...(kind ? [uid, uid, uid, kind] : [uid, uid, uid]));
   }
   res.json(dedupeInsightRows(rows));
 });
@@ -46,9 +49,9 @@ router.get('/insights', auth, (req, res) => {
 // Insights + churn score for one customer
 router.get('/insights/customer/:id', auth, (req, res) => {
   const db = getDB();
-  const cust = db.prepare('SELECT id,biz,churn_score,user_id FROM customers WHERE id=?').get(req.params.id);
+  const cust = db.prepare('SELECT id,biz,churn_score,user_id,assigned_to FROM customers WHERE id=?').get(req.params.id);
   if (!cust) return res.status(404).json({ error: 'مشتری یافت نشد' });
-  if (!['admin', 'accounting'].includes(req.user.role) && cust.user_id !== req.user.id) {
+  if (!customerVisibleTo(db, cust.id, scopeUserId(req))) {
     return res.status(403).json({ error: 'دسترسی ندارید' });
   }
   const rows = db.prepare('SELECT * FROM ai_insights WHERE customer_id=? ORDER BY created_at DESC LIMIT 20').all(cust.id);
@@ -68,8 +71,11 @@ router.get('/my-summary', auth, async (req, res) => {
   }
 });
 
-// Latest weekly summary (admin + sales_manager)
-router.get('/weekly-summary', auth, managerOnly, (req, res) => {
+// Latest weekly summary — company-wide: admin + accounting only
+router.get('/weekly-summary', auth, (req, res) => {
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'خلاصه هفتگی سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const row = db.prepare("SELECT * FROM ai_insights WHERE kind='weekly_summary' ORDER BY created_at DESC LIMIT 1").get();
   res.json(row || null);

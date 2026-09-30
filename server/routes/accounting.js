@@ -97,6 +97,7 @@ const {
   attachMissingInvoiceRows, stmtEntryType, glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance, canonicalCustomerFold, ensureCustomerBooksRepaired,
 } = require('../lib/customer-books');
+const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 
 const ENTRY_LABEL = {
   invoice: 'فاکتور فروش',
@@ -293,9 +294,60 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
 }
 
 // Overview stats for accounting dashboard
+// Company-wide KPIs only for admin/accounting (scopeUserId=null).
+// sales_manager / delegated users get AR scoped to their customers only.
 router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   ensureCustomerBooksRepaired(db);
+  const uid = scopeUserId(req);
+  const asOf = safeJalaliDate(req.query.asOf) || safeJalaliDate(req.query.to);
+  const recvLive = canonicalCustomerFold(db, { asOf, userId: uid });
+  const totalReceivable = recvLive.display;
+  const creditorBalance = recvLive.creditor;
+  const outstanding = totalReceivable;
+
+  if (uid != null) {
+    const vis = customerVisibilitySql('c');
+    const totalInvoiced = db.prepare(`
+      SELECT COALESCE(SUM(i.final),0) s FROM invoices i
+      JOIN customers c ON c.id=i.cust_id
+      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND ${vis}
+    `).get(uid, uid).s;
+    const totalSettled = db.prepare(`
+      SELECT COALESCE(SUM(s.amount),0) s FROM settlements s
+      JOIN customers c ON c.id=s.cust_id
+      WHERE COALESCE(s.status,'posted')<>'reversed' AND ${vis}
+    `).get(uid, uid).s;
+    const pendingApproval = db.prepare(`
+      SELECT COUNT(*) c FROM invoices i
+      JOIN customers c ON c.id=i.cust_id
+      WHERE i.type='final' AND i.approved=0 AND COALESCE(i.deleted_at,0)=0 AND ${vis}
+    `).get(uid, uid).c;
+    const approvedCount = db.prepare(`
+      SELECT COUNT(*) c FROM invoices i
+      JOIN customers c ON c.id=i.cust_id
+      WHERE i.type='final' AND i.approved=1 AND COALESCE(i.deleted_at,0)=0 AND ${vis}
+    `).get(uid, uid).c;
+    return res.json({
+      totalInvoiced, totalSettled,
+      outstanding,
+      creditorBalance,
+      creditorBalanceLedger: creditorBalance,
+      pendingApproval, approvedCount,
+      trialBalanced: null,
+      totalPayable: null,
+      totalPayableLedger: null,
+      totalReceivable,
+      totalReceivableGl: null,
+      creditorBalanceGl: null,
+      outstandingLedger: outstanding,
+      asOf: asOf || null,
+      pendingSettlements: 0,
+      books_mismatch: false,
+      scoped: true,
+    });
+  }
+
   const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0`).get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0 AND COALESCE(deleted_at,0)=0").get().c;
@@ -307,15 +359,10 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   `).get();
   const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
 
-  const asOf = safeJalaliDate(req.query.asOf) || safeJalaliDate(req.query.to);
   const payableCode = coaAcct(db, 'coa_payable').code;
   const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
-  const recvLive = canonicalCustomerFold(db, { asOf });
   const recvGl = glCustomersTafsiliBalance(db, { asOf });
   const ledTaf = customerLedgerTafsiliBalance(db, { asOf });
-  const totalReceivable = recvLive.display;
-  const creditorBalance = recvLive.creditor;
-  const outstanding = totalReceivable;
   const outstandingLedger = ledTaf.display;
   const creditorLedger = ledTaf.creditor;
 
@@ -367,14 +414,17 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     books_mismatch: Math.abs(Number(totalReceivable) - Number(recvGl.display)) > 1
       || Math.abs(Number(creditorBalance) - Number(recvGl.creditor)) > 1
       || Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1,
+    scoped: false,
   });
 });
 
 // Receivables per customer — posted GL under the customer COA is the cutoff source.
 // customer_ledger remains a labeled second view (ledger_outstanding / books_mismatch).
+// Non-admin/accounting (scopeUserId set) only see their own customers.
 router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   ensureCustomerBooksRepaired(db);
+  const uid = scopeUserId(req);
   const { from, to } = req.query;
   const sf = safeJalaliDate(from), st = safeJalaliDate(to);
   const invTo = st ? ` AND i.date <= '${st}'` : '';
@@ -383,7 +433,12 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const settFrom = (!st && sf) ? ` AND s.date >= '${sf}'` : '';
   const ledTo = st ? ' AND cl.date <= ?' : '';
   const ledFrom = (!st && sf) ? ' AND cl.date >= ?' : '';
-  const ledParams = st ? [st] : ((!st && sf) ? [sf] : []);
+  const scopeClause = uid != null ? ` WHERE ${customerVisibilitySql('c')}` : '';
+  // Bind order follows SQL ? appearance: ledger date filter first, then visibility.
+  const ledParams = [];
+  if (st) ledParams.push(st);
+  else if (sf) ledParams.push(sf);
+  if (uid != null) ledParams.push(uid, uid);
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.phone, c.coa_code,
       u.name as salesperson,
@@ -410,6 +465,7 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
       GROUP BY customer_id
     ) lb ON lb.customer_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
+    ${scopeClause}
     ORDER BY ABS(COALESCE(lb.balance,0)) DESC
   `).all(...ledParams);
   const out = [];
@@ -438,6 +494,7 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
 // Receivables per final invoice (for invoice-level tracking) — as-of `to` when provided
 router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const uid = scopeUserId(req);
   const { from, to } = req.query;
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(from), st = safeDate(to);
@@ -448,6 +505,8 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   else if (sf) params.push(sf);
   const settDate = st ? ' AND date <= ?' : ((!st && sf) ? ' AND date >= ?' : '');
   const settParams = st ? [st] : ((!st && sf) ? [sf] : []);
+  const scopeSql = uid != null ? ` AND ${customerVisibilitySql('c')}` : '';
+  const scopeParams = uid != null ? [uid, uid] : [];
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
       COALESCE(sp.paid, 0) as paid
@@ -459,10 +518,10 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${settDate}
       GROUP BY invoice_id
     ) sp ON sp.invoice_id=i.id
-    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}${scopeSql}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
-  `).all(...settParams, ...params);
+  `).all(...settParams, ...params, ...scopeParams);
   rows.forEach(r => { r.outstanding = (r.final || 0) - (r.paid || 0); });
   res.json(rows.filter(r => Math.abs(r.outstanding) > 0.0001));
 });

@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۸ — اسکوپ اجباری آمار داشبورد برای غیر مدیر/حسابداری (SW v271)
+
+- **اینورینت:** فقط نقش‌های `admin` و `accounting` آمار سراسری شرکت را می‌بینند. بقیه (از جمله `sales_manager` و دسترسی تفویضی حسابداری) فقط مشتریان `user_id=me OR assigned_to=me` — سرور از `scopeUserId` مشتق می‌کند؛ فیلتر کلاینت دامنه را باز نمی‌کند.
+- **یافتهٔ ریشه‌یابی:** عدد ~۴٫۲۸ میلیارد روی داشبورد عارف (کارشناس میدانی) نشت سراسری نبود؛ دقیقاً جمع ماندهٔ ۲۳ مشتری منتسب به اوست (ماندهٔ شرکت ~۱۲٫۹۷ میلیارد). مسیر خانه `/customers/balances` از قبل اسکوپ داشت.
+- **نشت‌های بسته‌شده:** `GET /api/dashboard/summary` (قبلاً fold سراسری + seesAll برای sales_manager)؛ `/accounting/overview` و `/receivables` (+by-invoice) برای نقش غیرمالی؛ KPI/alerts/charts داشبورد و `/admin/{stats,dashboard,customer-balances}` فقط نقش مالی؛ AI insights دیگر به sales_manager کل شرکت را نمی‌دهد و `assigned_to` را هم می‌بیند.
+- **لیب:** `canonicalCustomerFold(db,{asOf,userId})` اسکوپ اختیاری.
+- **تست:** `node server/scripts/test-dashboard-scope-v271.js` (اجرا روی ایران پس از deploy؛ محلی Node24 بدون باینری better-sqlite3)
+- **فایل‌ها:** `customer-books.js`, `routes/{dashboard,accounting,admin,ai}.js`, `public/{app.js,sw.js,index.html,marketer-ui.js}`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۸ — فروش بازاریاب: قفل کانال فقط‌پیش‌فاکتور (SW v270)
 
 - **Invariant (چرخه سند):** کانال «فروش بازاریاب» فقط پیش‌فاکتور می‌سازد؛ تبدیل به معمولی/رسمی فقط با دکمهٔ «تبدیل» توسط مدیر/حسابداری/مدیر فروش. نقش کارشناس از قبل در API با `E_SALES_PROFORMA_ONLY` قفل بود.

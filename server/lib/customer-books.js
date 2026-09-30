@@ -1016,18 +1016,25 @@ function customerSignedBalanceMap(db) {
 /**
  * Sum of live customer balances from the subledger (same rule as the statement).
  * Positive signed = debtor. Supports an as-of Jalali cutoff on ledger/invoice dates.
+ * Optional userId: only customers visible to that rep (user_id OR assigned_to).
+ * null/undefined userId = company-wide (admin/accounting only at the route layer).
  */
-function canonicalCustomerFold(db, { asOf } = {}) {
+function canonicalCustomerFold(db, { asOf, userId } = {}) {
   ensureCustomerBooksRepaired(db);
   const asOfSql = asOf ? ' AND cl.date <= ?' : '';
+  const scopeSql = userId != null ? ' WHERE (c.user_id=? OR c.assigned_to=?)' : '';
+  const foldParams = [];
+  if (asOf) foldParams.push(asOf);
+  if (userId != null) foldParams.push(userId, userId);
   const rows = db.prepare(`
     SELECT c.id AS customer_id,
       COALESCE(SUM(cl.debit),0) AS debit,
       COALESCE(SUM(cl.credit),0) AS credit
     FROM customers c
     LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${asOfSql}
+    ${scopeSql}
     GROUP BY c.id
-  `).all(...(asOf ? [asOf] : []));
+  `).all(...foldParams);
   const byId = new Map();
   for (const r of rows) {
     byId.set(Number(r.customer_id), {
@@ -1037,12 +1044,18 @@ function canonicalCustomerFold(db, { asOf } = {}) {
   }
   const missParams = [];
   let missAsOf = '';
+  let missScope = '';
   if (asOf) { missAsOf = ' AND i.date <= ?'; missParams.push(asOf); }
+  if (userId != null) {
+    missScope = ' AND EXISTS (SELECT 1 FROM customers cx WHERE cx.id=i.cust_id AND (cx.user_id=? OR cx.assigned_to=?))';
+    missParams.push(userId, userId);
+  }
   const missing = db.prepare(`
     SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
     FROM invoices i
     WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
       ${missAsOf}
+      ${missScope}
       AND NOT EXISTS (
         SELECT 1 FROM customer_ledger cl
         WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id

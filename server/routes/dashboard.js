@@ -1,57 +1,80 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
-const { rialToToman, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
-const { DELETED_FILTER } = require('../lib/ledger');
+const { auth, adminOrAccounting } = require('../middleware/auth');
+const { rialToToman } = require('../lib/money');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 const { firmSaleTypeSql } = require('../lib/sales-document');
 const { canonicalCustomerFold, customerSignedBalanceMap } = require('../lib/customer-books');
+const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 
 function ok(data, message = '') {
   return { success: true, data, message };
 }
 
+/**
+ * Company-wide financial aggregates: admin + accounting only.
+ * Everyone else (incl. sales_manager / delegated) gets customer-scoped numbers.
+ */
 // GET /api/dashboard/summary
 router.get('/summary', auth, (req, res) => {
   const db = getDB();
-  const role = req.user.role;
-  const seesAll = ['admin', 'accounting', 'sales_manager'].includes(role);
+  const uid = scopeUserId(req);
+  const companyWide = uid == null;
 
   let cashBank = 0;
-  try {
-    cashBank = require('../lib/cash-flow').sumCashBankBalanceRial(db);
-  } catch (_) { /* empty db */ }
+  let todayPurchases = 0;
+  let payables = 0;
+  if (companyWide) {
+    try {
+      cashBank = require('../lib/cash-flow').sumCashBankBalanceRial(db);
+    } catch (_) { /* empty db */ }
+  }
 
   const today = require('../jalali').todayJalali();
-  let todaySales = 0, todayPurchases = 0;
+  let todaySales = 0;
   try {
-    const salesQ = seesAll
-      ? db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND date=? AND COALESCE(deleted_at,0)=0`)
-      : db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND date=? AND user_id=? AND COALESCE(deleted_at,0)=0`);
-    todaySales = (seesAll ? salesQ.get(today) : salesQ.get(today, req.user.id))?.s || 0;
-
-    todayPurchases = db.prepare("SELECT COALESCE(SUM(total),0) s FROM purchase_invoices WHERE date=?").get(today)?.s || 0;
+    if (companyWide) {
+      todaySales = db.prepare(
+        `SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND date=? AND COALESCE(deleted_at,0)=0`
+      ).get(today)?.s || 0;
+      todayPurchases = db.prepare('SELECT COALESCE(SUM(total),0) s FROM purchase_invoices WHERE date=?').get(today)?.s || 0;
+    } else {
+      // Scope by customer ownership (not invoice issuer alone)
+      todaySales = db.prepare(`
+        SELECT COALESCE(SUM(i.final),0) s
+        FROM invoices i
+        JOIN customers c ON c.id = i.cust_id
+        WHERE ${firmSaleTypeSql('i')} AND i.date=? AND COALESCE(i.deleted_at,0)=0
+          AND ${customerVisibilitySql('c')}
+      `).get(today, uid, uid)?.s || 0;
+    }
   } catch (_) { /* tables may be empty */ }
 
-  let receivables = 0, payables = 0;
+  let receivables = 0;
   try {
-    receivables = canonicalCustomerFold(db).signed;
-    payables = db.prepare('SELECT COALESCE(SUM(credit)-SUM(debit),0) b FROM supplier_ledger').get()?.b || 0;
+    receivables = canonicalCustomerFold(db, { userId: uid }).signed;
+    if (companyWide) {
+      payables = db.prepare('SELECT COALESCE(SUM(credit)-SUM(debit),0) b FROM supplier_ledger').get()?.b || 0;
+    }
   } catch (_) { /* */ }
 
   res.json(ok({
-    cash_bank_balance_rial: Math.round(cashBank),
-    cash_bank_balance_toman: rialToToman(cashBank),
+    cash_bank_balance_rial: companyWide ? Math.round(cashBank) : 0,
+    cash_bank_balance_toman: companyWide ? rialToToman(cashBank) : 0,
     today_sales_toman: todaySales,
-    today_purchases_toman: todayPurchases,
+    today_purchases_toman: companyWide ? todayPurchases : 0,
     net_receivables_toman: receivables,
-    net_payables_toman: payables,
+    net_payables_toman: companyWide ? payables : 0,
     fiscal_year: getActiveFiscalYear(db),
+    scoped: !companyWide,
   }));
 });
 
-// GET /api/dashboard/kpis
+// GET /api/dashboard/kpis — company finance only
 router.get('/kpis', auth, adminOrAccounting, (req, res) => {
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'آمار سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const monthPrefix = require('../jalali').todayJalali().slice(0, 7);
   const monthSales = db.prepare(`SELECT COALESCE(SUM(final),0) s, COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()} AND date LIKE ? AND COALESCE(deleted_at,0)=0`).get(monthPrefix + '%');
@@ -72,6 +95,9 @@ router.get('/kpis', auth, adminOrAccounting, (req, res) => {
 
 // GET /api/dashboard/alerts
 router.get('/alerts', auth, adminOrAccounting, (req, res) => {
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'هشدارهای سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const alerts = [];
   const today = require('../jalali').todayJalali();
@@ -102,6 +128,9 @@ router.get('/alerts', auth, adminOrAccounting, (req, res) => {
 
 // GET /api/dashboard/charts/sales-trend
 router.get('/charts/sales-trend', auth, adminOrAccounting, (req, res) => {
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'نمودار سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const range = req.query.range || '30d';
   const days = range === '12m' ? 365 : range === '90d' ? 90 : 30;
@@ -115,6 +144,9 @@ router.get('/charts/sales-trend', auth, adminOrAccounting, (req, res) => {
 
 // GET /api/dashboard/pending-approvals
 router.get('/pending-approvals', auth, adminOrAccounting, (req, res) => {
+  if (scopeUserId(req) != null) {
+    return res.status(403).json({ error: 'اقدامات سراسری فقط برای مدیر و حسابداری است' });
+  }
   const db = getDB();
   const items = [];
   try {
