@@ -69,6 +69,15 @@ function normalizeColorMode(raw) {
   return 'none';
 }
 
+/** V-15: finished non-manufactured SKUs cannot be BOM components (use raw/packaging/semi). */
+function assertBomComponentType(db, componentProductId) {
+  if (!componentProductId) return;
+  const prod = db.prepare('SELECT item_type, is_manufactured, name FROM products WHERE id=?').get(componentProductId);
+  if (prod && prod.item_type === 'finished' && !prod.is_manufactured) {
+    throw err('E_BOM_COMP_TYPE', 422, { name: prod.name });
+  }
+}
+
 function resolveFgColorName(db, { color, colorId, bom }) {
   if (color && String(color).trim()) return String(color).trim();
   const cid = colorId != null ? colorId : bom?.color_id;
@@ -395,10 +404,7 @@ function validateBom(db, bomId) {
       throw err('E_BOM_COMP_COLOR', 422, { line_no: L.line_no });
     }
     // V-15
-    const prod = db.prepare('SELECT item_type, is_manufactured, name FROM products WHERE id=?').get(L.component_product_id);
-    if (prod && prod.item_type === 'finished' && !prod.is_manufactured) {
-      throw err('E_BOM_COMP_TYPE', 422, { name: prod.name });
-    }
+    assertBomComponentType(db, L.component_product_id);
     // V-16
     if (L.stage_cost_center_id) {
       const cc = db.prepare('SELECT is_stage FROM cost_centers WHERE id=?').get(L.stage_cost_center_id);
@@ -508,6 +514,7 @@ function addLine(db, bomId, body, userId, opts = {}) {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
     if (!opts.skipLock) assertDraft(b);
     if (body.component_product_id === b.product_id) throw err('E_BOM_SELF_REF', 422);
+    assertBomComponentType(db, body.component_product_id);
     const scrap = Number(body.scrap_percent) || 0;
     if (scrap < 0 || scrap >= 100) throw err('E_BOM_SCRAP_RANGE', 422);
     const colorMode = normalizeColorMode(body.component_color_mode);
@@ -562,6 +569,8 @@ function updateLine(db, bomId, lineId, body, userId) {
     const L = db.prepare('SELECT * FROM bom_lines WHERE id=? AND bom_id=?').get(lineId, bomId);
     if (!L) throw err('E_NOT_FOUND', 404);
     if (body.component_product_id === b.product_id) throw err('E_BOM_SELF_REF', 422);
+    const nextCompId = body.component_product_id != null ? body.component_product_id : L.component_product_id;
+    assertBomComponentType(db, nextCompId);
     const scrap = body.scrap_percent != null ? Number(body.scrap_percent) : L.scrap_percent;
     if (scrap < 0 || scrap >= 100) throw err('E_BOM_SCRAP_RANGE', 422);
     const colorMode = body.component_color_mode != null
@@ -924,7 +933,7 @@ function assertProductNotInBom(db, productId) {
 
 module.exports = {
   err, resolveBom, explodeBom, resolveSubstitutes, getPrice,
-  validateBom, detectCircular,
+  validateBom, detectCircular, assertBomComponentType,
   activateBom, deactivateBom, archiveBom, versionUpBom, cloneBom, createAlternative,
   createBom, updateBomHeader, softDeleteBom, addLine, updateLine, deleteLine, replaceLines,
   getBom, listBoms, whereUsed, stdCost, compareBoms, bomTree, logBomChange,

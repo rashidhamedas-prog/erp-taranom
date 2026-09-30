@@ -541,8 +541,10 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
       db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, result.lastInsertRowid);
     }
     if (req.body.is_manufactured != null) {
+      const raw = req.body.is_manufactured;
+      const mfg = raw === true || raw === 1 || raw === '1' ? 1 : 0;
       db.prepare('UPDATE products SET is_manufactured=? WHERE id=?')
-        .run(req.body.is_manufactured ? 1 : 0, result.lastInsertRowid);
+        .run(mfg, result.lastInsertRowid);
     }
     if (req.body.average_cost_rial != null) {
       db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
@@ -665,8 +667,10 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, req.params.id);
   }
   if (bodyHas(body, 'is_manufactured')) {
+    const raw = body.is_manufactured;
+    const mfg = raw === true || raw === 1 || raw === '1' ? 1 : 0;
     db.prepare('UPDATE products SET is_manufactured=? WHERE id=?')
-      .run(body.is_manufactured ? 1 : 0, req.params.id);
+      .run(mfg, req.params.id);
   }
   if (bodyHas(body, 'average_cost_rial')) {
     db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')

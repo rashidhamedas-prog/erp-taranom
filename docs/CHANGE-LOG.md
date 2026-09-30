@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — BOM فعال‌سازی E_BOM_COMP_TYPE + UX رنگ/ماتریس + جداسازی لایه‌چینی/رسید محصول (SW v273)
+
+- **عکس الف (E_BOM_COMP_TYPE):** ریشه = V-15: جزء با `item_type=finished` و بدون `is_manufactured` مجاز نیست. پیش‌فرض کالاها `finished` بود و UI فیلتر نمی‌کرد؛ خطا فقط هنگام فعال‌سازی دیده می‌شد. رفع: `assertBomComponentType` روی addLine/updateLine/validateBom؛ فیلتر picker؛ فیلدهای طبقه‌بندی تولید در کارت کالا؛ پیام فارسی با نام کالا.
+- **عکس ب-A:** BOM سطح استایل است — چندرنگ کاتالوگ در کارت کالا (تیک رنگ×سایز). سرفصل فقط «رنگ این نسخهٔ فرمول» تک‌انتخاب اختیاری + راهنما.
+- **عکس ب-B:** ماتریس سایز با `modal-overlay` نامرئی بود + `style.sizes` وجود نداشت. رفع: `openNestedModal` + سایز از `cuttingSizeLabelsForProduct`.
+- **عکس ب-C/D:** تایپ خام `color_id` حذف شد؛ مود رنگ جزء + dropdown نام رنگ از `product_colors` فقط وقتی مود=ثابت.
+- **عکس پ:** مرحله ۳/۵ دو سطح UI جدا (تب لایه‌چینی vs رسید انبار محصول)؛ ledger همچنان دو سند (RAW→WIP و WIP→FG) طبق ADR-007.
+- **تست:** `node server/scripts/test-bom-comp-type-v273.js` (20 static PASS؛ live sqlite روی ایران)
+- **فایل‌ها:** `server/lib/production/bom.js`, `routes/{production-boms,products}.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-bom-comp-type-v273.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۸ — تجمیع سند حواله/رسید/انتقال انبار + مشاهده/ویرایش (SW v272)
 
 - **Invariant:** عملیات انبار دیگر لیست خط‌به‌خط نیست؛ هر ثبت چندکالایی یک سند `warehouse_docs` (شماره WH) با خطوط در `warehouse_moves.doc_id` است. لیست یک ردیف per سند (خطوط + جمع qty). مشاهده = سربرگ+اقلام؛ ویرایش = ابطال کامل R13 + صدور سند جدید؛ ابطال سند کل خطوط/موجودی/JE/واریانت را برمی‌گرداند.

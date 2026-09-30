@@ -283,7 +283,7 @@ const ACC_NAV_SECTIONS = [
     { title: 'عملیات', items: [
       { id: 'acc-production-dashboard', icon: '📊', label: 'داشبورد تولید' },
       { id: 'acc-production-orders', icon: '🏭', label: 'سفارش‌های تولید' },
-      { id: 'acc-cutting-lays', icon: '✂️', label: 'لایه‌چینی / رسید برش' },
+      { id: 'acc-cutting-lays', icon: '✂️', label: 'لایه‌چینی / رسید محصول' },
       { id: 'acc-production-kanban', icon: '📋', label: 'تابلوی خط' },
       { id: 'acc-production-estimate', icon: '🧮', label: 'برآورد سریع' },
       { id: 'acc-production-mrp', icon: '📦', label: 'برنامه‌ریزی مواد (MRP)' },

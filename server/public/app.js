@@ -2119,6 +2119,14 @@ function go(page){
     if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
   }
   hookWinMgrNav();
+  // بستن مودال‌های باز هنگام تعویض صفحه — جلوگیری از پنل گیرکرده روی سایدبار
+  try{
+    if(typeof closeNestedModal==='function') closeNestedModal();
+    if(el('modalRoot') && el('modalRoot').querySelector('.overlay.open') && typeof closeModal==='function'){
+      el('modalRoot').innerHTML='';
+      if(typeof syncOverlayBodyClass==='function') syncOverlayBodyClass();
+    }
+  }catch(_){}
   // صفحات سراسری (تنظیمات، راهنما، …) روی #view اصلی — پنجره MDI حسابداری را ببند
   if(IN_ACC_SHELL && page!=='exit-acc-shell' && !String(page).startsWith('acc-') && window.WinMgr && typeof WinMgr.closeAll==='function'){
     WinMgr.closeAll();
@@ -3013,10 +3021,15 @@ function invNumCell(num){
 /* ============================================================
    MODAL HELPERS
 ============================================================ */
+function syncOverlayBodyClass(){
+  const open = !!(document.querySelector('#modalRoot .overlay.open, #nestedModalRoot .overlay.open'));
+  document.body.classList.toggle('has-overlay', open);
+}
 function openModal(html, lg){
   // پیش‌فرض تمام‌صفحه؛ با دکمه ❐ می‌توان کوچک کرد. lg همچنان عرض بزرگ‌تر در حالت عادی می‌دهد.
   el('modalRoot').innerHTML = `<div class="overlay open modal-fs" id="modalOverlay" data-csp-click="${CSP.bind('click',function(event){if(event.target===this)closeModal()})}">
     <div class="modal full ${lg?'lg':''}" id="activeModal">${html}</div></div>`;
+  syncOverlayBodyClass();
   wireModalChrome();
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
@@ -3101,6 +3114,7 @@ function toggleModalSize(){
   if(!modal||!overlay) return;
   const full=modal.classList.toggle('full');
   overlay.classList.toggle('modal-fs', full);
+  syncOverlayBodyClass();
   const btn=modal.querySelector('.modal-size-btn');
   if(btn){
     btn.title=full?'بازگرداندن از تمام‌صفحه':'تمام‌صفحه';
@@ -3129,17 +3143,20 @@ function openNestedModal(html, lg){
   const root=ensureNestedModalRoot();
   root.innerHTML=`<div class="overlay open nested-overlay" id="nestedModalOverlay" data-csp-click="${CSP.bind('click',function(event){if(event.target===this)closeNestedModal()})}">
     <div class="modal ${lg?'lg':''}" id="nestedActiveModal">${html}</div></div>`;
+  syncOverlayBodyClass();
   try{ attachDatepickers(root); }catch(_){}
   try{ initCustSearches(root); }catch(_){}
 }
 function closeNestedModal(){
   const root=document.getElementById('nestedModalRoot');
   if(root) root.innerHTML='';
+  syncOverlayBodyClass();
   try{ window._variantPick=null; }catch(_){}
 }
 function closeModal(){
   if(isNestedModalOpen()){ closeNestedModal(); return; }
   el('modalRoot').innerHTML='';
+  syncOverlayBodyClass();
   _bcWedgeHandler=null;
 }
 
@@ -3165,16 +3182,18 @@ ROUTES.dash = async function(){
   if(dashPreset!=='custom'&&dashPreset!=='all'&&!dashDateFrom) [dashDateFrom,dashDateTo]=jPresetRange(dashPreset);
   const v = el('view');
   const custom = dashPreset==='custom';
-  const dateBar = `<div class="toolbar dash-toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-    ${presetSelect('dashPreset',dashPreset,'applyDashPreset')}
-    ${custom?`
-    <input id="dashFrom" data-jdate placeholder="از تاریخ" value="${dashDateFrom}">
-    <input id="dashTo" data-jdate placeholder="تا تاریخ" value="${dashDateTo}">
-    <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()})}">اعمال</button>
-    <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()})}">حذف فیلتر</button>`:''}
-    ${(dashDateFrom||dashDateTo)?`<span class="tag dash-range-tag" data-csp-style="${CSP.style(`background:var(--purple-light);color:var(--purple)`)}">${dashDateFrom||'ابتدا'} — ${dashDateTo||'انتها'}</span>`:''}
-  </div>
-  <div id="dashContent"><div class="muted">در حال بارگذاری...</div></div>`;
+  const dateBar = `<div class="dash-shell">
+    <div class="dash-preset-rail toolbar dash-toolbar">
+      ${presetSelect('dashPreset',dashPreset,'applyDashPreset')}
+      ${custom?`
+      <input id="dashFrom" data-jdate placeholder="از تاریخ" value="${dashDateFrom}">
+      <input id="dashTo" data-jdate placeholder="تا تاریخ" value="${dashDateTo}">
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()})}">اعمال</button>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()})}">حذف فیلتر</button>`:''}
+      ${(dashDateFrom||dashDateTo)?`<span class="tag dash-range-tag" data-csp-style="${CSP.style(`background:var(--purple-light);color:var(--purple)`)}">${dashDateFrom||'ابتدا'} — ${dashDateTo||'انتها'}</span>`:''}
+    </div>
+    <div id="dashContent"><div class="muted">در حال بارگذاری...</div></div>
+  </div>`;
   v.innerHTML = dateBar;
   attachDatepickers(v);
   await renderDashContent();
@@ -6398,6 +6417,18 @@ async function prodModal(id){
       <div class="fg" id="p-stock-fg"><label>موجودی کلی ${hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" type="number" step="0.001" inputmode="decimal" value="${p.stock!=null?p.stock:0}"></div>
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
+      <div class="fg"><label>طبقه‌بندی تولید ${hlp('برای اجزاء BOM باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشد. محصول نهایی دوخته‌شده = محصول نهایی + تیک ساختنی.')}</label>
+        <select id="p-item_type">
+          <option value="finished" ${(p.item_type||'finished')==='finished'?'selected':''}>محصول نهایی</option>
+          <option value="raw" ${p.item_type==='raw'?'selected':''}>مواد اولیه</option>
+          <option value="packaging" ${p.item_type==='packaging'?'selected':''}>بسته‌بندی</option>
+          <option value="semi" ${p.item_type==='semi'?'selected':''}>نیمه‌ساخته</option>
+          <option value="material" ${p.item_type==='material'?'selected':''}>مواد مصرفی</option>
+          <option value="scrap" ${p.item_type==='scrap'?'selected':''}>ضایعات</option>
+          <option value="service" ${p.item_type==='service'?'selected':''}>خدمت</option>
+        </select>
+      </div>
+      <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:22px`)}"><input type="checkbox" id="p-is-manufactured" ${Number(p.is_manufactured)===1?'checked':''}> کالای ساختنی (سفارش تولید / نیمه‌ساخته مجاز در BOM)</label></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('اگر ماتریس رنگ×سایز ساخته شود، پک فروش = رنگ‌های موجود × سایزهای موجود (زنده). این عدد فقط وقتی ماتریس نیست استفاده می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
       <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
@@ -6859,6 +6890,8 @@ async function saveProduct(id){
   fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
   fd.append('unit',el('p-unit').value||'عدد');
+  fd.append('item_type',el('p-item_type')?.value||'finished');
+  fd.append('is_manufactured', el('p-is-manufactured')?.checked ? '1' : '0');
   fd.append('colors',el('p-colors')?.value||1);
   fd.append('pack_size',el('p-pack_size')?.value||1);
   fd.append('barcode',el('p-barcode')?.value||'');
@@ -8533,7 +8566,7 @@ ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر �
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
 ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
 ROUTES['acc-fabric-roll-kardex']=()=>renderAccPage('fabric-roll-kardex','🧵','گردش طاقه');
-ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی و برش');
+ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی / رسید محصول');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
@@ -10608,37 +10641,64 @@ async function renderCuttingLaysTab(body){
     api('GET','/production/cutting-lays/rolls')||{rows:[]}
   ]);
   window._cutRolls=(rolls.rows||[]).filter(b=>Number(b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  let view='lays';
+  try{ view=window._cuttingLaysView||sessionStorage.getItem('cuttingLaysView')||'lays'; }catch(_){ view=window._cuttingLaysView||'lays'; }
+  if(view!=='pending-pack' && view!=='lays') view='lays';
+  window._cuttingLaysView=view;
+  const allRows=lays.rows||[];
+  const pendingRows=allRows.filter(r=>{
+    if(r.status==='reversed') return false;
+    const packed=(r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1;
+    return !packed;
+  });
+  const showRows=view==='pending-pack'?pendingRows:allRows;
+  const tabBtn=(k,label,count)=>`<button type="button" class="btn sm ${view===k?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView(k)})}">${label}${count!=null?' ('+fmt(count)+')':''}</button>`;
   body.innerHTML=`
     <div class="prod-scope">
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">ویزارد لایه‌چینی: طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف عادی بدون سند می‌ماند؛ بقیه ضایعات غیرعادی است. طاقه از انبار مواد کم می‌شود. <b>رسید برش / PACK</b> همان تعداد ماتریس را به انبار محصول می‌برد و مانده WIP لایه را صفر می‌کند. حوالهٔ همان متر پارچه در سفارش تولید مسدود است.</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
+      <b>دو رویداد جدا:</b>
+      ۱) <b>لایه‌چینی</b> = مصرف طاقه از انبار مواد و بدهکار WIP (پارچه بریده می‌شود).
+      ۲) <b>رسید کالای آماده</b> = ورود محصول به انبار FG و صفر کردن WIP همان لایه — نه «برش دوباره».
+      ماتریس سایز فقط در لایه‌چینی وارد می‌شود؛ رسید همان تعداد را به انبار محصول می‌برد.
+    </div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
+      ${tabBtn('lays','✂️ لایه‌چینی', allRows.filter(r=>r.status!=='reversed').length)}
+      ${tabBtn('pending-pack','📦 رسید انبار محصول', pendingRows.length)}
+      ${view==='lays'?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('cutting-lays')})}">🔄</button>
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th>رسید</th><th></th>
+      <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th>وضعیت محصول</th><th></th>
     </tr></thead><tbody>
-    ${(lays.rows||[]).map(r=>{
+    ${showRows.map(r=>{
       const livePack=(r.packs||[]).find(p=>p.status==='posted');
       const isPacked=!!livePack || Number(r.pack_posted)===1;
       let acts='';
       if(r.status==='reversed') acts='ابطال‌شده';
       else {
-        acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال برش</button>';
+        if(view==='lays'){
+          acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال لایه‌چینی</button>';
+        }
         if(isPacked){
           acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackPrint(r.id)})+'">چاپ بارکد</button>';
-          acts+=' <button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingPackRow(r.id)})+'">ابطال رسید</button>';
+          acts+=' <button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingPackRow(r.id)})+'">ابطال رسید محصول</button>';
         } else {
-          acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackSave(r.id)})+'">رسید برش</button>';
+          acts+=' <button class="btn green" data-csp-click="'+CSP.bind('click',function(){cuttingPackSave(r.id)})+'">ورود به انبار محصول</button>';
         }
       }
       return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+esc(r.product_name||('#'+r.product_id))+'</td>'
         +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
         +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
         +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td>'
-        +'<td>'+(isPacked?'✅ رسید':'—')+'</td><td>'+acts+'</td></tr>';
-    }).join('')||'<tr><td colspan="8" class="empty">لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»</td></tr>'}
+        +'<td>'+(isPacked?'✅ در انبار محصول':(r.status==='reversed'?'—':'⏳ منتظر رسید'))+'</td><td>'+acts+'</td></tr>';
+    }).join('')||('<tr><td colspan="8" class="empty">'+(view==='pending-pack'?'لایه‌ای منتظر رسید محصول نیست':'لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»')+'</td></tr>')}
     </tbody></table></div></div></div>`;
+}
+function goCuttingLaysView(view){
+  const v=view==='pending-pack'?'pending-pack':'lays';
+  window._cuttingLaysView=v;
+  try{ sessionStorage.setItem('cuttingLaysView', v); }catch(_){}
+  go('acc-cutting-lays');
 }
 function cuttingLayModal(){
   window._cutIdemKey=newCutIdemKey();
@@ -10666,7 +10726,7 @@ function cuttingLayModal(){
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت برش</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت لایه‌چینی</button>
     </div>`);
   const prodEl=el('cl-prod');
   const refreshSizes=async()=>{ cuttingRenderSizeGrid(await cuttingSizeLabelsForProduct(+prodEl?.value||0)); };
@@ -10840,14 +10900,15 @@ function newPackIdemKey(){
   return 'pk-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
 }
 async function cuttingPackSave(layId){
-  if(!confirm('رسید برش: تعداد ماتریس به انبار محصول برود و مانده WIP لایه صفر شود؟')) return;
+  if(!confirm('رسید کالای آماده: تعداد ماتریس به انبار محصول برود و مانده WIP لایه صفر شود؟ (این برش دوباره نیست)')) return;
   try{
     await api('POST','/production/cutting-lays/'+layId+'/pack',{ idempotency_key:newPackIdemKey() });
-    showToast('رسید برش ثبت شد'); loadAccTab('cutting-lays');
+    showToast('محصول وارد انبار شد');
+    goCuttingLaysView('pending-pack');
   }catch(e){}
 }
 async function voidCuttingPackRow(layId){
-  if(!confirm('ابطال رسید برش؟ موجودی محصول و WIP لایه برمی‌گردد و بارکد بسته‌ها باطل می‌شود.')) return;
+  if(!confirm('ابطال رسید محصول؟ موجودی محصول و WIP لایه برمی‌گردد و بارکد بسته‌ها باطل می‌شود.')) return;
   try{ await api('POST','/production/cutting-lays/'+layId+'/pack/void',{reason:'ابطال از گزارش'}); loadAccTab('cutting-lays'); }
   catch(e){}
 }
@@ -12419,8 +12480,10 @@ async function prodBomEditModal(id, tab){
       <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
       <div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>برچسب رنگ</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>رنگ کاتالوگ (اختیاری)</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">—</option></select></div>
+      <div class="fg"><label>برچسب رنگ (یادداشت)</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز — فقط متن" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>رنگ این نسخهٔ فرمول ${hlp('فرمول سطح مدل (استایل) است. رنگ‌بندی چندتایی کالا را در کارت کالا با تیک رنگ×سایز تعریف کنید. این فیلد فقط اگر این نسخهٔ BOM مخصوص یک رنگ کاتالوگ باشد پر می‌شود.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.6`)}">چندرنگ بودن محصول ≠ چندرنگ در BOM. ماتریس رنگ کالا را از «کالاها» مدیریت کنید؛ برای نسخهٔ رنگی جدا از «نسخه جدید / جایگزین» استفاده کنید.</div>
+      </div>
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${canBomEdit?'':'disabled'}>${esc(bom.note||'')}</textarea></div>
     </div>
     ${tabBar}
@@ -12432,8 +12495,33 @@ async function prodBomEditModal(id, tab){
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){prodBomActivate((id))})}">فعال‌سازی</button>`:''}
       ${bom.status==='active'&&(typeof canPerm==='function'&&canPerm('production_bom','edit'))?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomVersionUp((id))})}">نسخه جدید برای ویرایش</button>`:''}
     </div>`, true);
-  prodBomFillColorSelect(bom.color_id);
+  prodBomFillColorSelect(bom.color_id, bom.product_id);
   if(canBomEdit && activeTab==='items' && !lines.length) prodBomAddLineRow();
+  prodBomBindColorModeToggles();
+}
+function isBomComponentEligible(p){
+  if(!p) return false;
+  const t=String(p.item_type||'finished').toLowerCase();
+  if(['raw','packaging','material','semi','scrap'].includes(t)) return true;
+  if(t==='finished' && Number(p.is_manufactured)===1) return true;
+  return false;
+}
+function prodBomColorOptionsHtml(selectedId){
+  const list=window._prodBomColors||[];
+  return '<option value="">— انتخاب رنگ —</option>'+list.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId)?'selected':''}>${esc(c.name||('#'+c.id))}</option>`).join('');
+}
+function prodBomBindColorModeToggles(root){
+  const scope=root||document;
+  scope.querySelectorAll('tr.pbe-line').forEach(tr=>{
+    const modeSel=tr.querySelector('.pbe-color-mode');
+    const colorWrap=tr.querySelector('.pbe-color-pick-wrap');
+    if(!modeSel||!colorWrap) return;
+    const sync=()=>{ colorWrap.hidden=modeSel.value!=='fixed'; };
+    modeSel.removeEventListener('change', modeSel._pbeColorSync);
+    modeSel._pbeColorSync=sync;
+    modeSel.addEventListener('change', sync);
+    sync();
+  });
 }
 function prodBomStageCcOpts(selected){
   const rows=window._prodBomStageCCs||[];
@@ -12745,20 +12833,22 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
   const hasMatrix=matrixObj&&typeof matrixObj==='object'&&Object.keys(matrixObj).length>0;
   const matrixBadge=hasMatrix?'📐':'—';
   const colorMode=L.component_color_mode||'none';
+  const cid='pbe-comp-'+(L.id||('n'+Math.random().toString(36).slice(2,8)));
+  const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude) && (isBomComponentEligible(p) || Number(p.id)===Number(L.component_product_id)));
+  const matrixJson=hasMatrix?esc(JSON.stringify(matrixObj)):'';
+  const colorModeLabel={none:'بدون (پیش‌فرض)',inherit_fg:'همرنگ محصول/سفارش',fixed:'رنگ ثابت کاتالوگ'};
   if(locked){
+    const colorName=((window._prodBomColors||[]).find(c=>Number(c.id)===Number(L.component_color_id))||{}).name;
     return `<tr>
       <td>${type==='packaging'?'بسته‌بندی':'مواد'}</td>
       <td>${esc(L.product_name||('#'+L.component_product_id))}</td>
       <td class="num">${L.qty_per_base??0}</td>
       <td class="num">${L.scrap_percent??0}</td>
       <td>${matrixBadge}</td>
-      <td>${esc(colorMode)}</td>
+      <td>${esc(colorModeLabel[colorMode]||colorMode)}${colorMode==='fixed'&&colorName?(' · '+esc(colorName)):''}</td>
       <td></td>
     </tr>`;
   }
-  const cid='pbe-comp-'+(L.id||('n'+Math.random().toString(36).slice(2,8)));
-  const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude));
-  const matrixJson=hasMatrix?esc(JSON.stringify(matrixObj)):'';
   return `<tr class="pbe-line" data-line-id="${L.id||''}">
     <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
     <td>${productSelect(cid, L.component_product_id, comps, {inputClass:'pbe-comp'})}</td>
@@ -12766,78 +12856,87 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
     <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" data-csp-style="${CSP.style(`width:70px`)}"></td>
     <td>
       <input type="hidden" class="pbe-size-matrix" value="${matrixJson}">
-      <button type="button" class="btn sm ghost" title="ماتریس سایز" data-csp-click="${CSP.bind('click',function(event){prodBomOpenSizeMatrix(event.target.closest('tr'))})}">${hasMatrix?'📐 ویرایش':'📐'}</button>
+      <button type="button" class="btn sm ghost" title="ماتریس سایز — مصرف هر سایز" data-csp-click="${CSP.bind('click',function(event){prodBomOpenSizeMatrix(event.target.closest('tr'))})}">${hasMatrix?'📐 ویرایش':'📐'}</button>
     </td>
     <td>
-      <select class="pbe-color-mode" data-csp-style="${CSP.style(`width:110px`)}">
+      <select class="pbe-color-mode" title="چگونه رنگ جزء از روی رنگ سفارش/محصول حل شود" data-csp-style="${CSP.style(`width:140px`)}">
         <option value="none" ${colorMode==='none'?'selected':''}>بدون</option>
         <option value="inherit_fg" ${colorMode==='inherit_fg'?'selected':''}>از رنگ سفارش</option>
         <option value="fixed" ${colorMode==='fixed'?'selected':''}>ثابت</option>
       </select>
-      <input class="pbe-color-id" type="number" placeholder="color_id" value="${L.component_color_id||''}" data-csp-style="${CSP.style(`width:70px;margin-top:4px`)}" title="شناسه رنگ ثابت">
+      <div class="pbe-color-pick-wrap" ${colorMode==='fixed'?'':'hidden'} data-csp-style="${CSP.style(`margin-top:4px`)}">
+        <select class="pbe-color-id" title="رنگ کاتالوگ جزء (از فهرست رنگ‌ها)" data-csp-style="${CSP.style(`width:140px`)}">${prodBomColorOptionsHtml(L.component_color_id)}</select>
+      </div>
     </td>
     <td>${L.id?`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteLine((L.bom_id||0),(L.id))})}">×</button>`:`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){this.closest('tr').remove()})}">×</button>`}</td>
   </tr>`;
 }
-async function prodBomFillColorSelect(selectedId){
+async function prodBomFillColorSelect(selectedId, productId){
   const sel=el('pbe-color-id'); if(!sel) return;
+  let list=[];
   try{
     const rows=await api('GET','/product-variants/colors')||[];
-    const list=Array.isArray(rows)?rows:(rows.rows||[]);
-    sel.innerHTML='<option value="">—</option>'+list.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId)?'selected':''}>${esc(c.name||'')}</option>`).join('');
-  }catch(_){ /* optional */ }
+    list=Array.isArray(rows)?rows:(rows.rows||[]);
+  }catch(_){ list=[]; }
+  window._prodBomColors=list;
+  // Prefer colors already on the FG style matrix when available
+  let styleColorIds=null;
+  if(productId){
+    try{
+      const style=await api('GET','/product-variants/style/'+productId);
+      const ids=new Set((style&&style.variants||[]).map(v=>Number(v.color_id)).filter(Boolean));
+      if(ids.size) styleColorIds=ids;
+    }catch(_){ styleColorIds=null; }
+  }
+  const opts=styleColorIds?list.filter(c=>styleColorIds.has(Number(c.id))):list;
+  const use=opts.length?opts:list;
+  sel.innerHTML='<option value="">— همه رنگ‌ها (سطح مدل) —</option>'+use.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId)?'selected':''}>${esc(c.name||'')}</option>`).join('');
+  // Refresh line color dropdowns with same catalog
+  document.querySelectorAll('tr.pbe-line select.pbe-color-id').forEach(s=>{
+    const cur=s.value;
+    s.innerHTML=prodBomColorOptionsHtml(cur);
+  });
 }
 async function prodBomOpenSizeMatrix(tr){
   if(!tr) return;
   const pid=window._prodBomEditProductId;
   let sizes=[];
   try{
-    const style=await api('GET','/product-variants/style/'+pid);
-    sizes=(style&&style.sizes)||[];
-    if(!sizes.length){
-      const all=await api('GET','/product-variants/sizes')||[];
-      sizes=(Array.isArray(all)?all:(all.rows||[])).map(s=>({id:s.id,name:s.name}));
-    }
-  }catch(_){
-    try{
-      const all=await api('GET','/product-variants/sizes')||[];
-      sizes=(Array.isArray(all)?all:(all.rows||[])).map(s=>({id:s.id,name:s.name}));
-    }catch(e2){ sizes=[]; }
+    const names=await cuttingSizeLabelsForProduct(pid);
+    sizes=(names||[]).map(n=>({name:String(n)}));
+  }catch(_){ sizes=[]; }
+  if(!sizes.length){
+    showToast('برای این کالا سایز تعریف نشده — در کارت کالا سایزها را تیک بزنید و ماتریس بسازید','error');
+    return;
   }
-  if(!sizes.length){ showToast('سایز تعریف‌شده‌ای برای این محصول نیست','error'); return; }
   let cur={};
   try{ cur=JSON.parse(tr.querySelector('.pbe-size-matrix')?.value||'{}')||{}; }catch(_){ cur={}; }
-  const base=+tr.querySelector('.pbe-qty')?.value||0;
   const rowsHtml=sizes.map(s=>{
     const name=s.name||s.code||String(s.id);
-    const val=cur[name]!=null?cur[name]:(base||'');
-    return `<tr><td>${esc(name)}</td><td><input class="pbe-mx-qty" data-size="${esc(name)}" type="number" step="any" min="0" value="${val}" data-csp-style="${CSP.style(`width:100px`)}"></td></tr>`;
+    const val=cur[name]!=null?cur[name]:'';
+    return `<tr><td>${esc(name)}</td><td><input class="pbe-mx-qty" data-size="${esc(name)}" type="number" step="any" min="0" value="${val}" placeholder="خالی = مقدار پایه" data-csp-style="${CSP.style(`width:120px`)}"></td></tr>`;
   }).join('');
-  const overlay=document.createElement('div');
-  overlay.className='modal-overlay open';
-  overlay.id='pbe-size-matrix-modal';
-  overlay.innerHTML=`<div class="modal" data-csp-style="${CSP.style(`max-width:420px`)}">
-    <h3>ماتریس سایز — مصرف per قطعه</h3>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">اگر خالی بماند از مقدار پایه استفاده می‌شود.</p>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سایز</th><th>مصرف</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
-    <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
-      <button class="btn secondary" type="button" id="pbe-mx-clear">پاک کردن</button>
-      <button class="btn secondary" type="button" id="pbe-mx-cancel">انصراف</button>
-      <button class="btn" type="button" id="pbe-mx-save">ذخیره</button>
+  openNestedModal(`
+    <div class="modal-head"><h3>ماتریس سایز — مصرف per قطعه</h3><button class="x" type="button" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید. خالی = همان مقدار پایه ردیف.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سایز</th><th>مصرف</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
     </div>
-  </div>`;
-  document.body.appendChild(overlay);
-  const close=()=>{ try{ overlay.remove(); }catch(_){} };
-  overlay.querySelector('#pbe-mx-cancel')?.addEventListener('click', close);
-  overlay.querySelector('#pbe-mx-clear')?.addEventListener('click', ()=>{
+    <div class="modal-foot" data-csp-style="${CSP.style(`display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn secondary" type="button" id="pbe-mx-clear">پاک کردن</button>
+      <button class="btn secondary" type="button" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+      <button class="btn" type="button" id="pbe-mx-save">ذخیره</button>
+    </div>`);
+  const root=document.getElementById('nestedModalRoot');
+  root?.querySelector('#pbe-mx-clear')?.addEventListener('click', ()=>{
     tr.querySelector('.pbe-size-matrix').value='';
     const btn=tr.querySelector('button.btn.sm.ghost');
     if(btn) btn.textContent='📐';
-    close();
+    closeNestedModal();
   });
-  overlay.querySelector('#pbe-mx-save')?.addEventListener('click', ()=>{
+  root?.querySelector('#pbe-mx-save')?.addEventListener('click', ()=>{
     const out={};
-    overlay.querySelectorAll('.pbe-mx-qty').forEach(inp=>{
+    root.querySelectorAll('.pbe-mx-qty').forEach(inp=>{
       const v=+inp.value;
       if(v>0) out[inp.dataset.size]=v;
     });
@@ -12845,13 +12944,14 @@ async function prodBomOpenSizeMatrix(tr){
     tr.querySelector('.pbe-size-matrix').value=json;
     const btn=tr.querySelector('button.btn.sm.ghost');
     if(btn) btn.textContent=json?'📐 ویرایش':'📐';
-    close();
+    closeNestedModal();
   });
 }
 function prodBomAddLineRow(){
   const body=el('pbe-lines'); if(!body) return;
   body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId));
   initCustSearches(body);
+  prodBomBindColorModeToggles(body);
 }
 async function prodBomSaveHeader(id){
   try{
@@ -13034,9 +13134,9 @@ async function fetchProdJourneyState(period){
   const steps=[
     {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both'},
     {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:openOrders>0, path:'order'},
-    {n:'۳', title:'لایه‌چینی و برش', desc:'طاقه + ماتریس سایز', go:'acc-cutting-lays', cta:'ثبت برش', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
+    {n:'۳', title:'لایه‌چینی', desc:'مصرف طاقه → WIP', goFn:'goCuttingLaysView', goArg:'lays', cta:'ثبت لایه‌چینی', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
     {n:'۴', title:'تابلوی خط', desc:'پیشرفت کارگاه', go:'acc-production-kanban', cta:'کانبان', done:kanbanActive, path:'order'},
-    {n:'۵', title:'رسید PACK', desc:'ورود به انبار محصول', go:'acc-cutting-lays', cta:pendingPack?'رسید معلق':'رسید برش', done:postedLays.length>0 && pendingPack===0, path:'cut'},
+    {n:'۵', title:'رسید انبار محصول', desc:'WIP → کالای آماده (PACK)', goFn:'goCuttingLaysView', goArg:'pending-pack', cta:pendingPack?'ورود محصول معلق':'ورود به انبار محصول', done:postedLays.length>0 && pendingPack===0, path:'cut'},
     {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both'},
   ];
   const nextIdx=steps.findIndex(s=>!s.done);
@@ -13044,14 +13144,18 @@ async function fetchProdJourneyState(period){
 }
 function prodJourneyHtml(state){
   const { steps, nextIdx, k, openOrders, activeBoms, pendingPack }=state;
+  const stepNav=s=>{
+    if(s.goFn==='goCuttingLaysView') return CSP.bind('click',function(){goCuttingLaysView(s.goArg)});
+    return CSP.bind('click',function(){go(s.go)});
+  };
   return `
     <div class="prod-home-hero">
       <div>
         <h3 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:20px`)}">داشبورد تولید</h3>
-        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">نمودارها + مسیر کارگاه. هر دو مسیر «برش→PACK» و «سفارش چندمرحله‌ای» پشتیبانی می‌شوند.</p>
+        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">نمودارها + مسیر کارگاه. مسیر سریع: لایه‌چینی (مصرف پارچه) سپس رسید انبار محصول — دو رویداد جدا، نه دو بار برش.</p>
       </div>
       <div class="prod-home-hero-actions">
-        <button class="btn" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">✂️ لایه‌چینی</button>
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">✂️ لایه‌چینی</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش جدید</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
       </div>
@@ -13059,17 +13163,17 @@ function prodJourneyHtml(state){
     <div class="prod-kpi-grid">
       ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'تولید دوره', value:fmt(k.produced?.value||0), icon:'📦'}):statCard('g','📦',fmt(k.produced?.value||0),'تولید')}
       ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'سفارش باز', value:fmt(openOrders), icon:'🏭'}):statCard('b','🏭',fmt(openOrders),'سفارش باز')}
-      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'برش بدون رسید', value:fmt(pendingPack), icon:'✂️'}):statCard('o','✂️',fmt(pendingPack),'برش بدون رسید')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'منتظر رسید محصول', value:fmt(pendingPack), icon:'📦'}):statCard('o','📦',fmt(pendingPack),'منتظر رسید محصول')}
       ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'فرمول فعال', value:fmt(activeBoms), icon:'📐'}):statCard('r','📐',fmt(activeBoms),'فرمول فعال')}
     </div>
     <div class="prod-dual-path">
       <div class="prod-path-card">
         <b>✂️ مسیر برش و بسته‌بندی</b>
-        <span class="muted">طاقه → لایه‌چینی → رسید PACK → انبار محصول</span>
+        <span class="muted">طاقه → لایه‌چینی (مواد→WIP) → رسید انبار محصول (WIP→FG)</span>
         <div class="prod-path-actions">
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">طاقه</button>
-          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">برش</button>
-          ${pendingPack?`<button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} رسید معلق</button>`:''}
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">لایه‌چینی</button>
+          ${pendingPack?`<button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">${fmt(pendingPack)} منتظر محصول</button>`:''}
         </div>
       </div>
       <div class="prod-path-card">
@@ -13083,7 +13187,7 @@ function prodJourneyHtml(state){
       </div>
     </div>
     <div class="prod-journey">
-      ${steps.map((s,i)=>`<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}" data-csp-click="${CSP.bind('click',function(){go(s.go)})}">
+      ${steps.map((s,i)=>`<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}" data-csp-click="${stepNav(s)}">
         <span class="prod-journey-n">${s.n}</span>
         <b>${esc(s.title)}</b>
         <span class="muted">${esc(s.desc)}</span>
@@ -13092,9 +13196,9 @@ function prodJourneyHtml(state){
     </div>
     ${nextIdx>=0?`<div class="panel" data-csp-style="${CSP.style(`margin:12px 0`)}"><div class="panel-head"><h4>اقدام بعدی</h4></div>
       <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-        <button class="btn" data-csp-click="${CSP.bind('click',function(){go(steps[nextIdx].go)})}">▶ ${esc(steps[nextIdx].title)}</button>
+        <button class="btn" data-csp-click="${stepNav(steps[nextIdx])}">▶ ${esc(steps[nextIdx].title)}</button>
         ${!activeBoms?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">اول فرمول بسازید</button>`:''}
-        ${pendingPack?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} برش منتظر رسید</button>`:''}
+        ${pendingPack?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">${fmt(pendingPack)} لایه منتظر رسید محصول</button>`:''}
       </div></div>`:''}`;
 }
 const PROD_QUICK_REPORTS=[
@@ -23449,10 +23553,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است.</li>
-        <li><b>لایه‌چینی و برش (PROD-02/03) + رسید برش / PACK:</b> تولید → عملیات → لایه‌چینی و برش. طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف ضایعات عادی (٪ مصرف واقعی) سند ندارد؛ اضافه ضایعات غیرعادی (۵۲۲۱) است. طاقه از انبار مواد کم می‌شود. مدیر تولید طاقه را بدون دیدن بها انتخاب می‌کند. ابطال برش موجودی طاقه و سند را برمی‌گرداند. <b>رسید برش</b> تعداد ماتریس را به انبار محصول (بدون Lot/Serial) می‌برد؛ مبلغ رسید = مانده WIP همان لایه (نه بها × تعداد حدسی) و بعد از رسید کامل مانده WIP لایه صفر است. بارکد بسته هویت عملیاتی است نه سریال کالا؛ با ابطال رسید می‌میرد. حواله/backflush همان متر پارچهٔ مصرف‌شده در لایهٔ posted با خطای E_FABRIC_ALREADY_CUT رد می‌شود.
-          <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید برش باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
-          <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
-          <br>چک‌لیست فاز ۸ برای صفحهٔ رسید برش (Light/Dark، عرض ~1440 و ~360، RTL، دکمه لمس ۴۴px، چاپ بارکد بدون chrome مرورگر) بعد از overlay ایران به‌صورت دستی باقی است.</li>
+        <li><b>لایه‌چینی + رسید انبار محصول (دو رویداد جدا):</b> تولید → عملیات → لایه‌چینی / رسید محصول. تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP (مارکر × لایه، ماتریس سایز، ضایعات). تب «رسید انبار محصول» = ورود FG و صفر کردن WIP همان لایه — <b>برش دوباره نیست</b>. مبلغ رسید = مانده WIP لایه. بارکد بسته هویت عملیاتی است نه سریال. حواله همان متر با E_FABRIC_ALREADY_CUT قفل است.
+          <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
+          <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
+          <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
         <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد. گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
@@ -23462,7 +23566,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
-        <li><b>رنگ×سایز در تولید:</b> BOM سطح استایل می‌ماند. در سرفصل محدوده سایز/برچسب رنگ؛ روی قلم پارچه با 📐 ماتریس سایز؛ برای جزء قطعه‌ای ماتریسی مود «از رنگ سفارش» یا «ثابت». سفارش ماتریسی بدون رنگ و تعداد per سایز ثبت نمی‌شود. رسید FG/اجرای ساده ماتریس می‌پذیرند؛ حواله و backflush مادهٔ ماتریسی بدون واریانت رد می‌شود. رسید برش لایهٔ رنگ×سایز را می‌نویسد.</li>
+        <li><b>رنگ×سایز در تولید:</b> BOM سطح استایل است — رنگ‌بندی چندتایی کالا در کارت کالا (تیک رنگ×سایز)، نه با چندانتخاب در سرفصل BOM. سرفصل فقط «رنگ این نسخهٔ فرمول» اختیاری دارد. روی قلم پارچه 📐 ماتریس سایز (مودال تو در تو). رنگ جزء: بدون / از رنگ سفارش / ثابت (انتخاب نام رنگ کاتالوگ، نه تایپ ID). برای فعال‌سازی، اجزاء باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشند (نه محصول نهایی بدون تیک ساختنی) وگرنه <code>E_BOM_COMP_TYPE</code>.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
@@ -23677,7 +23781,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
-        <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
+        <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: ثبت به‌صورت <b>سند تجمعی</b> (سربرگ جهت/شخص/انبار/تاریخ + چند ردیف کالا) با شمارهٔ CS. شخص از فهرست اشخاص است. در هر ردیف کالا با جستجو اضافه می‌شود؛ کالای ماتریسی به پک رنگ×سایز همان انبار شکسته می‌شود. <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. تسویه خط‌به‌خط با چهار مسیر: <b>برگشت</b>، <b>فروش قطعی</b> (تنها مسیر فاکتور؛ دریافتی نیازمند خریدار جدا)، <b>خرید قطعی</b> (فقط دریافتی)، <b>کسری</b>. ابطال ردیف یا <b>ابطال کل سند</b> فیزیکی نیست — موجودی و اسناد معکوس می‌شوند</li>
