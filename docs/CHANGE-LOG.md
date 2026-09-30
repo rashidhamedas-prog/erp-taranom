@@ -14,7 +14,7 @@
 - **عکس پ:** مرحله ۳/۵ دو سطح UI جدا (تب لایه‌چینی vs رسید انبار محصول)؛ ledger همچنان دو سند (RAW→WIP و WIP→FG) طبق ADR-007.
 - **تست:** `node server/scripts/test-bom-comp-type-v273.js` (20 static PASS؛ live sqlite روی ایران)
 - **فایل‌ها:** `server/lib/production/bom.js`, `routes/{production-boms,products}.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-bom-comp-type-v273.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `08aceb3` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v273`؛ `test-bom-comp-type-v273` 23/0 (live)؛ `test-sms` 22/0؛ `test-sync` 44/0
 
 ### ۱۴۰۵/۰۷/۰۸ — تجمیع سند حواله/رسید/انتقال انبار + مشاهده/ویرایش (SW v272)
 
