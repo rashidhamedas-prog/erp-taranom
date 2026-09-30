@@ -548,9 +548,12 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 
 /* ===== Table ===== */
 /*
-  ردیف جدول کامل دیده می‌شود و جعبهٔ جدول نوار غلطک ندارد.
-  اسکرول مال صفحه یا پنجره است، نه خود جدول.
-  سرستون چسبان نسبت به اسکرول صفحه زیر نوار بالا می‌ماند.
+  قرارداد چسبندگی سرستون (ADR UI-table-sticky):
+  A) اسکرول صفحه + بدون جدّ clipping → sticky با top=--tbl-sticky-top (زیر topbar).
+  B) جدّ با overflow≠visible (پوشه/کارت/مودال/MDI) → containing-block همان جدّ می‌شود؛
+     topbar-offset آنجا سرستون را پایین می‌کشد و روی ردیف اول می‌افتد → sticky خاموش یا top:0.
+  C) چند جدول کوتاه پشت‌سرهم داخل آکاردئون → همیشه tbl-no-sticky / .erp-fold.
+  ردیف کامل دیده می‌شود؛ اسکرول مال صفحه/پنجره است نه خود جدول.
 */
 .tbl-wrap{overflow:visible;max-height:none}
 table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;min-width:0}
@@ -563,7 +566,7 @@ table.tbl th{
 }
 table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:normal;vertical-align:middle;line-height:1.35}
 :root{--tbl-sticky-top:88px}
-/* Page-flow tables (no .tbl-wrap scrollport): stick under topbar */
+/* Page-flow tables (no clipping ancestor): stick under topbar */
 .panel-body > table.tbl > thead > tr > th,
 #view > table.tbl > thead > tr > th,
 .content > table.tbl > thead > tr > th{
@@ -571,7 +574,7 @@ table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space
   background:var(--th-bg,#EAF4EE);background-clip:padding-box;
   box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
 }
-/* Wrapped tables: sticky relative to the wrap — ALWAYS top:0 (fixes header-over-row-1) */
+/* Wrapped + page scroll (wrap itself is overflow:visible): same topbar offset */
 .tbl-wrap > table.tbl > thead > tr > th{
   position:sticky;top:var(--tbl-sticky-top);z-index:6;
   background:var(--th-bg,#EAF4EE);background-clip:padding-box;
@@ -580,15 +583,35 @@ table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space
 .tbl-wrap.tbl-scroll{
   max-height:none;overflow:visible;
 }
-/* چند جدول پشت‌سرهم (مثل کدینگ): فریز صفحه‌ای همه را روی هم می‌چسباند → داخل جعبه اسکرول یا خاموش */
+/* چند جدول پشت‌سرهم / آکاردئون / صریح: فریز خاموش */
 .tbl-wrap.tbl-no-sticky > table.tbl > thead > tr > th,
 .tbl-no-sticky > table.tbl > thead > tr > th,
-table.tbl.tbl-no-sticky > thead > tr > th{
+table.tbl.tbl-no-sticky > thead > tr > th,
+.erp-fold table.tbl > thead > tr > th,
+.fup-folder table.tbl > thead > tr > th{
   position:static;top:auto;box-shadow:none;z-index:auto;
 }
+/* داخل مودال/MDI: scrollport خود پنل است → top:0 نه افست topbar */
 .modal-body .tbl-wrap > table.tbl > thead > tr > th,
 .mdi-body .tbl-wrap > table.tbl > thead > tr > th{
   top:0;
+}
+/* کارت تاشو — بدون overflow:hidden تا sticky به viewport نشکند؛ شعاع روی فرزندان */
+.erp-fold,.fup-folder{
+  border:1px solid var(--border);border-radius:10px;margin-bottom:10px;
+  overflow:visible;background:var(--card);
+}
+.erp-fold > .erp-fold-head,
+.fup-folder > .fup-folder-head{
+  border-radius:10px 10px 0 0;
+}
+.erp-fold > .erp-fold-body:last-child,
+.fup-folder > .fup-folder-body:last-child{
+  border-radius:0 0 10px 10px;
+}
+.erp-fold.is-collapsed > .erp-fold-head,
+.fup-folder.is-collapsed > .fup-folder-head{
+  border-radius:10px;
 }
 table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}

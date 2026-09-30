@@ -4228,14 +4228,14 @@ function renderFupTable(){
     ${keys.map((key,gi)=>{
       const g=groups[key];
       const openCount=g.items.filter(f=>f.status==='open').length;
-      return `<div class="fup-folder" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden`)}">
-        <div class="fup-folder-head" data-csp-click="${CSP.bind('click',function(event){toggleFupCustFolder((gi))})}" data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:var(--purple-light)`)}">
+      return `<div class="fup-folder erp-fold is-collapsed" id="fcFold${gi}">
+        <div class="fup-folder-head erp-fold-head" data-csp-click="${CSP.bind('click',function(event){toggleFupCustFolder((gi))})}" data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:var(--purple-light)`)}">
           <span data-csp-style="${CSP.style(`font-weight:700;color:var(--purple)`)}">👤 ${esc(g.cust_biz)}</span>
           <span class="tag t-new">${g.items.length} پیگیری</span>
           ${openCount?`<span class="tag t-open">${openCount} باز</span>`:''}
           <span data-csp-style="${CSP.style(`margin-right:auto`)}" id="fcArrow${gi}">▾</span>
         </div>
-        <div class="fup-folder-body tbl-wrap" id="fcBody${gi}" data-csp-style="${CSP.style(`display:none`)}"></div>
+        <div class="fup-folder-body erp-fold-body tbl-wrap tbl-no-sticky" id="fcBody${gi}" data-csp-style="${CSP.style(`display:none`)}"></div>
       </div>`;
     }).join('')||'<div class="empty">پیگیری‌ای یافت نشد</div>'}
   </div></div>`;
@@ -4243,10 +4243,11 @@ function renderFupTable(){
 }
 let _fupCustGroups=[];
 function toggleFupCustFolder(gi){
-  const body=el('fcBody'+gi), arrow=el('fcArrow'+gi); if(!body) return;
+  const body=el('fcBody'+gi), arrow=el('fcArrow'+gi), fold=el('fcFold'+gi); if(!body) return;
   const opening=body.style.display==='none';
   body.style.display=opening?'block':'none';
   if(arrow) arrow.textContent=opening?'▴':'▾';
+  if(fold) fold.classList.toggle('is-collapsed', !opening);
   if(opening && !body.dataset.rendered){
     body.innerHTML=fupRowsHtml(_fupCustGroups[gi]||[], ME.role==='admin'||ME.role==='accounting');
     body.dataset.rendered='1';
@@ -4266,23 +4267,24 @@ function renderFupFolders(){
   el('fupView').innerHTML=`<div class="panel"><div class="panel-body">
     ${names.map((name,gi)=>{
       const openCount=groups[name].filter(f=>f.status==='open').length;
-      return `<div class="fup-folder" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden`)}">
-        <div class="fup-folder-head" data-csp-click="${CSP.bind('click',function(event){toggleFupFolder((gi))})}" data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:var(--purple-light)`)}">
+      return `<div class="fup-folder erp-fold is-collapsed" id="ffFold${gi}">
+        <div class="fup-folder-head erp-fold-head" data-csp-click="${CSP.bind('click',function(event){toggleFupFolder((gi))})}" data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:var(--purple-light)`)}">
           <span data-csp-style="${CSP.style(`font-weight:700;color:var(--purple)`)}">📁 ${esc(name)}</span>
           <span class="tag t-new">${groups[name].length} پیگیری</span>
           ${openCount?`<span class="tag t-open">${openCount} باز</span>`:''}
           <span data-csp-style="${CSP.style(`margin-right:auto`)}" id="ffArrow${gi}">▾</span>
         </div>
-        <div class="fup-folder-body tbl-wrap" id="ffBody${gi}" data-csp-style="${CSP.style(`display:none`)}"></div>
+        <div class="fup-folder-body erp-fold-body tbl-wrap tbl-no-sticky" id="ffBody${gi}" data-csp-style="${CSP.style(`display:none`)}"></div>
       </div>`;
     }).join('')||'<div class="empty">پیگیری‌ای یافت نشد</div>'}
   </div></div>`;
 }
 function toggleFupFolder(gi){
-  const body=el('ffBody'+gi), arrow=el('ffArrow'+gi); if(!body) return;
+  const body=el('ffBody'+gi), arrow=el('ffArrow'+gi), fold=el('ffFold'+gi); if(!body) return;
   const opening = body.style.display==='none';
   body.style.display = opening?'block':'none';
   if(arrow) arrow.textContent = opening?'▴':'▾';
+  if(fold) fold.classList.toggle('is-collapsed', !opening);
   if(opening && !body.dataset.rendered){
     body.innerHTML = fupRowsHtml(_fupFolderGroups[gi]||[], false);
     body.dataset.rendered='1';
@@ -9136,6 +9138,28 @@ function syncTblStickyTop(){
     if(h>40 && h<200) document.documentElement.style.setProperty('--tbl-sticky-top', h+'px');
   }catch(_){}
 }
+/** جدّ با overflow≠visible → containing-block استیکی؛ افست topbar آنجا ردیف‌ها را می‌پوشاند. */
+function tblHasClippingAncestor(el){
+  if(!el||!el.parentElement) return false;
+  try{
+    let n=el.parentElement;
+    while(n && n!==document.documentElement && n!==document.body){
+      if(n.classList&&(n.classList.contains('erp-fold')||n.classList.contains('fup-folder'))) return true;
+      const s=window.getComputedStyle(n);
+      const ox=s.overflowX||s.overflow||'visible';
+      const oy=s.overflowY||s.overflow||'visible';
+      if(/^(auto|scroll|hidden|clip)$/.test(ox) || /^(auto|scroll|hidden|clip)$/.test(oy)) return true;
+      n=n.parentElement;
+    }
+  }catch(_){}
+  return false;
+}
+function tblDisableSticky(table){
+  if(!table) return;
+  table.classList.add('tbl-no-sticky');
+  const wrap=table.closest('.tbl-wrap');
+  if(wrap) wrap.classList.add('tbl-no-sticky');
+}
 function enhanceAccTables(root){
   if(!root||typeof enhanceDataTable!=='function') return;
   syncTblStickyTop();
@@ -9169,13 +9193,15 @@ function enhanceAccTables(root){
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
-    const wrap=t.closest('.tbl-wrap');
     /* ردیف جدول باید کامل دیده شود؛ اسکرول داخلی جدول ساخته نمی‌شود. */
+    if(tblHasClippingAncestor(t)) tblDisableSticky(t);
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
-    const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
+    const dataRows=[...t.tBodies[0].rows].filter(r=>!r.querySelector('td[colspan], .empty'));
+    const wantFooter=dataRows.length>=2;
+    const hasId=dataRows.some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
-    if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:true});
-    else enhanceDataTable(t,{footer:true});
+    if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:wantFooter});
+    else enhanceDataTable(t,{footer:wantFooter});
   });
 }
 
@@ -16191,8 +16217,8 @@ async function renderVouchersTab(body){
     </div>`:''}
     <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">${d.total||0} سند (دستی / پرداخت به حساب / دریافت از حساب)</div>
     ${(d.entries||[]).map(e=>`
-      <div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden`)}">
-        <div data-csp-style="${CSP.style(`background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px`)}">
+      <div class="erp-fold">
+        <div class="erp-fold-head" data-csp-style="${CSP.style(`background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px`)}">
           <span data-csp-style="${CSP.style(`font-weight:700`)}">📝 <span class="tag" data-csp-style="${CSP.style(`margin-left:6px`)}">${esc(typeLabel[e.ref_type]||e.ref_type||'سند')}</span> <span class="mono">${esc(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
           <span data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px`)}">
             ${journalOriginBadgeHtml(e)}
@@ -16202,12 +16228,12 @@ async function renderVouchersTab(body){
             <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){deleteVoucher((e.id))})}" title="ابطال کامل">⛔ ابطال</button>
           </span>
         </div>
-        <table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
+        <div class="erp-fold-body tbl-wrap tbl-no-sticky"><table class="tbl tbl-no-sticky" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
           <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
-        </tr>`).join('')}</tbody></table>
+        </tr>`).join('')}</tbody></table></div>
       </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
 }
 let voucherLines=[];
@@ -17794,8 +17820,8 @@ async function renderJournalDocsTab(body){
       <span class="tag">${fmt(entries.length)} سند</span>
     </div>
     ${entries.map(e=>`
-      <div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden`)}">
-        <div data-csp-style="${CSP.style(`background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;gap:6px`)}">
+      <div class="erp-fold">
+        <div class="erp-fold-head" data-csp-style="${CSP.style(`background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;gap:6px`)}">
           <span data-csp-style="${CSP.style(`font-weight:700`)}">#${e.id}${e.voucher_number?' <span class="mono">'+esc(e.voucher_number)+'</span>':''} <span class="mono">${escDate(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
           <span data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;flex-wrap:wrap`)}">
             ${journalOriginBadgeHtml(e)}
@@ -17803,12 +17829,12 @@ async function renderJournalDocsTab(body){
             <span class="muted">${esc(e.created_by_name||'-')}</span>
           </span>
         </div>
-        <table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
+        <div class="erp-fold-body tbl-wrap tbl-no-sticky"><table class="tbl tbl-no-sticky" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
           <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
-        </tr>`).join('')}</tbody></table>
+        </tr>`).join('')}</tbody></table></div>
       </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
 }
 
@@ -23676,7 +23702,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <div class="warn">حذف مشتری فقط برای ایجادکننده یا مدیر است و قابل بازگشت نیست.</div>`),
     helpSec('📞','پیگیری‌ها',`
       <p>پیگیری یعنی ثبت هر تماس یا فعالیتی که با مشتری انجام می‌دهید.</p>
-      <h5>نمای پوشه‌ای (مدیر و حسابدار)</h5><p>وقتی مدیر یا حسابدار وارد صفحه پیگیری‌ها می‌شود، پیش‌فرض نمایش <b>«📁 پوشه کارشناسان»</b> است: پیگیری‌ها ابتدا بر اساس کارشناس مربوطه گروه‌بندی می‌شوند و هر کارشناس یک پوشه جداگانه دارد. با کلیک روی هر پوشه، پیگیری‌های همان کارشناس باز می‌شود. این نما حتی با حجم بالای داده سریع می‌ماند چون محتوای هر پوشه فقط هنگام باز شدن بارگذاری می‌شود. نمای «لیست» و «پایپ‌لاین» هم همیشه در دسترس‌اند.</p>
+      <h5>نمای پوشه‌ای (مدیر و حسابدار)</h5><p>وقتی مدیر یا حسابدار وارد صفحه پیگیری‌ها می‌شود، پیش‌فرض نمایش <b>«📁 پوشه کارشناسان»</b> است: پیگیری‌ها ابتدا بر اساس کارشناس مربوطه گروه‌بندی می‌شوند و هر کارشناس یک پوشه جداگانه دارد. با کلیک روی هر پوشه، پیگیری‌های همان کارشناس باز می‌شود. این نما حتی با حجم بالای داده سریع می‌ماند چون محتوای هر پوشه فقط هنگام باز شدن بارگذاری می‌شود. نمای «لیست» (گروه‌بندی بر اساس مشتری) و «پایپ‌لاین» هم همیشه در دسترس‌اند. داخل هر پوشه سرستون جدول فریز نمی‌شود تا ردیف‌ها زیر هدر نروند.</p>
       <h5>ثبت پیگیری جدید</h5><ul>
         <li>مشتری را جستجو و انتخاب کنید</li>
         <li>نوع تماس (تلفن، حضوری، واتس‌اپ، ...) را مشخص کنید — نوع <b>«💰 مانده حساب»</b> برای پیگیری بدهی و وصول مطالبات است</li>
@@ -23791,7 +23817,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. با ورود به حسابداری همهٔ سرفصل‌ها <b>بسته‌اند</b>؛ با کلیک باز می‌شوند. انتخاب طرف‌حساب و کالا در فرم‌ها با کادر جستجو (نام، موبایل، کد) است.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
-      <p><b>جداول:</b> سرتیتر ستون‌ها دیگر روی ردیف اول نمی‌افتد (sticky داخل جعبه جدول با top:0). در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
+      <p><b>جداول:</b> سرستون در لیست‌های بلند صفحه زیر نوار بالا می‌چسبد. داخل پوشه‌های تاشو (پیگیری‌ها، سندهای حسابداری) و هر کارت با لبه‌گرد، فریز خاموش است تا سرستون روی ردیف داده نیفتد. در انتهای لیست‌های چندردیفه جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>

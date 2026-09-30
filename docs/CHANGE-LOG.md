@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — فیکس معماری sticky جدول داخل پوشه/کارت (SW v275)
+
+- **Invariant (لایه UI):** سرستون `position:sticky` با افست topbar (`--tbl-sticky-top`≈۸۸px) فقط وقتی مجاز است که containing-block همان اسکرول صفحه باشد. هر جدّ با `overflow≠visible` (پوشه، کارت لبه‌گرد، مودال/MDI) افست topbar را به «پایین کشیدن سرستون روی ردیف داده» تبدیل می‌کند.
+- **ریشه بهم‌ریختگی پیگیری‌ها (و مشابه در اسناد):** `.fup-folder` با `overflow:hidden` + قانون `.tbl-wrap > thead th { top:var(--tbl-sticky-top) }` → سرستون داخل کارت ~۸۸px پایین می‌آمد، ردیف‌ها زیر هدر ناپدید می‌شدند، فقط «جمع» دیده می‌شد. همان الگو در کارت‌های سند دستی/دفتر روزنامه.
+- **رفع معماری:** کلاس `.erp-fold` بدون overflow کلیپ؛ CSS صریح `position:static` داخل `.erp-fold`/`.fup-folder`؛ `tblHasClippingAncestor` + `tblDisableSticky` در `enhanceAccTables`؛ `tbl-no-sticky` روی بدنه‌های پوشه؛ footer جمع فقط برای ≥۲ ردیف داده.
+- **Cache-bust:** `app.css?v=275`، `app.js?v=275`، `mdi.js?v=275`، SW `erp-taranom-v275`.
+- **تست:** `node server/scripts/test-table-sticky-fold-v275.js`
+- **فایل‌ها:** `server/public/{app.css,app.js,index.html,sw.js}`، `server/scripts/test-table-sticky-fold-v275.js`، `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۹ — فیکس ریشه‌ای کلیپ مودال/پنل زیر سایدبار + بازطراحی موبایل داشبورد و حسابداری (SW v274)
 
 - **Invariant (لایه UI):** هیچ مودال، پنل شناور، یا پنجرهٔ MDI نباید زیر سایدبار ثابت برود یا توسط آن بریده شود.
