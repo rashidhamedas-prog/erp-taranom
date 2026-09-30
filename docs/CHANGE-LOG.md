@@ -12,7 +12,7 @@
 - **رفع:** حذف انتخاب نوع از تسویهٔ سبد؛ متا همیشه `{type:'proforma', vatExempt:true}`؛ `openInvBuilder` با `fromMarketerCart`/`forceProformaNew` نوع را قفل می‌کند؛ `saveInvoice` هم force می‌کند. راهنمای admin/sales به‌روز شد.
 - **تست:** `node server/scripts/test-marketer-proforma-lock-v270.js`
 - **فایل‌ها:** `server/public/{marketer-ui.js,app.js,index.html,sw.js}`, `server/scripts/test-marketer-proforma-lock-v270.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `fbfe351` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v270`؛ static lock 15/15؛ test-sms 22/0
 
 ### ۱۴۰۵/۰۷/۰۸ — وابستگی طاقه↔لایه‌چینی بر اساس رنگ/پارچه/عرض (SW v269)
 
