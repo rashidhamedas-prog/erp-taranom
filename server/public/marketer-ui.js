@@ -1,10 +1,10 @@
 /**
- * Marketer sales: Catalog (filters like کاتالوگ) → Cart (pack_size qty) → checkout → Invoice
- * Version marker: marketer-ui-v211 — keep in sync with SW / script ?v=
+ * Marketer sales: Catalog → Cart → checkout → Invoice builder
+ * Version marker: marketer-ui-v270 — keep in sync with SW / script ?v=
  *
- * Checkout writes window.__pendingMarketerInvMeta = { type, vatExempt } before
- * openInvBuilder(). app.js should read it when seeding a new invoice (#inv-type,
- * #inv-vat-exempt). Until that hook exists we apply after openInvBuilder via rAF/timeout.
+ * Channel invariant (TAP lifecycle): فروش بازاریاب فقط پیش‌فاکتور می‌سازد.
+ * تبدیل به معمولی/رسمی فقط با دکمه «تبدیل» توسط مدیر/حسابداری/مدیر فروش است.
+ * Checkout همیشه __pendingMarketerInvMeta = { type:'proforma', vatExempt:true } می‌نویسد.
  */
 (function (global) {
   'use strict';
@@ -12,8 +12,11 @@
   let cart = [];
   let mkFilter = { search: '', category: '', stock_status: 'all' };
   let mkTimer = null;
-  let mkCheckout = { type: 'normal' };
+  /** Locked channel type — never expose UI to change this. */
+  let mkCheckout = { type: 'proforma' };
   let mkCartError = '';
+
+  const MARKETER_INV_TYPE = 'proforma';
 
   function loadCart() {
     try { cart = JSON.parse(localStorage.getItem('marketer_cart') || '[]') || []; }
@@ -127,28 +130,20 @@
     }));
   }
 
-  function readCheckoutType() {
-    const radio = document.querySelector('input[name="mk-inv-type"]:checked');
-    const sel = document.getElementById('mk-inv-type');
-    const raw = (radio && radio.value) || (sel && sel.value) || mkCheckout.type;
-    if (raw === 'proforma' || raw === 'normal' || raw === 'final') return raw;
-    return 'normal';
-  }
-
-  function defaultVatExemptForType(type) {
-    return type !== 'final';
+  function lockedCheckoutMeta() {
+    mkCheckout.type = MARKETER_INV_TYPE;
+    return { type: MARKETER_INV_TYPE, vatExempt: true };
   }
 
   /**
-   * Apply type / VAT defaults on #inv-type and #inv-vat-exempt after the builder
-   * HTML exists. app.js should instead consume window.__pendingMarketerInvMeta
-   * while rendering (checkbox or hidden input).
+   * Align builder VAT after open. Type is never overridden away from proforma
+   * (channel lock + salesProformaOnly in app.js).
    */
   function applyMarketerInvDefaults(meta, tries) {
     tries = tries || 0;
     const typeEl = document.getElementById('inv-type');
     const vatEl = document.getElementById('inv-vat-exempt');
-    if (!typeEl) {
+    if (!typeEl && !vatEl) {
       if (tries < 30) {
         const next = function () { applyMarketerInvDefaults(meta, tries + 1); };
         if (tries === 0 && typeof requestAnimationFrame === 'function') requestAnimationFrame(next);
@@ -156,14 +151,17 @@
       }
       return;
     }
-    typeEl.value = meta.type;
+    if (typeEl) {
+      const hasProforma = Array.from(typeEl.options || []).some(function (o) { return o.value === 'proforma'; });
+      if (hasProforma || typeEl.tagName === 'INPUT') typeEl.value = 'proforma';
+    }
     if (vatEl) {
-      if (vatEl.type === 'checkbox') vatEl.checked = !!meta.vatExempt;
-      else vatEl.value = meta.vatExempt ? '1' : '';
+      if (vatEl.type === 'checkbox') vatEl.checked = true;
+      else vatEl.value = '1';
     }
   }
 
-  /** Seed invoice builder then open — survives async wipe in _openInvBuilder. */
+  /** Seed invoice builder then open — always proforma (channel invariant). */
   function openInvoiceWithCart() {
     loadCart();
     if (!cart.length) {
@@ -174,18 +172,15 @@
       showToast('دسترسی ایجاد فاکتور ندارید', 'error');
       return;
     }
-    const type = readCheckoutType();
-    const vatExempt = defaultVatExemptForType(type);
-    mkCheckout.type = type;
+    const meta = lockedCheckoutMeta();
     const rows = cartToInvoiceRows();
     window.__pendingMarketerInvRows = rows;
     window.__invCartFromMarketer = true;
-    // app.js should read this when opening a new invoice (type + vatExempt).
-    window.__pendingMarketerInvMeta = { type: type, vatExempt: vatExempt };
+    window.__pendingMarketerInvMeta = { type: meta.type, vatExempt: meta.vatExempt };
     if (typeof invCart !== 'undefined') invCart = rows.slice();
     if (typeof openInvBuilder === 'function') {
       openInvBuilder();
-      applyMarketerInvDefaults({ type: type, vatExempt: vatExempt });
+      applyMarketerInvDefaults(meta);
     } else {
       showToast('فاکتورساز در دسترس نیست', 'error');
     }
@@ -693,32 +688,6 @@
     renderCart();
   }
 
-  function vatNoteForType(type) {
-    if (type === 'final') {
-      return 'فاکتور رسمی پیش‌فرض مشمول مالیات است. معمولی و پیش‌فاکتور پیش‌فرض معاف‌اند — تأیید نهایی را در فرم فاکتور بزنید.';
-    }
-    return 'معمولی و پیش‌فاکتور پیش‌فرض معاف از مالیات‌اند؛ رسمی مشمول است — تأیید نهایی در فرم فاکتور.';
-  }
-
-  function bindCheckoutTypeInputs() {
-    const radios = document.querySelectorAll('input[name="mk-inv-type"]');
-    radios.forEach(function (r) {
-      r.addEventListener('change', function () {
-        mkCheckout.type = r.value;
-        const note = el('mkVatNote');
-        if (note) note.textContent = vatNoteForType(r.value);
-      });
-    });
-    const sel = el('mk-inv-type');
-    if (sel) {
-      sel.addEventListener('change', function () {
-        mkCheckout.type = sel.value;
-        const note = el('mkVatNote');
-        if (note) note.textContent = vatNoteForType(sel.value);
-      });
-    }
-  }
-
   async function renderCheckout() {
     loadCart();
     const body = el('mkBody');
@@ -731,7 +700,7 @@
       body.innerHTML = '<div class="empty">دسترسی ایجاد فاکتور ندارید. از مدیر بخواهید در «کاربران → دسترسی‌ها» برای فاکتورها تیک <b>ایجاد</b> را بزند.</div>';
       return;
     }
-    const type = mkCheckout.type === 'proforma' || mkCheckout.type === 'final' ? mkCheckout.type : 'normal';
+    lockedCheckoutMeta();
     const total = cartTotal();
     const whName = await resolveSalesWarehouseName();
     body.innerHTML = `
@@ -758,16 +727,10 @@
           </div>
 
           <div class="rep-form-section">
-            <fieldset>
-              <legend>نوع فاکتور</legend>
-              <div class="mk-inv-types">
-                <label><input type="radio" name="mk-inv-type" value="proforma" ${type === 'proforma' ? 'checked' : ''}> پیش‌فاکتور</label>
-                <label><input type="radio" name="mk-inv-type" value="normal" ${type === 'normal' ? 'checked' : ''}> معمولی</label>
-                <label><input type="radio" name="mk-inv-type" value="final" ${type === 'final' ? 'checked' : ''}> رسمی</label>
-              </div>
-              <p class="inv-amend-hint">پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. معمولی: فروش قطعی بدون صف مودیان. رسمی: فروش قطعی + مودیان در صورت فعال بودن.</p>
-            </fieldset>
-            <p class="inv-amend-hint" id="mkVatNote">${esc(vatNoteForType(type))}</p>
+            <p class="inv-amend-hint" id="mkProformaLockNote">
+              از این مسیر همیشه <b>پیش‌فاکتور</b> ثبت می‌شود (بدون اثر موجودی و حسابداری).
+              تبدیل به فاکتور معمولی یا رسمی فقط پس از تأیید مدیر / حسابداری با دکمهٔ <b>تبدیل</b> انجام می‌شود.
+            </p>
           </div>
 
           <div class="rep-form-section">
@@ -778,7 +741,6 @@
           <button class="btn ghost" data-csp-style="${CSP.style(`margin-right:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.clearAfterInvoice()})}">پاک کردن سبد پس از ثبت</button>
         </div>
       </div>`;
-    bindCheckoutTypeInputs();
   }
 
   function clearAfterInvoice() {
@@ -807,6 +769,6 @@
     removeGroup,
     clearAfterInvoice,
     openInvoiceWithCart,
-    _ver: 'marketer-ui-v211'
+    _ver: 'marketer-ui-v270'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

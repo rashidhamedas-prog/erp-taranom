@@ -4613,6 +4613,8 @@ async function _openInvBuilder(id){
     ? window.__pendingMarketerInvRows.slice()
     : null;
   window.__pendingMarketerInvRows = null;
+  // Capture before clearing — channel lock must survive cart seed wipe below.
+  const fromMarketerCart = !!(!id && (pendingMk || window.__invCartFromMarketer));
   const keepMarketerCart = !id && !pendingMk && window.__invCartFromMarketer && Array.isArray(invCart) && invCart.length;
   if(inv){
     invCart = (inv.rows||[]).map(r=>({
@@ -4650,16 +4652,19 @@ async function _openInvBuilder(id){
 
   const isSalesRole = typeof isRepRole==='function' && isRepRole(ME?.role);
   const salesProformaOnly = typeof isSalesProformaOnlyRole==='function' && isSalesProformaOnlyRole(ME?.role);
+  const forceProformaNew = !!(!id && (salesProformaOnly || fromMarketerCart));
   const defSalesWh = isSalesRole ? (ME?.sales_warehouse_id || inv?.warehouse_id || '') : (inv?.warehouse_id || ME?.sales_warehouse_id || '');
   const mkMeta = !id && window.__pendingMarketerInvMeta && typeof window.__pendingMarketerInvMeta==='object'
     ? window.__pendingMarketerInvMeta
     : null;
   if(!id) window.__pendingMarketerInvMeta = null;
-  const mkType = !salesProformaOnly && mkMeta && (mkMeta.type==='proforma'||mkMeta.type==='normal'||mkMeta.type==='final') ? mkMeta.type : null;
-  const builderType = inv ? inv.type : (salesProformaOnly ? 'proforma' : (mkType || 'proforma'));
+  // کانال فروش بازاریاب / نقش کارشناس: نوع از کلاینت پذیرفته نمی‌شود — همیشه پیش‌فاکتور
+  const mkType = !forceProformaNew && mkMeta && (mkMeta.type==='proforma'||mkMeta.type==='normal'||mkMeta.type==='final') ? mkMeta.type : null;
+  const builderType = inv ? inv.type : (forceProformaNew ? 'proforma' : (mkType || 'proforma'));
   const vatExemptChecked = inv
     ? !!Number(inv.vat_exempt)
-    : (mkMeta && mkMeta.vatExempt!=null ? !!mkMeta.vatExempt : defaultVatExemptForType(builderType));
+    : (forceProformaNew ? true : (mkMeta && mkMeta.vatExempt!=null ? !!mkMeta.vatExempt : defaultVatExemptForType(builderType)));
+  window._invForceProformaNew = forceProformaNew;
   const isFinalEdit = !!(inv && inv.type==='final');
   const canAmendFirm = ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'
     || (typeof canPerm==='function' && canPerm('invoices','update'));
@@ -4669,7 +4674,7 @@ async function _openInvBuilder(id){
   captureInvoiceStockBaseline(inv);
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش فاکتور':(salesProformaOnly?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>${id?'ویرایش فاکتور':(forceProformaNew?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}</div>
@@ -4677,13 +4682,13 @@ async function _openInvBuilder(id){
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
-        <div class="fg"><label>نوع ${hlp(salesProformaOnly?'بازاریاب فقط پیش‌فاکتور ثبت می‌کند. تبدیل به فاکتور معمولی یا رسمی فقط توسط مدیر یا حسابدار انجام می‌شود.':'پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${(inv||salesProformaOnly)?'disabled':''}>
+        <div class="fg"><label>نوع ${hlp(forceProformaNew?'از مسیر فروش بازاریاب / نقش کارشناس فقط پیش‌فاکتور ثبت می‌شود. تبدیل به فاکتور معمولی یا رسمی فقط توسط مدیر یا حسابدار با دکمه تبدیل انجام می‌شود.':'پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${(inv||forceProformaNew)?'disabled':''}>
           ${salesProformaOnly && inv && inv.type && inv.type!=='proforma'
             ? `<option value="${esc(inv.type)}" selected>${inv.type==='normal'?'فاکتور معمولی':(inv.type==='final'?'فاکتور رسمی':esc(inv.type))}</option>`
-            : `<option value="proforma" ${builderType==='proforma'?'selected':''}>پیش‌فاکتور</option>${salesProformaOnly?'':`<option value="normal" ${builderType==='normal'?'selected':''}>فاکتور معمولی</option><option value="final" ${builderType==='final'?'selected':''}>فاکتور رسمی</option>`}`}</select>
-          ${salesProformaOnly?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">فقط پیش‌فاکتور. تبدیل به فاکتور قطعی را مدیر یا حسابدار انجام می‌دهد.</div>`:''}
-          ${!salesProformaOnly&&inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
-          ${!salesProformaOnly&&inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
+            : `<option value="proforma" ${builderType==='proforma'?'selected':''}>پیش‌فاکتور</option>${forceProformaNew?'':`<option value="normal" ${builderType==='normal'?'selected':''}>فاکتور معمولی</option><option value="final" ${builderType==='final'?'selected':''}>فاکتور رسمی</option>`}`}</select>
+          ${forceProformaNew?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">فقط پیش‌فاکتور. تبدیل به فاکتور قطعی را مدیر یا حسابدار انجام می‌دهد.</div>`:''}
+          ${!forceProformaNew&&inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
+          ${!forceProformaNew&&inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
@@ -5997,8 +6002,12 @@ async function saveInvoice(id){
     if(chkAmt>chkFinal){ showToast('مبلغ دریافت نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
   }
   const discAmtSave=Math.max(0, Math.round(Number(el('inv-disc-amt')?.value)||0));
+  const salesProformaOnlySave = typeof isSalesProformaOnlyRole==='function' && isSalesProformaOnlyRole(ME?.role);
+  const forceProformaSave = !!(!id && (salesProformaOnlySave || window._invForceProformaNew));
+  let invTypeSave = el('inv-type')?.value || 'proforma';
+  if(forceProformaSave) invTypeSave = 'proforma';
   const data = {
-    cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
+    cust_id, type:invTypeSave, date:el('inv-date').value, note:el('inv-note').value,
     disc:+el('inv-disc').value||0,
     disc_amt: discAmtSave,
     pay_type,
@@ -23471,7 +23480,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
         <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
         <li>کارشناس حضوری و تلفنی در فاکتور نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک، معافیت مالیات و کرایه را می‌بیند؛ انبار مبدأ قفل روی انبار تخصیص‌یافته است و در نشست ورود (<code>sales_warehouse_id</code>) می‌آید</li>
-        <li>در تسویه سبد، نوع فاکتور (پیش‌فاکتور / معمولی / رسمی) را انتخاب کنید؛ تیک مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
+        <li>در تسویه سبد فروش بازاریاب <b>انتخاب نوع فاکتور نیست</b> — همیشه <b>پیش‌فاکتور</b> صادر می‌شود؛ تبدیل به معمولی/رسمی فقط با تأیید مدیر یا حسابداری از دکمهٔ <b>تبدیل</b> است</li>
         <li>در «کاربران → دسترسی‌ها» دکمه «دسترسی کامل فاکتور» همین تیک‌ها را یک‌جا می‌زند</li>
       </ul>`),
     helpSec('💼','حساب من و عملیات میدانی',`
@@ -23991,7 +24000,7 @@ function renderSalesGuide(){
       <ul>
         <li>کالای رنگی: پک زنده (رنگ‌های موجود × سایزهای موجود) برای همه نقش‌ها خودکار اضافه می‌شود. در سبد «ویرایش رنگ/سایز» همان پنجره را باز می‌کند. نوار بالای کاتالوگ به سبد/فاکتور می‌برد</li>
         <li>کالای بدون ماتریس: هر بار افزودن = <b>تعداد در پک</b></li>
-        <li>در تسویه، نوع فاکتور را انتخاب کنید؛ تیک معافیت مالیات در فاکتورساز با همان نوع هماهنگ می‌شود</li>
+        <li>از فروش بازاریاب همیشه <b>پیش‌فاکتور</b> ثبت می‌شود (بدون انتخاب نوع). تبدیل به فاکتور قطعی را مدیر/حسابداری با دکمهٔ <b>تبدیل</b> انجام می‌دهد</li>
         <li>اگر انبار فروش روی حساب شما ثبت شده باشد، بنر «انبار فروش» در کاتالوگ بازاریاب دیده می‌شود و فاکتورساز همان انبار را قفل می‌کند</li>
         <li>نقد/نسیه/چک/کارت را در فاکتورساز کامل کنید</li>
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
