@@ -1532,8 +1532,20 @@ function initDB(database, opts) {
     } catch (_) { /* table may not exist yet on first boot */ }
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,?)').run('consignment', maxCs);
   }
+  if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('warehouse_doc')) {
+    let maxWh = 0;
+    try {
+      for (const r of db.prepare(`SELECT num FROM warehouse_docs WHERE num IS NOT NULL`).all()) {
+        const m = String(r.num).match(/(\d+)\s*$/);
+        if (m) maxWh = Math.max(maxWh, parseInt(m[1], 10));
+      }
+    } catch (_) { /* table may not exist yet */ }
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,?)').run('warehouse_doc', maxWh);
+  }
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_consignment_docs_num_unique ON consignment_docs(num)'); }
   catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند امانی ایجاد نشد:', e.message); }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند انبار ایجاد نشد:', e.message); }
   // Backstop: business numbers must be unique. A legacy database can contain
   // historical duplicates from the COUNT(*)-based numbering; in that case the
   // index is skipped (logged) and only the atomic sequence protects new rows.
@@ -2750,6 +2762,55 @@ function initSyncSchema(db, opts) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v15','1')").run();
     }
+    const backfillV16 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v16'").get();
+    if (!backfillV16 || backfillV16.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v16 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v16','1')").run();
+    }
+  }
+
+  // WH-DOC — master warehouse remittance/receipt/transfer documents
+  db.exec(`CREATE TABLE IF NOT EXISTS warehouse_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    num TEXT,
+    type TEXT NOT NULL,
+    from_warehouse_id INTEGER,
+    to_warehouse_id INTEGER,
+    date TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    status TEXT DEFAULT 'posted',
+    je_id INTEGER,
+    line_count INTEGER DEFAULT 0,
+    qty_total REAL DEFAULT 0,
+    amount_rial_total INTEGER DEFAULT 0,
+    created_by INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    reversed_at INTEGER,
+    reversed_by INTEGER,
+    replaces_doc_id INTEGER,
+    replaced_by_doc_id INTEGER
+  )`);
+  ensureColumn(db, 'warehouse_moves', 'doc_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_moves', 'line_no', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'warehouse_moves', 'variant_id', 'INTEGER');
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_moves_doc_id ON warehouse_moves(doc_id)'); }
+  catch (e) { console.warn('⚠️ idx_warehouse_moves_doc_id:', e.message); }
+  try {
+    const { backfillWarehouseDocs } = require('./lib/warehouse-docs');
+    const summary = backfillWarehouseDocs(db);
+    if (!summary.skipped) {
+      console.log('✅ warehouse_docs_backfill_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('warehouse_docs_backfill_v1:', e.message);
   }
 
   // CON-01/CON-02 — person FK, warehouse, settle metadata

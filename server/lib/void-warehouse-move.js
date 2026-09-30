@@ -1,10 +1,27 @@
 /**
- * Full void of a warehouse_moves row (R12/R13): reverse inventory ledgers + batch JE.
+ * Full void of a warehouse_moves row (R12/R13): reverse inventory ledgers + batch JE + variants.
+ * If the move belongs to a warehouse_docs header, voids the whole document.
  */
 const { reverseInventoryMovement } = require('./inventory/ledger');
 const { reverseJournalEntry } = require('./void-journal');
 const { todayJalali } = require('../jalali');
 const { audit } = require('../db');
+
+function reverseVariantSideEffects(db, move, userId) {
+  try {
+    const { reverseStockDocument } = require('./inventory/movement');
+    const note = `ابطال عملیات انبار #${move.id}`;
+    const opts = { userId, note, applyHeaderStock: false };
+    if (move.type === 'receipt') {
+      reverseStockDocument(db, { docType: 'wh_receipt', docId: move.id, ...opts });
+    } else if (move.type === 'issue') {
+      reverseStockDocument(db, { docType: 'wh_issue', docId: move.id, ...opts });
+    } else if (move.type === 'transfer') {
+      reverseStockDocument(db, { docType: 'wh_transfer_out', docId: move.id, ...opts });
+      reverseStockDocument(db, { docType: 'wh_transfer_in', docId: move.id, ...opts });
+    }
+  } catch (_) { /* optional on older DBs */ }
+}
 
 function voidOneMoveInTx(db, move, userId) {
   if (!move || move.status === 'reversed') return;
@@ -26,6 +43,8 @@ function voidOneMoveInTx(db, move, userId) {
     }
   }
 
+  reverseVariantSideEffects(db, move, userId);
+
   db.prepare(`
     UPDATE warehouse_moves SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?
     WHERE id=?
@@ -33,7 +52,8 @@ function voidOneMoveInTx(db, move, userId) {
 }
 
 /**
- * Void move; if it shares a batch JE, void all sibling moves with same je_id first/together.
+ * Void move; if it has doc_id, void the whole warehouse_docs document.
+ * Else if it shares a batch JE, void all sibling moves with same je_id.
  */
 function voidWarehouseMove(db, moveId, user) {
   const move = db.prepare('SELECT * FROM warehouse_moves WHERE id=?').get(moveId);
@@ -46,6 +66,13 @@ function voidWarehouseMove(db, moveId, user) {
     const err = new Error('این عملیات قبلاً ابطال شده است');
     err.status = 400;
     throw err;
+  }
+
+  if (move.doc_id) {
+    const { voidWarehouseDoc } = require('./warehouse-docs');
+    return voidWarehouseDoc(db, move.doc_id, user, {
+      reason: `ابطال سند انبار از ردیف #${move.id}`,
+    });
   }
 
   let voidedIds = [];
@@ -70,7 +97,6 @@ function voidWarehouseMove(db, moveId, user) {
         sourceType: 'warehouse_move_reversal',
       });
     } else {
-      // Legacy batch JE linked only via sourceId = first move id
       const batchJe = db.prepare(`
         SELECT id FROM journal_entries
         WHERE ref_type IN ('warehouse_receipt_batch','warehouse_issue_batch')
@@ -91,4 +117,4 @@ function voidWarehouseMove(db, moveId, user) {
   return { ok: true, voidedIds, count: voidedIds.length };
 }
 
-module.exports = { voidWarehouseMove, voidOneMoveInTx };
+module.exports = { voidWarehouseMove, voidOneMoveInTx, reverseVariantSideEffects };

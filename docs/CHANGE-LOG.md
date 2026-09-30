@@ -5,6 +5,15 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۸ — تجمیع سند حواله/رسید/انتقال انبار + مشاهده/ویرایش (SW v272)
+
+- **Invariant:** عملیات انبار دیگر لیست خط‌به‌خط نیست؛ هر ثبت چندکالایی یک سند `warehouse_docs` (شماره WH) با خطوط در `warehouse_moves.doc_id` است. لیست یک ردیف per سند (خطوط + جمع qty). مشاهده = سربرگ+اقلام؛ ویرایش = ابطال کامل R13 + صدور سند جدید؛ ابطال سند کل خطوط/موجودی/JE/واریانت را برمی‌گرداند.
+- **مهاجرت:** `warehouse_docs_backfill_v1` ردیف‌های قدیمی را با `je_id` مشترک یا خوشهٔ (type/انبار/تاریخ/کاربر/یادداشت/created_at) به سند وصل می‌کند؛ باقی تک‌خطی.
+- **Sync:** append `warehouse_docs` + FK `doc_id`؛ PATH `/moves/docs` و `/moves/batch` → `warehouse_docs`؛ `sync_seq_backfill_v16`.
+- **تست:** `node server/scripts/test-warehouse-docs-v272.js` (25)؛ `test-sms` 22/0.
+- **فایل‌ها:** `server/lib/warehouse-docs.js`, `void-warehouse-move.js`, `routes/warehouses.js`, `db.js`, `inventory/schema.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-warehouse-docs-v272.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۸ — اسکوپ اجباری آمار داشبورد برای غیر مدیر/حسابداری (SW v271)
 
 - **اینورینت:** فقط نقش‌های `admin` و `accounting` آمار سراسری شرکت را می‌بینند. بقیه (از جمله `sales_manager` و دسترسی تفویضی حسابداری) فقط مشتریان `user_id=me OR assigned_to=me` — سرور از `scopeUserId` مشتق می‌کند؛ فیلتر کلاینت دامنه را باز نمی‌کند.

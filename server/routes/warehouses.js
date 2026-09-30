@@ -1,53 +1,13 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
-const { todayJalali } = require('../jalali');
-const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
-const {
-  postStockMovement, hasActiveMatrixVariants, variantWarehouseQty,
-} = require('../lib/inventory/movement');
-const { postToLedger } = require('../lib/ledger');
-const { acct } = require('../lib/coa-map');
-const { parseQty } = require('../lib/round3');
 const { voidWarehouseMove } = require('../lib/void-warehouse-move');
+const {
+  listWarehouseDocs, getWarehouseDoc, createWarehouseDoc,
+  voidWarehouseDoc, reviseWarehouseDoc,
+} = require('../lib/warehouse-docs');
 const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
 const { buildVariantStockReport } = require('../lib/inventory/variant-report');
-
-function parseVariantId(body) {
-  if (!body || body.variant_id == null || body.variant_id === '') return null;
-  const n = parseInt(body.variant_id, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-/** After inventory_ledger applies product×warehouse stock, record variant movement. */
-function postWhVariantMovement(db, {
-  productId, variantId, warehouseId, qtyDelta, docType, docId, docLine, userId, note, batchId,
-}) {
-  if (batchId) return null; // fabric/batch keeps existing batch path — no variant movement
-  if (hasActiveMatrixVariants(db, productId) && !variantId) {
-    throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
-      code: 'E_VARIANT_REQUIRED', status: 400,
-    });
-  }
-  if (!variantId && !hasActiveMatrixVariants(db, productId)) {
-    // Non-matrix: ledger already moved header stock; still record audit movement without re-applying
-    return postStockMovement(db, {
-      productId, variantId: null, warehouseId, qtyDelta,
-      docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
-      allowNegative: true, applyHeaderStock: false, writeStockLog: false,
-    });
-  }
-  return postStockMovement(db, {
-    productId, variantId, warehouseId, qtyDelta,
-    docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
-    allowNegative: true, applyHeaderStock: false, writeStockLog: false,
-  });
-}
-
-function availableForIssue(db, productId, warehouseId, variantId) {
-  if (variantId) return variantWarehouseQty(db, variantId, warehouseId);
-  return warehouseQty(db, productId, warehouseId);
-}
 
 // Stock overview — all warehouses with product quantities
 router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
@@ -261,13 +221,71 @@ router.get('/:id/stock', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-// ---- Warehouse movement history ----
+// ---- Warehouse documents (aggregated remittance / receipt / transfer) ----
+router.get('/moves/docs', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(listWarehouseDocs(db, {
+      limit: req.query.limit,
+      includeReversed: req.query.include_reversed === '1',
+    }));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/moves/docs/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const doc = getWarehouseDoc(db, req.params.id);
+    if (!doc) return res.status(404).json({ error: 'سند انبار یافت نشد' });
+    res.json(doc);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/moves/docs', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = createWarehouseDoc(db, req.body, req.user);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/moves/docs/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = voidWarehouseDoc(db, req.params.id, req.user, {
+      reason: req.body && req.body.reason,
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/moves/docs/:id/revise', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = reviseWarehouseDoc(db, req.params.id, req.body, req.user);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+// ---- Warehouse movement history (line-level; kept for debug/excel) ----
 router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT m.*, p.name as product_name, p.code as product_code,
-      fw.name as from_warehouse_name, tw.name as to_warehouse_name, u.name as recorder
+      fw.name as from_warehouse_name, tw.name as to_warehouse_name, u.name as recorder,
+      d.num as doc_num
     FROM warehouse_moves m
+    LEFT JOIN warehouse_docs d ON d.id=m.doc_id
     LEFT JOIN products p ON m.product_id=p.id
     LEFT JOIN warehouses fw ON m.from_warehouse_id=fw.id
     LEFT JOIN warehouses tw ON m.to_warehouse_id=tw.id
@@ -278,7 +296,7 @@ router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-// Void warehouse move (R13 full reverse of stock + related batch JE)
+// Void warehouse move (R13 — if doc_id present, voids whole document)
 router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
@@ -290,177 +308,70 @@ router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
-  const { product_id, warehouse_id, qty, date, note, unit_cost_rial, batch_id } = req.body;
-  const q = parseQty(qty);
-  const variantId = parseVariantId(req.body);
-  if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
-  const db = getDB();
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
-  if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
-  if (!warehouse) return res.status(404).json({ error: 'انبار یافت نشد' });
-  let moveId, led;
   try {
-    db.transaction(() => {
-      if (hasActiveMatrixVariants(db, +product_id) && !variantId && !batch_id) {
-        throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
-          code: 'E_VARIANT_REQUIRED', status: 400,
-        });
-      }
-      led = postInventoryMovement(db, {
-        eventType: 'receipt',
-        productId: +product_id,
-        warehouseId: +warehouse_id,
-        qty: q,
-        unitCostRial: unit_cost_rial != null ? +unit_cost_rial : Math.round(Number(product.average_cost_rial) || 0),
-        batchId: batch_id ? +batch_id : null,
-        sourceType: 'warehouse_move',
-        date: date || todayJalali(),
-        note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
-        createdBy: req.user.id,
-      });
-      const result = db.prepare(`
-        INSERT INTO warehouse_moves
-          (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
-      `).run('receipt', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id,
-        led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
-      moveId = result.lastInsertRowid;
-      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
-      postWhVariantMovement(db, {
-        productId: +product_id, variantId, warehouseId: +warehouse_id, qtyDelta: q,
-        docType: 'wh_receipt', docId: moveId, docLine: 0, userId: req.user.id,
-        note: `رسید انبار (${warehouse.name})`, batchId: batch_id ? +batch_id : null,
-      });
-    })();
+    const db = getDB();
+    const result = createWarehouseDoc(db, {
+      type: 'receipt',
+      warehouse_id: req.body.warehouse_id,
+      to_warehouse_id: req.body.warehouse_id,
+      date: req.body.date,
+      note: req.body.note,
+      opening: req.body.opening,
+      lines: [{
+        product_id: req.body.product_id,
+        qty: req.body.qty,
+        variant_id: req.body.variant_id,
+        unit_cost_rial: req.body.unit_cost_rial,
+        batch_id: req.body.batch_id,
+      }],
+    }, req.user);
+    res.json({ id: result.ids[0], doc_id: result.id, num: result.num, ledger_id: null, ok: true, ...result });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'create', 'warehouse_move', moveId, `رسید انبار: ${q} عدد ${product.name} به ${warehouse.name}`);
-  res.json({ id: moveId, ledger_id: led.id, ok: true });
 });
 
 router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
-  const { product_id, warehouse_id, qty, date, note, batch_id } = req.body;
-  const q = parseQty(qty);
-  const variantId = parseVariantId(req.body);
-  if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
-  const db = getDB();
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
-  if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  if (hasActiveMatrixVariants(db, +product_id) && !variantId && !batch_id) {
-    return res.status(400).json({ error: 'برای کالای ماتریسی انتخاب واریانت الزامی است', code: 'E_VARIANT_REQUIRED' });
-  }
-  const available = availableForIssue(db, product_id, warehouse_id, variantId);
-  if (available < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
-  const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
-  let moveId, led;
   try {
-    db.transaction(() => {
-      led = postInventoryMovement(db, {
-        eventType: 'issue',
-        productId: +product_id,
-        warehouseId: +warehouse_id,
-        qty: -q,
-        batchId: batch_id ? +batch_id : null,
-        sourceType: 'warehouse_move',
-        date: date || todayJalali(),
-        note: `حواله انبار (${warehouse?.name || warehouse_id})${note ? ' - ' + note : ''}`,
-        createdBy: req.user.id,
-      });
-      const result = db.prepare(`
-        INSERT INTO warehouse_moves
-          (type,product_id,from_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
-      `).run('issue', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id,
-        led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
-      moveId = result.lastInsertRowid;
-      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
-      postWhVariantMovement(db, {
-        productId: +product_id, variantId, warehouseId: +warehouse_id, qtyDelta: -q,
-        docType: 'wh_issue', docId: moveId, docLine: 0, userId: req.user.id,
-        note: `حواله انبار (${warehouse?.name || warehouse_id})`, batchId: batch_id ? +batch_id : null,
-      });
-    })();
+    const db = getDB();
+    const result = createWarehouseDoc(db, {
+      type: 'issue',
+      warehouse_id: req.body.warehouse_id,
+      from_warehouse_id: req.body.warehouse_id,
+      date: req.body.date,
+      note: req.body.note,
+      lines: [{
+        product_id: req.body.product_id,
+        qty: req.body.qty,
+        variant_id: req.body.variant_id,
+        batch_id: req.body.batch_id,
+      }],
+    }, req.user);
+    res.json({ id: result.ids[0], doc_id: result.id, num: result.num, ok: true, ...result });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'create', 'warehouse_move', moveId, `حواله انبار: ${q} عدد ${product.name} از ${warehouse?.name}`);
-  res.json({ id: moveId, ledger_id: led.id, ok: true });
 });
 
 router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
-  const { product_id, from_warehouse_id, to_warehouse_id, qty, date, note } = req.body;
-  const q = parseQty(qty);
-  const variantId = parseVariantId(req.body);
-  if (!product_id || !from_warehouse_id || !to_warehouse_id) return res.status(400).json({ error: 'کالا، انبار مبدأ و مقصد الزامی است' });
-  if (!q || q <= 0) return res.status(400).json({ error: 'تعداد انتقال معتبر الزامی است' });
-  if (String(from_warehouse_id) === String(to_warehouse_id)) return res.status(400).json({ error: 'انبار مبدأ و مقصد نمی‌تواند یکسان باشد' });
-  const db = getDB();
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
-  if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  if (hasActiveMatrixVariants(db, +product_id) && !variantId) {
-    return res.status(400).json({ error: 'برای کالای ماتریسی انتخاب واریانت الزامی است', code: 'E_VARIANT_REQUIRED' });
-  }
-  const available = availableForIssue(db, product_id, from_warehouse_id, variantId);
-  if (available <= 0) return res.status(400).json({ error: 'این کالا در انبار مبدأ موجود نیست' });
-  if (q > available) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
-  const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(to_warehouse_id);
-  if (!toWarehouse) return res.status(404).json({ error: 'انبار مقصد یافت نشد' });
-  const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(from_warehouse_id);
-  let moveId, ledOut, ledIn;
   try {
-    db.transaction(() => {
-      const unit = Math.round(Number(product.average_cost_rial) || 0);
-      ledOut = postInventoryMovement(db, {
-        eventType: 'transfer_out',
-        productId: +product_id,
-        warehouseId: +from_warehouse_id,
-        qty: -q,
-        unitCostRial: unit,
-        sourceType: 'warehouse_transfer',
-        date: date || todayJalali(),
-        note: `خروج انتقال به ${toWarehouse.name}${note ? ' - ' + note : ''}`,
-        createdBy: req.user.id,
-        updateAvg: false,
-      });
-      ledIn = postInventoryMovement(db, {
-        eventType: 'transfer_in',
-        productId: +product_id,
-        warehouseId: +to_warehouse_id,
-        qty: q,
-        unitCostRial: unit,
-        amountRial: ledOut.amount_rial,
-        sourceType: 'warehouse_transfer',
-        date: date || todayJalali(),
-        note: `ورود انتقال از ${fromWarehouse?.name || from_warehouse_id}${note ? ' - ' + note : ''}`,
-        createdBy: req.user.id,
-        updateAvg: false,
-      });
-      const result = db.prepare(`
-        INSERT INTO warehouse_moves
-          (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
-      `).run('transfer', product_id, from_warehouse_id, to_warehouse_id, q, date || todayJalali(), note || '',
-        req.user.id, ledOut.id, unit, ledOut.amount_rial);
-      moveId = result.lastInsertRowid;
-      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(moveId, ledOut.id, ledIn.id);
-      postWhVariantMovement(db, {
-        productId: +product_id, variantId, warehouseId: +from_warehouse_id, qtyDelta: -q,
-        docType: 'wh_transfer_out', docId: moveId, docLine: 0, userId: req.user.id,
-        note: `خروج انتقال به ${toWarehouse.name}`,
-      });
-      postWhVariantMovement(db, {
-        productId: +product_id, variantId, warehouseId: +to_warehouse_id, qtyDelta: q,
-        docType: 'wh_transfer_in', docId: moveId, docLine: 0, userId: req.user.id,
-        note: `ورود انتقال از ${fromWarehouse?.name || from_warehouse_id}`,
-      });
-    })();
+    const db = getDB();
+    const result = createWarehouseDoc(db, {
+      type: 'transfer',
+      from_warehouse_id: req.body.from_warehouse_id,
+      to_warehouse_id: req.body.to_warehouse_id,
+      date: req.body.date,
+      note: req.body.note,
+      lines: [{
+        product_id: req.body.product_id,
+        qty: req.body.qty,
+        variant_id: req.body.variant_id,
+      }],
+    }, req.user);
+    res.json({ id: result.ids[0], doc_id: result.id, num: result.num, ok: true, ...result });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'create', 'warehouse_move', moveId, `انتقال کالا: ${q} عدد ${product.name} به ${toWarehouse.name}`);
-  res.json({ id: moveId, ledger_out: ledOut.id, ledger_in: ledIn.id, ok: true });
 });
 
 const DEFAULT_WAREHOUSE_ENTITIES = [
@@ -504,162 +415,15 @@ router.post('/lookup-options', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true, list });
 });
 
-/** Multi-line warehouse document — lines: [{product_id, qty, variant_id?}] */
+/** Multi-line warehouse document — proxies to warehouse_docs (backward compatible). */
 router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
-  const { type, warehouse_id, from_warehouse_id, to_warehouse_id, lines, date, note } = req.body;
-  if (!['receipt', 'issue', 'transfer'].includes(type)) return res.status(400).json({ error: 'نوع سند نامعتبر است' });
-  if (!Array.isArray(lines) || !lines.length) return res.status(400).json({ error: 'حداقل یک ردیف کالا لازم است' });
-  const db = getDB();
-  const ids = [];
   try {
-    db.transaction(() => {
-      let totalAmountRial = 0;
-      let lineIdx = 0;
-      for (const line of lines) {
-        const product_id = parseInt(line.product_id, 10);
-        const qty = parseQty(line.qty);
-        const variantId = parseVariantId(line);
-        const batchId = line.batch_id ? parseInt(line.batch_id, 10) : null;
-        if (!product_id || !qty || qty <= 0) throw invErr('E_INV_QTY', 400);
-        const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
-        if (!product) throw invErr('E_PRODUCT_NOT_FOUND', 404);
-        if (hasActiveMatrixVariants(db, product_id) && !variantId && !batchId) {
-          throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
-            code: 'E_VARIANT_REQUIRED', status: 400,
-          });
-        }
-        const d = date || todayJalali();
-        if (type === 'receipt') {
-          const whId = parseInt(warehouse_id || to_warehouse_id, 10);
-          if (!whId) throw new Error('انبار مقصد الزامی است');
-          const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
-          if (!warehouse) throw new Error('انبار یافت نشد');
-          const explicitUnitCost = Math.round(Number(line.unit_cost_rial) || (
-            Number(line.amount_rial) > 0 ? Number(line.amount_rial) / qty : 0
-          ));
-          const led = postInventoryMovement(db, {
-            eventType: 'receipt', productId: product_id, warehouseId: whId, qty,
-            unitCostRial: explicitUnitCost > 0 ? explicitUnitCost : Math.round(Number(product.average_cost_rial) || 0),
-            sourceType: 'warehouse_move', date: d,
-            note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
-            createdBy: req.user.id,
-          });
-          const r = db.prepare(`
-            INSERT INTO warehouse_moves
-              (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,'posted')
-          `).run('receipt', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
-          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
-          ids.push(r.lastInsertRowid);
-          postWhVariantMovement(db, {
-            productId: product_id, variantId, warehouseId: whId, qtyDelta: qty,
-            docType: 'wh_receipt', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
-            note: `رسید انبار (${warehouse.name})`, batchId,
-          });
-          totalAmountRial += Math.round(Number(led.amount_rial) || 0);
-        } else if (type === 'issue') {
-          const whId = parseInt(warehouse_id || from_warehouse_id, 10);
-          if (!whId) throw new Error('انبار مبدأ الزامی است');
-          const available = availableForIssue(db, product_id, whId, variantId);
-          if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
-          const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
-          const led = postInventoryMovement(db, {
-            eventType: 'issue', productId: product_id, warehouseId: whId, qty: -qty,
-            sourceType: 'warehouse_move', date: d,
-            note: `حواله انبار (${warehouse?.name || whId})${note ? ' - ' + note : ''}`,
-            createdBy: req.user.id,
-          });
-          const r = db.prepare(`
-            INSERT INTO warehouse_moves
-              (type,product_id,from_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,'posted')
-          `).run('issue', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
-          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
-          ids.push(r.lastInsertRowid);
-          postWhVariantMovement(db, {
-            productId: product_id, variantId, warehouseId: whId, qtyDelta: -qty,
-            docType: 'wh_issue', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
-            note: `حواله انبار (${warehouse?.name || whId})`, batchId,
-          });
-          totalAmountRial += Math.round(Number(led.amount_rial) || 0);
-        } else {
-          const fromId = parseInt(from_warehouse_id, 10);
-          const toId = parseInt(to_warehouse_id, 10);
-          if (!fromId || !toId) throw new Error('انبار مبدأ و مقصد الزامی است');
-          if (fromId === toId) throw new Error('انبار مبدأ و مقصد نمی‌تواند یکسان باشد');
-          const available = availableForIssue(db, product_id, fromId, variantId);
-          if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
-          const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toId);
-          const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromId);
-          const unit = Math.round(Number(product.average_cost_rial) || 0);
-          const ledOut = postInventoryMovement(db, {
-            eventType: 'transfer_out', productId: product_id, warehouseId: fromId, qty: -qty,
-            unitCostRial: unit, sourceType: 'warehouse_transfer', date: d,
-            note: `خروج انتقال به ${toWarehouse?.name}`, createdBy: req.user.id, updateAvg: false,
-          });
-          const ledIn = postInventoryMovement(db, {
-            eventType: 'transfer_in', productId: product_id, warehouseId: toId, qty,
-            unitCostRial: unit, amountRial: ledOut.amount_rial, sourceType: 'warehouse_transfer', date: d,
-            note: `ورود انتقال از ${fromWarehouse?.name}`, createdBy: req.user.id, updateAvg: false,
-          });
-          const r = db.prepare(`
-            INSERT INTO warehouse_moves
-              (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
-          `).run('transfer', product_id, fromId, toId, qty, d, note || '', req.user.id, ledOut.id, unit, ledOut.amount_rial);
-          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(r.lastInsertRowid, ledOut.id, ledIn.id);
-          ids.push(r.lastInsertRowid);
-          postWhVariantMovement(db, {
-            productId: product_id, variantId, warehouseId: fromId, qtyDelta: -qty,
-            docType: 'wh_transfer_out', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
-            note: `خروج انتقال به ${toWarehouse?.name}`,
-          });
-          postWhVariantMovement(db, {
-            productId: product_id, variantId, warehouseId: toId, qtyDelta: qty,
-            docType: 'wh_transfer_in', docId: r.lastInsertRowid, docLine: lineIdx, userId: req.user.id,
-            note: `ورود انتقال از ${fromWarehouse?.name}`,
-          });
-        }
-        lineIdx += 1;
-      }
-      if (type !== 'transfer' && totalAmountRial > 0) {
-        const inventory = acct(db, 'coa_inventory');
-        const isOpening = !!(req.body.opening || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
-        const counterpart = acct(db, type === 'receipt'
-          ? (isOpening ? 'coa_opening_balance' : 'coa_adjustment')
-          : 'coa_inventory_loss');
-        const amountToman = totalAmountRial / 10;
-        const jeId = postToLedger(db, {
-          sourceType: isOpening && type === 'receipt' ? 'opening_inventory' : `warehouse_${type}_batch`,
-          sourceId: ids[0],
-          date: date || todayJalali(),
-          description: isOpening && type === 'receipt'
-            ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
-            : `${type === 'receipt' ? 'رسید' : 'حواله'} انبار (${ids.length} ردیف)`,
-          createdBy: req.user.id,
-          voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
-          srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
-          lines: type === 'receipt'
-            ? [
-              { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0 },
-              { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman },
-            ]
-            : [
-              { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0 },
-              { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman },
-            ],
-        });
-        if (jeId && ids.length) {
-          const placeholders = ids.map(() => '?').join(',');
-          db.prepare(`UPDATE warehouse_moves SET je_id=? WHERE id IN (${placeholders})`).run(jeId, ...ids);
-        }
-      }
-    })();
+    const db = getDB();
+    const result = createWarehouseDoc(db, req.body, req.user);
+    res.json(result);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'create', 'warehouse_move_batch', ids[0] || 0, `${type} ${ids.length} ردیف`);
-  res.json({ ok: true, ids, count: ids.length });
 });
 
 module.exports = router;

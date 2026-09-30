@@ -94,7 +94,9 @@ const PATH_TABLE_MAP = [
   ['/api/expenses', 'expense_payments'],
   ['/api/transfers', 'account_transfers'],
   ['/api/trust-checks', 'trust_checks'],
-  // Warehouse moves BEFORE generic /api/warehouses
+  // Warehouse docs BEFORE batch BEFORE moves BEFORE generic /api/warehouses
+  ['/api/warehouses/moves/docs', 'warehouse_docs'],
+  ['/api/warehouses/moves/batch', 'warehouse_docs'],
   ['/api/warehouses/moves', 'warehouse_moves'],
   ['/api/warehouses/stock', 'warehouse_stock'],
   ['/api/warehouses', 'warehouses'],

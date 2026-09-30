@@ -11173,12 +11173,12 @@ async function viewWarehouseStock(id,name){
 }
 
 /* ============================================================
-   WAREHOUSE OPERATIONS (رسید / حواله / انتقال انبار)
+   WAREHOUSE OPERATIONS (رسید / حواله / انتقال انبار) — document-centric
 ============================================================ */
 async function renderWarehouseOpsTab(body){
   await ensureWarehouses();
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
-  const moves=await api('GET','/warehouses/moves/list')||[];
+  const docs=await api('GET','/warehouses/moves/docs')||[];
   const typeLabel={receipt:'⬇️ رسید',issue:'⬆️ حواله',transfer:'🔄 انتقال'};
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
@@ -11187,18 +11187,157 @@ async function renderWarehouseOpsTab(body){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseTransferModal()})}">🔄 انتقال بین انبارها</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>تاریخ</th><th>سند مرجع</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
-    </tr></thead><tbody>${moves.map(m=>`<tr>
-      <td class="mono">${escDate(m.date)}</td>
-      <td>${refDocCell(m.ref_doc_no,m.ref_doc_type)}</td>
-      <td>${typeLabel[m.type]||m.type}</td>
-      <td>${esc(m.product_name||'-')}</td><td class="muted">${esc(m.from_warehouse_name||'-')}</td><td class="muted">${esc(m.to_warehouse_name||'-')}</td>
-      <td class="mono">${fmt(m.qty)}</td><td class="muted">${esc(m.note||'-')}</td><td class="muted">${esc(m.recorder||'-')}</td>
-      <td>${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidWarehouseMove((m.id))})}" title="ابطال">⛔</button>`:''}</td>
+      <th>تاریخ</th><th>شماره سند</th><th>نوع</th><th>از انبار</th><th>به انبار</th><th>خطوط</th><th>جمع تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${docs.map(d=>`<tr>
+      <td class="mono">${escDate(d.date)}</td>
+      <td class="mono">${esc(d.num||('#'+d.id))}</td>
+      <td>${typeLabel[d.type]||d.type}</td>
+      <td class="muted">${esc(d.from_warehouse_name||'-')}</td>
+      <td class="muted">${esc(d.to_warehouse_name||'-')}</td>
+      <td class="mono">${fmt(d.line_count||0)}</td>
+      <td class="mono">${fmt(d.qty_total||0)}</td>
+      <td class="muted">${esc(d.note||'-')}</td>
+      <td class="muted">${esc(d.recorder||'-')}</td>
+      <td data-csp-style="${CSP.style('white-space:nowrap')}">
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){viewWarehouseDoc((d.id))})}" title="مشاهده">👁</button>
+        ${(ME.role==='admin'||ME.role==='accounting')?`
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editWarehouseDoc((d.id))})}" title="ویرایش">✏️</button>
+          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidWarehouseDoc((d.id))})}" title="ابطال">⛔</button>
+        `:''}
+      </td>
     </tr>`).join('')||emptyRow(10)}</tbody></table></div>`;
 }
+async function viewWarehouseDoc(id){
+  try{
+    const doc=await api('GET','/warehouses/moves/docs/'+id);
+    if(!doc){ showToast('سند یافت نشد','error'); return; }
+    const typeLabel={receipt:'رسید انبار',issue:'حواله انبار',transfer:'انتقال بین انبارها'};
+    const lines=doc.lines||[];
+    openModal(`
+      <div class="modal-head"><h3>👁 مشاهده ${esc(typeLabel[doc.type]||doc.type)} — ${esc(doc.num||('#'+doc.id))}</h3>
+        <button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+      <div class="modal-body">
+        <div class="muted" data-csp-style="${CSP.style('margin-bottom:10px;line-height:1.8')}">
+          تاریخ: <b class="mono">${escDate(doc.date)}</b>
+          ${doc.from_warehouse_name?` · از: <b>${esc(doc.from_warehouse_name)}</b>`:''}
+          ${doc.to_warehouse_name?` · به: <b>${esc(doc.to_warehouse_name)}</b>`:''}
+          ${doc.note?` · یادداشت: ${esc(doc.note)}`:''}
+          · خطوط: <b>${fmt(doc.line_count||lines.length)}</b>
+          · جمع: <b class="mono">${fmt(doc.qty_total||0)}</b>
+          ${doc.recorder?` · ثبت‌کننده: ${esc(doc.recorder)}`:''}
+        </div>
+        <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style('font-size:12px')}"><thead><tr>
+          <th>#</th><th>کالا</th><th>رنگ/سایز</th><th>تعداد</th>
+        </tr></thead><tbody>${lines.map((l,i)=>`<tr>
+          <td class="mono">${fmt(l.line_no||(i+1))}</td>
+          <td>${esc(l.product_name||'-')}${l.product_code?` <span class="mono muted">${esc(l.product_code)}</span>`:''}</td>
+          <td class="muted">${esc([l.color_name,l.size_name].filter(Boolean).join(' / ')||'-')}</td>
+          <td class="mono">${fmt(l.qty)}</td>
+        </tr>`).join('')||emptyRow(4)}</tbody></table></div>
+      </div>
+      <div class="modal-foot">
+        ${(ME.role==='admin'||ME.role==='accounting')?`
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();editWarehouseDoc((doc.id))})}">✏️ ویرایش</button>
+          <button class="btn red" data-csp-click="${CSP.bind('click',function(event){closeModal();voidWarehouseDoc((doc.id))})}">⛔ ابطال</button>
+        `:''}
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
+      </div>`);
+  }catch(e){}
+}
+async function editWarehouseDoc(id){
+  try{
+    const doc=await api('GET','/warehouses/moves/docs/'+id);
+    if(!doc){ showToast('سند یافت نشد','error'); return; }
+    if(doc.status==='reversed'){ showToast('سند ابطال‌شده قابل ویرایش نیست','error'); return; }
+    whDocLines=(doc.lines||[]).map(l=>({
+      product_id:l.product_id,
+      product_label:l.product_label||l.product_name||'',
+      qty:l.qty||1,
+      variant_id:l.variant_id||null,
+      color_name:l.color_name||'',
+      size_name:l.size_name||''
+    }));
+    if(!whDocLines.length) whDocLines=[{product_id:'',qty:1}];
+    const title={receipt:'ویرایش رسید انبار',issue:'ویرایش حواله انبار',transfer:'ویرایش انتقال بین انبارها'};
+    const whOpts=(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('');
+    let bodyHtml='';
+    if(doc.type==='receipt'){
+      bodyHtml=`<div class="fg"><label>انبار مقصد *</label><select id="wr-warehouse">${whOpts}</select></div>
+        <div class="fg"><label>تاریخ</label><input id="wr-date" data-jdate value="${esc(doc.date||todayJalali())}"></div>
+        <div class="fg full"><label>یادداشت</label><input id="wr-note" value="${esc(doc.note||'')}"></div>`;
+    }else if(doc.type==='issue'){
+      bodyHtml=`<div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${whOpts}</select></div>
+        <div class="fg"><label>تاریخ</label><input id="wi-date" data-jdate value="${esc(doc.date||todayJalali())}"></div>
+        <div class="fg full"><label>یادداشت</label><input id="wi-note" value="${esc(doc.note||'')}"></div>`;
+    }else{
+      bodyHtml=`<div class="fg"><label>انبار مبدأ *</label><select id="wt-from" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${whOpts}</select></div>
+        <div class="fg"><label>انبار مقصد *</label><select id="wt-to">${whOpts}</select></div>
+        <div class="fg"><label>تاریخ</label><input id="wt-date" data-jdate value="${esc(doc.date||todayJalali())}"></div>
+        <div class="fg full"><label>یادداشت</label><input id="wt-note" value="${esc(doc.note||'')}"></div>`;
+    }
+    openModal(`
+      <div class="modal-head"><h3>✏️ ${esc(title[doc.type]||'ویرایش سند انبار')} — ${esc(doc.num||('#'+doc.id))}</h3>
+        <button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+      <div class="modal-body">
+        <div class="muted" data-csp-style="${CSP.style('margin-bottom:8px;font-size:12px')}">با ذخیره، سند قبلی ابطال کامل می‌شود و سند جدید با شماره تازه صادر می‌گردد (R13).</div>
+        <div class="form-grid">${bodyHtml}<div class="fg full" id="whDocLines">${whDocLinesHtml()}</div></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(event){saveWarehouseDocRevise((doc.id),('${doc.type}'))})}">💾 ذخیره ویرایش</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      </div>`);
+    if(doc.type==='receipt' && doc.to_warehouse_id) el('wr-warehouse').value=String(doc.to_warehouse_id);
+    if(doc.type==='issue' && doc.from_warehouse_id) el('wi-warehouse').value=String(doc.from_warehouse_id);
+    if(doc.type==='transfer'){
+      if(doc.from_warehouse_id) el('wt-from').value=String(doc.from_warehouse_id);
+      if(doc.to_warehouse_id) el('wt-to').value=String(doc.to_warehouse_id);
+    }
+    attachDatepickers(el('modalRoot'));
+    try{ bindNumFit(el('whDocLines')); }catch(_){}
+  }catch(e){}
+}
+async function saveWarehouseDocRevise(docId, type){
+  const lines=whDocLinesPayload();
+  if(lines==null) return;
+  if(!lines.length){ showToast('حداقل یک کالا الزامی است','error'); return; }
+  if(!confirm('سند قبلی ابطال و سند جدید صادر شود؟')) return;
+  let body={ type, lines };
+  if(type==='receipt'){
+    body.warehouse_id=+el('wr-warehouse').value;
+    body.date=el('wr-date').value;
+    body.note=el('wr-note').value;
+    if(!body.warehouse_id){ showToast('انبار مقصد الزامی است','error'); return; }
+  }else if(type==='issue'){
+    body.warehouse_id=+el('wi-warehouse').value;
+    body.date=el('wi-date').value;
+    body.note=el('wi-note').value;
+    if(!body.warehouse_id){ showToast('انبار مبدأ الزامی است','error'); return; }
+  }else{
+    body.from_warehouse_id=+el('wt-from').value;
+    body.to_warehouse_id=+el('wt-to').value;
+    body.date=el('wt-date').value;
+    body.note=el('wt-note').value;
+    if(!body.from_warehouse_id||!body.to_warehouse_id){ showToast('انبار مبدأ و مقصد الزامی است','error'); return; }
+  }
+  try{
+    const r=await api('POST','/warehouses/moves/docs/'+docId+'/revise',body);
+    closeModal();
+    showToast('سند جدید '+esc(r.num||'')+' صادر شد ('+(r.count||lines.length)+' ردیف)');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('warehouse-ops');
+  }catch(e){}
+}
+async function voidWarehouseDoc(id){
+  if(!confirm('کل سند انبار ابطال شود؟\nهمهٔ اقلام، موجودی و سند حسابداری مرتبط برمی‌گردند.')) return;
+  try{
+    const r=await api('POST','/warehouses/moves/docs/'+id+'/void',{});
+    showToast((r.count&&r.count>1)?('سند ابطال شد ('+r.count+' ردیف)'):'سند انبار ابطال شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('warehouse-ops');
+  }catch(e){}
+}
 async function voidWarehouseMove(id){
-  if(!confirm('این عملیات انبار ابطال شود؟\nموجودی برمی‌گردد و اگر سند دسته‌ای باشد همهٔ ردیف‌های مرتبط ابطال می‌شوند.')) return;
+  if(!confirm('این عملیات انبار ابطال شود؟\nاگر بخشی از سند باشد کل سند ابطال می‌شود.')) return;
   try{
     const r=await api('POST','/warehouses/moves/'+id+'/void',{});
     showToast((r.count&&r.count>1)?(r.count+' ردیف ابطال شد'):'عملیات انبار ابطال شد');
@@ -11354,8 +11493,8 @@ async function saveWarehouseReceipt(){
   if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   try{
-    const r=await api('POST','/warehouses/moves/batch',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value});
-    closeModal(); showToast((r.count||lines.length)+' ردیف رسید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value});
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 function warehouseIssueModal(){
@@ -11379,8 +11518,8 @@ async function saveWarehouseIssue(){
   if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   try{
-    const r=await api('POST','/warehouses/moves/batch',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value});
-    closeModal(); showToast((r.count||lines.length)+' ردیف حواله ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    const r=await api('POST','/warehouses/moves/docs',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value});
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف حواله ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 function warehouseTransferModal(){
@@ -11410,8 +11549,8 @@ async function saveWarehouseTransfer(){
   if(lines==null) return;
   if(!from_warehouse_id||!to_warehouse_id||!lines.length){ showToast('انبارها و حداقل یک کالا الزامی است','error'); return; }
   try{
-    const r=await api('POST','/warehouses/moves/batch',{type:'transfer',from_warehouse_id,to_warehouse_id,lines,date:el('wt-date').value,note:el('wt-note').value});
-    closeModal(); showToast((r.count||lines.length)+' ردیف انتقال ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    const r=await api('POST','/warehouses/moves/docs',{type:'transfer',from_warehouse_id,to_warehouse_id,lines,date:el('wt-date').value,note:el('wt-note').value});
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف انتقال ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 
@@ -23536,7 +23675,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود (رنگ‌هایی که فقط در انبار دیگر هستند ظاهر نمی‌شوند). با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود تا دوباره انتخاب کنید. هر خط <code>variant_id</code> می‌فرستد. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>

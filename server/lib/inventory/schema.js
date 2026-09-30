@@ -246,7 +246,36 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'warehouse_moves', 'status', "TEXT DEFAULT 'posted'");
     ensureColumn(db, 'warehouse_moves', 'reversed_at', 'INTEGER');
     ensureColumn(db, 'warehouse_moves', 'reversed_by', 'INTEGER');
+    ensureColumn(db, 'warehouse_moves', 'doc_id', 'INTEGER');
+    ensureColumn(db, 'warehouse_moves', 'line_no', 'INTEGER DEFAULT 1');
+    ensureColumn(db, 'warehouse_moves', 'variant_id', 'INTEGER');
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_moves_doc_id ON warehouse_moves(doc_id)'); }
+    catch (_) { /* ignore */ }
   }
+  db.exec(`CREATE TABLE IF NOT EXISTS warehouse_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    num TEXT,
+    type TEXT NOT NULL,
+    from_warehouse_id INTEGER,
+    to_warehouse_id INTEGER,
+    date TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    status TEXT DEFAULT 'posted',
+    je_id INTEGER,
+    line_count INTEGER DEFAULT 0,
+    qty_total REAL DEFAULT 0,
+    amount_rial_total INTEGER DEFAULT 0,
+    created_by INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    reversed_at INTEGER,
+    reversed_by INTEGER,
+    replaces_doc_id INTEGER,
+    replaced_by_doc_id INTEGER
+  )`);
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
+  catch (_) { /* ignore */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_docs_status ON warehouse_docs(status)'); }
+  catch (_) { /* ignore */ }
   if (tableExists(db, 'stocktaking_sessions')) {
     ensureColumn(db, 'stocktaking_sessions', 'je_id', 'INTEGER');
     ensureColumn(db, 'stocktaking_sessions', 'total_gain_rial', 'INTEGER DEFAULT 0');
