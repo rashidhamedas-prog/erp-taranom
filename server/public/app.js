@@ -3025,6 +3025,30 @@ function syncOverlayBodyClass(){
   const open = !!(document.querySelector('#modalRoot .overlay.open, #nestedModalRoot .overlay.open'));
   document.body.classList.toggle('has-overlay', open);
 }
+/** Pin a fullscreen overlay to the visible viewport (defense if CSS inset regresses).
+ *  Windowed / nested modals are intentionally inset — never force those. */
+function pinOverlayToViewport(overlayEl){
+  if(!overlayEl || !(overlayEl instanceof Element)) return false;
+  if(!overlayEl.classList.contains('modal-fs')) return false;
+  try{
+    const r = overlayEl.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    if(vh < 80 || vw < 80) return false;
+    // Only rescue when clearly off-screen (static-position bug), not mere centering.
+    const farOff = r.top > vh * 0.4 || r.bottom < vh * 0.2 || r.top < -8
+      || r.right < vw * 0.2 || r.left > vw * 0.8;
+    if(!farOff) return false;
+    const taskbar = (getComputedStyle(document.documentElement).getPropertyValue('--mdi-taskbar-h') || '0px').trim() || '0px';
+    overlayEl.style.position = 'fixed';
+    overlayEl.style.top = '0';
+    overlayEl.style.right = '0';
+    overlayEl.style.left = '0';
+    overlayEl.style.bottom = taskbar;
+    overlayEl.style.inset = '0 0 ' + taskbar + ' 0';
+    return true;
+  }catch(_){ return false; }
+}
 function openModal(html, lg){
   // پیش‌فرض تمام‌صفحه؛ با دکمه ❐ می‌توان کوچک کرد. lg همچنان عرض بزرگ‌تر در حالت عادی می‌دهد.
   el('modalRoot').innerHTML = `<div class="overlay open modal-fs" id="modalOverlay" data-csp-click="${CSP.bind('click',function(event){if(event.target===this)closeModal()})}">
@@ -3034,6 +3058,7 @@ function openModal(html, lg){
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
   hardenFormAutofill(el('modalRoot'));
+  try{ pinOverlayToViewport(el('modalOverlay')); }catch(_){}
 }
 /** جلوگیری از پیشنهاد/پر شدن خودکار مرورگر روی فیلدهای عملیاتی ERP (جستجو، مشتری، مبلغ، …). */
 function hardenFormAutofill(root){
@@ -3146,6 +3171,7 @@ function openNestedModal(html, lg){
   syncOverlayBodyClass();
   try{ attachDatepickers(root); }catch(_){}
   try{ initCustSearches(root); }catch(_){}
+  try{ pinOverlayToViewport(el('nestedModalOverlay')); }catch(_){}
 }
 function closeNestedModal(){
   const root=document.getElementById('nestedModalRoot');
@@ -23498,7 +23524,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>نوار وظایف <b>شناور</b> پایین صفحه است؛ روی محتوا می‌نشیند و سایدبار را کوتاه نمی‌کند.</li>
         <li>روی دکمهٔ هر پنجره بزنید تا جلو بیاید؛ چینش و خاموش/روشن از همان نوار.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن — پنجرهٔ شناور نمی‌تواند زیر سایدبار برود.</li>
-        <li><b>مودال‌ها</b> همیشه بالای منوی کناری باز می‌شوند؛ در دسکتاپ داخل ناحیه محتوا وسط‌چین‌اند و در موبایل از پایین صفحه به‌صورت شیت باز می‌شوند.</li>
+        <li><b>مودال‌ها</b> همیشه بالای منوی کناری و پنجره‌های MDI باز می‌شوند (پورتال ثابت روی ویوپورت؛ نه داخل جریان سند بلند). در دسکتاپ داخل ناحیه محتوا وسط‌چین‌اند و در موبایل از پایین صفحه به‌صورت شیت باز می‌شوند.</li>
+        <li>اگر دکمهٔ «ویرایش» یا هر عملی ظاهراً بی‌اثر بود، معمولاً مودال پشت‌صحنه یا خارج از صفحه مانده بود — با نسخهٔ فعلی باید همان لحظه روی صفحه دیده شود. در غیر این صورت Hard Refresh بزنید.</li>
         <li><b>موبایل:</b> داشبورد خانه و داشبورد حسابداری با هیرو خلاصه، ریل فیلتر افقی، کارت‌های لمسی و جدول‌های کارتی (بدون اسکرول افقی اجباری) بازطراحی شده‌اند. منو با ☰ باز می‌شود.</li>
       </ul>`),
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`

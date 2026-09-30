@@ -228,10 +228,17 @@ body.erp-device-login #deviceResetLink{display:block}
   transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .sidebar.collapsed{transform:translateX(110%)}
 .main.expanded{margin-right:0!important}
-/* Portal hosts — always above sidebar; empty root must not steal clicks */
-#modalRoot,#nestedModalRoot{position:relative;isolation:isolate}
+/* Portal hosts — fixed viewport portals (never in document flow).
+   Empty root must not steal clicks; open overlay re-enables hit-testing.
+   position:relative + tall #app made fixed children with inset:auto land
+   at static Y≈body scrollHeight → "Edit does nothing" (modal off-screen). */
+#modalRoot,#nestedModalRoot{
+  position:fixed;inset:0;width:auto;height:auto;margin:0;padding:0;
+  pointer-events:none;isolation:isolate;overflow:visible
+}
 #modalRoot{z-index:var(--z-overlay)!important}
 #nestedModalRoot{z-index:var(--z-nested)!important}
+#modalRoot .overlay,#nestedModalRoot .overlay{pointer-events:auto}
 body.has-overlay .sidebar,
 body.has-overlay #sidebarBackdrop{z-index:var(--z-sidebar)!important;pointer-events:none}
 .sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12);overflow:hidden}
@@ -706,10 +713,13 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 @media(min-width:901px){
   .overlay.open:not(.modal-fs){padding-right:calc(var(--sidebar-w) + 16px);padding-left:16px}
 }
-/* تمام‌صفحه: کل ویوپورت از جمله روی سایدبار */
+/* تمام‌صفحه: کل ویوپورت از جمله روی سایدبار.
+   CRITICAL: never write `inset:auto` after top/right/bottom/left — shorthand
+   resets all four to auto and fixed overlays fall back to static position
+   (often thousands of px below the fold when #view is tall / MDI open). */
 .overlay.open.modal-fs{
   padding:0;align-items:stretch;justify-content:stretch;
-  top:0;left:0;right:0;bottom:var(--mdi-taskbar-h,0px);inset:auto
+  inset:0 0 var(--mdi-taskbar-h,0px) 0
 }
 .modal{background:var(--card);border-radius:16px;width:100%;max-width:min(560px,calc(100vw - var(--sidebar-w) - 32px));max-height:92vh;overflow-y:auto;
   box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
@@ -1145,7 +1155,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 @media(max-width:600px){
   .pgrid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
   .overlay{align-items:flex-end;padding:0}
-  .overlay.open.modal-fs{align-items:stretch;padding:0;bottom:var(--mdi-taskbar-h,0px);top:0;left:0;right:0}
+  .overlay.open.modal-fs{align-items:stretch;padding:0;inset:0 0 var(--mdi-taskbar-h,0px) 0}
   .modal{max-height:96vh;border-radius:16px 16px 0 0;width:100%;box-shadow:none}
   .modal.lg{max-width:100%;border-radius:16px 16px 0 0}
   .modal.full{max-height:calc(100vh - var(--mdi-taskbar-h,0px));height:100%;border-radius:0}

@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — فیکس ریشه‌ای مودال خارج‌ازصفحه / کلیک بی‌اثر ویرایش (SW v276)
+
+- **Invariant (لایه UI):** هر مودال باید داخل ویوپورت قابل‌دیدن باشد و بالای MDI/سایدبار بماند؛ پورتال مودال در جریان سند بلند شرکت نمی‌کند.
+- **ریشه (اثبات مرورگر لاگین‌شده):** `#modalRoot` با `position:relative` بعد از `#app` (~۳۶k px ارتفاع با MDI) بود؛ قانون `.overlay.open.modal-fs` بعد از `top/left/right/bottom` با shorthandی `inset:auto` هر چهار inset را خنثی می‌کرد → `position:fixed` به **موقعیت استاتیک** (~`top:36278px`) می‌افتاد. دکمهٔ ویرایش handler را اجرا می‌کرد ولی مودال خارج از صفحه بود («هیچ اتفاقی نمی‌افتد»).
+- **رفع معماری:** پورتال‌های `#modalRoot`/`#nestedModalRoot` → `position:fixed;inset:0;pointer-events:none` (+ overlay با `pointer-events:auto`)؛ `modal-fs` با `inset:0 0 var(--mdi-taskbar-h) 0` بدون `inset:auto`؛ `pinOverlayToViewport` فقط برای `.modal-fs` به‌عنوان دفاع در runtime؛ راهنما به‌روز شد.
+- **Cache-bust:** `app.css?v=276`، `app.js?v=276`، `mdi.js?v=276`، SW `erp-taranom-v276`.
+- **تست:** `node server/scripts/test-modal-viewport-portal-v276.js`
+- **فایل‌ها:** `server/public/{app.css,app.js,index.html,sw.js}`، `server/scripts/test-modal-viewport-portal-v276.js`، `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۹ — فیکس معماری sticky جدول داخل پوشه/کارت (SW v275)
 
 - **Invariant (لایه UI):** سرستون `position:sticky` با افست topbar (`--tbl-sticky-top`≈۸۸px) فقط وقتی مجاز است که containing-block همان اسکرول صفحه باشد. هر جدّ با `overflow≠visible` (پوشه، کارت لبه‌گرد، مودال/MDI) افست topbar را به «پایین کشیدن سرستون روی ردیف داده» تبدیل می‌کند.
