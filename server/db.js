@@ -1544,8 +1544,6 @@ function initDB(database, opts) {
   }
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_consignment_docs_num_unique ON consignment_docs(num)'); }
   catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند امانی ایجاد نشد:', e.message); }
-  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
-  catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند انبار ایجاد نشد:', e.message); }
   // Backstop: business numbers must be unique. A legacy database can contain
   // historical duplicates from the COUNT(*)-based numbering; in that case the
   // index is skipped (logged) and only the atomic sequence protects new rows.
@@ -2803,6 +2801,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'warehouse_moves', 'variant_id', 'INTEGER');
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_moves_doc_id ON warehouse_moves(doc_id)'); }
   catch (e) { console.warn('⚠️ idx_warehouse_moves_doc_id:', e.message); }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند انبار ایجاد نشد:', e.message); }
   try {
     const { backfillWarehouseDocs } = require('./lib/warehouse-docs');
     const summary = backfillWarehouseDocs(db);

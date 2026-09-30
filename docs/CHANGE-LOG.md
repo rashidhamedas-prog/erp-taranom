@@ -12,7 +12,7 @@
 - **Sync:** append `warehouse_docs` + FK `doc_id`؛ PATH `/moves/docs` و `/moves/batch` → `warehouse_docs`؛ `sync_seq_backfill_v16`.
 - **تست:** `node server/scripts/test-warehouse-docs-v272.js` (25)؛ `test-sms` 22/0.
 - **فایل‌ها:** `server/lib/warehouse-docs.js`, `void-warehouse-move.js`, `routes/warehouses.js`, `db.js`, `inventory/schema.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-warehouse-docs-v272.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `c421e6f` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v272`؛ `test-warehouse-docs-v272` 25/0؛ `test-sms` 22/0؛ `test-sync` 44/0
 
 ### ۱۴۰۵/۰۷/۰۸ — اسکوپ اجباری آمار داشبورد برای غیر مدیر/حسابداری (SW v271)
 
