@@ -13,7 +13,7 @@
 - **لیب:** `canonicalCustomerFold(db,{asOf,userId})` اسکوپ اختیاری.
 - **تست:** `node server/scripts/test-dashboard-scope-v271.js` (اجرا روی ایران پس از deploy؛ محلی Node24 بدون باینری better-sqlite3)
 - **فایل‌ها:** `customer-books.js`, `routes/{dashboard,accounting,admin,ai}.js`, `public/{app.js,sw.js,index.html,marketer-ui.js}`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `cd428aa` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v271`؛ `test-dashboard-scope-v271` 13/0؛ `test-sms` 22/0؛ `test-sync` 44/0
 
 ### ۱۴۰۵/۰۷/۰۸ — فروش بازاریاب: قفل کانال فقط‌پیش‌فاکتور (SW v270)
 
