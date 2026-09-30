@@ -13,7 +13,7 @@
 - **بازطراحی UX موبایل:** هیرو خلاصه + ریل فیلتر افقی روی داشبورد خانه؛ هیرو مالی + شبکهٔ لمسی دسترسی سریع روی `acc-dash`؛ جدول‌های گزارشات با `m-stack` کارتی؛ فرم مودال تمام‌صفحه دیگر نواری باریک سمت راست نیست.
 - **Cache-bust:** `app.css?v=274`، `mdi.js?v=274`، `app.js?v=274`، SW `erp-taranom-v274`.
 - **فایل‌ها:** `server/public/{app.css,app.js,mdi.js,index.html,sw.js}`، `docs/CHANGE-LOG.md`، `scripts/_apply-ux-mobile-v274.py`
-- **Deploy:** ✅ `3f6995f` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v274`؛ `test-sms` 22/0؛ `test-sync` 44/0
+- **Deploy:** ✅ `091ae64` (feat `3f6995f`) — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v274`؛ `test-sms` 22/0؛ `test-sync` 44/0؛ شاخهٔ `fix/ux-overlay-mobile-v274` + alias `claude/claude-md-docs-2ssrpy` هم‌تراز `main`
 
 ### ۱۴۰۵/۰۷/۰۹ — BOM فعال‌سازی E_BOM_COMP_TYPE + UX رنگ/ماتریس + جداسازی لایه‌چینی/رسید محصول (SW v273)
 
