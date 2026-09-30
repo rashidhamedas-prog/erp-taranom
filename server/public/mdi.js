@@ -150,6 +150,23 @@
     return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  function sidebarReservePx() {
+    try {
+      if (window.innerWidth <= 900) return 0;
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w') || '260px';
+      const n = parseFloat(raw);
+      return Number.isFinite(n) ? n : 260;
+    } catch (_) { return 260; }
+  }
+  function clampWinPos(winEl, left, top) {
+    const side = sidebarReservePx();
+    const maxL = Math.max(8, window.innerWidth - side - Math.min(winEl.offsetWidth || 320, 480) - 8);
+    const maxT = Math.max(8, window.innerHeight - 80);
+    return {
+      left: Math.min(Math.max(0, left), maxL),
+      top: Math.min(Math.max(0, top), maxT)
+    };
+  }
   function makeDraggable(winEl, handle) {
     let ox = 0, oy = 0, sx = 0, sy = 0, dragging = false;
     handle.addEventListener('pointerdown', (e) => {
@@ -165,8 +182,9 @@
     });
     handle.addEventListener('pointermove', (e) => {
       if (!dragging) return;
-      winEl.style.left = Math.max(0, ox + (e.clientX - sx)) + 'px';
-      winEl.style.top = Math.max(0, oy + (e.clientY - sy)) + 'px';
+      const pos = clampWinPos(winEl, ox + (e.clientX - sx), oy + (e.clientY - sy));
+      winEl.style.left = pos.left + 'px';
+      winEl.style.top = pos.top + 'px';
       winEl.style.right = 'auto';
     });
     handle.addEventListener('pointerup', () => { dragging = false; });
