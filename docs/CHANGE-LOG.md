@@ -13,7 +13,7 @@
 - **Cache-bust:** `app.css?v=275`، `app.js?v=275`، `mdi.js?v=275`، SW `erp-taranom-v275`.
 - **تست:** `node server/scripts/test-table-sticky-fold-v275.js`
 - **فایل‌ها:** `server/public/{app.css,app.js,index.html,sw.js}`، `server/scripts/test-table-sticky-fold-v275.js`، `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `5352d5a` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v275`؛ `test-table-sticky-fold-v275` 16/0؛ `test-sms` 22/0؛ `test-sync` 44/0؛ push: `main` + `fix/table-sticky-fold-v275` + alias `claude/claude-md-docs-2ssrpy`
 
 ### ۱۴۰۵/۰۷/۰۹ — فیکس ریشه‌ای کلیپ مودال/پنل زیر سایدبار + بازطراحی موبایل داشبورد و حسابداری (SW v274)
 
