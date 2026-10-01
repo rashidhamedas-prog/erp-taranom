@@ -146,6 +146,7 @@ ok((perOp.get(Number(op1)) || []).length === 1 && (perOp.get(Number(op2)) || [])
   'each op owns exactly its own line');
 
 const adv = require('../lib/production/bom-advanced');
+db.prepare("UPDATE bom_operations SET labor_method='contract' WHERE bom_id=?").run(bomId);
 adv.clearRollUpMemo();
 const roll = adv.rollUpBom(db, { bomId, qtyTarget: 10, period: '' });
 const st1 = roll.stages.find(s => s.seq === 1);
@@ -173,9 +174,11 @@ const otherFg = db.prepare(`
   INSERT INTO products (user_id, name, code, stock, average_cost_rial, unit, is_manufactured)
   VALUES (?,'مانتو دیگر','FG-MX3',0,0,'عدد',1)
 `).run(adminId).lastInsertRowid;
+const colorId = db.prepare("INSERT INTO product_colors (code, name) VALUES ('C-MX','سرمه‌ای')").run().lastInsertRowid;
+const sizeId = db.prepare("INSERT INTO product_sizes (code, name) VALUES ('S-MX','38')").run().lastInsertRowid;
 const foreignVariant = db.prepare(`
-  INSERT INTO product_variants (product_id, color_id, size_id, active) VALUES (?,1,10,1)
-`).run(otherFg).lastInsertRowid;
+  INSERT INTO product_variants (product_id, color_id, size_id, active) VALUES (?,?,?,1)
+`).run(otherFg, colorId, sizeId).lastInsertRowid;
 expectErr(() => asg.replaceAllowedVariants(db, bomId, [{ variant_id: foreignVariant }]),
   'E_VARIANT_PRODUCT_MISMATCH', 'variant of another product rejected');
 
