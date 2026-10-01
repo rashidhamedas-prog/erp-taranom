@@ -5,6 +5,19 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج اول: F02/F03/F01/F05/F06/F17/F18/F19–F21 (SW v278)
+
+- **Invariant:** پایان ماه تولید جلالی درست است؛ تسهیم انحراف با علامت مختلط تراز است؛ مصرف تولید از موجودی **همان انبار** بدون بازنویسی مصنوعی؛ finalize تکراری سفارش پیشرفته رد می‌شود؛ pack با سفارش پیوندی JE از نوع WIP→FG نمی‌زند؛ برگشت JE ابعاد مرکز/پروژه/مالیات/تفصیلی۲ را حفظ می‌کند؛ مواد به `operation_id` قابل تخصیص‌اند.
+- **PA-00/01:** `docs/architecture/PROD-ACC-PA00-DISCOVERY.md` + ADR-001.
+- **هسته:** `jalali.periodEndJalali`؛ `posting.buildAllocationLines`؛ `costing` از `postInventoryMovement`؛ `engine-advanced` قفل ماه + `E_ORDER_FINALIZED`؛ `cutting` مسیر pack سفارش‌دار + قفل دوره؛ جداول `bom_material_assignments` / `bom_allowed_variants` / `production_order_lines` + sync append + backfill v17.
+- **API:** `GET/PUT …/boms/:id/assignments`، `allowed-variants`، `assignments/backfill` (authz همان `production_bom`).
+- **UI/Help:** تب مسیر — لیست تخصیص مواد + backfill؛ راهنما به‌روز؛ SW `erp-taranom-v278`.
+- **اصلاح میانی:** `materialsByOperation` فقط ردیف‌های صریح؛ بدون تخصیص → fallback مرکز‌هزینه در `bom-advanced` (جلوگیری از Map همیشه غیرخالی). `replaceAssignments` با قفل BOM فعال، sole/shared، سهم ۱۰۰٪، تراکنش اتمیک. cutting با `E_PERIOD_CLOSED`؛ close با پذیرش `payroll_records`.
+- **شکاف sync (عمدی تا پچ Android):** `capture.js` هنوز `/assignments` و `/allowed-variants` را به جدول نگاشت نمی‌کند — مالک `ANDROID-NATIVE-SALES`؛ تا آن outbox دستگاه ممکن است `entity_table=null` باشد.
+- **تست:** `test-prod-acc-f02-f03-v278.js` ۲۶/۰؛ `test-prod-acc-f01-stub-v278.js` ۲۱/۰؛ `test-sms` ۲۲/۰. تست‌های DB (`f01`/`bom-matrix`/`test-sync`) روی این میزبان Node24 بدون باینری better-sqlite3 = SKIP محیط؛ روی Node20/ایران اجرا شود.
+- **فایل‌ها:** `jalali.js`, `production/{close,posting,costing,engine,engine-advanced,cutting,schema,bom-advanced,bom-assignments}.js`, `void-journal.js`, `routes/production-boms.js`, `sync/tables.js`, `db.js`, `public/{app.js,index.html,sw.js}`, docs معماری (+PA09–12 acceptance)، CHANGE-LOG، AI-DOS، تست‌های v278.
+- **Deploy:** ⏳ در حال commit/push overlay ایران — بدون تعمیر دادهٔ زنده.
+
 ### ۱۴۰۵/۰۷/۰۹ — چاپ حواله/رسید انبار عملیاتی A4/A5 (SW v277)
 
 - **Invariant:** برگهٔ حواله/رسید انبار فقط‌خواندنی است؛ موجودی و دفتر را عوض نمی‌کند. مبلغ/فی چاپ نمی‌شود (جداسازی انبار از سند مالی). رنگ و سایز برای چیدن کالا باقی می‌ماند.

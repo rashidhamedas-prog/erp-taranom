@@ -9,7 +9,8 @@ const { acct } = require('../coa-map');
 const { explodeBom, resolveBom } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
-  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, recalcAvgOnReturn, setting,
+  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
+  recalcAvgOnReturn, setting,
 } = require('./costing');
 const { applyOverhead } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
@@ -102,19 +103,52 @@ function createOrder(db, body, userId) {
   const sizeBd = sizeBdObj ? JSON.stringify(sizeBdObj) : '';
   const color = String(body.color || '').trim();
 
+  // PA-04 — explicit color×size order matrix (independent of the BOM variant scope)
+  const matrixRaw = Array.isArray(body.matrix_lines) ? body.matrix_lines
+    : (Array.isArray(body.lines) ? body.lines : null);
+  const matrixLines = matrixRaw
+    ? matrixRaw.map(ln => ({
+      variant_id: ln.variant_id != null ? Number(ln.variant_id) : null,
+      color_id: ln.color_id != null ? Number(ln.color_id) : null,
+      size_id: ln.size_id != null ? Number(ln.size_id) : null,
+      qty: num(ln.qty_planned != null ? ln.qty_planned : ln.qty),
+    })).filter(ln => ln.qty > 0)
+    : null;
+  const matrixQty = matrixLines ? matrixLines.reduce((s, ln) => s + ln.qty, 0) : 0;
+  if (matrixLines && matrixLines.length) {
+    const seenCell = new Set();
+    for (const ln of matrixLines) {
+      const k = `${ln.variant_id ?? ''}|${ln.color_id ?? ''}|${ln.size_id ?? ''}`;
+      if (seenCell.has(k)) throw err('E_MATRIX_DUPLICATE', 422, { cell: k });
+      seenCell.add(k);
+    }
+  }
+
   const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
   if (hasActiveMatrixVariants(db, productId)) {
-    if (!color || !sizeBdObj || typeof sizeBdObj !== 'object') {
+    const matrixCovers = matrixLines && matrixLines.length
+      && matrixLines.every(ln => ln.variant_id || (ln.color_id && ln.size_id));
+    if (!matrixCovers && (!color || !sizeBdObj || typeof sizeBdObj !== 'object')) {
       throw err('E_VARIANT_REQUIRED', 400, {
-        detail: 'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز الزامی است',
+        detail: 'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز (یا سطرهای ماتریس) الزامی است',
       });
     }
-    const sum = Object.values(sizeBdObj).reduce((acc, v) => acc + (Number(v) || 0), 0);
-    if (sum <= 0) throw err('E_QTY_INVALID', 422);
-    if (qtyPlanned > 0 && Math.abs(sum - qtyPlanned) > 0.001) {
-      throw err('E_VARIANT_QTY', 400, { sum, qty_planned: qtyPlanned });
+    if (!matrixCovers) {
+      const sum = Object.values(sizeBdObj).reduce((acc, v) => acc + (Number(v) || 0), 0);
+      if (sum <= 0) throw err('E_QTY_INVALID', 422);
+      if (qtyPlanned > 0 && Math.abs(sum - qtyPlanned) > 0.001) {
+        throw err('E_VARIANT_QTY', 400, { sum, qty_planned: qtyPlanned });
+      }
+      qtyPlanned = sum;
     }
-    qtyPlanned = sum;
+  }
+  // Matrix quantity drives the order qty — reconcile before the std cost explode,
+  // otherwise std_total/std_unit are computed against a different quantity.
+  if (matrixLines && matrixLines.length) {
+    if (qtyPlanned > 0 && Math.abs(matrixQty - qtyPlanned) > 0.001) {
+      throw err('E_VARIANT_QTY', 400, { sum: matrixQty, qty_planned: qtyPlanned });
+    }
+    qtyPlanned = matrixQty;
   }
   if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
 
@@ -134,26 +168,81 @@ function createOrder(db, body, userId) {
     orderNo = `PO-${Date.now()}`;
   }
 
-  const id = db.prepare(`
-    INSERT INTO production_orders (
-      order_no, product_id, bom_id, bom_version, analysis_type, production_mode,
-      sales_order_id, customer_id, qty_planned, size_breakdown, color,
-      warehouse_raw_id, warehouse_fg_id, cost_center_id,
-      status, date, period_label, fiscal_year_id,
-      std_material_rial, std_labor_rial, std_overhead_rial, std_total_rial, std_unit_rial,
-      note, created_by
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?)
-  `).run(
-    orderNo, productId, bom.id, bom.version, analysisType,
-    body.production_mode || 'MTS',
-    body.sales_order_id || null, body.customer_id || null,
-    qtyPlanned, sizeBd, color,
-    whRaw, whFg, ccId,
-    date, period, fy.fiscalYearId || null,
-    stdMat, stdLab, stdOh, stdMat + stdLab + stdOh,
-    qtyPlanned > 0 ? Math.round((stdMat + stdLab + stdOh) / qtyPlanned) : 0,
-    body.note || '', userId
-  ).lastInsertRowid;
+  // Old DBs that have not run the PA-04 migration yet simply skip the matrix lines.
+  const hasLineTable = !!db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_order_lines'"
+  ).get();
+
+  const id = db.transaction(() => {
+    const orderId = db.prepare(`
+      INSERT INTO production_orders (
+        order_no, product_id, bom_id, bom_version, analysis_type, production_mode,
+        sales_order_id, customer_id, qty_planned, size_breakdown, color,
+        warehouse_raw_id, warehouse_fg_id, cost_center_id,
+        status, date, period_label, fiscal_year_id,
+        std_material_rial, std_labor_rial, std_overhead_rial, std_total_rial, std_unit_rial,
+        note, created_by
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      orderNo, productId, bom.id, bom.version, analysisType,
+      body.production_mode || 'MTS',
+      body.sales_order_id || null, body.customer_id || null,
+      qtyPlanned, sizeBd, color,
+      whRaw, whFg, ccId,
+      date, period, fy.fiscalYearId || null,
+      stdMat, stdLab, stdOh, stdMat + stdLab + stdOh,
+      qtyPlanned > 0 ? Math.round((stdMat + stdLab + stdOh) / qtyPlanned) : 0,
+      body.note || '', userId
+    ).lastInsertRowid;
+    if (!hasLineTable) return orderId;
+
+    // PA-04: persist color×size order lines when provided (or derive from size_breakdown + color)
+    const insLine = db.prepare(`
+      INSERT INTO production_order_lines
+        (order_id, product_id, variant_id, color_id, size_id, qty_planned, bom_snapshot_ref)
+      VALUES (?,?,?,?,?,?,?)
+    `);
+    let lineCount = 0;
+    if (matrixLines && matrixLines.length) {
+      for (const ln of matrixLines) {
+        insLine.run(orderId, productId, ln.variant_id, ln.color_id, ln.size_id, ln.qty, String(bom.id));
+        lineCount++;
+      }
+    } else if (sizeBdObj && color) {
+      // Derive lines from single color + size_breakdown labels when possible
+      const colorRow = db.prepare(`
+        SELECT id FROM product_colors WHERE name=? OR id=? LIMIT 1
+      `).get(color, Number(color) || -1);
+      const colorId = colorRow?.id || null;
+      const seenCell = new Set();
+      for (const [szName, qRaw] of Object.entries(sizeBdObj)) {
+        const q = num(qRaw);
+        if (q <= 0) continue;
+        const sizeRow = db.prepare(`
+          SELECT ps.id FROM product_sizes ps
+          LEFT JOIN product_style_sizes pss ON pss.size_id = ps.id AND pss.product_id=?
+          WHERE ps.name=? OR ps.id=?
+          LIMIT 1
+        `).get(productId, szName, Number(szName) || -1);
+        let variantId = null;
+        if (colorId && sizeRow) {
+          variantId = db.prepare(`
+            SELECT id FROM product_variants
+            WHERE product_id=? AND color_id=? AND size_id=? AND COALESCE(active,1)=1 LIMIT 1
+          `).get(productId, colorId, sizeRow.id)?.id || null;
+        }
+        const cell = `${variantId ?? ''}|${colorId ?? ''}|${sizeRow?.id ?? ''}`;
+        if (seenCell.has(cell)) continue;
+        seenCell.add(cell);
+        insLine.run(orderId, productId, variantId, colorId, sizeRow?.id || null, q, String(bom.id));
+        lineCount++;
+      }
+    }
+    if (lineCount) {
+      db.prepare('UPDATE production_orders SET has_matrix_lines=1 WHERE id=?').run(orderId);
+    }
+    return orderId;
+  })();
 
   audit(userId, 'create', 'production_order', id, `ایجاد سفارش ${orderNo}`);
   emit(db, 'production.order.created', { orderId: id, orderNo });
@@ -382,6 +471,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         note: `تولید ${po.order_no}`,
         variantId: L.variant_id,
         variantLines: L.variant_lines,
+        sourceType: 'production_issue',
+        sourceId: orderId,
+        date,
       });
 
       let stdCost = 0;
@@ -648,6 +740,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         amountRial: wipNet,
         userId,
         note: `تولید ${po.order_no}`,
+        sourceType: 'production_receipt',
+        sourceId: orderId,
+        date,
       });
 
       let docNo = '';
@@ -929,19 +1024,19 @@ function reverseOrder(db, orderId, userId, reason = '') {
 
     // Restore FG stock (undo receipt avg) — use snapshot rows from before JE reverse
     for (const r of receipts) {
-      const prod = db.prepare('SELECT stock FROM products WHERE id=?').get(r.product_id);
-      const newStock = Math.max(0, (Number(prod?.stock) || 0) - Number(r.qty));
-      db.prepare(`
-        UPDATE products SET stock=?, average_cost_rial=?, cost=? WHERE id=?
-      `).run(newStock, r.prev_avg_rial, (r.prev_avg_rial || 0) / 10, r.product_id);
-      if (r.warehouse_id) {
-        db.prepare(`
-          UPDATE warehouse_stock SET qty = qty - ? WHERE product_id=? AND warehouse_id=?
-        `).run(r.qty, r.product_id, r.warehouse_id);
-      }
-      db.prepare(
-        'INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)'
-      ).run(r.product_id, userId, -r.qty, `ابطال رسید ${po.order_no}`);
+      reverseReceiptStock(db, {
+        productId: r.product_id,
+        warehouseId: r.warehouse_id,
+        qty: r.qty,
+        unitCostRial: r.unit_cost_rial,
+        amountRial: r.amount_rial,
+        prevAvgRial: r.prev_avg_rial,
+        userId,
+        note: `ابطال رسید ${po.order_no}`,
+        sourceType: 'production_receipt_reversal',
+        sourceId: r.id,
+        date,
+      });
       db.prepare(`UPDATE production_receipts SET status='reversed' WHERE id=?`).run(r.id);
       require('../inventory/apparel-lines').reverseApparelDoc(db, {
         docType: 'production_fg', docId: r.id, userId,
@@ -955,8 +1050,11 @@ function reverseOrder(db, orderId, userId, reason = '') {
         productId: i.product_id,
         warehouseId: i.warehouse_id,
         qty: i.qty_actual,
+        unitCostRial: i.unit_cost_rial,
         userId,
         note: `ابطال مصرف ${po.order_no}`,
+        sourceId: i.id,
+        date,
       });
       require('../inventory/apparel-lines').reverseApparelDoc(db, {
         docType: 'production_issue', docId: i.id, userId,
@@ -968,13 +1066,19 @@ function reverseOrder(db, orderId, userId, reason = '') {
     // Reverse scrap inventory
     for (const w of wastes) {
       if (w.waste_type === 'salable' && w.scrap_product_id && w.qty) {
-        db.prepare('UPDATE products SET stock = stock - ? WHERE id=?')
-          .run(w.qty, w.scrap_product_id);
-        if (w.warehouse_id) {
-          db.prepare(`
-            UPDATE warehouse_stock SET qty = qty - ? WHERE product_id=? AND warehouse_id=?
-          `).run(w.qty, w.scrap_product_id, w.warehouse_id);
-        }
+        reverseReceiptStock(db, {
+          productId: w.scrap_product_id,
+          warehouseId: w.warehouse_id,
+          qty: w.qty,
+          unitCostRial: w.nrv_unit_rial,
+          amountRial: w.nrv_amount_rial,
+          userId,
+          note: `ابطال ضایعات ${po.order_no}`,
+          sourceType: 'production_scrap_reversal',
+          sourceId: w.id,
+          date,
+          eventType: 'scrap_reversal',
+        });
       }
       db.prepare(`UPDATE production_waste SET status='reversed' WHERE id=?`).run(w.id);
     }
@@ -1141,6 +1245,7 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
           productId: L.product_id, warehouseId: whId, qty: AQ, userId,
           note: `حواله ${issueNo}`,
           variantId: L.variant_id, variantLines: L.variant_lines,
+          sourceType: 'production_issue', sourceId: orderId, date,
         });
         apparelLines = issued.variantLines || [];
       } else if (AQ < 0) {
@@ -1442,6 +1547,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       const avg = updateMovingAverage(db, {
         productId: po.product_id, warehouseId: po.warehouse_fg_id,
         qtyIn: qtyGood, amountRial: wipNet, userId, note: `تولید ${po.order_no}`,
+        sourceType: 'production_receipt', sourceId: orderId, date,
       });
       let docNo = '';
       try { docNo = allocateNumber(db, 'production_receipt', 'PR'); }
@@ -1729,6 +1835,7 @@ module.exports = {
   listOrders,
   getOrderDetail,
   jalaliPeriod,
+  assertPeriodOpen,
   ledgerBalance,
   checkCostDeviation,
   varianceAnalysis,

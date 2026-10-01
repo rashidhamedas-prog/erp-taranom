@@ -12561,6 +12561,7 @@ async function prodBomEditModal(id, tab){
   const locked=bom.status!=='draft';
   const canBomEdit=!locked && typeof canPerm==='function' && canPerm('production_bom','edit');
   const lines=bom.lines||[];
+  window._prodBomEditLines=lines;
   const prodName=bom.product_name||(CACHE.allProducts||[]).find(p=>Number(p.id)===Number(bom.product_id))?.name||('#'+bom.product_id);
   const canSeeCost=!!(window.__canSeeCost || ME.role==='admin' || ME.role==='accounting' || (typeof canPerm==='function' && canPerm('production_cost','view')));
   let activeTab=tab||window._prodBomEditTab||'items';
@@ -12625,8 +12626,8 @@ async function prodBomEditModal(id, tab){
       <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
       <div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>برچسب رنگ (یادداشت)</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز — فقط متن" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>رنگ این نسخهٔ فرمول ${hlp('فرمول سطح مدل (استایل) است. رنگ‌بندی چندتایی کالا را در کارت کالا با تیک رنگ×سایز تعریف کنید. این فیلد فقط اگر این نسخهٔ BOM مخصوص یک رنگ کاتالوگ باشد پر می‌شود.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select>
-        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.6`)}">چندرنگ بودن محصول ≠ چندرنگ در BOM. ماتریس رنگ کالا را از «کالاها» مدیریت کنید؛ برای نسخهٔ رنگی جدا از «نسخه جدید / جایگزین» استفاده کنید.</div>
+      <div class="fg"><label>رنگ نسخه / دامنه مجاز ${hlp('از v278 می‌توانید چند رنگ×سایز مجاز را با API allowed-variants ذخیره کنید. فیلد تک‌رنگ زیر برای سازگاری با نسخه‌های قبلی باقی است؛ ترجیح با دامنه ساختاریافته است.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.6`)}">ترکیب‌های مجاز رنگ×سایز را در تب مسیر یا از «دامنه مجاز» API تنظیم کنید. ماتریس تعداد سفارش جدا از دامنه فرمول است.</div>
       </div>
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${canBomEdit?'':'disabled'}>${esc(bom.note||'')}</textarea></div>
     </div>
@@ -12679,8 +12680,11 @@ function prodBomPersonLabel(personId){
 function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
   if(stageCCs&&stageCCs.length) window._prodBomStageCCs=stageCCs;
   const canMut=!locked;
+  window._prodBomEditOps=ops||[];
+  const asgLineOpts=(window._prodBomEditLines||[]).map(L=>`<option value="${L.id}">${esc('#'+(L.line_no??L.id)+' — '+prodBomAsgProdLabel(L.component_product_id)+' ('+(L.qty_per_base??'')+')')}</option>`).join('');
+  const asgOpOpts=(ops||[]).map(o=>`<option value="${o.id}">${esc((o.seq??'')+' — '+(o.operation_name||('#'+o.id)))}</option>`).join('');
   const nextSeq=((ops||[]).reduce((m,o)=>Math.max(m,Number(o.seq)||0),0)||0)+10;
-  return `
+  const html=`
     <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
       ${canMut?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRoutingInEditor((id))})}">از الگوی ترنم</button>
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
@@ -12706,6 +12710,20 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
         </td>`:''}
       </tr>`).join('')||`<tr><td colspan="${canMut?10:9}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
+    <div data-csp-style="${CSP.style(`margin-top:16px;padding-top:12px;border-top:1px solid var(--border)`)}">
+      <h4 data-csp-style="${CSP.style(`margin:0 0 8px;font-size:14px`)}">مواد این عملیات (تخصیص به شناسه عملیات)</h4>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.6;margin:0 0 8px`)}">دو عملیات در یک مرکز هزینه باید مواد جدا داشته باشند. سهم مشترک باید جمعاً ۱۰۰٪ باشد. دکمهٔ backfill فقط مراکز تک‌عملیاتی را نگاشت می‌کند.</p>
+      <div id="pbe-assign-box" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">در حال بارگذاری تخصیص‌ها…</div>
+      ${canMut?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomBackfillAssignments((id))})}">نگاشت خودکار از مرکز هزینه</button>
+        <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomReloadAssignments((id))})}">بازنشانی لیست</button>
+      </div>
+      <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end`)}" id="pbe-assign-form">
+        <div class="fg"><label>قلم BOM</label><select id="pbe-asg-line"><option value="">— انتخاب —</option>${asgLineOpts}</select></div>
+        <div class="fg"><label>عملیات</label><select id="pbe-asg-op"><option value="">— انتخاب —</option>${asgOpOpts}</select></div>
+        <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOneAssignment((id))})}">➕ تخصیص یک‌به‌یک (sole)</button>
+      </div>`:''}
+    </div>
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-op-form">
       <input type="hidden" id="pbe-op-id" value="">
@@ -12723,7 +12741,68 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOperation((id))})}">💾 ذخیره عملیات</button>
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOpForm()})}">پاک کردن فرم</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد. شخص اختیاری است.</p>`:''}`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد. شخص اختیاری است.</p>
+    `:''}`;
+  setTimeout(function(){ try{ prodBomReloadAssignments(id); }catch(_){ } }, 0);
+  return html;
+}
+async function prodBomReloadAssignments(bomId){
+  const box=document.getElementById('pbe-assign-box');
+  if(!box) return;
+  try{
+    const data=await api('GET','/production/boms/'+bomId+'/assignments');
+    const rows=(data&&data.rows)||data||[];
+    if(!rows.length){
+      box.innerHTML='تخصیصی ثبت نشده — از «نگاشت خودکار» یا API <code>PUT …/assignments</code> استفاده کنید.';
+      return;
+    }
+    box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>قلم</th><th>کالا / مقدار</th><th>عملیات</th><th>seq</th><th>حالت</th><th>سهم٪</th>
+    </tr></thead><tbody>${rows.map(a=>`<tr>
+      <td class="num">${esc(String(a.line_no??a.bom_line_id))}</td>
+      <td>${a.component_product_id!=null?esc(prodBomAsgProdLabel(a.component_product_id)):'—'}${a.qty_per_base!=null?` <span class="muted">× ${esc(String(a.qty_override!=null?a.qty_override:a.qty_per_base))}</span>`:''}</td>
+      <td>${esc(a.operation_name||a.operation_id)}</td>
+      <td class="num">${a.operation_seq??'—'}</td>
+      <td>${esc(a.allocation_mode||'sole')}</td>
+      <td class="num">${a.share_percent!=null?a.share_percent:'—'}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  }catch(e){
+    box.textContent=e.message||e.error||'خطا در بارگذاری تخصیص';
+  }
+}
+function prodBomAsgProdLabel(pid){
+  if(pid==null||pid==='') return '—';
+  const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid))||(CACHE.products||[]).find(x=>Number(x.id)===Number(pid));
+  return p?(p.name||('#'+pid)):('#'+pid);
+}
+// PUT replaces ALL rows: load existing, drop rows of the chosen line, append new sole row.
+async function prodBomSaveOneAssignment(bomId){
+  const lineId=Number(el('pbe-asg-line')?.value||0);
+  const opId=Number(el('pbe-asg-op')?.value||0);
+  if(!lineId||!opId){ showToast('قلم و عملیات را انتخاب کنید','error'); return; }
+  try{
+    const cur=await api('GET','/production/boms/'+bomId+'/assignments');
+    const rows=(cur&&cur.rows)||(Array.isArray(cur)?cur:[]);
+    const sameLine=rows.filter(a=>Number(a.bom_line_id)===lineId);
+    if(sameLine.some(a=>(a.allocation_mode||'sole')!=='sole') && !confirm('این قلم تخصیص مشترک (shared) دارد؛ با ثبت، جایگزین یک تخصیص sole می‌شود. ادامه؟')) return;
+    const keep=rows.filter(a=>Number(a.bom_line_id)!==lineId).map(a=>({
+      bom_line_id:a.bom_line_id, operation_id:a.operation_id,
+      allocation_mode:a.allocation_mode||'sole', share_percent:a.share_percent,
+      qty_override:a.qty_override, component_color_mode:a.component_color_mode,
+      component_color_id:a.component_color_id, note:a.note
+    }));
+    keep.push({bom_line_id:lineId, operation_id:opId, allocation_mode:'sole'});
+    await api('PUT','/production/boms/'+bomId+'/assignments',{assignments:keep});
+    showToast('تخصیص ذخیره شد');
+    await prodBomReloadAssignments(bomId);
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+async function prodBomBackfillAssignments(bomId){
+  try{
+    const r=await api('POST','/production/boms/'+bomId+'/assignments/backfill',{});
+    showToast(`نگاشت: ${r.assigned||0} — مبهم: ${(r.ambiguous||[]).length}`);
+    await prodBomReloadAssignments(bomId);
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 function prodBomFillOpForm(o){
   if(!o) return;
@@ -23698,7 +23777,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
-        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد به همان مرکز وصل باشد، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای عملیات فقط‌دستمزد/شخص، مرکز بدون قلم مواد انتخاب کنید.</li>
+        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
         <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪. دکمه‌های «تسهیم خودکار (ارزش فروش)» و «تسهیم خودکار (فیزیکی)» سهم‌ها را از <code>POST .../outputs/auto-share</code> پر می‌کنند؛ ویرایش و حذف خروجی هم پشتیبانی می‌شود.</li>
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
@@ -23717,7 +23796,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
-        <li><b>رنگ×سایز در تولید:</b> BOM سطح استایل است — رنگ‌بندی چندتایی کالا در کارت کالا (تیک رنگ×سایز)، نه با چندانتخاب در سرفصل BOM. سرفصل فقط «رنگ این نسخهٔ فرمول» اختیاری دارد. روی قلم پارچه 📐 ماتریس سایز (مودال تو در تو). رنگ جزء: بدون / از رنگ سفارش / ثابت (انتخاب نام رنگ کاتالوگ، نه تایپ ID). برای فعال‌سازی، اجزاء باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشند (نه محصول نهایی بدون تیک ساختنی) وگرنه <code>E_BOM_COMP_TYPE</code>.</li>
+        <li><b>رنگ×سایز و مواد هر عملیات (v278):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>

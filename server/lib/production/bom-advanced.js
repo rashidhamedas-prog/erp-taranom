@@ -147,17 +147,75 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
 
   const matByStage = {};
   const warnings = [];
-  const firstStage = ops[0]?.cost_center_id ?? null;
-  for (const L of ex.lines) {
-    let cc = L.stage_cost_center_id;
-    if (!cc) {
-      cc = firstStage;
-      warnings.push(`قلم ${L.product_id} مرحله ندارد — به اولین مرحله نسبت داده شد`);
+  const { materialsByOperation } = require('./bom-assignments');
+  const byOp = materialsByOperation(db, bomId);
+  const opById = new Map(ops.map(o => [Number(o.id), o]));
+  const firstOpByCc = new Map();
+  for (const o of ops) {
+    const k = Number(o.cost_center_id);
+    if (!firstOpByCc.has(k)) firstOpByCc.set(k, o);
+  }
+  const addMaterial = (cc, opId, amount, kind) => {
+    if (cc == null) return;
+    (matByStage[cc] ||= { rial: 0, kind: {}, byOp: {}, byOpPkg: {} });
+    matByStage[cc].rial += amount;
+    matByStage[cc].kind[kind] = (matByStage[cc].kind[kind] || 0) + amount;
+    if (opId == null) return;
+    matByStage[cc].byOp[opId] = (matByStage[cc].byOp[opId] || 0) + amount;
+    if (kind === 'packaging') {
+      matByStage[cc].byOpPkg[opId] = (matByStage[cc].byOpPkg[opId] || 0) + amount;
     }
-    (matByStage[cc] ||= { rial: 0, kind: {} });
-    matByStage[cc].rial += L.amount_rial;
-    const kind = L.line_kind || 'material';
-    matByStage[cc].kind[kind] = (matByStage[cc].kind[kind] || 0) + L.amount_rial;
+  };
+  // Prefer explicit operation assignments; fall back to CC grouping
+  if (byOp.size) {
+    const topLines = ex.lines.filter(x => !x.parent_line_no);
+    const taken = new Set();
+    for (const [opId, rows] of byOp) {
+      const op = opById.get(Number(opId));
+      const cc = op ? Number(op.cost_center_id) : null;
+      if (cc == null) continue;
+      for (const row of rows) {
+        const lineId = Number(row.bom_line_id || row.id);
+        // explodeBom emits bom_line_id — matching on x.id/x.line_id never hits.
+        const L = topLines.find(x => Number(x.bom_line_id) === lineId)
+          || topLines.find(x => Number(x.product_id) === Number(row.component_product_id));
+        if (!L) continue;
+        taken.add(L);
+        let share = 1;
+        if (row.allocation_mode === 'shared' && row.share_percent != null) {
+          share = Number(row.share_percent) / 100;
+        }
+        const part = Math.round((Number(L.amount_rial) || 0) * share);
+        addMaterial(cc, opId, part, L.line_kind || row.line_type || 'material');
+      }
+    }
+    // Lines no assignment covers (unassigned lines, sub-BOM explosions) keep the
+    // legacy stage attribution — otherwise their cost vanishes from the roll-up.
+    for (const L of ex.lines) {
+      if (taken.has(L)) continue;
+      const op = (L.stage_cost_center_id != null
+        ? firstOpByCc.get(Number(L.stage_cost_center_id))
+        : null) || ops[0];
+      if (!op) continue;
+      if (L.stage_cost_center_id == null) {
+        warnings.push(`قلم ${L.product_id} مرحله ندارد — به اولین مرحله نسبت داده شد`);
+      }
+      addMaterial(Number(op.cost_center_id), Number(op.id),
+        Number(L.amount_rial) || 0, L.line_kind || 'material');
+    }
+  } else {
+    const firstStage = ops[0]?.cost_center_id ?? null;
+    for (const L of ex.lines) {
+      let cc = L.stage_cost_center_id;
+      if (!cc) {
+        cc = firstStage;
+        warnings.push(`قلم ${L.product_id} مرحله ندارد — به اولین مرحله نسبت داده شد`);
+      }
+      (matByStage[cc] ||= { rial: 0, kind: {} });
+      matByStage[cc].rial += L.amount_rial;
+      const kind = L.line_kind || 'material';
+      matByStage[cc].kind[kind] = (matByStage[cc].kind[kind] || 0) + L.amount_rial;
+    }
   }
 
   const stages = [];
@@ -170,10 +228,15 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     const cc = db.prepare('SELECT * FROM cost_centers WHERE id=?').get(op.cost_center_id);
     if (!cc || !Number(cc.is_stage)) throw err('E_CC_NOT_STAGE', 422, { cc: cc?.name });
 
-    // Materials keyed only by CC — attribute once (earliest op), matching backflush ownership
+    // Prefer per-operation attribution when assignments exist
     let material = 0;
     let pkg = 0;
-    if (!materialAttributedCc.has(op.cost_center_id)) {
+    if (byOp.size) {
+      // Every line is already attributed to exactly one operation, so operations
+      // sharing a cost center stay independent and nothing is counted twice.
+      material = matByStage[op.cost_center_id]?.byOp?.[op.id] || 0;
+      pkg = matByStage[op.cost_center_id]?.byOpPkg?.[op.id] || 0;
+    } else if (!materialAttributedCc.has(op.cost_center_id)) {
       materialAttributedCc.add(op.cost_center_id);
       material = matByStage[op.cost_center_id]?.rial || 0;
       pkg = matByStage[op.cost_center_id]?.kind?.packaging || 0;

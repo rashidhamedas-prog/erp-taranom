@@ -51,6 +51,10 @@ function reverseJournalEntry(db, jeId, { userId, date, reason, sourceType } = {}
       credit: (Number(l.debit_rial) || Math.round((Number(l.debit) || 0) * 10)) / 10,
       description: `ابطال — ${l.description || ''}`,
       detail_account_id: l.detail_account_id || null,
+      cost_center_id: l.cost_center_id || null,
+      project_id: l.project_id || null,
+      tax_type: l.tax_type || null,
+      tafsili2_code: l.tafsili2_code || null,
     })),
   });
 

@@ -310,6 +310,39 @@ router.post('/:id/operations/resequence', auth, requirePermission('production_bo
   }));
 });
 
+router.get('/:id/assignments', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  const asg = require('../lib/production/bom-assignments');
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
+    rows: asg.listAssignments(getDB(), Number(req.params.id)),
+  }));
+});
+
+router.put('/:id/assignments', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  const asg = require('../lib/production/bom-assignments');
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
+    rows: asg.replaceAssignments(getDB(), Number(req.params.id), req.body?.assignments || req.body || []),
+  }));
+});
+
+router.get('/:id/allowed-variants', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  const asg = require('../lib/production/bom-assignments');
+  handle(res, () => ({
+    rows: asg.listAllowedVariants(getDB(), Number(req.params.id)),
+  }));
+});
+
+router.put('/:id/allowed-variants', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  const asg = require('../lib/production/bom-assignments');
+  handle(res, () => ({
+    rows: asg.replaceAllowedVariants(getDB(), Number(req.params.id), req.body?.variants || req.body || []),
+  }));
+});
+
+router.post('/:id/assignments/backfill', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  const asg = require('../lib/production/bom-assignments');
+  handle(res, () => asg.backfillAssignmentsFromStageCc(getDB(), Number(req.params.id)));
+});
+
 router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (req, res) => {
   handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(Number(req.params.id)),

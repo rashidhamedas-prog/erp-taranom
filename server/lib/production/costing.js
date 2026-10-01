@@ -1,8 +1,14 @@
 'use strict';
 /**
- * Stock + moving-average helpers for production.
+ * Production stock helpers — route qty through inventory ledger (F01/F16).
+ * Never rewrite warehouse_stock from products.stock to mask a shortage.
  */
 const { err } = require('./posting');
+const {
+  postInventoryMovement,
+  warehouseQty,
+  ensureWhRow,
+} = require('../inventory/ledger');
 
 function setting(db, key, fallback = '') {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
@@ -14,29 +20,24 @@ function allowNegative(db) {
 }
 
 function getWhQty(db, productId, warehouseId) {
-  if (!warehouseId) {
-    const p = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
-    return Number(p?.stock) || 0;
-  }
-  const ws = db.prepare(
-    'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-  ).get(productId, warehouseId);
-  if (ws) return Number(ws.qty) || 0;
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
-  return Number(p?.stock) || 0;
+  return warehouseQty(db, productId, warehouseId);
 }
 
-function ensureWhRow(db, productId, warehouseId) {
-  if (!warehouseId) return;
-  db.prepare(
-    'INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)'
-  ).run(productId, warehouseId);
+function avgUnitRial(db, productId) {
+  const prod = db.prepare('SELECT average_cost_rial, cost FROM products WHERE id=?').get(productId);
+  const avg = Math.round(Number(prod?.average_cost_rial) || 0);
+  if (avg) return avg;
+  // legacy products.cost may be toman
+  return Math.round((Number(prod?.cost) || 0) * 10);
 }
 
 /**
- * Issue (consume) stock. Throws E_NEGATIVE_STOCK unless allow-negative setting.
+ * Issue (consume) stock via inventory ledger. Throws E_NEGATIVE_STOCK unless allow-negative.
  */
-function issueFromStock(db, { productId, warehouseId, qty, userId, note, variantId, variantLines, sizeBreakdown, color }) {
+function issueFromStock(db, {
+  productId, warehouseId, qty, userId, note, variantId, variantLines, sizeBreakdown, color,
+  sourceType, sourceId, date,
+}) {
   const q = Number(qty) || 0;
   if (q <= 0) return { ok: true, qty: 0, variantLines: [] };
 
@@ -45,48 +46,56 @@ function issueFromStock(db, { productId, warehouseId, qty, userId, note, variant
     productId, qty: q, variantId, variantLines, sizeBreakdown, color,
   });
 
-  const prod = db.prepare('SELECT id, stock, name FROM products WHERE id=?').get(productId);
+  const prod = db.prepare('SELECT id, stock, name, average_cost_rial FROM products WHERE id=?').get(productId);
   if (!prod) throw err('E_NOT_FOUND', 404, { productId });
 
-  // Prefer products.stock as source of truth; keep warehouse_stock in sync
-  const avail = Number(prod.stock) || 0;
+  const avail = warehouseId
+    ? getWhQty(db, productId, warehouseId)
+    : (Number(prod.stock) || 0);
   if (avail + 1e-9 < q && !allowNegative(db)) {
     throw err('E_NEGATIVE_STOCK', 409, {
       product_id: productId,
+      warehouse_id: warehouseId || null,
       name: prod.name,
       available: avail,
       needed: q,
     });
   }
 
-  db.prepare('UPDATE products SET stock = stock - ? WHERE id=?').run(q, productId);
-  if (warehouseId) {
-    ensureWhRow(db, productId, warehouseId);
-    // Keep warehouse row aligned with products.stock before deduct (avoids stale 0 rows)
-    const cur = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(productId, warehouseId);
-    if (cur && Number(cur.qty) + 1e-9 < q) {
-      db.prepare(
-        'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-      ).run(avail, productId, warehouseId);
-    }
-    db.prepare(
-      'UPDATE warehouse_stock SET qty = qty - ? WHERE product_id=? AND warehouse_id=?'
-    ).run(q, productId, warehouseId);
-  }
-  db.prepare(
-    'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-  ).run(productId, userId || null, -q, note || 'مصرف تولید');
+  const unit = avgUnitRial(db, productId);
+  const led = postInventoryMovement(db, {
+    eventType: 'production_issue',
+    productId,
+    warehouseId: warehouseId || null,
+    qtyOut: q,
+    unitCostRial: unit,
+    amountRial: Math.round(unit * q),
+    sourceType: sourceType || 'production_issue',
+    sourceId: sourceId || null,
+    date: date || '',
+    note: note || 'مصرف تولید',
+    createdBy: userId || null,
+    updateAvg: false,
+    allowNegative: allowNegative(db),
+  });
 
-  return { ok: true, qty: q, remaining: avail - q, variantLines: apparelLines };
+  return {
+    ok: true,
+    qty: q,
+    remaining: avail - q,
+    variantLines: apparelLines,
+    ledger_id: led.id,
+    unit_cost_rial: led.unit_cost_rial,
+    amount_rial: led.amount_rial,
+  };
 }
 
 /**
- * Receive finished goods / scrap and update moving average.
- * amountRial is total receipt value in rials.
+ * Receive finished goods / scrap and update moving average via inventory ledger.
  */
-function updateMovingAverage(db, { productId, warehouseId, qtyIn, amountRial, userId, note }) {
+function updateMovingAverage(db, {
+  productId, warehouseId, qtyIn, amountRial, userId, note, sourceType, sourceId, date,
+}) {
   const qty = Number(qtyIn) || 0;
   const amt = Math.round(Number(amountRial) || 0);
   const prod = db.prepare('SELECT stock, average_cost_rial, cost FROM products WHERE id=?').get(productId);
@@ -94,42 +103,34 @@ function updateMovingAverage(db, { productId, warehouseId, qtyIn, amountRial, us
 
   const prevQty = Number(prod.stock) || 0;
   const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-  const prevVal = Math.round(prevQty * prevAvg);
-  const newQty = prevQty + qty;
-  let newAvg = prevAvg;
-  if (newQty > 0) {
-    newAvg = Math.round((prevVal + amt) / newQty);
+  if (!(qty > 0)) {
+    return { prev_qty: prevQty, prev_avg: prevAvg, new_qty: prevQty, new_avg: prevAvg };
   }
 
-  db.prepare(`
-    UPDATE products SET
-      stock = ?,
-      average_cost_rial = ?,
-      cost = ?,
-      last_prod_cost_rial = ?
-    WHERE id=?
-  `).run(
-    newQty,
-    newAvg,
-    newAvg,
-    qty > 0 ? Math.round(amt / qty) : 0,
-    productId
-  );
+  const unit = Math.round(amt / qty);
+  const led = postInventoryMovement(db, {
+    eventType: 'production_receipt',
+    productId,
+    warehouseId: warehouseId || null,
+    qtyIn: qty,
+    unitCostRial: unit,
+    amountRial: amt,
+    sourceType: sourceType || 'production_receipt',
+    sourceId: sourceId || null,
+    date: date || '',
+    note: note || 'رسید تولید',
+    createdBy: userId || null,
+    updateAvg: true,
+  });
 
-  if (warehouseId) {
-    ensureWhRow(db, productId, warehouseId);
-    db.prepare(
-      'UPDATE warehouse_stock SET qty = qty + ? WHERE product_id=? AND warehouse_id=?'
-    ).run(qty, productId, warehouseId);
-  }
-
-  if (qty) {
-    db.prepare(
-      'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-    ).run(productId, userId || null, qty, note || 'رسید تولید');
-  }
-
-  return { prev_qty: prevQty, prev_avg: prevAvg, new_qty: newQty, new_avg: newAvg };
+  const after = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(productId);
+  return {
+    prev_qty: prevQty,
+    prev_avg: prevAvg,
+    new_qty: Number(after?.stock) || 0,
+    new_avg: Math.round(Number(after?.average_cost_rial) || 0),
+    ledger_id: led.id,
+  };
 }
 
 function receiveScrap(db, {
@@ -146,28 +147,23 @@ function receiveScrap(db, {
     productId, qty: q, variantId, variantLines, sizeBreakdown, color,
   });
 
-  const prod = db.prepare('SELECT id, stock, average_cost_rial FROM products WHERE id=?').get(productId);
+  const prod = db.prepare('SELECT id FROM products WHERE id=?').get(productId);
   if (!prod) throw err('E_NOT_FOUND', 404, { productId });
 
-  // Scrap stock uses NRV as cost basis (replace avg if first entry, else weighted)
-  const prevQty = Number(prod.stock) || 0;
-  const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-  const newQty = prevQty + q;
-  const newAvg = newQty > 0 ? Math.round((prevQty * prevAvg + amt) / newQty) : unit;
-
-  db.prepare(`
-    UPDATE products SET stock=?, average_cost_rial=?, cost=? WHERE id=?
-  `).run(newQty, newAvg, newAvg, productId);
-
-  if (warehouseId) {
-    ensureWhRow(db, productId, warehouseId);
-    db.prepare(
-      'UPDATE warehouse_stock SET qty = qty + ? WHERE product_id=? AND warehouse_id=?'
-    ).run(q, productId, warehouseId);
-  }
-  db.prepare(
-    'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-  ).run(productId, userId || null, q, `ضایعات قابل فروش — سفارش ${orderId || ''}`);
+  postInventoryMovement(db, {
+    eventType: 'scrap',
+    productId,
+    warehouseId: warehouseId || null,
+    qtyIn: q,
+    unitCostRial: unit,
+    amountRial: amt,
+    sourceType: 'production_scrap',
+    sourceId: orderId || null,
+    date: date || '',
+    note: `ضایعات قابل فروش — سفارش ${orderId || ''}`,
+    createdBy: userId || null,
+    updateAvg: true,
+  });
 
   if (orderId && apparelLines.length) {
     postApparelLines(db, {
@@ -181,37 +177,70 @@ function receiveScrap(db, {
   return { amount_rial: amt, unit_rial: unit, qty: q, date, period, variantLines: apparelLines };
 }
 
-function restoreStock(db, { productId, warehouseId, qty, userId, note }) {
+/**
+ * Pull a posted receipt back out of stock through the ledger (R12 reverse).
+ * prevAvgRial restores the pre-receipt moving average snapshot.
+ */
+function reverseReceiptStock(db, {
+  productId, warehouseId, qty, unitCostRial, amountRial, prevAvgRial,
+  userId, note, sourceType, sourceId, date, eventType,
+}) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
-  db.prepare('UPDATE products SET stock = stock + ? WHERE id=?').run(q, productId);
-  if (warehouseId) {
-    ensureWhRow(db, productId, warehouseId);
-    db.prepare(
-      'UPDATE warehouse_stock SET qty = qty + ? WHERE product_id=? AND warehouse_id=?'
-    ).run(q, productId, warehouseId);
+  const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
+  const led = postInventoryMovement(db, {
+    eventType: eventType || 'production_receipt_reversal',
+    productId,
+    warehouseId: warehouseId || null,
+    qtyOut: q,
+    unitCostRial: unit,
+    amountRial: amountRial != null ? Math.round(Number(amountRial) || 0) : Math.round(unit * q),
+    sourceType: sourceType || 'production_receipt_reversal',
+    sourceId: sourceId || null,
+    date: date || '',
+    note: note || 'ابطال رسید تولید',
+    createdBy: userId || null,
+    updateAvg: false,
+  });
+  if (prevAvgRial != null) {
+    const prev = Math.round(Number(prevAvgRial) || 0);
+    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
+      .run(prev, prev / 10, productId);
   }
-  db.prepare(
-    'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-  ).run(productId, userId || null, q, note || 'برگشت موجودی تولید');
+  return led;
 }
 
-/**
- * Recalculate average after returning materials (undo issue).
- * Restores qty at the unitCost that was issued (does not change avg of remaining).
- */
+function restoreStock(db, { productId, warehouseId, qty, userId, note, sourceType, sourceId, date, unitCostRial }) {
+  const q = Number(qty) || 0;
+  if (q <= 0) return;
+  const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
+  postInventoryMovement(db, {
+    eventType: 'production_return',
+    productId,
+    warehouseId: warehouseId || null,
+    qtyIn: q,
+    unitCostRial: unit,
+    amountRial: Math.round(unit * q),
+    sourceType: sourceType || 'production_material_return',
+    sourceId: sourceId || null,
+    date: date || '',
+    note: note || 'برگشت موجودی تولید',
+    createdBy: userId || null,
+    updateAvg: true,
+  });
+}
+
 function recalcAvgOnReturn(db, { productId, warehouseId, qty, unitCostRial, userId, note }) {
   const q = Number(qty) || 0;
   const unit = Math.round(Number(unitCostRial) || 0);
   if (q <= 0) return;
-  const amt = Math.round(q * unit);
-  updateMovingAverage(db, {
+  restoreStock(db, {
     productId,
     warehouseId,
-    qtyIn: q,
-    amountRial: amt,
+    qty: q,
     userId,
     note: note || 'برگشت مواد به انبار',
+    unitCostRial: unit,
   });
 }
 
@@ -220,7 +249,10 @@ module.exports = {
   updateMovingAverage,
   receiveScrap,
   restoreStock,
+  reverseReceiptStock,
   recalcAvgOnReturn,
-  getWhQty,
   setting,
+  getWhQty,
+  ensureWhRow,
+  allowNegative,
 };

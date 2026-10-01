@@ -146,38 +146,48 @@ function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRia
   return out.filter(Boolean);
 }
 
-/** PRD-23 — allocate labor + OH variances to WIP / FG / COGS. */
-function postAllocation(db, { closeId, date, userId, allocation }) {
+/**
+ * Build PRD-23 lines with independent signs per component (F03).
+ * Positive destination = Dr WIP/FG/COGS; positive variance = Cr variance account.
+ * Net-zero total with non-zero components still posts a balanced entry.
+ */
+function buildAllocationLines(db, allocation) {
   const tot = allocation?.total || {};
   const labor = allocation?.labor || {};
   const oh = allocation?.overhead || {};
-  const total = Math.round(Number(tot.total_rial) || 0);
-  if (!total) return null;
-
-  const lines = [];
   const wip = Math.round(Number(tot.wip_rial) || 0);
   const fg = Math.round(Number(tot.fg_rial) || 0);
   const cogs = Math.round(Number(tot.cogs_rial) || 0);
+  const laborV = Math.round(Number(labor.total_rial) || 0);
+  const ohV = Math.round(Number(oh.total_rial) || 0);
 
-  if (total > 0) {
-    if (wip) lines.push(dr(db, 'coa_wip', wip));
-    if (fg) lines.push(dr(db, 'coa_finished_goods', fg));
-    if (cogs) lines.push(dr(db, 'coa_cogs', cogs));
-    const laborV = Math.round(Number(labor.total_rial) || 0);
-    const ohV = Math.round(Number(oh.total_rial) || 0);
-    if (laborV > 0) lines.push(cr(db, 'coa_var_labor_rate', laborV));
-    else if (laborV < 0) lines.push(dr(db, 'coa_var_labor_rate', Math.abs(laborV)));
-    if (ohV > 0) lines.push(cr(db, 'coa_var_oh_volume', ohV));
-    else if (ohV < 0) lines.push(dr(db, 'coa_var_oh_volume', Math.abs(ohV)));
-  } else {
-    if (wip) lines.push(cr(db, 'coa_wip', Math.abs(wip)));
-    if (fg) lines.push(cr(db, 'coa_finished_goods', Math.abs(fg)));
-    if (cogs) lines.push(cr(db, 'coa_cogs', Math.abs(cogs)));
-    const laborV = Math.round(Number(labor.total_rial) || 0);
-    const ohV = Math.round(Number(oh.total_rial) || 0);
-    if (laborV < 0) lines.push(cr(db, 'coa_var_labor_rate', Math.abs(laborV)));
-    if (ohV < 0) lines.push(cr(db, 'coa_var_oh_volume', Math.abs(ohV)));
-  }
+  if (![wip, fg, cogs, laborV, ohV].some((v) => v !== 0)) return [];
+
+  const lines = [];
+  const pushDest = (key, amt) => {
+    if (!amt) return;
+    if (amt > 0) lines.push(dr(db, key, amt));
+    else lines.push(cr(db, key, Math.abs(amt)));
+  };
+  const pushVar = (key, amt) => {
+    if (!amt) return;
+    // Positive variance cleared into destinations → credit variance account
+    if (amt > 0) lines.push(cr(db, key, amt));
+    else lines.push(dr(db, key, Math.abs(amt)));
+  };
+
+  pushDest('coa_wip', wip);
+  pushDest('coa_finished_goods', fg);
+  pushDest('coa_cogs', cogs);
+  pushVar('coa_var_labor_rate', laborV);
+  pushVar('coa_var_oh_volume', ohV);
+  return lines;
+}
+
+/** PRD-23 — allocate labor + OH variances to WIP / FG / COGS. */
+function postAllocation(db, { closeId, date, userId, allocation }) {
+  const lines = buildAllocationLines(db, allocation);
+  if (!lines.length) return null;
 
   return postEvent(db, {
     event: 'PRD-23',
@@ -213,10 +223,15 @@ function reverseEvent(db, { jeId, reason, userId, date }) {
       credit: (Number(l.debit_rial) || Math.round((Number(l.debit) || 0) * 10)) / 10,
       description: `ابطال — ${l.description || ''}`,
       detail_account_id: l.detail_account_id || null,
+      cost_center_id: l.cost_center_id || null,
+      project_id: l.project_id || null,
+      tax_type: l.tax_type || null,
+      tafsili2_code: l.tafsili2_code || null,
     })),
   });
 }
 
 module.exports = {
-  dr, cr, plug, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation, PRD, err,
+  dr, cr, plug, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation,
+  buildAllocationLines, PRD, err,
 };

@@ -1,5 +1,68 @@
 schema_version: 1
 tasks:
+  - id: "PROD-ACC-PA02"
+    title: "Production accounting core: F02/F03 posting + PA-03/04 inventory & BOM matrix"
+    status: "in_progress"
+    claimed_at: "2026-10-01T15:10:00+03:30"
+    review_status: "APPROVED_WITH_NOTES"
+    security_status: "PENDING_NOTES"
+    risk: "high"
+    owner: "cursor:prod-acc-pa02"
+    roles:
+      orchestrator: "cursor:prod-acc-pa02"
+      architect: "cursor:prod-acc-pa02"
+      implementer: "cursor:prod-acc-pa02"
+      reviewer: "cursor:independent-reviewer-prod-acc"
+      security: "cursor:independent-security-prod-acc"
+    branch: "ai/PROD-ACC-PA02-posting-core"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/jalali.js"
+      - "server/lib/production/close.js"
+      - "server/lib/production/posting.js"
+      - "server/lib/production/costing.js"
+      - "server/lib/production/engine.js"
+      - "server/lib/production/engine-advanced.js"
+      - "server/lib/production/cutting.js"
+      - "server/lib/production/schema.js"
+      - "server/lib/production/bom-advanced.js"
+      - "server/lib/production/bom-assignments.js"
+      - "server/lib/void-journal.js"
+      - "server/sync/tables.js"
+      - "server/db.js"
+      - "server/scripts/test-prod-acc-f02-f03-v278.js"
+      - "server/scripts/test-prod-acc-f01-issue-v278.js"
+      - "server/scripts/test-prod-acc-f01-stub-v278.js"
+      - "server/scripts/test-prod-acc-bom-matrix-v278.js"
+      - "docs/architecture/PROD-ACC-PA00-DISCOVERY.md"
+      - "docs/architecture/PROD-ACC-ADR-001-locked-assumptions.md"
+      - "docs/architecture/PROD-ACC-PA09-PA12-ACCEPTANCE.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "server/public/app.js"
+      - "server/routes/production-boms.js"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+    acceptance_criteria:
+      - "F02 Jalali periodEndDate correct for all 12 months + leap Esfand"
+      - "F03 postAllocation balanced for mixed-sign and net-zero component cases"
+      - "F01 warehouse shortage not masked by rewriting WH from products.stock"
+      - "Material assignment by operation_id; order lines color×size schema"
+      - "Independent Reviewer + Security before treating as Done for financial close"
+    non_goals:
+      - "Activating unverified 1405 tax/insurance rates"
+      - "Changing valuation to per-variant average"
+      - "Full APK/EXE builds"
+      - "Repairing live Iran company DB rows"
+    notes: >-
+      Wave1 code complete on ai/PROD-ACC-PA02-posting-core (SW v278).
+      F02/F03 26/0; F01 stub 21/0; SMS 22/0; native sqlite tests SKIP on Node24 host.
+      capture.js PATH for /assignments|/allowed-variants deferred to ANDROID-NATIVE-SALES.
+      Reclaimed shared AI-DOS registry from ANDROID-NATIVE-SALES for orchestration
+      only; android-native/** and server/sync/capture.js remain Android-owned —
+      this task does not edit capture.js. Owner approved PROD-ACC plan 2026-10-01.
+
   - id: "ANDROID-NATIVE-SALES"
     title: "Native Android sales app (Compose + Room + sync; not WebView)"
     status: "in_progress"
@@ -20,11 +83,12 @@ tasks:
       - "android-native/**"
       - "docs/architecture/NATIVE-ANDROID-*.md"
       - "server/sync/capture.js"
+      - "server/public/releases/manifest.json"
+    released_claims:
       - "docs/CHANGE-LOG.md"
       - ".ai-dos/tasks/active.yaml"
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
-      - "server/public/releases/manifest.json"
     acceptance_criteria:
       - "Native Compose UI without WebView/Node for main sales flows"
       - "Room DB + transactional outbox; air-gap vertical customer→order→sync"

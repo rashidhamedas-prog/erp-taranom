@@ -5,7 +5,7 @@
  */
 const { audit } = require('../../db');
 const { acct } = require('../coa-map');
-const { todayJalali } = require('../../jalali');
+const { todayJalali, periodEndJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
 const {
   dr, cr, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation, err,
@@ -25,13 +25,7 @@ function safeJson(s) {
 
 function periodEndDate(period, row) {
   if (row?.end_date) return row.end_date;
-  const parts = String(period || '').split('/');
-  if (parts.length >= 2) {
-    const m = Number(parts[1]);
-    const days = [1, 3, 5, 7, 8, 10, 12].includes(m) ? 31 : [4, 6, 9, 11].includes(m) ? 30 : 29;
-    return `${parts[0]}/${parts[1].padStart(2, '0')}/${days}`;
-  }
-  return `${period}/31`;
+  return periodEndJalali(period);
 }
 
 function getPeriodRow(db, period) {
@@ -423,14 +417,27 @@ function precheck(db, { period }) {
     WHERE ref_type = 'production_labor_actual' AND entry_date <= ?
       AND entry_date >= ? AND COALESCE(deleted_at, 0) = 0
   `).get(endDate, row.start_date || `${period}/01`);
-  const payrollCount = Number(payrollPosted?.c) || 0;
+  let payrollCount = Number(payrollPosted?.c) || 0;
+  // PA-07 / ADR-001 #5: payroll owns liabilities; production only allocates labor.
+  // Accept a live (non-reversed) payroll_records row for the period as well as the
+  // production_labor_actual allocation JE, so the precheck matches the payroll source.
+  let payrollRecCount = 0;
+  try {
+    payrollRecCount = Number(db.prepare(`
+      SELECT COUNT(*) c FROM payroll_records
+      WHERE COALESCE(status,'') <> 'reversed'
+        AND (period_label = ? OR (date >= ? AND date <= ?))
+    `).get(period, row.start_date || `${period}/01`, endDate)?.c) || 0;
+  } catch (_) { payrollRecCount = 0; }
   const payrollSetting = setting(db, 'production_close_payroll_posted', '');
-  const payrollOk = payrollCount > 0 || payrollSetting === '1';
+  const payrollOk = payrollCount > 0 || payrollRecCount > 0 || payrollSetting === '1';
   checks.push({
     code: 'PAYROLL_POSTED',
     status: payrollOk ? 'pass' : 'fail',
     severity: 'error',
-    message: payrollOk ? 'حقوق ثبت شده ✅' : 'حقوق ماه هنوز ثبت نشده',
+    message: payrollOk
+      ? (payrollCount > 0 ? 'حقوق ثبت شده ✅' : 'حقوق ماه در ماژول حقوق ثبت شده ✅ (تسهیم دستمزد تولید جداگانه)')
+      : 'حقوق ماه هنوز ثبت نشده',
   });
 
   const ohActual = db.prepare(`

@@ -13,7 +13,7 @@ const {
 } = require('./costing');
 const { getOverheadRate } = require('./overhead');
 const { postLabor } = require('./labor');
-const { jalaliPeriod, wipResidual } = require('./engine');
+const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
 const { assertFabricIssueAllowed } = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
@@ -215,6 +215,9 @@ function backflushStageMaterials(db, {
         note: `مرحله ${stage.seq} — ${po.order_no}`,
         variantId: L.variant_id,
         variantLines: L.variant_lines,
+        sourceType: 'production_issue',
+        sourceId: po.id,
+        date,
       });
     }
 
@@ -324,6 +327,7 @@ function postStageCore(db, {
   const period = jalaliPeriod(date);
   const fy = assertFiscalYearWritable(db, date);
   if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
+  assertPeriodOpen(db, period);
 
   const qtyIn = num(stage.qty_in);
   const qtyOut = num(body.qty_out);
@@ -743,6 +747,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
       throw err('E_WRONG_ANALYSIS', 409);
     }
+    if (po.status === 'completed') throw err('E_ORDER_FINALIZED', 409);
     if (['closed', 'cancelled'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
 
     const stages = stageList(db, orderId);
@@ -754,6 +759,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
 
     const date = body.date || todayJalali();
     const period = jalaliPeriod(date);
+    assertPeriodOpen(db, period);
     const jes = [];
     const wipFinal = Math.round(num(last.cost_out_rial));
 
@@ -818,6 +824,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       amountRial: wipNet,
       userId,
       note: `تولید ${po.order_no}`,
+      sourceType: 'production_receipt',
+      sourceId: po.id,
+      date,
     });
 
     let docNo = '';
@@ -1066,8 +1075,11 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
         productId: i.product_id,
         warehouseId: i.warehouse_id || po.warehouse_raw_id,
         qty: i.qty_actual,
+        unitCostRial: i.unit_cost_rial,
         userId,
         note: `ابطال مرحله ${stage.seq} — ${po.order_no}`,
+        sourceId: i.id,
+        date: revDate,
       });
       require('../inventory/apparel-lines').reverseApparelDoc(db, {
         docType: 'production_issue', docId: i.id, userId,
@@ -1203,6 +1215,7 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
           productId: L.product_id, warehouseId: po.warehouse_raw_id, qty: AQ, userId,
           note: `حواله مرحله ${stage.seq}`,
           variantId: L.variant_id, variantLines: L.variant_lines,
+          sourceType: 'production_issue', sourceId: po.id, date,
         });
       }
 

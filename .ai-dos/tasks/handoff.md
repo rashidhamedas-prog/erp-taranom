@@ -1,4 +1,24 @@
-﻿## 2026-09-27T18:15:00+03:30 — ANDROID-NATIVE-SALES (full phases authorized)
+﻿## 2026-10-01T22:10:00+03:30 — PROD-ACC-PA02 wave (agents in flight)
+
+- F02/F03: `test-prod-acc-f02-f03-v278.js` **20/0**. SMS **22/0**. `test-sync` / F01 / matrix: SKIP این میزبان (Node24 بدون better-sqlite3 ABI).
+- UI: `prodBomOpsPanelHtml` — `const html` + `setTimeout(reload assignments)` قبل از return؛ بخش تخصیص خارج از canMut.
+- `materialsByOperation`: فقط تخصیص صریح؛ Map خالی → مسیر legacy `stage_cost_center_id` در `bom-advanced`.
+- Sync: جداول append + backfill v17. **شکاف:** `capture.js` هنوز PATH برای `/assignments` و `/allowed-variants` ندارد (مالک Android) — تا پچ آن، outbox روی دستگاه ممکن است `entity_table=null` باشد. پیشنهاد پچ:
+  - `if (path.includes('/assignments')) return 'bom_material_assignments';`
+  - `if (path.includes('/allowed-variants')) return 'bom_allowed_variants';`
+  - (قبل از fallback `bom_headers`)
+- Parallel agents: PA-03 verify, PA-04 harden, PA-05..08 slice, security-review, PA-02 independent review, UI polish.
+- Deploy: هنوز ⏳ تا جمع‌بندی ایجنت‌ها + commit.
+
+## 2026-10-01T15:10:00+03:30 — PROD-ACC-PA02 claimed
+
+- Owner approved architecture plan for production accounting reform.
+- Claimed `PROD-ACC-PA02` on `ai/PROD-ACC-PA02-posting-core` in `D:/proje/erp-taranom1`.
+- PA-00 discovery written: `docs/architecture/PROD-ACC-PA00-DISCOVERY.md`; ADR-001 locked.
+- Reclaimed CHANGE-LOG + AI-DOS registry from ANDROID-NATIVE-SALES; `capture.js` stays with Android.
+- First code wave: F02 Jalali period end, F03 postAllocation balance, F01 stock path, F05 finalize idempotency, F06 pack/PO split, F19–F21 matrix schema.
+
+## 2026-09-27T18:15:00+03:30 — ANDROID-NATIVE-SALES (full phases authorized)
 
 - Owner authorized 100% continuation of all phases without further permission.
 - Claimed `ANDROID-NATIVE-SALES` on `ai/ANDROID-NATIVE-SALES` / `D:/proje/erp-taranom-android-native`.

@@ -113,6 +113,48 @@ function requireFgWarehouse(db, warehouseId) {
   return wh;
 }
 
+/** WIP / cut-bundle warehouse for pack when linked to a production order (F06). */
+function requirePackWarehouse(db, warehouseId, { linkedOrder }) {
+  if (!linkedOrder) return requireFgWarehouse(db, warehouseId);
+  const id = warehouseId
+    ? Number(warehouseId)
+    : Number(setting(db, 'production_wh_wip_id', '0'))
+      || Number(setting(db, 'production_wh_fg_id', '0'))
+      || 0;
+  let wh = id ? db.prepare('SELECT * FROM warehouses WHERE id=?').get(id) : null;
+  if (!wh) {
+    wh = db.prepare(`
+      SELECT * FROM warehouses
+      WHERE warehouse_type IN ('wip','work_in_process','semi')
+         OR code IN ('WH-WIP','WH-CUT')
+      LIMIT 1
+    `).get();
+  }
+  if (!wh) {
+    // Fall back to FG warehouse for qty staging but caller must skip FG JE
+    wh = requireFgWarehouse(db, warehouseId);
+  }
+  const code = String(wh.code || '');
+  const type = String(wh.warehouse_type || wh.kind || '');
+  const isRaw = code === 'WH-RAW' || type === 'raw_material' || type === 'raw';
+  if (isRaw) throw httpErr(400, 'بسته برش سفارش‌دار نباید به انبار مواد برود', 'E_PACK_WH');
+  return wh;
+}
+
+/**
+ * PA-05: lay/pack JEs honor production_period_close like engine.assertPeriodOpen.
+ * Inlined (engine.js requires this module — avoid a circular import).
+ */
+function assertCutPeriodOpen(db, date) {
+  const parts = String(date || '').split('/');
+  if (parts.length < 2) return;
+  const period = `${parts[0]}/${String(parts[1]).padStart(2, '0')}`;
+  const closed = db.prepare(`
+    SELECT 1 FROM production_period_close WHERE period_label=? AND status='closed'
+  `).get(period);
+  if (closed) throw httpErr(409, 'دورهٔ تولید بسته است', 'E_PERIOD_CLOSED', { period });
+}
+
 function parseSizeBreakdown(v) {
   return parseJson(v, {}) || {};
 }
@@ -478,6 +520,7 @@ function postCuttingLay(db, body, user) {
   let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
   if (wasteAmt > amount) wasteAmt = amount;
   const date = String(body.date || todayJalali()).trim();
+  assertCutPeriodOpen(db, date);
   let color = String(body.color || '').trim();
   const widthCm = Math.round(Number(body.width_cm) || 0);
   const po = resolveOptionalOrder(db, body.production_order_id, plan.product.id);
@@ -694,7 +737,9 @@ function postCuttingPack(db, layId, body, user) {
     body.production_order_id != null ? body.production_order_id : lay.production_order_id,
     lay.product_id
   );
-  const wh = requireFgWarehouse(db, body.warehouse_id);
+  // F06: linked PO → cut-bundle (no WIP→FG JE); standalone → legacy FG receipt
+  const postsFg = !po;
+  const wh = requirePackWarehouse(db, body.warehouse_id, { linkedOrder: !!po });
   const breakdown = parseSizeBreakdown(lay.size_breakdown);
   const qty = qtyFromBreakdown(breakdown) || Math.round(Number(lay.qty_pieces) || 0);
   if (!(qty > 0)) throw httpErr(400, 'تعداد سایز برای رسید صفر است', 'E_PACK_QTY');
@@ -702,6 +747,7 @@ function postCuttingPack(db, layId, body, user) {
   const unitCost = qty > 0 ? Math.round(wipNet / qty) : 0;
   const date = String(body.date || lay.date || todayJalali()).trim();
   const color = String(lay.color || '').trim();
+  assertCutPeriodOpen(db, date);
 
   let packId;
   try {
@@ -748,7 +794,7 @@ function postCuttingPack(db, layId, body, user) {
       }
 
       const led = postInventoryMovement(db, {
-        eventType: 'production_receipt',
+        eventType: postsFg ? 'production_receipt' : 'cutting_pack',
         productId: lay.product_id,
         warehouseId: wh.id,
         qtyIn: qty,
@@ -757,12 +803,13 @@ function postCuttingPack(db, layId, body, user) {
         sourceType: 'cutting_pack',
         sourceId: id,
         date,
-        note: `رسید برش ${packNo}`,
+        note: postsFg ? `رسید برش ${packNo}` : `بسته برش (WIP) ${packNo}`,
         createdBy: user.id,
+        updateAvg: !!postsFg,
       });
 
       let journalId = null;
-      if (wipNet > 0) {
+      if (postsFg && wipNet > 0) {
         journalId = postToLedger(db, {
           sourceType: 'cutting_pack',
           sourceId: id,

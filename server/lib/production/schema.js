@@ -21,8 +21,9 @@ const { ensureColumn, tableExists } = (() => {
 
 const PROD_TABLES = [
   'bom_headers', 'bom_lines', 'bom_operations', 'bom_outputs', 'bom_change_log',
+  'bom_material_assignments', 'bom_allowed_variants',
   'cost_center_rates', 'overhead_allocation_rules', 'overhead_allocation_weights',
-  'production_orders', 'production_order_stages',
+  'production_orders', 'production_order_stages', 'production_order_lines',
   'production_material_issues', 'production_labor_entries',
   'production_overhead_applications', 'production_waste', 'production_rework',
   'production_receipts', 'production_subcontract', 'production_variances',
@@ -177,6 +178,10 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'cost_center_rates')) {
     ensureColumn(db, 'cost_center_rates', 'monthly_labor_rate_rial', 'INTEGER DEFAULT 0');
   }
+  if (tableExists(db, 'production_orders')) {
+    ensureColumn(db, 'production_orders', 'has_matrix_lines', 'INTEGER DEFAULT 0');
+  }
+  ensureProdAccMatrixTables(db);
   if (tableExists(db, 'cutting_lays')) {
     ensureColumn(db, 'cutting_lays', 'production_order_id', 'INTEGER');
     try {
@@ -207,6 +212,79 @@ function ensureCuttingPackSyncColumns(db) {
     } catch (_) { /* ignore */ }
     try {
       db.prepare(`UPDATE ${name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+    } catch (_) { /* ignore */ }
+  }
+}
+
+/** PA-04 — operation material assignments + BOM/order color×size matrix */
+function ensureProdAccMatrixTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bom_material_assignments (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      bom_id                INTEGER NOT NULL,
+      bom_line_id           INTEGER NOT NULL,
+      operation_id          INTEGER NOT NULL,
+      allocation_mode       TEXT NOT NULL DEFAULT 'sole',
+      share_percent         REAL,
+      qty_override          REAL,
+      component_color_mode  TEXT DEFAULT 'none',
+      component_color_id    INTEGER,
+      note                  TEXT DEFAULT '',
+      created_at            INTEGER DEFAULT (strftime('%s','now')),
+      sync_seq              INTEGER,
+      version               INTEGER DEFAULT 0,
+      FOREIGN KEY(bom_id) REFERENCES bom_headers(id) ON DELETE CASCADE,
+      FOREIGN KEY(bom_line_id) REFERENCES bom_lines(id) ON DELETE CASCADE,
+      FOREIGN KEY(operation_id) REFERENCES bom_operations(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS ix_bma_bom ON bom_material_assignments(bom_id);
+    CREATE INDEX IF NOT EXISTS ix_bma_op ON bom_material_assignments(operation_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_bma_line_op
+      ON bom_material_assignments(bom_line_id, operation_id);
+
+    CREATE TABLE IF NOT EXISTS bom_allowed_variants (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      bom_id       INTEGER NOT NULL,
+      color_id     INTEGER,
+      size_id      INTEGER,
+      variant_id   INTEGER,
+      is_allowed   INTEGER DEFAULT 1,
+      sync_seq     INTEGER,
+      version      INTEGER DEFAULT 0,
+      FOREIGN KEY(bom_id) REFERENCES bom_headers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS ix_bav_bom ON bom_allowed_variants(bom_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_bav_tuple
+      ON bom_allowed_variants(bom_id, color_id, size_id, variant_id);
+
+    CREATE TABLE IF NOT EXISTS production_order_lines (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id           INTEGER NOT NULL,
+      product_id         INTEGER NOT NULL,
+      variant_id         INTEGER,
+      color_id           INTEGER,
+      size_id            INTEGER,
+      qty_planned        REAL NOT NULL DEFAULT 0,
+      qty_produced       REAL DEFAULT 0,
+      bom_snapshot_ref   TEXT DEFAULT '',
+      routing_snapshot_ref TEXT DEFAULT '',
+      status             TEXT DEFAULT 'open',
+      sync_seq           INTEGER,
+      version            INTEGER DEFAULT 0,
+      created_at         INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(order_id) REFERENCES production_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_pol_order ON production_order_lines(order_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_pol_variant
+      ON production_order_lines(order_id, variant_id, color_id, size_id);
+  `);
+  for (const name of ['bom_material_assignments', 'bom_allowed_variants', 'production_order_lines']) {
+    if (!tableExists(db, name)) continue;
+    ensureColumn(db, name, 'sync_seq', 'INTEGER');
+    ensureColumn(db, name, 'version', 'INTEGER DEFAULT 0');
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_${name}_sync_seq ON ${name}(sync_seq)`);
     } catch (_) { /* ignore */ }
   }
 }

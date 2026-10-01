@@ -223,6 +223,10 @@ const SYNCABLE_TABLES = [
   { name: 'consignment_docs',                  upsertKey: 'id' },
   // WH-DOC warehouse remittance/receipt/transfer headers (append-only; parent of warehouse_moves.doc_id)
   { name: 'warehouse_docs',                    upsertKey: 'id' },
+  // PROD-ACC PA-04 — BOM operation material assignments + order matrix lines (append-only)
+  { name: 'bom_material_assignments',          upsertKey: 'id' },
+  { name: 'bom_allowed_variants',              upsertKey: 'id' },
+  { name: 'production_order_lines',            upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -502,6 +506,15 @@ const FK_COLUMNS = [
   ['warehouse_docs', 'to_warehouse_id'],
   ['warehouse_moves', 'doc_id'],
   ['warehouse_moves', 'variant_id'],
+  // PROD-ACC PA-04 matrix (append-only)
+  ['bom_material_assignments', 'bom_id'],
+  ['bom_material_assignments', 'bom_line_id'],
+  ['bom_material_assignments', 'operation_id'],
+  ['bom_allowed_variants', 'bom_id'],
+  ['bom_allowed_variants', 'variant_id'],
+  ['production_order_lines', 'order_id'],
+  ['production_order_lines', 'product_id'],
+  ['production_order_lines', 'variant_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

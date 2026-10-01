@@ -57,4 +57,38 @@ function addDaysToJalali(jalaliStr, days) {
   }
 }
 
-module.exports = { g2j, j2g, todayJalali, nowHHMM, addDaysToJalali };
+/** Jalali leap: Esfand has 30 days (jalaali-js / algorithm used by j2g). */
+function isJalaliLeapYear(jy) {
+  const y = Number(jy);
+  if (!Number.isFinite(y)) return false;
+  // Round-trip: 30 Esfand only exists in leap years.
+  const [gy, gm, gd] = j2g(y, 12, 30);
+  const back = g2j(gy, gm, gd);
+  return back[0] === y && back[1] === 12 && back[2] === 30;
+}
+
+function daysInJalaliMonth(jy, jm) {
+  const m = Number(jm);
+  if (m >= 1 && m <= 6) return 31;
+  if (m >= 7 && m <= 11) return 30;
+  if (m === 12) return isJalaliLeapYear(jy) ? 30 : 29;
+  return 0;
+}
+
+/** End date for Jalali period label `YYYY/MM` (or `YYYY/MM/DD` passthrough via caller). */
+function periodEndJalali(period) {
+  const parts = String(period || '').split('/');
+  if (parts.length >= 2) {
+    const jy = Number(parts[0]);
+    const jm = Number(parts[1]);
+    const dim = daysInJalaliMonth(jy, jm);
+    if (!dim) return `${parts[0]}/${String(parts[1] || '01').padStart(2, '0')}/01`;
+    return `${parts[0]}/${String(jm).padStart(2, '0')}/${String(dim).padStart(2, '0')}`;
+  }
+  return `${period}/29`;
+}
+
+module.exports = {
+  g2j, j2g, todayJalali, nowHHMM, addDaysToJalali,
+  isJalaliLeapYear, daysInJalaliMonth, periodEndJalali,
+};

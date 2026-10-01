@@ -2773,6 +2773,19 @@ function initSyncSchema(db, opts) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v16','1')").run();
     }
+    const backfillV17 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v17'").get();
+    if (!backfillV17 || backfillV17.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v17 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v17','1')").run();
+    }
   }
 
   // WH-DOC — master warehouse remittance/receipt/transfer documents
