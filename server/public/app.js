@@ -14488,31 +14488,118 @@ function prodOrderFilterBoms(){
     boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}</option>`).join('');
   prodOrderLoadVariantPanel(pid);
 }
+/* ---- PA-11: color×size order matrix (production_order_lines) ------------- */
+/** Active SKUs only — a cell with no active variant is not orderable. */
+function prodOrderBuildMatrix(variants){
+  const colors=[], sizes=[], cells=new Map();
+  const cseen=new Set(), sseen=new Set();
+  (variants||[]).forEach(v=>{
+    const cid=Number(v.color_id)||0, sid=Number(v.size_id)||0;
+    if(!cid||!sid) return;
+    if(!cseen.has(cid)){ cseen.add(cid); colors.push({id:cid,name:v.color_name||('#'+cid)}); }
+    if(!sseen.has(sid)){ sseen.add(sid); sizes.push({id:sid,name:v.size_name||('#'+sid)}); }
+    cells.set(cid+':'+sid, v);
+  });
+  return {colors,sizes,cells};
+}
+/** Mirrors the server rule: a row restricts only the columns it fills in. */
+function prodAllowedVariantFilter(rows){
+  const list=(rows||[]).filter(r=>r.is_allowed==null||Number(r.is_allowed)===1);
+  if(!list.length) return null;
+  return (cid,sid,vid)=>list.some(a=>
+    (a.variant_id==null || (vid!=null && Number(a.variant_id)===Number(vid)))
+    && (a.color_id==null || Number(a.color_id)===Number(cid))
+    && (a.size_id==null || Number(a.size_id)===Number(sid)));
+}
+function prodOrderMatrixGridHtml(mx, preset, readOnly, allowed){
+  const at=(cid,sid)=>Number((preset||{})[cid+':'+sid])||0;
+  return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}">
+    <thead><tr><th>رنگ / سایز</th>${mx.sizes.map(s=>`<th class="num">${esc(s.name)}</th>`).join('')}<th class="num">جمع</th></tr></thead>
+    <tbody>${mx.colors.map(c=>`<tr data-cid="${c.id}">
+      <td>${esc(c.name)}</td>
+      ${mx.sizes.map(s=>{
+        const v=mx.cells.get(c.id+':'+s.id);
+        if(!v) return `<td class="muted" data-csp-style="${CSP.style(`text-align:center`)}" title="برای این ترکیب SKU فعالی وجود ندارد">—</td>`;
+        if(allowed && !allowed(c.id, s.id, v.id)) return `<td class="muted" data-csp-style="${CSP.style(`text-align:center`)}" title="خارج از دامنه مجاز فرمول">⛔</td>`;
+        return `<td><input class="po-mx-cell num-fit" data-vid="${v.id}" data-cid="${c.id}" data-sid="${s.id}" type="number" min="0" step="1" value="${at(c.id,s.id)}" ${readOnly?'disabled':''}></td>`;
+      }).join('')}
+      <td class="num po-mx-rowsum">0</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><th>جمع</th>${mx.sizes.map(s=>`<td class="num po-mx-colsum" data-sid="${s.id}">0</td>`).join('')}<td class="num po-mx-total">0</td></tr></tfoot>
+  </table></div>
+  <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px;line-height:1.7`)}">تعداد برنامه = جمع خانه‌های پر؛ خانهٔ صفر خط تولید نمی‌سازد. «—» یعنی SKU فعال ندارد و «⛔» یعنی خارج از دامنه مجاز فرمول.</p>`;
+}
+function prodOrderMatrixRecalc(box, qtyInputId){
+  if(!box) return 0;
+  let total=0;
+  const colSums={};
+  box.querySelectorAll('tbody tr').forEach(tr=>{
+    let rowSum=0;
+    tr.querySelectorAll('.po-mx-cell').forEach(inp=>{
+      const v=+inp.value||0;
+      if(v>0){ rowSum+=v; colSums[inp.dataset.sid]=(colSums[inp.dataset.sid]||0)+v; }
+    });
+    const cell=tr.querySelector('.po-mx-rowsum');
+    if(cell) cell.textContent=fmt(rowSum);
+    total+=rowSum;
+  });
+  box.querySelectorAll('.po-mx-colsum').forEach(td=>{ td.textContent=fmt(colSums[td.dataset.sid]||0); });
+  box.querySelectorAll('.po-mx-total').forEach(td=>{ td.textContent=fmt(total); });
+  if(qtyInputId && el(qtyInputId)) el(qtyInputId).value=total||'';
+  return total;
+}
+function prodOrderBindMatrix(box, qtyInputId){
+  if(!box) return;
+  box.querySelectorAll('.po-mx-cell').forEach(inp=>{
+    inp.addEventListener('input', ()=>prodOrderMatrixRecalc(box, qtyInputId));
+  });
+  prodOrderMatrixRecalc(box, qtyInputId);
+}
+/** [{variant_id,color_id,size_id,qty_planned}] — zero/empty cells are dropped. */
+function prodOrderMatrixCells(box){
+  const scope=box||document;
+  return [...scope.querySelectorAll('.po-mx-cell')].map(inp=>({
+    variant_id:+inp.dataset.vid||null,
+    color_id:+inp.dataset.cid||null,
+    size_id:+inp.dataset.sid||null,
+    qty_planned:+inp.value||0
+  })).filter(c=>c.qty_planned>0);
+}
+async function prodOrderActiveVariants(pid){
+  try{
+    const meta=await api('GET','/product-variants/style/'+pid);
+    return (meta?.variants||[]).filter(v=>!v.is_default && v.active!==0);
+  }catch(_){ return []; }
+}
+/** BOM domain is advisory in the UI (the server re-checks); a 403 just means no restriction shown. */
+async function prodOrderAllowedForBom(bomId){
+  if(!bomId) return null;
+  try{
+    const r=await api('GET','/production/boms/'+bomId+'/allowed-variants',null,false,true);
+    return prodAllowedVariantFilter(listRows(r));
+  }catch(_){ return null; }
+}
+function prodOrderEffectiveBomId(){
+  const explicit=+el('po-bom')?.value||0;
+  if(explicit) return explicit;
+  const pid=+el('po-product')?.value||0;
+  const own=(window._prodCreateBoms||[]).filter(b=>Number(b.product_id)===pid);
+  return own.length===1?Number(own[0].id):0;
+}
 async function prodOrderLoadVariantPanel(pid){
   const box=el('po-variant-panel'); if(!box) return;
+  window._poMatrix=false;
   if(!pid){ box.innerHTML=''; box.hidden=true; return; }
-  let meta=null;
-  try{ meta=await api('GET','/product-variants/style/'+pid); }catch(_){ meta=null; }
-  const variants=(meta?.variants||[]).filter(v=>!v.is_default);
-  if(!variants.length){ box.innerHTML=''; box.hidden=true; window._poMatrix=false; return; }
-  window._poMatrix=true;
-  const colors=[...new Map(variants.map(v=>[String(v.color_name||''),v.color_name||''])).entries()].filter(([k])=>k);
-  const sizes=[...new Map(variants.map(v=>[String(v.size_name||''),v.size_name||''])).entries()].filter(([k])=>k);
   box.hidden=false;
-  box.innerHTML=`
-    <div class="fg full"><label>رنگ محصول *</label>
-      <select id="po-color">${colors.map(([n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
-    </div>
-    <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>سایز</th><th>تعداد</th></tr></thead><tbody>
-      ${sizes.map(([n])=>`<tr><td>${esc(n)}</td><td><input class="po-sz-qty num-fit" data-size="${esc(n)}" type="number" min="0" value="0"></td></tr>`).join('')}
-    </tbody></table></div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px`)}">جمع سایزها = تعداد برنامه. برای کالای ماتریسی الزامی است.</p>`;
-  box.querySelectorAll('.po-sz-qty').forEach(inp=>{
-    inp.addEventListener('input', ()=>{
-      const sum=[...box.querySelectorAll('.po-sz-qty')].reduce((a,i)=>a+(+i.value||0),0);
-      if(el('po-qty')) el('po-qty').value=sum||'';
-    });
-  });
+  box.innerHTML='<div class="muted">در حال بارگذاری ماتریس رنگ×سایز…</div>';
+  const variants=await prodOrderActiveVariants(pid);
+  const mx=prodOrderBuildMatrix(variants);
+  if(!mx.colors.length||!mx.sizes.length){ box.innerHTML=''; box.hidden=true; return; }
+  const allowed=await prodOrderAllowedForBom(prodOrderEffectiveBomId());
+  window._poMatrix=true;
+  box.innerHTML=`<label>ماتریس تعداد رنگ×سایز * ${hlp('این ماتریس تعداد سفارش است و با «دامنه مجاز رنگ×سایز» فرمول ساخت فرق دارد؛ دامنه فقط می‌گوید چه ترکیبی مجاز است، ماتریس می‌گوید چند عدد تولید شود.')}</label>
+    ${prodOrderMatrixGridHtml(mx, null, false, allowed)}`;
+  prodOrderBindMatrix(box, 'po-qty');
 }
 async function prodOrderCreateSave(){
   const pid=+el('po-product')?.value;
@@ -14524,16 +14611,12 @@ async function prodOrderCreateSave(){
     note:el('po-note')?.value||''
   };
   if(window._poMatrix){
-    const color=el('po-color')?.value||'';
-    const size_breakdown={};
-    [...document.querySelectorAll('.po-sz-qty')].forEach(inp=>{
-      const v=+inp.value||0; if(v>0) size_breakdown[inp.dataset.size]=v;
-    });
-    const sum=Object.values(size_breakdown).reduce((a,b)=>a+b,0);
-    if(!color||!(sum>0)){ showToast('رنگ و تعداد per سایز را وارد کنید','error'); return; }
-    body.color=color;
-    body.size_breakdown=size_breakdown;
+    const cells=prodOrderMatrixCells(el('po-variant-panel'));
+    const sum=cells.reduce((a,c)=>a+c.qty_planned,0);
+    if(!sum){ showToast('حداقل یک خانهٔ رنگ×سایز را پر کنید','error'); return; }
+    body.matrix_lines=cells;
     body.qty_planned=sum;
+    Object.assign(body, prodOrderLegacyBreakdown(cells, el('po-variant-panel')));
   }else{
     if(!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
     body.qty_planned=qty;
@@ -14546,6 +14629,77 @@ async function prodOrderCreateSave(){
     await api('POST','/production/orders',body);
     closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
   }catch(e){ /* toast already shown by api() with friendly message */ }
+}
+/**
+ * Single-colour orders keep writing color + size_breakdown so cutting/lay keeps
+ * working unchanged; a multi-colour grid has no single-colour equivalent and
+ * sends matrix_lines only.
+ */
+function prodOrderLegacyBreakdown(cells, box){
+  const colorIds=[...new Set(cells.map(c=>Number(c.color_id)))];
+  if(colorIds.length!==1) return {};
+  const scope=box||document;
+  const colorName=scope.querySelector(`tbody tr[data-cid="${colorIds[0]}"] td`)?.textContent?.trim()||'';
+  const size_breakdown={};
+  cells.forEach(c=>{
+    const th=scope.querySelector(`.po-mx-colsum[data-sid="${c.size_id}"]`);
+    const idx=th?[...th.parentElement.children].indexOf(th):-1;
+    const name=idx>0?scope.querySelector('thead tr').children[idx]?.textContent?.trim():'';
+    if(name) size_breakdown[name]=(size_breakdown[name]||0)+c.qty_planned;
+  });
+  if(!colorName||!Object.keys(size_breakdown).length) return {};
+  return {color:colorName, size_breakdown};
+}
+async function prodOrderEditModal(id){
+  let order=null;
+  try{ order=await api('GET','/production/orders/'+id); }
+  catch(e){ showToast(e.message||e.error||'خطا','error'); return; }
+  if(order.status!=='draft'){ showToast('فقط پیش‌نویس قابل ویرایش است','error'); return; }
+  const canEdit=typeof canPerm==='function'&&canPerm('production','edit');
+  const variants=await prodOrderActiveVariants(order.product_id);
+  const mx=prodOrderBuildMatrix(variants);
+  const hasMatrix=!!(mx.colors.length&&mx.sizes.length);
+  const preset={};
+  (order.matrix_lines||[]).forEach(l=>{
+    if(l.color_id&&l.size_id) preset[Number(l.color_id)+':'+Number(l.size_id)]=Number(l.qty_planned)||0;
+  });
+  const allowed=hasMatrix?await prodOrderAllowedForBom(order.bom_id):null;
+  const orphan=(order.matrix_lines||[]).filter(l=>!(l.color_id&&l.size_id&&mx.cells.get(Number(l.color_id)+':'+Number(l.size_id))));
+  showModal('ویرایش سفارش '+esc(order.order_no||''),`
+    ${canEdit?'':`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px`)}">👁 فقط مشاهده — مجوز <code>production/edit</code> ندارید.</div>`}
+    <div class="form-grid">
+      <div class="fg"><label>تعداد برنامه</label><input id="po-edit-qty" type="number" min="1" value="${Number(order.qty_planned)||0}" ${canEdit&&!hasMatrix?'':'disabled'}></div>
+      <div class="fg full"><label>یادداشت</label><input id="po-edit-note" value="${esc(order.note||'')}" ${canEdit?'':'disabled'}></div>
+    </div>
+    ${hasMatrix?`<div id="po-edit-matrix">${prodOrderMatrixGridHtml(mx, preset, !canEdit, allowed)}</div>`:`<p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">این کالا رنگ×سایز فعال ندارد — مسیر تک‌تعدادی (legacy).</p>`}
+    ${orphan.length?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px;color:var(--state-warn,#E67E22)`)}">${toFa(orphan.length)} سطر ثبت‌شده ترکیب غیرفعال یا ناشناخته دارد و در ماتریس نمایش داده نشده — با ذخیره حذف می‌شود.</div>`:''}
+    <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
+      ${canEdit?`<button class="btn" id="po-edit-save" data-csp-click="${CSP.bind('click',function(event){prodOrderEditSave((id),(hasMatrix))})}">ذخیره</button>`:''}
+    </div>`, true);
+  if(hasMatrix) prodOrderBindMatrix(el('po-edit-matrix'), canEdit?'po-edit-qty':null);
+}
+async function prodOrderEditSave(id, hasMatrix){
+  const btn=el('po-edit-save');
+  if(btn&&btn.disabled) return;
+  const body={note:el('po-edit-note')?.value||''};
+  if(hasMatrix){
+    const cells=prodOrderMatrixCells(el('po-edit-matrix'));
+    if(!cells.length){ showToast('حداقل یک خانهٔ رنگ×سایز را پر کنید','error'); return; }
+    body.matrix_lines=cells;
+  }else{
+    const qty=+el('po-edit-qty')?.value||0;
+    if(!(qty>0)){ showToast('تعداد برنامه را وارد کنید','error'); return; }
+    body.qty_planned=qty;
+  }
+  if(btn) btn.disabled=true;
+  try{
+    await api('PUT','/production/orders/'+id, body);
+    closeModal(); showToast('سفارش به‌روز شد'); loadAccTab('production-orders');
+  }catch(e){
+    showToast(prodOrderErrMsg(e),'error');
+    if(btn) btn.disabled=false;
+  }
 }
 async function prodOrderRelease(id){
   try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('production-orders'); }
@@ -23796,7 +23950,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
-        <li><b>رنگ×سایز و مواد هر عملیات (v278):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
+        <li><b>رنگ×سایز و مواد هر عملیات (v278/v279):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> / <code>matrix_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
+        <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>

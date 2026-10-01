@@ -65,6 +65,119 @@ function whSetting(db, key) {
   return v ? Number(v) : null;
 }
 
+function tableExists(db, name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+}
+
+/**
+ * PA-11 — a BOM allowlist row constrains only the columns it fills in, so a
+ * color-only row allows every size of that color. Empty list = legacy, no
+ * structured restriction at all.
+ */
+function assertMatrixInBomScope(db, bomId, lines) {
+  if (!bomId || !tableExists(db, 'bom_allowed_variants')) return;
+  const allowed = db.prepare(`
+    SELECT color_id, size_id, variant_id FROM bom_allowed_variants
+    WHERE bom_id=? AND COALESCE(is_allowed,1)=1
+  `).all(bomId);
+  if (!allowed.length) return;
+  const same = (a, b) => a == null || Number(a) === Number(b);
+  for (const ln of lines) {
+    const hit = allowed.some(a => (
+      (a.variant_id == null || (ln.variant_id != null && Number(a.variant_id) === Number(ln.variant_id)))
+      && same(a.color_id, ln.color_id)
+      && same(a.size_id, ln.size_id)
+    ));
+    if (!hit) {
+      throw err('E_VARIANT_NOT_ALLOWED', 422, {
+        color_id: ln.color_id, size_id: ln.size_id, variant_id: ln.variant_id, bom_id: bomId,
+      });
+    }
+  }
+}
+
+/**
+ * PA-11 — fill in variant/color/size ids from each other and refuse cells the
+ * UI must never offer (foreign product, inactive SKU, outside the BOM domain).
+ * A hand-made payload goes through exactly the same gate as the grid.
+ */
+function resolveMatrixLines(db, { productId, bomId, lines }) {
+  const out = [];
+  const hasVariants = tableExists(db, 'product_variants');
+  const byId = hasVariants ? db.prepare(`
+    SELECT id, product_id, color_id, size_id, COALESCE(active,1) AS active
+    FROM product_variants WHERE id=?
+  `) : null;
+  const byCell = hasVariants ? db.prepare(`
+    SELECT id, COALESCE(active,1) AS active FROM product_variants
+    WHERE product_id=? AND color_id=? AND size_id=?
+    ORDER BY COALESCE(active,1) DESC, id LIMIT 1
+  `) : null;
+  for (const ln of lines) {
+    let variantId = ln.variant_id || null;
+    let colorId = ln.color_id || null;
+    let sizeId = ln.size_id || null;
+    if (variantId && byId) {
+      const v = byId.get(variantId);
+      if (!v || Number(v.product_id) !== Number(productId)) {
+        throw err('E_VARIANT_PRODUCT_MISMATCH', 422, { variant_id: variantId, product_id: productId });
+      }
+      if (!Number(v.active)) throw err('E_VARIANT_INACTIVE', 422, { variant_id: variantId });
+      colorId = colorId || v.color_id || null;
+      sizeId = sizeId || v.size_id || null;
+    } else if (!variantId && colorId && sizeId && byCell) {
+      const v = byCell.get(productId, colorId, sizeId);
+      if (v && !Number(v.active)) {
+        throw err('E_VARIANT_INACTIVE', 422, { color_id: colorId, size_id: sizeId });
+      }
+      variantId = v?.id || null;
+    }
+    out.push({ variant_id: variantId, color_id: colorId, size_id: sizeId, qty: ln.qty });
+  }
+  assertMatrixInBomScope(db, bomId, out);
+  return out;
+}
+
+/** ux_pol_variant is a unique index — collapse the clash into a readable 422. */
+function assertMatrixCellsUnique(lines) {
+  const seen = new Set();
+  for (const ln of lines) {
+    const k = `${ln.variant_id ?? ''}|${ln.color_id ?? ''}|${ln.size_id ?? ''}`;
+    if (seen.has(k)) throw err('E_MATRIX_DUPLICATE', 422, { cell: k });
+    seen.add(k);
+  }
+}
+
+function normalizeMatrixPayload(body) {
+  const raw = Array.isArray(body.matrix_lines) ? body.matrix_lines
+    : (Array.isArray(body.lines) ? body.lines : null);
+  if (!raw) return null;
+  return raw.map(ln => ({
+    variant_id: ln.variant_id != null ? Number(ln.variant_id) : null,
+    color_id: ln.color_id != null ? Number(ln.color_id) : null,
+    size_id: ln.size_id != null ? Number(ln.size_id) : null,
+    qty: num(ln.qty_planned != null ? ln.qty_planned : ln.qty),
+  })).filter(ln => ln.qty > 0);
+}
+
+/** Order color×size rows with display names, for the order matrix grid. */
+function listOrderLines(db, orderId) {
+  if (!tableExists(db, 'production_order_lines')) return [];
+  try {
+    return db.prepare(`
+      SELECT l.*, c.name AS color_name, s.name AS size_name, v.sku AS variant_sku
+      FROM production_order_lines l
+      LEFT JOIN product_colors c ON c.id = l.color_id
+      LEFT JOIN product_sizes s ON s.id = l.size_id
+      LEFT JOIN product_variants v ON v.id = l.variant_id
+      WHERE l.order_id=?
+      ORDER BY COALESCE(c.sort_order,0), COALESCE(s.sort_order,0), l.id
+    `).all(orderId);
+  } catch (_) {
+    return db.prepare('SELECT * FROM production_order_lines WHERE order_id=? ORDER BY id').all(orderId);
+  }
+}
+
 function createOrder(db, body, userId) {
   const productId = Number(body.product_id);
   let qtyPlanned = num(body.qty_planned);
@@ -104,25 +217,14 @@ function createOrder(db, body, userId) {
   const color = String(body.color || '').trim();
 
   // PA-04 — explicit color×size order matrix (independent of the BOM variant scope)
-  const matrixRaw = Array.isArray(body.matrix_lines) ? body.matrix_lines
-    : (Array.isArray(body.lines) ? body.lines : null);
-  const matrixLines = matrixRaw
-    ? matrixRaw.map(ln => ({
-      variant_id: ln.variant_id != null ? Number(ln.variant_id) : null,
-      color_id: ln.color_id != null ? Number(ln.color_id) : null,
-      size_id: ln.size_id != null ? Number(ln.size_id) : null,
-      qty: num(ln.qty_planned != null ? ln.qty_planned : ln.qty),
-    })).filter(ln => ln.qty > 0)
-    : null;
-  const matrixQty = matrixLines ? matrixLines.reduce((s, ln) => s + ln.qty, 0) : 0;
+  let matrixLines = normalizeMatrixPayload(body);
   if (matrixLines && matrixLines.length) {
-    const seenCell = new Set();
-    for (const ln of matrixLines) {
-      const k = `${ln.variant_id ?? ''}|${ln.color_id ?? ''}|${ln.size_id ?? ''}`;
-      if (seenCell.has(k)) throw err('E_MATRIX_DUPLICATE', 422, { cell: k });
-      seenCell.add(k);
-    }
+    // Resolve ids first: a variant_id cell and its color×size twin are the same
+    // cell, and only the resolved form can be checked against the BOM domain.
+    matrixLines = resolveMatrixLines(db, { productId, bomId: bom.id, lines: matrixLines });
+    assertMatrixCellsUnique(matrixLines);
   }
+  const matrixQty = matrixLines ? matrixLines.reduce((s, ln) => s + ln.qty, 0) : 0;
 
   const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
   if (hasActiveMatrixVariants(db, productId)) {
@@ -1668,6 +1770,7 @@ function getOrderDetail(db, orderId) {
     waste: db.prepare('SELECT * FROM production_waste WHERE order_id=?').all(orderId),
     receipts: db.prepare('SELECT * FROM production_receipts WHERE order_id=?').all(orderId),
     reservations: db.prepare('SELECT * FROM production_reservations WHERE order_id=?').all(orderId),
+    matrix_lines: listOrderLines(db, orderId),
     wip_residual_rial: wipResidual(db, orderId),
   };
 }
@@ -1791,6 +1894,27 @@ function updateOrder(db, orderId, body = {}) {
     `).get(orderId);
     if (hasIssue) throw err('E_ANALYSIS_LOCKED', 409);
   }
+
+  // PA-11 — re-planning the color×size grid. Only a draft may be re-planned:
+  // once released the reservations and WIP already follow the old quantities.
+  let matrixLines = normalizeMatrixPayload(body);
+  let qtyPlanned = null;
+  if (matrixLines) {
+    if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
+    if (!matrixLines.length) throw err('E_QTY_INVALID', 422);
+    if (!tableExists(db, 'production_order_lines')) throw err('E_NO_MATRIX_TABLE', 409);
+    matrixLines = resolveMatrixLines(db, {
+      productId: po.product_id, bomId: po.bom_id, lines: matrixLines,
+    });
+    assertMatrixCellsUnique(matrixLines);
+    qtyPlanned = matrixLines.reduce((s, ln) => s + ln.qty, 0);
+    if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
+  } else if (body.qty_planned !== undefined) {
+    if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
+    qtyPlanned = num(body.qty_planned);
+    if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
+  }
+
   const fields = [];
   const params = [];
   const allow = {
@@ -1807,11 +1931,51 @@ function updateOrder(db, orderId, body = {}) {
       params.push(body[k]);
     }
   }
-  if (!fields.length) return getOrderDetail(db, orderId);
-  params.push(orderId);
-  db.prepare(`
-    UPDATE production_orders SET ${fields.join(', ')}, updated_at=strftime('%s','now') WHERE id=?
-  `).run(...params);
+
+  if (qtyPlanned != null) {
+    // The standard cost is quantity-driven, so a re-plan that left std_* alone
+    // would publish a unit cost belonging to the previous quantity.
+    let stdMat = 0;
+    try {
+      stdMat = explodeBom(db, {
+        bomId: po.bom_id, qty: qtyPlanned, priceBasis: 'std',
+        sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
+      }).totals.total_rial;
+    } catch { /* keep 0 — same best-effort contract as createOrder */ }
+    fields.push('qty_planned=?', 'std_material_rial=?', 'std_total_rial=?', 'std_unit_rial=?');
+    params.push(
+      qtyPlanned, stdMat,
+      stdMat + num(po.std_labor_rial) + num(po.std_overhead_rial),
+      Math.round((stdMat + num(po.std_labor_rial) + num(po.std_overhead_rial)) / qtyPlanned)
+    );
+  }
+
+  if (!fields.length && !matrixLines) return getOrderDetail(db, orderId);
+
+  db.transaction(() => {
+    if (fields.length) {
+      db.prepare(`
+        UPDATE production_orders SET ${fields.join(', ')}, updated_at=strftime('%s','now') WHERE id=?
+      `).run(...params, orderId);
+    }
+    if (matrixLines) {
+      db.prepare('DELETE FROM production_order_lines WHERE order_id=?').run(orderId);
+      const insLine = db.prepare(`
+        INSERT INTO production_order_lines
+          (order_id, product_id, variant_id, color_id, size_id, qty_planned, bom_snapshot_ref)
+        VALUES (?,?,?,?,?,?,?)
+      `);
+      for (const ln of matrixLines) {
+        insLine.run(
+          orderId, po.product_id, ln.variant_id, ln.color_id, ln.size_id,
+          ln.qty, String(po.bom_id || '')
+        );
+      }
+      try {
+        db.prepare('UPDATE production_orders SET has_matrix_lines=1 WHERE id=?').run(orderId);
+      } catch (_) { /* column missing on pre-PA-04 DBs */ }
+    }
+  })();
   return getOrderDetail(db, orderId);
 }
 
@@ -1834,6 +1998,7 @@ module.exports = {
   wipResidual,
   listOrders,
   getOrderDetail,
+  listOrderLines,
   jalaliPeriod,
   assertPeriodOpen,
   ledgerBalance,

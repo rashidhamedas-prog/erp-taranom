@@ -510,11 +510,16 @@ const FK_COLUMNS = [
   ['bom_material_assignments', 'bom_id'],
   ['bom_material_assignments', 'bom_line_id'],
   ['bom_material_assignments', 'operation_id'],
+  ['bom_material_assignments', 'component_color_id'],
   ['bom_allowed_variants', 'bom_id'],
   ['bom_allowed_variants', 'variant_id'],
+  ['bom_allowed_variants', 'color_id'],
+  ['bom_allowed_variants', 'size_id'],
   ['production_order_lines', 'order_id'],
   ['production_order_lines', 'product_id'],
   ['production_order_lines', 'variant_id'],
+  ['production_order_lines', 'color_id'],
+  ['production_order_lines', 'size_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

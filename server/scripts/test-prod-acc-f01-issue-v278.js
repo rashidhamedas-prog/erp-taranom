@@ -2,6 +2,10 @@
 /**
  * PROD-ACC PA-03 — F01 warehouse shortage must not be masked
  * Run: node server/scripts/test-prod-acc-f01-issue-v278.js
+ *
+ * Needs a better-sqlite3 binary matching the running Node ABI. If it is missing the
+ * script prints SKIP and exits 0; run test-prod-acc-f01-stub-v278.js instead, which
+ * asserts the same F01 contract with no native module.
  */
 const fs = require('fs');
 const os = require('os');
@@ -13,9 +17,21 @@ process.env.DB_PATH = path.join(dir, 't.db');
 process.env.JWT_SECRET = 'test-prod-acc-f01-secret-32-bytes-xx';
 process.env.SYNC_ROLE = 'central';
 
-const { initDB, getDB } = require('../db');
-initDB();
-const db = getDB();
+let db;
+try {
+  const { initDB, getDB } = require('../db');
+  initDB();
+  db = getDB();
+} catch (e) {
+  const native = /better_sqlite3|bindings file|NODE_MODULE_VERSION|was compiled against/i.test(e.message || '');
+  if (!native) throw e;
+  console.log('SKIP test-prod-acc-f01-issue-v278 — better-sqlite3 not loadable on this Node');
+  console.log(`  node=${process.version} abi=${process.versions.modules}`);
+  console.log(`  reason: ${String(e.message).split('\n')[0]}`);
+  console.log('  run instead: node server/scripts/test-prod-acc-f01-stub-v278.js');
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  process.exit(0);
+}
 const { issueFromStock } = require('../lib/production/costing');
 
 let passed = 0, failed = 0;

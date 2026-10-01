@@ -673,47 +673,143 @@ function execute(db, { period, method, userId, date }) {
   })();
 }
 
+/** PA-09/F09 — فقط این سه نوع سند متعلق به اجرای بستن دوره هستند. */
+const CLOSE_SOURCE_TYPES = [
+  'production_close_labor',    // PRD-21
+  'production_close_overhead', // PRD-22
+  'production_close_allocate', // PRD-23
+];
+
+/** شناسه‌های JE ثبت‌شده روی رکورد بستن (snapshot همان اجرا). */
+function snapshotJeIds(row, checklist) {
+  const ids = [];
+  const push = (v) => {
+    const id = Number(v) || 0;
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  for (const j of (checklist.journal_entries || [])) push(j?.je_id);
+  push(row.je_id);
+  return ids;
+}
+
+/**
+ * PA-09/F09 — preflight بازگشایی: هیچ تغییری در DB نمی‌دهد.
+ * اگر هر سند یا هر میانگین از زمان بستن drift کرده باشد، fail-closed است.
+ */
+function reopenPreflight(db, { period, row, checklist }) {
+  const drift = [];
+
+  // ۱) اسناد: فقط JEهای همان اجرای close، زنده و بدون ابطال قبلی.
+  const jeIds = snapshotJeIds(row, checklist);
+  const alreadyReversed = new Set();
+  for (const h of (checklist.reopen_history || [])) {
+    for (const rv of (h?.reversals || [])) {
+      const src = Number(rv?.je_id) || 0;
+      if (src) alreadyReversed.add(src);
+    }
+  }
+  for (const jeId of jeIds) {
+    const je = db.prepare('SELECT id, ref_type, ref_id, deleted_at FROM journal_entries WHERE id = ?').get(jeId);
+    if (!je) { drift.push({ kind: 'je', je_id: jeId, reason: 'je_missing' }); continue; }
+    if (Number(je.deleted_at) || 0) { drift.push({ kind: 'je', je_id: jeId, reason: 'je_deleted' }); continue; }
+    if (!CLOSE_SOURCE_TYPES.includes(String(je.ref_type || ''))) {
+      drift.push({ kind: 'je', je_id: jeId, reason: 'je_not_close_run', ref_type: je.ref_type });
+      continue;
+    }
+    if (Number(je.ref_id) !== Number(row.id)) {
+      drift.push({ kind: 'je', je_id: jeId, reason: 'je_other_close_run', ref_id: je.ref_id });
+      continue;
+    }
+    if (alreadyReversed.has(jeId)) {
+      drift.push({ kind: 'je', je_id: jeId, reason: 'je_already_reversed' });
+    }
+  }
+
+  // ۲) میانگین‌ها: مقدار جاری هر کالا باید دقیقاً برابر new_avg_rial زمان بستن باشد.
+  const restore = [];
+  for (const u of (checklist.fg_avg_updates || [])) {
+    const pid = Number(u?.product_id) || 0;
+    if (!pid) { drift.push({ kind: 'product', reason: 'snapshot_row_invalid' }); continue; }
+    if (u.old_avg_rial == null || u.new_avg_rial == null) {
+      drift.push({ kind: 'product', product_id: pid, reason: 'snapshot_incomplete' });
+      continue;
+    }
+    const oldAvg = Math.round(Number(u.old_avg_rial) || 0);
+    const newAvg = Math.round(Number(u.new_avg_rial) || 0);
+    const cur = db.prepare('SELECT average_cost_rial FROM products WHERE id = ?').get(pid);
+    if (!cur) { drift.push({ kind: 'product', product_id: pid, reason: 'product_missing' }); continue; }
+    const curAvg = Math.round(Number(cur.average_cost_rial) || 0);
+    if (curAvg !== newAvg) {
+      drift.push({
+        kind: 'product', product_id: pid, reason: 'avg_changed_after_close',
+        snapshot_new_rial: newAvg, current_rial: curAvg,
+      });
+      continue;
+    }
+    if (oldAvg !== newAvg) restore.push({ product_id: pid, old_avg_rial: oldAvg, new_avg_rial: newAvg });
+  }
+
+  if (drift.length) throw err('E_CLOSE_SNAPSHOT_DRIFT', 409, { period, drift });
+  return { jeIds, restore };
+}
+
 function reopen(db, { period, reason, userId }) {
   return db.transaction(() => {
     const row = getPeriodRow(db, period);
     if (!row) throw err('E_NOT_FOUND', 404, { period });
     if (row.status !== 'closed') throw err('E_NOT_CLOSED', 409, { period });
+    const cleanReason = String(reason == null ? '' : reason).trim();
+    if (!cleanReason) throw err('E_REASON_REQUIRED', 422, { period });
 
     const checklist = safeJson(row.checklist_json) || {};
-    const jeList = checklist.journal_entries || [];
+
+    // کل snapshot قبل از هر تغییری بررسی می‌شود؛ هیچ تغییر جزئی مجاز نیست.
+    const { jeIds, restore } = reopenPreflight(db, { period, row, checklist });
+
     const revDate = todayJalali();
-
-    for (const j of jeList) {
-      if (j.je_id) reverseEvent(db, { jeId: j.je_id, reason, userId, date: revDate });
-    }
-    if (row.je_id && !jeList.some(j => j.je_id === row.je_id)) {
-      reverseEvent(db, { jeId: row.je_id, reason, userId, date: revDate });
-    }
-    if (row.reversed_je_id) {
-      /* already reversed */
+    const reversals = [];
+    for (const jeId of jeIds) {
+      const reversalJeId = reverseEvent(db, { jeId, reason: cleanReason, userId, date: revDate });
+      reversals.push({ je_id: jeId, reversal_je_id: reversalJeId });
     }
 
-    const fgUpdates = checklist.fg_avg_updates || [];
-    for (const u of fgUpdates) {
-      if (u.old_avg_rial != null) {
-        db.prepare('UPDATE products SET average_cost_rial = ? WHERE id = ?')
-          .run(u.old_avg_rial, u.product_id);
+    // compare-and-swap: فقط اگر مقدار جاری هنوز همان new_avg_rial باشد برمی‌گردد.
+    for (const u of restore) {
+      const r = db.prepare(
+        'UPDATE products SET average_cost_rial = ? WHERE id = ? AND average_cost_rial = ?',
+      ).run(u.old_avg_rial, u.product_id, u.new_avg_rial);
+      if (r.changes !== 1) {
+        throw err('E_CLOSE_SNAPSHOT_DRIFT', 409, {
+          period,
+          drift: [{ kind: 'product', product_id: u.product_id, reason: 'cas_failed', snapshot_new_rial: u.new_avg_rial }],
+        });
       }
     }
 
     const now = Math.floor(Date.now() / 1000);
+    const history = Array.isArray(checklist.reopen_history) ? checklist.reopen_history.slice() : [];
+    history.push({ at: now, by: userId || null, reason: cleanReason, reversals, restored: restore });
+
     db.prepare(`
       UPDATE production_period_close SET
         status = 'open',
         reopened_by = ?,
         reopened_at = ?,
         reopen_reason = ?,
-        reversed_je_id = ?
+        reversed_je_id = ?,
+        checklist_json = ?
       WHERE id = ?
-    `).run(userId || null, now, reason || '', row.je_id || null, row.id);
+    `).run(
+      userId || null,
+      now,
+      cleanReason,
+      reversals[reversals.length - 1]?.reversal_je_id || null,
+      JSON.stringify({ ...checklist, reopen_history: history }),
+      row.id,
+    );
 
     audit(userId, 'update', 'production_period_close', row.id,
-      `بازکردن دوره ${period} — دلیل: ${reason || ''}`);
+      `بازکردن دوره ${period} — دلیل: ${cleanReason}`);
 
     try {
       db.prepare(`
@@ -722,12 +818,20 @@ function reopen(db, { period, reason, userId }) {
       `).run(
         userId || null,
         `بازکردن دوره ${period}`,
-        reason || '',
+        cleanReason,
         now,
       );
     } catch { /* optional table */ }
 
-    return { ok: true, period, status: 'open', reopened_at: now, reason };
+    return {
+      ok: true,
+      period,
+      status: 'open',
+      reopened_at: now,
+      reason: cleanReason,
+      reversals,
+      restored_averages: restore,
+    };
   })();
 }
 
@@ -808,6 +912,7 @@ module.exports = {
   calculate,
   execute,
   reopen,
+  reopenPreflight,
   openPeriod,
   allocationBase,
   prorateVariance,

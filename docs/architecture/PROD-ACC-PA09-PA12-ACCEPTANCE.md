@@ -124,8 +124,8 @@ if (path.startsWith('/api/production/boms/') && /\/allowed-variants(?:\/|$)/.tes
 
 ### G3 — بستن اسفند کبیسه جلالی / Jalali Leap-Year Close
 
-- [ ] `1403/12` به `1403/12/30` ختم می‌شود؛ رویداد روز `1403/12/30` داخل دوره و رویداد `1404/01/01` خارج دوره است.
-- [ ] کنترل مقابل نیز ثبت می‌شود: `1404/12` به `1404/12/29` ختم می‌شود.
+- [x] `1403/12` به `1403/12/30` ختم می‌شود؛ رویداد روز `1403/12/30` داخل دوره و رویداد `1404/01/01` خارج دوره است. (`test-prod-acc-golden-g3-jalali-close-v278.js`: pure helper PASS)
+- [x] کنترل مقابل نیز ثبت می‌شود: `1404/12` به `1404/12/29` ختم می‌شود. (`test-prod-acc-golden-g3-jalali-close-v278.js`: pure helper PASS)
 - [ ] precheck/calculate/execute همگی یک end date جلالی واحد استفاده می‌کنند و close، JE تراز و snapshot کامل می‌سازد.
 - [ ] پس از close، mutation تولید با period `1403/12` از تمام writerهای مشمول با `E_PERIOD_CLOSED` رد می‌شود.
 - [ ] reopen بدون drift تمام JEهای close و میانگین‌های snapshot را اتمیک برمی‌گرداند؛ reopen با drift سناریوی PA-09 را fail-closed می‌کند.

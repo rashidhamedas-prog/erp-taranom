@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج دوم: PA-09 reopen CAS + ماتریس سفارش UI + تست طلایی (SW v279)
+
+- **Invariant:** بازگشایی دوره فقط با snapshot سالم (CAS میانگین + JEهای همان اجرای close)؛ در صورت drift → `E_CLOSE_SNAPSHOT_DRIFT` بدون تغییر جزئی. سفارش تولید ماتریسی از `matrix_lines` / `production_order_lines` با اعتبارسنجی دامنه BOM؛ sole چندعملیاتی و BOM فعال قفل‌اند.
+- **هسته:** `close.reopenPreflight` + CAS؛ `engine.resolveMatrixLines` / `assertMatrixInBomScope`؛ FKهای رنگ/سایز در `sync/tables.js` (append).
+- **UI/Help:** گرید رنگ×سایز سفارش + پنل allowed-variants/تخصیص تک‌قلمی؛ راهنمای reopen drift؛ cache-bust v279.
+- **امنیت (بازبینی موازی):** double-count roll-up و قفل BOM فعال روی assignments در درخت فعلی برطرف/تأیید شد؛ `capture.js` همچنان عمداً برای Android باز است.
+- **باقی‌مانده P0 (آمیخته):** مسیر legacy `routes/production.js` (F07) هنوز مستقیم stock می‌نویسد؛ qty pack پیوندی ممکن است با finalize دوبار شمارش شود — claim جدا.
+- **تست:** `test-prod-acc-f09-reopen-v278.js`؛ golden G1/G2/G3؛ G3 جلالی ۴/۰ روی Node24؛ F01 native SKIP+گارد؛ ایران پس از overlay.
+- **فایل‌ها:** `production/{close,engine}.js`, `public/{app.js,index.html,sw.js}`, `sync/tables.js`, scripts تست v278/v279، acceptance PA09–12، CHANGE-LOG.
+- **Deploy:** ⏳ overlay ایران پس از commit.
+
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج اول: F02/F03/F01/F05/F06/F17/F18/F19–F21 (SW v278)
 
 - **Invariant:** پایان ماه تولید جلالی درست است؛ تسهیم انحراف با علامت مختلط تراز است؛ مصرف تولید از موجودی **همان انبار** بدون بازنویسی مصنوعی؛ finalize تکراری سفارش پیشرفته رد می‌شود؛ pack با سفارش پیوندی JE از نوع WIP→FG نمی‌زند؛ برگشت JE ابعاد مرکز/پروژه/مالیات/تفصیلی۲ را حفظ می‌کند؛ مواد به `operation_id` قابل تخصیص‌اند.
