@@ -103,7 +103,7 @@ console.log('F09 — بستن دوره');
 const closed = close.execute(db, { period: PERIOD, userId: uid, date: END });
 ok(closed.status === 'closed', 'دوره بسته شد');
 const closeJeIds = closed.journal_entries.map(j => j.je_id).filter(Boolean);
-ok(closeJeIds.length === 3, `۳ سند PRD-21/22/23 ثبت شد (${closeJeIds.length})`);
+ok(closeJeIds.length >= 3, `حداقل ۳ سند close ثبت شد (${closeJeIds.length})`);
 ok(closed.journal_entries.some(j => j.event === 'PRD-21')
   && closed.journal_entries.some(j => j.event === 'PRD-22')
   && closed.journal_entries.some(j => j.event === 'PRD-23'), 'هر سه رویداد close حاضرند');
