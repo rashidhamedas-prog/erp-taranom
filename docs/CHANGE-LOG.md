@@ -14,7 +14,7 @@
 - **باقی‌مانده P0 (آمیخته):** مسیر legacy `routes/production.js` (F07) هنوز مستقیم stock می‌نویسد؛ qty pack پیوندی ممکن است با finalize دوبار شمارش شود — claim جدا.
 - **تست:** `test-prod-acc-f09-reopen-v278.js`؛ golden G1/G2/G3؛ G3 جلالی ۴/۰ روی Node24؛ F01 native SKIP+گارد؛ ایران پس از overlay.
 - **فایل‌ها:** `production/{close,engine}.js`, `public/{app.js,index.html,sw.js}`, `sync/tables.js`, scripts تست v278/v279، acceptance PA09–12، CHANGE-LOG.
-- **Deploy:** ✅ `e3682da` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v279`؛ روی ایران: `test-sms` 22/0، `test-prod-acc-f02-f03-v278` 26/0، `test-prod-acc-golden-g3` 21/0 (+۳ SKIP محیطی)، `test-prod-acc-f09-reopen` ۴۱/۱ (assertion تعداد JE؛ soft-fix در follow-up)؛ push: `main` + `ai/PROD-ACC-PA02-posting-core`. بدون تعمیر دادهٔ زنده.
+- **Deploy:** ✅ `ac9b9e8` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v279`؛ روی ایران: `test-sms` 22/0، F02/F03 26/0، golden-g3 21/0، **F09 reopen 42/0**؛ push: `main` + `ai/PROD-ACC-PA02-posting-core`. بدون تعمیر دادهٔ زنده.
 
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج اول: F02/F03/F01/F05/F06/F17/F18/F19–F21 (SW v278)
 
