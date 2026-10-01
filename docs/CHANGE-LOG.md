@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — چاپ حواله/رسید انبار عملیاتی A4/A5 (SW v277)
+
+- **Invariant:** برگهٔ حواله/رسید انبار فقط‌خواندنی است؛ موجودی و دفتر را عوض نمی‌کند. مبلغ/فی چاپ نمی‌شود (جداسازی انبار از سند مالی). رنگ و سایز برای چیدن کالا باقی می‌ماند.
+- **سطح‌ها:** فاکتور فروش → «حواله خروج انبار»؛ فاکتور خرید → «رسید ورود انبار»؛ سند WH → چاپ بر اساس نوع؛ برگشت فروش → «رسید برگشت به انبار». انتخاب کاغذ ISO A4/A5.
+- **API:** `GET /api/invoices/:id/warehouse-slip`، `/api/purchases/:id/warehouse-slip`، `/api/warehouses/moves/docs/:id/print`، `/api/accounting/sales-returns/:id/warehouse-slip`
+- **Cache-bust:** `app.js?v=277`، `app.css?v=277`، `mdi.js?v=277`، SW `erp-taranom-v277`
+- **تست:** `node server/scripts/test-warehouse-slip-print-v277.js` (38)
+- **فایل‌ها:** `server/lib/warehouse-slip-print.js`، `server/public/warehouse-slip-print.css`، `routes/{invoices,purchases,warehouses,accounting}.js`، `public/{app.js,index.html,sw.js}`، `scripts/test-warehouse-slip-print-v277.js`، `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۹ — فیکس ریشه‌ای مودال خارج‌ازصفحه / کلیک بی‌اثر ویرایش (SW v276)
 
 - **Invariant (لایه UI):** هر مودال باید داخل ویوپورت قابل‌دیدن باشد و بالای MDI/سایدبار بماند؛ پورتال مودال در جریان سند بلند شرکت نمی‌کند.

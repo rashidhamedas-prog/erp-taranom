@@ -245,6 +245,28 @@ router.get('/moves/docs/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+/** چاپ حواله / رسید / انتقال انبار (A4|A5) — عملیاتی بدون مبلغ */
+router.get('/moves/docs/:id/print', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const doc = getWarehouseDoc(db, req.params.id);
+    if (!doc) return res.status(404).send('سند انبار یافت نشد');
+    const paperQ = String(req.query.paper || 'A4').toUpperCase();
+    const paper = paperQ === 'A5' ? 'A5' : 'A4';
+    const { buildWarehouseDocSlip, companySettings } = require('../lib/warehouse-slip-print');
+    const { sendSecureHtml } = require('../lib/secure-html-response');
+    const getSetting = (d, key) => {
+      const r = d.prepare('SELECT value FROM settings WHERE key=?').get(key);
+      return r ? r.value : '';
+    };
+    const html = buildWarehouseDocSlip(doc, companySettings(db, getSetting), paper);
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('warehouse doc print:', e && e.message);
+    return res.status(500).send('خطا در ساخت چاپ سند انبار');
+  }
+});
+
 router.post('/moves/docs', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();

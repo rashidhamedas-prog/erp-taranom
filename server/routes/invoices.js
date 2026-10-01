@@ -1084,4 +1084,27 @@ router.get('/:id/print', auth, (req, res) => {
   }
 });
 
+/** برگه حواله خروج انبار — عملیاتی برای انباردار (بدون مبلغ) */
+router.get('/:id/warehouse-slip', auth, (req, res) => {
+  const db = getDB();
+  const inv = loadInvoiceRow(db, req.params.id);
+  if (!inv) return res.status(404).send('فاکتور پیدا نشد');
+  if (!canViewInvoice(req, inv)) return res.status(403).send('دسترسی ندارید');
+  let rows = [];
+  try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
+  rows = enrichRowsProductCodes(db, rows);
+  const paperQ = String(req.query.paper || getSetting(db, 'invoice_paper_size') || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  try {
+    const {
+      buildSalesInvoiceSlip, companySettings,
+    } = require('../lib/warehouse-slip-print');
+    const html = buildSalesInvoiceSlip(db, inv, rows, companySettings(db, getSetting), paper);
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('invoice warehouse-slip:', e && e.stack || e);
+    return res.status(500).send('خطا در ساخت حواله انبار');
+  }
+});
+
 module.exports = router;

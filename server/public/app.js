@@ -4642,6 +4642,7 @@ function renderInvTable(){
       <div class="inv-actions-cell">
         ${i.type==='proforma' && !i.converted && canConvertProforma() ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('invoice',(i.id))})}" title="حواله خروج انبار برای انباردار">📦 حواله انبار</button>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
         ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
       </div>
@@ -4858,6 +4859,7 @@ async function _openInvBuilder(id){
           ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود. موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود.</p>`:''}`
           :`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این نقش قابل ذخیره نیست. برای اصلاح با مدیر/حسابدار هماهنگ کنید یا ابطال کنید.</div>`}
           ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
+          ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('invoice',(id))})}">📦 حواله انبار</button>`:''}
           ${id&&inv&&inv.type==='proforma'&&!inv.converted&&canConvertProforma()?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
       </div>
@@ -6230,6 +6232,59 @@ async function printPurchase(id){
     if(!r.ok){ await toastPrintError(r); return; }
     if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
   }catch(e){ showToast((e && e.message) || 'خطا در چاپ فاکتور خرید','error'); }
+}
+
+/**
+ * چاپ برگه عملیاتی انبار (حواله / رسید) — A4|A5
+ * source: 'invoice' | 'purchase' | 'warehouse' | 'sales_return'
+ */
+async function printWarehouseSlip(source, id, paper){
+  const src = String(source||'');
+  let docId = id;
+  if(src==='invoice'){
+    docId = (typeof resolvePrintDocId==='function') ? resolvePrintDocId(id) : id;
+  }else{
+    docId = Number(id);
+    if(!Number.isFinite(docId) || docId<=0) docId = id;
+  }
+  if(docId==null || docId==='' || docId===undefined){
+    showToast('شناسه سند برای حواله/رسید انبار مشخص نیست','error');
+    return;
+  }
+  const titles={
+    invoice:'حواله خروج انبار',
+    purchase:'رسید ورود انبار',
+    warehouse:'چاپ سند انبار',
+    sales_return:'رسید برگشت به انبار'
+  };
+  const title=titles[src]||'برگه انبار';
+  const defPaper=((CACHE.settings||{}).invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
+  if(!paper){
+    openNestedModal(`
+      <div class="modal-head"><h3>📦 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
+      <div class="modal-body" data-csp-style="${CSP.style(`padding:20px`)}">
+        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">برگهٔ عملیاتی برای انباردار (جدول کالا با رنگ/سایز و تعداد — <b>بدون مبلغ</b>). اندازه کاغذ استاندارد ISO ۲۱۶ را انتخاب کنید.</p>
+        <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;justify-content:center`)}">
+          <button class="btn${defPaper==='A4'?'':' ghost'}" data-csp-style="${CSP.style(`min-width:140px;padding:14px;text-align:center;line-height:1.6`)}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printWarehouseSlip(`${String((src) ?? '')}`,(docId),'A4')})}">📄 A4<br><small>۲۱۰×۲۹۷ mm</small></button>
+          <button class="btn${defPaper==='A5'?'':' ghost'}" data-csp-style="${CSP.style(`min-width:140px;padding:14px;text-align:center;line-height:1.6`)}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printWarehouseSlip(`${String((src) ?? '')}`,(docId),'A5')})}">📄 A5<br><small>۱۴۸×۲۱۰ mm</small></button>
+        </div>
+      </div>`);
+    return;
+  }
+  const pathMap={
+    invoice:'/api/invoices/'+encodeURIComponent(docId)+'/warehouse-slip',
+    purchase:'/api/purchases/'+encodeURIComponent(docId)+'/warehouse-slip',
+    warehouse:'/api/warehouses/moves/docs/'+encodeURIComponent(docId)+'/print',
+    sales_return:'/api/accounting/sales-returns/'+encodeURIComponent(docId)+'/warehouse-slip'
+  };
+  const base=pathMap[src];
+  if(!base){ showToast('منبع برگه انبار نامعتبر است','error'); return; }
+  const token=localStorage.getItem('crm_token');
+  try{
+    const r=await fetch(base+'?paper='+encodeURIComponent(paper),{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ await toastPrintError(r); return; }
+    if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
+  }catch(e){ showToast((e && e.message) || 'خطا در چاپ برگه انبار','error'); }
 }
 
 /* ============================================================
@@ -10074,8 +10129,9 @@ async function renderSalesInvoicesTab(body, typeLock){
       <td>
         <div class="inv-actions-cell">
           ${i.type==='proforma' && !i.converted && canConvertProforma() ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️ چاپ</button>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('invoice',(i.id))})}" title="حواله خروج انبار برای انباردار">📦 حواله انبار</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
           ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
         </div>
       </td>
@@ -11347,6 +11403,7 @@ async function renderWarehouseOpsTab(body){
       <td class="muted">${esc(d.recorder||'-')}</td>
       <td data-csp-style="${CSP.style('white-space:nowrap')}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){viewWarehouseDoc((d.id))})}" title="مشاهده">👁</button>
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('warehouse',(d.id))})}" title="چاپ حواله/رسید انبار">📦 چاپ</button>
         ${(ME.role==='admin'||ME.role==='accounting')?`
           <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editWarehouseDoc((d.id))})}" title="ویرایش">✏️</button>
           <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidWarehouseDoc((d.id))})}" title="ابطال">⛔</button>
@@ -11383,6 +11440,7 @@ async function viewWarehouseDoc(id){
         </tr>`).join('')||emptyRow(4)}</tbody></table></div>
       </div>
       <div class="modal-foot">
+        <button class="btn blue" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('warehouse',(doc.id))})}">📦 چاپ حواله/رسید</button>
         ${(ME.role==='admin'||ME.role==='accounting')?`
           <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();editWarehouseDoc((doc.id))})}">✏️ ویرایش</button>
           <button class="btn red" data-csp-click="${CSP.bind('click',function(event){closeModal();voidWarehouseDoc((doc.id))})}">⛔ ابطال</button>
@@ -15826,6 +15884,7 @@ async function renderPurchasesTab(body){
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
       <td><button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printPurchase((r.id))})}" title="چاپ">🖨️</button>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('purchase',(r.id))})}" title="رسید ورود انبار">📦 رسید انبار</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
@@ -16139,8 +16198,11 @@ async function renderSalesReturnsTab(body){
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.cust_biz||'-')}</td>
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:var(--red)`)}">${fmt(r.amount)}</td>
-      <td class="muted">${esc(r.note||'-')}</td>
-      <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalesReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}</td>
+      <td>${esc(r.note||'-')}</td>
+      <td data-csp-style="${CSP.style('white-space:nowrap')}">
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('sales_return',(r.id))})}" title="رسید برگشت به انبار">📦 رسید انبار</button>
+        ${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalesReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}
+      </td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
   if(typeof enhanceDataTable==='function'){
     const t=el('salesReturnsTbl');
@@ -23861,14 +23923,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ). اگر مبدأ بانک باشد می‌توانید کارمزد انتقال ثبت کنید (۶۱۱۵). در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>
@@ -24053,7 +24115,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v255</b> است و اسکریپت‌ها با <code>?v=255</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v277</b> است و اسکریپت‌ها با <code>?v=277</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -24259,7 +24321,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v263</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v277</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
@@ -24323,6 +24385,7 @@ function renderSalesGuide(){
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ در لیست فاکتور دکمهٔ خوانای <b>چاپ</b> هست و اگر جا کم باشد زیر دکمهٔ تبدیل می‌پیچد. چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب و کاغذ ISO (A4 210×297 یا A5 148×210 میلی‌متر) را می‌پرسد. پیش‌نمایش وسط صفحه و هم‌اندازهٔ کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
+        <li>دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار است (کد/نام/رنگ/سایز/تعداد — بدون مبلغ)</li>
         <li>چاپ فاکتور فروش/خرید: فقط <b>کد کالا</b> (+ نام استایل تمیز در صورت وجود)؛ رنگ/سایز و برچسب‌هایی مثل «سفید-سایز ۱ (مناسب از …)» چاپ نمی‌شود؛ واریانت‌های هم‌قیمت در یک ردیف با تعداد جمع می‌شوند</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
       </ol>

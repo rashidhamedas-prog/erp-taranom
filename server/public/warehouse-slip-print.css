@@ -1,0 +1,225 @@
+/* Warehouse slip print — operational picking / receipt sheet (A4/A5) */
+html.wh-slip {
+  width: 100%;
+  min-height: 100%;
+  direction: rtl;
+}
+html.wh-slip.paper-a4 { --sheet-max: 210mm; --pad: 10px; --font: 10.5px; }
+html.wh-slip.paper-a5 { --sheet-max: 148mm; --pad: 7px; --font: 9px; }
+
+html.wh-slip body {
+  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  background: #F3F5F2;
+  color: #14241A;
+  padding: 12px;
+  font-size: var(--font, 10.5px);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html.wh-slip .sheet {
+  width: 100%;
+  max-width: var(--sheet-max, 210mm);
+  margin: 0 auto;
+  background: #fff;
+  position: relative;
+  box-sizing: border-box;
+  padding: var(--pad, 10px);
+  box-shadow: 0 6px 18px rgba(20, 36, 26, .08);
+  border: 1px solid #C9D5CC;
+}
+
+html.wh-slip .head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  border-bottom: 2px solid #1B4332;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+html.wh-slip .co-name {
+  font-size: 1.35em;
+  font-weight: 800;
+  color: #1B4332;
+}
+html.wh-slip .co-sub {
+  font-size: .95em;
+  color: #3D5A4A;
+  margin-top: 2px;
+}
+html.wh-slip .co-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  color: #51685A;
+  font-size: .9em;
+}
+
+html.wh-slip .doc-badge {
+  text-align: left;
+  min-width: 140px;
+  border: 1.5px solid #1B4332;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #F0F7F2;
+}
+html.wh-slip .doc-title {
+  font-weight: 800;
+  font-size: 1.15em;
+  color: #1B4332;
+}
+html.wh-slip .doc-paper {
+  margin-top: 4px;
+  font-size: .85em;
+  color: #51685A;
+  font-variant-numeric: tabular-nums;
+}
+
+html.wh-slip .purpose {
+  margin: 0 0 8px;
+  line-height: 1.7;
+  color: #2C4638;
+  background: #F7FAF8;
+  border-right: 3px solid #40916C;
+  padding: 6px 10px;
+}
+
+html.wh-slip .meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+html.wh-slip .kv {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  border-bottom: 1px dashed #D5DFD8;
+  padding: 2px 0;
+}
+html.wh-slip .kv .k {
+  color: #5A7264;
+  min-width: 72px;
+  font-size: .92em;
+}
+html.wh-slip .kv .v {
+  font-weight: 700;
+  flex: 1;
+}
+
+html.wh-slip table.lines {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 10px;
+  font-size: 1em;
+}
+html.wh-slip table.lines th,
+html.wh-slip table.lines td {
+  border: 1px solid #9BB0A2;
+  padding: 4px 5px;
+  vertical-align: top;
+}
+html.wh-slip table.lines th {
+  background: #1B4332;
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+}
+html.wh-slip table.lines td.name { font-weight: 600; }
+html.wh-slip table.lines td.c { text-align: center; }
+html.wh-slip table.lines td.mono,
+html.wh-slip .mono { font-variant-numeric: tabular-nums; font-family: 'Vazirmatn', Tahoma, monospace; }
+html.wh-slip table.lines tfoot td {
+  background: #EEF5F0;
+  font-weight: 800;
+}
+html.wh-slip .muted { color: #5A7264; }
+
+html.wh-slip .legal {
+  font-size: .88em;
+  line-height: 1.65;
+  margin: 0 0 12px;
+}
+
+html.wh-slip .signs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+  margin-bottom: 14px;
+}
+html.wh-slip .sign {
+  border: 1px solid #9BB0A2;
+  border-radius: 4px;
+  min-height: 70px;
+  padding: 6px 8px;
+}
+html.wh-slip .sign-label {
+  font-weight: 700;
+  color: #1B4332;
+  margin-bottom: 18px;
+}
+html.wh-slip .sign-line {
+  font-size: .85em;
+  color: #6A8072;
+  border-top: 1px dashed #B7C6BB;
+  padding-top: 4px;
+}
+
+html.wh-slip .watermark {
+  position: absolute;
+  inset: 30% 10%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 0;
+}
+html.wh-slip .watermark span {
+  transform: rotate(-28deg);
+  font-size: 2.2em;
+  font-weight: 900;
+  color: #9BB0A2;
+  opacity: .22;
+  border: 3px solid #9BB0A2;
+  padding: 8px 18px;
+  border-radius: 8px;
+}
+html.wh-slip .sheet > *:not(.watermark) { position: relative; z-index: 1; }
+
+html.wh-slip .pbtn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #1B4332;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media print {
+  html.wh-slip body { background: #fff !important; padding: 0 !important; }
+  html.wh-slip .pbtn { display: none !important; }
+  html.wh-slip .sheet {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html.wh-slip .meta-grid,
+  html.wh-slip .signs { grid-template-columns: 1fr; }
+}

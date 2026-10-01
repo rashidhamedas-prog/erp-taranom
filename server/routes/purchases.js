@@ -200,6 +200,29 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+/** برگه رسید ورود انبار برای فاکتور خرید — عملیاتی (بدون مبلغ) */
+router.get('/:id/warehouse-slip', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const raw = String(req.params.id || '').trim();
+  const asId = parseInt(raw, 10);
+  const row = Number.isFinite(asId)
+    ? db.prepare('SELECT p.*, s.name as supplier_name, u.name as recorder FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id LEFT JOIN users u ON u.id=p.user_id WHERE p.id=?').get(asId)
+    : db.prepare('SELECT p.*, s.name as supplier_name, u.name as recorder FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id LEFT JOIN users u ON u.id=p.user_id WHERE p.num=?').get(raw);
+  if (!row) return res.status(404).send('فاکتور خرید پیدا نشد');
+  let rows = [];
+  try { rows = JSON.parse(row.rows || '[]'); } catch (_) { rows = []; }
+  const paperQ = String(req.query.paper || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  try {
+    const { buildPurchaseInvoiceSlip, companySettings } = require('../lib/warehouse-slip-print');
+    const html = buildPurchaseInvoiceSlip(db, row, rows, companySettings(db, getSetting), paper);
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('purchase warehouse-slip:', e && e.message);
+    return res.status(500).send('خطا در ساخت رسید انبار خرید');
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
     freight_amount, freight_type, vat_exempt, cost_center_id,

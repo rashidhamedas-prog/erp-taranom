@@ -1589,6 +1589,35 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
   res.json({ id: retId, ok: true });
 });
 
+/** رسید برگشت به انبار — برگه عملیاتی بدون مبلغ */
+router.get('/sales-returns/:id/warehouse-slip', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare(`
+    SELECT sr.*, c.biz AS cust_biz, u.name AS recorder, i.num AS invoice_num
+    FROM sales_returns sr
+    LEFT JOIN customers c ON c.id=sr.cust_id
+    LEFT JOIN users u ON u.id=sr.user_id
+    LEFT JOIN invoices i ON i.id=sr.invoice_id
+    WHERE sr.id=?
+  `).get(req.params.id);
+  if (!row) return res.status(404).send('برگشت فروش یافت نشد');
+  if (row.status === 'reversed') return res.status(400).send('این برگشت ابطال شده است');
+  const paperQ = String(req.query.paper || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  try {
+    const { buildSalesReturnSlip, companySettings } = require('../lib/warehouse-slip-print');
+    const getSetting = (d, key) => {
+      const r = d.prepare('SELECT value FROM settings WHERE key=?').get(key);
+      return r ? r.value : '';
+    };
+    const html = buildSalesReturnSlip(db, row, companySettings(db, getSetting), paper);
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('sales-return warehouse-slip:', e && e.message);
+    return res.status(500).send('خطا در ساخت رسید برگشت انبار');
+  }
+});
+
 router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
