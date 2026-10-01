@@ -3,6 +3,74 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
+/* ============================================================
+   LEGACY PRODUCTION RUNS (production_runs) — F07 gate
+   This module predates the advanced production module (production_orders +
+   inventory_ledger + PRD-xx journal entries). It writes products.stock /
+   warehouse_stock / stock_logs directly: no journal entry, no WIP, no
+   production-period lock. Once the advanced module is installed it must not
+   create new data, otherwise stock exists that the ledger never saw.
+   New writes are therefore refused with 409 E_LEGACY_PRODUCTION_DISABLED
+   unless an admin sets production_legacy_runs_enabled=1 (escape hatch for
+   replaying an old device outbox or finishing a half-entered month).
+   Reads stay open so historical runs remain visible.
+   Migrating the historical rows through the inventory ledger is a separate
+   task — see docs/architecture/PROD-ACC-PA00-DISCOVERY.md (F07).
+============================================================ */
+const LEGACY_FLAG_KEY = 'production_legacy_runs_enabled';
+
+function setting(db, key, fallback = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return row && row.value != null ? String(row.value) : fallback;
+}
+
+function tableExists(db, name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+}
+
+function advancedProductionAvailable(db) {
+  if (setting(db, 'production_module_enabled', '1') === '0') return false;
+  return tableExists(db, 'production_orders') && tableExists(db, 'production_period_close');
+}
+
+function legacyRunsEnabled(db) {
+  return setting(db, LEGACY_FLAG_KEY, '0') === '1';
+}
+
+function legacyBlocked(db) {
+  return advancedProductionAvailable(db) && !legacyRunsEnabled(db);
+}
+
+function legacyWriteGate(req, res, next) {
+  if (!legacyBlocked(getDB())) return next();
+  return res.status(409).json({
+    code: 'E_LEGACY_PRODUCTION_DISABLED',
+    error: 'ثبت/ابطال «اجرای تولید» قدیمی غیرفعال است — این مسیر موجودی را بدون سند حسابداری و بدون قفل دوره تغییر می‌دهد. از «سفارش‌های تولید» استفاده کنید.',
+    hint: 'در صورت نیاز موقت، admin می‌تواند از تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی» را فعال کند.',
+  });
+}
+
+function jalaliPeriod(date) {
+  const parts = String(date || '').split('/');
+  if (parts.length < 2) return '';
+  return `${parts[0]}/${parts[1].padStart(2, '0')}`;
+}
+
+/** Even with the escape hatch on, a legacy run may not land in a closed production period. */
+function assertLegacyPeriodOpen(db, date) {
+  const period = jalaliPeriod(date);
+  if (!period || !tableExists(db, 'production_period_close')) return;
+  const closed = db.prepare(
+    "SELECT 1 FROM production_period_close WHERE period_label=? AND status='closed'"
+  ).get(period);
+  if (closed) {
+    const e = new Error('دورهٔ تولید بسته است — اجرای تولید قدیمی در این ماه مجاز نیست');
+    e.code = 'E_PERIOD_CLOSED';
+    e.status = 409;
+    throw e;
+  }
+}
+
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
@@ -25,27 +93,40 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 
 const OVERHEAD_KEYS = ['overhead_method', 'overhead_fixed_rate', 'overhead_period_production_qty', 'overhead_auto_suggest'];
 
-router.get('/config', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
+function readConfig(db) {
   const obj = { overhead_method: 'tag', overhead_fixed_rate: '0', overhead_period_production_qty: '0', overhead_auto_suggest: '0' };
   db.prepare(`SELECT key,value FROM settings WHERE key IN (${OVERHEAD_KEYS.map(() => '?').join(',')})`)
     .all(...OVERHEAD_KEYS).forEach(r => { obj[r.key] = r.value; });
-  res.json(obj);
+  obj.legacy_runs_enabled = legacyRunsEnabled(db) ? '1' : '0';
+  obj.advanced_available = advancedProductionAvailable(db);
+  obj.legacy_blocked = legacyBlocked(db);
+  return obj;
+}
+
+router.get('/config', auth, adminOrAccounting, (req, res) => {
+  res.json(readConfig(getDB()));
 });
+
+const isOn = v => v === '1' || v === 1 || v === true;
 
 router.put('/config', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { overhead_method, overhead_fixed_rate, overhead_period_production_qty, overhead_auto_suggest } = req.body;
+  const { overhead_method, overhead_fixed_rate, overhead_period_production_qty, overhead_auto_suggest, legacy_runs_enabled } = req.body;
+  if (legacy_runs_enabled != null && isOn(legacy_runs_enabled) !== legacyRunsEnabled(db) && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'فعال/غیرفعال کردن اجرای تولید قدیمی فقط با نقش admin است', code: 'E_FORBIDDEN' });
+  }
   const stmt = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
   if (overhead_method) stmt.run('overhead_method', overhead_method);
   if (overhead_fixed_rate != null) stmt.run('overhead_fixed_rate', String(parseFloat(overhead_fixed_rate) || 0));
   if (overhead_period_production_qty != null) stmt.run('overhead_period_production_qty', String(parseInt(overhead_period_production_qty) || 0));
-  if (overhead_auto_suggest != null) stmt.run('overhead_auto_suggest', overhead_auto_suggest === '1' || overhead_auto_suggest === 1 || overhead_auto_suggest === true ? '1' : '0');
+  if (overhead_auto_suggest != null) stmt.run('overhead_auto_suggest', isOn(overhead_auto_suggest) ? '1' : '0');
+  if (legacy_runs_enabled != null) {
+    stmt.run(LEGACY_FLAG_KEY, isOn(legacy_runs_enabled) ? '1' : '0');
+    audit(req.user.id, 'update', 'settings', null,
+      `اجرای تولید قدیمی: ${isOn(legacy_runs_enabled) ? 'فعال' : 'غیرفعال'}`);
+  }
   audit(req.user.id, 'update', 'settings', null, 'تنظیم سربار تولید');
-  const obj = {};
-  db.prepare(`SELECT key,value FROM settings WHERE key IN (${OVERHEAD_KEYS.map(() => '?').join(',')})`)
-    .all(...OVERHEAD_KEYS).forEach(r => { obj[r.key] = r.value; });
-  res.json(obj);
+  res.json(readConfig(db));
 });
 
 router.get('/overhead-suggest', auth, adminOrAccounting, (req, res) => {
@@ -87,7 +168,7 @@ router.get('/overhead-suggest', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-router.post('/', auth, adminOrAccounting, (req, res) => {
+router.post('/', auth, adminOrAccounting, legacyWriteGate, (req, res) => {
   const {
     product_id, qty_produced, material_cost, labor_cost, overhead_cost, packaging_cost,
     waste_qty, waste_cost, date, note, update_stock, update_cost, warehouse_id
@@ -103,6 +184,12 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const totalCost = matC + labC + ovC + pkgC + wsC;
   const unitCost = totalCost / qty;
   const whId = warehouse_id || product.warehouse_id || null;
+  const runDate = date || todayJalali();
+  try {
+    assertLegacyPeriodOpen(db, runDate);
+  } catch (e) {
+    return res.status(e.status || 409).json({ error: e.message, code: e.code });
+  }
 
   const doStock = !!update_stock, doCost = !!update_cost;
   let apparelLines = [];
@@ -123,7 +210,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       const result = db.prepare(
         `INSERT INTO production_runs (product_id,qty_produced,material_cost,labor_cost,overhead_cost,packaging_cost,waste_qty,waste_cost,date,note,stock_added,cost_updated,previous_cost,warehouse_id,created_by)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).run(product_id, qty, matC, labC, ovC, pkgC, wsQ, wsC, date || todayJalali(), note || '',
+      ).run(product_id, qty, matC, labC, ovC, pkgC, wsQ, wsC, runDate, note || '',
             doStock ? 1 : 0, doCost ? 1 : 0, product.cost, whId, req.user.id);
       const id = result.lastInsertRowid;
       if (doStock) {
@@ -156,11 +243,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   res.json({ id: runId, ok: true, unit_cost: unitCost, total_cost: totalCost });
 });
 
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/:id', auth, adminOrAccounting, legacyWriteGate, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM production_runs WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.voided) return res.status(409).json({ error: 'این اجرا قبلاً ابطال شده است' });
+  try {
+    assertLegacyPeriodOpen(db, row.date);
+  } catch (e) {
+    return res.status(e.status || 409).json({ error: e.message, code: e.code });
+  }
   try {
     db.transaction(() => {
       if (row.stock_added) {
@@ -189,3 +281,13 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+// F07 gate internals — exported for server/scripts/test-prod-acc-legacy-gate-v279.js
+module.exports._legacy = {
+  LEGACY_FLAG_KEY,
+  advancedProductionAvailable,
+  legacyRunsEnabled,
+  legacyBlocked,
+  legacyWriteGate,
+  assertLegacyPeriodOpen,
+  jalaliPeriod,
+};

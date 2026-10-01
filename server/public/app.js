@@ -15141,16 +15141,27 @@ async function prodStageSubReceiveSave(orderId,stageId){
 }
 
 /* ============================================================
-   PRODUCTION COST ANALYSIS (تحلیل هزینه تولید) — tracking/analysis only,
-   no journal entry (this app has no raw-materials/WIP ledger to post
-   against honestly). Optionally increases finished-goods stock and/or
-   updates the product's standard cost.
+   LEGACY PRODUCTION RUNS (اجرای تولید قدیمی) — read-only history.
+   This screen predates the advanced production module: it bumped
+   products.stock / warehouse_stock directly with no journal entry, no WIP
+   and no production-period lock. With the advanced module installed the
+   server refuses new writes (409 E_LEGACY_PRODUCTION_DISABLED), so the
+   buttons are hidden unless an admin turns the escape hatch back on.
+   New production goes through «سفارش‌های تولید».
 ============================================================ */
 async function renderProductionTab(body){
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
   const [runs,cfg]=await Promise.all([api('GET','/production'),api('GET','/production/config')]);
   const c=cfg||{overhead_method:'tag',overhead_fixed_rate:'0',overhead_period_production_qty:'0',overhead_auto_suggest:'0'};
+  const legacyBlocked=!!c.legacy_blocked;
+  const isAdmin=ME.role==='admin';
   body.innerHTML=`
+    ${legacyBlocked?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px;border-right:4px solid var(--state-warning,#E67E22)`)}">
+      <div class="panel-body" data-csp-style="${CSP.style(`padding:12px 16px;font-size:13px;line-height:1.9`)}">
+        🔒 <b>ثبت اجرای تولید قدیمی غیرفعال است.</b> این مسیر موجودی و بهای کالا را بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید تغییر می‌داد.
+        تولید جدید را از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش‌های تولید</button> ثبت کنید.
+        ردیف‌های زیر صرفاً تاریخچه‌اند و فقط خواندنی هستند.
+      </div></div>`:''}
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
       <div class="panel-head" data-csp-style="${CSP.style(`padding:12px 16px;font-weight:700;color:var(--purple)`)}">⚙️ تنظیمات سربار تولید</div>
       <div class="panel-body" data-csp-style="${CSP.style(`padding:14px 16px`)}">
@@ -15169,9 +15180,13 @@ async function renderProductionTab(body){
           <input type="checkbox" id="oh-auto" ${c.overhead_auto_suggest==='1'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> پیشنهاد خودکار سربار هنگام ثبت تولید (اگر خالی باشد)
         </label>
         <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">هزینه‌هایی که در «عملیات پرداخت» با گزینه «سربار تولید» ثبت می‌شوند، در محاسبه خودکار سربار لحاظ می‌شوند.</div>
+        ${isAdmin&&c.advanced_available?`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px;margin-top:10px`)}">
+          <input type="checkbox" id="oh-legacy" ${c.legacy_runs_enabled==='1'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}">
+          اجرای تولید قدیمی مجاز باشد (فقط برای تعمیر/پخش دوبارهٔ outbox دستگاه — سند حسابداری نمی‌زند)
+        </label>`:''}
       </div>
     </div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){productionModal()})}">➕ ثبت اجرای تولید</button></div>
+    ${legacyBlocked?'':`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){productionModal()})}">➕ ثبت اجرای تولید</button></div>`}
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>تاریخ</th><th>کالا</th><th>تعداد تولیدی</th><th>ضایعات</th><th>بهای کل (ت)</th><th>بهای واحد (ت)</th><th>حاشیه سود واحد (ت)</th><th>کارایی</th><th>عملیات</th>
     </tr></thead><tbody>${(runs||[]).map(r=>`<tr>
@@ -15180,19 +15195,22 @@ async function renderProductionTab(body){
       <td class="mono">${fmt(r.total_cost)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.round(r.unit_cost))}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:${r.margin>=0?'var(--green)':'var(--red)'}`)}">${fmt(Math.round(r.margin))}</td>
       <td class="mono">${Math.round(r.efficiency*100)}٪</td>
-      <td>${r.voided?`<span class="tag">ابطال‌شده</span>`:`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteProductionRun((r.id))})}">🚫 ابطال</button>`}</td>
+      <td>${r.voided?`<span class="tag">ابطال‌شده</span>`:(legacyBlocked?`<span class="muted">—</span>`:`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteProductionRun((r.id))})}">🚫 ابطال</button>`)}</td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">این بخش صرفاً برای تحلیل هزینه و کارایی تولید است و سند حسابداری ایجاد نمی‌کند (سیستم دفتر مواد اولیه/در جریان ساخت جداگانه ندارد). در صورت فعال بودن گزینه‌های مربوطه، موجودی کالای ساخته‌شده و بهای تمام‌شده محصول به‌روزرسانی می‌شود.</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">این بخش صرفاً برای تحلیل هزینه و کارایی تولید است و سند حسابداری ایجاد نمی‌کند (دفتر مواد اولیه/در جریان ساخت ندارد). به همین دلیل پس از نصب مدول تولید پیشرفته، ثبت جدید از این مسیر بسته است و تولید واقعی از «سفارش‌های تولید» ثبت می‌شود.</div>`;
 }
 async function saveOverheadConfig(){
   try{
-    await api('PUT','/production/config',{
+    const body={
       overhead_method:el('oh-method').value,
       overhead_fixed_rate:moneyVal('oh-fixed'),
       overhead_period_production_qty:+el('oh-period-qty').value||0,
       overhead_auto_suggest:el('oh-auto')?.checked?'1':'0'
-    });
+    };
+    if(el('oh-legacy')) body.legacy_runs_enabled=el('oh-legacy').checked?'1':'0';
+    await api('PUT','/production/config',body);
     showToast('تنظیمات سربار ذخیره شد');
+    if(el('oh-legacy')) loadAccTab('production');
   }catch(e){}
 }
 async function productionModal(){
@@ -23952,6 +23970,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
         <li><b>رنگ×سایز و مواد هر عملیات (v278/v279):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> / <code>matrix_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
         <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
+        <li><b>«اجرای تولید» قدیمی بسته شد (v280):</b> صفحهٔ قدیمی تحلیل هزینه، موجودی و بهای کالا را مستقیم تغییر می‌داد — بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید. با نصب مدول تولید، ثبت و ابطال از آن مسیر با <code>E_LEGACY_PRODUCTION_DISABLED</code> (۴۰۹) رد می‌شود و ردیف‌های قبلی فقط‌خواندنی می‌مانند؛ تولید جدید فقط از <b>سفارش‌های تولید</b> (یا لایه‌چینی/رسید محصول) ثبت می‌شود. اگر برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه لازم شد، <b>admin</b> می‌تواند در تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی مجاز باشد» را موقتاً روشن کند؛ حتی در آن حالت هم ثبت در ماه بستهٔ تولید با <code>E_PERIOD_CLOSED</code> رد می‌شود. مهاجرت ردیف‌های تاریخی به دفتر انبار یک کار جداگانه است.</li>
+        <li><b>بسته برش سفارش‌دار = WIP (v280):</b> با پیوند به سفارش تولید، مقدار فقط در انبار WIP/CUT می‌نشیند (<code>warehouseOnly</code>) و <code>products.stock</code> فروش‌پذیر تا finalize تغییر نمی‌کند؛ نبود انبار WIP → <code>E_WIP_WAREHOUSE_REQUIRED</code> (دیگر به انبار محصول fallback نمی‌شود).</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>

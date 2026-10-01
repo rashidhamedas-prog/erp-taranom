@@ -54,6 +54,21 @@ function nextTxNo(db) {
   }
 }
 
+/**
+ * WIP staging events (F06): quantity lives in a WIP/cut warehouse only.
+ * products.stock is the sellable header — it must not move, and neither may the
+ * moving average or cost layers. finalize is the only WIP→FG stock increase.
+ * Reversals of these rows keep the same semantics (see isWarehouseOnlyRow).
+ */
+const WAREHOUSE_ONLY_EVENTS = new Set(['cutting_pack']);
+
+function isWarehouseOnlyRow(row) {
+  if (!row) return false;
+  const event = String(row.event_type || '');
+  if (WAREHOUSE_ONLY_EVENTS.has(event)) return true;
+  return event === 'reversal' && WAREHOUSE_ONLY_EVENTS.has(String(row.source_type || ''));
+}
+
 function invErr(code, status, extra) {
   const e = new Error(code);
   e.code = code;
@@ -101,16 +116,21 @@ function inventoryAccountForWarehouse(db, warehouseId) {
 
 /**
  * Apply qty delta to products.stock + warehouse_stock.
+ * warehouseOnly: WIP staging — only warehouse_stock moves, the sellable header stays.
  * Returns { qtyBefore, qtyAfter, avgBefore }.
  */
-function applyStockDelta(db, { productId, warehouseId, qtyDelta, allowNegative: allowNegOpt }) {
+function applyStockDelta(db, {
+  productId, warehouseId, qtyDelta, allowNegative: allowNegOpt, warehouseOnly = false,
+}) {
   const prod = getProduct(db, productId);
   const qtyBefore = Number(prod.stock) || 0;
   const avgBefore = Math.round(Number(prod.average_cost_rial) || 0);
   const qtyAfter = qtyBefore + qtyDelta;
   const allowNeg = allowNegOpt === true || allowNegative(db, warehouseId);
 
-  if (qtyAfter < -1e-9 && !allowNeg) {
+  if (warehouseOnly && !warehouseId) throw invErr('E_INV_WAREHOUSE_REQUIRED', 400, { product_id: productId });
+
+  if (!warehouseOnly && qtyAfter < -1e-9 && !allowNeg) {
     throw invErr('E_NEGATIVE_STOCK', 409, {
       product_id: productId,
       name: prod.name,
@@ -119,8 +139,12 @@ function applyStockDelta(db, { productId, warehouseId, qtyDelta, allowNegative: 
     });
   }
 
-  const stockStored = allowNeg ? qtyAfter : Math.max(0, qtyAfter);
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(stockStored, productId);
+  const stockStored = warehouseOnly
+    ? qtyBefore
+    : (allowNeg ? qtyAfter : Math.max(0, qtyAfter));
+  if (!warehouseOnly) {
+    db.prepare('UPDATE products SET stock=? WHERE id=?').run(stockStored, productId);
+  }
 
   if (warehouseId) {
     ensureWhRow(db, productId, warehouseId);
@@ -138,7 +162,7 @@ function applyStockDelta(db, { productId, warehouseId, qtyDelta, allowNegative: 
     db.prepare(
       'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
     ).run(whStored, productId, warehouseId);
-    if (qtyDelta > 0 && (!prod.warehouse_id || prod.warehouse_id === warehouseId)) {
+    if (!warehouseOnly && qtyDelta > 0 && (!prod.warehouse_id || prod.warehouse_id === warehouseId)) {
       db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(warehouseId, productId);
     }
   }
@@ -174,6 +198,9 @@ function applyMovingAverageIn(db, productId, qtyIn, amountRial, qtyBefore, avgBe
  * @param {boolean} [opts.updateAvg=true]
  * @param {boolean} [opts.skipStock=false]  ledger-only: no warehouse_stock/products.stock
  *   and no stock_logs (opening/backfill already have qty on those tables)
+ * @param {boolean} [opts.warehouseOnly=false]  WIP staging (F06): warehouse_stock moves but
+ *   the sellable header products.stock, the moving average, cost layers and stock_logs do not.
+ *   Used by a cutting pack linked to a production order; finalize is the only WIP→FG increase.
  */
 function postInventoryMovement(db, opts) {
   const {
@@ -184,6 +211,7 @@ function postInventoryMovement(db, opts) {
     jeId = null, batchId = null, serialId = null,
     reversedOf = null, date = '', note = '',
     createdBy = null, updateAvg = true, skipStock = false,
+    warehouseOnly = false,
   } = opts;
 
   if (!eventType || !productId) throw invErr('E_INV_ARGS', 400);
@@ -199,10 +227,12 @@ function postInventoryMovement(db, opts) {
   if (qtyIn === 0 && qtyOut === 0 && !valueOnly) throw invErr('E_INV_QTY_ZERO', 400);
 
   const delta = qtyIn - qtyOut;
+  // WIP staging never touches the header: no products.stock, no average, no cost layer, no kardex row.
+  const noHeader = !!skipStock || !!warehouseOnly;
   let stockInfo = { qtyBefore: 0, qtyAfter: 0, avgBefore: 0, product: null };
   if (!skipStock && !valueOnly) {
     stockInfo = applyStockDelta(db, {
-      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative,
+      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative, warehouseOnly,
     });
   } else {
     const p = getProduct(db, productId);
@@ -221,7 +251,7 @@ function postInventoryMovement(db, opts) {
     : Math.round(unit * (qtyIn || qtyOut));
 
   let avgAfter = stockInfo.avgBefore;
-  if (updateAvg && qtyIn > 0 && !skipStock) {
+  if (updateAvg && qtyIn > 0 && !noHeader) {
     avgAfter = applyMovingAverageIn(
       db, productId, qtyIn, amount, stockInfo.qtyBefore, stockInfo.avgBefore
     );
@@ -232,7 +262,7 @@ function postInventoryMovement(db, opts) {
 
   // FIFO / specific cost layers (optional path)
   const method = costingMethod(db, { productId, warehouseId });
-  if (method !== 'moving_average' && !skipStock) {
+  if (method !== 'moving_average' && !noHeader) {
     const { applyCostLayerIn, applyCostLayerOut } = require('./costing');
     if (qtyIn > 0) {
       applyCostLayerIn(db, {
@@ -247,7 +277,7 @@ function postInventoryMovement(db, opts) {
       amount = layered.amountRial;
       unit = qtyOut > 0 ? Math.round(amount / qtyOut) : unit;
     }
-  } else if (method === 'moving_average' && qtyIn > 0 && !skipStock) {
+  } else if (method === 'moving_average' && qtyIn > 0 && !noHeader) {
     // Still record a layer for audit / future FIFO switch
     try {
       const { applyCostLayerIn } = require('./costing');
@@ -277,7 +307,7 @@ function postInventoryMovement(db, opts) {
 
   // Keep legacy stock_logs in sync for old kardex consumers.
   // skipStock (opening/backfill) must not invent a second kardex row.
-  if (!valueOnly && !skipStock && delta !== 0) {
+  if (!valueOnly && !noHeader && delta !== 0) {
     db.prepare(
       'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
     ).run(productId, createdBy, delta, note || eventType);
@@ -320,6 +350,7 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) 
     note: note || `معکوس ${row.tx_no}`,
     createdBy,
     updateAvg: true,
+    warehouseOnly: isWarehouseOnlyRow(row),
   });
 
   db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(row.id);
@@ -354,4 +385,6 @@ module.exports = {
   invErr,
   ensureWhRow,
   applyStockDelta,
+  isWarehouseOnlyRow,
+  WAREHOUSE_ONLY_EVENTS,
 };

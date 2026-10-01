@@ -113,31 +113,53 @@ function requireFgWarehouse(db, warehouseId) {
   return wh;
 }
 
-/** WIP / cut-bundle warehouse for pack when linked to a production order (F06). */
+function isWipWarehouseRow(wh) {
+  if (!wh) return false;
+  const code = String(wh.code || '');
+  const types = [String(wh.warehouse_type || ''), String(wh.kind || '')];
+  return code === 'WH-WIP' || code === 'WH-CUT'
+    || types.some((t) => ['wip', 'work_in_process', 'semi'].includes(t));
+}
+
+/**
+ * WIP / cut-bundle warehouse for pack when linked to a production order (F06).
+ * Unfinished goods must never land in the FG warehouse — no FG fallback: if no WIP
+ * warehouse is configured the pack is refused with E_WIP_WAREHOUSE_REQUIRED.
+ */
 function requirePackWarehouse(db, warehouseId, { linkedOrder }) {
   if (!linkedOrder) return requireFgWarehouse(db, warehouseId);
   const id = warehouseId
     ? Number(warehouseId)
-    : Number(setting(db, 'production_wh_wip_id', '0'))
-      || Number(setting(db, 'production_wh_fg_id', '0'))
-      || 0;
+    : Number(setting(db, 'production_wh_wip_id', '0')) || 0;
   let wh = id ? db.prepare('SELECT * FROM warehouses WHERE id=?').get(id) : null;
-  if (!wh) {
+  if (!wh && !warehouseId) {
     wh = db.prepare(`
       SELECT * FROM warehouses
-      WHERE warehouse_type IN ('wip','work_in_process','semi')
+      WHERE COALESCE(warehouse_type,'') IN ('wip','work_in_process','semi')
+         OR COALESCE(kind,'') IN ('wip','work_in_process','semi')
          OR code IN ('WH-WIP','WH-CUT')
       LIMIT 1
     `).get();
   }
   if (!wh) {
-    // Fall back to FG warehouse for qty staging but caller must skip FG JE
-    wh = requireFgWarehouse(db, warehouseId);
+    throw httpErr(
+      400,
+      'انبار کار در جریان (WIP) تعریف نشده است — برای بستهٔ برش سفارش‌دار انبار WH-WIP بسازید یا تنظیم production_wh_wip_id را پر کنید',
+      'E_WIP_WAREHOUSE_REQUIRED'
+    );
   }
   const code = String(wh.code || '');
   const type = String(wh.warehouse_type || wh.kind || '');
   const isRaw = code === 'WH-RAW' || type === 'raw_material' || type === 'raw';
   if (isRaw) throw httpErr(400, 'بسته برش سفارش‌دار نباید به انبار مواد برود', 'E_PACK_WH');
+  if (!isWipWarehouseRow(wh)) {
+    throw httpErr(
+      400,
+      'بستهٔ برش سفارش‌دار باید در انبار کار در جریان (WIP) ثبت شود، نه انبار محصول',
+      'E_WIP_WAREHOUSE_REQUIRED',
+      { warehouse_id: wh.id, warehouse_code: code }
+    );
+  }
   return wh;
 }
 
@@ -806,6 +828,9 @@ function postCuttingPack(db, layId, body, user) {
         note: postsFg ? `رسید برش ${packNo}` : `بسته برش (WIP) ${packNo}`,
         createdBy: user.id,
         updateAvg: !!postsFg,
+        // Linked PO: qty stages in the WIP warehouse only — sellable products.stock
+        // stays untouched until finalize posts the single WIP→FG receipt.
+        warehouseOnly: !postsFg,
       });
 
       let journalId = null;
@@ -934,4 +959,6 @@ module.exports = {
   layNetWipRial,
   requireRawWarehouse,
   isRawWarehouseRow,
+  requirePackWarehouse,
+  isWipWarehouseRow,
 };

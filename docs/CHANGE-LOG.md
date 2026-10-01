@@ -5,6 +5,26 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۰۹ — PROD-ACC F07 gate + F06 pack WIP qty (SW v280)
+
+- **Invariant:** با مدول پیشرفته، POST/DELETE مسیر `production_runs` قدیمی → `409 E_LEGACY_PRODUCTION_DISABLED` (escape hatch فقط admin: `production_legacy_runs_enabled=1`؛ حتی آن‌وقت هم `E_PERIOD_CLOSED`). بستهٔ برش پیوندی به سفارش: فقط qty انبار WIP (`warehouseOnly` / event `cutting_pack`)؛ بدون افزایش `products.stock`؛ بدون fallback به انبار FG → `E_WIP_WAREHOUSE_REQUIRED`.
+- **فایل‌ها:** `routes/production.js`, `production/cutting.js`, `inventory/ledger.js`, `public/{app.js,index.html,sw.js}`, تست‌های `test-prod-acc-legacy-gate-v279.js` / `test-prod-acc-pack-po-wip-v279.js`, CHANGE-LOG.
+- **تست:** static+live روی ایران پس از overlay؛ `test-sms` اجباری.
+- **Deploy:** ⏳
+
+### ۱۴۰۵/۰۷/۱۰ — PROD-ACC F07: بستن مسیر legacy «اجرای تولید» (بدون بامپ SW — روی v280 سوار است)
+
+- **Invariant:** پس از نصب مدول تولید، هیچ مسیری نباید `products.stock` / `warehouse_stock` / `stock_logs` را بدون سند حسابداری، بدون WIP و بدون قفل دورهٔ تولید تغییر دهد. `routes/production.js` (جدول `production_runs`) تنها بازماندهٔ این الگو بود.
+- **گیت سخت:** `POST /api/production` و `DELETE /api/production/:id` با middleware `legacyWriteGate` → **409 `E_LEGACY_PRODUCTION_DISABLED`** (پیام فارسی + hint). شرط فعال‌شدن گیت: `production_module_enabled≠0` **و** وجود هر دو جدول `production_orders` + `production_period_close` (نصب نیم‌بند = گیت خاموش، نسخه‌های قدیمی نمی‌شکنند).
+- **دریچهٔ فرار (admin-only):** تنظیم `production_legacy_runs_enabled=1` از `PUT /api/production/config` — فقط نقش `admin` (در غیر این صورت 403 `E_FORBIDDEN`)؛ مقدار دقیقاً `1` (هر چیز دیگر = بسته). برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه قدیمی. حتی با دریچهٔ باز، `assertLegacyPeriodOpen` روی POST (تاریخ سند) و DELETE (تاریخ ردیف) ماه بستهٔ تولید را با **409 `E_PERIOD_CLOSED`** رد می‌کند.
+- **خواندن باز ماند:** `GET /` تاریخچه، `GET /config`، `GET /overhead-suggest` بدون تغییر — ردیف‌های تاریخی دیده می‌شوند. `GET/PUT /config` حالا `legacy_runs_enabled` / `advanced_available` / `legacy_blocked` هم برمی‌گرداند.
+- **UI/Help:** تب قدیمی (`renderProductionTab` — در حال حاضر در روتینگ فعال نیست و فقط تاریخچه است) با `legacy_blocked` بنر قفل + دکمه به «سفارش‌های تولید» می‌دهد؛ دکمه‌های «ثبت اجرای تولید» و «ابطال» پنهان می‌شوند؛ چک‌باکس admin برای دریچهٔ فرار در پنل تنظیمات سربار. راهنمای ادمین (بخش 🏭 عملیات تولید) بولت v279 گرفت.
+- **خارج از دامنه (claim جدا):** مهاجرت ردیف‌های تاریخی `production_runs` به `inventory_ledger` + سند PRD و بازنویسی کل مدول انجام **نشد** — عمداً، چون بزرگ است.
+- **ریسک sync:** `capture.js` همچنان `/api/production` → `production_runs` را ثبت می‌کند. دستگاهی که ردیف legacy **قبل از این تغییر** در outbox دارد، در replay مرکزی 409 می‌گیرد و به‌عنوان conflict علامت می‌خورد (silently drop نمی‌شود). رفع: موقتاً `production_legacy_runs_enabled=1` سپس خاموش. ثبت‌های جدید روی دستگاه هم گیت می‌خورند، پس outbox جدید ساخته نمی‌شود. `capture.js` دست‌نخورده.
+- **تست:** `node server/scripts/test-prod-acc-legacy-gate-v279.js` → **۲۷/۰** (+۲ SKIP محیطی). بخش A ایستا (wiring مسیرها + UI + help)، بخش C روی stub DB (سمانتیک گیت و قفل دوره، بدون نیاز به better-sqlite3)، بخش B روی DB واقعی (روی Node24 این میزبان SKIP — روی Node20/ایران اجرا شود). `test-sms` **۲۲/۰**؛ `test-sync` روی این میزبان با خطای ABI باینری better-sqlite3 بالا نمی‌آید (از قبل، بی‌ربط به این تغییر — روی ایران اجرا شود).
+- **فایل‌ها:** `server/routes/production.js`، `server/public/app.js`، `server/scripts/test-prod-acc-legacy-gate-v279.js`، `docs/CHANGE-LOG.md`. بدون تغییر در `capture.js` / `sync/tables.js` / `close.js` / `cutting.js` / `engine*.js`؛ `sw.js` و `index.html` روی v280 موجود در درخت دست‌نخورده (فایل app.js با همان cache-bust می‌رسد).
+- **Deploy:** ⏳ در درخت کار — commit/deploy با agent والد.
+
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج دوم: PA-09 reopen CAS + ماتریس سفارش UI + تست طلایی (SW v279)
 
 - **Invariant:** بازگشایی دوره فقط با snapshot سالم (CAS میانگین + JEهای همان اجرای close)؛ در صورت drift → `E_CLOSE_SNAPSHOT_DRIFT` بدون تغییر جزئی. سفارش تولید ماتریسی از `matrix_lines` / `production_order_lines` با اعتبارسنجی دامنه BOM؛ sole چندعملیاتی و BOM فعال قفل‌اند.
