@@ -1,4 +1,10 @@
-﻿## 2026-10-01T22:10:00+03:30 — PROD-ACC-PA02 wave (agents in flight)
+﻿## 2026-10-02 — PROD-ACC wave closed through SW v281
+
+- Shipped on `main` / `ai/PROD-ACC-PA02-posting-core`: F02–F09, F01 inventory path, BOM matrix, reopen CAS, legacy production gate, pack+PO warehouseOnly, finalize relieves staged WIP qty.
+- Iran: SW `erp-taranom-v281`, health 200. pack-po-wip **26/0**, F09 reopen **42/0**, sms **22/0**.
+- Still blocked: `server/sync/capture.js` PATH for `/assignments` and `/allowed-variants` — claim `ANDROID-NATIVE-SALES`. Do not edit until that owner releases the file. Suggested insert before the generic BOM prefix is in `docs/architecture/PROD-ACC-PA09-PA12-ACCEPTANCE.md` §PA-10.
+
+## 2026-10-01T22:10:00+03:30 — PROD-ACC-PA02 wave (agents in flight)
 
 - F02/F03: `test-prod-acc-f02-f03-v278.js` **20/0**. SMS **22/0**. `test-sync` / F01 / matrix: SKIP این میزبان (Node24 بدون better-sqlite3 ABI).
 - UI: `prodBomOpsPanelHtml` — `const html` + `setTimeout(reload assignments)` قبل از return؛ بخش تخصیص خارج از canMut.

@@ -10,7 +10,7 @@
 - **Invariant:** بستهٔ برش پیوندی مقدار را فقط در انبار WIP می‌گذارد؛ finalize هم موجودی فروش‌پذیر/انبار FG را یک‌بار بالا می‌برد و همان مقدار را با حرکت `warehouseOnly` از انبار WIP خارج می‌کند. سند مالی WIP→FG همچنان فقط PRD-07 است.
 - **فایل‌ها:** `engine-advanced.js` (`relieveStagedPackQty`)، تست `test-prod-acc-pack-po-wip-v279.js`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
 - **عمداً باز:** پچ `capture.js` برای `/assignments` و `/allowed-variants` — claim فعال `ANDROID-NATIVE-SALES`؛ این تسک آن فایل را ویرایش نمی‌کند.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `80ea55b` — ایران overlay، health/root 200، SW `erp-taranom-v281`؛ `test-sms` 22/0؛ `test-prod-acc-pack-po-wip-v279` **26/0** (SKIP تخلیه WIP بسته شد).
 
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC F07 gate + F06 pack WIP qty (SW v280)
 
