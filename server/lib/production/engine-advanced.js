@@ -741,6 +741,45 @@ function postStageOutputVariable(db, opts) {
   return db.transaction(() => postStageCore(db, { ...opts, mode: 'variable' }))();
 }
 
+/**
+ * Linked cutting packs stage bundle qty in a WIP warehouse (warehouseOnly).
+ * Finalize must take that qty back out of WIP without a second hit on products.stock.
+ */
+function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
+  const has = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  if (!has) return;
+  const { postInventoryMovement } = require('../inventory/ledger');
+  const packs = db.prepare(`
+    SELECT id, warehouse_id, qty FROM cutting_packs
+    WHERE production_order_id=? AND product_id=? AND status='posted' AND COALESCE(qty,0)>0
+    ORDER BY id
+  `).all(orderId, productId);
+  let left = Number(qtyGood) || 0;
+  for (const p of packs) {
+    if (!(left > 0)) break;
+    const wh = Number(p.warehouse_id) || 0;
+    if (!wh) continue;
+    const take = Math.min(left, Number(p.qty) || 0);
+    if (!(take > 0)) continue;
+    postInventoryMovement(db, {
+      eventType: 'cutting_pack',
+      productId,
+      warehouseId: wh,
+      qtyOut: take,
+      sourceType: 'cutting_pack',
+      sourceId: p.id,
+      date: date || '',
+      note: `تخلیه WIP بسته برش هنگام رسید ${receiptId || ''}`,
+      createdBy: userId || null,
+      updateAvg: false,
+      warehouseOnly: true,
+    });
+    left -= take;
+  }
+}
+
 function finalizeAdvancedOrder(db, { orderId, body, userId }) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
@@ -817,6 +856,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       color: body.color || po.color,
     });
     const unitCost = Math.round(wipNet / qtyGood);
+    // F06: packs linked to this order staged qty in WH-WIP without touching
+    // sellable stock. Relieve that warehouse qty here (warehouse-only out) so
+    // finalize is the single products.stock / FG-warehouse increase.
     const avg = updateMovingAverage(db, {
       productId: po.product_id,
       warehouseId: po.warehouse_fg_id,
@@ -867,6 +909,10 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       jes.push(je7);
       db.prepare('UPDATE production_receipts SET je_id=? WHERE id=?').run(je7.je_id, receiptId);
     }
+
+    relieveStagedPackQty(db, {
+      orderId, productId: po.product_id, qtyGood, userId, date, receiptId,
+    });
 
     db.prepare(`
       UPDATE production_orders SET

@@ -206,11 +206,7 @@ try {
   ok(finalized.ok && finalized.receipt_id, 'finalize posts one production receipt');
   ok(Number(header(fgA).stock) === 4, 'products.stock is 4 after pack+finalize (no double count)');
   ok(qtyAt(fgA, whFg) === 4, 'WH-FG gets the four units exactly once');
-  if (qtyAt(fgA, whWip) !== 0) {
-    skip(`PENDING: finalize leaves ${qtyAt(fgA, whWip)} staged units in WH-WIP; a WIP→FG transfer document is not implemented`);
-  } else {
-    ok(true, 'finalize relieves the staged WIP quantity');
-  }
+  ok(qtyAt(fgA, whWip) === 0, 'finalize relieves the staged WIP quantity');
 
   console.log('F06 — voiding a linked pack returns WIP qty without touching the header');
   const fgC = makeFg();

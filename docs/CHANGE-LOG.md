@@ -5,12 +5,19 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۰ — PROD-ACC تخلیه WIP هنگام finalize (SW v281)
+
+- **Invariant:** بستهٔ برش پیوندی مقدار را فقط در انبار WIP می‌گذارد؛ finalize هم موجودی فروش‌پذیر/انبار FG را یک‌بار بالا می‌برد و همان مقدار را با حرکت `warehouseOnly` از انبار WIP خارج می‌کند. سند مالی WIP→FG همچنان فقط PRD-07 است.
+- **فایل‌ها:** `engine-advanced.js` (`relieveStagedPackQty`)، تست `test-prod-acc-pack-po-wip-v279.js`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+- **عمداً باز:** پچ `capture.js` برای `/assignments` و `/allowed-variants` — claim فعال `ANDROID-NATIVE-SALES`؛ این تسک آن فایل را ویرایش نمی‌کند.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC F07 gate + F06 pack WIP qty (SW v280)
 
 - **Invariant:** با مدول پیشرفته، POST/DELETE مسیر `production_runs` قدیمی → `409 E_LEGACY_PRODUCTION_DISABLED` (escape hatch فقط admin: `production_legacy_runs_enabled=1`؛ حتی آن‌وقت هم `E_PERIOD_CLOSED`). بستهٔ برش پیوندی به سفارش: فقط qty انبار WIP (`warehouseOnly` / event `cutting_pack`)؛ بدون افزایش `products.stock`؛ بدون fallback به انبار FG → `E_WIP_WAREHOUSE_REQUIRED`.
 - **فایل‌ها:** `routes/production.js`, `production/cutting.js`, `inventory/ledger.js`, `public/{app.js,index.html,sw.js}`, تست‌های `test-prod-acc-legacy-gate-v279.js` / `test-prod-acc-pack-po-wip-v279.js`, CHANGE-LOG.
-- **تست:** static+live روی ایران پس از overlay؛ `test-sms` اجباری.
-- **Deploy:** ⏳
+- **تست:** legacy-gate ۲۷/۰؛ pack-po-wip روی ایران **۲۵/۰** (+۱ SKIP: سند انتقال انباری WIP→FG هنگام finalize هنوز جدا)؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `b17b151` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v280`.
 
 ### ۱۴۰۵/۰۷/۱۰ — PROD-ACC F07: بستن مسیر legacy «اجرای تولید» (بدون بامپ SW — روی v280 سوار است)
 
@@ -23,7 +30,7 @@
 - **ریسک sync:** `capture.js` همچنان `/api/production` → `production_runs` را ثبت می‌کند. دستگاهی که ردیف legacy **قبل از این تغییر** در outbox دارد، در replay مرکزی 409 می‌گیرد و به‌عنوان conflict علامت می‌خورد (silently drop نمی‌شود). رفع: موقتاً `production_legacy_runs_enabled=1` سپس خاموش. ثبت‌های جدید روی دستگاه هم گیت می‌خورند، پس outbox جدید ساخته نمی‌شود. `capture.js` دست‌نخورده.
 - **تست:** `node server/scripts/test-prod-acc-legacy-gate-v279.js` → **۲۷/۰** (+۲ SKIP محیطی). بخش A ایستا (wiring مسیرها + UI + help)، بخش C روی stub DB (سمانتیک گیت و قفل دوره، بدون نیاز به better-sqlite3)، بخش B روی DB واقعی (روی Node24 این میزبان SKIP — روی Node20/ایران اجرا شود). `test-sms` **۲۲/۰**؛ `test-sync` روی این میزبان با خطای ABI باینری better-sqlite3 بالا نمی‌آید (از قبل، بی‌ربط به این تغییر — روی ایران اجرا شود).
 - **فایل‌ها:** `server/routes/production.js`، `server/public/app.js`، `server/scripts/test-prod-acc-legacy-gate-v279.js`، `docs/CHANGE-LOG.md`. بدون تغییر در `capture.js` / `sync/tables.js` / `close.js` / `cutting.js` / `engine*.js`؛ `sw.js` و `index.html` روی v280 موجود در درخت دست‌نخورده (فایل app.js با همان cache-bust می‌رسد).
-- **Deploy:** ⏳ در درخت کار — commit/deploy با agent والد.
+- **Deploy:** ✅ `b17b151` — با موج F06/F07 مشترک روی ایران (SW v280).
 
 ### ۱۴۰۵/۰۷/۰۹ — PROD-ACC موج دوم: PA-09 reopen CAS + ماتریس سفارش UI + تست طلایی (SW v279)
 
@@ -31,7 +38,7 @@
 - **هسته:** `close.reopenPreflight` + CAS؛ `engine.resolveMatrixLines` / `assertMatrixInBomScope`؛ FKهای رنگ/سایز در `sync/tables.js` (append).
 - **UI/Help:** گرید رنگ×سایز سفارش + پنل allowed-variants/تخصیص تک‌قلمی؛ راهنمای reopen drift؛ cache-bust v279.
 - **امنیت (بازبینی موازی):** double-count roll-up و قفل BOM فعال روی assignments در درخت فعلی برطرف/تأیید شد؛ `capture.js` همچنان عمداً برای Android باز است.
-- **باقی‌مانده P0 (آمیخته):** مسیر legacy `routes/production.js` (F07) هنوز مستقیم stock می‌نویسد؛ qty pack پیوندی ممکن است با finalize دوبار شمارش شود — claim جدا.
+- **باقی‌مانده:** پچ `capture.js` برای assignments — claim فعال Android؛ این موج آن را ویرایش نمی‌کند. تخلیه WIP در finalize در v281 بسته شد.
 - **تست:** `test-prod-acc-f09-reopen-v278.js`؛ golden G1/G2/G3؛ G3 جلالی ۴/۰ روی Node24؛ F01 native SKIP+گارد؛ ایران پس از overlay.
 - **فایل‌ها:** `production/{close,engine}.js`, `public/{app.js,index.html,sw.js}`, `sync/tables.js`, scripts تست v278/v279، acceptance PA09–12، CHANGE-LOG.
 - **Deploy:** ✅ `ac9b9e8` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v279`؛ روی ایران: `test-sms` 22/0، F02/F03 26/0، golden-g3 21/0، **F09 reopen 42/0**؛ push: `main` + `ai/PROD-ACC-PA02-posting-core`. بدون تعمیر دادهٔ زنده.
