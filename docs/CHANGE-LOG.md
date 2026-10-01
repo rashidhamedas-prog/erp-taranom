@@ -13,7 +13,7 @@
 - **Cache-bust:** `app.js?v=277`، `app.css?v=277`، `mdi.js?v=277`، SW `erp-taranom-v277`
 - **تست:** `node server/scripts/test-warehouse-slip-print-v277.js` (38)
 - **فایل‌ها:** `server/lib/warehouse-slip-print.js`، `server/public/warehouse-slip-print.css`، `routes/{invoices,purchases,warehouses,accounting}.js`، `public/{app.js,index.html,sw.js}`، `scripts/test-warehouse-slip-print-v277.js`، `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `dfb5b52` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v277`؛ `test-warehouse-slip-print-v277` 38/0؛ `test-sms` 22/0؛ `test-sync` 44/0؛ push: `main` + `fix/warehouse-slip-print-v277`
 
 ### ۱۴۰۵/۰۷/۰۹ — فیکس ریشه‌ای مودال خارج‌ازصفحه / کلیک بی‌اثر ویرایش (SW v276)
 
