@@ -16,7 +16,7 @@
 - **شکاف sync (عمدی تا پچ Android):** `capture.js` هنوز `/assignments` و `/allowed-variants` را به جدول نگاشت نمی‌کند — مالک `ANDROID-NATIVE-SALES`؛ تا آن outbox دستگاه ممکن است `entity_table=null` باشد.
 - **تست:** `test-prod-acc-f02-f03-v278.js` ۲۶/۰؛ `test-prod-acc-f01-stub-v278.js` ۲۱/۰؛ `test-sms` ۲۲/۰. تست‌های DB (`f01`/`bom-matrix`/`test-sync`) روی این میزبان Node24 بدون باینری better-sqlite3 = SKIP محیط؛ روی Node20/ایران اجرا شود.
 - **فایل‌ها:** `jalali.js`, `production/{close,posting,costing,engine,engine-advanced,cutting,schema,bom-advanced,bom-assignments}.js`, `void-journal.js`, `routes/production-boms.js`, `sync/tables.js`, `db.js`, `public/{app.js,index.html,sw.js}`, docs معماری (+PA09–12 acceptance)، CHANGE-LOG، AI-DOS، تست‌های v278.
-- **Deploy:** ⏳ در حال commit/push overlay ایران — بدون تعمیر دادهٔ زنده.
+- **Deploy:** ✅ `7daa8f3` — ایران overlay SFTP (درخت کثیف؛ بدون reset)، `pm2 restart erp-taranom` بدون `--update-env`، root/health 200، SW `erp-taranom-v278`؛ روی ایران: `test-sms` 22/0، `test-prod-acc-f02-f03-v278` 26/0، `test-prod-acc-f01-stub-v278` 21/0، `test-prod-acc-bom-matrix-v278` 28/0؛ push: `main` + `ai/PROD-ACC-PA02-posting-core`؛ بدون تعمیر دادهٔ زنده. شکاف `capture.js` assignments عمداً برای مالک Android باقی است.
 
 ### ۱۴۰۵/۰۷/۰۹ — چاپ حواله/رسید انبار عملیاتی A4/A5 (SW v277)
 
