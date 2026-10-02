@@ -13,7 +13,7 @@
 - **تعمیر داده:** اسکریپت یک‌بار `scripts/_repair-var-mat-double-v289.py` برای سفارش‌های دوبرابر‌شده (از جمله PO-0006).
 - **فایل‌ها:** `engine-advanced.js`, `engine.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-acc-var-mat-once-v289.js`, CHANGE-LOG.
 - **تست:** `test-prod-acc-var-mat-once-v289` + `test-sms`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `6ddadfb` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health 200، SW `erp-taranom-v289`؛ تعمیر داده PO-0006 (`material_cost_rial` ۲٫۴۴۸B→۱٫۲۲۴B، residual WIP=۰).
 
 ---
 
