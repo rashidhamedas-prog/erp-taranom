@@ -85,7 +85,7 @@ try {
 
   const bomId = db.prepare(`
     INSERT INTO bom_headers (code,product_id,version,status,base_qty,has_routing,yield_percent)
-    VALUES ('BOM-V282',?,1,'active',1,1,100)
+    VALUES ('BOM-V282',?,1,'draft',1,1,100)
   `).run(fg).lastInsertRowid;
   const lineFab = db.prepare(`
     INSERT INTO bom_lines
@@ -108,6 +108,7 @@ try {
       (bom_id,seq,cost_center_id,operation_name,labor_method,labor_rate_rial,yield_percent)
     VALUES (?,30,?,'دوخت','piece',2000,100)
   `).run(bomId, ccSew).lastInsertRowid;
+  db.prepare(`UPDATE bom_headers SET status='active' WHERE id=?`).run(bomId);
 
   const orderId = db.prepare(`
     INSERT INTO production_orders
