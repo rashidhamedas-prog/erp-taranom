@@ -9,7 +9,8 @@
 
 - **Invariant:** هر `postToLedger` با `sourceType` ختم‌شده به `_reversal` سند جدید نمی‌سازد؛ اصل را soft-void می‌کند و ردیف‌های reverse باقی‌مانده را پاک می‌کند (همان سیاست v285).
 - **فایل‌ها:** `server/lib/ledger.js`, `scripts/test-payroll-wh-v285.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست:** روی ایران `test-sms` **22/0** و `test-payroll-wh-v285` **15/0**.
+- **Deploy:** ✅ `1b16086` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v285`.
 
 ---
 
