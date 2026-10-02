@@ -283,6 +283,22 @@ router.post('/recalc-avg/:productId', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+/** First average for stock that was stored with no cost. Qty unchanged. */
+router.post('/seed-avg-cost', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { seedMissingAverageCost } = require('../lib/inventory/seed-avg');
+    const productId = Number(req.body?.product_id);
+    if (!productId) return res.status(400).json({ error: 'کالا الزامی است', code: 'E_NOT_FOUND' });
+    const r = seedMissingAverageCost(getDB(), {
+      productId,
+      unitCostRial: req.body.unit_cost_rial,
+      userId: req.user.id,
+      date: req.body.date,
+    });
+    res.json(r);
+  } catch (e) { sendErr(res, e); }
+});
+
 // Manual adjustment via ledger (requires reason)
 router.post('/adjust', auth, adminOrAccounting, (req, res) => {
   try {

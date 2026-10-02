@@ -252,6 +252,13 @@ async function api(method, path, data, isFormData, silent){
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
+        E_OPENING_COST_REQUIRED: pname
+          ? ('موجودی «'+pname+'» بدون بهاست — بهای واحد را ثبت کنید')
+          : 'موجودی بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
+        E_UNIT_COST:'بهای واحد باید بزرگ‌تر از صفر باشد',
+        E_AVG_ALREADY_SET: pname
+          ? ('بهای میانگین «'+pname+'» از قبل ثبت شده')
+          : 'بهای میانگین از قبل ثبت شده',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
         demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
         E_COLOR_INVALID_HEX:'کد رنگ باید #RGB یا #RRGGBB باشد',
@@ -14885,6 +14892,22 @@ async function prodOrderReceiptSave(id, forcePartial){
 /* ============================================================
    حواله مواد (آنالیز متغیر) — GET issue-template + POST /:id/issue
 ============================================================ */
+async function seedIssueAvgFrom(prefix, reload){
+  const inputs=[...document.querySelectorAll('input[data-seed-cost="'+prefix+'"]')];
+  if(!inputs.length){ showToast('کالایی برای ثبت بها نیست','error'); return; }
+  for(const inp of inputs){
+    const unit=Math.round(Number(String(inp.value).replace(/,/g,''))||0);
+    if(unit<=0){ showToast('بهای هر واحد را برای همهٔ کالاهای بدون بها وارد کنید','error'); return; }
+  }
+  try{
+    for(const inp of inputs){
+      const unit=Math.round(Number(String(inp.value).replace(/,/g,''))||0);
+      await api('POST','/inventory/seed-avg-cost',{product_id:+inp.dataset.pid, unit_cost_rial:unit, date:todayJalali()});
+    }
+    showToast('بهای اولیه ثبت شد');
+    if(typeof reload==='function') reload();
+  }catch(e){ /* toast از api */ }
+}
 async function prodOrderIssueModal(id){
   let tpl=null;
   try{ tpl=await api('GET','/production/orders/'+id+'/issue-template'); }
@@ -14893,8 +14916,11 @@ async function prodOrderIssueModal(id){
   const seeCost=!(window.ProdUI) || window.ProdUI.canSeeCost();
   const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
   const zeroCost=lines.filter(L=>!lineAvgOk(L));
+  const canCost=typeof canAccounting==='function' && canAccounting();
   const zeroHint=zeroCost.length
-    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر — ابتدا خرید/اول‌دوره با بها ثبت کنید: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`
+    ? (canCost
+      ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div data-csp-style="${CSP.style(`margin-bottom:8px`)}">این کالاها موجودی دارند ولی بها ندارند. بهای هر واحد (ریال) را بنویسید — سند افتتاحیه ثبت می‌شود و حواله باز می‌شود.</div>${zeroCost.map(L=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:6px 0`)}"><span>${esc(L.name||('#'+L.product_id))}</span><input data-seed-cost="pim" data-pid="${L.product_id}" inputmode="numeric" placeholder="بهای هر واحد" data-csp-style="${CSP.style(`width:140px`)}"></label>`).join('')}<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){seedIssueAvgFrom('pim',function(){prodOrderIssueModal(id)})})}">ثبت بها</button></div>`
+      : `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر است. از حسابداری بخواهید بها را ثبت کند: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`)
     : '';
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
@@ -15125,8 +15151,11 @@ async function prodStageIssueModal(orderId,stageId){
   const hint=tpl.empty_hint||'مادهٔ مرتبط با این مرحله نیست';
   const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
   const zeroCost=lines.filter(L=>!lineAvgOk(L));
+  const canCost=typeof canAccounting==='function' && canAccounting();
   const zeroHint=zeroCost.length
-    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر — ابتدا خرید/اول‌دوره با بها ثبت کنید: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`
+    ? (canCost
+      ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div data-csp-style="${CSP.style(`margin-bottom:8px`)}">این کالاها موجودی دارند ولی بها ندارند. بهای هر واحد (ریال) را بنویسید — سند افتتاحیه ثبت می‌شود و حواله باز می‌شود.</div>${zeroCost.map(L=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:6px 0`)}"><span>${esc(L.name||('#'+L.product_id))}</span><input data-seed-cost="psi" data-pid="${L.product_id}" inputmode="numeric" placeholder="بهای هر واحد" data-csp-style="${CSP.style(`width:140px`)}"></label>`).join('')}<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){seedIssueAvgFrom('psi',function(){prodStageIssueModal(orderId,stageId)})})}">ثبت بها</button></div>`
+      : `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر است. از حسابداری بخواهید بها را ثبت کند: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`)
     : '';
   showModal('حواله مواد مرحله',`
     <div class="prod-scope">
@@ -24081,7 +24110,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بسته برش سفارش‌دار = WIP (v281):</b> با پیوند به سفارش تولید، مقدار فقط در انبار WIP/CUT می‌نشیند (<code>warehouseOnly</code>) و <code>products.stock</code> فروش‌پذیر تا finalize تغییر نمی‌کند؛ نبود انبار WIP → <code>E_WIP_WAREHOUSE_REQUIRED</code>. هنگام نهایی‌کردن سفارش، همان مقدار از انبار WIP خارج می‌شود (بدون سند مالی دوم و بدون کم‌کردن دوبارهٔ موجودی فروش‌پذیر).</li>
         <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
-        <li><b>بهای میانگین صفر (v283):</b> اگر ماده بدون فاکتور خرید/اول‌دوره با بها باشد، حواله مسدود می‌شود و نام کالا را می‌گوید. راه حل: ثبت خرید یا موجودی اول‌دوره با بهای صحیح — حواله با بهای صفر برای سند WIP مجاز نیست (ADR-011).</li>
+        <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>
         <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
         <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
@@ -24687,7 +24716,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v283</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v284</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),

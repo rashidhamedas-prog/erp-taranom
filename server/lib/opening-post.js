@@ -113,13 +113,13 @@ function postPartyOpeningBalance(db, {
 function postProductOpeningInventory(db, {
   productId, qty, unitCostRial, date, userId, description, srcSystem,
 }) {
-  const q = Math.max(0, Math.trunc(Number(qty) || 0));
+  const q = Math.max(0, Number(qty) || 0);
   const unit = Math.max(0, Math.round(Number(unitCostRial) || 0));
-  if (!q || !unit) return null;
+  if (!(q > 0) || !unit) return null;
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) return null;
 
-  const totalRial = q * unit;
+  const totalRial = Math.round(q * unit);
   const inventory = acct(db, 'coa_inventory');
   const opening = acct(db, 'coa_opening_balance');
   const amtToman = rialToLedger(totalRial);
@@ -156,6 +156,10 @@ function postProductOpeningInventory(db, {
       skipStock: true,
     });
   }
+  db.prepare(`
+    UPDATE products SET average_cost_rial=?, cost=?
+    WHERE id=? AND COALESCE(average_cost_rial,0)=0
+  `).run(unit, Math.round(unit / 10), productId);
   return entryId;
 }
 

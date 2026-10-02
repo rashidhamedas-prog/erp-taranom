@@ -66,6 +66,9 @@ function createQuickProduct(db, user, body) {
   const costRial = Math.round(parseFloat(cost) || 0);
   const openingPriceRial = Math.round(parseFloat(opening_price) || 0);
   const unitCostForOpening = costRial || openingPriceRial;
+  if (openingStock > 0 && !unitCostForOpening) {
+    throw httpErr(422, 'موجودی اول دوره بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید');
+  }
   const userId = user && user.id;
 
   return db.transaction(() => {
@@ -162,6 +165,17 @@ function updateProductFromExcel(db, user, productId, body) {
       .run(productId, whId);
     db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
       .run(stockVal, productId, whId);
+  }
+  const avgNow = Math.round(Number(prod.average_cost_rial) || 0);
+  const unitNow = Math.round(parseFloat(src.cost) || 0) || Math.round(parseFloat(src.opening_price) || 0);
+  if (stockVal > 0 && !avgNow && !unitNow) {
+    throw httpErr(422, `«${nameVal}»: موجودی بدون بها — ستون بهای تمام‌شده یا قیمت اول دوره را پر کنید`);
+  }
+  if (stockVal > 0 && !avgNow && unitNow > 0) {
+    const { seedMissingAverageCost } = require('./inventory/seed-avg');
+    seedMissingAverageCost(db, {
+      productId, unitCostRial: unitNow, userId: user && user.id,
+    });
   }
   if (prod.image) {
     db.prepare('UPDATE products SET image=? WHERE id=?').run(prod.image, productId);

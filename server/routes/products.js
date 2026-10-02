@@ -493,6 +493,13 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const unitVal = unit || 'عدد';
   const stockOpen = parseStockQty(stock, { unit: unitVal, integer: requiresIntegerQty(null, null, unitVal) });
+  const openingUnit = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
+  if (stockOpen > 0 && !openingUnit) {
+    return res.status(422).json({
+      error: 'موجودی اول دوره بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
+      code: 'E_OPENING_COST_REQUIRED',
+    });
+  }
   const result = db.prepare(
     `INSERT INTO products (
       user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
@@ -724,6 +731,14 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
     db, productId: Number(req.params.id), unit: prod.unit,
     integer: requiresIntegerQty(db, Number(req.params.id), prod.unit),
   });
+  const avg = Math.round(Number(prod.average_cost_rial) || 0);
+  if (newStock > 0 && !avg) {
+    return res.status(422).json({
+      error: 'موجودی بدون بهای میانگین مجاز نیست — ابتدا بها را از حواله مواد یا کارت کالا ثبت کنید',
+      code: 'E_OPENING_COST_REQUIRED',
+      name: prod.name,
+    });
+  }
   const change = newStock - (Number(prod.stock) || 0);
   db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
   // Keep the product's warehouse_stock in step with the manual override so the
