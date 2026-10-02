@@ -1,4 +1,11 @@
-﻿## 2026-10-02 — Website stock sync pipe (ERP→site) — reclaim note
+﻿## 2026-10-03 — Website sync secret mismatch (SW v291)
+
+- Owner: this session (skill-top full /ecc). **Reclaimed** shared `server/public/{app.js,index.html,sw.js}` + `docs/CHANGE-LOG.md` from PROD-ACC for website-secret UX only (PROD-ACC wave already shipped; notify prior owner).
+- Root: `website_b2b_token` `E_SECRET_KEY_MISMATCH`; sync paths threw English crypto message.
+- Fix: lazy secret open per target + Persian API + UI banner; ops re-seal token from site `ERP_INVENTORY_API_KEY`.
+- Files: `website-stock-sync.js`, `routes/settings.js`, public SW v291, `test-website-full-sync-secret-v291.js`.
+
+## 2026-10-02 — Website stock sync pipe (ERP→site) — reclaim note
 
 - Owner: this session (skill-top full). Touched unclaimed `server/lib/website-stock-sync.js`, `safe-outbound-request.js`, tests; **appended** `docs/CHANGE-LOG.md` (shared with PROD-ACC — notify).
 - Did **not** edit claimed `server/public/{app.js,index.html,sw.js}`.

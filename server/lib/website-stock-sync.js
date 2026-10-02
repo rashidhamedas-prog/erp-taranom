@@ -21,22 +21,74 @@ const DEBOUNCE_MS = 2000;
 const MAX_ATTEMPTS = 8;
 const DRAIN_BATCH = 20;
 
-function getSettingsMap(db) {
-  return getSettings(db, [
+const SECRET_LABELS = Object.freeze({
+  website_b2b_token: 'کلید API موجودی سایت',
+  website_wc_key: 'کلید ووکامرس',
+  website_wc_secret: 'رمز ووکامرس',
+  webhook_secret: 'رمز وب‌هوک',
+});
+
+function secretOpenError(key, cause) {
+  const label = SECRET_LABELS[key] || key;
+  const code = (cause && cause.code) || 'E_SECRET_OPEN';
+  const err = new Error(
+    code === 'E_SECRET_KEY_MISMATCH'
+      ? `${label} قابل خواندن نیست؛ در تنظیمات → سینک موجودی وب‌سایت مقدار واقعی را دوباره وارد و ذخیره کنید`
+      : `${label} خراب یا ناخواناست؛ دوباره ذخیره کنید`
+  );
+  err.code = code;
+  err.key = key;
+  if (cause) err.cause = cause;
+  return err;
+}
+
+function openWebsiteSecret(db, key) {
+  try {
+    return getSetting(db, key);
+  } catch (e) {
+    throw secretOpenError(key, e);
+  }
+}
+
+/**
+ * Load website sync settings. Non-secrets first; decrypt only requested secrets
+ * so a stale Woo/webhook ciphertext cannot block Site-B2B enqueue/test/dry-run.
+ *
+ * opts.needB2b / needWoo / needWebhook:
+ *   undefined → infer from target (B2B/Woo) ; webhook never inferred (opt-in only)
+ */
+function getSettingsMap(db, opts = {}) {
+  const s = getSettings(db, [
     'website_stock_sync_enabled',
     'website_stock_sync_mode',
     'website_stock_webhook_url',
     'website_wc_url',
-    'website_wc_key',
-    'website_wc_secret',
-    'webhook_secret',
     'website_target',
     'website_b2b_url',
-    'website_b2b_token',
     'website_b2b_channel',
     'website_wh_wholesale_id',
     'website_wh_retail_id',
   ]);
+  s.website_b2b_token = '';
+  s.website_wc_key = '';
+  s.website_wc_secret = '';
+  s.webhook_secret = '';
+
+  const needB2b = opts.needB2b != null ? !!opts.needB2b : siteB2bEnabled(s);
+  const needWoo = opts.needWoo != null ? !!opts.needWoo : wooEnabled(s);
+  const needWebhook = !!opts.needWebhook;
+
+  if (needB2b) {
+    s.website_b2b_token = openWebsiteSecret(db, 'website_b2b_token');
+  }
+  if (needWoo) {
+    s.website_wc_key = openWebsiteSecret(db, 'website_wc_key');
+    s.website_wc_secret = openWebsiteSecret(db, 'website_wc_secret');
+  }
+  if (needWebhook) {
+    s.webhook_secret = openWebsiteSecret(db, 'webhook_secret');
+  }
+  return s;
 }
 
 function resolveTarget(s) {
@@ -188,11 +240,14 @@ async function fireStockWebhooks(db, product) {
     }
   }
   const payload = stockPayload(product);
-  const secret = getSetting(db, 'webhook_secret');
   const hooks = db.prepare('SELECT * FROM webhooks WHERE active=1').all()
     .filter((w) => String(w.events || '').includes('product.stock') || String(w.events || '').includes('*'));
-  const s = getSettingsMap(db);
-  if (s.website_stock_webhook_url) {
+  const s = getSettingsMap(db, { needB2b: false, needWoo: false });
+  const wantHookUrl = String(s.website_stock_webhook_url || '').trim();
+  const secret = wantHookUrl
+    ? openWebsiteSecret(db, 'webhook_secret')
+    : '';
+  if (wantHookUrl) {
     hooks.push({ url: s.website_stock_webhook_url, secret: secret || '' });
   }
   await Promise.all(hooks.map(async (h) => {
@@ -213,7 +268,7 @@ async function pushWooCommerceStock(db, product) {
       return { ok: false, simulated: true, demo: true, channel: 'woocommerce', code: 'demo_simulation' };
     }
   }
-  const s = getSettingsMap(db);
+  const s = getSettingsMap(db, { needB2b: false, needWoo: true });
   if (s.website_stock_sync_enabled !== '1') return { skipped: true };
   if (!['push', 'both'].includes(s.website_stock_sync_mode || 'pull')) return { skipped: true };
   const base = (s.website_wc_url || '').replace(/\/$/, '');
@@ -304,7 +359,7 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
       return { ok: false, simulated: true, demo: true, channel: 'site_b2b', code: 'demo_simulation' };
     }
   }
-  const s = getSettingsMap(db);
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   if (!syncPushEnabled(s) && !dryRun) return { skipped: true, reason: 'stock sync push disabled' };
   if (!siteB2bEnabled(s)) return { skipped: true, reason: 'site_b2b target disabled' };
   const base = normalizeBase(s.website_b2b_url);
@@ -341,7 +396,7 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
   const pid = parseInt(productId, 10);
   if (!pid) return { skipped: true };
   ensureWebsiteStockOutbox(db);
-  const s = getSettingsMap(db);
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   if (!syncPushEnabled(s) && !opts.force) return { skipped: true, reason: 'disabled' };
   if (!siteB2bEnabled(s) && !opts.force) return { skipped: true, reason: 'target' };
 
@@ -389,7 +444,7 @@ async function drainWebsiteStockOutbox(db) {
   _drainRunning = true;
   try {
     ensureWebsiteStockOutbox(db);
-    const s = getSettingsMap(db);
+    const s = getSettingsMap(db, { needB2b: true, needWoo: false });
     if (!syncPushEnabled(s)) return { skipped: true };
 
     const now = Math.floor(Date.now() / 1000);
@@ -490,8 +545,8 @@ function notifyStockChanged(db, productId) {
 async function testWebsiteConnection(arg) {
   const db = arg && typeof arg.prepare === 'function' ? arg : (arg && arg.db);
   if (!db) return { ok: false, target: '', status: 0, reason: 'missing db' };
-  const s = getSettingsMap(db);
-  const target = resolveTarget(s);
+  const baseMap = getSettingsMap(db, { needB2b: false, needWoo: false });
+  const target = resolveTarget(baseMap);
 
   try {
     const { guardDemoEgressOrBlock } = require('./demo-egress');
@@ -503,7 +558,8 @@ async function testWebsiteConnection(arg) {
     }
   }
 
-  if (siteB2bEnabled(s)) {
+  if (siteB2bEnabled(baseMap)) {
+    const s = getSettingsMap(db, { needB2b: true, needWoo: false });
     const base = normalizeBase(s.website_b2b_url);
     const token = String(s.website_b2b_token || '').trim();
     if (!base) return { ok: false, target, status: 0, reason: 'missing website_b2b_url' };
@@ -521,6 +577,7 @@ async function testWebsiteConnection(arg) {
     };
   }
 
+  const s = getSettingsMap(db, { needB2b: false, needWoo: true });
   const base = normalizeBase(s.website_wc_url);
   const key = String(s.website_wc_key || '').trim();
   const secret = String(s.website_wc_secret || '').trim();
@@ -534,7 +591,7 @@ async function testWebsiteConnection(arg) {
 
 /** Dry-run matrix for one product (no write on site). */
 async function dryRunProductMatrix(db, productId) {
-  const s = getSettingsMap(db);
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   const channels = configuredChannels(s);
   const results = [];
   for (const channel of channels) {
@@ -557,7 +614,8 @@ async function dryRunProductMatrix(db, productId) {
 /** Enqueue every product that has matrix variants for both configured channels. */
 function enqueueFullSync(db) {
   ensureWebsiteStockOutbox(db);
-  const s = getSettingsMap(db);
+  // Site-B2B outbox only — never require Woo/webhook secrets here.
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   if (!siteB2bEnabled(s)) return { ok: false, reason: 'site_b2b disabled' };
   const products = db.prepare(`
     SELECT DISTINCT product_id AS id FROM product_variants
@@ -614,5 +672,7 @@ module.exports = {
   siteApiUrl,
   siteB2bApiUrl,
   normalizeBase,
+  getSettingsMap,
+  secretOpenError,
   DEBOUNCE_MS,
 };

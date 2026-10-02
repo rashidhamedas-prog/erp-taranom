@@ -23194,6 +23194,19 @@ ROUTES.settings = async function(){
       </div>
     </div></div>`;
 
+  const unreadWebLabels=[];
+  if(s.website_b2b_token_unreadable) unreadWebLabels.push('کلید API موجودی سایت');
+  if(s.website_wc_key_unreadable) unreadWebLabels.push('کلید ووکامرس');
+  if(s.website_wc_secret_unreadable) unreadWebLabels.push('رمز ووکامرس');
+  if(s.webhook_secret_unreadable && String(s.website_stock_webhook_url||'').trim()) unreadWebLabels.push('رمز وب‌هوک');
+  const siteTarget=(s.website_target||'site_b2b');
+  const wooOnlyTarget=siteTarget==='woo'||siteTarget==='woocommerce';
+  const syncBlockedBySecret=!!s.website_b2b_token_unreadable && !wooOnlyTarget;
+  const unreadWebBanner=unreadWebLabels.length?`<div role="alert" data-csp-style="${CSP.style(`margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:12px;line-height:1.9`)}">
+        رمز ذخیره‌شده (<b>${unreadWebLabels.map(esc).join('، ')}</b>) با کلید فعلی سرور باز نمی‌شود.
+        مقدار واقعی (<code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت) را دوباره وارد کنید و <b>ذخیره تنظیمات</b> را بزنید —
+        ماسک <code>********</code> کافی نیست و کلید قدیمی را عوض نمی‌کند.
+      </div>`:'';
   const webPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (ماتریس رنگ×سایز)</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
@@ -23202,12 +23215,13 @@ ROUTES.settings = async function(){
         (<code dir="ltr">PUT /api/v1/erp/inventory/matrix</code>).
         کلید باید همان <code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت باشد — نه JWT ادمین.
       </div>
+      ${unreadWebBanner}
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'Push ماتریس از ERP به سایت بعد از هر حرکت انبار')}</div>
       <div class="form-grid">
         <div class="fg fg-md"><label>مقصد</label><select id="s-website_target">
-          <option value="site_b2b" ${(s.website_target||'site_b2b')==='site_b2b'?'selected':''}>Site-B2B</option>
-          <option value="woo" ${s.website_target==='woo'||s.website_target==='woocommerce'?'selected':''}>ووکامرس (قدیمی)</option>
-          <option value="both" ${s.website_target==='both'?'selected':''}>هر دو</option>
+          <option value="site_b2b" ${siteTarget==='site_b2b'?'selected':''}>Site-B2B</option>
+          <option value="woo" ${siteTarget==='woo'||siteTarget==='woocommerce'?'selected':''}>ووکامرس (قدیمی)</option>
+          <option value="both" ${siteTarget==='both'?'selected':''}>هر دو</option>
         </select></div>
         <div class="fg fg-md"><label>حالت</label><select id="s-website_stock_sync_mode">
           <option value="push" ${(s.website_stock_sync_mode||'push')==='push'?'selected':''}>Push از ERP به سایت</option>
@@ -23215,7 +23229,7 @@ ROUTES.settings = async function(){
           <option value="pull" ${s.website_stock_sync_mode==='pull'?'selected':''}>فقط Pull</option>
         </select></div>
         <div class="fg full"><label>آدرس API سایت</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://api.poshaktaranom.com"></div>
-        <div class="fg"><label>کلید API موجودی سایت</label><input id="s-website_b2b_token" type="text" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
+        <div class="fg"><label>کلید API موجودی سایت${s.website_b2b_token_unreadable?` <span data-csp-style="${CSP.style(`color:#b91c1c`)}">(باید دوباره وارد شود)</span>`:''}</label><input id="s-website_b2b_token" type="text" value="${s.website_b2b_token_unreadable?'':esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_unreadable?'کلید واقعی سایت را وارد کنید':(s.website_b2b_token_has_value?'********':'')}"></div>
         <div class="fg fg-md"><label>انبار عمده (WHOLESALE)</label>
           <select id="s-website_wh_wholesale_id">
             <option value="">— انتخاب انبار —</option>
@@ -23230,14 +23244,14 @@ ROUTES.settings = async function(){
         </div>
         <div class="fg full"><label>آدرس وب‌هوک موجودی (اختیاری)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://…"></div>
         <div class="fg"><label>آدرس ووکامرس (اختیاری)</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr"></div>
-        <div class="fg"><label>کلید ووکامرس</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-        <div class="fg"><label>رمز ووکامرس</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg"><label>کلید ووکامرس${s.website_wc_key_unreadable?` <span data-csp-style="${CSP.style(`color:#b91c1c`)}">(دوباره وارد کنید)</span>`:''}</label><input id="s-website_wc_key" value="${s.website_wc_key_unreadable?'':esc(s.website_wc_key||'')}" dir="ltr" placeholder="${s.website_wc_key_unreadable?'کلید واقعی':''}"></div>
+        <div class="fg"><label>رمز ووکامرس${s.website_wc_secret_unreadable?` <span data-csp-style="${CSP.style(`color:#b91c1c`)}">(دوباره وارد کنید)</span>`:''}</label><input id="s-website_wc_secret" value="${s.website_wc_secret_unreadable?'':esc(s.website_wc_secret||'')}" dir="ltr" placeholder="${s.website_wc_secret_unreadable?'رمز واقعی':''}"></div>
         <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
-          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال</button>
-          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
-          <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
+          <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال</button>
+          <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
+          <button type="button" class="btn" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
           <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">وضعیت صف</button>
-          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}"></span>
+          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${syncBlockedBySecret?'کلید API ناخواناست — ابتدا ذخیره مجدد':''}</span>
         </div>
         <div class="fg full"><label>کد کالا برای dry-run (id عددی ERP)</label>
           <input id="s-website-dryrun-pid" dir="ltr" placeholder="product id" data-csp-style="${CSP.style(`max-width:160px`)}">
@@ -24590,7 +24604,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run نگاشت / همگام‌سازی کامل / وضعیت صف از همین صفحه</li>
+        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run نگاشت / همگام‌سازی کامل / وضعیت صف از همین صفحه. اگر پیام «قابل خواندن نیست» دیدید، کلید را از env سایت دوباره وارد و ذخیره کنید (ماسک ******** کافی نیست)</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>

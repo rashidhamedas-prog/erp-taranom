@@ -63,6 +63,15 @@ router.get('/modules', auth, (req, res) => {
   res.json(obj);
 });
 
+function websiteSyncErrorBody(e, fallback) {
+  return {
+    ok: false,
+    error: (e && e.message) || fallback,
+    code: e && e.code ? String(e.code) : undefined,
+    key: e && e.key ? String(e.key) : undefined,
+  };
+}
+
 router.post('/website-test', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const sync = require('../lib/website-stock-sync');
@@ -72,7 +81,7 @@ router.post('/website-test', auth, adminOnly, centralOnly, async (req, res) => {
     const result = await sync.testWebsiteConnection({ db: getDB() });
     res.json(result);
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'آزمایش اتصال ناموفق' });
+    res.status(400).json(websiteSyncErrorBody(e, 'آزمایش اتصال ناموفق'));
   }
 });
 
@@ -84,7 +93,7 @@ router.post('/website-dry-run', auth, adminOnly, centralOnly, async (req, res) =
     const result = await sync.dryRunProductMatrix(getDB(), productId);
     res.json(result);
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'dry-run ناموفق' });
+    res.status(400).json(websiteSyncErrorBody(e, 'dry-run ناموفق'));
   }
 });
 
@@ -94,7 +103,7 @@ router.post('/website-full-sync', auth, adminOnly, centralOnly, async (req, res)
     const result = sync.enqueueFullSync(getDB());
     res.json(result);
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'همگام‌سازی کامل ناموفق' });
+    res.status(400).json(websiteSyncErrorBody(e, 'همگام‌سازی کامل ناموفق'));
   }
 });
 
@@ -103,7 +112,7 @@ router.get('/website-outbox', auth, adminOnly, centralOnly, (req, res) => {
     const sync = require('../lib/website-stock-sync');
     res.json(sync.outboxStatus(getDB()));
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'خواندن outbox ناموفق' });
+    res.status(400).json(websiteSyncErrorBody(e, 'خواندن outbox ناموفق'));
   }
 });
 

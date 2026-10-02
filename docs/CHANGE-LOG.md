@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — همگام‌سازی سایت: خطای decrypt کلید API (SW v291)
+
+- **ریشه:** `website_b2b_token` با `DATA_ENCRYPTION_KEY` فعلی باز نمی‌شود (`E_SECRET_KEY_MISMATCH`). GET تنظیمات از v290 تحمل می‌کند، ولی test/dry-run/full-sync همهٔ secretها را یکجا decrypt می‌کرد و پیام انگلیسی crypto را toast می‌کرد؛ UI هم پرچم `*_unreadable` را نشان نمی‌داد.
+- **رفع کد:** `getSettingsMap` فقط secret مقصد فعال را باز می‌کند + پیام فارسی با `code`/`key`؛ بنر قرمز + خالی کردن فیلد ناخوانا + غیرفعال کردن دکمه‌های سینک تا ذخیرهٔ مجدد؛ Help به‌روز.
+- **عملیات:** توکن از `ERP_INVENTORY_API_KEY` سایت دوباره با کلید فعلی سرور ذخیره می‌شود (ماسک ******** کافی نیست).
+- **فایل‌ها:** `website-stock-sync.js`, `routes/settings.js`, `public/{app.js,sw.js,index.html}`, `test-website-full-sync-secret-v291.js`, CHANGE-LOG.
+- **تست:** `test-website-full-sync-secret-v291` 12/0؛ `test-sms` 22/0؛ `test-website-stock-matrix-v256` OK.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — ERP→سایت: مسیر `/v1` + رفع SSRF lookup برای push موجودی
 
 - **ریشه ۱:** push به `api.poshaktaranom.com/api/v1/erp/inventory/*` → Nest فقط `/v1/*` دارد (۴۰۴).
