@@ -12,8 +12,8 @@
 - **حذف:** `DELETE /payroll/:id` سند حقوق پرداخت‌نشده را حذف می‌کند؛ `DELETE /payroll/periods/:id/calculations` محاسبات دوره را پاک می‌کند (بدون سند ابطالی).
 - **انبار:** فیلد `inventory_system` روی هر انبار (`perpetual`/`periodic`). بستن دوره ادواری: `POST /warehouses/:id/period-close` با COGS = اول‌دوره + خرید − پایان‌دوره و سند تعدیل. فروش از انبار ادواری بهای دائمی لحظه‌ای نمی‌زند.
 - **فایل‌ها:** `void-journal.js`, `payroll/{schema,rulings}.js`, `routes/{payroll,warehouses,invoices}.js`, `inventory/periodic-close.js`, `sales-document.js`, `coa-map.js`, `sync/tables.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wh-v285.js`.
-- **تست:** `node server/scripts/test-payroll-wh-v285.js`؛ `test-sms` 22/0. `test-sync` روی Node 24 این میزبان به‌خاطر ABI بالا نمی‌آید.
-- **Deploy:** ✅ `cb34ba1` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v285`.
+- **تست:** روی ایران `test-sms` **22/0** و `test-payroll-wh-v285` **12/0**. `test-sync` روی Node 24 این میزبان به‌خاطر ABI بالا نمی‌آید.
+- **Deploy:** ✅ `45f6635` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v285`.
 
 ---
 
