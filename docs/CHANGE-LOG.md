@@ -10,8 +10,8 @@
 - **هدف:** مدیر بفهمد کدام کالا چه شده، نه لاگ خام `#21 p11 WHOLESALE unmatched=…`.
 - **رفع:** `outboxStatus` با join نام/کد کالا + `summarizeOutboxRow`؛ UI کارت‌محور با کانال عمده/خرده‌فروشی، نتیجه، قدم بعد و نمونه رنگ/سایز.
 - **فایل‌ها:** `website-stock-sync.js`, `public/{app.js,sw.js,index.html}`, `test-website-outbox-summary-v293.js`, CHANGE-LOG.
-- **تست:** `test-website-outbox-summary-v293` + sms.
-- **Deploy:** ⏳
+- **تست:** `test-website-outbox-summary-v293` 11/0؛ sms 22/0؛ روی ایران نمونه: «کت و دامن کتان طنین — 7080 / کد کالا در سایت پیدا نشد».
+- **Deploy:** ✅ `a92fb42` — ایران overlay + `pm2 restart` بدون `--update-env`، SW `erp-taranom-v293`.
 
 ---
 
