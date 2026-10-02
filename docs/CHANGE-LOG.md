@@ -11,7 +11,7 @@
 - **رفع:** اگر جمع برنامه رنگ×سایز با `qty_out` نهایی یکی باشد → تأیید یک‌کلیکی با همان سطرهای برنامه (بدون مودال اجباری). مودال فقط وقتی برنامه خالی است یا با خروجی فرق دارد.
 - **فایل‌ها:** `server/public/{app.js,sw.js,index.html}`, CHANGE-LOG.
 - **تست:** استاتیک + `test-sms`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `a253e38` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v287`.
 
 ---
 
