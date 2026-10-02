@@ -772,6 +772,10 @@ function postStageCore(db, {
     `).run(qtyOut, costOut, date, nxt.id);
   }
 
+  // variable_adv: materials already added on the order in issueStageMaterials (PRD-01).
+  // Re-adding here doubled material_cost_rial and blocked close (E_WIP_NOT_ZERO / PO-0006).
+  const orderMat = mode === 'variable' ? 0 : matRial;
+  const orderPkg = mode === 'variable' ? 0 : pkgRial;
   db.prepare(`
     UPDATE production_orders SET
       material_cost_rial = material_cost_rial + ?,
@@ -788,7 +792,7 @@ function postStageCore(db, {
       updated_at = strftime('%s','now')
     WHERE id=?
   `).run(
-    matRial, pkgRial, laborRial, oh.amount_rial || 0, subcontractRial,
+    orderMat, orderPkg, laborRial, oh.amount_rial || 0, subcontractRial,
     abnormalRial, scrapCredit, wN, wA, date, orderId
   );
 

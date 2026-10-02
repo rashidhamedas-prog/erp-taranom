@@ -5,6 +5,18 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — بستن سفارش: دوباره‌شماری مواد variable + پیام WIP (SW v289)
+
+- **ریشه «بستن» PO-0006:** در `variable_adv`، `issueStageMaterials` بهای مواد را به `production_orders.material_cost_rial` می‌افزاید و `postStageCore` همان مبلغ را دوباره اضافه می‌کرد → مانده WIP ≠ ۰ → `E_WIP_NOT_ZERO` با toast مبهم «خطا رخ داد» (و دوبار به‌خاطر catch).
+- **رفع:** در حالت variable، تکمیل مرحله دیگر mat/pkg را روی سفارش جمع نمی‌زند. پیام `E_WIP_NOT_ZERO`/`E_INVALID_STATUS` فارسی با مبلغ مانده؛ toast تکراری close حذف شد؛ اولویت پیام فارسی سرور در `api()`.
+- **حقوق برشکار:** جذب دستمزد مرحله (piece/monthly از نرخ مرکز) به ماژول حقوق نمی‌رود — طراحی جداست؛ Help به‌روز شد. برای ماهانه باید `monthly_labor_rate_rial` مرکز پر شود؛ حقوق واقعی از محاسبهٔ دوره حقوق.
+- **تعمیر داده:** اسکریپت یک‌بار `scripts/_repair-var-mat-double-v289.py` برای سفارش‌های دوبرابر‌شده (از جمله PO-0006).
+- **فایل‌ها:** `engine-advanced.js`, `engine.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-acc-var-mat-once-v289.js`, CHANGE-LOG.
+- **تست:** `test-prod-acc-var-mat-once-v289` + `test-sms`.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — سخت‌سازی UX نهایی‌سازی ماتریس (SW v288)
 
 - **Prefill:** سطرهای `matrix_lines` بدون `variant_id` از `color_id`×`size_id` به variant مپ می‌شوند.

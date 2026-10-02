@@ -430,9 +430,17 @@ function wipResidual(db, orderId) {
 function closeOrder(db, orderId, userId) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
-    if (po.status !== 'completed') throw err('E_INVALID_STATUS', 409, { status: po.status });
+    if (po.status !== 'completed') {
+      const fail = err('E_INVALID_STATUS', 409, { status: po.status });
+      fail.message = `فقط سفارش تکمیل‌شده قابل بستن است (وضعیت فعلی: ${po.status || '—'})`;
+      throw fail;
+    }
     const residual = wipResidual(db, orderId);
-    if (Math.abs(residual) > 5) throw err('E_WIP_NOT_ZERO', 409, { residual });
+    if (Math.abs(residual) > 5) {
+      const fail = err('E_WIP_NOT_ZERO', 409, { residual: Math.round(residual) });
+      fail.message = `مانده WIP صفر نیست (${Math.round(residual).toLocaleString('en-US')} ریال) — بهای ثبت‌شده روی سفارش با رسید تولید هم‌خوان نیست`;
+      throw fail;
+    }
     db.prepare(`
       UPDATE production_orders SET status='closed', closed_by=?, closed_at=strftime('%s','now')
       WHERE id=?
