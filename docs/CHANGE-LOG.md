@@ -14,7 +14,7 @@
 - **عملیات:** سینک prod فعال (`push`، WH عمده=۳۵ کیمیا، تک=۳۴ محصول، URL api، توکن هم‌تراز سایت). لوله زنده است؛ هم‌پوشانی SKU کاتالوگ ERP↔سایت تقریباً صفر است (مسدودکنندهٔ parity کامل — ادامه در Site `erp_product_map`).
 - **فایل‌ها:** `website-stock-sync.js`, `safe-outbound-request.js`, `test-website-stock-url-v279.js`, `test-website-stock-matrix-v256.js`, `test-safe-outbound-lookup-v279.js`, CHANGE-LOG.
 - **تست:** URL v279 + matrix v256 + safe-outbound-lookup + SSRF suite 55/0.
-- **Deploy:** ⏳ commit این ورودی.
+- **Deploy:** ✅ `c0a38ea` — ایران overlay `website-stock-sync.js` + `safe-outbound-request.js`، `pm2 restart` بدون `--update-env`، health 200؛ تنظیمات سینک prod فعال.
 
 ---
 
