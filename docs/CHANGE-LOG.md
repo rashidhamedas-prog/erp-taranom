@@ -13,7 +13,7 @@
 - **R11:** قالب حواله فیلد `avg_cost_ok` می‌دهد که `stripCostFields` حذفش نمی‌کند — اپراتور بدون دید بها هم گیت درست می‌بیند.
 - **فایل‌ها:** `public/{app.js,sw.js,index.html}`، `engine.js`، `engine-advanced.js`، `scripts/test-zero-avg-cost-ux-v283.js`، CHANGE-LOG.
 - **تست:** `node server/scripts/test-zero-avg-cost-ux-v283.js`؛ `test-sms` / `test-sync`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `b7668b6` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v283`؛ `test-sms` 22/0؛ `test-zero-avg-cost-ux-v283` **13/0**.
 
 ---
 
