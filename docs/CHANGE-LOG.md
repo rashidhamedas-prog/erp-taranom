@@ -11,8 +11,8 @@
 - **رفع کد:** `getSettingsMap` فقط secret مقصد فعال را باز می‌کند + پیام فارسی با `code`/`key`؛ بنر قرمز + خالی کردن فیلد ناخوانا + غیرفعال کردن دکمه‌های سینک تا ذخیرهٔ مجدد؛ Help به‌روز.
 - **عملیات:** توکن از `ERP_INVENTORY_API_KEY` سایت دوباره با کلید فعلی سرور ذخیره می‌شود (ماسک ******** کافی نیست).
 - **فایل‌ها:** `website-stock-sync.js`, `routes/settings.js`, `public/{app.js,sw.js,index.html}`, `test-website-full-sync-secret-v291.js`, CHANGE-LOG.
-- **تست:** `test-website-full-sync-secret-v291` 12/0؛ `test-sms` 22/0؛ `test-website-stock-matrix-v256` OK.
-- **Deploy:** ⏳
+- **تست:** `test-website-full-sync-secret-v291` 12/0؛ `test-sms` 22/0؛ `test-website-stock-matrix-v256` OK؛ روی ایران همان تست + ping موجودی سایت ۲۰۰.
+- **Deploy:** ✅ `bac1a2f` — ایران overlay SFTP، reseal `website_b2b_token` از `ERP_INVENTORY_API_KEY` سایت با `DATA_ENCRYPTION_KEY` فعلی PM2، `pm2 restart` بدون `--update-env`، root 200، SW `erp-taranom-v291`؛ `token_unreadable=false` و ping `200`.
 
 ---
 
