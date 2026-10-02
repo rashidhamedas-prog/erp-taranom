@@ -5,6 +5,19 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — ERP→سایت: مسیر `/v1` + رفع SSRF lookup برای push موجودی
+
+- **ریشه ۱:** push به `api.poshaktaranom.com/api/v1/erp/inventory/*` → Nest فقط `/v1/*` دارد (۴۰۴).
+- **رفع ۱:** `siteApiUrl()` — میزبان `api.*`/پورت مستقیم → `/v1/...`؛ ویترین → `/api/v1/...`.
+- **ریشه ۲:** `safeRequestJSON` با Node≥18 و `lookup({all:true})` → `ERR_INVALID_IP_ADDRESS` (پینگ/پوش قطع).
+- **رفع ۲:** `pinnedLookup` + اجازهٔ هدر `x-api-key`.
+- **عملیات:** سینک prod فعال (`push`، WH عمده=۳۵ کیمیا، تک=۳۴ محصول، URL api، توکن هم‌تراز سایت). لوله زنده است؛ هم‌پوشانی SKU کاتالوگ ERP↔سایت تقریباً صفر است (مسدودکنندهٔ parity کامل — ادامه در Site `erp_product_map`).
+- **فایل‌ها:** `website-stock-sync.js`, `safe-outbound-request.js`, `test-website-stock-url-v279.js`, `test-website-stock-matrix-v256.js`, `test-safe-outbound-lookup-v279.js`, CHANGE-LOG.
+- **تست:** URL v279 + matrix v256 + safe-outbound-lookup + SSRF suite 55/0.
+- **Deploy:** ⏳ commit این ورودی.
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — GET /api/settings دیگر با secret ناخوانا ۵۰۰ نمی‌شود (SW v290)
 
 - **ریشه:** ورود به حسابداری `GET /api/settings` را می‌زند؛ یکی از secretهای رمزشده با کلید فعلی باز نمی‌شود (`E_SECRET_KEY_MISMATCH`) و error handler عمومی «خطای داخلی سرور» برمی‌گرداند.

@@ -13,6 +13,7 @@ const {
   channelWarehouseId,
   configuredChannels,
   resolveTarget,
+  siteB2bApiUrl,
 } = require('../lib/website-stock-sync');
 
 function ok(cond, msg) {
@@ -160,6 +161,27 @@ ok(configuredChannels({
   website_wh_retail_id: '20',
 }).join(',') === 'WHOLESALE,RETAIL', 'both channels');
 
+ok(
+  siteB2bApiUrl('https://api.poshaktaranom.com', 'erp/inventory/matrix')
+    === 'https://api.poshaktaranom.com/v1/erp/inventory/matrix',
+  'api host → /v1 matrix'
+);
+ok(
+  siteB2bApiUrl('https://poshaktaranom.com', 'erp/inventory/ping')
+    === 'https://poshaktaranom.com/api/v1/erp/inventory/ping',
+  'storefront → /api/v1 ping'
+);
+ok(
+  siteB2bApiUrl('https://x.example/v1', 'erp/inventory/matrix')
+    === 'https://x.example/v1/erp/inventory/matrix',
+  'base ends /v1'
+);
+ok(
+  siteB2bApiUrl('https://x.example/api/v1', 'erp/inventory/matrix')
+    === 'https://x.example/api/v1/erp/inventory/matrix',
+  'base ends /api/v1'
+);
+
 const db = makeFakeDb({
   settings: {
     website_stock_sync_enabled: '1',
@@ -239,3 +261,4 @@ ok(enq.ok && enq.enqueued === 2, 'enqueue both channels');
 ok(db._outbox.size === 2, 'outbox pending rows');
 
 console.log('ALL PASS');
+process.exit(0);

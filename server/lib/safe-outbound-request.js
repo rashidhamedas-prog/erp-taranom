@@ -171,14 +171,14 @@ function sanitizeRedirectHeaders(headers, fromUrl, toUrl) {
   const out = { ...(headers || {}) };
   if (fromUrl.origin !== toUrl.origin) {
     for (const key of Object.keys(out)) {
-      if (/^(authorization|proxy-authorization|cookie|x-webhook-secret)$/i.test(key)) delete out[key];
+      if (/^(authorization|proxy-authorization|cookie|x-webhook-secret|x-api-key)$/i.test(key)) delete out[key];
     }
   }
   return out;
 }
 
 function sanitizeCallerHeaders(headers) {
-  const allowed = new Set(['authorization', 'x-webhook-secret', 'user-agent']);
+  const allowed = new Set(['authorization', 'x-api-key', 'x-webhook-secret', 'user-agent']);
   const out = {};
   for (const [key, rawValue] of Object.entries(headers || {})) {
     const lower = String(key).toLowerCase();
@@ -188,10 +188,27 @@ function sanitizeCallerHeaders(headers) {
       throw new OutboundUrlError('هدر ارتباط خروجی معتبر نیست', 'OUTBOUND_HEADER_REJECTED');
     }
     const canonical = lower === 'authorization' ? 'Authorization'
+      : lower === 'x-api-key' ? 'x-api-key'
       : lower === 'x-webhook-secret' ? 'X-Webhook-Secret' : 'User-Agent';
     out[canonical] = value;
   }
   return out;
+}
+
+/** Node ≥18 may call custom lookup with `{ all: true }` (Happy Eyeballs). */
+function pinnedLookup(address, family) {
+  return function lookup(_hostname, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    const fam = Number(family) || 4;
+    if (options && options.all) {
+      callback(null, [{ address, family: fam }]);
+      return;
+    }
+    callback(null, address, fam);
+  };
 }
 
 function dispatchHttps(target, { method, data, headers, timeoutMs, maxResponseBytes }) {
@@ -210,7 +227,7 @@ function dispatchHttps(target, { method, data, headers, timeoutMs, maxResponseBy
       method,
       headers: requestHeaders,
       servername: net.isIP(target.hostname) ? undefined : target.hostname,
-      lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
+      lookup: pinnedLookup(target.address, target.family),
       timeout: timeoutMs,
       rejectUnauthorized: true,
     }, (res) => {
@@ -298,5 +315,5 @@ module.exports = {
   assertSafeOutboundTarget,
   safeRequestJSON,
   sanitizeRedirectHeaders,
-  _test: { isPublicIPv4, isPublicIPv6, expandIPv6, dispatchHttps, sanitizeCallerHeaders },
+  _test: { isPublicIPv4, isPublicIPv6, expandIPv6, dispatchHttps, sanitizeCallerHeaders, pinnedLookup },
 };

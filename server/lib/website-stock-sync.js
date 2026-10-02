@@ -4,7 +4,9 @@
  * System of record: variant_warehouse_stock for the warehouse configured
  * per channel (website_wh_wholesale_id / website_wh_retail_id).
  *
- * Push contract: PUT {base}/api/v1/erp/inventory/matrix
+ * Push contract: PUT {resolved}/erp/inventory/matrix
+ * URL resolution via siteApiUrl(): Nest API hosts (api.*) use /v1/...;
+ * storefront origins use nginx /api/v1/... (strip /api on proxy).
  * Auth: Bearer / x-api-key = website_b2b_token (ERP_INVENTORY_API_KEY on site).
  *
  * Outbox + debounce coalesce bursts (invoice line storms) into one push per
@@ -63,6 +65,44 @@ function normalizeBase(urlStr) {
   return String(urlStr || '').trim().replace(/\/+$/, '');
 }
 
+/**
+ * Build Site-B2B Nest inventory URL from configured base + resource path.
+ * resourcePath examples: `erp/inventory/matrix`, `erp/inventory/ping`
+ *
+ * - base already ends with `/api/v1` or `/v1` → append resource
+ * - host `api.*` or direct API (port 4000) → `${base}/v1/...`
+ * - else storefront origin → `${base}/api/v1/...` (nginx strips `/api`)
+ */
+function siteApiUrl(base, resourcePath) {
+  const root = normalizeBase(base);
+  const path = String(resourcePath || '').replace(/^\/+/, '');
+  if (!root || !path) return '';
+
+  const lower = root.toLowerCase();
+  if (lower.endsWith('/api/v1') || lower.endsWith('/v1')) {
+    return `${root}/${path}`;
+  }
+
+  let host = '';
+  let port = '';
+  try {
+    const u = new URL(root.includes('://') ? root : `https://${root}`);
+    host = String(u.hostname || '').toLowerCase();
+    port = String(u.port || '');
+  } catch {
+    // fall through to storefront default
+  }
+
+  const isLoopback = host === 'localhost' || host.startsWith('127.');
+  const isNonStandardPort = port && port !== '80' && port !== '443';
+  const isDirectApi = host.startsWith('api.') || port === '4000' || isLoopback || isNonStandardPort;
+  if (isDirectApi) return `${root}/v1/${path}`;
+  return `${root}/api/v1/${path}`;
+}
+
+/** @deprecated use siteApiUrl */
+const siteB2bApiUrl = siteApiUrl;
+
 function b2bAuthHeaders(token) {
   return {
     Authorization: `Bearer ${String(token || '').trim()}`,
@@ -97,7 +137,9 @@ async function requestJSON(urlStr, method, body, headers = {}) {
       maxRedirects: 3,
     });
   } catch (error) {
-    return { status: 0, body: error && error.code ? error.code : 'outbound request rejected' };
+    const code = error && error.code ? String(error.code) : '';
+    const msg = error && error.message ? String(error.message) : 'outbound request rejected';
+    return { status: 0, body: code || msg, reason: code || msg };
   }
 }
 
@@ -277,7 +319,7 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
     variants: payload.variants,
     dryRun: !!dryRun,
   };
-  const url = `${base}/api/v1/erp/inventory/matrix`;
+  const url = siteApiUrl(base, 'erp/inventory/matrix');
   const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token));
   let parsed = null;
   try { parsed = JSON.parse(res.body); } catch { /* */ }
@@ -466,7 +508,7 @@ async function testWebsiteConnection(arg) {
     const token = String(s.website_b2b_token || '').trim();
     if (!base) return { ok: false, target, status: 0, reason: 'missing website_b2b_url' };
     if (!token) return { ok: false, target, status: 0, reason: 'missing website_b2b_token' };
-    const res = await requestJSON(`${base}/api/v1/erp/inventory/ping`, 'GET', null, b2bAuthHeaders(token));
+    const res = await requestJSON(siteApiUrl(base, 'erp/inventory/ping'), 'GET', null, b2bAuthHeaders(token));
     const ok = res.status >= 200 && res.status < 300;
     const whW = channelWarehouseId(s, 'WHOLESALE');
     const whR = channelWarehouseId(s, 'RETAIL');
@@ -569,5 +611,8 @@ module.exports = {
   resolveTarget,
   channelWarehouseId,
   configuredChannels,
+  siteApiUrl,
+  siteB2bApiUrl,
+  normalizeBase,
   DEBOUNCE_MS,
 };

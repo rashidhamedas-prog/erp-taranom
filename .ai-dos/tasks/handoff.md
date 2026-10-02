@@ -1,4 +1,10 @@
-﻿## 2026-10-02 — PROD-ACC wave closed through SW v281
+﻿## 2026-10-02 — Website stock sync pipe (ERP→site) — reclaim note
+
+- Owner: this session (skill-top full). Touched unclaimed `server/lib/website-stock-sync.js`, `safe-outbound-request.js`, tests; **appended** `docs/CHANGE-LOG.md` (shared with PROD-ACC — notify).
+- Did **not** edit claimed `server/public/{app.js,index.html,sw.js}`.
+- Prod: sync enabled; ping 200 after SSRF fix. Catalog SKU mismatch remains (Site report `docs/reports/2026-10-02-erp-inventory-sync.md` in Site B2B).
+
+## 2026-10-02 — PROD-ACC wave closed through SW v281
 
 - Shipped on `main` / `ai/PROD-ACC-PA02-posting-core`: F02–F09, F01 inventory path, BOM matrix, reopen CAS, legacy production gate, pack+PO warehouseOnly, finalize relieves staged WIP qty.
 - Iran: SW `erp-taranom-v281`, health 200. pack-po-wip **26/0**, F09 reopen **42/0**, sms **22/0**.
