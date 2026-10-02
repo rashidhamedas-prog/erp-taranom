@@ -13,19 +13,7 @@
 - **UX:** در حواله مرحله و حواله متغیر، حسابدار بهای هر واحد را همان‌جا می‌نویسد و «ثبت بها» می‌زند؛ اپراتور فقط نام کالا و درخواست از حسابداری را می‌بیند.
 - **فایل‌ها:** `inventory/seed-avg.js`, `opening-post.js`, `product-quick.js`, `routes/{inventory,products}.js`, `sync/capture.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-seed-avg-v284.js`.
 - **تست:** `node server/scripts/test-seed-avg-v284.js` **10/0**؛ `test-sms` **22/0**. `test-sync` روی ویندوز این میزبان به‌خاطر ABIی better-sqlite3 بالا نمی‌آید.
-- **Deploy:** ⏳
-
----
-
-### ۱۴۰۵/۰۷/۱۰ — بهای اولیه از حواله + بستن موجودی بدون بها (SW v284)
-
-- **ریشه:** کالا با موجودی و `average_cost_rial=0` (اول‌دوره/اکسل بدون بها) باعث `E_ZERO_AVG_COST` می‌شد. حواله با بهای صفر همچنان ممنوع است (ADR-011).
-- **رفع داده:** `POST /api/inventory/seed-avg-cost` (حسابدار/ادمین) میانگین را می‌گذارد و اگر سند افتتاحیه نباشد، بدهکار موجودی / بستانکار تراز افتتاحیه می‌زند — تعداد عوض نمی‌شود. `postProductOpeningInventory` دیگر میانگین را صفر نمی‌گذارد.
-- **جلوگیری:** ساخت کالا، اکسل، و `PATCH stock` با موجودی و بدون بها → `422` با پیام فارسی.
-- **UX:** در حواله مرحله و حواله متغیر، حسابدار بهای هر واحد را همان‌جا می‌نویسد و «ثبت بها» می‌زند؛ اپراتور فقط نام کالا و درخواست از حسابداری را می‌بیند.
-- **فایل‌ها:** `inventory/seed-avg.js`, `opening-post.js`, `product-quick.js`, `routes/{inventory,products}.js`, `sync/capture.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-seed-avg-v284.js`.
-- **تست:** `node server/scripts/test-seed-avg-v284.js` **10/0**؛ `test-sms` **22/0**. `test-sync` روی ویندوز این میزبان به‌خاطر ABIی better-sqlite3 بالا نمی‌آید.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `77e07ce` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v284`؛ `test-sms` 22/0؛ `test-seed-avg-v284` **10/0**.
 
 ---
 
