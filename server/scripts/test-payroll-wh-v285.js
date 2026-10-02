@@ -93,6 +93,8 @@ const whId = db.prepare(`
   INSERT INTO warehouses (name, inventory_system) VALUES ('انبار ادواری تست','periodic')
 `).run().lastInsertRowid;
 ok(getWarehouseSystem(db, whId) === 'periodic', 'warehouse system periodic');
+const userId = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get().id;
+const prodId = db.prepare('INSERT INTO products (user_id, name, warehouse_id, stock) VALUES (?,?,?,0)').run(userId, 'کالای تست ادواری', whId).lastInsertRowid;
 const closed = closePeriodicWarehouse(db, {
   warehouseId: whId,
   periodLabel: '1405/01',
@@ -100,8 +102,8 @@ const closed = closePeriodicWarehouse(db, {
   endDate: '1405/01/31',
   beginningInventoryRial: 1000000,
   purchasesRial: 500000,
-  counts: [{ product_id: 1, qty: 2, unit_cost_rial: 400000 }],
-  userId: 1,
+  counts: [{ product_id: prodId, qty: 2, unit_cost_rial: 400000 }],
+  userId,
 });
 ok(closed.cogs_rial === 700000, 'COGS = BI+Purchases-EI (1_000_000+500_000-800_000)');
 ok(closed.journal_entry_id > 0, 'adjustment JE posted');
