@@ -11,7 +11,7 @@
 - **Toast دوبار:** `catch` بعد از `api()` دیگر toast تکراری نمی‌زند.
 - **Fallback:** اگر لیست variant خالی باشد ولی سفارش `has_matrix_lines`/`matrix_lines` داشته باشد، POST بدون body و اتکا به auto-plan سرور.
 - **فایل‌ها:** `server/public/{app.js,sw.js,index.html}`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `5782f25` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health 200، SW `erp-taranom-v288`.
 
 ---
 
