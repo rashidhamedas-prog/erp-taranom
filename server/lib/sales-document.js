@@ -561,6 +561,17 @@ function perpetualDocsEnabled(db) {
   return true;
 }
 
+/** Perpetual valuation for a warehouse — periodic warehouses defer COGS to period close. */
+function warehouseUsesPerpetualValuation(db, warehouseId) {
+  if (!perpetualDocsEnabled(db)) return false;
+  if (!warehouseId) return true;
+  try {
+    const { isPeriodicWarehouse } = require('./inventory/periodic-close');
+    if (isPeriodicWarehouse(db, warehouseId)) return false;
+  } catch (_) {}
+  return true;
+}
+
 module.exports = {
   FIRM_TYPES,
   ALL_TYPES,
@@ -586,5 +597,6 @@ module.exports = {
   reverseStockBySource,
   postCogsFromMovements,
   perpetualDocsEnabled,
+  warehouseUsesPerpetualValuation,
   reservedQty,
 };

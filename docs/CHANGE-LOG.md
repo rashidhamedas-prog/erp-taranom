@@ -5,6 +5,18 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — حذف سند ابطالی، حکم چندگانه حقوق، روش ثبت انبار (SW v285)
+
+- **سند ابطالی:** `reverseJournalEntry` دیگر سند معکوس جدا نمی‌سازد؛ سند اصلی `status=reversed` + `deleted_at` می‌شود. مهاجرت یک‌بار `purge_reversal_docs_v285` اسناد ابطالی تاریخی را از DB حذف و اصل را soft-void می‌کند تا تراز بماند.
+- **حکم حقوق:** چند حکم برای هر شخص (حذف UNIQUE سال/شخص)؛ تاریخ صدور و اجرا؛ مبنای محاسبه = آخرین حکم فعال در بازه دوره؛ معوقه ماه‌های بدون سند همراه اولین محاسبه. ماه دارای سند حقوق قفل است (`E_PAYROLL_MONTH_LOCKED` / `E_RULING_LOCKED_BY_PAYROLL`).
+- **حذف:** `DELETE /payroll/:id` سند حقوق پرداخت‌نشده را حذف می‌کند؛ `DELETE /payroll/periods/:id/calculations` محاسبات دوره را پاک می‌کند (بدون سند ابطالی).
+- **انبار:** فیلد `inventory_system` روی هر انبار (`perpetual`/`periodic`). بستن دوره ادواری: `POST /warehouses/:id/period-close` با COGS = اول‌دوره + خرید − پایان‌دوره و سند تعدیل. فروش از انبار ادواری بهای دائمی لحظه‌ای نمی‌زند.
+- **فایل‌ها:** `void-journal.js`, `payroll/{schema,rulings}.js`, `routes/{payroll,warehouses,invoices}.js`, `inventory/periodic-close.js`, `sales-document.js`, `coa-map.js`, `sync/tables.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wh-v285.js`.
+- **تست:** `node server/scripts/test-payroll-wh-v285.js`؛ `test-sms` / `test-sync`.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۰ — بهای اولیه از حواله + بستن موجودی بدون بها (SW v284)
 
 - **ریشه:** کالا با موجودی و `average_cost_rial=0` (اول‌دوره/اکسل بدون بها) باعث `E_ZERO_AVG_COST` می‌شد. حواله با بهای صفر همچنان ممنوع است (ADR-011).

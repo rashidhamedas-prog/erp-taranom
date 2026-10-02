@@ -227,6 +227,8 @@ const SYNCABLE_TABLES = [
   { name: 'bom_material_assignments',          upsertKey: 'id' },
   { name: 'bom_allowed_variants',              upsertKey: 'id' },
   { name: 'production_order_lines',            upsertKey: 'id' },
+  // WH inventory system — periodic period closes (append-only)
+  { name: 'warehouse_period_closes',           upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -520,6 +522,9 @@ const FK_COLUMNS = [
   ['production_order_lines', 'variant_id'],
   ['production_order_lines', 'color_id'],
   ['production_order_lines', 'size_id'],
+  // WH periodic close (append-only)
+  ['warehouse_period_closes', 'warehouse_id'],
+  ['warehouse_period_closes', 'adjustment_journal_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

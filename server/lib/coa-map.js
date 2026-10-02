@@ -78,6 +78,8 @@ const LEGACY = {
   coa_bank_interest:          { code: '4115', name: 'سود سپرده بانکی' },
   // GRNI — goods received not invoiced (append-only)
   coa_grni:                   { code: '2112', name: 'کالای دریافت‌شده فاکتورنشده (GRNI)' },
+  // Periodic inventory — temporary purchases account until period close
+  coa_purchases_temp:         { code: '5102', name: 'خرید کالا (ادواری)' },
 };
 
 let _cache = null, _cacheAt = 0;
@@ -258,6 +260,7 @@ function baseCoaTree() {
     ['4206', 'سود تسعیر ارز', 'revenue', '4000', 2],
     ['5000', 'بهای تمام‌شده کالای فروش رفته', 'cogs', null, 1],
     ['5101', 'بهای تمام‌شده کالای فروش رفته', 'cogs', '5000', 2],
+    ['5102', 'خرید کالا (ادواری)', 'cogs', '5000', 2],
     ['6000', 'هزینه‌ها', 'expense', null, 1],
     ['5200', 'حساب‌های کنترل تولید', 'expense', '6000', 2],
     ['5201', 'کنترل دستمزد مستقیم', 'expense', '5200', 2],

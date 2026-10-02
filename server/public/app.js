@@ -11292,21 +11292,59 @@ async function renderWarehousesTab(body){
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/warehouses" data-bulk-label="حذف" data-bulk-confirm="{n} انبار حذف شود؟"><thead><tr>
-      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${warehouses.map(w=>`<tr data-id="${w.id}">
       <td class="mono">${esc(w.code||'-')}</td>
       <td>${esc(w.name)}</td>
       <td>${entityMap[w.entity]||w.entity||'-'}</td>
       <td>${typeMap[w.warehouse_type]||w.warehouse_type||'-'}</td>
+      <td>${w.inventory_system==='periodic'?'ادواری':'دائمی'}</td>
       ${tdClip(w.address||'-', 180, true)}
       <td>${w.is_default?'<span class="tag t-done">✓</span>':'-'}</td>
       <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){viewWarehouseStock((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📦 موجودی</button>
+        ${w.inventory_system==='periodic'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){warehousePeriodCloseModal((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📅 بستن دوره</button>`:''}
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){warehouseModal((w.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteWarehouse((w.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+}
+function warehousePeriodCloseModal(id,name){
+  const ym=todayJalali().slice(0,7);
+  openModal(`<div class="modal-head"><h3>بستن دوره ادواری — ${esc(name||'')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="fg"><label>برچسب دوره</label><input id="wpc-label" value="${esc(ym)}"></div>
+    <div class="fg"><label>از تاریخ</label><input id="wpc-from" value="${esc(ym+'/01')}"></div>
+    <div class="fg"><label>تا تاریخ</label><input id="wpc-to" value="${esc(todayJalali())}"></div>
+    <div class="fg"><label>موجودی اول دوره (ریال)</label><input id="wpc-begin" class="money" inputmode="numeric" value="${moneyInit(0)}"></div>
+    <div class="fg"><label>خریدهای دوره (ریال)</label><input id="wpc-purch" class="money" inputmode="numeric" value="${moneyInit(0)}"></div>
+    <div class="fg full"><label>شمارش پایان دوره (هر خط: product_id | qty | unit_cost_rial)</label>
+      <textarea id="wpc-counts" rows="6" dir="ltr" placeholder="12 | 10 | 500000"></textarea></div>
+    <div class="fg full"><label>یادداشت</label><input id="wpc-note"></div>
+  </div>
+  <div class="muted" data-csp-style="${CSP.style(`margin-top:8px;line-height:1.8`)}">COGS = اول‌دوره + خرید − پایان‌دوره. سند تعدیل ثبت می‌شود و موجودی عملیاتی از شمارش به‌روز می‌گردد.</div></div>
+  <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveWarehousePeriodClose((id))})}">💾 بستن دوره</button>
+    <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
+}
+async function saveWarehousePeriodClose(id){
+  const counts=(el('wpc-counts').value||'').split(/\n+/).map(line=>{
+    const p=line.split('|').map(s=>s.trim()).filter(Boolean);
+    if(p.length<2) return null;
+    return {product_id:+p[0], qty:+p[1]||0, unit_cost_rial:+p[2]||0};
+  }).filter(Boolean);
+  try{
+    await api('POST','/warehouses/'+id+'/period-close',{
+      period_label:el('wpc-label').value.trim(),
+      start_date:el('wpc-from').value.trim(),
+      end_date:el('wpc-to').value.trim(),
+      beginning_inventory_rial:moneyVal('wpc-begin'),
+      purchases_rial:moneyVal('wpc-purch'),
+      counts, note:el('wpc-note').value.trim()
+    });
+    closeModal(); showToast('دوره ادواری بسته شد'); loadAccTab('warehouses');
+  }catch(e){}
 }
 function warehouseModal(id){
   const w=id?(CACHE.warehouses||[]).find(x=>x.id===id):{active:1,entity:'distribution_office',warehouse_type:'finished_goods'};
@@ -11334,6 +11372,10 @@ function warehouseModal(id){
         <option value="moving_average" ${w.costing_method==='moving_average'?'selected':''}>میانگین موزون</option>
         <option value="fifo" ${w.costing_method==='fifo'?'selected':''}>FIFO</option>
         <option value="specific" ${w.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
+      </select></div>
+      <div class="fg"><label>روش ثبت موجودی</label><select id="wh-inv-sys">
+        <option value="perpetual" ${(w.inventory_system||'perpetual')!=='periodic'?'selected':''}>دائمی (Perpetual)</option>
+        <option value="periodic" ${w.inventory_system==='periodic'?'selected':''}>ادواری (Periodic)</option>
       </select></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
@@ -11365,7 +11407,8 @@ async function saveWarehouse(id){
     entity, warehouse_type,
     is_default:el('wh-default')?.checked?1:0,
     allow_negative:el('wh-neg')?.checked?1:0,
-    costing_method:el('wh-costing')?.value||null
+    costing_method:el('wh-costing')?.value||null,
+    inventory_system:el('wh-inv-sys')?.value||'perpetual'
   };
   if(id) data.active=+el('wh-active').value;
   try{
@@ -15597,7 +15640,7 @@ async function renderPayrollPeriods(body){
     <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.label)}</td><td>${escDate(r.start_date)}</td><td>${escDate(r.end_date)}</td>
       <td>${fmt(r.standard_days)}</td><td>${fmt(r.standard_hours_x100/100)}</td><td>${fmt(r.employee_insurance_bp/100)}٪</td>
       <td>${fmt(r.employer_insurance_bp/100)}٪</td><td>${esc(r.status)}</td>
-      <td>${canPerm('payroll','create')&&r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">${canPerm('payroll','create')?(r.status!=='closed'?`<button class="btn sm orange" title="حذف محاسبات" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriodCalculations((r.id))})}">🧹 محاسبات</button>`:'')+(r.status==='open'?` <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''):''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 async function deletePayrollPeriod(id){
   if(!confirm('دوره حذف شود؟')) return;
@@ -15649,20 +15692,45 @@ async function renderSalaryStructures(body){
 function salaryStructureModal(id){
   const r=id?(CACHE.salaryStructures||[]).find(x=>Number(x.id)===Number(id)):null;
   const taxPct=r?(Number(r.tax_exemption_percent_bp||0)/100):0;
-  openModal(`<div class="modal-head"><h3>${lucide('receipt')} ${r?'ویرایش ساختار حقوق':'ساختار حقوق سالانه'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  const editId=r?r.id:0;
+  const hintStyle=CSP.style('margin-top:10px;line-height:1.8');
+  openModal(`<div class="modal-head"><h3>${lucide('receipt')} ${r?'ویرایش حکم حقوق':'حکم حقوق جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
   <div class="modal-body"><div class="form-grid">
     <div class="fg full"><label>کارمند *</label>${personSelect('ss-person', r?r.person_id:'', CACHE.payrollEmployees||[])}</div>
     <div class="fg"><label>سال</label><input id="ss-year" type="number" value="${esc(String(r?.fiscal_year||todayJalali().slice(0,4)))}"></div>
+    <div class="fg"><label>شماره حکم</label><input id="ss-ruling-no" value="${esc(r?.ruling_no||'')}"></div>
+    <div class="fg"><label>تاریخ صدور *</label><input id="ss-issue" value="${esc(r?.issue_date||r?.effective_from||todayJalali())}" placeholder="1405/01/01"></div>
+    <div class="fg"><label>تاریخ اجرا *</label><input id="ss-eff-from" value="${esc(r?.effective_from||r?.issue_date||todayJalali())}" placeholder="1405/01/01"></div>
+    <div class="fg"><label>تاریخ پایان اجرا</label><input id="ss-eff-to" value="${esc(r?.effective_to||'')}" placeholder="خالی = بدون پایان"></div>
+    <div class="fg full"><label>توضیح معوقه</label><input id="ss-arrears-note" value="${esc(r?.arrears_note||'')}" placeholder="اختلاف صدور و اجرا یعنی معوقه"></div>
     <div class="fg"><label>مبنای مزد</label><select id="ss-basis" data-csp-change="${CSP.bind('change',function(){payrollBasisLabels('ss')})}"><option value="monthly" ${!r||r.wage_basis==='monthly'?'selected':''}>ماهانه</option><option value="daily" ${r&&r.wage_basis==='daily'?'selected':''}>روزانه</option><option value="hourly" ${r&&r.wage_basis==='hourly'?'selected':''}>ساعتی</option><option value="contractor" ${r&&r.wage_basis==='contractor'?'selected':''}>پیمانکاری</option></select></div>
     ${[['ss-base','مزد پایه ماهانه',r?r.base_wage_rial:0],['ss-house','حق مسکن',r?r.housing_allowance_rial:0],['ss-food','بن کارگری',r?r.grocery_allowance_rial:0],['ss-child','حق اولاد هر فرزند',r?r.child_allowance_rial:0],['ss-spouse','حق تأهل',r?r.spouse_allowance_rial:0],['ss-other','سایر مزایای ثابت',r?r.other_fixed_allowance_rial:0]].map(x=>`<div class="fg"><label id="${x[0]}-lab">${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="${moneyInit(x[2]||0)}"></div>`).join('')}
     <div class="fg"><label>تعداد فرزند</label><input id="ss-child-count" type="number" min="0" value="${esc(String(r?.child_count||0))}"></div>
-    <div class="fg"><label><input id="ss-married" type="checkbox" ${r&&r.marital_status?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> متأهل</label></div>
+    <div class="fg"><label><input id="ss-married" type="checkbox" ${r&&r.marital_status?'checked':''} data-csp-style="${CSP.style('width:auto')}"> متأهل</label></div>
     <div class="fg"><label>نوع بیمه</label><select id="ss-ins"><option value="sso" ${!r||r.insurance_type==='sso'?'selected':''}>تأمین اجتماعی</option><option value="armed_forces" ${r&&r.insurance_type==='armed_forces'?'selected':''}>نیروهای مسلح</option><option value="none" ${r&&r.insurance_type==='none'?'selected':''}>بدون بیمه</option></select></div>
     <div class="fg"><label>درصد معافیت مالیات</label><input id="ss-tax-ex" type="number" min="0" max="100" value="${esc(String(taxPct))}"></div>
-  </div></div><div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSalaryStructure()})}">${lucide('save')} ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  </div>
+  <div class="muted" data-csp-style="${hintStyle}">هر شخص چند حکم دارد. مبنا آخرین حکم فعال در بازه دوره است. معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است.</div></div><div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSalaryStructure(editId)})}">${lucide('save')} ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
   initCustSearches(el('modalRoot'));
   payrollBasisLabels('ss');
+}
+async function saveSalaryStructure(editId){
+  const person_id=+el('ss-person').value;
+  if(!person_id){ showToast('کارمند را از فهرست جستجو انتخاب کنید','error'); return; }
+  const payload={person_id,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
+    base_wage_rial:moneyVal('ss-base'),housing_allowance_rial:moneyVal('ss-house'),grocery_allowance_rial:moneyVal('ss-food'),
+    child_allowance_rial:moneyVal('ss-child'),spouse_allowance_rial:moneyVal('ss-spouse'),other_fixed_allowance_rial:moneyVal('ss-other'),
+    child_count:+el('ss-child-count').value||0,marital_status:el('ss-married').checked,insurance_type:el('ss-ins').value,
+    tax_exemption_percent:+el('ss-tax-ex').value||0,
+    issue_date:el('ss-issue').value.trim(),effective_from:el('ss-eff-from').value.trim(),
+    effective_to:el('ss-eff-to').value.trim()||null,ruling_no:el('ss-ruling-no').value.trim()||null,
+    arrears_note:el('ss-arrears-note').value.trim()||null};
+  try{
+    if(editId) await api('PUT','/payroll/salary-structures/'+editId,payload);
+    else await api('POST','/payroll/salary-structures',payload);
+    closeModal();showToast('حکم حقوق ذخیره شد');loadAccTab('payroll');
+  }catch(e){}
 }
 function payrollBasisLabels(prefix){
   const basis=el(prefix+'-basis')?.value||'monthly';
@@ -15702,15 +15770,6 @@ async function deleteSalaryStructure(id){
 async function deleteGroupSalaryStructure(id){
   if(!confirm('ساختار گروه حذف شود؟')) return;
   try{await api('DELETE','/payroll/group-salary-structures/'+id);showToast('حذف شد');loadAccTab('payroll');}catch(e){}
-}
-async function saveSalaryStructure(){
-  const person_id=+el('ss-person').value;
-  if(!person_id){ showToast('کارمند را از فهرست جستجو انتخاب کنید','error'); return; }
-  try{await api('POST','/payroll/salary-structures',{person_id,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
-    base_wage_rial:moneyVal('ss-base'),housing_allowance_rial:moneyVal('ss-house'),grocery_allowance_rial:moneyVal('ss-food'),
-    child_allowance_rial:moneyVal('ss-child'),spouse_allowance_rial:moneyVal('ss-spouse'),other_fixed_allowance_rial:moneyVal('ss-other'),
-    child_count:+el('ss-child-count').value||0,marital_status:el('ss-married').checked,insurance_type:el('ss-ins').value,
-    tax_exemption_percent:+el('ss-tax-ex').value||0});closeModal();showToast('ساختار حقوق ذخیره شد');loadAccTab('payroll');}catch(e){}
 }
 
 async function renderPayrollTaxConfig(body){
@@ -15976,11 +16035,15 @@ async function savePayrollPayment(id){
   }catch(e){}
 }
 async function deletePayrollRecord(id){
-  if(!confirm('این رکورد حقوق ابطال شود؟ سند معکوس ثبت می‌شود.')) return;
-  try{ await api('DELETE','/payroll/'+id); showToast('ابطال شد'); loadAccTab('payroll'); }catch(e){}
+  if(!confirm('سند حقوق حذف شود؟ اثر حسابداری بدون ساخت سند ابطالی برمی‌گردد.')) return;
+  try{ await api('DELETE','/payroll/'+id); showToast('سند حقوق حذف شد'); loadAccTab('payroll'); }catch(e){}
+}
+async function deletePayrollPeriodCalculations(id){
+  if(!confirm('همه محاسبات پرداخت‌نشده این دوره حذف شود؟')) return;
+  try{ await api('DELETE','/payroll/periods/'+id+'/calculations'); showToast('محاسبات حذف شد'); loadAccTab('payroll'); }catch(e){}
 }
 async function voidPayrollPayment(id){
-  if(!confirm('پرداخت این حقوق ابطال شود؟ سند پرداخت معکوس می‌شود و رکورد دوباره قابل پرداخت/ابطال می‌شود.')) return;
+  if(!confirm('پرداخت این حقوق ابطال شود؟ اثر پرداخت بدون سند ابطالی جدا حذف می‌شود و رکورد دوباره قابل پرداخت است.')) return;
   try{ await api('POST','/payroll/'+id+'/void-payment'); showToast('پرداخت ابطال شد'); loadAccTab('payroll'); }catch(e){}
 }
 
@@ -24322,7 +24385,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
-        <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
+        <li><b>انبارها</b>: تعریف انبارهای متعدد و روش ثبت موجودی روی هر انبار — <b>دائمی</b> (بهای تمام‌شده هنگام فروش) یا <b>ادواری</b> (بستن دوره با شمارش فیزیکی، فرمول COGS = اول‌دوره + خرید − پایان‌دوره و سند تعدیل). بعد از حذف همهٔ انبارها، seed پیش‌فرض دوباره ساخته نمی‌شود.</li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
@@ -24332,7 +24395,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: ثبت به‌صورت <b>سند تجمعی</b> (سربرگ جهت/شخص/انبار/تاریخ + چند ردیف کالا) با شمارهٔ CS. شخص از فهرست اشخاص است. در هر ردیف کالا با جستجو اضافه می‌شود؛ کالای ماتریسی به پک رنگ×سایز همان انبار شکسته می‌شود. <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. تسویه خط‌به‌خط با چهار مسیر: <b>برگشت</b>، <b>فروش قطعی</b> (تنها مسیر فاکتور؛ دریافتی نیازمند خریدار جدا)، <b>خرید قطعی</b> (فقط دریافتی)، <b>کسری</b>. ابطال ردیف یا <b>ابطال کل سند</b> فیزیکی نیست — موجودی و اسناد معکوس می‌شوند</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
-        <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
+        <li><b>ابطال کامل (R13)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا ساخته نمی‌شود</b>. سند اصلی soft-void می‌شود و اسناد ابطالی تاریخی از دفتر حذف می‌شوند. سند حقوق و محاسبات دوره را می‌توان حذف کرد (اگر پرداخت نشده باشد).</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
@@ -24351,7 +24414,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). حذف سند حقوق و حذف محاسبات دوره بدون ساخت سند ابطالی انجام می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
@@ -24716,7 +24779,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v284</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v285</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),

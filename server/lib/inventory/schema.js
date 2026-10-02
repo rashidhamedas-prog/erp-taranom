@@ -301,6 +301,12 @@ function initInventorySchema(db) {
   seedSequences(db);
   seedSettings(db);
   seedAccounts(db);
+  try {
+    require('./periodic-close').initWarehouseInventorySystem(db);
+  } catch (e) {
+    console.error('initWarehouseInventorySystem', e.message);
+    throw e;
+  }
 }
 
 module.exports = {

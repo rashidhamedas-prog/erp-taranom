@@ -137,13 +137,14 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method } = req.body;
+  const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system } = req.body;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
   const whCode = code || ('WH-' + Date.now().toString(36).toUpperCase());
+  const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
   const result = db.prepare(`
-    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method)
-    VALUES (?,?,?,?,?,?,?,?,?)
+    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
   `).run(
     name, address || '', whCode,
     entity || 'distribution_office',
@@ -151,7 +152,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     cost_center_id ? parseInt(cost_center_id, 10) : null,
     is_default ? 1 : 0,
     allow_negative ? 1 : 0,
-    costing_method || null
+    costing_method || null,
+    invSys
   );
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
   res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
@@ -161,9 +163,12 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code, allow_negative, costing_method } = req.body;
+  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code, allow_negative, costing_method, inventory_system } = req.body;
+  const invSys = inventory_system !== undefined
+    ? (String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual')
+    : (row.inventory_system || 'perpetual');
   db.prepare(`
-    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?
+    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?
     WHERE id=?
   `).run(
     name || row.name, address ?? row.address,
@@ -175,6 +180,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     code || row.code || null,
     allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),
     costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
+    invSys,
     req.params.id
   );
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
@@ -219,6 +225,40 @@ router.get('/:id/stock', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare('SELECT id,code,name,stock,unit,stock_alert FROM products WHERE warehouse_id=? ORDER BY name').all(req.params.id);
   res.json(rows);
+});
+
+router.get('/:id/period-closes', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare(`
+    SELECT * FROM warehouse_period_closes WHERE warehouse_id=? ORDER BY period_label DESC, id DESC
+  `).all(req.params.id));
+});
+
+router.post('/:id/period-close', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const b = req.body || {};
+    if (!b.period_label && !b.periodLabel) throw new Error('برچسب دوره الزامی است');
+    if (!b.start_date && !b.startDate) throw new Error('تاریخ شروع الزامی است');
+    if (!b.end_date && !b.endDate) throw new Error('تاریخ پایان الزامی است');
+    const { closePeriodicWarehouse } = require('../lib/inventory/periodic-close');
+    const result = closePeriodicWarehouse(db, {
+      warehouseId: Number(req.params.id),
+      periodLabel: b.period_label || b.periodLabel,
+      startDate: b.start_date || b.startDate,
+      endDate: b.end_date || b.endDate,
+      counts: Array.isArray(b.counts) ? b.counts : [],
+      purchasesRial: b.purchases_rial ?? b.purchasesRial ?? 0,
+      beginningInventoryRial: b.beginning_inventory_rial ?? b.beginningInventoryRial ?? 0,
+      note: b.note || '',
+      userId: req.user.id,
+      date: b.date,
+    });
+    audit(req.user.id, 'close', 'warehouse_period', result.id, `بستن دوره ادواری انبار #${req.params.id}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 // ---- Warehouse documents (aggregated remittance / receipt / transfer) ----

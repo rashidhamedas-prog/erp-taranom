@@ -16,7 +16,7 @@ const {
   normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
   assertJournalIdempotent, assertWarehouseLines,
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
-  postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
+  postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled, warehouseUsesPerpetualValuation,
   autoApproveNormalInvoice, allocateFreight, applyFreightToDocTotals,
   isFabricRollLine,
 } = require('../lib/sales-document');
@@ -557,7 +557,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       let saleCogsRial = 0;
 
       if (isFirmSale(invType)) {
-        if (perpetualDocsEnabled(db)) {
+        if (warehouseUsesPerpetualValuation(db, whId)) {
           const stocked = postSaleStockMovements(db, {
             rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
             userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
@@ -591,7 +591,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             chequeHeader: { cheque_info, cheque_due_date },
           });
         }
-        if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+        if (warehouseUsesPerpetualValuation(db, whId) && saleCogsRial > 0) {
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
           });
@@ -941,7 +941,7 @@ router.post('/:id/convert', auth, (req, res) => {
       let stockDeducted = inv.stock_deducted || 0;
       let saleCogsRial = 0;
       if (!stockDeducted) {
-        if (perpetualDocsEnabled(db)) {
+        if (warehouseUsesPerpetualValuation(db, convertWhId)) {
           const stocked = postSaleStockMovements(db, {
             rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
             userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
@@ -986,7 +986,7 @@ router.post('/:id/convert', auth, (req, res) => {
           chequeHeader: { cheque_info: inv.cheque_info, cheque_due_date: inv.cheque_due_date },
         });
       }
-      if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+      if (warehouseUsesPerpetualValuation(db, convertWhId) && saleCogsRial > 0) {
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
         });

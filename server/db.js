@@ -2262,6 +2262,7 @@ function initSyncSchema(db, opts) {
 
   // CoA fixes: 5101 COGS child, 3201 retained earnings + Phase 3-7 accounts
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('5101','بهای تمام‌شده فروش','cogs','5000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('5102','خرید کالا (ادواری)','cogs','5000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3201','سود انباشته','equity','3000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2103','مالیات بر ارزش افزوده پرداختنی','liability','2100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1108','مالیات بر ارزش افزوده دریافتنی','asset','1100')").run();
@@ -2472,6 +2473,21 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.error('❌ payroll/reporting/user-party schema init failed:', e.message);
     throw e;
+  }
+
+  // v285 — remove standalone «سند ابطالی» pairs; soft-void originals instead
+  try {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='purge_reversal_docs_v285'").get();
+    if (!flag || flag.value !== '1') {
+      const { purgeHistoricalReversalDocs } = require('./lib/void-journal');
+      const result = purgeHistoricalReversalDocs(db);
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('purge_reversal_docs_v285','1')").run();
+      if (result.purged || result.originalsVoided) {
+        console.log('✅ purge_reversal_docs_v285:', JSON.stringify(result));
+      }
+    }
+  } catch (e) {
+    console.warn('purge_reversal_docs_v285:', e.message);
   }
 
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
@@ -2785,6 +2801,19 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v17','1')").run();
+    }
+    const backfillV18 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v18'").get();
+    if (!backfillV18 || backfillV18.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v18 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v18','1')").run();
     }
   }
 

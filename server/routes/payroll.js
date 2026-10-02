@@ -10,6 +10,14 @@ const {
   savePeriodParamsSnapshot,
   loadPeriodParamsSnapshot,
 } = require('../lib/payroll/schema');
+const {
+  resolveActiveRuling,
+  assertRulingDatesAllowed,
+  assertRulingMutable,
+  computeArrearsMonths,
+  personHasPayrollInMonth,
+} = require('../lib/payroll/rulings');
+const { reverseJournalEntry } = require('../lib/void-journal');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -607,41 +615,90 @@ router.post('/salary-structures', auth, requirePermission('payroll', 'create'), 
   try {
     const db = getDB();
     const b = req.body || {};
-    const person = db.prepare('SELECT id FROM persons WHERE id=?').get(Number(b.person_id));
+    const personId = Number(b.person_id);
+    const person = db.prepare('SELECT id FROM persons WHERE id=?').get(personId);
     if (!person) throw new Error('کارمند یافت نشد');
     const year = Number(b.fiscal_year);
     if (!Number.isInteger(year)) throw new Error('سال مالی نامعتبر است');
     const money = key => Math.max(0, Math.round(Number(b[key]) || 0));
-    db.prepare(`
+    const issueDate = b.issue_date || b.effective_from || `${year}/01/01`;
+    const effectiveFrom = b.effective_from || issueDate;
+    const effectiveTo = b.effective_to || null;
+    assertRulingDatesAllowed(db, personId, issueDate, effectiveFrom, null);
+    const id = db.prepare(`
       INSERT INTO salary_structures
         (person_id,fiscal_year,wage_basis,base_wage_rial,housing_allowance_rial,grocery_allowance_rial,
          child_allowance_rial,spouse_allowance_rial,other_fixed_allowance_rial,child_count,marital_status,
          insurance_type,tax_exemption_type,tax_exemption_percent_bp,overtime_factor_bp,
-         night_shift_factor_bp,active,effective_from,effective_to,created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
-      ON CONFLICT(person_id,fiscal_year) DO UPDATE SET
-        wage_basis=excluded.wage_basis,base_wage_rial=excluded.base_wage_rial,
-        housing_allowance_rial=excluded.housing_allowance_rial,grocery_allowance_rial=excluded.grocery_allowance_rial,
-        child_allowance_rial=excluded.child_allowance_rial,spouse_allowance_rial=excluded.spouse_allowance_rial,
-        other_fixed_allowance_rial=excluded.other_fixed_allowance_rial,child_count=excluded.child_count,
-        marital_status=excluded.marital_status,insurance_type=excluded.insurance_type,
-        tax_exemption_type=excluded.tax_exemption_type,tax_exemption_percent_bp=excluded.tax_exemption_percent_bp,
-        overtime_factor_bp=excluded.overtime_factor_bp,night_shift_factor_bp=excluded.night_shift_factor_bp,
-        active=1,effective_from=excluded.effective_from,effective_to=excluded.effective_to
+         night_shift_factor_bp,active,effective_from,effective_to,issue_date,ruling_no,arrears_note,created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)
     `).run(
-      b.person_id, year, b.wage_basis || 'monthly', money('base_wage_rial'), money('housing_allowance_rial'),
+      personId, year, b.wage_basis || 'monthly', money('base_wage_rial'), money('housing_allowance_rial'),
       money('grocery_allowance_rial'), money('child_allowance_rial'), money('spouse_allowance_rial'),
       money('other_fixed_allowance_rial'), Math.max(0, Math.round(Number(b.child_count) || 0)),
       b.marital_status ? 1 : 0, b.insurance_type || 'sso', b.tax_exemption_type || 'none',
       Math.round((Number(b.tax_exemption_percent) || 0) * 100),
       Math.round((Number(b.overtime_factor_percent) || 140) * 100),
       Math.round((Number(b.night_shift_factor_percent) || 115) * 100),
-      b.effective_from || null, b.effective_to || null, req.user.id
-    );
-    audit(req.user.id, 'upsert', 'salary_structure', b.person_id, `ساختار حقوق ${year}`);
-    res.json({ ok: true });
+      effectiveFrom, effectiveTo, issueDate,
+      b.ruling_no || null, b.arrears_note || null, req.user.id
+    ).lastInsertRowid;
+    audit(req.user.id, 'create', 'salary_structure', id, `حکم حقوق ${year} شخص #${personId}`);
+    res.json({ ok: true, id });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.put('/salary-structures/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const id = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM salary_structures WHERE id=?').get(id);
+    if (!existing) return res.status(404).json({ error: 'حکم یافت نشد' });
+    assertRulingMutable(db, existing);
+    const b = req.body || {};
+    const money = key => Math.max(0, Math.round(Number(b[key] != null ? b[key] : existing[key]) || 0));
+    const issueDate = b.issue_date || existing.issue_date || existing.effective_from;
+    const effectiveFrom = b.effective_from || existing.effective_from || issueDate;
+    const effectiveTo = b.effective_to !== undefined ? (b.effective_to || null) : existing.effective_to;
+    assertRulingDatesAllowed(db, existing.person_id, issueDate, effectiveFrom, id);
+    db.prepare(`
+      UPDATE salary_structures SET
+        fiscal_year=?, wage_basis=?, base_wage_rial=?, housing_allowance_rial=?, grocery_allowance_rial=?,
+        child_allowance_rial=?, spouse_allowance_rial=?, other_fixed_allowance_rial=?, child_count=?,
+        marital_status=?, insurance_type=?, tax_exemption_type=?, tax_exemption_percent_bp=?,
+        overtime_factor_bp=?, night_shift_factor_bp=?, effective_from=?, effective_to=?,
+        issue_date=?, ruling_no=?, arrears_note=?, active=COALESCE(?,active)
+      WHERE id=?
+    `).run(
+      Number(b.fiscal_year) || existing.fiscal_year,
+      b.wage_basis || existing.wage_basis,
+      money('base_wage_rial'), money('housing_allowance_rial'), money('grocery_allowance_rial'),
+      money('child_allowance_rial'), money('spouse_allowance_rial'), money('other_fixed_allowance_rial'),
+      Math.max(0, Math.round(Number(b.child_count != null ? b.child_count : existing.child_count) || 0)),
+      (b.marital_status != null ? b.marital_status : existing.marital_status) ? 1 : 0,
+      b.insurance_type || existing.insurance_type,
+      b.tax_exemption_type || existing.tax_exemption_type,
+      b.tax_exemption_percent != null
+        ? Math.round(Number(b.tax_exemption_percent) * 100)
+        : existing.tax_exemption_percent_bp,
+      b.overtime_factor_percent != null
+        ? Math.round(Number(b.overtime_factor_percent) * 100)
+        : existing.overtime_factor_bp,
+      b.night_shift_factor_percent != null
+        ? Math.round(Number(b.night_shift_factor_percent) * 100)
+        : existing.night_shift_factor_bp,
+      effectiveFrom, effectiveTo, issueDate,
+      b.ruling_no !== undefined ? b.ruling_no : existing.ruling_no,
+      b.arrears_note !== undefined ? b.arrears_note : existing.arrears_note,
+      b.active != null ? (b.active ? 1 : 0) : null,
+      id
+    );
+    audit(req.user.id, 'update', 'salary_structure', id, 'ویرایش حکم حقوق');
+    res.json({ ok: true, id });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -689,9 +746,13 @@ function payrollContext(db, periodId, personId, opts = {}) {
   if (!period) throw new Error('دوره حقوق یافت نشد');
   if (period.status === 'closed') throw new Error('دوره حقوق بسته است');
   const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
-  let structure = db.prepare(`
-    SELECT * FROM salary_structures WHERE person_id=? AND fiscal_year=? AND active=1
-  `).get(personId, period.fiscal_year);
+  if (personHasPayrollInMonth(db, personId, period.fiscal_year, period.month_no) && !opts.allowExisting) {
+    throw Object.assign(
+      new Error(`برای ${person?.name || 'کارمند'} در دوره ${period.label} سند حقوق ثبت شده؛ محاسبه/حکم جدید مجاز نیست`),
+      { status: 409, code: 'E_PAYROLL_MONTH_LOCKED' }
+    );
+  }
+  let structure = resolveActiveRuling(db, personId, period);
   if (!structure && person?.employee_group_id) {
     structure = db.prepare(`
       SELECT * FROM group_salary_structures WHERE employee_group_id=? AND fiscal_year=? AND active=1
@@ -738,12 +799,11 @@ function payrollContext(db, periodId, personId, opts = {}) {
       brackets = snap.brackets;
     }
   }
-  if (!brackets.length && !opts.manual_mode && !fullyExempt) {
-    brackets = [];
-  }
-  const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?')
-    .get(period.fiscal_year) || null;
-  return { period, structure, brackets, person, laborSettings };
+  const laborSettings = require('../lib/payroll/schema').resolveLaborSettingsForPeriod(db, period);
+  const arrearsMonths = structure && !structure._synthetic
+    ? computeArrearsMonths(db, personId, structure, period)
+    : [];
+  return { period, person, structure, brackets, laborSettings, arrearsMonths };
 }
 
 /** Snapshot yearly labor params + period rates onto payroll_periods.params_json. */
@@ -848,10 +908,36 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         calc.employer_cost_rial
       );
       const recordId = result.lastInsertRowid;
+      const arrearsMonths = context.arrearsMonths || [];
+      let arrearsRial = 0;
+      if (arrearsMonths.length && context.structure && !context.structure._synthetic) {
+        // Bundle arrears with this ruling: one month of base package × unpaid months
+        const monthlyPkg = (Number(context.structure.base_wage_rial) || 0)
+          + (Number(context.structure.housing_allowance_rial) || 0)
+          + (Number(context.structure.grocery_allowance_rial) || 0)
+          + (Number(context.structure.spouse_allowance_rial) || 0)
+          + (Number(context.structure.other_fixed_allowance_rial) || 0)
+          + ((Number(context.structure.child_allowance_rial) || 0) * (Number(context.structure.child_count) || 0));
+        arrearsRial = monthlyPkg * arrearsMonths.length;
+      }
+      try {
+        db.prepare(`
+          UPDATE payroll_records SET
+            salary_structure_id=?,
+            arrears_rial=?,
+            structure_snapshot_json=?
+          WHERE id=?
+        `).run(
+          context.structure?.id || null,
+          arrearsRial,
+          context.structure ? JSON.stringify(context.structure) : null,
+          recordId
+        );
+      } catch (_) {}
       const lines = [
-        { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: calc.gross_earnings_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null },
+        { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: input.cost_center_id || null },
         { ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null },
-        { ...coaAcct(db, 'coa_payroll_payable'), debit: 0, credit: calc.net_pay_rial / 10 },
+        { ...coaAcct(db, 'coa_payroll_payable'), debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 },
         { ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 },
         { ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 },
       ];
@@ -860,14 +946,14 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       }
       const journalId = postToLedger(db, {
         sourceType: 'payroll', sourceId: recordId, date: input.date || context.period.end_date,
-        description: `حقوق ${person.name} (${context.period.label})${input.manual_mode ? ' — دستی' : ''}`, createdBy: req.user.id,
+        description: `حقوق ${person.name} (${context.period.label})${input.manual_mode ? ' — دستی' : ''}${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`, createdBy: req.user.id,
         lines, status: 'approved',
       });
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);
       createPersonLedgerEntry(db, {
         person_id: personId, date: input.date || context.period.end_date, entry_type: 'payroll',
         ref_type: 'payroll', ref_id: recordId, description: `حقوق ${context.period.label}`,
-        debit: 0, credit: calc.net_pay_rial / 10, user_id: req.user.id,
+        debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10, user_id: req.user.id,
       });
         return { id: recordId, person_id: personId, person_name: person.name, ...calc, journal_entry_id: journalId };
       });
@@ -1111,43 +1197,88 @@ router.delete('/:id', auth, requirePermission('payroll', 'create'), (req, res) =
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.paid) return res.status(400).json({ error: 'حقوق پرداخت‌شده ابتدا باید ابطال پرداخت شود' });
-  if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً ابطال شده است' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً حذف/ابطال شده است' });
   try {
-    const reversalId = db.transaction(() => {
+    db.transaction(() => {
       const entry = db.prepare(`
         SELECT * FROM journal_entries
         WHERE id=COALESCE(?,id) AND ref_type='payroll' AND ref_id=?
         ORDER BY id DESC LIMIT 1
       `).get(row.journal_entry_id || null, row.id);
-      if (!entry) throw new Error('سند مبنای حقوق یافت نشد');
-      const lines = db.prepare('SELECT * FROM journal_lines WHERE entry_id=? ORDER BY line_no,id').all(entry.id);
-      const reversal = postToLedger(db, {
-        sourceType: 'payroll_reversal', sourceId: row.id, date: todayJalali(),
-        description: `ابطال ${entry.description || `حقوق #${row.id}`}`, createdBy: req.user.id,
-        lines: lines.map(line => ({
-          code: line.account_code, name: line.account_name,
-          debit: (line.credit_rial || Math.round((line.credit || 0) * 10)) / 10,
-          credit: (line.debit_rial || Math.round((line.debit || 0) * 10)) / 10,
-          description: `معکوس ${line.description || ''}`,
-          detail_account_id: line.detail_account_id, cost_center_id: line.cost_center_id,
-          project_id: line.project_id, tax_type: line.tax_type,
-        })),
-        status: 'approved',
-      });
-      db.prepare("UPDATE journal_entries SET status='reversed' WHERE id=?").run(entry.id);
-      db.prepare(`
-        UPDATE payroll_records SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now')
-        WHERE id=?
-      `).run(reversal, row.id);
-      createPersonLedgerEntry(db, {
-        person_id: row.person_id, date: todayJalali(), entry_type: 'payroll_reversal',
-        ref_type: 'payroll_reversal', ref_id: row.id, description: `ابطال حقوق ${row.period_label || ''}`,
-        debit: row.net_pay || 0, credit: 0, user_id: req.user.id,
-      });
-      return reversal;
+      if (entry) {
+        reverseJournalEntry(db, entry.id, {
+          userId: req.user.id,
+          reason: `حذف سند حقوق #${row.id}`,
+          sourceType: 'payroll_reversal',
+        });
+      }
+      // Soft-void person ledger lines for this payroll (no reverse voucher)
+      try {
+        db.prepare(`
+          UPDATE person_ledger SET deleted_at=strftime('%s','now')
+          WHERE ref_type IN ('payroll','payroll_reversal') AND ref_id=? AND COALESCE(deleted_at,0)=0
+        `).run(row.id);
+      } catch (_) {
+        // older schemas without deleted_at — insert zeroing offset only if needed
+        createPersonLedgerEntry(db, {
+          person_id: row.person_id, date: todayJalali(), entry_type: 'payroll_void',
+          ref_type: 'payroll_void', ref_id: row.id, description: `حذف حقوق ${row.period_label || ''}`,
+          debit: row.net_pay || 0, credit: 0, user_id: req.user.id,
+        });
+      }
+      db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
+      if (row.period_id) {
+        const left = db.prepare(`
+          SELECT COUNT(*) c FROM payroll_records WHERE period_id=? AND COALESCE(status,'posted')<>'reversed'
+        `).get(row.period_id).c;
+        if (!left) {
+          db.prepare("UPDATE payroll_periods SET status='open', processed_at=NULL WHERE id=? AND status='processed'")
+            .run(row.period_id);
+        }
+      }
     })();
-    audit(req.user.id, 'reverse', 'payroll_record', row.id, `ابطال رکورد حقوق #${row.id}`);
-    res.json({ ok: true, reversal_journal_id: reversalId });
+    audit(req.user.id, 'delete', 'payroll_record', row.id, `حذف سند حقوق #${row.id}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** حذف همهٔ محاسبات/اسناد حقوق پرداخت‌نشدهٔ یک دوره */
+router.delete('/periods/:id/calculations', auth, requirePermission('payroll', 'create'), (req, res) => {
+  const db = getDB();
+  const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(req.params.id);
+  if (!period) return res.status(404).json({ error: 'دوره یافت نشد' });
+  if (period.status === 'closed') return res.status(400).json({ error: 'دوره بسته‌شده؛ حذف محاسبات مجاز نیست' });
+  try {
+    const result = db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT * FROM payroll_records
+        WHERE period_id=? AND COALESCE(status,'posted')<>'reversed'
+      `).all(period.id);
+      let deleted = 0;
+      for (const row of rows) {
+        if (row.paid) throw new Error(`رکورد #${row.id} پرداخت شده؛ ابتدا ابطال پرداخت کنید`);
+        if (row.journal_entry_id) {
+          reverseJournalEntry(db, row.journal_entry_id, {
+            userId: req.user.id,
+            reason: `حذف محاسبات دوره ${period.label}`,
+          });
+        }
+        try {
+          db.prepare(`
+            UPDATE person_ledger SET deleted_at=strftime('%s','now')
+            WHERE ref_type IN ('payroll','payroll_reversal') AND ref_id=? AND COALESCE(deleted_at,0)=0
+          `).run(row.id);
+        } catch (_) {}
+        db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
+        deleted += 1;
+      }
+      db.prepare("UPDATE payroll_periods SET status='open', processed_at=NULL WHERE id=?").run(period.id);
+      return deleted;
+    })();
+    audit(req.user.id, 'delete', 'payroll_calculations', period.id, `حذف ${result} محاسبه دوره ${period.label}`);
+    res.json({ ok: true, deleted: result });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

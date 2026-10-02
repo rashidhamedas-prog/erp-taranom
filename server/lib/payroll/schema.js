@@ -272,6 +272,13 @@ function initPayrollSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_payroll_labor_versions_year
       ON payroll_labor_settings_versions(year, effective_from);
   `);
+
+  try {
+    require('./rulings').initSalaryRulingExtras(db);
+  } catch (e) {
+    console.error('initSalaryRulingExtras failed:', e.message);
+    throw e;
+  }
 }
 
 /**
