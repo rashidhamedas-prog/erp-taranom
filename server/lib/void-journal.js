@@ -83,7 +83,6 @@ function purgeHistoricalReversalDocs(db) {
     WHERE COALESCE(deleted_at,0)=0
       AND (
         ref_type LIKE '%\\_reversal' ESCAPE '\\'
-        OR LOWER(COALESCE(entry_type,'')) IN ('reversal','void')
         OR description LIKE 'ابطال سند #%'
       )
   `).all();

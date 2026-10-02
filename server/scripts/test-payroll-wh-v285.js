@@ -17,8 +17,9 @@ function ok(cond, msg) {
   else { failed++; console.error('  ✗', msg); }
 }
 
-const { initDB } = require('../db');
-const db = initDB();
+const { initDB, getDB } = require('../db');
+initDB();
+const db = getDB();
 
 const { reverseJournalEntry, purgeHistoricalReversalDocs } = require('../lib/void-journal');
 const { postToLedger } = require('../lib/ledger');
