@@ -711,19 +711,123 @@ function enqueueFullSync(db) {
   return { ok: true, products: products.length, enqueued: n };
 }
 
+function parseOutboxLastResult(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(String(raw)); } catch { return {}; }
+}
+
+/** Human-facing summary for one outbox row (Persian, manager language). */
+function summarizeOutboxRow(row) {
+  const channel = String(row.channel || '').toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
+  const channelLabel = channel === 'RETAIL' ? 'سایت خرده‌فروشی' : 'سایت عمده';
+  const code = String(row.product_code || '').trim();
+  const name = String(row.product_name || '').trim();
+  const productLabel = name && code ? `${name} — ${code}`
+    : (name || code || `کالا شماره ${row.product_id}`);
+  const status = String(row.status || '');
+  const statusLabel = status === 'done' ? 'انجام شد'
+    : status === 'error' ? 'نیاز به رسیدگی'
+      : status === 'pending' ? 'در صف ارسال' : status || 'نامشخص';
+
+  const lr = parseOutboxLastResult(row.last_result);
+  const matched = Number(lr.matched || 0);
+  const unmatched = Array.isArray(lr.unmatched) ? lr.unmatched : [];
+  const unmatchedN = unmatched.length;
+  const reasons = [...new Set(unmatched.map((u) => String(u && u.reason || '').trim()).filter(Boolean))];
+  const err = String(row.last_error || '').trim();
+  const isTimeout = /timeout|مهلت|OUTBOUND_TIMEOUT|HTTP 0/i.test(err);
+  const catalogMissing = reasons.includes('product_sku_not_found')
+    || lr.catalogMissing === true
+    || (unmatchedN > 0 && matched === 0 && unmatched.every((u) => String(u && u.reason || '') === 'product_sku_not_found'));
+
+  let outcome = '';
+  let nextStep = '';
+  let tone = 'ok'; // ok | warn | bad | wait
+
+  if (status === 'pending' && !err && !unmatchedN) {
+    outcome = 'هنوز نتیجه نیامده';
+    nextStep = '';
+    tone = 'wait';
+  } else if (catalogMissing) {
+    outcome = 'کد کالا در سایت پیدا نشد';
+    nextStep = 'کد کالا را در سایت وصل یا بسازید، بعد دوباره همگام‌سازی کنید';
+    tone = status === 'pending' ? 'warn' : 'warn';
+  } else if (isTimeout || (status !== 'done' && /timeout|مهلت/i.test(err))) {
+    outcome = 'پاسخ سایت به‌موقع نرسید';
+    nextStep = 'کمی بعد دوباره تلاش می‌شود؛ اگر تکرار شد اتصال سایت را چک کنید';
+    tone = status === 'error' ? 'bad' : 'warn';
+  } else if (status === 'done' && unmatchedN === 0 && !err) {
+    outcome = matched > 0 ? 'موجودی در سایت به‌روز شد' : 'انجام شد';
+    nextStep = '';
+    tone = 'ok';
+  } else if (status === 'done' && unmatchedN > 0) {
+    outcome = `${matched} مورد هم‌خوان · ${unmatchedN} مورد بدون هم‌خوانی در سایت`;
+    nextStep = 'رنگ/سایزهای بدون هم‌خوانی را در سایت بررسی کنید';
+    tone = 'warn';
+  } else if (status === 'error') {
+    outcome = err || 'ارسال ناموفق بود';
+    nextStep = 'دوباره همگام‌سازی کنید یا پشتیبانی را در جریان بگذارید';
+    tone = 'bad';
+  } else if (err) {
+    outcome = err;
+    nextStep = '';
+    tone = 'warn';
+  } else {
+    outcome = statusLabel;
+    tone = status === 'pending' ? 'wait' : 'ok';
+  }
+
+  const variantHints = unmatched.slice(0, 4).map((u) => {
+    const color = String(u.color || '').trim();
+    const size = String(u.size || '').trim();
+    if (color && size) return `${color} / ${size}`;
+    return String(u.erpVariantSku || u.reason || '').trim();
+  }).filter(Boolean);
+
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    product_code: code,
+    product_name: name,
+    productLabel,
+    channel,
+    channelLabel,
+    status,
+    statusLabel,
+    attempts: Number(row.attempts) || 0,
+    outcome,
+    nextStep,
+    tone,
+    matched,
+    unmatched: unmatchedN,
+    variantHints,
+    last_error: err,
+  };
+}
+
 function outboxStatus(db) {
   ensureWebsiteStockOutbox(db);
   const rows = db.prepare(`
     SELECT status, COUNT(*) AS c FROM website_stock_outbox GROUP BY status
   `).all();
   const recent = db.prepare(`
-    SELECT id, product_id, channel, status, attempts, last_error, last_result, updated_at
-    FROM website_stock_outbox
-    ORDER BY updated_at DESC LIMIT 30
+    SELECT o.id, o.product_id, o.channel, o.status, o.attempts, o.last_error, o.last_result, o.updated_at,
+           p.code AS product_code, p.name AS product_name
+    FROM website_stock_outbox o
+    LEFT JOIN products p ON p.id = o.product_id
+    ORDER BY o.updated_at DESC LIMIT 30
   `).all();
   const counts = {};
   for (const r of rows) counts[r.status] = r.c;
-  return { counts, recent };
+  const items = recent.map(summarizeOutboxRow);
+  const summary = {
+    done: Number(counts.done || 0),
+    pending: Number(counts.pending || 0),
+    error: Number(counts.error || 0),
+    line: `${Number(counts.done || 0)} انجام‌شده · ${Number(counts.pending || 0)} در صف · ${Number(counts.error || 0)} نیاز به رسیدگی`,
+  };
+  return { counts, summary, recent, items };
 }
 
 // Legacy alias used by older call sites
@@ -758,6 +862,7 @@ module.exports = {
   secretOpenError,
   startWebsiteStockDrainLoop,
   formatOutboundFailure,
+  summarizeOutboxRow,
   DEBOUNCE_MS,
   MATRIX_TIMEOUT_MS,
   DRAIN_BATCH,

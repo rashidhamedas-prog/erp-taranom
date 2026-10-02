@@ -23256,7 +23256,7 @@ ROUTES.settings = async function(){
         <div class="fg full"><label>کد کالا برای dry-run (id عددی ERP)</label>
           <input id="s-website-dryrun-pid" dir="ltr" placeholder="product id" data-csp-style="${CSP.style(`max-width:160px`)}">
         </div>
-        <div id="s-website-outbox" class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;white-space:pre-wrap`)}"></div>
+        <div id="s-website-outbox" class="fg full" data-csp-style="${CSP.style(`font-size:13px;line-height:1.75`)}"></div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
           <b>ماتریس:</b> کد کالا = sku سایت؛ رنگ و سایز ERP با نام رنگ/سایز سایت جفت می‌شود.
           واریانت‌های جفت‌نشده در پاسخ dry-run و last_result صف دیده می‌شوند — ساخت خودکار انجام نمی‌شود.
@@ -23495,28 +23495,67 @@ async function websiteStockFullSync(){
     loadWebsiteOutbox();
   }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
+function websiteOutboxToneColor(tone){
+  if(tone==='bad') return '#991b1b';
+  if(tone==='warn') return '#9a3412';
+  if(tone==='wait') return '#374151';
+  return '#166534';
+}
+function websiteOutboxToneBg(tone){
+  if(tone==='bad') return '#fef2f2';
+  if(tone==='warn') return '#fff7ed';
+  if(tone==='wait') return '#f9fafb';
+  return '#f0fdf4';
+}
 async function loadWebsiteOutbox(){
   const box=el('s-website-outbox');
   if(box) box.textContent='در حال بارگذاری…';
   try{
     const r=await api('GET','/settings/website-outbox');
-    const counts=Object.entries(r.counts||{}).map(([k,v])=>`${k}=${v}`).join(' · ')||'خالی';
-    const recent=(r.recent||[]).slice(0,12).map(row=>{
-      let um='';
-      let catalog='';
-      try{
-        const lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{});
-        const unmatched=lr.unmatched||[];
-        if(unmatched.length){
-          const reasons=[...new Set(unmatched.map(u=>u.reason||'?'))];
-          um=` unmatched=${unmatched.length}`+(reasons.length?` (${reasons.join(',')})`:'');
-          if(reasons.includes('product_sku_not_found')) catalog=' [کالا در سایت نیست]';
-        }
-      }catch(_){}
-      const att=row.attempts?` try=${row.attempts}`:'';
-      return `#${row.id} p${row.product_id} ${row.channel} ${row.status}${att}${row.last_error?' err='+row.last_error:''}${um}${catalog}`;
-    }).join('\n');
-    if(box) box.textContent=`وضعیت صف: ${counts}\n${recent}\n\nراهنما: HTTP 0/timeout = ارتباط کند یا قطع؛ product_sku_not_found = SKU کالا در کاتالوگ سایت نیست (نگاشت لازم است).`;
+    const items=Array.isArray(r.items)&&r.items.length
+      ? r.items
+      : (r.recent||[]).map(row=>{
+          // Fallback if older server without summarize fields
+          let lr={}; try{ lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{}); }catch(_){}
+          const unmatched=lr.unmatched||[];
+          const catalog=unmatched.length&&unmatched.every(u=>u.reason==='product_sku_not_found');
+          return {
+            productLabel: `کالا شماره ${row.product_id}`,
+            channelLabel: row.channel==='RETAIL'?'سایت خرده‌فروشی':'سایت عمده',
+            statusLabel: row.status==='done'?'انجام شد':row.status==='error'?'نیاز به رسیدگی':'در صف ارسال',
+            outcome: catalog?'کد کالا در سایت پیدا نشد':(row.last_error||row.status||''),
+            nextStep: catalog?'کد کالا را در سایت وصل یا بسازید، بعد دوباره همگام‌سازی کنید':'',
+            tone: catalog||row.status==='error'?'warn':(row.status==='pending'?'wait':'ok'),
+            variantHints: unmatched.slice(0,4).map(u=>[u.color,u.size].filter(Boolean).join(' / ')||u.erpVariantSku).filter(Boolean),
+            attempts: row.attempts||0,
+          };
+        });
+    const summaryLine=(r.summary&&r.summary.line)
+      || `${Number(r.counts?.done||0)} انجام‌شده · ${Number(r.counts?.pending||0)} در صف · ${Number(r.counts?.error||0)} نیاز به رسیدگی`;
+    if(!items.length){
+      if(box) box.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`padding:8px 0`)}">الان موردی در صف نیست. صف، به‌روزرسانی موجودی انبار روی سایت عمده و خرده‌فروشی را نشان می‌دهد.</div>`;
+      return;
+    }
+    const cards=items.slice(0,20).map(it=>{
+      const tone=it.tone||'ok';
+      const hints=(it.variantHints||[]).length
+        ? `<div data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);margin-top:4px`)}">نمونه‌ها: ${esc((it.variantHints||[]).join(' · '))}</div>`
+        : '';
+      const next=it.nextStep
+        ? `<div data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">قدم بعد: ${esc(it.nextStep)}</div>`
+        : '';
+      const tries=it.attempts>1?` · تلاش ${esc(String(it.attempts))}`:'';
+      return `<div data-csp-style="${CSP.style(`border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin:8px 0;background:${websiteOutboxToneBg(tone)}`)}">
+        <div data-csp-style="${CSP.style(`font-weight:700;color:var(--text)`)}">${esc(it.productLabel||'کالا')}</div>
+        <div data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);margin-top:2px`)}">${esc(it.channelLabel||'')} · <span data-csp-style="${CSP.style(`color:${websiteOutboxToneColor(tone)};font-weight:600`)}">${esc(it.statusLabel||'')}</span>${tries}</div>
+        <div data-csp-style="${CSP.style(`margin-top:6px;color:${websiteOutboxToneColor(tone)}`)}">${esc(it.outcome||'')}</div>
+        ${hints}${next}
+      </div>`;
+    }).join('');
+    if(box) box.innerHTML=`
+      <div data-csp-style="${CSP.style(`padding:8px 10px;border-radius:8px;background:#f3f4f6;font-weight:600;margin-bottom:4px`)}">وضعیت صف: ${esc(summaryLine)}</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px`)}">هر کارت یک کالاست؛ می‌گوید موجودی‌اش روی سایت چه شده.</div>
+      ${cards}`;
   }catch(e){ if(box) box.textContent=e.message||'خطا'; }
 }
 async function saveSettings(){
@@ -24611,7 +24650,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run نگاشت / همگام‌سازی کامل / وضعیت صف از همین صفحه. اگر پیام «قابل خواندن نیست» دیدید، کلید را از env سایت دوباره وارد و ذخیره کنید (ماسک ******** کافی نیست). <code>timeout</code> یعنی API سایت دیر جواب داده؛ <code>product_sku_not_found</code> یعنی SKU در کاتالوگ سایت نیست و باید نگاشت شود</li>
+        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run / همگام‌سازی کامل. «وضعیت صف» برای هر کالا نام و کد، کانال (عمده/خرده‌فروشی)، نتیجهٔ فارسی و قدم بعد را نشان می‌دهد. اگر کلید API ناخواناست دوباره ذخیره کنید؛ اگر «کد کالا در سایت پیدا نشد» دیدید باید کالا/نگاشت سایت را درست کنید</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>

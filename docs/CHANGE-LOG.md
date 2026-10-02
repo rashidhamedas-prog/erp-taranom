@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — وضعیت صف سینک: نام کالا + نتیجهٔ فارسی (SW v293)
+
+- **هدف:** مدیر بفهمد کدام کالا چه شده، نه لاگ خام `#21 p11 WHOLESALE unmatched=…`.
+- **رفع:** `outboxStatus` با join نام/کد کالا + `summarizeOutboxRow`؛ UI کارت‌محور با کانال عمده/خرده‌فروشی، نتیجه، قدم بعد و نمونه رنگ/سایز.
+- **فایل‌ها:** `website-stock-sync.js`, `public/{app.js,sw.js,index.html}`, `test-website-outbox-summary-v293.js`, CHANGE-LOG.
+- **تست:** `test-website-outbox-summary-v293` + sms.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — صف سینک موجودی: HTTP 0 = timeout + settle نگاشت (SW v292)
 
 - **ریشه:** ping سایت ۲۰۰ بود؛ PUT ماتریس گاهی `OUTBOUND_TIMEOUT` می‌گرفت و در صف به صورت مبهم `HTTP 0` ذخیره می‌شد. بسیاری از ردیف‌ها قبلاً `product_sku_not_found` گرفته بودند ولی با full-sync دوباره pending شده و روی timeout گیر می‌کردند.
