@@ -23,23 +23,59 @@ function validateBalancedLines(lines) {
 
 /**
  * Post a balanced journal entry (auto or manual).
- * @param {object} db
- * @param {object} opts
- * @param {string} opts.sourceType  ref_type / source_type
- * @param {number} opts.sourceId    ref_id
- * @param {string} opts.date        entry_date (Jalali string)
- * @param {string} opts.description
- * @param {number} opts.createdBy
- * @param {Array}  opts.lines       [{code,name,debit,credit,description,detail_account_id?}]
- * @param {string} [opts.voucherType] normal|opening|closing_temp|closing_permanent|auto
- * @param {string} [opts.status]      approved|draft|pending_approval
+ * v285+: requests with sourceType ending in `_reversal` do NOT create a separate
+ * «سند ابطالی». They soft-void the matching original JE instead (same policy as
+ * reverseJournalEntry). Callers that previously stored reversal_journal_id get
+ * null when there is nothing left to void.
  */
+function softVoidInsteadOfReversalVoucher(db, opts) {
+  const sourceType = String(opts.sourceType || '');
+  const sourceId = opts.sourceId;
+  const baseType = sourceType.replace(/_reversal$/, '');
+  const { reverseJournalEntry, hardDeleteJournalEntry } = require('./void-journal');
+
+  // Drop any leftover reverse vouchers for this source (legacy pairs).
+  if (sourceId != null) {
+    const leftover = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type=? AND ref_id=? AND COALESCE(deleted_at,0)=0
+    `).all(sourceType, sourceId);
+    for (const row of leftover) hardDeleteJournalEntry(db, row.id);
+  }
+
+  if (sourceId == null || !baseType) return null;
+
+  const originals = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type=? AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+    ORDER BY id
+  `).all(baseType, sourceId);
+
+  let last = null;
+  for (const row of originals) {
+    reverseJournalEntry(db, row.id, {
+      userId: opts.createdBy,
+      date: opts.date,
+      reason: opts.description || '',
+      sourceType,
+    });
+    last = row.id;
+  }
+  return last;
+}
+
 function postToLedger(db, opts) {
   const {
     sourceType, sourceId, date, description, createdBy, lines,
     voucherType = 'auto', status = 'approved',
     srcSystem = null, srcDocNo = null, docType = null,
   } = opts;
+
+  // Never mint a standalone reverse voucher — soft-void the original instead.
+  if (sourceType && String(sourceType).endsWith('_reversal')) {
+    return softVoidInsteadOfReversalVoucher(db, opts);
+  }
 
   let resolvedSrc = srcSystem;
   if (!resolvedSrc) {

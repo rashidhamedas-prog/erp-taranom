@@ -108,6 +108,29 @@ const closed = closePeriodicWarehouse(db, {
 ok(closed.cogs_rial === 700000, 'COGS = BI+Purchases-EI (1_000_000+500_000-800_000)');
 ok(closed.journal_entry_id > 0, 'adjustment JE posted');
 
+// 5) postToLedger(*_reversal) must soft-void, not mint a reverse voucher
+const je2 = postToLedger(db, {
+  sourceType: 'manual', sourceId: 99, date: '1405/02/01',
+  description: 'سند برای ابطال', createdBy: 1,
+  lines: [
+    { code: '1101', name: 'صندوق', debit: 50, credit: 0 },
+    { code: '4101', name: 'فروش', debit: 0, credit: 50 },
+  ],
+});
+const viaPost = postToLedger(db, {
+  sourceType: 'manual_reversal', sourceId: 99, date: '1405/02/02',
+  description: 'درخواست ابطال', createdBy: 1,
+  lines: [
+    { code: '4101', name: 'فروش', debit: 50, credit: 0 },
+    { code: '1101', name: 'صندوق', debit: 0, credit: 50 },
+  ],
+});
+ok(viaPost === je2, 'postToLedger reversal soft-voids original id');
+ok(db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE ref_type='manual_reversal' AND COALESCE(deleted_at,0)=0").get().c === 0,
+  'no live manual_reversal voucher');
+const j2 = db.prepare('SELECT status, deleted_at FROM journal_entries WHERE id=?').get(je2);
+ok(j2.status === 'reversed' && Number(j2.deleted_at) > 0, 'original voided via postToLedger guard');
+
 console.log(`\nv285: ${passed} passed, ${failed} failed`);
 try { fs.unlinkSync(process.env.DB_PATH); } catch (_) {}
 process.exit(failed ? 1 : 0);

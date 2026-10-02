@@ -5,6 +5,14 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — بستن مسیرهای باقی‌ماندهٔ سند ابطالی در postToLedger (SW v285)
+
+- **Invariant:** هر `postToLedger` با `sourceType` ختم‌شده به `_reversal` سند جدید نمی‌سازد؛ اصل را soft-void می‌کند و ردیف‌های reverse باقی‌مانده را پاک می‌کند (همان سیاست v285).
+- **فایل‌ها:** `server/lib/ledger.js`, `scripts/test-payroll-wh-v285.js`, CHANGE-LOG.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — حذف سند ابطالی، حکم چندگانه حقوق، روش ثبت انبار (SW v285)
 
 - **سند ابطالی:** `reverseJournalEntry` دیگر سند معکوس جدا نمی‌سازد؛ سند اصلی `status=reversed` + `deleted_at` می‌شود. مهاجرت یک‌بار `purge_reversal_docs_v285` اسناد ابطالی تاریخی را از DB حذف و اصل را soft-void می‌کند تا تراز بماند.
