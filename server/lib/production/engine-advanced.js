@@ -168,8 +168,8 @@ function stageOwnsBomMaterials(db, po, stage) {
   return !!(ownerStage && Number(ownerStage.id) === Number(stage.id));
 }
 
-function stageMaterialLines(db, po, stage) {
-  if (!stageOwnsBomMaterials(db, po, stage)) return [];
+function explodedOrderLines(db, po) {
+  if (!po?.bom_id) return [];
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
   const qtyStart = orderQtyStart(db, po);
   const ex = explodeBom(db, {
@@ -180,7 +180,94 @@ function stageMaterialLines(db, po, stage) {
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
   });
-  return ex.lines.filter(L => L.stage_cost_center_id === stage.cost_center_id);
+  return ex.lines || [];
+}
+
+function assignmentSliceQty(line, assignment) {
+  const base = Number(assignment.qty_per_base) || 0;
+  let qty = line.qty_final;
+  if (assignment.qty_override != null && assignment.qty_override !== '' && base > 0) {
+    qty = round6(line.qty_final * (Number(assignment.qty_override) / base));
+  }
+  if ((assignment.allocation_mode || 'sole') === 'shared') {
+    qty = round6(qty * (Number(assignment.share_percent) || 0) / 100);
+  }
+  return qty;
+}
+
+/**
+ * Materials for a shop-floor issue.
+ * 1) Explicit operation assignment (sole/shared) when the stage has operation_id.
+ * 2) Legacy: earliest stage of the line's cost center.
+ * 3) If the formula has lines but nothing is linked, the first stage receives them
+ *    so the voucher is not an empty dead-end.
+ */
+function stageMaterialLines(db, po, stage) {
+  const lines = explodedOrderLines(db, po);
+  const { materialsByOperation } = require('./bom-assignments');
+  const byOp = po.bom_id ? materialsByOperation(db, po.bom_id) : new Map();
+
+  if (byOp.size && stage.operation_id != null) {
+    const rows = byOp.get(Number(stage.operation_id)) || [];
+    const byLine = new Map(lines.map(L => [Number(L.bom_line_id), L]));
+    return rows.map(a => {
+      const L = byLine.get(Number(a.bom_line_id));
+      if (!L) return null;
+      return { ...L, qty_final: assignmentSliceQty(L, a) };
+    }).filter(Boolean);
+  }
+
+  if (stageOwnsBomMaterials(db, po, stage)) {
+    const ccLines = lines.filter(L => Number(L.stage_cost_center_id) === Number(stage.cost_center_id));
+    const first = db.prepare(`
+      SELECT id FROM production_order_stages
+      WHERE order_id=? ORDER BY seq ASC, id ASC LIMIT 1
+    `).get(po.id);
+    const orphans = (!byOp.size && first && Number(first.id) === Number(stage.id))
+      ? lines.filter(L => L.stage_cost_center_id == null || L.stage_cost_center_id === '')
+      : [];
+    const merged = [...ccLines];
+    for (const L of orphans) {
+      if (!merged.some(m => Number(m.bom_line_id) === Number(L.bom_line_id))) merged.push(L);
+    }
+    if (merged.length) return merged;
+  }
+
+  const first = db.prepare(`
+    SELECT id FROM production_order_stages
+    WHERE order_id=? ORDER BY seq ASC, id ASC LIMIT 1
+  `).get(po.id);
+  const isFirst = !!(first && Number(first.id) === Number(stage.id));
+  if (!byOp.size && isFirst) {
+    const orphans = lines.filter(L => L.stage_cost_center_id == null || L.stage_cost_center_id === '');
+    if (orphans.length) return orphans;
+    if (lines.length && !lines.some(L => L.stage_cost_center_id != null && L.stage_cost_center_id !== '')) {
+      return lines;
+    }
+  }
+  return [];
+}
+
+function stageMaterialEmptyHint(db, po, stage) {
+  const lines = explodedOrderLines(db, po);
+  if (!lines.length) {
+    return 'این فرمول قلم مواد ندارد. در فرمول ساخت، تب «اقلام» را پر و ذخیره کنید.';
+  }
+  const { materialsByOperation } = require('./bom-assignments');
+  const byOp = po.bom_id ? materialsByOperation(db, po.bom_id) : new Map();
+  if (byOp.size) {
+    const names = [];
+    for (const opId of byOp.keys()) {
+      const op = db.prepare('SELECT seq, operation_name FROM bom_operations WHERE id=?').get(opId);
+      names.push((op?.operation_name || ('عملیات ' + opId)) + (op?.seq != null ? ` (${op.seq})` : ''));
+    }
+    return 'مواد به این مرحله وصل نیست. وصل شده به: ' + names.join('، ')
+      + '. حواله را روی همان مرحله بزنید، یا در فرمول → مسیر عملیات، ماده را به این عملیات وصل کنید.';
+  }
+  if (lines.some(L => L.stage_cost_center_id)) {
+    return 'مواد به مرکز هزینهٔ مرحلهٔ دیگری وصل است. حواله را روی همان مرحله باز کنید.';
+  }
+  return 'ماده‌ای برای این مرحله پیدا نشد.';
 }
 
 function backflushStageMaterials(db, {
@@ -1371,7 +1458,9 @@ function getStageIssueTemplate(db, orderId, stageId) {
     order_id: orderId,
     stage_id: stageId,
     qty_in: stage.qty_in,
+    operation_name: stage.operation_name || '',
     lines,
+    empty_hint: lines.length ? '' : stageMaterialEmptyHint(db, po, stage),
   };
 }
 

@@ -12603,6 +12603,7 @@ async function prodBomEditModal(id, tab){
       <strong>اقلام مواد / بسته‌بندی</strong>
       ${canBomEdit?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
     </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">ماتریس سایز هر قلم با دکمهٔ 📐 در همین جدول تعریف می‌شود (مصرف متفاوت هر سایز). سایزها از کارت کالا می‌آیند. بعد از ویرایش، «ذخیره اقلام» را بزنید.</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
     </tr></thead><tbody id="pbe-lines">
@@ -12685,10 +12686,14 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
   const asgOpOpts=(ops||[]).map(o=>`<option value="${o.id}">${esc((o.seq??'')+' — '+(o.operation_name||('#'+o.id)))}</option>`).join('');
   const nextSeq=((ops||[]).reduce((m,o)=>Math.max(m,Number(o.seq)||0),0)||0)+10;
   const html=`
-    <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
+    <div class="prod-scope">
+    <div class="prod-step">
+      <h4>۱) مسیر عملیات را بسازید</h4>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">بدون عملیات ذخیره‌شده، لیست «عملیات» برای وصل مواد خالی می‌ماند. اول «از الگوی ترنم» یا فرم پایین را بزنید.</p>
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
       ${canMut?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRoutingInEditor((id))})}">از الگوی ترنم</button>
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">V4-21: با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
     </div>
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>. شخص اختیاری است و هزینهٔ عملیات را به همان فرد نسبت می‌دهد.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -12710,22 +12715,25 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
         </td>`:''}
       </tr>`).join('')||`<tr><td colspan="${canMut?10:9}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
-    <div data-csp-style="${CSP.style(`margin-top:16px;padding-top:12px;border-top:1px solid var(--border)`)}">
-      <h4 data-csp-style="${CSP.style(`margin:0 0 8px;font-size:14px`)}">مواد این عملیات (تخصیص به شناسه عملیات)</h4>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.6;margin:0 0 8px`)}">دو عملیات در یک مرکز هزینه باید مواد جدا داشته باشند. سهم مشترک باید جمعاً ۱۰۰٪ باشد. دکمهٔ backfill فقط مراکز تک‌عملیاتی را نگاشت می‌کند.</p>
+    </div>
+    <div class="prod-step">
+      <h4>۲) مواد را به عملیات وصل کنید</h4>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.6;margin:0 0 8px`)}">اگر عملیات ذخیره نشده باشد، لیست عملیات خالی است. بعد از ذخیرهٔ عملیات، قلم را به همان عملیات وصل کنید تا حوالهٔ مرحله پر شود.</p>
       <div id="pbe-assign-box" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">در حال بارگذاری تخصیص‌ها…</div>
       ${canMut?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
         <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomBackfillAssignments((id))})}">نگاشت خودکار از مرکز هزینه</button>
         <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomReloadAssignments((id))})}">بازنشانی لیست</button>
       </div>
       <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end`)}" id="pbe-assign-form">
-        <div class="fg"><label>قلم BOM</label><select id="pbe-asg-line"><option value="">— انتخاب —</option>${asgLineOpts}</select></div>
-        <div class="fg"><label>عملیات</label><select id="pbe-asg-op"><option value="">— انتخاب —</option>${asgOpOpts}</select></div>
-        <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOneAssignment((id))})}">➕ تخصیص یک‌به‌یک (sole)</button>
+        <div class="fg"><label>قلم BOM</label><select id="pbe-asg-line"><option value="">— انتخاب —</option>${asgLineOpts||'<option value="" disabled>اول اقلام را ذخیره کنید</option>'}</select></div>
+        <div class="fg"><label>عملیات</label><select id="pbe-asg-op"><option value="">— انتخاب —</option>${asgOpOpts||'<option value="" disabled>اول عملیات را ذخیره کنید</option>'}</select></div>
+        <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOneAssignment((id))})}">➕ تخصیص یک‌به‌یک</button>
       </div>`:''}
     </div>
     ${canMut?`
-    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-op-form">
+    <div class="prod-step">
+      <h4>۳) افزودن / ویرایش عملیات</h4>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:4px`)}" id="pbe-op-form">
       <input type="hidden" id="pbe-op-id" value="">
       <div class="fg"><label>ترتیب (seq)</label><input id="pbe-op-seq" type="number" min="1" step="1" value="${nextSeq}"></div>
       <div class="fg"><label>نام عملیات</label><input id="pbe-op-name" placeholder="مثلاً برش"></div>
@@ -12742,22 +12750,25 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOpForm()})}">پاک کردن فرم</button>
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد. شخص اختیاری است.</p>
-    `:''}`;
+    </div>
+    `:''}
+    </div>`;
   setTimeout(function(){ try{ prodBomReloadAssignments(id); }catch(_){ } }, 0);
   return html;
 }
 async function prodBomReloadAssignments(bomId){
   const box=document.getElementById('pbe-assign-box');
   if(!box) return;
+  const canDel=typeof canPerm==='function' && canPerm('production_bom','edit');
   try{
     const data=await api('GET','/production/boms/'+bomId+'/assignments');
     const rows=(data&&data.rows)||data||[];
     if(!rows.length){
-      box.innerHTML='تخصیصی ثبت نشده — از «نگاشت خودکار» یا API <code>PUT …/assignments</code> استفاده کنید.';
+      box.innerHTML='تخصیصی ثبت نشده — اول عملیات را ذخیره کنید، بعد قلم را وصل کنید یا «نگاشت خودکار» را بزنید.';
       return;
     }
     box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>قلم</th><th>کالا / مقدار</th><th>عملیات</th><th>seq</th><th>حالت</th><th>سهم٪</th>
+      <th>قلم</th><th>کالا / مقدار</th><th>عملیات</th><th>seq</th><th>حالت</th><th>سهم٪</th>${canDel?'<th></th>':''}
     </tr></thead><tbody>${rows.map(a=>`<tr>
       <td class="num">${esc(String(a.line_no??a.bom_line_id))}</td>
       <td>${a.component_product_id!=null?esc(prodBomAsgProdLabel(a.component_product_id)):'—'}${a.qty_per_base!=null?` <span class="muted">× ${esc(String(a.qty_override!=null?a.qty_override:a.qty_per_base))}</span>`:''}</td>
@@ -12765,10 +12776,27 @@ async function prodBomReloadAssignments(bomId){
       <td class="num">${a.operation_seq??'—'}</td>
       <td>${esc(a.allocation_mode||'sole')}</td>
       <td class="num">${a.share_percent!=null?a.share_percent:'—'}</td>
+      ${canDel?`<td><button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteAssignment((bomId),(a.bom_line_id),(a.operation_id))})}">حذف</button></td>`:''}
     </tr>`).join('')}</tbody></table></div>`;
   }catch(e){
     box.textContent=e.message||e.error||'خطا در بارگذاری تخصیص';
   }
+}
+async function prodBomDeleteAssignment(bomId, lineId, opId){
+  if(!confirm('این تخصیص حذف شود؟')) return;
+  try{
+    const cur=await api('GET','/production/boms/'+bomId+'/assignments');
+    const rows=(cur&&cur.rows)||(Array.isArray(cur)?cur:[]);
+    const keep=rows.filter(a=>!(Number(a.bom_line_id)===Number(lineId)&&Number(a.operation_id)===Number(opId))).map(a=>({
+      bom_line_id:a.bom_line_id, operation_id:a.operation_id,
+      allocation_mode:a.allocation_mode||'sole', share_percent:a.share_percent,
+      qty_override:a.qty_override, component_color_mode:a.component_color_mode,
+      component_color_id:a.component_color_id, note:a.note
+    }));
+    await api('PUT','/production/boms/'+bomId+'/assignments',{assignments:keep});
+    showToast('تخصیص حذف شد');
+    await prodBomReloadAssignments(bomId);
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 function prodBomAsgProdLabel(pid){
   if(pid==null||pid==='') return '—';
@@ -14372,7 +14400,8 @@ async function prodAccessSave(userId){
 const PROD_ANALYSIS_LABEL={fixed:'ثابت',variable:'متغیر',fixed_adv:'ثابت پیشرفته (مرحله‌ای)',variable_adv:'متغیر پیشرفته (مرحله‌ای)'};
 async function renderProductionOrdersTab(body){
   let data={rows:[]};
-  try{ data=await api('GET','/production/orders')||{rows:[]}; }catch(e){ data={rows:[]}; }
+  const showVoid=!!window._prodOrdersShowVoided;
+  try{ data=await api('GET','/production/orders?limit=200'+(showVoid?'&include_voided=1':''))||{rows:[]}; }catch(e){ data={rows:[]}; }
   const rows=data.rows||[];
   const PU=window.ProdUI;
   const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(v||0)+' ریال':'—');
@@ -14382,11 +14411,15 @@ async function renderProductionOrdersTab(body){
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateModal()})}">➕ سفارش جدید</button>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-orders')})}">🔄 تازه‌سازی</button>
+      <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrdersPurgeSelected()})}">حذف کامل انتخاب‌شده‌ها</button>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){window._prodOrdersShowVoided=!window._prodOrdersShowVoided;loadAccTab('production-orders')})}">${showVoid?'پنهان کردن حذف‌شده‌ها':'نمایش حذف‌شده‌ها'}</button>
     </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:-4px 0 10px;line-height:1.7`)}">حذف کامل سند و موجودی را برمی‌گرداند و ردیف را از لیست برمی‌دارد. ردیف در دفتر می‌ماند.</p>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>شماره</th><th>محصول</th><th>نوع آنالیز</th><th>برنامه</th><th>تولید</th><th>بهای واحد</th><th>وضعیت</th><th>عملیات</th>
+      <th></th><th>شماره</th><th>محصول</th><th>نوع آنالیز</th><th>برنامه</th><th>تولید</th><th>بهای واحد</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>
       ${rows.map(o=>`<tr>
+        <td data-label="انتخاب">${o.status==='voided'?'':`<input type="checkbox" class="po-pick" data-id="${o.id}">`}</td>
         <td data-label="شماره">${esc(o.order_no)}</td>
         <td data-label="محصول">${esc(o.product_name||('#'+o.product_id))}</td>
         <td data-label="نوع آنالیز" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(PROD_ANALYSIS_LABEL[o.analysis_type]||o.analysis_type)}</td>
@@ -14406,8 +14439,9 @@ async function renderProductionOrdersTab(body){
           ${o.status==='completed'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderClose((o.id))})}">بستن</button>
           ${(canPerm('production','delete')||isAdmin())?`<button class="btn sm ghost" data-csp-style="${CSP.style(`color:var(--red)`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderReverse((o.id))})}">ابطال</button>`:''}`:''}
           ${o.status==='closed'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodOrderReopen((o.id))})}">بازگشایی</button>`:''}
+          ${o.status!=='voided'&&o.status!=='closed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrderPurge((o.id))})}">حذف کامل</button>`:''}
         </td>
-      </tr>`).join('')||`<tr><td colspan="8" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">سفارشی نیست</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="9" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">سفارشی نیست</td></tr>`}
     </tbody></table></div>
     </div>`;
 }
@@ -14426,6 +14460,10 @@ function prodOrderErrMsg(e){
     E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید یکی نیست',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
     E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
+    E_REASON_REQUIRED:'دلیل حذف را بنویسید',
+    E_ORDER_CLOSED:'سفارش بسته است — اول بازگشایی کنید',
+    E_FG_SOLD:'کالای رسیدشده فروخته شده و حذف کامل ممکن نیست',
+    E_ORDER_FINALIZED:'سفارش نهایی شده — اول ابطال رسید را بزنید',
   };
   return map[code]||e?.error||e?.message||code||'خطا در ایجاد سفارش';
 }
@@ -14711,6 +14749,30 @@ async function prodOrderCancel(id){
   try{ await api('POST','/production/orders/'+id+'/cancel',{reason}); showToast('لغو شد'); loadAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
+async function prodOrderPurge(id){
+  const reason=prompt('دلیل حذف کامل:');
+  if(reason==null||!String(reason).trim()){ if(reason!=null) showToast('دلیل الزامی است','error'); return; }
+  if(!confirm('حذف کامل؟ سند و موجودی برمی‌گردد و ردیف از لیست خارج می‌شود. ردیف پاک نمی‌شود.')) return;
+  try{
+    await api('POST','/production/orders/'+id+'/purge',{reason:String(reason).trim()});
+    showToast('از لیست حذف شد');
+    loadAccTab('production-orders');
+  }catch(e){ showToast(prodOrderErrMsg(e),'error'); }
+}
+async function prodOrdersPurgeSelected(){
+  const ids=[...document.querySelectorAll('.po-pick:checked')].map(c=>+c.dataset.id).filter(Boolean);
+  if(!ids.length){ showToast('ردیفی انتخاب نشده','error'); return; }
+  const reason=prompt('دلیل حذف کامل '+ids.length+' سفارش:');
+  if(reason==null||!String(reason).trim()){ if(reason!=null) showToast('دلیل الزامی است','error'); return; }
+  if(!confirm(ids.length+' سفارش حذف کامل شود؟')) return;
+  let okN=0, fail='';
+  for(const id of ids){
+    try{ await api('POST','/production/orders/'+id+'/purge',{reason:String(reason).trim()}); okN++; }
+    catch(e){ fail=prodOrderErrMsg(e); break; }
+  }
+  showToast(fail?(okN+' مورد حذف شد — '+fail):(okN+' سفارش از لیست حذف شد'), fail?'error':'ok');
+  loadAccTab('production-orders');
+}
 async function prodOrderReverse(id){
   const reason=prompt('دلیل ابطال با سند معکوس:');
   if(reason==null) return;
@@ -14924,16 +14986,18 @@ async function prodOrderStagesModal(orderId){
   }catch(e){ showToast(e.message||'خطا در دریافت مراحل','error'); return; }
   const stages=data.stages||[];
   const PU=window.ProdUI;
+  const STATUS_FA={done:'انجام شد',in_progress:'در جریان',pending:'منتظر',blocked:'متوقف',skipped:'رد شده'};
   showModal('مراحل سفارش '+esc(order.order_no||''),`
     <div class="prod-scope">
+    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد.</p>
     ${PU?PU.stageFlow(stages):''}
     <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:12px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>#</th><th>مرکز هزینه</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
+      <th>#</th><th>عملیات / مرکز</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
     </tr></thead><tbody>
       ${(()=>{ const lastDone=(stages.filter(x=>x.status==='done').pop()); return stages.map(s=>{ const canRev=lastDone&&s.id===lastDone.id; return `<tr>
         <td>${esc(s.seq)}</td>
-        <td>${esc(s.cc_code||'')} ${esc(s.cc_name||'')}</td>
-        <td>${PU?PU.badge(s.status):esc(s.status)}</td>
+        <td><b>${esc(s.operation_name||s.cc_name||'')}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(s.cc_code||'')} ${esc(s.cc_name||'')}</div></td>
+        <td>${PU?PU.badge(s.status):esc(STATUS_FA[s.status]||s.status)}</td>
         <td class="num">${s.qty_in??'—'}</td>
         <td class="num">${s.qty_out??'—'}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
@@ -15033,8 +15097,11 @@ async function prodStageIssueModal(orderId,stageId){
   try{ tpl=await api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'); }
   catch(e){ showToast(e.message||'خطا در دریافت الگوی حواله','error'); return; }
   const lines=tpl.lines||[];
+  const hint=tpl.empty_hint||'مادهٔ مرتبط با این مرحله نیست';
   showModal('حواله مواد مرحله',`
+    <div class="prod-scope">
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
+    ${!lines.length?`<div class="prod-empty">${esc(hint)}</div>`:''}
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>دلیل انحراف</th>
     </tr></thead><tbody id="psi-rows">
@@ -15043,11 +15110,12 @@ async function prodStageIssueModal(orderId,stageId){
         <td class="num">${L.qty_standard}</td>
         <td><input class="psi-qty" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}"></td>
         <td><input class="psi-reason" placeholder="در صورت انحراف" data-csp-style="${CSP.style(`width:140px`)}"></td>
-      </tr>`).join('')||`<tr><td colspan="4" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مادهٔ مرتبط با این مرحله نیست</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="4" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">—</td></tr>`}
     </tbody></table></div>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodStageIssueSave((orderId),(stageId))})}" ${lines.length?'':'disabled'}>ثبت حواله</button>
+    </div>
     </div>`);
 }
 async function prodStageIssueSave(orderId,stageId){
@@ -23972,6 +24040,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
         <li><b>«اجرای تولید» قدیمی بسته شد (v280):</b> صفحهٔ قدیمی تحلیل هزینه، موجودی و بهای کالا را مستقیم تغییر می‌داد — بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید. با نصب مدول تولید، ثبت و ابطال از آن مسیر با <code>E_LEGACY_PRODUCTION_DISABLED</code> (۴۰۹) رد می‌شود و ردیف‌های قبلی فقط‌خواندنی می‌مانند؛ تولید جدید فقط از <b>سفارش‌های تولید</b> (یا لایه‌چینی/رسید محصول) ثبت می‌شود. اگر برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه لازم شد، <b>admin</b> می‌تواند در تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی مجاز باشد» را موقتاً روشن کند؛ حتی در آن حالت هم ثبت در ماه بستهٔ تولید با <code>E_PERIOD_CLOSED</code> رد می‌شود. مهاجرت ردیف‌های تاریخی به دفتر انبار یک کار جداگانه است.</li>
         <li><b>بسته برش سفارش‌دار = WIP (v281):</b> با پیوند به سفارش تولید، مقدار فقط در انبار WIP/CUT می‌نشیند (<code>warehouseOnly</code>) و <code>products.stock</code> فروش‌پذیر تا finalize تغییر نمی‌کند؛ نبود انبار WIP → <code>E_WIP_WAREHOUSE_REQUIRED</code>. هنگام نهایی‌کردن سفارش، همان مقدار از انبار WIP خارج می‌شود (بدون سند مالی دوم و بدون کم‌کردن دوبارهٔ موجودی فروش‌پذیر).</li>
+        <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
+        <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
+        <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
+        <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
@@ -24575,7 +24647,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v277</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v282</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),

@@ -1738,10 +1738,62 @@ function postReceiptVariable(db, { orderId, body, userId }) {
   })();
 }
 
-function listOrders(db, { status, productId, period, page = 1, limit = 50 } = {}) {
+/**
+ * Hide an order from the shop list after reversing posted effects (R13).
+ * The row stays in the database with status voided.
+ */
+function purgeOrder(db, orderId, userId, reason = '') {
+  const why = String(reason || '').trim();
+  if (!why) throw err('E_REASON_REQUIRED', 422);
+  return db.transaction(() => {
+    let po = getOrder(db, orderId);
+    if (po.status === 'voided') return getOrder(db, orderId);
+    if (po.status === 'closed') throw err('E_ORDER_CLOSED', 409);
+
+    if (['fixed_adv', 'variable_adv'].includes(po.analysis_type)
+      && !['draft', 'cancelled'].includes(po.status)) {
+      const adv = require('./engine-advanced');
+      for (let guard = 0; guard < 40; guard++) {
+        const last = db.prepare(`
+          SELECT id FROM production_order_stages
+          WHERE order_id=? AND status='done'
+          ORDER BY seq DESC, id DESC LIMIT 1
+        `).get(orderId);
+        if (!last) break;
+        adv.reverseStage(db, { orderId, stageId: last.id, reason: why, userId });
+      }
+    }
+
+    po = getOrder(db, orderId);
+    const postedIssues = db.prepare(`
+      SELECT COUNT(*) c FROM production_material_issues WHERE order_id=? AND status='posted'
+    `).get(orderId).c;
+    const postedReceipts = db.prepare(`
+      SELECT COUNT(*) c FROM production_receipts WHERE order_id=? AND status='posted'
+    `).get(orderId).c;
+    if ((postedIssues || postedReceipts) && po.status !== 'cancelled') {
+      reverseOrder(db, orderId, userId, why);
+    }
+
+    db.prepare(`
+      UPDATE production_reservations SET status='released'
+      WHERE order_id=? AND status='active'
+    `).run(orderId);
+    db.prepare(`
+      UPDATE production_orders
+      SET status='voided', cancelled_reason=?, updated_at=strftime('%s','now')
+      WHERE id=?
+    `).run(why, orderId);
+    audit(userId, 'update', 'production_order', orderId, `حذف کامل ${po.order_no}: ${why}`);
+    return getOrder(db, orderId);
+  })();
+}
+
+function listOrders(db, { status, productId, period, page = 1, limit = 50, includeVoided = false } = {}) {
   const where = ['1=1'];
   const params = [];
   if (status) { where.push('status=?'); params.push(status); }
+  if (!includeVoided && status !== 'voided') where.push("IFNULL(status,'')!='voided'");
   if (productId) { where.push('product_id=?'); params.push(productId); }
   if (period) { where.push('period_label=?'); params.push(period); }
   const lim = Math.min(Number(limit) || 50, 200);
@@ -1983,6 +2035,7 @@ module.exports = {
   createOrder,
   releaseOrder,
   cancelOrder,
+  purgeOrder,
   closeOrder,
   reopenOrder,
   postReceiptFixed,

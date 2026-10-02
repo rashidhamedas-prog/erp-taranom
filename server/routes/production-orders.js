@@ -56,6 +56,7 @@ router.get('/', auth, requirePermission('production', 'view'), (req, res) => {
     period: req.query.period,
     page: req.query.page,
     limit: req.query.limit,
+    includeVoided: req.query.include_voided === '1' || req.query.include_voided === 'true',
   }));
 });
 
@@ -171,6 +172,12 @@ router.post('/:id/release', auth, requirePermission('production', 'edit'), (req,
 
 router.post('/:id/cancel', auth, requirePermission('production', 'edit'), (req, res) => {
   handle(res, () => engine.cancelOrder(getDB(), Number(req.params.id), req.user.id, req.body?.reason));
+});
+
+router.post('/:id/purge', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => engine.purgeOrder(
+    getDB(), Number(req.params.id), req.user.id, req.body?.reason || ''
+  ));
 });
 
 router.post('/:id/close', auth, requirePermission('production_close', 'edit'), (req, res) => {

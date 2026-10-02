@@ -76,6 +76,11 @@
     completed: '🔵 تکمیل',
     closed: '🟢 بسته',
     cancelled: '🔴 لغو',
+    done: '✅ انجام شد',
+    pending: '⚪ منتظر',
+    blocked: '⛔ متوقف',
+    skipped: '⏭ رد شده',
+    voided: '🗑 حذف‌شده',
   };
 
   /** Badge وضعیت سفارش/دوره */
@@ -111,8 +116,8 @@
       const status = s.status || 'pending';
       const cls = status === 'done' ? 'done' : (status === 'in_progress' ? 'active' : (status === 'blocked' ? 'blocked' : 'pending'));
       const dot = status === 'done' ? '✅' : status === 'in_progress' ? '🔵' : status === 'blocked' ? '⛔' : '⚪';
-      const label = escHtml((s.seq != null ? s.seq + ' ' : '') + (s.cc_name || s.cc_code || s.name || ''));
-      const qtyLabel = status === 'in_progress' ? 'در جریان' : status === 'done' ? qty(s.qty_out) : status === 'blocked' ? 'متوقف' : 'منتظر';
+      const label = escHtml(s.operation_name || s.cc_name || s.cc_code || s.name || (s.seq != null ? String(s.seq) : ''));
+      const qtyLabel = status === 'in_progress' ? 'در جریان' : status === 'done' ? ('خروجی ' + qty(s.qty_out)) : status === 'blocked' ? 'متوقف' : status === 'skipped' ? 'رد شده' : 'منتظر';
       return `<div class="prod-stage ${cls}">
         <span class="prod-stage-dot">${dot}</span>
         <span class="prod-stage-label">${label}</span>

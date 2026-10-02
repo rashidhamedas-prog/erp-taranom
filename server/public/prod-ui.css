@@ -131,6 +131,10 @@
 .prod-stage.blocked { opacity:.7; }
 .prod-stage.blocked .prod-stage-label { color: var(--state-danger); }
 .prod-stage .prod-stage-qty { display:block; font-size: 11px; color: var(--prod-text-mute); }
+.prod-floor-lead { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--prod-text-mute); }
+.prod-step { margin-top: 14px; padding: 12px; border: 1px solid var(--prod-border); border-radius: var(--prod-radius); background: var(--prod-bg); }
+.prod-step h4 { margin: 0 0 6px; font-size: 14px; }
+.prod-empty { padding: 14px; text-align: center; color: var(--prod-text-mute); line-height: 1.8; font-size: 13px; }
 
 /* ============ Variance cells ============ */
 .prod-var-fav    { color: var(--var-favorable); font-weight: 600; }
