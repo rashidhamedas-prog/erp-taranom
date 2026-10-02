@@ -12,7 +12,7 @@
 - **فرانت:** برچسب مراحل فارسی؛ راهنمای کف کارگاه؛ پیام خالی حواله؛ دکمه حذف کامل + چندتایی؛ تب مسیر فرمول سه‌مرحله‌ای (ساخت عملیات → وصل مواد → فرم)؛ راهنمای ماتریس سایز در تب اقلام؛ حذف تخصیص از UI؛ Help ادمین به‌روز.
 - **فایل‌ها:** `engine-advanced.js`, `engine.js`, `routes/production-orders.js`, `public/{app.js,prod-ui.js,prod-ui.css,index.html,sw.js}`, `scripts/test-prod-floor-ux-v282.js`, CHANGE-LOG.
 - **تست:** `node server/scripts/test-prod-floor-ux-v282.js`؛ `test-sms` / `test-sync` پس از بک‌اند.
-- **Deploy:** ✅ `5f3a396` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v282`؛ `test-sms` 22/0؛ `test-prod-floor-ux-v282` روی ایران (پس از پچ draft BOM در تست).
+- **Deploy:** ✅ `5f3a396` + `0fe8051` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health/root 200، SW `erp-taranom-v282`؛ `test-sms` 22/0؛ `test-prod-floor-ux-v282` **12/0**.
 
 ### ۱۴۰۵/۰۷/۱۰ — PROD-ACC تخلیه WIP هنگام finalize (SW v281)
 
