@@ -15249,8 +15249,15 @@ async function prodStageIssueSave(orderId,stageId){
 /** Prefill map variant_id → qty from order matrix / legacy breakdown. */
 function prodOrderFinalizePref(order, variants){
   const pref={};
+  const byCell=new Map();
+  (variants||[]).forEach(v=>{
+    if(v.color_id!=null && v.size_id!=null) byCell.set(Number(v.color_id)+':'+Number(v.size_id), Number(v.id));
+  });
   (order.matrix_lines||[]).forEach(l=>{
-    if(l.variant_id) pref[Number(l.variant_id)]=Number(l.qty_planned)||0;
+    let vid=l.variant_id!=null?Number(l.variant_id):null;
+    if(!vid && l.color_id!=null && l.size_id!=null) vid=byCell.get(Number(l.color_id)+':'+Number(l.size_id))||null;
+    const q=Number(l.qty_planned)||0;
+    if(vid && q>0) pref[vid]=q;
   });
   if(!Object.keys(pref).length){
     let bd={};
@@ -15294,11 +15301,13 @@ async function prodOrderFinalize(orderId){
     variants=(Array.isArray(raw)?raw:(raw&&Array.isArray(raw.rows)?raw.rows:[])).filter(v=>!v.is_default);
   }catch(e){ variants=[]; }
 
-  // Non-matrix: keep one-click confirm
+  const hasOrderPlan=!!((order.matrix_lines&&order.matrix_lines.length)||order.has_matrix_lines);
+  // Non-matrix, or matrix plan on server but variant list failed to load:
+  // POST without variant_lines → resolveFinalizeApparelLines uses production_order_lines.
   if(!variants.length){
     if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
     try{ await prodOrderFinalizePost(orderId, qtyGood, null); }
-    catch(e){ showToast(e.message||'خطا','error'); }
+    catch(e){ /* toast از api */ }
     return;
   }
 
@@ -15318,7 +15327,14 @@ async function prodOrderFinalize(orderId){
       : '\n('+toFa(lines.length)+' ترکیب رنگ×سایز از برنامه سفارش)';
     if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟'+summary)) return;
     try{ await prodOrderFinalizePost(orderId, qtyGood, lines); }
-    catch(e){ showToast(e.message||'خطا','error'); }
+    catch(e){ /* toast از api */ }
+    return;
+  }
+  // Order has plan rows but prefill could not map them — still try server auto-plan.
+  if(hasOrderPlan && planSum<=0){
+    if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟\n(برنامه رنگ×سایز از سرور)')) return;
+    try{ await prodOrderFinalizePost(orderId, qtyGood, null); }
+    catch(e){ /* toast از api */ }
     return;
   }
 
@@ -15346,7 +15362,7 @@ async function prodOrderFinalizeSave(orderId, qtyGood){
   }
   if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
   try{ await prodOrderFinalizePost(orderId, qty, variant_lines); }
-  catch(e){ showToast(e.message||'خطا','error'); }
+  catch(e){ /* toast از api */ }
 }
 
 async function prodStageSubSend(orderId,stageId,supplierId,qtyIn){

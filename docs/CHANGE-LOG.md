@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — سخت‌سازی UX نهایی‌سازی ماتریس (SW v288)
+
+- **Prefill:** سطرهای `matrix_lines` بدون `variant_id` از `color_id`×`size_id` به variant مپ می‌شوند.
+- **Toast دوبار:** `catch` بعد از `api()` دیگر toast تکراری نمی‌زند.
+- **Fallback:** اگر لیست variant خالی باشد ولی سفارش `has_matrix_lines`/`matrix_lines` داشته باشد، POST بدون body و اتکا به auto-plan سرور.
+- **فایل‌ها:** `server/public/{app.js,sw.js,index.html}`, CHANGE-LOG.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — نهایی‌سازی تولید وقتی برنامه رنگ×سایز = خروجی (SW v287)
 
 - **ریشه (PO-0006):** کالای ماتریسی با `production_order_lines` جمع ۱۶۴ و خروجی آخرین مرحله ۱۶۴؛ بک‌اند (`resolveFinalizeApparelLines`) برنامه را می‌پذیرد، ولی UI همیشه مودال ماتریس خالی/دستی می‌خواست و با ثبت بدون عدد toast `E_VARIANT_REQUIRED` می‌داد.
