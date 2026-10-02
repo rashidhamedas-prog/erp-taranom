@@ -23503,13 +23503,20 @@ async function loadWebsiteOutbox(){
     const counts=Object.entries(r.counts||{}).map(([k,v])=>`${k}=${v}`).join(' · ')||'خالی';
     const recent=(r.recent||[]).slice(0,12).map(row=>{
       let um='';
+      let catalog='';
       try{
         const lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{});
-        if(lr.unmatched&&lr.unmatched.length) um=' unmatched='+lr.unmatched.map(u=>u.erpVariantSku||u.reason).join(',');
+        const unmatched=lr.unmatched||[];
+        if(unmatched.length){
+          const reasons=[...new Set(unmatched.map(u=>u.reason||'?'))];
+          um=` unmatched=${unmatched.length}`+(reasons.length?` (${reasons.join(',')})`:'');
+          if(reasons.includes('product_sku_not_found')) catalog=' [کالا در سایت نیست]';
+        }
       }catch(_){}
-      return `#${row.id} p${row.product_id} ${row.channel} ${row.status}${row.last_error?' err='+row.last_error:''}${um}`;
+      const att=row.attempts?` try=${row.attempts}`:'';
+      return `#${row.id} p${row.product_id} ${row.channel} ${row.status}${att}${row.last_error?' err='+row.last_error:''}${um}${catalog}`;
     }).join('\n');
-    if(box) box.textContent=`وضعیت صف: ${counts}\n${recent}`;
+    if(box) box.textContent=`وضعیت صف: ${counts}\n${recent}\n\nراهنما: HTTP 0/timeout = ارتباط کند یا قطع؛ product_sku_not_found = SKU کالا در کاتالوگ سایت نیست (نگاشت لازم است).`;
   }catch(e){ if(box) box.textContent=e.message||'خطا'; }
 }
 async function saveSettings(){
@@ -24604,7 +24611,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run نگاشت / همگام‌سازی کامل / وضعیت صف از همین صفحه. اگر پیام «قابل خواندن نیست» دیدید، کلید را از env سایت دوباره وارد و ذخیره کنید (ماسک ******** کافی نیست)</li>
+        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run نگاشت / همگام‌سازی کامل / وضعیت صف از همین صفحه. اگر پیام «قابل خواندن نیست» دیدید، کلید را از env سایت دوباره وارد و ذخیره کنید (ماسک ******** کافی نیست). <code>timeout</code> یعنی API سایت دیر جواب داده؛ <code>product_sku_not_found</code> یعنی SKU در کاتالوگ سایت نیست و باید نگاشت شود</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>

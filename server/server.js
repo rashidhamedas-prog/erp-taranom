@@ -410,6 +410,15 @@ httpServer = app.listen(PORT, resolveListenHost(), () => {
 
 initDB();
 
+// Website stock outbox: keep draining even if the debounce timer was lost.
+if (!isDevice()) {
+  try {
+    require('./lib/website-stock-sync').startWebsiteStockDrainLoop(getDB());
+  } catch (e) {
+    console.warn('website-stock drain loop:', e && e.message);
+  }
+}
+
 // License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
 const { licenseGuard } = require('./lib/license/middleware');
 app.use('/api', licenseGuard);

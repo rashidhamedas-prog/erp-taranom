@@ -19,7 +19,11 @@ const { getSetting, getSettings } = require('./secret-settings');
 
 const DEBOUNCE_MS = 2000;
 const MAX_ATTEMPTS = 8;
-const DRAIN_BATCH = 20;
+/** Keep batches small — matrix PUT can take tens of seconds under load. */
+const DRAIN_BATCH = 5;
+const MATRIX_TIMEOUT_MS = 45_000;
+const PING_TIMEOUT_MS = 15_000;
+const DRAIN_INTERVAL_MS = 30_000;
 
 const SECRET_LABELS = Object.freeze({
   website_b2b_token: 'کلید API موجودی سایت',
@@ -181,10 +185,42 @@ function configuredChannels(s) {
   return out;
 }
 
-async function requestJSON(urlStr, method, body, headers = {}) {
+function formatOutboundFailure(res) {
+  if (!res) return 'ارتباط با سایت ناموفق';
+  const code = String(res.reason || res.body || '').trim();
+  if (code === 'OUTBOUND_TIMEOUT' || /timeout|مهلت/i.test(code)) {
+    return 'مهلت ارتباط با API سایت تمام شد (timeout) — دوباره تلاش می‌شود';
+  }
+  if (code === 'OUTBOUND_DNS_FAILED' || code === 'OUTBOUND_DNS_EMPTY') {
+    return 'نام میزبان API سایت resolve نشد';
+  }
+  if (code.startsWith('OUTBOUND_') || /آدرس|HTTPS|پورت|هدر/i.test(code)) {
+    return code;
+  }
+  if (Number(res.status) > 0) return `HTTP ${res.status}`;
+  return code || 'HTTP 0 — بدون پاسخ از سایت';
+}
+
+function isAllProductSkuNotFound(unmatched) {
+  if (!Array.isArray(unmatched) || !unmatched.length) return false;
+  return unmatched.every((u) => String(u && u.reason || '') === 'product_sku_not_found');
+}
+
+function rowHasUnmappedProductSku(row) {
+  try {
+    const lr = typeof row.last_result === 'string'
+      ? JSON.parse(row.last_result || '{}')
+      : (row.last_result || {});
+    return isAllProductSkuNotFound(lr.unmatched) && Number(lr.matched || 0) === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function requestJSON(urlStr, method, body, headers = {}, options = {}) {
   try {
     return await safeRequestJSON(urlStr, method, body, headers, {
-      timeoutMs: 20_000,
+      timeoutMs: options.timeoutMs || 20_000,
       maxResponseBytes: 2 * 1024 * 1024,
       maxRedirects: 3,
     });
@@ -375,18 +411,21 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
     dryRun: !!dryRun,
   };
   const url = siteApiUrl(base, 'erp/inventory/matrix');
-  const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token));
+  const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token), {
+    timeoutMs: MATRIX_TIMEOUT_MS,
+  });
   let parsed = null;
   try { parsed = JSON.parse(res.body); } catch { /* */ }
   const ok = res.status >= 200 && res.status < 300;
   return {
     ok,
     status: res.status,
+    reason: ok ? '' : formatOutboundFailure(res),
     channel: payload.channel,
     productSku: payload.productSku,
     matched: parsed && parsed.matched ? parsed.matched.length : 0,
     unmatched: parsed && parsed.unmatched ? parsed.unmatched : [],
-    body: parsed,
+    body: parsed || (typeof res.body === 'string' ? res.body : null),
     dryRun: !!dryRun,
   };
 }
@@ -407,11 +446,13 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
   const now = Math.floor(Date.now() / 1000);
   const nextAt = now + Math.ceil(DEBOUNCE_MS / 1000);
   const upsert = db.prepare(`
-    INSERT INTO website_stock_outbox (product_id, channel, next_at, attempts, status, updated_at)
-    VALUES (?, ?, ?, 0, 'pending', ?)
+    INSERT INTO website_stock_outbox (product_id, channel, next_at, attempts, status, last_error, updated_at)
+    VALUES (?, ?, ?, 0, 'pending', '', ?)
     ON CONFLICT(product_id, channel) DO UPDATE SET
       next_at=excluded.next_at,
       status='pending',
+      attempts=0,
+      last_error='',
       updated_at=excluded.updated_at
   `);
 
@@ -473,6 +514,18 @@ async function drainWebsiteStockOutbox(db) {
         continue;
       }
 
+      // If a prior response already proved the site has no such product SKU,
+      // do not burn retries on timeouts — catalog mapping is the real blocker.
+      if (rowHasUnmappedProductSku(row)) {
+        db.prepare(`
+          UPDATE website_stock_outbox
+          SET status='done', last_error='', updated_at=?
+          WHERE id=?
+        `).run(now, row.id);
+        results.push({ id: row.id, ok: true, settled: 'product_sku_not_found' });
+        continue;
+      }
+
       const push = await pushMatrixToSite(db, payload);
       if (push.ok || push.skipped) {
         db.prepare(`
@@ -484,6 +537,7 @@ async function drainWebsiteStockOutbox(db) {
             matched: push.matched,
             unmatched: push.unmatched,
             status: push.status,
+            catalogMissing: isAllProductSkuNotFound(push.unmatched),
           }),
           payload.idempotencyKey,
           now,
@@ -492,21 +546,22 @@ async function drainWebsiteStockOutbox(db) {
         results.push({ id: row.id, ok: true, unmatched: push.unmatched });
       } else {
         const attempts = (Number(row.attempts) || 0) + 1;
-        const backoff = Math.min(3600, Math.pow(2, attempts) * 5);
+        const backoff = Math.min(3600, Math.pow(2, attempts) * 15);
         const status = attempts >= MAX_ATTEMPTS ? 'error' : 'pending';
+        const errText = String(push.reason || formatOutboundFailure(push) || `HTTP ${push.status}`).slice(0, 500);
         db.prepare(`
           UPDATE website_stock_outbox
-          SET attempts=?, next_at=?, status=?, last_error=?, updated_at=?
+          SET attempts=?, next_at=?, status=?, last_error=?, last_result=COALESCE(last_result,''), updated_at=?
           WHERE id=?
         `).run(
           attempts,
           now + backoff,
           status,
-          String(push.reason || push.body || `HTTP ${push.status}`).slice(0, 500),
+          errText,
           now,
           row.id
         );
-        results.push({ id: row.id, ok: false, attempts, status });
+        results.push({ id: row.id, ok: false, attempts, status, error: errText });
         if (status === 'pending') scheduleDrain(db);
       }
     }
@@ -525,10 +580,35 @@ async function drainWebsiteStockOutbox(db) {
       }
     }
 
+    // More due rows? schedule another pass after this batch.
+    const more = db.prepare(`
+      SELECT COUNT(*) AS c FROM website_stock_outbox
+      WHERE status='pending' AND next_at<=?
+    `).get(Math.floor(Date.now() / 1000));
+    if (more && Number(more.c) > 0) scheduleDrain(db);
+
     return { ok: true, processed: results.length, results };
   } finally {
     _drainRunning = false;
   }
+}
+
+let _drainLoop = null;
+
+/** Periodic drain so a crashed timer cannot leave the outbox stuck. Central only. */
+function startWebsiteStockDrainLoop(db) {
+  if (_drainLoop || !db) return;
+  try {
+    const { isDevice } = require('../db');
+    if (typeof isDevice === 'function' && isDevice()) return;
+  } catch { /* central path */ }
+  scheduleDrain(db);
+  _drainLoop = setInterval(() => {
+    drainWebsiteStockOutbox(db).catch((e) => {
+      console.error('[website-stock-sync] loop', e && e.message);
+    });
+  }, DRAIN_INTERVAL_MS);
+  if (typeof _drainLoop.unref === 'function') _drainLoop.unref();
 }
 
 /** Call after any stock mutation (non-blocking). */
@@ -564,7 +644,9 @@ async function testWebsiteConnection(arg) {
     const token = String(s.website_b2b_token || '').trim();
     if (!base) return { ok: false, target, status: 0, reason: 'missing website_b2b_url' };
     if (!token) return { ok: false, target, status: 0, reason: 'missing website_b2b_token' };
-    const res = await requestJSON(siteApiUrl(base, 'erp/inventory/ping'), 'GET', null, b2bAuthHeaders(token));
+    const res = await requestJSON(siteApiUrl(base, 'erp/inventory/ping'), 'GET', null, b2bAuthHeaders(token), {
+      timeoutMs: PING_TIMEOUT_MS,
+    });
     const ok = res.status >= 200 && res.status < 300;
     const whW = channelWarehouseId(s, 'WHOLESALE');
     const whR = channelWarehouseId(s, 'RETAIL');
@@ -674,5 +756,9 @@ module.exports = {
   normalizeBase,
   getSettingsMap,
   secretOpenError,
+  startWebsiteStockDrainLoop,
+  formatOutboundFailure,
   DEBOUNCE_MS,
+  MATRIX_TIMEOUT_MS,
+  DRAIN_BATCH,
 };

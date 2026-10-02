@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — صف سینک موجودی: HTTP 0 = timeout + settle نگاشت (SW v292)
+
+- **ریشه:** ping سایت ۲۰۰ بود؛ PUT ماتریس گاهی `OUTBOUND_TIMEOUT` می‌گرفت و در صف به صورت مبهم `HTTP 0` ذخیره می‌شد. بسیاری از ردیف‌ها قبلاً `product_sku_not_found` گرفته بودند ولی با full-sync دوباره pending شده و روی timeout گیر می‌کردند.
+- **رفع:** timeout ماتریس ۴۵ث؛ پیام فارسی timeout؛ batch کوچک‌تر؛ drain دوره‌ای ۳۰ث؛ settle ردیف‌های اثبات‌شدهٔ «کالا در سایت نیست»؛ UI صف واضح‌تر.
+- **عملیات:** settle pendingهای catalog-missing + drain مجدد؛ انبار عمده=۳۵ / تکی=۳۴ اگر لازم.
+- **فایل‌ها:** `website-stock-sync.js`, `server.js`, `public/{app.js,sw.js,index.html}`, `test-website-outbox-timeout-v292.js`, CHANGE-LOG.
+- **تست:** `test-website-outbox-timeout-v292` + secret v291 + sms.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — همگام‌سازی سایت: خطای decrypt کلید API (SW v291)
 
 - **ریشه:** `website_b2b_token` با `DATA_ENCRYPTION_KEY` فعلی باز نمی‌شود (`E_SECRET_KEY_MISMATCH`). GET تنظیمات از v290 تحمل می‌کند، ولی test/dry-run/full-sync همهٔ secretها را یکجا decrypt می‌کرد و پیام انگلیسی crypto را toast می‌کرد؛ UI هم پرچم `*_unreadable` را نشان نمی‌داد.
