@@ -9,9 +9,9 @@
 
 - **ریشه:** ورود به حسابداری `GET /api/settings` را می‌زند؛ یکی از secretهای رمزشده با کلید فعلی باز نمی‌شود (`E_SECRET_KEY_MISMATCH`) و error handler عمومی «خطای داخلی سرور» برمی‌گرداند.
 - **رفع:** `getPublicSettings` هر کلید را جدا try/catch می‌کند — mask + `*_unreadable` + `_unreadable_secrets`؛ route هم wrap شد. بارگذاری settings در بوت با `silent`.
-- **اقدام ادمین:** اگر `_unreadable_secrets` پر بود، همان کلیدها را در تنظیمات دوباره وارد کنید (مثلاً توکن وب‌سایت/SMS).
+- **اقدام ادمین:** روی ایران فعلاً فقط `sms_api_key` ناخواناست (`E_SECRET_KEY_MISMATCH`) — در تنظیمات → SMS کلید را دوباره ذخیره کنید.
 - **فایل‌ها:** `secret-settings.js`, `routes/settings.js`, `public/{app.js,sw.js,index.html}`, `test-secret-settings-security.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `51076e3` — ایران overlay SFTP، `pm2 restart erp-taranom` بدون `--update-env`، health 200، SW `erp-taranom-v290`؛ `getPublicSettings` با JWT پروداکشن OK (۲۷۰ کلید).
 
 ---
 
