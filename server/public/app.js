@@ -186,6 +186,7 @@ async function api(method, path, data, isFormData, silent){
       // تغییر اجباری رمز: تا وقتی رمز عوض نشود، سرور بقیه درخواست‌ها را رد می‌کند
       if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
       const code=j.code||j.error||'error';
+      const pname=j.name||j.product_name||'';
       const prodFriendly={
         E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
         E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
@@ -238,18 +239,33 @@ async function api(method, path, data, isFormData, silent){
         E_LABOR_RATE_ZERO:'نرخ دستمزد عملیات صفر است',
         E_CREW_ZERO:'تعداد نفرات خدمه باید بزرگ‌تر از صفر باشد',
         E_COST_TREE_TIMEOUT:'محاسبهٔ درخت بها زمان‌بر شد — دوباره تلاش کنید',
+        E_ZERO_AVG_COST: pname
+          ? ('بهای میانگین «'+pname+'» صفر است — ابتدا فاکتور خرید (یا موجودی اول‌دوره با بها) ثبت کنید')
+          : 'بهای میانگین کالا صفر است — ابتدا فاکتور خرید (یا موجودی اول‌دوره با بها) ثبت کنید',
+        E_NEGATIVE_STOCK: pname
+          ? ('موجودی «'+pname+'» برای حواله کافی نیست')
+          : 'موجودی انبار برای حواله کافی نیست',
+        E_VARIANCE_NEEDS_REASON: pname
+          ? ('انحراف «'+pname+'» زیاد است — دلیل الزامی است')
+          : 'انحراف زیاد است — دلیل الزامی است',
+        E_ISSUE_EMPTY:'حواله باید حداقل یک قلم داشته باشد',
+        E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
+        E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
+        E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
         demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
         E_COLOR_INVALID_HEX:'کد رنگ باید #RGB یا #RRGGBB باشد',
         E_COLOR_DUPLICATE:'این کد رنگ قبلاً ثبت شده است',
         E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
-        E_PASSWORD:'رمز عبور نادرست است — همان رمز ورود به برنامه را بنویسید، نه عبارت تأیید',
       };
+      const friendlyMsg = prodFriendly[code]
+        || (typeof j.error==='string' && j.error && !/^E_[A-Z0-9_]+$/.test(j.error) ? j.error : null)
+        || 'خطا رخ داد';
       if(!silent){
         if(r.status===429) showToast(j.error || 'تعداد درخواست‌ها زیاد است — کمی صبر کنید','error');
-        else showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
+        else showToast(friendlyMsg,'error');
       }
-      const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
+      const err=new Error(friendlyMsg); err.code=code; err.status=r.status; err.payload=j; throw err;
     }
     if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
@@ -14875,16 +14891,22 @@ async function prodOrderIssueModal(id){
   catch(e){ showToast(e.message||'خطا در دریافت الگو','error'); return; }
   const lines=tpl.lines||[];
   const seeCost=!(window.ProdUI) || window.ProdUI.canSeeCost();
+  const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
+  const zeroCost=lines.filter(L=>!lineAvgOk(L));
+  const zeroHint=zeroCost.length
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر — ابتدا خرید/اول‌دوره با بها ثبت کنید: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`
+    : '';
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
+    ${zeroHint}
     <div id="pim-summary" class="prod-issue-summary" data-csp-style="${CSP.style(`display:${seeCost?'flex':'none'};gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px`)}"></div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th>
       ${seeCost?'<th>انحراف نرخ</th><th>انحراف مقدار</th><th>جمع انحراف</th>':''}
       <th>دلیل (در صورت انحراف زیاد)</th>
     </tr></thead><tbody id="pim-rows">
-      ${lines.map((L,i)=>`<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial}" data-ap="${L.average_cost_rial}">
-        <td>${esc(L.name||('#'+L.product_id))}</td>
+      ${lines.map((L,i)=>`<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial||0}" data-ap="${L.average_cost_rial||0}" data-avg-ok="${lineAvgOk(L)?1:0}">
+        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}</td>
         <td class="num">${L.qty_standard}</td>
         <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
         <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
@@ -14895,7 +14917,7 @@ async function prodOrderIssueModal(id){
     <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011).</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-      <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}">ثبت حواله</button>
+      <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}" ${zeroCost.length?'disabled title="بهای میانگین صفر"':''}>ثبت حواله</button>
     </div>`);
   lines.forEach((L,i)=>{
     prodIssueRecalc(i);
@@ -14955,6 +14977,9 @@ function prodIssueUpdateSubmitState(){
   rows.forEach(row=>{
     const reasonEl=row.querySelector('.pim-reason');
     if(reasonEl && reasonEl.classList.contains('prod-required-error')) blocked=true;
+    const AQ=+row.querySelector('.pim-qty-actual')?.value||0;
+    const avgOk=row.dataset.avgOk!=null?Number(row.dataset.avgOk)>0:Number(row.dataset.ap)>0;
+    if(AQ>0 && !avgOk) blocked=true;
   });
   const btn=el('pim-btn-submit'); if(btn) btn.disabled=blocked;
 }
@@ -14972,7 +14997,7 @@ async function prodOrderIssueSave(id){
   try{
     await api('POST','/production/orders/'+id+'/issue',{date:el('pim-date').value,materials});
     closeModal(); showToast('حواله ثبت شد'); loadAccTab('production-orders');
-  }catch(e){ showToast(e.message||'خطا','error'); }
+  }catch(e){ /* toast از api */ }
 }
 
 /* ============================================================
@@ -15098,15 +15123,20 @@ async function prodStageIssueModal(orderId,stageId){
   catch(e){ showToast(e.message||'خطا در دریافت الگوی حواله','error'); return; }
   const lines=tpl.lines||[];
   const hint=tpl.empty_hint||'مادهٔ مرتبط با این مرحله نیست';
+  const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
+  const zeroCost=lines.filter(L=>!lineAvgOk(L));
+  const zeroHint=zeroCost.length
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر — ابتدا خرید/اول‌دوره با بها ثبت کنید: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`
+    : '';
   showModal('حواله مواد مرحله',`
     <div class="prod-scope">
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
-    ${!lines.length?`<div class="prod-empty">${esc(hint)}</div>`:''}
+    ${!lines.length?`<div class="prod-empty">${esc(hint)}</div>`:zeroHint}
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>دلیل انحراف</th>
     </tr></thead><tbody id="psi-rows">
-      ${lines.map((L,i)=>`<tr class="psi-row" data-pid="${L.product_id}" data-sq="${L.qty_standard}">
-        <td>${esc(L.name||('#'+L.product_id))}</td>
+      ${lines.map((L,i)=>`<tr class="psi-row" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-avg-ok="${lineAvgOk(L)?1:0}">
+        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}</td>
         <td class="num">${L.qty_standard}</td>
         <td><input class="psi-qty" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}"></td>
         <td><input class="psi-reason" placeholder="در صورت انحراف" data-csp-style="${CSP.style(`width:140px`)}"></td>
@@ -15114,7 +15144,7 @@ async function prodStageIssueModal(orderId,stageId){
     </tbody></table></div>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodStageIssueSave((orderId),(stageId))})}" ${lines.length?'':'disabled'}>ثبت حواله</button>
+      <button class="btn" id="psi-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodStageIssueSave((orderId),(stageId))})}" ${(!lines.length||zeroCost.length)?'disabled':''} ${zeroCost.length?'title="بهای میانگین صفر"':''}>ثبت حواله</button>
     </div>
     </div>`);
 }
@@ -15128,10 +15158,19 @@ async function prodStageIssueSave(orderId,stageId){
     });
   });
   if(!materials.length){ showToast('حداقل یک ردیف معتبر وارد کنید','error'); return; }
+  const zeroLive=materials.filter(m=>{
+    if(!(m.qty_actual>0)) return false;
+    const row=document.querySelector('#psi-rows tr.psi-row[data-pid="'+m.product_id+'"]');
+    return row && !(Number(row.dataset.avgOk)>0);
+  });
+  if(zeroLive.length){
+    showToast('بهای میانگین برخی اقلام صفر است — ابتدا فاکتور خرید ثبت کنید','error');
+    return;
+  }
   try{
     await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue',{date:el('psi-date').value,materials});
     closeModal(); showToast('حواله مرحله ثبت شد'); prodOrderStagesModal(orderId);
-  }catch(e){ showToast(e.message||'خطا','error'); }
+  }catch(e){ /* toast از api */ }
 }
 async function prodOrderFinalize(orderId){
   if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
@@ -24042,6 +24081,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بسته برش سفارش‌دار = WIP (v281):</b> با پیوند به سفارش تولید، مقدار فقط در انبار WIP/CUT می‌نشیند (<code>warehouseOnly</code>) و <code>products.stock</code> فروش‌پذیر تا finalize تغییر نمی‌کند؛ نبود انبار WIP → <code>E_WIP_WAREHOUSE_REQUIRED</code>. هنگام نهایی‌کردن سفارش، همان مقدار از انبار WIP خارج می‌شود (بدون سند مالی دوم و بدون کم‌کردن دوبارهٔ موجودی فروش‌پذیر).</li>
         <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
+        <li><b>بهای میانگین صفر (v283):</b> اگر ماده بدون فاکتور خرید/اول‌دوره با بها باشد، حواله مسدود می‌شود و نام کالا را می‌گوید. راه حل: ثبت خرید یا موجودی اول‌دوره با بهای صحیح — حواله با بهای صفر برای سند WIP مجاز نیست (ADR-011).</li>
         <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
         <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
@@ -24647,7 +24687,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v282</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v283</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از دفتر مشتری است (تاریخچه کامل)، نه از برش ناقص کد تفصیلی. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),

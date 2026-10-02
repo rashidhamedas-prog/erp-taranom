@@ -1226,13 +1226,15 @@ function issueTemplate(db, { orderId, qtyStarted }) {
     qty_started: qty,
     lines: ex.lines.map(L => {
       const p = db.prepare('SELECT name, average_cost_rial, item_type FROM products WHERE id=?').get(L.product_id);
+      const avg = Math.round(Number(p?.average_cost_rial) || 0);
       return {
         product_id: L.product_id,
         name: p?.name,
         qty_standard: L.qty_final,
         qty_actual: L.qty_final,
         std_cost_rial: L.unit_cost_rial,
-        average_cost_rial: Math.round(Number(p?.average_cost_rial) || 0),
+        average_cost_rial: avg,
+        avg_cost_ok: avg > 0 ? 1 : 0,
         line_kind: L.line_kind,
         bom_line_id: L.bom_line_id,
       };

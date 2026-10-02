@@ -5,6 +5,18 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۰ — UX خطای E_ZERO_AVG_COST در حواله مواد (SW v283)
+
+- **هدف:** toast خام `E_ZERO_AVG_COST` در «حواله مواد مرحله» حذف شود؛ کاربر نام کالا و اقدام (خرید/اول‌دوره) را ببیند؛ دکمه قبل از submit مسدود شود.
+- **Invariant (بدون تغییر):** WIP فقط با بهای میانگین واقعی > 0 (ADR-011) — fallback به std/last-purchase عمداً اضافه نشد.
+- **فرانت:** `prodFriendly.E_ZERO_AVG_COST` با `j.name`؛ `Error.message` فارسی؛ حذف toast تکراری در catch حواله؛ هشدار `(بدون بها)` + disable ثبت.
+- **R11:** قالب حواله فیلد `avg_cost_ok` می‌دهد که `stripCostFields` حذفش نمی‌کند — اپراتور بدون دید بها هم گیت درست می‌بیند.
+- **فایل‌ها:** `public/{app.js,sw.js,index.html}`، `engine.js`، `engine-advanced.js`، `scripts/test-zero-avg-cost-ux-v283.js`، CHANGE-LOG.
+- **تست:** `node server/scripts/test-zero-avg-cost-ux-v283.js`؛ `test-sms` / `test-sync`.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۰ — بازطراحی کف کارگاه تولید: حواله مرحله + حذف کامل + UX (SW v282)
 
 - **هدف:** رفع خالی بودن «حواله مواد مرحله»، فارسی‌سازی وضعیت مراحل، مسیر شفاف ماتریس سایز در فرمول، حذف کامل ردیف سفارش، و ساده‌سازی ویرایشگر مسیر/تخصیص مواد.
