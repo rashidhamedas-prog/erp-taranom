@@ -11,8 +11,8 @@
 - **رفع:** timeout ماتریس ۴۵ث؛ پیام فارسی timeout؛ batch کوچک‌تر؛ drain دوره‌ای ۳۰ث؛ settle ردیف‌های اثبات‌شدهٔ «کالا در سایت نیست»؛ UI صف واضح‌تر.
 - **عملیات:** settle pendingهای catalog-missing + drain مجدد؛ انبار عمده=۳۵ / تکی=۳۴ اگر لازم.
 - **فایل‌ها:** `website-stock-sync.js`, `server.js`, `public/{app.js,sw.js,index.html}`, `test-website-outbox-timeout-v292.js`, CHANGE-LOG.
-- **تست:** `test-website-outbox-timeout-v292` + secret v291 + sms.
-- **Deploy:** ⏳
+- **تست:** `test-website-outbox-timeout-v292` 6/0؛ secret v291 12/0؛ sms 22/0.
+- **Deploy:** ✅ `d80c8b5` — ایران overlay + restart بدون `--update-env`، SW `erp-taranom-v292`؛ صف از ~۷۲ pending به `done=67 / pending=3 / error=2`؛ خطاها فارسی timeout.
 
 ---
 
