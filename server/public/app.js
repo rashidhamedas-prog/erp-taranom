@@ -203,6 +203,8 @@ async function api(method, path, data, isFormData, silent){
         E_BOM_IN_USE:'فرمول در سفارش باز استفاده شده و قابل بایگانی/حذف نیست',
         E_BOM_TOO_DEEP:'عمق درخت فرمول بیش از حد مجاز است',
         E_VARIANT:'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز الزامی است',
+        E_VARIANT_REQUIRED:'برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید',
+        E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید/خروجی یکی نیست',
         E_BOM_COMP_COLOR:'برای مود رنگ ثابت، شناسه رنگ جزء الزامی است',
         E_BOM_SIZE_MATRIX:'کلیدهای ماتریس سایز با سایزهای تعریف‌شدهٔ کالا هم‌خوان نیست',
         E_VALIDATION:'اطلاعات ناقص است (مثلاً تاریخ اعتبار برای فعال‌سازی)',
@@ -15244,14 +15246,107 @@ async function prodStageIssueSave(orderId,stageId){
     closeModal(); showToast('حواله مرحله ثبت شد'); prodOrderStagesModal(orderId);
   }catch(e){ /* toast از api */ }
 }
+/** Prefill map variant_id → qty from order matrix / legacy breakdown. */
+function prodOrderFinalizePref(order, variants){
+  const pref={};
+  (order.matrix_lines||[]).forEach(l=>{
+    if(l.variant_id) pref[Number(l.variant_id)]=Number(l.qty_planned)||0;
+  });
+  if(!Object.keys(pref).length){
+    let bd={};
+    try{ bd=order.size_breakdown?(typeof order.size_breakdown==='string'?JSON.parse(order.size_breakdown):order.size_breakdown):{}; }catch(_){ bd={}; }
+    const orderColor=String(order.color||'').trim();
+    (variants||[]).forEach(v=>{
+      if(orderColor && String(v.color_name||'')!==orderColor) return;
+      const q=Number(bd[v.size_name])||0;
+      if(q>0) pref[Number(v.id)]=q;
+    });
+  }
+  return pref;
+}
+function prodOrderFinalizeLinesFromPref(pref){
+  return Object.entries(pref||{})
+    .map(([vid,qty])=>({variant_id:Number(vid), qty:Number(qty)||0}))
+    .filter(l=>l.variant_id && l.qty>0);
+}
+async function prodOrderFinalizePost(orderId, qtyGood, variant_lines){
+  const body={qty_produced:qtyGood};
+  if(variant_lines&&variant_lines.length) body.variant_lines=variant_lines;
+  const r=await api('POST','/production/execution/orders/'+orderId+'/finalize', body);
+  closeModal();
+  showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال');
+  loadAccTab('production-orders');
+}
 async function prodOrderFinalize(orderId){
-  if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
+  let order=null, stages=[];
   try{
-    const r=await api('POST','/production/execution/orders/'+orderId+'/finalize',{});
-    closeModal();
-    showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال');
-    loadAccTab('production-orders');
-  }catch(e){ showToast(e.message||'خطا','error'); }
+    order=await api('GET','/production/orders/'+orderId);
+    const data=await api('GET','/production/execution/orders/'+orderId+'/stages');
+    stages=data.stages||[];
+  }catch(e){ showToast(e.message||'خطا','error'); return; }
+  const last=stages[stages.length-1];
+  const qtyGood=+last?.qty_out||0;
+  if(!(qtyGood>0)){ showToast('خروجی آخرین مرحله صفر است','error'); return; }
+
+  let variants=[];
+  try{
+    const raw=await api('GET','/product-variants?product_id='+order.product_id+'&include_default=0');
+    variants=(Array.isArray(raw)?raw:(raw&&Array.isArray(raw.rows)?raw.rows:[])).filter(v=>!v.is_default);
+  }catch(e){ variants=[]; }
+
+  // Non-matrix: keep one-click confirm
+  if(!variants.length){
+    if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
+    try{ await prodOrderFinalizePost(orderId, qtyGood, null); }
+    catch(e){ showToast(e.message||'خطا','error'); }
+    return;
+  }
+
+  const pref=prodOrderFinalizePref(order, variants);
+  const planSum=Object.values(pref).reduce((a,n)=>a+(Number(n)||0),0);
+  const planMatches=planSum>0 && Math.abs(planSum-qtyGood)<=0.001;
+
+  // Plan already equals final output — same as backend resolveFinalizeApparelLines.
+  // Do not force an empty matrix modal (PO-0006 class of bug).
+  if(planMatches){
+    const lines=prodOrderFinalizeLinesFromPref(pref);
+    const summary=lines.length<=6
+      ? '\n'+lines.map(l=>{
+          const v=variants.find(x=>Number(x.id)===Number(l.variant_id));
+          return '• '+(v?(v.color_name||'')+' / '+(v.size_name||''):('#'+l.variant_id))+' = '+l.qty;
+        }).join('\n')
+      : '\n('+toFa(lines.length)+' ترکیب رنگ×سایز از برنامه سفارش)';
+    if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟'+summary)) return;
+    try{ await prodOrderFinalizePost(orderId, qtyGood, lines); }
+    catch(e){ showToast(e.message||'خطا','error'); }
+    return;
+  }
+
+  const mismatch=planSum>0 && Math.abs(planSum-qtyGood)>0.001;
+  const varBlock=`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع ردیف‌ها باید با خروجی نهایی (${toFa(qtyGood)}) برابر باشد.${mismatch?' برنامه سفارش '+toFa(planSum)+' با خروجی فرق دارد — تعداد واقعی را اصلاح کنید.':planSum?'':' برنامه رنگ×سایز روی سفارش خالی است — تعداد واقعی هر ترکیب را وارد کنید.'}</p></div>`;
+
+  showModal('نهایی‌سازی — '+esc(order.order_no||''),`
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">خروجی آخرین مرحله: <b>${toFa(qtyGood)}</b> — برای کالای رنگ×سایز تعداد هر ترکیب را مشخص کنید تا موجودی فروش‌پذیر درست ثبت شود.</p>
+    ${varBlock}
+    <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal();prodOrderStagesModal((orderId))})}">بازگشت</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderFinalizeSave((orderId),(qtyGood))})}">✅ ثبت رسید و نهایی‌سازی</button>
+    </div>`);
+}
+async function prodOrderFinalizeSave(orderId, qtyGood){
+  const qty=+qtyGood||0;
+  const variant_lines=[...document.querySelectorAll('.pf-vqty')].map(inp=>({
+    variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
+  })).filter(l=>l.qty>0);
+  if(document.querySelector('.pf-vqty')){
+    if(!variant_lines.length){ showToast('برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید','error'); return; }
+    const sum=variant_lines.reduce((a,l)=>a+l.qty,0);
+    if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با خروجی نهایی برابر باشد','error'); return; }
+  }
+  if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
+  try{ await prodOrderFinalizePost(orderId, qty, variant_lines); }
+  catch(e){ showToast(e.message||'خطا','error'); }
 }
 
 async function prodStageSubSend(orderId,stageId,supplierId,qtyIn){
@@ -24153,7 +24248,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
-        <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است.</li>
+        <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد.</li>
         <li><b>لایه‌چینی + رسید انبار محصول (دو رویداد جدا):</b> تولید → عملیات → لایه‌چینی / رسید محصول. تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP (مارکر × لایه، ماتریس سایز، ضایعات). تب «رسید انبار محصول» = ورود FG و صفر کردن WIP همان لایه — <b>برش دوباره نیست</b>. مبلغ رسید = مانده WIP لایه. بارکد بسته هویت عملیاتی است نه سریال. حواله همان متر با E_FABRIC_ALREADY_CUT قفل است.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
@@ -24573,7 +24668,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v277</b> است و اسکریپت‌ها با <code>?v=277</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v287</b> است و اسکریپت‌ها با <code>?v=287</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

@@ -25,6 +25,99 @@ function safeJson(s) {
   try { return JSON.parse(s); } catch { return null; }
 }
 
+/**
+ * Color×size lines from production_order_lines (plan), resolving variant_id
+ * from color×size when the row only stored those ids.
+ */
+function variantLinesFromOrderPlan(db, orderId, productId) {
+  let rows = [];
+  try {
+    const { listOrderLines } = require('./engine');
+    rows = listOrderLines(db, orderId) || [];
+  } catch (_) {
+    return [];
+  }
+  const byCell = db.prepare(`
+    SELECT id FROM product_variants
+    WHERE product_id=? AND color_id=? AND size_id=?
+      AND COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
+    ORDER BY id LIMIT 1
+  `);
+  const out = [];
+  for (const row of rows) {
+    let vid = row.variant_id != null ? Number(row.variant_id) : null;
+    if (!vid && row.color_id && row.size_id) {
+      vid = byCell.get(productId, row.color_id, row.size_id)?.id || null;
+    }
+    const qty = num(row.qty_planned != null ? row.qty_planned : row.qty);
+    if (vid && qty > 0) out.push({ variant_id: vid, qty });
+  }
+  return out;
+}
+
+/**
+ * Resolve FG apparel lines for advanced finalize.
+ * Body wins; else order-plan lines if sum === qtyGood; else legacy breakdown.
+ */
+function resolveFinalizeApparelLines(db, po, body, qtyGood) {
+  const apparel = require('../inventory/apparel-lines');
+  const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
+  if (!hasActiveMatrixVariants(db, po.product_id)) return [];
+
+  const bodyLines = Array.isArray(body.variant_lines)
+    ? body.variant_lines.map(l => ({
+      variant_id: l.variant_id || l.variantId,
+      qty: num(l.qty != null ? l.qty : l.qty_planned),
+    })).filter(l => l.variant_id && l.qty > 0)
+    : [];
+
+  if (bodyLines.length || body.variant_id) {
+    return apparel.resolveApparelLines(db, {
+      productId: po.product_id,
+      qty: qtyGood,
+      variantId: body.variant_id,
+      variantLines: bodyLines.length ? bodyLines : body.variant_lines,
+    });
+  }
+
+  const fromPlan = variantLinesFromOrderPlan(db, po.id, po.product_id);
+  if (fromPlan.length) {
+    const sum = round6(fromPlan.reduce((a, l) => a + l.qty, 0));
+    if (Math.abs(sum - qtyGood) <= 0.001) {
+      return apparel.resolveApparelLines(db, {
+        productId: po.product_id,
+        qty: qtyGood,
+        variantLines: fromPlan,
+      });
+    }
+    // Plan exists but output ≠ plan — try legacy fields, else ask for explicit matrix
+    try {
+      return apparel.resolveApparelLines(db, {
+        productId: po.product_id,
+        qty: qtyGood,
+        sizeBreakdown: body.size_breakdown || po.size_breakdown,
+        color: body.color || po.color,
+      });
+    } catch (e) {
+      if (e && (e.code === 'E_VARIANT_REQUIRED' || e.code === 'E_VARIANT_QTY')) {
+        const fail = err('E_VARIANT_QTY', 400, { sum, qty: qtyGood });
+        fail.message = `جمع برنامه رنگ×سایز (${sum}) با خروجی نهایی (${qtyGood}) یکی نیست — تعداد واقعی هر ترکیب را وارد کنید`;
+        throw fail;
+      }
+      throw e;
+    }
+  }
+
+  return apparel.resolveApparelLines(db, {
+    productId: po.product_id,
+    qty: qtyGood,
+    variantId: body.variant_id,
+    variantLines: body.variant_lines,
+    sizeBreakdown: body.size_breakdown || po.size_breakdown,
+    color: body.color || po.color,
+  });
+}
+
 function emit(db, eventType, payload) {
   try {
     db.prepare(`
@@ -936,12 +1029,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const qtyGood = num(body.qty_produced != null ? body.qty_produced : last.qty_out);
     if (qtyGood <= 0) throw err('E_QTY_INVALID', 422);
 
-    const fgLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
-      productId: po.product_id, qty: qtyGood,
-      variantId: body.variant_id, variantLines: body.variant_lines,
-      sizeBreakdown: body.size_breakdown || po.size_breakdown,
-      color: body.color || po.color,
-    });
+    // Matrix FG must name color×size. Prefer body; else production_order_lines
+    // when plan qty matches output; else legacy color+size_breakdown.
+    const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGood);
     const unitCost = Math.round(wipNet / qtyGood);
     // F06: packs linked to this order staged qty in WH-WIP without touching
     // sellable stock. Relieve that warehouse qty here (warehouse-only out) so
@@ -1480,4 +1570,6 @@ module.exports = {
   issueStageMaterials,
   stageList,
   getStageIssueTemplate,
+  resolveFinalizeApparelLines,
+  variantLinesFromOrderPlan,
 };
