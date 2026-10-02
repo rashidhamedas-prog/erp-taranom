@@ -2593,7 +2593,7 @@ async function loadInitial(){
     invalidateMasterCaches();
     if(ME.role==='admin'){
       CACHE.settings = {};
-      api('GET','/settings').then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
+      api('GET','/settings',null,false,true).then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
       api('GET','/auth/users').then(u=>{ CACHE.users=u||[]; }).catch(()=>{});
     }
   }catch(e){ console.error(e); }

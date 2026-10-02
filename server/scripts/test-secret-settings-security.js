@@ -130,6 +130,19 @@ function pureModuleTests() {
   );
   passed += 1;
   console.log('  PASS wrong data-encryption key fails closed');
+  // GET /api/settings must stay up even when one secret cannot open (acc shell).
+  const publicBroken = getPublicSettings(db, ['website_wc_secret', 'company_name']);
+  check(publicBroken.website_wc_secret === SECRET_MASK,
+    'public view masks unreadable secret under wrong data key');
+  check(publicBroken.website_wc_secret_has_value === true,
+    'public view keeps has_value for non-empty unreadable ciphertext');
+  check(publicBroken.website_wc_secret_unreadable === true,
+    'public view sets unreadable flag');
+  check(Array.isArray(publicBroken._unreadable_secrets)
+    && publicBroken._unreadable_secrets.includes('website_wc_secret'),
+    'public view lists unreadable secret keys');
+  check(publicBroken.company_name === 'Taranom',
+    'non-secret settings still returned when a secret is unreadable');
   process.env.DATA_ENCRYPTION_KEY = DATA_KEY_A;
 
   const captured = [];

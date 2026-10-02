@@ -118,6 +118,7 @@ function getPublicSettings(db, keys) {
   const rows = selectSettingRows(db, keys);
   const out = {};
   if (keys) for (const key of keys) out[key] = '';
+  const unreadable = [];
 
   for (const row of rows) {
     if (!isSecretSetting(row.key)) {
@@ -127,9 +128,25 @@ function getPublicSettings(db, keys) {
 
     // Opening validates the authentication tag and performs one-time legacy
     // migration, but the plaintext is deliberately never placed in output.
-    const hasValue = openSecretSettingValue(db, row.key, row.value) !== '';
-    out[row.key] = hasValue ? SECRET_MASK : '';
-    out[`${row.key}_has_value`] = hasValue;
+    // A single undecryptable secret must NOT 500 GET /api/settings (acc shell).
+    const raw = String(row.value == null ? '' : row.value);
+    try {
+      const hasValue = openSecretSettingValue(db, row.key, row.value) !== '';
+      out[row.key] = hasValue ? SECRET_MASK : '';
+      out[`${row.key}_has_value`] = hasValue;
+    } catch (e) {
+      const code = e && e.code ? String(e.code) : 'E_SECRET_OPEN';
+      // Non-empty ciphertext still means a credential exists — show mask so the
+      // admin can overwrite it; never expose ciphertext or plaintext.
+      const hasValue = raw.length > 0;
+      out[row.key] = hasValue ? SECRET_MASK : '';
+      out[`${row.key}_has_value`] = hasValue;
+      out[`${row.key}_unreadable`] = true;
+      unreadable.push({ key: row.key, code });
+      try {
+        console.warn('[secret-settings] unreadable key=%s code=%s', row.key, code);
+      } catch { /* ignore */ }
+    }
   }
 
   if (keys) {
@@ -139,6 +156,7 @@ function getPublicSettings(db, keys) {
       }
     }
   }
+  if (unreadable.length) out._unreadable_secrets = unreadable.map((r) => r.key);
   return out;
 }
 

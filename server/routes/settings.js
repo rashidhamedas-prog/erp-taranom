@@ -109,13 +109,21 @@ router.get('/website-outbox', auth, adminOnly, centralOnly, (req, res) => {
 
 // GET all settings (admin only)
 router.get('/', auth, adminOnly, (req, res) => {
-  const payload = getPublicSettings(getDB());
   try {
-    const { isDemoMode } = require('../lib/demo-mode');
-    const { redactSecretSettingsIfDemo } = require('../middleware/demo-guard');
-    if (isDemoMode()) return res.json(redactSecretSettingsIfDemo(payload));
-  } catch { /* production path */ }
-  res.json(payload);
+    const payload = getPublicSettings(getDB());
+    try {
+      const { isDemoMode } = require('../lib/demo-mode');
+      const { redactSecretSettingsIfDemo } = require('../middleware/demo-guard');
+      if (isDemoMode()) return res.json(redactSecretSettingsIfDemo(payload));
+    } catch { /* production path */ }
+    res.json(payload);
+  } catch (e) {
+    console.error('GET /api/settings failed:', e && e.message);
+    res.status(500).json({
+      error: 'خواندن تنظیمات ناموفق بود',
+      code: (e && e.code) || 'E_SETTINGS',
+    });
+  }
 });
 
 // PUT upsert key-value pairs (admin only)

@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — GET /api/settings دیگر با secret ناخوانا ۵۰۰ نمی‌شود (SW v290)
+
+- **ریشه:** ورود به حسابداری `GET /api/settings` را می‌زند؛ یکی از secretهای رمزشده با کلید فعلی باز نمی‌شود (`E_SECRET_KEY_MISMATCH`) و error handler عمومی «خطای داخلی سرور» برمی‌گرداند.
+- **رفع:** `getPublicSettings` هر کلید را جدا try/catch می‌کند — mask + `*_unreadable` + `_unreadable_secrets`؛ route هم wrap شد. بارگذاری settings در بوت با `silent`.
+- **اقدام ادمین:** اگر `_unreadable_secrets` پر بود، همان کلیدها را در تنظیمات دوباره وارد کنید (مثلاً توکن وب‌سایت/SMS).
+- **فایل‌ها:** `secret-settings.js`, `routes/settings.js`, `public/{app.js,sw.js,index.html}`, `test-secret-settings-security.js`, CHANGE-LOG.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — بستن سفارش: دوباره‌شماری مواد variable + پیام WIP (SW v289)
 
 - **ریشه «بستن» PO-0006:** در `variable_adv`، `issueStageMaterials` بهای مواد را به `production_orders.material_cost_rial` می‌افزاید و `postStageCore` همان مبلغ را دوباره اضافه می‌کرد → مانده WIP ≠ ۰ → `E_WIP_NOT_ZERO` با toast مبهم «خطا رخ داد» (و دوبار به‌خاطر catch).
