@@ -11,7 +11,7 @@
 - **رفع:** `mirrorAccountVoucherToPartyBooks` داخل همان تراکنش create؛ ابطال سند customer/person ledger را هم reverse می‌کند؛ `resolveCustomerIdFromArJe` برای `account_*` از `coa_code` خط سند.
 - **فایل‌ها:** `routes/accounting.js`, `lib/customer-books.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-account-voucher-books-v296.js`, CHANGE-LOG.
 - **تست:** `test-account-voucher-books-v296` + `test-sms` روی ایران.
-- **Deploy:** ⏳ در حال انجام.
+- **Deploy:** ✅ `217a392` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v296`؛ تست 12/0 و sms 22/0.
 
 ---
 
