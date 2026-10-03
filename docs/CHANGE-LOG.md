@@ -12,7 +12,7 @@
 - **رفع:** `GET /api/parties/:id/turnover` (مشتری/تأمین/شخص+rep)؛ voucher با `party_id`؛ دریافت از مشتریِ دارای نقش → تسویه؛ پرداخت سایر اشخاص → سند+دفتر شخص؛ backfill تسویه‌های بدون کتاب؛ Help.
 - **فایل‌ها:** `lib/party-turnover.js`, `lib/{customer-books,invoice-payments}.js`, `routes/{parties,accounting}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-turnover-books-v295.js`, CHANGE-LOG.
 - **تست:** static v295؛ روی ایران `test-party-turnover-books-v295` + `test-sms`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `076f620` — ایران overlay + `pm2 restart` بدون `--update-env`، SW `erp-taranom-v295`؛ تست 16/0؛ پروب: اکبری ۲ ردیف (افتتاحیه+۲۴٫۵M)، عارف `rep_ledger`+GL.
 
 ---
 
