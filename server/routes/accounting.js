@@ -397,6 +397,10 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     totalPayableLedger = payRow.total || 0;
   }
 
+  const mismatchAr = Math.abs(Number(totalReceivable) - Number(recvGl.display)) > 1;
+  const mismatchCr = Math.abs(Number(creditorBalance) - Number(recvGl.creditor)) > 1;
+  const mismatchLedAr = Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1;
+  const mismatchLedCr = Math.abs(Number(creditorLedger) - Number(recvGl.creditor)) > 1;
   res.json({
     totalInvoiced, totalSettled,
     outstanding,
@@ -411,9 +415,15 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     outstandingLedger,
     asOf: asOf || null,
     pendingSettlements,
-    books_mismatch: Math.abs(Number(totalReceivable) - Number(recvGl.display)) > 1
-      || Math.abs(Number(creditorBalance) - Number(recvGl.creditor)) > 1
-      || Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1,
+    books_mismatch: mismatchAr || mismatchCr || mismatchLedAr || mismatchLedCr,
+    books_mismatch_detail: {
+      receivable: mismatchAr,
+      creditor: mismatchCr,
+      unique_coa_receivable: mismatchLedAr,
+      unique_coa_creditor: mismatchLedCr,
+      receivable_delta: Math.round(Number(totalReceivable) - Number(recvGl.display)),
+      creditor_delta: Math.round(Number(creditorBalance) - Number(recvGl.creditor)),
+    },
     scoped: false,
   });
 });

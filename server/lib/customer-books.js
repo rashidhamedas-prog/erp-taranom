@@ -1413,6 +1413,48 @@ function repairSettlementsMissingBooks(db) {
   return { inserted };
 }
 
+/**
+ * R13 repair: reversed settlements must not leave a live credit in customer_ledger.
+ */
+function repairReversedSettlementBooks(db) {
+  const { createLedgerEntry } = require('../db');
+  const { todayJalali } = require('../jalali');
+  const rows = db.prepare(`
+    SELECT cl.customer_id, cl.ref_id, cl.debit, cl.credit, cl.user_id, cl.date
+    FROM customer_ledger cl
+    JOIN settlements s ON s.id = cl.ref_id
+    WHERE cl.ref_type='settlement'
+      AND COALESCE(cl.entry_type,'')<>'reversal'
+      AND COALESCE(s.status,'posted')='reversed'
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_ledger r
+        WHERE r.ref_type='settlement' AND r.ref_id=cl.ref_id
+          AND r.customer_id=cl.customer_id AND r.entry_type='reversal'
+      )
+  `).all();
+  if (!rows.length) return { reversed: 0 };
+  let reversed = 0;
+  const run = db.transaction(() => {
+    for (const row of rows) {
+      createLedgerEntry(db, {
+        customer_id: row.customer_id,
+        date: row.date || todayJalali(),
+        entry_type: 'reversal',
+        ref_type: 'settlement',
+        ref_id: row.ref_id,
+        description: `ابطال تسویه شماره ${row.ref_id}`,
+        debit: Math.round(Number(row.credit) || 0),
+        credit: Math.round(Number(row.debit) || 0),
+        user_id: row.user_id || null,
+      });
+      reversed += 1;
+    }
+  });
+  run();
+  if (reversed) console.log(`✅ دفتر مشتری برای تسویه‌های ابطال‌شده معکوس شد (${reversed} ردیف)`);
+  return { reversed };
+}
+
 function ensureCustomerBooksRepaired(db) {
   let v1 = {};
   try {
@@ -1462,7 +1504,14 @@ function ensureCustomerBooksRepaired(db) {
     console.error('settlement books repair:', e.message);
     settBooks = { error: e.message };
   }
-  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque, settBooks };
+  let settRevBooks = {};
+  try {
+    settRevBooks = repairReversedSettlementBooks(db);
+  } catch (e) {
+    console.error('reversed settlement books repair:', e.message);
+    settRevBooks = { error: e.message };
+  }
+  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque, settBooks, settRevBooks };
 }
 
 module.exports = {
@@ -1493,6 +1542,7 @@ module.exports = {
   repairLedgerSignedToGl,
   repairOpeningChequeLedgerMirrors,
   repairSettlementsMissingBooks,
+  repairReversedSettlementBooks,
   ensureCustomerBooksRepaired,
   resolveCustomerIdFromArJe,
   isFirmSale,

@@ -8530,6 +8530,13 @@ ROUTES['acc-dash'] = async function(){
   const cred = Number(ov.creditorBalance)||0;
   const cutoffLabel=accDateTo||'آخرین سند (همه)';
   const booksMismatch=!!ov.books_mismatch;
+  const mm=ov.books_mismatch_detail||{};
+  const mismatchBits=[];
+  if(mm.receivable||(booksMismatch&&Math.abs(Number(recv)-Number(ov.totalReceivableGl||0))>1))
+    mismatchBits.push(`مطالبات دفتر مشتری ${fmt(recv)} با تفصیلی ${fmt(ov.totalReceivableGl||0)}`);
+  if(mm.creditor||Math.abs(Number(cred)-Number(ov.creditorBalanceGl||0))>1)
+    mismatchBits.push(`بستانکار دفتر مشتری ${fmt(cred)} با تفصیلی ${fmt(ov.creditorBalanceGl||0)}`);
+  const mismatchText=mismatchBits.length?mismatchBits.join('؛ '):`مانده دفتر مشتری (${fmt(recv)}) با دفتر کل تفصیلی (${fmt(ov.totalReceivableGl||0)}) یکی نیست`;
   el('view').innerHTML=`
     <div class="acc-dash-shell">
     <div class="acc-dash-hero">
@@ -8550,7 +8557,7 @@ ROUTES['acc-dash'] = async function(){
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">دفتر مشتری تا ${esc(cutoffLabel)}</span>
     </div>
-    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(recv)}) با دفتر کل تفصیلی (${fmt(ov.totalReceivableGl||0)}) یکی نیست. کارت مطالبات از دفتر مشتری است و تاریخچهٔ قبل از تفصیلی را هم دارد.</div></div>`:''}
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: ${esc(mismatchText)}. کارت مطالبات از دفتر مشتری است؛ بستانکاران جداگانه جمع می‌شوند. ابطال تسویه باید هر دو دفتر را معکوس کند.</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards bento-hero">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
@@ -24354,7 +24361,7 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از دفتر مشتری است (بستانکاران جدا). سندِ فقط روی تفصیلی، اگر در دفتر نباشد، یک‌بار به دفتر صاحب آن کد (کمترین شناسه) کپی می‌شود. کارت مطالبات همین رقم است. اگر سند تاریخی هنوز روی حساب کنترل دریافتنی باشد، یک سند انتقال متعادل کنترل→تفصیلی می‌سازد تا دفتر کل تفصیلی با دفتر مشتری یکی شود (بدون پلاگ یک‌طرفه)</li>
+        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از دفتر مشتری است (بستانکاران جدا). هشدار نارنجی وقتی مطالبات <b>یا</b> بستانکار با تفصیلی یکی نباشد می‌آید و همان سمت را می‌نویسد — نه فقط رقم مطالبات. سندِ فقط روی تفصیلی یک‌بار به دفتر صاحب آن کد کپی می‌شود. ابطال تسویه حتی اگر سند کل قبلاً معکوس شده باشد، ردیف دفتر مشتری را هم معکوس می‌کند</li>
         <li><b>هشدار بالای داشبورد حسابداری:</b> چک در جریان با تاریخ سررسید شمسیِ پر، اگر سررسیدش گذشته یا تا ۷ روز آینده باشد؛ کالای زیر حد موجودی؛ سند پیش‌نویس. تاریخ خالی چک شمرده نمی‌شود</li>
         <li><b>صورت‌حساب مشتری</b> ردیف‌ها و ماندهٔ نهایی از دفتر مشتری است (فاکتور، دریافت، چک، افتتاحیه). دفتر کل تفصیلی باید همان ماندهٔ امضاشده را نشان دهد؛ اگر اختلاف دیدید Hard Refresh بزنید تا انتقال کنترل→تفصیلی و افتتاحیهٔ بدون سند اجرا شود. چک دریافتنی اول دوره تا زمان برگشت در این مانده نمی‌آید؛ برگشت، مبلغ را بدهکار می‌کند</li>
         <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
@@ -24885,7 +24892,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v296</b> است و اسکریپت‌ها با <code>?v=296</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v297</b> است و اسکریپت‌ها با <code>?v=297</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

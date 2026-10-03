@@ -53,8 +53,45 @@ function settlementHasLiveJe(db, settlementId) {
   }
 }
 
+function settlementAmountRial(settlement) {
+  return Math.round(Number(settlement && (settlement.amount_rial != null ? settlement.amount_rial : settlement.amount)) || 0);
+}
+
+/** R13: reverse customer_ledger even when the settlement JE is missing or already reversed. */
+function reverseSettlementBooks(db, settlement, userId) {
+  if (!settlement || !settlement.id || !settlement.cust_id) return 0;
+  const open = db.prepare(`
+    SELECT * FROM customer_ledger
+    WHERE ref_type='settlement' AND ref_id=? AND customer_id=?
+      AND COALESCE(entry_type,'')<>'reversal'
+  `).all(settlement.id, settlement.cust_id);
+  let n = 0;
+  for (const row of open) {
+    const already = db.prepare(`
+      SELECT 1 FROM customer_ledger
+      WHERE ref_type='settlement' AND ref_id=? AND customer_id=? AND entry_type='reversal'
+      LIMIT 1
+    `).get(settlement.id, settlement.cust_id);
+    if (already) break;
+    createLedgerEntry(db, {
+      customer_id: settlement.cust_id,
+      date: todayJalali(),
+      entry_type: 'reversal',
+      ref_type: 'settlement',
+      ref_id: settlement.id,
+      description: `ابطال تسویه شماره ${settlement.id}`,
+      debit: Math.round(Number(row.credit) || 0),
+      credit: Math.round(Number(row.debit) || 0),
+      user_id: userId || null,
+    });
+    n += 1;
+  }
+  return n;
+}
+
 function reverseSettlementInTx(db, settlement, userId) {
   if (!settlement || settlement.status === 'reversed') return null;
+  reverseSettlementBooks(db, settlement, userId);
   // Shadow/backfill rows (amounts already on invoice JE) — mark reversed without second GL.
   if (!settlementHasLiveJe(db, settlement.id)) {
     db.prepare("UPDATE settlements SET status='reversed',reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
@@ -76,18 +113,13 @@ function reverseSettlementInTx(db, settlement, userId) {
       try { cash = acct(db, 'coa_cheques_receivable'); } catch (__) { /* keep resolveCashAccount */ }
     }
   }
-  createLedgerEntry(db, {
-    customer_id: settlement.cust_id, date: todayJalali(), entry_type: 'reversal',
-    ref_type: 'settlement', ref_id: settlement.id,
-    description: `ابطال تسویه شماره ${settlement.id}`,
-    debit: settlement.amount, credit: 0, user_id: userId,
-  });
+  const amt = settlementAmountRial(settlement);
   const reversalId = postToLedger(db, {
     sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
     description: `ابطال تسویه شماره ${settlement.id}`, createdBy: userId,
     lines: [
-      (() => { const a = recvAcct(db, settlement.cust_id); return { code: a.code, name: a.name, debit: rialToLedger(settlement.amount), credit: 0 }; })(),
-      { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(settlement.amount) },
+      (() => { const a = recvAcct(db, settlement.cust_id); return { code: a.code, name: a.name, debit: rialToLedger(amt), credit: 0 }; })(),
+      { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) },
     ],
   });
   // Mark original settlement JE(s) as reversed for document lists (both stay in TB → net zero)
@@ -118,6 +150,8 @@ function reverseSettlementInTx(db, settlement, userId) {
 
 module.exports = {
   reverseSettlementInTx,
+  reverseSettlementBooks,
+  settlementAmountRial,
   recvAcct,
   reverseChequeRecordsForInvoice,
   reverseChequeRecordsForSettlement,
