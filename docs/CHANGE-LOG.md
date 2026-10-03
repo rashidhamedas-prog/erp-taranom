@@ -15,7 +15,7 @@
 - **رفع:** `ensureMissingBaseCoa` در بوت؛ `buildBalanceSheet` دیگر خط بدون کدینگ را دور نمی‌اندازد (نوع از پیشوند کد)؛ مانده بستانکار اشخاص/مشتری → بدهی و بدهکار تأمین → دارایی؛ UI بدون abs، اسکرول مستقل ستون‌ها، نمایش ریال اختلاف.
 - **فایل‌ها:** `lib/{balance-sheet,coa-map}.js`, `db.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-balance-sheet-v298.js`, CHANGE-LOG.
 - **تست:** `test-balance-sheet-v298` + `test-sms` روی ایران.
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `b2412a7` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v298` (بعداً روی `v299` ماند)؛ تست 14/0 و sms 22/0؛ پروب زنده: `balanced=true` `gap=0` `has6115=true`، ۲۶ شخص بستانکار به ستون بدهی منتقل شد.
 
 ---
 
