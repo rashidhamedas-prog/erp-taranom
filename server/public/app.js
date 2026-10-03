@@ -211,6 +211,11 @@ async function api(method, path, data, isFormData, silent){
         E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
         E_NOT_MANUFACTURED:'این کالا به‌عنوان کالای ساختنی تعریف نشده است',
         E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
+        E_BAD_DRIVER:'محرک سربار نامعتبر است',
+        E_PERIOD_FORMAT:'دوره باید مثل ۱۴۰۵/۰۷ باشد',
+        E_NEGATIVE_RATE:'مبلغ نرخ نمی‌تواند منفی باشد',
+        E_MARKUP_INVALID:'درصد سود نامعتبر است',
+        E_MARKUP_RANGE:'درصد سود باید بین ۰ و ۵۰۰ باشد',
         E_NOT_FOUND:'مورد درخواستی یافت نشد',
         E_ALREADY_CLOSED:'این دوره قبلاً بسته شده',
         E_FORBIDDEN:'دسترسی کافی ندارید',
@@ -14237,117 +14242,282 @@ function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmt(v||0); }
 /* ============================================================
    نرخ سربار مراکز — GET/POST /production/cost-centers/rates
 ============================================================ */
+const OH_DRIVER_META={
+  output_qty:{label:'تعداد خروجی',unit:'ریال سربار به ازای هر عدد خروجی',sample:100,sampleLabel:'۱۰۰ عدد خروجی'},
+  direct_labor_rial:{label:'دستمزد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد'},
+  labor_rial:{label:'دستمزد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد'},
+  direct_labor_hours:{label:'ساعت کارگر',unit:'ریال سربار به ازای هر ساعت کارگر',sample:8,sampleLabel:'۸ ساعت کارگر'},
+  machine_hours:{label:'ساعت ماشین',unit:'ریال سربار به ازای هر ساعت ماشین',sample:6,sampleLabel:'۶ ساعت ماشین'},
+  material_rial:{label:'مواد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال مواد',sample:50,sampleLabel:'۵۰ میلیون ریال مواد'},
+  manual:{label:'دستی',unit:'ریال سربار به ازای واحد محرک دستی',sample:1,sampleLabel:'۱ واحد دستی'}
+};
+function ohDriverMeta(d){ return OH_DRIVER_META[d]||OH_DRIVER_META.output_qty; }
+function shiftJalaliYm(label,delta){
+  const m=String(label||'').match(/^(\d{4})\/(\d{1,2})/);
+  if(!m) return '';
+  let y=+m[1], mo=+m[2]+delta;
+  while(mo<1){ mo+=12; y--; }
+  while(mo>12){ mo-=12; y++; }
+  return y+'/'+String(mo).padStart(2,'0');
+}
 async function renderProductionRatesTab(body){
   const period=window._prodRatesPeriod||todayJalali().slice(0,7);
   window._prodRatesPeriod=period;
   let ccRows=[];
   try{ ccRows=(await api('GET','/production/cost-centers'))?.rows||[]; }catch(e){ ccRows=[]; }
   let pricing=[];
-  try{ pricing=await api('GET','/pricing-rules')||[]; }catch(e){ pricing=[]; }
+  try{
+    const raw=await api('GET','/pricing-rules');
+    pricing=Array.isArray(raw)?raw:(raw?.rows||[]);
+  }catch(e){ pricing=[]; }
   const globalRule=pricing.find(r=>r.scope==='global')||pricing[0]||{wholesale_markup_pct:20,retail_markup_pct:35,id:null};
-  body.innerHTML=`<div class="prod-scope">
+  const wPct=Number(globalRule.wholesale_markup_pct??20);
+  const rPct=Number(globalRule.retail_markup_pct??35);
+  body.innerHTML=`<div class="prod-scope oh-form">
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-      <div class="panel-head"><h4>فرمول قیمت‌گذاری (عمده / تک)</h4></div>
-      <div class="panel-body form-grid">
-        <div class="fg"><label>سود عمده ٪</label><input id="prule-w" type="number" step="0.1" value="${globalRule.wholesale_markup_pct??20}"></div>
-        <div class="fg"><label>سود تک ٪</label><input id="prule-r" type="number" step="0.1" value="${globalRule.retail_markup_pct??35}"></div>
-        <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePricingRule((globalRule.id||0))})}">💾 ذخیره فرمول</button></div>
-        <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px`)}">پس از finalize تولید: قیمت عمده = بهای تمام‌شده × (۱+٪عمده) و قیمت تک = بهای تمام‌شده × (۱+٪تک)</div>
+      <div class="panel-head"><h4>فرمول قیمت‌گذاری پس از بهای تمام‌شده</h4></div>
+      <div class="panel-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">مارک‌آپ روی <b>بهای تمام‌شده تولید</b> است نه حاشیه فروش: قیمت = بها × (۱ + ٪سود). بعد از نهایی‌سازی سفارش روی قیمت عمده/تک کالا اعمال می‌شود.</p>
+        <div class="form-grid">
+          <div class="fg"><label>سود عمده ٪ (مارک‌آپ)</label><input id="prule-w" type="number" min="0" max="500" step="0.1" value="${wPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+          <div class="fg"><label>سود تک ٪ (مارک‌آپ)</label><input id="prule-r" type="number" min="0" max="500" step="0.1" value="${rPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+          <div class="fg"><label>نمونه بها ${moneyColLabel()}</label><input id="prule-sample" type="text" inputmode="numeric" class="money" value="${moneyInit(10000000)}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePricingRule((globalRule.id||0))})}">ذخیره فرمول</button></div>
+        </div>
+        <div id="prule-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
       </div>
     </div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      <label>دوره: <input id="pra-period" value="${esc(period)}" placeholder="1405/04" data-csp-style="${CSP.style(`width:90px`)}"></label>
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodRatesLoad()})}">🔄 بارگذاری</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal()})}">➕ ثبت/ویرایش نرخ</button>
+      <label>دوره: <input id="pra-period" value="${esc(period)}" placeholder="1405/07" data-csp-style="${CSP.style(`width:100px`)}"></label>
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodRatesLoad()})}">بارگذاری</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal()})}">ثبت نرخ</button>
+      ${canPerm('production_cost','edit')||isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){prodRatesBootstrap()})}">برآورد از ۳ ماه قبل</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){prodRatesCopyPrev()})}">کپی ماه قبل</button>`:''}
+      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}"><input type="checkbox" id="pra-all" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodRatesLoad()})}"> نمایش لغوشده‌ها</label>
     </div>
     <div id="pra-area"><div class="muted">در حال بارگذاری...</div></div>
   </div>`;
   window._prodRatesCC=ccRows;
+  window._prodRuleId=globalRule.id||0;
+  pricingPreviewSync();
   await prodRatesLoad();
+}
+function pricingPreviewSync(){
+  const box=el('prule-preview'); if(!box) return;
+  const w=parseFloat(el('prule-w')?.value);
+  const r=parseFloat(el('prule-r')?.value);
+  const cost=moneyVal('prule-sample')||10000000;
+  const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+  if(!Number.isFinite(w)||!Number.isFinite(r)||w<0||r<0||w>500||r>500){
+    box.innerHTML='<span class="oh-warn">درصد باید عددی بین ۰ و ۵۰۰ باشد.</span>';
+    return;
+  }
+  const wh=Math.round(cost*(1+w/100));
+  const rt=Math.round(cost*(1+r/100));
+  const warn=r<w?'<div class="oh-warn">سود تک کمتر از عمده است — معمولاً قیمت تک باید بالاتر باشد.</div>':'';
+  box.innerHTML=`نمونه: اگر بها ${money(cost)} باشد، عمده <b>${money(wh)}</b> و تک <b>${money(rt)}</b>.${warn}`;
 }
 async function savePricingRule(id){
   const wholesale_markup_pct=parseFloat(el('prule-w')?.value);
   const retail_markup_pct=parseFloat(el('prule-r')?.value);
   if(!Number.isFinite(wholesale_markup_pct)||!Number.isFinite(retail_markup_pct)){ showToast('درصدها نامعتبر است','error'); return; }
+  if(wholesale_markup_pct<0||retail_markup_pct<0||wholesale_markup_pct>500||retail_markup_pct>500){
+    showToast('درصد سود باید بین ۰ و ۵۰۰ باشد','error'); return;
+  }
   try{
     if(id) await api('PUT','/pricing-rules/'+id,{wholesale_markup_pct,retail_markup_pct,active:1});
-    else await api('POST','/pricing-rules',{scope:'global',wholesale_markup_pct,retail_markup_pct});
+    else {
+      const created=await api('POST','/pricing-rules',{scope:'global',wholesale_markup_pct,retail_markup_pct});
+      window._prodRuleId=created?.id||0;
+    }
     showToast('فرمول قیمت‌گذاری ذخیره شد');
-  }catch(e){}
+    pricingPreviewSync();
+  }catch(e){ showToast(e.message||'خطا در ذخیره فرمول','error'); }
 }
 async function prodRatesLoad(){
   const period=el('pra-period')?.value||window._prodRatesPeriod;
   window._prodRatesPeriod=period;
   const area=el('pra-area');
+  const all=el('pra-all')?.checked;
   let rows=[];
-  try{ rows=(await api('GET','/production/cost-centers/rates?period='+encodeURIComponent(period)))?.rows||[]; }
+  try{ rows=(await api('GET','/production/cost-centers/rates?period='+encodeURIComponent(period)+(all?'&all=1':'')))?.rows||[]; }
   catch(e){ if(area) area.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`; return; }
   if(!area) return;
   const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
   window._prodRatesRows=rows;
-  const driverLabel={output_qty:'تعداد خروجی',direct_labor_rial:'دستمزد (ریال)',direct_labor_hours:'ساعت کارگر',machine_hours:'ساعت ماشین',material_rial:'مواد (ریال)',manual:'دستی'};
+  const statusFa={active:'فعال',draft:'پیش‌نویس',estimated:'برآوردی',inactive:'لغو شده',reversed:'ابطال'};
+  if(!rows.length){
+    area.innerHTML=`<div class="oh-preview">برای دوره <b>${esc(period)}</b> نرخی ثبت نشده. «ثبت نرخ» یا «برآورد از ۳ ماه قبل» را بزنید. نرخ جذب = بودجه سربار ÷ مقدار محرک نرمال (IAS 2).</div>`;
+    return;
+  }
   area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>مرکز هزینه</th><th>محرک</th><th>نرخ کل (ت)</th><th>نرخ ثابت (ت)</th><th>نرخ متغیر (ت)</th><th>دستمزد/عدد (ت)</th><th>وضعیت</th><th>برآوردی</th><th></th>
+    <th>مرکز هزینه</th><th>محرک / واحد نرخ</th><th>نرخ کل ${moneyColLabel()}</th><th>ثابت</th><th>متغیر</th><th>دستمزد ماهانه / عدد</th><th>وضعیت</th><th></th>
   </tr></thead><tbody>
-    ${rows.map(r=>`<tr>
-      <td data-label="مرکز هزینه">${esc(r.cc_code||'')} ${esc(r.cc_name||'')}</td>
-      <td data-label="محرک">${esc(driverLabel[r.driver]||r.driver||'')}</td>
+    ${rows.map(r=>{
+      const meta=ohDriverMeta(r.driver);
+      const st=r.status||'active';
+      return `<tr>
+      <td data-label="مرکز هزینه"><b>${esc(r.cc_code||'')}</b> ${esc(r.cc_name||'')}</td>
+      <td data-label="محرک">${esc(meta.label)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6`)}">${esc(meta.unit)}</div></td>
       <td data-label="نرخ کل" class="num">${money(r.total_rate_rial)}</td>
-      <td data-label="نرخ ثابت" class="num">${money(r.fixed_rate_rial)}</td>
-      <td data-label="نرخ متغیر" class="num">${money(r.var_rate_rial)}</td>
-      <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial)}</td>
-      <td data-label="وضعیت">${esc(r.status||'')}</td>
-      <td data-label="برآوردی">${r.is_estimated?'⚠️ بله':'—'}</td>
+      <td data-label="ثابت" class="num">${money(r.fixed_rate_rial||0)}</td>
+      <td data-label="متغیر" class="num">${money(r.var_rate_rial||0)}</td>
+      <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial||0)}</td>
+      <td data-label="وضعیت">${esc(statusFa[st]||st)}${r.is_estimated?' · برآوردی':''}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>
-        ${canPerm('production_cost','edit')||isAdmin()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">⛔</button>`:''}
+        ${st==='inactive'||st==='reversed'?'':`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>`}
+        ${(st==='inactive'||st==='reversed')?'':((canPerm('production_cost','edit')||isAdmin())?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">لغو</button>`:'')}
       </td>
-    </tr>`).join('')||emptyRow(9)}
-  </tbody></table></div>`;
+    </tr>`;
+    }).join('')}
+  </tbody></table></div>
+  <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px;line-height:1.8`)}">سربار جذب‌شده سفارش = نرخ کل × مقدار واقعی محرک. سربار ثابت با ظرفیت نرمال تسهیم می‌شود؛ کسر/اضافه جذب در بستن دوره به سود و زیان می‌رود.</p>`;
 }
 async function prodRateVoid(id){
-  if(!confirm('این نرخ سربار غیرفعال/لغو شود؟')) return;
+  if(!confirm('این نرخ سربار برای دوره غیرفعال شود؟ اسناد تولید قبلی برنمی‌گردند.')) return;
   try{
     await api('DELETE','/production/cost-centers/rates/'+id);
     showToast('نرخ لغو شد'); prodRatesLoad();
-  }catch(e){}
+  }catch(e){ showToast(e.message||'لغو نشد','error'); }
+}
+async function prodRatesBootstrap(){
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  if(!confirm('نرخ برآوردی مراکز مرحله‌ای از میانگین هزینه سربار ۳ ماه قبل ساخته/به‌روز شود؟')) return;
+  try{
+    const r=await api('POST','/production/cost-centers/rates/bootstrap',{period});
+    showToast((r?.count||0)+' نرخ برآوردی شد'); prodRatesLoad();
+  }catch(e){ showToast(e.message||'برآورد انجام نشد','error'); }
+}
+async function prodRatesCopyPrev(){
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  const prev=shiftJalaliYm(period,-1);
+  if(!prev){ showToast('دوره نامعتبر است','error'); return; }
+  let rows=[];
+  try{ rows=(await api('GET','/production/cost-centers/rates?period='+encodeURIComponent(prev)))?.rows||[]; }
+  catch(e){ showToast(e.message||'خواندن ماه قبل ناموفق','error'); return; }
+  if(!rows.length){ showToast('ماه قبل نرخی ندارد ('+prev+')','error'); return; }
+  if(!confirm(rows.length+' نرخ از '+prev+' به '+period+' کپی شود؟')) return;
+  try{
+    for(const r of rows){
+      await api('POST','/production/cost-centers/rates',{
+        cost_center_id:r.cost_center_id, period_label:period, driver:r.driver,
+        budget_fixed_oh_rial:r.budget_fixed_oh_rial||0, budget_var_oh_rial:r.budget_var_oh_rial||0,
+        budget_driver_qty:r.budget_driver_qty||0,
+        total_rate_rial:r.total_rate_rial||0, fixed_rate_rial:r.fixed_rate_rial||0, var_rate_rial:r.var_rate_rial||0,
+        monthly_labor_rate_rial:r.monthly_labor_rate_rial||0, note:r.note||('کپی از '+prev),
+        is_estimated:r.is_estimated?1:0, status:'active',
+      });
+    }
+    showToast('کپی شد'); prodRatesLoad();
+  }catch(e){ showToast(e.message||'کپی ناقص ماند','error'); }
+}
+function prodRateNum(id){
+  const raw=toEnDigits(String(el(id)?.value||'')).replace(/[^\d.]/g,'');
+  const n=parseFloat(raw);
+  return Number.isFinite(n)?n:0;
+}
+function prodRatePreviewSync(){
+  const box=el('prm-preview'); if(!box) return;
+  const driver=el('prm-driver')?.value||'output_qty';
+  const meta=ohDriverMeta(driver);
+  const hint=el('prm-driver-hint');
+  if(hint) hint.textContent=meta.unit;
+  const budgetFixed=moneyVal('prm-bfix');
+  const budgetVar=moneyVal('prm-bvar');
+  const budgetQty=prodRateNum('prm-bqty');
+  let fixed=moneyVal('prm-fixed');
+  let variable=moneyVal('prm-var');
+  let total=moneyVal('prm-total');
+  const fromBudget=budgetQty>0 && (budgetFixed>0 || budgetVar>0);
+  if(fromBudget){
+    fixed=Math.round(budgetFixed/budgetQty);
+    variable=Math.round(budgetVar/budgetQty);
+    total=fixed+variable;
+    if(el('prm-fixed')) el('prm-fixed').value=moneyInit(fixed);
+    if(el('prm-var')) el('prm-var').value=moneyInit(variable);
+    if(el('prm-total')) el('prm-total').value=moneyInit(total);
+  }else if(total<=0 && (fixed>0||variable>0)){
+    total=fixed+variable;
+    if(el('prm-total')) el('prm-total').value=moneyInit(total);
+  }else if(fixed<=0 && variable<=0 && total>0){
+    fixed=total;
+  }
+  const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+  const applied=Math.round(total*meta.sample);
+  const poolWarn=(!fromBudget && total>=20000000 && (driver==='direct_labor_rial'||driver==='material_rial'||driver==='output_qty'))
+    ? '<div class="oh-warn">این عدد خیلی بزرگ است و شبیه بودجهٔ ماه است. بودجه و مقدار محرک را پر کنید تا نرخ واقعی محاسبه شود.</div>'
+    : '';
+  box.innerHTML=`${fromBudget?'نرخ از بودجه دوره محاسبه شد. ':''}برای ${esc(meta.sampleLabel)} سربار جذب‌شده حدود <b>${money(applied)}</b> می‌شود.${poolWarn}`;
 }
 async function prodRateEditModal(ccId){
   const ccRows=window._prodRatesCC||[];
   const period=window._prodRatesPeriod||todayJalali().slice(0,7);
   const existing=(window._prodRatesRows||[]).find(r=>Number(r.cost_center_id)===Number(ccId))||null;
-  const d=existing?.driver||'output_qty';
+  const selectedCc=ccRows.find(c=>Number(c.id)===Number(ccId||existing?.cost_center_id))||ccRows[0];
+  const d=existing?.driver||selectedCc?.driver||'output_qty';
+  const driverOpts=['output_qty','direct_labor_rial','direct_labor_hours','machine_hours','material_rial','manual']
+    .map(k=>`<option value="${k}" ${k===d||(d==='labor_rial'&&k==='direct_labor_rial')?'selected':''}>${esc(ohDriverMeta(k).label)}</option>`).join('');
   showModal(existing?'ویرایش نرخ سربار':'ثبت نرخ سربار',`
-    <div class="form-grid">
-      <div class="fg"><label>مرکز هزینه</label><select id="prm-cc">${ccRows.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(ccId||existing?.cost_center_id)?'selected':''}>${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>دوره</label><input id="prm-period" value="${esc(existing?.period_label||period)}" placeholder="1405/04"></div>
-      <div class="fg"><label>محرک</label>
-        <select id="prm-driver">
-          <option value="output_qty" ${d==='output_qty'?'selected':''}>تعداد خروجی</option>
-          <option value="direct_labor_rial" ${d==='direct_labor_rial'||d==='labor_rial'?'selected':''}>دستمزد مستقیم (ریال)</option>
-          <option value="direct_labor_hours" ${d==='direct_labor_hours'?'selected':''}>ساعت کارگر مستقیم</option>
-          <option value="machine_hours" ${d==='machine_hours'?'selected':''}>ساعت ماشین</option>
-          <option value="material_rial" ${d==='material_rial'?'selected':''}>مواد (ریال)</option>
-          <option value="manual" ${d==='manual'?'selected':''}>دستی</option>
-        </select></div>
-      <div class="fg"><label>نرخ کل (ریال)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}"></div>
-      <div class="fg"><label>نرخ ثابت (ریال)</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}"></div>
-      <div class="fg"><label>نرخ متغیر (ریال)</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}"></div>
-      <div class="fg"><label>نرخ دستمزد ماهانه (ریال/عدد)</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
+    <div class="oh-form">
+      <div class="oh-section">
+        <h5>شناسه</h5>
+        <div class="form-grid">
+          <div class="fg"><label>مرکز هزینه</label>
+            <select id="prm-cc" data-csp-change="${CSP.bind('change',function(){prodRateOnCcChange()})}">${ccRows.map(c=>`<option value="${c.id}" data-driver="${esc(c.driver||'output_qty')}" ${Number(c.id)===Number(ccId||existing?.cost_center_id||selectedCc?.id)?'selected':''}>${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select>
+          </div>
+          <div class="fg"><label>دوره (سال/ماه)</label><input id="prm-period" value="${esc(existing?.period_label||period)}" placeholder="1405/07"></div>
+          <div class="fg full"><label>محرک جذب</label>
+            <select id="prm-driver" data-csp-change="${CSP.bind('change',function(){prodRatePreviewSync()})}">${driverOpts}</select>
+            <div id="prm-driver-hint" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}"></div>
+          </div>
+        </div>
+      </div>
+      <div class="oh-section">
+        <h5>بودجه دوره (پیشنهادی — IAS 2)</h5>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">نرخ از پیش‌تعیین‌شده = بودجه سربار ÷ مقدار محرک نرمال. اگر این سه فیلد پر باشد، نرخ‌ها خودکار حساب می‌شوند.</p>
+        <div class="form-grid">
+          <div class="fg"><label>بودجه سربار ثابت ${moneyColLabel()}</label><input id="prm-bfix" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_fixed_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg"><label>بودجه سربار متغیر ${moneyColLabel()}</label><input id="prm-bvar" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_var_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg full"><label>مقدار محرک نرمال / برنامه</label><input id="prm-bqty" type="text" inputmode="decimal" value="${existing&&existing.budget_driver_qty?esc(String(existing.budget_driver_qty)):''}" placeholder="مثلاً تعداد خروجی ماه یا ساعت ماشین" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+        </div>
+      </div>
+      <div class="oh-section">
+        <h5>نرخ جذب (ریال به ازای واحد محرک)</h5>
+        <div class="form-grid">
+          <div class="fg"><label>نرخ ثابت</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg"><label>نرخ متغیر</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg full"><label>نرخ کل</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg full"><label>دستمزد ماهانه مرکز (ریال / عدد خروجی)</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
+        </div>
+        <div id="prm-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}"></div>
+      </div>
       <div class="fg full"><label>یادداشت</label><input id="prm-note" value="${esc(existing?.note||'')}" placeholder="اختیاری"></div>
-      <div class="fg"><label><input type="checkbox" id="prm-est" data-csp-style="${CSP.style(`width:auto`)}" ${existing?.is_estimated?'checked':''}> نرخ برآوردی است</label></div>
+      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;font-size:13px`)}"><input type="checkbox" id="prm-est" data-csp-style="${CSP.style(`width:auto`)}" ${existing?.is_estimated?'checked':''}> نرخ برآوردی است (تا تأیید بودجه)</label>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodRateSave()})}">ذخیره</button>
-    </div>`);
+    </div>`, true);
+  setTimeout(prodRatePreviewSync,0);
+}
+function prodRateOnCcChange(){
+  const sel=el('prm-cc');
+  const opt=sel?.selectedOptions?.[0];
+  const drv=opt?.getAttribute('data-driver');
+  if(drv && el('prm-driver') && !(window._prodRatesRows||[]).some(r=>Number(r.cost_center_id)===Number(sel.value))){
+    el('prm-driver').value=['output_qty','direct_labor_rial','direct_labor_hours','machine_hours','material_rial','manual'].includes(drv)?drv:(drv==='labor_rial'?'direct_labor_rial':'output_qty');
+  }
+  prodRatePreviewSync();
 }
 async function prodRateSave(){
   try{
-    await api('POST','/production/cost-centers/rates',{
+    const saved=await api('POST','/production/cost-centers/rates',{
       cost_center_id:+el('prm-cc').value,
       period_label:el('prm-period').value,
       driver:el('prm-driver').value,
+      budget_fixed_oh_rial:moneyVal('prm-bfix'),
+      budget_var_oh_rial:moneyVal('prm-bvar'),
+      budget_driver_qty:prodRateNum('prm-bqty'),
       total_rate_rial:moneyVal('prm-total'),
       fixed_rate_rial:moneyVal('prm-fixed'),
       var_rate_rial:moneyVal('prm-var'),
@@ -14356,7 +14526,9 @@ async function prodRateSave(){
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
     });
-    closeModal(); showToast('نرخ ذخیره شد'); loadAccTab('production-rates');
+    closeModal();
+    showToast(saved?.warning||'نرخ ذخیره شد', saved?.warning?'error':'success');
+    loadAccTab('production-rates');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
@@ -24471,6 +24643,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
+        <li><b>نرخ سربار مراکز (v299):</b> نرخ جذب از پیش‌تعیین‌شده است: بودجه سربار ثابت و متغیر ÷ مقدار محرک نرمال (IAS 2). سربار سفارش = نرخ کل × مقدار واقعی محرک. محرک دستمزد/مواد بر حسب هر ۱ میلیون ریال است؛ ساعت ماشین/کارگر بر حسب ساعت. فیلد «نرخ کل» بودجه ماه نیست. فرمول قیمت = بها × (۱+٪مارک‌آپ عمده/تک) نه حاشیه فروش. لغو نرخ حذف فیزیکی نیست.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
@@ -24899,7 +25072,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v297</b> است و اسکریپت‌ها با <code>?v=297</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v299</b> است و اسکریپت‌ها با <code>?v=299</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

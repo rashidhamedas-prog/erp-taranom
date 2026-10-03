@@ -6,6 +6,113 @@
 const { allocateNumber } = require('../../db');
 const { setting } = require('./costing');
 
+const OH_DRIVERS = Object.freeze([
+  'output_qty',
+  'direct_labor_rial',
+  'direct_labor_hours',
+  'machine_hours',
+  'material_rial',
+  'manual',
+]);
+const OH_DRIVER_ALIASES = Object.freeze({
+  labor_rial: 'direct_labor_rial',
+  labor_hours: 'direct_labor_hours',
+  hours: 'direct_labor_hours',
+  qty: 'output_qty',
+  output: 'output_qty',
+});
+
+function rateErr(code, status, message) {
+  const e = new Error(message);
+  e.status = status;
+  e.code = code;
+  return e;
+}
+
+function roundRial(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.round(v);
+}
+
+function normalizeDriver(d) {
+  const raw = String(d == null ? 'output_qty' : d).trim() || 'output_qty';
+  const mapped = OH_DRIVER_ALIASES[raw] || raw;
+  if (!OH_DRIVERS.includes(mapped)) {
+    throw rateErr('E_BAD_DRIVER', 400, 'محرک سربار نامعتبر است');
+  }
+  return mapped;
+}
+
+function coerceDriver(d) {
+  try {
+    return normalizeDriver(d);
+  } catch {
+    return 'output_qty';
+  }
+}
+
+function validatePeriodLabel(period) {
+  const s = String(period || '').trim();
+  const m = s.match(/^(\d{4})\/(\d{1,2})$/);
+  if (!m) throw rateErr('E_PERIOD_FORMAT', 400, 'دوره باید به صورت ۱۴۰۵/۰۷ باشد');
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) throw rateErr('E_PERIOD_FORMAT', 400, 'ماه دوره نامعتبر است');
+  return `${m[1]}/${String(month).padStart(2, '0')}`;
+}
+
+/**
+ * Predetermined OAR (IAS 2 / absorption):
+ *   fixed_rate = budget_fixed ÷ normal/budgeted driver qty
+ *   var_rate   = budget_variable ÷ budgeted driver qty
+ *   total_rate = fixed_rate + var_rate
+ * Applied OH later = total_rate × actual driver qty.
+ * Direct-rate entry: if only total is given, treat it as a single combined rate.
+ */
+function computePredeterminedRates(input = {}) {
+  const budgetFixed = roundRial(input.budget_fixed_oh_rial);
+  const budgetVar = roundRial(input.budget_var_oh_rial);
+  const budgetQtyRaw = Number(input.budget_driver_qty);
+  const budgetQty = Number.isFinite(budgetQtyRaw) ? budgetQtyRaw : 0;
+  let fixed = roundRial(input.fixed_rate_rial);
+  let variable = roundRial(input.var_rate_rial);
+  let total = roundRial(input.total_rate_rial);
+  const monthlyLabor = roundRial(input.monthly_labor_rate_rial);
+
+  if (budgetFixed < 0 || budgetVar < 0 || budgetQty < 0 || fixed < 0 || variable < 0 || total < 0 || monthlyLabor < 0) {
+    throw rateErr('E_NEGATIVE_RATE', 400, 'مبالغ و مقدار محرک نمی‌تواند منفی باشد');
+  }
+
+  const fromBudget = budgetQty > 0 && (budgetFixed > 0 || budgetVar > 0);
+  if (fromBudget) {
+    fixed = Math.round(budgetFixed / budgetQty);
+    variable = Math.round(budgetVar / budgetQty);
+    total = fixed + variable;
+  } else {
+    if (total <= 0 && (fixed > 0 || variable > 0)) total = fixed + variable;
+    if (fixed <= 0 && variable <= 0 && total > 0) fixed = total;
+    else if (fixed > 0 || variable > 0) total = fixed + variable;
+  }
+
+  return {
+    budget_fixed_oh_rial: budgetFixed,
+    budget_var_oh_rial: budgetVar,
+    budget_driver_qty: budgetQty,
+    fixed_rate_rial: fixed,
+    var_rate_rial: variable,
+    total_rate_rial: total,
+    monthly_labor_rate_rial: monthlyLabor,
+    from_budget: fromBudget,
+  };
+}
+
+function looksLikePoolNotRate(driver, totalRate) {
+  const d = coerceDriver(driver);
+  const t = roundRial(totalRate);
+  if (t < 20_000_000) return false;
+  return d === 'direct_labor_rial' || d === 'material_rial' || d === 'output_qty';
+}
+
 /** Status preference: active/approved before draft/estimated. */
 const RATE_STATUS_ORDER = `
   CASE status
@@ -56,7 +163,10 @@ function getOverheadRate(db, ccId, period) {
       ORDER BY ${RATE_STATUS_ORDER}
       LIMIT 1
     `).get(ccId, period);
-    if (forPeriod) return forPeriod;
+    if (forPeriod) {
+      forPeriod.driver = coerceDriver(forPeriod.driver);
+      return forPeriod;
+    }
   }
 
   const latest = db.prepare(`
@@ -66,7 +176,10 @@ function getOverheadRate(db, ccId, period) {
     ORDER BY period_label DESC, ${RATE_STATUS_ORDER}
     LIMIT 1
   `).get(ccId);
-  if (latest) return latest;
+  if (latest) {
+    latest.driver = coerceDriver(latest.driver);
+    return latest;
+  }
 
   return bootstrapRate(db, ccId, period || '');
 }
@@ -85,7 +198,7 @@ function bootstrapRate(db, ccId, period, months) {
   let driver = 'output_qty';
   try {
     const cc = db.prepare('SELECT driver FROM cost_centers WHERE id=?').get(ccId);
-    if (cc?.driver) driver = String(cc.driver);
+    if (cc?.driver) driver = coerceDriver(cc.driver);
   } catch { /* ignore */ }
 
   // Window: [period − N months, month before period]
@@ -198,7 +311,7 @@ function computeDriverQty(db, ctx = {}) {
     laborHours,
     manualDriverQty,
   } = ctx;
-  const d = driver || 'output_qty';
+  const d = coerceDriver(driver);
   const qty = Number(qtyStarted) || 0;
 
   switch (d) {
@@ -299,7 +412,7 @@ function applyOverhead(db, {
     return { amount_rial: 0, driver: null, driver_qty: 0, rate_rial: 0, is_estimated: 1, id: null };
   }
 
-  const driver = rate.driver || 'output_qty';
+  const driver = coerceDriver(rate.driver);
   const driverQty = computeDriverQty(db, {
     driver, po, qtyStarted, laborRial, matRial, machineMinutes, ops, laborHours, manualDriverQty,
   });
@@ -351,4 +464,10 @@ module.exports = {
   bootstrapRate,
   computeDriverQty,
   applyOverhead,
+  normalizeDriver,
+  coerceDriver,
+  validatePeriodLabel,
+  computePredeterminedRates,
+  looksLikePoolNotRate,
+  OH_DRIVERS,
 };

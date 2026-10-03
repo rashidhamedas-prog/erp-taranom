@@ -2,7 +2,14 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
-const { bootstrapRate } = require('../lib/production/overhead');
+const {
+  bootstrapRate,
+  normalizeDriver,
+  coerceDriver,
+  validatePeriodLabel,
+  computePredeterminedRates,
+  looksLikePoolNotRate,
+} = require('../lib/production/overhead');
 
 function handle(res, fn) {
   try {
@@ -30,65 +37,95 @@ router.get('/rates', auth, requirePermission('production_cost', 'view'), (req, r
     const statusFilter = includeInactive ? '1=1' : "COALESCE(r.status,'active')='active'";
     const rows = period
       ? getDB().prepare(`
-          SELECT r.*, c.code AS cc_code, c.name AS cc_name
+          SELECT r.*, c.code AS cc_code, c.name AS cc_name, c.driver AS cc_default_driver
           FROM cost_center_rates r
           JOIN cost_centers c ON c.id = r.cost_center_id
           WHERE r.period_label=? AND ${statusFilter}
           ORDER BY c.seq
         `).all(period)
       : getDB().prepare(`
-          SELECT r.*, c.code AS cc_code, c.name AS cc_name
+          SELECT r.*, c.code AS cc_code, c.name AS cc_name, c.driver AS cc_default_driver
           FROM cost_center_rates r
           JOIN cost_centers c ON c.id = r.cost_center_id
           WHERE ${statusFilter}
           ORDER BY r.period_label DESC, c.seq
         `).all();
+    rows.forEach((r) => { r.driver = coerceDriver(r.driver); });
     return { rows };
   });
 });
+
+function persistRate(db, body, userId, existingId) {
+  const ccId = Number(body.cost_center_id);
+  if (!ccId) throw rateHttp('E_CC_REQUIRED', 400, 'مرکز هزینه الزامی است');
+  const cc = db.prepare('SELECT id FROM cost_centers WHERE id=?').get(ccId);
+  if (!cc) throw rateHttp('E_CC_NOT_FOUND', 404, 'مرکز هزینه یافت نشد');
+  const period = validatePeriodLabel(body.period_label);
+  const driver = normalizeDriver(body.driver);
+  const computed = computePredeterminedRates(body);
+  const status = ['active', 'draft', 'estimated', 'inactive'].includes(String(body.status || 'active'))
+    ? String(body.status || 'active')
+    : 'active';
+  const isEstimated = body.is_estimated ? 1 : 0;
+  const note = String(body.note || '');
+  const warning = (!computed.from_budget && looksLikePoolNotRate(driver, computed.total_rate_rial))
+    ? 'این مبلغ شبیه بودجهٔ دوره است نه نرخ جذب. بهتر است بودجه و مقدار محرک را وارد کنید تا نرخ از روی IAS 2 محاسبه شود.'
+    : '';
+
+  if (existingId) {
+    db.prepare(`
+      UPDATE cost_center_rates SET
+        cost_center_id=?, period_label=?, driver=?,
+        budget_fixed_oh_rial=?, budget_var_oh_rial=?, budget_driver_qty=?,
+        total_rate_rial=?, fixed_rate_rial=?, var_rate_rial=?,
+        monthly_labor_rate_rial=?, status=?, is_estimated=?, note=?
+      WHERE id=?
+    `).run(
+      ccId, period, driver,
+      computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
+      computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
+      computed.monthly_labor_rate_rial, status, isEstimated, note, existingId
+    );
+    return { id: existingId, warning };
+  }
+
+  const info = db.prepare(`
+    INSERT INTO cost_center_rates
+      (cost_center_id, period_label, driver,
+       budget_fixed_oh_rial, budget_var_oh_rial, budget_driver_qty,
+       total_rate_rial, fixed_rate_rial, var_rate_rial,
+       monthly_labor_rate_rial, status, is_estimated, note, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    ccId, period, driver,
+    computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
+    computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
+    computed.monthly_labor_rate_rial, status, isEstimated, note, userId
+  );
+  return { id: info.lastInsertRowid, warning };
+}
+
+function rateHttp(code, status, message) {
+  const e = new Error(message);
+  e.status = status;
+  e.code = code;
+  return e;
+}
 
 router.post('/rates', auth, requirePermission('production_cost', 'edit'), (req, res) => {
   try {
     const b = req.body || {};
     const db = getDB();
-    const existing = db.prepare(`
-      SELECT id FROM cost_center_rates WHERE cost_center_id=? AND period_label=?
-    `).get(b.cost_center_id, b.period_label);
-    let id;
-    if (existing) {
-      db.prepare(`
-        UPDATE cost_center_rates SET
-          driver=?, total_rate_rial=?, fixed_rate_rial=?, var_rate_rial=?,
-          monthly_labor_rate_rial=?, status=?, is_estimated=?, note=?
-        WHERE id=?
-      `).run(
-        b.driver || 'output_qty',
-        Math.round(Number(b.total_rate_rial) || 0),
-        Math.round(Number(b.fixed_rate_rial) || 0),
-        Math.round(Number(b.var_rate_rial) || 0),
-        Math.round(Number(b.monthly_labor_rate_rial) || 0),
-        b.status || 'active',
-        b.is_estimated ? 1 : 0,
-        b.note || '',
-        existing.id
-      );
-      id = existing.id;
-    } else {
-      id = db.prepare(`
-        INSERT INTO cost_center_rates
-          (cost_center_id, period_label, driver, total_rate_rial, fixed_rate_rial,
-           var_rate_rial, monthly_labor_rate_rial, status, is_estimated, note, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        b.cost_center_id, b.period_label, b.driver || 'output_qty',
-        Math.round(Number(b.total_rate_rial) || 0),
-        Math.round(Number(b.fixed_rate_rial) || 0),
-        Math.round(Number(b.var_rate_rial) || 0),
-        Math.round(Number(b.monthly_labor_rate_rial) || 0),
-        b.status || 'active', b.is_estimated ? 1 : 0, b.note || '', req.user.id
-      ).lastInsertRowid;
-    }
-    res.status(201).json(db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(id));
+    const period = b.period_label ? validatePeriodLabel(b.period_label) : '';
+    const existing = (b.cost_center_id && period)
+      ? db.prepare(`
+          SELECT id FROM cost_center_rates WHERE cost_center_id=? AND period_label=?
+        `).get(Number(b.cost_center_id), period)
+      : null;
+    const saved = persistRate(db, b, req.user.id, existing?.id || null);
+    const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(saved.id);
+    if (row) row.driver = coerceDriver(row.driver);
+    res.status(existing ? 200 : 201).json({ ...row, warning: saved.warning || undefined });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
@@ -100,12 +137,7 @@ router.post('/rates/bootstrap', auth, requirePermission('production_cost', 'edit
     const db = getDB();
     const b = req.body || {};
     const period = b.period || b.period_label;
-    if (!period) {
-      const e = new Error('period الزامی است');
-      e.status = 400;
-      e.code = 'E_PERIOD_REQUIRED';
-      throw e;
-    }
+    const periodLabel = validatePeriodLabel(period);
     const months = b.months != null ? Number(b.months) : undefined;
     const centers = db.prepare(`
       SELECT id, code, name FROM cost_centers
@@ -113,14 +145,15 @@ router.post('/rates/bootstrap', auth, requirePermission('production_cost', 'edit
       ORDER BY COALESCE(seq,0), code
     `).all();
     const rows = centers.map((cc) => {
-      const rate = bootstrapRate(db, cc.id, period, months);
+      const rate = bootstrapRate(db, cc.id, periodLabel, months);
       return {
         ...rate,
+        driver: coerceDriver(rate?.driver),
         cc_code: cc.code,
         cc_name: cc.name,
       };
     });
-    return { period, months: months || null, count: rows.length, rows };
+    return { period: periodLabel, months: months || null, count: rows.length, rows };
   });
 });
 
@@ -141,25 +174,14 @@ router.put('/rates/:id', auth, requirePermission('production_cost', 'edit'), (re
       e.code = 'E_RATE_INACTIVE';
       throw e;
     }
-    const b = req.body || {};
-    db.prepare(`
-      UPDATE cost_center_rates SET
-        driver=?, total_rate_rial=?, fixed_rate_rial=?, var_rate_rial=?,
-        monthly_labor_rate_rial=?, status=?, note=?
-      WHERE id=?
-    `).run(
-      b.driver != null ? b.driver : row.driver,
-      b.total_rate_rial != null ? Math.round(Number(b.total_rate_rial) || 0) : row.total_rate_rial,
-      b.fixed_rate_rial != null ? Math.round(Number(b.fixed_rate_rial) || 0) : row.fixed_rate_rial,
-      b.var_rate_rial != null ? Math.round(Number(b.var_rate_rial) || 0) : row.var_rate_rial,
-      b.monthly_labor_rate_rial != null
-        ? Math.round(Number(b.monthly_labor_rate_rial) || 0)
-        : row.monthly_labor_rate_rial,
-      b.status != null ? b.status : row.status,
-      b.note != null ? b.note : row.note,
-      id
-    );
-    return db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(id);
+    const b = { ...row, ...(req.body || {}) };
+    b.cost_center_id = row.cost_center_id;
+    b.period_label = req.body?.period_label != null ? req.body.period_label : row.period_label;
+    const saved = persistRate(db, b, req.user?.id, id);
+    const out = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(id);
+    if (out) out.driver = coerceDriver(out.driver);
+    if (saved.warning) out.warning = saved.warning;
+    return out;
   });
 });
 

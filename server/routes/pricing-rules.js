@@ -6,6 +6,36 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 
+function parseMarkupPct(v, label) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) {
+    const e = new Error(`درصد ${label} نامعتبر است`);
+    e.status = 400;
+    e.code = 'E_MARKUP_INVALID';
+    throw e;
+  }
+  if (n < 0 || n > 500) {
+    const e = new Error(`درصد ${label} باید بین ۰ و ۵۰۰ باشد (مارک‌آپ روی بها، نه حاشیه فروش)`);
+    e.status = 400;
+    e.code = 'E_MARKUP_RANGE';
+    throw e;
+  }
+  return n;
+}
+
+function pricesFromCost(costRial, rule) {
+  const cost = Math.round(Number(costRial) || 0);
+  const wPct = Number(rule.wholesale_markup_pct) || 0;
+  const rPct = Number(rule.retail_markup_pct) || 0;
+  return {
+    cost_rial: cost,
+    wholesale: Math.round(cost * (1 + wPct / 100)),
+    retail: Math.round(cost * (1 + rPct / 100)),
+    wholesale_markup_pct: wPct,
+    retail_markup_pct: rPct,
+  };
+}
+
 function resolveMarkup(db, product) {
   const byProduct = product?.id
     ? db.prepare(
@@ -32,13 +62,10 @@ function applyPricingFromCost(db, productId, costRial) {
   const cost = Math.round(Number(costRial) || 0);
   if (cost <= 0) return null;
   const rule = resolveMarkup(db, product);
-  const wPct = Number(rule.wholesale_markup_pct) || 0;
-  const rPct = Number(rule.retail_markup_pct) || 0;
-  const wholesale = Math.round(cost * (1 + wPct / 100));
-  const retail = Math.round(cost * (1 + rPct / 100));
+  const priced = pricesFromCost(cost, rule);
   db.prepare('UPDATE products SET price=?, price_rial=?, retail_price=?, retail_price_rial=?, cost=? WHERE id=?')
-    .run(wholesale, wholesale, retail, retail, cost, productId);
-  return { wholesale, retail, cost, rule };
+    .run(priced.wholesale, priced.wholesale, priced.retail, priced.retail, priced.cost_rial, productId);
+  return { wholesale: priced.wholesale, retail: priced.retail, cost: priced.cost_rial, rule };
 }
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
@@ -50,10 +77,13 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const scope = ['global', 'category', 'product'].includes(req.body.scope) ? req.body.scope : 'global';
   const scope_id = scope === 'global' ? null : (parseInt(req.body.scope_id, 10) || null);
-  const wholesale_markup_pct = parseFloat(req.body.wholesale_markup_pct);
-  const retail_markup_pct = parseFloat(req.body.retail_markup_pct);
-  if (!Number.isFinite(wholesale_markup_pct) || !Number.isFinite(retail_markup_pct)) {
-    return res.status(400).json({ error: 'درصد سود عمده/تک الزامی است' });
+  let wholesale_markup_pct;
+  let retail_markup_pct;
+  try {
+    wholesale_markup_pct = parseMarkupPct(req.body.wholesale_markup_pct, 'سود عمده');
+    retail_markup_pct = parseMarkupPct(req.body.retail_markup_pct, 'سود تک');
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   const r = db.prepare(
     'INSERT INTO pricing_rules (scope,scope_id,wholesale_markup_pct,retail_markup_pct) VALUES (?,?,?,?)'
@@ -66,14 +96,26 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM pricing_rules WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  let wholesale_markup_pct = row.wholesale_markup_pct;
+  let retail_markup_pct = row.retail_markup_pct;
+  try {
+    if (req.body.wholesale_markup_pct != null) {
+      wholesale_markup_pct = parseMarkupPct(req.body.wholesale_markup_pct, 'سود عمده');
+    }
+    if (req.body.retail_markup_pct != null) {
+      retail_markup_pct = parseMarkupPct(req.body.retail_markup_pct, 'سود تک');
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   db.prepare(`
     UPDATE pricing_rules SET
       wholesale_markup_pct=?, retail_markup_pct=?, active=?,
       scope=COALESCE(?,scope), scope_id=?
     WHERE id=?
   `).run(
-    req.body.wholesale_markup_pct != null ? parseFloat(req.body.wholesale_markup_pct) : row.wholesale_markup_pct,
-    req.body.retail_markup_pct != null ? parseFloat(req.body.retail_markup_pct) : row.retail_markup_pct,
+    wholesale_markup_pct,
+    retail_markup_pct,
     req.body.active != null ? (req.body.active ? 1 : 0) : row.active,
     req.body.scope || null,
     req.body.scope_id !== undefined ? (req.body.scope_id ? parseInt(req.body.scope_id, 10) : null) : row.scope_id,
@@ -102,11 +144,12 @@ router.post('/preview', auth, adminOrAccounting, (req, res) => {
     ? db.prepare('SELECT * FROM products WHERE id=?').get(req.body.product_id)
     : { category_id: req.body.category_id || null };
   const rule = resolveMarkup(db, product || {});
-  const wholesale = Math.round(cost * (1 + (Number(rule.wholesale_markup_pct) || 0) / 100));
-  const retail = Math.round(cost * (1 + (Number(rule.retail_markup_pct) || 0) / 100));
-  res.json({ cost_rial: cost, wholesale, retail, rule });
+  const priced = pricesFromCost(cost, rule);
+  res.json({ ...priced, rule });
 });
 
 module.exports = router;
 module.exports.applyPricingFromCost = applyPricingFromCost;
 module.exports.resolveMarkup = resolveMarkup;
+module.exports.parseMarkupPct = parseMarkupPct;
+module.exports.pricesFromCost = pricesFromCost;

@@ -1,4 +1,13 @@
-﻿## 2026-10-03 — Payroll multi-leg payments (SW v294)
+﻿## 2026-10-03 — Overhead rates + pricing formulas (SW v299)
+
+- Owner: this session (skill-top full). Reclaimed shared `server/public/{app.js,index.html,sw.js,app.css}` + `docs/CHANGE-LOG.md` from PROD-ACC for UX/formula of «نرخ سربار مراکز» (screenshots CC-10 1405/07). Notify PROD-ACC owner.
+- Invariant: predetermined OAR = budget OH ÷ normal driver; applied = rate × actual driver; `labor_rial` aliases to `direct_labor_rial` (/1e6). Markup P = cost × (1+pct).
+- Slack search: no public hits for سربار/overhead.
+- Files: overhead.js, bom-advanced.js, production-cost-centers.js, pricing-rules.js, app.js/css, test-overhead-rates-v299.js.
+
+---
+
+
 
 - Owner: this session (skill-top standard). Reclaimed shared `server/public/{app.js,index.html,sw.js}`, `docs/CHANGE-LOG.md`, and briefly `server/sync/capture.js` (PATH `/api/payroll/payments` only) from prior owners for payroll settlement.
 - Architecture: `payroll_payments` + `paid_rial`; partial/multi-source clearing of wages payable; R13 per-leg and void-all.
