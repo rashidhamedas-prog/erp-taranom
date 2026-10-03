@@ -68,30 +68,66 @@ function buildPartyTurnover(db, partyId) {
   const custIds = linkedCustomerIds(db, partyId);
   if (custIds.length) {
     const custId = Math.min(...custIds.map(Number));
-    const { buildStatement } = require('../routes/accounting');
-    const data = buildStatement(db, custId, {});
-    if (!data) {
-      return { kind: 'customer', title: 'گردش مشتری', entity_id: custId, entries: [], closing: 0 };
+    try {
+      const { ensureCustomerBooksRepaired } = require('./customer-books');
+      ensureCustomerBooksRepaired(db);
+    } catch (_) { /* repair best-effort */ }
+    const rows = db.prepare(`
+      SELECT date, entry_type, ref_type, ref_id, description, debit, credit
+      FROM customer_ledger WHERE customer_id=?
+      ORDER BY created_at ASC, id ASC
+    `).all(custId);
+    // Attach firm invoices missing from books (same as statement)
+    try {
+      const { attachMissingInvoiceRows, stmtEntryType, normalizeStmtRefType } = require('./customer-books');
+      const tagged = rows.slice();
+      attachMissingInvoiceRows(db, custId, tagged);
+      const ENTRY_LABEL = {
+        invoice: 'فاکتور فروش', settlement: 'دریافت وجه', reversal: 'ابطال/اصلاح',
+        opening: 'مانده اول دوره', invoice_payment: 'دریافت هنگام فاکتور',
+        cheque: 'چک', cheque_in: 'ثبت چک', journal: 'سند حسابداری',
+      };
+      const entries = [];
+      let run = 0;
+      for (const e of tagged) {
+        run += (Number(e.debit) || 0) - (Number(e.credit) || 0);
+        const et = e.entry_type || stmtEntryType(e.ref_type, normalizeStmtRefType(e.ref_type));
+        const label = ENTRY_LABEL[et] || ENTRY_LABEL[e.ref_type] || et || '';
+        entries.push({
+          date: e.date || '',
+          description: [label, e.description].filter(Boolean).join(' — ') || '-',
+          type_label: label,
+          debit: Math.round(Number(e.debit) || 0),
+          credit: Math.round(Number(e.credit) || 0),
+          balance: Math.round(run),
+          source: 'customer_ledger',
+          ref_type: e.ref_type || '',
+          ref_id: e.ref_id != null ? e.ref_id : null,
+        });
+      }
+      return {
+        kind: 'customer',
+        title: 'گردش مشتری',
+        entity_id: custId,
+        entries,
+        closing: entries.length ? entries[entries.length - 1].balance : 0,
+      };
+    } catch (_) {
+      const entries = [];
+      let run = 0;
+      for (const e of rows) {
+        run += (Number(e.debit) || 0) - (Number(e.credit) || 0);
+        pushEntry(entries, {
+          date: e.date, description: e.description, type_label: e.entry_type,
+          debit: e.debit, credit: e.credit, balance: run, source: 'customer_ledger',
+          ref_type: e.ref_type, ref_id: e.ref_id,
+        });
+      }
+      return {
+        kind: 'customer', title: 'گردش مشتری', entity_id: custId,
+        entries, closing: entries.length ? entries[entries.length - 1].balance : 0,
+      };
     }
-    const entries = (data.entries || []).map((e) => ({
-      date: e.date || '',
-      description: [e.type_label, e.description].filter(Boolean).join(' — ') || '-',
-      type_label: e.type_label || '',
-      debit: Math.round(Number(e.debit) || 0),
-      credit: Math.round(Number(e.credit) || 0),
-      balance: Math.round(Number(e.running_balance) || 0),
-      source: 'customer_ledger',
-      ref_type: e.ref_type || '',
-      ref_id: e.ref_id != null ? e.ref_id : null,
-    }));
-    return {
-      kind: 'customer',
-      title: 'گردش مشتری',
-      entity_id: custId,
-      entries,
-      closing: Math.round(Number(data.closing) || 0),
-      books_mismatch: !!data.books_mismatch,
-    };
   }
 
   const supIds = linkedSupplierIds(db, partyId);
