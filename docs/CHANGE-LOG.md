@@ -5,7 +5,7 @@
 - **UI:** واحد محرک، پیش‌نمایش جذب، هشدار «این عدد بودجه است نه نرخ»، برآورد ۳ماه/کپی ماه قبل، لغو نرم، پیش‌نمایش عمده/تک.
 - **فایل‌ها:** `lib/production/{overhead,bom-advanced}.js`, `routes/{production-cost-centers,pricing-rules}.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-overhead-rates-v299.js`, CHANGE-LOG.
 - **تست:** `test-overhead-rates-v299` + `test-sms`؛ `test-production-overhead-labor` رگرسیون.
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `38107c2` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v299`؛ تست 27/0 (sqlite روی ایران)، P4 overhead-labor 38/0، sms 22/0.
 
 ---
 
