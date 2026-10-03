@@ -266,6 +266,7 @@ function initPayrollSchema(db) {
     ['tax_type', 'TEXT'],
   ];
   for (const [name, definition] of lineColumns) ensureColumn(db, 'journal_lines', name, definition);
+  ensureColumn(db, 'person_ledger', 'deleted_at', 'INTEGER DEFAULT 0');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS employee_groups (

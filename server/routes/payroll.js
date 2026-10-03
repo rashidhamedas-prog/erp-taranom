@@ -26,6 +26,7 @@ const {
   sumPaidRial,
 } = require('../lib/payroll/payments');
 const { reverseJournalEntry } = require('../lib/void-journal');
+const { resolvePersonPayableAccount } = require('../lib/payroll/person-account');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -48,8 +49,8 @@ function coercePersonTaxExemption(b, current) {
 // Hourly payroll — employees are Persons (category "کارمند"). Each record
 // accrues the salary as a real double-entry posting:
 //   Dr 6104 هزینه حقوق و دستمزد   = gross_pay - deductions
-//   Cr 1106 حساب اشخاص متفرقه     = net_pay        (what we now owe the employee)
-//   Cr 2104 بدهی بیمه و مالیات    = insurance + tax withheld (owed to the authorities later)
+//   Cr تفصیلی شخص (برگ 1106/2104) = net_pay        (what we now owe the employee)
+//   Cr 2105/2106 بیمه و مالیات    = insurance + tax withheld
 
 function createPayrollRecord(db, userId, data) {
   const {
@@ -84,9 +85,10 @@ function createPayrollRecord(db, userId, data) {
     ).run(person_id, period_label || '', regH, otH, hRate, otRate, bon, ded, ins, tax, grossPay, netPay, date || todayJalali(), note || '', userId);
     const recId = result.lastInsertRowid;
 
+    const payable = resolvePersonPayableAccount(db, person);
     const lines = [
       { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay - ded), credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
-      { ...coaAcct(db,'coa_misc_persons'), debit: 0, credit: rialToLedger(netPay) }
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(netPay) }
     ];
     if (ins + tax > 0) {
       lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: rialToLedger(ins + tax) });
@@ -942,10 +944,11 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
           recordId
         );
       } catch (_) {}
+      const payable = resolvePersonPayableAccount(db, person);
       const lines = [
         { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: input.cost_center_id || null },
         { ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null },
-        { ...coaAcct(db, 'coa_payroll_payable'), debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 },
+        { code: payable.code, name: payable.name, debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 },
         { ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 },
         { ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 },
       ];
@@ -1083,10 +1086,12 @@ router.post('/year-end/:id/post', auth, requirePermission('payroll', 'create'), 
     if (!row) return res.status(404).json({ error: 'رکورد یافت نشد' });
     if (row.status !== 'draft') throw new Error('فقط رکورد پیش‌نویس قابل ثبت است');
     const journalId = db.transaction(() => {
+      const personRow = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
+      const payable = resolvePersonPayableAccount(db, personRow);
       const lines = [
         { ...coaAcct(db, 'coa_eidi_expense'), debit: row.eidi_rial / 10, credit: 0 },
         { ...coaAcct(db, 'coa_severance_expense'), debit: row.severance_rial / 10, credit: 0 },
-        { ...coaAcct(db, 'coa_payroll_payable'), debit: 0, credit: row.net_pay_rial / 10 },
+        { code: payable.code, name: payable.name, debit: 0, credit: row.net_pay_rial / 10 },
       ];
       if (row.income_tax_rial) lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: row.income_tax_rial / 10 });
       const id = postToLedger(db, {

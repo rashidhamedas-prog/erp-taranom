@@ -10,9 +10,9 @@
  */
 
 const { postToLedger } = require('../ledger');
-const { acct: coaAcct } = require('../coa-map');
 const { todayJalali } = require('../../jalali');
 const { reverseJournalEntry } = require('../void-journal');
+const { resolvePersonPayableAccount } = require('./person-account');
 
 function netPayRial(row) {
   if (!row) return 0;
@@ -160,7 +160,7 @@ function postPayrollPayments(db, {
   }
 
   const legs = normalizeLegs(body, rem);
-  const payableAcct = row.journal_entry_id ? 'coa_payroll_payable' : 'coa_misc_persons';
+  const payable = resolvePersonPayableAccount(db, person);
   const created = [];
 
   for (const leg of legs) {
@@ -173,7 +173,7 @@ function postPayrollPayments(db, {
       sourceId: row.id,
       createdBy: userId,
       lines: [
-        { ...coaAcct(db, payableAcct), debit: leg.amount_rial / 10, credit: 0 },
+        { code: payable.code, name: payable.name, debit: leg.amount_rial / 10, credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: leg.amount_rial / 10 },
       ],
     });

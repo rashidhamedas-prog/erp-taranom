@@ -2481,6 +2481,18 @@ function initSyncSchema(db, opts) {
     throw e;
   }
 
+  try {
+    if (!isDevice()) {
+      const { reclassPayrollPayableToPersonTafsili } = require('./lib/payroll/tafsili-reclass');
+      const rc = reclassPayrollPayableToPersonTafsili(db);
+      if (rc && rc.moved) {
+        console.log('✅ payroll_person_tafsili_reclass_v300:', JSON.stringify(rc));
+      }
+    }
+  } catch (e) {
+    console.warn('payroll_person_tafsili_reclass_v300:', e.message);
+  }
+
   // v285 — remove standalone «سند ابطالی» pairs; soft-void originals instead
   try {
     const flag = db.prepare("SELECT value FROM settings WHERE key='purge_reversal_docs_v285'").get();

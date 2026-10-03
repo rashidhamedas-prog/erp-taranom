@@ -4,6 +4,7 @@
  * Prefer customer/supplier books; for other parties merge person_ledger + GL tafsili + rep_ledger.
  */
 const { linkedCustomerIds, linkedSupplierIds } = require('./parties-sync');
+const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
 
 function ensurePersonForParty(db, partyId) {
   const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
@@ -160,28 +161,6 @@ function buildPartyTurnover(db, partyId) {
 
   const personId = ensurePersonForParty(db, partyId);
   const merged = [];
-  const seenPlRefs = new Set();
-
-  if (personId) {
-    const pl = db.prepare(`
-      SELECT date, entry_type, ref_type, ref_id, description, debit, credit, created_at, id
-      FROM person_ledger WHERE person_id=? ORDER BY date ASC, id ASC
-    `).all(personId);
-    for (const r of pl) {
-      seenPlRefs.add(`${r.ref_type}|${r.ref_id}|${Math.round(Number(r.debit) || 0)}|${Math.round(Number(r.credit) || 0)}`);
-      merged.push({
-        date: r.date || '',
-        description: r.description || r.entry_type || 'دفتر شخص',
-        type_label: r.entry_type || '',
-        debit: Math.round(Number(r.debit) || 0),
-        credit: Math.round(Number(r.credit) || 0),
-        created_at: r.created_at || 0,
-        source: 'person_ledger',
-        ref_type: r.ref_type || '',
-        ref_id: r.ref_id,
-      });
-    }
-  }
 
   const person = personId ? db.prepare('SELECT coa_code FROM persons WHERE id=?').get(personId) : null;
   const coa = (person && person.coa_code) || party.coa_code;
@@ -198,8 +177,6 @@ function buildPartyTurnover(db, partyId) {
       ORDER BY je.entry_date ASC, je.id ASC, jl.id ASC
     `).all(String(coa));
     for (const r of glRows) {
-      const refKey = `${r.ref_type}|${r.ref_id}|${Math.round(Number(r.debit) || 0)}|${Math.round(Number(r.credit) || 0)}`;
-      if (seenPlRefs.has(refKey)) continue;
       merged.push({
         date: r.date || '',
         description: r.description || 'سند دفتر کل',
@@ -208,6 +185,38 @@ function buildPartyTurnover(db, partyId) {
         credit: Math.round(Number(r.credit) || 0),
         created_at: r.created_at || 0,
         source: 'gl',
+        ref_type: r.ref_type || '',
+        ref_id: r.ref_id,
+      });
+    }
+  }
+
+  if (personId) {
+    const alive = personLedgerAliveSql(db);
+    const pl = db.prepare(`
+      SELECT date, entry_type, ref_type, ref_id, description, debit, credit, created_at, id
+      FROM person_ledger pl WHERE person_id=? AND ${alive} ORDER BY date ASC, id ASC
+    `).all(personId);
+    for (const r of pl) {
+      const amt = personLedgerLineRial(db, r);
+      const payrollish = /payroll/.test(String(r.ref_type || ''));
+      const covered = merged.some((e) => {
+        if (e.source !== 'gl') return false;
+        if (r.ref_type && e.ref_type === r.ref_type && r.ref_id != null && String(e.ref_id) === String(r.ref_id)) {
+          return true;
+        }
+        if (payrollish && Math.abs(e.debit - amt.debit) <= 1 && Math.abs(e.credit - amt.credit) <= 1) return true;
+        return false;
+      });
+      if (covered) continue;
+      merged.push({
+        date: r.date || '',
+        description: r.description || r.entry_type || 'دفتر شخص',
+        type_label: r.entry_type || '',
+        debit: amt.debit,
+        credit: amt.credit,
+        created_at: r.created_at || 0,
+        source: 'person_ledger',
         ref_type: r.ref_type || '',
         ref_id: r.ref_id,
       });

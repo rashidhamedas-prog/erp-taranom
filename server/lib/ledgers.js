@@ -9,6 +9,7 @@
 const { DELETED_FILTER } = require('./ledger');
 const { jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { stripCostFields } = require('./production/access');
+const { personLedgerLineRial } = require('./person-ledger-money');
 
 const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
 
@@ -175,8 +176,9 @@ function buildPersonSubLedger(db, personId, { from, to } = {}) {
 
   let running = 0;
   const tagged = all.map((e) => {
-    const dr = Math.round(Number(e.debit) || 0);
-    const cr = Math.round(Number(e.credit) || 0);
+    const amt = personLedgerLineRial(db, e);
+    const dr = amt.debit;
+    const cr = amt.credit;
     running += dr - cr;
     return {
       id: e.id,

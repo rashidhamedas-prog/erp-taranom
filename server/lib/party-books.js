@@ -5,6 +5,7 @@
 'use strict';
 
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
+const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
 
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
 
@@ -29,21 +30,25 @@ function partySignedBalanceMap(db) {
     map.set(Number(r.id), Math.round(Number(r.opening_balance) || 0));
   }
 
-  // Legacy person_ledger via persons.party_id
+  // Legacy person_ledger via persons.party_id — convert toman payroll rows to rial
   if (tableExists(db, 'person_ledger') && tableExists(db, 'persons')) {
     try {
+      const alive = personLedgerAliveSql(db);
       const rows = db.prepare(`
-        SELECT pe.party_id AS party_id,
-          COALESCE(SUM(pl.debit) - SUM(pl.credit), 0) AS bal
+        SELECT pe.party_id AS party_id, pl.debit, pl.credit, pl.ref_type, pl.ref_id
         FROM person_ledger pl
         JOIN persons pe ON pe.id = pl.person_id
-        WHERE pe.party_id IS NOT NULL
-        GROUP BY pe.party_id
+        WHERE pe.party_id IS NOT NULL AND ${alive}
       `).all();
+      const plBal = new Map();
       for (const r of rows) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
-        map.set(pid, Math.round(Number(r.bal) || 0));
+        const amt = personLedgerLineRial(db, r);
+        plBal.set(pid, (plBal.get(pid) || 0) + amt.debit - amt.credit);
+      }
+      for (const [pid, bal] of plBal) {
+        map.set(pid, Math.round(bal));
         fromSubledger.add(pid);
       }
     } catch (_) { /* optional */ }

@@ -3,6 +3,7 @@ const { getDB, audit, createPersonLedgerEntry } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { personLedgerLineRial, personLedgerAliveSql } = require('../lib/person-ledger-money');
 
 // General "Persons" module — for anyone who isn't already a customer or
 // supplier (employees, partners, investors, contractors, service providers, ...).
@@ -11,6 +12,19 @@ const { listQueryPlan, listResponse } = require('../lib/pagination');
 // user-defined categories, following the same debit/credit ledger convention.
 
 const LIVE_BAL = "(SELECT COALESCE(SUM(pl.debit)-SUM(pl.credit),0) FROM person_ledger pl WHERE pl.person_id=p.id)";
+
+function personBalanceRial(db, personId) {
+  const alive = personLedgerAliveSql(db);
+  const rows = db.prepare(
+    `SELECT debit, credit, ref_type, ref_id FROM person_ledger pl WHERE person_id=? AND ${alive}`
+  ).all(personId);
+  let bal = 0;
+  for (const r of rows) {
+    const amt = personLedgerLineRial(db, r);
+    bal += amt.debit - amt.credit;
+  }
+  return Math.round(bal);
+}
 
 // ---- Categories ----
 router.get('/categories', auth, adminOrAccounting, (req, res) => {
@@ -61,6 +75,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     ORDER BY p.name
     ${pq.limitSql}
   `).all(...pq.limitParams);
+  for (const r of rows) r.balance = personBalanceRial(db, r.id);
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
@@ -180,12 +195,19 @@ router.get('/:id/ledger', auth, adminOrAccounting, (req, res) => {
     FROM persons p LEFT JOIN person_categories c ON p.category_id=c.id WHERE p.id=?
   `).get(req.params.id);
   if (!person) return res.status(404).json({ error: 'شخص یافت نشد' });
+  const alive = personLedgerAliveSql(db);
   const entries = db.prepare(`
     SELECT pl.*, u.name as user_name FROM person_ledger pl LEFT JOIN users u ON pl.user_id=u.id
-    WHERE pl.person_id=? ORDER BY pl.created_at ASC, pl.id ASC
+    WHERE pl.person_id=? AND ${alive} ORDER BY pl.created_at ASC, pl.id ASC
   `).all(req.params.id);
   let balance = 0;
-  entries.forEach(e => { balance += (e.debit || 0) - (e.credit || 0); e.running_balance = balance; });
+  entries.forEach((e) => {
+    const amt = personLedgerLineRial(db, e);
+    e.debit = amt.debit;
+    e.credit = amt.credit;
+    balance += amt.debit - amt.credit;
+    e.running_balance = balance;
+  });
   res.json({ person, entries, balance });
 });
 
