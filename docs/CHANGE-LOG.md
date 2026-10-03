@@ -11,7 +11,7 @@
 - **رفع:** ابطال تسویه همیشه `customer_ledger` را reverse می‌کند؛ تعمیر `repairReversedSettlementBooks` برای ردیف‌های تاریخی؛ بنر سمت بستانکار/مطالبات را جدا می‌نویسد.
 - **فایل‌ها:** `lib/{void-settlement,customer-books}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-reversed-settlement-books-v297.js`, CHANGE-LOG.
 - **تست:** `test-reversed-settlement-books-v297` + `test-sms` روی ایران.
-- **Deploy:** ⏳ در حال انجام.
+- **Deploy:** ✅ `8a1a201` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v297`؛ تست 11/0 و sms 22/0؛ پروب: `dAr=0` `dCr=0`، یک ردیف تسویهٔ ابطال‌شده معکوس شد.
 
 ---
 
