@@ -17366,29 +17366,36 @@ async function loadBalanceSheet(){
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const d=await api('GET','/accounting/balance-sheet'+(asOf?'?asOf='+encodeURIComponent(asOf):''));
   if(!d){ box.innerHTML='<div class="empty">خطا</div>'; return; }
-  const rowsHtml=(list)=>(list||[]).map(x=>`<tr><td>${esc(x.name)}</td><td class="mono">${fmt(Math.abs(x.balance))}</td></tr>`).join('')||'<tr><td colspan="2" class="empty">-</td></tr>';
+  const fmtBs=(n)=>{ const v=Number(n)||0; const t=fmt(Math.abs(v)); return v<0?'('+t+')':t; };
+  const rowsHtml=(list)=>(list||[]).filter(x=>Math.abs(Number(x.balance)||0)>=1).map(x=>`<tr>
+      <td>${esc(x.name)}${x.reclassified?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">(طبقه‌بندی مجدد)</span>`:''}${x.unmapped?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">(بدون کدینگ)</span>`:''}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:${Number(x.balance)<0?'var(--red)':'inherit'}`)}">${fmtBs(x.balance)}</td>
+    </tr>`).join('')||'<tr><td colspan="2" class="empty">-</td></tr>';
+  const gap=Number(d.gap!=null?d.gap:(d.totalAssets-(d.totalLiabilities+d.totalEquity)))||0;
+  const unmapped=(d.unmapped||[]);
   box.innerHTML=`
-    <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px`)}">
+    <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start`)}">
       <div class="panel" data-csp-style="${CSP.style(`margin:0`)}"><div class="panel-head"><h4>دارایی‌ها</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl">${rowsHtml(d.assets)}
-        <tfoot><tr data-csp-style="${CSP.style(`font-weight:800;border-top:2px solid var(--border)`)}"><td>جمع دارایی‌ها</td><td class="mono">${fmt(d.totalAssets)}</td></tr></tfoot></table></div>
+        <div class="panel-body tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh;overflow:auto`)}"><table class="tbl">${rowsHtml(d.assets)}
+        <tfoot><tr data-csp-style="${CSP.style(`font-weight:800;border-top:2px solid var(--border)`)}"><td>جمع دارایی‌ها</td><td class="mono">${fmtBs(d.totalAssets)}</td></tr></tfoot></table></div>
       </div>
       <div class="panel" data-csp-style="${CSP.style(`margin:0`)}"><div class="panel-head"><h4>بدهی‌ها و سرمایه</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl">
+        <div class="panel-body tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh;overflow:auto`)}"><table class="tbl">
           <tr><td colspan="2" data-csp-style="${CSP.style(`font-weight:700;background:var(--purple-light)`)}">بدهی‌ها</td></tr>
           ${rowsHtml(d.liabilities)}
-          <tr><td data-csp-style="${CSP.style(`font-weight:700`)}">جمع بدهی‌ها</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(d.totalLiabilities)}</td></tr>
+          <tr><td data-csp-style="${CSP.style(`font-weight:700`)}">جمع بدهی‌ها</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtBs(d.totalLiabilities)}</td></tr>
           <tr><td colspan="2" data-csp-style="${CSP.style(`font-weight:700;background:var(--purple-light)`)}">حقوق صاحبان سرمایه</td></tr>
           ${rowsHtml(d.equity)}
-          <tr><td>سود انباشته (محاسبه‌شده)</td><td class="mono">${fmt(d.retainedEarnings)}</td></tr>
-          <tr><td data-csp-style="${CSP.style(`font-weight:700`)}">جمع حقوق صاحبان سرمایه</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(d.totalEquity)}</td></tr>
-        <tfoot><tr data-csp-style="${CSP.style(`font-weight:800;border-top:2px solid var(--border)`)}"><td>جمع بدهی‌ها + سرمایه</td><td class="mono">${fmt(d.totalLiabilities+d.totalEquity)}</td></tr></tfoot></table></div>
+          <tr><td>سود انباشته (محاسبه‌شده)</td><td class="mono">${fmtBs(d.retainedEarnings)}</td></tr>
+          <tr><td data-csp-style="${CSP.style(`font-weight:700`)}">جمع حقوق صاحبان سرمایه</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtBs(d.totalEquity)}</td></tr>
+        <tfoot><tr data-csp-style="${CSP.style(`font-weight:800;border-top:2px solid var(--border)`)}"><td>جمع بدهی‌ها + سرمایه</td><td class="mono">${fmtBs((d.totalLiabilities||0)+(d.totalEquity||0))}</td></tr></tfoot></table></div>
       </div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;padding:12px 16px;border-radius:10px;background:${d.balanced?'#f0fdf4':'#fef2f2'};border:1px solid ${d.balanced?'#bbf7d0':'#fecaca'};color:${d.balanced?'var(--green)':'var(--red)'};font-weight:700`)}">
-      ${d.balanced?'✓ ترازنامه متوازن است (دارایی = بدهی + سرمایه)':'✗ ترازنامه نامتوازن است'}
+      ${d.balanced?'✓ ترازنامه متوازن است (دارایی = بدهی + سرمایه)':'✗ ترازنامه نامتوازن است — اختلاف '+fmtBs(gap)+' ریال'}
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">توجه: سود انباشته از مجموع درآمد منهای بهای تمام‌شده و هزینه‌ها از ابتدای فعالیت محاسبه می‌شود (بدون سند اختتامیه دوره‌ای رسمی).</div>`;
+    ${unmapped.length?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;color:var(--red)`)}">حساب بدون کدینگ در سند: ${unmapped.map(u=>esc(u.code)).join('، ')}</div>`:''}
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">توجه: سود انباشته از مجموع درآمد منهای بهای تمام‌شده و هزینه‌ها از ابتدای فعالیت محاسبه می‌شود (بدون سند اختتامیه دوره‌ای رسمی). مانده بستانکار اشخاص/مشتری در ستون بدهی (و مانده بدهکار تأمین‌کننده در دارایی) طبقه‌بندی می‌شود. هر ستون جدا اسکرول می‌شود.</div>`;
 }
 
 /* ============================================================
@@ -24718,7 +24725,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
-        <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
+        <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص. مانده بستانکار اشخاص/مشتری به‌عنوان بدهی جاری و مانده بدهکار تأمین‌کننده به‌عنوان دارایی طبقه‌بندی می‌شود. اگر سندی روی حساب بدون ردیف کدینگ نشسته باشد، همان حساب در گزارش می‌آید تا تراز به‌هم نخورد؛ اختلاف (در صورت وجود) به ریال نمایش داده می‌شود. هر ستون جدا اسکرول می‌شود</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>

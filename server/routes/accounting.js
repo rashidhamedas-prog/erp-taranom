@@ -2281,40 +2281,8 @@ router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
 // for a single-business ledger of this scale.
 // ============================================================
 router.get('/balance-sheet', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const { asOf } = req.query;
-  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
-  const s = safeDate(asOf);
-  const dateWhere = s ? `WHERE je.entry_date <= '${s}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
-  const rows = db.prepare(`
-    SELECT jl.account_code, COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
-    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-    ${dateWhere}
-    GROUP BY jl.account_code
-  `).all();
-  const accounts = db.prepare('SELECT * FROM chart_of_accounts').all();
-  const accMap = {}; accounts.forEach(a => { accMap[a.code] = a; });
-  const byType = { asset: [], liability: [], equity: [], revenue: [], cogs: [], expense: [] };
-  let revenueTotal = 0, cogsTotal = 0, expenseTotal = 0;
-  for (const r of rows) {
-    const acc = accMap[r.account_code]; if (!acc) continue;
-    const debitNormal = ['asset', 'expense', 'cogs'].includes(acc.type);
-    const balance = debitNormal ? (r.d - r.c) : (r.c - r.d);
-    if (acc.type === 'revenue') revenueTotal += balance;
-    else if (acc.type === 'cogs') cogsTotal += balance;
-    else if (acc.type === 'expense') expenseTotal += balance;
-    else if (byType[acc.type]) byType[acc.type].push({ code: acc.code, name: acc.name, balance });
-  }
-  const netProfit = revenueTotal - cogsTotal - expenseTotal;
-  const totalAssets = byType.asset.reduce((a, x) => a + x.balance, 0);
-  const totalLiabilities = byType.liability.reduce((a, x) => a + x.balance, 0);
-  const capital = byType.equity.reduce((a, x) => a + x.balance, 0);
-  const totalEquity = capital + netProfit;
-  res.json({
-    assets: byType.asset, liabilities: byType.liability, equity: byType.equity,
-    totalAssets, totalLiabilities, capital, retainedEarnings: netProfit, totalEquity,
-    balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 1
-  });
+  const { buildBalanceSheet } = require('../lib/balance-sheet');
+  res.json(buildBalanceSheet(getDB(), { asOf: req.query.asOf }));
 });
 
 // ============================================================

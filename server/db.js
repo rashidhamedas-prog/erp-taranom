@@ -1177,6 +1177,12 @@ function initDB(database, opts) {
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1109','اسناد دریافتنی','asset','1100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2109','اسناد پرداختنی','liability','2100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3102','تراز افتتاحیه','equity','3000')").run();
+  try {
+    const { ensureMissingBaseCoa } = require('./lib/coa-map');
+    ensureMissingBaseCoa(db);
+  } catch (e) {
+    console.warn('⚠️ ensureMissingBaseCoa skipped:', e.message);
+  }
 
   // ---- Marketing representatives module ----
   ensureColumn(db, 'users', 'rep_code', 'TEXT');

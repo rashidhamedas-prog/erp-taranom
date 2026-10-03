@@ -318,6 +318,27 @@ function rebuildBaseCoa(db) {
 }
 
 /**
+ * Insert any base-tree control accounts that are missing (never overwrite
+ * existing names/types). Live books posted to 6115 while the row was absent
+ * from chart_of_accounts, which dropped the expense from the balance sheet.
+ */
+function ensureMissingBaseCoa(db) {
+  const cols = db.prepare('PRAGMA table_info(chart_of_accounts)').all().map((c) => c.name);
+  const hasLevel = cols.includes('level');
+  const ins = hasLevel
+    ? db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,?)')
+    : db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)');
+  let inserted = 0;
+  for (const [code, name, type, parent, level] of baseCoaTree()) {
+    const before = db.prepare('SELECT 1 FROM chart_of_accounts WHERE code=?').get(code);
+    if (hasLevel) ins.run(code, name, type, parent, level);
+    else ins.run(code, name, type, parent);
+    if (!before) inserted += 1;
+  }
+  return inserted;
+}
+
+/**
  * Delete a detail/tafsili COA row when its owning entity is gone and it has no journal usage.
  * Safe for sync: DELETE fires sync_tombstones triggers.
  * @returns {{ ok:boolean, reason?:string, error?:string }}
@@ -379,5 +400,6 @@ function releaseEntityCoa(db, coaCode) {
 
 module.exports = {
   acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents,
-  suggestChildCode, validateChildCode, LEGACY, rebuildBaseCoa, releaseTafsili, releaseEntityCoa, baseCoaTree,
+  suggestChildCode, validateChildCode, LEGACY, rebuildBaseCoa, ensureMissingBaseCoa,
+  releaseTafsili, releaseEntityCoa, baseCoaTree,
 };
