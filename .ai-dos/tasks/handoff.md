@@ -1,4 +1,11 @@
-﻿## 2026-10-03 — Website sync secret mismatch (SW v291)
+﻿## 2026-10-03 — Payroll multi-leg payments (SW v294)
+
+- Owner: this session (skill-top standard). Reclaimed shared `server/public/{app.js,index.html,sw.js}`, `docs/CHANGE-LOG.md`, and briefly `server/sync/capture.js` (PATH `/api/payroll/payments` only) from prior owners for payroll settlement.
+- Architecture: `payroll_payments` + `paid_rial`; partial/multi-source clearing of wages payable; R13 per-leg and void-all.
+- Files: `lib/payroll/payments.js` (new), schema/routes/sync/db/UI/Help, `test-payroll-partial-pay-v294.js`.
+- Local Node24 cannot load better-sqlite3 ABI — run test on Iran after deploy.
+
+## 2026-10-03 — Website sync secret mismatch (SW v291)
 
 - Owner: this session (skill-top full /ecc). **Reclaimed** shared `server/public/{app.js,index.html,sw.js}` + `docs/CHANGE-LOG.md` from PROD-ACC for website-secret UX only (PROD-ACC wave already shipped; notify prior owner).
 - Root: `website_b2b_token` `E_SECRET_KEY_MISMATCH`; sync paths threw English crypto message.

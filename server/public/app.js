@@ -15648,20 +15648,34 @@ async function renderPayrollTab(body){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-employees')})}">${lucide('users')} پرونده کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ریال)</th><th>کسورات (ریال)</th><th>خالص (ریال)</th><th>وضعیت</th><th>عملیات</th>
-    </tr></thead><tbody>${records.map(r=>`<tr>
+      <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ریال)</th><th>کسورات (ریال)</th><th>خالص (ریال)</th><th>پرداخت‌شده</th><th>مانده</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${records.map(r=>{
+      const net=Math.round(r.net_pay_rial||r.net_pay||0);
+      const paidR=Math.round(r.paid_rial||0);
+      const rem=Math.round(r.remaining_rial!=null?r.remaining_rial:Math.max(0,net-paidR));
+      const st=r.status==='reversed'
+        ?'<span class="tag t-cancel">ابطال‌شده</span>'
+        :(r.paid||rem<=0&&paidR>0)?'<span class="tag t-done">پرداخت شده</span>'
+        :(paidR>0?'<span class="tag t-pending">نیمه‌پرداخت</span>':'<span class="tag t-pending">پرداخت‌نشده</span>');
+      const canPay=canPerm('payroll','create')&&r.status!=='reversed'&&rem>0;
+      const canVoidPay=canPerm('payroll','create')&&r.status!=='reversed'&&paidR>0;
+      const canVoidAccrual=canPerm('payroll','create')&&r.status!=='reversed'&&paidR<=0;
+      return `<tr>
       <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}</td>
       <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
       <td class="mono">${fmt(r.gross_earnings_rial||r.gross_pay||0)}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt((r.sso_employee_rial||r.insurance_deduction||0)+(r.income_tax_rial||r.tax_deduction||0)+(r.other_deductions_rial||r.deductions||0))}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
-      <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(net)}</td>
+      <td class="mono">${fmt(paidR)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${rem>0?'var(--orange)':'var(--green)'}`)}">${fmt(rem)}</td>
+      <td>${st}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${canPerm('payroll','create')&&!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
-        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollRecord((r.id))})}">${lucide('repeat')} ابطال</button>`:''}
-        ${canPerm('payroll','create')&&r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
+        ${canPay?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,net,paidR,rem)})}">${lucide('wallet')} پرداخت</button>`:''}
+        ${canVoidAccrual?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollRecord((r.id))})}">${lucide('repeat')} ابطال</button>`:''}
+        ${canVoidPay?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت‌ها</button>`:''}
       </td>
-    </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+    </tr>`;
+    }).join('')||emptyRow(11)}</tbody></table></div>`;
 }
 
 async function renderPayrollEmployees(body){
@@ -16116,36 +16130,139 @@ async function savePayrollRecord(){
     closeModal(); showToast('حقوق ثبت شد'); loadAccTab('payroll');
   }catch(e){}
 }
-async function payrollPayModal(id,personName,netPay){
+let PAYROLL_PAY_LEGS=[{}];
+async function payrollPayModal(id,personName,netPay,paidRial,remainingRial){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  let hist=[];
+  try{
+    const detail=await api('GET','/payroll/'+id+'/payments');
+    hist=(detail&&detail.payments)||[];
+    if(detail){
+      netPay=Math.round(detail.net_pay_rial!=null?detail.net_pay_rial:netPay);
+      paidRial=Math.round(detail.paid_rial!=null?detail.paid_rial:(paidRial||0));
+      remainingRial=Math.round(detail.remaining_rial!=null?detail.remaining_rial:Math.max(0,netPay-paidRial));
+    }
+  }catch(_){
+    paidRial=Math.round(paidRial||0);
+    remainingRial=Math.round(remainingRial!=null?remainingRial:Math.max(0,netPay-paidRial));
+  }
+  PAYROLL_PAY_LEGS=[{amount_rial:remainingRial,pay_type:'cash'}];
+  const histHtml=hist.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-head"><h4>اقساط ثبت‌شده</h4></div>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>#</th><th>تاریخ</th><th>نوع</th><th>منبع</th><th>مبلغ</th><th>وضعیت</th><th></th></tr></thead>
+    <tbody>${hist.map(p=>{
+      const src=p.bank_name||p.cash_box_name||'—';
+      const live=p.status!=='reversed';
+      return `<tr>
+        <td>${p.id}</td><td>${esc(p.date||'')}</td><td>${esc(p.pay_type||'')}</td><td>${esc(src)}</td>
+        <td class="mono">${fmt(p.amount_rial)}</td>
+        <td>${live?'<span class="tag t-done">ثبت</span>':'<span class="tag t-cancel">ابطال</span>'}</td>
+        <td>${live&&canPerm('payroll','create')?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(){voidPayrollPaymentLeg((p.id),(id),`${String((CSP.htmlDecode(String(esc(personName||'')))) ?? '')}`)})}">ابطال قسط</button>`:''}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div></div>`:'';
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت حقوق: ${esc(personName)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>مبلغ قابل پرداخت</label><input value="${fmt(netPay)} ریال" disabled data-csp-style="${CSP.style(`background:#f9fafb;font-weight:700`)}"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank">
-        <option value="">— بدون بانک مشخص —</option>
-        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
-        <option value="">— بدون صندوق مشخص —</option>
-        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"></div>
-      <div class="fg"><label>تاریخ</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
-    </div></div>
-    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePayrollPayment((id))})}">💾 ثبت پرداخت</button>
+    <div class="modal-body">
+      ${histHtml}
+      <div class="form-grid">
+        <div class="fg"><label>خالص حقوق</label><input value="${fmt(netPay)} ریال" disabled data-csp-style="${CSP.style(`background:#f9fafb;font-weight:700`)}"></div>
+        <div class="fg"><label>پرداخت‌شده تا کنون</label><input value="${fmt(paidRial||0)} ریال" disabled data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
+        <div class="fg full"><label>مانده قابل پرداخت</label><input id="pp-remaining" value="${fmt(remainingRial)} ریال" disabled data-csp-style="${CSP.style(`background:#fef3c7;font-weight:800`)}"></div>
+        <div class="fg full"><label>
+          <input type="checkbox" id="pp-multi" data-csp-change="${CSP.bind('change',function(){renderPayrollPayLegs((remainingRial))})}" data-csp-style="${CSP.style(`width:auto`)}">
+          پرداخت چندمرحله‌ای در همین ثبت (مثلاً بخشی بانک، بخشی صندوق)
+        </label></div>
+      </div>
+      <div id="pp-legs"></div>
+      <div class="form-grid" data-csp-style="${CSP.style(`margin-top:8px`)}">
+        <div class="fg"><label>تاریخ پیش‌فرض اقساط</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">هر قسط سند حسابداری جدا می‌سازد (بدهکار حقوق پرداختنی / بستانکار بانک یا صندوق). جمع اقساط نباید از مانده بیشتر شود. می‌توانید بعداً هم قسط بعدی ثبت کنید.</p>
+    </div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePayrollPayment((id),(remainingRial))})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  renderPayrollPayLegs(remainingRial);
 }
-async function savePayrollPayment(id){
+function payrollPayBankOptions(selected){
+  return `<option value="">— بدون بانک مشخص —</option>`+
+    (CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(selected||'')===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('');
+}
+function payrollPayCashOptions(selected){
+  return `<option value="">— بدون صندوق مشخص —</option>`+
+    (CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(selected||'')===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('');
+}
+function renderPayrollPayLegs(remainingRial){
+  const box=el('pp-legs'); if(!box) return;
+  const multi=!!el('pp-multi')?.checked;
+  if(!multi){
+    if(!PAYROLL_PAY_LEGS.length) PAYROLL_PAY_LEGS=[{amount_rial:remainingRial,pay_type:'cash'}];
+    PAYROLL_PAY_LEGS=PAYROLL_PAY_LEGS.slice(0,1);
+    if(PAYROLL_PAY_LEGS[0].amount_rial==null) PAYROLL_PAY_LEGS[0].amount_rial=remainingRial;
+  }else if(PAYROLL_PAY_LEGS.length<2){
+    const half=Math.floor(remainingRial/2);
+    PAYROLL_PAY_LEGS=[
+      {amount_rial:half||remainingRial,pay_type:'bank'},
+      {amount_rial:Math.max(0,remainingRial-half),pay_type:'cash'}
+    ];
+  }
+  const rows=PAYROLL_PAY_LEGS.map((L,i)=>`<div class="form-grid" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px`)}">
+    <div class="fg full muted" data-csp-style="${CSP.style(`font-weight:700`)}">قسط ${i+1}${multi?` <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){removePayrollPayLeg((i),(remainingRial))})}">حذف</button>`:''}</div>
+    <div class="fg"><label>مبلغ (ریال)</label><input id="pp-amt-${i}" class="money" inputmode="numeric" value="${moneyInit(L.amount_rial||0)}" data-csp-input="${CSP.bind('input',function(){PAYROLL_PAY_LEGS[(i)].amount_rial=moneyVal('pp-amt-'+i);updatePayrollPayLegsSum((remainingRial))})}"></div>
+    <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype-${i}" data-csp-change="${CSP.bind('change',function(){PAYROLL_PAY_LEGS[(i)].pay_type=this.value})}">
+      <option value="cash" ${L.pay_type==='cash'?'selected':''}>نقد / صندوق</option>
+      <option value="cheque" ${L.pay_type==='cheque'?'selected':''}>چک</option>
+      <option value="bank" ${L.pay_type==='bank'?'selected':''}>کارت به کارت / بانکی</option>
+    </select></div>
+    <div class="fg"><label>بانک</label><select id="pp-bank-${i}" data-csp-change="${CSP.bind('change',function(){PAYROLL_PAY_LEGS[(i)].bank_id=+this.value||null})}">${payrollPayBankOptions(L.bank_id)}</select></div>
+    <div class="fg"><label>صندوق</label><select id="pp-cashbox-${i}" data-csp-change="${CSP.bind('change',function(){PAYROLL_PAY_LEGS[(i)].cash_box_id=+this.value||null})}">${payrollPayCashOptions(L.cash_box_id)}</select></div>
+  </div>`).join('');
+  box.innerHTML=rows+
+    (multi?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){addPayrollPayLeg((remainingRial))})}">＋ افزودن قسط</button>`:'')+
+    `<div id="pp-legs-sum" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-weight:700`)}"></div>`;
+  updatePayrollPayLegsSum(remainingRial);
+}
+function addPayrollPayLeg(remainingRial){
+  PAYROLL_PAY_LEGS.push({amount_rial:0,pay_type:'cash'});
+  renderPayrollPayLegs(remainingRial);
+}
+function removePayrollPayLeg(i,remainingRial){
+  if(PAYROLL_PAY_LEGS.length<=1) return;
+  PAYROLL_PAY_LEGS.splice(i,1);
+  renderPayrollPayLegs(remainingRial);
+}
+function updatePayrollPayLegsSum(remainingRial){
+  const sumEl=el('pp-legs-sum'); if(!sumEl) return;
+  let sum=0;
+  for(let i=0;i<PAYROLL_PAY_LEGS.length;i++){
+    const v=el('pp-amt-'+i)?moneyVal('pp-amt-'+i):Math.round(PAYROLL_PAY_LEGS[i].amount_rial||0);
+    PAYROLL_PAY_LEGS[i].amount_rial=v;
+    sum+=v;
+  }
+  const over=sum>remainingRial;
+  sumEl.style.color=over?'var(--red)':'inherit';
+  sumEl.textContent=`جمع اقساط این ثبت: ${fmt(sum)} ریال — مانده: ${fmt(remainingRial)} ریال`+(over?' — بیش از مانده!':'');
+}
+async function savePayrollPayment(id,remainingRial){
   try{
-    await api('POST','/payroll/'+id+'/pay',{
-      pay_type:el('pp-paytype').value, bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
-      date:el('pp-date').value
-    });
-    closeModal(); showToast('حقوق پرداخت شد'); loadAccTab('payroll');
+    updatePayrollPayLegsSum(remainingRial);
+    const date=el('pp-date')?.value||todayJalali();
+    const legs=PAYROLL_PAY_LEGS.map((L,i)=>({
+      amount_rial:el('pp-amt-'+i)?moneyVal('pp-amt-'+i):Math.round(L.amount_rial||0),
+      pay_type:el('pp-paytype-'+i)?.value||L.pay_type||'cash',
+      bank_id:+(el('pp-bank-'+i)?.value||L.bank_id)||null,
+      cash_box_id:+(el('pp-cashbox-'+i)?.value||L.cash_box_id)||null,
+      date
+    })).filter(L=>L.amount_rial>0);
+    if(!legs.length){ showToast('مبلغ پرداخت را وارد کنید','err'); return; }
+    const sum=legs.reduce((a,L)=>a+L.amount_rial,0);
+    if(sum>remainingRial){ showToast('جمع اقساط از مانده بیشتر است','err'); return; }
+    const res=await api('POST','/payroll/'+id+'/pay',{ legs, date });
+    closeModal();
+    showToast(res&&res.remaining_rial>0
+      ?`پرداخت ثبت شد — مانده ${fmt(res.remaining_rial)} ریال`
+      :'حقوق به‌طور کامل پرداخت شد');
+    loadAccTab('payroll');
   }catch(e){}
 }
 async function deletePayrollRecord(id){
@@ -16157,8 +16274,18 @@ async function deletePayrollPeriodCalculations(id){
   try{ await api('DELETE','/payroll/periods/'+id+'/calculations'); showToast('محاسبات حذف شد'); loadAccTab('payroll'); }catch(e){}
 }
 async function voidPayrollPayment(id){
-  if(!confirm('پرداخت این حقوق ابطال شود؟ اثر پرداخت بدون سند ابطالی جدا حذف می‌شود و رکورد دوباره قابل پرداخت است.')) return;
-  try{ await api('POST','/payroll/'+id+'/void-payment'); showToast('پرداخت ابطال شد'); loadAccTab('payroll'); }catch(e){}
+  if(!confirm('همهٔ اقساط فعال این حقوق ابطال شود؟ هر قسط با سند معکوس برمی‌گردد و مانده دوباره قابل پرداخت می‌شود.')) return;
+  try{ await api('POST','/payroll/'+id+'/void-payment'); showToast('پرداخت‌ها ابطال شد'); loadAccTab('payroll'); }catch(e){}
+}
+async function voidPayrollPaymentLeg(paymentId,recordId,personName){
+  if(!confirm('این قسط ابطال شود؟')) return;
+  try{
+    await api('POST','/payroll/payments/'+paymentId+'/void');
+    showToast('قسط ابطال شد');
+    closeModal();
+    if(recordId) payrollPayModal(recordId,personName||'',0,0,0);
+    else loadAccTab('payroll');
+  }catch(e){}
 }
 
 let FARANKENOU_PREVIEW = null;
@@ -24588,7 +24715,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). حذف سند حقوق و حذف محاسبات دوره بدون ساخت سند ابطالی انجام می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود (بستانکار حقوق پرداختنی). <b>پرداخت چندمرحله‌ای:</b> روی دکمه پرداخت می‌توانید بخشی از مانده را الان و بقیه را بعداً تسویه کنید، یا در یک ثبت چند قسط با منبع متفاوت (بانک/صندوق/چک) بزنید؛ هر قسط سند جدا (بدهکار حقوق پرداختنی / بستانکار بانک یا صندوق) می‌سازد و بیش‌پرداخت رد می‌شود. وضعیت‌ها: پرداخت‌نشده / نیمه‌پرداخت / پرداخت‌شده؛ ابطال تک‌قسط یا ابطال همهٔ اقساط فعال ممکن است. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). حذف سند حقوق فقط وقتی پرداخت فعالی ندارد؛ حذف محاسبات دوره بدون ساخت سند ابطالی انجام می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

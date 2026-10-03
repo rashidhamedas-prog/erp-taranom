@@ -5,6 +5,18 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — پرداخت چندمرحله‌ای حقوق (SW v294)
+
+- **هدف:** تسویهٔ تدریجی حقوق پرداختنی (مانده، چند منبع/چند تاریخ) با قواعد حسابداری و R13.
+- **معماری:** جدول `payroll_payments` (هر قسط JE مستقل: بدهکار `coa_payroll_payable` / بستانکار بانک|صندوق)؛ `paid_rial` + وضعیت `posted|partial|paid`؛ بیش‌پرداخت رد؛ ابطال تک‌قسط و ابطال همه؛ backfill پرداخت‌های قدیمی یک‌جا.
+- **سینک:** append `payroll_payments` + FK + `PATH /api/payroll/payments` + `sync_seq_backfill_v19`.
+- **UI:** مانده/پرداخت‌شده در لیست؛ مودال با اقساط قبلی، چک‌باکس چندمرحله‌ای، مبلغ قابل ویرایش؛ Help به‌روز.
+- **فایل‌ها:** `lib/payroll/{payments,schema}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `data-wipe.js`, `public/{app.js,sw.js,index.html}`, `test-payroll-partial-pay-v294.js`, CHANGE-LOG.
+- **تست:** `test-payroll-partial-pay-v294` (روی میزبان Node24 بدون ABI اسکلیپ؛ اجرا روی ایران پس از deploy)؛ `test-sms` / سینتکس `app.js`.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — وضعیت صف سینک: نام کالا + نتیجهٔ فارسی (SW v293)
 
 - **هدف:** مدیر بفهمد کدام کالا چه شده، نه لاگ خام `#21 p11 WHOLESALE unmatched=…`.

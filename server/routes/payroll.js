@@ -17,6 +17,14 @@ const {
   computeArrearsMonths,
   personHasPayrollInMonth,
 } = require('../lib/payroll/rulings');
+const {
+  postPayrollPayments,
+  voidAllPayrollPayments,
+  voidOnePayrollPayment,
+  enrichPayrollRow,
+  remainingRial,
+  sumPaidRial,
+} = require('../lib/payroll/payments');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -103,7 +111,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     FROM payroll_records r LEFT JOIN persons p ON r.person_id=p.id LEFT JOIN users u ON r.created_by=u.id
     ORDER BY r.created_at DESC LIMIT 300
   `).all();
-  res.json(rows);
+  res.json(rows.map((r) => enrichPayrollRow(db, r)));
 });
 
 router.post('/', auth, requirePermission('payroll', 'create'), (req, res) => {
@@ -1125,70 +1133,97 @@ router.get('/legal-reports', auth, adminOrAccounting, (req, res) => {
   res.json({ fiscal_year: Number.isInteger(year) ? year : null, rows, totals });
 });
 
-router.post('/:id/pay', auth, requirePermission('payroll', 'create'), (req, res) => {
-  const { pay_type, bank_id, cash_box_id, date } = req.body;
+/** List payment legs for one payroll accrual (posted + reversed). */
+router.get('/:id/payments', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.paid) return res.status(400).json({ error: 'این حقوق قبلاً پرداخت شده است' });
-  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
-
-  db.transaction(() => {
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const netRial = Math.round(row.net_pay_rial || (row.net_pay || 0) * 10);
-    const paymentJournalId = postToLedger(db, {
-      date: date || todayJalali(), description: `پرداخت حقوق ${person ? person.name : ''} (${row.period_label || ''})`,
-      sourceType: 'payroll_payment', sourceId: row.id, createdBy: req.user.id,
-      lines: [
-        { ...coaAcct(db, row.journal_entry_id ? 'coa_payroll_payable' : 'coa_misc_persons'), debit: netRial / 10, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: netRial / 10 }
-      ]
-    });
-    createPersonLedgerEntry(db, {
-      person_id: row.person_id, date: date || todayJalali(), entry_type: 'payroll_payment', ref_type: 'payroll_payment', ref_id: row.id,
-      description: `پرداخت حقوق ${row.period_label || ''}`, debit: row.net_pay, credit: 0, user_id: req.user.id
-    });
-    db.prepare(`
-      UPDATE payroll_records SET paid=1,status='paid',payment_journal_id=?,paid_at=strftime('%s','now')
-      WHERE id=?
-    `).run(paymentJournalId, row.id);
-  })();
-  audit(req.user.id, 'update', 'payroll_record', row.id, `پرداخت حقوق ${person ? person.name : ''}`);
-  res.json({ ok: true });
+  const payments = db.prepare(`
+    SELECT pp.*, b.name AS bank_name, cb.name AS cash_box_name
+    FROM payroll_payments pp
+    LEFT JOIN banks b ON b.id = pp.bank_id
+    LEFT JOIN cash_boxes cb ON cb.id = pp.cash_box_id
+    WHERE pp.payroll_record_id=?
+    ORDER BY pp.id ASC
+  `).all(row.id);
+  res.json({
+    ...enrichPayrollRow(db, row),
+    payments,
+  });
 });
 
-/** Reverse payroll payment JE (R13) — restores unpaid so accrual can then be voided. */
+/** Void a single payment leg (R13) — before /:id/* catch-alls. */
+router.post('/payments/:paymentId/void', auth, requirePermission('payroll', 'create'), (req, res) => {
+  const db = getDB();
+  const payment = db.prepare('SELECT * FROM payroll_payments WHERE id=?').get(req.params.paymentId);
+  if (!payment) return res.status(404).json({ error: 'پرداخت یافت نشد' });
+  try {
+    const updated = db.transaction(() =>
+      voidOnePayrollPayment(db, payment, req.user.id, createPersonLedgerEntry)
+    )();
+    audit(req.user.id, 'reverse', 'payroll_payment', payment.id, `ابطال قسط حقوق #${payment.id}`);
+    res.json({
+      ok: true,
+      paid_rial: updated.paid_rial,
+      remaining_rial: remainingRial(db, updated),
+      paid: !!updated.paid,
+      status: updated.status,
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+/**
+ * Pay wages payable — full, partial, or multi-leg (legs[]).
+ * Body: { amount_rial?, pay_type, bank_id, cash_box_id, date, note?, legs?: [...] }
+ */
+router.post('/:id/pay', auth, requirePermission('payroll', 'create'), (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد ابطال شده است' });
+  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
+  try {
+    const result = db.transaction(() => postPayrollPayments(db, {
+      row,
+      person,
+      body: req.body || {},
+      userId: req.user.id,
+      resolveCashAccount,
+      createPersonLedgerEntry,
+    }))();
+    audit(
+      req.user.id, 'update', 'payroll_record', row.id,
+      `پرداخت حقوق ${person ? person.name : ''} — ${result.paid_rial} ریال (مانده ${result.remaining_rial})`
+    );
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+/** Reverse all active payment legs (R13) — restores unpaid so accrual can then be voided. */
 router.post('/:id/void-payment', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (!row.paid) return res.status(400).json({ error: 'این حقوق هنوز پرداخت نشده است' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً ابطال شده است' });
   const person = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
   try {
-    db.transaction(() => {
-      const { reverseJournalEntry } = require('../lib/void-journal');
-      if (row.payment_journal_id) {
-        reverseJournalEntry(db, row.payment_journal_id, {
-          userId: req.user.id,
-          reason: `ابطال پرداخت حقوق #${row.id}`,
-          sourceType: 'payroll_payment_reversal',
-        });
-      }
-      createPersonLedgerEntry(db, {
-        person_id: row.person_id, date: todayJalali(), entry_type: 'payroll_payment_reversal',
-        ref_type: 'payroll_payment_reversal', ref_id: row.id,
-        description: `ابطال پرداخت حقوق ${row.period_label || ''}`,
-        debit: 0, credit: row.net_pay, user_id: req.user.id,
-      });
-      db.prepare(`
-        UPDATE payroll_records SET paid=0, status='posted', payment_journal_id=NULL, paid_at=NULL WHERE id=?
-      `).run(row.id);
-    })();
-    audit(req.user.id, 'reverse', 'payroll_payment', row.id, `ابطال پرداخت حقوق ${person ? person.name : ''}`);
-    res.json({ ok: true });
+    const updated = db.transaction(() =>
+      voidAllPayrollPayments(db, row, req.user.id, createPersonLedgerEntry)
+    )();
+    audit(req.user.id, 'reverse', 'payroll_payment', row.id, `ابطال همه پرداخت‌های حقوق ${person ? person.name : ''}`);
+    res.json({
+      ok: true,
+      paid_rial: updated.paid_rial || 0,
+      remaining_rial: remainingRial(db, updated),
+      paid: !!updated.paid,
+      status: updated.status,
+    });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -1196,7 +1231,9 @@ router.delete('/:id', auth, requirePermission('payroll', 'create'), (req, res) =
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.paid) return res.status(400).json({ error: 'حقوق پرداخت‌شده ابتدا باید ابطال پرداخت شود' });
+  if (sumPaidRial(db, row.id) > 0 || row.paid) {
+    return res.status(400).json({ error: 'حقوق دارای پرداخت فعال است — ابتدا ابطال پرداخت کنید' });
+  }
   if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً حذف/ابطال شده است' });
   try {
     db.transaction(() => {
@@ -1258,7 +1295,9 @@ router.delete('/periods/:id/calculations', auth, requirePermission('payroll', 'c
       `).all(period.id);
       let deleted = 0;
       for (const row of rows) {
-        if (row.paid) throw new Error(`رکورد #${row.id} پرداخت شده؛ ابتدا ابطال پرداخت کنید`);
+        if (row.paid || sumPaidRial(db, row.id) > 0) {
+          throw new Error(`رکورد #${row.id} دارای پرداخت فعال است؛ ابتدا ابطال پرداخت کنید`);
+        }
         if (row.journal_entry_id) {
           reverseJournalEntry(db, row.journal_entry_id, {
             userId: req.user.id,

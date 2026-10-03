@@ -83,7 +83,7 @@ const TXN_PROBE = [
   'customer_ledger', 'supplier_ledger', 'person_ledger', 'inventory_ledger',
   'warehouse_moves', 'stock_logs', 'sales_returns', 'purchase_returns',
   'expense_payments', 'account_transfers', 'voucher_drafts',
-  'production_orders', 'production_runs', 'payroll_records',
+  'production_orders', 'production_runs', 'payroll_payments', 'payroll_records',
   'rep_payment_submissions', 'vat_records', 'consignments',
 ];
 

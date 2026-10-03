@@ -137,6 +137,7 @@ const PATH_TABLE_MAP = [
   ['/api/inventory/seed-avg-cost', 'products'],
   ['/api/payroll/employee-groups', 'employee_groups'],
   ['/api/payroll/group-salary-structures', 'group_salary_structures'],
+  ['/api/payroll/payments', 'payroll_payments'],
   ['/api/payroll', 'payroll_records'],
   ['/api/reminders', 'reminders'],
   ['/api/orders', 'orders'],

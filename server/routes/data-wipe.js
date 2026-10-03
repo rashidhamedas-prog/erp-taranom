@@ -120,10 +120,10 @@ const SECTIONS = {
   payroll: {
     label: 'حقوق و دستمزد',
     transactions: [
-      'payroll_records', 'payroll_periods', 'payroll_year_end_bonuses',
+      'payroll_payments', 'payroll_records', 'payroll_periods', 'payroll_year_end_bonuses',
     ],
     full: [
-      'payroll_records', 'payroll_periods', 'payroll_year_end_bonuses',
+      'payroll_payments', 'payroll_records', 'payroll_periods', 'payroll_year_end_bonuses',
       'salary_structures', 'payroll_tax_brackets',
     ],
   },

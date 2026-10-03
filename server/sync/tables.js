@@ -229,6 +229,8 @@ const SYNCABLE_TABLES = [
   { name: 'production_order_lines',            upsertKey: 'id' },
   // WH inventory system — periodic period closes (append-only)
   { name: 'warehouse_period_closes',           upsertKey: 'id' },
+  // Payroll multi-leg payments (append-only)
+  { name: 'payroll_payments',                  upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -525,6 +527,10 @@ const FK_COLUMNS = [
   // WH periodic close (append-only)
   ['warehouse_period_closes', 'warehouse_id'],
   ['warehouse_period_closes', 'adjustment_journal_id'],
+  // Payroll multi-leg payments (append-only)
+  ['payroll_payments', 'payroll_record_id'],
+  ['payroll_payments', 'bank_id'],
+  ['payroll_payments', 'cash_box_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

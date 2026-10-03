@@ -179,8 +179,74 @@ function initPayrollSchema(db) {
     ['reversal_journal_id', 'INTEGER'],
     ['paid_at', 'INTEGER'],
     ['reversed_at', 'INTEGER'],
+    ['paid_rial', 'INTEGER DEFAULT 0'],
   ];
   for (const [name, definition] of payrollColumns) ensureColumn(db, 'payroll_records', name, definition);
+
+  // Multi-leg salary settlements (partial / multi-source payments)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payroll_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payroll_record_id INTEGER NOT NULL,
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      pay_type TEXT DEFAULT 'cash',
+      bank_id INTEGER,
+      cash_box_id INTEGER,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      journal_id INTEGER,
+      reversal_journal_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'posted'
+        CHECK(status IN ('posted','reversed')),
+      legacy_ref_payroll_record INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at INTEGER,
+      reversed_by INTEGER,
+      FOREIGN KEY(payroll_record_id) REFERENCES payroll_records(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_payroll_payments_record
+      ON payroll_payments(payroll_record_id, status);
+  `);
+
+  // Backfill one payment row for historically fully-paid accruals
+  try {
+    const legacy = db.prepare(`
+      SELECT id, net_pay_rial, net_pay, payment_journal_id, date, paid_at, created_by
+      FROM payroll_records
+      WHERE paid=1 AND payment_journal_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM payroll_payments pp WHERE pp.payroll_record_id = payroll_records.id
+        )
+    `).all();
+    const ins = db.prepare(`
+      INSERT INTO payroll_payments (
+        payroll_record_id, amount_rial, pay_type, date, journal_id, status,
+        legacy_ref_payroll_record, created_by, created_at
+      ) VALUES (?,?, 'cash', ?, ?, 'posted', 1, ?, COALESCE(?, strftime('%s','now')))
+    `);
+    const updPaid = db.prepare('UPDATE payroll_records SET paid_rial=? WHERE id=?');
+    for (const r of legacy) {
+      const amt = Math.round(Number(r.net_pay_rial) || ((Number(r.net_pay) || 0) * 10));
+      ins.run(r.id, amt, r.date || '', r.payment_journal_id, r.created_by || null, r.paid_at || null);
+      updPaid.run(amt, r.id);
+    }
+  } catch (e) {
+    console.warn('⚠️ payroll_payments backfill:', e.message);
+  }
+
+  try {
+    db.prepare(`
+      UPDATE payroll_records SET paid_rial = COALESCE((
+        SELECT SUM(pp.amount_rial) FROM payroll_payments pp
+        WHERE pp.payroll_record_id = payroll_records.id
+          AND COALESCE(pp.status,'posted')<>'reversed'
+      ), 0)
+      WHERE COALESCE(paid_rial,0)=0 AND paid=1
+    `).run();
+  } catch (e) {
+    console.warn('⚠️ payroll paid_rial sync:', e.message);
+  }
 
   const coaColumns = [
     ['balance_type', "TEXT DEFAULT 'trial_balance'"],
