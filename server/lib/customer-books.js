@@ -525,6 +525,17 @@ function resolveCustomerIdFromArJe(db, refType, refId) {
       return r ? r.cust_id : null;
     } catch (_) { return null; }
   }
+  if (rt === 'account_receipt' || rt === 'account_payment'
+      || rt === 'account_receipt_reversal' || rt === 'account_payment_reversal') {
+    const row = db.prepare(`
+      SELECT c.id FROM customers c
+      JOIN journal_lines jl ON jl.account_code = c.coa_code
+      WHERE jl.entry_id=?
+      ORDER BY c.id
+      LIMIT 1
+    `).get(rid);
+    return row ? row.id : null;
+  }
   return null;
 }
 
@@ -1483,6 +1494,7 @@ module.exports = {
   repairOpeningChequeLedgerMirrors,
   repairSettlementsMissingBooks,
   ensureCustomerBooksRepaired,
+  resolveCustomerIdFromArJe,
   isFirmSale,
   AR_CONTROL_RECLASS,
 };

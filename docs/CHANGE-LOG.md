@@ -5,6 +5,16 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — آینهٔ دریافت/پرداخت از حساب به دفتر طرف‌حساب (SW v296)
+
+- **شکاف:** `POST /account-receipts` و `/account-payments` فقط GL می‌زدند؛ اگر برگ حساب متعلق به مشتری/شخص بود، گردش طرف‌حساب خالی می‌ماند. ابطال هم فقط JE را برمی‌گرداند.
+- **رفع:** `mirrorAccountVoucherToPartyBooks` داخل همان تراکنش create؛ ابطال سند customer/person ledger را هم reverse می‌کند؛ `resolveCustomerIdFromArJe` برای `account_*` از `coa_code` خط سند.
+- **فایل‌ها:** `routes/accounting.js`, `lib/customer-books.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-account-voucher-books-v296.js`, CHANGE-LOG.
+- **تست:** `test-account-voucher-books-v296` + `test-sms` روی ایران.
+- **Deploy:** ⏳ در حال انجام.
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — گردش اشخاص: دریافت/پرداخت در دفتر طرف‌حساب (SW v295)
 
 - **ریشه اکبری:** دکمهٔ «گردش» با لیست ناقص مشتری/`person_id` اشتباه از `partySelect`؛ دریافت از مشتری گاهی به دفتر شخص اشتباه می‌رفت. تسویهٔ ۲۴٫۵M اکبری در `customer_ledger` بود ولی UI مسیر یکپارچه نداشت.

@@ -1813,14 +1813,19 @@ router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
   const { lines } = outboundPaymentLines(db, {
     amount: amt, feeRial: fee, payType: pay_type || 'cash', dest, cash,
   });
+  const when = date || todayJalali();
+  const desc = note || `پرداخت به حساب ${dest.code} — ${dest.name}`;
   const entryId = db.transaction(() => {
-    return postToLedger(db, {
+    const id = postToLedger(db, {
       sourceType: 'account_payment', sourceId: null,
-      date: date || todayJalali(),
-      description: note || `پرداخت به حساب ${dest.code} — ${dest.name}`,
-      createdBy: req.user.id,
-      lines,
+      date: when, description: desc, createdBy: req.user.id, lines,
     });
+    try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(id, id); } catch (_) {}
+    mirrorAccountVoucherToPartyBooks(db, {
+      entryId: id, accountCode: dest.code, date: when, amountRial: amt,
+      userId: req.user.id, note: desc, direction: 'payment',
+    });
+    return id;
   })();
   audit(req.user.id, 'create', 'account_payment', entryId, `پرداخت ${amt} به حساب ${code}`);
   try {
@@ -1845,21 +1850,82 @@ router.post('/account-receipts', auth, adminOrAccounting, (req, res) => {
   if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
   const src = posted.acc;
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+  const when = date || todayJalali();
+  const desc = note || `دریافت از حساب ${src.code} — ${src.name}`;
   const entryId = db.transaction(() => {
-    return postToLedger(db, {
+    const id = postToLedger(db, {
       sourceType: 'account_receipt', sourceId: null,
-      date: date || todayJalali(),
-      description: note || `دریافت از حساب ${src.code} — ${src.name}`,
-      createdBy: req.user.id,
+      date: when, description: desc, createdBy: req.user.id,
       lines: [
         { code: cash.code, name: cash.name, debit: rialToLedger(amt), credit: 0 },
         { code: src.code, name: src.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
+    try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(id, id); } catch (_) {}
+    mirrorAccountVoucherToPartyBooks(db, {
+      entryId: id, accountCode: src.code, date: when, amountRial: amt,
+      userId: req.user.id, note: desc, direction: 'receipt',
+    });
+    return id;
   })();
   audit(req.user.id, 'create', 'account_receipt', entryId, `دریافت ${amt} از حساب ${code}`);
   res.json({ id: entryId, ok: true });
 });
+
+/**
+ * If the COA leaf belongs to a customer/person, mirror into their subledger
+ * so گردش / صورت‌حساب immediately reflect «دریافت/پرداخت از حساب».
+ */
+function mirrorAccountVoucherToPartyBooks(db, { entryId, accountCode, date, amountRial, userId, note, direction }) {
+  const code = String(accountCode || '').trim();
+  if (!code || !amountRial) return null;
+  const isReceipt = direction === 'receipt';
+  const cust = db.prepare(
+    'SELECT id FROM customers WHERE coa_code=? ORDER BY id LIMIT 1'
+  ).get(code);
+  if (cust) {
+    createLedgerEntry(db, {
+      customer_id: cust.id,
+      date: date || '',
+      entry_type: isReceipt ? 'settlement' : 'journal',
+      ref_type: isReceipt ? 'account_receipt' : 'account_payment',
+      ref_id: entryId,
+      description: note || (isReceipt ? 'دریافت از حساب مشتری' : 'پرداخت به حساب مشتری'),
+      debit: isReceipt ? 0 : amountRial,
+      credit: isReceipt ? amountRial : 0,
+      user_id: userId || null,
+    });
+    return { kind: 'customer', id: cust.id };
+  }
+  let person = db.prepare(
+    'SELECT id FROM persons WHERE coa_code=? ORDER BY id LIMIT 1'
+  ).get(code);
+  if (!person) {
+    const party = db.prepare('SELECT id FROM parties WHERE coa_code=? LIMIT 1').get(code);
+    if (party) {
+      try {
+        const { ensurePersonForParty } = require('../lib/party-turnover');
+        const pid = ensurePersonForParty(db, party.id);
+        if (pid) person = { id: pid };
+      } catch (_) { /* optional */ }
+    }
+  }
+  if (person) {
+    createPersonLedgerEntry(db, {
+      person_id: person.id,
+      date: date || '',
+      entry_type: isReceipt ? 'account_receipt' : 'account_payment',
+      ref_type: isReceipt ? 'account_receipt' : 'account_payment',
+      ref_id: entryId,
+      description: note || (isReceipt ? 'دریافت از شخص' : 'پرداخت به شخص'),
+      debit: isReceipt ? 0 : amountRial,
+      credit: isReceipt ? amountRial : 0,
+      user_id: userId || null,
+    });
+    return { kind: 'person', id: person.id };
+  }
+  return null;
+}
 
 // Attach a single file (receipt/photo/scan) to a manual voucher
 router.post('/vouchers/:id/attachment', auth, adminOrAccounting, voucherUpload.single('file'), (req, res) => {
@@ -1981,6 +2047,31 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
           person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
           ref_type: 'manual_voucher_reversal', ref_id: Number(req.params.id),
           description: `ابطال ${p.description || 'سند دستی'}`, debit: p.credit, credit: p.debit, user_id: req.user.id,
+        });
+      }
+    }
+    if (entry.ref_type === 'account_receipt' || entry.ref_type === 'account_payment') {
+      const revType = entry.ref_type + '_reversal';
+      const custRows = db.prepare(
+        "SELECT * FROM customer_ledger WHERE ref_type=? AND ref_id=? AND entry_type<>'reversal'"
+      ).all(entry.ref_type, req.params.id);
+      for (const c of custRows) {
+        createLedgerEntry(db, {
+          customer_id: c.customer_id, date: todayJalali(), entry_type: 'reversal',
+          ref_type: revType, ref_id: Number(req.params.id),
+          description: `ابطال ${c.description || entry.ref_type}`, debit: c.credit, credit: c.debit,
+          user_id: req.user.id,
+        });
+      }
+      const personRows = db.prepare(
+        "SELECT * FROM person_ledger WHERE ref_type=? AND ref_id=? AND entry_type<>'reversal'"
+      ).all(entry.ref_type, req.params.id);
+      for (const p of personRows) {
+        createPersonLedgerEntry(db, {
+          person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
+          ref_type: revType, ref_id: Number(req.params.id),
+          description: `ابطال ${p.description || entry.ref_type}`, debit: p.credit, credit: p.debit,
+          user_id: req.user.id,
         });
       }
     }
