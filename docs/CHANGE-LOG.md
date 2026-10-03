@@ -4,7 +4,7 @@
 - **رفع:** خالص حقوق و پرداخت آن روی برگ تفصیلی شخص (مثل سند دستی)؛ بیمه/مالیات روی ۲۱۰۵/۲۱۰۶. تعمیر یک‌بارهٔ اسناد تاریخی (فقط خط خالص منطبق) بدون سند اضافه تا R13 حفظ شود. خواندن دفتر شخص تومان حقوق را با سند مبدأ به ریال مقیاس می‌کند. گردش: اول دفتر کل، بدون تکرار تومان.
 - **فایل‌ها:** `lib/payroll/{person-account,tafsili-reclass,payments}.js`, `lib/{person-ledger-money,party-books,party-turnover,ledgers}.js`, `routes/{payroll,persons}.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-payroll-person-tafsili-v300.js`.
 - **تست:** `test-payroll-person-tafsili-v300` + `test-sms`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `8a50f0f` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v300`؛ `test-payroll-person-tafsili-v300` 16/0 و sms 22/0 روی ایران.
 
 ---
 
