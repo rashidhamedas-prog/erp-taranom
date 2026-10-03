@@ -5,6 +5,17 @@
 
 ---
 
+### ۱۴۰۵/۰۷/۱۱ — گردش اشخاص: دریافت/پرداخت در دفتر طرف‌حساب (SW v295)
+
+- **ریشه اکبری:** دکمهٔ «گردش» با لیست ناقص مشتری/`person_id` اشتباه از `partySelect`؛ دریافت از مشتری گاهی به دفتر شخص اشتباه می‌رفت. تسویهٔ ۲۴٫۵M اکبری در `customer_ledger` بود ولی UI مسیر یکپارچه نداشت.
+- **ریشه عارف:** پرداخت ۱۰تومن به‌عنوان `incentive_payment` در `rep_ledger` بود؛ گردش شخص فقط GL/person_ledger را می‌دید → فقط افتتاحیه. «پرداخت به شخص» هم قبلاً فقط `/expenses` می‌زد بدون دفتر شخص.
+- **رفع:** `GET /api/parties/:id/turnover` (مشتری/تأمین/شخص+rep)؛ voucher با `party_id`؛ دریافت از مشتریِ دارای نقش → تسویه؛ پرداخت سایر اشخاص → سند+دفتر شخص؛ backfill تسویه‌های بدون کتاب؛ Help.
+- **فایل‌ها:** `lib/party-turnover.js`, `lib/{customer-books,invoice-payments}.js`, `routes/{parties,accounting}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-turnover-books-v295.js`, CHANGE-LOG.
+- **تست:** static v295؛ روی ایران `test-party-turnover-books-v295` + `test-sms`.
+- **Deploy:** ⏳
+
+---
+
 ### ۱۴۰۵/۰۷/۱۱ — پرداخت چندمرحله‌ای حقوق (SW v294)
 
 - **هدف:** تسویهٔ تدریجی حقوق پرداختنی (مانده، چند منبع/چند تاریخ) با قواعد حسابداری و R13.

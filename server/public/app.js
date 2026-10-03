@@ -9576,40 +9576,17 @@ async function renderPartiesTab(body){
 function filterPartyGroup(id){ PARTY_GROUP_FILTER=id; loadAccTab('parties'); }
 async function showPartyTurnover(id,name){
   try{
-    const pr=await api('GET','/parties/'+id);
-    const p=pr.data||pr;
-    let entries=[], title=name;
-    const [customers,suppliers,persons]=await Promise.all([
-      api('GET','/customers')||[],
-      api('GET','/suppliers')||[],
-      listRows(await api('GET','/persons'))||[]
-    ]);
-    const cust=customers.find(c=>c.party_id===p.id)||(p.legacy_table==='customers'&&p.legacy_id?customers.find(c=>c.id===p.legacy_id):null);
-    const sup=suppliers.find(s=>s.party_id===p.id)||(p.legacy_table==='suppliers'&&p.legacy_id?suppliers.find(s=>s.id===p.legacy_id):null);
-    const person=(persons||[]).find(x=>Number(x.party_id)===Number(p.id));
-    if(cust&&((p.party_roles||[]).includes('customer')||p.party_type==='customer'||p.party_type==='both')){
-      const d=await api('GET','/accounting/statement/'+cust.id)||{};
-      entries=(d.entries||[]).map(e=>({date:e.date,description:e.type_label||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.running_balance||0}));
-      title='گردش مشتری: '+name;
-    } else if(sup){
-      const d=await api('GET','/purchases/ledger/'+sup.id)||{entries:[]};
-      entries=(d.entries||[]).map(e=>({date:e.date,description:e.description||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.balance||0}));
-      title='گردش تأمین‌کننده: '+name;
-    } else if(person){
-      try{
-        const d=await api('GET','/ledgers/financial?entity_type=person&entity_id='+encodeURIComponent(person.id))||{};
-        entries=(d.lines||[]).map(e=>({date:e.date,description:e.description||'-',debit:e.debit_rial||e.debit||0,credit:e.credit_rial||e.credit||0,balance:e.running_balance||0}));
-        title='گردش شخص: '+name;
-      }catch(_){}
-      if(!entries.length){
-        try{
-          const d=await api('GET','/persons/'+person.id+'/ledger')||{};
-          entries=(d.entries||d||[]).map(e=>({date:e.date,description:e.description||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.balance||e.running_balance||0}));
-          title='گردش شخص: '+name;
-        }catch(_){}
-      }
-    }
+    const d=await api('GET','/parties/'+id+'/turnover');
+    if(!d){ showToast('دفتر گردش برای این شخص یافت نشد','error'); return; }
+    const entries=(d.entries||[]).map(e=>({
+      date:e.date,
+      description:e.description||e.type_label||'-',
+      debit:e.debit||0,
+      credit:e.credit||0,
+      balance:e.balance||e.running_balance||0
+    }));
     if(!entries.length){ showToast('دفتر گردش برای این شخص یافت نشد — سند حسابداری یا سمت مشتری/تأمین‌کننده لازم است','error'); return; }
+    const title=(d.title||'گردش')+': '+name;
     openModal(`
       <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:0`)}"><div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
@@ -19930,8 +19907,8 @@ async function personReceiptModal(){
   toggleBankFields('prr');
 }
 async function savePersonReceipt(){
-  const person_id=+el('prr-person')?.value||0;
-  if(!person_id){ showToast('شخص را انتخاب کنید','error'); return; }
+  const party_id=+el('prr-person')?.value||0;
+  if(!party_id){ showToast('شخص را انتخاب کنید','error'); return; }
   const pay_type=el('prr-paytype').value;
   const bank_id=+el('prr-bank')?.value||null;
   const cash_box_id=+el('prr-cashbox')?.value||null;
@@ -19942,17 +19919,36 @@ async function savePersonReceipt(){
   const amounts=parts && parts.length ? parts : [moneyVal('prr-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-    const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
+    // If this party is a customer, post as settlement so گردش مشتری updates.
+    let custId=null;
+    try{
+      const pr=await api('GET','/parties/'+party_id);
+      const p=pr?.data||pr||{};
+      if(p.legacy_table==='customers' && p.legacy_id) custId=+p.legacy_id;
+      else if((p.party_roles||[]).includes('customer')||p.party_type==='customer'||p.party_type==='both'){
+        const customers=listRows(await api('GET','/customers'))||[];
+        const hit=customers.find(c=>Number(c.party_id)===Number(party_id));
+        if(hit) custId=+hit.id;
+      }
+    }catch(_){}
     for(const amount of amounts){
-      await api('POST','/accounting/vouchers',{
-        date:el('prr-date').value||todayJalali(),
-        description:el('prr-note').value||'دریافت از شخص',
-        lines:[
-          { target_type:'account', code, debit:amount, credit:0, description:'دریافت' },
-          { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
-        ]
-      });
+      if(custId){
+        await api('POST','/accounting/settlements',{
+          cust_id:custId, amount, pay_type, bank_id, cash_box_id,
+          date:el('prr-date').value||todayJalali(),
+          note:el('prr-note').value||'دریافت از مشتری'
+        });
+      } else {
+        const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
+        await api('POST','/accounting/vouchers',{
+          date:el('prr-date').value||todayJalali(),
+          description:el('prr-note').value||'دریافت از شخص',
+          lines:[
+            { target_type:'account', code, debit:amount, credit:0, description:'دریافت' },
+            { target_type:'person', party_id, debit:0, credit:amount, description:'بستانکار شخص' }
+          ]
+        });
+      }
     }
     closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
@@ -20148,7 +20144,7 @@ function ppKindChanged(){
   } else {
     CACHE.parties=window._ppParties||CACHE.parties||[];
     wrap.innerHTML=`<label>شخص *</label>${partySelect('pp-target')}
-      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پرداخت سایر اشخاص به‌صورت هزینه ثبت می‌شود.</div>`;
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پرداخت در دفتر همان شخص (و تفصیلی‌اش) ثبت می‌شود — نه به‌عنوان هزینهٔ عمومی بدون طرف‌حساب.</div>`;
   }
   initCustSearches(wrap);
 }
@@ -20181,8 +20177,22 @@ async function savePersonPayment(){
       } else if(kind==='incentive'){
         await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
       } else {
-        const name=(el('pp-target-input')?.value||el('pp-target').selectedOptions?.[0]?.textContent||'شخص').trim();
-        await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
+        // سایر اشخاص: سند به تفصیلی/دفتر شخص — نه هزینهٔ عمومی بدون طرف‌حساب
+        if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+        const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
+        const fee=Number(payload.fee_rial)||0;
+        const lines=[
+          { target_type:'person', party_id:target, debit:amount, credit:0, description:'پرداخت به شخص' },
+          { target_type:'account', code, debit:0, credit:amount+(pay_type==='bank'||pay_type==='bank_transfer'?fee:0), description:'پرداخت از صندوق/بانک' }
+        ];
+        if(fee>0 && (pay_type==='bank'||pay_type==='bank_transfer')){
+          lines.splice(1,0,{ target_type:'account', code:'6115', debit:fee, credit:0, description:'کارمزد انتقال' });
+        }
+        await api('POST','/accounting/vouchers',{
+          date:payload.date||todayJalali(),
+          description:payload.note||'پرداخت به شخص',
+          lines
+        });
       }
     }
     closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد'); loadAccTab('settlements');
@@ -24672,7 +24682,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>

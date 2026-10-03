@@ -220,6 +220,26 @@ router.get('/:id', auth, (req, res) => {
   res.json({ success: true, data: mapPartyRow(row) });
 });
 
+/** Unified turnover: customer statement / supplier ledger / person+rep books */
+router.get('/:id/turnover', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const partyId = Number(req.params.id);
+  const row = db.prepare('SELECT id, user_id FROM parties WHERE id=?').get(partyId);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!assertCanViewUserLinkedParty(db, req, row.id)) {
+    return res.status(403).json({ error: 'دسترسی به اطلاعات این کاربر مجاز نیست' });
+  }
+  try {
+    const { buildPartyTurnover } = require('../lib/party-turnover');
+    const data = buildPartyTurnover(db, partyId);
+    if (!data) return res.status(404).json({ error: 'یافت نشد' });
+    res.json(data);
+  } catch (e) {
+    console.error('party turnover:', e.message);
+    res.status(500).json({ error: e.message || 'خطا در بارگذاری گردش' });
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const b = req.body;
   const roles = parseRoles(b.party_roles, b.party_type);

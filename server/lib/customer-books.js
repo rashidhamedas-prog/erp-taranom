@@ -1346,6 +1346,62 @@ function repairOpeningChequeLedgerMirrors(db) {
   return { reversed };
 }
 
+function repairSettlementsMissingBooks(db) {
+  const { createLedgerEntry } = require('../db');
+  const FLAG = 'settlement_books_backfill_v295';
+  const done = db.prepare('SELECT value FROM settings WHERE key=?').get(FLAG);
+  if (done && done.value === '1') return { inserted: 0, skipped: true };
+  let inserted = 0;
+  const rows = db.prepare(`
+    SELECT s.id, s.cust_id, s.amount, s.amount_rial, s.pay_type, s.date, s.user_id, s.invoice_id
+    FROM settlements s
+    WHERE COALESCE(s.status,'posted')<>'reversed'
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_ledger cl
+        WHERE cl.ref_type='settlement' AND cl.ref_id=s.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_ledger cl
+        WHERE cl.customer_id=s.cust_id AND cl.ref_type='invoice_payment' AND cl.ref_id=s.invoice_id
+      )
+  `).all();
+  const run = db.transaction(() => {
+    for (const s of rows) {
+      const amountRial = Math.round(Number(s.amount_rial != null ? s.amount_rial : s.amount) || 0);
+      if (amountRial <= 0 || !s.cust_id) continue;
+      // Skip if a pos_receipt books row already mirrors this settlement amount on same day
+      if (s.invoice_id) {
+        const posHit = db.prepare(`
+          SELECT 1 FROM customer_ledger
+          WHERE customer_id=? AND ref_type='pos_receipt' AND credit=? AND date=?
+          LIMIT 1
+        `).get(s.cust_id, amountRial, s.date || '');
+        if (posHit) continue;
+      }
+      const payLabel = s.pay_type === 'cheque' ? 'چک'
+        : (s.pay_type === 'bank_transfer' || s.pay_type === 'bank') ? 'واریز بانکی'
+          : (s.pay_type === 'pos_card' ? 'کارتخوان' : 'نقد');
+      createLedgerEntry(db, {
+        customer_id: s.cust_id,
+        date: s.date || '',
+        entry_type: 'settlement',
+        ref_type: 'settlement',
+        ref_id: s.id,
+        description: `تسویه ${payLabel} — ${amountRial.toLocaleString('fa-IR')} ریال`,
+        debit: 0,
+        credit: amountRial,
+        user_id: s.user_id || null,
+      });
+      inserted += 1;
+    }
+    db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
+      .run(FLAG);
+  });
+  run();
+  if (inserted) console.log(`✅ ردیف دفتر مشتری برای تسویه‌های بدون کتاب تکمیل شد (${inserted})`);
+  return { inserted };
+}
+
 function ensureCustomerBooksRepaired(db) {
   let v1 = {};
   try {
@@ -1388,7 +1444,14 @@ function ensureCustomerBooksRepaired(db) {
     console.error('opening cheque ledger repair:', e.message);
     openingCheque = { error: e.message };
   }
-  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque };
+  let settBooks = {};
+  try {
+    settBooks = repairSettlementsMissingBooks(db);
+  } catch (e) {
+    console.error('settlement books repair:', e.message);
+    settBooks = { error: e.message };
+  }
+  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque, settBooks };
 }
 
 module.exports = {
@@ -1417,6 +1480,8 @@ module.exports = {
   reclassifyControlArToCustomerLeaf,
   syncCustomerOpeningBooks,
   repairLedgerSignedToGl,
+  repairOpeningChequeLedgerMirrors,
+  repairSettlementsMissingBooks,
   ensureCustomerBooksRepaired,
   isFirmSale,
   AR_CONTROL_RECLASS,

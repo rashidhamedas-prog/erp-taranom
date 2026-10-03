@@ -1694,14 +1694,32 @@ function validateAndBuildVoucherLines(db, lines) {
   let totalDebit = 0, totalCredit = 0;
   const cleanLines = [];
   const personPostings = [];
+  const { resolvePersonIdFromVoucherLine } = require('../lib/party-turnover');
   for (const l of (lines || [])) {
     const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
     if (debit && credit) return { error: 'هر ردیف فقط باید بدهکار یا بستانکار باشد، نه هر دو' };
     if (!debit && !credit) continue;
-    if (l.person_id) {
-      const person = db.prepare('SELECT * FROM persons WHERE id=?').get(l.person_id);
-      if (!person) return { error: `شخص با شناسه ${l.person_id} یافت نشد` };
-      const personAccount = coaAcct(db, 'coa_misc_persons');
+    const wantsPerson = !!(l.person_id || l.party_id || l.target_type === 'person');
+    if (wantsPerson) {
+      const resolvedId = resolvePersonIdFromVoucherLine(db, l);
+      const person = resolvedId ? db.prepare('SELECT * FROM persons WHERE id=?').get(resolvedId) : null;
+      if (!person) {
+        return { error: `شخص با شناسه ${l.person_id || l.party_id || '—'} یافت نشد — از فهرست اشخاص انتخاب کنید` };
+      }
+      // Prefer leaf tafsili when present; otherwise misc-persons control (1106).
+      let personAccount = null;
+      if (person.coa_code) {
+        personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(person.coa_code);
+      }
+      if (!personAccount) {
+        const party = person.party_id
+          ? db.prepare('SELECT coa_code FROM parties WHERE id=?').get(person.party_id)
+          : null;
+        if (party && party.coa_code) {
+          personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
+        }
+      }
+      if (!personAccount) personAccount = coaAcct(db, 'coa_misc_persons');
       cleanLines.push({
         code: personAccount.code, name: personAccount.name, debit, credit,
         description: l.description || person.name, detail_account_id: l.detail_account_id || null,

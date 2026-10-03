@@ -389,17 +389,30 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
       'نزد صندوق', amountRial, settNote, invoiceId, settlementId, 'in_hand'
     );
   }
+  const payLabel = pay_type === 'cheque' ? 'چک'
+    : (pay_type === 'bank_transfer' || pay_type === 'bank') ? 'واریز بانکی' : 'نقد';
+  // Always mirror into customer_ledger so صورت‌حساب / گردش مشتری stay complete.
+  // skipJournal only avoids a second GL posting when cash already sits on the invoice JE.
+  const booksExist = db.prepare(`
+    SELECT 1 FROM customer_ledger
+    WHERE customer_id=? AND (
+      (ref_type='settlement' AND ref_id=?)
+      OR (ref_type='invoice_payment' AND ref_id=?)
+      OR (ref_type='pos_receipt' AND debit=0 AND credit=? AND date=?)
+    )
+    LIMIT 1
+  `).get(custId, settlementId, invoiceId || 0, amountRial, date || '');
+  if (!booksExist) {
+    createLedgerEntry(db, {
+      customer_id: custId, date, entry_type: 'settlement',
+      ref_type: 'settlement', ref_id: settlementId,
+      description: `تسویه ${payLabel} هنگام فاکتور — ${amountRial.toLocaleString('fa-IR')} ریال`,
+      debit: 0, credit: amountRial, user_id: userId,
+    });
+  }
   if (skipJournal) {
     return settlementId;
   }
-  const payLabel = pay_type === 'cheque' ? 'چک'
-    : (pay_type === 'bank_transfer' || pay_type === 'bank') ? 'واریز بانکی' : 'نقد';
-  createLedgerEntry(db, {
-    customer_id: custId, date, entry_type: 'settlement',
-    ref_type: 'settlement', ref_id: settlementId,
-    description: `تسویه ${payLabel} هنگام فاکتور — ${amountRial.toLocaleString('fa-IR')} ریال`,
-    debit: 0, credit: amountRial, user_id: userId,
-  });
   const recv = recvAcct(db, custId);
   postToLedger(db, {
     sourceType: 'settlement', sourceId: settlementId,
