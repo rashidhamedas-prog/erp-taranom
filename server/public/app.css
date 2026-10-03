@@ -741,10 +741,10 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .topbar .back-btn.show{display:inline-flex}
 .topbar .back-btn:hover{background:var(--purple);color:var(--on-accent)}
 .topbar .back-btn:disabled{opacity:.4;cursor:default}
-.oh-form{display:flex;flex-direction:column;gap:14px}
-.oh-form .form-grid{align-items:stretch}
-.oh-form .fg:not(.full){max-width:none;width:100%}
-.oh-form .fg.full{max-width:none}
+.oh-form{display:flex;flex-direction:column;gap:12px;max-width:460px;width:100%}
+.oh-form .form-grid{grid-template-columns:1fr;align-items:stretch;gap:10px}
+.oh-form .fg:not(.full),.oh-form .fg.full{max-width:none;width:100%}
+.oh-form input,.oh-form select{max-width:100%}
 .oh-section{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--card)}
 .oh-section h5{margin:0 0 10px;font-size:13px;font-weight:700;color:var(--text)}
 .oh-preview{background:var(--bg);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.85;color:var(--text)}
@@ -941,6 +941,9 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 
 .modal.full .fg:not(.full){max-width:min(420px,100%)}
 .modal.full .form-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.modal.full .oh-form{max-width:460px;width:100%}
+.modal.full .oh-form .form-grid{grid-template-columns:1fr}
+.modal.full .oh-form .fg:not(.full),.modal.full .oh-form .fg.full{max-width:100%}
 @media(max-width:600px){
   .modal .fg:not(.full),.modal.full .fg:not(.full){max-width:100%}
 }

@@ -59,6 +59,21 @@ eq('wholesale 1.25×', p.wholesale, 1_250_000, 0);
 eq('retail 1.35×', p.retail, 1_350_000, 0);
 eq('cost echo', p.cost_rial, 1_000_000, 0);
 
+eq('absorb 80% of 1000×10', oh.appliedOverheadRial({ total_rate_rial: 1000, absorb_pct: 80 }, 10), 8000, 0);
+eq('absorb default 100%', oh.appliedOverheadRial({ total_rate_rial: 1000 }, 10), 10000, 0);
+eq('labor absorb 50%', oh.appliedMonthlyLaborRial({ monthly_labor_rate_rial: 100, absorb_pct: 50 }, 3), 150, 0);
+throws('absorb 101', () => oh.clampAbsorbPct(101), 'E_ABSORB_PCT');
+ok('computeRates keeps absorb', oh.computePredeterminedRates({ total_rate_rial: 1, absorb_pct: 80 }).absorb_pct === 80);
+
+const cut = oh.estimateCuttingCapacity({
+  wage_rial: 300_000_000, days: 22, hours_per_day: 8, efficiency_pct: 80, minutes_per_unit: 1.2, setup_minutes_per_day: 30,
+});
+eq('cut hours 22×8×0.8', cut.available_hours, 140.8, 1e-9);
+eq('cut qty ≈6490', cut.normal_qty, 6490, 1);
+eq('cut labor ≈46k rial/pc', cut.monthly_labor_rate_rial, Math.round(300_000_000 / cut.normal_qty), 0);
+ok('absorb 0 persists', oh.computePredeterminedRates({ total_rate_rial: 1, absorb_pct: 0 }).absorb_pct === 0);
+ok('cut per-piece < wage', cut.monthly_labor_rate_rial > 0 && cut.monthly_labor_rate_rial < 300_000_000);
+
 try {
   const { db, cleanup } = freshDb();
   const PERIOD = '1405/07';

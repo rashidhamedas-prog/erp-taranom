@@ -9544,7 +9544,7 @@ async function renderPartiesTab(body){
         </div>
         <div class="tbl-wrap tbl-scroll"><table class="tbl" id="partiesTbl" data-bulk-delete="/parties" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} شخص حذف/غیرفعال شود؟" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th data-col-kind="skip">کد</th><th data-col-kind="skip">کد تفصیلی</th><th data-col-kind="skip">نام</th><th data-col-kind="skip">تلفن ۱</th><th data-col-kind="skip">شهر</th><th data-col-kind="skip">گروه</th><th data-col-kind="skip">سمت‌ها</th><th data-col-kind="skip">ماهیت مانده</th>
-          <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th><th class="no-sort">عملیات</th>
+          <th data-col-kind="debit">بدهکار ${moneyColLabel()}</th><th data-col-kind="credit">بستانکار ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
         </tr></thead><tbody>${balRows.map(p=>`<tr data-id="${p.id}">
           <td class="mono" data-col-kind="skip">${esc(p.person_code||'-')}</td>
           <td class="mono muted" data-col-kind="skip">${esc(p.coa_code||'-')}</td>
@@ -9602,7 +9602,7 @@ async function showPartyTurnover(id,name){
     openModal(`
       <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:0`)}"><div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
-        <th>تاریخ</th><th>شرح</th><th>بدهکار ${moneyColLabel()}</th><th>بستانکار</th><th>مانده</th>
+        <th>تاریخ</th><th>شرح</th><th>بدهکار ${moneyColLabel()}</th><th>بستانکار ${moneyColLabel()}</th><th>مانده ${moneyColLabel()}</th>
       </tr></thead><tbody>${entries.map(r=>`<tr>
         <td class="mono">${escDate(r.date)}</td><td>${esc(r.description||'-')}</td>
         <td class="mono">${fmt(r.debit||0)}</td><td class="mono">${fmt(r.credit||0)}</td>
@@ -16333,7 +16333,7 @@ async function payrollPayModal(id,personName,netPay,paidRial,remainingRial){
       <div class="form-grid" data-csp-style="${CSP.style(`margin-top:8px`)}">
         <div class="fg"><label>تاریخ پیش‌فرض اقساط</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
       </div>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">هر قسط سند حسابداری جدا می‌سازد (بدهکار حقوق پرداختنی / بستانکار بانک یا صندوق). جمع اقساط نباید از مانده بیشتر شود. می‌توانید بعداً هم قسط بعدی ثبت کنید.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">هر قسط سند جدا می‌سازد: بدهکار تفصیلی همان شخص (حقوق پرداختنی او) و بستانکار بانک یا صندوق. مبلغ‌ها ریال است. جمع اقساط نباید از مانده بیشتر شود.</p>
     </div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePayrollPayment((id),(remainingRial))})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);

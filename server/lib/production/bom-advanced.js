@@ -77,11 +77,15 @@ function stageLabor(db, op, qty, period) {
       return Math.round(Number(op.labor_rate_rial) * hours);
     }
     case 'monthly': {
+      const { appliedMonthlyLaborRial } = require('./overhead');
       const r = db.prepare(`
-        SELECT monthly_labor_rate_rial FROM cost_center_rates
+        SELECT monthly_labor_rate_rial, absorb_pct FROM cost_center_rates
         WHERE cost_center_id=? AND period_label=?
+          AND COALESCE(status,'active') NOT IN ('inactive','reversed')
+        ORDER BY CASE COALESCE(status,'active') WHEN 'active' THEN 0 WHEN 'estimated' THEN 1 ELSE 2 END, id DESC
+        LIMIT 1
       `).get(op.cost_center_id, period);
-      return Math.round((Number(r?.monthly_labor_rate_rial) || 0) * qty);
+      return appliedMonthlyLaborRial(r || {}, qty);
     }
     case 'contract':
       return 0;

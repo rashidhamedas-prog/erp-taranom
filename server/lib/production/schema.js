@@ -177,6 +177,7 @@ function ensureExistingColumns(db) {
   }
   if (tableExists(db, 'cost_center_rates')) {
     ensureColumn(db, 'cost_center_rates', 'monthly_labor_rate_rial', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'cost_center_rates', 'absorb_pct', 'REAL DEFAULT 100');
   }
   if (tableExists(db, 'production_orders')) {
     ensureColumn(db, 'production_orders', 'has_matrix_lines', 'INTEGER DEFAULT 0');

@@ -78,13 +78,13 @@ function persistRate(db, body, userId, existingId) {
         cost_center_id=?, period_label=?, driver=?,
         budget_fixed_oh_rial=?, budget_var_oh_rial=?, budget_driver_qty=?,
         total_rate_rial=?, fixed_rate_rial=?, var_rate_rial=?,
-        monthly_labor_rate_rial=?, status=?, is_estimated=?, note=?
+        monthly_labor_rate_rial=?, absorb_pct=?, status=?, is_estimated=?, note=?
       WHERE id=?
     `).run(
       ccId, period, driver,
       computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
       computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
-      computed.monthly_labor_rate_rial, status, isEstimated, note, existingId
+      computed.monthly_labor_rate_rial, computed.absorb_pct, status, isEstimated, note, existingId
     );
     return { id: existingId, warning };
   }
@@ -94,13 +94,13 @@ function persistRate(db, body, userId, existingId) {
       (cost_center_id, period_label, driver,
        budget_fixed_oh_rial, budget_var_oh_rial, budget_driver_qty,
        total_rate_rial, fixed_rate_rial, var_rate_rial,
-       monthly_labor_rate_rial, status, is_estimated, note, created_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       monthly_labor_rate_rial, absorb_pct, status, is_estimated, note, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     ccId, period, driver,
     computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
     computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
-    computed.monthly_labor_rate_rial, status, isEstimated, note, userId
+    computed.monthly_labor_rate_rial, computed.absorb_pct, status, isEstimated, note, userId
   );
   return { id: info.lastInsertRowid, warning };
 }

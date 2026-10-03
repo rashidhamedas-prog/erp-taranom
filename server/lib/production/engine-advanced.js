@@ -11,7 +11,7 @@ const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting,
 } = require('./costing');
-const { getOverheadRate } = require('./overhead');
+const { getOverheadRate, coerceDriver, appliedOverheadRial } = require('./overhead');
 const { postLabor } = require('./labor');
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
 const { assertFabricIssueAllowed } = require('./cutting');
@@ -201,12 +201,12 @@ function applyStageOverhead(db, {
   if (!rate) {
     return { amount_rial: 0, id: null, driver: null, driver_qty: 0, rate_rial: 0 };
   }
-  const driver = stage.driver || op?.overhead_driver || cc?.driver || rate.driver || 'output_qty';
+  const driver = coerceDriver(stage.driver || op?.overhead_driver || cc?.driver || rate.driver || 'output_qty');
   const driverQty = stageDriverQty(db, op || {}, cc || {}, {
     qty: qtyIn, labor: laborRial, material: matRial,
   });
   const rateRial = Math.round(num(rate.total_rate_rial));
-  const amount = Math.round(rateRial * driverQty);
+  const amount = appliedOverheadRial(rate, driverQty);
 
   let docNo = '';
   try { docNo = allocateNumber(db, 'overhead_apply', 'OH'); }

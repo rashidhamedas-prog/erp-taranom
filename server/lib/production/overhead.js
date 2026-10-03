@@ -102,8 +102,14 @@ function computePredeterminedRates(input = {}) {
     var_rate_rial: variable,
     total_rate_rial: total,
     monthly_labor_rate_rial: monthlyLabor,
+    absorb_pct: bodyAbsorbPct(input),
     from_budget: fromBudget,
   };
+}
+
+function bodyAbsorbPct(input) {
+  if (input.absorb_pct == null || input.absorb_pct === '') return 100;
+  return clampAbsorbPct(input.absorb_pct);
 }
 
 function looksLikePoolNotRate(driver, totalRate) {
@@ -111,6 +117,61 @@ function looksLikePoolNotRate(driver, totalRate) {
   const t = roundRial(totalRate);
   if (t < 20_000_000) return false;
   return d === 'direct_labor_rial' || d === 'material_rial' || d === 'output_qty';
+}
+
+function clampAbsorbPct(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 100;
+  if (n < 0 || n > 100) {
+    throw rateErr('E_ABSORB_PCT', 400, 'درصد جذب باید بین ۰ و ۱۰۰ باشد');
+  }
+  return Math.round(n * 100) / 100;
+}
+
+function absorbMultiplier(rate) {
+  const raw = rate && rate.absorb_pct != null ? Number(rate.absorb_pct) : 100;
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(100, Math.max(0, raw)) / 100;
+}
+
+function appliedOverheadRial(rate, driverQty) {
+  const rateRial = roundRial(rate && rate.total_rate_rial);
+  const qty = Number(driverQty) || 0;
+  return Math.round(rateRial * qty * absorbMultiplier(rate));
+}
+
+function appliedMonthlyLaborRial(rate, qty) {
+  const unit = roundRial(rate && rate.monthly_labor_rate_rial);
+  const q = Number(qty) || 0;
+  return Math.round(unit * q * absorbMultiplier(rate));
+}
+
+/**
+ * New cutting room with only a monthly wage: IAS 2 uses intended/normal
+ * capacity (PwC FAQ 25.21.1), not actual ramp-up. Default 22×8h×80% and
+ * Taranom routing 1.2 min/unit + 30 min setup/day.
+ */
+function estimateCuttingCapacity(input = {}) {
+  const wage = roundRial(input.wage_rial);
+  const days = Math.max(1, Number(input.days) || 22);
+  const hoursPerDay = Math.max(0.5, Number(input.hours_per_day) || 8);
+  const efficiencyPct = Math.min(100, Math.max(1, Number(input.efficiency_pct) || 80));
+  const run = Number(input.minutes_per_unit) > 0 ? Number(input.minutes_per_unit) : 1.2;
+  const setup = Math.max(0, Number(input.setup_minutes_per_day) || 30);
+  const availableHours = days * hoursPerDay * (efficiencyPct / 100);
+  const productiveMinutes = Math.max(0, availableHours * 60 - setup * days);
+  const qty = run > 0 ? productiveMinutes / run : 0;
+  return {
+    available_hours: Math.round(availableHours * 100) / 100,
+    normal_qty: Math.round(qty * 100) / 100,
+    monthly_labor_rate_rial: qty > 0 ? Math.round(wage / qty) : 0,
+    hour_rate_rial: availableHours > 0 ? Math.round(wage / availableHours) : 0,
+    wage_rial: wage,
+    days,
+    hours_per_day: hoursPerDay,
+    efficiency_pct: efficiencyPct,
+    minutes_per_unit: run,
+  };
 }
 
 /** Status preference: active/approved before draft/estimated. */
@@ -417,7 +478,7 @@ function applyOverhead(db, {
     driver, po, qtyStarted, laborRial, matRial, machineMinutes, ops, laborHours, manualDriverQty,
   });
   const rateRial = Math.round(Number(rate.total_rate_rial) || 0);
-  const amount = Math.round(rateRial * driverQty);
+  const amount = appliedOverheadRial(rate, driverQty);
 
   let docNo = '';
   try {
@@ -469,5 +530,9 @@ module.exports = {
   validatePeriodLabel,
   computePredeterminedRates,
   looksLikePoolNotRate,
+  clampAbsorbPct,
+  appliedOverheadRial,
+  appliedMonthlyLaborRial,
+  estimateCuttingCapacity,
   OH_DRIVERS,
 };
