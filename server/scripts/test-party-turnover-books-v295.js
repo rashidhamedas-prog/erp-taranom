@@ -76,7 +76,7 @@ const partyAref = db.prepare(`
   VALUES ('P-ARF','other','["other"]','عارف تست','09121110003',1)
 `).run().lastInsertRowid;
 const userAref = db.prepare(`
-  INSERT INTO users (username, password_hash, name, role, active, party_id)
+  INSERT INTO users (username, password, name, role, active, party_id)
   VALUES ('aref_test','x','عارف تست','field_sales',1,?)
 `).run(partyAref).lastInsertRowid;
 db.prepare(`
