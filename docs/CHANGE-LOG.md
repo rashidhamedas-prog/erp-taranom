@@ -4,7 +4,7 @@
 - **رفع:** جادوی برش (۲۲×۸×۸۰٪ / ۱٫۲ دقیقه)، دستمزد هر عدد، صفر کردن نرخ سربار اگر فقط حقوق باشد، `absorb_pct` در فرم/لیست/موتور، مودال باریک بدون lg، هشدار بودجه به‌جای نرخ.
 - **فایل‌ها:** `public/{app.js,app.css,index.html,sw.js}`, `lib/production/{overhead,bom-advanced,engine-advanced,schema}.js`, `routes/production-cost-centers.js`, تست نرخ، CHANGE-LOG.
 - **تست:** `test-overhead-rates-v299` + `test-sms`.
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `624a183` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v301`؛ تست نرخ 37/0 (sqlite ایران) + sms 22/0.
 
 ---
 
