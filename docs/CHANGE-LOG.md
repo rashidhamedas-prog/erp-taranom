@@ -12,8 +12,8 @@
 - **سینک:** append `payroll_payments` + FK + `PATH /api/payroll/payments` + `sync_seq_backfill_v19`.
 - **UI:** مانده/پرداخت‌شده در لیست؛ مودال با اقساط قبلی، چک‌باکس چندمرحله‌ای، مبلغ قابل ویرایش؛ Help به‌روز.
 - **فایل‌ها:** `lib/payroll/{payments,schema}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `data-wipe.js`, `public/{app.js,sw.js,index.html}`, `test-payroll-partial-pay-v294.js`, CHANGE-LOG.
-- **تست:** `test-payroll-partial-pay-v294` (روی میزبان Node24 بدون ABI اسکلیپ؛ اجرا روی ایران پس از deploy)؛ `test-sms` / سینتکس `app.js`.
-- **Deploy:** ⏳
+- **تست:** `test-payroll-partial-pay-v294` **17/0** روی ایران؛ `test-sms` **22/0**؛ سینتکس `app.js` OK.
+- **Deploy:** ✅ `c662445` — ایران overlay SFTP + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v294`.
 
 ---
 

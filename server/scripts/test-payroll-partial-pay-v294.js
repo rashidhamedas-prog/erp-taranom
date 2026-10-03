@@ -43,7 +43,7 @@ ok('payroll_payments table exists', !!db.prepare(
 ok('paid_rial column', !!db.prepare('PRAGMA table_info(payroll_records)').all().find((c) => c.name === 'paid_rial'));
 
 const personId = db.prepare(
-  "INSERT INTO persons (name, category, active) VALUES ('کارمند تست قسط','کارمند',1)"
+  "INSERT INTO persons (name, active) VALUES ('کارمند تست قسط',1)"
 ).run().lastInsertRowid;
 
 const netRial = 10000000; // 10M rial = 1M toman ledger
