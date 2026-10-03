@@ -285,5 +285,6 @@ module.exports = {
   deactivatePartyFromCustomer,
   deactivatePartyFromSupplier,
   linkedCustomerIds,
+  linkedSupplierIds,
   CRM_CUSTOMER_ACTIVE_SQL,
 };
