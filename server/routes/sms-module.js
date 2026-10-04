@@ -29,7 +29,7 @@ router.get('/provider', auth, adminOrAccounting, (req, res) => {
 
 router.put('/provider', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
-  const keys = ['sms_provider', 'sms_api_key', 'sms_from', 'niksms_api_key', 'smsir_api_key', 'smsir_line', 'welcome_sms_text'];
+  const keys = ['sms_provider', 'sms_api_key', 'sms_from', 'sms_otp_template', 'niksms_api_key', 'smsir_api_key', 'smsir_line', 'welcome_sms_text'];
   updateSettings(db, Object.entries(req.body || {}), new Set(keys));
   audit(req.user.id, 'update', 'sms_provider', null, 'ویرایش تنظیمات پیامک');
   res.json({ ok: true });

@@ -8,6 +8,10 @@ function hashKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+function scopeHasWrite(scopes) {
+  return String(scopes || '').split(',').map((part) => part.trim()).includes('write');
+}
+
 // API key authentication middleware
 function apiAuth(req, res, next) {
   const db = getDB();
@@ -17,10 +21,10 @@ function apiAuth(req, res, next) {
   if (!enabled || enabled.value !== '1') return res.status(503).json({ error: 'API غیرفعال است' });
 
   // Extract key from Bearer token or query param
+  if (req.query.api_key) return res.status(401).json({ error: 'کلید را فقط در هدر Authorization بفرستید' });
   let rawKey = null;
   const auth = req.headers['authorization'];
   if (auth && auth.startsWith('Bearer ')) rawKey = auth.slice(7).trim();
-  else if (req.query.api_key) rawKey = req.query.api_key.trim();
 
   if (!rawKey) return res.status(401).json({ error: 'API key الزامی است' });
   if (!rawKey.startsWith('trn_')) return res.status(401).json({ error: 'فرمت API key نامعتبر است' });
@@ -78,7 +82,7 @@ router.get('/customers/:id', (req, res) => {
 });
 
 router.post('/customers', (req, res) => {
-  if (!req.apiKey.scopes.includes('write')) return res.status(403).json({ error: 'دسترسی نوشتن ندارید' });
+  if (!scopeHasWrite(req.apiKey.scopes)) return res.status(403).json({ error: 'دسترسی نوشتن ندارید' });
   const { biz, owner, city, phone, insta, type = 'بوتیک', status = 'new', note } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام کسب‌وکار الزامی است' });
   const db = getDB();
@@ -105,7 +109,7 @@ router.get('/followups', (req, res) => {
 });
 
 router.post('/followups', (req, res) => {
-  if (!req.apiKey.scopes.includes('write')) return res.status(403).json({ error: 'دسترسی نوشتن ندارید' });
+  if (!scopeHasWrite(req.apiKey.scopes)) return res.status(403).json({ error: 'دسترسی نوشتن ندارید' });
   const { cust_id, subject, note, next_date, next_time, priority = 'mid', pipeline_stage = 'lead' } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'cust_id الزامی است' });
   const db = getDB();

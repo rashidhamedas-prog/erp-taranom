@@ -986,6 +986,101 @@ function verifyBackupPackage(archivePath, options = {}) {
   }
 }
 
+function stagingFile(staging, rel) {
+  const norm = String(rel || '').replace(/\\/g, '/');
+  if (!norm || norm.includes('..') || path.isAbsolute(norm) || norm.startsWith('/')) {
+    throw new Error(`unsafe restore entry: ${norm}`);
+  }
+  const root = path.resolve(staging);
+  const fp = path.resolve(staging, norm);
+  if (fp !== root && !fp.startsWith(root + path.sep)) throw new Error(`path escape: ${norm}`);
+  return fp;
+}
+
+/** Replace a SQLite file with a consistent snapshot and drop leftover WAL sidecars. */
+function applySqliteSnapshot(srcPath, destPath) {
+  if (!fs.existsSync(srcPath)) throw new Error('snapshot missing');
+  const destDir = path.dirname(destPath);
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+  const stamp = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  const tmp = path.join(destDir, `.${path.basename(destPath)}.restore-${stamp}`);
+  fs.copyFileSync(srcPath, tmp);
+  const moved = [];
+  let pre = null;
+  try {
+    for (const suf of ['-wal', '-shm']) {
+      const side = destPath + suf;
+      if (!fs.existsSync(side)) continue;
+      const aside = `${side}.aside-${stamp}`;
+      fs.renameSync(side, aside);
+      moved.push({ from: aside, to: side });
+    }
+    if (fs.existsSync(destPath)) {
+      pre = `${destPath}.pre-restore-${stamp}`;
+      fs.renameSync(destPath, pre);
+    }
+    fs.renameSync(tmp, destPath);
+    for (const item of moved) fs.rmSync(item.from, { force: true });
+    return pre;
+  } catch (error) {
+    if (!fs.existsSync(destPath) && pre && fs.existsSync(pre)) {
+      try { fs.renameSync(pre, destPath); } catch { /* keep the pre-restore copy */ }
+    }
+    for (const item of moved) {
+      if (!fs.existsSync(item.to) && fs.existsSync(item.from)) {
+        try { fs.renameSync(item.from, item.to); } catch { /* keep the aside copy */ }
+      }
+    }
+    if (fs.existsSync(tmp)) fs.rmSync(tmp, { force: true });
+    throw error;
+  }
+}
+
+/** Stage the new tree, then swap it into place so a failed copy does not wipe the live folder. */
+function replaceDirAtomic(src, dest) {
+  if (!fs.existsSync(src)) return null;
+  fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+  const stamp = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  const tmp = `${dest}.restore-new-${stamp}`;
+  fs.cpSync(src, tmp, { recursive: true });
+  let pre = null;
+  if (fs.existsSync(dest)) {
+    pre = `${dest}.pre-restore-${stamp}`;
+    fs.renameSync(dest, pre);
+  }
+  try {
+    fs.renameSync(tmp, dest);
+  } catch {
+    fs.cpSync(tmp, dest, { recursive: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  return pre;
+}
+
+function companyRestorePlan(staging, options) {
+  if (Array.isArray(options.companyTargets)) return options.companyTargets;
+  if (options.dbPath || options.restoreCompanies === false) return [];
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(staging, 'manifest.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  let reg;
+  try {
+    reg = require('./lib/company-workspace').readRegistry();
+  } catch {
+    return [];
+  }
+  const plan = [];
+  for (const company of manifest.companies || []) {
+    const live = (reg.companies || []).find((row) => Number(row.id) === Number(company.id));
+    if (!live?.dbPath || !company.entry) continue;
+    plan.push({ id: company.id, entry: company.entry, destPath: path.resolve(live.dbPath) });
+  }
+  return plan;
+}
+
 /**
  * Offline/maintenance restore only. Callers must stop the live service.
  * Online HTTP handlers must use verifyBackupPackage instead.
@@ -996,40 +1091,42 @@ function restoreBackup(archivePath, options = {}) {
   }
   const verify = verifyBackupPackage(archivePath, options);
   if (!verify.ok) throw new Error('verify failed');
-  // Staging extract again for apply
   const AdmZip = require('adm-zip');
   const staging = options.targetDir || path.join(BACKUP_DIR, `.restore-stage-${Date.now()}`);
   fs.mkdirSync(staging, { recursive: true, mode: 0o700 });
   let zipPath = archivePath;
-  let decrypted = null;
   try {
     if (String(archivePath).endsWith('.enc')) {
       const password = options.password || getBackupPassword();
-      decrypted = path.join(staging, 'payload.zip');
+      const decrypted = path.join(staging, 'payload.zip');
       decryptFile(archivePath, decrypted, password);
       zipPath = decrypted;
     }
     new AdmZip(zipPath).extractAllTo(staging, true);
-    const dbSrc = path.join(staging, 'crm.db');
+    const restoredCompanies = [];
+    for (const target of companyRestorePlan(staging, options)) {
+      const src = stagingFile(staging, target.entry);
+      if (!fs.existsSync(src)) throw new Error(`company snapshot missing: ${target.entry}`);
+      applySqliteSnapshot(src, path.resolve(target.destPath));
+      restoredCompanies.push(Number(target.id));
+    }
+    const dbSrc = stagingFile(staging, 'crm.db');
     if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
     const DB_PATH = options.dbPath || resolveBackupDbPath();
-    const pre = DB_PATH + '.pre-restore-' + Date.now();
-    if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);
-    fs.copyFileSync(dbSrc, DB_PATH);
+    const pre = applySqliteSnapshot(dbSrc, DB_PATH);
     const uploadsSrc = path.join(staging, 'uploads');
     if (fs.existsSync(uploadsSrc) && options.restoreUploads !== false) {
-      fs.rmSync(UPLOADS_ROOT, { recursive: true, force: true });
-      fs.cpSync(uploadsSrc, UPLOADS_ROOT, { recursive: true });
+      replaceDirAtomic(uploadsSrc, options.uploadsRoot || UPLOADS_ROOT);
     }
     const privateSrc = path.join(staging, 'private-uploads');
     if (fs.existsSync(privateSrc) && options.restorePrivate !== false) {
-      try {
-        const { PRIVATE_UPLOADS_ROOT } = require('./lib/private-uploads');
-        fs.mkdirSync(PRIVATE_UPLOADS_ROOT, { recursive: true, mode: 0o700 });
-        fs.cpSync(privateSrc, PRIVATE_UPLOADS_ROOT, { recursive: true });
-      } catch { /* */ }
+      let privateRoot = options.privateRoot || null;
+      if (!privateRoot) {
+        try { privateRoot = require('./lib/private-uploads').PRIVATE_UPLOADS_ROOT; } catch { privateRoot = null; }
+      }
+      if (privateRoot) replaceDirAtomic(privateSrc, privateRoot);
     }
-    return { ok: true, pre_restore_db: pre, verify };
+    return { ok: true, pre_restore_db: pre, restored_companies: restoredCompanies, verify };
   } finally {
     if (!options.keepStaging) fs.rmSync(staging, { recursive: true, force: true });
   }

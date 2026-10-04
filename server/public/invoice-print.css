@@ -38,8 +38,8 @@ html.inv-print .sheet {
 }
 html.inv-print.paper-a4 .sheet { max-width: 210mm; page: inv-a4; }
 html.inv-print.paper-a5 .sheet { max-width: 148mm; page: inv-a5; }
-html.inv-print.paper-thermal .sheet { max-width: 300px; page: inv-thermal; }
-html.inv-print.paper-thermal-58 .sheet { max-width: 220px; page: inv-thermal; }
+html.inv-print.paper-thermal .sheet { max-width: 300px; page: inv-thermal-80; }
+html.inv-print.paper-thermal-58 .sheet { max-width: 220px; page: inv-thermal-58; }
 html.inv-print .pad { padding: var(--pad, 9px); width: 100%; box-sizing: border-box; }
 html.inv-print .num { font-variant-numeric: tabular-nums; font-weight: 800; }
 html.inv-print .rtl { text-align: right; }
@@ -448,6 +448,8 @@ html.inv-print.paper-a5 .stamps { grid-template-columns: 1fr 1fr; }
   @page inv-a4 { size: 210mm 297mm; margin: 6mm; }
   @page inv-a5 { size: 148mm 210mm; margin: 5mm; }
   @page inv-thermal { size: auto; margin: 2mm; }
+  @page inv-thermal-80 { size: 80mm auto; margin: 2mm; }
+  @page inv-thermal-58 { size: 58mm auto; margin: 2mm; }
   @page { margin: 6mm; }
 }
 @media screen and (max-width: 420px) {

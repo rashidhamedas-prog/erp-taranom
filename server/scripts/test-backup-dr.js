@@ -143,6 +143,46 @@ function ok(msg) {
   }
   ok('weekly-style isolated restore + fingerprint + drill status');
 
+  const companyDest = path.join(root, 'company-restore', 'company-1.db');
+  fs.mkdirSync(path.dirname(companyDest), { recursive: true });
+  fs.writeFileSync(companyDest, 'stale-main');
+  fs.writeFileSync(companyDest + '-wal', 'stale-wal');
+  const uploadDest = path.join(root, 'upload-restore');
+  fs.mkdirSync(path.join(uploadDest, 'old-only'), { recursive: true });
+  fs.writeFileSync(path.join(uploadDest, 'old-only', 'gone.txt'), 'should-not-survive');
+  const privateDest = path.join(root, 'private-restore');
+  fs.mkdirSync(path.join(privateDest, 'messages'), { recursive: true });
+  fs.writeFileSync(path.join(privateDest, 'messages', 'leftover.bin'), 'old-private');
+  const companyEntry = (verified.companies || []).find((company) => company.entry) || null;
+  if (!companyEntry) throw new Error('package has no company entry to restore');
+  const multi = restoreFn(result.offsite.target, {
+    confirmOfflineRestore: true,
+    dbPath: path.join(root, 'alias-only.db'),
+    restoreUploads: true,
+    restorePrivate: true,
+    uploadsRoot: uploadDest,
+    privateRoot: privateDest,
+    companyTargets: [{ id: companyEntry.id, entry: companyEntry.entry, destPath: companyDest }],
+  });
+  if (!multi.ok || !multi.restored_companies.includes(Number(companyEntry.id))) {
+    throw new Error('company restore missing: ' + JSON.stringify(multi.restored_companies));
+  }
+  if (fs.existsSync(companyDest + '-wal') || fs.existsSync(companyDest + '-shm')) {
+    throw new Error('stale WAL sidecar survived restore');
+  }
+  const companyDb = new Database(companyDest, { readonly: true });
+  const companyUsers = companyDb.prepare('SELECT COUNT(*) c FROM users').get().c;
+  const companyIntegrity = companyDb.pragma('integrity_check', { simple: true });
+  companyDb.close();
+  if (companyIntegrity !== 'ok' || companyUsers !== before) {
+    throw new Error(`company restore failed: ${companyIntegrity} users=${companyUsers}`);
+  }
+  if (fs.existsSync(path.join(uploadDest, 'old-only', 'gone.txt'))) throw new Error('stale public upload survived');
+  if (!fs.existsSync(path.join(uploadDest, 'probe.txt'))) throw new Error('public upload missing after replace');
+  if (fs.existsSync(path.join(privateDest, 'messages', 'leftover.bin'))) throw new Error('stale private file survived');
+  if (!fs.existsSync(path.join(privateDest, 'messages', 'secret.bin'))) throw new Error('private file missing after replace');
+  ok('company snapshot replaces WAL and upload trees swap atomically');
+
   console.log(`backup DR drill: ${step}/${step} pass; users=${before}; method=fs; sha256=${result.checksum.slice(0, 16)}…`);
 })().catch((e) => {
   console.error(e);

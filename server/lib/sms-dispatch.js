@@ -156,6 +156,17 @@ async function dispatchSmsEvent(db, eventKey, payload) {
  * Prevents OTP/reminder double-send when both hardcoded and a rule exist.
  */
 async function dispatchSmsOrFallback(db, eventKey, payload, fallbackText) {
+  if (eventKey === 'auth.otp' || eventKey === 'b2b.otp') {
+    const settings = settingsMap(db);
+    const pattern = String(settings.sms_otp_template || '').trim();
+    const phone = String((payload && payload.phone) || '').trim();
+    const code = String((payload && payload.code) || '').trim();
+    if (pattern && phone && code) {
+      const { sendOtpPattern } = require('../sms');
+      const result = await sendOtpPattern(settings, phone, code, pattern);
+      return { ok: !!(result && result.ok), sent: result && result.ok ? 1 : 0, via: 'otp-pattern', result };
+    }
+  }
   const r = await dispatchSmsEvent(db, eventKey, payload);
   if (r && r.sent > 0) return { ...r, via: 'rule' };
   const phone = String((payload && payload.phone) || '').trim();

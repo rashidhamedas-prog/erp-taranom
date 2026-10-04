@@ -147,9 +147,12 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const raw = String(req.params.id || '').trim();
   const asId = parseInt(raw, 10);
+  const purchasePrintSql = `SELECT p.*, s.name as supplier_name, s.phone as supplier_phone, s.address as supplier_address,
+      s.economic_code as supplier_economic_code, s.national_id as supplier_national_id, s.postal_code as supplier_postal_code
+    FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id`;
   const row = Number.isFinite(asId)
-    ? db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(asId)
-    : db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.num=?').get(raw);
+    ? db.prepare(purchasePrintSql + ' WHERE p.id=?').get(asId)
+    : db.prepare(purchasePrintSql + ' WHERE p.num=?').get(raw);
   if (!row) return res.status(404).send('فاکتور خرید پیدا نشد');
   let rows = [];
   try { rows = JSON.parse(row.rows || '[]'); } catch (_) { rows = []; }
@@ -157,6 +160,9 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
     company_name: getSetting(db, 'company_name'),
     company_address: getSetting(db, 'company_address'),
     company_phone: getSetting(db, 'company_phone'),
+    company_economic_code: getSetting(db, 'company_economic_code'),
+    company_national_id: getSetting(db, 'company_national_id'),
+    company_postal_code: getSetting(db, 'company_postal_code'),
     invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
     invoice_template_casual: 'casual-simple',
     invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
@@ -172,7 +178,11 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
     cust_biz: row.supplier_name || '',
     cust_owner: '',
     cust_city: '',
-    cust_phone: '',
+    cust_phone: row.supplier_phone || '',
+    cust_address: row.supplier_address || '',
+    cust_economic_code: row.supplier_economic_code || '',
+    cust_national_id: row.supplier_national_id || '',
+    cust_postal_code: row.supplier_postal_code || '',
   };
   try {
     const { renderInvoicePrintHtml } = require('../lib/invoice-print');

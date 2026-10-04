@@ -1,4 +1,10 @@
-﻿## 2026-10-05 — Staff session, Argon2id, selectable 2FA (SW v309)
+﻿## 2026-10-05 — Ship leftover settings batch (SW v310)
+
+- Owner asked for a complete commit, merge, push, and deploy. v309 auth was already on main. This ships the still-uncommitted settings backend and print CSS.
+- Excluded: `tbl-enhance.js` localhost debug probe, `_deploy-*`, probes, backups, and marketing leftovers.
+- Depth: full delivery (verify by syntax check). No new product behavior beyond the already-written settings batch.
+
+## 2026-10-05 — Staff session, Argon2id, selectable 2FA (SW v309)
 
 - Owner ordered shorter staff sessions, a password-algorithm change, and selectable mandatory 2FA in settings.
 - Staff absolute TTL default 12h, idle 8h, both configurable 1–24h. Sync replay JWTs stay 5 minutes. New staff passwords are Argon2id via hash-wasm; bcrypt verifies then rehashes on success. Portal passwords stay bcrypt.

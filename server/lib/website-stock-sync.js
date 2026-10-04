@@ -555,6 +555,7 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
 
   const now = Math.floor(Date.now() / 1000);
   const nextAt = now + Math.ceil(DEBOUNCE_MS / 1000);
+  const clearHold = opts.clearHold ? "last_result=''," : '';
   const upsert = db.prepare(`
     INSERT INTO website_stock_outbox (product_id, channel, next_at, attempts, status, last_error, updated_at)
     VALUES (?, ?, ?, 0, 'pending', '', ?)
@@ -563,6 +564,7 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
       status='pending',
       attempts=0,
       last_error='',
+      ${clearHold}
       updated_at=excluded.updated_at
   `);
 
@@ -610,16 +612,16 @@ async function drainWebsiteStockOutbox(db) {
       const channel = row.channel === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
       const wh = channelWarehouseId(s, channel);
       if (!wh) {
-        db.prepare(`UPDATE website_stock_outbox SET status='error', last_error=?, updated_at=? WHERE id=?`)
-          .run('warehouse not configured for channel', now, row.id);
+        db.prepare(`UPDATE website_stock_outbox SET status='error', last_error=?, updated_at=? WHERE id=? AND updated_at=?`)
+          .run('warehouse not configured for channel', now, row.id, row.updated_at);
         results.push({ id: row.id, ok: false, reason: 'no_warehouse' });
         continue;
       }
 
       const payload = buildMatrixPayload(db, row.product_id, channel, wh);
       if (!payload || payload.skip) {
-        db.prepare(`UPDATE website_stock_outbox SET status='done', last_result=?, last_error='', updated_at=? WHERE id=?`)
-          .run(JSON.stringify({ skipped: true, reason: payload && payload.reason }), now, row.id);
+        db.prepare(`UPDATE website_stock_outbox SET status='done', last_result=?, last_error='', updated_at=? WHERE id=? AND updated_at=?`)
+          .run(JSON.stringify({ skipped: true, reason: payload && payload.reason }), now, row.id, row.updated_at);
         results.push({ id: row.id, skipped: true });
         continue;
       }
@@ -639,7 +641,7 @@ async function drainWebsiteStockOutbox(db) {
         db.prepare(`
           UPDATE website_stock_outbox
           SET status='error', last_error=?, last_result=?, updated_at=?
-          WHERE id=?
+          WHERE id=? AND updated_at=?
         `).run(
           String(verdict.message || '').slice(0, 500),
           JSON.stringify({
@@ -652,7 +654,8 @@ async function drainWebsiteStockOutbox(db) {
             settled: 'product_sku_not_found',
           }),
           now,
-          row.id
+          row.id,
+          row.updated_at
         );
         results.push({
           id: row.id,
@@ -673,8 +676,8 @@ async function drainWebsiteStockOutbox(db) {
         db.prepare(`
           UPDATE website_stock_outbox
           SET status='done', last_result=?, last_error='', updated_at=?
-          WHERE id=?
-        `).run(JSON.stringify({ skipped: true, reason: push.reason || '' }), now, row.id);
+          WHERE id=? AND updated_at=?
+        `).run(JSON.stringify({ skipped: true, reason: push.reason || '' }), now, row.id, row.updated_at);
         results.push({ id: row.id, skipped: true, reason: push.reason || '' });
         continue;
       }
@@ -685,7 +688,7 @@ async function drainWebsiteStockOutbox(db) {
         db.prepare(`
           UPDATE website_stock_outbox
           SET status=?, last_result=?, last_error=?, payload_hash=?, updated_at=?
-          WHERE id=?
+          WHERE id=? AND updated_at=?
         `).run(
           rowStatus,
           JSON.stringify({
@@ -702,7 +705,8 @@ async function drainWebsiteStockOutbox(db) {
           push.ok ? '' : String(push.message || '').slice(0, 500),
           payload.idempotencyKey,
           now,
-          row.id
+          row.id,
+          row.updated_at
         );
         results.push({
           id: row.id,
@@ -723,14 +727,15 @@ async function drainWebsiteStockOutbox(db) {
         db.prepare(`
           UPDATE website_stock_outbox
           SET attempts=?, next_at=?, status=?, last_error=?, last_result=COALESCE(last_result,''), updated_at=?
-          WHERE id=?
+          WHERE id=? AND updated_at=?
         `).run(
           attempts,
           now + backoff,
           status,
           errText,
           now,
-          row.id
+          row.id,
+          row.updated_at
         );
         results.push({ id: row.id, ok: false, attempts, status, error: errText });
         if (status === 'pending') scheduleDrain(db);

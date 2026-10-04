@@ -94,6 +94,7 @@ function canViewInvoice(req, inv) {
 }
 
 const INVOICE_JOIN_SQL = `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
+            c.address as cust_address,c.economic_code as cust_economic_code,c.national_id as cust_national_id,c.postal_code as cust_postal_code,
             u.name as salesperson
      FROM invoices i
      LEFT JOIN customers c ON i.cust_id=c.id
@@ -1144,6 +1145,9 @@ router.get('/:id/print', auth, (req, res) => {
     company_name: getSetting(db, 'company_name'),
     company_address: getSetting(db, 'company_address'),
     company_phone: getSetting(db, 'company_phone'),
+    company_economic_code: getSetting(db, 'company_economic_code'),
+    company_national_id: getSetting(db, 'company_national_id'),
+    company_postal_code: getSetting(db, 'company_postal_code'),
     invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
     invoice_template_casual: 'casual-simple',
     invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
