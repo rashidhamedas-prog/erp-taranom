@@ -3,8 +3,8 @@
 - **ریشه (بازبینی ایجنت):** با باز شدن گیت `registered`، `postChequeInReceipt` در `send-to-bank`/`clear` سند دوم `cheque_in` + بستانکار دوبارهٔ مشتری می‌زد چون فقط `ref_type=cheque_in` را می‌دید نه `settlement`.
 - **رفع:** اگر چک `settlement_id`/`invoice_id` دارد یا سند تسویه موجود است، backfill رد می‌شود. چک خرید فاکتور از اول `issued` است تا پرداخت دوباره نشود. داشبورد از `CLOSED_*` کانونی (با `endorsed`) استفاده می‌کند.
 - **فایل‌ها:** `lib/{cheque-party-books,cheque-dashboard,purchase-payments}.js`, `public/{app.js,index.html,sw.js}`, تست v303، CHANGE-LOG.
-- **تست:** `test-cheque-invoice-lifecycle-v303` (+ assertion بدون `cheque_in`) + `test-sms`.
-- **Deploy:** در انتظار
+- **تست:** `test-cheque-invoice-lifecycle-v303` **23/0** (+ assertion بدون `cheque_in`) + `test-sms` **22/0**.
+- **Deploy:** ✅ `485dcc6` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v304`.
 
 ---
 
