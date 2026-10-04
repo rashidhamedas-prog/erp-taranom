@@ -179,6 +179,7 @@ function initPayrollSchema(db) {
     ['reversal_journal_id', 'INTEGER'],
     ['paid_at', 'INTEGER'],
     ['reversed_at', 'INTEGER'],
+    ['reversed_by', 'INTEGER'],
     ['paid_rial', 'INTEGER DEFAULT 0'],
   ];
   for (const [name, definition] of payrollColumns) ensureColumn(db, 'payroll_records', name, definition);

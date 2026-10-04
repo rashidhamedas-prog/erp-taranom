@@ -2493,6 +2493,16 @@ function initSyncSchema(db, opts) {
     console.warn('payroll_person_tafsili_reclass_v300:', e.message);
   }
 
+  try {
+    const { repairOrphanPayrollVoids } = require('./lib/payroll/void-accrual');
+    const vr = repairOrphanPayrollVoids(db);
+    if (vr && !vr.skipped && (vr.journals || vr.ledger || vr.records)) {
+      console.log('✅ payroll_void_sync_v301:', JSON.stringify(vr));
+    }
+  } catch (e) {
+    console.warn('payroll_void_sync_v301:', e.message);
+  }
+
   // v285 — remove standalone «سند ابطالی» pairs; soft-void originals instead
   try {
     const flag = db.prepare("SELECT value FROM settings WHERE key='purge_reversal_docs_v285'").get();

@@ -25,8 +25,8 @@ const {
   remainingRial,
   sumPaidRial,
 } = require('../lib/payroll/payments');
-const { reverseJournalEntry } = require('../lib/void-journal');
 const { resolvePersonPayableAccount } = require('../lib/payroll/person-account');
+const { voidPayrollAccrual } = require('../lib/payroll/void-accrual');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -74,7 +74,7 @@ function createPayrollRecord(db, userId, data) {
   if (netPay < 0) throw new Error('مجموع کسورات از حقوق ناخالص بیشتر است');
 
   const dup = db.prepare(
-    "SELECT id FROM payroll_records WHERE person_id=? AND period_label=? AND paid=0"
+    "SELECT id FROM payroll_records WHERE person_id=? AND period_label=? AND paid=0 AND COALESCE(status,'posted')<>'reversed'"
   ).get(person_id, period_label || '');
   if (dup) throw new Error(`حقوق دوره ${period_label || ''} برای ${person.name} قبلاً ثبت شده (پرداخت‌نشده)`);
 
@@ -93,11 +93,12 @@ function createPayrollRecord(db, userId, data) {
     if (ins + tax > 0) {
       lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: rialToLedger(ins + tax) });
     }
-    postToLedger(db, {
+    const journalId = postToLedger(db, {
       sourceType: 'payroll', sourceId: recId, date: date || todayJalali(),
       description: `حقوق ${person.name} (${period_label || ''})`,
       createdBy: userId, lines
     });
+    db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recId);
     createPersonLedgerEntry(db, {
       person_id, date: date || todayJalali(), entry_type: 'payroll', ref_type: 'payroll', ref_id: recId,
       description: `حقوق ${period_label || ''}`, debit: 0, credit: netPay, user_id: userId
@@ -1232,101 +1233,63 @@ router.post('/:id/void-payment', auth, requirePermission('payroll', 'create'), (
   }
 });
 
-router.delete('/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
-  const db = getDB();
-  const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (sumPaidRial(db, row.id) > 0 || row.paid) {
-    return res.status(400).json({ error: 'حقوق دارای پرداخت فعال است — ابتدا ابطال پرداخت کنید' });
-  }
-  if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً حذف/ابطال شده است' });
-  try {
-    db.transaction(() => {
-      const entry = db.prepare(`
-        SELECT * FROM journal_entries
-        WHERE id=COALESCE(?,id) AND ref_type='payroll' AND ref_id=?
-        ORDER BY id DESC LIMIT 1
-      `).get(row.journal_entry_id || null, row.id);
-      if (entry) {
-        reverseJournalEntry(db, entry.id, {
-          userId: req.user.id,
-          reason: `حذف سند حقوق #${row.id}`,
-          sourceType: 'payroll_reversal',
-        });
-      }
-      // Soft-void person ledger lines for this payroll (no reverse voucher)
-      try {
-        db.prepare(`
-          UPDATE person_ledger SET deleted_at=strftime('%s','now')
-          WHERE ref_type IN ('payroll','payroll_reversal') AND ref_id=? AND COALESCE(deleted_at,0)=0
-        `).run(row.id);
-      } catch (_) {
-        // older schemas without deleted_at — insert zeroing offset only if needed
-        createPersonLedgerEntry(db, {
-          person_id: row.person_id, date: todayJalali(), entry_type: 'payroll_void',
-          ref_type: 'payroll_void', ref_id: row.id, description: `حذف حقوق ${row.period_label || ''}`,
-          debit: row.net_pay || 0, credit: 0, user_id: req.user.id,
-        });
-      }
-      db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
-      if (row.period_id) {
-        const left = db.prepare(`
-          SELECT COUNT(*) c FROM payroll_records WHERE period_id=? AND COALESCE(status,'posted')<>'reversed'
-        `).get(row.period_id).c;
-        if (!left) {
-          db.prepare("UPDATE payroll_periods SET status='open', processed_at=NULL WHERE id=? AND status='processed'")
-            .run(row.period_id);
-        }
-      }
-    })();
-    audit(req.user.id, 'delete', 'payroll_record', row.id, `حذف سند حقوق #${row.id}`);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-/** حذف همهٔ محاسبات/اسناد حقوق پرداخت‌نشدهٔ یک دوره */
+/** ابطال همهٔ محاسبات پرداخت‌نشدهٔ یک دوره (R13 — قبل از /:id تا مسیر periods گیر نکند) */
 router.delete('/periods/:id/calculations', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(req.params.id);
   if (!period) return res.status(404).json({ error: 'دوره یافت نشد' });
-  if (period.status === 'closed') return res.status(400).json({ error: 'دوره بسته‌شده؛ حذف محاسبات مجاز نیست' });
+  if (period.status === 'closed') return res.status(400).json({ error: 'دوره بسته‌شده؛ ابطال محاسبات مجاز نیست' });
   try {
     const result = db.transaction(() => {
       const rows = db.prepare(`
         SELECT * FROM payroll_records
         WHERE period_id=? AND COALESCE(status,'posted')<>'reversed'
       `).all(period.id);
-      let deleted = 0;
+      let voided = 0;
       for (const row of rows) {
         if (row.paid || sumPaidRial(db, row.id) > 0) {
           throw new Error(`رکورد #${row.id} دارای پرداخت فعال است؛ ابتدا ابطال پرداخت کنید`);
         }
-        if (row.journal_entry_id) {
-          reverseJournalEntry(db, row.journal_entry_id, {
-            userId: req.user.id,
-            reason: `حذف محاسبات دوره ${period.label}`,
-          });
-        }
-        try {
-          db.prepare(`
-            UPDATE person_ledger SET deleted_at=strftime('%s','now')
-            WHERE ref_type IN ('payroll','payroll_reversal') AND ref_id=? AND COALESCE(deleted_at,0)=0
-          `).run(row.id);
-        } catch (_) {}
-        db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
-        deleted += 1;
+        voidPayrollAccrual(db, {
+          row,
+          userId: req.user.id,
+          reason: `ابطال محاسبات دوره ${period.label}`,
+          cascadePayments: false,
+          allowAlreadyReversed: false,
+        });
+        voided += 1;
       }
       db.prepare("UPDATE payroll_periods SET status='open', processed_at=NULL WHERE id=?").run(period.id);
-      return deleted;
+      return voided;
     })();
-    audit(req.user.id, 'delete', 'payroll_calculations', period.id, `حذف ${result} محاسبه دوره ${period.label}`);
-    res.json({ ok: true, deleted: result });
+    audit(req.user.id, 'reverse', 'payroll_calculations', period.id, `ابطال ${result} محاسبه دوره ${period.label}`);
+    res.json({ ok: true, voided: result, deleted: result });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
+
+function voidPayrollRecordHttp(req, res) {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  try {
+    const updated = db.transaction(() => voidPayrollAccrual(db, {
+      row,
+      userId: req.user.id,
+      reason: `ابطال سند حقوق #${row.id}`,
+      cascadePayments: true,
+      allowAlreadyReversed: false,
+    }))();
+    audit(req.user.id, 'reverse', 'payroll_record', row.id, `ابطال سند حقوق #${row.id}`);
+    res.json({ ok: true, status: updated.status, remaining_rial: 0 });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+}
+
+router.post('/:id/void', auth, requirePermission('payroll', 'create'), voidPayrollRecordHttp);
+router.delete('/:id', auth, requirePermission('payroll', 'create'), voidPayrollRecordHttp);
 
 // Monthly salary batch — persons with salary_type=monthly
 router.post('/monthly-batch', auth, requirePermission('payroll', 'create'), (req, res) => {

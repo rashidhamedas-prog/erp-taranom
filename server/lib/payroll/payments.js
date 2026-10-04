@@ -32,6 +32,7 @@ function sumPaidRial(db, payrollRecordId) {
 }
 
 function remainingRial(db, row) {
+  if (!row || row.status === 'reversed') return 0;
   return Math.max(0, netPayRial(row) - sumPaidRial(db, row.id));
 }
 
@@ -326,15 +327,18 @@ function voidAllPayrollPayments(db, row, userId, createPersonLedgerEntry) {
 
 function enrichPayrollRow(db, row) {
   if (!row) return row;
+  const reversed = row.status === 'reversed';
   const net = netPayRial(row);
-  const paid = row.paid_rial != null ? Math.round(Number(row.paid_rial) || 0) : sumPaidRial(db, row.id);
-  const remaining = Math.max(0, net - paid);
+  const paid = reversed
+    ? 0
+    : (row.paid_rial != null ? Math.round(Number(row.paid_rial) || 0) : sumPaidRial(db, row.id));
+  const remaining = reversed ? 0 : Math.max(0, net - paid);
   return {
     ...row,
     net_pay_rial: net,
     paid_rial: paid,
     remaining_rial: remaining,
-    payment_count: listActivePayments(db, row.id).length,
+    payment_count: reversed ? 0 : listActivePayments(db, row.id).length,
   };
 }
 
