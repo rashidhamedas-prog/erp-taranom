@@ -154,9 +154,42 @@
     else if (typeof opts.onSelectionChange === 'function') opts.onSelectionChange([]);
   }
 
+  /**
+   * سرستون و بدنه باید همان تعداد سلول را داشته باشند.
+   * ستون انتخاب فقط یک‌بار در سرستون ساخته می‌شود؛ ردیف‌های تازه فقط سلول گم‌شده را می‌گیرند.
+   */
+  function tblSyncColumns(table) {
+    const headerRow = table?.tHead?.rows?.[0];
+    const tbody = table?.tBodies?.[0];
+    if (!headerRow || !tbody) return;
+    const selHeaders = [...headerRow.cells].filter((th) => th.classList.contains('tbl-sel-th'));
+    selHeaders.slice(1).forEach((th) => th.remove());
+    const hasSel = selHeaders.length > 0;
+    [...tbody.rows].forEach((tr) => {
+      if (tr.querySelector('td[colspan]')) return;
+      const sels = [...tr.cells].filter((td) => td.classList.contains('tbl-sel-td'));
+      if (!hasSel) {
+        sels.forEach((td) => td.remove());
+        return;
+      }
+      sels.slice(1).forEach((td) => td.remove());
+      if (tr.querySelector('.tbl-sel-td')) return;
+      const td = document.createElement('td');
+      td.className = 'tbl-sel-td';
+      const id = tr.dataset.id || '';
+      td.innerHTML = `<input type="checkbox" class="tbl-sel-row" data-id="${id}" ${id ? '' : 'disabled'}>`;
+      tr.insertBefore(td, tr.firstChild);
+    });
+  }
+
   function enhanceDataTable(table, opts) {
-    if (!table || table.dataset.enhanced === '1') return;
+    if (!table) return;
     opts = opts || {};
+    if (table.dataset.enhanced === '1') {
+      if (opts.selectable) tblSyncColumns(table);
+      if (opts.footer !== false && table.tHead && table.tBodies[0]) rebuildFooter(table);
+      return;
+    }
     table.dataset.enhanced = '1';
     const thead = table.tHead;
     const tbody = table.tBodies[0];
@@ -186,38 +219,37 @@
         table._bulkBar = bar;
       }
 
-      const th = document.createElement('th');
-      th.className = 'tbl-sel-th no-sort';
-      th.innerHTML = `<input type="checkbox" title="انتخاب همه" class="tbl-sel-all">`;
-      headerRow.insertBefore(th, headerRow.firstChild);
-      [...tbody.rows].forEach((tr) => {
-        // ردیف خالی بدون id
-        if (!tr.dataset.id && tr.querySelector('.empty, td[colspan]')) return;
-        const td = document.createElement('td');
-        td.className = 'tbl-sel-td';
-        const id = tr.dataset.id || '';
-        td.innerHTML = `<input type="checkbox" class="tbl-sel-row" data-id="${id}" ${id ? '' : 'disabled'}>`;
-        tr.insertBefore(td, tr.firstChild);
-      });
       const refreshSel = () => {
         updateBulkBar(table, opts);
         if (opts.onSelectionChange) opts.onSelectionChange(selectedIds(table));
       };
-      th.querySelector('.tbl-sel-all').addEventListener('change', (e) => {
-        tbody.querySelectorAll('.tbl-sel-row:not([disabled])').forEach((cb) => {
-          if (cb.closest('tr').style.display === 'none') return;
-          cb.checked = e.target.checked;
+      if (!headerRow.querySelector('.tbl-sel-th')) {
+        const th = document.createElement('th');
+        th.className = 'tbl-sel-th no-sort';
+        th.innerHTML = `<input type="checkbox" title="انتخاب همه" class="tbl-sel-all">`;
+        headerRow.insertBefore(th, headerRow.firstChild);
+        th.querySelector('.tbl-sel-all').addEventListener('change', (e) => {
+          tbody.querySelectorAll('.tbl-sel-row:not([disabled])').forEach((cb) => {
+            if (cb.closest('tr').style.display === 'none') return;
+            cb.checked = e.target.checked;
+          });
+          refreshSel();
         });
-        refreshSel();
-      });
-      tbody.addEventListener('change', (e) => {
-        if (e.target.classList.contains('tbl-sel-row')) refreshSel();
-      });
+      }
+      tblSyncColumns(table);
+      if (tbody.dataset.selBound !== '1') {
+        tbody.dataset.selBound = '1';
+        tbody.addEventListener('change', (e) => {
+          if (e.target.classList.contains('tbl-sel-row')) refreshSel();
+        });
+      }
       updateBulkBar(table, opts);
     }
 
     [...headerRow.cells].forEach((th, idx) => {
       if (th.classList.contains('tbl-sel-th') || th.classList.contains('no-sort')) return;
+      if (th.dataset.sortBound === '1') return;
+      th.dataset.sortBound = '1';
       th.classList.add('tbl-sortable');
       th.title = (th.title || '') + ' — کلیک: سورت | راست‌کلیک: فیلتر';
       const label = th.textContent.trim();
@@ -429,6 +461,7 @@
   }
 
   global.enhanceDataTable = enhanceDataTable;
+  global.tblSyncColumns = tblSyncColumns;
   global.tblSelectedIds = selectedIds;
   global.tblSelectedRows = selectedRows;
   global.tblInferBulkDelete = inferBulkDelete;

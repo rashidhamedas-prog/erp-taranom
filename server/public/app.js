@@ -9266,11 +9266,15 @@ function tblHasClippingAncestor(el){
   try{
     let n=el.parentElement;
     while(n && n!==document.documentElement && n!==document.body){
+      // پوشش جدول، MDI و مودال اسکرول‌پورت خودشان هستند؛ top در CSS صفر است نه افست topbar
+      if(n.classList&&(n.classList.contains('tbl-wrap')||n.classList.contains('mdi-body')||n.classList.contains('mdi-win')||n.classList.contains('modal')||n.classList.contains('modal-body'))){
+        n=n.parentElement; continue;
+      }
       if(n.classList&&(n.classList.contains('erp-fold')||n.classList.contains('fup-folder'))) return true;
       const s=window.getComputedStyle(n);
       const ox=s.overflowX||s.overflow||'visible';
       const oy=s.overflowY||s.overflow||'visible';
-      if(/^(auto|scroll|hidden|clip)$/.test(ox) || /^(auto|scroll|hidden|clip)$/.test(oy)) return true;
+      if(/^(auto|scroll|hidden|clip)$/.test(oy) || /^(auto|scroll|hidden)$/.test(ox)) return true;
       n=n.parentElement;
     }
   }catch(_){}
@@ -9313,10 +9317,10 @@ function enhanceAccTables(root){
     if(wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
   });
   root.querySelectorAll('table.tbl').forEach(t=>{
+    if(tblHasClippingAncestor(t)) tblDisableSticky(t);
+    if(typeof tblSyncColumns==='function') tblSyncColumns(t);
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
-    /* ردیف جدول باید کامل دیده شود؛ اسکرول داخلی جدول ساخته نمی‌شود. */
-    if(tblHasClippingAncestor(t)) tblDisableSticky(t);
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const dataRows=[...t.tBodies[0].rows].filter(r=>!r.querySelector('td[colspan], .empty'));
     const wantFooter=dataRows.length>=2;
@@ -18123,9 +18127,7 @@ async function refreshAccProductsTableOnly(){
   const tbl=el('accProductsTbl');
   const countEl=el('accProdCount');
   if(!tbl || !tbl.tBodies[0]){ return loadAccTab('products'); }
-  // Reset enhance so footer/sort rebind after tbody swap
-  delete tbl.dataset.enhanced;
-  const oldBar=tbl._bulkBar; if(oldBar) oldBar.remove();
+  // بدنه عوض می‌شود؛ سرستون و ستون انتخاب دست نمی‌خورند تا تعداد سلول‌ها یکی بماند
   tbl.tBodies[0].innerHTML=_accProductsRowsHtml(rows, canMut);
   if(countEl) countEl.textContent=fmt(catalog.total!=null?catalog.total:rows.length)+' کالا';
   if(typeof enhanceDataTable==='function'){
@@ -24773,7 +24775,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
-        <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
+        <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد. عنوان هر ستون روی همان داده می‌ماند. جستجوی کالا فقط ردیف‌ها را عوض می‌کند و ستون انتخاب را دوباره به سرستون اضافه نمی‌کند.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
@@ -25394,7 +25396,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v307</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v308</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>

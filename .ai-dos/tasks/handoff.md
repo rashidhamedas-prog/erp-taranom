@@ -1,4 +1,10 @@
-﻿## 2026-10-04 — NONTAX integration reclaim (owner ordered commit+deploy)
+﻿## 2026-10-04 — Table column sync (SW v308)
+
+- Owner ordered a root fix for list tables whose headers do not sit on their data (skill-top full). Screenshot: products grid, two selection checkboxes, labels shifted one column.
+- Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md` (recorded 2026-10-01). This session edits those plus `app.css` and `tbl-enhance.js` only for the shared table contract. Did not touch production libs, `db.js`, or `capture.js`.
+- Invariant: one `table.tbl`; at most one `.tbl-sel-th`; every data row matches the header cell count. Re-enhance and product search must not insert a second selection column.
+
+## 2026-10-04 — NONTAX integration reclaim (owner ordered commit+deploy)
 
 - Owner explicitly ordered commit, merge to main, push, and Iran deploy of the non-tax remediation.
 - Stale claims (recorded 2026-10-01, older than 24h): PROD-ACC-PA02 still lists `docs/CHANGE-LOG.md` and `server/public/{app.js,index.html,sw.js}`. This session touched those only for the v307 help paragraph, cache query, SW name, and CHANGE-LOG entry. Did not edit `server/db.js`, `server/jalali.js`, `server/sync/{tables,capture}.js`, production libs, or Android files.

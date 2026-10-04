@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../public/app.css">
+</head>
+<body>
+<div class="layout"><aside class="sidebar"></aside><div class="main">
+  <div class="topbar">top</div>
+  <div class="mdi-win mdi-maximized"><div class="mdi-body"><div class="tbl-wrap">
+    <table class="tbl" id="geom">
+      <thead><tr>
+        <th class="tbl-sel-th"><input type="checkbox"></th>
+        <th>کد</th><th>نام</th><th>گروه</th><th>موجودی</th><th>قیمت (ریال)</th><th>بهای تمام‌شده</th><th>عملیات</th>
+      </tr></thead>
+      <tbody><tr>
+        <td class="tbl-sel-td"><input type="checkbox"></td>
+        <td>K-00015</td><td>دکمه پیراهنی صدفی</td><td>خرج کار</td><td>•</td><td>۱۰۳,۱۰۴</td><td>•</td>
+        <td><button>✏️</button><button>🗑️</button></td>
+      </tr></tbody>
+    </table>
+  </div></div></div>
+</div></div>
+<div id="logic"></div>
+<script src="../../public/tbl-enhance.js"></script>
+<script>
+const fails = [];
+function eq(name, cond){ if(!cond) fails.push(name); }
+
+const host = document.createElement('div');
+host.className = 'tbl-wrap';
+host.innerHTML = '<table class="tbl" id="logicTbl"><thead><tr><th>کد</th><th>نام</th><th class="no-sort">عملیات</th></tr></thead><tbody>'
+  + '<tr data-id="1"><td>A</td><td>یک</td><td>x</td></tr>'
+  + '<tr data-id="2"><td>B</td><td>دو</td><td>x</td></tr></tbody></table>';
+document.body.appendChild(host);
+const logicTbl = host.querySelector('table');
+enhanceDataTable(logicTbl, { selectable: true, footer: true, bulkDelete: { path: '/products', label: 'حذف' } });
+enhanceDataTable(logicTbl, { selectable: true, footer: true, bulkDelete: { path: '/products', label: 'حذف' } });
+const th0 = logicTbl.tHead.rows[0].cells.length;
+const selTh = logicTbl.tHead.rows[0].querySelectorAll('.tbl-sel-th').length;
+eq('one-sel-th', selTh === 1);
+eq('body-match', [...logicTbl.tBodies[0].rows].every(tr => tr.cells.length === th0));
+logicTbl.tBodies[0].innerHTML = '<tr data-id="9"><td>C</td><td>سه</td><td>x</td></tr><tr data-id="8"><td>D</td><td>چهار</td><td>x</td></tr>';
+enhanceDataTable(logicTbl, { selectable: true, footer: true });
+eq('still-one-sel', logicTbl.tHead.rows[0].querySelectorAll('.tbl-sel-th').length === 1);
+eq('rebody-match', [...logicTbl.tBodies[0].rows].every(tr => tr.cells.length === logicTbl.tHead.rows[0].cells.length && tr.querySelector('.tbl-sel-td')));
+const extra = document.createElement('th');
+extra.className = 'tbl-sel-th';
+logicTbl.tHead.rows[0].appendChild(extra);
+tblSyncColumns(logicTbl);
+eq('dedupe', logicTbl.tHead.rows[0].querySelectorAll('.tbl-sel-th').length === 1);
+eq('dedupe-rows', [...logicTbl.tBodies[0].rows].every(tr => tr.cells.length === logicTbl.tHead.rows[0].cells.length));
+
+const gth = [...document.querySelectorAll('#geom thead th')];
+const gtd = [...document.querySelectorAll('#geom tbody tr:first-child td')];
+let maxD = 0;
+gth.forEach((th, i) => {
+  const a = th.getBoundingClientRect();
+  const b = gtd[i] && gtd[i].getBoundingClientRect();
+  if (!b) { fails.push('geom-missing-'+i); return; }
+  maxD = Math.max(maxD, Math.abs(a.left - b.left), Math.abs(a.width - b.width));
+});
+eq('geom-align', maxD < 1);
+const out = document.getElementById('logic');
+out.textContent = (fails.length ? 'FAIL '+fails.join(',') : 'PASS') + ' maxD=' + maxD.toFixed(2);
+</script>
+</body>
+</html>
