@@ -173,7 +173,7 @@ function normalizeInviteUsername(raw) {
     .slice(0, 64);
 }
 
-function acceptInvitation(db, { rawToken, username, password }) {
+function acceptInvitation(db, { rawToken, username, password, passwordHash }) {
   const token = String(rawToken || '').trim();
   const userName = normalizeInviteUsername(username);
   const pass = String(password || '');
@@ -241,7 +241,7 @@ function acceptInvitation(db, { rawToken, username, password }) {
       throw err;
     }
 
-    const hash = bcrypt.hashSync(pass, 10);
+    const hash = passwordHash || bcrypt.hashSync(pass, 10);
     const userCols = tableColumns(db, 'users');
     const fields = ['name', 'username', 'password', 'role', 'active', 'must_change_password'];
     const intendedRole = roleFromInviteRow(row);

@@ -49,8 +49,8 @@ function yearPnLNetRial(db, fyId) {
   `).get(fyId || null, fyId || null).net || 0;
 }
 
-function requireAdminPassword(db, userId, password) {
-  requireUserPassword(db, userId, password);
+async function requireAdminPassword(db, userId, password) {
+  await requireUserPassword(db, userId, password);
 }
 
 function fyTxnCount(db, fyId) {
@@ -165,14 +165,15 @@ function openFreshYear(db, { label, startDate, endDate, userId, mode }) {
 }
 
 // Pathway 2: Factory reset — purge transactions, keep master data
-router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/factory-reset', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const { confirm_text } = req.body || {};
     if (confirm_text !== 'RESET-FISCAL') {
       return res.status(400).json({ error: 'متن تأیید نادرست است — RESET-FISCAL را تایپ کنید' });
     }
     const db = getDB();
-    requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
+    await requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
+    assertNotLegacyLocked(db, 'بازنشانی کامل');
     const label = 'سال مالی جدید ' + todayJalali().slice(0, 4);
     const opened = openFreshYear(db, {
       label,
@@ -198,7 +199,7 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
  * Keeps users, base COA (group/kol/moein), settings, empty warehouses/banks (coa cleared).
  * Confirm: OPEN-CLEAN-YEAR + password.
  */
-router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/open-clean', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const {
       label, start_date, end_date,
@@ -211,7 +212,8 @@ router.post('/open-clean', auth, adminOnly, centralOnly, (req, res) => {
       return res.status(400).json({ error: 'برچسب و تاریخ شروع الزامی است' });
     }
     const db = getDB();
-    requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
+    await requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body));
+    assertNotLegacyLocked(db, 'افتتاح سال خام');
     const opened = openFreshYear(db, {
       label,
       startDate: start_date,
@@ -270,7 +272,7 @@ router.post('/:id/unlock', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ success: true, data: { id: fy.id, status: 'open' } });
 });
 
-router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.delete('/:id', auth, adminOnly, centralOnly, async (req, res) => {
   const db = getDB();
   const fy = db.prepare('SELECT * FROM fiscal_years WHERE id=?').get(req.params.id);
   if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
@@ -290,7 +292,7 @@ router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
       });
     }
     try {
-      requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body) || confirm_password);
+      await requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body) || confirm_password);
     } catch (e) {
       return res.status(e.status || 403).json({ error: e.message, code: e.code });
     }

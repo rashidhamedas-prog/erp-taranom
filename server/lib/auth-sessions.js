@@ -11,7 +11,7 @@ const ISSUER = 'erp-taranom';
 const STAFF_AUDIENCE = 'erp-staff';
 const PRE_2FA_AUDIENCE = 'erp-pre-2fa';
 const B2B_AUDIENCE = 'erp-b2b';
-const STAFF_TTL_SEC = 30 * 24 * 60 * 60;
+const STAFF_TTL_SEC = 12 * 60 * 60;
 const B2B_TTL_SEC = 7 * 24 * 60 * 60;
 const CHALLENGE_TTL_SEC = 5 * 60;
 const CLEANUP_INTERVAL_SEC = 6 * 60 * 60;
@@ -219,11 +219,21 @@ function mirrorStaffSession(db, sidHash, user, device, expiresAt) {
   }
 }
 
+function staffPolicy() {
+  try {
+    const { getDB } = require('../db');
+    return require('./staff-security').staffSessionPolicy(getDB());
+  } catch {
+    return { absoluteSec: STAFF_TTL_SEC, idleSec: 8 * 60 * 60 };
+  }
+}
+
 function issueStaffSession(db, user, input = {}) {
   maybeCleanup();
   const device = assertStaffSlotAvailable(user.id, input);
   const now = nowSec();
-  const expiresAt = now + STAFF_TTL_SEC;
+  const policy = staffPolicy();
+  const expiresAt = now + policy.absoluteSec;
   const sid = randomOpaque();
   const sidHash = opaqueHash(sid);
   const fph = fingerprintHash(device.fingerprint);
@@ -259,7 +269,7 @@ function issueStaffSession(db, user, input = {}) {
     cid: companyId,
     sid,
     dslot: device.slot,
-  }, SECRET, { issuer: ISSUER, audience: STAFF_AUDIENCE, expiresIn: STAFF_TTL_SEC });
+  }, SECRET, { issuer: ISSUER, audience: STAFF_AUDIENCE, expiresIn: policy.absoluteSec });
   return { token, device, expiresAt, sidHash };
 }
 
@@ -277,6 +287,14 @@ function validateStaffSession(payload) {
   `).get(opaqueHash(payload.sid), Number(payload.id), companyId, now);
   if (!row || Number(payload.cid) !== companyId
       || Number(row.auth_epoch) !== Number(payload.ae || 0)) return null;
+  const policy = staffPolicy();
+  const age = now - Number(row.created_at || 0);
+  const idleFor = now - Number(row.last_seen || row.created_at || 0);
+  if (age >= policy.absoluteSec || idleFor >= policy.idleSec) {
+    getStore().prepare('UPDATE staff_sessions SET revoked_at=? WHERE sid_hash=? AND revoked_at IS NULL')
+      .run(now, row.sid_hash);
+    return null;
+  }
   if (now - Number(row.last_seen || 0) >= 60) {
     getStore().prepare('UPDATE staff_sessions SET last_seen=? WHERE sid_hash=?').run(now, row.sid_hash);
   }

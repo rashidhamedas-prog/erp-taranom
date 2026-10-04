@@ -24,11 +24,11 @@
 // operations can never post differently than direct ones.
 const router = require('express').Router();
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getDB, isDevice, audit } = require('../db');
 const { auth, adminOnly, SECRET } = require('../middleware/auth');
 const { SYNCABLE_TABLES, isProvisionalId } = require('../sync/tables');
+const { isSecretSetting } = require('../lib/secret-settings');
 const { tableForPath } = require('../sync/capture');
 const {
   MAX_CLOCK_SKEW_SEC,
@@ -123,15 +123,21 @@ if (!isDevice()) {
   router.post(RESET_ROUTES, factoryResetGuard, (req, res) => res.status(403).json({ error: 'بازنشانی دستگاه روی سرور مرکزی معنا ندارد', code: 'E_RESET_ROLE' }));
 
   // ---- Pairing ----
-  router.post('/pair', (req, res) => {
+  router.post('/pair', async (req, res) => {
     const { username, password, device_name, replay_public_key } = req.body;
     if (!username || !password || !device_name || !replay_public_key) {
       return res.status(400).json({ error: 'نام کاربری، رمز عبور و نام دستگاه الزامی است' });
     }
     const db = getDB();
     const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-    if (!user || !bcrypt.compareSync(password, user.password)) {
+    const { verifyPassword, hashPassword, needsRehash } = require('../lib/password-verify');
+    if (!user || !await verifyPassword(password, user.password)) {
       return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
+    }
+    if (needsRehash(user.password)) {
+      try {
+        db.prepare('UPDATE users SET password=? WHERE id=?').run(await hashPassword(password), user.id);
+      } catch { /* pairing still succeeds with the existing bcrypt hash */ }
     }
     if (user.role !== 'admin') {
       return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند دستگاه جدید متصل کند' });
@@ -478,7 +484,12 @@ if (!isDevice()) {
     }
   });
 
-  // ---- Pull: incremental changes since a global sequence ----
+  function redactPulledRow(tableName, row) {
+  if (!row || tableName !== 'settings' || !isSecretSetting(row.key) || !row.value) return row || null;
+  return { ...row, value: '' };
+}
+
+// ---- Pull: incremental changes since a global sequence ----
   router.get('/pull', deviceAuth, (req, res) => {
     const db = getDB();
     const since = parseInt(req.query.since);
@@ -488,7 +499,7 @@ if (!isDevice()) {
     const changes = [];
     for (const t of SYNCABLE_TABLES) {
       const rows = db.prepare(`SELECT * FROM ${t.name} WHERE sync_seq > ? ORDER BY sync_seq LIMIT ?`).all(from, limit);
-      for (const row of rows) changes.push({ seq: row.sync_seq, tbl: t.name, row });
+      for (const row of rows) changes.push({ seq: row.sync_seq, tbl: t.name, row: redactPulledRow(t.name, row) });
     }
     for (const ts of db.prepare('SELECT * FROM sync_tombstones WHERE sync_seq > ? ORDER BY sync_seq LIMIT ?').all(from, limit)) {
       changes.push({ seq: ts.sync_seq, tbl: ts.tbl, del: ts.row_key });
@@ -508,7 +519,7 @@ if (!isDevice()) {
     if (!spec) return res.status(400).json({ error: 'جدول نامعتبر' });
     const db = getDB();
     const row = db.prepare(`SELECT * FROM ${spec.name} WHERE ${spec.upsertKey}=?`).get(id);
-    res.json({ row: row || null });
+    res.json({ row: redactPulledRow(spec.name, row) });
   });
 }
 

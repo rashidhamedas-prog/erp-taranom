@@ -185,6 +185,10 @@ async function api(method, path, data, isFormData, silent){
     if(!r.ok){
       // تغییر اجباری رمز: تا وقتی رمز عوض نشود، سرور بقیه درخواست‌ها را رد می‌کند
       if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
+      if(r.status===403 && j.code==='twofa_setup_required'){
+        if(!el('twofa-force-code')) openForce2FASetup();
+        const err=new Error(j.error||'ورود دو مرحله‌ای اجباری است'); err.code=j.code; err.status=403; err.payload=j; throw err;
+      }
       const code=j.code||j.error||'error';
       const pname=j.name||j.product_name||'';
       const prodFriendly={
@@ -753,6 +757,15 @@ function syncAcctDrawerUser(){
   const fab=el('acctFab'); if(fab){ fab.title=T('حساب کاربری'); fab.setAttribute('aria-label',T('منوی حساب کاربری')); }
 }
 function onSettingsLangChange(lang){
+  const saved=CACHE.settings||{};
+  const dirty=(el('s-company_name')&&(el('s-company_name').value||'')!==(saved.company_name||''))
+    ||(el('s-company_phone')&&(el('s-company_phone').value||'')!==(saved.company_phone||''))
+    ||(el('s-company_address')&&(el('s-company_address').value||'')!==(saved.company_address||''));
+  if(dirty && !confirm('نام، تلفن یا آدرس شرکت هنوز ذخیره نشده است. با عوض کردن زبان این متن پاک می‌شود. ادامه می‌دهید؟')){
+    const sel=el('s-app_lang');
+    if(sel) sel.value=getAppLang();
+    return;
+  }
   setAppLang(lang);
   try{ buildNav(); }catch(_){}
   applyAppLanguage();
@@ -1390,6 +1403,9 @@ el('loginForm').addEventListener('submit', async (e)=>{
     if(j.must_change_password){
       el('login').style.display='none'; openForcePassChange(); return;
     }
+    if(j.twofa_setup_required){
+      el('login').style.display='none'; openForce2FASetup(); return;
+    }
     try {
       await boot();
     } catch (bootErr) {
@@ -1453,6 +1469,66 @@ async function doForcePassChange(){
   closeModal();
   showToast('رمز عبور با موفقیت تغییر کرد');
   if(el('app').style.display!=='block') await boot();
+}
+
+let _force2faReady = false;
+function openForce2FASetup(){
+  if(el('twofa-force-code')) return;
+  _force2faReady = false;
+  if(el('login')) el('login').style.display='none';
+  el('modalRoot').innerHTML = `<div class="overlay open">
+    <div class="modal">
+      <div class="modal-head"><h3>🔐 فعال‌سازی اجباری ورود دو مرحله‌ای</h3></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:13px;margin-bottom:12px;line-height:1.9`)}">
+          برای نقش شما ورود دو مرحله‌ای اجباری است. کلید را در Google Authenticator (یا مشابه) ثبت کنید و کد ۶ رقمی را وارد کنید.</p>
+        <div id="twofa-force-secret" class="muted">در حال ساخت کلید…</div>
+        <div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
+          <div class="fg full"><label>کد ۶ رقمی</label>
+            <input id="twofa-force-code" dir="ltr" maxlength="6" inputmode="numeric" autocomplete="one-time-code"></div>
+        </div>
+        <div id="twofa-force-err" class="login-err" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>
+        <div id="twofa-force-codes" data-csp-style="${CSP.style(`display:none;margin-top:10px;padding:10px;background:#fffbeb;border-radius:8px`)}"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="twofa-force-go" data-csp-click="${CSP.bind('click',function(event){confirmForce2FASetup()})}">تأیید و ادامه</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal();logout()})}">خروج</button>
+      </div>
+    </div></div>`;
+  beginForce2FASetup();
+}
+async function beginForce2FASetup(){
+  const box=el('twofa-force-secret');
+  const err=el('twofa-force-err');
+  try{
+    const r = await api('POST','/auth/2fa/setup');
+    if(!r || !r.secret){ if(err) err.textContent='ساخت کلید ممکن نشد'; return; }
+    if(box) box.innerHTML='کلید: <span class="mono" dir="ltr">'+esc(r.secret)+'</span>';
+  }catch(e){ if(err) err.textContent=e.message||'خطا'; }
+}
+async function confirmForce2FASetup(){
+  if(_force2faReady){
+    _force2faReady=false;
+    closeModal();
+    if(el('app').style.display!=='block') await boot();
+    return;
+  }
+  const err=el('twofa-force-err'); if(err) err.textContent='';
+  const code=el('twofa-force-code')?el('twofa-force-code').value.trim():'';
+  if(!code){ if(err) err.textContent='کد را وارد کنید'; return; }
+  try{
+    const r = await api('POST','/auth/2fa/verify',{code});
+    if(!r || !r.ok) return;
+    const div=el('twofa-force-codes');
+    if(div){
+      div.style.display='block';
+      div.innerHTML='<strong>کدهای بازیابی را ذخیره کنید، سپس «ورود به برنامه» را بزنید:</strong><br><span class="mono" dir="ltr">'+(r.recovery_codes||[]).map(esc).join(' · ')+'</span>';
+    }
+    const go=el('twofa-force-go');
+    if(go) go.textContent='ورود به برنامه';
+    _force2faReady=true;
+    showToast('ورود دو مرحله‌ای فعال شد');
+  }catch(e){ if(err) err.textContent=e.message||'خطا'; }
 }
 
 /* ---- 2FA login step (TOTP) ---- */
@@ -7673,7 +7749,29 @@ async function loadSettUsersPanel(){
   const box=el('sett-mount-users'); if(!box) return;
   if(!isAdmin()){ box.innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users', 60000)||[];
+  if(!CACHE.settings || !Object.keys(CACHE.settings).length){
+    try{ CACHE.settings = await api('GET','/settings') || {}; }catch{ CACHE.settings = CACHE.settings || {}; }
+  }
+  const policy = CACHE.settings || {};
+  const absHours = policy.session_absolute_hours || '12';
+  const idleHours = policy.session_idle_hours || '8';
+  const requiredRoles = new Set(String(policy.twofa_required_roles||'').split(',').map(s=>s.trim()).filter(Boolean));
+  const policyRoles = ['admin','accounting','sales_manager','inside_sales','field_sales','distribution_office','production_manager','production_operator','unit_manager','department_manager'];
   box.innerHTML=`
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      <div class="panel-body">
+        <h4 data-csp-style="${CSP.style(`margin:0 0 6px`)}">عمر نشست و ورود دو مرحله‌ای</h4>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:13px;line-height:1.8;margin-bottom:8px`)}">نشست کارکنان حداکثر ۱۲ ساعت می‌ماند و اگر ۸ ساعت کاری با برنامه نباشد قطع می‌شود. این اعداد را بین ۱ تا ۲۴ ساعت می‌توانید عوض کنید. نقش‌هایی که تیک بخورند، تا وقتی کد Authenticator را فعال نکرده باشند به بقیهٔ برنامه دسترسی ندارند. دستگاه ویندوز و اندروید از این اجبار معاف‌اند. رمزهای تازه با Argon2id ذخیره می‌شوند و رمز قدیمی bcrypt در ورود موفق بعدی عوض می‌شود.</p>
+        <div class="form-grid">
+          <div class="fg"><label>سقف عمر نشست (ساعت)</label><input id="s-session-absolute" type="number" min="1" max="24" value="${esc(absHours)}"></div>
+          <div class="fg"><label>قطع بعد از بیکاری (ساعت)</label><input id="s-session-idle" type="number" min="1" max="24" value="${esc(idleHours)}"></div>
+        </div>
+        <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 12px`)}">
+          ${policyRoles.map(role=>`<label><input type="checkbox" class="twofa-role-chk" value="${role}" ${requiredRoles.has(role)?'checked':''}> ${esc(roleLabel(role))}</label>`).join('')}
+        </div>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveStaffSecurityPolicy()})}">ذخیره سیاست ورود</button>
+      </div>
+    </div>
     <div class="toolbar"><button class="btn" data-csp-click="${CSP.bind('click',function(event){userModal()})}">کاربر جدید</button></div>
     <div class="panel"><div class="panel-body tbl-wrap">
       <table class="tbl"><thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>تلفن</th><th>آخرین ورود</th><th>وضعیت</th><th>عملیات</th></tr></thead>
@@ -7692,6 +7790,19 @@ async function loadSettUsersPanel(){
   if(typeof syncTblStickyTop==='function') syncTblStickyTop();
 }
 function refreshSettUsers(){ if(el('sett-mount-users')) loadSettUsersPanel(); else settOpenTab('users'); }
+async function saveStaffSecurityPolicy(){
+  const absolute = el('s-session-absolute') ? el('s-session-absolute').value : '12';
+  const idle = el('s-session-idle') ? el('s-session-idle').value : '8';
+  const roles = [...document.querySelectorAll('.twofa-role-chk:checked')].map(node => node.value);
+  const saved = await api('PUT','/settings',{
+    session_absolute_hours: absolute,
+    session_idle_hours: idle,
+    twofa_required_roles: roles.join(','),
+  });
+  if(!saved) return;
+  CACHE.settings = saved;
+  showToast('سیاست ورود ذخیره شد. نشست‌های باز با سقف جدید در درخواست بعدی سنجیده می‌شوند.');
+}
 async function userModal(id){
   await ensurePartyGroups(true);
   await loadLiveWarehousesForAccess();
@@ -7709,12 +7820,19 @@ async function userModal(id){
         </select>
       </div>
       <div class="fg"><label>نقش ${hlp('حضوری و تلفنی و دفتر پخش و مدیر فروش فقط مشتریان خودشان را می‌بینند. حسابدار و مدیر سیستم همه مشتریان را می‌بینند. مدیر سیستم به تنظیمات هم دسترسی دارد.')}</label><select id="u-role">
-        <option value="field_sales" ${(u.role==='field_sales'||u.role==='salesperson')?'selected':''}>کارشناس میدانی (حضوری)</option>
-        <option value="inside_sales" ${u.role==='inside_sales'?'selected':''}>کارشناس داخلی (تلفنی)</option>
-        <option value="distribution_office" ${u.role==='distribution_office'?'selected':''}>دفتر پخش</option>
-        <option value="sales_manager" ${u.role==='sales_manager'?'selected':''}>مدیر فروش</option>
-        <option value="accounting" ${u.role==='accounting'?'selected':''}>حسابدار (بخش حسابداری)</option>
-        <option value="admin" ${u.role==='admin'?'selected':''}>مدیر سیستم</option></select></div>
+        ${[
+          ['field_sales','کارشناس میدانی (حضوری)'],
+          ['inside_sales','کارشناس داخلی (تلفنی)'],
+          ['distribution_office','دفتر پخش'],
+          ['sales_manager','مدیر فروش'],
+          ['accounting','حسابدار (بخش حسابداری)'],
+          ['admin','مدیر سیستم'],
+          ['production_manager','مدیر تولید'],
+          ['production_operator','اپراتور تولید'],
+          ['unit_manager','مدیر واحد'],
+          ['department_manager','مدیر بخش']
+        ].map(([value,label])=>`<option value="${value}" ${(u.role===value||(value==='field_sales'&&u.role==='salesperson'))?'selected':''}>${label}</option>`).join('')}
+      </select></div>
       <div class="fg"><label>رمز عبور${id?'':' *'} ${hlp('رمز ورود کاربر — به‌صورت رمزنگاری‌شده (bcrypt) ذخیره می‌شود.')}</label>${id?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">برای تغییر رمز، از دکمه «رمز» در فهرست کاربران استفاده کنید. ویرایش پروفایل رمز کاربر را تغییر نمی‌دهد.</div>`:`<input id="u-pass" type="password" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"></input>`}</div>
       <div class="fg"><label>وضعیت ${hlp('کاربر غیرفعال بلافاصله از سیستم خارج می‌شود و امکان ورود ندارد؛ داده‌هایش حفظ می‌شود.')}</label><select id="u-active">
         <option value="1" ${u.active?'selected':''}>فعال</option>
@@ -8137,7 +8255,7 @@ async function companyActivate(id){
   if(!id) return;
   const cur=CACHE.companies?.activeCompanyId;
   if(cur && +cur===+id) return;
-  if(!confirm('تعویض شرکت فعال؟ صفحه رفرش می‌شود و داده‌های شرکت انتخاب‌شده نمایش داده می‌شود.')) {
+  if(!confirm('تعویض شرکت فعال؟ نشست همهٔ کاربران و پورتال باطل می‌شود و باید دوباره وارد شوند. صفحه هم از نو بارگذاری می‌شود.')) {
     // revert select
     if(el('co-active-select') && cur) el('co-active-select').value=String(cur);
     return;
@@ -8153,20 +8271,18 @@ async function companyRename(id){
   showToast('نام به‌روز شد'); settOpenTab('general');
 }
 async function companyDelete(id){
-  const pass=prompt('رمز عبور مدیر برای حذف شرکت:');
-  if(!pass) return;
-  let body={confirm_password:pass};
-  try{
-    await api('DELETE','/companies/'+id,body);
-  }catch(e){
-    const msg=e?.message||e?.error||'';
-    if(/سند|فاکتور|DELETE-COMPANY/i.test(msg)){
-      const text=prompt(msg+'\n\nبرای حذف اجباری عبارت DELETE-COMPANY را تایپ کنید:');
-      if(text!=='DELETE-COMPANY') return;
-      await api('DELETE','/companies/'+id,{confirm_password:pass,confirm_text:text});
-    }else{ showToast(msg||'حذف نشد','error'); return; }
-  }
-  showToast('شرکت حذف شد'); settOpenTab('general');
+  openTypedConfirm({
+    title:'حذف شرکت',
+    phrase:'DELETE-COMPANY',
+    needPassword:true,
+    body:'رمز در این صفحه دیده نمی‌شود. اگر شرکت سند داشته باشد، همان عبارت و رمز لازم است.',
+    okLabel:'حذف شرکت',
+    onOk:async ({password,text})=>{
+      await api('DELETE','/companies/'+id,{confirm_password:password,confirm_text:text});
+      showToast('شرکت حذف شد');
+      settOpenTab('general');
+    }
+  });
 }
 async function refreshWorkspaceBadge(){
   try{
@@ -8294,11 +8410,17 @@ async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_c
   }catch(e){}
 }
 async function resetPass(id,name){
-  const np = prompt('رمز جدید برای '+name+' (حداقل ۸ کاراکتر، حرف و عدد):');
-  if(!np) return;
+  if(!confirm('برای '+name+' یک رمز تصادفی ساخته می‌شود، نشست‌های او بسته می‌شود و در ورود بعدی باید رمز را عوض کند. ادامه می‌دهید؟')) return;
   try{
-    await api('POST','/auth/reset-password',{user_id:id,new_pass:np});
-    showToast('رمز بازنشانی شد — کاربر در ورود بعدی باید عوضش کند');
+    const r=await api('POST','/auth/reset-password',{user_id:id,generate:true});
+    const temp=r&&r.temporary_password;
+    if(!temp){ showToast('رمز بازنشانی شد'); return; }
+    openModal(`<div class="modal-head"><h3>رمز یک‌بارمصرف</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+      <div class="modal-body">
+        <p class="muted">این رمز فقط همین‌جا نشان داده می‌شود. آن را به ${esc(name)} بدهید. در ورود بعدی باید عوضش کند.</p>
+        <input dir="ltr" readonly value="${esc(temp)}" data-csp-click="${CSP.bind('click',function(){this.select()})}">
+      </div>
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
   }catch(e){
     showToast(e.message||'بازنشانی رمز ناموفق','error');
   }
@@ -23118,6 +23240,7 @@ async function loadSettSmsPanel(){
       </select></div>
       <div class="fg"><label>API Key</label><input id="sms-key" value="${esc(provider.sms_api_key||'')}" dir="ltr"></div>
       <div class="fg"><label>فرستنده</label><input id="sms-from" value="${esc(provider.sms_from||'')}" dir="ltr"></div>
+      <div class="fg"><label>شناسه الگوی OTP ${hlp('خالی بماند تا کد ورود مثل قبل با متن آزاد برود. برای کاوه‌نگار نام الگوی verify/lookup و برای ملی‌پیامک همان bodyId است. اگر پر باشد و ارسال الگو شکست بخورد، متن دوم فرستاده نمی‌شود.')}</label><input id="sms-otp-template" value="${esc(provider.sms_otp_template||'')}" dir="ltr" placeholder="خالی = متن فعلی"></div>
       <div class="fg full"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSmsProvider()})}">ذخیره سرویس</button>
         <input id="sms-test-phone" placeholder="09…" data-csp-style="${CSP.style(`margin:0 8px;padding:8px;border:1.5px solid var(--input-border,var(--border));border-radius:8px;direction:ltr;max-width:160px`)}">
         <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){testSmsModule()})}">تست</button></div>
@@ -23186,7 +23309,7 @@ async function loadSettSmsPanel(){
 }
 function refreshSettSms(){ if(el('sett-mount-sms')) loadSettSmsPanel(); else settOpenTab('sms'); }
 async function saveSmsProvider(){
-  await api('PUT','/sms-module/provider',{sms_provider:el('sms-prov').value,sms_api_key:el('sms-key').value,sms_from:el('sms-from').value});
+  await api('PUT','/sms-module/provider',{sms_provider:el('sms-prov').value,sms_api_key:el('sms-key').value,sms_from:el('sms-from').value,sms_otp_template:el('sms-otp-template')?.value||''});
   showToast('ذخیره شد');
 }
 async function testSmsModule(){
@@ -23372,6 +23495,9 @@ function invoiceTemplateSettingsHtml(s){
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
       <div class="fg fg-md"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
       <div class="fg full"><label>متن پاورقی سفارشی ${hlp('اگر خالی باشد متن پیش‌فرض تاریخ صدور چاپ می‌شود.')}</label><input id="s-inv-footer_text" value="${esc(cust.footer_text||'')}" placeholder="مثلاً: با تشکر از حسن انتخاب شما"></div>
+      <div class="fg"><label>کد اقتصادی شرکت</label><input id="s-company_economic_code" dir="ltr" value="${esc(s.company_economic_code||'')}" placeholder="اختیاری"></div>
+      <div class="fg"><label>شناسه ملی شرکت</label><input id="s-company_national_id" dir="ltr" value="${esc(s.company_national_id||'')}" placeholder="اختیاری"></div>
+      <div class="fg"><label>کد پستی شرکت</label><input id="s-company_postal_code" dir="ltr" value="${esc(s.company_postal_code||'')}" placeholder="اختیاری"></div>
     </div>
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px`)}">
       ${chk('s-inv-show_logo','نمایش لوگو',cust.show_logo!==false)}
@@ -23538,7 +23664,7 @@ ROUTES.settings = async function(){
       <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('globe')} ${T('زبان برنامه')}</h4></div><div class="panel-body">
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">${T('زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.')}</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">${T('زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.')} زبان همین‌جا و فقط در این مرورگر عوض می‌شود. پنجرهٔ چندگانه با دکمهٔ ذخیرهٔ تنظیمات در همین مرورگر می‌ماند. نام شرکت با همان دکمه به سرور می‌رود.</div>
       <div class="form-grid">
         <div class="fg fg-md"><label>${T('زبان برنامه')}</label>
           <select id="s-app_lang" data-csp-change="${CSP.bind('change',function(event){onSettingsLangChange(this.value)})}">
@@ -23583,13 +23709,14 @@ ROUTES.settings = async function(){
 
   const messagingPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('radio')} تلگرام</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>رمز ربات تلگرام</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}" dir="ltr"></div>
+      <div class="fg"><label>رمز ربات تلگرام</label><input id="s-telegram_bot_token" type="password" autocomplete="off" value="${esc(s.telegram_bot_token||'')}" dir="ltr"></div>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}">توکن فقط ذخیره می‌شود. ارسال اعلان تلگرام هنوز به این فیلد وصل نیست.</p>
       <div class="fg"><label>شناسه گفتگو</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}" dir="ltr"></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('chat')} روبیکا — ارسال تصویر فاکتور تأییدشده</h4></div><div class="panel-body">
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-rubika_invoice_enabled', s.rubika_invoice_enabled==='1', 'ارسال به روبیکا هنگام تأیید فاکتور', 'خلاصه متنی و تصویر فاکتور پس از تأیید حسابداری')}</div>
       <div class="form-grid">
-        <div class="fg"><label>رمز ربات روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز ربات روبیکا</label><input id="s-rubika_bot_token" type="password" autocomplete="off" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
         <div class="fg"><label>شناسه چت / GUID مقصد</label><input id="s-rubika_chat_id" value="${esc(s.rubika_chat_id||'')}" dir="ltr" placeholder="مثلاً b0… یا chat_id"></div>
       </div>
     </div></div>
@@ -23676,6 +23803,7 @@ ROUTES.settings = async function(){
         <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال</button>
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
+          <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteRetryOne()})}">ارسال دوبارهٔ همین کالا</button>
           <button type="button" class="btn" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
           <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">وضعیت صف</button>
           <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${syncBlockedBySecret?'کلید API ناخواناست — ابتدا ذخیره مجدد':''}</span>
@@ -23707,7 +23835,7 @@ ROUTES.settings = async function(){
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
         <b>انتقال با مانده:</b> سال جاری بسته می‌شود؛ فاکتورها و اسناد حذف نمی‌شوند و در بایگانی همان سال می‌مانند. سود و زیان همان سال به افتتاحیه سال جدید می‌رود.<br>
         <b>افتتاح سال خام:</b> فاکتور، سند، چک، کالا، مشتری و کدهای تفصیلی پاک می‌شود و سال از صفر باز می‌شود. تأیید <code dir="ltr">OPEN-CLEAN-YEAR</code> + همان رمز ورود (نه عبارت تأیید).<br>
-        <b>بازنشانی کامل:</b> همان پاک‌سازی تراکنش با سال جدید از امروز. در حالت کدینگ تفصیلی غیرفعال است.
+        <b>بازنشانی کامل و افتتاح سال خام:</b> در کدینگ تفصیلی یا وقتی سند واردشده از سیستم قبلی مانده باشد، سرور هر دو را رد می‌کند. انتقال با مانده فقط سود و زیان را سند می‌کند.
       </div>
       <div class="form-grid">
         <div class="fg"><label>برچسب سال جدید</label><input id="fy-label" placeholder="سال مالی 1405"></div>
@@ -23715,10 +23843,10 @@ ROUTES.settings = async function(){
         <div class="fg"><label>تاریخ پایان (اختیاری)</label><input id="fy-end" data-jdate placeholder="1405/12/29"></div>
       </div>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:10px`)}">
-        <button class="btn" data-csp-click="${CSP.bind('click',function(event){fiscalOpenCleanFromSettings()})}">${lucide('plus')} افتتاح سال خام</button>
+        <button class="btn" ${(s.coa_mode==='extended'||s.coa_mode==='mahak')?'disabled':''} data-csp-click="${CSP.bind('click',function(event){fiscalOpenCleanFromSettings()})}">${lucide('plus')} افتتاح سال خام</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalRollover()})}">${lucide('repeat')} انتقال با مانده</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-fiscal-ops')})}">📅 عملیات کامل سال مالی</button>
-        <button class="btn red" data-csp-click="${CSP.bind('click',function(event){fiscalFactoryReset()})}">بازنشانی کامل مالی</button>
+        <button class="btn red" ${(s.coa_mode==='extended'||s.coa_mode==='mahak')?'disabled':''} data-csp-click="${CSP.bind('click',function(event){fiscalFactoryReset()})}">بازنشانی کامل مالی</button>
         ${curFy?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalLock((curFy.id))})}">${lucide('lock')} قفل سال جاری</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fiscalUnlock((curFy.id))})}">بازگشایی سال</button>`:''}
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){runIntegrityCheck()})}">${lucide('search')} بررسی یکپارچگی حسابداری</button>
@@ -23776,7 +23904,8 @@ ROUTES.settings = async function(){
             <option value="auto" ${s.ai_provider==='auto'?'selected':''}>تشخیص از کلید / مدل</option>
           </select></div>
         <div class="fg"><label>کلید سرویس ${hlp('Gemini معمولاً با AIza شروع می‌شود. مقدار ذخیره‌شده نمایش داده نمی‌شود.')}</label>
-          <input id="s-ai_api_key" dir="ltr" type="text" value="${esc(s.ai_api_key||'')}" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.ai_api_key_has_value?'********':'AIza… یا sk-ant-…'}"></div>
+          <input id="s-ai_api_key" dir="ltr" type="password" value="" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.ai_api_key_has_value?'کلید ذخیره شده — برای تعویض بنویسید':'AIza… یا sk-ant-…'}"></div>
+          ${s.ai_api_key_has_value?`<div class="fg"><label>حذف کلید</label><button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){window._clearAiKey=1;showToast('کلید با ذخیره تنظیمات پاک می‌شود')})}">پاک کردن کلید ذخیره‌شده</button></div>`:''}
         <div class="fg"><label>نام مدل</label>
           <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="gemini-2.0-flash" list="s-ai-models">
           <datalist id="s-ai-models">
@@ -23802,15 +23931,15 @@ ROUTES.settings = async function(){
       <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;align-items:center`)}">
         <button type="button" class="btn sm ghost" id="audit-mode-all" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=0;loadAuditLog()})}">همه رویدادها</button>
         <button type="button" class="btn sm" id="audit-mode-del" data-csp-style="${CSP.style(`border-color:var(--state-danger,#C0392B)`)}" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=1;loadAuditLog()})}">🗑️ حذف و ابطال</button>
-        <input id="auditFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
-        <input id="auditTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
+        <input id="auditFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}">
+        <input id="auditTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}">
         <select id="auditUser" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--input-bg);color:var(--text)`)}">
           <option value="">همه کاربران</option>
           ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
         </select>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAuditLog()})}">${lucide('search')} بارگذاری</button>
       </div></div>
-      <div class="panel-body muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">حذف فیزیکی انجام نمی‌شود — ابطال/حذف نرم در اینجا با جزئیات کامل برای مدیر قابل ردیابی است.</div>
+      <div class="panel-body muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">گزارش فقط روی سرور مرکزی است. تاریخ خالی یعنی بدون فیلتر روز. جزئیات، همان متن ثبت‌شده است و برای هر رویداد تصویر قبل و بعد ندارد.</div>
       <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>`;
 
   el('view').innerHTML=`
@@ -23893,6 +24022,18 @@ async function testWebsiteConnection(){
   }catch(e){
     if(st) st.textContent=e.message||'خطا';
   }
+}
+async function websiteRetryOne(){
+  const st=el('s-website-test-status');
+  const pid=parseInt(el('s-website-dryrun-pid')?.value,10);
+  if(!pid){ showToast('شناسه همان کالا را وارد کنید','error'); return; }
+  if(st) st.textContent='ارسال دوباره…';
+  try{
+    const r=await api('POST','/settings/website-retry-one',{productId:pid});
+    if(st) st.textContent=r?.ok?'در صف همین کالا':'ناموفق';
+    showToast(r?.skipped?'صف این کالا باز نشد':'همین کالا دوباره در صف قرار گرفت', r?.skipped?'error':'success');
+    if(typeof loadWebsiteOutbox==='function') loadWebsiteOutbox();
+  }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
 async function websiteStockDryRun(){
   const st=el('s-website-test-status');
@@ -23986,9 +24127,10 @@ async function loadWebsiteOutbox(){
   }catch(e){ if(box) box.textContent=e.message||'خطا'; }
 }
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id'];
+  const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
+  if(window._clearAiKey){ data.ai_api_key=null; window._clearAiKey=0; }
   data.rubika_invoice_enabled = el('s-rubika_invoice_enabled')?.checked ? '1' : '0';
   data.website_stock_sync_enabled = el('s-website_stock_sync_enabled')?.checked ? '1' : '0';
   const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps','module_moadian','module_fixed_assets','module_portal'];
@@ -24045,10 +24187,13 @@ async function loadAuditLog(){
   if(btnAll) btnAll.className='btn sm'+(delOnly?' ghost':'');
   if(btnDel) btnDel.className='btn sm'+(delOnly?'':' ghost');
   try{
-    const df=el('auditFrom')?.value||todayJalali();
-    const dt=el('auditTo')?.value||df;
+    const df=el('auditFrom')?.value||'';
+    const dt=el('auditTo')?.value||'';
     const uid=el('auditUser')?.value||'';
-    let q='?limit=120&date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt);
+    let q='?limit=120';
+    if(df) q+='&date_from='+encodeURIComponent(df);
+    if(dt) q+='&date_to='+encodeURIComponent(dt);
+    else if(df) q+='&date_to='+encodeURIComponent(df);
     if(uid) q+='&user_id='+encodeURIComponent(uid);
     if(delOnly) q+='&deleted_only=1';
     const r=await api('GET','/admin/audit'+q)||{};
@@ -24154,6 +24299,7 @@ async function loadSettBackupPanel(){
         ${alertsHtml}
         <p data-csp-style="${CSP.style(`font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.9`)}">
           هر پشتیبان شامل دیتابیس شرکت‌ها، تصاویر عمومی و فایل‌های خصوصی است و با AES-256-GCM رمز می‌شود.
+          بازیابی از داخل وب فقط بسته را تأیید می‌کند. بازیابی آفلاین هر دیتابیس شرکت را برمی‌گرداند، فایل WAL باقی‌مانده را کنار می‌گذارد، و پوشهٔ تصاویر را یکجا جایگزین می‌کند.
           زمان‌بندی زیر را خودتان تنظیم می‌کنید. پیشنهاد: هر <b>۶۰ دقیقه</b>؛ فاصلهٔ ۱۵ دقیقه دیسک را سریع پر می‌کند.
         </p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px`)}">
@@ -25070,6 +25216,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>انگیزه فروش</h5><p>درصد انگیزه فروش نقد و چک هر کارشناس را جداگانه تنظیم کنید. پس از ذخیره اولیه، نرخ قفل می‌شود و تغییر آن نیاز به تأیید مدیر دارد.</p>
       <h5>دعوت امن کاربر از روی شخص</h5><p>پس از ثبت شخص/کارمند، مدیر یا حسابدار از فهرست اشخاص یا فرم شخص دکمه <b>دعوت ورود</b> را می‌زند و <b>نقش ورود را خودش انتخاب می‌کند</b> (پیش‌فرض کارشناس میدانی). <b>مدیر سیستم را نمی‌توان با دعوت ساخت</b>؛ حسابدار فقط توسط مدیر سیستم دعوت می‌شود و حسابدار نمی‌تواند حسابدار دعوت کند. نقش ذخیره‌شده روی دعوت اعمال می‌شود و دعوت‌شونده نمی‌تواند نقش را در پذیرش عوض کند. لینک یک‌بارمصرف با مسیر <code>/invite?token=</code> و اعتبار پیش‌فرض <b>۷۲ ساعت</b> است. توکن تصادفی است و فقط هش آن ذخیره می‌شود — رمز ثابت یا شناخته‌شده ساخته نمی‌شود. دعوت‌شونده خودش نام کاربری و رمز (حداقل ۸ کاراکتر، حرف و عدد) را انتخاب می‌کند و <code>must_change_password</code> صفر می‌ماند. لینک منقضی یا استفاده‌شده رد می‌شود. دعوت فقط روی سرور مرکزی است و به دستگاه‌ها سینک نمی‌شود.</p>
+      <h5>عمر نشست و اجبار ۲FA</h5><p>در تنظیمات → کاربران، مدیر سقف عمر نشست و مهلت بیکاری را بین ۱ تا ۲۴ ساعت می‌گذارد. پیش‌فرض ۱۲ ساعت عمر و ۸ ساعت بیکاری است. نشست قدیمی ۳۰روزه در درخواست بعدی اگر از این سقف گذشته باشد قطع می‌شود. تیک نقش‌ها یعنی آن نقش تا فعال‌کردن Authenticator وارد برنامه نمی‌شود. خالی بودن تیک‌ها یعنی اجبار خاموش است. ویندوز و اندروید معاف‌اند. توکن همگام‌سازی ۵ دقیقه‌ای عوض نشده است.</p>
       <h5>رمز موقت و تغییر اجباری</h5><p>رمز کاربران فقط از دو مسیر تعیین می‌شود: هنگام <b>ساخت کاربر</b> یا با دکمهٔ <b>«رمز»</b> در فهرست کاربران (بازنشانی). ویرایش پروفایل کاربر دیگر رمز را عوض نمی‌کند تا مرورگر به‌اشتباه رمز ذخیره‌شده را در فرم ویرایش پر نکند و کاربر از سیستم قفل نشود. رمزی که تعیین می‌کنید <b>موقتی</b> است و باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد — در غیر این صورت ذخیره نمی‌شود. کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند. پس از تغییر رمز روی سرور مرکزی، موبایل/دسکتاپ باید آنلاین باشد تا همگام‌سازی هش جدید را بگیرد (بعد از wipe معمولاً pair مجدد لازم است). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>
@@ -25089,14 +25236,14 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>صفحه تنظیمات دیگر یک فهرست بلند نیست: از منوی کناری بین بخش‌ها جابه‌جا شوید یا در کادر جستجوی بالای صفحه عبارت بزنید (مثلاً «فاکتور»، «تلگرام»، «سال مالی»). نوار «ذخیره تنظیمات» پایین صفحه همیشه در دسترس است.</p>
       <ul>
         <li><b>عمومی</b>: چندشرکتی (انتخاب/ایجاد شرکت)، اطلاعات شرکت جاری، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
-        <li><b>کاربران</b> و <b>API</b>: مدیریت نقش‌ها/کلیدها — فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
+        <li><b>کاربران</b> و <b>API</b>: فهرست نقش، نقش‌های تولید را هم دارد تا ذخیره آن‌ها را به کارشناس میدانی برنگرداند. بازنشانی رمز، رمز تصادفی یک‌بارنشان می‌سازد و مدیر رمز را انتخاب نمی‌کند. همان‌جا سقف نشست (پیش‌فرض ۱۲ ساعت، بیکاری ۸ ساعت) و تیک اجبار ورود دو مرحله‌ای برای هر نقش ذخیره می‌شود</li>
+        <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی. کد اقتصادی، شناسه ملی و کد پستی شرکت اگر پر شوند روی چاپ می‌آیند؛ خالی باشند خطشان حذف می‌شود</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
-        <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B — انبار جدا برای عمده و تکی، کلید <code dir="ltr">ERP_INVENTORY_API_KEY</code>، آزمایش اتصال / dry-run / همگام‌سازی کامل. «وضعیت صف» برای هر کالا نام و کد، کانال (عمده/خرده‌فروشی)، نتیجهٔ فارسی و قدم بعد را نشان می‌دهد. اگر کلید API ناخواناست دوباره ذخیره کنید؛ اگر «کد کالا در سایت پیدا نشد» دیدید باید کالا/نگاشت سایت را درست کنید</li>
+        <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند). آپلود پشتیبان در وب فقط درستی بسته را چک می‌کند. برگرداندن داده با دستور آفلاین است: هر شرکت جدا، بدون WAL قدیمی، و جایگزینی کامل پوشهٔ تصاویر</li>
+        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B. اگر «کد کالا در سایت پیدا نشد» دیدید، نگاشت را در سایت درست کنید و فقط «ارسال دوبارهٔ همین کالا» را بزنید. همگام‌سازی کامل همهٔ کالاهای موفق را هم دوباره می‌فرستد.</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
-        <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
+        <li><b>ممیزی</b>: گزارش فعالیت فقط روی سرور مرکزی. تاریخ خالی فیلتر روز نمی‌گذارد</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
       <h5>قالب فاکتور</h5><p>سه مدل رسمی از هم جدا هستند: <b>اداری</b>، <b>مدرن ERP</b>، <b>پریمیوم</b>. پیش‌فاکتور فقط <b>عادی ساده</b> است. حرارتی ۵۸/۸۰ میلی‌متر. نوار میانی «نوع/پرداخت/کاغذ/سررسید» از چاپ حذف شده؛ شماره و تاریخ در بالای صفحه می‌مانند. در جدول اقلام ستون <b>کد کالا</b> نمایش داده می‌شود. نوار کارشناس فروش از شخصی‌سازی قالب روشن/خاموش می‌شود؛ نمایش موبایل هر کارشناس در «تعریف کاربران» جداگانه است. دریافت کارتخوان هنگام فاکتور در چاپ یک‌بار دیده می‌شود (بدون دوباره‌شماری settlement+POS).</p>
@@ -25227,6 +25374,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>نکات</h5><ul>
         <li>مدیر در پنل امنیت وضعیت 2FA همه کاربران را می‌بیند</li>
         <li>فعال/غیرفعال‌سازی فقط از نسخه وب (سرور مرکزی) انجام می‌شود</li>
+        <li>اجبار برای نقش‌ها از <b>تنظیمات → کاربران</b> روشن می‌شود. تا وقتی تیک خالی است، 2FA اختیاری می‌ماند</li>
         <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
         <li><b>وب کروم:</b> همهٔ رویدادهای رابط کاربری از registry امن و فایل‌های اسکریپت محلی اجرا می‌شوند؛ CSP استفاده از رویداد و اسکریپت inline را مسدود می‌کند. اگر دکمه‌ای واکنش نداشت، Console و گزارش CSP را برای پشتیبانی ارسال کنید.</li>
         <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. روی وب مرکزی رمز کارخانه‌ای نشان داده نمی‌شود؛ اگر رمز را فراموش کردید از «رمز را فراموش کرده‌اید؟» (پیامک به موبایل ثبت‌شده) استفاده کنید. <code>admin / admin123</code> فقط برای ورود موقت دستگاه unpaired است و پس از اولین ورود وب باید عوض شده باشد.</li>
@@ -25396,7 +25544,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v308</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v309</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
@@ -25525,6 +25673,7 @@ function renderSalesGuide(){
         <li>آیکون خاموش گوشهٔ صفحه → «امنیت» → «فعال‌سازی 2FA» → کلید را در برنامه Google Authenticator ثبت و کد ۶ رقمی را وارد کنید</li>
         <li>کدهای بازیابی را در جای امن نگه دارید — اگر موبایل در دسترس نبود با آن‌ها وارد می‌شوید</li>
         <li>از این پس هنگام ورود، بعد از رمز، کد ۶ رقمی خواسته می‌شود</li>
+        <li>اگر مدیر برای نقش شما اجبار را روشن کرده باشد، تا فعال‌سازی 2FA بقیهٔ برنامه باز نمی‌شود</li>
       </ul>`),
     helpSec('🤖','پیشنهادهای هوشمند فروش',`
       <p>سیستم هر شب مشتریان شما را تحلیل می‌کند و در منوی «دستیار هوشمند» به شما می‌گوید:</p>

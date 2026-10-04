@@ -8,6 +8,7 @@ const {
   revokeAllStaffSessions,
   revokeCurrentStaffSession,
 } = require('../lib/auth-sessions');
+const { roleRequiresTwofa } = require('../lib/staff-security');
 
 // Kept as a compatibility hook for callers that used to clear the 30-second
 // cache. Security-sensitive user state is now read on every request.
@@ -63,6 +64,10 @@ function revokeUserSessions(db, userId, { bumpEpoch = true } = {}) {
 
 // While a forced password change is pending, only these endpoints stay usable.
 const MUST_CHANGE_ALLOWED = ['/api/auth/change-password', '/api/auth/me', '/api/auth/logout'];
+const TWOFA_SETUP_ALLOWED = [
+  '/api/auth/change-password', '/api/auth/me', '/api/auth/logout',
+  '/api/auth/2fa/status', '/api/auth/2fa/setup', '/api/auth/2fa/verify',
+];
 
 function auth(req, res, next) {
   const token = exactBearer(req);
@@ -102,12 +107,24 @@ function auth(req, res, next) {
       dslot: payload.dslot,
     };
 
+    const requestPath = (req.originalUrl || '').split('?')[0];
     if (user.must_change_password && !isDevice()) {
-      const requestPath = (req.originalUrl || '').split('?')[0];
       if (!MUST_CHANGE_ALLOWED.includes(requestPath)) {
         return res.status(403).json({
           error: 'برای ادامه باید ابتدا رمز عبور خود را تغییر دهید',
           code: 'must_change_password',
+        });
+      }
+    } else if (!isDevice() && roleRequiresTwofa(db, user.role)) {
+      let enrolled = false;
+      try {
+        const tfa = db.prepare('SELECT enabled FROM two_factor_auth WHERE user_id=?').get(user.id);
+        enrolled = !!(tfa && tfa.enabled);
+      } catch { enrolled = true; }
+      if (!enrolled && !TWOFA_SETUP_ALLOWED.includes(requestPath)) {
+        return res.status(403).json({
+          error: 'برای این نقش، ورود دو مرحله‌ای اجباری است. ابتدا آن را فعال کنید.',
+          code: 'twofa_setup_required',
         });
       }
     }

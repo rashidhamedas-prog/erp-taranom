@@ -117,8 +117,11 @@ router.put('/:id', auth, adminOnly, centralOnly, (req, res) => {
     // If editing the active company, also mirror name into settings
     const active = ws.getActiveCompany();
     if (active && active.id === c.id && req.body?.name) {
-      getDB().prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('company_name',?)")
-        .run(String(req.body.name).trim());
+      const current = String(getDB().prepare("SELECT value FROM settings WHERE key='company_name'").get()?.value || '').trim();
+      if (!current || current === 'پوشاک ترنم') {
+        getDB().prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('company_name',?)")
+          .run(String(req.body.name).trim());
+      }
     }
     audit(req.user.id, 'company_update', 'company', c.id, `ویرایش شرکت ${c.name}`);
     res.json({ ok: true, company: { id: c.id, name: c.name, code: c.code } });
@@ -137,10 +140,10 @@ router.post('/:id/activate', auth, adminOnly, centralOnly, (req, res) => {
   }
 });
 
-router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.delete('/:id', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const { confirm_text } = req.body || {};
-    requireUserPassword(getDB(), req.user.id, pickConfirmPassword(req.body));
+    await requireUserPassword(getDB(), req.user.id, pickConfirmPassword(req.body));
     const force = confirm_text === 'DELETE-COMPANY';
     const result = ws.deleteCompanyWorkspace(req.params.id, { force });
     audit(req.user.id, 'company_delete', 'company', result.id, 'حذف شرکت');

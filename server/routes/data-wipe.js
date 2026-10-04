@@ -187,7 +187,7 @@ router.get('/sections', auth, adminOnly, centralOnlyStrict, (req, res) => {
   res.json(list);
 });
 
-router.post('/wipe', auth, adminOnly, centralOnlyStrict, (req, res) => {
+router.post('/wipe', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const { section, mode, confirm_text } = req.body || {};
   const sec = SECTIONS[section];
   if (!sec) return res.status(400).json({ error: 'بخش نامعتبر است' });
@@ -200,7 +200,7 @@ router.post('/wipe', auth, adminOnly, centralOnlyStrict, (req, res) => {
   }
   const db = getDB();
   try {
-    requireUserPassword(db, req.user.id, pickConfirmPassword(req.body));
+    await requireUserPassword(db, req.user.id, pickConfirmPassword(req.body));
   } catch (e) {
     return res.status(e.status || 403).json({ error: e.message, code: e.code });
   }

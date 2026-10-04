@@ -1,5 +1,6 @@
 const router = require('express').Router();
-const bcrypt = require('bcryptjs');
+const { hashPassword, verifyPassword, needsRehash, DUMMY_HASH, normalizePlain } = require('../lib/password-verify');
+const { roleRequiresTwofa } = require('../lib/staff-security');
 const crypto = require('crypto');
 const { getDB, audit, isDevice } = require('../db');
 const {
@@ -23,7 +24,6 @@ const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
 const { publicInviteView, acceptInvitation } = require('../lib/user-invitations');
 const { publicStaffUser } = require('../lib/staff-public');
-const { passwordsMatch, DUMMY_HASH, normalizePlain } = require('../lib/password-verify');
 
 const OTP_TTL_SEC = 10 * 60;
 const MAX_OTP_ATTEMPTS = 5;
@@ -108,7 +108,7 @@ function loginPayload(db, user, deviceInput) {
 }
 
 // Login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const username = normalizeUsername(req.body.username);
   const password = normalizePlain(req.body.password);
   if (!username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
@@ -125,7 +125,7 @@ router.post('/login', (req, res) => {
 
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-  const passwordMatches = passwordsMatch(password, user && user.password ? user.password : DUMMY_HASH);
+  const passwordMatches = await verifyPassword(password, user && user.password ? user.password : DUMMY_HASH);
   if (!user || !passwordMatches) {
     const identityLimit = consumeRateLimit('login_identity', username, {
       max: 10, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC,
@@ -139,6 +139,13 @@ router.post('/login', (req, res) => {
   }
 
   clearRateLimit('login_identity', username);
+  if (needsRehash(user.password)) {
+    try {
+      const nextHash = await hashPassword(password);
+      db.prepare('UPDATE users SET password=? WHERE id=?').run(nextHash, user.id);
+      user.password = nextHash;
+    } catch { /* login still succeeds; bcrypt remains until the next successful entry */ }
+  }
 
   // Flag default password before 2FA step so must_change_password survives the 2FA round-trip.
   if (!isDevice() && password === 'admin123') {
@@ -155,6 +162,7 @@ router.post('/login', (req, res) => {
     force_logout_other: req.body.force_logout_other,
   };
   const tfa = db.prepare('SELECT enabled FROM two_factor_auth WHERE user_id=?').get(user.id);
+  const setupRequired = !isDevice() && roleRequiresTwofa(db, user.role) && !(tfa && tfa.enabled);
   if (tfa && tfa.enabled) {
     try {
       const challenge = createLoginChallenge(user, deviceInput);
@@ -173,7 +181,7 @@ router.post('/login', (req, res) => {
   try {
     const payload = loginPayload(db, user, deviceInput);
     audit(user.id, 'login', 'user', user.id, 'ورود موفق و ایجاد نشست معتبر', req);
-    return res.json(payload);
+    return res.json({ ...payload, twofa_setup_required: setupRequired });
   } catch (error) {
     if (error.code === 'DEVICE_SESSION_ACTIVE') {
       audit(user.id, 'login_conflict', 'user', user.id, `ورود رد شد: نشست فعال روی دستگاه ${error.existing?.device_slot || ''}`, req);
@@ -289,7 +297,7 @@ router.post('/forgot', async (req, res) => {
 });
 
 // Forgot password — step 2: verify OTP and set new password
-router.post('/forgot-reset', (req, res) => {
+router.post('/forgot-reset', async (req, res) => {
   if (isDevice()) {
     const { isPaired } = require('../sync/client');
     if (isPaired(getDB())) {
@@ -339,9 +347,10 @@ router.post('/forgot-reset', (req, res) => {
   }
 
   revokeUserSessions(db, user.id, { bumpEpoch: false });
+  const resetHash = await hashPassword(newPass);
   db.transaction(() => {
     db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
-      .run(bcrypt.hashSync(newPass, 10), user.id);
+      .run(resetHash, user.id);
     db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
   })();
   clearRateLimit('password-reset-verify', username);
@@ -417,26 +426,35 @@ router.post('/change-password', auth, async (req, res) => {
       }
       revokeUserSessions(db, req.user.id, { bumpEpoch: false });
       db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
-        .run(bcrypt.hashSync(newPass, 10), req.user.id);
+        .run(await hashPassword(newPass), req.user.id);
       invalidateUserCache(req.user.id);
       audit(req.user.id, 'change_password', 'user', req.user.id, 'تغییر رمز و ابطال نشست‌های محلی', req);
       return res.json({ ok: true });
     }
   }
 
-  if (!bcrypt.compareSync(oldPass, user.password))
+  if (!await verifyPassword(oldPass, user.password))
     return res.status(400).json({ error: 'رمز قدیمی اشتباه است' });
   revokeUserSessions(db, req.user.id, { bumpEpoch: false });
   db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
-    .run(bcrypt.hashSync(newPass, 10), req.user.id);
+    .run(await hashPassword(newPass), req.user.id);
   invalidateUserCache(req.user.id);
   audit(req.user.id, 'change_password', 'user', req.user.id, 'تغییر رمز و ابطال همه نشست‌ها', req);
   res.json({ ok: true });
 });
 
-router.post('/reset-password', auth, adminOnly, (req, res) => {
+function randomStaffPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(12);
+  let out = '';
+  for (let i = 0; i < 10; i++) out += alphabet[bytes[i] % alphabet.length];
+  return `A${out}7`;
+}
+
+router.post('/reset-password', auth, adminOnly, async (req, res) => {
   const user_id = req.body.user_id;
-  const new_pass = (req.body.new_pass || '').slice(0, 128);
+  const generated = req.body.generate === true;
+  const new_pass = generated ? randomStaffPassword() : (req.body.new_pass || '').slice(0, 128);
   if (!user_id || !new_pass) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const passErr = validatePassword(new_pass);
   if (passErr) return res.status(400).json({ error: passErr });
@@ -446,10 +464,10 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
   // رمزی که مدیر تعیین کرده موقتی است — کاربر در اولین ورود باید عوضش کند
   revokeUserSessions(db, user_id, { bumpEpoch: false });
   db.prepare('UPDATE users SET password=?,must_change_password=1,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
-    .run(bcrypt.hashSync(new_pass, 10), user_id);
+    .run(await hashPassword(new_pass), user_id);
   invalidateUserCache(+user_id);
   audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name} و ابطال همه نشست‌ها`, req);
-  res.json({ ok: true });
+  res.json(generated ? { ok: true, temporary_password: new_pass } : { ok: true });
 });
 
 function inviteClient(req) {
@@ -474,7 +492,7 @@ router.get('/invite/:token', (req, res) => {
   return res.json(publicInviteView(db, req.params.token));
 });
 
-router.post('/invite/:token/accept', (req, res) => {
+router.post('/invite/:token/accept', async (req, res) => {
   const ip = inviteClient(req);
   const ipState = rateLimitStatus('invite_accept_ip', ip);
   if (!ipState.allowed) return rejectInviteRate(res, ipState.retryAfter);
@@ -489,6 +507,7 @@ router.post('/invite/:token/accept', (req, res) => {
       rawToken: req.params.token,
       username: req.body && req.body.username,
       password: req.body && req.body.password,
+      passwordHash: await hashPassword(req.body && req.body.password),
     });
     audit(accepted.user_id, 'create', 'user', accepted.user_id, 'پذیرش دعوت و ساخت حساب', req);
     clearRateLimit('invite_accept_ip', ip);

@@ -2,6 +2,10 @@
 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { argon2id, argon2Verify } = require('hash-wasm');
+
+// OWASP Argon2id baseline: 19 MiB, 2 iterations, parallelism 1.
+const ARGON_OPTS = { parallelism: 1, iterations: 2, memorySize: 19456, hashLength: 32 };
 
 // Same dummy-hash pattern as login: always run bcrypt so timing does not
 // leak whether the user row or hash exists.
@@ -15,6 +19,34 @@ function normalizeHash(hash) {
   if (hash == null) return '';
   if (Buffer.isBuffer(hash)) return hash.toString('utf8').replace(/^\uFEFF/, '').trim();
   return String(hash).replace(/^\uFEFF/, '').trim();
+}
+
+function needsRehash(hash) {
+  return normalizeHash(hash).startsWith('$2');
+}
+
+async function hashPassword(plain) {
+  return argon2id({
+    password: normalizePlain(plain),
+    salt: crypto.randomBytes(16),
+    ...ARGON_OPTS,
+    outputType: 'encoded',
+  });
+}
+
+async function verifyPassword(plain, hash) {
+  const p = normalizePlain(plain);
+  const h = normalizeHash(hash);
+  if (h.startsWith('$argon2')) {
+    try { return await argon2Verify({ password: p, hash: h }); }
+    catch { return false; }
+  }
+  if (h.startsWith('$2')) {
+    try { return bcrypt.compareSync(p, h); }
+    catch { return false; }
+  }
+  try { bcrypt.compareSync(p, DUMMY_HASH); } catch { /* keep timing close for garbage hashes */ }
+  return false;
 }
 
 function passwordsMatch(plain, hash) {
@@ -40,9 +72,9 @@ function pickConfirmPassword(body) {
   return '';
 }
 
-function requireUserPassword(db, userId, plain) {
+async function requireUserPassword(db, userId, plain) {
   const user = db.prepare('SELECT id, password FROM users WHERE id=?').get(Number(userId));
-  const ok = !!(user && passwordsMatch(plain, user.password));
+  const ok = !!(user && await verifyPassword(plain, user.password));
   if (!ok) {
     const err = new Error('رمز عبور نادرست است');
     err.status = 403;
@@ -57,6 +89,9 @@ module.exports = {
   normalizePlain,
   normalizeHash,
   passwordsMatch,
+  needsRehash,
+  hashPassword,
+  verifyPassword,
   pickConfirmPassword,
   requireUserPassword,
 };

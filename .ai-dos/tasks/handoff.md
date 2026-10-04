@@ -1,4 +1,11 @@
-﻿## 2026-10-04 — Table column sync (SW v308)
+﻿## 2026-10-05 — Staff session, Argon2id, selectable 2FA (SW v309)
+
+- Owner ordered shorter staff sessions, a password-algorithm change, and selectable mandatory 2FA in settings.
+- Staff absolute TTL default 12h, idle 8h, both configurable 1–24h. Sync replay JWTs stay 5 minutes. New staff passwords are Argon2id via hash-wasm; bcrypt verifies then rehashes on success. Portal passwords stay bcrypt.
+- `twofa_required_roles` empty means optional. Checked roles get a setup-only allowlist until TOTP is enabled. Devices are exempt.
+- Local sqlite tests still cannot load better-sqlite3. `test-password-argon2.js` passed.
+
+## 2026-10-04 — Table column sync (SW v308)
 
 - Owner ordered a root fix for list tables whose headers do not sit on their data (skill-top full). Screenshot: products grid, two selection checkboxes, labels shifted one column.
 - Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md` (recorded 2026-10-01). This session edits those plus `app.css` and `tbl-enhance.js` only for the shared table contract. Did not touch production libs, `db.js`, or `capture.js`.

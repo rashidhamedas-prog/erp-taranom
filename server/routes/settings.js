@@ -9,14 +9,16 @@ const {
   getSmsSettings,
   updateSettings,
 } = require('../lib/secret-settings');
+const { validateStaffPolicyBody, normalizeTwofaRoles } = require('../lib/staff-security');
 
 const ALLOWED_KEYS = [
   'currency_base','currency_display',
   'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense','feature_cogs_voucher',
   'telegram_bot_token', 'telegram_chat_id',
-  'sms_provider', 'sms_api_key', 'sms_from',
+  'sms_provider', 'sms_api_key', 'sms_from', 'sms_otp_template',
   'niksms_api_key', 'smsir_api_key', 'smsir_line',
   'company_name', 'company_phone', 'company_address',
+  'company_economic_code', 'company_national_id', 'company_postal_code',
   'kimia_address', 'welcome_sms_text',
   'api_v1_enabled', 'api_rate_limit', 'webhook_secret',
   'backup_smtp_user', 'backup_smtp_pass', 'backup_email', 'backup_password',
@@ -36,7 +38,8 @@ const ALLOWED_KEYS = [
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',
-  'invoice_paper_size', 'invoice_thermal_width', 'invoice_customize'
+  'invoice_paper_size', 'invoice_thermal_width', 'invoice_customize',
+  'session_absolute_hours', 'session_idle_hours', 'twofa_required_roles'
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which
@@ -97,6 +100,18 @@ router.post('/website-dry-run', auth, adminOnly, centralOnly, async (req, res) =
   }
 });
 
+router.post('/website-retry-one', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    const productId = parseInt(req.body && req.body.productId, 10);
+    if (!productId) return res.status(400).json({ ok: false, error: 'productId الزامی است' });
+    const result = sync.enqueueWebsiteStock(getDB(), productId, { clearHold: true });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json(websiteSyncErrorBody(e, 'ارسال دوباره ناموفق'));
+  }
+});
+
 router.post('/website-full-sync', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const sync = require('../lib/website-stock-sync');
@@ -137,13 +152,28 @@ router.get('/', auth, adminOnly, (req, res) => {
 
 // PUT upsert key-value pairs (admin only)
 router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
-  const entries = Object.entries(req.body || {});
+  const body = req.body || {};
+  for (const key of ['currency_base', 'currency_display']) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    if (String(body[key] || '').trim().toLowerCase() !== 'rial') {
+      return res.status(400).json({ error: 'واحد پول فقط ریال است و مبلغ سندها عوض نمی‌شود' });
+    }
+  }
+  const dbForPolicy = getDB();
+  const policyCheck = validateStaffPolicyBody(body, dbForPolicy);
+  if (!policyCheck.ok) return res.status(400).json({ error: policyCheck.error });
+  if (policyCheck.absolute) body.session_absolute_hours = String(policyCheck.absolute);
+  if (policyCheck.idle) body.session_idle_hours = String(policyCheck.idle);
+  if (Object.prototype.hasOwnProperty.call(body, 'twofa_required_roles')) {
+    body.twofa_required_roles = normalizeTwofaRoles(body.twofa_required_roles);
+  }
+  const entries = Object.entries(body);
   for (const [key, value] of entries) {
     if (!['website_stock_webhook_url', 'website_wc_url', 'website_b2b_url'].includes(key) || value == null || String(value).trim() === '') continue;
     try { await assertSafeOutboundTarget(String(value)); }
     catch (error) { return res.status(400).json({ error: error.message || 'آدرس ارتباط با وب‌سایت مجاز نیست' }); }
   }
-  const db = getDB();
+  const db = dbForPolicy;
   updateSettings(db, entries, new Set(ALLOWED_KEYS));
   if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');

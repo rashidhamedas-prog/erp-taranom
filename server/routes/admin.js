@@ -1,7 +1,7 @@
 const router = require('express').Router();
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../lib/password-verify');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting, centralOnly, invalidateUserCache, revokeUserSessions } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly, centralOnlyStrict, invalidateUserCache, revokeUserSessions } = require('../middleware/auth');
 const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
@@ -35,7 +35,7 @@ router.get('/users', auth, adminOnly, (req, res) => {
 });
 
 // Create user (salesperson or admin) — incentive is locked immediately after creation
-router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/users', auth, adminOnly, centralOnly, async (req, res) => {
   const { name, username, password, phone, role = 'field_sales', commission_cash = 0, commission_cheque = 0,
     commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0, penalty_pct = 0, supervisor_commission_pct = 0,
     rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id,
@@ -47,7 +47,7 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const exists = db.prepare('SELECT id FROM users WHERE username=?').get(username);
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
-  const hash = bcrypt.hashSync(password, 10);
+  const hash = await hashPassword(password);
   // must_change_password=1 → رمزی که مدیر تعیین کرده موقتی است و در اولین ورود عوض می‌شود
   const created = db.transaction(() => {
     const result = db.prepare(`
@@ -78,7 +78,7 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
-router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.put('/users/:id', auth, adminOnly, centralOnly, async (req, res) => {
   const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force,
     commission_basis, monthly_target, quarterly_target, annual_target, bonus_pct, commission_fixed, penalty_pct, supervisor_commission_pct,
     rep_code, rep_subtype, territory, supervisor_id, employment_status,
@@ -118,6 +118,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
 
   const authChanged = !!password || nextRole !== existing.role || nextActive !== Number(existing.active || 0);
   if (authChanged) revokeUserSessions(db, existing.id);
+  const nextPasswordHash = password ? await hashPassword(password) : null;
 
   db.transaction(() => {
     const salesWhId = sales_warehouse_id === '' || sales_warehouse_id == null
@@ -126,7 +127,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     if (password) {
       db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
         rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=?,sales_warehouse_id=? WHERE id=?`)
-        .run(name, nextActive, nextRole, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
+        .run(name, nextActive, nextRole, phone || '', nextPasswordHash, newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
           rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
           supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
           employment_status || existing.employment_status || 'active',
@@ -288,7 +289,7 @@ router.get('/user-data/:userId', auth, adminOnly, (req, res) => {
 });
 
 // Paginated audit log with filters
-router.get('/audit', auth, adminOnly, (req, res) => {
+router.get('/audit', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const db = getDB();
   const page = Math.max(1, parseInt(req.query.page || '1'));
   const limit = Math.min(200, parseInt(req.query.limit || '50'));
