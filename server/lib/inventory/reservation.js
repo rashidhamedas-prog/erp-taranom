@@ -113,16 +113,58 @@ function listReservations(db, { productId, warehouseId, status = 'active', kind,
   `).all(...params);
 }
 
-/** Consume soft-locks FIFO by priority when stock leaves via firm sale. */
-function consumeOpenReservationsForSale(db, { productId, warehouseId = null, qty }) {
+// ── Sale context (NONTAX-P0-atp) ────────────────────────────────────────────────────────────────
+// A firm-sale caller that knows its customer (invoice create/convert) wraps its stock posting in
+// runWithSaleContext({ custId }, fn). Inside that synchronous scope consumeOpenReservationsForSale only
+// consumes ORDER reservations that belong to that customer — the sale is their fulfilment — and leaves
+// every other customer's soft-lock intact (the ATP gate already proved the sold units came from the
+// unreserved pool). Outside the scope, and for callers that pass no custId, the legacy priority-FIFO
+// behaviour is unchanged. better-sqlite3 is synchronous, so a module-level scope cannot interleave.
+let saleContext = null;
+
+function runWithSaleContext(ctx, fn) {
+  const prev = saleContext;
+  saleContext = ctx && typeof ctx === 'object' ? ctx : null;
+  try { return fn(); } finally { saleContext = prev; }
+}
+
+function currentSaleContext() {
+  return saleContext;
+}
+
+function tableExists(db, name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+}
+
+/**
+ * Consume soft-locks when stock leaves via a firm sale.
+ * With a customer (explicit custId or active sale context): only that customer's own order
+ * reservations, by priority. Without: legacy FIFO by priority across all reservations.
+ */
+function consumeOpenReservationsForSale(db, { productId, warehouseId = null, qty, custId } = {}) {
   let need = Number(qty) || 0;
   if (!productId || need <= 0) return 0;
-  const rows = db.prepare(`
-    SELECT * FROM inventory_reservations
-    WHERE product_id=? AND status='active'
-      AND (? IS NULL OR warehouse_id=? OR warehouse_id IS NULL)
-    ORDER BY priority ASC, id ASC
-  `).all(productId, warehouseId, warehouseId);
+  const owner = custId != null && custId !== ''
+    ? custId
+    : (saleContext && saleContext.custId != null ? saleContext.custId : null);
+  let rows;
+  if (owner != null) {
+    if (!tableExists(db, 'orders')) return 0;
+    rows = db.prepare(`
+      SELECT r.* FROM inventory_reservations r
+      JOIN orders o ON o.id = r.source_id
+      WHERE r.product_id=? AND r.status='active' AND r.source_type='order' AND o.cust_id=?
+        AND (? IS NULL OR r.warehouse_id=? OR r.warehouse_id IS NULL)
+      ORDER BY r.priority ASC, r.id ASC
+    `).all(productId, owner, warehouseId, warehouseId);
+  } else {
+    rows = db.prepare(`
+      SELECT * FROM inventory_reservations
+      WHERE product_id=? AND status='active'
+        AND (? IS NULL OR warehouse_id=? OR warehouse_id IS NULL)
+      ORDER BY priority ASC, id ASC
+    `).all(productId, warehouseId, warehouseId);
+  }
   let taken = 0;
   for (const row of rows) {
     if (need <= 1e-9) break;
@@ -148,4 +190,5 @@ module.exports = {
   createReservation, releaseReservation, consumeReservation,
   expireReservations, listReservations, availableQty, reservedQty,
   consumeOpenReservationsForSale, releaseBySource,
+  runWithSaleContext, currentSaleContext,
 };

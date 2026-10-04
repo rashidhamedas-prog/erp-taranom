@@ -29,6 +29,12 @@ const {
 } = require('../lib/invoice-payments');
 const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
 const { amendPostedInvoiceInPlace, defaultVatExempt, resolveVatExemptFlag } = require('../lib/amend-invoice');
+// NONTAX-P0-atp: available-to-promise gate for firm sales (non-tax; no VAT/Moadian field is touched).
+const { ensureAtpSchema, FULFILLMENT_STATES } = require('../lib/inventory/atp-schema');
+const {
+  decideSaleFulfillment, isBackorderRequested, isProvisionalRequest,
+} = require('../lib/inventory/available-to-promise');
+const { runWithSaleContext, consumeOpenReservationsForSale } = require('../lib/inventory/reservation');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -63,6 +69,13 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
+
+// invoices.fulfillment_state (route-local, idempotent ALTER guarded by PRAGMA) — before any handler
+// so GET lists / voids on a DB that predates the column never hit "no such column".
+router.use((req, res, next) => {
+  try { ensureAtpSchema(getDB()); } catch (e) { console.error('ensureAtpSchema:', e.message); }
+  next();
+});
 
 function getScope(req) {
   // Accounting staff see all invoices (read scope) — needed for the Sales
@@ -291,6 +304,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
   const used = new Map();
   const productRows = (rows || []).filter(r => r.row_type !== 'income' && r.product_id);
   const docId = metaOut && (metaOut.docId != null ? metaOut.docId : metaOut.invoiceId);
+  const custId = metaOut && metaOut.custId != null ? metaOut.custId : null;
   for (const r of productRows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
@@ -315,7 +329,8 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       }
       continue;
     }
-    // Firm sales: insufficient product stock is warning-only. Do not block the invoice.
+    // Firm sales: the ATP gate (decideSaleFulfillment, same transaction) has already proven the layer
+    // covers this qty — or the caller chose backorder/provisional and never reaches this function.
     if (whId) {
       used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
     }
@@ -332,6 +347,17 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const whName = whId ? (used.get(whId) || '') : '';
+    const allowNeg = warehouseAllowsNegative(db, whId);
+    // Legacy seed — same rule as postSaleStockMovements / ledger.warehouseQty: a product that predates
+    // warehouse_stock gets its home-warehouse row from products.stock (0 elsewhere). The ATP check reads
+    // that rule, so the movement must act on the same number instead of a fresh 0 row.
+    if (whId) {
+      const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
+      const seedQty = prod && Number(prod.warehouse_id) === Number(whId) ? (Number(prod.stock) || 0) : 0;
+      db.prepare(
+        'INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO NOTHING'
+      ).run(r.product_id, whId, seedQty);
+    }
     try {
       postStockMovement(db, {
         productId: r.product_id,
@@ -343,11 +369,23 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
         docLine: lineIdx,
         userId: userId || 0,
         note: 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : ''),
-        allowNegative: true,
+        // Only an explicit warehouse/global allow_negative switch may drive physical stock below zero.
+        allowNegative: allowNeg,
       });
     } catch (e) {
-      if (e && e.code === 'E_VARIANT_REQUIRED') throw e;
+      // movement.js errors carry no product name (inherited Error.name only) — add it for the 409 text.
+      if (e && e.code === 'E_NEGATIVE_STOCK' && !Object.prototype.hasOwnProperty.call(e, 'name')) {
+        const p = db.prepare('SELECT name FROM products WHERE id=?').get(r.product_id);
+        e.name = (p && p.name) || '';
+        if (e.needed == null) e.needed = Number(r.qty) || 0;
+      }
       throw e;
+    }
+    // The customer's own order soft-lock is fulfilled by this sale (same as the perpetual path).
+    if (custId) {
+      try {
+        consumeOpenReservationsForSale(db, { productId: r.product_id, warehouseId: whId, qty: Number(r.qty) || 0, custId });
+      } catch (_) { /* soft-lock optional */ }
     }
     lineIdx += 1;
   }
@@ -363,7 +401,7 @@ router.get('/', auth, (req, res) => {
   const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
     i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
-    i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method`;
+    i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method,i.fulfillment_state`;
   const typeFilter = String(req.query.type || '').trim();
   const typeSql = (typeFilter === 'proforma' || typeFilter === 'final' || typeFilter === 'normal') ? ' AND i.type=?' : '';
   const typeArgs = typeSql ? [typeFilter] : [];
@@ -553,22 +591,40 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             allocMethod, vatFlag, ccId,
             parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
-      const stockMeta = { docId: invId };
+      const stockMeta = { docId: invId, custId: cust_id };
       let saleCogsRial = 0;
+      let fulfillment = null;
 
       if (isFirmSale(invType)) {
-        if (warehouseUsesPerpetualValuation(db, whId)) {
-          const stocked = postSaleStockMovements(db, {
-            rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
-            userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
-          });
-          saleCogsRial = stocked.cogsRial;
-          stockMeta.usedWarehouses = stocked.usedWarehouses;
+        // ATP gate — same transaction as the movement, BEFORE anything moves (NONTAX-P0-atp).
+        // Throws 409 E_ATP_INSUFFICIENT / 403 E_BACKORDER_FORBIDDEN → whole insert rolls back.
+        fulfillment = decideSaleFulfillment(db, {
+          rows: built.rows, headerWarehouseId: whId, custId: cust_id, excludeInvoiceId: invId,
+          backorderRequested: isBackorderRequested(req.body), role: req.user.role,
+          provisional: isProvisionalRequest(req, isDevice),
+        });
+        if (fulfillment.mode === 'deduct') {
+          if (warehouseUsesPerpetualValuation(db, whId)) {
+            // Sale context: only this customer's own order reservations are consumed by the posting.
+            const stocked = runWithSaleContext({ custId: cust_id }, () => postSaleStockMovements(db, {
+              rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
+              userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
+            }));
+            saleCogsRial = stocked.cogsRial;
+            stockMeta.usedWarehouses = stocked.usedWarehouses;
+          } else {
+            const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
+            if (stockErr) throw new Error(stockErr);
+          }
+          db.prepare('UPDATE invoices SET stock_deducted=1, fulfillment_state=? WHERE id=?')
+            .run(FULFILLMENT_STATES.DEDUCTED, invId);
         } else {
-          const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
-          if (stockErr) throw new Error(stockErr);
+          // backorder (admin/accounting) or provisional (device/offline): no physical movement, no COGS,
+          // stock_deducted stays 0 so a later void can never "restore" stock that was never taken.
+          db.prepare('UPDATE invoices SET stock_deducted=0, fulfillment_state=? WHERE id=?')
+            .run(fulfillment.fulfillment_state, invId);
+          stockMeta.usedWarehouses = [];
         }
-        db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(invId);
 
         db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
         postInvoiceCustomerLedger(db, {
@@ -633,13 +689,15 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         });
       } catch (e) { console.error('crm invoice stage:', e.message); }
 
-      return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [] };
+      return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [], fulfillment };
     })();
   } catch (e) {
     const msg = e.code === 'E_NEGATIVE_STOCK'
       ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))
       : (e.message || 'خطا در ثبت فاکتور');
-    return res.status(e.status || 400).json({ error: msg, code: e.code });
+    const payload = { error: msg, code: e.code };
+    if (Array.isArray(e.shortages)) payload.atp_shortages = e.shortages;
+    return res.status(e.status || 400).json(payload);
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
@@ -666,7 +724,12 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       }));
     } catch (_) {}
   }
-  res.json(applyCatalogCostPolicy(db, req.user, { ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] }));
+  const fulfillmentOut = created.fulfillment && created.fulfillment.mode !== 'deduct'
+    ? { fulfillment_state: created.fulfillment.fulfillment_state, atp_shortages: created.fulfillment.shortages }
+    : {};
+  res.json(applyCatalogCostPolicy(db, req.user, {
+    ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [], ...fulfillmentOut,
+  }));
 });
 
 router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
@@ -765,6 +828,15 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   };
 
   if (row.type === 'normal' || row.type === 'final') {
+    // In-place amendment re-posts stock as deltas against the ORIGINAL rows, which presumes they were
+    // deducted. A backorder/provisional invoice never moved stock — R13: cancel and re-issue instead.
+    if (row.fulfillment_state === FULFILLMENT_STATES.BACKORDER || row.fulfillment_state === FULFILLMENT_STATES.PROVISIONAL) {
+      return res.status(409).json({
+        error: 'فاکتور بک‌اوردر/موقت (بدون کسر موجودی) قابل ویرایش نیست — آن را ابطال و دوباره ثبت کنید',
+        code: 'E_ATP_AMEND_LOCKED',
+        fulfillment_state: row.fulfillment_state,
+      });
+    }
     try {
       resolveCashPaid(req.body || {}, final);
       if (storedPayType === 'cash' && !payPlan.splits.length) {
@@ -858,12 +930,19 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
         }
       })();
     }
+    // Backorder / provisional invoices have stock_deducted=0 → neither block above nor voidInvoiceFully
+    // touches stock: nothing was taken, so nothing is "restored" (no invented on-hand).
     const result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
+    if (result.restoredToProforma && row.fulfillment_state) {
+      // Un-convert: an active proforma is never committed demand — drop the backorder/provisional label.
+      db.prepare('UPDATE invoices SET fulfillment_state=? WHERE id=?').run(FULFILLMENT_STATES.DEDUCTED, row.id);
+    }
     res.json({
       ok: true,
       restoredToProforma: result.restoredToProforma,
       settlementsReversed: result.settlementsReversed,
       title: result.title,
+      fulfillment_state: row.fulfillment_state || '',
     });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message || 'خطا در ابطال', code: e.code });
@@ -935,26 +1014,39 @@ router.post('/:id/convert', auth, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
   }
 
+  let convertFulfillment = null;
   try {
     db.transaction(() => {
       let stockDeducted = inv.stock_deducted || 0;
       let saleCogsRial = 0;
+      let fulfillmentState = FULFILLMENT_STATES.DEDUCTED;
       if (!stockDeducted) {
-        if (warehouseUsesPerpetualValuation(db, convertWhId)) {
-          const stocked = postSaleStockMovements(db, {
-            rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
-            userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
-          });
-          saleCogsRial = stocked.cogsRial;
+        // ATP gate — same transaction, before any movement (NONTAX-P0-atp). Throws → convert rolls back.
+        convertFulfillment = decideSaleFulfillment(db, {
+          rows, headerWarehouseId: convertWhId, custId: inv.cust_id, excludeInvoiceId: inv.id,
+          backorderRequested: isBackorderRequested(req.body || {}), role: req.user.role,
+          provisional: isProvisionalRequest(req, isDevice),
+        });
+        if (convertFulfillment.mode === 'deduct') {
+          if (warehouseUsesPerpetualValuation(db, convertWhId)) {
+            const stocked = runWithSaleContext({ custId: inv.cust_id }, () => postSaleStockMovements(db, {
+              rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
+              userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
+            }));
+            saleCogsRial = stocked.cogsRial;
+          } else {
+            const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id, custId: inv.cust_id });
+            if (stockErr) throw new Error(stockErr);
+          }
+          stockDeducted = 1;
         } else {
-          const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id });
-          if (stockErr) throw new Error(stockErr);
+          // backorder / provisional: stock_deducted stays 0, no movement, no COGS.
+          fulfillmentState = convertFulfillment.fulfillment_state;
         }
-        stockDeducted = 1;
       }
 
-      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
-        .run(targetType, stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
+      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,fulfillment_state=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
+        .run(targetType, stockDeducted, fulfillmentState, totals.final, totals.vatAmount, totals.vatRate,
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
@@ -994,7 +1086,9 @@ router.post('/:id/convert', auth, (req, res) => {
       if (targetType === 'normal') autoApproveNormalInvoice(db, inv.id, req.user.id);
     })();
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    const payload = { error: e.message, code: e.code };
+    if (Array.isArray(e.shortages)) payload.atp_shortages = e.shortages;
+    return res.status(e.status || 400).json(payload);
   }
   audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);
 
@@ -1018,7 +1112,12 @@ router.post('/:id/convert', auth, (req, res) => {
     } catch (_) {}
   }
 
-  res.json({ ok: true, type: targetType });
+  res.json({
+    ok: true,
+    type: targetType,
+    fulfillment_state: convertFulfillment ? convertFulfillment.fulfillment_state : (inv.fulfillment_state || ''),
+    ...(convertFulfillment && convertFulfillment.mode !== 'deduct' ? { atp_shortages: convertFulfillment.shortages } : {}),
+  });
 });
 
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
