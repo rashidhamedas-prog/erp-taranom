@@ -249,10 +249,11 @@ const ACC_NAV_SECTIONS = [
     { title: 'عملیات', items: [
       { id: 'acc-journal-docs', icon: '📝', label: 'فهرست اسناد' },
       { id: 'acc-journal-entry', icon: '✍️', label: 'سند حسابداری' },
-      { id: 'acc-opening-voucher', icon: '🟢', label: 'سند افتتاحیه' },
-      { id: 'acc-close-temp', icon: '🟡', label: 'اختتامیه حساب‌های موقت' },
-      { id: 'acc-close-perm', icon: '🔴', label: 'اختتامیه حساب‌های دائم' },
-      { id: 'acc-revaluation', icon: '💱', label: 'سند تسعیر' },
+      /* چهار مورد زیر فقط قالب «سند دستی» را در صفحهٔ vouchers باز می‌کنند — بستن خودکار دوره یا تسعیر خودکار نیستند؛ قفل دوره و RBAC سمت سرور (مسیر vouchers) اعمال می‌شود. */
+      { id: 'acc-opening-voucher', icon: '🟢', label: 'سند دستی افتتاحیه' },
+      { id: 'acc-close-temp', icon: '🟡', label: 'قالب سند دستی: بستن حساب‌های موقت' },
+      { id: 'acc-close-perm', icon: '🔴', label: 'قالب سند دستی: بستن حساب‌های دائم' },
+      { id: 'acc-revaluation', icon: '💱', label: 'قالب سند دستی: تسعیر' },
     ]},
     { title: 'گزارشات', items: [
       { id: 'acc-adv-reports', icon: '📊', label: 'داشبورد گزارشات' },
