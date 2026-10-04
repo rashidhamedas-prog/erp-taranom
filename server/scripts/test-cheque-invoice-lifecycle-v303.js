@@ -156,11 +156,37 @@ function ok(cond, label, extra) {
     INSERT INTO banks (name, account_number, active, coa_code) VALUES ('ملت 9955','9955',1,?)
   `).run(bankCoa.code).lastInsertRowid;
 
+  const settId = db.prepare('SELECT settlement_id FROM cheque_records WHERE id=?').get(created.id).settlement_id;
+  const notesBefore = db.prepare(`
+    SELECT COUNT(*) AS c FROM journal_entries
+    WHERE ref_type='cheque_in' AND ref_id=? AND COALESCE(deleted_at,0)=0
+  `).get(created.id).c;
+  const custCreditBefore = db.prepare(`
+    SELECT COALESCE(SUM(credit),0) AS c FROM customer_ledger
+    WHERE customer_id=? AND entry_type<>'reversal'
+  `).get(custId).c;
+
   let r = await api('POST', `/api/cheque-records/${created.id}/send-to-bank`, {
     date: '1405/07/02', collection_bank_id: bankId,
   });
   ok(r.status === 200 && r.data && r.data.lifecycle_status === 'in_collection',
     'واگذاری invoice cheque', r.data && (r.data.error || r.data.lifecycle_status));
+
+  const notesAfter = db.prepare(`
+    SELECT COUNT(*) AS c FROM journal_entries
+    WHERE ref_type='cheque_in' AND ref_id=? AND COALESCE(deleted_at,0)=0
+  `).get(created.id).c;
+  const custCreditAfter = db.prepare(`
+    SELECT COALESCE(SUM(credit),0) AS c FROM customer_ledger
+    WHERE customer_id=? AND entry_type<>'reversal'
+  `).get(custId).c;
+  const sendJe = db.prepare(`
+    SELECT COUNT(*) AS c FROM journal_entries
+    WHERE ref_type='cheque_send_to_bank' AND ref_id=? AND COALESCE(deleted_at,0)=0
+  `).get(created.id).c;
+  ok(Number(notesBefore) === 0 && Number(notesAfter) === 0, 'no cheque_in JE for invoice cheque', { notesBefore, notesAfter, settId });
+  ok(Number(custCreditAfter) === Number(custCreditBefore), 'customer credit unchanged on واگذاری', { custCreditBefore, custCreditAfter });
+  ok(Number(sendJe) === 1, 'exactly one send-to-bank JE', sendJe);
 
   r = await api('POST', `/api/cheque-records/${legacyId}/endorse`, {
     date: '1405/07/02', account_key: 'coa_payable',

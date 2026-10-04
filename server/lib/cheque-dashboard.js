@@ -12,9 +12,9 @@ const GL_RECV = '1109';
 const GL_COLLECTION = '1116';
 const GL_PAY = '2109';
 
-const CLOSED_IN = new Set(['cleared', 'bounced', 'cancelled', 'void', 'paid']);
-const CLOSED_OUT = new Set(['cleared', 'cancelled', 'void', 'paid', 'issued', 'expensed']);
+const { CLOSED_IN, CLOSED_OUT } = require('./cheque-lifecycle');
 const COLLECTION_LC = new Set(['in_collection']);
+const REGISTERED_OPEN = new Set(['', 'registered', 'in_hand', 'pending']);
 
 function tableExists(db, name) {
   try {
@@ -332,7 +332,7 @@ function buildChequeDashboard(db, from, to) {
             days_left: days,
           });
         }
-      } else if (isOut && !closedOut && (lcVal === '' || lcVal === 'registered' || lcVal === 'in_hand' || lcVal === 'pending')) {
+      } else if (isOut && !closedOut && REGISTERED_OPEN.has(lcVal)) {
         kpis.pay_open_rial += amtR;
         kpis.pay_open_count++;
         sayadiTotal++;

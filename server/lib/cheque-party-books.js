@@ -158,9 +158,34 @@ function existingChequeInJe(db, chequeId) {
   `).get(chequeId);
 }
 
+/** Settlement/invoice already posted Dr 1109 / Cr customer — never backfill cheque_in. */
+function existingSettlementReceiptJe(db, row) {
+  const settlementId = row && row.settlement_id != null ? Number(row.settlement_id) : 0;
+  if (settlementId > 0) {
+    const bySett = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type='settlement' AND ref_id=? AND COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      LIMIT 1
+    `).get(settlementId);
+    if (bySett) return bySett;
+  }
+  if (row && row.journal_entry_id) {
+    const byLink = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE id=? AND COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      LIMIT 1
+    `).get(row.journal_entry_id);
+    if (byLink) return byLink;
+  }
+  return null;
+}
+
 /**
  * Post (or backfill) the party-credit JE + ledgers for a receivable cheque.
  * Idempotent. Opening cheques only get ledger mirrors (JE already exists).
+ * Invoice-settlement cheques already have settlement JE + customer_ledger — skip.
  */
 function postChequeInReceipt(db, row, userId, date) {
   if (!row || row.direction !== 'in') return null;
@@ -177,6 +202,12 @@ function postChequeInReceipt(db, row, userId, date) {
     // A subledger credit would show a creditor balance the tafsili never had.
     // Bounce is the first posting on the customer book.
     return row.journal_entry_id || null;
+  }
+
+  // Invoice/settlement path already posted AR credit — backfill would double books.
+  const settlementJe = existingSettlementReceiptJe(db, row);
+  if (settlementJe || (row.settlement_id != null && Number(row.settlement_id) > 0) || (row.invoice_id != null && Number(row.invoice_id) > 0)) {
+    return settlementJe ? settlementJe.id : (row.journal_entry_id || null);
   }
 
   const existing = existingChequeInJe(db, row.id);

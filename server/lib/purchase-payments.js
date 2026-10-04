@@ -274,7 +274,8 @@ function insertPurchasePayment(db, { userId, supplierId, purchaseId, split, date
       split.cheque_number || '', date || '', date || '', chequeDue,
       split.cheque_bank || '', split.cheque_branch || '', split.sayadi || '', split.sheba || '',
       split.cheque_account || '', (sup && sup.name) || split.cheque_owner || '', supplierId,
-      'ثبت‌شده', amountRial, payNote, 'registered'
+      // supplier_payment JE already Dr AP / Cr notes payable — lifecycle is issued, not re-payable.
+      'پرداخت‌شده', amountRial, payNote, 'issued'
     );
   }
 
