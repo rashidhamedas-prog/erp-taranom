@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS = {
   crm_seg_inactive_days: '180',
   crm_seg_churn_delay_factor: '1.5',
   crm_stale_opportunity_days: '14',
+  // Days between repeat alerts for the same overdue follow-up (one reminder per window).
+  crm_followup_remind_every_days: '7',
   crm_cheque_due_days: '14',
   crm_overdue_receivable_days: '30',
   crm_auto_followup_after_invoice: '1',
@@ -194,6 +196,9 @@ function initCrmProSchema(db) {
 
   ensureColumn(db, 'followups', 'opportunity_id', 'INTEGER');
   ensureColumn(db, 'followups', 'party_id', 'INTEGER');
+  // Reminder cadence controls: 1 = never remind; snooze = skip while snooze_until >= today (Jalali).
+  ensureColumn(db, 'followups', 'reminder_opt_out', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'followups', 'reminder_snooze_until', "TEXT DEFAULT ''");
   ensureColumn(db, 'customers', 'lead_source', "TEXT DEFAULT ''");
   ensureColumn(db, 'customers', 'campaign', "TEXT DEFAULT ''");
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_followups_stage ON followups(pipeline_stage)'); } catch (_) {}
