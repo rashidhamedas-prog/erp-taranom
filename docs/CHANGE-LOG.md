@@ -4,7 +4,7 @@
 - **رفع:** `tblSyncColumns` ستون انتخاب را حداکثر یکی نگه می‌دارد و ردیف تازه فقط سلول گم‌شده را می‌گیرد؛ enhance دوباره شنونده و چک‌باکس نمی‌سازد. جستجوی کالا بدنه را عوض می‌کند و سرستون را دوباره نمی‌سازد. `thead` دیگر موقعیت جدا ندارد؛ عنوان `nowrap` است و جدول حداقل به عرض محتوا می‌رود. استیکی فقط عمودی است. راهنمای مدیر و فروش به‌روز شد.
 - **فایل‌ها:** `server/public/{tbl-enhance.js,app.js,app.css,index.html,sw.js}`, `server/scripts/fixtures/tbl-column-sync-v308.html`, CHANGE-LOG.
 - **تست:** Chrome headless روی فیکسچر: `PASS maxD=0.00` (دوبار enhance، تعویض tbody، حذف چک‌باکس اضافه، اختلاف لبهٔ سرستون/بدنه صفر). `node --check` برای app.js و tbl-enhance.js.
-- **Deploy:** در حال انجام — SW `erp-taranom-v308`.
+- **Deploy:** ✅ `7cbbeef` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v308`.
 
 ---
 
