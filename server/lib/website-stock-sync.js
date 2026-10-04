@@ -11,6 +11,11 @@
  *
  * Outbox + debounce coalesce bursts (invoice line storms) into one push per
  * product×channel. WooCommerce path kept for legacy when target includes woo.
+ *
+ * Success contract (NONTAX-P1, 2026-10-04): a push is successful only when the
+ * HTTP call succeeded AND the site reported zero unmatched rows for the active
+ * sellable variants we sent. Matching is exact SKU / explicit site-side mapping
+ * only — ERP never merges by fuzzy name. See classifyMatrixPushResult().
  */
 'use strict';
 
@@ -19,6 +24,8 @@ const { getSetting, getSettings } = require('./secret-settings');
 
 const DEBOUNCE_MS = 2000;
 const MAX_ATTEMPTS = 8;
+/** Max unmatched rows echoed back as human examples in results/messages. */
+const UNMATCHED_EXAMPLE_LIMIT = 5;
 /** Keep batches small — matrix PUT can take tens of seconds under load. */
 const DRAIN_BATCH = 5;
 const MATRIX_TIMEOUT_MS = 45_000;
@@ -215,6 +222,91 @@ function rowHasUnmappedProductSku(row) {
   } catch {
     return false;
   }
+}
+
+/** Human label for one unmatched site row — colour/size first, then SKU, then reason. */
+function formatUnmatchedExample(u) {
+  const color = String((u && u.color) || '').trim();
+  const size = String((u && u.size) || '').trim();
+  const sku = String((u && (u.erpVariantSku || u.sku)) || '').trim();
+  const reason = String((u && u.reason) || '').trim();
+  const label = color && size ? `${color} / ${size}` : (color || size || sku || reason || 'نامشخص');
+  const out = { label };
+  if (sku) out.erpVariantSku = sku;
+  if (color) out.color = color;
+  if (size) out.size = size;
+  if (reason) out.reason = reason;
+  return out;
+}
+
+function unmatchedMessage({ catalogMissing, productSku, unmatchedCount, expected, examples }) {
+  if (catalogMissing) {
+    const sku = productSku ? ` «${productSku}»` : '';
+    return `کد کالا${sku} در سایت پیدا نشد؛ کد را در سایت وصل یا بسازید (فقط نگاشت صریح؛ حدس از روی نام انجام نمی‌شود)، سپس همگام‌سازی را دوباره اجرا کنید.`;
+  }
+  const of = expected ? ` از ${expected}` : '';
+  const sample = examples.map((e) => e.label).join('، ');
+  const more = unmatchedCount > examples.length ? ' و …' : '';
+  return `${unmatchedCount} رنگ/سایز${of} در سایت هم‌خوان نشد (${sample}${more})؛ تا رفع نگاشت در سایت، این ارسال موفق محسوب نمی‌شود.`;
+}
+
+/**
+ * Pure success predicate for one matrix push (no DB, no network, no mutation).
+ *
+ * Input `push`: { ok|transportOk?, status (HTTP), matched (array|number),
+ *                 unmatched (array of {erpVariantSku,color,size,reason}), reason? }
+ * Input `payload`: buildMatrixPayload() output — `variants` are already the
+ *                  active, non-default (sellable) rows, so every unmatched row
+ *                  the site reports is a sellable row that did not sync.
+ *
+ * Verdict: { ok, status: 'done'|'error', code, matched, expected,
+ *            unmatchedCount, examples (≤ UNMATCHED_EXAMPLE_LIMIT), message (fa),
+ *            catalogMissing, productSku?, channel? }
+ * Calling it twice on the same inputs yields an identical verdict.
+ */
+function classifyMatrixPushResult(push, payload) {
+  const p = push && typeof push === 'object' ? push : {};
+  const httpStatus = Number(p.status) || 0;
+  const transportOk = p.transportOk != null ? !!p.transportOk
+    : (p.ok != null ? !!p.ok : (httpStatus >= 200 && httpStatus < 300));
+  const unmatched = Array.isArray(p.unmatched) ? p.unmatched : [];
+  const matched = Array.isArray(p.matched) ? p.matched.length : (Number(p.matched) || 0);
+  const expected = payload && Array.isArray(payload.variants) ? payload.variants.length : null;
+  const productSku = String((payload && payload.productSku) || p.productSku || '').trim();
+  const channelRaw = String((payload && payload.channel) || p.channel || '').toUpperCase();
+  const unmatchedCount = unmatched.length;
+  const catalogMissing = isAllProductSkuNotFound(unmatched);
+  const examples = unmatched.slice(0, UNMATCHED_EXAMPLE_LIMIT).map(formatUnmatchedExample);
+
+  const base = { matched, expected, unmatchedCount, examples, catalogMissing };
+  if (productSku) base.productSku = productSku;
+  if (channelRaw) base.channel = channelRaw;
+
+  if (!transportOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'error',
+      code: 'transport_failed',
+      message: String(p.reason || '').trim() || formatOutboundFailure(p),
+    };
+  }
+  if (unmatchedCount > 0) {
+    return {
+      ...base,
+      ok: false,
+      status: 'error',
+      code: catalogMissing ? 'product_sku_not_found' : 'variants_unmatched',
+      message: unmatchedMessage({ catalogMissing, productSku, unmatchedCount, expected, examples }),
+    };
+  }
+  return {
+    ...base,
+    ok: true,
+    status: 'done',
+    code: 'all_matched',
+    message: matched > 0 ? `${matched} رنگ/سایز در سایت به‌روز شد` : 'انجام شد',
+  };
 }
 
 async function requestJSON(urlStr, method, body, headers = {}, options = {}) {
@@ -416,15 +508,33 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
   });
   let parsed = null;
   try { parsed = JSON.parse(res.body); } catch { /* */ }
-  const ok = res.status >= 200 && res.status < 300;
-  return {
-    ok,
+  const transportOk = res.status >= 200 && res.status < 300;
+  const matched = parsed && Array.isArray(parsed.matched)
+    ? parsed.matched.length
+    : (parsed ? Number(parsed.matched) || 0 : 0);
+  const unmatched = parsed && Array.isArray(parsed.unmatched) ? parsed.unmatched : [];
+  // HTTP 2xx alone is not success: any unmatched sellable row fails the push.
+  const verdict = classifyMatrixPushResult({
+    ok: transportOk,
     status: res.status,
-    reason: ok ? '' : formatOutboundFailure(res),
+    matched,
+    unmatched,
+    reason: transportOk ? '' : formatOutboundFailure(res),
+  }, payload);
+  return {
+    ok: verdict.ok,
+    transportOk,
+    status: res.status,
+    reason: verdict.ok ? '' : verdict.message,
+    code: verdict.code,
     channel: payload.channel,
     productSku: payload.productSku,
-    matched: parsed && parsed.matched ? parsed.matched.length : 0,
-    unmatched: parsed && parsed.unmatched ? parsed.unmatched : [],
+    matched,
+    expected: verdict.expected,
+    unmatched,
+    unmatchedCount: verdict.unmatchedCount,
+    examples: verdict.examples,
+    message: verdict.message,
     body: parsed || (typeof res.body === 'string' ? res.body : null),
     dryRun: !!dryRun,
   };
@@ -516,34 +626,95 @@ async function drainWebsiteStockOutbox(db) {
 
       // If a prior response already proved the site has no such product SKU,
       // do not burn retries on timeouts — catalog mapping is the real blocker.
+      // Settling is NOT success: the row stays 'error' (needs attention) with
+      // the same verdict until the operator maps the SKU on the site.
       if (rowHasUnmappedProductSku(row)) {
+        const prior = parseOutboxLastResult(row.last_result);
+        const verdict = classifyMatrixPushResult({
+          ok: true,
+          status: prior.status,
+          matched: prior.matched,
+          unmatched: prior.unmatched,
+        }, payload);
         db.prepare(`
           UPDATE website_stock_outbox
-          SET status='done', last_error='', updated_at=?
+          SET status='error', last_error=?, last_result=?, updated_at=?
           WHERE id=?
-        `).run(now, row.id);
-        results.push({ id: row.id, ok: true, settled: 'product_sku_not_found' });
+        `).run(
+          String(verdict.message || '').slice(0, 500),
+          JSON.stringify({
+            ...prior,
+            catalogMissing: true,
+            unmatchedCount: verdict.unmatchedCount,
+            examples: verdict.examples,
+            code: verdict.code,
+            message: verdict.message,
+            settled: 'product_sku_not_found',
+          }),
+          now,
+          row.id
+        );
+        results.push({
+          id: row.id,
+          ok: false,
+          status: 'error',
+          settled: 'product_sku_not_found',
+          code: verdict.code,
+          unmatchedCount: verdict.unmatchedCount,
+          examples: verdict.examples,
+          message: verdict.message,
+        });
         continue;
       }
 
       const push = await pushMatrixToSite(db, payload);
-      if (push.ok || push.skipped) {
+      if (push.skipped) {
+        // Config changed between enqueue and drain — nothing was sent.
         db.prepare(`
           UPDATE website_stock_outbox
-          SET status='done', last_result=?, last_error='', payload_hash=?, updated_at=?
+          SET status='done', last_result=?, last_error='', updated_at=?
+          WHERE id=?
+        `).run(JSON.stringify({ skipped: true, reason: push.reason || '' }), now, row.id);
+        results.push({ id: row.id, skipped: true, reason: push.reason || '' });
+        continue;
+      }
+      if (push.transportOk) {
+        // Site answered. 'done' only when every sellable row matched;
+        // otherwise 'error' (needs attention) — no retry burn, no false green.
+        const rowStatus = push.ok ? 'done' : 'error';
+        db.prepare(`
+          UPDATE website_stock_outbox
+          SET status=?, last_result=?, last_error=?, payload_hash=?, updated_at=?
           WHERE id=?
         `).run(
+          rowStatus,
           JSON.stringify({
             matched: push.matched,
             unmatched: push.unmatched,
             status: push.status,
             catalogMissing: isAllProductSkuNotFound(push.unmatched),
+            expected: push.expected,
+            unmatchedCount: push.unmatchedCount,
+            examples: push.examples,
+            code: push.code,
+            message: push.message,
           }),
+          push.ok ? '' : String(push.message || '').slice(0, 500),
           payload.idempotencyKey,
           now,
           row.id
         );
-        results.push({ id: row.id, ok: true, unmatched: push.unmatched });
+        results.push({
+          id: row.id,
+          ok: push.ok,
+          status: rowStatus,
+          code: push.code,
+          matched: push.matched,
+          unmatchedCount: push.unmatchedCount,
+          examples: push.examples,
+          message: push.message,
+          unmatched: push.unmatched,
+        });
       } else {
         const attempts = (Number(row.attempts) || 0) + 1;
         const backoff = Math.min(3600, Math.pow(2, attempts) * 15);
@@ -690,7 +861,13 @@ async function dryRunProductMatrix(db, productId) {
     const push = await pushMatrixToSite(db, payload, { dryRun: true });
     results.push(push);
   }
-  return { ok: results.every((r) => r.ok), results };
+  const failed = results.filter((r) => !r.ok);
+  return {
+    ok: failed.length === 0,
+    unmatchedCount: results.reduce((sum, r) => sum + (Number(r.unmatchedCount) || 0), 0),
+    message: failed.length ? String(failed[0].message || failed[0].reason || '') : '',
+    results,
+  };
 }
 
 /** Enqueue every product that has matrix variants for both configured channels. */
@@ -761,9 +938,11 @@ function summarizeOutboxRow(row) {
     outcome = matched > 0 ? 'موجودی در سایت به‌روز شد' : 'انجام شد';
     nextStep = '';
     tone = 'ok';
-  } else if (status === 'done' && unmatchedN > 0) {
+  } else if (unmatchedN > 0 && status !== 'pending') {
+    // Partial match is never success (row is 'error' since NONTAX-P1; older
+    // rows may still carry status 'done' from before the fix).
     outcome = `${matched} مورد هم‌خوان · ${unmatchedN} مورد بدون هم‌خوانی در سایت`;
-    nextStep = 'رنگ/سایزهای بدون هم‌خوانی را در سایت بررسی کنید';
+    nextStep = 'رنگ/سایزهای بدون هم‌خوانی را در سایت وصل کنید، بعد دوباره همگام‌سازی کنید';
     tone = 'warn';
   } else if (status === 'error') {
     outcome = err || 'ارسال ناموفق بود';
@@ -863,7 +1042,10 @@ module.exports = {
   startWebsiteStockDrainLoop,
   formatOutboundFailure,
   summarizeOutboxRow,
+  classifyMatrixPushResult,
+  formatUnmatchedExample,
   DEBOUNCE_MS,
   MATRIX_TIMEOUT_MS,
   DRAIN_BATCH,
+  UNMATCHED_EXAMPLE_LIMIT,
 };
