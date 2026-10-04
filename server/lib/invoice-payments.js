@@ -376,17 +376,18 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
   );
   const settlementId = result.lastInsertRowid;
   if (pay_type === 'cheque') {
-    const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
+    const cust = db.prepare('SELECT biz, owner, party_id FROM customers WHERE id=?').get(custId);
+    // Canonical lifecycle: registered (= نزد صندوق). Never in_hand/in_collection until send-to-bank.
     db.prepare(`
       INSERT INTO cheque_records
         (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
-         account_number, party_name, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
-      VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         account_number, party_name, party_id, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
+      VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       split.cheque_number || '', date || '', chequeDue, split.cheque_bank || '', split.cheque_branch || '',
       split.sayadi || '', split.sheba || '', split.cheque_account || '',
-      (cust && (cust.biz || cust.owner)) || '', custId,
-      'نزد صندوق', amountRial, settNote, invoiceId, settlementId, 'in_hand'
+      (cust && (cust.biz || cust.owner)) || '', (cust && cust.party_id) || null, custId,
+      'نزد صندوق', amountRial, settNote, invoiceId, settlementId, 'registered'
     );
   }
   const payLabel = pay_type === 'cheque' ? 'چک'

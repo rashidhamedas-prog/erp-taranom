@@ -514,7 +514,7 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
     } else {
       const days = getSettingInt(db, 'crm_cheque_due_days', 14);
       const dueLimit = addDaysToJalali(todayJalali(), days);
-      where.push("COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')");
+      where.push("COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_hand','in_collection','pending')");
       where.push("cr.due_date<>'' AND cr.due_date<=?");
       params.push(dueLimit);
     }

@@ -332,7 +332,7 @@ function buildChequeDashboard(db, from, to) {
             days_left: days,
           });
         }
-      } else if (isOut && !closedOut && (lcVal === '' || lcVal === 'registered')) {
+      } else if (isOut && !closedOut && (lcVal === '' || lcVal === 'registered' || lcVal === 'in_hand' || lcVal === 'pending')) {
         kpis.pay_open_rial += amtR;
         kpis.pay_open_count++;
         sayadiTotal++;

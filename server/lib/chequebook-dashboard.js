@@ -186,7 +186,7 @@ function buildChequebookDashboard(db) {
           SELECT COUNT(*) AS n, COALESCE(SUM(${amt}),0) AS s
           FROM cheque_records
           WHERE ${aliveParts.join(' AND ')}
-            AND COALESCE(${lc},'') IN ('','registered')
+            AND COALESCE(${lc},'') IN ('','registered','in_hand','pending')
         `).get();
         undeliveredCount = Number(pending && pending.n) || 0;
         undeliveredRial = Math.round(Number(pending && pending.s) || 0);

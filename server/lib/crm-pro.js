@@ -518,7 +518,7 @@ function runAutomations(db) {
         SELECT id, created_by_name, due_date, cheque_number, customer_id
         FROM cheque_records
         WHERE COALESCE(record_status,'posted')<>'reversed'
-          AND COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
+          AND COALESCE(lifecycle_status,status) IN ('registered','in_hand','in_collection','pending')
           AND due_date<>'' AND due_date<=?
       `).all(dueLimit);
       for (const c of cheques) {

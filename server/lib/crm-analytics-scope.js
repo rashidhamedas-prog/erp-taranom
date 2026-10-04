@@ -82,7 +82,7 @@ function chequeKpis(db, userId, { dueDays = 14 } = {}) {
       const dueSql = `
         SELECT COUNT(*) AS c FROM cheque_records cr
         WHERE COALESCE(cr.record_status,'posted')<>'reversed'
-          AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')
+          AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_hand','in_collection','pending')
           AND cr.due_date<>'' AND cr.due_date<=?
           AND (
             ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=? OR assigned_to=?)' : '0'}
@@ -112,7 +112,7 @@ function chequeKpis(db, userId, { dueDays = 14 } = {}) {
       chequesDue = db.prepare(`
         SELECT COUNT(*) AS c FROM cheque_records
         WHERE COALESCE(record_status,'posted')<>'reversed'
-          AND COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
+          AND COALESCE(lifecycle_status,status) IN ('registered','in_hand','in_collection','pending')
           AND due_date<>'' AND due_date<=?
       `).get(dueLimit)?.c || 0;
       chequesBounced = db.prepare(`

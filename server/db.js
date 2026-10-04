@@ -2503,6 +2503,16 @@ function initSyncSchema(db, opts) {
     console.warn('payroll_void_sync_v301:', e.message);
   }
 
+  try {
+    const { repairChequeLifecycleAliases } = require('./lib/cheque-lifecycle');
+    const cr = repairChequeLifecycleAliases(db);
+    if (cr && !cr.skipped && (cr.aliasFixed || cr.statusFixed)) {
+      console.log('✅ cheque_lifecycle_alias_v303:', JSON.stringify(cr));
+    }
+  } catch (e) {
+    console.warn('cheque_lifecycle_alias_v303:', e.message);
+  }
+
   // v285 — remove standalone «سند ابطالی» pairs; soft-void originals instead
   try {
     const flag = db.prepare("SELECT value FROM settings WHERE key='purge_reversal_docs_v285'").get();

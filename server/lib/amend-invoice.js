@@ -428,35 +428,41 @@ function patchOneInvoiceTimeSettlement(db, {
           throw httpErr(409, 'شناسه صیاد این چک قبلاً ثبت شده است', 'E_CHEQUE_SAYADI_DUP');
         }
       }
-      const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
+      const cust = db.prepare('SELECT biz, owner, party_id FROM customers WHERE id=?').get(custId);
       const existing = db.prepare(`
-        SELECT id FROM cheque_records
+        SELECT id, lifecycle_status, collection_je_id FROM cheque_records
         WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
       `).get(sett.id);
       if (existing) {
+        // Keep advanced lifecycle if already sent to bank / endorsed; else stay registered.
+        const keepLc = existing.collection_je_id
+          || !['', 'registered', 'in_hand', 'pending'].includes(String(existing.lifecycle_status || '').trim());
         db.prepare(`
           UPDATE cheque_records SET
             cheque_number=?, receive_date=?, due_date=?, bank_name=?, branch=?,
-            sayadi=?, sheba=?, account_number=?, party_name=?, customer_id=?,
-            amount=?, note=?, invoice_id=?, status='نزد صندوق', lifecycle_status='in_hand'
+            sayadi=?, sheba=?, account_number=?, party_name=?, party_id=?, customer_id=?,
+            amount=?, note=?, invoice_id=?,
+            status=CASE WHEN ? THEN status ELSE 'نزد صندوق' END,
+            lifecycle_status=CASE WHEN ? THEN lifecycle_status ELSE 'registered' END
           WHERE id=?
         `).run(
           s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
           sayadi || '', s.sheba || '', s.cheque_account || '',
-          (cust && (cust.biz || cust.owner)) || '', custId,
-          amountRial, settNote, invId, existing.id
+          (cust && (cust.biz || cust.owner)) || '', (cust && cust.party_id) || null, custId,
+          amountRial, settNote, invId,
+          keepLc ? 1 : 0, keepLc ? 1 : 0, existing.id
         );
       } else {
         db.prepare(`
           INSERT INTO cheque_records
             (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
-             account_number, party_name, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
-          VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             account_number, party_name, party_id, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
+          VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `).run(
           s.cheque_number || '', date || '', chequeDue, s.cheque_bank || '', s.cheque_branch || '',
           sayadi || '', s.sheba || '', s.cheque_account || '',
-          (cust && (cust.biz || cust.owner)) || '', custId,
-          'نزد صندوق', amountRial, settNote, invId, sett.id, 'in_hand'
+          (cust && (cust.biz || cust.owner)) || '', (cust && cust.party_id) || null, custId,
+          'نزد صندوق', amountRial, settNote, invId, sett.id, 'registered'
         );
       }
     } else {
