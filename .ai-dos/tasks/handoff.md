@@ -1,4 +1,11 @@
-﻿## 2026-10-03 — Overhead rates + pricing formulas (SW v299)
+﻿## 2026-10-04 — NONTAX integration reclaim (owner ordered commit+deploy)
+
+- Owner explicitly ordered commit, merge to main, push, and Iran deploy of the non-tax remediation.
+- Stale claims (recorded 2026-10-01, older than 24h): PROD-ACC-PA02 still lists `docs/CHANGE-LOG.md` and `server/public/{app.js,index.html,sw.js}`. This session touched those only for the v307 help paragraph, cache query, SW name, and CHANGE-LOG entry. Did not edit `server/db.js`, `server/jalali.js`, `server/sync/{tables,capture}.js`, production libs, or Android files.
+- Branches merged: `ai/NONTAX-P0-sync`, `ai/NONTAX-P0-atp`, `ai/NONTAX-P1-crm`, `ai/NONTAX-P1-reports`, `ai/NONTAX-P1-web-docs` → `ai/NONTAX-INTEGRATION`.
+- Residual: capture.js BOM path map still owned by ANDROID-NATIVE-SALES. Cash-flow is not an Iranian statutory sign-off. Independent Reviewer/Security write-up was not a separate identity.
+
+## 2026-10-03 — Overhead rates + pricing formulas (SW v299)
 
 - Owner: this session (skill-top full). Reclaimed shared `server/public/{app.js,index.html,sw.js,app.css}` + `docs/CHANGE-LOG.md` from PROD-ACC for UX/formula of «نرخ سربار مراکز» (screenshots CC-10 1405/07). Notify PROD-ACC owner.
 - Invariant: predetermined OAR = budget OH ÷ normal driver; applied = rate × actual driver; `labor_rial` aliases to `direct_labor_rial` (/1e6). Markup P = cost × (1+pct).

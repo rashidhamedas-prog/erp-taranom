@@ -1,3 +1,20 @@
+### ۱۴۰۵/۰۷/۱۲ — رفع غیرمالیاتی: صف دستگاه، ATP، شمسی CRM، بودجه/نقد، SKU سایت (SW v307)
+
+- **دامنه:** بسته‌های تأییدشدهٔ ۲۰۲۶-۱۰-۰۴ که مالیات/مودیان/VAT/ماده ۱۶۹/مالیات حقوق را عوض نمی‌کنند. ادغام پنج شاخهٔ `ai/NONTAX-*` روی `main`.
+- **رفع‌شده:**
+  - شکست pull اول، `sync_outbox` را پاک نمی‌کند. بازنشانی کارخانه فقط `SYNC_ROLE=device` و loopback، با رمز همان نصب و پشتیبان sha256؛ عبارت ثابت RESET رد می‌شود.
+  - تعارض pull هر دو نسخه را نگه می‌دارد؛ سند قطعی last-writer-wins نیست.
+  - فاکتور رسمی بیش از ATP → 409. کسری فقط admin/accounting. فروش آفلاین تا پذیرش مرکز موجودی کم نمی‌کند.
+  - تازگی CRM با تبدیل شمسی→میلادی. یادآور پیگیری معوق هر پنجرهٔ زمانی تکرار می‌شود (پیش‌فرض ۷ روز) با خاموش/تعویق.
+  - سال بودجه از دورهٔ مالی شمسی؛ برچسب مبهم 422 است نه سال میلادی+۶۲۱. جریان نقد مختلط تناسبی؛ انتقال صندوق خالص صفر؛ خطای محاسبه صفرِ HTTP 200 نیست.
+  - برچسب منوی افتتاحیه/بستن/تسعیر = قالب سند دستی. SKU جورنشدهٔ سایت `ok:false`.
+- **عمداً نشده:** نگاشت capture برای `/assignments` و `/allowed-variants` (مالک ANDROID-NATIVE-SALES روی `capture.js`). پرونده خدمات، رضایت پیامک، سرنخ/کمپین، چندشرکتی، شکستن `app.js`. جریان نقد امضای استاندارد ایرانی ندارد.
+- **فایل‌ها:** `sync/client.js`, `routes/{sync,invoices,followups,budgeting,adv-reports}.js`, `lib/{crm-pro,crm-pro-schema,cash-flow,website-stock-sync}.js`, `lib/inventory/{atp-schema,available-to-promise,reservation}.js`, `public/{app.js,acc-nav.js,index.html,sw.js}`, تست‌های `test-nontax-*`, `docs/architecture/NONTAX-REMEDIATION-2026-10-04.md`.
+- **تست:** محلی روی ورک‌تری ادغام (better-sqlite3 ۱۲ چون Node ۲۴ میزبان پیش‌ساخت ۱۱ ندارد).
+- **Deploy:** ⏳ overlay ایران.
+
+---
+
 ### ۱۴۰۵/۰۷/۱۲ — ممیزی انبار Wave-2: ادواری/امانی/FEFO/کاردکس (SW v306)
 
 - **دامنه:** تکمیل P1های ممیزی انبار پس از Wave-1 (v305).
