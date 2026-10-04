@@ -14,7 +14,7 @@ const {
 const {
   createReservation, releaseReservation, listReservations, availableQty, expireReservations,
 } = require('../lib/inventory/reservation');
-const { createLandedCostDoc, allocateAndPost } = require('../lib/inventory/landed-cost');
+const { createLandedCostDoc, allocateAndPost, voidLandedCost } = require('../lib/inventory/landed-cost');
 const { recalculateMovingAverageFromLayers } = require('../lib/inventory/costing');
 
 function sendErr(res, e) {
@@ -271,6 +271,18 @@ router.post('/landed-cost/:id/post', auth, adminOrAccounting, (req, res) => {
       date: req.body.date || todayJalali(),
     });
     audit(req.user.id, 'post', 'landed_cost', req.params.id, 'ثبت هزینه حمل');
+    res.json(result);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/landed-cost/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = voidLandedCost(db, +req.params.id, {
+      createdBy: req.user.id,
+      reason: req.body.reason || '',
+    });
+    audit(req.user.id, 'void', 'landed_cost', req.params.id, 'ابطال هزینه حمل');
     res.json(result);
   } catch (e) { sendErr(res, e); }
 });

@@ -2,7 +2,9 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth } = require('../middleware/auth');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
-const { createReservation, releaseReservation } = require('../lib/inventory/reservation');
+const {
+  createReservation, releaseReservation, releaseBySource,
+} = require('../lib/inventory/reservation');
 
 function ensureOrdersWarehouseCols(db) {
   const cols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
@@ -16,19 +18,9 @@ function getScope(req) {
   return req.user.id;
 }
 
-// Deduct stock once, when an order becomes 'done' and references a product.
-function maybeDeductStock(db, order) {
-  if (order.status === 'done' && order.product_id && !order.stock_deducted && order.qty > 0) {
-    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(order.product_id);
-    if (prod) {
-      const newStock = Math.max(0, prod.stock - order.qty);
-      db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, prod.id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-        .run(prod.id, order.user_id, -order.qty, `کسر از سفارش #${order.id}`);
-      db.prepare('UPDATE orders SET stock_deducted=1 WHERE id=?').run(order.id);
-    }
-  }
-}
+// Legacy header-only deduct desynced warehouse_stock / inventory_ledger.
+// Firm stock moves belong to invoices; orders only soft-reserve.
+function maybeDeductStock() { /* no-op — see CHANGE-LOG warehouse audit v305 */ }
 
 router.get('/', auth, (req, res) => {
   const db = getDB();
@@ -87,11 +79,39 @@ router.put('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, product_id, date, type, qty, total, paid, pay, deliver, status, note } = req.body;
-  db.prepare('UPDATE orders SET cust_id=?,product_id=?,date=?,type=?,qty=?,total=?,paid=?,pay=?,deliver=?,status=?,note=? WHERE id=?')
-    .run(cust_id, product_id || null, date || '', type || '', qty || 0, total || 0, paid || 0, pay || 'نقد', deliver || '', status || 'pending', note || '', req.params.id);
-  const updated = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
-  maybeDeductStock(db, updated);
-  res.json({ ok: true });
+  try {
+    ensureOrdersWarehouseCols(db);
+    db.transaction(() => {
+      const nextStatus = status || 'pending';
+      db.prepare('UPDATE orders SET cust_id=?,product_id=?,date=?,type=?,qty=?,total=?,paid=?,pay=?,deliver=?,status=?,note=? WHERE id=?')
+        .run(cust_id, product_id || null, date || '', type || '', qty || 0, total || 0, paid || 0, pay || 'نقد', deliver || '', nextStatus, note || '', req.params.id);
+      if (nextStatus === 'cancel' || nextStatus === 'cancelled') {
+        if (row.reservation_id) {
+          try { releaseReservation(db, row.reservation_id); } catch (_) { /* already */ }
+        } else {
+          releaseBySource(db, 'order', row.id);
+        }
+      } else if (row.reservation_id && Number(qty) !== Number(row.qty) && Number(qty) > 0) {
+        try { releaseReservation(db, row.reservation_id); } catch (_) {}
+        const prod = db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(product_id || row.product_id);
+        const wh = row.warehouse_id || prod?.warehouse_id || null;
+        const rsv = createReservation(db, {
+          kind: 'sales',
+          productId: product_id || row.product_id,
+          warehouseId: wh,
+          qty: Number(qty),
+          sourceType: 'order',
+          sourceId: row.id,
+          note: `رزرو سفارش #${row.id} (ویرایش)`,
+          createdBy: req.user.id,
+        });
+        db.prepare('UPDATE orders SET reservation_id=? WHERE id=?').run(rsv.id, row.id);
+      }
+    })();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message || String(e), code: e.code });
+  }
 });
 
 router.delete('/:id', auth, (req, res) => {

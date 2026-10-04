@@ -1,13 +1,14 @@
 'use strict';
 /**
  * Landed cost — allocate freight/customs/insurance onto inventory layers.
- * Posts inventory_ledger event_type=landed_cost (value-only, qty 0 via amount bump).
+ * Posts inventory_ledger event_type=landed_cost (value-only).
  * Accounting: Dr Inventory / Cr Payable or Cash (counterpart).
+ * R13: voidLandedCost reverses JE + avg + ledger.
  */
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
-const { postInventoryMovement, invErr } = require('./ledger');
-const { applyCostLayerIn } = require('./costing');
+const { postInventoryMovement, reverseInventoryMovement, invErr } = require('./ledger');
+const { reverseJournalEntry } = require('../void-journal');
 
 function nextDocNo(db) {
   try {
@@ -42,6 +43,48 @@ function createLandedCostDoc(db, {
 }
 
 /**
+ * Spread landed value across open cost layers without inventing phantom qty.
+ * unit_cost_rial = amount / qty_remaining after bump.
+ */
+function bumpOpenLayersValue(db, {
+  productId, warehouseId = null, amountRial, sourceType = 'landed_cost', sourceId = null,
+}) {
+  const share = Math.round(Number(amountRial) || 0);
+  if (share <= 0) return;
+  let sql = `
+    SELECT * FROM inventory_cost_layers
+    WHERE product_id=? AND status='open' AND qty_remaining>0
+  `;
+  const params = [productId];
+  if (warehouseId != null) {
+    sql += ' AND (warehouse_id=? OR warehouse_id IS NULL)';
+    params.push(warehouseId);
+  }
+  sql += ' ORDER BY id ASC';
+  const layers = db.prepare(sql).all(...params);
+  if (!layers.length) return;
+  const qtySum = layers.reduce((a, l) => a + (Number(l.qty_remaining) || 0), 0);
+  if (qtySum <= 0) return;
+  let left = share;
+  const upd = db.prepare(`
+    UPDATE inventory_cost_layers SET amount_rial=?, unit_cost_rial=? WHERE id=?
+  `);
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
+    const q = Number(layer.qty_remaining) || 0;
+    let part = i === layers.length - 1
+      ? left
+      : Math.round(share * (q / qtySum));
+    left -= part;
+    const newAmt = Math.round(Number(layer.amount_rial) || 0) + part;
+    const newUnit = q > 0 ? Math.round(newAmt / q) : Math.round(Number(layer.unit_cost_rial) || 0);
+    upd.run(newAmt, newUnit, layer.id);
+  }
+  void sourceType;
+  void sourceId;
+}
+
+/**
  * allocations: [{product_id, warehouse_id, qty, base_value_rial}]
  * Method: value | qty | weight | volume | manual (manual uses allocated_rial on each row)
  */
@@ -49,6 +92,7 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
   const doc = db.prepare('SELECT * FROM landed_cost_docs WHERE id=?').get(docId);
   if (!doc) throw invErr('E_LC_NOT_FOUND', 404);
   if (doc.status === 'posted') throw invErr('E_LC_ALREADY_POSTED', 409);
+  if (doc.status === 'reversed') throw invErr('E_LC_REVERSED', 409);
 
   const total = Math.round(Number(doc.total_cost_rial) || 0);
   if (total <= 0) throw invErr('E_LC_ZERO', 400);
@@ -59,7 +103,7 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
   for (const a of allocations) {
     if (method === 'qty') baseSum += Number(a.qty) || 0;
     else if (method === 'manual') baseSum += Math.round(Number(a.allocated_rial) || 0);
-    else baseSum += Math.round(Number(a.base_value_rial) || 0);
+    else baseSum += Math.round(Number(a.base_value_rial) || 0); // value | weight | volume fallback
   }
   if (method !== 'manual' && baseSum <= 0) throw invErr('E_LC_BASE', 400);
 
@@ -87,25 +131,26 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
           : Math.round(Number(a.base_value_rial) || 0);
         share = Math.round(total * (base / baseSum));
       }
-      // Rounding plug on last line
       if (i === allocations.length - 1) share = total - allocatedSum;
       allocatedSum += share;
 
-      // Value-only inventory bump: qty_in=0 not allowed — use tiny qty path via amount on existing stock
-      // We post a ledger line with qty_in=0 conceptually by updating avg without qty change:
       const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(a.product_id);
       if (!prod) throw invErr('E_PRODUCT_NOT_FOUND', 404, { productId: a.product_id });
       const stock = Number(prod.stock) || 0;
+      if (stock <= 0) {
+        throw invErr('E_LC_NO_STOCK', 422, {
+          productId: a.product_id,
+          message: 'هزینه حمل فقط روی موجودی باقیمانده سرمایه می‌شود (IAS 2)',
+        });
+      }
       const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-      const newAvg = stock > 0 ? Math.round((stock * prevAvg + share) / stock) : prevAvg;
+      const newAvg = Math.round((stock * prevAvg + share) / stock);
       db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
         .run(newAvg, newAvg / 10, a.product_id);
 
-      applyCostLayerIn(db, {
+      bumpOpenLayersValue(db, {
         productId: a.product_id,
         warehouseId: a.warehouse_id || null,
-        qty: Number(a.qty) || 0 || 0.0001,
-        unitCostRial: share,
         amountRial: share,
         sourceType: 'landed_cost',
         sourceId: docId,
@@ -137,7 +182,6 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
       results.push({ product_id: a.product_id, allocated_rial: share, ledger_id: ledgerId });
     }
 
-    // JE: Dr Inventory / Cr Payable (toman for postToLedger)
     const jeId = postToLedger(db, {
       sourceType: 'landed_cost',
       sourceId: docId,
@@ -158,4 +202,57 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
   return { doc: db.prepare('SELECT * FROM landed_cost_docs WHERE id=?').get(docId), allocations: results };
 }
 
-module.exports = { createLandedCostDoc, allocateAndPost };
+function voidLandedCost(db, docId, { createdBy = null, reason = '' } = {}) {
+  const doc = db.prepare('SELECT * FROM landed_cost_docs WHERE id=?').get(docId);
+  if (!doc) throw invErr('E_LC_NOT_FOUND', 404);
+  if (doc.status === 'reversed') throw invErr('E_LC_ALREADY_REVERSED', 409);
+  if (doc.status !== 'posted') throw invErr('E_LC_NOT_POSTED', 409);
+
+  db.transaction(() => {
+    const allocs = db.prepare('SELECT * FROM landed_cost_allocations WHERE doc_id=?').all(docId);
+    for (const a of allocs) {
+      const share = Math.round(Number(a.allocated_rial) || 0);
+      if (share <= 0) continue;
+      const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(a.product_id);
+      if (!prod) continue;
+      const stock = Number(prod.stock) || 0;
+      if (stock > 0) {
+        const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
+        const newAvg = Math.max(0, Math.round((stock * prevAvg - share) / stock));
+        db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
+          .run(newAvg, newAvg / 10, a.product_id);
+      }
+      bumpOpenLayersValue(db, {
+        productId: a.product_id,
+        warehouseId: a.warehouse_id || null,
+        amountRial: -share,
+        sourceType: 'landed_cost_void',
+        sourceId: docId,
+      });
+    }
+
+    const leds = db.prepare(`
+      SELECT id FROM inventory_ledger
+      WHERE source_type='landed_cost' AND source_id=? AND status='posted'
+    `).all(docId);
+    for (const led of leds) {
+      reverseInventoryMovement(db, led.id, {
+        createdBy,
+        note: reason || `ابطال هزینه حمل ${doc.doc_no}`,
+      });
+    }
+
+    if (doc.je_id) {
+      reverseJournalEntry(db, doc.je_id, {
+        userId: createdBy,
+        reason: reason || `ابطال ${doc.doc_no}`,
+        sourceType: 'landed_cost',
+      });
+    }
+    db.prepare("UPDATE landed_cost_docs SET status='reversed' WHERE id=?").run(docId);
+  })();
+
+  return { ok: true, id: docId, status: 'reversed' };
+}
+
+module.exports = { createLandedCostDoc, allocateAndPost, voidLandedCost, bumpOpenLayersValue };

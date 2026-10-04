@@ -90,6 +90,20 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
   }
 
   db.transaction(() => {
+    // Claim apply inside TX — concurrent second apply loses the race.
+    const claimed = db.prepare(`
+      UPDATE stocktaking_sessions SET status='adjusted'
+      WHERE id=? AND COALESCE(status,'')<>'adjusted'
+    `).run(session.id);
+    if (!claimed.changes) throw invErr('E_STK_ALREADY', 409);
+    try {
+      const { assertJournalIdempotent } = require('../sales-document');
+      assertJournalIdempotent(db, 'stocktaking', session.id);
+    } catch (e) {
+      if (e && e.code === 'E_JE_DUPLICATE') throw invErr('E_STK_ALREADY', 409);
+      throw e;
+    }
+
     const { postApparelLines } = require('./apparel-lines');
     const variantGroups = new Map();
     function bookHeader(productId, diff, note) {
@@ -98,6 +112,12 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
       if (!prod) return null;
       const unit = Math.round(Number(prod.average_cost_rial) || 0)
         || Math.round((Number(prod.cost) || 0) * 10);
+      if (!unit) {
+        throw invErr('E_STK_ZERO_COST', 422, {
+          productId,
+          message: 'برای اختلاف انبارگردانی باید بهای واحد کالا صفر نباشد',
+        });
+      }
       const amount = Math.round(Math.abs(diff) * unit);
       const led = postInventoryMovement(db, {
         eventType: 'cycle_count',

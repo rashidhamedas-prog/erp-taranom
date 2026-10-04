@@ -8645,7 +8645,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -11223,7 +11223,7 @@ async function renderInvLandedTab(body){
     <div class="panel">
       <div class="panel-head"><h4>ثبت هزینه حمل / گمرک / بیمه (Landed Cost)</h4></div>
       <div class="panel-body">
-        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">هزینه‌های جانبی خرید را ثبت کنید؛ پس از تسهیم روی کالاها، میانگین موزون و دفتر کل انبار به‌روز می‌شود و سند حسابداری خودکار زده می‌شود.</p>
+        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">هزینه‌های قابل انتساب به موجودی (IAS 2) روی میانگین موزون کالا سرمایه می‌شوند؛ کالا باید موجودی داشته باشد. ابطال کامل (R13) میانگین و سند حسابداری را برمی‌گرداند.</p>
         <div class="form-grid">
           <div class="fg"><label>تاریخ</label><input id="lc-date" data-jdate value="${todayJalali()}"></div>
           <div class="fg"><label>روش تسهیم</label>
@@ -11237,8 +11237,12 @@ async function renderInvLandedTab(body){
           </div>
           <div class="fg"><label>تعداد مبنا</label><input id="lc-qty" type="number" min="0" value="1"></div>
           <div class="fg"><label>ارزش مبنا (ریال)</label><input id="lc-base" type="number" min="0" value="0"></div>
+          <div class="fg"><label>شماره سند برای ابطال</label><input id="lc-void-id" type="number" min="1" placeholder="مثلاً ۱۲"></div>
         </div>
-        <div data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){invLandedPost()})}">ثبت و تسهیم</button></div>
+        <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;flex-wrap:wrap`)}">
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){invLandedPost()})}">ثبت و تسهیم</button>
+          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){invLandedVoid()})}">⛔ ابطال سند</button>
+        </div>
       </div>
     </div>`;
   initCustSearches(body);
@@ -11250,11 +11254,12 @@ async function invLandedPost(){
   if(c>0) lines.push({cost_type:'customs', amount_rial:c});
   if(i>0) lines.push({cost_type:'insurance', amount_rial:i});
   if(!lines.length){ showToast('حداقل یک مبلغ هزینه وارد کنید','error'); return; }
+  if(!(+el('lc-prod').value)){ showToast('کالا را انتخاب کنید','error'); return; }
   try{
     const doc=await api('POST','/inventory/landed-cost',{
       date:el('lc-date').value, alloc_method:el('lc-method').value, lines
     });
-    await api('POST','/inventory/landed-cost/'+doc.id+'/post',{
+    const r=await api('POST','/inventory/landed-cost/'+doc.id+'/post',{
       date:el('lc-date').value,
       allocations:[{
         product_id:+el('lc-prod').value,
@@ -11263,8 +11268,19 @@ async function invLandedPost(){
         allocated_rial: lines.reduce((a,l)=>a+l.amount_rial,0)
       }]
     });
-    showToast('هزینه حمل ثبت و تسهیم شد');
-  }catch(e){}
+    showToast('هزینه حمل ثبت شد — شماره سند '+doc.id+' (برای ابطال نگه دارید)');
+    try{ el('lc-void-id').value=String(doc.id); }catch(_){}
+    return r;
+  }catch(e){ showToast(e.message||'خطا در ثبت هزینه حمل','error'); }
+}
+async function invLandedVoid(){
+  const id=+el('lc-void-id')?.value||0;
+  if(!id){ showToast('شماره سند هزینه حمل را وارد کنید','error'); return; }
+  if(!confirm('ابطال کامل هزینه حمل #'+id+'؟ میانگین و سند حسابداری برمی‌گردد.')) return;
+  try{
+    await api('POST','/inventory/landed-cost/'+id+'/void',{ reason:'ابطال از UI' });
+    showToast('هزینه حمل ابطال شد');
+  }catch(e){ showToast(e.message||'خطا در ابطال','error'); }
 }
 
 /* ============================================================
@@ -24952,15 +24968,17 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
-        <li><b>انبارها</b>: تعریف انبارهای متعدد و روش ثبت موجودی روی هر انبار — <b>دائمی</b> (بهای تمام‌شده هنگام فروش) یا <b>ادواری</b> (بستن دوره با شمارش فیزیکی، فرمول COGS = اول‌دوره + خرید − پایان‌دوره و سند تعدیل). بعد از حذف همهٔ انبارها، seed پیش‌فرض دوباره ساخته نمی‌شود.</li>
-        <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
+        <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. انتقال بین انواع انبار (مواد↔ساخته‌شده) سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» واقعاً روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
+        <li><b>گزارش جامع انبار</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). ارزش ریالی از میانگین موزون. فیلتر و خروجی CSV/اکسل</li>
+        <li><b>هزینه حمل (Landed Cost)</b>: فقط روی کالای دارای موجودی سرمایه می‌شود؛ ابطال کامل میانگین و سند را برمی‌گرداند</li>
+        <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک (=خواباندن) و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. متن آزاد «خواباندن» جایگزین واگذاری نیست. خرج/ظهرنویسی + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: ثبت به‌صورت <b>سند تجمعی</b> (سربرگ جهت/شخص/انبار/تاریخ + چند ردیف کالا) با شمارهٔ CS. شخص از فهرست اشخاص است. در هر ردیف کالا با جستجو اضافه می‌شود؛ کالای ماتریسی به پک رنگ×سایز همان انبار شکسته می‌شود. <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. تسویه خط‌به‌خط با چهار مسیر: <b>برگشت</b>، <b>فروش قطعی</b> (تنها مسیر فاکتور؛ دریافتی نیازمند خریدار جدا)، <b>خرید قطعی</b> (فقط دریافتی)، <b>کسری</b>. ابطال ردیف یا <b>ابطال کل سند</b> فیزیکی نیست — موجودی و اسناد معکوس می‌شوند</li>
+        <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله می‌زند؛ <b>دریافتی</b> تا تسویه به موجودی ما اضافه نمی‌شود. <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده (نه فقط درآمد). <b>کسری ارسالی</b> به بهای موجودی (نه قیمت فروش) از انبار خارج می‌شود. ابطال = R13 کامل</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا ساخته نمی‌شود</b>. سند اصلی soft-void می‌شود و اسناد ابطالی تاریخی از دفتر حذف می‌شوند. ابطال حقوق ردیف را حذف فیزیکی نمی‌کند.</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>

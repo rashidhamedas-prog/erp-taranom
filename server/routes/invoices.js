@@ -591,12 +591,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             chequeHeader: { cheque_info, cheque_due_date },
           });
         }
+        // Periodic warehouses defer COGS to period-close — never post invoice_cogs here.
         if (warehouseUsesPerpetualValuation(db, whId) && saleCogsRial > 0) {
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
           });
-        } else {
-          postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
         }
         if (invType === 'final') enqueueMoadian(db, 'sales', invId);
         if (invType === 'normal') autoApproveNormalInvoice(db, invId, req.user.id);
@@ -990,8 +989,6 @@ router.post('/:id/convert', auth, (req, res) => {
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
         });
-      } else {
-        postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
       }
       if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);
       if (targetType === 'normal') autoApproveNormalInvoice(db, inv.id, req.user.id);

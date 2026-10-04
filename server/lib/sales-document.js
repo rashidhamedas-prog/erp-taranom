@@ -78,11 +78,8 @@ function assertJournalIdempotent(db, sourceType, sourceId) {
 
 function reservedQty(db, productId, warehouseId) {
   try {
-    const row = db.prepare(`
-      SELECT COALESCE(SUM(qty),0) AS q FROM inventory_reservations
-      WHERE product_id=? AND warehouse_id=? AND status='active'
-    `).get(productId, warehouseId);
-    return Number(row?.q) || 0;
+    const { reservedQty: rsvOpen } = require('./inventory/reservation');
+    return rsvOpen(db, productId, warehouseId);
   } catch (_) {
     return 0;
   }
@@ -332,9 +329,18 @@ function postSaleStockMovements(db, {
       allowNegative: !isFabric,
     });
     if (batchId) {
-      const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
-      consumeFabricRollOnSale(db, { batchId, qty: need });
+      if (isFabric) {
+        const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
+        consumeFabricRollOnSale(db, { batchId, qty: need });
+      } else {
+        const { adjustBatchQty } = require('./inventory/batch-serial');
+        adjustBatchQty(db, batchId, -need);
+      }
     }
+    try {
+      const { consumeOpenReservationsForSale } = require('./inventory/reservation');
+      consumeOpenReservationsForSale(db, { productId: r.product_id, warehouseId: whId, qty: need });
+    } catch (_) { /* soft-lock optional */ }
     if (!isFabric) {
       require('./inventory/movement').postVariantLayer(db, {
         productId: r.product_id,

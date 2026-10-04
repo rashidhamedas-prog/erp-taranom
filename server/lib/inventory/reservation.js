@@ -113,7 +113,39 @@ function listReservations(db, { productId, warehouseId, status = 'active', kind,
   `).all(...params);
 }
 
+/** Consume soft-locks FIFO by priority when stock leaves via firm sale. */
+function consumeOpenReservationsForSale(db, { productId, warehouseId = null, qty }) {
+  let need = Number(qty) || 0;
+  if (!productId || need <= 0) return 0;
+  const rows = db.prepare(`
+    SELECT * FROM inventory_reservations
+    WHERE product_id=? AND status='active'
+      AND (? IS NULL OR warehouse_id=? OR warehouse_id IS NULL)
+    ORDER BY priority ASC, id ASC
+  `).all(productId, warehouseId, warehouseId);
+  let taken = 0;
+  for (const row of rows) {
+    if (need <= 1e-9) break;
+    const open = (Number(row.qty) || 0) - (Number(row.qty_released) || 0) - (Number(row.qty_consumed) || 0);
+    if (open <= 1e-9) continue;
+    const take = Math.min(open, need);
+    consumeReservation(db, row.id, take);
+    need -= take;
+    taken += take;
+  }
+  return taken;
+}
+
+function releaseBySource(db, sourceType, sourceId) {
+  const rows = listReservations(db, { sourceType, sourceId, status: 'active' });
+  for (const row of rows) {
+    try { releaseReservation(db, row.id); } catch (_) { /* already released */ }
+  }
+  return rows.length;
+}
+
 module.exports = {
   createReservation, releaseReservation, consumeReservation,
   expireReservations, listReservations, availableQty, reservedQty,
+  consumeOpenReservationsForSale, releaseBySource,
 };

@@ -1,3 +1,21 @@
+### ۱۴۰۵/۰۷/۱۲ — ممیزی کامل انبار Wave-1: حسابداری + وابستگی‌ها (SW v305)
+
+- **دامنه:** تمام منوی انبار (پایه/عملیات/گزارشات) با ایجنت موازی + اصول IAS 2 / دوطرفه / R13.
+- **P0 رفع‌شده:**
+  - انبار ادواری: رسید/حواله بدون JE ارزش؛ فروش بدون `invoice_cogs` (COGS فقط در بستن دوره).
+  - رسید/حواله روی حساب موجودی متناسب با نوع انبار؛ انتقال بین انواع انبار = JE جابه‌جایی بدون P&L.
+  - `allow_negative` واقعی؛ گزارش جامع فقط از `warehouse_stock` + `average_cost_rial`.
+  - هزینه حمل: رد سرمایه روی موجودی صفر، لایه بدون qty جعلی، ابطال R13 + UI.
+  - امانی دریافتی فروش = خرید+فاکتور+COGS؛ کسری ارسالی به بهای موجودی.
+  - رزرو: مصرف در فروش، آزادسازی در لغو سفارش؛ قطع کسر سربرگ سفارش CRM.
+  - انبارگردانی: claim اتمیک + idempotent JE + رد اختلاف با بهای صفر.
+  - بچ عمومی: بدون qty جعلی؛ همگام با حواله/فروش؛ لیست بدون طاقه؛ گردش طاقه per-roll.
+- **فایل‌ها:** `lib/{warehouse-docs,void-warehouse-move,consignments,sales-document}.js`, `lib/inventory/{landed-cost,reservation,cycle-count,batch-serial,fabric-rolls}.js`, `routes/{warehouses,invoices,orders,inventory}.js`, `public/{app.js,sw.js}`, `scripts/test-warehouse-audit-v305.js`, CHANGE-LOG.
+- **تست:** `test-warehouse-audit-v305` **43/0** + `test-sms` **22/0**.
+- **Deploy:** در انتظار
+
+---
+
 ### ۱۴۰۵/۰۷/۱۲ — گارد ضد سند تکراری واگذاری چک فاکتور (SW v304)
 
 - **ریشه (بازبینی ایجنت):** با باز شدن گیت `registered`، `postChequeInReceipt` در `send-to-bank`/`clear` سند دوم `cheque_in` + بستانکار دوبارهٔ مشتری می‌زد چون فقط `ref_type=cheque_in` را می‌دید نه `settlement`.

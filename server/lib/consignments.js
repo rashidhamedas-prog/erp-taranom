@@ -625,13 +625,17 @@ function settleEffects(db, row, path, body, user) {
     };
   }
   if (path === 'shortage') {
+    // OUT shortage must credit inventory at carrying cost, not selling price.
+    const lossAmt = row.direction === 'out'
+      ? (inventoryCostRial(product, row.qty) || amt)
+      : amt;
     return {
       stockDelta: null,
       invoice: false,
-      journal: shortageLines(db, row, amt),
+      journal: shortageLines(db, row, lossAmt),
       nextStatus: 'shortage',
       product,
-      amt,
+      amt: lossAmt,
     };
   }
   throw httpErr(400, 'مسیر تسویه نامعتبر است', 'E_CONSIGNMENT_PATH');
@@ -701,11 +705,63 @@ function applySettle(db, row, path, { date, note, user, body }) {
         });
       }
     } else {
+      // IN consignment: buy-then-sell — ownership transfers before revenue.
       const buyer = resolveExplicitBuyer(db, body || {}, person, user.id);
+      const purchaseAmt = effects.amt;
+      if (purchaseAmt > 0) {
+        assertJournalIdempotent(db, 'consignment_purchase', row.id);
+        settleJeId = postToLedger(db, {
+          sourceType: 'consignment_purchase',
+          sourceId: row.id,
+          date,
+          description: note || `خرید از امانت‌گذار پیش از فروش امانی #${row.id}`,
+          createdBy: user.id,
+          lines: purchaseLines(db, row.warehouse_id, purchaseAmt),
+        });
+      }
+      postInventoryMovement(db, {
+        eventType: 'receipt',
+        productId: row.product_id,
+        warehouseId: row.warehouse_id,
+        qtyIn: row.qty,
+        unitCostRial: unitPriceRialFrom(row),
+        amountRial: purchaseAmt,
+        sourceType: 'consignment',
+        sourceId: row.id,
+        date,
+        note: note || `ورود برای فروش امانی دریافتی #${row.id}`,
+        createdBy: user.id,
+        updateAvg: true,
+      });
+      postConsignmentVariant(db, row, user, 'consignment_purchase', note || `ورود فروش امانی #${row.id}`, 1);
       const inv = createSaleInvoice(db, {
         user, customer: buyer, row, product: effects.product, date, note: note || `فروش قطعی امانی #${row.id}`,
       });
       invoiceId = inv.invId;
+      const { postSaleStockMovements, postCogsFromMovements } = require('./sales-document');
+      const stocked = postSaleStockMovements(db, {
+        rows: [{
+          product_id: row.product_id,
+          name: effects.product.name,
+          qty: row.qty,
+          warehouse_id: row.warehouse_id,
+          variant_id: row.variant_id || null,
+        }],
+        warehouseId: row.warehouse_id,
+        sourceType: 'invoice',
+        sourceId: inv.invId,
+        userId: user.id,
+        date,
+        note: note || `فروش امانی دریافتی #${row.id}`,
+      });
+      db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(inv.invId);
+      const cogsAmt = stocked.cogsRial || purchaseAmt;
+      if (cogsAmt > 0) {
+        const cogsJe = postCogsFromMovements(db, {
+          invId: inv.invId, num: inv.num, date, userId: user.id, cogsRial: cogsAmt,
+        });
+        if (!settleJeId) settleJeId = cogsJe;
+      }
     }
   }
 

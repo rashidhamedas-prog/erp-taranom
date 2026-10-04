@@ -136,10 +136,13 @@ function listFabricCirculation(db, query = {}) {
     ORDER BY l.date ASC, l.id ASC
     LIMIT 2000
   `).all(...params);
-  let run = 0;
+  const runByBatch = new Map();
   for (const r of rows) {
-    run += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
-    r.running_meters = run;
+    const bid = r.batch_id || 0;
+    const prev = runByBatch.get(bid) || 0;
+    const next = prev + (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+    runByBatch.set(bid, next);
+    r.running_meters = next;
   }
   return { rows };
 }

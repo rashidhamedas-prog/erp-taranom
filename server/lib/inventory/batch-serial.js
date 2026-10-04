@@ -19,17 +19,23 @@ function createBatch(db, {
   qty = 0, note = '', createdBy = null,
 }) {
   if (!productId) throw invErr('E_BATCH_ARGS', 400);
+  // Lot qty must enter via warehouse receipt / fabric receive — never invent stock here.
+  if (Number(qty) > 0) {
+    throw invErr('E_BATCH_QTY_VIA_RECEIPT', 400, {
+      message: 'مقدار بچ فقط از رسید انبار یا دریافت طاقه ثبت می‌شود',
+    });
+  }
   const no = batchNo || nextNo(db, 'inventory_batch', 'LOT');
   const r = db.prepare(`
     INSERT INTO inventory_batches (
       batch_no, product_id, warehouse_id, supplier_batch,
       mfg_date, expiry_date, best_before, quality_grade,
-      qty_on_hand, status, note, created_by
-    ) VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)
+      qty_on_hand, status, note, created_by, kind
+    ) VALUES (?,?,?,?,?,?,?,?,0,'active',?,?,'generic')
   `).run(
     no, productId, warehouseId, supplierBatch || '',
     mfgDate || '', expiryDate || '', bestBefore || '', qualityGrade || '',
-    Number(qty) || 0, note || '', createdBy
+    note || '', createdBy
   );
   return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(r.lastInsertRowid);
 }
@@ -99,12 +105,15 @@ function setSerialStatus(db, serialId, status, extra = {}) {
   return db.prepare('SELECT * FROM inventory_serials WHERE id=?').get(serialId);
 }
 
-function listBatches(db, { productId, warehouseId, status = 'active' } = {}) {
+function listBatches(db, { productId, warehouseId, status = 'active', kind } = {}) {
   const where = [];
   const params = [];
   if (productId) { where.push('product_id=?'); params.push(productId); }
   if (warehouseId) { where.push('warehouse_id=?'); params.push(warehouseId); }
   if (status) { where.push('status=?'); params.push(status); }
+  // Generic UI must not mix fabric rolls (kind=fabric lives on طاقه tabs).
+  if (kind) { where.push("COALESCE(kind,'generic')=?"); params.push(kind); }
+  else { where.push("COALESCE(kind,'generic')!='fabric'"); }
   const sql = `SELECT * FROM inventory_batches ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY expiry_date, id DESC LIMIT 500`;
   return db.prepare(sql).all(...params);
 }

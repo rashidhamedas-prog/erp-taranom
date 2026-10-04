@@ -5,10 +5,15 @@
  */
 const { audit, allocateNumber, isDevice } = require('../db');
 const { todayJalali } = require('../jalali');
-const { postInventoryMovement, warehouseQty, invErr } = require('./inventory/ledger');
+const {
+  postInventoryMovement, warehouseQty, invErr,
+  allowNegative, inventoryAccountForWarehouse,
+} = require('./inventory/ledger');
 const {
   postStockMovement, hasActiveMatrixVariants, variantWarehouseQty,
 } = require('./inventory/movement');
+const { adjustBatchQty } = require('./inventory/batch-serial');
+const { isPeriodicWarehouse } = require('./inventory/periodic-close');
 const { postToLedger } = require('./ledger');
 const { acct } = require('./coa-map');
 const { parseQty } = require('./round3');
@@ -30,6 +35,7 @@ function postWhVariantMovement(db, {
   productId, variantId, warehouseId, qtyDelta, docType, docId, docLine, userId, note, batchId,
 }) {
   if (batchId) return null;
+  const negOk = allowNegative(db, warehouseId);
   if (hasActiveMatrixVariants(db, productId) && !variantId) {
     throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
       code: 'E_VARIANT_REQUIRED', status: 400,
@@ -39,14 +45,30 @@ function postWhVariantMovement(db, {
     return postStockMovement(db, {
       productId, variantId: null, warehouseId, qtyDelta,
       docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
-      allowNegative: true, applyHeaderStock: false, writeStockLog: false,
+      allowNegative: negOk, applyHeaderStock: false, writeStockLog: false,
     });
   }
   return postStockMovement(db, {
     productId, variantId, warehouseId, qtyDelta,
     docType, docId, docLine: docLine == null ? 0 : docLine, userId, note,
-    allowNegative: true, applyHeaderStock: false, writeStockLog: false,
+    allowNegative: negOk, applyHeaderStock: false, writeStockLog: false,
   });
+}
+
+function assertWarehouseActive(db, warehouseId, label) {
+  const wh = db.prepare('SELECT id, name, active FROM warehouses WHERE id=?').get(warehouseId);
+  if (!wh) throw Object.assign(new Error(`${label || 'انبار'} یافت نشد`), { status: 404 });
+  if (Number(wh.active) === 0) {
+    throw Object.assign(new Error(`انبار «${wh.name}» غیرفعال است`), {
+      status: 400, code: 'E_WH_INACTIVE',
+    });
+  }
+  return wh;
+}
+
+function touchBatchQty(db, batchId, delta) {
+  if (!batchId || !delta) return;
+  adjustBatchQty(db, batchId, delta);
 }
 
 function ensureWarehouseDocSequence(db) {
@@ -201,6 +223,8 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     if (!fromWh || !toWh) throw Object.assign(new Error('انبار مبدأ و مقصد الزامی است'), { status: 400 });
     if (fromWh === toWh) throw Object.assign(new Error('انبار مبدأ و مقصد نمی‌تواند یکسان باشد'), { status: 400 });
   }
+  if (fromWh) assertWarehouseActive(db, fromWh, 'انبار مبدأ');
+  if (toWh) assertWarehouseActive(db, toWh, 'انبار مقصد');
 
   const num = isDevice()
     ? ('موقت-WH-' + Date.now().toString(36).toUpperCase())
@@ -267,10 +291,13 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         docType: 'wh_receipt', docId: r.lastInsertRowid, docLine: lineIdx, userId: user.id,
         note: `رسید انبار (${warehouse.name})`, batchId,
       });
+      touchBatchQty(db, batchId, qty);
       totalAmountRial += Math.round(Number(led.amount_rial) || 0);
     } else if (type === 'issue') {
       const available = availableForIssue(db, product_id, fromWh, variantId);
-      if (available < qty) throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+      if (available < qty && !allowNegative(db, fromWh)) {
+        throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+      }
       const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
       const led = postInventoryMovement(db, {
         eventType: 'issue', productId: product_id, warehouseId: fromWh, qty: -qty,
@@ -292,10 +319,13 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         docType: 'wh_issue', docId: r.lastInsertRowid, docLine: lineIdx, userId: user.id,
         note: `حواله انبار (${warehouse?.name || fromWh})`, batchId,
       });
+      touchBatchQty(db, batchId, -qty);
       totalAmountRial += Math.round(Number(led.amount_rial) || 0);
     } else {
       const available = availableForIssue(db, product_id, fromWh, variantId);
-      if (available < qty) throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+      if (available < qty && !allowNegative(db, fromWh)) {
+        throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+      }
       const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
       const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
       const unit = Math.round(Number(product.average_cost_rial) || 0);
@@ -327,43 +357,68 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         docType: 'wh_transfer_in', docId: r.lastInsertRowid, docLine: lineIdx, userId: user.id,
         note: `ورود انتقال از ${fromWarehouse?.name}`,
       });
+      if (batchId) {
+        db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?').run(toWh, batchId);
+      }
       totalAmountRial += Math.round(Number(ledOut.amount_rial) || 0);
     }
     lineIdx += 1;
   }
 
   let jeId = null;
-  if (type !== 'transfer' && totalAmountRial > 0) {
-    const inventory = acct(db, 'coa_inventory');
-    const isOpening = !!(body.opening || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
-    const counterpart = acct(db, type === 'receipt'
-      ? (isOpening ? 'coa_opening_balance' : 'coa_adjustment')
-      : 'coa_inventory_loss');
-    const amountToman = totalAmountRial / 10;
-    jeId = postToLedger(db, {
-      sourceType: isOpening && type === 'receipt' ? 'opening_inventory' : `warehouse_${type}_batch`,
-      sourceId: ids[0],
-      date,
-      description: isOpening && type === 'receipt'
-        ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
-        : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`,
-      createdBy: user.id,
-      voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
-      srcSystem: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
-      lines: type === 'receipt'
-        ? [
-          { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0 },
-          { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman },
-        ]
-        : [
-          { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0 },
-          { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman },
+  const amountToman = totalAmountRial / 10;
+  if (type === 'transfer' && totalAmountRial > 0) {
+    // Reclass only when warehouse types map to different inventory COA (no P&L).
+    const fromAcct = inventoryAccountForWarehouse(db, fromWh);
+    const toAcct = inventoryAccountForWarehouse(db, toWh);
+    if (fromAcct.code !== toAcct.code) {
+      jeId = postToLedger(db, {
+        sourceType: 'warehouse_transfer_batch',
+        sourceId: ids[0],
+        date,
+        description: `انتقال انبار ${num} (${ids.length} ردیف)`,
+        createdBy: user.id,
+        voucherType: 'auto',
+        lines: [
+          { code: toAcct.code, name: toAcct.name, debit: amountToman, credit: 0 },
+          { code: fromAcct.code, name: fromAcct.name, debit: 0, credit: amountToman },
         ],
-    });
-    if (jeId && ids.length) {
-      const placeholders = ids.map(() => '?').join(',');
-      db.prepare(`UPDATE warehouse_moves SET je_id=? WHERE id IN (${placeholders})`).run(jeId, ...ids);
+      });
     }
+  } else if (type !== 'transfer' && totalAmountRial > 0) {
+    // Periodic warehouses: qty moves only; valuation JE is period-close (IAS 2 periodic).
+    const valuationWh = type === 'receipt' ? toWh : fromWh;
+    if (!isPeriodicWarehouse(db, valuationWh)) {
+      const inventory = inventoryAccountForWarehouse(db, valuationWh);
+      const isOpening = !!(body.opening || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+      const counterpart = acct(db, type === 'receipt'
+        ? (isOpening ? 'coa_opening_balance' : 'coa_adjustment')
+        : 'coa_inventory_loss');
+      jeId = postToLedger(db, {
+        sourceType: isOpening && type === 'receipt' ? 'opening_inventory' : `warehouse_${type}_batch`,
+        sourceId: ids[0],
+        date,
+        description: isOpening && type === 'receipt'
+          ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
+          : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`,
+        createdBy: user.id,
+        voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
+        srcSystem: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
+        lines: type === 'receipt'
+          ? [
+            { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0 },
+            { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman },
+          ]
+          : [
+            { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0 },
+            { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman },
+          ],
+      });
+    }
+  }
+  if (jeId && ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    db.prepare(`UPDATE warehouse_moves SET je_id=? WHERE id IN (${placeholders})`).run(jeId, ...ids);
   }
 
   db.prepare(`

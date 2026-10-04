@@ -9,44 +9,67 @@ const {
 const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
 const { buildVariantStockReport } = require('../lib/inventory/variant-report');
 
+
+function unitCostRialOf(p) {
+  const avg = Math.round(Number(p.average_cost_rial) || 0);
+  if (avg > 0) return avg;
+  return Math.round((Number(p.cost) || 0) * 10);
+}
+
+function buildWarehouseStockRows(db, {
+  warehouseId = null, q = '', category = '', includeZero = false, asOverview = false,
+} = {}) {
+  const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all()
+    .filter((w) => !warehouseId || w.id === warehouseId);
+  // Pure warehouse_stock — never fall back to products.stock (cross-WH double-count).
+  const stockRows = db.prepare(`
+    SELECT p.id, p.code, p.name, p.unit, p.cost, p.price, p.category, p.average_cost_rial,
+      pc.name as category_name, ws.warehouse_id as ws_wh, ws.qty as ws_qty
+    FROM warehouse_stock ws
+    JOIN products p ON p.id=ws.product_id
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    ORDER BY p.name
+  `).all();
+  return warehouses.map((w) => {
+    const products = [];
+    for (const p of stockRows) {
+      if (p.ws_wh !== w.id) continue;
+      const qty = Number(p.ws_qty) || 0;
+      if (!includeZero && !(qty > 0)) continue;
+      const cat = p.category_name || p.category || '';
+      if (category && cat !== category) continue;
+      if (q) {
+        const hay = `${p.code || ''} ${p.name || ''} ${p.unit || ''}`.toLowerCase();
+        if (!hay.includes(q.toLowerCase())) continue;
+      }
+      const unitCost = unitCostRialOf(p);
+      const unitPriceRial = Math.round(Number(p.price) || 0);
+      products.push({
+        id: p.id, code: p.code, name: p.name, unit: p.unit, category: cat,
+        qty, unit_cost_rial: unitCost, unit_price_rial: unitPriceRial,
+        avg_cost_rial: unitCost,
+        amount_rial: Math.round(qty * unitCost),
+        sales_value_rial: Math.round(qty * unitPriceRial),
+      });
+    }
+    const base = {
+      warehouse_id: w.id, warehouse_name: w.name, warehouse_code: w.code,
+      product_count: products.length,
+      total_qty: products.reduce((a, x) => a + x.qty, 0),
+      total_amount_rial: products.reduce((a, x) => a + x.amount_rial, 0),
+      total_sales_value_rial: products.reduce((a, x) => a + x.sales_value_rial, 0),
+      avg_unit_cost_rial: products.length
+        ? Math.round(products.reduce((a, x) => a + x.unit_cost_rial, 0) / products.length) : 0,
+      products,
+    };
+    return asOverview ? { ...w, ...base } : base;
+  });
+}
+
 // Stock overview — all warehouses with product quantities
 router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all();
-  const stockRows = db.prepare(`
-    SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock, p.cost, p.price, p.category,
-      ws.warehouse_id as ws_wh, ws.qty as ws_qty
-    FROM products p
-    LEFT JOIN warehouse_stock ws ON ws.product_id=p.id
-    ORDER BY p.name
-  `).all();
-  const result = warehouses.map(w => {
-    const products = [];
-    const seen = new Set();
-    for (const p of stockRows) {
-      let qty = null;
-      if (p.ws_wh === w.id) qty = p.ws_qty != null ? p.ws_qty : 0;
-      else if (p.warehouse_id === w.id && !seen.has(p.id)) qty = p.stock || 0;
-      if (qty == null || seen.has(p.id)) continue;
-      const unitCost = Math.round(Number(p.cost) || 0);
-      const unitPrice = Math.round(Number(p.price) || 0);
-      const q = Number(qty) || 0;
-      products.push({
-        id: p.id, code: p.code, name: p.name, unit: p.unit, category: p.category || '',
-        qty: q, unit_cost_rial: unitCost, unit_price_rial: unitPrice,
-        amount_rial: Math.round(q * unitCost), sales_value_rial: Math.round(q * unitPrice),
-      });
-      seen.add(p.id);
-    }
-    const totalQty = products.reduce((a, p) => a + (p.qty || 0), 0);
-    const totalAmount = products.reduce((a, p) => a + (p.amount_rial || 0), 0);
-    const avgCost = products.length ? Math.round(products.reduce((a, p) => a + p.unit_cost_rial, 0) / products.length) : 0;
-    return {
-      ...w, product_count: products.length, total_qty: totalQty,
-      total_amount_rial: totalAmount, avg_unit_cost_rial: avgCost, products,
-    };
-  });
-  res.json(result);
+  res.json(buildWarehouseStockRows(db, { includeZero: true, asOverview: true }));
 });
 
 /** Comprehensive per-warehouse stock report with filters */
@@ -56,57 +79,10 @@ router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
   const q = String(req.query.q || '').trim();
   const category = String(req.query.category || '').trim();
   const includeZero = req.query.include_zero === '1';
-  const overview = (() => {
-    // reuse overview builder via internal call pattern
-    const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all()
-      .filter((w) => !warehouseId || w.id === warehouseId);
-    const stockRows = db.prepare(`
-      SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock, p.cost, p.price, p.category,
-        pc.name as category_name, ws.warehouse_id as ws_wh, ws.qty as ws_qty
-      FROM products p
-      LEFT JOIN product_categories pc ON pc.id=p.category_id
-      LEFT JOIN warehouse_stock ws ON ws.product_id=p.id
-      ORDER BY p.name
-    `).all();
-    return warehouses.map((w) => {
-      const products = [];
-      const seen = new Set();
-      for (const p of stockRows) {
-        let qty = null;
-        if (p.ws_wh === w.id) qty = p.ws_qty != null ? Number(p.ws_qty) : 0;
-        else if (p.warehouse_id === w.id && !seen.has(p.id)) qty = Number(p.stock) || 0;
-        if (qty == null || seen.has(p.id)) continue;
-        if (!includeZero && !(qty > 0)) { seen.add(p.id); continue; }
-        const cat = p.category_name || p.category || '';
-        if (category && cat !== category) { seen.add(p.id); continue; }
-        if (q) {
-          const hay = `${p.code || ''} ${p.name || ''} ${p.unit || ''}`.toLowerCase();
-          if (!hay.includes(q.toLowerCase())) { seen.add(p.id); continue; }
-        }
-        const unitCost = Math.round(Number(p.cost) || 0);
-        const unitPrice = Math.round(Number(p.price) || 0);
-        products.push({
-          id: p.id, code: p.code, name: p.name, unit: p.unit, category: cat,
-          qty, unit_cost_rial: unitCost, unit_price_rial: unitPrice,
-          avg_cost_rial: unitCost,
-          amount_rial: Math.round(qty * unitCost),
-          sales_value_rial: Math.round(qty * unitPrice),
-        });
-        seen.add(p.id);
-      }
-      return {
-        warehouse_id: w.id, warehouse_name: w.name, warehouse_code: w.code,
-        product_count: products.length,
-        total_qty: products.reduce((a, p) => a + p.qty, 0),
-        total_amount_rial: products.reduce((a, p) => a + p.amount_rial, 0),
-        total_sales_value_rial: products.reduce((a, p) => a + p.sales_value_rial, 0),
-        avg_unit_cost_rial: products.length
-          ? Math.round(products.reduce((a, p) => a + p.unit_cost_rial, 0) / products.length) : 0,
-        products,
-      };
-    });
-  })();
-  res.json({ filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero }, rows: overview });
+  res.json({
+    filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero },
+    rows: buildWarehouseStockRows(db, { warehouseId, q, category, includeZero }),
+  });
 });
 
 /** Color × size stock dashboard. Snapshot, not a date-ranged ledger. */
@@ -142,19 +118,22 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const whCode = code || ('WH-' + Date.now().toString(36).toUpperCase());
   const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
-  const result = db.prepare(`
-    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-  `).run(
-    name, address || '', whCode,
-    entity || 'distribution_office',
-    warehouse_type || 'finished_goods',
-    cost_center_id ? parseInt(cost_center_id, 10) : null,
-    is_default ? 1 : 0,
-    allow_negative ? 1 : 0,
-    costing_method || null,
-    invSys
-  );
+  const result = db.transaction(() => {
+    if (is_default) db.prepare('UPDATE warehouses SET is_default=0').run();
+    return db.prepare(`
+      INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      name, address || '', whCode,
+      entity || 'distribution_office',
+      warehouse_type || 'finished_goods',
+      cost_center_id ? parseInt(cost_center_id, 10) : null,
+      is_default ? 1 : 0,
+      allow_negative ? 1 : 0,
+      costing_method || null,
+      invSys
+    );
+  })();
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
   res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
 });
@@ -167,22 +146,26 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const invSys = inventory_system !== undefined
     ? (String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual')
     : (row.inventory_system || 'perpetual');
-  db.prepare(`
-    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?
-    WHERE id=?
-  `).run(
-    name || row.name, address ?? row.address,
-    active != null ? (active ? 1 : 0) : row.active,
-    entity || row.entity || 'distribution_office',
-    warehouse_type || row.warehouse_type || 'finished_goods',
-    cost_center_id != null ? (cost_center_id ? parseInt(cost_center_id, 10) : null) : row.cost_center_id,
-    is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0),
-    code || row.code || null,
-    allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),
-    costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
-    invSys,
-    req.params.id
-  );
+  db.transaction(() => {
+    const def = is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0);
+    if (def) db.prepare('UPDATE warehouses SET is_default=0 WHERE id<>?').run(req.params.id);
+    db.prepare(`
+      UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?
+      WHERE id=?
+    `).run(
+      name || row.name, address ?? row.address,
+      active != null ? (active ? 1 : 0) : row.active,
+      entity || row.entity || 'distribution_office',
+      warehouse_type || row.warehouse_type || 'finished_goods',
+      cost_center_id != null ? (cost_center_id ? parseInt(cost_center_id, 10) : null) : row.cost_center_id,
+      def,
+      code || row.code || null,
+      allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),
+      costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
+      invSys,
+      req.params.id
+    );
+  })();
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
   res.json({ ok: true });
 });
@@ -193,6 +176,19 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE warehouse_id=?').get(req.params.id).c;
   if (inUse > 0) return res.status(400).json({ error: 'این انبار دارای کالا است و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
+  const wsQty = db.prepare('SELECT COALESCE(SUM(ABS(qty)),0) c FROM warehouse_stock WHERE warehouse_id=?').get(req.params.id).c;
+  if (Number(wsQty) > 0) {
+    return res.status(400).json({ error: 'این انبار موجودی دارد و قابل حذف نیست — ابتدا موجودی را صفر یا انبار را غیرفعال کنید' });
+  }
+  const moveCount = db.prepare(`
+    SELECT COUNT(*) c FROM warehouse_moves
+    WHERE (from_warehouse_id=? OR to_warehouse_id=?) AND COALESCE(status,'posted')<>'reversed'
+  `).get(req.params.id, req.params.id).c;
+  if (moveCount > 0) {
+    db.prepare('UPDATE warehouses SET active=0 WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'update', 'warehouse', req.params.id, `غیرفعال‌سازی انبار ${row.name} (تاریخچه حرکت)`);
+    return res.json({ ok: true, deactivated: true });
+  }
   db.prepare('DELETE FROM warehouses WHERE id=?').run(req.params.id);
   // Prevent boot-time seed from recreating default warehouses after intentional deletes
   const left = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
@@ -223,7 +219,13 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 // Products currently assigned to a warehouse (= "warehouse stock report")
 router.get('/:id/stock', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const rows = db.prepare('SELECT id,code,name,stock,unit,stock_alert FROM products WHERE warehouse_id=? ORDER BY name').all(req.params.id);
+  const rows = db.prepare(`
+    SELECT p.id, p.code, p.name, ws.qty AS stock, p.unit, p.stock_alert
+    FROM warehouse_stock ws
+    JOIN products p ON p.id=ws.product_id
+    WHERE ws.warehouse_id=?
+    ORDER BY p.name
+  `).all(req.params.id);
   res.json(rows);
 });
 

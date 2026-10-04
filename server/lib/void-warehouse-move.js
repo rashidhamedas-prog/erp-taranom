@@ -20,7 +20,29 @@ function reverseVariantSideEffects(db, move, userId) {
       reverseStockDocument(db, { docType: 'wh_transfer_out', docId: move.id, ...opts });
       reverseStockDocument(db, { docType: 'wh_transfer_in', docId: move.id, ...opts });
     }
-  } catch (_) { /* optional on older DBs */ }
+  } catch (e) {
+    // Missing apparel tables on very old DBs — otherwise fail the TX (R13).
+    if (e && (e.code === 'SQLITE_ERROR' || /no such table/i.test(String(e.message || '')))) return;
+    throw e;
+  }
+}
+
+function reverseBatchSideEffects(db, move) {
+  const batchId = move.batch_id ? parseInt(move.batch_id, 10) : 0;
+  if (!batchId) return;
+  try {
+    const { adjustBatchQty } = require('./inventory/batch-serial');
+    const qty = Number(move.qty) || 0;
+    if (move.type === 'receipt') adjustBatchQty(db, batchId, -qty);
+    else if (move.type === 'issue') adjustBatchQty(db, batchId, qty);
+    else if (move.type === 'transfer' && move.from_warehouse_id) {
+      db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?')
+        .run(move.from_warehouse_id, batchId);
+    }
+  } catch (e) {
+    if (e && e.code === 'E_BATCH_NOT_FOUND') return;
+    throw e;
+  }
 }
 
 function voidOneMoveInTx(db, move, userId) {
@@ -44,6 +66,7 @@ function voidOneMoveInTx(db, move, userId) {
   }
 
   reverseVariantSideEffects(db, move, userId);
+  reverseBatchSideEffects(db, move);
 
   db.prepare(`
     UPDATE warehouse_moves SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?
