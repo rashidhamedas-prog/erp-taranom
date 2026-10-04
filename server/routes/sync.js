@@ -13,6 +13,9 @@
 //   POST /api/sync/now        — trigger an immediate sync cycle
 //   GET  /api/sync/conflicts  — list conflicted local operations
 //   POST /api/sync/conflicts/:outboxId/discard — undo a conflicted op locally
+//   GET  /api/sync/pull-conflicts — pulled rows held back because a local pending op exists
+//   POST /api/sync/{reset-pairing|factory-reset-device}/{prepare|commit|restore|challenge}
+//        — guarded two-step wipe (device role + loopback + per-install secret + verified outbox backup)
 //
 // Replay strategy: central re-executes each op through its OWN existing route
 // handlers via a loopback HTTP request as the acting user. Validation, stock
@@ -71,9 +74,54 @@ function deviceAuth(req, res, next) {
   next();
 }
 
+// ---- Factory reset authorization (fail closed) ----
+// Wiping a device's local data is allowed only (a) for the device role,
+// (b) from a loopback peer — judged by the RAW socket address, never by
+// X-Forwarded-For which `trust proxy` would honour — (c) with the per-install
+// reset secret, and (d) through the two-step prepare→commit flow that first
+// writes a verified recovery copy of the outbox. The legacy static phrases
+// RESET / RESET-DEVICE are never a credential on their own.
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const RESET_FLOW_HINT = 'بازنشانی با عبارت ثابت پذیرفته نمی‌شود — روی همین دستگاه ابتدا POST /api/sync/factory-reset-device/prepare با رمز بازنشانی نصب (secret) را اجرا کنید، سپس commit با backup_id، backup_sha256، pending_count و challenge_nonce (از فایل چالش روی دستگاه)';
+
+function peerAddress(req) {
+  const sock = req.socket || req.connection;
+  return String((sock && sock.remoteAddress) || '');
+}
+function isLoopbackPeer(req) {
+  return LOOPBACK_PEERS.has(peerAddress(req));
+}
+function resetAudit(action, detail, req) {
+  try { audit(req.user ? req.user.id : null, action, 'sync_device_reset', null, detail, req); } catch { /* audit is advisory */ }
+}
+function factoryResetGuard(req, res, next) {
+  if (process.env.SYNC_ROLE !== 'device' || !isDevice()) {
+    resetAudit('device_reset_denied', 'role is not device', req);
+    return res.status(403).json({ error: 'بازنشانی دستگاه فقط روی نسخهٔ دستگاه (SYNC_ROLE=device) مجاز است', code: 'E_RESET_ROLE' });
+  }
+  if (!isLoopbackPeer(req)) {
+    resetAudit('device_reset_denied', `non-loopback peer ${peerAddress(req)}`, req);
+    return res.status(403).json({ error: 'بازنشانی دستگاه فقط از همان دستگاه (اتصال محلی) مجاز است', code: 'E_RESET_PEER' });
+  }
+  return next();
+}
+// Legacy single-shot bodies ({confirm:'RESET'} / {confirm:'RESET-DEVICE'}) → explicit refusal.
+function rejectLegacyResetBody(req, res) {
+  resetAudit('device_reset_denied', 'static confirm phrase rejected', req);
+  return res.status(400).json({ error: RESET_FLOW_HINT, code: 'E_RESET_STATIC_PHRASE' });
+}
+const RESET_ROUTES = [
+  '/reset-pairing', '/reset-pairing/prepare', '/reset-pairing/commit', '/reset-pairing/restore', '/reset-pairing/challenge',
+  '/factory-reset-device', '/factory-reset-device/prepare', '/factory-reset-device/commit',
+  '/factory-reset-device/restore', '/factory-reset-device/challenge',
+];
+
 // Only mount central endpoints on central, device endpoints on device —
 // prevents a misconfigured instance from serving the wrong half.
 if (!isDevice()) {
+  // Central never wipes anything through these paths: fail closed with 403 (not 404).
+  router.post(RESET_ROUTES, factoryResetGuard, (req, res) => res.status(403).json({ error: 'بازنشانی دستگاه روی سرور مرکزی معنا ندارد', code: 'E_RESET_ROLE' }));
+
   // ---- Pairing ----
   router.post('/pair', (req, res) => {
     const { username, password, device_name, replay_public_key } = req.body;
@@ -494,31 +542,85 @@ if (isDevice()) {
     }
   });
 
-  // Authenticated wipe + unpair (admin). Clears local syncable data.
-  router.post('/reset-pairing', auth, adminOnly, (req, res) => {
-    const confirm = (req.body && req.body.confirm) || '';
-    if (confirm !== 'RESET') {
-      return res.status(400).json({ error: 'برای تأیید، confirm را برابر RESET بفرستید' });
+  // ---- Guarded factory reset (two-step, per-install secret, verified outbox backup) ----
+  //
+  //   POST …/prepare   {secret}                                     → backup + challenge file, nothing wiped
+  //   POST …/commit    {secret, backup_id, backup_sha256, pending_count, challenge_nonce} → wipe
+  //   POST …/restore   {secret, backup_id[, backup_sha256]}         → re-queue backed-up outbox rows
+  //   POST …/challenge {}                                           → (operator recovery) re-issue challenge file
+  //
+  // `/reset-pairing/*` is the admin-authenticated surface (UI), `/factory-reset-device/*`
+  // the login-broken recovery surface; both share the same fail-closed guard chain.
+  function requireResetSecret(req, res, next) {
+    const body = req.body || {};
+    if (client.isStaticResetPhrase(body.secret) || client.isStaticResetPhrase(body.confirm)) {
+      return rejectLegacyResetBody(req, res);
     }
-    try {
-      res.json(client.resetPairing());
-    } catch (e) {
-      res.status(500).json({ error: e.message });
+    const check = client.verifyDeviceResetSecret(body.secret);
+    if (!check.ok) {
+      resetAudit('device_reset_denied', check.code, req);
+      const msg = check.code === 'E_RESET_SECRET_MISSING'
+        ? 'رمز بازنشانی این نصب موجود نیست (DEVICE_RESET_SECRET یا فایل device-reset.secret) — بازنشانی قفل است'
+        : 'رمز بازنشانی نصب نامعتبر است';
+      return res.status(403).json({ error: msg, code: check.code });
     }
-  });
+    return next();
+  }
+  function resetErrorResponse(res, e) {
+    const status = Number.isInteger(e && e.status) ? e.status : 500;
+    return res.status(status).json({ error: e.message, code: (e && e.code) || 'E_RESET_FAILED' });
+  }
+  const resetHandlers = {
+    prepare(req, res) {
+      try {
+        const out = client.prepareFactoryReset();
+        resetAudit('device_reset_prepared', `backup=${out.backup_id} pending=${out.pending_count}`, req);
+        res.json(out);
+      } catch (e) { resetErrorResponse(res, e); }
+    },
+    commit(req, res) {
+      try {
+        const out = client.commitFactoryReset(req.body || {});
+        resetAudit('device_reset_committed', `backup=${out.backup_id} pending=${out.pending_backed_up}`, req);
+        res.json(out);
+      } catch (e) {
+        resetAudit('device_reset_denied', (e && e.code) || e.message, req);
+        resetErrorResponse(res, e);
+      }
+    },
+    restore(req, res) {
+      try {
+        const out = client.restoreOutboxBackup(req.body || {});
+        resetAudit('device_reset_restored', `backup=${out.backup_id} restored=${out.restored}`, req);
+        res.json(out);
+      } catch (e) { resetErrorResponse(res, e); }
+    },
+    challenge(req, res) {
+      try {
+        res.json(client.writeResetChallenge(req.body && req.body.backup_id ? String(req.body.backup_id) : null));
+      } catch (e) { resetErrorResponse(res, e); }
+    },
+  };
 
-  // Recovery when login itself is broken (paired to dead host / empty users).
-  // Device builds bind localhost only — not exposed on the public internet.
-  router.post('/factory-reset-device', (req, res) => {
-    const confirm = (req.body && req.body.confirm) || '';
-    if (confirm !== 'RESET-DEVICE') {
-      return res.status(400).json({ error: 'برای تأیید، confirm را برابر RESET-DEVICE بفرستید' });
-    }
-    try {
-      res.json(client.resetPairing());
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
+  // Admin-authenticated surface (sync panel). The old {confirm:'RESET'} body is refused.
+  router.post('/reset-pairing', auth, adminOnly, factoryResetGuard, rejectLegacyResetBody);
+  router.post('/reset-pairing/prepare', auth, adminOnly, factoryResetGuard, requireResetSecret, resetHandlers.prepare);
+  router.post('/reset-pairing/commit', auth, adminOnly, factoryResetGuard, requireResetSecret, resetHandlers.commit);
+  router.post('/reset-pairing/restore', auth, adminOnly, factoryResetGuard, requireResetSecret, resetHandlers.restore);
+  router.post('/reset-pairing/challenge', auth, adminOnly, factoryResetGuard, resetHandlers.challenge);
+
+  // Login-broken recovery surface: no JWT, but device role + loopback + per-install secret
+  // (+ challenge nonce for commit). The old {confirm:'RESET-DEVICE'} body is refused.
+  router.post('/factory-reset-device', factoryResetGuard, rejectLegacyResetBody);
+  router.post('/factory-reset-device/prepare', factoryResetGuard, requireResetSecret, resetHandlers.prepare);
+  router.post('/factory-reset-device/commit', factoryResetGuard, requireResetSecret, resetHandlers.commit);
+  router.post('/factory-reset-device/restore', factoryResetGuard, requireResetSecret, resetHandlers.restore);
+  router.post('/factory-reset-device/challenge', factoryResetGuard, resetHandlers.challenge);
+
+  // Pulled changes held back because the local row still has a pending op (both versions kept).
+  router.get('/pull-conflicts', auth, (req, res) => {
+    const status = req.query.status === 'all' ? 'all' : 'open';
+    res.json(client.listPullConflicts(getDB(), { status }));
   });
 
   router.post('/now', auth, async (req, res) => {
@@ -581,3 +683,7 @@ if (isDevice()) {
 }
 
 module.exports = router;
+// Exposed for tests (guard semantics must stay fail-closed).
+module.exports.factoryResetGuard = factoryResetGuard;
+module.exports.isLoopbackPeer = isLoopbackPeer;
+module.exports.RESET_ROUTES = RESET_ROUTES;

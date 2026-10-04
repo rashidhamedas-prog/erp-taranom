@@ -15,7 +15,7 @@ const {
 const { selectClientRelayField } = require('./multipart-policy');
 const fs = require('fs');
 const path = require('path');
-const { getDB, seedProvisionalSequences } = require('../db');
+const { getDB, getDBPath, seedProvisionalSequences } = require('../db');
 const { SYNCABLE_TABLES, FK_COLUMNS, isProvisionalId } = require('./tables');
 const { pullMissingFiles, countMissingFiles, listMissingFiles } = require('./files');
 const { readManifest, buildUpdateResponse } = require('../lib/app-update');
@@ -253,14 +253,15 @@ function pairingHealth(db) {
   return { broken: false, reason: null, users, initial_sync_done: initialDone };
 }
 
-function clearPairingKeys(db) {
-  for (const k of ['central_url', 'device_id', 'device_token', 'device_signing_private_key',
-    'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
-}
-
 /**
  * After device credentials are saved: pull all rows, drop placeholder admin,
- * pull files. On hard failure wipe local pairing so the user can retry cleanly.
+ * pull files.
+ *
+ * A failed first pull (network down, auth rejected, bootstrap error) is a
+ * TRANSIENT condition: pairing credentials, every sync_outbox row and every
+ * local business row stay untouched so the next sync cycle simply retries.
+ * Wiping local state is only ever an explicit, authorized operator action
+ * (prepareFactoryReset → commitFactoryReset) — never a side effect of failure.
  */
 async function runInitialSyncAfterPair() {
   const db = getDB();
@@ -296,12 +297,17 @@ async function runInitialSyncAfterPair() {
   } catch (e) {
     const msg = networkErrorMessage(e, 'همگام‌سازی اولیه ناموفق');
     state.lastError = msg;
-    console.error('[sync] initial pull after pair failed:', msg);
-    try { resetPairing(); } catch (re) {
-      console.error('[sync] rollback after failed initial pull:', re.message);
-      clearPairingKeys(db);
-    }
-    return { ok: false, error: msg, rolled_back: true };
+    console.error('[sync] initial pull after pair failed — pairing and local work kept, will retry:', msg);
+    // Never resetPairing() here: that would destroy unpushed outbox ops and
+    // local rows because of a transient failure. Credentials stay so syncNow()
+    // / the client loop can retry; the operator decides about any reset.
+    return {
+      ok: false,
+      error: msg,
+      retryable: true,
+      rolled_back: false,
+      pending: pendingCount(db),
+    };
   } finally {
     state.syncing = false;
   }
@@ -416,7 +422,9 @@ async function setCentralUrl(centralUrl) {
 /**
  * Wipe local sync state + syncable business rows so the device can pair again.
  * Restores placeholder admin / admin123. Local-only ops that were never pushed
- * are lost — intended recovery for broken/wrong pairing.
+ * are lost — therefore this is ONLY reachable through the authorized two-step
+ * reset (prepareFactoryReset → commitFactoryReset), which first writes a
+ * verified recovery copy of the outbox. Never call it on failure paths.
  */
 function resetPairing() {
   const db = getDB();
@@ -447,6 +455,346 @@ function resetPairing() {
   return { ok: true, message: 'اتصال قطع شد — با admin / admin123 وارد شوید و دوباره به سرور مرکزی وصل کنید' };
 }
 
+// ---- Guarded factory reset (device-local recovery) ----
+//
+// Authorization model (fail closed; HTTP-side role/loopback checks live in
+// routes/sync.js):
+//   * per-install secret — DEVICE_RESET_SECRET env, else a random 32-byte file
+//     created in the device data dir on first device boot. Never a constant.
+//   * prepare  — verify secret, snapshot every sync_outbox row to a JSON file
+//                plus sha256 sidecar, write a one-time challenge nonce file.
+//   * commit   — verify secret + challenge nonce (read from that file) + the
+//                backup id/sha/pending_count echoed by the caller; the backup
+//                must still match the live pending rows byte-for-byte. Only
+//                then resetPairing() runs.
+//   * restore  — verify secret + backup sha, re-queue pending/conflict rows
+//                byte-for-byte (re-signed with the current replay key when the
+//                device is paired again).
+// Static phrases (RESET / RESET-DEVICE) are never accepted as a credential.
+const RESET_SECRET_FILE = 'device-reset.secret';
+const RESET_CHALLENGE_FILE = 'device-reset-challenge.json';
+const RECOVERY_DIR_NAME = 'sync-recovery';
+const RESET_CHALLENGE_TTL_SEC = 15 * 60;
+const STATIC_RESET_PHRASES = new Set(['RESET', 'RESET-DEVICE']);
+const BACKUP_ID_RE = /^ob-\d{10,16}-[a-f0-9]{16}$/;
+const OUTBOX_BACKUP_FORMAT = 'erp-taranom/outbox-backup/v1';
+// Columns restored verbatim (id is re-minted so restored ops sort after any newer local ops).
+const OUTBOX_RESTORE_COLUMNS = [
+  'method', 'path', 'body_json', 'user_id', 'base_version', 'entity_table', 'entity_local_id',
+  'captured_rows_json', 'has_file', 'file_path', 'status', 'central_result', 'reason', 'attempts',
+  'created_at', 'resolved_at', 'replay_file_hash', 'replay_file_field',
+];
+
+function resetError(status, code, message) {
+  return Object.assign(new Error(message), { status, code });
+}
+
+function sha256Hex(input) {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+/** Constant-time string equality that does not leak the expected length. */
+function constantTimeEqual(a, b) {
+  const left = crypto.createHash('sha256').update(String(a == null ? '' : a), 'utf8').digest();
+  const right = crypto.createHash('sha256').update(String(b == null ? '' : b), 'utf8').digest();
+  return crypto.timingSafeEqual(left, right) && String(a) === String(b);
+}
+
+/** Writable per-install data dir: DEVICE_DATA_DIR, else the folder holding the SQLite file. */
+function deviceDataDir() {
+  const fromEnv = process.env.DEVICE_DATA_DIR && String(process.env.DEVICE_DATA_DIR).trim();
+  if (fromEnv) return path.resolve(fromEnv);
+  getDB(); // resolves the live DB path on first use
+  return path.dirname(path.resolve(getDBPath()));
+}
+function resetSecretPath() { return path.join(deviceDataDir(), RESET_SECRET_FILE); }
+function resetChallengePath() { return path.join(deviceDataDir(), RESET_CHALLENGE_FILE); }
+function recoveryDir() { return path.join(deviceDataDir(), RECOVERY_DIR_NAME); }
+
+/**
+ * Create the per-install reset secret on first device boot (no-op when
+ * DEVICE_RESET_SECRET is set or the file already exists). Pairing never needs it.
+ */
+function ensureDeviceResetSecret() {
+  if (process.env.DEVICE_RESET_SECRET && String(process.env.DEVICE_RESET_SECRET).trim()) {
+    return { source: 'env', created: false };
+  }
+  const file = resetSecretPath();
+  if (fs.existsSync(file)) return { source: 'file', created: false, path: file };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, crypto.randomBytes(32).toString('hex') + '\n', { mode: 0o600, flag: 'wx' });
+  return { source: 'file', created: true, path: file };
+}
+
+function readDeviceResetSecret() {
+  const env = process.env.DEVICE_RESET_SECRET;
+  if (env && String(env).trim()) return String(env).trim();
+  try {
+    const raw = fs.readFileSync(resetSecretPath(), 'utf8').trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify a supplied reset secret. Fails closed when no secret exists, when the
+ * value is empty, or when it is one of the legacy static phrases.
+ */
+function verifyDeviceResetSecret(supplied) {
+  const expected = readDeviceResetSecret();
+  if (!expected) return { ok: false, code: 'E_RESET_SECRET_MISSING' };
+  const value = typeof supplied === 'string' ? supplied.trim() : '';
+  if (!value || STATIC_RESET_PHRASES.has(value.toUpperCase())) return { ok: false, code: 'E_RESET_SECRET_INVALID' };
+  return constantTimeEqual(value, expected) ? { ok: true } : { ok: false, code: 'E_RESET_SECRET_INVALID' };
+}
+
+function isStaticResetPhrase(value) {
+  return typeof value === 'string' && STATIC_RESET_PHRASES.has(value.trim().toUpperCase());
+}
+
+function backupPaths(backupId) {
+  return {
+    file: path.join(recoveryDir(), `${backupId}.json`),
+    meta: path.join(recoveryDir(), `${backupId}.meta.json`),
+  };
+}
+
+/** Write the one-time challenge nonce file (loopback+device role enforced by the route). */
+function writeResetChallenge(backupId) {
+  const now = Math.floor(Date.now() / 1000);
+  const challenge = {
+    nonce: crypto.randomBytes(32).toString('hex'),
+    backup_id: backupId || null,
+    created_at: now,
+    expires_at: now + RESET_CHALLENGE_TTL_SEC,
+  };
+  const file = resetChallengePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(challenge), { mode: 0o600 });
+  // The nonce itself is deliberately NOT returned: the operator must read it from the device file system.
+  return { ok: true, challenge_file: file, backup_id: challenge.backup_id, expires_at: challenge.expires_at };
+}
+
+function readResetChallenge() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resetChallengePath(), 'utf8'));
+    return parsed && typeof parsed.nonce === 'string' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearResetChallenge() {
+  try { fs.unlinkSync(resetChallengePath()); } catch { /* already gone */ }
+}
+
+/**
+ * Step 1: snapshot the outbox to a verifiable recovery copy. Nothing is wiped.
+ * Returns pending_count / backup_id / backup_sha256 that commit must echo.
+ */
+function prepareFactoryReset() {
+  const db = getDB();
+  const cfg = getConfig(db);
+  const rows = db.prepare('SELECT * FROM sync_outbox ORDER BY id').all();
+  const pendingCount = rows.filter(r => r.status === 'pending').length;
+  const backupId = `ob-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+  const createdAt = Math.floor(Date.now() / 1000);
+  const payload = {
+    format: OUTBOX_BACKUP_FORMAT,
+    backup_id: backupId,
+    created_at: createdAt,
+    device_id: cfg.deviceId,
+    central_url: cfg.centralUrl,
+    pending_count: pendingCount,
+    row_count: rows.length,
+    rows,
+  };
+  const bytes = Buffer.from(JSON.stringify(payload), 'utf8');
+  const sha = sha256Hex(bytes);
+  const { file, meta } = backupPaths(backupId);
+  fs.mkdirSync(recoveryDir(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, bytes, { mode: 0o600, flag: 'wx' });
+  fs.writeFileSync(meta, JSON.stringify({
+    format: OUTBOX_BACKUP_FORMAT, backup_id: backupId, sha256: sha,
+    pending_count: pendingCount, row_count: rows.length, bytes: bytes.length, created_at: createdAt,
+  }), { mode: 0o600, flag: 'wx' });
+  // Read back and verify before offering the copy as a recovery point.
+  if (sha256Hex(fs.readFileSync(file)) !== sha) {
+    throw resetError(500, 'E_RESET_BACKUP_VERIFY', 'نسخهٔ بازیابی صف همگام‌سازی روی دیسک تأیید نشد — بازنشانی انجام نشد');
+  }
+  const challenge = writeResetChallenge(backupId);
+  return {
+    ok: true,
+    pending_count: pendingCount,
+    row_count: rows.length,
+    backup_id: backupId,
+    backup_sha256: sha,
+    backup_file: file,
+    challenge_file: challenge.challenge_file,
+    challenge_expires_at: challenge.expires_at,
+    wiped: false,
+  };
+}
+
+/** Load a backup and verify its bytes against the sidecar (and the caller's sha when given). */
+function loadVerifiedBackup(backupId, suppliedSha, { requireSha = true } = {}) {
+  const id = typeof backupId === 'string' ? backupId.trim() : '';
+  if (!BACKUP_ID_RE.test(id)) throw resetError(400, 'E_RESET_BACKUP_ID', 'شناسهٔ نسخهٔ بازیابی نامعتبر است');
+  const { file, meta } = backupPaths(id);
+  if (!fs.existsSync(file) || !fs.existsSync(meta)) {
+    throw resetError(404, 'E_RESET_BACKUP_MISSING', 'نسخهٔ بازیابی صف همگام‌سازی پیدا نشد — ابتدا prepare را اجرا کنید');
+  }
+  const bytes = fs.readFileSync(file);
+  const actualSha = sha256Hex(bytes);
+  let metaObj;
+  try { metaObj = JSON.parse(fs.readFileSync(meta, 'utf8')); } catch { metaObj = null; }
+  if (!metaObj || !constantTimeEqual(metaObj.sha256, actualSha)) {
+    throw resetError(409, 'E_RESET_BACKUP_SHA', 'اثر انگشت (sha256) نسخهٔ بازیابی با فایل مطابقت ندارد');
+  }
+  const supplied = typeof suppliedSha === 'string' ? suppliedSha.trim().toLowerCase() : '';
+  if (supplied || requireSha) {
+    if (!/^[a-f0-9]{64}$/.test(supplied) || !constantTimeEqual(supplied, actualSha)) {
+      throw resetError(409, 'E_RESET_BACKUP_SHA', 'اثر انگشت (sha256) ارسال‌شده با نسخهٔ بازیابی مطابقت ندارد');
+    }
+  }
+  let payload;
+  try { payload = JSON.parse(bytes.toString('utf8')); } catch { payload = null; }
+  if (!payload || payload.format !== OUTBOX_BACKUP_FORMAT || payload.backup_id !== id || !Array.isArray(payload.rows)) {
+    throw resetError(409, 'E_RESET_BACKUP_CORRUPT', 'محتوای نسخهٔ بازیابی نامعتبر است');
+  }
+  return { id, payload, sha256: actualSha, meta: metaObj, file };
+}
+
+function sameOutboxRow(a, b) {
+  return OUTBOX_RESTORE_COLUMNS.every(col => {
+    const x = a[col] === undefined ? null : a[col];
+    const y = b[col] === undefined ? null : b[col];
+    return x === y;
+  }) && (a.replay_proof || null) === (b.replay_proof || null);
+}
+
+/**
+ * Step 2: wipe ONLY when secret (checked by the route), challenge nonce, backup
+ * id/sha and pending_count all verify and the backup still matches the live
+ * pending outbox rows byte-for-byte.
+ */
+function commitFactoryReset({ backup_id, backup_sha256, pending_count, challenge_nonce } = {}) {
+  const db = getDB();
+  const now = Math.floor(Date.now() / 1000);
+  const challenge = readResetChallenge();
+  if (!challenge) {
+    throw resetError(403, 'E_RESET_CHALLENGE_MISSING', 'فایل چالش بازنشانی وجود ندارد — ابتدا prepare (یا challenge) را روی همین دستگاه اجرا کنید');
+  }
+  if (!Number.isFinite(Number(challenge.expires_at)) || Number(challenge.expires_at) < now) {
+    clearResetChallenge();
+    throw resetError(403, 'E_RESET_CHALLENGE_EXPIRED', 'چالش بازنشانی منقضی شده است — prepare را دوباره اجرا کنید');
+  }
+  const nonce = typeof challenge_nonce === 'string' ? challenge_nonce.trim().toLowerCase() : '';
+  if (!/^[a-f0-9]{64}$/.test(nonce) || !constantTimeEqual(nonce, challenge.nonce)) {
+    throw resetError(403, 'E_RESET_CHALLENGE_NONCE', 'nonce چالش بازنشانی نامعتبر است — مقدار را از فایل چالش روی دستگاه بخوانید');
+  }
+  const backup = loadVerifiedBackup(backup_id, backup_sha256, { requireSha: true });
+  if (challenge.backup_id && challenge.backup_id !== backup.id) {
+    throw resetError(409, 'E_RESET_CHALLENGE_BACKUP', 'چالش بازنشانی برای نسخهٔ بازیابی دیگری صادر شده است');
+  }
+  const echoed = Number(pending_count);
+  const livePending = db.prepare("SELECT * FROM sync_outbox WHERE status='pending' ORDER BY id").all();
+  if (!Number.isInteger(echoed) || echoed !== Number(backup.payload.pending_count) || echoed !== livePending.length) {
+    throw resetError(409, 'E_RESET_PENDING_MISMATCH',
+      `تعداد عملیات در انتظار تغییر کرده است (نسخهٔ بازیابی: ${backup.payload.pending_count}، اکنون: ${livePending.length}) — prepare را دوباره اجرا کنید`);
+  }
+  // Every live pending row must be present, byte-for-byte, in the verified backup.
+  const backedUp = new Map(backup.payload.rows.map(r => [r.id, r]));
+  for (const row of livePending) {
+    const copy = backedUp.get(row.id);
+    if (!copy || !sameOutboxRow(copy, row)) {
+      throw resetError(409, 'E_RESET_BACKUP_STALE', 'صف همگام‌سازی پس از prepare تغییر کرده است — prepare را دوباره اجرا کنید');
+    }
+  }
+  const result = resetPairing();
+  clearResetChallenge();
+  return {
+    ...result,
+    wiped: true,
+    backup_id: backup.id,
+    backup_sha256: backup.sha256,
+    backup_file: backup.file,
+    pending_backed_up: echoed,
+  };
+}
+
+/**
+ * Re-queue the pending/conflict rows of a verified backup. method/path/body_json
+ * and entity fields are restored byte-for-byte; ids are re-minted and the
+ * replay proof is re-signed with the current device key when one exists.
+ */
+function restoreOutboxBackup({ backup_id, backup_sha256 } = {}) {
+  const db = getDB();
+  const backup = loadVerifiedBackup(backup_id, backup_sha256, { requireSha: false });
+  const cols = tableColumns(db, 'sync_outbox');
+  const restoreCols = OUTBOX_RESTORE_COLUMNS.filter(c => cols.includes(c));
+  const cfg = getConfig(db);
+  let privateKey = null;
+  try { privateKey = getSecret(db, 'device_signing_private_key'); } catch { privateKey = null; }
+  const canSign = !!(privateKey && Number.isSafeInteger(Number(cfg.deviceId)) && Number(cfg.deviceId) > 0);
+  const dupe = db.prepare(`SELECT id, replay_proof FROM sync_outbox
+    WHERE status IN ('pending','conflict') AND method=? AND path=? AND body_json IS ? AND user_id IS ?
+      AND entity_table IS ? AND entity_local_id IS ? LIMIT 1`);
+  const insert = db.prepare(`INSERT INTO sync_outbox (${restoreCols.join(',')}) VALUES (${restoreCols.map(() => '?').join(',')})`);
+  const setProof = db.prepare('UPDATE sync_outbox SET replay_proof=? WHERE id=?');
+  const signRow = (row, seq) => {
+    let body = {};
+    try { body = JSON.parse(row.body_json || '{}'); } catch { body = {}; }
+    return signReplayEnvelope(privateKey, {
+      deviceId: Number(cfg.deviceId),
+      seq,
+      method: row.method,
+      path: row.path,
+      userId: Number(row.user_id),
+      body,
+      fileHash: row.replay_file_hash || '',
+      fileField: row.replay_file_field || '',
+    });
+  };
+  const summary = { restored: 0, skipped_existing: 0, skipped_settled: 0, signed: 0, signed_existing: 0, unsigned: 0, ids: [] };
+  db.transaction(() => {
+    for (const row of backup.payload.rows) {
+      if (row.status !== 'pending' && row.status !== 'conflict') { summary.skipped_settled++; continue; }
+      const existing = dupe.get(row.method, row.path, row.body_json ?? null, row.user_id ?? null,
+        row.entity_table ?? null, row.entity_local_id ?? null);
+      if (existing) {
+        // Idempotent re-run: only (re)sign a copy restored earlier while unpaired.
+        if (canSign && !existing.replay_proof) {
+          setProof.run(signRow(row, Number(existing.id)), existing.id);
+          summary.signed_existing++;
+        }
+        summary.skipped_existing++;
+        continue;
+      }
+      const inserted = insert.run(...restoreCols.map(c => (row[c] === undefined ? null : row[c])));
+      const newId = Number(inserted.lastInsertRowid);
+      if (canSign) {
+        setProof.run(signRow(row, newId), newId);
+        summary.signed++;
+      } else {
+        setProof.run(null, newId);
+        summary.unsigned++;
+      }
+      summary.restored++;
+      summary.ids.push(newId);
+    }
+  })();
+  if (summary.restored || summary.signed_existing) state.dataVersion++;
+  return {
+    ok: true,
+    backup_id: backup.id,
+    backup_sha256: backup.sha256,
+    ...summary,
+    note: canSign ? null : 'دستگاه هنوز متصل نیست؛ عملیات بدون امضا بازگردانی شد — پس از اتصال مجدد، restore را دوباره اجرا کنید تا امضا شوند',
+  };
+}
+
 // ---- Sync cycle ----
 async function syncNow() {
   const db = getDB();
@@ -470,7 +818,10 @@ async function syncNow() {
     if (fileRes.pulled > 0) state.dataVersion++;
     state.lastSyncAt = Math.floor(Date.now() / 1000);
     state.lastError = null;
-    return { ok: true, ...pushRes, ...fileRes, pending: pendingCount(db), conflicts: conflictCount(db) };
+    return {
+      ok: true, ...pushRes, ...fileRes,
+      pending: pendingCount(db), conflicts: conflictCount(db), pull_conflicts: pullConflictCount(db),
+    };
 
   } catch (e) {
     state.lastError = e.message;
@@ -649,6 +1000,10 @@ async function pullAll(db, cfg) {
   if (!Number.isInteger(since)) since = -1;
   let more = true;
   let pages = 0;
+  // One context per pull cycle: parent-reference checks are deferred until the
+  // final page because sync_seq is stamped per write (an edited parent sorts
+  // after its children and may arrive in a later page).
+  const pullCtx = createPullContext();
   while (more) {
     pages += 1;
     if (pages > 5000) throw new Error('دریافت تغییرات از سرور بیش از حد طول کشید');
@@ -664,10 +1019,11 @@ async function pullAll(db, cfg) {
     }
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || 'خطا در دریافت تغییرات از سرور مرکزی');
-    applyChanges(db, body.changes || [], pulledUserIds);
+    const changes = body.changes || [];
+    more = !!body.has_more && changes.length > 0;
+    applyChanges(db, changes, pulledUserIds, { final: !more, ctx: pullCtx });
     since = body.next_since;
     kvSet(db, 'last_pull_seq', since);
-    more = !!body.has_more && (body.changes || []).length > 0;
   }
   return pulledUserIds;
 }
@@ -678,17 +1034,234 @@ function tableColumns(db, tbl) {
   return columnCache[tbl];
 }
 
-function applyChanges(db, changes, pulledUserIds) {
-  if (!changes.length) return;
+// ---- Pull-side conflict protection (device-local; never synced) ----
+//
+// A pulled row (INSERT OR REPLACE) or tombstone must not silently overwrite or
+// delete a local row that still carries an unpushed operation
+// (sync_outbox.status='pending'). Both versions are retained in
+// sync_pull_conflicts for explicit resolution; nothing is last-writer-wins.
+//   policy 'keep_both'          — customers, CRM, invoice drafts, stock moves, BOM, …
+//   policy 'reversal_required'  — journal_entries / journal_lines, and invoices
+//                                 whose local OR remote version is posted/final.
+const PULL_CONFLICT_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS sync_pull_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tbl TEXT NOT NULL,
+    row_key TEXT NOT NULL,
+    remote_seq INTEGER,
+    remote_kind TEXT NOT NULL,          -- replace | delete
+    reason TEXT NOT NULL,               -- pending_local_op | child_pending_local_op
+    policy TEXT NOT NULL,               -- keep_both | reversal_required
+    local_json TEXT,                    -- snapshot of the local row when the remote change was held
+    remote_json TEXT,                   -- remote row; NULL for a tombstone
+    outbox_ids TEXT,                    -- JSON array of the protecting sync_outbox ids
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    updated_at INTEGER DEFAULT (strftime('%s','now')),
+    resolved_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_sync_pull_conflicts_open ON sync_pull_conflicts(status, tbl, row_key);
+`;
+const REVERSAL_REQUIRED_TABLES = new Set(['journal_entries', 'journal_lines']);
+
+function ensurePullConflictTable(db) {
+  db.exec(PULL_CONFLICT_SCHEMA);
+}
+
+function createPullContext() {
+  return { unverifiedRefs: [], held: 0 };
+}
+
+// Firm (official) invoice = type 'final'. NOTE: invoices.status is the R13
+// void-lifecycle flag and defaults to 'posted' for proformas as well, so it
+// must not be read as "posted/firm" — a proforma stays a draft (keep_both).
+function isPostedInvoice(row) {
+  if (!row || typeof row !== 'object') return false;
+  return String(row.type == null ? '' : row.type).trim().toLowerCase() === 'final';
+}
+
+function pullConflictPolicy(tbl, localRow, remoteRow) {
+  if (REVERSAL_REQUIRED_TABLES.has(tbl)) return 'reversal_required';
+  if (tbl === 'invoices' && (isPostedInvoice(localRow) || isPostedInvoice(remoteRow))) return 'reversal_required';
+  return 'keep_both';
+}
+
+/** Map: entity_table → Map(entity_local_id → [outbox ids]) for the given outbox statuses. */
+function outboxIndex(db, statuses) {
+  const index = new Map();
+  const rows = db.prepare(`SELECT id, entity_table, entity_local_id FROM sync_outbox
+    WHERE status IN (${statuses.map(() => '?').join(',')}) AND entity_table IS NOT NULL AND entity_local_id IS NOT NULL`)
+    .all(...statuses);
+  for (const r of rows) {
+    let byId = index.get(r.entity_table);
+    if (!byId) index.set(r.entity_table, byId = new Map());
+    const key = Number(r.entity_local_id);
+    let ids = byId.get(key);
+    if (!ids) byId.set(key, ids = []);
+    ids.push(r.id);
+  }
+  return index;
+}
+
+function outboxIdsFor(index, tbl, id) {
+  const byId = index.get(tbl);
+  if (!byId) return [];
+  return byId.get(Number(id)) || [];
+}
+
+// Declared FK graph over syncable tables (PRAGMA foreign_key_list; composite FKs skipped).
+let fkGraphCache = null;
+function fkGraph(db) {
+  if (fkGraphCache) return fkGraphCache;
+  const syncable = new Set(SYNCABLE_TABLES.map(t => t.name));
+  const parentsOf = new Map(); // child → [{ from, parentTbl, parentCol }]
+  const childrenOf = new Map(); // parent → [{ child, from }]
+  for (const t of SYNCABLE_TABLES) {
+    let fks;
+    try { fks = db.prepare(`PRAGMA foreign_key_list(${t.name})`).all(); } catch { continue; }
+    const perFk = {};
+    for (const f of fks) perFk[f.id] = (perFk[f.id] || 0) + 1;
+    for (const f of fks) {
+      if (perFk[f.id] > 1 || !syncable.has(f.table) || !f.from) continue;
+      const parentCol = f.to || 'id';
+      if (!parentsOf.has(t.name)) parentsOf.set(t.name, []);
+      parentsOf.get(t.name).push({ from: f.from, parentTbl: f.table, parentCol });
+      if (parentCol === 'id') {
+        if (!childrenOf.has(f.table)) childrenOf.set(f.table, []);
+        childrenOf.get(f.table).push({ child: t.name, from: f.from });
+      }
+    }
+  }
+  fkGraphCache = { parentsOf, childrenOf };
+  return fkGraphCache;
+}
+
+function chunked(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** Local child rows of parent `parentTbl`:`parentId` that still carry unsynced work (pending/conflict op). */
+function protectedChildrenOf(db, parentTbl, parentId, workIndex) {
+  const hits = [];
+  for (const { child, from } of fkGraph(db).childrenOf.get(parentTbl) || []) {
+    if (!workIndex.has(child) || !tableColumns(db, child).includes('id')) continue;
+    const rows = db.prepare(`SELECT id FROM ${child} WHERE ${from}=?`).all(parentId);
+    for (const r of rows) {
+      const ids = outboxIdsFor(workIndex, child, r.id);
+      if (ids.length) hits.push({ tbl: child, id: r.id, outbox_ids: ids });
+    }
+  }
+  return hits;
+}
+
+function recordPullConflict(db, { tbl, rowKey, remoteSeq, remoteKind, reason, policy, localRow, remoteRow, outboxIds }) {
+  const existing = db.prepare("SELECT id FROM sync_pull_conflicts WHERE tbl=? AND row_key=? AND status='open'")
+    .get(tbl, String(rowKey));
+  const localJson = localRow ? JSON.stringify(localRow) : null;
+  const remoteJson = remoteRow ? JSON.stringify(remoteRow) : null;
+  if (existing) {
+    // Same hold replayed (or a newer remote version of the same row): refresh, never duplicate.
+    db.prepare(`UPDATE sync_pull_conflicts
+      SET remote_seq=?, remote_kind=?, reason=?, policy=?, local_json=?, remote_json=?, outbox_ids=?, updated_at=strftime('%s','now')
+      WHERE id=?`).run(remoteSeq ?? null, remoteKind, reason, policy, localJson, remoteJson, JSON.stringify(outboxIds || []), existing.id);
+    return existing.id;
+  }
+  const r = db.prepare(`INSERT INTO sync_pull_conflicts
+    (tbl,row_key,remote_seq,remote_kind,reason,policy,local_json,remote_json,outbox_ids) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(tbl, String(rowKey), remoteSeq ?? null, remoteKind, reason, policy, localJson, remoteJson, JSON.stringify(outboxIds || []));
+  return Number(r.lastInsertRowid);
+}
+
+/**
+ * Referential integrity gate, run inside the apply transaction before commit.
+ *  (1) a parent deleted in this transaction must not leave local children behind;
+ *  (2) rows written in this pull must reference existing parents — verified on
+ *      the final page of the cycle (earlier pages only register the refs).
+ * SYNC_PULL_ORPHAN_CHECK=warn|off downgrades the gate (operator escape hatch).
+ */
+function verifyPullIntegrity(db, { written, deleted, ctx, isFinal }) {
+  const mode = String(process.env.SYNC_PULL_ORPHAN_CHECK || 'strict').toLowerCase();
+  if (mode === 'off') return;
+  const graph = fkGraph(db);
+  const problems = [];
+  for (const [parentTbl, ids] of deleted) {
+    for (const { child, from } of graph.childrenOf.get(parentTbl) || []) {
+      for (const chunk of chunked([...ids], 300)) {
+        const n = db.prepare(`SELECT COUNT(*) c FROM ${child} WHERE ${from} IN (${chunk.map(() => '?').join(',')})`).get(...chunk).c;
+        if (n > 0) problems.push(`${child}.${from}→${parentTbl}: ${n} ردیف به والد حذف‌شده اشاره می‌کند`);
+      }
+    }
+  }
+  for (const [tbl, ids] of written) {
+    for (const ref of graph.parentsOf.get(tbl) || []) ctx.unverifiedRefs.push({ tbl, ids: [...ids], ...ref });
+  }
+  if (isFinal) {
+    for (const ref of ctx.unverifiedRefs) {
+      for (const chunk of chunked(ref.ids, 300)) {
+        const rows = db.prepare(`SELECT c.id AS id, c.${ref.from} AS parent_id FROM ${ref.tbl} c
+          WHERE c.id IN (${chunk.map(() => '?').join(',')}) AND c.${ref.from} IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM ${ref.parentTbl} p WHERE p.${ref.parentCol} = c.${ref.from}) LIMIT 3`).all(...chunk);
+        if (rows.length) {
+          problems.push(`${ref.tbl}.${ref.from}→${ref.parentTbl}.${ref.parentCol}: ${rows.map(r => `${r.id}→${r.parent_id}`).join(', ')}`);
+        }
+      }
+    }
+    ctx.unverifiedRefs = [];
+  }
+  if (!problems.length) return;
+  if (mode === 'warn') {
+    console.warn('[sync] pull integrity warning (SYNC_PULL_ORPHAN_CHECK=warn):', problems.join('; '));
+    return;
+  }
+  throw Object.assign(
+    new Error('دریافت تغییرات متوقف شد — یکپارچگی ارجاع‌ها برقرار نیست: ' + problems.join('; ')),
+    { code: 'E_SYNC_PULL_ORPHAN', problems }
+  );
+}
+
+/**
+ * Apply one page of pulled changes atomically. opts.final=false defers the
+ * parent-reference check to a later page of the same cycle (opts.ctx).
+ * Returns { applied, held }.
+ */
+function applyChanges(db, changes, pulledUserIds, opts = {}) {
+  const stats = { applied: 0, held: 0 };
+  if (!changes.length) return stats;
+  ensurePullConflictTable(db);
+  const ctx = opts.ctx || createPullContext();
+  const isFinal = opts.final !== false;
   state.dataVersion++; // pulled rows/deletes changed local data — UI must refresh
   db.pragma('foreign_keys = OFF');
   try {
     db.transaction(() => {
+      const pendingIndex = outboxIndex(db, ['pending']);
+      const workIndex = outboxIndex(db, ['pending', 'conflict']);
+      const written = new Map(); // tbl → Set(id) written in this transaction
+      const deleted = new Map(); // tbl → Set(id) deleted in this transaction (id-keyed tables)
+      const track = (map, tbl, id) => {
+        if (!map.has(tbl)) map.set(tbl, new Set());
+        map.get(tbl).add(id);
+      };
+      const hold = (spec, rowKey, remoteKind, reason, localRow, remoteRow, outboxIds, seq) => {
+        recordPullConflict(db, {
+          tbl: spec.name, rowKey, remoteSeq: seq, remoteKind, reason,
+          policy: pullConflictPolicy(spec.name, localRow, remoteRow),
+          localRow, remoteRow, outboxIds,
+        });
+        stats.held++;
+        ctx.held++;
+      };
+
       for (const ch of changes) {
         const spec = SYNCABLE_TABLES.find(t => t.name === ch.tbl);
         if (!spec) continue;
+        const isComposite = !!(spec.compositeKeys && spec.compositeKeys.length);
+        const hasId = tableColumns(db, spec.name).includes('id');
+
         if (ch.del !== undefined) {
-          if (spec.compositeKeys && spec.compositeKeys.length) {
+          if (isComposite) {
             const parts = String(ch.del).split(':');
             if (parts.length !== spec.compositeKeys.length) {
               console.warn(`sync tombstone key mismatch for ${spec.name}:`, ch.del);
@@ -700,35 +1273,99 @@ function applyChanges(db, changes, pulledUserIds) {
               return Number.isFinite(n) && String(n) === String(p).trim() ? n : p;
             });
             db.prepare(`DELETE FROM ${spec.name} WHERE ${wh}`).run(...vals);
-          } else {
-            db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
+            stats.applied++;
+            continue;
           }
+          const localRow = db.prepare(`SELECT * FROM ${spec.name} WHERE ${spec.upsertKey}=?`).get(ch.del);
+          if (localRow && hasId) {
+            const pendingIds = outboxIdsFor(pendingIndex, spec.name, localRow.id);
+            if (pendingIds.length) {
+              hold(spec, ch.del, 'delete', 'pending_local_op', localRow, null, pendingIds, ch.seq);
+              continue;
+            }
+            // Deleting this parent would orphan local rows that still carry unsynced work.
+            const children = protectedChildrenOf(db, spec.name, localRow.id, workIndex);
+            if (children.length) {
+              hold(spec, ch.del, 'delete', 'child_pending_local_op', localRow, null,
+                children.flatMap(c => c.outbox_ids), ch.seq);
+              continue;
+            }
+          }
+          db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
+          stats.applied++;
+          if (localRow && hasId && spec.upsertKey === 'id') track(deleted, spec.name, localRow.id);
           continue;
         }
+
         const row = ch.row;
         if (!row) continue;
-        if (spec.name === 'users' && pulledUserIds) pulledUserIds.add(row.id);
         const cols = tableColumns(db, spec.name).filter(c => c in row);
-        if (spec.upsertKey === 'id' || (spec.compositeKeys && spec.compositeKeys.length)) {
+        if (spec.upsertKey === 'id' || isComposite) {
+          // Central has this user either way — a held row must survive the placeholder cleanup.
+          if (spec.name === 'users' && pulledUserIds) pulledUserIds.add(row.id);
+          if (spec.upsertKey === 'id') {
+            const pendingIds = outboxIdsFor(pendingIndex, spec.name, row.id);
+            if (pendingIds.length) {
+              const localRow = db.prepare(`SELECT * FROM ${spec.name} WHERE id=?`).get(row.id);
+              if (localRow) {
+                hold(spec, row.id, 'replace', 'pending_local_op', localRow, row, pendingIds, ch.seq);
+                continue;
+              }
+            }
+          }
           db.prepare(`INSERT OR REPLACE INTO ${spec.name} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`)
             .run(...cols.map(c => row[c]));
+          stats.applied++;
+          if (spec.upsertKey === 'id') track(written, spec.name, row.id);
         } else {
           // Business-key tables (settings/chart_of_accounts): local ids differ
           // from central's, so match on the unique key and never touch id.
-          const existing = db.prepare(`SELECT id FROM ${spec.name} WHERE ${spec.upsertKey}=?`).get(row[spec.upsertKey]);
+          const existing = db.prepare(`SELECT * FROM ${spec.name} WHERE ${spec.upsertKey}=?`).get(row[spec.upsertKey]);
+          if (existing && hasId) {
+            const pendingIds = outboxIdsFor(pendingIndex, spec.name, existing.id);
+            if (pendingIds.length) {
+              hold(spec, row[spec.upsertKey], 'replace', 'pending_local_op', existing, row, pendingIds, ch.seq);
+              continue;
+            }
+          }
           const dataCols = cols.filter(c => c !== 'id');
           if (existing) {
             db.prepare(`UPDATE ${spec.name} SET ${dataCols.map(c => c + '=?').join(',')} WHERE id=?`)
               .run(...dataCols.map(c => row[c]), existing.id);
+            if (hasId) track(written, spec.name, existing.id);
           } else {
-            db.prepare(`INSERT INTO ${spec.name} (${dataCols.join(',')}) VALUES (${dataCols.map(() => '?').join(',')})`)
+            const ins = db.prepare(`INSERT INTO ${spec.name} (${dataCols.join(',')}) VALUES (${dataCols.map(() => '?').join(',')})`)
               .run(...dataCols.map(c => row[c]));
+            if (hasId) track(written, spec.name, Number(ins.lastInsertRowid));
           }
+          stats.applied++;
         }
       }
+
+      // Integrity before commit: any orphan throws and rolls the page back.
+      verifyPullIntegrity(db, { written, deleted, ctx, isFinal });
     })();
   } finally {
     db.pragma('foreign_keys = ON');
+  }
+  return stats;
+}
+
+function listPullConflicts(db, { status = 'open', limit = 200 } = {}) {
+  ensurePullConflictTable(db);
+  const rows = status === 'all'
+    ? db.prepare('SELECT * FROM sync_pull_conflicts ORDER BY id DESC LIMIT ?').all(limit)
+    : db.prepare('SELECT * FROM sync_pull_conflicts WHERE status=? ORDER BY id DESC LIMIT ?').all(status, limit);
+  const parse = s => { try { return s == null ? null : JSON.parse(s); } catch { return s; } };
+  return rows.map(r => ({ ...r, local: parse(r.local_json), remote: parse(r.remote_json), outbox_ids: parse(r.outbox_ids) || [] }));
+}
+
+function pullConflictCount(db) {
+  try {
+    ensurePullConflictTable(db);
+    return db.prepare("SELECT COUNT(*) c FROM sync_pull_conflicts WHERE status='open'").get().c;
+  } catch {
+    return 0;
   }
 }
 
@@ -827,6 +1464,7 @@ function getStatus() {
     syncing: state.syncing,
     pending: pendingCount(db),
     conflicts: conflictCount(db),
+    pull_conflicts: pullConflictCount(db),
     files_missing: filesMissing,
     last_sync_at: state.lastSyncAt,
     last_pull_seq: cfg.lastPullSeq,
@@ -871,6 +1509,13 @@ let loopTimer = null;
 function startClientLoop(intervalMs) {
   const db = getDB();
   migrateLegacyCentralUrl(db);
+  // First device boot: mint the per-install reset secret (never required for pairing).
+  try {
+    const secret = ensureDeviceResetSecret();
+    if (secret.created) console.log('[sync] device reset secret created at', secret.path);
+  } catch (e) {
+    console.warn('[sync] could not create device reset secret (reset stays locked):', e.message);
+  }
   if (isPaired(db)) {
     const cfg = getConfig(db);
     seedProvisionalSequences(db, cfg.deviceId);
@@ -970,5 +1615,10 @@ module.exports = {
   upgradeHttpCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
   changePasswordOnCentral, pairingHealth, resolveReachableCentralUrl, startInitialSyncAfterPair
-  , maskSensitive, networkErrorMessage, reconcileCaptureFailures
+  , maskSensitive, networkErrorMessage, reconcileCaptureFailures,
+  // guarded factory reset / outbox recovery
+  ensureDeviceResetSecret, verifyDeviceResetSecret, isStaticResetPhrase, deviceDataDir,
+  prepareFactoryReset, commitFactoryReset, restoreOutboxBackup, writeResetChallenge,
+  // pull-side conflict protection
+  applyChanges, createPullContext, listPullConflicts, pullConflictCount, pullConflictPolicy, pendingCount,
 };
