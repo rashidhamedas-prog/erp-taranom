@@ -5,7 +5,7 @@
 - **۲FA:** تنظیم `twofa_required_roles` در همان تب کاربران است. نقش تیک‌خورده تا فعال‌کردن Authenticator فقط به راه‌اندازی ۲FA، تغییر رمز، me و خروج دسترسی دارد. پیش‌فرض خالی یعنی اجبار خاموش. دستگاه ویندوز/اندروید معاف است.
 - **فایل‌ها:** `server/lib/{password-verify,staff-security,auth-sessions,user-invitations}.js`, `server/routes/{auth,admin,sync,settings,fiscal-year,companies,data-wipe}.js`, `server/middleware/auth.js`, `server/public/{app.js,index.html,sw.js}`, `server/package.json`, `server/scripts/test-password-argon2.js`.
 - **تست:** `node server/scripts/test-password-argon2.js` سبز. `node --check` روی فایل‌های همین تغییر. تست sqlite محلی به‌خاطر نبودن binding بومی `better-sqlite3` اجرا نشد.
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ `4c5c0d3` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `npm install --omit=dev` + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v309`.
 
 ---
 
