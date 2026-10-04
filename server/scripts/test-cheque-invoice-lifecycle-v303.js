@@ -113,6 +113,7 @@ function ok(cond, label, extra) {
        'خواباندن به حساب ملت 9955 نامشخص', 1000000, 'legacy', 'in_hand', 'posted')
   `).run(custId).lastInsertRowid;
 
+  db.prepare("DELETE FROM settings WHERE key='cheque_lifecycle_alias_v303b'").run();
   db.prepare("DELETE FROM settings WHERE key='cheque_lifecycle_alias_v303'").run();
   const repaired = repairChequeLifecycleAliases(db);
   ok(repaired && !repaired.skipped, 'repair ran');

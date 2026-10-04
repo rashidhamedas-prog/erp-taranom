@@ -77,46 +77,59 @@ function sqlIsRegistered(col = 'lifecycle_status') {
   return `(${col} IS NULL OR TRIM(COALESCE(${col},'')) IN ('','registered','in_hand','pending'))`;
 }
 
+function tableHasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Boot repair: normalize orphan invoice aliases + misleading free-text deposit labels
  * that were typed without a collection JE.
+ * Must run AFTER cheque collection_* columns exist (gap-accounting-schema / ensureColumn).
  */
 function repairChequeLifecycleAliases(db) {
   if (!db) return { skipped: true };
-  const flag = db.prepare("SELECT value FROM settings WHERE key='cheque_lifecycle_alias_v303'").get();
+  if (!tableHasColumn(db, 'cheque_records', 'lifecycle_status')) {
+    return { skipped: true, reason: 'no_lifecycle' };
+  }
+  const FLAG = 'cheque_lifecycle_alias_v303b';
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(FLAG);
   if (flag && flag.value === '1') return { skipped: true };
 
   let aliasFixed = 0;
   let statusFixed = 0;
-  try {
-    const a = db.prepare(`
-      UPDATE cheque_records
-      SET lifecycle_status='registered'
-      WHERE COALESCE(record_status,'posted')<>'reversed'
-        AND TRIM(COALESCE(lifecycle_status,'')) IN ('in_hand','pending')
-    `).run();
-    aliasFixed = a.changes || 0;
 
-    // Free-text «خواباندن…» without collection JE is not real deposit — restore نزد صندوق.
-    const s = db.prepare(`
-      UPDATE cheque_records
-      SET status='نزد صندوق', status_note=COALESCE(status_note,'')
-      WHERE COALESCE(record_status,'posted')<>'reversed'
-        AND ${sqlIsRegistered('lifecycle_status')}
-        AND COALESCE(collection_je_id,0)=0
-        AND (
-          status LIKE '%خواباندن%'
-          OR status LIKE '%در جریان وصول%'
-          OR LOWER(COALESCE(status,'')) LIKE '%in_collection%'
-        )
-    `).run();
-    statusFixed = s.changes || 0;
-  } catch (e) {
-    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('cheque_lifecycle_alias_v303','1')").run();
-    throw e;
-  }
+  const a = db.prepare(`
+    UPDATE cheque_records
+    SET lifecycle_status='registered'
+    WHERE COALESCE(record_status,'posted')<>'reversed'
+      AND TRIM(COALESCE(lifecycle_status,'')) IN ('in_hand','pending')
+  `).run();
+  aliasFixed = a.changes || 0;
 
-  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('cheque_lifecycle_alias_v303','1')").run();
+  // Free-text «خواباندن…» without real send-to-bank is not deposit — restore نزد صندوق.
+  const hasCollectionJe = tableHasColumn(db, 'cheque_records', 'collection_je_id');
+  const noCollection = hasCollectionJe
+    ? 'AND COALESCE(collection_je_id,0)=0'
+    : "AND TRIM(COALESCE(lifecycle_status,'')) NOT IN ('in_collection','cleared','bounced','endorsed')";
+  const s = db.prepare(`
+    UPDATE cheque_records
+    SET status='نزد صندوق'
+    WHERE COALESCE(record_status,'posted')<>'reversed'
+      AND ${sqlIsRegistered('lifecycle_status')}
+      ${noCollection}
+      AND (
+        status LIKE '%خواباندن%'
+        OR status LIKE '%در جریان وصول%'
+        OR LOWER(COALESCE(status,'')) LIKE '%in_collection%'
+      )
+  `).run();
+  statusFixed = s.changes || 0;
+
+  db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(FLAG, '1');
   return { skipped: false, aliasFixed, statusFixed };
 }
 

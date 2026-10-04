@@ -430,12 +430,12 @@ function patchOneInvoiceTimeSettlement(db, {
       }
       const cust = db.prepare('SELECT biz, owner, party_id FROM customers WHERE id=?').get(custId);
       const existing = db.prepare(`
-        SELECT id, lifecycle_status, collection_je_id FROM cheque_records
+        SELECT id, lifecycle_status, COALESCE(collection_je_id,0) AS collection_je_id FROM cheque_records
         WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
       `).get(sett.id);
       if (existing) {
         // Keep advanced lifecycle if already sent to bank / endorsed; else stay registered.
-        const keepLc = existing.collection_je_id
+        const keepLc = Number(existing.collection_je_id) > 0
           || !['', 'registered', 'in_hand', 'pending'].includes(String(existing.lifecycle_status || '').trim());
         db.prepare(`
           UPDATE cheque_records SET

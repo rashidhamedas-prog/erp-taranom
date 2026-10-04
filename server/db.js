@@ -2084,6 +2084,12 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'lifecycle_status', "TEXT DEFAULT ''");
   ensureColumn(db, 'cheque_records', 'invoice_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'settlement_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'collection_bank_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'collection_je_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'cleared_je_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'bounced_je_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'endorse_party_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'endorse_supplier_id', 'INTEGER');
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
@@ -2503,16 +2509,6 @@ function initSyncSchema(db, opts) {
     console.warn('payroll_void_sync_v301:', e.message);
   }
 
-  try {
-    const { repairChequeLifecycleAliases } = require('./lib/cheque-lifecycle');
-    const cr = repairChequeLifecycleAliases(db);
-    if (cr && !cr.skipped && (cr.aliasFixed || cr.statusFixed)) {
-      console.log('✅ cheque_lifecycle_alias_v303:', JSON.stringify(cr));
-    }
-  } catch (e) {
-    console.warn('cheque_lifecycle_alias_v303:', e.message);
-  }
-
   // v285 — remove standalone «سند ابطالی» pairs; soft-void originals instead
   try {
     const flag = db.prepare("SELECT value FROM settings WHERE key='purge_reversal_docs_v285'").get();
@@ -2555,6 +2551,17 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.error('❌ update11 schema init failed:', e.message);
     throw e;
+  }
+
+  // After gap schema ensures collection_je_id — normalize orphan invoice cheque aliases.
+  try {
+    const { repairChequeLifecycleAliases } = require('./lib/cheque-lifecycle');
+    const cr = repairChequeLifecycleAliases(db);
+    if (cr && !cr.skipped && (cr.aliasFixed || cr.statusFixed)) {
+      console.log('✅ cheque_lifecycle_alias_v303b:', JSON.stringify(cr));
+    }
+  } catch (e) {
+    console.warn('cheque_lifecycle_alias_v303b:', e.message);
   }
 
   // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
