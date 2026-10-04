@@ -254,22 +254,37 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
   res.json({ rows, totals });
 });
 
+/**
+ * Cash-flow statement. HTTP contract (see server/lib/cash-flow.js):
+ *   200 status 'ok'          — computed and reconciled (an empty period is a valid 'ok' with zeros;
+ *                              unclassifiable movement is exposed in residual_rial / exceptions[])
+ *   422 status 'incomplete'  — computed but the reconciliation identity does not hold
+ *   422 status 'failed'      — invalid input (e.g. from > to)
+ *   500 status 'failed'      — computation error
+ * Never answers 200 with a zero report standing in for a failure.
+ */
 router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
+  const from = req.query.from || '';
+  const to = req.query.to || '';
   try {
     const db = getDB();
-    res.json(buildCashFlowReport(db, req.query.from, req.query.to));
+    const report = buildCashFlowReport(db, from, to);
+    if (!report || report.status === 'failed') {
+      const badInput = report && (report.code === 'bad_range' || report.code === 'bad_input');
+      return res.status(badInput ? 422 : 500).json(report || {
+        status: 'failed', code: 'exception', error: 'گزارش جریان نقد قابل محاسبه نیست', from, to,
+      });
+    }
+    if (report.status === 'incomplete') return res.status(422).json(report);
+    return res.json(report);
   } catch (e) {
     console.error('GET /adv-reports/cash-flow', e && e.message);
-    res.json({
-      from: req.query.from || '',
-      to: req.query.to || '',
-      sections: {
-        operating: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-        investing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-        financing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-      },
-      total_net_rial: 0,
-      warning: 'گزارش جریان نقد در دسترس نیست',
+    return res.status(500).json({
+      status: 'failed',
+      code: 'exception',
+      error: 'گزارش جریان نقد قابل محاسبه نیست',
+      from,
+      to,
     });
   }
 });
