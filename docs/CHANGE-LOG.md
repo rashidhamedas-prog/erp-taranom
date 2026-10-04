@@ -14,7 +14,7 @@
 - **رفع معماری (R13):** `lib/payroll/void-accrual.js` — ابطال = یک تراکنش: soft-void همهٔ JEهای `payroll`/`payroll_payment`، ابطال اقساط، `deleted_at` روی دفتر شخص، نگه‌داشتن ردیف با `status=reversed` و مانده ۰ (حذف فیزیکی ممنوع). `POST /payroll/:id/void` (+ DELETE سازگار). تعمیر بوت `payroll_void_sync_v301`. UI و راهنما.
 - **فایل‌ها:** `lib/payroll/{void-accrual,payments,schema}.js`, `routes/payroll.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-payroll-void-r13-v301.js`.
 - **تست:** `test-payroll-void-r13-v301` + `test-sms`.
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `4ebbe20` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v302`؛ تست void 14/0 و sms 22/0؛ بوت `payroll_void_sync_v301` روی ۲ ردیف ابطال‌شده ۶ خط دفتر شخص را soft-void کرد.
 
 ---
 
