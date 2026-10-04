@@ -1,3 +1,18 @@
+### ۱۴۰۵/۰۷/۱۲ — ممیزی انبار Wave-2: ادواری/امانی/FEFO/کاردکس (SW v306)
+
+- **دامنه:** تکمیل P1های ممیزی انبار پس از Wave-1 (v305).
+- **رفع‌شده:**
+  - بستن ادواری `prior_qty` ذخیره می‌کند؛ `POST …/period-closes/:id/reopen` سند تعدیل را soft-void و موجودی را برمی‌گرداند (R13) + UI دوره‌ها.
+  - امانی ارسالی: JE جابه‌جایی به ۱۱۱۴ (`issue_je_id`)؛ فروش/کسری از حساب امانی؛ خرید/کسری دریافتی با پرداختنی شخص؛ برگشت/ابطال معکوس JE ارسال.
+  - انبارگردانی: در apply، `system_qty` از موجودی زنده دوباره خوانده می‌شود.
+  - حواله انبار: FEFO خودکار اگر یک بچ کافی باشد؛ UI سریال مخفی.
+  - کاردکس: مانده فروش‌پذیر بدون `warehouseOnly`؛ ستون فیزیکی `warehouse_running_qty`.
+- **فایل‌ها:** `lib/{warehouse-docs,consignments,ledgers}.js`, `lib/inventory/{periodic-close,cycle-count}.js`, `routes/warehouses.js`, `sync/capture.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-warehouse-audit-v306.js`, CHANGE-LOG.
+- **تست:** `test-warehouse-audit-v306` + `test-sms` (پس از deploy روی ایران).
+- **Deploy:** ⏳ در صف overlay ایران.
+
+---
+
 ### ۱۴۰۵/۰۷/۱۲ — ممیزی کامل انبار Wave-1: حسابداری + وابستگی‌ها (SW v305)
 
 - **دامنه:** تمام منوی انبار (پایه/عملیات/گزارشات) با ایجنت موازی + اصول IAS 2 / دوطرفه / R13.

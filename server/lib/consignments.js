@@ -53,8 +53,24 @@ function inventoryAcct(db, warehouseId) {
   }
 }
 
-function payableAcct(db) {
+function payableAcct(db, person) {
+  try {
+    const { resolvePersonPayableAccount } = require('./payroll/person-account');
+    if (person) return resolvePersonPayableAccount(db, person);
+  } catch (_) { /* fall through */ }
   try { return acct(db, 'coa_payable'); } catch (_) { return acct(db, 'coa_misc_persons'); }
+}
+
+function consignCarryAcct(db) {
+  try { return acct(db, 'coa_subcontract_inventory'); }
+  catch (_) { return acct(db, 'coa_inventory'); }
+}
+
+function ensureConsignIssueJeCol(db) {
+  const cols = db.prepare('PRAGMA table_info(consignments)').all().map((c) => c.name);
+  if (!cols.includes('issue_je_id')) {
+    db.exec('ALTER TABLE consignments ADD COLUMN issue_je_id INTEGER');
+  }
 }
 
 function expenseAcct(db) {
@@ -196,10 +212,10 @@ function inventoryCostRial(product, qty) {
   return Math.round(costToman * 10 * q);
 }
 
-function cogsLines(db, warehouseId, amt) {
+function cogsLines(db, warehouseId, amt, { outShipped = false } = {}) {
   const L = rialToLedger(amt);
   const cogs = acct(db, 'coa_cogs');
-  const inv = inventoryAcct(db, warehouseId);
+  const inv = outShipped ? consignCarryAcct(db) : inventoryAcct(db, warehouseId);
   return [
     { code: cogs.code, name: cogs.name, debit: L, credit: 0, description: 'بهای تمام‌شده فروش امانی' },
     { code: inv.code, name: inv.name, debit: 0, credit: L, description: 'بهای تمام‌شده فروش امانی' },
@@ -253,27 +269,28 @@ function createSaleInvoice(db, { user, customer, row, product, date, note }) {
   return { invId, jeId, num };
 }
 
-function purchaseLines(db, warehouseId, amt) {
+function purchaseLines(db, warehouseId, amt, person) {
   const L = rialToLedger(amt);
   const inv = inventoryAcct(db, warehouseId);
-  const pay = payableAcct(db);
+  const pay = payableAcct(db, person);
   return [
     { code: inv.code, name: inv.name, debit: L, credit: 0, description: 'خرید قطعی امانی' },
     { code: pay.code, name: pay.name, debit: 0, credit: L, description: 'خرید قطعی امانی' },
   ];
 }
 
-function shortageLines(db, row, amt) {
+function shortageLines(db, row, amt, person) {
   const L = rialToLedger(amt);
   const exp = expenseAcct(db);
   if (row.direction === 'out') {
-    const inv = inventoryAcct(db, row.warehouse_id);
+    // After ship reclass, carrying amount sits in subcontract/consignment inventory.
+    const inv = consignCarryAcct(db);
     return [
       { code: exp.code, name: exp.name, debit: L, credit: 0, description: 'کسری کالای امانی' },
       { code: inv.code, name: inv.name, debit: 0, credit: L, description: 'کسری کالای امانی' },
     ];
   }
-  const pay = payableAcct(db);
+  const pay = payableAcct(db, person);
   return [
     { code: exp.code, name: exp.name, debit: L, credit: 0, description: 'کسری امانی دریافتی' },
     { code: pay.code, name: pay.name, debit: 0, credit: L, description: 'کسری امانی دریافتی' },
@@ -453,7 +470,9 @@ function insertConsignmentLine(db, {
   const { product, qty, priceRial, variantId, apparelLines, note } = hydrated;
   const partyName = person.name;
   const partyPhone = person.phone || '';
+  ensureConsignIssueJeCol(db);
   let issueLedgerId = null;
+  let issueJeId = null;
   if (direction === 'out') {
     const seedQty = product.warehouse_id === warehouse.id ? (Number(product.stock) || 0) : 0;
     db.prepare(`
@@ -497,6 +516,28 @@ function insertConsignmentLine(db, {
   }
   if (issueLedgerId) {
     db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(id, issueLedgerId);
+  }
+  // Keep qty in source WH books for ops reports, but reclass GL to consignment inventory (1114).
+  if (direction === 'out') {
+    const costRial = inventoryCostRial(product, qty);
+    const fromAcct = inventoryAcct(db, warehouse.id);
+    const toAcct = consignCarryAcct(db);
+    if (costRial > 0 && fromAcct.code !== toAcct.code) {
+      assertJournalIdempotent(db, 'consignment_ship', id);
+      const L = rialToLedger(costRial);
+      issueJeId = postToLedger(db, {
+        sourceType: 'consignment_ship',
+        sourceId: id,
+        date,
+        description: `ارسال امانی به ${partyName} #${id}`,
+        createdBy: user.id,
+        lines: [
+          { code: toAcct.code, name: toAcct.name, debit: L, credit: 0, description: 'موجودی امانی نزد دیگری' },
+          { code: fromAcct.code, name: fromAcct.name, debit: 0, credit: L, description: 'خروج به امانی' },
+        ],
+      });
+      db.prepare('UPDATE consignments SET issue_je_id=? WHERE id=?').run(issueJeId, id);
+    }
   }
   audit(user.id, 'create', 'consignment', id,
     `کالای امانی ${direction === 'out' ? 'ارسالی به' : 'دریافتی از'} ${partyName}: ${qty} عدد ${product.name}`
@@ -608,20 +649,22 @@ function settleEffects(db, row, path, body, user) {
       }, false, { payType: 'credit' }));
     }
     const cogsAmt = inventoryCostRial(product, row.qty);
-    if (cogsAmt > 0) journal.push(...cogsLines(db, row.warehouse_id, cogsAmt));
+    if (cogsAmt > 0) journal.push(...cogsLines(db, row.warehouse_id, cogsAmt, { outShipped: true }));
     return { stockDelta: null, invoice: true, journal, nextStatus: 'sold', product, amt, customer, person, cogsAmt };
   }
   if (path === 'purchase') {
     if (row.direction === 'out') {
       throw httpErr(400, 'خرید قطعی برای امانی ارسالی معنا ندارد', 'E_CONSIGNMENT_PATH');
     }
+    const person = row.person_id ? db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id) : null;
     return {
       stockDelta: { product_id: row.product_id, warehouse_id: row.warehouse_id, qty: row.qty, eventType: 'receipt' },
       invoice: false,
-      journal: purchaseLines(db, row.warehouse_id, amt),
+      journal: purchaseLines(db, row.warehouse_id, amt, person),
       nextStatus: 'purchased',
       product,
       amt,
+      person,
     };
   }
   if (path === 'shortage') {
@@ -629,13 +672,15 @@ function settleEffects(db, row, path, body, user) {
     const lossAmt = row.direction === 'out'
       ? (inventoryCostRial(product, row.qty) || amt)
       : amt;
+    const person = row.person_id ? db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id) : null;
     return {
       stockDelta: null,
       invoice: false,
-      journal: shortageLines(db, row, lossAmt),
+      journal: shortageLines(db, row, lossAmt, person),
       nextStatus: 'shortage',
       product,
       amt: lossAmt,
+      person,
     };
   }
   throw httpErr(400, 'مسیر تسویه نامعتبر است', 'E_CONSIGNMENT_PATH');
@@ -669,6 +714,12 @@ function applySettle(db, row, path, { date, note, user, body }) {
     : { id: null, name: row.party_name, phone: row.party_phone };
 
   if (path === 'return' && row.direction === 'out') {
+    if (row.issue_je_id) {
+      reverseJournalEntry(db, row.issue_je_id, {
+        userId: user.id, date, reason: note || 'برگشت امانی',
+      });
+      db.prepare('UPDATE consignments SET issue_je_id=NULL WHERE id=?').run(row.id);
+    }
     postInventoryMovement(db, {
       eventType: 'receipt',
       productId: row.product_id,
@@ -701,7 +752,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
           date,
           description: note || `بهای تمام‌شده فروش امانی #${row.id}`,
           createdBy: user.id,
-          lines: cogsLines(db, row.warehouse_id, cogsAmt),
+          lines: cogsLines(db, row.warehouse_id, cogsAmt, { outShipped: true }),
         });
       }
     } else {
@@ -716,7 +767,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
           date,
           description: note || `خرید از امانت‌گذار پیش از فروش امانی #${row.id}`,
           createdBy: user.id,
-          lines: purchaseLines(db, row.warehouse_id, purchaseAmt),
+          lines: purchaseLines(db, row.warehouse_id, purchaseAmt, person),
         });
       }
       postInventoryMovement(db, {
@@ -789,7 +840,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
         date,
         description: note || `خرید قطعی امانی #${row.id}`,
         createdBy: user.id,
-        lines: purchaseLines(db, row.warehouse_id, effects.amt),
+        lines: purchaseLines(db, row.warehouse_id, effects.amt, person),
       });
     }
   }
@@ -802,7 +853,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
       date,
       description: note || `کسری امانی #${row.id}`,
       createdBy: user.id,
-      lines: shortageLines(db, row, effects.amt),
+      lines: shortageLines(db, row, effects.amt, person),
     });
   }
 
@@ -873,6 +924,11 @@ function voidConsignmentLineCore(db, fresh, user, { reason } = {}) {
         userId: user.id, date, reason: reason || 'ابطال امانی',
       });
     }
+  }
+  if (fresh.issue_je_id) {
+    reverseJournalEntry(db, fresh.issue_je_id, {
+      userId: user.id, date, reason: reason || 'ابطال ارسال امانی',
+    });
   }
   reverseStockBySource(db, 'consignment', fresh.id, {
     createdBy: user.id, date, note: `ابطال امانی #${fresh.id}`,

@@ -263,6 +263,29 @@ router.post('/:id/period-close', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+router.post('/:id/period-closes/:closeId/reopen', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const closeId = Number(req.params.closeId);
+    const row = db.prepare('SELECT * FROM warehouse_period_closes WHERE id=?').get(closeId);
+    if (!row) return res.status(404).json({ error: 'یافت نشد', code: 'E_CLOSE_NOT_FOUND' });
+    if (Number(row.warehouse_id) !== Number(req.params.id)) {
+      return res.status(400).json({ error: 'این بستن دوره متعلق به این انبار نیست', code: 'E_WH_MISMATCH' });
+    }
+    const { reopenPeriodicWarehouse } = require('../lib/inventory/periodic-close');
+    const result = reopenPeriodicWarehouse(db, {
+      closeId,
+      reason: (req.body && req.body.reason) || '',
+      userId: req.user.id,
+      date: req.body && req.body.date,
+    });
+    audit(req.user.id, 'reopen', 'warehouse_period', closeId, `بازگشایی دوره ادواری #${closeId}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
 // ---- Warehouse documents (aggregated remittance / receipt / transfer) ----
 router.get('/moves/docs', auth, adminOrAccounting, (req, res) => {
   try {

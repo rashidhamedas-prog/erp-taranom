@@ -8721,7 +8721,7 @@ ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','ب
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
 ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
-ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
+ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ (Lot)');
 ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
 ROUTES['acc-fabric-roll-kardex']=()=>renderAccPage('fabric-roll-kardex','🧵','گردش طاقه');
 ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی / رسید محصول');
@@ -11092,16 +11092,13 @@ async function cuttingPackPrint(layId){
 }
 async function renderInvBatchesTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
-  const [batches, serials]=await Promise.all([
-    api('GET','/inventory/batches')||{rows:[]},
-    api('GET','/inventory/serials')||{rows:[]}
-  ]);
+  const batches=await api('GET','/inventory/batches')||{rows:[]};
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){invBatchModal()})}">➕ بچ جدید</button>
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){invSerialModal()})}">➕ سریال جدید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('inv-batches')})}">🔄</button>
     </div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.8;font-size:12px`)}">سریال کالا در این نسخه مخفی است؛ خروج از بچ با FEFO (نزدیک‌ترین انقضا) در حواله انبار خودکار است اگر یک بچ کافی باشد.</div>
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
       <div class="panel-head"><h4>بچ‌ها (Lot)</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -11113,18 +11110,6 @@ async function renderInvBatchesTab(body){
           <td class="mono">${esc(b.expiry_date||'-')}</td><td class="num">${fmt(b.qty_on_hand||0)}</td>
           <td>${esc(b.status)}</td></tr>`;
       }).join('')||'<tr><td colspan="5" class="empty">بچ ثبت نشده</td></tr>'}
-      </tbody></table></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><h4>سریال‌ها</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>سریال</th><th>کالا</th><th>وضعیت</th><th>گارانتی</th>
-      </tr></thead><tbody>
-      ${(serials.rows||[]).map(s=>{
-        const p=(CACHE.allProducts||[]).find(x=>x.id===s.product_id);
-        return `<tr><td class="mono">${esc(s.serial_no)}</td><td>${esc(p?.name||('#'+s.product_id))}</td>
-          <td>${esc(s.status)}</td><td class="mono">${esc(s.warranty_until||'-')}</td></tr>`;
-      }).join('')||'<tr><td colspan="4" class="empty">سریال ثبت نشده</td></tr>'}
       </tbody></table></div>
     </div>`;
 }
@@ -11315,7 +11300,8 @@ async function renderWarehousesTab(body){
       <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){viewWarehouseStock((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📦 موجودی</button>
-        ${w.inventory_system==='periodic'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){warehousePeriodCloseModal((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📅 بستن دوره</button>`:''}
+        ${w.inventory_system==='periodic'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){warehousePeriodCloseModal((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📅 بستن دوره</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){warehousePeriodClosesModal((w.id),`${String((CSP.htmlDecode(String(esc(w.name)))) ?? '')}`)})}">📋 دوره‌ها / بازگشایی</button>`:''}
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){warehouseModal((w.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteWarehouse((w.id))})}">🗑️</button>
       </td>
@@ -11355,6 +11341,38 @@ async function saveWarehousePeriodClose(id){
       counts, note:el('wpc-note').value.trim()
     });
     closeModal(); showToast('دوره ادواری بسته شد'); loadAccTab('warehouses');
+  }catch(e){}
+}
+async function warehousePeriodClosesModal(whId,name){
+  let rows=[];
+  try{ rows=await api('GET','/warehouses/'+whId+'/period-closes')||[]; }catch(e){ showToast(e.message||'خطا','error'); return; }
+  if(!Array.isArray(rows)) rows=[];
+  openModal(`<div class="modal-head"><h3>دوره‌های ادواری — ${esc(name||'')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  <div class="modal-body">
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.8;font-size:12px`)}">بازگشایی = ابطال سند تعدیل دوره و بازگرداندن موجودی به مقدار قبل از شمارش (R13). علت الزامی است.</div>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>دوره</th><th>بازه</th><th>COGS</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.period_label||'-')}</td>
+      <td class="mono">${esc((r.start_date||'')+' → '+(r.end_date||''))}</td>
+      <td class="num">${fmt(r.cogs_rial||0)}</td>
+      <td>${r.status==='reopened'?'<span class="tag t-cancel">بازگشایی‌شده</span>':(r.status==='closed'?'<span class="tag t-done">بسته</span>':esc(r.status||'-'))}</td>
+      <td>${r.status==='closed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){warehousePeriodReopen((whId),(r.id))})}">↩ بازگشایی</button>`:'—'}</td>
+    </tr>`).join('')||'<tr><td colspan="5" class="empty">دوره‌ای ثبت نشده</td></tr>'}
+    </tbody></table></div>
+  </div>
+  <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+}
+async function warehousePeriodReopen(whId,closeId){
+  const reason=prompt('علت بازگشایی دوره (الزامی):');
+  if(reason==null) return;
+  if(!String(reason).trim()){ showToast('علت بازگشایی الزامی است','error'); return; }
+  try{
+    await api('POST','/warehouses/'+whId+'/period-closes/'+closeId+'/reopen',{reason:String(reason).trim()});
+    showToast('دوره بازگشایی شد');
+    warehousePeriodClosesModal(whId,'');
+    loadAccTab('warehouses');
   }catch(e){}
 }
 function warehouseModal(id){
@@ -24967,8 +24985,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
-        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
-        <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. انتقال بین انواع انبار (مواد↔ساخته‌شده) سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» واقعاً روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
+        <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. پر کردن ردیف‌های قدیمی فقط روی سرور مرکزی است</li>
+        <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
+        <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). ارزش ریالی از میانگین موزون. فیلتر و خروجی CSV/اکسل</li>
         <li><b>هزینه حمل (Landed Cost)</b>: فقط روی کالای دارای موجودی سرمایه می‌شود؛ ابطال کامل میانگین و سند را برمی‌گرداند</li>
         <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
@@ -24978,7 +24997,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک (=خواباندن) و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. متن آزاد «خواباندن» جایگزین واگذاری نیست. خرج/ظهرنویسی + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله می‌زند؛ <b>دریافتی</b> تا تسویه به موجودی ما اضافه نمی‌شود. <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده (نه فقط درآمد). <b>کسری ارسالی</b> به بهای موجودی (نه قیمت فروش) از انبار خارج می‌شود. ابطال = R13 کامل</li>
+        <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>
+        <li><b>انبارگردانی</b>: هنگام اعمال اصلاحات، موجودی سیستم دوباره از دفتر زنده خوانده می‌شود (نه فقط عدد شروع جلسه) تا اختلاف واقعی ثبت شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا ساخته نمی‌شود</b>. سند اصلی soft-void می‌شود و اسناد ابطالی تاریخی از دفتر حذف می‌شوند. ابطال حقوق ردیف را حذف فیزیکی نمی‌کند.</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>

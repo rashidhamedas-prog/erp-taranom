@@ -179,6 +179,8 @@ function tableForPath(path) {
   if (path.startsWith('/api/production/boms/') && path.includes('/outputs')) return 'bom_outputs';
   if (path.startsWith('/api/production/cutting-lays/') && /\/pack/.test(path)) return 'cutting_packs';
   if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
+  // Periodic close/reopen: mid-path :id — must not fall through to generic warehouses.
+  if (path.startsWith('/api/warehouses/') && /\/period-close/.test(path)) return 'warehouse_period_closes';
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

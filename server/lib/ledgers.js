@@ -358,11 +358,19 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
   `).all(...params);
 
   const posted = rows.filter((r) => r.status === 'posted');
+  let isWarehouseOnlyRow = () => false;
+  try {
+    ({ isWarehouseOnlyRow } = require('./inventory/ledger'));
+  } catch (_) { /* optional */ }
+
   let opening_qty = 0;
+  let opening_wh_qty = 0;
   if (from) {
     for (const r of posted) {
       if ((r.date || '') < from) {
-        opening_qty += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+        const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+        opening_wh_qty += delta;
+        if (!isWarehouseOnlyRow(r)) opening_qty += delta;
       }
     }
   }
@@ -370,15 +378,20 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
   let period_qty_in = 0;
   let period_qty_out = 0;
   let running = opening_qty;
+  let runningWh = opening_wh_qty;
   const lines = [];
   for (const r of posted) {
     if (from && (r.date || '') < from) continue;
     if (to && (r.date || '') > to) continue;
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
-    period_qty_in += qIn;
-    period_qty_out += qOut;
-    running += qIn - qOut;
+    const wipOnly = isWarehouseOnlyRow(r);
+    if (!wipOnly) {
+      period_qty_in += qIn;
+      period_qty_out += qOut;
+      running += qIn - qOut;
+    }
+    runningWh += qIn - qOut;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
@@ -395,6 +408,8 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
       qty_in: qIn,
       qty_out: qOut,
       running_qty: running,
+      warehouse_running_qty: runningWh,
+      warehouse_only: !!wipOnly,
       unit_cost_rial: r.unit_cost_rial,
       amount_rial: r.amount_rial,
       source: 'inventory_ledger',
@@ -404,6 +419,7 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
 
   const period_net_qty = period_qty_in - period_qty_out;
   const closing_qty = opening_qty + period_net_qty;
+  const closing_warehouse_qty = runningWh;
 
   let warehouse_qty = null;
   if (whId && tableExists(db, 'warehouse_stock')) {
@@ -430,6 +446,7 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
     period_qty_out,
     period_net_qty,
     closing_qty,
+    closing_warehouse_qty,
     lines,
     source: 'inventory_ledger',
   };

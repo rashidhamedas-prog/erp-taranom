@@ -12,7 +12,7 @@ const {
 const {
   postStockMovement, hasActiveMatrixVariants, variantWarehouseQty,
 } = require('./inventory/movement');
-const { adjustBatchQty } = require('./inventory/batch-serial');
+const { adjustBatchQty, pickBatchesFefo } = require('./inventory/batch-serial');
 const { isPeriodicWarehouse } = require('./inventory/periodic-close');
 const { postToLedger } = require('./ledger');
 const { acct } = require('./coa-map');
@@ -298,10 +298,20 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       if (available < qty && !allowNegative(db, fromWh)) {
         throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
       }
+      // Auto FEFO: if no batch chosen but one generic lot covers the qty, use earliest expiry.
+      let issueBatchId = batchId;
+      if (!issueBatchId && !variantId) {
+        try {
+          const { picks, shortfall } = pickBatchesFefo(db, product_id, fromWh, qty);
+          if (!shortfall && picks && picks.length === 1) {
+            issueBatchId = picks[0].batch_id;
+          }
+        } catch (_) { /* FEFO optional */ }
+      }
       const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
       const led = postInventoryMovement(db, {
         eventType: 'issue', productId: product_id, warehouseId: fromWh, qty: -qty,
-        batchId: batchId || null,
+        batchId: issueBatchId || null,
         sourceType: 'warehouse_move', date,
         note: `حواله انبار (${warehouse?.name || fromWh})${note ? ' - ' + note : ''}`,
         createdBy: user.id,
@@ -311,15 +321,15 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
           (type,product_id,from_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status,doc_id,line_no,variant_id)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?)
       `).run('issue', product_id, fromWh, qty, date, note, user.id,
-        led.id, led.unit_cost_rial, led.amount_rial, batchId || null, docId, lineNo, variantId);
+        led.id, led.unit_cost_rial, led.amount_rial, issueBatchId || null, docId, lineNo, variantId);
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
       ids.push(r.lastInsertRowid);
       postWhVariantMovement(db, {
         productId: product_id, variantId, warehouseId: fromWh, qtyDelta: -qty,
         docType: 'wh_issue', docId: r.lastInsertRowid, docLine: lineIdx, userId: user.id,
-        note: `حواله انبار (${warehouse?.name || fromWh})`, batchId,
+        note: `حواله انبار (${warehouse?.name || fromWh})`, batchId: issueBatchId,
       });
-      touchBatchQty(db, batchId, -qty);
+      touchBatchQty(db, issueBatchId, -qty);
       totalAmountRial += Math.round(Number(led.amount_rial) || 0);
     } else {
       const available = availableForIssue(db, product_id, fromWh, variantId);

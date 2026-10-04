@@ -2,6 +2,7 @@
 /**
  * Per-warehouse inventory registration method: perpetual | periodic.
  * Periodic close: physical count → ending inventory JE + COGS (BI+Purchases−EI).
+ * Reopen (R13): soft-void JE + restore prior_qty from counts_json.
  */
 
 function ensureColumn(db, table, name, definition) {
@@ -51,6 +52,16 @@ function isPeriodicWarehouse(db, warehouseId) {
   return getWarehouseSystem(db, warehouseId) === 'periodic';
 }
 
+function priorQtyForProduct(db, productId, warehouseId) {
+  const ws = db.prepare(
+    'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+  ).get(productId, warehouseId);
+  if (ws && ws.qty != null) return Number(ws.qty) || 0;
+  const p = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(productId);
+  if (p && Number(p.warehouse_id) === Number(warehouseId)) return Number(p.stock) || 0;
+  return 0;
+}
+
 /**
  * Close a periodic warehouse period.
  * counts: [{product_id, qty, unit_cost_rial?}]
@@ -79,15 +90,17 @@ function closePeriodicWarehouse(db, {
 
   let endingRial = 0;
   const normalizedCounts = (counts || []).map(c => {
+    const productId = Number(c.product_id);
     const qty = Number(c.qty) || 0;
     const unit = Math.max(0, Math.round(Number(c.unit_cost_rial) || 0));
     const amount = Math.round(qty * unit);
     endingRial += amount;
     return {
-      product_id: Number(c.product_id),
+      product_id: productId,
       qty,
       unit_cost_rial: unit,
       amount_rial: amount,
+      prior_qty: productId ? priorQtyForProduct(db, productId, warehouseId) : 0,
     };
   });
 
@@ -102,7 +115,6 @@ function closePeriodicWarehouse(db, {
 
   return db.transaction(() => {
     const lines = [];
-    // Periodic identity: COGS = BI + Purchases − EI
     if (cogsRial > 0) {
       lines.push({ code: cogs.code, name: cogs.name, debit: cogsRial / 10, credit: 0 });
       lines.push({ code: inv.code, name: inv.name, debit: 0, credit: cogsRial / 10 });
@@ -135,7 +147,6 @@ function closePeriodicWarehouse(db, {
       });
     }
 
-    // Apply qty counts to warehouse_stock (operational)
     for (const c of normalizedCounts) {
       if (!c.product_id) continue;
       db.prepare(`
@@ -182,9 +193,71 @@ function closePeriodicWarehouse(db, {
   })();
 }
 
+/**
+ * R13 reopen: soft-void close JE and restore warehouse_stock from prior_qty.
+ */
+function reopenPeriodicWarehouse(db, { closeId, reason, userId, date } = {}) {
+  const row = db.prepare('SELECT * FROM warehouse_period_closes WHERE id=?').get(closeId);
+  if (!row) throw Object.assign(new Error('سند بستن دوره یافت نشد'), { status: 404, code: 'E_CLOSE_NOT_FOUND' });
+  if (row.status !== 'closed') {
+    throw Object.assign(new Error('فقط دوره بسته‌شده قابل بازگشایی است'), {
+      status: 409, code: 'E_NOT_CLOSED',
+    });
+  }
+  if (!String(reason || '').trim()) {
+    throw Object.assign(new Error('علت بازگشایی الزامی است'), { status: 422, code: 'E_REASON_REQUIRED' });
+  }
+
+  const { reverseJournalEntry } = require('../void-journal');
+  const { todayJalali } = require('../../jalali');
+
+  return db.transaction(() => {
+    if (row.adjustment_journal_id) {
+      reverseJournalEntry(db, row.adjustment_journal_id, {
+        userId,
+        date: date || todayJalali(),
+        reason: String(reason).slice(0, 200),
+        sourceType: 'warehouse_period_close',
+      });
+    }
+
+    let counts = [];
+    try { counts = JSON.parse(row.counts_json || '[]') || []; } catch (_) { counts = []; }
+    for (const c of counts) {
+      const productId = Number(c.product_id);
+      if (!productId) continue;
+      if (c.prior_qty == null) {
+        throw Object.assign(new Error('این بستن دوره prior_qty ندارد و قابل بازگشایی امن نیست'), {
+          status: 409, code: 'E_CLOSE_NO_PRIOR_QTY', productId,
+        });
+      }
+      const prior = Number(c.prior_qty) || 0;
+      db.prepare(`
+        INSERT INTO warehouse_stock (product_id, warehouse_id, qty)
+        VALUES (?,?,?)
+        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
+      `).run(productId, row.warehouse_id, prior);
+      try {
+        db.prepare('UPDATE products SET stock=? WHERE id=? AND warehouse_id=?')
+          .run(prior, productId, row.warehouse_id);
+      } catch (_) {}
+    }
+
+    const note = `${row.note || ''} [بازگشایی: ${String(reason).slice(0, 120)}]`.trim();
+    db.prepare(`
+      UPDATE warehouse_period_closes
+      SET status='reopened', note=?, adjustment_journal_id=NULL
+      WHERE id=?
+    `).run(note, closeId);
+
+    return { id: closeId, status: 'reopened', journal_entry_id: row.adjustment_journal_id || null };
+  })();
+}
+
 module.exports = {
   initWarehouseInventorySystem,
   getWarehouseSystem,
   isPeriodicWarehouse,
   closePeriodicWarehouse,
+  reopenPeriodicWarehouse,
 };

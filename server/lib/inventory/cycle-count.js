@@ -5,7 +5,10 @@
  */
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
-const { postInventoryMovement, reverseInventoryMovement, inventoryAccountForWarehouse, invErr } = require('./ledger');
+const {
+  postInventoryMovement, reverseInventoryMovement, inventoryAccountForWarehouse,
+  invErr, warehouseQty,
+} = require('./ledger');
 const { round3, parseQty } = require('../round3');
 const { reverseJournalEntry } = require('../void-journal');
 const { todayJalali } = require('../../jalali');
@@ -142,6 +145,19 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
         b.loss += amount;
       }
       return { led, unit, amount };
+    }
+
+    // Re-snapshot system_qty at apply time (variance vs live books, not session start).
+    const { variantWarehouseQty } = require('./movement');
+    for (const it of items) {
+      let liveSystem;
+      if (it.variant_id) {
+        liveSystem = variantWarehouseQty(db, it.variant_id, session.warehouse_id);
+      } else {
+        liveSystem = warehouseQty(db, it.product_id, session.warehouse_id);
+      }
+      db.prepare('UPDATE stocktaking_items SET system_qty=? WHERE id=?').run(liveSystem, it.id);
+      it.system_qty = liveSystem;
     }
 
     for (const it of items) {
