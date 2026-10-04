@@ -1,7 +1,7 @@
 # NONTAX Remediation — بسته‌های غیرمالیاتی (۱۴۰۵/۰۷/۱۲ — 2026-10-04)
 
-> شاخه: `ai/NONTAX-P1-web-docs` · worktree: `D:/proje/erp-taranom-nontax-web` · پایه: `6cef626`  
-> نقش: Implementer (بستهٔ ۱۰ کد + مستندسازی بسته‌های ۳ و ۱۱–۱۶)  
+> شاخه: `ai/NONTAX-P1-web-docs` · worktree: `D:/proje/erp-taranom-nontax-web` · پایه: `6cef626`
+> نقش: Implementer (بستهٔ ۱۰ کد + مستندسازی بسته‌های ۳ و ۱۱–۱۶)
 > محدودهٔ غیرقابل‌عبور: **بدون deploy، بدون push، بدون SSH، بدون دسترسی به DB زندهٔ ایران، بدون تغییر مالیات.**
 
 ## 0. خلاصهٔ اجرایی / Executive Summary
