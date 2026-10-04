@@ -1,6 +1,6 @@
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
-const { getDB } = require('../db');
+const { getDB, audit } = require('../db');
 const notif = require('../lib/notifications');
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
@@ -145,6 +145,35 @@ router.delete('/:id', auth, (req, res) => {
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   db.prepare('DELETE FROM followups WHERE id=?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// Reminder cadence controls for one follow-up: opt out of automation reminders, or
+// snooze them until a Jalali date. Gate: RBAC followups:edit (per-user overrides apply),
+// then the list's visibility boundary — admin/accounting, the follow-up owner, or a user
+// the customer is visible to (user_id / assigned_to). Captured for sync under the existing
+// /api/followups prefix; the row-level setter is idempotent on replay.
+// Body: { opt_out?: 0|1|bool, snooze_until?: 'YYYY/MM/DD' | '' , snooze_days?: int }
+router.patch('/:id/reminder', auth, requirePermission('followups', 'edit'), (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT id, user_id, cust_id FROM followups WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const full = req.user.role === 'admin' || req.user.role === 'accounting';
+  const visible = full || row.user_id === req.user.id || customerVisibleTo(db, row.cust_id, req.user.id);
+  if (!visible) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const { opt_out, snooze_until, snooze_days } = req.body || {};
+  if (opt_out === undefined && snooze_until === undefined && snooze_days === undefined) {
+    return res.status(400).json({ error: 'یکی از opt_out، snooze_until یا snooze_days الزامی است' });
+  }
+  try {
+    const out = require('../lib/crm-pro').setFollowupReminderPrefs(db, row.id, {
+      optOut: opt_out, snoozeUntil: snooze_until, snoozeDays: snooze_days,
+    });
+    audit(req.user.id, 'update', 'followup_reminder', row.id,
+      `یادآوری پیگیری #${row.id}: opt_out=${out.reminder_opt_out} snooze_until=${out.reminder_snooze_until || '-'}`, req);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
 });
 
 router.get('/export/excel', auth, adminOnly, async (req, res) => {

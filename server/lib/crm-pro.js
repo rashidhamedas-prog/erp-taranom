@@ -2,10 +2,72 @@
  * CRM Pro — opportunities, stage changes, segmentation, automations.
  * Read-only on financial documents; amounts stay INTEGER rial.
  */
-const { firmSaleTypeSql } = require('./sales-document');
-const { todayJalali, addDaysToJalali } = require('../jalali');
+const { todayJalali, addDaysToJalali, j2g } = require('../jalali');
+
+// Lazy: sales-document pulls in the ledger → db → better-sqlite3 chain. Resolving it on
+// first use keeps this module requirable for pure Jalali date-math unit tests on hosts
+// without a native sqlite binding. Behaviour is identical (require cache).
+function firmSaleTypeSql(alias) {
+  return require('./sales-document').firmSaleTypeSql(alias);
+}
 const { normalizeStage, defaultProb, mapFollowupType } = require('./crm-pro-schema');
 const { customerVisibleTo } = require('./customer-scope');
+
+const MS_PER_DAY = 86400000;
+const PERSIAN_DIGITS = /[۰-۹]/g;
+const ARABIC_DIGITS = /[٠-٩]/g;
+
+/** Normalize Persian/Arabic-Indic digits to ASCII so "۱۴۰۵/۰۷/۰۱" parses like "1405/07/01". */
+function asciiDigits(str) {
+  return String(str == null ? '' : str)
+    .replace(PERSIAN_DIGITS, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(ARABIC_DIGITS, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+}
+
+/**
+ * Parse a Jalali "YYYY/MM/DD" string → [jy, jm, jd], or null when malformed.
+ * Only structural validation (3 numeric parts, month 1–12, day 1–31); month-length
+ * validity is left to the caller because j2g() is total on these ranges.
+ */
+function parseJalaliParts(str) {
+  const parts = asciiDigits(str).trim().split('/').map((p) => parseInt(p, 10));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [jy, jm, jd] = parts;
+  if (jy < 1 || jm < 1 || jm > 12 || jd < 1 || jd > 31) return null;
+  return [jy, jm, jd];
+}
+
+/** Zero-padded canonical Jalali string from parts. */
+function formatJalaliParts([jy, jm, jd]) {
+  return `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
+}
+
+/**
+ * Days since the Unix epoch (UTC) for a Jalali date. The Jalali parts are first
+ * converted to Gregorian through j2g() so Jalali month lengths (31/30/29-30) are
+ * respected — passing Jalali numbers straight into Date.UTC treats them as
+ * Gregorian months and silently drifts by up to several days per month.
+ */
+function jalaliEpochDay(str) {
+  const p = parseJalaliParts(str);
+  if (!p) return null;
+  const [gy, gm, gd] = j2g(p[0], p[1], p[2]);
+  const ms = Date.UTC(gy, gm - 1, gd);
+  return Number.isFinite(ms) ? Math.round(ms / MS_PER_DAY) : null;
+}
+
+/**
+ * Signed whole-day distance `to − from` between two Jalali "YYYY/MM/DD" strings.
+ * Positive when `to` is later. Returns null when either side is unparsable.
+ * Examples: 1405/06/31 → 1405/07/01 = 1 (31 Shahrivar → 1 Mehr),
+ *           1403/12/30 → 1404/01/01 = 1 (leap Esfand → Nowruz).
+ */
+function jalaliDaysBetween(from, to) {
+  const a = jalaliEpochDay(from);
+  const b = jalaliEpochDay(to);
+  if (a == null || b == null) return null;
+  return b - a;
+}
 
 const PIPELINE_STAGES = [
   'lead', 'qualified', 'proposal', 'negotiation', 'first_order', 'won', 'repeat', 'lost',
@@ -277,11 +339,26 @@ function onInvoiceCreated(db, {
   }
 }
 
-function computeCustomerMetrics(db, customerId) {
-  const today = todayJalali();
-  const d30 = addDaysToJalali(today, -30);
-  const d90 = addDaysToJalali(today, -90);
-  const d365 = addDaysToJalali(today, -365);
+/**
+ * Jalali window starts for the rolling 30/90/365-day sales sums. A purchase dated
+ * exactly N days ago is inside the N-day window (`date >= start`); N+1 days ago is out.
+ */
+function salesWindowStarts(today) {
+  return {
+    d30: addDaysToJalali(today, -30),
+    d90: addDaysToJalali(today, -90),
+    d365: addDaysToJalali(today, -365),
+  };
+}
+
+/**
+ * Recency / frequency metrics for one customer from firm sales invoices.
+ * All elapsed-day arithmetic goes through jalaliDaysBetween() (Jalali → Gregorian →
+ * epoch days); `last_purchase_date` stays the Jalali string stored on the invoice.
+ * `today` may be injected (tests); defaults to the current Jalali date.
+ */
+function computeCustomerMetrics(db, customerId, { today = todayJalali() } = {}) {
+  const { d30, d90, d365 } = salesWindowStarts(today);
   const firm = `
     SELECT i.date, ${sqlInvoiceAmountRial('i')} AS amount_rial
     FROM invoices i
@@ -296,24 +373,19 @@ function computeCustomerMetrics(db, customerId) {
   if (rows.length >= 2) {
     const gaps = [];
     for (let i = 1; i < rows.length; i++) {
-      const a = String(rows[i - 1].date || '').split('/').map(Number);
-      const b = String(rows[i].date || '').split('/').map(Number);
-      if (a.length === 3 && b.length === 3) {
-        const da = Date.UTC(a[0], a[1] - 1, a[2]);
-        const dbv = Date.UTC(b[0], b[1] - 1, b[2]);
-        if (Number.isFinite(da) && Number.isFinite(dbv) && dbv > da) gaps.push((dbv - da) / 86400000);
-      }
+      // Out-of-order or unparsable pairs are skipped (never a negative/NaN gap).
+      const gap = jalaliDaysBetween(rows[i - 1].date, rows[i].date);
+      if (gap != null && gap > 0) gaps.push(gap);
     }
     if (gaps.length) cycle = gaps.reduce((x, y) => x + y, 0) / gaps.length;
   }
   let inactiveDays = 0;
-  if (last) {
-    const p = String(last).split('/').map(Number);
-    const t = String(today).split('/').map(Number);
-    if (p.length === 3 && t.length === 3) {
-      inactiveDays = Math.max(0, Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(p[0], p[1] - 1, p[2])) / 86400000));
-    }
+  const sinceLast = last ? jalaliDaysBetween(last, today) : null;
+  if (sinceLast != null) {
+    // Last purchase dated after today (clock skew / forward-dated invoice) → 0, never negative.
+    inactiveDays = Math.max(0, sinceLast);
   } else {
+    // No firm purchase (or unparsable date): age of the customer record, from unix created_at.
     const cust = db.prepare('SELECT created_at FROM customers WHERE id=?').get(customerId);
     if (cust?.created_at) inactiveDays = Math.max(0, Math.round((Date.now() / 1000 - cust.created_at) / 86400));
   }
@@ -441,63 +513,167 @@ function logAutomation(db, ruleKey, entityType, entityId, payload = '') {
   }
 }
 
-function runAutomations(db) {
-  const today = todayJalali();
+const DEFAULT_REMIND_EVERY_DAYS = 7;
+
+/** Reminder cadence (days between repeat overdue alerts); setting `crm_followup_remind_every_days`, min 1. */
+function followupRemindCadence(db) {
+  return Math.max(1, getSettingInt(db, 'crm_followup_remind_every_days', DEFAULT_REMIND_EVERY_DAYS));
+}
+
+/**
+ * Occurrence key for an overdue follow-up. crm_automation_log has
+ * UNIQUE(rule_key, entity_type, entity_id) + INSERT OR IGNORE, so the key must change
+ * whenever a *new* reminder is legitimately due and stay identical for retries inside
+ * the same cadence window:
+ *   overdue_followup:<id>:due:<next_date>:win:<floor(daysOverdue / cadence)>
+ * Rescheduling (next_date changes) → new key. Same window re-run → same key → ignored.
+ */
+function overdueFollowupRuleKey(id, nextDate, daysOverdue, cadence) {
+  const win = Math.floor(Math.max(0, Number(daysOverdue) || 0) / Math.max(1, cadence));
+  return `overdue_followup:${id}:due:${nextDate}:win:${win}`;
+}
+
+/** Due-today key is per due date so a rescheduled follow-up alerts again on its new day. */
+function todayFollowupRuleKey(id, nextDate) {
+  return `today_followup:${id}:due:${nextDate}`;
+}
+
+/** True when the row opted out of reminders or is snoozed through today (snooze_until >= today). */
+function isFollowupReminderMuted(row, today) {
+  if (Number(row?.reminder_opt_out) === 1) return true;
+  const until = String(row?.reminder_snooze_until || '').trim();
+  if (!until) return false;
+  const remaining = jalaliDaysBetween(today, until);
+  // Unparsable snooze date → treat as not snoozed (never silently mute forever).
+  return remaining != null && remaining >= 0;
+}
+
+/**
+ * Set reminder preferences for one follow-up (opt-out and/or snooze-until).
+ * `optOut`: boolean | 0/1 | undefined (keep). `snoozeUntil`: Jalali 'YYYY/MM/DD' | '' (clear) | undefined (keep).
+ * `snoozeDays`: integer ≥ 1 → snooze until today + N (alternative to snoozeUntil).
+ */
+function setFollowupReminderPrefs(db, followupId, { optOut, snoozeUntil, snoozeDays } = {}, { today = todayJalali() } = {}) {
+  const row = db.prepare('SELECT id, reminder_opt_out, reminder_snooze_until FROM followups WHERE id=?').get(followupId);
+  if (!row) {
+    const err = new Error('پیگیری یافت نشد');
+    err.status = 404;
+    throw err;
+  }
+  let nextOptOut = Number(row.reminder_opt_out) === 1 ? 1 : 0;
+  if (optOut !== undefined && optOut !== null) {
+    const v = typeof optOut === 'string' ? optOut.trim().toLowerCase() : optOut;
+    nextOptOut = (v === true || v === 1 || v === '1' || v === 'true') ? 1 : 0;
+  }
+  let nextSnooze = row.reminder_snooze_until || '';
+  if (snoozeDays !== undefined && snoozeDays !== null && String(snoozeDays) !== '') {
+    const n = parseInt(snoozeDays, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 3650) {
+      const err = new Error('تعداد روز تعویق باید عددی بین ۱ و ۳۶۵۰ باشد');
+      err.status = 400;
+      throw err;
+    }
+    nextSnooze = addDaysToJalali(today, n);
+  } else if (snoozeUntil !== undefined && snoozeUntil !== null) {
+    const raw = asciiDigits(snoozeUntil).trim();
+    if (raw === '') {
+      nextSnooze = '';
+    } else {
+      const parts = parseJalaliParts(raw);
+      if (!parts) {
+        const err = new Error('تاریخ تعویق باید به شکل YYYY/MM/DD شمسی باشد');
+        err.status = 400;
+        throw err;
+      }
+      const canonical = formatJalaliParts(parts);
+      const ahead = jalaliDaysBetween(today, canonical);
+      if (ahead == null || ahead < 0) {
+        const err = new Error('تاریخ تعویق باید امروز یا بعد از آن باشد');
+        err.status = 400;
+        throw err;
+      }
+      nextSnooze = canonical;
+    }
+  }
+  db.prepare('UPDATE followups SET reminder_opt_out=?, reminder_snooze_until=? WHERE id=?')
+    .run(nextOptOut, nextSnooze, row.id);
+  return { id: row.id, reminder_opt_out: nextOptOut, reminder_snooze_until: nextSnooze };
+}
+
+function runAutomations(db, { today = todayJalali() } = {}) {
   const staleDays = getSettingInt(db, 'crm_stale_opportunity_days', 14);
   const chequeDays = getSettingInt(db, 'crm_cheque_due_days', 14);
+  const remindEvery = followupRemindCadence(db);
   const dueLimit = addDaysToJalali(today, chequeDays);
   const now = Math.floor(Date.now() / 1000);
   const created = [];
-  const remind = (userId, title, body, entityType, entityId, rule) => {
+  // Column lists tried in order; the first matches the canonical `reminders` table
+  // (user_id, cust_id, title, body, remind_at, done) read by /api/reminders. The legacy
+  // variants are kept for older schema shapes. Previously only the legacy variants were
+  // attempted, so every CRM automation insert failed silently and no reminder was shown.
+  const reminderInserts = [
+    { sql: `INSERT INTO reminders (user_id, cust_id, title, body, remind_at, done, created_at) VALUES (?,?,?,?,?,0,?)`,
+      args: (userId, custId, title, body) => [userId || 1, custId || null, title, body, today, now] },
+    { sql: `INSERT INTO reminders (user_id, title, body, due_date, status, created_at) VALUES (?,?,?,?,'open',?)`,
+      args: (userId, custId, title, body) => [userId || 1, title, body, today, now] },
+    { sql: `INSERT INTO reminders (user_id, title, note, date, status, created_at) VALUES (?,?,?,?,'open',?)`,
+      args: (userId, custId, title, body) => [userId || 1, title, body, today, now] },
+  ];
+  const remind = (userId, title, body, entityType, entityId, rule, custId = null) => {
     if (!logAutomation(db, rule, entityType, entityId, title)) return;
-    try {
-      db.prepare(`
-        INSERT INTO reminders (user_id, title, body, due_date, status, created_at)
-        VALUES (?,?,?,?, 'open', ?)
-      `).run(userId || 1, title, body, today, now);
-      created.push(rule);
-    } catch (_) {
+    for (const ins of reminderInserts) {
       try {
-        db.prepare(`
-          INSERT INTO reminders (user_id, title, note, date, status, created_at)
-          VALUES (?,?,?,?, 'open', ?)
-        `).run(userId || 1, title, body, today, now);
+        db.prepare(ins.sql).run(...ins.args(userId, custId, title, body));
         created.push(rule);
-      } catch (__) { /* reminder schema varies */ }
+        return;
+      } catch (_) { /* try next schema variant */ }
     }
   };
 
   if (getSetting(db, 'crm_auto_alert_overdue', '1') === '1') {
+    // Only open rows (done/cancel never alert); opt-out filtered in SQL, snooze checked in JS.
     const rows = db.prepare(`
-      SELECT f.id, f.user_id, f.subject, f.next_date, c.biz
+      SELECT f.id, f.user_id, f.cust_id, f.subject, f.next_date, c.biz,
+             COALESCE(f.reminder_opt_out,0) AS reminder_opt_out,
+             COALESCE(f.reminder_snooze_until,'') AS reminder_snooze_until
       FROM followups f LEFT JOIN customers c ON c.id=f.cust_id
       WHERE f.status='open' AND f.next_date<>'' AND f.next_date < ?
+        AND COALESCE(f.reminder_opt_out,0)=0
     `).all(today);
     for (const r of rows) {
+      if (isFollowupReminderMuted(r, today)) continue;
+      const daysOverdue = jalaliDaysBetween(r.next_date, today);
+      if (daysOverdue == null || daysOverdue <= 0) continue; // unparsable / not actually past
       remind(r.user_id, `پیگیری عقب‌افتاده: ${r.biz || r.subject || r.id}`,
-        `سررسید ${r.next_date}`, 'followup', r.id, `overdue_followup:${r.id}`);
+        `سررسید ${r.next_date} — ${daysOverdue} روز تأخیر`, 'followup', r.id,
+        overdueFollowupRuleKey(r.id, r.next_date, daysOverdue, remindEvery), r.cust_id);
     }
     const todayRows = db.prepare(`
-      SELECT f.id, f.user_id, f.subject, c.biz FROM followups f
+      SELECT f.id, f.user_id, f.cust_id, f.subject, f.next_date, c.biz,
+             COALESCE(f.reminder_opt_out,0) AS reminder_opt_out,
+             COALESCE(f.reminder_snooze_until,'') AS reminder_snooze_until
+      FROM followups f
       LEFT JOIN customers c ON c.id=f.cust_id
       WHERE f.status='open' AND f.next_date=?
+        AND COALESCE(f.reminder_opt_out,0)=0
     `).all(today);
     for (const r of todayRows) {
+      if (isFollowupReminderMuted(r, today)) continue;
       remind(r.user_id, `پیگیری امروز: ${r.biz || r.subject || r.id}`,
-        'سررسید امروز', 'followup', r.id, `today_followup:${r.id}`);
+        'سررسید امروز', 'followup', r.id, todayFollowupRuleKey(r.id, r.next_date), r.cust_id);
     }
   }
 
   if (getSetting(db, 'crm_auto_alert_stale_opp', '1') === '1') {
     const cutoff = now - staleDays * 86400;
     const opps = db.prepare(`
-      SELECT o.id, o.owner_user_id, o.title, o.entered_stage_at, c.biz
+      SELECT o.id, o.owner_user_id, o.customer_id, o.title, o.entered_stage_at, c.biz
       FROM crm_opportunities o LEFT JOIN customers c ON c.id=o.customer_id
       WHERE o.status='open' AND COALESCE(o.entered_stage_at,o.updated_at,0) < ?
     `).all(cutoff);
     for (const o of opps) {
       remind(o.owner_user_id, `فرصت متوقف: ${o.biz || o.title}`,
-        `بیش از ${staleDays} روز بدون تغییر مرحله`, 'opportunity', o.id, `stale_opp:${o.id}`);
+        `بیش از ${staleDays} روز بدون تغییر مرحله`, 'opportunity', o.id, `stale_opp:${o.id}`, o.customer_id);
     }
   }
 
@@ -508,7 +684,7 @@ function runAutomations(db) {
       WHERE s.effective_segment='churn_risk'
     `).all();
     for (const s of segs) {
-      remind(s.user_id, `ریسک ریزش: ${s.biz}`, s.reason || '', 'customer', s.customer_id, `churn:${s.customer_id}`);
+      remind(s.user_id, `ریسک ریزش: ${s.biz}`, s.reason || '', 'customer', s.customer_id, `churn:${s.customer_id}`, s.customer_id);
     }
   }
 
@@ -524,7 +700,7 @@ function runAutomations(db) {
       for (const c of cheques) {
         const cust = c.customer_id ? db.prepare('SELECT user_id FROM customers WHERE id=?').get(c.customer_id) : null;
         remind(cust?.user_id, `چک نزدیک سررسید ${c.cheque_number || c.id}`,
-          `سررسید ${c.due_date}`, 'cheque', c.id, `cheque_due:${c.id}`);
+          `سررسید ${c.due_date}`, 'cheque', c.id, `cheque_due:${c.id}`, c.customer_id || null);
       }
     } catch (_) {}
   }
@@ -567,10 +743,22 @@ module.exports = {
   upsertOpportunityFromFollowup,
   onInvoiceCreated,
   computeCustomerMetrics,
+  salesWindowStarts,
   classifySegment,
   runSegmentation,
   runAutomations,
   logAutomation,
   nextActionSuggestion,
   normalizeStage,
+  // Jalali date math (exported for tests / reuse)
+  parseJalaliParts,
+  jalaliEpochDay,
+  jalaliDaysBetween,
+  // Follow-up reminder cadence
+  DEFAULT_REMIND_EVERY_DAYS,
+  followupRemindCadence,
+  overdueFollowupRuleKey,
+  todayFollowupRuleKey,
+  isFollowupReminderMuted,
+  setFollowupReminderPrefs,
 };
