@@ -4,7 +4,7 @@
 - **شامل:** بازیابی آفلاین چندشرکتی با حذف WAL و جابه‌جایی اتمی پوشهٔ تصاویر؛ کلید API فقط با Bearer و محدودهٔ `read`/`write`؛ راز وب‌هوک در پاسخ نمی‌آید و خالی بودنش راز قبلی را پاک نمی‌کند؛ الگوی اختیاری OTP پیامک؛ شناسهٔ شرکت روی چاپ فاکتور و خرید؛ صفحهٔ حرارتی ۸۰ و ۵۸ میلی‌متر؛ صف موجودی سایت با `updated_at` و ارسال دوبارهٔ یک کالا از قبل در API تنظیمات بود.
 - **فایل‌ها:** `server/{backup,sms}.js`, `server/lib/{secret-settings,sms-dispatch,website-stock-sync}.js`, `server/routes/{api_keys,api_v1,invoices,purchases,sms-module}.js`, `server/public/{invoice-print.css,app.js,index.html,sw.js}`, `server/scripts/test-backup-dr.js`.
 - **تست:** `node --check` روی همین فایل‌ها. تست sqlite محلی به‌خاطر نبودن binding بومی اجرا نشد.
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ `a287534` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v310`.
 
 ---
 
