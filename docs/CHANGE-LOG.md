@@ -11,8 +11,8 @@
   - انبارگردانی: claim اتمیک + idempotent JE + رد اختلاف با بهای صفر.
   - بچ عمومی: بدون qty جعلی؛ همگام با حواله/فروش؛ لیست بدون طاقه؛ گردش طاقه per-roll.
 - **فایل‌ها:** `lib/{warehouse-docs,void-warehouse-move,consignments,sales-document}.js`, `lib/inventory/{landed-cost,reservation,cycle-count,batch-serial,fabric-rolls}.js`, `routes/{warehouses,invoices,orders,inventory}.js`, `public/{app.js,sw.js}`, `scripts/test-warehouse-audit-v305.js`, CHANGE-LOG.
-- **تست:** `test-warehouse-audit-v305` **43/0** + `test-sms` **22/0**.
-- **Deploy:** در انتظار
+- **تست:** `test-warehouse-audit-v305` **43/0** + `test-sms` **22/0** روی ایران.
+- **Deploy:** ✅ `e92b633` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v305`.
 
 ---
 
