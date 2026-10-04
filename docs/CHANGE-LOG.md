@@ -10,8 +10,8 @@
   - برچسب منوی افتتاحیه/بستن/تسعیر = قالب سند دستی. SKU جورنشدهٔ سایت `ok:false`.
 - **عمداً نشده:** نگاشت capture برای `/assignments` و `/allowed-variants` (مالک ANDROID-NATIVE-SALES روی `capture.js`). پرونده خدمات، رضایت پیامک، سرنخ/کمپین، چندشرکتی، شکستن `app.js`. جریان نقد امضای استاندارد ایرانی ندارد.
 - **فایل‌ها:** `sync/client.js`, `routes/{sync,invoices,followups,budgeting,adv-reports}.js`, `lib/{crm-pro,crm-pro-schema,cash-flow,website-stock-sync}.js`, `lib/inventory/{atp-schema,available-to-promise,reservation}.js`, `public/{app.js,acc-nav.js,index.html,sw.js}`, تست‌های `test-nontax-*`, `docs/architecture/NONTAX-REMEDIATION-2026-10-04.md`.
-- **تست:** محلی روی ورک‌تری ادغام (better-sqlite3 ۱۲ چون Node ۲۴ میزبان پیش‌ساخت ۱۱ ندارد).
-- **Deploy:** ⏳ overlay ایران.
+- **تست:** روی ایران: `test-nontax-sync-recovery` **91/0**، `test-nontax-atp` **101/0**، `test-nontax-crm-dates` **127/0**، `test-nontax-budget-cash` **101/0**، `test-nontax-website-sku` **51/0**، `test-sms` **22/0**. محلی هم `test-sync` **44/0**.
+- **Deploy:** ✅ `2882e6d` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v307`.
 
 ---
 
