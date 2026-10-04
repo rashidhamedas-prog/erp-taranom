@@ -3,8 +3,8 @@
 - **ریشه (عکس دفتر چک / چک ۶۵۵۰۹۹ فاکتور T-0002):** مسیر تسویه فاکتور `lifecycle_status='in_hand'` می‌نوشت؛ UI و API فقط `registered`/خالی را برای دکمهٔ واگذاری و خرج می‌شناختند → چک فاکتور بدون عملیات چرخه می‌ماند. متن آزاد «خواباندن به حساب…» فقط ستون نمایشی را عوض می‌کرد و سند خواباندن نمی‌زد.
 - **رفع معماری:** ماژول `lib/cheque-lifecycle.js` — حالت کانونی دریافتنی: `registered` (نزد صندوق) → `in_collection` (واگذاری/خواباندن با JE به ۱۱۱۶) → `cleared`/`bounced`/`endorsed`. alias قدیمی `in_hand`/`pending` = registered. فاکتور فروش و amend همان `registered` + `party_id`. تعمیر بوت `cheque_lifecycle_alias_v303` برای ردیف‌های تاریخی. مسدود کردن متن آزاد «خواباندن». راهنما و داشبوردها هم‌راستا.
 - **فایل‌ها:** `lib/{cheque-lifecycle,invoice-payments,amend-invoice,cheque-dashboard,chequebook-dashboard,crm-*}.js`, `routes/cheque-records.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-cheque-invoice-lifecycle-v303.js`, CHANGE-LOG.
-- **تست:** `test-cheque-invoice-lifecycle-v303` + `test-sms` (روی ایران؛ Node24 این میزبان ABI better-sqlite3 ندارد).
-- **Deploy:** در انتظار
+- **تست:** `test-cheque-invoice-lifecycle-v303` **20/0** + `test-sms` **22/0** روی ایران (Node24 این میزبان ABI better-sqlite3 ندارد).
+- **Deploy:** ✅ `c25524f` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v303`؛ probe چک ۶۵۵۰۹۹ → `lifecycle=registered` / `status=نزد صندوق` / `in_hand=0`.
 
 ---
 
