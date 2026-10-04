@@ -8,8 +8,8 @@
   - حواله انبار: FEFO خودکار اگر یک بچ کافی باشد؛ UI سریال مخفی.
   - کاردکس: مانده فروش‌پذیر بدون `warehouseOnly`؛ ستون فیزیکی `warehouse_running_qty`.
 - **فایل‌ها:** `lib/{warehouse-docs,consignments,ledgers}.js`, `lib/inventory/{periodic-close,cycle-count}.js`, `routes/warehouses.js`, `sync/capture.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-warehouse-audit-v306.js`, CHANGE-LOG.
-- **تست:** `test-warehouse-audit-v306` + `test-sms` (پس از deploy روی ایران).
-- **Deploy:** ⏳ در صف overlay ایران.
+- **تست:** `test-warehouse-audit-v306` **36/0** + `test-sms` **22/0** روی ایران.
+- **Deploy:** ✅ `270bbc6` — overlay ایران + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v306`.
 
 ---
 
