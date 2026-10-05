@@ -4,7 +4,7 @@
 - Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md` (2026-10-01). This session edits those only for the impersonation banner, help, cache query, and changelog. Did not edit `server/db.js`, `server/sync/tables.js`, or `capture.js`. Auth routes stay sync-blocklisted.
 - Design: separate `impersonation` staff-session slot plus RFC 8693 `act` claim. Does not call `issueStaffSession`, does not mirror `user_device_sessions`, does not bump `auth_epoch`.
 - Sensitive writes that revoke sessions (password, logout-all, 2FA, device revoke, user admin mutations, company switch, backup restore) return `IMPERSONATION_FORBIDDEN`.
-- Local Node 24 cannot load better-sqlite3, so `test-auth-impersonate.js` is for a host with the native module.
+- Local Node 24 cannot load better-sqlite3. Iran run of `test-auth-impersonate.js`: 39/0. Deployed `8012ca3`, health 200, SW v314.
 
 
 
