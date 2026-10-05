@@ -6,6 +6,7 @@ const { getDB, audit, isDevice } = require('../db');
 const {
   auth,
   adminOnly,
+  centralOnlyStrict,
   invalidateUserCache,
   revokeUserSessions,
   revokeCurrentSession,
@@ -13,6 +14,7 @@ const {
 } = require('../middleware/auth');
 const {
   issueStaffSession,
+  issueImpersonationSession,
   createLoginChallenge,
   revokeStaffSessionByHash,
   consumeRateLimit,
@@ -233,6 +235,66 @@ router.post('/logout-all', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin enters another user's permissions without occupying their device slot.
+router.post('/impersonate/stop', auth, (req, res) => {
+  if (!req.user.impersonator) {
+    return res.status(400).json({ error: 'ورود به حساب کاربر فعال نیست', code: 'NOT_IMPERSONATING' });
+  }
+  revokeCurrentSession(req);
+  audit(req.user.impersonator.id, 'impersonate_stop', 'user', req.user.id,
+    `بازگشت از حساب ${req.user.username}`, req);
+  res.json({ ok: true });
+});
+
+router.post('/impersonate', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  if (req.user.impersonator) {
+    return res.status(409).json({
+      error: 'اول به حساب خودتان برگردید',
+      code: 'IMPERSONATION_NESTED',
+    });
+  }
+  const targetId = Number(req.body && req.body.user_id);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ error: 'کاربر نامعتبر است' });
+  }
+  if (targetId === Number(req.user.id)) {
+    return res.status(400).json({ error: 'نمی‌توانید وارد حساب خودتان شوید', code: 'IMPERSONATION_SELF' });
+  }
+  const limit = consumeRateLimit('impersonate', String(req.user.id), {
+    max: 30, windowSec: 3600, blockSec: 600,
+  });
+  if (!limit.allowed) {
+    return res.status(429).json({
+      error: 'تعداد ورود به حساب کاربران زیاد است. کمی بعد دوباره تلاش کنید.',
+      code: 'IMPERSONATION_RATE',
+    });
+  }
+  const db = getDB();
+  const target = db.prepare('SELECT * FROM users WHERE id=?').get(targetId);
+  if (!target || !target.active) return res.status(404).json({ error: 'کاربر فعال پیدا نشد' });
+  const actor = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!actor || !actor.active || actor.role !== 'admin') {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  const issued = issueImpersonationSession(target, actor);
+  audit(actor.id, 'impersonate_start', 'user', target.id,
+    `ورود به حساب ${target.username} بدون قطع نشست او`, req);
+  const view = publicStaffUser(db, target);
+  res.json({
+    token: issued.token,
+    expires_at: issued.expiresAt,
+    user: {
+      ...view,
+      impersonation: {
+        actor_id: actor.id,
+        actor_name: actor.name,
+        actor_username: actor.username,
+        expires_at: issued.expiresAt,
+      },
+    },
+  });
+});
+
 // Forgot password — step 1: send OTP via SMS
 router.post('/forgot', async (req, res) => {
   if (isDevice()) {
@@ -378,7 +440,19 @@ router.get('/me', auth, (req, res) => {
       } catch (_) {}
     }
   } catch (_) {}
-  res.json({ ...publicStaffUser(db, user), last_login: user.last_login, must_change_password: user.must_change_password, party_id: user.party_id, is_marketer, catalog_category_ids });
+  res.json({
+    ...publicStaffUser(db, user),
+    last_login: user.last_login,
+    must_change_password: req.user.impersonator ? 0 : user.must_change_password,
+    party_id: user.party_id,
+    is_marketer,
+    catalog_category_ids,
+    impersonation: req.user.impersonator ? {
+      actor_id: req.user.impersonator.id,
+      actor_name: req.user.impersonator.name,
+      actor_username: req.user.impersonator.username,
+    } : null,
+  });
 });
 
 router.get('/users/:id/catalog-categories', auth, adminOnly, (req, res) => {

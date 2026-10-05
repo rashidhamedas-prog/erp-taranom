@@ -1,4 +1,14 @@
-﻿## 2026-10-05 — Ship leftover settings batch (SW v310)
+﻿## 2026-10-05 — Admin impersonation without kicking the target (SW v314)
+
+- Owner asked for an admin to enter another user's account without logging that user out.
+- Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md` (2026-10-01). This session edits those only for the impersonation banner, help, cache query, and changelog. Did not edit `server/db.js`, `server/sync/tables.js`, or `capture.js`. Auth routes stay sync-blocklisted.
+- Design: separate `impersonation` staff-session slot plus RFC 8693 `act` claim. Does not call `issueStaffSession`, does not mirror `user_device_sessions`, does not bump `auth_epoch`.
+- Sensitive writes that revoke sessions (password, logout-all, 2FA, device revoke, user admin mutations, company switch, backup restore) return `IMPERSONATION_FORBIDDEN`.
+- Local Node 24 cannot load better-sqlite3, so `test-auth-impersonate.js` is for a host with the native module.
+
+
+
+## 2026-10-05 — Ship leftover settings batch (SW v310)
 
 - Owner asked for a complete commit, merge, push, and deploy. v309 auth was already on main. This ships the still-uncommitted settings backend and print CSS.
 - Excluded: `tbl-enhance.js` localhost debug probe, `_deploy-*`, probes, backups, and marketing leftovers.

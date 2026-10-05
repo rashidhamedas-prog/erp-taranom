@@ -178,7 +178,21 @@ async function api(method, path, data, isFormData, silent){
     if(!silent) showToast((classified && classified.message) || 'خطای ارتباط با سرور','error');
     throw e;
   }
-  if(r.status === 401){ logout(); return null; }
+  if(r.status === 401){
+    const adminToken = localStorage.getItem('crm_admin_token');
+    if(adminToken && adminToken !== token){
+      const adminUser = localStorage.getItem('crm_admin_user');
+      localStorage.removeItem('crm_admin_token');
+      localStorage.removeItem('crm_admin_user');
+      localStorage.setItem('crm_token', adminToken);
+      if(adminUser) localStorage.setItem('crm_user', adminUser);
+      showToast('نشست ورود به حساب کاربر تمام شد. به حساب خودتان برگشتید','error');
+      location.reload();
+      return null;
+    }
+    logout();
+    return null;
+  }
   const ct = r.headers.get('content-type')||'';
   if(ct.includes('application/json')){
     const j = await r.json();
@@ -751,8 +765,9 @@ function syncAcctDrawerUser(){
   if(!ME) return;
   const n=el('acctDrawerName'); if(n) n.textContent=ME.name||'—';
   const u=el('acctDrawerUser'); if(u) u.textContent='@'+(ME.username||'');
-  const bp=el('acctBtnPass'); if(bp) bp.textContent='🔑 '+T('تغییر رمز');
-  const bs=el('acctBtnSec'); if(bs) bs.textContent='🔐 '+T('امنیت');
+  const viewing = !!(ME.impersonation && ME.impersonation.actor_id);
+  const bp=el('acctBtnPass'); if(bp){ bp.textContent='🔑 '+T('تغییر رمز'); bp.style.display = viewing ? 'none' : ''; }
+  const bs=el('acctBtnSec'); if(bs){ bs.textContent='🔐 '+T('امنیت'); bs.style.display = viewing ? 'none' : ''; }
   const bo=el('acctBtnOut'); if(bo) bo.textContent='🚪 '+T('خروج');
   const fab=el('acctFab'); if(fab){ fab.title=T('حساب کاربری'); fab.setAttribute('aria-label',T('منوی حساب کاربری')); }
 }
@@ -1645,12 +1660,94 @@ async function doForgotStep(){
 
 function logout(){
   closeAcctDrawer();
+  const token = localStorage.getItem('crm_token');
+  if(localStorage.getItem('crm_admin_token') && token){
+    fetch('/api/auth/impersonate/stop', {
+      method:'POST',
+      headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+      body:'{}',
+    }).catch(function(){});
+  }
   localStorage.removeItem('crm_token');
   localStorage.removeItem('crm_user');
+  localStorage.removeItem('crm_admin_token');
+  localStorage.removeItem('crm_admin_user');
   setME(null);
+  const bar = el('impersonationBar');
+  if(bar) bar.remove();
   el('app').style.display='none';
   armLoginAutofill();
   el('login').style.display='flex';
+}
+async function enterUserAccount(userId){
+  if(!isAdmin() || (ME && ME.impersonation && ME.impersonation.actor_id)) return;
+  const u = (CACHE.users||[]).find(x => Number(x.id)===Number(userId));
+  if(!u || !u.active || Number(u.id)===Number(ME.id)){
+    showToast('فقط می‌توان وارد حساب یک کاربر فعال دیگر شد','error');
+    return;
+  }
+  if(!confirm('وارد حساب «'+(u.name||u.username)+'» می‌شوید؟\nنشست باز او قطع نمی‌شود. دسترسی شما همان نقش اوست و تا ۳۰ دقیقه معتبر است.')) return;
+  try{
+    const j = await api('POST','/auth/impersonate',{ user_id: u.id });
+    if(!j || !j.token) return;
+    localStorage.setItem('crm_admin_token', localStorage.getItem('crm_token')||'');
+    localStorage.setItem('crm_admin_user', localStorage.getItem('crm_user')||'');
+    localStorage.setItem('crm_token', j.token);
+    const next = Object.assign({}, j.user||{}, {
+      impersonation: (j.user && j.user.impersonation) || {
+        actor_id: ME.id, actor_name: ME.name, expires_at: j.expires_at,
+      },
+    });
+    localStorage.setItem('crm_user', JSON.stringify(next));
+    location.reload();
+  }catch(_){}
+}
+async function returnToAdminAccount(){
+  const token = localStorage.getItem('crm_token');
+  try{
+    if(token){
+      await fetch('/api/auth/impersonate/stop', {
+        method:'POST',
+        headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+        body:'{}',
+      });
+    }
+  }catch(_){}
+  const adminToken = localStorage.getItem('crm_admin_token');
+  const adminUser = localStorage.getItem('crm_admin_user');
+  localStorage.removeItem('crm_admin_token');
+  localStorage.removeItem('crm_admin_user');
+  if(!adminToken){ logout(); return; }
+  localStorage.setItem('crm_token', adminToken);
+  if(adminUser) localStorage.setItem('crm_user', adminUser);
+  location.reload();
+}
+function renderImpersonationBanner(){
+  const barId = 'impersonationBar';
+  const existing = el(barId);
+  const viewing = ME && ME.impersonation && ME.impersonation.actor_id;
+  if(!viewing){
+    if(existing) existing.remove();
+    return;
+  }
+  const bar = existing || document.createElement('div');
+  bar.id = barId;
+  bar.className = 'impersonation-bar';
+  bar.setAttribute('role','status');
+  const actor = ME.impersonation.actor_name || 'مدیر';
+  bar.innerHTML = '<span>در حال کار با حساب <b>'+esc(ME.name||ME.username||'')+'</b> هستید. نشست خود او قطع نشده است.</span>';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn sm';
+  btn.textContent = 'بازگشت به حساب '+actor;
+  btn.addEventListener('click', returnToAdminAccount);
+  bar.appendChild(btn);
+  if(!existing){
+    const main = document.querySelector('.main');
+    const top = document.querySelector('.main .topbar');
+    if(main && top) main.insertBefore(bar, top);
+    else if(main) main.prepend(bar);
+  }
 }
 
 /* ============================================================
@@ -2460,10 +2557,16 @@ async function boot(){
     const fresh = await api('GET','/auth/me');
     if(fresh && (fresh.id||fresh.username)){
       stored = Object.assign({}, stored||{}, fresh);
+      if(!fresh.impersonation){
+        delete stored.impersonation;
+        localStorage.removeItem('crm_admin_token');
+        localStorage.removeItem('crm_admin_user');
+      }
       localStorage.setItem('crm_user', JSON.stringify(stored));
       setME(stored);
     }
   }catch(_){}
+  renderImpersonationBanner();
   syncServerTime(); // refresh offset after login (non-blocking)
   el('userName').textContent = ME.name;
   el('userRole').textContent = roleLabel(ME.role);
@@ -7781,7 +7884,8 @@ async function loadSettUsersPanel(){
         <td class="mono">${esc(u.phone||'-')}</td>
         <td class="muted">${u.last_login?new Date(u.last_login*1000).toLocaleDateString('fa-IR'):'هرگز'}</td>
         <td>${u.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
-        <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){userModal((u.id))})}">ویرایش</button>
+        <td>${(u.active && u.id!==ME.id && !(ME.impersonation&&ME.impersonation.actor_id))?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){enterUserAccount((u.id))})}">ورود به حساب</button>`:''}
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){userModal((u.id))})}">ویرایش</button>
             <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){resetPass((u.id),`${String((CSP.htmlDecode(String(esc(u.name)))) ?? '')}`)})}">رمز</button>
             ${u.id!==ME.id?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){confirmPurgeUser((u.id),`${String((CSP.htmlDecode(String(esc(u.name)))) ?? '')}`)})}">حذف کامل</button>`:''}</td>
       </tr>`).join('')||emptyRow(7)}</tbody></table>
@@ -24748,6 +24852,14 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('👤','ورود مدیر به حساب کاربر',`
+      <p>در <b>تنظیمات → کاربران</b> دکمه <b>ورود به حساب</b> مدیر را با دسترسی همان کاربر وارد برنامه می‌کند. نشست وب، ویندوز و اندروید او سر جایش می‌ماند.</p>
+      <ul>
+        <li>رمز کاربر خوانده یا عوض نمی‌شود. نوار بالای صفحه تا ۳۰ دقیقه نشان می‌دهد در حساب چه کسی هستید.</li>
+        <li><b>بازگشت به حساب خودم</b> فقط همین ورود موقت را می‌بندد. نشست مدیر هم قطع نمی‌شود.</li>
+        <li>در این حالت تغییر رمز، خروج از همه دستگاه‌ها، قطع نشست دستگاه، دعوت و ویرایش کاربران، و تعویض شرکت بسته است تا کاربر اصلی بیرون نرود.</li>
+        <li>شروع، پایان، و هر ثبت در این حالت در لاگ با شناسه مدیر و نام کاربر مقصد می‌ماند.</li>
+      </ul>`),
     helpSec('🛡','رفع‌های غیرمالیاتی v307',`
       <ul>
         <li><b>دستگاه آفلاین:</b> شکست اولین دریافت بعد از جفت‌سازی، صف ارسال را پاک نمی‌کند. بازنشانی کارخانه فقط روی خود دستگاه، از loopback، با رمز همان نصب و کپی قابل‌بررسی صف است. عبارت ثابت RESET پذیرفته نمی‌شود.</li>

@@ -318,6 +318,10 @@ body.has-overlay #sidebarBackdrop{z-index:var(--z-sidebar)!important;pointer-eve
 .topbar .omnibox-btn{color:var(--purple)!important;background:var(--purple-light)!important;border:none!important;
   padding:6px 12px;border-radius:10px;font-size:12px;font-weight:700}
 .topbar .omnibox-btn:hover{background:var(--purple)!important;color:var(--on-accent)!important}
+.impersonation-bar{margin:12px 18px 0;background:var(--gold);color:#1A3A26;border-radius:14px;
+  padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  font-size:13px;font-weight:700}
+.impersonation-bar .btn{background:#1A3A26;color:#fff;border:none}
 .content{padding:18px;flex:1}
 
 /* ===== Cards / Generic — Soft Bento ===== */
@@ -770,6 +774,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .search,input.search{max-width:280px}
 .sett-main .fg:not(.full){max-width:280px}
 .sett-main .fg.full{max-width:520px}
+.sett-main #s-website-outbox.fg.full{max-width:none;width:100%}
 .sett-main input[dir="ltr"],.sett-main select[dir="ltr"]{max-width:100%}
 .fg textarea{resize:vertical;min-height:70px}
 .fg input[readonly]{background:var(--bg);color:var(--muted)}

@@ -12,6 +12,8 @@ const STAFF_AUDIENCE = 'erp-staff';
 const PRE_2FA_AUDIENCE = 'erp-pre-2fa';
 const B2B_AUDIENCE = 'erp-b2b';
 const STAFF_TTL_SEC = 12 * 60 * 60;
+const IMPERSONATION_TTL_SEC = 30 * 60;
+const IMPERSONATION_SLOT = 'impersonation';
 const B2B_TTL_SEC = 7 * 24 * 60 * 60;
 const CHALLENGE_TTL_SEC = 5 * 60;
 const CLEANUP_INTERVAL_SEC = 6 * 60 * 60;
@@ -68,7 +70,9 @@ function getStore() {
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       last_seen INTEGER NOT NULL,
-      revoked_at INTEGER
+      revoked_at INTEGER,
+      actor_user_id INTEGER,
+      actor_auth_epoch INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_staff_sessions_user ON staff_sessions(user_id, revoked_at, expires_at);
     CREATE INDEX IF NOT EXISTS idx_staff_sessions_slot ON staff_sessions(user_id, device_slot, revoked_at);
@@ -108,6 +112,9 @@ function getStore() {
     );
   `);
   ensureStoreColumn(store, 'staff_sessions', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
+  ensureStoreColumn(store, 'staff_sessions', 'actor_user_id', 'INTEGER');
+  ensureStoreColumn(store, 'staff_sessions', 'actor_auth_epoch', 'INTEGER');
+  store.exec('CREATE INDEX IF NOT EXISTS idx_staff_sessions_actor ON staff_sessions(actor_user_id, device_slot, revoked_at)');
   ensureStoreColumn(store, 'login_challenges', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
   ensureStoreColumn(store, 'b2b_sessions', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
   cleanupRows(store, nowSec());
@@ -273,6 +280,47 @@ function issueStaffSession(db, user, input = {}) {
   return { token, device, expiresAt, sidHash };
 }
 
+// A separate slot and no mirror into user_device_sessions. Reusing
+// issueStaffSession would revoke the target's web, mobile, or desktop row.
+function issueImpersonationSession(targetUser, actorUser) {
+  maybeCleanup();
+  const now = nowSec();
+  const expiresAt = now + IMPERSONATION_TTL_SEC;
+  const sid = randomOpaque();
+  const sidHash = opaqueHash(sid);
+  const companyId = currentCompanyId();
+  const actorId = Number(actorUser.id);
+  getStore().transaction(() => {
+    getStore().prepare(`
+      UPDATE staff_sessions SET revoked_at=?
+      WHERE actor_user_id=? AND company_id=? AND device_slot=? AND revoked_at IS NULL
+    `).run(now, actorId, companyId, IMPERSONATION_SLOT);
+    getStore().prepare(`
+      INSERT INTO staff_sessions
+        (sid_hash,user_id,company_id,device_slot,fingerprint_hash,device_name,device_kind,auth_epoch,expires_at,created_at,last_seen,actor_user_id,actor_auth_epoch)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      sidHash, targetUser.id, companyId, IMPERSONATION_SLOT,
+      fingerprintHash(`impersonation:${actorId}`), 'ورود مدیر', IMPERSONATION_SLOT,
+      Number(targetUser.auth_epoch || 0), expiresAt, now, now,
+      actorId, Number(actorUser.auth_epoch || 0),
+    );
+  })();
+  const token = jwt.sign({
+    id: targetUser.id,
+    username: targetUser.username,
+    role: targetUser.role,
+    name: targetUser.name,
+    phone: targetUser.phone || '',
+    ae: Number(targetUser.auth_epoch || 0),
+    cid: companyId,
+    sid,
+    dslot: IMPERSONATION_SLOT,
+    act: { id: actorId, ae: Number(actorUser.auth_epoch || 0) },
+  }, SECRET, { issuer: ISSUER, audience: STAFF_AUDIENCE, expiresIn: IMPERSONATION_TTL_SEC });
+  return { token, expiresAt, sidHash };
+}
+
 function verifyStaffToken(token) {
   return jwt.verify(token, SECRET, { issuer: ISSUER, audience: STAFF_AUDIENCE });
 }
@@ -287,10 +335,19 @@ function validateStaffSession(payload) {
   `).get(opaqueHash(payload.sid), Number(payload.id), companyId, now);
   if (!row || Number(payload.cid) !== companyId
       || Number(row.auth_epoch) !== Number(payload.ae || 0)) return null;
+  const impersonating = row.device_slot === IMPERSONATION_SLOT;
+  if (impersonating) {
+    const act = payload.act;
+    if (!act || typeof act !== 'object'
+        || Number(act.id) !== Number(row.actor_user_id)
+        || Number(act.ae) !== Number(row.actor_auth_epoch)) return null;
+  } else if (payload.act) return null;
   const policy = staffPolicy();
+  const absoluteSec = impersonating ? IMPERSONATION_TTL_SEC : policy.absoluteSec;
+  const idleSec = impersonating ? IMPERSONATION_TTL_SEC : policy.idleSec;
   const age = now - Number(row.created_at || 0);
   const idleFor = now - Number(row.last_seen || row.created_at || 0);
-  if (age >= policy.absoluteSec || idleFor >= policy.idleSec) {
+  if (age >= absoluteSec || idleFor >= idleSec) {
     getStore().prepare('UPDATE staff_sessions SET revoked_at=? WHERE sid_hash=? AND revoked_at IS NULL')
       .run(now, row.sid_hash);
     return null;
@@ -532,6 +589,8 @@ module.exports = {
   normalizeDeviceMeta,
   assertStaffSlotAvailable,
   issueStaffSession,
+  issueImpersonationSession,
+  IMPERSONATION_SLOT,
   verifyStaffToken,
   validateStaffSession,
   revokeStaffSessionByHash,

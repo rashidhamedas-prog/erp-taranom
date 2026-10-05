@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { getDB, isDevice } = require('../db');
+const { getDB, isDevice, audit } = require('../db');
 const {
   SECRET,
   verifyStaffToken,
@@ -69,6 +69,26 @@ const TWOFA_SETUP_ALLOWED = [
   '/api/auth/2fa/status', '/api/auth/2fa/setup', '/api/auth/2fa/verify',
 ];
 
+function impersonationForbidden(req, pathName) {
+  if (!req.user || !req.user.impersonator) return false;
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+  if (pathName === '/api/auth/impersonate/stop' || pathName === '/api/auth/logout') return false;
+  if (pathName === '/api/auth/change-password'
+      || pathName === '/api/auth/logout-all'
+      || pathName === '/api/auth/reset-password'
+      || pathName === '/api/auth/forgot'
+      || pathName === '/api/auth/forgot-reset'
+      || pathName === '/api/auth/impersonate') return true;
+  if (pathName.startsWith('/api/auth/2fa')) return true;
+  if (pathName.startsWith('/api/auth/device-sessions')) return true;
+  if (pathName.startsWith('/api/admin/users')) return true;
+  if (pathName.startsWith('/api/admin/backup')) return true;
+  if (pathName.startsWith('/api/companies')) return true;
+  if (pathName.startsWith('/api/users')) return true;
+  return false;
+}
+
 function auth(req, res, next) {
   const token = exactBearer(req);
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
@@ -107,7 +127,36 @@ function auth(req, res, next) {
       dslot: payload.dslot,
     };
 
+    if (payload.act || payload.dslot === 'impersonation') {
+      const act = payload.act;
+      const actor = act && act.id ? currentUser(db, act.id) : null;
+      if (!actor || !actor.active || actor.role !== 'admin'
+          || Number(act.ae) !== Number(actor.auth_epoch || 0)) {
+        return res.status(401).json({ error: 'نشست ورود مدیر باطل شده است' });
+      }
+      req.user.impersonator = { id: actor.id, username: actor.username, name: actor.name };
+    }
+
     const requestPath = (req.originalUrl || '').split('?')[0];
+    if (impersonationForbidden(req, requestPath)) {
+      audit(req.user.impersonator.id, 'impersonate_denied', 'user', req.user.id,
+        `${req.method} ${requestPath} در ورود به حساب ${req.user.username} بسته شد`, req);
+      return res.status(403).json({
+        error: 'در ورود به حساب کاربر، این کار بسته است تا نشست او قطع نشود',
+        code: 'IMPERSONATION_FORBIDDEN',
+      });
+    }
+    if (req.user.impersonator && !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || 'GET').toUpperCase())
+        && requestPath !== '/api/auth/impersonate' && requestPath !== '/api/auth/impersonate/stop') {
+      res.on('finish', () => {
+        if (res.statusCode >= 400) return;
+        audit(req.user.impersonator.id, 'impersonated_write', 'user', req.user.id,
+          `${req.method} ${requestPath} به‌جای ${req.user.username}`, req);
+      });
+    }
+    if (req.user.impersonator) {
+      return next();
+    }
     if (user.must_change_password && !isDevice()) {
       if (!MUST_CHANGE_ALLOWED.includes(requestPath)) {
         return res.status(403).json({
