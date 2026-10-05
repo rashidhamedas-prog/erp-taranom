@@ -23808,13 +23808,13 @@ ROUTES.settings = async function(){
           <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">وضعیت صف</button>
           <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${syncBlockedBySecret?'کلید API ناخواناست — ابتدا ذخیره مجدد':''}</span>
         </div>
-        <div class="fg full"><label>کد کالا برای dry-run (id عددی ERP)</label>
-          <input id="s-website-dryrun-pid" dir="ltr" placeholder="product id" data-csp-style="${CSP.style(`max-width:160px`)}">
+        <div class="fg full"><label>کد کالا یا شناسه ERP</label>
+          <input id="s-website-dryrun-pid" dir="ltr" placeholder="مثلاً 7141" data-csp-style="${CSP.style(`max-width:200px`)}">
         </div>
         <div id="s-website-outbox" class="fg full" data-csp-style="${CSP.style(`font-size:13px;line-height:1.75`)}"></div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
-          <b>ماتریس:</b> کد کالا = sku سایت؛ رنگ و سایز ERP با نام رنگ/سایز سایت جفت می‌شود.
-          واریانت‌های جفت‌نشده در پاسخ dry-run و last_result صف دیده می‌شوند — ساخت خودکار انجام نمی‌شود.
+          <b>ماتریس:</b> کد کالا (نه شناسهٔ داخلی ردیف) با SKU سایت یکی است. توضیح داخل پرانتز سایز، مثل «مناسب از ۳۸ تا ۴۲»، و رقم فارسی/انگلیسی در جفت‌شدن نادیده گرفته می‌شود.
+          اگر کالا پیدا نشود همان را می‌گوید؛ «جفت نشدن واریانت» فقط وقتی است که خود کالا پیدا شده و یک رنگ/سایز در سایت نیست. ساخت خودکار واریانت انجام نمی‌شود.
         </div>
       </div>
     </div></div>`;
@@ -24025,31 +24025,35 @@ async function testWebsiteConnection(){
 }
 async function websiteRetryOne(){
   const st=el('s-website-test-status');
-  const pid=parseInt(el('s-website-dryrun-pid')?.value,10);
-  if(!pid){ showToast('شناسه همان کالا را وارد کنید','error'); return; }
+  const raw=String(el('s-website-dryrun-pid')?.value||'').trim();
+  if(!raw){ showToast('کد یا شناسه همان کالا را وارد کنید','error'); return; }
   if(st) st.textContent='ارسال دوباره…';
   try{
-    const r=await api('POST','/settings/website-retry-one',{productId:pid});
-    if(st) st.textContent=r?.ok?'در صف همین کالا':'ناموفق';
-    showToast(r?.skipped?'صف این کالا باز نشد':'همین کالا دوباره در صف قرار گرفت', r?.skipped?'error':'success');
+    const r=await api('POST','/settings/website-retry-one',{productId:raw});
+    if(st) st.textContent=r?.label||(r?.ok?'در صف همین کالا':'ناموفق');
+    showToast(r?.skipped?'صف این کالا باز نشد':((r?.label?r.label+' — ':'')+'همین کالا دوباره در صف قرار گرفت'), r?.skipped?'error':'success');
     if(typeof loadWebsiteOutbox==='function') loadWebsiteOutbox();
   }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
 async function websiteStockDryRun(){
   const st=el('s-website-test-status');
-  const pid=parseInt(el('s-website-dryrun-pid')?.value,10);
-  if(!pid){ showToast('شناسه کالا (product id) را وارد کنید','error'); return; }
-  if(st) st.textContent='dry-run…';
+  const raw=String(el('s-website-dryrun-pid')?.value||'').trim();
+  if(!raw){ showToast('کد یا شناسه کالا را وارد کنید','error'); return; }
+  if(st) st.textContent='در حال بازرسی نگاشت…';
   try{
-    const r=await api('POST','/settings/website-dry-run',{productId:pid});
+    const r=await api('POST','/settings/website-dry-run',{productId:raw});
     const box=el('s-website-outbox');
-    const lines=(r.results||[]).map(x=>{
-      const um=(x.unmatched||[]).map(u=>u.erpVariantSku||u.reason).join(', ');
-      return `${x.channel||'?'}: ${x.ok?'OK':'FAIL'} matched=${x.matched||0} unmatched=${um||'—'}`;
+    const lines=Array.isArray(r?.lines)&&r.lines.length?r.lines:(r?.results||[]).map(x=>{
+      const rows=x.unmatched||[];
+      const sample=rows.slice(0,4).map(u=>[u.color,u.size].filter(Boolean).join(' / ')||u.reason||u.erpVariantSku).filter(Boolean).join('؛ ');
+      if(!rows.length&&x.reason) return `${x.channel||'?'}: FAIL ${x.reason}`;
+      return `${x.channel||'?'}: ${x.ok?'OK':'FAIL'} matched=${x.matched||0} unmatched=${rows.length}${sample?' — '+sample:''}`;
     });
+    if(r?.error) lines.unshift(r.error);
     if(box) box.textContent=lines.join('\n')||JSON.stringify(r,null,2);
-    if(st) st.textContent=r?.ok?'dry-run موفق':'dry-run با unmatched';
-    showToast(r?.ok?'نگاشت کامل است':'برخی واریانت‌ها جفت نشدند', r?.ok?'success':'error');
+    if(st) st.textContent=r?.ok?'نگاشت کامل است':(r?.error||'نیاز به رسیدگی');
+    const toast=r?.error||(r?.ok?((r.label?r.label+' — ':'')+'نگاشت کامل است'):(r?.message||'برخی رنگ/سایزها در سایت جفت نشدند'));
+    showToast(toast, r?.ok?'success':'error');
   }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
 async function websiteStockFullSync(){
@@ -24752,7 +24756,7 @@ function renderAdminGuide(){
         <li><b>پیگیری:</b> تازگی مشتری با تاریخ شمسی درست حساب می‌شود. یادآور پیگیری معوق هر چند روز (پیش‌فرض ۷) تکرار می‌شود؛ از خود پیگیری می‌توان آن را خاموش یا به تعویق انداخت.</li>
         <li><b>بودجه و جریان نقد:</b> سال بودجه از دورهٔ مالی شمسی است. جریان مختلط به نسبت مبلغ طرف مقابل شکسته می‌شود و انتقال صندوق‌به‌صندوق خالص را باد نمی‌کند. محاسبهٔ ناقص صفرِ جعلی نشان نمی‌دهد. این خروجی هنوز امضای حسابدار ایرانی ندارد.</li>
         <li><b>منوی بستن:</b> افتتاحیه، بستن موقت، بستن دائم و تسعیر قالب سند دستی هستند، نه بستن خودکار دوره.</li>
-        <li><b>سینک سایت:</b> SKU جورنشده موفق اعلام نمی‌شود و ادغام فازی انجام نمی‌شود.</li>
+        <li><b>سینک سایت:</b> SKU جورنشده موفق اعلام نمی‌شود و ادغام فازی انجام نمی‌شود. در بازرسی نگاشت، کد کالا (مثل ۷۱۴۱) را بزنید نه شناسهٔ داخلی ردیف. اگر کالا در ERP نباشد، پیام «واریانت جفت نشد» نمی‌آید.</li>
       </ul>`),
     helpSec('🎯','نسخه نمایشی',`
       <p>دو سطح نمایش جدا از هم وجود دارد — با هم وصل نمی‌شوند:</p>
@@ -25240,7 +25244,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی. کد اقتصادی، شناسه ملی و کد پستی شرکت اگر پر شوند روی چاپ می‌آیند؛ خالی باشند خطشان حذف می‌شود</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند). آپلود پشتیبان در وب فقط درستی بسته را چک می‌کند. برگرداندن داده با دستور آفلاین است: هر شرکت جدا، بدون WAL قدیمی، و جایگزینی کامل پوشهٔ تصاویر</li>
-        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B. اگر «کد کالا در سایت پیدا نشد» دیدید، نگاشت را در سایت درست کنید و فقط «ارسال دوبارهٔ همین کالا» را بزنید. همگام‌سازی کامل همهٔ کالاهای موفق را هم دوباره می‌فرستد.</li>
+        <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B. در کادر بازرسی، <b>کد کالا</b> را وارد کنید (همان SKU سایت)؛ شناسهٔ داخلی ردیف هم پذیرفته می‌شود. اگر «کد کالا در سایت پیدا نشد» دیدید، نگاشت را در سایت درست کنید و فقط «ارسال دوبارهٔ همین کالا» را بزنید. توضیح پرانتزی سایز و رقم فارسی مانع جفت‌شدن نیست. همگام‌سازی کامل همهٔ کالاهای موفق را هم دوباره می‌فرستد.</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت فقط روی سرور مرکزی. تاریخ خالی فیلتر روز نمی‌گذارد</li>
@@ -25544,7 +25548,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v310</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v311</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>

@@ -213,6 +213,75 @@ function isAllProductSkuNotFound(unmatched) {
   return unmatched.every((u) => String(u && u.reason || '') === 'product_sku_not_found');
 }
 
+/**
+ * Dry-run / retry accept either the internal products.id or the business code.
+ * Operators type the code (7141). That number is not the row id (لاله is id 101).
+ * If the typed digits are both an id and a different product's code, the code wins:
+ * the field is the catalog code the site SKU is matched on.
+ */
+function resolveSyncProduct(db, raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return { ok: false, error: 'کد یا شناسه کالا را وارد کنید' };
+  const numeric = /^\d+$/.test(text) ? parseInt(text, 10) : null;
+  const byId = numeric
+    ? db.prepare('SELECT id, code, name FROM products WHERE id=?').get(numeric)
+    : null;
+  const byCode = db.prepare('SELECT id, code, name FROM products WHERE code=?').get(text);
+  let product = null;
+  let via = '';
+  if (byCode && (!byId || Number(byId.id) !== Number(byCode.id))) {
+    product = byCode;
+    via = 'code';
+  } else if (byId) {
+    product = byId;
+    via = 'id';
+  }
+  if (!product) {
+    return { ok: false, error: `کالایی با کد یا شناسه «${text}» در ERP پیدا نشد` };
+  }
+  const code = String(product.code || '').trim();
+  const name = String(product.name || '').trim();
+  return {
+    ok: true,
+    via,
+    product: { id: Number(product.id), code, name },
+    label: `${name || 'بدون نام'} — کد ${code || '—'} — شناسه ${product.id}`,
+  };
+}
+
+function formatUnmatchedReason(reason) {
+  const r = String(reason || '').trim();
+  if (r === 'product_sku_not_found') return 'کد کالا در سایت نیست';
+  if (r === 'variant_not_matched') return 'همین رنگ/سایز در سایت نیست';
+  return r;
+}
+
+function formatChannelFailReason(reason) {
+  const r = String(reason || '').trim();
+  if (r === 'no_matrix_variants') return 'این کالا ماتریس رنگ×سایز فعال ندارد';
+  if (r === 'missing product.code') return 'کد کالا در ERP خالی است';
+  if (r === 'warehouse_not_configured') return 'انبار این کانال انتخاب نشده';
+  return r;
+}
+
+/** One Persian line for the settings dry-run box. Never hides an empty unmatched list behind "—". */
+function formatDryRunChannel(row) {
+  const ch = String((row && row.channel) || '?');
+  const unmatched = row && Array.isArray(row.unmatched) ? row.unmatched : [];
+  if (!unmatched.length && row && row.reason && !row.ok) {
+    return `${ch}: FAIL ${formatChannelFailReason(row.reason)}`;
+  }
+  const n = row && row.unmatchedCount != null ? Number(row.unmatchedCount) : unmatched.length;
+  const sample = unmatched.slice(0, 4).map((u) => {
+    const name = [u && u.color, u && u.size].map((x) => String(x || '').trim()).filter(Boolean).join(' / ')
+      || String((u && (u.erpVariantSku || u.reason)) || '').trim();
+    const why = formatUnmatchedReason(u && u.reason);
+    return why && name ? `${name} (${why})` : (name || why);
+  }).filter(Boolean).join('؛ ');
+  const matched = Number(row && row.matched) || 0;
+  return `${ch}: ${row && row.ok ? 'OK' : 'FAIL'} matched=${matched} unmatched=${Number.isFinite(n) ? n : 0}${sample ? ' — ' + sample : ''}`;
+}
+
 function rowHasUnmappedProductSku(row) {
   try {
     const lr = typeof row.last_result === 'string'
@@ -847,8 +916,13 @@ async function testWebsiteConnection(arg) {
   return { ok, target, status: res.status, reason: ok ? 'ok' : 'woocommerce unreachable or unauthorized' };
 }
 
-/** Dry-run matrix for one product (no write on site). */
-async function dryRunProductMatrix(db, productId) {
+/** Dry-run matrix for one product (no write on site). raw is products.id or products.code. */
+async function dryRunProductMatrix(db, raw) {
+  const resolved = resolveSyncProduct(db, raw);
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.error, results: [], lines: [] };
+  }
+  const productId = resolved.product.id;
   const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   const channels = configuredChannels(s);
   const results = [];
@@ -867,10 +941,20 @@ async function dryRunProductMatrix(db, productId) {
     results.push(push);
   }
   const failed = results.filter((r) => !r.ok);
+  const lines = [
+    `کالا: ${resolved.label} (جستجو با ${resolved.via === 'code' ? 'کد' : 'شناسه'})`,
+    ...results.map(formatDryRunChannel),
+  ];
   return {
     ok: failed.length === 0,
+    productId,
+    via: resolved.via,
+    label: resolved.label,
     unmatchedCount: results.reduce((sum, r) => sum + (Number(r.unmatchedCount) || 0), 0),
-    message: failed.length ? String(failed[0].message || failed[0].reason || '') : '',
+    message: failed.length
+      ? String(failed[0].message || formatChannelFailReason(failed[0].reason) || failed[0].reason || '')
+      : '',
+    lines,
     results,
   };
 }
@@ -1028,6 +1112,8 @@ module.exports = {
   pushMatrixToSite,
   testWebsiteConnection,
   dryRunProductMatrix,
+  resolveSyncProduct,
+  formatDryRunChannel,
   enqueueFullSync,
   outboxStatus,
   ensureWebsiteStockOutbox,

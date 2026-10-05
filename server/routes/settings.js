@@ -91,9 +91,11 @@ router.post('/website-test', auth, adminOnly, centralOnly, async (req, res) => {
 router.post('/website-dry-run', auth, adminOnly, centralOnly, async (req, res) => {
   try {
     const sync = require('../lib/website-stock-sync');
-    const productId = parseInt(req.body && req.body.productId, 10);
-    if (!productId) return res.status(400).json({ ok: false, error: 'productId الزامی است' });
-    const result = await sync.dryRunProductMatrix(getDB(), productId);
+    const raw = req.body && (req.body.productId != null ? req.body.productId : req.body.code);
+    if (raw == null || String(raw).trim() === '') {
+      return res.status(400).json({ ok: false, error: 'کد یا شناسه کالا الزامی است' });
+    }
+    const result = await sync.dryRunProductMatrix(getDB(), raw);
     res.json(result);
   } catch (e) {
     res.status(400).json(websiteSyncErrorBody(e, 'dry-run ناموفق'));
@@ -103,10 +105,11 @@ router.post('/website-dry-run', auth, adminOnly, centralOnly, async (req, res) =
 router.post('/website-retry-one', auth, adminOnly, centralOnly, (req, res) => {
   try {
     const sync = require('../lib/website-stock-sync');
-    const productId = parseInt(req.body && req.body.productId, 10);
-    if (!productId) return res.status(400).json({ ok: false, error: 'productId الزامی است' });
-    const result = sync.enqueueWebsiteStock(getDB(), productId, { clearHold: true });
-    res.json({ ok: true, ...result });
+    const raw = req.body && (req.body.productId != null ? req.body.productId : req.body.code);
+    const resolved = sync.resolveSyncProduct(getDB(), raw);
+    if (!resolved.ok) return res.status(400).json({ ok: false, error: resolved.error });
+    const result = sync.enqueueWebsiteStock(getDB(), resolved.product.id, { clearHold: true });
+    res.json({ ok: true, ...result, productId: resolved.product.id, label: resolved.label, via: resolved.via });
   } catch (e) {
     res.status(400).json(websiteSyncErrorBody(e, 'ارسال دوباره ناموفق'));
   }
