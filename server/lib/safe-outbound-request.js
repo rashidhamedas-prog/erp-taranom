@@ -230,6 +230,10 @@ function dispatchHttps(target, { method, data, headers, timeoutMs, maxResponseBy
       lookup: pinnedLookup(target.address, target.family),
       timeout: timeoutMs,
       rejectUnauthorized: true,
+      // Node's global agent keeps sockets alive. The second matrix chunk from Iran
+      // then sat on a reused socket until the 45s timeout, after the first chunk
+      // had already matched. One connection per call.
+      agent: false,
     }, (res) => {
       const chunks = [];
       let bytes = 0;
