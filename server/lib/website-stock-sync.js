@@ -29,6 +29,12 @@ const UNMATCHED_EXAMPLE_LIMIT = 5;
 /** Keep batches small — matrix PUT can take tens of seconds under load. */
 const DRAIN_BATCH = 5;
 const MATRIX_TIMEOUT_MS = 45_000;
+/**
+ * Iran → site sometimes stalls once a matrix body grows past a handful of
+ * variants (14 rows ~2.6KB timed out; 7 rows ~1.3KB returned in under a second).
+ * Each chunk is an absolute stock set for those variants, so a retry is safe.
+ */
+const MATRIX_CHUNK_SIZE = 6;
 const PING_TIMEOUT_MS = 15_000;
 const DRAIN_INTERVAL_MS = 30_000;
 
@@ -264,6 +270,12 @@ function formatChannelFailReason(reason) {
   return r;
 }
 
+function matchedCount(value) {
+  if (Array.isArray(value)) return value.length;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** One Persian line for the settings dry-run box. Never hides an empty unmatched list behind "—". */
 function formatDryRunChannel(row) {
   const ch = String((row && row.channel) || '?');
@@ -278,7 +290,7 @@ function formatDryRunChannel(row) {
     const why = formatUnmatchedReason(u && u.reason);
     return why && name ? `${name} (${why})` : (name || why);
   }).filter(Boolean).join('؛ ');
-  const matched = Number(row && row.matched) || 0;
+  const matched = matchedCount(row && row.matched);
   return `${ch}: ${row && row.ok ? 'OK' : 'FAIL'} matched=${matched} unmatched=${Number.isFinite(n) ? n : 0}${sample ? ' — ' + sample : ''}`;
 }
 
@@ -538,6 +550,27 @@ function buildMatrixPayload(db, productId, channel, warehouseId) {
   };
 }
 
+/**
+ * Split one product matrix into small PUTs. Chunk idempotency keys are stable
+ * suffixes of the payload key so a finished chunk is not applied twice, and a
+ * later chunk is not answered with the first chunk's cached body.
+ */
+function chunkMatrixRequests(payload, { dryRun = false, chunkSize = MATRIX_CHUNK_SIZE } = {}) {
+  const variants = payload && Array.isArray(payload.variants) ? payload.variants : [];
+  const size = Math.max(1, Number(chunkSize) || MATRIX_CHUNK_SIZE);
+  const chunks = [];
+  for (let i = 0; i < variants.length; i += size) chunks.push(variants.slice(i, i + size));
+  if (!chunks.length) chunks.push([]);
+  const baseKey = String((payload && payload.idempotencyKey) || '').trim();
+  return chunks.map((rows, i) => ({
+    idempotencyKey: baseKey ? `${baseKey}:c${i}` : undefined,
+    channel: payload && payload.channel,
+    productSku: payload && payload.productSku,
+    variants: rows,
+    dryRun: !!dryRun,
+  }));
+}
+
 function hashVariants(variants) {
   const crypto = require('crypto');
   return crypto.createHash('sha1')
@@ -564,36 +597,42 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
   if (!base || !token) return { skipped: true, reason: 'missing b2b config' };
   if (!payload || payload.skip) return { skipped: true, reason: (payload && payload.reason) || 'empty payload' };
 
-  const body = {
-    idempotencyKey: payload.idempotencyKey,
-    channel: payload.channel,
-    productSku: payload.productSku,
-    variants: payload.variants,
-    dryRun: !!dryRun,
-  };
   const url = siteApiUrl(base, 'erp/inventory/matrix');
-  const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token), {
-    timeoutMs: MATRIX_TIMEOUT_MS,
-  });
-  let parsed = null;
-  try { parsed = JSON.parse(res.body); } catch { /* */ }
-  const transportOk = res.status >= 200 && res.status < 300;
-  const matched = parsed && Array.isArray(parsed.matched)
-    ? parsed.matched.length
-    : (parsed ? Number(parsed.matched) || 0 : 0);
-  const unmatched = parsed && Array.isArray(parsed.unmatched) ? parsed.unmatched : [];
+  const requests = chunkMatrixRequests(payload, { dryRun });
+  const matched = [];
+  const unmatched = [];
+  let transportOk = true;
+  let status = 0;
+  let failReason = '';
+  for (const body of requests) {
+    const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token), {
+      timeoutMs: MATRIX_TIMEOUT_MS,
+    });
+    status = res.status;
+    let parsed = null;
+    try { parsed = JSON.parse(res.body); } catch { /* */ }
+    const chunkOk = res.status >= 200 && res.status < 300;
+    if (!chunkOk) {
+      transportOk = false;
+      failReason = formatOutboundFailure(res);
+      break;
+    }
+    if (parsed && Array.isArray(parsed.matched)) matched.push(...parsed.matched);
+    else if (parsed && Number(parsed.matched)) matched.push(...Array(Number(parsed.matched)).fill(null));
+    if (parsed && Array.isArray(parsed.unmatched)) unmatched.push(...parsed.unmatched);
+  }
   // HTTP 2xx alone is not success: any unmatched sellable row fails the push.
   const verdict = classifyMatrixPushResult({
     ok: transportOk,
-    status: res.status,
+    status,
     matched,
     unmatched,
-    reason: transportOk ? '' : formatOutboundFailure(res),
+    reason: transportOk ? '' : failReason,
   }, payload);
   return {
     ok: verdict.ok,
     transportOk,
-    status: res.status,
+    status,
     reason: verdict.ok ? '' : verdict.message,
     code: verdict.code,
     channel: payload.channel,
@@ -604,7 +643,7 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
     unmatchedCount: verdict.unmatchedCount,
     examples: verdict.examples,
     message: verdict.message,
-    body: parsed || (typeof res.body === 'string' ? res.body : null),
+    body: { chunks: requests.length, matched: matched.length, unmatched: unmatched.length },
     dryRun: !!dryRun,
   };
 }
@@ -761,7 +800,7 @@ async function drainWebsiteStockOutbox(db) {
         `).run(
           rowStatus,
           JSON.stringify({
-            matched: push.matched,
+            matched: matchedCount(push.matched),
             unmatched: push.unmatched,
             status: push.status,
             catalogMissing: isAllProductSkuNotFound(push.unmatched),
@@ -997,7 +1036,7 @@ function summarizeOutboxRow(row) {
       : status === 'pending' ? 'در صف ارسال' : status || 'نامشخص';
 
   const lr = parseOutboxLastResult(row.last_result);
-  const matched = Number(lr.matched || 0);
+  const matched = matchedCount(lr.matched);
   const unmatched = Array.isArray(lr.unmatched) ? lr.unmatched : [];
   const unmatchedN = unmatched.length;
   const reasons = [...new Set(unmatched.map((u) => String(u && u.reason || '').trim()).filter(Boolean))];
@@ -1134,9 +1173,11 @@ module.exports = {
   formatOutboundFailure,
   summarizeOutboxRow,
   classifyMatrixPushResult,
+  chunkMatrixRequests,
   formatUnmatchedExample,
   DEBOUNCE_MS,
   MATRIX_TIMEOUT_MS,
+  MATRIX_CHUNK_SIZE,
   DRAIN_BATCH,
   UNMATCHED_EXAMPLE_LIMIT,
 };

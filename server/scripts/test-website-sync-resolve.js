@@ -5,7 +5,7 @@
  * node server/scripts/test-website-sync-resolve.js
  */
 const assert = require('assert');
-const { resolveSyncProduct, formatDryRunChannel } = require('../lib/website-stock-sync');
+const { resolveSyncProduct, formatDryRunChannel, chunkMatrixRequests } = require('../lib/website-stock-sync');
 
 function dbOf(rows) {
   return {
@@ -81,8 +81,37 @@ const variantMiss = formatDryRunChannel({
   unmatched: [{ color: 'سرمه‌ای', size: 'سایز ۱', reason: 'variant_not_matched', erpVariantSku: '7141-x' }],
 });
 assert.ok(variantMiss.includes('matched=4'), variantMiss);
+const counted = formatDryRunChannel({
+  channel: 'WHOLESALE',
+  ok: true,
+  matched: [{ qty: 9 }, { qty: 8 }, { qty: 9 }],
+  unmatched: [],
+  unmatchedCount: 0,
+});
+assert.ok(counted.includes('OK'), counted);
+assert.ok(counted.includes('matched=3'), counted);
 assert.ok(variantMiss.includes('سرمه‌ای'), variantMiss);
 assert.ok(variantMiss.includes('همین رنگ/سایز در سایت نیست'), variantMiss);
 assert.ok(!variantMiss.includes('7141-x'), variantMiss);
+
+const variants = Array.from({ length: 14 }, (_, i) => ({ sku: 'v' + i, qty: i }));
+const chunks = chunkMatrixRequests({
+  idempotencyKey: 'erp:WHOLESALE:p101:h1',
+  channel: 'WHOLESALE',
+  productSku: '7141',
+  variants,
+}, { dryRun: true });
+assert.deepStrictEqual(chunks.map((c) => c.variants.length), [6, 6, 2]);
+assert.strictEqual(new Set(chunks.map((c) => c.idempotencyKey)).size, 3);
+assert.ok(chunks.every((c) => c.idempotencyKey.startsWith('erp:WHOLESALE:p101:h1:c')));
+assert.ok(chunks.every((c) => c.dryRun === true && c.productSku === '7141'));
+assert.strictEqual(chunks[0].variants[0].sku, 'v0');
+assert.strictEqual(chunks[2].variants[1].sku, 'v13');
+
+const seven = chunkMatrixRequests({ idempotencyKey: 'k', variants: variants.slice(0, 7) });
+assert.deepStrictEqual(seven.map((c) => c.variants.length), [6, 1]);
+const one = chunkMatrixRequests({ idempotencyKey: 'k', variants: variants.slice(0, 1) });
+assert.deepStrictEqual(one.map((c) => c.variants.length), [1]);
+assert.strictEqual(one[0].idempotencyKey, 'k:c0');
 
 console.log('test-website-sync-resolve: ok');

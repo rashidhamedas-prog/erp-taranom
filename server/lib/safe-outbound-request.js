@@ -264,7 +264,9 @@ async function safeRequestJSON(urlValue, method = 'GET', body = null, headers = 
   }
   const lookup = options.lookup || defaultLookup;
   const dispatch = options.dispatch || dispatchHttps;
-  const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS, 1000), 30_000);
+  // Matrix stock pushes ask for 45s. A 30s ceiling aborted those calls while nginx
+  // was still returning 200, so the outbox stayed pending forever.
+  const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS, 1000), 60_000);
   const maxResponseBytes = Math.min(Math.max(Number(options.maxResponseBytes) || DEFAULT_MAX_RESPONSE_BYTES, 1024), 8 * 1024 * 1024);
   const maxRedirects = Math.min(Math.max(Number(options.maxRedirects) || DEFAULT_MAX_REDIRECTS, 0), 5);
   let current = validateOutboundUrl(urlValue);
