@@ -13,8 +13,8 @@
 - **ریشه:** وصول فقط `cheque_records.lifecycle_status` را `cleared` می‌کند. هشدار و کارت نقدینگی هنوز `settlements.cheque_status='pending'` را می‌شمارند و آن پرچم را هیچ‌وقت عوض نمی‌کنند. پرچم تسویهٔ چک ۶۵۵۰۹۹ هنوز `pending` بود در حالی که دفتر چک `cleared` بود.
 - **رفع:** شمارش زنده از دفتر چک است: فقط چک دریافتنی نزد صندوق یا در جریان وصول، با سررسید پر تا ۷ روز آینده. وصول، خرج، برگشت و ابطال شمرده نمی‌شوند. تسویهٔ بدون ردیف دفتر (قدیمی) اگر هنوز در جریان باشد می‌ماند. با وصول، واگذاری، برگشت، ارسال مجدد، خرج و ابطال، پرچم تسویه در همان تراکنش هم‌تراز می‌شود. یک‌بار با باز شدن داشبورد، پرچم‌های قبلیِ وصل‌شده به دفتر چک اصلاح می‌شوند.
 - **فایل‌ها:** `server/lib/cheque-due.js`, `server/routes/{dashboard,cheque-records}.js`, `server/lib/{treasury-dashboard,void-cheque}.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-dashboard-hotpath.js`.
-- **تست:** `test-dashboard-hotpath.js` روی سرور ایران (better-sqlite3 برای Node ۲۴ ویندوز نیست). `test-sms` و `test-sync` همان‌جا.
-- **Deploy:** در حال انجام — SW `erp-taranom-v326`.
+- **تست:** روی سرور ایران `test-dashboard-hotpath.js` ۱۰/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰. چک زندهٔ ۶۵۵۰۹۹ بعد از اصلاح: دفتر `cleared`، تسویه `received`، شمارش هشدار ۰.
+- **Deploy:** ✅ `5f66eb4` — overlay ایران (بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200. کش فرانت بعد از کامیت بعدی `erp-taranom-v327` است.
 
 ### ۱۴۰۵/۰۷/۱۴ — جستجوی «پرداخت به حساب» و انتخاب هر حساب فعال (SW v325)
 
