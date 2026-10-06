@@ -16233,7 +16233,7 @@ async function renderPayrollTab(body){
       const canVoidPay=canPerm('payroll','create')&&!reversed&&paidR>0;
       const canVoidAccrual=canPerm('payroll','create')&&!reversed;
       return `<tr${reversed?` data-csp-style="${CSP.style(`opacity:.55`)}"`:''}>
-      <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}</td>
+      <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}${r.settlement_mode==='manual_exempt'?`<div class="muted">${esc(PAYROLL_EXEMPT_LABELS[r.exempt_reason]||'بدون بیمه و مالیات')}</div>`:''}</td>
       <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
       <td class="mono">${fmt(r.gross_earnings_rial||r.gross_pay||0)}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt((r.sso_employee_rial||r.insurance_deduction||0)+(r.income_tax_rial||r.tax_deduction||0)+(r.other_deductions_rial||r.deductions||0))}</td>
@@ -16506,13 +16506,23 @@ async function savePayrollTax(year){
   try{await api('PUT','/payroll/tax-brackets/'+year,{rows});closeModal();showToast('پلکان مالیات ذخیره شد');renderPayrollTaxConfig(el('accBody'));}catch(e){}
 }
 
+const PAYROLL_EXEMPT_LABELS={contractor:'پیمانکار، خارج از رابطه کارگری',marketer:'بازاریاب غیروابسته، بدون رابطه استخدامی',owner:'صاحب کار یا شریک',other:'سایر'};
 async function renderPayrollProcessing(body){
   const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
   CACHE.payrollPeriods=periods||[];
+  CACHE.payrollEmployees=employees||[];
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
-    <div class="fg"><label>کارمند *</label>${personSelect('pc-person','',(employees||[]).filter(p=>p.active))}</div>
+    <div class="fg"><label>شخص *</label>${personSelect('pc-person','',(employees||[]).filter(p=>p.active))}</div>
+    <div class="fg full"><label>روش ثبت</label>
+      <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:14px;align-items:center`)}">
+        <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="radio" name="pc-mode" value="labor" checked data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){togglePayrollEntryMode()})}"> محاسبه طبق قانون کار</label>
+        <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="radio" name="pc-mode" value="manual_exempt" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){togglePayrollEntryMode()})}"> ثبت دستی بدون بیمه و مالیات</label>
+      </div>
+    </div>
+  </div>
+  <div id="pc-labor-fields" class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
     <div class="fg"><label>روز کارکرد</label><input id="pc-days" type="number" step=".01" value="30"></div>
     <div class="fg"><label>ساعت عادی</label><input id="pc-hours" type="number" step=".01" value="220"></div>
     <div class="fg"><label>اضافه‌کاری</label><input id="pc-ot" type="number" step=".01" value="0"></div>
@@ -16521,15 +16531,16 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>سایر مزایا (ریال)</label><input id="pc-other" class="money" inputmode="numeric" value="0"></div>
     <div class="fg"><label>معافیت مالیاتی ماه (ریال)</label><input id="pc-tax-ex" class="money" inputmode="numeric" value="0"></div>
     <div class="fg"><label>سایر کسورات (ریال)</label><input id="pc-ded" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg full"><label><input type="checkbox" id="pc-manual" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(event){togglePayrollManualFields()})}"> ثبت دستی حقوق این ماه</label></div>
   </div>
-  <div id="pc-manual-fields" class="form-grid" data-csp-style="${CSP.style(`display:none;margin-top:10px;padding:12px;background:var(--purple-light);border-radius:10px`)}">
-    <div class="fg"><label>ناخالص (ریال) *</label><input id="pc-m-gross" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg"><label>بیمه کارگر</label><input id="pc-m-sso-e" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg"><label>بیمه کارفرما</label><input id="pc-m-sso-r" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg"><label>مالیات</label><input id="pc-m-tax" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg"><label>سایر کسورات</label><input id="pc-m-ded" class="money" inputmode="numeric" value="0"></div>
-    <div class="fg"><label>خالص (ریال)</label><input id="pc-m-net" class="money" inputmode="numeric" value="0" placeholder="خودکار = ناخالص−کسور"></div>
+  <div id="pc-manual-fields" data-csp-style="${CSP.style(`display:none;margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px`)}">
+    <div class="muted" data-csp-style="${CSP.style(`line-height:1.8;margin-bottom:10px`)}">فقط برای پرداختی که رابطه کارگری ندارد: پیمانکار، بازاریاب غیروابسته، یا صاحب کار. بیمه تأمین اجتماعی و مالیات حقوق صفر است و در فهرست بیمه و مالیات نمی‌آید. سند فقط هزینه و بدهی همان شخص است. کارگر مشمول باید با روش قانون کار ثبت شود.</div>
+    <div class="form-grid">
+      <div class="fg"><label>مبنا *</label><select id="pc-m-reason"><option value="">—</option><option value="contractor">پیمانکار، خارج از رابطه کارگری</option><option value="marketer">بازاریاب غیروابسته</option><option value="owner">صاحب کار یا شریک</option><option value="other">سایر — توضیح الزامی</option></select></div>
+      <div class="fg"><label>ناخالص (ریال) *</label><input id="pc-m-gross" class="money" inputmode="numeric" value="0" data-csp-input="${CSP.bind('input',function(){refreshManualExemptNet()})}"></div>
+      <div class="fg"><label>سایر کسورات (ریال)</label><input id="pc-m-ded" class="money" inputmode="numeric" value="0" data-csp-input="${CSP.bind('input',function(){refreshManualExemptNet()})}"> <span class="muted">وام یا مساعده؛ نه بیمه و نه مالیات</span></div>
+      <div class="fg"><label>خالص</label><div id="pc-m-net-view" class="mono" data-csp-style="${CSP.style(`font-weight:700;padding-top:8px`)}">۰ ریال</div></div>
+      <div class="fg full"><label>توضیح</label><textarea id="pc-m-note" rows="2" placeholder="برای مبنای سایر الزامی است"></textarea></div>
+    </div>
   </div>
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
   ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
@@ -16538,40 +16549,56 @@ async function renderPayrollProcessing(body){
   const hid=el('pc-person');
   if(hid) hid.addEventListener('change', payrollProcessingPersonChanged);
 }
-function togglePayrollManualFields(){
-  const on=!!el('pc-manual')?.checked;
-  const box=el('pc-manual-fields'); if(box) box.style.display=on?'':'none';
+function payrollEntryMode(){
+  return document.querySelector('input[name="pc-mode"]:checked')?.value||'labor';
+}
+function setPayrollEntryMode(mode){
+  const radio=document.querySelector(`input[name="pc-mode"][value="${mode}"]`);
+  if(radio) radio.checked=true;
+  togglePayrollEntryMode();
+}
+function togglePayrollEntryMode(){
+  const manual=payrollEntryMode()==='manual_exempt';
+  const labor=el('pc-labor-fields');
+  const box=el('pc-manual-fields');
+  if(labor) labor.style.display=manual?'none':'';
+  if(box) box.style.display=manual?'':'none';
+  if(manual) refreshManualExemptNet();
+  const result=el('pc-result');
+  if(result) result.innerHTML='';
+}
+function refreshManualExemptNet(){
+  const gross=moneyVal('pc-m-gross');
+  const ded=moneyVal('pc-m-ded');
+  const box=el('pc-m-net-view');
+  if(!box) return;
+  box.textContent=fmt(Math.max(0,gross-ded))+' ریال';
 }
 function payrollCalcPayload(){
   if(!el('pc-period')?.value) throw new Error('دوره حقوق را انتخاب کنید');
-  if(!el('pc-person')?.value) throw new Error('کارمند را از فهرست جستجو انتخاب کنید');
-  const base={period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
+  if(!el('pc-person')?.value) throw new Error('شخص را از فهرست جستجو انتخاب کنید');
+  if(payrollEntryMode()==='manual_exempt'){
+    return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,manual_mode:true,manual_exempt:true,
+      settlement_mode:'manual_exempt',exempt_reason:el('pc-m-reason')?.value||'',exempt_note:(el('pc-m-note')?.value||'').trim(),
+      gross_earnings_rial:moneyVal('pc-m-gross'),other_deductions_rial:moneyVal('pc-m-ded'),
+      sso_employee_rial:0,sso_employer_rial:0,income_tax_rial:0};
+  }
+  return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
     regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
     night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),hardship_allowance_rial:moneyVal('pc-hard'),
     other_allowance_rial:moneyVal('pc-other'),tax_exemption_rial:moneyVal('pc-tax-ex'),other_deductions_rial:moneyVal('pc-ded'),insurance_exempt_rial:0};
-  if(el('pc-manual')?.checked){
-    base.manual_mode=true;
-    base.gross_earnings_rial=moneyVal('pc-m-gross');
-    base.sso_employee_rial=moneyVal('pc-m-sso-e');
-    base.sso_employer_rial=moneyVal('pc-m-sso-r');
-    base.income_tax_rial=moneyVal('pc-m-tax');
-    base.other_deductions_rial=moneyVal('pc-m-ded');
-    base.net_pay_rial=moneyVal('pc-m-net')||undefined;
-    base.working_days=+el('pc-days').value||30;
-    base.regular_hours=+el('pc-hours').value||0;
-    base.overtime_hours=+el('pc-ot').value||0;
-  }
-  return base;
+}
+function payrollWarnHtml(warnings){
+  return (warnings||[]).map(w=>`<div data-csp-style="${CSP.style(`margin-top:8px;line-height:1.8;color:var(--orange,#B86E00)`)}">${esc(w)}</div>`).join('');
 }
 async function previewPayrollCalculation(){
   try{
-    if(el('pc-manual')?.checked){
-      const p=payrollCalcPayload();
-      const net=p.net_pay_rial!=null?p.net_pay_rial:Math.max(0,(p.gross_earnings_rial||0)-(p.sso_employee_rial||0)-(p.income_tax_rial||0)-(p.other_deductions_rial||0));
-      el('pc-result').innerHTML=`ثبت دستی — ناخالص: <b>${fmt(p.gross_earnings_rial)} ریال</b> | خالص: <b>${fmt(net)} ریال</b>`;
-      return;
-    }
-    const r=await api('POST','/payroll/calculate',payrollCalcPayload());const c=r.calculation;el('pc-result').innerHTML=`ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه کارگر: ${fmt(c.sso_employee_rial)} | مالیات: ${fmt(c.income_tax_rial)} | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`;
+    const r=await api('POST','/payroll/calculate',payrollCalcPayload());
+    const c=r.calculation;
+    const head=r.manual_exempt
+      ? `بدون بیمه و مالیات — ${esc(r.exempt?.reason_label||PAYROLL_EXEMPT_LABELS[el('pc-m-reason')?.value]||'')} | ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه: ۰ | مالیات: ۰ | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`
+      : `ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه کارگر: ${fmt(c.sso_employee_rial)} | مالیات: ${fmt(c.income_tax_rial)} | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`;
+    el('pc-result').innerHTML=head+payrollWarnHtml(r.warnings);
   }catch(e){ payrollShowCalcError(e); }
 }
 function payrollShowCalcError(e){
@@ -16583,6 +16610,7 @@ function payrollShowCalcError(e){
   if(missingPerson) html=`<div data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);line-height:1.8`)}">کارمند را از فهرست جستجو انتخاب کنید — نام را تایپ کنید و از لیست برگزینید.</div>`;
   if(missingStruct) html+=`<div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){salaryStructureModal()})}">ثبت ساختار حقوق این کارمند</button>
     <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-payroll-structures')})}">رفتن به ساختار حقوق</button></div>`;
+  if(/بدون بیمه|ثبت دستی بدون بیمه/.test(msg)) html+=`<div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){setPayrollEntryMode('manual_exempt')})}">ثبت دستی بدون بیمه و مالیات</button></div>`;
   if(box) box.innerHTML=html;
   showToast(missingPerson?'کارمند انتخاب نشده':(missingStruct?'ساختار حقوق ثبت نشده':msg),'error');
 }
@@ -16594,6 +16622,19 @@ async function payrollProcessingPersonChanged(){
     const year=todayJalali().slice(0,4);
     const st=(Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId && String(r.fiscal_year)===String(year))
       || (Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId);
+    const emp=(CACHE.payrollEmployees||[]).find(p=>Number(p.id)===personId);
+    const ins=st?.insurance_type||emp?.insurance_type||'';
+    if(payrollEntryMode()==='manual_exempt'){
+      const box=el('pc-result');
+      if(box) box.innerHTML='<span class="muted">مبنا و ناخالص را وارد کنید. بیمه و مالیات این مسیر صفر می‌ماند.</span>';
+      return;
+    }
+    if(ins==='none'){
+      const box=el('pc-result');
+      if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.8`)}">بیمه این شخص «بدون بیمه» است. محاسبه قانون کار برای کارگر مشمول بسته است.
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){setPayrollEntryMode('manual_exempt')})}">ثبت دستی بدون بیمه و مالیات</button></div>`;
+      return;
+    }
     if(!st){
       const box=el('pc-result');
       if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.8`)}">برای این کارمند ساختار حقوق سال جاری ثبت نشده.
@@ -16610,9 +16651,19 @@ async function payrollProcessingPersonChanged(){
   }catch(_){}
 }
 async function processPayrollCalculation(){
-  if(!el('pc-person')?.value){ payrollShowCalcError(new Error('کارمند را از فهرست جستجو انتخاب کنید')); return; }
-  if(!confirm('حقوق پردازش و سند حسابداری قطعی ثبت شود؟')) return;
-  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){ payrollShowCalcError(e); }
+  if(!el('pc-person')?.value){ payrollShowCalcError(new Error('شخص را از فهرست جستجو انتخاب کنید')); return; }
+  const manual=payrollEntryMode()==='manual_exempt';
+  const ask=manual
+    ? 'این پرداخت بدون بیمه و مالیات ثبت شود؟ در فهرست بیمه و مالیات حقوق نمی‌آید و سند فقط هزینه و بدهی همین شخص است.'
+    : 'حقوق پردازش و سند حسابداری قطعی ثبت شود؟';
+  if(!confirm(ask)) return;
+  try{
+    const p=payrollCalcPayload();
+    const res=await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});
+    if(res?.warnings?.length) showToast(res.warnings[0]);
+    showToast(manual?'پرداخت بدون بیمه و مالیات ثبت شد':'حقوق و سند حسابداری ثبت شد');
+    go('acc-payroll');
+  }catch(e){ payrollShowCalcError(e); }
 }
 
 async function renderPayrollYearEnd(body){
@@ -16656,10 +16707,14 @@ async function renderPayrollLegalReports(body){
   const exportBtns=periodIds.map(id=>`
     <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){downloadAuth('/payroll/periods/${id}/export/insurance-csv','payroll-insurance-DRAFT-${id}.csv')})}">بیمه DRAFT #${id}</button>
     <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){downloadAuth('/payroll/periods/${id}/export/tax-csv','payroll-tax-DRAFT-${id}.csv')})}">مالیات DRAFT #${id}</button>`).join(' ');
-  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">خلاصه لیست بیمه و مالیات حقوق سال ${year} — همه مبالغ ریال. خروجی CSV فعلاً پیش‌نویس (DRAFT) است و نیازمند تأیید متخصص.</div>
+  const exempt=d.exempt_rows||[];
+  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">خلاصه لیست بیمه و مالیات حقوق سال ${year} — همه مبالغ ریال. خروجی CSV فعلاً پیش‌نویس (DRAFT) است و نیازمند تأیید متخصص. پرداخت بدون بیمه و مالیات در این فهرست و در فایل خروجی نیست.</div>
   <div data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px`)}">${exportBtns||'<span class="muted">دوره‌ای برای خروجی نیست</span>'}</div>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>کارمند</th><th>ناخالص</th><th>مشمول بیمه</th><th>سهم کارگر</th><th>سهم کارفرما</th><th>مشمول مالیات</th><th>مالیات</th></tr></thead>
-  <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.insurance_base_rial)}</td><td>${fmt(r.sso_employee_rial)}</td><td>${fmt(r.sso_employer_rial)}</td><td>${fmt(r.taxable_income_rial)}</td><td>${fmt(r.income_tax_rial)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+  <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.insurance_base_rial)}</td><td>${fmt(r.sso_employee_rial)}</td><td>${fmt(r.sso_employer_rial)}</td><td>${fmt(r.taxable_income_rial)}</td><td>${fmt(r.income_tax_rial)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>
+  ${exempt.length?`<h4 data-csp-style="${CSP.style(`margin:16px 0 8px`)}">خارج از فهرست بیمه و مالیات</h4>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>شخص</th><th>مبنا</th><th>ناخالص</th><th>خالص</th><th>توضیح</th></tr></thead>
+  <tbody>${exempt.map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${esc(PAYROLL_EXEMPT_LABELS[r.exempt_reason]||r.exempt_reason||'')}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.net_pay_rial)}</td><td>${esc(r.exempt_note||'')}</td></tr>`).join('')}</tbody></table></div>`:''}`;
 }
 
 function payrollModal(){
@@ -26077,7 +26132,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود: بستانکار <b>تفصیلی همان شخص</b> (خالص حقوق، ریال) نه فقط حساب کنترل ۲۱۰۴؛ بیمه/مالیات روی ۲۱۰۵/۲۱۰۶ می‌ماند. <b>پرداخت چندمرحله‌ای:</b> روی دکمه پرداخت می‌توانید بخشی از مانده را الان و بقیه را بعداً تسویه کنید، یا در یک ثبت چند قسط با منبع متفاوت (بانک/صندوق/چک) بزنید؛ هر قسط سند جدا (بدهکار تفصیلی شخص / بستانکار بانک یا صندوق) می‌سازد و بیش‌پرداخت رد می‌شود. گردش شخص و دفتر کل تفصیلی همان مبالغ ریالی را نشان می‌دهند. وضعیت‌ها: پرداخت‌نشده / نیمه‌پرداخت / پرداخت‌شده؛ ابطال تک‌قسط یا ابطال همهٔ اقساط فعال ممکن است. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). <b>ابطال سند حقوق</b> همان اثر ایجاد را در یک تراکنش برمی‌گرداند: سند تعهد دفتر کل soft-void می‌شود، اقساط پرداخت فعال ابطال می‌شوند، دفتر شخص (اصل + افست قدیمی) با <code>deleted_at</code> خارج می‌شود، و ردیف با وضعیت «ابطال‌شده» و مانده صفر برای سابقه می‌ماند — حذف فیزیکی نیست. جمع پایین جدول فقط اسناد فعال است. بعد از ابطال می‌توان همان دوره را دوباره پردازش کرد. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود: بستانکار <b>تفصیلی همان شخص</b> (خالص حقوق، ریال) نه فقط حساب کنترل ۲۱۰۴؛ بیمه/مالیات روی ۲۱۰۵/۲۱۰۶ می‌ماند. <b>پرداخت چندمرحله‌ای:</b> روی دکمه پرداخت می‌توانید بخشی از مانده را الان و بقیه را بعداً تسویه کنید، یا در یک ثبت چند قسط با منبع متفاوت (بانک/صندوق/چک) بزنید؛ هر قسط سند جدا (بدهکار تفصیلی شخص / بستانکار بانک یا صندوق) می‌سازد و بیش‌پرداخت رد می‌شود. گردش شخص و دفتر کل تفصیلی همان مبالغ ریالی را نشان می‌دهند. وضعیت‌ها: پرداخت‌نشده / نیمه‌پرداخت / پرداخت‌شده؛ ابطال تک‌قسط یا ابطال همهٔ اقساط فعال ممکن است. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). <b>ابطال سند حقوق</b> همان اثر ایجاد را در یک تراکنش برمی‌گرداند: سند تعهد دفتر کل soft-void می‌شود، اقساط پرداخت فعال ابطال می‌شوند، دفتر شخص (اصل + افست قدیمی) با <code>deleted_at</code> خارج می‌شود، و ردیف با وضعیت «ابطال‌شده» و مانده صفر برای سابقه می‌ماند — حذف فیزیکی نیست. جمع پایین جدول فقط اسناد فعال است. بعد از ابطال می‌توان همان دوره را دوباره پردازش کرد. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. <b>ثبت دستی بدون بیمه و مالیات</b> فقط برای پیمانکار، بازاریاب غیروابسته یا صاحب کار است: بیمه و مالیات صفر می‌ماند، در فهرست بیمه و مالیات و CSV DRAFT نمی‌آید، و سند فقط هزینه و بدهی همان شخص است. کارگر با بیمه «بدون بیمه» از محاسبه قانون کار رد می‌شود تا وقتی مبنا را در همین مسیر انتخاب کند. اگر مزد پایه حکم از حداقل مزد ثبت‌شده در تنظیمات قانون کار کمتر باشد، سند قانون کار ثبت می‌شود و هشدار می‌ماند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

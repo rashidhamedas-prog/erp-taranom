@@ -181,6 +181,9 @@ function initPayrollSchema(db) {
     ['reversed_at', 'INTEGER'],
     ['reversed_by', 'INTEGER'],
     ['paid_rial', 'INTEGER DEFAULT 0'],
+    ['settlement_mode', "TEXT DEFAULT 'labor'"],
+    ['exempt_reason', 'TEXT'],
+    ['exempt_note', 'TEXT'],
   ];
   for (const [name, definition] of payrollColumns) ensureColumn(db, 'payroll_records', name, definition);
 

@@ -26,6 +26,11 @@ const {
   sumPaidRial,
 } = require('../lib/payroll/payments');
 const { resolvePersonPayableAccount } = require('../lib/payroll/person-account');
+const {
+  buildManualExemptCalc,
+  assertLaborPathAllowed,
+  minWageWarning,
+} = require('../lib/payroll/manual-exempt');
 const { voidPayrollAccrual } = require('../lib/payroll/void-accrual');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -800,6 +805,7 @@ function payrollContext(db, periodId, personId, opts = {}) {
     || String(structure?.tax_exemption_type || person?.tax_exemption_type || '') === 'tax_exempt'
     || Number(structure?.tax_exemption_percent_bp) >= 10000;
   if (structure && fullyExempt) structure = { ...structure, is_tax_exempt: 1, tax_exemption_percent_bp: 10000 };
+  if (!opts.manual_mode && !opts.manual_exempt) assertLaborPathAllowed(structure, person);
   let brackets = db.prepare(`
     SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
   `).all(period.fiscal_year);
@@ -839,12 +845,27 @@ function snapshotPeriodParams(db, period) {
 router.post('/calculate', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
+    const manual = !!(req.body.manual_exempt || req.body.manual_mode);
     const context = payrollContext(db, Number(req.body.period_id), Number(req.body.person_id), {
+      manual_mode: manual,
+      manual_exempt: manual,
       manual_base_wage_rial: req.body.manual_base_wage_rial,
     });
-    res.json({ ok: true, calculation: calculatePayroll({ ...context, input: req.body }) });
+    if (manual) {
+      const built = buildManualExemptCalc(req.body);
+      return res.json({
+        ok: true,
+        manual_exempt: true,
+        calculation: built.calc,
+        exempt: built.meta,
+        warnings: [],
+      });
+    }
+    const calculation = calculatePayroll({ ...context, input: req.body });
+    const warning = minWageWarning(context.structure, context.period, context.laborSettings);
+    res.json({ ok: true, calculation, warnings: warning ? [warning] : [] });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -854,13 +875,16 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
     const periodId = Number(req.body.period_id);
     const inputs = Array.isArray(req.body.rows) ? req.body.rows : [];
     if (!inputs.length) throw new Error('حداقل یک کارمند برای پردازش انتخاب کنید');
+    const warnings = [];
     const created = db.transaction(() => {
       const records = inputs.map(input => {
       const personId = Number(input.person_id);
       const person = db.prepare('SELECT * FROM persons WHERE id=? AND active=1').get(personId);
       if (!person) throw new Error('کارمند فعال یافت نشد');
+      const manual = !!(input.manual_exempt || input.manual_mode);
       const context = payrollContext(db, periodId, personId, {
-        manual_mode: !!input.manual_mode,
+        manual_mode: manual,
+        manual_exempt: manual,
         manual_base_wage_rial: input.manual_base_wage_rial,
       });
       const duplicate = db.prepare(`
@@ -868,30 +892,15 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       `).get(personId, periodId);
       if (duplicate) throw new Error(`حقوق ${person.name} در این دوره قبلاً پردازش شده است`);
       let calc;
-      if (input.manual_mode) {
-        const gross = Math.max(0, Math.round(Number(input.gross_earnings_rial) || 0));
-        const ssoEmp = Math.max(0, Math.round(Number(input.sso_employee_rial) || 0));
-        const ssoEr = Math.max(0, Math.round(Number(input.sso_employer_rial) || 0));
-        const tax = Math.max(0, Math.round(Number(input.income_tax_rial) || 0));
-        const otherDed = Math.max(0, Math.round(Number(input.other_deductions_rial) || 0));
-        const net = input.net_pay_rial != null
-          ? Math.max(0, Math.round(Number(input.net_pay_rial) || 0))
-          : Math.max(0, gross - ssoEmp - tax - otherDed);
-        calc = {
-          regular_hours_x100: Math.round((Number(input.regular_hours) || 0) * 100),
-          overtime_hours_x100: Math.round((Number(input.overtime_hours) || 0) * 100),
-          night_shift_hours_x100: 0,
-          working_days_x100: Math.round((Number(input.working_days) || 30) * 100),
-          base_pay_rial: gross, housing_allowance_rial: 0, grocery_allowance_rial: 0,
-          child_allowance_rial: 0, spouse_allowance_rial: 0, hardship_allowance_rial: 0,
-          other_allowance_rial: 0, overtime_pay_rial: 0, night_shift_pay_rial: 0,
-          gross_earnings_rial: gross, insurance_base_rial: gross, taxable_income_rial: Math.max(0, gross - ssoEmp),
-          income_tax_rial: tax, sso_employee_rial: ssoEmp, sso_employer_rial: ssoEr,
-          other_deductions_rial: otherDed, net_pay_rial: net,
-          employer_cost_rial: gross + ssoEr,
-        };
+      let exemptMeta = null;
+      if (manual) {
+        const built = buildManualExemptCalc(input);
+        calc = built.calc;
+        exemptMeta = built.meta;
       } else {
         calc = calculatePayroll({ ...context, input });
+        const wageWarning = minWageWarning(context.structure, context.period, context.laborSettings);
+        if (wageWarning) warnings.push(`${person.name}: ${wageWarning}`);
       }
       const result = db.prepare(`
         INSERT INTO payroll_records
@@ -908,7 +917,9 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         personId, periodId, context.period.label, calc.regular_hours_x100 / 100,
         calc.overtime_hours_x100 / 100, calc.gross_earnings_rial / 10, calc.net_pay_rial / 10,
         calc.sso_employee_rial / 10, calc.income_tax_rial / 10,
-        input.date || context.period.end_date, input.note || (input.manual_mode ? 'ثبت دستی' : ''), 0, req.user.id,
+        input.date || context.period.end_date,
+        input.note || (exemptMeta ? `بدون بیمه و مالیات — ${exemptMeta.reason_label}` : ''),
+        0, req.user.id,
         calc.working_days_x100, calc.regular_hours_x100, calc.overtime_hours_x100,
         calc.night_shift_hours_x100, calc.base_pay_rial, calc.housing_allowance_rial,
         calc.grocery_allowance_rial, calc.child_allowance_rial, calc.spouse_allowance_rial,
@@ -921,7 +932,7 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       const recordId = result.lastInsertRowid;
       const arrearsMonths = context.arrearsMonths || [];
       let arrearsRial = 0;
-      if (arrearsMonths.length && context.structure && !context.structure._synthetic) {
+      if (!exemptMeta && arrearsMonths.length && context.structure && !context.structure._synthetic) {
         // Bundle arrears with this ruling: one month of base package × unpaid months
         const monthlyPkg = (Number(context.structure.base_wage_rial) || 0)
           + (Number(context.structure.housing_allowance_rial) || 0)
@@ -945,20 +956,35 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
           recordId
         );
       } catch (_) {}
+      db.prepare(`
+        UPDATE payroll_records SET settlement_mode=?, exempt_reason=?, exempt_note=? WHERE id=?
+      `).run(
+        exemptMeta ? 'manual_exempt' : 'labor',
+        exemptMeta ? exemptMeta.exempt_reason : null,
+        exemptMeta ? exemptMeta.exempt_note : null,
+        recordId
+      );
       const payable = resolvePersonPayableAccount(db, person);
       const lines = [
         { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: input.cost_center_id || null },
-        { ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null },
-        { code: payable.code, name: payable.name, debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 },
-        { ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 },
-        { ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 },
       ];
+      if (!exemptMeta) {
+        lines.push({ ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null });
+      }
+      lines.push({ code: payable.code, name: payable.name, debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 });
+      if (!exemptMeta) {
+        lines.push({ ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 });
+        lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 });
+      }
       if (calc.other_deductions_rial) {
         lines.push({ ...coaAcct(db, 'coa_payroll_other_deductions'), debit: 0, credit: calc.other_deductions_rial / 10 });
       }
       const journalId = postToLedger(db, {
         sourceType: 'payroll', sourceId: recordId, date: input.date || context.period.end_date,
-        description: `حقوق ${person.name} (${context.period.label})${input.manual_mode ? ' — دستی' : ''}${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`, createdBy: req.user.id,
+        description: exemptMeta
+          ? `پرداخت بدون بیمه و مالیات (${exemptMeta.reason_label}) ${person.name} (${context.period.label})`
+          : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`,
+        createdBy: req.user.id,
         lines, status: 'approved',
       });
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);
@@ -967,7 +993,12 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         ref_type: 'payroll', ref_id: recordId, description: `حقوق ${context.period.label}`,
         debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10, user_id: req.user.id,
       });
-        return { id: recordId, person_id: personId, person_name: person.name, ...calc, journal_entry_id: journalId };
+        return {
+          id: recordId, person_id: personId, person_name: person.name, ...calc,
+          settlement_mode: exemptMeta ? 'manual_exempt' : 'labor',
+          exempt_reason: exemptMeta ? exemptMeta.exempt_reason : null,
+          journal_entry_id: journalId,
+        };
       });
       db.prepare("UPDATE payroll_periods SET status='processed',processed_at=strftime('%s','now') WHERE id=?").run(periodId);
       const periodRow = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(periodId);
@@ -978,9 +1009,9 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       return records;
     })();
     created.forEach(row => audit(req.user.id, 'create', 'payroll_record', row.id, `پردازش حقوق ${row.person_name}`));
-    res.json({ ok: true, count: created.length, records: created });
+    res.json({ ok: true, count: created.length, records: created, warnings });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -1123,20 +1154,28 @@ router.get('/legal-reports', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT r.period_id,r.period_label,p.name person_name,p.personnel_code,p.national_id,p.insurance_id,p.tax_id,
            r.gross_earnings_rial,r.insurance_base_rial,r.sso_employee_rial,r.sso_employer_rial,
-           r.taxable_income_rial,r.income_tax_rial,r.net_pay_rial
+           r.taxable_income_rial,r.income_tax_rial,r.net_pay_rial,
+           COALESCE(r.settlement_mode,'labor') AS settlement_mode, r.exempt_reason, r.exempt_note
     FROM payroll_records r
     JOIN persons p ON p.id=r.person_id
     LEFT JOIN payroll_periods pp ON pp.id=r.period_id
     WHERE r.status<>'reversed' AND (? IS NULL OR pp.fiscal_year=?)
     ORDER BY r.period_label,p.name
   `).all(Number.isInteger(year) ? year : null, Number.isInteger(year) ? year : null);
-  const totals = rows.reduce((sum, row) => {
+  const statutory = rows.filter(row => row.settlement_mode !== 'manual_exempt');
+  const exemptRows = rows.filter(row => row.settlement_mode === 'manual_exempt');
+  const totals = statutory.reduce((sum, row) => {
     for (const key of ['gross_earnings_rial','insurance_base_rial','sso_employee_rial','sso_employer_rial','taxable_income_rial','income_tax_rial','net_pay_rial']) {
       sum[key] = (sum[key] || 0) + (row[key] || 0);
     }
     return sum;
   }, {});
-  res.json({ fiscal_year: Number.isInteger(year) ? year : null, rows, totals });
+  res.json({
+    fiscal_year: Number.isInteger(year) ? year : null,
+    rows: statutory,
+    exempt_rows: exemptRows,
+    totals,
+  });
 });
 
 /** List payment legs for one payroll accrual (posted + reversed). */

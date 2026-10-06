@@ -37,19 +37,21 @@ function loadPeriodRecords(db, periodId) {
       r.sso_employer_rial,
       r.taxable_income_rial,
       r.income_tax_rial,
-      r.net_pay_rial
+      r.net_pay_rial,
+      r.settlement_mode
     FROM payroll_records r
     JOIN persons p ON p.id = r.person_id
     WHERE r.period_id = ?
       AND COALESCE(r.status, 'posted') <> 'reversed'
     ORDER BY p.personnel_code, p.name, r.id
   `).all(periodId);
-  return { period, rows };
+  const statutory = rows.filter(r => r.settlement_mode !== 'manual_exempt');
+  return { period, rows: statutory, excluded: rows.length - statutory.length };
 }
 
 /** @returns {string} CSV — DRAFT SSO insurance list */
 function buildInsuranceListCsv(db, periodId) {
-  const { period, rows } = loadPeriodRecords(db, periodId);
+  const { period, rows, excluded } = loadPeriodRecords(db, periodId);
   const headers = [
     'period_label',
     'personnel_code',
@@ -73,13 +75,13 @@ function buildInsuranceListCsv(db, periodId) {
     gross_earnings_rial: r.gross_earnings_rial || 0,
   }));
   // Leading comment marks file as DRAFT (not final legal diskette format).
-  return `# DRAFT payroll-insurance-list period=${period.id} — pending SSO expert\r\n` +
+  return `# DRAFT payroll-insurance-list period=${period.id} — pending SSO expert; excluded_manual_exempt=${excluded}\r\n` +
     toCsv(headers, data);
 }
 
 /** @returns {string} CSV — DRAFT salary-tax list */
 function buildTaxDraftCsv(db, periodId) {
-  const { period, rows } = loadPeriodRecords(db, periodId);
+  const { period, rows, excluded } = loadPeriodRecords(db, periodId);
   const headers = [
     'period_label',
     'personnel_code',
@@ -102,7 +104,7 @@ function buildTaxDraftCsv(db, periodId) {
     gross_earnings_rial: r.gross_earnings_rial || 0,
     net_pay_rial: r.net_pay_rial || 0,
   }));
-  return `# DRAFT payroll-tax-list period=${period.id} — pending tax expert\r\n` +
+  return `# DRAFT payroll-tax-list period=${period.id} — pending tax expert; excluded_manual_exempt=${excluded}\r\n` +
     toCsv(headers, data);
 }
 
