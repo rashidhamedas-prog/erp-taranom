@@ -4,8 +4,8 @@
 - **اصل:** هر هزینه یک بخش مالک دارد — اداری (۶۱۰۲)، فروش و توزیع (۶۱۰۳)، یا سربار تولید (کنترل ۵۲۰۲). دسته اگر حساب نداشته باشد از والد ارث می‌برد. سربار بدون مرکز هزینه ثبت نمی‌شود. مرکز سند روی سطرهایی که خودشان مرکز ندارند می‌نشیند؛ مرکزِ خود سطر حفظ می‌شود.
 - **رفع:** ثبت هزینه، سند دستی، فاکتور (بازنویسی سند) و هزینه نماینده این قانون را پاس می‌کنند. جذب مرحلهٔ تولید مرکز همان مرحله را روی سند می‌گذارد. برش تا انبار محصول زیر «کارگاه تولید» قرار گرفتند. مسیر سینک دسته‌بندی هزینه دیگر با پرداخت هزینه قاطی نمی‌شود.
 - **فایل‌ها:** `server/lib/{ledger,amend-invoice,update11-schema}.js`, `server/lib/production/{posting,schema,engine-advanced}.js`, `server/routes/{expenses,accounting,production,rep-management}.js`, `server/sync/capture.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-expense-cost-coding-v315.js`.
-- **تست:** `node --check` روی فایل‌های همین تغییر سبز. روی ویندوز توسعه باینری `better-sqlite3` برای Node 24 نیست؛ تست روی سرور ایران اجرا می‌شود.
-- **Deploy:** در انتظار
+- **تست:** `node --check` روی فایل‌های همین تغییر سبز. روی ویندوز توسعه باینری `better-sqlite3` برای Node 24 نیست. روی سرور ایران: `test-expense-cost-coding-v315.js` ۱۵/۰، `test-sms.js` ۲۲/۰، `test-sync.js` ۴۴/۰.
+- **Deploy:** ✅ `dfaa8d3` — overlay ایران (بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v315`.
 
 ### ۱۴۰۵/۰۷/۱۳ — ورود مدیر به حساب کاربر بدون قطع نشست او (SW v314)
 
