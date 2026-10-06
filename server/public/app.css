@@ -559,14 +559,19 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 
 /* ===== Table ===== */
 /*
-  قرارداد ستون جدول (ADR UI-table-columns):
-  یک <table> — thead موقعیت جدا نمی‌گیرد تا شبکهٔ ستون با tbody یکی بماند.
-  پوشش overflow:visible می‌ماند تا استیکی عمودی به صفحه/MDI بچسبد و جدول دوتکه نشود.
-  عنوان nowrap است و جدول حداقل به عرض محتوا می‌رود؛ اسکرول افقی مال همان والد (MDI/مودال/صفحه) است.
-  استیکی فقط محور عمودی (left/right خودکار). داخل MDI/مودال top=0؛ داخل آکاردئون خاموش.
-  ستون انتخاب حداکثر یک سلول در سرستون است و با هر ردیف داده جفت می‌شود.
+  قرارداد ستون جدول (ADR UI-table-columns v320):
+  یک <table> داخل یک اسکرول‌پورت (.tbl-wrap). سرستون کلون نمی‌شود.
+  استیکی فقط top:0 نسبت به همان کادر است تا افست نوار بالا سرستون را روی ردیف نیندازد
+  و اسکرول افقی، شبکهٔ ستون را از بدنه جدا نکند.
+  عرض جدول = محتوای ستون‌ها، حداقل ۱۰۰٪ کادر. ستون تیک با <col> ثابت است.
+  ردیف جمعِ کوتاه در tblSyncColumns به تعداد سرستون می‌رسد.
 */
-.tbl-wrap{overflow:visible;max-height:none;max-width:100%}
+.tbl-wrap{
+  overflow:auto;max-width:100%;width:100%;min-width:0;
+  max-height:min(72dvh, calc(100dvh - var(--tbl-sticky-top) - 16px));
+  scrollbar-gutter:stable;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+}
+.tbl-wrap.tbl-flow{overflow:visible;max-height:none}
 table.tbl{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
 table.tbl th{
   background:var(--th-bg,#EAF4EE);color:var(--purple);text-align:right;
@@ -574,29 +579,39 @@ table.tbl th{
   vertical-align:middle;line-height:1.35;
   background-clip:padding-box;
 }
-table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:normal;vertical-align:middle;line-height:1.35}
+table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:normal;vertical-align:middle;line-height:1.35;overflow-wrap:break-word}
 :root{--tbl-sticky-top:88px}
-/* Page-flow tables (no clipping ancestor): stick under topbar */
+/* جدولِ بدون کادر: زیر نوار بالا. جدولِ داخل کادر: چسبیده به بالای همان کادر */
 .panel-body > table.tbl > thead > tr > th,
 #view > table.tbl > thead > tr > th,
-.content > table.tbl > thead > tr > th,
-.tbl-wrap > table.tbl > thead > tr > th{
+.content > table.tbl > thead > tr > th{
   position:sticky;top:var(--tbl-sticky-top);z-index:6;
   left:auto;right:auto;inset-inline-start:auto;inset-inline-end:auto;
   background:var(--th-bg,#EAF4EE);background-clip:padding-box;
   box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
 }
-.tbl-wrap.tbl-scroll{
-  max-height:none;overflow:visible;
+.tbl-wrap > table.tbl > thead > tr > th{
+  position:sticky;top:0;z-index:6;
+  left:auto;right:auto;inset-inline-start:auto;inset-inline-end:auto;
+  background:var(--th-bg,#EAF4EE);background-clip:padding-box;
+  box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
 }
-/* چند جدول پشت‌سرهم / آکاردئون / صریح: فریز خاموش */
+.tbl-wrap.tbl-scroll{max-width:100%;min-width:0}
+.tbl-quick-search-bar{width:100%;max-width:100%;min-width:0;margin:0 0 8px}
+.tbl-quick-search{width:min(100%,360px);max-width:100%}
+/* فریز فقط با کلاس صریح خاموش می‌شود (پوشهٔ پیگیری) */
 .tbl-wrap.tbl-no-sticky > table.tbl > thead > tr > th,
 .tbl-no-sticky > table.tbl > thead > tr > th,
-table.tbl.tbl-no-sticky > thead > tr > th,
-.erp-fold table.tbl > thead > tr > th,
-.fup-folder table.tbl > thead > tr > th{
+table.tbl.tbl-no-sticky > thead > tr > th{
   position:static;top:auto;box-shadow:none;z-index:auto;
 }
+.list-split{display:flex;gap:12px;align-items:flex-start;width:100%;max-width:100%;min-width:0}
+.list-side{
+  flex:0 0 200px;width:200px;max-width:220px;
+  background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;
+}
+.list-main{flex:1 1 0%;min-width:0;max-width:100%}
+.list-pills{display:flex;flex-direction:column;gap:4px;font-size:13px}
 /* داخل مودال/MDI: scrollport خود پنل است → top:0 نه افست topbar */
 .modal-body .tbl-wrap > table.tbl > thead > tr > th,
 .mdi-body .tbl-wrap > table.tbl > thead > tr > th{
@@ -622,7 +637,11 @@ table.tbl.tbl-no-sticky > thead > tr > th,
 table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
-table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
+table.tbl col.tbl-col-sel{width:40px}
+table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{
+  width:40px;min-width:40px;max-width:40px;padding:8px 0;text-align:center;vertical-align:middle;
+}
+table.tbl .tbl-sel-th input,table.tbl .tbl-sel-td input{margin:0;width:16px;height:16px;vertical-align:middle;accent-color:var(--purple)}
 /* نوار شناور چندپنجره‌ای — روی محتوا؛ خارج از #mdiLayer تا در Chrome کلیک شود */
 .mdi-taskbar{
   position:fixed;left:50%;right:auto;bottom:14px;top:auto;z-index:9990;
@@ -1096,8 +1115,12 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   .inv-cart{position:static;min-height:auto}
   .inv-lines-wrap{min-height:0;max-height:none;overflow:visible}
   .form-grid{grid-template-columns:1fr}
-  .tbl-wrap{overflow:visible;max-height:none;width:100%;max-width:100%}
+  .tbl-wrap{overflow:auto;width:100%;max-width:100%;min-width:0;max-height:min(70dvh, calc(100dvh - 88px))}
   .tbl-wrap > table.tbl > thead > tr > th{top:0}
+  .list-split{flex-direction:column;align-items:stretch}
+  .list-side,.list-main{flex:none;width:100%;max-width:100%}
+  .list-pills{flex-direction:row;flex-wrap:wrap}
+  .list-pills .btn{width:auto}
   .content{padding:12px;width:100%}
   .view{width:100%}
   .pipeline-col{flex:0 0 190px}
@@ -1205,7 +1228,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   }
   .fg textarea{min-height:88px}
   .inv-pick{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
-  .tbl-wrap table:not(.m-stack){min-width:480px}
+  .tbl-wrap table.tbl:not(.m-stack){min-width:36rem}
   .fup-section{margin-bottom:12px;padding-bottom:12px}
   .fup-section-title{font-size:10.5px;padding:3px 8px;margin-bottom:8px}
   .help-tabs button{padding:8px 12px;font-size:12px;min-height:40px}
@@ -1227,6 +1250,8 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   .sidebar,.topbar,.btn,.toolbar,.panel-head{display:none!important}
   .main{margin:0}.content{padding:0}
   body{background:#fff}
+  .tbl-wrap{overflow:visible!important;max-height:none!important}
+  table.tbl{min-width:0!important}
 }
 
 /* Command Palette (v1.0.11) */

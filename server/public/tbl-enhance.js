@@ -154,8 +154,56 @@
     else if (typeof opts.onSelectionChange === 'function') opts.onSelectionChange([]);
   }
 
+  function tblSpanSum(row) {
+    let n = 0;
+    if (!row) return 0;
+    for (const cell of row.cells) n += cell.colSpan || 1;
+    return n;
+  }
+
   /**
-   * سرستون و بدنه باید همان تعداد سلول را داشته باشند.
+   * ردیف جمع/خالی که قبل از ستون تیک نوشته شده یک ستون کم دارد.
+   * colspan اول باید ستون تیک را هم بپوشاند وگرنه مبلغ زیر «ماهیت مانده» می‌رود.
+   */
+  function tblSyncSpanRow(row, headerCount, hasSel) {
+    if (!row || !headerCount) return;
+    const sum = tblSpanSum(row);
+    const delta = headerCount - sum;
+    if (delta <= 0) return;
+    const cells = [...row.cells];
+    if (cells.length === 1 && cells[0].colSpan > 1) {
+      cells[0].colSpan += delta;
+      return;
+    }
+    if (!(hasSel && delta === 1 && !row.querySelector('.tbl-sel-td'))) return;
+    const first = cells[0];
+    if (first && first.colSpan > 1) first.colSpan += 1;
+    else {
+      const td = document.createElement('td');
+      td.className = 'tbl-sel-td';
+      row.insertBefore(td, row.firstChild);
+    }
+  }
+
+  function tblEnsureColgroup(table, headerCount, hasSel) {
+    if (!table || !headerCount) return;
+    let cg = table.querySelector(':scope > colgroup');
+    if (cg && cg.childElementCount === headerCount && cg.dataset.sel === (hasSel ? '1' : '0')) return;
+    if (!cg) {
+      cg = document.createElement('colgroup');
+      table.insertBefore(cg, table.firstChild);
+    }
+    cg.dataset.sel = hasSel ? '1' : '0';
+    cg.replaceChildren();
+    for (let i = 0; i < headerCount; i++) {
+      const col = document.createElement('col');
+      if (hasSel && i === 0) col.className = 'tbl-col-sel';
+      cg.appendChild(col);
+    }
+  }
+
+  /**
+   * سرستون، بدنه و ردیف جمع باید همان تعداد ستون را داشته باشند.
    * ستون انتخاب فقط یک‌بار در سرستون ساخته می‌شود؛ ردیف‌های تازه فقط سلول گم‌شده را می‌گیرند.
    */
   function tblSyncColumns(table) {
@@ -180,6 +228,12 @@
       td.innerHTML = `<input type="checkbox" class="tbl-sel-row" data-id="${id}" ${id ? '' : 'disabled'}>`;
       tr.insertBefore(td, tr.firstChild);
     });
+    const headerCount = headerRow.cells.length;
+    [...tbody.rows].forEach((tr) => {
+      if (tr.querySelector('td[colspan]')) tblSyncSpanRow(tr, headerCount, hasSel);
+    });
+    if (table.tFoot) [...table.tFoot.rows].forEach((tr) => tblSyncSpanRow(tr, headerCount, hasSel));
+    tblEnsureColgroup(table, headerCount, hasSel);
   }
 
   function enhanceDataTable(table, opts) {

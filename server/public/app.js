@@ -9627,7 +9627,9 @@ function enhanceAccTables(root){
     if(wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
   });
   root.querySelectorAll('table.tbl').forEach(t=>{
-    if(tblHasClippingAncestor(t)) tblDisableSticky(t);
+    const wrap=t.closest('.tbl-wrap');
+    const wrapScrolls=wrap && !wrap.classList.contains('tbl-flow');
+    if(!wrapScrolls && tblHasClippingAncestor(t)) tblDisableSticky(t);
     if(typeof tblSyncColumns==='function') tblSyncColumns(t);
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
@@ -9838,20 +9840,20 @@ async function renderPartiesTab(body){
   const balRows=rows.map(p=>({...p, balance:Number(p.balance!=null?p.balance:(p.opening_balance_toman||p.opening_balance||0))}));
   const balT=balTotals(balRows);
   body.innerHTML=`
-    <div data-csp-style="${CSP.style(`display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap`)}">
-      <aside data-csp-style="${CSP.style(`min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px`)}">
+    <div class="list-split">
+      <aside class="list-side">
         <div data-csp-style="${CSP.style(`font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple);display:flex;justify-content:space-between;align-items:center`)}">
           <span>گروه اشخاص</span>
           <button type="button" class="btn sm icon" title="گروه جدید" data-csp-click="${CSP.bind('click',function(event){partyGroupModal()})}">➕</button>
         </div>
-        <div id="partyGroupFilter" data-value="${esc(groupFilter)}" data-csp-style="${CSP.style(`display:flex;flex-direction:column;gap:4px;font-size:13px`)}">
+        <div id="partyGroupFilter" class="list-pills" data-value="${esc(groupFilter)}">
           <button type="button" class="btn sm ${!groupFilter?'':'ghost'}" data-csp-style="${CSP.style(`justify-content:flex-start;text-align:right`)}" data-csp-click="${CSP.bind('click',function(event){filterPartyGroup('')})}">کلیه اشخاص</button>
           ${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`
             <button type="button" class="btn sm ${groupFilter==String(g.id)?'':'ghost'}" data-csp-style="${CSP.style(`justify-content:flex-start;text-align:right`)}" data-csp-click="${CSP.bind('click',function(event){filterPartyGroup(`${String((g.id) ?? '')}`)})}">${esc(g.name)}</button>
           `).join('')}
         </div>
       </aside>
-      <div data-csp-style="${CSP.style(`flex:1;min-width:280px`)}">
+      <div class="list-main">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
           <button class="btn" data-csp-click="${CSP.bind('click',function(event){partyModal()})}">➕ شخص جدید <span class="muted">F4</span></button>
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px`)}">
@@ -18502,20 +18504,20 @@ async function renderAccProductsTab(body){
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
   const canMut=isAdmin()||ME.role==='accounting';
   body.innerHTML=`
-    <div data-csp-style="${CSP.style(`display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap`)}">
-      <aside data-csp-style="${CSP.style(`min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px`)}">
+    <div class="list-split">
+      <aside class="list-side">
         <div data-csp-style="${CSP.style(`font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple);display:flex;justify-content:space-between;align-items:center`)}">
           <span>گروه کالا</span>
           <button type="button" class="btn sm icon" title="گروه‌های کالا" data-csp-click="${CSP.bind('click',function(event){loadAccTab('product-groups')})}">🏷️</button>
         </div>
-        <div id="accProdCatFilter" data-csp-style="${CSP.style(`display:flex;flex-direction:column;gap:4px;font-size:13px`)}">
+        <div id="accProdCatFilter" class="list-pills">
           <button type="button" class="btn sm ${!catFilter?'':'ghost'}" data-product-category-id="" data-csp-style="${CSP.style(`justify-content:flex-start;text-align:right`)}" data-csp-click="${CSP.bind('click',function(event){filterAccProductCat('')})}">کلیه کالاها</button>
           ${cats.map(g=>`
             <button type="button" class="btn sm ${catFilter==String(g.id)?'':'ghost'}" data-product-category-id="${esc(g.id)}" data-csp-style="${CSP.style(`justify-content:flex-start;text-align:right`)}" data-csp-click="${CSP.bind('click',function(event){filterAccProductCat(`${String((g.id) ?? '')}`)})}">${esc(g.name)}</button>
           `).join('')}
         </div>
       </aside>
-      <div data-csp-style="${CSP.style(`flex:1;min-width:280px`)}">
+      <div class="list-main">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
           ${canMut?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){accNewProduct()})}">➕ کالای جدید</button>`:''}
           <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px`)}" autocomplete="off">
@@ -25405,7 +25407,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. با ورود به حسابداری همهٔ سرفصل‌ها <b>بسته‌اند</b>؛ با کلیک باز می‌شوند. انتخاب طرف‌حساب و کالا در فرم‌ها با کادر جستجو (نام، موبایل، کد) است.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
-      <p><b>جداول:</b> سرستون در لیست‌های بلند صفحه زیر نوار بالا می‌چسبد. داخل پوشه‌های تاشو (پیگیری‌ها، سندهای حسابداری) و هر کارت با لبه‌گرد، فریز خاموش است تا سرستون روی ردیف داده نیفتد. در انتهای لیست‌های چندردیفه جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
+      <p><b>جداول:</b> هر لیست یک جدول است و اسکرول افقی و عمودی‌اش داخل همان کادر می‌ماند؛ صفحه و منوی کناری با جدول پهن جابه‌جا نمی‌شوند. سرستون به بالای همان کادر می‌چسبد و با ستون داده قفل است. ستون تیک عرض ثابت دارد و ردیف جمع، همان ستون را در شمارش خانه حساب می‌کند تا مبلغ بدهکار و بستانکار زیر عنوان خودش بماند. داخل پوشهٔ پیگیری فریز خاموش است. در لیست‌های چندردیفه جمع، میانگین و تفاضل رنگی هست. انتخاب چندتایی و حذف یا ابطال گروهی روی جدول‌های تیک‌دار فعال است. روی موبایل همین شبکه می‌ماند و انگشت داخل کادر جدول می‌لغزد.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
@@ -25620,7 +25622,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v319</b> است و اسکریپت‌ها با <code>?v=319</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v320</b> است و اسکریپت‌ها با <code>?v=320</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -25828,8 +25830,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v319</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
-      <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v320</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">در همهٔ لیست‌ها عنوان هر ستون روی دادهٔ همان ستون می‌ماند. جدول پهن داخل کادر خودش اسکرول می‌شود، هم در دسکتاپ و هم در موبایل، و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>

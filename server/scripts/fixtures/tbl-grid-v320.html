@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../public/app.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <div class="main">
+    <div class="topbar"><h3>اطلاعات اشخاص</h3></div>
+    <div class="content">
+      <div class="panel"><div class="panel-body">
+        <div class="list-split">
+          <aside class="list-side"><div class="list-pills"><button class="btn sm" type="button">کلیه اشخاص</button><button class="btn sm ghost" type="button">مشتریان</button></div></aside>
+          <div class="list-main">
+            <div class="toolbar"><button class="btn" type="button">شخص جدید</button><input placeholder="جستجو"></div>
+            <div class="tbl-wrap tbl-scroll"><table class="tbl" id="parties">
+              <thead><tr>
+                <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت مانده</th>
+                <th>بدهکار تومان</th><th>بستانکار تومان</th><th class="no-sort">عملیات</th>
+              </tr></thead>
+              <tbody>
+                <tr data-id="1">
+                  <td class="mono">CUST-00078</td><td class="mono">11030100009</td><td>آقای نصراللهی</td><td class="mono">09363710716</td><td>مشهد</td><td>مشتری</td><td>-</td><td>بدهکار</td>
+                  <td class="mono">1,250,000</td><td class="mono">-</td><td><button type="button">گردش</button><button type="button">حذف</button></td>
+                </tr>
+                <tr data-id="2">
+                  <td class="mono">P-00127</td><td class="mono">21010100006</td><td>خانم مهدیه ابراهیمی</td><td class="mono">09360887707</td><td>-</td><td>پرسنل</td><td>تأمین‌کننده، کارمند</td><td>بدهکار</td>
+                  <td class="mono">-</td><td class="mono">80,000</td><td><button type="button">گردش</button></td>
+                </tr>
+              </tbody>
+              <tfoot><tr>
+                <td colspan="8">مانده خالص (۲ نفر) — بدهکار</td>
+                <td class="mono">1,250,000</td>
+                <td class="mono">80,000</td>
+                <td></td>
+              </tr></tfoot>
+            </table></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</div>
+<div id="logic"></div>
+<script src="../../public/tbl-enhance.js"></script>
+<script>
+const fails = [];
+function eq(name, cond){ if(!cond) fails.push(name); }
+const table = document.getElementById('parties');
+enhanceDataTable(table, { selectable: true, footer: false });
+enhanceDataTable(table, { selectable: true, footer: false });
+const header = table.tHead.rows[0];
+const body = table.tBodies[0].rows[0];
+const foot = table.tFoot.rows[0];
+eq('one-sel', header.querySelectorAll('.tbl-sel-th').length === 1);
+eq('body-count', [...table.tBodies[0].rows].every(tr => tr.cells.length === header.cells.length));
+let footSum = 0;
+for (const cell of foot.cells) footSum += cell.colSpan || 1;
+eq('foot-sum', footSum === header.cells.length);
+eq('foot-colspan', foot.cells[0].colSpan === 9);
+const debitIdx = [...header.cells].findIndex(th => (th.textContent || '').includes('بدهکار'));
+eq('debit-idx', debitIdx > 0);
+let maxD = 0;
+[...header.cells].forEach((th, i) => {
+  const a = th.getBoundingClientRect();
+  const b = body.cells[i] && body.cells[i].getBoundingClientRect();
+  if (!b) { fails.push('missing-'+i); return; }
+  maxD = Math.max(maxD, Math.abs(a.left - b.left), Math.abs((a.right) - (b.right)));
+});
+eq('geom', maxD < 1);
+const fa = foot.cells[1].getBoundingClientRect();
+const ba = body.cells[debitIdx].getBoundingClientRect();
+const footShift = Math.abs(fa.left - ba.left);
+eq('foot-debit', footShift < 1);
+const wrap = table.closest('.tbl-wrap');
+const box = wrap.getBoundingClientRect();
+eq('wrap-scroll', wrap.scrollWidth > wrap.clientWidth + 8);
+eq('wrap-in-view', box.left >= -1 && box.right <= window.innerWidth + 1);
+eq('page', document.documentElement.scrollWidth <= window.innerWidth + 2);
+eq('sel-width', Math.abs(header.cells[0].getBoundingClientRect().width - 40) < 1.5);
+const out = document.getElementById('logic');
+out.textContent = (fails.length ? 'FAIL '+fails.join(',') : 'PASS')
+  + ' maxD=' + maxD.toFixed(2)
+  + ' footShift=' + footShift.toFixed(2)
+  + ' wrap=' + Math.round(wrap.clientWidth) + '/' + wrap.scrollWidth
+  + ' box=' + Math.round(box.left) + '..' + Math.round(box.right)
+  + ' page=' + document.documentElement.scrollWidth + '/' + window.innerWidth
+  + ' cols=' + header.cells.length;
+</script>
+</body>
+</html>
