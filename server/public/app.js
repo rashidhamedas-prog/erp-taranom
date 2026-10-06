@@ -6823,6 +6823,34 @@ function prodLiveColorIds(vars){
   const totals=prodColorStockTotals(vars);
   return new Set(Object.keys(totals).filter(id=>totals[id]>1e-9).map(Number));
 }
+function prodScopedToWarehouse(vars){
+  return (vars||[]).some(v=>v&&v.warehouse_id!=null&&v.warehouse_id!=='');
+}
+function prodWarehouseColorTotals(vars){
+  const totals={};
+  (vars||[]).forEach(v=>{
+    if(!v||Number(v.is_default)===1) return;
+    const id=Number(v.color_id);
+    if(!id) return;
+    totals[id]=(totals[id]||0)+(Number(v.stock)||0);
+  });
+  return totals;
+}
+/** Color rows of the warehouse open in the form. Zero here is not a row, even if another warehouse still has stock. */
+function prodMatrixColorIds(vars){
+  if(!prodScopedToWarehouse(vars)) return prodLiveColorIds(vars);
+  const totals=prodWarehouseColorTotals(vars);
+  return new Set(Object.keys(totals).filter(id=>{
+    const q=totals[id];
+    return q>1e-9||q<-1e-9;
+  }).map(Number));
+}
+/** Stocked in another warehouse, so saving this warehouse must not drop the color. */
+function prodPreserveColorIds(vars){
+  if(!prodScopedToWarehouse(vars)) return [];
+  const shown=prodMatrixColorIds(vars);
+  return [...prodLiveColorIds(vars)].filter(id=>!shown.has(id));
+}
 async function loadProdSkuChips(productId){
   const box=el('p-sku-chips'); if(!box) return;
   let colors=[], sizes=[], style=null;
@@ -6840,9 +6868,12 @@ async function loadProdSkuChips(productId){
     }catch(_){ style=null; }
   }
   const styleVars=(style&&style.variants)||[];
-  const liveColorIds=prodLiveColorIds(styleVars);
-  const usedC=liveColorIds;
-  const usedS=new Set(styleVars.filter(v=>liveColorIds.has(Number(v.color_id))).map(v=>Number(v.size_id)).filter(Boolean));
+  const matrixColorIds=prodMatrixColorIds(styleVars);
+  const preserveColorIds=prodPreserveColorIds(styleVars);
+  window._prodPreserveColorIds=preserveColorIds;
+  const keepColorIds=new Set([...matrixColorIds, ...preserveColorIds]);
+  const usedC=matrixColorIds;
+  const usedS=new Set(styleVars.filter(v=>keepColorIds.has(Number(v.color_id))).map(v=>Number(v.size_id)).filter(Boolean));
   const packHint=style&&style.pack_size_auto?`پک زنده فعلی: ${fmt(style.pack_size_auto)} (${fmt(style.live_colors||0)} رنگ × ${fmt(style.live_sizes||0)} سایز)`:'';
   window._prodStyleVariants=(style&&style.variants)||[];
   window._prodStockByWh=(style&&style.stock_by_warehouse)||[];
@@ -6854,7 +6885,7 @@ async function loadProdSkuChips(productId){
       ${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(defaultWh)?'selected':''}>${esc(w.name)}</option>`).join('')}
     </select></div>`:'';
   box.innerHTML=`
-    <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU و موجودی هر خانه ساخته می‌شود. اگر موجودی یک رنگ در همهٔ سایزها و همهٔ انبارها صفر شود، آن رنگ از ردیف‌های همین کالا برداشته می‌شود. رنگ در فهرست رنگ‌ها می‌ماند و با تیک دوباره برمی‌گردد.')}</label>
+    <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU و موجودی هر خانه ساخته می‌شود. رنگی که در انبار انتخاب‌شده در همهٔ سایزها صفر است تیک نمی‌خورد و ردیف ندارد. اگر همان رنگ در انبار دیگر موجودی داشته باشد، با عوض کردن انبار دیده می‌شود و ذخیرهٔ این انبار آن را پاک نمی‌کند. رنگی که در همهٔ انبارها صفر شود از کالا برداشته می‌شود؛ در فهرست رنگ‌ها می‌ماند و با تیک دوباره برمی‌گردد.')}</label>
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-color" value="${c.id}" ${usedC.has(Number(c.id))?'checked':''}> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>'}</div>
     <label>سایزهای این کالا</label>
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0`)}">${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-size" value="${s.id}" ${usedS.has(Number(s.id))?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>'}</div>
@@ -6889,7 +6920,7 @@ function renderProdStockGrid(){
       const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
       return v&&v.stock!=null?v.stock:0;
     };
-    wrap.innerHTML=`<label>موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. جمع خانه‌های همهٔ انبارها موجودی کل کالا می‌شود. رنگی که در همهٔ انبارها صفر است از این جدول حذف می‌شود؛ صفرِ فقط همین انبار، اگر جای دیگر موجودی دارد، می‌ماند.')}</label>
+    wrap.innerHTML=`<label>موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. جمع خانه‌های همهٔ انبارها موجودی کل کالا می‌شود. رنگی که در این انبار صفر است ردیف ندارد. موجودی همان رنگ در انبار دیگر با ذخیرهٔ این فرم پاک نمی‌شود.')}</label>
       <div class="tbl-wrap tbl-fit"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
       <tbody>${colors.map(c=>`<tr><th>${esc(c.name)}</th>${sizes.map(s=>`<td><input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(qtyOf(c.id,s.id))}" data-csp-style="${CSP.style(`width:88px`)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ با ذخیره، همین جدول فقط روی انبار انتخاب‌شده نوشته می‌شود و موجودی انبارهای دیگر دست‌نخورده می‌ماند.</div>`;
@@ -6910,7 +6941,27 @@ function collectProdStockCells(){
   // اول ماتریس بالا، بعد لیست پایین (ویرایش لیست روی همان ترکیب غالب است)
   document.querySelectorAll('.p-stock-cell').forEach(add);
   document.querySelectorAll('.pv-stock-edit').forEach(add);
+  prodKeptWarehouseCells().forEach(cell=>{
+    const key=cell.color_id+':'+cell.size_id;
+    if(!map.has(key)) map.set(key, cell);
+  });
   return [...map.values()];
+}
+function prodKeptWarehouseCells(){
+  const ids=new Set((window._prodPreserveColorIds||[]).map(Number));
+  if(!ids.size) return [];
+  const out=[];
+  const seen=new Set();
+  (window._prodStyleVariants||[]).forEach(v=>{
+    if(!v||Number(v.is_default)===1) return;
+    const color_id=Number(v.color_id), size_id=Number(v.size_id);
+    if(!ids.has(color_id)||!size_id) return;
+    const key=color_id+':'+size_id;
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push({ color_id, size_id, qty:Math.max(0, Math.round(Number(v.stock)||0)) });
+  });
+  return out;
 }
 async function refreshProdVariantsPanel(productId){
   const box=el('p-variants-panel'); if(!box||!productId) return;
@@ -6920,9 +6971,9 @@ async function refreshProdVariantsPanel(productId){
     const qs=wh?('?warehouse_id='+encodeURIComponent(String(wh))):'';
     const style=await api('GET','/product-variants/style/'+productId+qs);
     const vars=(style&&style.variants)||[];
-    const liveColorIds=prodLiveColorIds(vars);
+    const matrixColorIds=prodMatrixColorIds(vars);
     const allMatrix=vars.filter(v=>!v.is_default && v.active!==0);
-    const matrix=allMatrix.filter(v=>liveColorIds.has(Number(v.color_id)));
+    const matrix=allMatrix.filter(v=>matrixColorIds.has(Number(v.color_id)));
     const whLabel=style&&style.warehouse_name?esc(style.warehouse_name):'همه انبارها (جمع)';
     const byWh=(style&&style.stock_by_warehouse)||[];
     const byWhLine=byWh.length?`<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:8px')}">تفکیک انبار: ${byWh.map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`:'';
@@ -6931,7 +6982,10 @@ async function refreshProdVariantsPanel(productId){
       return;
     }
     if(!matrix.length){
-      box.innerHTML=byWhLine+'<span class="muted">رنگ‌های بدون موجودی از ردیف‌های این کالا برداشته شده‌اند. برای برگشت، همان رنگ را بالا تیک بزنید و موجودی وارد کنید.</span>';
+      const heldElsewhere=prodPreserveColorIds(vars).length;
+      box.innerHTML=byWhLine+(heldElsewhere
+        ? '<span class="muted">در این انبار ردیف رنگی با موجودی نیست. رنگی که در انبار دیگر موجودی دارد، با عوض کردن انبار دیده می‌شود و ذخیرهٔ این انبار آن را پاک نمی‌کند.</span>'
+        : '<span class="muted">رنگ‌های بدون موجودی از ردیف‌های این کالا برداشته شده‌اند. برای برگشت، همان رنگ را بالا تیک بزنید و موجودی وارد کنید.</span>');
       return;
     }
     box.innerHTML=`${byWhLine}<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin-bottom:6px')}">اعداد جدول برای: <b>${whLabel}</b> — عدد صحیح همین انبار</div>
@@ -7009,10 +7063,7 @@ async function submitProdVariantMatrix(productId){
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function saveProdVariantStocks(productId){
-  const cells=[...document.querySelectorAll('.pv-stock-edit')].map(inp=>({
-    color_id:+inp.dataset.color, size_id:+inp.dataset.size,
-    qty:Math.max(0, Math.round(parseQty(inp.value, 0)))
-  })).filter(c=>c.color_id&&c.size_id);
+  const cells=collectProdStockCells().filter(c=>c.color_id&&c.size_id);
   if(!cells.length){ showToast('ترکیب رنگ×سایز نیست','error'); return; }
   const warehouse_id=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||undefined;
   try{
@@ -7279,7 +7330,10 @@ async function saveProduct(id){
     }
   }
   const savedId = (saved && (saved.id || saved.product_id)) || id || 0;
-  const color_ids=[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean);
+  const color_ids=[...new Set([
+    ...[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean),
+    ...(window._prodPreserveColorIds||[]).map(Number).filter(Boolean)
+  ])];
   const size_ids=[...document.querySelectorAll('.p-chip-size:checked')].map(n=>Number(n.value)).filter(Boolean);
   if(savedId && color_ids.length && size_ids.length){
     try{
@@ -24975,7 +25029,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است؛ اگر اعشار دیدید از دفتر حرکات انبار به همان عدد ذخیره‌شده برمی‌گردد. هر دو جدول فرم، موجودی همان انبار انتخاب‌شده را نشان می‌دهند. جدول‌ها ردیف کامل را بدون نوار غلطک داخلی نشان می‌دهند. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. اگر موجودی یک رنگ در همهٔ سایزها و همهٔ انبارها صفر شود، آن رنگ از تیک‌ها و جدول همین کالا حذف می‌شود؛ رنگ در فهرست رنگ‌ها می‌ماند و با تیک دوباره و موجودی برمی‌گردد. فاکتور قبلی پاک نمی‌شود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است؛ اگر اعشار دیدید از دفتر حرکات انبار به همان عدد ذخیره‌شده برمی‌گردد. هر دو جدول فرم، موجودی همان انبار انتخاب‌شده را نشان می‌دهند. جدول‌ها ردیف کامل را بدون نوار غلطک داخلی نشان می‌دهند. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. رنگی که در انبار انتخاب‌شده در همهٔ سایزها صفر است در جدول همین فرم ردیف ندارد. اگر در انبار دیگر موجودی داشته باشد، با عوض کردن انبار دیده می‌شود و ذخیرهٔ این انبار آن را پاک نمی‌کند. رنگی که در همهٔ انبارها صفر شود، آن رنگ از تیک‌ها و جدول همین کالا حذف می‌شود؛ رنگ در فهرست رنگ‌ها می‌ماند و با تیک دوباره و موجودی برمی‌گردد. فاکتور قبلی پاک نمی‌شود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>جستجوی کالا (کش سراسری):</b> فیلتر/سرچ در صفحهٔ کالاها فقط همان جدول را محدود می‌کند؛ کاتالوگ کامل برای فاکتور، خرید، BOM و پیکرها جدا نگه داشته می‌شود و با سرچ قبلی (مثلاً «آفاق») آلوده نمی‌شود</li>
         <li><b>انتخاب مشتری در فاکتور/پیگیری:</b> قبل از باز شدن فرم، لیست مشتریان قابل‌مشاهدهٔ همان کاربر (مالک یا assigned_to) از سرور بارگذاری می‌شود — حتی اگر هنوز صفحهٔ مشتریان را باز نکرده باشید</li>
@@ -25254,7 +25308,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>موجودی و انبار</h5><ul>
         <li>اگر رنگ و سایز تیک بخورد، موجودی از فیلد تکی به <b>ماتریس رنگ×سایز</b> می‌رود؛ جمع خانه‌ها موجودی کالاست</li>
-        <li><b>پک زنده</b> = رنگ‌های با موجودی × سایزهای با موجودی. اتمام یک رنگ (مثلاً مشکی در همهٔ سایزها) همان رنگ را از پک، فاکتور و ردیف‌های رنگی خود کالا برمی‌دارد. صفر شدن فقط یک سایز، رنگ را حذف نمی‌کند</li>
+        <li><b>پک زنده</b> = رنگ‌های با موجودی × سایزهای با موجودی. اتمام یک رنگ در همهٔ سایزها و همهٔ انبارها همان رنگ را از پک، فاکتور و ردیف‌های کالا برمی‌دارد. در فرم یک انبار، رنگی که در همان انبار صفر است ردیف ندارد و موجودی انبار دیگر سر جایش می‌ماند. صفر شدن فقط یک سایز، رنگ را حذف نمی‌کند</li>
         <li>برداشتن تیک رنگ (مثل مشکی) آن ترکیب‌ها را غیرفعال می‌کند؛ با ذخیره دوباره تیک، همان SKU زنده می‌شود — رنگ لغوشده در پک باقی نمی‌ماند</li>
         <li>موجودی کم با هشدار قرمز نمایش داده می‌شود</li>
         <li>انتقال و موجودی انبارها از منوی انبار حسابداری</li>
@@ -25545,7 +25599,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v301</b> است و اسکریپت‌ها با <code>?v=301</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v318</b> است و اسکریپت‌ها با <code>?v=318</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -25752,7 +25806,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v317</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v318</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>

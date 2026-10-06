@@ -476,7 +476,28 @@ function packSizeFor(db, productId) {
   };
 }
 
-function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
+function variantStockLivesInAnotherWarehouse(db, variantId, warehouseId) {
+  const wh = parseInt(warehouseId, 10);
+  if (!wh || !variantId) return false;
+  try {
+    const here = db.prepare(`
+      SELECT COALESCE(qty,0) AS q FROM variant_warehouse_stock
+      WHERE variant_id=? AND warehouse_id=?
+    `).get(variantId, wh);
+    const hereQty = Number(here && here.q) || 0;
+    if (hereQty > 1e-9 || hereQty < -1e-9) return false;
+    const elsewhere = db.prepare(`
+      SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock
+      WHERE variant_id=? AND warehouse_id!=?
+    `).get(variantId, wh);
+    const other = Number(elsewhere && elsewhere.s) || 0;
+    return other > 1e-9 || other < -1e-9;
+  } catch (_) {
+    return false;
+  }
+}
+
+function deactivateUnselectedVariants(db, productId, colorIds, sizeIds, opts = {}) {
   const colors = new Set((colorIds || []).map(Number).filter(Boolean));
   const sizes = new Set((sizeIds || []).map(Number).filter(Boolean));
   if (!colors.size || !sizes.size) return { deactivated: 0 };
@@ -485,6 +506,7 @@ function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
     WHERE product_id=? AND is_default=0 AND active=1
   `).all(productId);
   let deactivated = 0;
+  const keptColors = new Set(colors);
   const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive', stock=0 WHERE id=?");
   for (const row of rows) {
     if (colors.has(Number(row.color_id)) && sizes.has(Number(row.size_id))) continue;
@@ -492,10 +514,15 @@ function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
     // push can still send qty 0. Unchecking a color that still has stock removes it now.
     const qty = Number(row.stock) || 0;
     if (qty <= 1e-9 && qty >= -1e-9) continue;
+    // This save only edits one warehouse. Zero here, with pieces elsewhere, stays on the product.
+    if (variantStockLivesInAnotherWarehouse(db, row.id, opts.warehouse_id)) {
+      keptColors.add(Number(row.color_id));
+      continue;
+    }
     upd.run(row.id);
     deactivated += 1;
   }
-  const colorList = [...colors];
+  const colorList = [...keptColors];
   const sizeList = [...sizes];
   db.prepare(`DELETE FROM product_style_colors WHERE product_id=? AND color_id NOT IN (${colorList.map(() => '?').join(',')})`)
     .run(productId, ...colorList);
@@ -525,7 +552,7 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       auto_barcode: opts.auto_barcode !== false,
       stock: 0,
     });
-    deactivateUnselectedVariants(db, productId, colorIds, sizeIds);
+    deactivateUnselectedVariants(db, productId, colorIds, sizeIds, { warehouse_id: warehouseId });
   }
   const findMatrix = db.prepare(`
     SELECT * FROM product_variants
