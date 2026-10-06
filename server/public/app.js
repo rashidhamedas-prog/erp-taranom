@@ -20369,6 +20369,9 @@ async function renderCashOpsTab(body, dq){
     ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
     ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
   ].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  window._cashOpsIndex={};
+  (rows||[]).forEach(r=>{ window._cashOpsIndex['settlement:'+r.id]=r; });
+  payRows.forEach(r=>{ window._cashOpsIndex[r.kind+':'+r.id]=r; });
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی'};
   const payLabel=p=>p==='cheque'?'🧾 چک':p==='bank'?'🏦 بانکی':'💵 نقد';
   body.innerHTML=`
@@ -20406,7 +20409,10 @@ async function renderCashOpsTab(body, dq){
       <td class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')):'-'}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder_name||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSettlement((r.id))})}">🗑️</button></td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+        <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc('settlement',(r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSettlement((r.id))})}">🗑️</button>
+      </td>
     </tr>`).join('')||emptyRow(10)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="3">جمع دریافت (${fmt(rows.length)})</td>
@@ -20425,7 +20431,10 @@ async function renderCashOpsTab(body, dq){
       <td>${payLabel(r.pay_type)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button></td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+        <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button>
+      </td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="3">جمع پرداخت (${fmt(payRows.length)})</td>
@@ -20453,6 +20462,8 @@ async function renderPaymentOpsTab(body){
     ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
     ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
   ].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  window._cashOpsIndex=window._cashOpsIndex||{};
+  rows.forEach(r=>{ window._cashOpsIndex[r.kind+':'+r.id]=r; });
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی'};
   const payLabel=p=>p==='cheque'?'🧾 چک':p==='bank'?'🏦 بانکی':'💵 نقد';
   body.innerHTML=`
@@ -20467,7 +20478,10 @@ async function renderPaymentOpsTab(body){
       <td>${payLabel(r.pay_type)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button></td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+        <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button>
+      </td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="3">جمع (${fmt(rows.length)} پرداخت)</td>
@@ -20996,6 +21010,261 @@ async function deletePaymentOp(kind,id){
   if(!confirm('این پرداخت حذف شود؟')) return;
   const endpoint = kind==='supplier' ? '/purchases/payments/'+id : kind==='incentive' ? '/accounting/incentive-payments/'+id : '/expenses/'+id;
   try{ await api('DELETE',endpoint); showToast('حذف شد'); loadAccTab('settlements'); }catch(e){}
+}
+
+function cashDocBlockedReason(kind, row){
+  if(!row) return 'سند پیدا نشد';
+  if(row.status==='reversed') return 'این سند قبلاً ابطال شده است';
+  if(kind==='settlement'){
+    const note=String(row.note||'');
+    if(row.pay_type==='pos_card' || note.includes('کارتخوان')) return 'دریافت کارتخوان از ویرایش فاکتور یا ابطال و ثبت مجدد اصلاح می‌شود';
+    if(note.includes('هنگام فاکتور')) return 'این دریافت همراه فاکتور است. از ویرایش همان فاکتور اصلاحش کنید';
+    if(['received','bounced','cancelled'].includes(String(row.cheque_status||'')) && row.pay_type==='cheque') return 'چک وصول، برگشت یا ابطال شده است. سند را ابطال کنید و دریافت جدید بزنید';
+  }
+  return '';
+}
+async function editCashDoc(kind, id){
+  let row=(window._cashOpsIndex||{})[kind+':'+id];
+  if(!row){
+    try{
+      if(kind==='settlement'){
+        const list=await api('GET','/accounting/settlements')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id));
+      } else if(kind==='supplier'){
+        const list=await api('GET','/purchases/payments/list')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id));
+        if(row) row={...row, kind:'supplier', target:row.supplier_name||'-'};
+      } else if(kind==='incentive'){
+        const list=await api('GET','/accounting/incentive-payments')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id));
+        if(row) row={...row, kind:'incentive', target:row.rep_name||'-'};
+      } else {
+        const list=await api('GET','/expenses')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id));
+        if(row) row={...row, kind:'expense'};
+      }
+    }catch(e){ return; }
+  }
+  const why=cashDocBlockedReason(kind, row);
+  if(why){ showToast(why,'error'); return; }
+  await openCashDocEdit(kind, row);
+}
+function cdePayOptions(kind, current){
+  if(kind==='settlement'){
+    const cur=current==='bank'?'bank_transfer':(current||'cash');
+    return `<option value="cash" ${cur==='cash'?'selected':''}>نقد</option>
+      <option value="bank_transfer" ${cur==='bank_transfer'?'selected':''}>واریز بانکی</option>
+      <option value="cheque" ${cur==='cheque'?'selected':''}>چک</option>`;
+  }
+  const cur=current==='bank_transfer'?'bank':(current||'cash');
+  return payTypeOptionsHtml({cheque:true}).replace('value="'+cur+'"','value="'+cur+'" selected');
+}
+function cdeToggleCheque(){
+  toggleBankFields('cde');
+  const show=el('cde-paytype')?.value==='cheque' && el('cde-kind')?.value==='settlement';
+  const box=el('cde-cheque-block');
+  if(box) box.style.display=show?'block':'none';
+}
+async function cdeLoadInvoices(custId, selectedId, selectedLabel){
+  const open=custId?await api('GET','/accounting/customers/'+custId+'/open-invoices').catch(()=>[])||[]:[];
+  const sel=el('cde-invoice'); if(!sel) return;
+  const have=new Set(open.map(i=>String(i.id)));
+  let extra='';
+  if(selectedId && !have.has(String(selectedId))){
+    extra=`<option value="${selectedId}">${esc(selectedLabel||('فاکتور #'+selectedId))} — همین تخصیص</option>`;
+  }
+  sel.innerHTML='<option value="">— بدون تخصیص به فاکتور —</option>'+extra+
+    open.map(i=>`<option value="${i.id}">${esc(i.num)} — مانده ${fmt(i.outstanding)}</option>`).join('');
+  if(selectedId) sel.value=String(selectedId);
+}
+async function openCashDocEdit(kind, row){
+  await ensurePayCaches();
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  if(kind==='settlement'){
+    if(!CACHE.customers?.length) CACHE.customers=listRows(await api('GET','/customers'))||[];
+    if(row.cust_id && !(CACHE.customers||[]).some(c=>Number(c.id)===Number(row.cust_id))){
+      CACHE.customers=CACHE.customers||[];
+      CACHE.customers.push({id:row.cust_id, biz:row.cust_biz||('مشتری #'+row.cust_id)});
+    }
+  }
+  if(kind==='supplier'){
+    if(!CACHE.suppliers?.length) CACHE.suppliers=await api('GET','/suppliers')||[];
+    if(row.supplier_id && !(CACHE.suppliers||[]).some(s=>Number(s.id)===Number(row.supplier_id))){
+      CACHE.suppliers.push({id:row.supplier_id, name:row.supplier_name||row.target||('تأمین #'+row.supplier_id)});
+    }
+  }
+  let reps=[];
+  if(kind==='incentive'){
+    reps=await api('GET','/accounting/commissions').catch(()=>[])||[];
+    if(reps && reps.reps) reps=reps.reps;
+  }
+  if(kind==='expense'){
+    if(!CACHE.expenseCategories) CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
+    if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+  }
+  const titles={settlement:'اصلاح دریافت',supplier:'اصلاح پرداخت به تأمین‌کننده',incentive:'اصلاح پرداخت انگیزه',expense:'اصلاح پرداخت هزینه'};
+  const cats=CACHE.expenseCategories&&CACHE.expenseCategories.length?CACHE.expenseCategories:[{code:'admin',name:'عمومی و اداری'},{code:'sales',name:'توزیع و فروش'}];
+  const pt=row.pay_type||'cash';
+  openModal(`
+    <div class="modal-head"><h3>✏️ ${titles[kind]||'اصلاح سند'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <input type="hidden" id="cde-kind" value="${esc(kind)}">
+      <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">همان سند اصلاح می‌شود. دفتر کل، طرف‌حساب و چکِ وابسته در یک مرحله به‌روز می‌شوند. شماره سند عوض نمی‌شود.</div>
+      ${kind==='settlement'?`<div class="fg full"><label>مشتری *</label>${custSelect('cde-cust', row.cust_id)}</div>
+        <div class="fg full"><label>فاکتور مرتبط</label><select id="cde-invoice"><option value="">—</option></select>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">سقف مبلغ = ماندهٔ باز فاکتور به‌علاوهٔ مبلغ همین سند.</div></div>
+        ${moayanAcctHtml('cde','اگر پر باشد، به‌جای بانک یا صندوق در سند می‌نشیند.')}`:''}
+      ${kind==='supplier'?`<div class="fg full"><label>تأمین‌کننده *</label>${supplierSelect('cde-supplier', row.supplier_id)}</div>
+        <div class="fg full"><label>فاکتور خرید (اختیاری)</label><select id="cde-po"><option value="">— بدون ارتباط —</option></select></div>
+        ${moayanAcctHtml('cde','حساب پرداخت به‌جای بانک یا صندوق — اختیاری.')}`:''}
+      ${kind==='incentive'?`<div class="fg full"><label>کارشناس *</label>${searchSelect('cde-rep', (reps||[]).map(r=>({
+        id:r.id, label:r.name||'', meta:'', hay:r.name||''
+      })), row.rep_id, {kind:'generic', placeholder:'جستجو: نام کارشناس...'})}</div>`:''}
+      ${kind==='expense'?`<div class="fg"><label>دسته هزینه</label><select id="cde-category">
+          ${cats.map(c=>`<option value="${esc(c.code||c.id)}" data-section="${esc(c.cost_section||'')}" ${String(c.code||c.id)===String(row.category)?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select></div>
+        <div class="fg"><label>مرکز هزینه</label><select id="cde-cc"><option value="">— بدون مرکز —</option>
+          ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}" ${Number(c.id)===Number(row.cost_center_id)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('')}
+        </select></div>
+        <div class="fg full"><label>حساب هزینه (معین)</label>
+          <input type="hidden" id="ex-account-code" value="${esc(row.account_code||'')}">
+          <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب..." autocomplete="off" value=""
+            data-csp-input="${CSP.bind('input',function(event){exAcctShow(this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){exAcctShow(this.value)})}"
+            data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el('ex-acct-drop');if(d)d.style.display='none'},200)})}">
+          <div id="ex-acct-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+        </div>
+        <div class="fg full"><label>عنوان/بابت *</label><input id="cde-title" value="${esc(row.title||row.target||'')}"></div>
+        <div class="fg full"><label>فاکتور خرید (اختیاری)</label><select id="cde-po"><option value="">— بدون ارتباط —</option></select></div>
+        <div class="fg full"><label><input type="checkbox" id="cde-overhead" ${row.is_overhead?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> سربار تولید (کنترل ۵۲۰۲)</label></div>`:''}
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="cde-amount" type="text" inputmode="numeric" class="money" value="${esc(moneyInit(row.amount))}"></div>
+      <div class="fg"><label>نوع پرداخت</label><select id="cde-paytype" data-csp-change="${CSP.bind('change',function(event){cdeToggleCheque()})}">${cdePayOptions(kind, pt)}</select></div>
+      <div class="fg" id="cde-bank-fg"><label>بانک</label><select id="cde-bank" data-csp-change="${CSP.bind('change',function(event){cdeToggleCheque()})}">
+        <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active||Number(b.id)===Number(row.bank_id)).map(b=>`<option value="${b.id}" ${Number(b.id)===Number(row.bank_id)?'selected':''}>${esc(b.name)}</option>`).join('')}
+      </select></div>
+      ${kind==='settlement'?'':payBankFeeHtml('cde')}
+      <div class="fg" id="cde-cashbox-fg"><label>صندوق</label><select id="cde-cashbox">
+        <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active||Number(b.id)===Number(row.cash_box_id)).map(b=>`<option value="${b.id}" ${Number(b.id)===Number(row.cash_box_id)?'selected':''}>${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="cde-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="cde-checkcat"><option value="">—</option></select></div>
+      <div class="fg"><label>تاریخ</label><input id="cde-date" data-jdate value="${esc(row.date||todayJalali())}"></div>
+      <div class="fg full" id="cde-cheque-block" data-csp-style="${CSP.style(`display:none`)}">
+        <div class="form-grid">
+          <div class="fg"><label>نام بانک چک *</label><input id="cde-chq-bank" value="${esc(row.cheque_bank||'')}"></div>
+          <div class="fg"><label>شناسه صیاد *</label><input id="cde-chq-sayadi" dir="ltr" value="${esc(row.cheque_sayadi||'')}"></div>
+          <div class="fg"><label>شماره چک</label><input id="cde-chq-number" dir="ltr" value="${esc(row.cheque_number||'')}"></div>
+          <div class="fg"><label>شماره حساب</label><input id="cde-chq-account" dir="ltr" value="${esc(row.cheque_account||'')}"></div>
+          <div class="fg"><label>شعبه</label><input id="cde-chq-branch" value="${esc(row.cheque_branch||'')}"></div>
+          <div class="fg"><label>شبا</label><input id="cde-chq-sheba" dir="ltr" value="${esc(row.cheque_sheba||'')}"></div>
+          <div class="fg"><label>سررسید *</label><input id="cde-chq-due" data-jdate value="${esc(row.cheque_due||'')}"></div>
+          <div class="fg"><label>صادرکننده</label><input id="cde-chq-owner" value="${esc(row.cheque_owner||'')}"></div>
+        </div>
+      </div>
+      <div class="fg full"><label>یادداشت</label><textarea id="cde-note">${esc(row.note||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot">
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveCashDocEdit(`${String(kind)}`,(row.id))})}">💾 ذخیره اصلاح</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+  attachDatepickers(el('modalRoot'));
+  initCustSearches(el('modalRoot'));
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  if(kind!=='settlement' && row.fee_rial && el('cde-fee')) el('cde-fee').value=moneyInit(row.fee_rial);
+  cdeToggleCheque();
+  if(row.check_category_id && el('cde-checkcat')) el('cde-checkcat').value=String(row.check_category_id);
+  if(kind==='settlement'){
+    const hid=el('cde-cust');
+    if(hid) hid.addEventListener('change', ()=>cdeLoadInvoices(+hid.value, '', ''));
+    cdeLoadInvoices(row.cust_id, row.invoice_id, row.invoice_num);
+    if(row.account_code) moayanAcctPick('cde', row.account_code);
+  }
+  if(kind==='supplier' && row.account_code) moayanAcctPick('cde', row.account_code);
+  if(kind==='expense' && row.account_code){
+    const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===row.account_code);
+    const inp=el('ex-account-search');
+    if(inp) inp.value=a?(a.code+' — '+a.name):row.account_code;
+  }
+  if(kind==='supplier' || kind==='expense'){
+    api('GET','/purchases').then(list=>{
+      const sel=el('cde-po'); if(!sel) return;
+      const rows=listRows(list).slice(0,120);
+      sel.innerHTML='<option value="">— بدون ارتباط —</option>'+rows.map(p=>`<option value="${p.id}" ${Number(p.id)===Number(row.purchase_invoice_id)?'selected':''}>${esc(p.num||('#'+p.id))} — ${esc(p.supplier_name||'-')}</option>`).join('');
+    }).catch(()=>{});
+  }
+}
+async function saveCashDocEdit(kind, id){
+  const pay_type=el('cde-paytype')?.value||'cash';
+  const bank_id=+el('cde-bank')?.value||null;
+  const cash_box_id=+el('cde-cashbox')?.value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const amount=moneyVal('cde-amount');
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  if(kind==='settlement' && pay_type==='cheque'){
+    if(!String(el('cde-chq-bank')?.value||'').trim()||!String(el('cde-chq-sayadi')?.value||'').trim()||!String(el('cde-chq-due')?.value||'').trim()){
+      showToast('نام بانک چک، شناسه صیاد و سررسید الزامی است','error'); return;
+    }
+  }
+  if(!confirm('این سند با همان شماره اصلاح می‌شود و دفتر کل و طرف‌حساب هم‌زمان به‌روز می‌شوند. ادامه می‌دهید؟')) return;
+  const payload={
+    amount, pay_type, bank_id, cash_box_id,
+    date:el('cde-date')?.value||'',
+    note:el('cde-note')?.value||'',
+    check_category_id:+el('cde-checkcat')?.value||null,
+    fee_rial: kind==='settlement'?0:payFeeVal('cde')
+  };
+  let path='';
+  if(kind==='settlement'){
+    const cust_id=+el('cde-cust')?.value||0;
+    if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
+    path='/accounting/settlements/'+id;
+    Object.assign(payload,{
+      cust_id, invoice_id:+el('cde-invoice')?.value||null,
+      account_code:el('cde-account-code')?.value||'',
+      cheque_bank:el('cde-chq-bank')?.value||'',
+      cheque_sayadi:el('cde-chq-sayadi')?.value||'',
+      cheque_number:el('cde-chq-number')?.value||'',
+      cheque_account:el('cde-chq-account')?.value||'',
+      cheque_branch:el('cde-chq-branch')?.value||'',
+      cheque_sheba:el('cde-chq-sheba')?.value||'',
+      cheque_due:el('cde-chq-due')?.value||'',
+      cheque_owner:el('cde-chq-owner')?.value||''
+    });
+  } else if(kind==='supplier'){
+    const supplier_id=+el('cde-supplier')?.value||0;
+    if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
+    path='/purchases/payments/'+id;
+    Object.assign(payload,{
+      supplier_id, purchase_invoice_id:+el('cde-po')?.value||null,
+      account_code:el('cde-account-code')?.value||''
+    });
+  } else if(kind==='incentive'){
+    const rep_id=+el('cde-rep')?.value||0;
+    if(!rep_id){ showToast('کارشناس را انتخاب کنید','error'); return; }
+    path='/accounting/incentive-payments/'+id;
+    payload.rep_id=rep_id;
+  } else {
+    const title=String(el('cde-title')?.value||'').trim();
+    if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
+    const catOpt=el('cde-category')?.selectedOptions?.[0];
+    const section=catOpt?.getAttribute('data-section')||'';
+    const overhead=!!el('cde-overhead')?.checked || section==='production_overhead';
+    const cost_center_id=+el('cde-cc')?.value||null;
+    if(overhead && !cost_center_id){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
+    path='/expenses/'+id;
+    Object.assign(payload,{
+      title, category:el('cde-category')?.value||'admin',
+      account_code:el('ex-account-code')?.value||'',
+      cost_center_id, is_overhead:overhead?1:0,
+      purchase_invoice_id:+el('cde-po')?.value||null
+    });
+  }
+  try{
+    await api('PUT', path, payload);
+    closeModal();
+    showToast('سند اصلاح شد');
+    _accRecvCache=null;
+    loadAccTab(accTab||'settlements');
+  }catch(e){}
 }
 
 function stmtQuery(){
@@ -25225,6 +25494,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>در هر فرم، نقد فقط صندوق، واریز فقط بانک، چک بانک+دسته‌چک، کارتخوان فقط ترمینال را نشان می‌دهد (هم‌زمان انتخاب نمی‌شوند).</li>
         <li>دریافت مشتری با کارتخوان از مسیر <b>وجوه در راه (۱۱۱۸)</b> ثبت می‌شود نه بدهکار بانک؛ تسویه دسته‌ای بعداً به بانک می‌رود.</li>
         <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
+        <li><b>اصلاح سند:</b> کنار حذف، مداد همان دریافت یا پرداخت را با همان شماره اصلاح می‌کند. دفتر کل، دفتر طرف‌حساب، تخصیص فاکتور و چکِ هنوز نزد صندوق با هم به‌روز می‌شوند. مبلغ نباید از ماندهٔ فاکتور (به‌علاوهٔ همین سند) بیشتر شود. دریافتِ همراه فاکتور، کارتخوان، و چکی که وصول یا واگذار شده از اینجا عوض نمی‌شود. ابطال همچنان سند را برمی‌گرداند؛ اصلاح، ردیف را حذف نمی‌کند.</li>
       </ul>
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
         <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
@@ -25413,8 +25683,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
-        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت به شخص یا حساب که فقط سند دستی است از این فهرست اصلاح نمی‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
@@ -25548,6 +25818,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>دریافت و پرداخت</h5><ul>
         <li>دریافت: ابتدا انتخاب مشتری / شخص / حساب (کل تا تفصیلی)</li>
         <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> کدینگ هم هست</li>
+        <li>مداد کنار دریافت مشتری و پرداخت تأمین‌کننده، انگیزه و هزینه، همان سند را اصلاح می‌کند و دفتر را با همان شماره به‌روز می‌کند. حذف، سند را ابطال می‌کند</li>
         <li>مانده اول دوره اشخاص: مبلغ + بدهکار/بستانکار (علاوه بر ماهیت گروه)</li>
       </ul>
       <h5>پیامک خوش‌آمدگویی</h5><ul>
@@ -25622,7 +25893,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v321</b> است و اسکریپت‌ها با <code>?v=321</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v322</b> است و اسکریپت‌ها با <code>?v=322</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

@@ -281,16 +281,16 @@ function recomputeInvoiceSettledBalances(db, invoiceId) {
   try {
     const receipts = loadInvoiceReceipts(db, invoiceId);
     const paidSett = (receipts.settlements || []).reduce(
-      (a, s) => a + moneyRial(s.amount_rial != null ? s.amount_rial : s.amount), 0
+      (a, s) => a + moneyRial(Number(s.amount_rial) || s.amount), 0
     );
     const paidPos = (receipts.pos || []).reduce(
-      (a, p) => a + moneyRial(p.amount_rial != null ? p.amount_rial : p.amount), 0
+      (a, p) => a + moneyRial(Number(p.amount_rial) || p.amount), 0
     );
     // POS receipts already create a settlement row with the same amount — count settlements only
     // when both exist for the same cash movement. Prefer settlement sum; if no settlements, use POS.
     const paid = paidSett > 0 ? paidSett : paidPos;
     const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
-    const finalAmt = moneyRial(finalRow && (finalRow.final_rial != null ? finalRow.final_rial : finalRow.final));
+    const finalAmt = moneyRial(finalRow && (Number(finalRow.final_rial) || finalRow.final));
     db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
       .run(paid, Math.max(0, finalAmt - paid), invoiceId);
     return { paid, balance_due: Math.max(0, finalAmt - paid) };

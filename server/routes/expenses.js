@@ -296,6 +296,20 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+router.put('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { amendExpensePayment } = require('../lib/amend-cash-ops');
+    const out = db.transaction(() => amendExpensePayment(db, +req.params.id, req.body || {}, req.user.id))();
+    audit(req.user.id, 'update', 'expense_payment', out.id, out.summary);
+    res.json({ ok: true, id: out.id, amount: out.amount });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('amend expense', e);
+    res.status(status).json({ error: e.message || 'اصلاح پرداخت هزینه ناموفق بود', code: e.code });
+  }
+});
+
 module.exports = router;
 module.exports.resolveExpensePosting = resolveExpensePosting;
 module.exports.COST_SECTIONS = COST_SECTIONS;

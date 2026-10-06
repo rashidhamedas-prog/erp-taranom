@@ -843,6 +843,20 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+router.put('/payments/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { amendSupplierPayment } = require('../lib/amend-cash-ops');
+    const out = db.transaction(() => amendSupplierPayment(db, +req.params.id, req.body || {}, req.user.id))();
+    audit(req.user.id, 'update', 'supplier_payment', out.id, out.summary);
+    res.json({ ok: true, id: out.id, amount: out.amount });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('amend supplier payment', e);
+    res.status(status).json({ error: e.message || 'اصلاح پرداخت تأمین‌کننده ناموفق بود', code: e.code });
+  }
+});
+
 // Supplier ledger (statement) — mirrors /accounting/ledger/:customerId
 router.get('/ledger/:supplierId', auth, adminOrAccounting, (req, res) => {
   const db = getDB();

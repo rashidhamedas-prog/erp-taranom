@@ -579,12 +579,12 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   const settlementId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO settlements
-        (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
+        (user_id,cust_id,invoice_id,amount,amount_rial,pay_type,date,note,bank_id,cash_box_id,check_category_id,
          cheque_bank,cheque_sayadi,cheque_number,cheque_account,
          cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba,
          foreign_amount,fx_rate_rial,currency,account_code)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, cust_id, invoice_id || null, amountRial, pay_type || 'cash',
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, cust_id, invoice_id || null, amountRial, amountRial, pay_type || 'cash',
           date || '', note || '', bank_id || null, cash_box_id || null, check_category_id || null,
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
@@ -663,11 +663,11 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
       const pay_type = p.pay_type || 'cash';
       const result = db.prepare(
         `INSERT INTO settlements
-          (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
+          (user_id,cust_id,invoice_id,amount,amount_rial,pay_type,date,note,bank_id,cash_box_id,check_category_id,
            cheque_bank,cheque_sayadi,cheque_number,cheque_account,
            cheque_amount,cheque_owner,cheque_due,cheque_status,installment_group,cheque_branch,cheque_sheba,cheque_row)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).run(req.user.id, cust_id, p.invoice_id || null, amount, pay_type,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).run(req.user.id, cust_id, p.invoice_id || null, amount, amount, pay_type,
             p.date || '', note || p.note || '', p.bank_id || null, p.cash_box_id || null, p.check_category_id || null,
             p.cheque_bank || '', p.cheque_sayadi || '', p.cheque_number || '', p.cheque_account || '',
             parseFloat(p.cheque_amount || 0), p.cheque_owner || '', p.cheque_due || '',
@@ -716,6 +716,41 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
   })();
   audit(req.user.id, 'reverse', 'settlement', req.params.id, 'ابطال تسویه');
   res.json({ ok: true });
+});
+
+// Correct a standalone receipt in place (same id, rewritten journal).
+router.put('/settlements/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  let fx;
+  try {
+    fx = resolveSettlementFx(db, {
+      amount: req.body.amount,
+      bank_id: req.body.bank_id,
+      cash_box_id: req.body.cash_box_id,
+      foreign_amount: req.body.foreign_amount,
+      fx_rate_rial: req.body.fx_rate_rial,
+      currency: req.body.currency,
+      date: req.body.date,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  try {
+    const { amendSettlement } = require('../lib/amend-cash-ops');
+    const out = db.transaction(() => amendSettlement(db, +req.params.id, {
+      ...req.body,
+      amountRial: fx.amountRial,
+      foreign_amount: fx.foreign_amount,
+      fx_rate_rial: fx.fx_rate_rial,
+      currency: fx.currency,
+    }, req.user.id))();
+    audit(req.user.id, 'update', 'settlement', out.id, out.summary);
+    res.json({ ok: true, id: out.id, amount: out.amount });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('amend settlement', e);
+    res.status(status).json({ error: e.message || 'اصلاح دریافت ناموفق بود', code: e.code });
+  }
 });
 
 // Cheque management list
@@ -868,6 +903,20 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
   })();
   audit(req.user.id, 'reverse', 'incentive_payment', req.params.id, 'ابطال پرداخت انگیزه فروش');
   res.json({ ok: true });
+});
+
+router.put('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { amendIncentivePayment } = require('../lib/amend-cash-ops');
+    const out = db.transaction(() => amendIncentivePayment(db, +req.params.id, req.body || {}, req.user.id))();
+    audit(req.user.id, 'update', 'incentive_payment', out.id, out.summary);
+    res.json({ ok: true, id: out.id, amount: out.amount });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('amend incentive', e);
+    res.status(status).json({ error: e.message || 'اصلاح پرداخت انگیزه ناموفق بود', code: e.code });
+  }
 });
 
 // My commission — salesperson views their own (no adminOnly)

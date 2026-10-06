@@ -653,6 +653,6 @@ module.exports = {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, computeRepCommission, buildRepLedgerView,
   buildRepStatement, settleAdvancesAgainstPayment, recordIncentivePaymentLedger, getRepRanking,
   getRepAgingReceivables, getTeamRollup, canAccessRep, notifyRep, getRepRates, getAdvanceBalance,
-  computeRepPayable, computeSingleInvoiceCommission, recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual,
+  computeRepPayable, computeSingleInvoiceCommission, computeSettlementCommission, recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual,
   assignCustomerByTerritory, getRepProfitReport, runRepDailyAlerts, lineProfit
 };
