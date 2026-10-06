@@ -7,7 +7,7 @@
  */
 'use strict';
 
-const { collapsePrintRows } = require('./print-line-collapse');
+const { collapsePrintRows, canonicalPrintCode } = require('./print-line-collapse');
 
 const FORMAL_IDS = ['formal-official', 'formal-modern', 'formal-premium'];
 const CASUAL_IDS = ['casual-simple'];
@@ -223,7 +223,28 @@ function computePrintTotals(inv, rows) {
 }
 
 function rowProductCode(r) {
-  return String((r && (r.code || r.sku || r.barcode)) || '').trim();
+  return canonicalPrintCode(r);
+}
+
+/** کد کاتالوگ را برای چاپ کنار ردیف می‌گذارد. SKU ذخیره‌شدهٔ فاکتور عوض نمی‌شود. */
+function attachPrintProductCodes(db, rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!db || typeof db.prepare !== 'function') return list;
+  let stmt = null;
+  try { stmt = db.prepare('SELECT code FROM products WHERE id=?'); } catch (_) { return list; }
+  if (!stmt) return list;
+  return list.map((r) => {
+    if (!r || r.row_type === 'income') return r;
+    const pid = parseInt(r.product_id, 10);
+    if (!pid) return r;
+    let code = '';
+    try {
+      const p = stmt.get(pid);
+      code = String((p && p.code) || '').trim();
+    } catch (_) { return r; }
+    if (!code) return r;
+    return Object.assign({}, r, { product_code: code });
+  });
 }
 
 function buildFormalRows(rows, isA5) {
@@ -589,7 +610,8 @@ function renderInvoicePrintHtml(opts) {
     templateOverride: opts.templateOverride || (dims.paper === 'THERMAL' ? THERMAL_ID : undefined),
   });
   const isThermal = templateId === THERMAL_ID;
-  const rows = collapsePrintRows(opts.rows || [], isThermal ? { thermal: true } : undefined);
+  const sourceRows = attachPrintProductCodes(opts.db, opts.rows || []);
+  const rows = collapsePrintRows(sourceRows, isThermal ? { thermal: true } : undefined);
   const isA5 = dims.paper === 'A5';
   const htmlClass = [
     'inv-print',

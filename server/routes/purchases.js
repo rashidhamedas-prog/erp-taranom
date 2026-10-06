@@ -199,7 +199,7 @@ router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
       `).all(row.id);
     } catch (_) { settlements = []; }
     const html = renderInvoicePrintHtml({
-      inv, rows, settings, paper,
+      inv, rows, settings, paper, db,
       settlements,
       templateOverride: 'casual-simple',
     });

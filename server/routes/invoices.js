@@ -1172,7 +1172,7 @@ router.get('/:id/print', auth, (req, res) => {
       console.warn('invoice print receipts:', re && re.message);
     }
     const html = renderInvoicePrintHtml({
-      inv, rows, settings, paper,
+      inv, rows, settings, paper, db,
       settlements,
       posReceipts,
       templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),

@@ -2,8 +2,9 @@
  * جمع‌کردن نمایشی ردیف‌های چاپ فاکتور (فروش و خرید).
  * دادهٔ ذخیره‌شده عوض نمی‌شود — فقط برای HTML چاپ.
  *
- * هویت چاپی کالا = کد کالا (+ نام استایل تمیز در صورت وجود).
- * رنگ / سایز / برچسب واریانت روی فاکتور چاپ نمی‌شود.
+ * هویت چاپی کالا = کد کاتالوگ (+ نام استایل تمیز در صورت وجود).
+ * SKU ماتریس (کد-رنگ-سایز) فقط هویت انبار/سایت است و در ستون کد فاکتور نمی‌آید.
+ * رنگ / سایز / برچسب واریانت، از جمله «فری سایز (مناسب تا …)»، روی فاکتور چاپ نمی‌شود.
  */
 'use strict';
 
@@ -109,7 +110,8 @@ function looksLikeVariantLabel(text, row) {
   if (/[-–]\s*سایز\s*[\d۰-۹A-Za-zآ-ی]+/u.test(s)) return true;
   if (/^سایز\s*[\d۰-۹A-Za-zآ-ی]+/u.test(s)) return true;
   if (/سایز\s*[\d۰-۹]+\s*\(/u.test(s)) return true;
-  if (/مناسب\s+از\s*[\d۰-۹]+/u.test(s)) return true;
+  if (/مناسب\s+(?:از|تا)\s*[\d۰-۹]+/u.test(s) && /سایز/u.test(s)) return true;
+  if (/^[\u0600-\u06FF0-9۰-۹]+[-–]فری[\s\u200c]*سایز\s*\(/u.test(s)) return true;
 
   const c = String((row && (row.color_name || row.color)) || '').trim();
   const sz = String((row && row.size_name) || '').trim();
@@ -152,8 +154,57 @@ function sanitizePrintName(name, row) {
   // پسوند عمومی: -رنگ-سایز N (توضیح)
   s = s.replace(/[-–]\s*\S+-سایز\s*[\d۰-۹A-Za-zآ-ی]+(?:\s*\([^)]*\))?$/u, '').trim();
   s = s.replace(/\s*سایز\s*[\d۰-۹]+\s*\([^)]*مناسب[^)]*\)\s*$/u, '').trim();
+  s = s.replace(/[-–][^-–]{1,40}[-–]فری[\s\u200c]*سایز\s*\([^)]*مناسب[^)]*\)\s*$/u, '').trim();
   if (looksLikeVariantLabel(s, row)) return '';
   return s;
+}
+
+/** پسوند رنگ/سایز چسبیده به کد، مثل «-مشگی-فری سایز (مناسب تا ۴۸)». */
+function isVariantTail(tail) {
+  const t = String(tail || '').trim();
+  if (!t || t.length > 120) return false;
+  if (/مناسب/u.test(t)) return true;
+  if (/سایز/u.test(t)) return true;
+  return looksLikeVariantLabel(t, null);
+}
+
+function stripKnownColorSize(code, color, size) {
+  const s = String(code || '').trim();
+  const c = String(color || '').trim();
+  const z = String(size || '').trim();
+  if (!s || !c || !z) return s;
+  const suffixes = [`-${c}-${z}`, `–${c}–${z}`, `-${c}–${z}`, `–${c}-${z}`];
+  for (const suf of suffixes) {
+    if (s.endsWith(suf) && s.length > suf.length) return s.slice(0, -suf.length).trim();
+  }
+  return s;
+}
+
+/**
+ * کد چاپی = کد کاتالوگ.
+ * buildSku رشتهٔ style-color-size می‌سازد؛ اگر نام سایز «فری سایز (مناسب تا ۴۸)» باشد
+ * همان متن وارد ستون کد می‌شود. اینجا فقط پیشوند کد کالا می‌ماند.
+ */
+function peelStyleCode(code) {
+  const s = String(code || '').trim();
+  if (!s) return '';
+  const m = s.match(/^([A-Za-z]{1,8}-\d{2,8}|\d{3,8})[-–](.+)$/);
+  if (!m) return s;
+  if (isVariantTail(m[2])) return m[1];
+  return s;
+}
+
+function canonicalPrintCode(row) {
+  const color = String((row && (row.color_name || row.color)) || '').trim();
+  const size = String((row && row.size_name) || '').trim();
+  const explicit = peelStyleCode(stripKnownColorSize(String((row && row.product_code) || '').trim(), color, size));
+  const raw = peelStyleCode(stripKnownColorSize(
+    String((row && (row.code || row.sku || row.barcode)) || '').trim(),
+    color,
+    size
+  ));
+  if (explicit) return explicit;
+  return raw;
 }
 
 function sanitizePrintDescription(desc, row) {
@@ -166,11 +217,14 @@ function sanitizePrintDescription(desc, row) {
 /** یک ردیف آمادهٔ چاپ: بدون رنگ/سایز در نام و شرح */
 function sanitizePrintLine(r) {
   if (!r || r.row_type === 'income') return r;
+  const code = canonicalPrintCode(r);
   const name = sanitizePrintName(r.name, r);
   const description = sanitizePrintDescription(r.description, r);
   return Object.assign({}, r, {
     name,
     description,
+    code,
+    sku: code,
     color_name: '',
     size_name: '',
     color: '',
@@ -253,5 +307,6 @@ module.exports = {
   sanitizePrintName,
   sanitizePrintDescription,
   sanitizePrintLine,
+  canonicalPrintCode,
   compactSummary,
 };
