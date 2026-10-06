@@ -551,6 +551,7 @@ function postStageCore(db, {
         date,
         description: `مصرف مواد مرحله ${stage.seq} — ${po.order_no}`,
         createdBy: userId,
+        costCenterId: stage.cost_center_id || po.cost_center_id || null,
         lines: plug([
           dr(db, 'coa_wip', bf.total, po.coa_wip_tafsili),
           cr(db, 'coa_raw_materials', matRial),
@@ -602,6 +603,7 @@ function postStageCore(db, {
       date,
       description: `جذب دستمزد مرحله ${stage.seq} — ${po.order_no}`,
       createdBy: userId,
+      costCenterId: stage.cost_center_id || po.cost_center_id || null,
       lines: [
         dr(db, 'coa_wip', laborRial, po.coa_wip_tafsili),
         cr(db, 'coa_labor_control', laborRial),
@@ -627,6 +629,7 @@ function postStageCore(db, {
       date,
       description: `جذب سربار مرحله ${stage.seq} — ${po.order_no}`,
       createdBy: userId,
+      costCenterId: stage.cost_center_id || po.cost_center_id || null,
       lines: [
         dr(db, 'coa_wip', oh.amount_rial, po.coa_wip_tafsili),
         cr(db, 'coa_overhead_applied', oh.amount_rial),
@@ -686,6 +689,7 @@ function postStageCore(db, {
       date,
       description: `ضایعات غیرعادی مرحله ${stage.seq} — ${po.order_no}`,
       createdBy: userId,
+      costCenterId: stage.cost_center_id || po.cost_center_id || null,
       lines: [
         dr(db, 'coa_abnormal_waste', abnormalRial),
         cr(db, 'coa_wip', abnormalRial, po.coa_wip_tafsili),
@@ -735,6 +739,7 @@ function postStageCore(db, {
       date,
       description: `ضایعات قابل فروش مرحله ${stage.seq} — ${po.order_no}`,
       createdBy: userId,
+      costCenterId: stage.cost_center_id || po.cost_center_id || null,
       lines: [
         dr(db, 'coa_scrap_inventory', scrapCredit),
         cr(db, 'coa_wip', scrapCredit, po.coa_wip_tafsili),

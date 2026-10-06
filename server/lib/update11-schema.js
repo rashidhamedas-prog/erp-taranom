@@ -95,6 +95,15 @@ function initUpdate11Schema(db) {
   ensureColumn(db, 'expense_categories', 'coa_code', 'TEXT');
   ensureColumn(db, 'expense_categories', 'parent_id', 'INTEGER');
   ensureColumn(db, 'expense_categories', 'level', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'expense_categories', 'cost_section', 'TEXT');
+  db.prepare(`
+    UPDATE expense_categories SET cost_section='selling'
+    WHERE cost_section IS NULL AND (code='sales' OR account_code='6103' OR coa_code='6103')
+  `).run();
+  db.prepare(`
+    UPDATE expense_categories SET cost_section='admin'
+    WHERE cost_section IS NULL AND (code='admin' OR account_code='6102' OR coa_code='6102')
+  `).run();
 
   // ---- COA FX gain/loss seed (if chart empty of these codes) ----
   try {

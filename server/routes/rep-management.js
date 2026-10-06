@@ -349,6 +349,7 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
     postToLedger(db, {
       sourceType: 'rep_expense', sourceId: row.id,
       date: row.date || todayJalali(), description: `بازپرداخت هزینه نماینده ${row.rep_name}`, createdBy: req.user.id,
+      costCenterId: row.cost_center_id || null,
       lines: [
         { code: expense.code, name: expense.name, debit: rialToLedger(row.amount), credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(row.amount) }

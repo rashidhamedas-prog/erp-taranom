@@ -91,6 +91,7 @@ const PATH_TABLE_MAP = [
   ['/api/banks', 'banks'],
   ['/api/cash-boxes', 'cash_boxes'],
   ['/api/check-categories', 'check_categories'],
+  ['/api/expenses/categories', 'expense_categories'],
   ['/api/expenses', 'expense_payments'],
   ['/api/transfers', 'account_transfers'],
   ['/api/trust-checks', 'trust_checks'],

@@ -331,6 +331,7 @@ function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial }) {
     date: date || '',
     description: `بهای تمام‌شده فاکتور ${num}`,
     createdBy: userId,
+    costCenterId: row.cost_center_id || null,
     lines,
   });
   return rewritten;
@@ -576,6 +577,7 @@ function rewriteCommissionInPlace(db, { row, invLike, userId, date }) {
     date: date || '',
     description: `تعهد انگیزه فروش — فاکتور ${invLike.num}`,
     createdBy: userId,
+    costCenterId: row.cost_center_id || null,
     lines,
   });
   db.prepare(`
@@ -660,6 +662,7 @@ function amendPostedInvoiceInPlace(db, {
     date: entryDate,
     description: `${invoiceTypeLabel(newType)} ${row.num}${freightRial ? ' (با کرایه حمل)' : ''}`,
     createdBy: userId,
+    costCenterId: row.cost_center_id || null,
     lines: salesJournalLines(db, custId, {
       subtotal, discAmt, final, vatAmount, netBeforeVat,
     }, false, journalOpts),

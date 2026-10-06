@@ -1333,6 +1333,15 @@ function seedCostCenters(db) {
       ins.run(cc.name, cc.code, cc.kind, cc.driver, cc.seq, cc.is_stage, cc.default_labor_method);
     }
   }
+  const workshop = db.prepare("SELECT id FROM cost_centers WHERE code='CC-WORKSHOP'").get();
+  if (workshop) {
+    db.prepare(`
+      UPDATE cost_centers
+      SET parent_id=?, entity=COALESCE(NULLIF(entity,''), 'workshop')
+      WHERE code IN ('CC-10','CC-20','CC-30','CC-40','CC-50','CC-60','CC-90')
+        AND parent_id IS NULL
+    `).run(workshop.id);
+  }
 }
 
 function seedWarehouses(db) {

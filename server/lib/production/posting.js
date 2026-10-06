@@ -74,17 +74,35 @@ const PRD = {
   'PRD-99': { name: 'ابطال سند تولید', sourceType: 'production_reversal' },
 };
 
-function postEvent(db, { event, sourceId, date, description, createdBy, lines }) {
+const ORDER_CC_EVENTS = new Set(['PRD-01', 'PRD-02', 'PRD-03', 'PRD-05', 'PRD-07', 'PRD-11', 'PRD-12', 'PRD-16']);
+
+function inferCostCenterId(db, event, sourceId) {
+  const id = parseInt(sourceId, 10);
+  if (!id) return null;
+  try {
+    if (event === 'PRD-09') {
+      return db.prepare('SELECT cost_center_id FROM production_waste WHERE id=?').get(id)?.cost_center_id || null;
+    }
+    if (ORDER_CC_EVENTS.has(event) || event === 'PRD-10') {
+      return db.prepare('SELECT cost_center_id FROM production_orders WHERE id=?').get(id)?.cost_center_id || null;
+    }
+  } catch (_) { /* table may be absent in a partial boot */ }
+  return null;
+}
+
+function postEvent(db, { event, sourceId, date, description, createdBy, lines, costCenterId }) {
   const spec = PRD[event];
   if (!spec) throw err('E_UNKNOWN_PRD', 500, { event });
   const clean = plug(lines);
   if (!clean.length) return null;
+  const cc = costCenterId || inferCostCenterId(db, event, sourceId);
   const jeId = postToLedger(db, {
     sourceType: spec.sourceType,
     sourceId,
     date,
     description: description || spec.name,
     createdBy,
+    costCenterId: cc || null,
     lines: clean,
     voucherType: 'auto',
     status: 'approved',

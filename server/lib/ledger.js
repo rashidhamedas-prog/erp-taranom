@@ -65,11 +65,22 @@ function softVoidInsteadOfReversalVoucher(db, opts) {
   return last;
 }
 
+/** Fill empty line cost centers from the document so the voucher stays balanced by center. */
+function stampCostCenter(lines, costCenterId) {
+  const cc = parseInt(costCenterId, 10);
+  if (!cc) return lines || [];
+  return (lines || []).map((l) => ({
+    ...l,
+    cost_center_id: l.cost_center_id || cc,
+  }));
+}
+
 function postToLedger(db, opts) {
   const {
     sourceType, sourceId, date, description, createdBy, lines,
     voucherType = 'auto', status = 'approved',
     srcSystem = null, srcDocNo = null, docType = null,
+    costCenterId = null,
   } = opts;
 
   // Never mint a standalone reverse voucher — soft-void the original instead.
@@ -92,7 +103,8 @@ function postToLedger(db, opts) {
     throw err;
   }
 
-  const normalized = (lines || []).map(l => ({
+  const stamped = stampCostCenter(lines, costCenterId);
+  const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,
     debit: tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit),
@@ -152,6 +164,10 @@ function postToLedger(db, opts) {
   });
 
   if (!entryId) throw new Error('ثبت سند حسابداری ناموفق بود');
+  const headerCc = parseInt(costCenterId, 10);
+  if (headerCc) {
+    db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(headerCc, entryId);
+  }
   return entryId;
 }
 
@@ -162,7 +178,7 @@ function postToLedger(db, opts) {
  */
 function rewriteJournalEntry(db, opts) {
   const {
-    sourceType, sourceId, date, description, lines,
+    sourceType, sourceId, date, description, lines, costCenterId = null,
   } = opts;
 
   const existing = db.prepare(`
@@ -182,7 +198,8 @@ function rewriteJournalEntry(db, opts) {
     throw err;
   }
 
-  const normalized = (lines || []).map(l => ({
+  const stamped = stampCostCenter(lines, costCenterId);
+  const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,
     debit: tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit),
@@ -225,13 +242,15 @@ function rewriteJournalEntry(db, opts) {
   }
 
   const fiscalYearId = resolveFiscalYearForDate(db, date);
+  const headerCc = parseInt(costCenterId, 10) || null;
   db.prepare(`
     UPDATE journal_entries
-    SET entry_date=?, description=?, total_debit_rial=?, total_credit_rial=?, fiscal_year_id=?
+    SET entry_date=?, description=?, total_debit_rial=?, total_credit_rial=?, fiscal_year_id=?,
+        cost_center_id=COALESCE(?, cost_center_id)
     WHERE id=?
-  `).run(date || '', description || '', bal.totalDebit, bal.totalCredit, fiscalYearId, existing.id);
+  `).run(date || '', description || '', bal.totalDebit, bal.totalCredit, fiscalYearId, headerCc, existing.id);
 
   return existing.id;
 }
 
-module.exports = { postToLedger, rewriteJournalEntry, validateBalancedLines, DELETED_FILTER };
+module.exports = { postToLedger, rewriteJournalEntry, validateBalancedLines, stampCostCenter, DELETED_FILTER };

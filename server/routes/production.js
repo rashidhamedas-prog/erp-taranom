@@ -135,7 +135,7 @@ router.get('/overhead-suggest', auth, adminOrAccounting, (req, res) => {
   const to = req.query.to || '';
   const db = getDB();
 
-  const where = ["is_overhead=1"], params = [];
+  const where = ["is_overhead=1", "COALESCE(status,'posted')<>'reversed'"], params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
   const tagged = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM expense_payments WHERE ${where.join(' AND ')}`).get(...params).s;

@@ -18058,14 +18058,20 @@ async function renderCostCentersTab(body){
   const entityLabel={workshop:'کارگاه تولید',distribution_office:'دفتر توزیع',admin:'اداری',sales:'فروش',production:'تولید'};
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){costCenterModal()})}">➕ مرکز هزینه جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>وضعیت</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(c=>`<tr>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>والد</th><th>نقش</th><th>واحد</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${rows.map(c=>{
+      const parent=rows.find(p=>p.id===c.parent_id);
+      const role=c.is_stage?'مرحله تولید':(c.kind==='service'?'خدمات':(c.kind==='selling'?'فروش':(c.kind==='admin'?'اداری':'واحد')));
+      return `<tr>
       <td class="mono">${esc(c.code||'-')}</td><td>${esc(c.name)}</td>
-      <td>${entityLabel[c.entity]||c.entity||'-'}</td>
+      <td>${esc(parent?.name||'—')}</td>
+      <td>${role}</td>
+      <td>${entityLabel[c.entity]||c.entity||'—'}</td>
       <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){costCenterModal((c.id))})}">✏️</button>
           <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteCostCenter((c.id))})}">🗑️</button></td>
-    </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+    </tr>`;
+    }).join('')||emptyRow(7)}</tbody></table></div>`;
 }
 async function costCenterModal(id){
   const list=await api('GET','/accounting/cost-centers')||[];
@@ -18091,6 +18097,10 @@ async function costCenterModal(id){
         <option value="">— انتخاب —</option>
         ${entityOpts.map(o=>`<option value="${o.v}" ${c.entity===o.v?'selected':''}>${o.l}</option>`).join('')}
       </select></div>
+      <div class="fg"><label>مرکز والد ${hlp('مرحله‌های تولید زیر کارگاه، و هزینه‌های فروش زیر دفتر توزیع قرار می‌گیرند.')}</label>
+        <select id="cc-parent"><option value="">— بدون والد —</option>
+          ${list.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${Number(c.parent_id)===Number(x.id)?'selected':''}>${esc(x.code||'')} — ${esc(x.name)}</option>`).join('')}
+        </select></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cc-active">
         <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -18101,7 +18111,7 @@ async function costCenterModal(id){
 async function saveCostCenter(id){
   const name=el('cc-name').value.trim();
   if(!name){ showToast('نام الزامی است','error'); return; }
-  const data={name,code:el('cc-code').value,entity:el('cc-entity').value, active: id?(+el('cc-active').value):1};
+  const data={name,code:el('cc-code').value,entity:el('cc-entity').value, parent_id:+el('cc-parent')?.value||null, active: id?(+el('cc-active').value):1};
   try{
     if(id) await api('PUT','/accounting/cost-centers/'+id,data); else await api('POST','/accounting/cost-centers',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('cost-centers');
@@ -18436,7 +18446,7 @@ async function renderAccExpensesTab(body){
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>تاریخ</th><th>عنوان</th><th>دسته</th><th>مبلغ ${moneyColLabel()}</th><th>نوع پرداخت</th><th>مرکز هزینه</th>
     </tr></thead><tbody>${rows.map(e=>`<tr>
-      <td class="mono">${escDate(e.date)}</td><td>${esc(e.title||'-')}</td><td>${esc(e.category||'-')}</td>
+      <td class="mono">${escDate(e.date)}</td><td>${esc(e.title||'-')}</td><td>${esc(e.category_name||e.category||'-')}</td>
       <td class="mono">${fmt(e.amount||0)}</td><td>${esc(e.pay_type||'-')}</td><td class="muted">${esc(e.cost_center_name||'-')}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
@@ -20144,6 +20154,7 @@ async function renderExpenseCategoriesTab(body){
         <td class="mono">${esc(r.code||'-')}</td>
         <td>${pad}${esc(r.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">L${r.level||1}</span></td>
         <td class="mono">${esc(coa)}</td>
+        <td>${esc(({admin:'اداری',selling:'فروش و توزیع',production_overhead:'سربار تولید'})[r.cost_section]||'—')}</td>
         <td>${r.parent_id?(CACHE.expenseCategories||[]).find(x=>x.id===r.parent_id)?.name||'-': '—'}</td>
         <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){expenseCategoryModal((r.id))})}">✏️</button>
             <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteExpenseCategory((r.id))})}">🗑️</button></td>
@@ -20152,8 +20163,8 @@ async function renderExpenseCategoriesTab(body){
   }
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){expenseCategoryModal()})}">➕ دسته جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>حساب (کل/معین)</th><th>والد</th><th>عملیات</th></tr></thead>
-    <tbody>${renderTree(0,0)||emptyRow(5)}</tbody></table></div>`;
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>حساب (کل/معین)</th><th>بخش مالک</th><th>والد</th><th>عملیات</th></tr></thead>
+    <tbody>${renderTree(0,0)||emptyRow(6)}</tbody></table></div>`;
 }
 async function expenseCategoryModal(id){
   const rows=CACHE.expenseCategories||[];
@@ -20167,7 +20178,13 @@ async function expenseCategoryModal(id){
         <select id="ec-parent"><option value="">— بدون والد (سطح کل) —</option>
           ${rows.filter(r=>r.id!==id).map(r=>`<option value="${r.id}" ${row.parent_id==r.id?'selected':''}>${'— '.repeat((r.level||1)-1)}${esc(r.name)}</option>`).join('')}
         </select></div>
-      <div class="fg full"><label>کد حساب دفتر کل / معین ${hlp('باید زیرمجموعه سطح قبلی باشد و قابل رهگیری در دفتر کل')}</label>
+      <div class="fg full"><label>بخش مالک هزینه ${hlp('اداری و فروش هزینهٔ دوره هستند. سربار تولید به کنترل سربار ۵۲۰۲ و یک مرکز هزینه می‌رود و وارد سود و زیان اداری نمی‌شود.')}</label>
+        <select id="ec-section">
+          <option value="admin" ${(row.cost_section||'admin')==='admin'?'selected':''}>اداری — هزینه دوره</option>
+          <option value="selling" ${row.cost_section==='selling'?'selected':''}>فروش و توزیع — هزینه دوره</option>
+          <option value="production_overhead" ${row.cost_section==='production_overhead'?'selected':''}>سربار تولید — کنترل ۵۲۰۲</option>
+        </select></div>
+      <div class="fg full"><label>کد حساب دفتر کل / معین ${hlp('برای اداری و فروش. اگر خالی باشد از والد یا از ۶۱۰۲/۶۱۰۳ استفاده می‌شود. سربار تولید همیشه ۵۲۰۲ است.')}</label>
         <input id="ec-account" dir="ltr" class="mono" value="${esc(row.coa_code||row.account_code||'')}" placeholder="مثال: 6102" list="ec-coa-list">
         <datalist id="ec-coa-list">${(CACHE.coa||[]).map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</datalist>
       </div>
@@ -20178,7 +20195,7 @@ async function expenseCategoryModal(id){
 async function saveExpenseCategory(id){
   const name=el('ec-name').value.trim(); if(!name){ showToast('نام الزامی است','error'); return; }
   const coa=el('ec-account').value.trim();
-  const data={name, code:el('ec-code').value.trim(), account_code:coa, coa_code:coa, parent_id:+el('ec-parent').value||null};
+  const data={name, code:el('ec-code').value.trim(), account_code:coa, coa_code:coa, parent_id:+el('ec-parent').value||null, cost_section:el('ec-section')?.value||'admin'};
   try{
     if(id) await api('PUT','/expenses/categories/'+id,data); else await api('POST','/expenses/categories',data);
     closeModal(); showToast('ذخیره شد'); CACHE.expenseCategories=null; loadAccTab('expense-categories');
@@ -20712,13 +20729,18 @@ async function savePersonPayment(){
 async function expensePaymentModal(){
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   if(!CACHE.expenseCategories) CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   const cats=CACHE.expenseCategories.length?CACHE.expenseCategories:[{code:'admin',name:'عمومی و اداری'},{code:'sales',name:'توزیع و فروش'}];
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`padding:1px 8px;font-size:11px`)}" data-csp-click="${CSP.bind('click',function(event){exAddCategory()})}">➕ دستهٔ جدید</button></label><select id="ex-category">
-        ${cats.map(c=>`<option value="${esc(c.code||c.id)}">${esc(c.name)}</option>`).join('')}
+      <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`padding:1px 8px;font-size:11px`)}" data-csp-click="${CSP.bind('click',function(event){exAddCategory()})}">➕ دستهٔ جدید</button></label>      <select id="ex-category">
+        ${cats.map(c=>`<option value="${esc(c.code||c.id)}" data-section="${esc(c.cost_section||'')}">${esc(c.name)}</option>`).join('')}
       </select></div>
+      <div class="fg"><label>مرکز هزینه ${hlp('برای سربار تولید الزامی است. اداری و فروش اختیاری‌اند و همان مرکز روی سند می‌نشیند.')}</label>
+        <select id="ex-cc"><option value="">— بدون مرکز —</option>
+          ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}${c.is_stage?' (مرحله)':''}</option>`).join('')}
+        </select></div>
       <div class="fg full"><label>حساب هزینه (معین) ${hlp('جستجو و انتخاب حساب معین از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
         <input type="hidden" id="ex-account-code" value="">
         <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
@@ -20730,7 +20752,7 @@ async function expensePaymentModal(){
       <div class="fg"><label>مبلغ (ریال) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       ${payMultiToggleHtml('ex')}
       <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
-      <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این هزینه سربار تولید است</label></div>
+      <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این هزینه سربار تولید است (حساب کنترل ۵۲۰۲، نه هزینه اداری)</label></div>
       <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
       <div class="fg" id="ex-bank-fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
@@ -20754,7 +20776,7 @@ async function expensePaymentModal(){
 async function exAddCategory(){
   const name=prompt('نام دستهٔ هزینهٔ جدید:'); if(!name||!name.trim()) return;
   try{
-    const c=await api('POST','/expenses/categories',{name:name.trim()});
+    const c=await api('POST','/expenses/categories',{name:name.trim(), cost_section:'admin', account_code:'6102', coa_code:'6102'});
     CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
     const sel=el('ex-category');
     if(sel){
@@ -20837,6 +20859,11 @@ async function saveExpensePayment(){
   const parts=payInstAmounts('ex');
   const amounts=parts && parts.length ? parts : [moneyVal('ex-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const catOpt=el('ex-category')?.selectedOptions?.[0];
+  const section=catOpt?.getAttribute('data-section')||'';
+  const overhead=!!el('ex-overhead')?.checked || section==='production_overhead';
+  const costCenterId=+el('ex-cc')?.value||null;
+  if(overhead && !costCenterId){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
   try{
     let first=true;
     for(const amount of amounts){
@@ -20847,7 +20874,8 @@ async function saveExpensePayment(){
         check_category_id:+el('ex-checkcat')?.value||null,
         account_code:el('ex-account-code')?.value||null,
         purchase_invoice_id:+el('ex-purchase')?.value||null,
-        is_overhead:el('ex-overhead')?.checked||false,
+        cost_center_id:costCenterId,
+        is_overhead:overhead,
         fee_rial: first ? payFeeVal('ex') : 0
       });
       first=false;
@@ -25281,7 +25309,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص. مانده بستانکار اشخاص/مشتری به‌عنوان بدهی جاری و مانده بدهکار تأمین‌کننده به‌عنوان دارایی طبقه‌بندی می‌شود. اگر سندی روی حساب بدون ردیف کدینگ نشسته باشد، همان حساب در گزارش می‌آید تا تراز به‌هم نخورد؛ اختلاف (در صورت وجود) به ریال نمایش داده می‌شود. هر ستون جدا اسکرول می‌شود</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
-        <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
+        <li><b>مراکز هزینه و کدینگ هزینه</b>: هر هزینه یک بخش مالک دارد — اداری (۶۱۰۲)، فروش و توزیع (۶۱۰۳)، یا سربار تولید (کنترل ۵۲۰۲). دسته‌بندی هزینه بخش را مشخص می‌کند و اگر خودش حساب نداشته باشد از دستهٔ والد ارث می‌برد. مرکز هزینه روی همان سند، روی همهٔ سطرهای دفترکل می‌نشیند. سربار تولید بدون مرکز هزینه ثبت نمی‌شود. مرحله‌های برش تا اتو زیر مرکز «کارگاه تولید» هستند. سند فروش، خرید و سند دستی هم اگر مرکز داشته باشند همان مرکز را به سطرها می‌دهند</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
         <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری (فاکتور نقدی و نسیه، دریافت، افتتاحیه، ثبت/برگشت چک) با مانده اول دوره و مانده لحظه‌ای. فاکتور قطعی همیشه در دفتر مشتری و تفصیلی همان مشتری ثبت می‌شود — نه فقط فاکتور نسیه. خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
         <li><b>گزارشات پیشرفته</b>: پنج گزارش تخصصی در یک صفحه —
@@ -25660,7 +25688,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v313</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v315</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
@@ -25722,6 +25750,7 @@ function renderSalesGuide(){
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
         <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
         <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
+        <li>مرکز هزینه روی فاکتور فروش اختیاری است. اگر انتخاب شود، همان مرکز روی سطرهای سند فروش می‌نشیند</li>
         <li>بهای تمام‌شده کالا در API فروش نیست؛ فقط قیمت فروش روی کارت و فاکتور است</li>
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ در لیست فاکتور دکمهٔ خوانای <b>چاپ</b> هست و اگر جا کم باشد زیر دکمهٔ تبدیل می‌پیچد. چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب و کاغذ ISO (A4 210×297 یا A5 148×210 میلی‌متر) را می‌پرسد. پیش‌نمایش وسط صفحه و هم‌اندازهٔ کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>

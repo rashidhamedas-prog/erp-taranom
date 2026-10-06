@@ -1789,11 +1789,11 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
       voucherType,
       srcSystem: fromExcel ? 'excel' : null,
       docType: rawType || null,
+      costCenterId: cost_center_id || null,
       lines: built.cleanLines.map(l => ({
         ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
       })),
     });
-    if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
     if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
     for (const p of built.personPostings) {
       createPersonLedgerEntry(db, {
@@ -2292,8 +2292,35 @@ router.get('/cost-centers', auth, (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM cost_centers ORDER BY name').all());
 });
+function costCenterParentId(db, parentId, selfId) {
+  const pid = parentId ? parseInt(parentId, 10) : null;
+  if (!pid) return null;
+  if (selfId && pid === parseInt(selfId, 10)) {
+    const err = new Error('مرکز هزینه نمی‌تواند والد خودش باشد');
+    err.status = 400;
+    throw err;
+  }
+  const parent = db.prepare('SELECT id, parent_id FROM cost_centers WHERE id=?').get(pid);
+  if (!parent) {
+    const err = new Error('مرکز هزینه والد یافت نشد');
+    err.status = 400;
+    throw err;
+  }
+  let cursor = parent;
+  let guard = 0;
+  while (cursor && cursor.parent_id && guard++ < 12) {
+    if (selfId && Number(cursor.parent_id) === Number(selfId)) {
+      const err = new Error('حلقه در سلسله مراکز هزینه مجاز نیست');
+      err.status = 400;
+      throw err;
+    }
+    cursor = db.prepare('SELECT id, parent_id FROM cost_centers WHERE id=?').get(cursor.parent_id);
+  }
+  return pid;
+}
+
 router.post('/cost-centers', auth, adminOrAccounting, (req, res) => {
-  const { name, code, entity } = req.body;
+  const { name, code, entity, parent_id } = req.body;
   if (!name) return res.status(400).json({ error: 'نام مرکز هزینه الزامی است' });
   const db = getDB();
   let cc = code || '';
@@ -2301,14 +2328,30 @@ router.post('/cost-centers', auth, adminOrAccounting, (req, res) => {
     const n = (db.prepare('SELECT COUNT(*) c FROM cost_centers').get().c || 0) + 1;
     cc = 'CC-' + String(n).padStart(3, '0');
   }
-  const result = db.prepare('INSERT INTO cost_centers (name,code,entity) VALUES (?,?,?)').run(name, cc, entity || '');
+  let parentId = null;
+  try { parentId = costCenterParentId(db, parent_id, null); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const kindByEntity = {
+    workshop: 'production', distribution_office: 'service', admin: 'admin', sales: 'selling', production: 'production',
+  };
+  const kind = kindByEntity[entity] || 'admin';
+  const result = db.prepare(
+    'INSERT INTO cost_centers (name,code,entity,parent_id,kind,is_stage) VALUES (?,?,?,?,?,0)'
+  ).run(name, cc, entity || '', parentId, kind);
   res.json(db.prepare('SELECT * FROM cost_centers WHERE id=?').get(result.lastInsertRowid));
 });
 router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
-  const { name, code, active, entity } = req.body;
+  const { name, code, active, entity, parent_id } = req.body;
   const db = getDB();
-  db.prepare('UPDATE cost_centers SET name=?,code=?,active=?,entity=? WHERE id=?')
-    .run(name, code || '', active ? 1 : 0, entity ?? '', req.params.id);
+  const row = db.prepare('SELECT * FROM cost_centers WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'مرکز هزینه یافت نشد' });
+  let parentId = row.parent_id || null;
+  if (parent_id !== undefined) {
+    try { parentId = costCenterParentId(db, parent_id, req.params.id); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  }
+  db.prepare('UPDATE cost_centers SET name=?,code=?,active=?,entity=?,parent_id=? WHERE id=?')
+    .run(name, code || '', active ? 1 : 0, entity ?? '', parentId, req.params.id);
   res.json({ ok: true });
 });
 router.delete('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
