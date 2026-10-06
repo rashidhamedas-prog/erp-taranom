@@ -4,8 +4,8 @@
 - **ریشه:** ۱۳۴ ردیف صف است نه ۱۳۴ کالا: ۸۲ کالا × دو کانال عمده و تکی. از ردیف‌های خطای عمده، ۵۱ تا `product_sku_not_found` و ۱۶ تا اختلاف رنگ بود. برای ۵۱ تا، کالا با همان SKU روی سایت بود، ولی صف با دیدن جواب قدیمیِ «کد پیدا نشد» دیگر به سایت درخواست نمی‌زد. ۷۱۳۶ واقعاً فرق دارد: ERP «شتری» و «کرمی» می‌فرستد و سایت «کرم تیره» و «کرم» و «قهوه‌ای سوخته» دارد. «کرم» با «کرمی» یکی گرفته نمی‌شود.
 - **رفع:** ردیفِ در صف همیشه دوباره به سایت فرستاده می‌شود و با صف شدن، جواب قبلی پاک می‌شود. یک‌بار بعد از بالا آمدن سرویس، ردیف‌های خطای یخ‌زده به صف برمی‌گردند. اگر رنگ نخورد، پاسخ سایت رنگ‌های واقعی همان کالا را برمی‌گرداند و در پیام صف دیده می‌شود. موجودی روی رنگ نزدیک نوشته نمی‌شود و واریانت ساخته نمی‌شود.
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-nontax-website-sku.js`, `server/scripts/test-website-stock-matrix-v256.js`. سایت: `apps/api/src/modules/erp-inventory/erp-inventory.service.ts`.
-- **تست:** `test-nontax-website-sku.js` ۵۵/۰، `test-website-stock-matrix-v256.js` سبز، `test-website-outbox-summary-v293.js` ۱۱/۰. مشخصات ماتریس سایت سبز. `test-sms` و `test-sync` روی سرور ایران بعد از deploy.
-- **Deploy:** در حال انتشار. SW `erp-taranom-v323`.
+- **تست:** `test-nontax-website-sku.js` ۵۵/۰، `test-website-stock-matrix-v256.js` سبز، `test-website-outbox-summary-v293.js` ۱۱/۰. روی سرور ایران: `test-sms` ۲۲/۰ و `test-sync` ۴۴/۰. مشخصات ماتریس سایت سبز. بعد از بالا آمدن، خطای «کد پیدا نشد» از صف پاک شد و ۲۱ خطای باقی‌مانده فقط اختلاف رنگ واقعی است؛ بقیه دوباره در صف ارسال‌اند.
+- **Deploy:** ✅ `4b7e15f` — overlay ایران (بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v323`. سایت `edab535` روی master، health 200، `siteVariantLabels` داخل ایمیج API.
 
 ### ۱۴۰۵/۰۷/۱۴ — اصلاح سند دریافت و پرداخت (SW v322)
 
