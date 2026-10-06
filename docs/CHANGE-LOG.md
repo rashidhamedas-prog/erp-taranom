@@ -5,7 +5,7 @@
 - **رفع:** سه شمارنده کل صف را می‌گویند و فیلتر می‌شوند. سه وابستگی (خود سایت، کد کالا، رنگ/سایز) جدا شمرده و گروه‌بندی می‌شوند. `HTTP 503` دیگر به‌معنی ساخت کد کالا نیست. نتیجهٔ بازرسی در جعبهٔ جدا می‌ماند. گزارش با باز شدن تب وب‌سایت خوانده می‌شود.
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/public/{app.js,app.css,index.html,sw.js}`, `server/scripts/test-website-outbox-summary-v293.js`.
 - **تست:** `test-website-outbox-summary-v293.js` ۲۴/۰ و `test-nontax-website-sku.js` ۵۵/۰ روی ویندوز. `node --check` برای `app.js`. پیش‌نمایش دسکتاپ و عرض ۳۹۰ بدون سرریز افقی.
-- **Deploy:** در حال انجام — SW `erp-taranom-v327`.
+- **Deploy:** ✅ `23d8e26` — overlay ایران (بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، health 200، SW `erp-taranom-v327`. روی سرور: `test-website-outbox-summary-v293.js` ۲۴/۰، `test-nontax-website-sku.js` ۵۵/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
 
 ### ۱۴۰۵/۰۷/۱۴ — هشدار سررسید داشبورد بعد از وصول چک می‌ماند (SW v326)
 
