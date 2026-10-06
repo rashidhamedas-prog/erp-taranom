@@ -18,6 +18,7 @@ const {
   classifyMatrixPushResult,
   formatUnmatchedExample,
   summarizeOutboxRow,
+  priorCatalogMissBlocksDelivery,
   UNMATCHED_EXAMPLE_LIMIT,
 } = require('../lib/website-stock-sync');
 
@@ -172,6 +173,24 @@ const suggested = classifyMatrixPushResult({
 ok(suggested.ok === false && suggested.unmatchedCount === 1, 'a near-name suggestion never turns an unmatched row into success');
 ok(!JSON.stringify(suggested.examples).includes('SKIRT-SUITS00001'), 'suggestion is not adopted as a mapping');
 
+const withSite = classifyMatrixPushResult({
+  ok: true,
+  status: 200,
+  matched: 1,
+  unmatched: [{ erpVariantSku: '7080-WHT-M', color: 'شتری', size: 'فری سایز', reason: 'variant_not_matched' }],
+  onSite: [{ color: 'کرم تیره', size: 'فری سایز' }, { color: 'کرم', size: 'فری سایز' }],
+}, payload);
+ok(withSite.ok === false && withSite.code === 'variants_unmatched', 'site color list does not count as a match');
+ok(withSite.message.includes('کرم تیره / فری سایز') && withSite.message.includes('شتری / فری سایز'),
+  'message shows both the ERP miss and the colors actually on the site');
+ok(priorCatalogMissBlocksDelivery({
+  status: 'pending',
+  last_result: JSON.stringify({
+    matched: 0,
+    unmatched: [{ reason: 'product_sku_not_found' }],
+  }),
+}) === false, 'a previous catalog miss does not block the next delivery');
+
 // ── 8) example formatter fallbacks ──────────────────────────────────────────
 console.log('example formatter');
 ok(formatUnmatchedExample({ erpVariantSku: 'V-12', reason: 'variant_not_found' }).label === 'V-12', 'no colour/size => SKU label');
@@ -205,6 +224,24 @@ ok(/2 مورد هم‌خوان/.test(errRow.outcome) && /1 مورد/.test(errRow
 ok(errRow.nextStep.length > 10 && errRow.tone === 'warn', 'next step present, tone warn');
 ok(errRow.variantHints.includes('سفید / M'), 'variant hint lists the unmatched colour/size');
 ok(errRow.unmatched === 1, 'summary exposes the unmatched count');
+
+const siteListed = summarizeOutboxRow({
+  id: 6,
+  product_id: 80,
+  product_code: '7136',
+  product_name: 'مانتو کتان ماهان',
+  channel: 'WHOLESALE',
+  status: 'error',
+  attempts: 1,
+  last_error: '',
+  last_result: JSON.stringify({
+    matched: 1,
+    unmatched: [{ color: 'شتری', size: 'فری سایز', reason: 'variant_not_matched' }],
+    onSite: ['کرم تیره / فری سایز', 'کرم / فری سایز'],
+  }),
+});
+ok(siteListed.nextStep.includes('کرم تیره / فری سایز') && siteListed.nextStep.includes('حدس زده نمی‌شود'),
+  'needs-attention step lists the site matrix and refuses a near-color guess');
 
 const settledRow = summarizeOutboxRow({
   id: 6,

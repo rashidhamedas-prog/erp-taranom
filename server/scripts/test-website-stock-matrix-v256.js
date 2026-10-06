@@ -104,6 +104,9 @@ function makeFakeDb(seed) {
         const row = outbox.get(key);
         row.next_at = next;
         row.status = 'pending';
+        row.attempts = 0;
+        row.last_error = '';
+        if (sql.includes("last_result=''")) row.last_result = '';
         row.updated_at = updated;
       } else {
         outbox.set(key, {
@@ -259,6 +262,17 @@ ensureWebsiteStockOutbox(db);
 const enq = enqueueWebsiteStock(db, 1);
 ok(enq.ok && enq.enqueued === 2, 'enqueue both channels');
 ok(db._outbox.size === 2, 'outbox pending rows');
+for (const row of db._outbox.values()) {
+  row.status = 'error';
+  row.last_result = JSON.stringify({
+    matched: 0,
+    unmatched: [{ reason: 'product_sku_not_found', color: 'شتری', size: 'فری سایز' }],
+  });
+}
+const again = enqueueWebsiteStock(db, 1, { force: true });
+ok(again.ok && again.enqueued === 2, 'requeue after a catalog miss');
+ok([...db._outbox.values()].every((r) => r.status === 'pending' && r.last_result === ''),
+  'requeue clears the stale product_sku_not_found body');
 
 console.log('ALL PASS');
 process.exit(0);
