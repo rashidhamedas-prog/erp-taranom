@@ -544,6 +544,9 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
   const list = Array.isArray(cells) ? cells : [];
   const colorIds = [...new Set(list.map((c) => Number(c.color_id)).filter(Boolean))];
   const sizeIds = [...new Set(list.map((c) => Number(c.size_id)).filter(Boolean))];
+  const warehouseId = opts.warehouse_id != null && opts.warehouse_id !== ''
+    ? parseInt(opts.warehouse_id, 10)
+    : (product.warehouse_id ? parseInt(product.warehouse_id, 10) : null);
   if (colorIds.length && sizeIds.length) {
     generateMatrix(db, {
       product_id: productId,
@@ -559,9 +562,6 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
     WHERE product_id=? AND color_id=? AND size_id=? AND active=1
     LIMIT 1
   `);
-  const warehouseId = opts.warehouse_id != null && opts.warehouse_id !== ''
-    ? parseInt(opts.warehouse_id, 10)
-    : (product.warehouse_id ? parseInt(product.warehouse_id, 10) : null);
   const hasVws = !!db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='variant_warehouse_stock'"
   ).get();
