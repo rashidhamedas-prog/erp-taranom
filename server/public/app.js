@@ -20593,18 +20593,30 @@ function coaSearchRank(account, term){
   if(name.split(' ').some(w=>w.startsWith(term))) return 3;
   return 4;
 }
+function expenseCodingAccount(a){
+  if(!a || a.is_active===0) return false;
+  if(coaIsAutoShell(a.code, a.parent_code)) return false;
+  const t=String(a.type||'').toLowerCase();
+  const code=String(a.code||'');
+  if(t==='expense'||t==='cogs') return true;
+  return code.startsWith('5')||code.startsWith('6');
+}
 function coaAcctHtml(prefix, help, opts){
   const any=!!(opts&&opts.any);
-  const label=any?'حساب (هر سطح کدینگ)':'حساب برگ (قابل ثبت)';
+  const optional=!!(opts&&opts.optional);
+  const scope=(opts&&opts.scope)||'';
+  const label=scope==='expense'
+    ? 'حساب هزینه (هر سطح کدینگ)'
+    : (any?'حساب (هر سطح کدینگ)':'حساب برگ (قابل ثبت)');
   const tip=help||(any
     ?'هر حساب فعال: گروه، کل، معین یا تفصیلی. مبلغ روی خود همان کد سند می‌شود.'
     :'فقط حساب بدون فرزند فعال');
-  return `<div class="fg full coa-combo"><label id="${prefix}-account-label" for="${prefix}-account-search">${label} * ${hlp(tip)}</label>
+  return `<div class="fg full coa-combo"><label id="${prefix}-account-label" for="${prefix}-account-search">${label}${optional?'':' *'} ${hlp(tip)}</label>
     <input type="hidden" id="${prefix}-account-code" value="">
     <input type="text" id="${prefix}-account-search" class="search" role="combobox" autocomplete="off" spellcheck="false"
       placeholder="جستجوی حساب: کد یا نام..." aria-autocomplete="list" aria-expanded="false"
       aria-controls="${prefix}-acct-drop" aria-labelledby="${prefix}-account-label"
-      data-coa-any="${any?'1':'0'}"
+      data-coa-any="${any?'1':'0'}" data-coa-scope="${esc(scope)}"
       data-csp-input="${CSP.bind('input',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
       data-csp-focus="${CSP.bind('focus',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
       data-csp-keydown="${CSP.bind('keydown',function(event){coaAcctKey(`${String((prefix) ?? '')}`,event)})}"
@@ -20616,6 +20628,7 @@ function coaAcctHtml(prefix, help, opts){
 function coaAcctShow(prefix, q){
   const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
   const any=inp.getAttribute('data-coa-any')==='1';
+  const scope=inp.getAttribute('data-coa-scope')||'';
   const hid=el(prefix+'-account-code');
   const picked=hid&&hid.value?(CACHE.chartOfAccounts||[]).find(x=>x.code===hid.value):null;
   const pickedLabel=picked?picked.code+' — '+picked.name:'';
@@ -20625,6 +20638,7 @@ function coaAcctShow(prefix, q){
   const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
   const all=coaAllAccounts();
   let list=any?all.slice():all.filter(a=>vcCoaIsLeaf(a.code));
+  if(scope==='expense') list=list.filter(expenseCodingAccount);
   if(!(CACHE.chartOfAccounts||[]).length){
     drop.style.display='block';
     drop.innerHTML='<div class="coa-acct-empty" role="status">کدینگ بارگذاری نشده</div>';
@@ -21050,29 +21064,22 @@ async function expensePaymentModal(){
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   if(!CACHE.expenseCategories) CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
-  const cats=CACHE.expenseCategories.length?CACHE.expenseCategories:[{code:'admin',name:'عمومی و اداری'},{code:'sales',name:'توزیع و فروش'}];
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`padding:1px 8px;font-size:11px`)}" data-csp-click="${CSP.bind('click',function(event){exAddCategory()})}">➕ دستهٔ جدید</button></label>      <select id="ex-category">
-        ${cats.map(c=>`<option value="${esc(c.code||c.id)}" data-section="${esc(c.cost_section||'')}">${esc(c.name)}</option>`).join('')}
+      <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`padding:1px 8px;font-size:11px`)}" data-csp-click="${CSP.bind('click',function(event){exAddCategory()})}">➕ دستهٔ جدید</button></label>      <select id="ex-category" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}">
+        ${expenseCategoryOptionsHtml()}
       </select></div>
       <div class="fg"><label>مرکز هزینه ${hlp('برای سربار تولید الزامی است. اداری و فروش اختیاری‌اند و همان مرکز روی سند می‌نشیند.')}</label>
         <select id="ex-cc"><option value="">— بدون مرکز —</option>
           ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}${c.is_stage?' (مرحله)':''}</option>`).join('')}
         </select></div>
-      <div class="fg full"><label>حساب هزینه (معین) ${hlp('جستجو و انتخاب حساب معین از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
-        <input type="hidden" id="ex-account-code" value="">
-        <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
-          data-csp-input="${CSP.bind('input',function(event){exAcctShow(this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){exAcctShow(this.value)})}"
-          data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el('ex-acct-drop');if(d)d.style.display='none'},200)})}">
-        <div id="ex-acct-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
-      </div>
+      ${coaAcctHtml('ex','هر حساب فعال هزینه، از گروه تا تفصیلی. جستجو با کد یا نام. اگر زیرحساب داشته باشد مبلغ روی خود همان کد می‌نشیند. خالی بماند از دسته یا پیش‌فرض بخش استفاده می‌شود. سربار تولید همیشه ۵۲۰۲ است.',{any:true,scope:'expense',optional:true})}
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       ${payMultiToggleHtml('ex')}
       <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
-      <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این هزینه سربار تولید است (حساب کنترل ۵۲۰۲، نه هزینه اداری)</label></div>
+      <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}"> این هزینه سربار تولید است (حساب کنترل ۵۲۰۲، نه هزینه اداری)</label></div>
       <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
       <div class="fg" id="ex-bank-fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
@@ -21092,6 +21099,7 @@ async function expensePaymentModal(){
   attachDatepickers(el('modalRoot'));
   loadExpenseModalData();
   toggleBankFields('ex');
+  exCategoryChanged();
 }
 async function exAddCategory(){
   const name=prompt('نام دستهٔ هزینهٔ جدید:'); if(!name||!name.trim()) return;
@@ -21100,8 +21108,9 @@ async function exAddCategory(){
     CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
     const sel=el('ex-category');
     if(sel){
-      sel.innerHTML=(CACHE.expenseCategories||[]).map(x=>`<option value="${esc(x.code||x.id)}">${esc(x.name)}</option>`).join('');
+      sel.innerHTML=expenseCategoryOptionsHtml(c&&(c.code||c.id));
       if(c) sel.value=String(c.code||c.id);
+      exCategoryChanged();
     }
     showToast('دستهٔ هزینه اضافه شد');
   }catch(e){}
@@ -21113,28 +21122,36 @@ async function loadExpenseModalData(){
   if(sel) sel.innerHTML='<option value="">— بدون ارتباط —</option>'+
     purchases.slice(0,100).map(p=>`<option value="${p.id}">${esc(p.num||'#'+p.id)} — ${esc(p.supplier_name||'-')} — ${fmt(p.final||p.total||0)} ریال</option>`).join('');
 }
-function exAcctShow(q){
-  const drop=el('ex-acct-drop'), inp=el('ex-account-search'); if(!drop||!inp) return;
-  const term=(q||'').trim().toLowerCase();
-  let list=moayanAccounts().filter(a=>{
-    const t=(a.type||'').toLowerCase();
-    const code=String(a.code||'');
-    return t==='expense'||t==='cogs'||code.startsWith('6')||code.startsWith('5')||!t;
-  });
-  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
-  const rect=inp.getBoundingClientRect();
-  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,280)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
-  drop.innerHTML=list.slice(0,120).map(a=>`
-    <div class="cust-si-item" data-csp-mousedown="${CSP.bind('mousedown',function(event){exAcctPick((a.code))})}">
-      <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
-    </div>`).join('')||'<div class="cust-si-empty">حساب معین یافت نشد — کدینگ را در اطلاعات پایه بررسی کنید</div>';
+function expenseCategoryOptionsHtml(selected){
+  const cats=(CACHE.expenseCategories&&CACHE.expenseCategories.length)?CACHE.expenseCategories:[
+    {code:'admin',name:'عمومی و اداری',cost_section:'admin',coa_code:'6102'},
+    {code:'sales',name:'توزیع و فروش',cost_section:'selling',coa_code:'6103'}
+  ];
+  return cats.map(c=>{
+    const val=String(c.code||c.id||'');
+    const acc=c.coa_code||c.account_code||'';
+    const sel=selected!=null && String(selected)===val?' selected':'';
+    return `<option value="${esc(val)}" data-section="${esc(c.cost_section||'')}" data-account="${esc(acc)}"${sel}>${esc(c.name)}</option>`;
+  }).join('');
 }
-function exAcctPick(code){
-  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+function exCategoryChanged(){
+  const sel=el('ex-category')||el('cde-category');
+  const hint=el('ex-acct-hint');
+  const overhead=!!(el('ex-overhead')?.checked||el('cde-overhead')?.checked);
+  const section=sel?.selectedOptions?.[0]?.getAttribute('data-section')||'';
+  if(overhead || section==='production_overhead'){
+    if(hint) hint.textContent='سربار تولید روی حساب کنترل ۵۲۰۲ ثبت می‌شود. مرکز هزینه لازم است.';
+    return;
+  }
+  const code=sel?.selectedOptions?.[0]?.getAttribute('data-account')||'';
+  if(code && (CACHE.chartOfAccounts||[]).some(a=>a.code===code)){
+    coaAcctPick('ex', code);
+    return;
+  }
   const hid=el('ex-account-code'), inp=el('ex-account-search');
-  if(hid) hid.value=code;
-  if(inp&&a) inp.value=a.code+' — '+a.name;
-  const drop=el('ex-acct-drop'); if(drop) drop.style.display='none';
+  if(hid) hid.value='';
+  if(inp) inp.value='';
+  if(hint) hint.textContent='حسابی انتخاب نشده؛ ثبت با حساب دستهٔ والد یا پیش‌فرض بخش (اداری ۶۱۰۲ / فروش ۶۱۰۳) انجام می‌شود.';
 }
 /** فهرست حساب‌های معین (سطح ۳ کدینگ) برای عملیات دریافت/پرداخت */
 function moayanAccounts(){
@@ -21300,7 +21317,6 @@ async function openCashDocEdit(kind, row){
     if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   }
   const titles={settlement:'اصلاح دریافت',supplier:'اصلاح پرداخت به تأمین‌کننده',incentive:'اصلاح پرداخت انگیزه',expense:'اصلاح پرداخت هزینه'};
-  const cats=CACHE.expenseCategories&&CACHE.expenseCategories.length?CACHE.expenseCategories:[{code:'admin',name:'عمومی و اداری'},{code:'sales',name:'توزیع و فروش'}];
   const pt=row.pay_type||'cash';
   openModal(`
     <div class="modal-head"><h3>✏️ ${titles[kind]||'اصلاح سند'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -21317,22 +21333,16 @@ async function openCashDocEdit(kind, row){
       ${kind==='incentive'?`<div class="fg full"><label>کارشناس *</label>${searchSelect('cde-rep', (reps||[]).map(r=>({
         id:r.id, label:r.name||'', meta:'', hay:r.name||''
       })), row.rep_id, {kind:'generic', placeholder:'جستجو: نام کارشناس...'})}</div>`:''}
-      ${kind==='expense'?`<div class="fg"><label>دسته هزینه</label><select id="cde-category">
-          ${cats.map(c=>`<option value="${esc(c.code||c.id)}" data-section="${esc(c.cost_section||'')}" ${String(c.code||c.id)===String(row.category)?'selected':''}>${esc(c.name)}</option>`).join('')}
+      ${kind==='expense'?`<div class="fg"><label>دسته هزینه</label><select id="cde-category" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}">
+          ${expenseCategoryOptionsHtml(row.category)}
         </select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="cde-cc"><option value="">— بدون مرکز —</option>
           ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}" ${Number(c.id)===Number(row.cost_center_id)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('')}
         </select></div>
-        <div class="fg full"><label>حساب هزینه (معین)</label>
-          <input type="hidden" id="ex-account-code" value="${esc(row.account_code||'')}">
-          <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب..." autocomplete="off" value=""
-            data-csp-input="${CSP.bind('input',function(event){exAcctShow(this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){exAcctShow(this.value)})}"
-            data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el('ex-acct-drop');if(d)d.style.display='none'},200)})}">
-          <div id="ex-acct-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
-        </div>
+        ${coaAcctHtml('ex','هر سطح کدینگ هزینه. مبلغ روی خود همان کد می‌نشیند. سربار تولید همیشه ۵۲۰۲ است.',{any:true,scope:'expense',optional:true})}
         <div class="fg full"><label>عنوان/بابت *</label><input id="cde-title" value="${esc(row.title||row.target||'')}"></div>
         <div class="fg full"><label>فاکتور خرید (اختیاری)</label><select id="cde-po"><option value="">— بدون ارتباط —</option></select></div>
-        <div class="fg full"><label><input type="checkbox" id="cde-overhead" ${row.is_overhead?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> سربار تولید (کنترل ۵۲۰۲)</label></div>`:''}
+        <div class="fg full"><label><input type="checkbox" id="cde-overhead" ${row.is_overhead?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}"> سربار تولید (کنترل ۵۲۰۲)</label></div>`:''}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="cde-amount" type="text" inputmode="numeric" class="money" value="${esc(moneyInit(row.amount))}"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="cde-paytype" data-csp-change="${CSP.bind('change',function(event){cdeToggleCheque()})}">${cdePayOptions(kind, pt)}</select></div>
       <div class="fg" id="cde-bank-fg"><label>بانک</label><select id="cde-bank" data-csp-change="${CSP.bind('change',function(event){cdeToggleCheque()})}">
@@ -21375,10 +21385,9 @@ async function openCashDocEdit(kind, row){
     if(row.account_code) moayanAcctPick('cde', row.account_code);
   }
   if(kind==='supplier' && row.account_code) moayanAcctPick('cde', row.account_code);
-  if(kind==='expense' && row.account_code){
-    const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===row.account_code);
-    const inp=el('ex-account-search');
-    if(inp) inp.value=a?(a.code+' — '+a.name):row.account_code;
+  if(kind==='expense'){
+    if(row.account_code) coaAcctPick('ex', row.account_code);
+    if(row.is_overhead || !row.account_code) exCategoryChanged();
   }
   if(kind==='supplier' || kind==='expense'){
     api('GET','/purchases').then(list=>{
@@ -25700,6 +25709,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است. با انتخاب «حساب‌های پرداختنی» تأمین‌کننده‌ها، با «دریافتنی» مشتری‌ها، و با بانک/صندوق/کالا/شخص همان کد ۱۲رقمی زندهٔ بخش خودش می‌آید. پوستهٔ شش‌رقمی (مثل ۲۱۰۱۰۱) ردیف تفصیلی نیست. شمارهٔ سندهای قبلی عوض نمی‌شود. با هر بار باز شدن صفحه، کدی که در بخش مربوطه هست ولی ردیف دفترکل ندارد ساخته یا وصل می‌شود. دکمه ➕ روی ستون تفصیلی زیر همان پوسته حساب می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>پرداخت به حساب:</b> جستجو با کد یا نام هر حساب فعال را می‌آورد (گروه، کل، معین، تفصیلی). «ی» و «ي» و رقم فارسی یکی گرفته می‌شوند. حسابِ دارای زیرحساب هم قابل انتخاب است و مبلغ روی خود همان کد سند می‌شود، نه روی فرزندان. دریافت از حساب و سند دستی همچنان فقط حساب برگ هستند</li>
+        <li><b>پرداخت هزینه:</b> جستجوی حساب هزینه همین رفتار را برای کدینگ هزینه دارد: گروه، کل، معین و تفصیلیِ فعال، با همان یکسان‌سازی «ی/ي» و رقم فارسی. پوستهٔ فنی (مثل ۶۱۰۲۰۱) در فهرست نیست. اگر حساب زیرحساب داشته باشد مبلغ روی خود همان کد می‌نشیند و بین فرزندان تقسیم نمی‌شود. خالی بماند از دسته یا پیش‌فرض بخش (اداری ۶۱۰۲ / فروش ۶۱۰۳) استفاده می‌شود. تیک سربار تولید همیشه کنترل ۵۲۰۲ است و به مرکز هزینه نیاز دارد. حساب غیرفعال، ناموجود، یا خارج از کدینگ هزینه رد می‌شود و بی‌صدا به حساب دیگری نمی‌رود</li>
         <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
         <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد؛ از همان تب می‌توانید <b>پرداخت</b> (تحویل به ذینفع) یا <b>خرج چک</b> بزنید. خرج چک بخش مالک می‌خواهد: اداری ۶۱۰۲، فروش ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. بدون بخش، همان اداری است. هر کدام یک سند حسابداری می‌سازد و ابطال کامل همهٔ اثرها را برمی‌گرداند</li>
         <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
@@ -25854,7 +25864,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>دکمهٔ <b>«➕ کالای جدید»</b> کدهای حسابداری و کد کالا (در صورت خالی بودن، K-00001) را خودکار می‌سازد.</li>
       </ul>
       <h5>🗂️ دسته‌های هزینه و گروه‌ها / زیرگروه‌ها</h5><ul>
-        <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. فهرست دسته‌های پیش‌فرض هم گسترش یافت.</li>
+        <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. حساب هزینه هر سطح کدینگ هزینه است، نه فقط معین؛ با عوض کردن دسته، حساب پیش‌فرض همان دسته در جستجو دیده می‌شود و می‌توانید حساب دیگری انتخاب کنید.</li>
         <li>«گروه‌های اشخاص» به منوی «اطلاعات پایه» اضافه شد و امکان ویرایش/حذف گروه‌ها فراهم است (گروهی که برای اشخاص استفاده شده حذف نمی‌شود).</li>
         <li><b>گروه/زیرگروه کالا</b>، <b>گروه اشخاص</b> و <b>گروه مشتری</b> با رابط جدید: هدر آماری، جستجو، کارت/درخت، و سوئیچ سریع بین سه بخش.</li>
         <li>در «گروه‌های کالا» نمای <b>درختی</b> گروه اصلی و زیرگروه‌ها را نشان می‌دهد؛ دکمه ستاره برای ساخت زیرگروه؛ فیلتر مجاز/خصوصی و نمای کارتی هم هست.</li>
@@ -26019,7 +26029,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت به شخص یا حساب که فقط سند دستی است از این فهرست اصلاح نمی‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است و مبلغ روی همان کد می‌نشیند. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت به شخص یا حساب که فقط سند دستی است از این فهرست اصلاح نمی‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
@@ -26053,7 +26063,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص. مانده بستانکار اشخاص/مشتری به‌عنوان بدهی جاری و مانده بدهکار تأمین‌کننده به‌عنوان دارایی طبقه‌بندی می‌شود. اگر سندی روی حساب بدون ردیف کدینگ نشسته باشد، همان حساب در گزارش می‌آید تا تراز به‌هم نخورد؛ اختلاف (در صورت وجود) به ریال نمایش داده می‌شود. هر ستون جدا اسکرول می‌شود</li>
-        <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
+        <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). در پرداخت هزینه هر سطح کدینگ هزینه (گروه تا تفصیلی) قابل انتخاب است و مبلغ روی همان کد می‌نشیند. سند دستی همچنان فقط حساب برگ است.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
         <li><b>مراکز هزینه و کدینگ هزینه</b>: هر هزینه یک بخش مالک دارد — اداری (۶۱۰۲)، فروش و توزیع (۶۱۰۳)، یا سربار تولید (کنترل ۵۲۰۲). دسته‌بندی هزینه بخش را مشخص می‌کند و اگر خودش حساب نداشته باشد از دستهٔ والد ارث می‌برد. مرکز هزینه روی همان سند، روی همهٔ سطرهای دفترکل می‌نشیند. سربار تولید بدون مرکز هزینه ثبت نمی‌شود. مرحله‌های برش تا اتو زیر مرکز «کارگاه تولید» هستند. سند فروش، خرید و سند دستی هم اگر مرکز داشته باشند همان مرکز را به سطرها می‌دهند. اسناد قبلی که مرکزشان روی فاکتور، خرید، هزینه، نماینده یا سفارش تولید بوده و سطر دفترکل خالی بوده، یک‌بار پر می‌شوند. هزینهٔ سربار که قبلاً به ۶۱ رفته و هنوز ابطال نشده به ۵۲۰۲ منتقل می‌شود. خرج چکِ قدیمی که بخشی ذخیره نکرده همان اداری می‌ماند</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
@@ -26152,7 +26162,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>دریافت و پرداخت</h5><ul>
         <li>دریافت: ابتدا انتخاب مشتری / شخص / حساب (کل تا تفصیلی)</li>
-        <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> هر حساب فعال کدینگ است. نام یا کد را بنویسید؛ گروه و کل هم انتخاب می‌شوند و مبلغ روی خود همان کد می‌نشیند. دریافت از حساب فقط حساب برگ است</li>
+        <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> هر حساب فعال کدینگ است. نام یا کد را بنویسید؛ گروه و کل هم انتخاب می‌شوند و مبلغ روی خود همان کد می‌نشیند. <b>پرداخت هزینه</b> هم هر سطح کدینگ هزینه را با همان جستجو نشان می‌دهد. دریافت از حساب فقط حساب برگ است</li>
         <li>مداد کنار دریافت مشتری و پرداخت تأمین‌کننده، انگیزه و هزینه، همان سند را اصلاح می‌کند و دفتر را با همان شماره به‌روز می‌کند. حذف، سند را ابطال می‌کند</li>
         <li>مانده اول دوره اشخاص: مبلغ + بدهکار/بستانکار (علاوه بر ماهیت گروه)</li>
       </ul>

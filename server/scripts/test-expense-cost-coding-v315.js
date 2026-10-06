@@ -69,5 +69,42 @@ eq('سطر صندوق مرکز خودش را نگه داشت', lines[1].cost_cen
 const header = db.prepare('SELECT cost_center_id FROM journal_entries WHERE id=?').get(je);
 eq('سرسند مرکز را دارد', header.cost_center_id, cc.id);
 
+db.prepare(
+  `INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active)
+   VALUES ('610277','اجاره تست','expense','6102',1)`
+).run();
+const onParent = resolveExpensePosting(db, {
+  category: 'admin', account_code: '6102', is_overhead: false, cost_center_id: null,
+});
+eq('سرفصل ۶۱۰۲ روی خودش می‌نشیند', onParent.account.code, '6102');
+const onChild = resolveExpensePosting(db, {
+  category: 'admin', account_code: '610277', is_overhead: false, cost_center_id: null,
+});
+eq('تفصیلی ۶۱۰۲۷۷ روی خودش می‌نشیند', onChild.account.code, '610277');
+const kol = db.prepare("SELECT code FROM chart_of_accounts WHERE code='6000' AND COALESCE(is_active,1)=1").get();
+if (kol) {
+  const onKol = resolveExpensePosting(db, {
+    category: 'admin', account_code: '6000', is_overhead: false, cost_center_id: null,
+  });
+  eq('کل ۶۰۰۰ قابل ثبت است', onKol.account.code, '6000');
+}
+throws('حساب دارایی کدینگ هزینه نیست', () => {
+  resolveExpensePosting(db, { category: 'admin', account_code: '1101', is_overhead: false, cost_center_id: null });
+}, 'E_COA_NOT_EXPENSE');
+throws('کد ناموجود رد می‌شود', () => {
+  resolveExpensePosting(db, { category: 'admin', account_code: 'NO-SUCH', is_overhead: false, cost_center_id: null });
+}, 'E_COA_MISSING');
+db.prepare(
+  `INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active)
+   VALUES ('6198','هزینه خاموش','expense','6000',0)`
+).run();
+throws('حساب غیرفعال رد می‌شود', () => {
+  resolveExpensePosting(db, { category: 'admin', account_code: '6198', is_overhead: false, cost_center_id: null });
+}, 'E_COA_INACTIVE');
+const ohKeepsControl = resolveExpensePosting(db, {
+  category: 'admin', account_code: '610277', is_overhead: true, cost_center_id: cc.id,
+});
+eq('سربار حتی با حساب انتخاب‌شده ۵۲۰۲ است', ohKeepsControl.account.code, '5202');
+
 ctx.cleanup();
 summary('expense cost coding v315');

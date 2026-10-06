@@ -19,6 +19,37 @@ function activeAccount(db, code) {
   return db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=? AND is_active=1').get(String(code)) || null;
 }
 
+function isExpenseCodingAccount(row) {
+  if (!row) return false;
+  const type = String(row.type || '').toLowerCase();
+  const code = String(row.code || '');
+  return type === 'expense' || type === 'cogs' || code.startsWith('5') || code.startsWith('6');
+}
+
+/** Explicit pick: any active expense level. Missing/inactive/non-expense does not fall back. */
+function explicitExpenseAccount(db, accountCode) {
+  const code = String(accountCode || '').trim();
+  const row = db.prepare(
+    'SELECT code, name, type, is_active FROM chart_of_accounts WHERE code=?'
+  ).get(code);
+  if (!row) {
+    const err = sectionError(400, `حساب ${code} در کدینگ نیست`);
+    err.code = 'E_COA_MISSING';
+    throw err;
+  }
+  if (row.is_active === 0) {
+    const err = sectionError(400, `حساب ${code} غیرفعال است`);
+    err.code = 'E_COA_INACTIVE';
+    throw err;
+  }
+  if (!isExpenseCodingAccount(row)) {
+    const err = sectionError(400, `حساب ${code} جزو کدینگ هزینه نیست`);
+    err.code = 'E_COA_NOT_EXPENSE';
+    throw err;
+  }
+  return { code: row.code, name: row.name };
+}
+
 function findExpenseCategory(db, category) {
   if (category == null || category === '') return null;
   return db.prepare(
@@ -78,7 +109,16 @@ function resolveExpensePosting(db, { category, account_code, is_overhead, cost_c
     };
   }
 
-  const picked = activeAccount(db, account_code) || activeAccount(db, chain.accountCode);
+  const explicit = String(account_code == null ? '' : account_code).trim();
+  if (explicit) {
+    return {
+      account: explicitExpenseAccount(db, explicit),
+      section,
+      isOverhead: 0,
+      costCenterId: ccId,
+    };
+  }
+  const picked = activeAccount(db, chain.accountCode);
   return {
     account: picked || sectionDefaultAccount(db, section, category),
     section,
@@ -194,7 +234,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   try {
     posting = resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id });
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message });
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   const acc = posting.account;
   const expId = db.transaction(() => {
