@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>پرداخت به حساب — بازبینی انتخاب‌گر</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+  body{margin:0;background:#f4f7f5;font-family:Vazirmatn,Tahoma,sans-serif}
+  .sheet{max-width:520px;margin:28px auto;background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.06);overflow:visible}
+  .sheet h3{margin:0;padding:16px 18px;border-bottom:1px solid var(--border)}
+  .sheet .body{padding:16px 18px 20px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .fg.full{grid-column:1 / -1}
+  .fg label{display:block;margin-bottom:6px;font-size:13px}
+  .fg input,.fg select{width:100%;box-sizing:border-box}
+  .foot{display:flex;gap:8px;justify-content:flex-start;padding:12px 18px;border-top:1px solid var(--border)}
+  #probe{margin:12px auto;max-width:520px;font-size:13px;color:#334}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h3>📒 پرداخت به حساب</h3>
+  <div class="body"><div class="form-grid" id="host"></div></div>
+  <div class="foot">
+    <button class="btn" type="button" id="save">ثبت پرداخت</button>
+    <button class="btn ghost" type="button">انصراف</button>
+  </div>
+</div>
+<pre id="probe"></pre>
+<script>
+const ACCOUNTS = [
+  { code:'1000', name:'دارایی‌ها', parent_code:null },
+  { code:'1100', name:'دارایی جاری', parent_code:'1000' },
+  { code:'1101', name:'صندوق', parent_code:'1100' },
+  { code:'1103', name:'حسابهای دریافتنی', parent_code:'1100' },
+  { code:'6100', name:'هزینه‌ها', parent_code:null },
+  { code:'6102', name:'هزینه اداری', parent_code:'6100' }
+];
+function sliceFn(app, name){
+  const start = app.indexOf('function ' + name + '(');
+  if(start < 0) throw new Error('missing '+name);
+  let i = app.indexOf('{', start), depth = 0;
+  for(; i < app.length; i++){
+    if(app[i]==='{') depth++;
+    else if(app[i]==='}'){ depth--; if(depth===0) return app.slice(start, i+1); }
+  }
+  throw new Error('unclosed '+name);
+}
+function boot(app){
+  const names = ['toEnDigits','isMoneyField','formatMoneyInput','coaDepthOf','vcCoaChildren','vcCoaIsLeaf','coaAllAccounts','coaSearchKey','coaSearchRank','coaAcctHtml','coaAcctShow','coaAcctKey','coaAcctPick'];
+  const src = names.map(n=>sliceFn(app,n)).join('\n');
+  const CSP = {
+    bind(type, fn){
+      const id = 'a_' + Math.random().toString(16).slice(2,12);
+      (window.__csp || (window.__csp = new Map())).set(id, fn);
+      return id;
+    },
+    style(s){ return s; }
+  };
+  const CACHE = { chartOfAccounts: ACCOUNTS };
+  const prelude = `
+    function el(id){ return document.getElementById(id); }
+    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+    function fmt(n){ return String(n); }
+    function hlp(){ return ''; }
+  `;
+  const api = new Function('CSP','CACHE', prelude + src + `
+    return { coaAcctHtml, coaAcctShow, coaAcctPick, isMoneyField, formatMoneyInput };
+  `)(CSP, CACHE);
+  window.coaAcctShow = api.coaAcctShow;
+  window.coaAcctPick = api.coaAcctPick;
+  window.isMoneyField = api.isMoneyField;
+  document.addEventListener('input', function(e){
+    if(api.isMoneyField(e.target)) api.formatMoneyInput(e.target);
+  }, true);
+  function fire(e){
+    const el = e.target.closest('[data-csp-'+e.type+']');
+    if(!el) return;
+    const fn = window.__csp.get(el.getAttribute('data-csp-'+e.type));
+    if(fn) fn.call(el, e);
+  }
+  ['input','focus','keydown','mousedown','blur'].forEach(t=>document.addEventListener(t, fire, t==='mousedown'));
+  document.getElementById('host').innerHTML = api.coaAcctHtml('apay','هر حساب فعال',{any:true})
+    + '<div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" class="money" value=""></div>'
+    + '<div class="fg full"><label>یادداشت</label><input id="apay-note"></div>';
+  document.getElementById('host').querySelectorAll('[data-csp-style]').forEach(n=>{
+    n.setAttribute('style', n.getAttribute('data-csp-style'));
+  });
+  document.getElementById('save').addEventListener('click', ()=>{
+    document.getElementById('probe').textContent = JSON.stringify({
+      code: document.getElementById('apay-account-code').value,
+      text: document.getElementById('apay-account-search').value,
+      hint: document.getElementById('apay-acct-hint').textContent,
+      amount: document.getElementById('apay-amount').value,
+      note: document.getElementById('apay-note').value
+    }, null, 2);
+  });
+}
+fetch('/app.js').then(r=>r.text()).then(boot).catch(e=>{
+  document.getElementById('probe').textContent = String(e && e.stack || e);
+});
+</script>
+</body>
+</html>

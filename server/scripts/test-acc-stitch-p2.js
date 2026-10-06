@@ -289,8 +289,17 @@ function isLeaf(code) {
   r = await api('POST', '/api/accounting/account-payments', {
     date: '1405/04/03', amount: 10000, account_code: '2188', pay_type: 'cash',
   });
-  ok(r.status === 400 && r.data?.code === 'E_COA_NOT_POSTABLE',
-    'account-payment to parent rejected', r.data?.code);
+  ok(r.status === 200 && r.data?.ok,
+    'account-payment accepts any active account, including a parent', r.data?.error || r.status);
+  db.prepare(`
+    INSERT INTO chart_of_accounts (code,name,type,parent_code,level,is_active)
+    VALUES ('2188ZZ','حساب غیرفعال پرداخت','liability','2188',3,0)
+  `).run();
+  r = await api('POST', '/api/accounting/account-payments', {
+    date: '1405/04/03', amount: 10000, account_code: '2188ZZ', pay_type: 'cash',
+  });
+  ok(r.status === 400 && r.data?.code === 'E_COA_INACTIVE',
+    'account-payment rejects inactive account', r.data?.code);
 
   r = await api('POST', '/api/accounting/account-receipts', {
     date: '1405/04/03', amount: 10000, account_code: '2188', pay_type: 'cash',

@@ -692,9 +692,13 @@ function wantsEnDigits(t){
 /** فیلدهای مبلغی — جداکننده سه‌رقمی خودکار (قانون ثابت برنامه) */
 function isMoneyField(t){
   if(!t || t.tagName!=='INPUT') return false;
+  const idOnly=t.id||'';
+  // پیشوند apay زیررشتهٔ pay دارد. جستجو، یادداشت و تاریخ مبلغ نیستند
+  // حتی اگر focus قبلی کلاس money چسبانده باشد.
+  if(/-(account-search|note|date)$/.test(idOnly)) return false;
   if(t.classList.contains('money') || t.hasAttribute('data-money')) return true;
   if(t.classList.contains('price-in')) return true;
-  const id=(t.id||'')+(t.name||'')+(t.getAttribute('data-k')||'');
+  const id=idOnly+(t.name||'')+(t.getAttribute('data-k')||'');
   if(/qty|quantity|percent|pct|yield|scrap|horizon|hour|hours|stock|count|seq|version|page|otp|phone|mobile|barcode|code$|row|days|years|life/i.test(id) && !/price|amount|cost|rate|fee|balance|debit|credit|pay|salary|wage|freight|labor|overhead|rial|toman/i.test(id)) return false;
   return /price|amount|cost|rate|fee|balance|debit|credit|payable|salary|wage|freight|labor|overhead|rial|money|pay|incentive|commission/i.test(id);
 }
@@ -20568,35 +20572,152 @@ async function renderPaymentOpsTab(body){
 function coaAllAccounts(){
   return coaDepthOf(CACHE.chartOfAccounts||[]);
 }
-function coaAcctHtml(prefix, help){
-  return `<div class="fg full"><label>حساب برگ (قابل ثبت) ${hlp(help||'فقط حساب بدون فرزند فعال')}</label>
+function coaSearchKey(s){
+  return toEnDigits(String(s==null?'':s))
+    .replace(/\u200c/g,'')
+    .replace(/[يى]/g,'ی')
+    .replace(/ك/g,'ک')
+    .replace(/ة/g,'ه')
+    .replace(/[أإآ]/g,'ا')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+function coaSearchRank(account, term){
+  const code=coaSearchKey(account.code);
+  const name=coaSearchKey(account.name);
+  if(!term) return 4;
+  if(code===term) return 0;
+  if(code.startsWith(term)) return 1;
+  if(name.startsWith(term)) return 2;
+  if(name.split(' ').some(w=>w.startsWith(term))) return 3;
+  return 4;
+}
+function coaAcctHtml(prefix, help, opts){
+  const any=!!(opts&&opts.any);
+  const label=any?'حساب (هر سطح کدینگ)':'حساب برگ (قابل ثبت)';
+  const tip=help||(any
+    ?'هر حساب فعال: گروه، کل، معین یا تفصیلی. مبلغ روی خود همان کد سند می‌شود.'
+    :'فقط حساب بدون فرزند فعال');
+  return `<div class="fg full coa-combo"><label id="${prefix}-account-label" for="${prefix}-account-search">${label} * ${hlp(tip)}</label>
     <input type="hidden" id="${prefix}-account-code" value="">
-    <input type="text" id="${prefix}-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
-      data-csp-input="${CSP.bind('input',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
-      data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`${String((prefix) ?? '')}-acct-drop`);if(d)d.style.display='none'},200)})}">
-    <div id="${prefix}-acct-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:320px;max-height:260px`)}"></div>
+    <input type="text" id="${prefix}-account-search" class="search" role="combobox" autocomplete="off" spellcheck="false"
+      placeholder="جستجوی حساب: کد یا نام..." aria-autocomplete="list" aria-expanded="false"
+      aria-controls="${prefix}-acct-drop" aria-labelledby="${prefix}-account-label"
+      data-coa-any="${any?'1':'0'}"
+      data-csp-input="${CSP.bind('input',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
+      data-csp-focus="${CSP.bind('focus',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
+      data-csp-keydown="${CSP.bind('keydown',function(event){coaAcctKey(`${String((prefix) ?? '')}`,event)})}"
+      data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`${String((prefix) ?? '')}-acct-drop`);if(d)d.style.display='none';const i=el(`${String((prefix) ?? '')}-account-search`);if(i)i.setAttribute('aria-expanded','false')},200)})}">
+    <div id="${prefix}-acct-drop" class="coa-acct-drop" role="listbox" data-csp-style="${CSP.style(`display:none;position:fixed;width:360px;max-height:280px`)}"></div>
+    <div id="${prefix}-acct-hint" class="coa-acct-hint"></div>
   </div>`;
 }
 function coaAcctShow(prefix, q){
   const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
-  const term=(q||'').trim().toLowerCase();
+  const any=inp.getAttribute('data-coa-any')==='1';
+  const hid=el(prefix+'-account-code');
+  const picked=hid&&hid.value?(CACHE.chartOfAccounts||[]).find(x=>x.code===hid.value):null;
+  const pickedLabel=picked?picked.code+' — '+picked.name:'';
+  const editing=!pickedLabel || String(q||'')!==pickedLabel;
+  if(hid && editing) hid.value='';
+  const term=coaSearchKey(editing?q:(picked?picked.code:''));
   const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
-  let list=coaAllAccounts().filter(a=>vcCoaIsLeaf(a.code));
-  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const all=coaAllAccounts();
+  let list=any?all.slice():all.filter(a=>vcCoaIsLeaf(a.code));
+  if(!(CACHE.chartOfAccounts||[]).length){
+    drop.style.display='block';
+    drop.innerHTML='<div class="coa-acct-empty" role="status">کدینگ بارگذاری نشده</div>';
+    inp.setAttribute('aria-expanded','true');
+    return;
+  }
+  if(term){
+    const words=term.split(/\s+/).filter(Boolean);
+    list=list.filter(a=>{
+      const hay=coaSearchKey((a.code||'')+' '+(a.name||''));
+      return words.every(w=>hay.includes(w));
+    });
+    list.sort((a,b)=>coaSearchRank(a,term)-coaSearchRank(b,term) || String(a.code).localeCompare(String(b.code),'en'));
+  }else{
+    list.sort((a,b)=>String(a.code).localeCompare(String(b.code),'en'));
+  }
+  const shown=list.slice(0,80);
+  const more=list.length-shown.length;
   const rect=inp.getBoundingClientRect();
-  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,320)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
-  drop.innerHTML=list.slice(0,150).map(a=>`
-    <div class="cust-si-item" data-csp-mousedown="${CSP.bind('mousedown',function(event){coaAcctPick((prefix),(a.code))})}">
-      <span>${'↳ '.repeat(Math.min(a._depth||0,3))}${esc(a.name)}</span>
-      <span class="cust-si-meta">${esc(a.code)} · ${depthLabel[a._depth]||''}</span>
-    </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد</div>';
+  const width=Math.max(220, Math.min(rect.width, window.innerWidth-16));
+  const left=Math.max(8, Math.min(rect.left, window.innerWidth-width-8));
+  drop.style.top=(rect.bottom+4)+'px';
+  drop.style.left=left+'px';
+  drop.style.width=width+'px';
+  drop.style.display='block';
+  drop.style.zIndex='9999';
+  inp.setAttribute('aria-expanded','true');
+  const rows=shown.map((a,i)=>{
+    const hasChild=(CACHE.chartOfAccounts||[]).some(x=>x.parent_code===a.code);
+    const lvl=depthLabel[Math.min(a._depth||0,3)]||'حساب';
+    const badge=hasChild&&any?lvl+' · سرفصل':lvl;
+    return `<div id="${prefix}-opt-${i}" class="coa-acct-row${i===0?' is-active':''}${hasChild?' is-parent':''}" role="option" data-code="${esc(a.code)}" aria-selected="${i===0?'true':'false'}"
+      data-csp-mousedown="${CSP.bind('mousedown',function(event){event.preventDefault();coaAcctPick((prefix),(a.code))})}">
+      <span class="coa-acct-main"><span class="coa-acct-name">${esc(a.name)}</span><span class="coa-acct-code">${esc(a.code)}</span></span>
+      <span class="coa-acct-lvl">${esc(badge)}</span>
+    </div>`;
+  }).join('');
+  const tail=more>0?`<div class="coa-acct-empty">۸۰ حساب اول از ${fmt(list.length)}. برای بقیه دقیق‌تر بنویسید.</div>`:'';
+  drop.innerHTML=rows?rows+tail:'<div class="coa-acct-empty" role="status">حسابی با این عبارت نیست</div>';
+  const hint=el(prefix+'-acct-hint');
+  if(hint && editing) hint.textContent='';
+}
+function coaAcctKey(prefix, event){
+  const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search');
+  if(!drop||!inp) return;
+  const open=drop.style.display!=='none' && drop.innerHTML;
+  if(!open){
+    if(event.key==='ArrowDown'){ event.preventDefault(); coaAcctShow(prefix, inp.value); }
+    return;
+  }
+  const rows=[...drop.querySelectorAll('.coa-acct-row')];
+  if(event.key==='Escape'){
+    event.preventDefault();
+    drop.style.display='none';
+    inp.setAttribute('aria-expanded','false');
+    return;
+  }
+  if(!rows.length) return;
+  let i=rows.findIndex(r=>r.classList.contains('is-active'));
+  if(event.key==='ArrowDown'){ event.preventDefault(); i=Math.min(rows.length-1, (i<0?0:i+1)); }
+  else if(event.key==='ArrowUp'){ event.preventDefault(); i=Math.max(0, (i<0?0:i-1)); }
+  else if(event.key==='Enter'){
+    event.preventDefault();
+    const row=rows[i>=0?i:0];
+    if(row) coaAcctPick(prefix, row.getAttribute('data-code'));
+    return;
+  }else return;
+  rows.forEach((r,n)=>{
+    r.classList.toggle('is-active', n===i);
+    r.setAttribute('aria-selected', n===i?'true':'false');
+  });
+  if(inp && rows[i]) inp.setAttribute('aria-activedescendant', rows[i].id||'');
+  rows[i]?.scrollIntoView({block:'nearest'});
 }
 function coaAcctPick(prefix, code){
   const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
   const hid=el(prefix+'-account-code'), inp=el(prefix+'-account-search');
-  if(hid) hid.value=code;
-  if(inp&&a) inp.value=a.code+' — '+a.name;
+  if(hid) hid.value=a?code:'';
+  if(inp&&a){
+    inp.value=a.code+' — '+a.name;
+    inp.setAttribute('aria-expanded','false');
+  }
   const drop=el(prefix+'-acct-drop'); if(drop) drop.style.display='none';
+  const hint=el(prefix+'-acct-hint');
+  if(!hint) return;
+  if(!a){ hint.textContent=''; return; }
+  const hasChild=(CACHE.chartOfAccounts||[]).some(x=>x.parent_code===code);
+  const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
+  const row=coaAllAccounts().find(x=>x.code===code);
+  const lvl=depthLabel[Math.min(row?row._depth:0,3)]||'حساب';
+  hint.textContent=hasChild
+    ? (lvl+' — مبلغ روی خود کد '+a.code+' ثبت می‌شود و بین زیرحساب‌ها تقسیم نمی‌شود.')
+    : (lvl+' — '+a.code+' — '+a.name);
 }
 function receiptOpChooser(){
   openModal(`
@@ -20751,7 +20872,7 @@ async function accountPaymentModal(){
   openModal(`
     <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${coaAcctHtml('apay','حساب مقصد پرداخت — فقط حساب برگ')}
+      ${coaAcctHtml('apay','هر حساب فعال کدینگ، از گروه تا تفصیلی. جستجو با کد یا نام. اگر حساب زیرحساب داشته باشد، مبلغ روی خود همان کد می‌نشیند.',{any:true})}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('apay')}
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
@@ -25440,7 +25561,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است. با انتخاب «حساب‌های پرداختنی» تأمین‌کننده‌ها، با «دریافتنی» مشتری‌ها، و با بانک/صندوق/کالا/شخص همان کد ۱۲رقمی زندهٔ بخش خودش می‌آید. پوستهٔ شش‌رقمی (مثل ۲۱۰۱۰۱) ردیف تفصیلی نیست. شمارهٔ سندهای قبلی عوض نمی‌شود. با هر بار باز شدن صفحه، کدی که در بخش مربوطه هست ولی ردیف دفترکل ندارد ساخته یا وصل می‌شود. دکمه ➕ روی ستون تفصیلی زیر همان پوسته حساب می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
-        <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
+        <li><b>پرداخت به حساب:</b> جستجو با کد یا نام هر حساب فعال را می‌آورد (گروه، کل، معین، تفصیلی). «ی» و «ي» و رقم فارسی یکی گرفته می‌شوند. حسابِ دارای زیرحساب هم قابل انتخاب است و مبلغ روی خود همان کد سند می‌شود، نه روی فرزندان. دریافت از حساب و سند دستی همچنان فقط حساب برگ هستند</li>
         <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
         <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد؛ از همان تب می‌توانید <b>پرداخت</b> (تحویل به ذینفع) یا <b>خرج چک</b> بزنید. خرج چک بخش مالک می‌خواهد: اداری ۶۱۰۲، فروش ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. بدون بخش، همان اداری است. هر کدام یک سند حسابداری می‌سازد و ابطال کامل همهٔ اثرها را برمی‌گرداند</li>
         <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
@@ -25893,7 +26014,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>دریافت و پرداخت</h5><ul>
         <li>دریافت: ابتدا انتخاب مشتری / شخص / حساب (کل تا تفصیلی)</li>
-        <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> کدینگ هم هست</li>
+        <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> هر حساب فعال کدینگ است. نام یا کد را بنویسید؛ گروه و کل هم انتخاب می‌شوند و مبلغ روی خود همان کد می‌نشیند. دریافت از حساب فقط حساب برگ است</li>
         <li>مداد کنار دریافت مشتری و پرداخت تأمین‌کننده، انگیزه و هزینه، همان سند را اصلاح می‌کند و دفتر را با همان شماره به‌روز می‌کند. حذف، سند را ابطال می‌کند</li>
         <li>مانده اول دوره اشخاص: مبلغ + بدهکار/بستانکار (علاوه بر ماهیت گروه)</li>
       </ul>

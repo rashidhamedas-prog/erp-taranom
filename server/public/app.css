@@ -1006,6 +1006,20 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .cust-si-item:hover{background:var(--purple-light);color:var(--purple)}
 .cust-si-meta{font-size:11px;color:var(--muted);white-space:nowrap}
 .cust-si-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px}
+.coa-combo{position:relative}
+.coa-combo input.search{max-width:none;width:100%}
+.coa-acct-drop{background:var(--card);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow-y:auto;z-index:9999;direction:rtl;max-height:280px}
+.coa-acct-row{padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.coa-acct-row:last-child{border-bottom:none}
+.coa-acct-row:hover,.coa-acct-row.is-active{background:var(--purple-light)}
+.coa-acct-row.is-parent{background:transparent}
+.coa-acct-row.is-parent.is-active,.coa-acct-row.is-parent:hover{background:var(--purple-light)}
+.coa-acct-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.coa-acct-name{font-weight:600;line-height:1.45}
+.coa-acct-code{font-size:11px;color:var(--muted);direction:ltr;text-align:right;font-variant-numeric:tabular-nums}
+.coa-acct-lvl{font-size:10px;padding:2px 8px;border-radius:99px;background:var(--purple-light);color:var(--purple);white-space:nowrap;font-weight:700}
+.coa-acct-hint{font-size:12px;line-height:1.7;color:var(--muted);margin-top:6px}
+.coa-acct-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px}
 
 /* ===== Contextual help tooltip ===== */
 .hlp{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--purple-light);color:var(--purple);font-size:9px;font-weight:800;cursor:help;margin-right:4px;vertical-align:middle;position:relative;user-select:none;flex-shrink:0;line-height:1}

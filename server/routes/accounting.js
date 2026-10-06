@@ -130,6 +130,15 @@ const JE_ALIVE = `${DELETED_FILTER} AND (
   )
 )`;
 
+function assertActiveAccount(db, code) {
+  const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
+  if (!acc) return { error: `کد حساب ${code} یافت نشد` };
+  if (acc.is_active === 0) {
+    return { error: `حساب ${acc.code} غیرفعال است`, code: 'E_COA_INACTIVE' };
+  }
+  return { acc };
+}
+
 function assertPostableAccount(db, code) {
   const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
   if (!acc) return { error: `کد حساب ${code} یافت نشد` };
@@ -1876,7 +1885,7 @@ router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
   if (!code) return res.status(400).json({ error: 'حساب مقصد الزامی است' });
   const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
-  const posted = assertPostableAccount(db, code);
+  const posted = assertActiveAccount(db, code);
   if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
   const dest = posted.acc;
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
