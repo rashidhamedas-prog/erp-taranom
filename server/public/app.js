@@ -24303,6 +24303,7 @@ function settShowTab(id){
   if(SETT_ACTIVE_TAB==='backup') loadSettBackupPanel();
   if(SETT_ACTIVE_TAB==='users') loadSettUsersPanel();
   if(SETT_ACTIVE_TAB==='api') loadSettApiPanel();
+  if(SETT_ACTIVE_TAB==='web') loadWebsiteOutbox();
 }
 function settOpenTab(id){
   try{ sessionStorage.setItem('crm_settings_tab', id); }catch(e){}
@@ -24544,13 +24545,14 @@ ROUTES.settings = async function(){
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteRetryOne()})}">ارسال دوبارهٔ همین کالا</button>
           <button type="button" class="btn" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
-          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">وضعیت صف</button>
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">بروزرسانی صف</button>
           <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${syncBlockedBySecret?'کلید API ناخواناست — ابتدا ذخیره مجدد':''}</span>
         </div>
         <div class="fg full"><label>کد کالا یا شناسه ERP</label>
           <input id="s-website-dryrun-pid" dir="ltr" placeholder="مثلاً 7141" data-csp-style="${CSP.style(`max-width:200px`)}">
         </div>
-        <div id="s-website-outbox" class="fg full" data-csp-style="${CSP.style(`font-size:13px;line-height:1.75`)}"></div>
+        <div id="s-website-dryrun-result" class="fg full wq-dry" hidden></div>
+        <div id="s-website-outbox" class="fg full"></div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
           <b>ماتریس:</b> کد کالا (نه شناسهٔ داخلی ردیف) با SKU سایت یکی است. توضیح داخل پرانتز سایز، مثل «مناسب از ۳۸ تا ۴۲»، رقم فارسی/انگلیسی، و فاصله به‌جای نیم‌فاصله در نام رنگ (مثل «قهوه ای» و «قهوه‌ای») در جفت‌شدن نادیده گرفته می‌شود. «کرم» با «کرمی» یکی نیست. ارسال هر کالا در دسته‌های کوچک می‌رود تا ماتریس رنگ زیاد وسط راه قطع نشود.
           اگر کالا پیدا نشود همان را می‌گوید؛ «جفت نشدن واریانت» فقط وقتی است که خود کالا پیدا شده و یک رنگ/سایز در سایت نیست. ساخت خودکار واریانت انجام نمی‌شود.
@@ -24781,7 +24783,7 @@ async function websiteStockDryRun(){
   if(st) st.textContent='در حال بازرسی نگاشت…';
   try{
     const r=await api('POST','/settings/website-dry-run',{productId:raw});
-    const box=el('s-website-outbox');
+    const box=el('s-website-dryrun-result');
     const lines=Array.isArray(r?.lines)&&r.lines.length?r.lines:(r?.results||[]).map(x=>{
       const rows=x.unmatched||[];
       const sample=rows.slice(0,4).map(u=>[u.color,u.size].filter(Boolean).join(' / ')||u.reason||u.erpVariantSku).filter(Boolean).join('؛ ');
@@ -24789,7 +24791,10 @@ async function websiteStockDryRun(){
       return `${x.channel||'?'}: ${x.ok?'OK':'FAIL'} matched=${x.matched||0} unmatched=${rows.length}${sample?' — '+sample:''}`;
     });
     if(r?.error) lines.unshift(r.error);
-    if(box) box.textContent=lines.join('\n')||JSON.stringify(r,null,2);
+    if(box){
+      box.hidden=false;
+      box.textContent=lines.join('\n')||JSON.stringify(r,null,2);
+    }
     if(st) st.textContent=r?.ok?'نگاشت کامل است':(r?.error||'نیاز به رسیدگی');
     const toast=r?.error||(r?.ok?((r.label?r.label+' — ':'')+'نگاشت کامل است'):(r?.message||'برخی رنگ/سایزها در سایت جفت نشدند'));
     showToast(toast, r?.ok?'success':'error');
@@ -24806,68 +24811,201 @@ async function websiteStockFullSync(){
     loadWebsiteOutbox();
   }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
-function websiteOutboxToneColor(tone){
-  if(tone==='bad') return '#991b1b';
-  if(tone==='warn') return '#9a3412';
-  if(tone==='wait') return '#374151';
-  return '#166534';
+let WQ_CACHE=null;
+let WQ_FILTER='action';
+let WQ_QUERY='';
+const WQ_CAUSE_ORDER=['site','auth','catalog','variant','other','queued','ok'];
+const WQ_CAUSE_META={
+  site:['خود سایت','API سایت خواب، محدود، یا بدون پاسخ است. برای این گروه کد کالا نسازید.'],
+  auth:['کلید API','کلید ذخیره‌شده رد شده. تا ذخیرهٔ دوباره، هیچ کالایی به سایت نمی‌رود.'],
+  catalog:['کد در سایت نیست','همان کد باید در فروشگاه باشد. رنگ، سایز، و بالا بودن سایت این‌جا مطرح نیست.'],
+  variant:['رنگ و سایز','کد پیدا شده. نام رنگ یا سایز با سایت یکی نیست و رنگ نزدیک نوشته نمی‌شود.'],
+  other:['خطای دیگر','متن خطا به گروه شناخته‌شده نخورد.'],
+  queued:['نوبت تخلیه','هنوز به سایت فرستاده نشده. وابسته به صف است، نه به خود کالا.'],
+  ok:['روی سایت نوشته شد','موجودی انبار همان کانال روی سایت نشسته است.'],
+};
+function wqNum(n){ return Number(n||0).toLocaleString('fa-IR'); }
+function wqInferCause(it){
+  if(it&&it.cause) return it.cause;
+  const o=String((it&&it.outcome)||'');
+  if(/پیدا نشد/.test(o)) return 'catalog';
+  if(/هم‌خوان|بدون هم‌خوانی/.test(o)) return 'variant';
+  if(/کلید یا دسترسی/.test(o)) return 'auth';
+  if(/HTTP|به‌موقع|جواب نداد|محدود/.test(o)) return 'site';
+  if((it&&it.status)==='pending' || (it&&it.tone)==='wait') return 'queued';
+  if((it&&it.status)==='done' && (it&&it.tone)==='ok') return 'ok';
+  return 'other';
 }
-function websiteOutboxToneBg(tone){
-  if(tone==='bad') return '#fef2f2';
-  if(tone==='warn') return '#fff7ed';
-  if(tone==='wait') return '#f9fafb';
-  return '#f0fdf4';
+function wqWhen(ts){
+  const n=Number(ts);
+  if(!n) return '';
+  const ms=n>1e12?n:n*1000;
+  try{ return new Date(ms).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+  catch(_){ return ''; }
 }
+function wqNormalize(r){
+  r=r||{};
+  let items=Array.isArray(r.items)?r.items.slice():[];
+  if(!items.length && Array.isArray(r.recent)){
+    items=r.recent.map(row=>{
+      let lr={}; try{ lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{}); }catch(_){}
+      const unmatched=lr.unmatched||[];
+      const catalog=unmatched.length&&unmatched.every(u=>u.reason==='product_sku_not_found');
+      return {
+        product_id: row.product_id,
+        product_code: row.product_code||'',
+        product_name: row.product_name||'',
+        productLabel: row.product_name?`${row.product_name} — ${row.product_code||row.product_id}`:`کالا شماره ${row.product_id}`,
+        channelLabel: row.channel==='RETAIL'?'سایت خرده‌فروشی':'سایت عمده',
+        status: row.status,
+        statusLabel: row.status==='done'?'انجام شد':row.status==='error'?'نیاز به رسیدگی':'در صف ارسال',
+        outcome: catalog?'کد کالا در سایت پیدا نشد':(row.last_error||row.status||''),
+        nextStep: catalog?'کد کالا را در سایت وصل یا بسازید، بعد دوباره همگام‌سازی کنید':'',
+        tone: catalog||row.status==='error'?'warn':(row.status==='pending'?'wait':'ok'),
+        variantHints: unmatched.slice(0,4).map(u=>[u.color,u.size].filter(Boolean).join(' / ')||u.erpVariantSku).filter(Boolean),
+        attempts: row.attempts||0,
+        updated_at: row.updated_at,
+      };
+    });
+  }
+  items=items.map(it=>Object.assign({}, it, { cause: wqInferCause(it) }));
+  const causes=Object.assign({ catalog:0, variant:0, site:0, auth:0, queued:0, ok:0, other:0 }, r.causes||{});
+  if(!r.causes){
+    items.forEach(it=>{ causes[it.cause]=(causes[it.cause]||0)+1; });
+  }
+  const counts=r.counts||{};
+  const summary=r.summary||{
+    done: Number(counts.done||0),
+    pending: Number(counts.pending||0),
+    error: Number(counts.error||0),
+  };
+  return { items, causes, counts, summary };
+}
+function wqVisible(it){
+  const q=String(WQ_QUERY||'').trim().toLowerCase();
+  if(q){
+    const hay=[it.productLabel,it.product_code,it.product_name,it.channelLabel,it.outcome,it.product_id].join(' ').toLowerCase();
+    if(!hay.includes(q)) return false;
+  }
+  if(WQ_FILTER==='action') return it.cause!=='ok';
+  if(WQ_FILTER==='all') return true;
+  if(WQ_FILTER==='done') return it.status==='done';
+  if(WQ_FILTER==='pending') return it.status==='pending';
+  if(WQ_FILTER==='error') return it.status==='error';
+  return it.cause===WQ_FILTER;
+}
+function wqApplyFilter(key){
+  WQ_FILTER=(WQ_FILTER===key && key!=='action')?'action':key;
+  renderWebsiteQueue();
+}
+async function websiteRetryCode(code){
+  const inp=el('s-website-dryrun-pid');
+  if(inp) inp.value=String(code||'');
+  return websiteRetryOne();
+}
+function renderWebsiteQueue(){
+  const box=el('s-website-outbox');
+  if(!box || !WQ_CACHE) return;
+  const had=document.activeElement&&document.activeElement.id==='wq-q';
+  const q=el('wq-q')?el('wq-q').value:WQ_QUERY;
+  WQ_QUERY=q;
+  const data=WQ_CACHE;
+  const counts=data.counts||{};
+  const summary=data.summary||{};
+  const causes=data.causes||{};
+  const done=Number(summary.done!=null?summary.done:counts.done||0);
+  const pending=Number(summary.pending!=null?summary.pending:counts.pending||0);
+  const error=Number(summary.error!=null?summary.error:counts.error||0);
+  const total=done+pending+error||(data.items||[]).length;
+  const kpi=(key,num,title,hint)=>`<button type="button" class="wq-kpi${WQ_FILTER===key?' is-on':''}" aria-pressed="${WQ_FILTER===key?'true':'false'}" data-csp-click="${CSP.bind('click',function(){wqApplyFilter(key)})}"><span>${esc(title)}</span><b>${wqNum(num)}</b><small>${esc(hint)}</small></button>`;
+  const lanes=WQ_CAUSE_ORDER.filter(k=>k==='site'||k==='catalog'||k==='variant'||Number(causes[k]||0)>0).map(k=>{
+    const meta=WQ_CAUSE_META[k]||[k,''];
+    if(k==='ok'||k==='queued') return '';
+    return `<button type="button" class="wq-lane${WQ_FILTER===k?' is-on':''}" aria-pressed="${WQ_FILTER===k?'true':'false'}" data-csp-click="${CSP.bind('click',function(){wqApplyFilter(k)})}"><span>${esc(meta[0])}</span><b>${wqNum(causes[k]||0)}</b><small>${esc(meta[1])}</small></button>`;
+  }).join('');
+  const visible=(data.items||[]).filter(wqVisible);
+  const groups=WQ_CAUSE_ORDER.map(cause=>{
+    const rows=visible.filter(it=>it.cause===cause);
+    if(!rows.length) return '';
+    const meta=WQ_CAUSE_META[cause]||[cause,''];
+    const full=Number(causes[cause]||rows.length);
+    const countLabel=rows.length===full?wqNum(rows.length):`${wqNum(rows.length)} از ${wqNum(full)}`;
+    const open=cause!=='ok' || WQ_FILTER==='done';
+    const body=rows.map(it=>{
+      const code=String(it.product_code||it.product_id||'').trim();
+      const when=wqWhen(it.updated_at);
+      const tries=Number(it.attempts)>1?`<span>تلاش ${wqNum(it.attempts)}</span>`:'';
+      const hints=(it.variantHints||[]).length?`<div class="wq-hints">نمونه‌ها: ${esc((it.variantHints||[]).join(' · '))}</div>`:'';
+      const next=it.nextStep?`<div class="wq-next">${esc(it.nextStep)}</div>`:'';
+      const retry=code&&cause!=='ok'?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){websiteRetryCode(code)})}">ارسال دوباره</button>`:'';
+      return `<article class="wq-row">
+        <div class="wq-row-top">
+          <div class="wq-name">${esc(it.product_name||(code?'کالا':(it.productLabel||'کالا')))}${code?`<span class="wq-code" dir="ltr">${esc(code)}</span>`:''}</div>
+          ${retry}
+        </div>
+        <div class="wq-meta"><span class="wq-ch">${esc(it.channelLabel||'')}</span><span>${esc(it.statusLabel||'')}</span>${tries}${when?`<span>${esc(when)}</span>`:''}</div>
+        <div class="wq-out">${esc(it.outcome||'')}</div>
+        ${hints}${next}
+      </article>`;
+    }).join('');
+    return `<details class="wq-group" data-cause="${esc(cause)}"${open?' open':''}>
+      <summary><span><span class="wq-gh-t">${esc(meta[0])}</span><span class="wq-gh-d">${esc(meta[1])}</span></span><span class="wq-gh-n">${countLabel}</span></summary>
+      ${body}
+    </details>`;
+  }).join('');
+  const truncated=Number(summary.truncated||0);
+  const capNote=truncated>0?`<p class="wq-note">${wqNum(truncated)} ردیفِ باز در این صفحه نیامده. شمارنده‌های بالا کل صف را می‌گویند.</p>`:'';
+  const list=total===0
+    ? `<div class="wq-empty">الان ردیفی در صف نیست. هر ردیف، موجودی یک کانال (عمده یا تکی) برای یک کالاست.</div>`
+    : (groups||`<div class="wq-empty">در این نما ردیفی نیست. «موارد باز» همه‌چیز جز موجودیِ نوشته‌شده را نشان می‌دهد.</div>`);
+  const reset=WQ_FILTER!=='action'?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wqApplyFilter('action')})}">موارد باز</button>`:'';
+  box.innerHTML=`<section class="wq" aria-label="گزارش صف موجودی سایت">
+    <div class="wq-live" id="wq-live" aria-live="polite">شمارنده‌ها کل صف‌اند. هر ردیف یک کانال است، نه یک کالا.</div>
+    <div class="wq-kpis" role="group" aria-label="وضعیت صف">
+      ${kpi('error', error, 'نیاز به رسیدگی', 'ارسال قطع شده. علت را از وابستگی پایین بخوانید.')}
+      ${kpi('pending', pending, 'در صف', 'منتظر تخلیه. اگر سایت ۵۰۳ بدهد همین‌جا می‌ماند و دوباره می‌رود.')}
+      ${kpi('done', done, 'انجام‌شده', 'موجودی انبار همان کانال روی سایت نوشته شده است.')}
+    </div>
+    <div class="wq-lanes" role="group" aria-label="وابستگی خطا">${lanes}</div>
+    <div class="wq-tools">
+      <input id="wq-q" type="search" placeholder="فیلتر همین فهرست: کد یا نام" value="${esc(q)}" autocomplete="off" data-csp-input="${CSP.bind('input',function(){WQ_QUERY=this.value;renderWebsiteQueue()})}">
+      ${reset}
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){loadWebsiteOutbox()})}">بروزرسانی</button>
+    </div>
+    ${capNote}
+    <div class="wq-list">${list}</div>
+  </section>`;
+  const input=el('wq-q');
+  if(input){
+    input.value=q;
+    if(had){
+      input.focus();
+      const n=input.value.length;
+      try{ input.setSelectionRange(n,n); }catch(_){}
+    }
+  }
+}
+let WQ_REQ=0;
 async function loadWebsiteOutbox(){
   const box=el('s-website-outbox');
-  if(box) box.textContent='در حال بارگذاری…';
+  if(!box) return;
+  const req=++WQ_REQ;
+  const live=el('wq-live');
+  if(live) live.textContent='در حال خواندن صف…';
+  else if(!WQ_CACHE) box.textContent='در حال خواندن صف…';
   try{
     const r=await api('GET','/settings/website-outbox');
-    const items=Array.isArray(r.items)&&r.items.length
-      ? r.items
-      : (r.recent||[]).map(row=>{
-          // Fallback if older server without summarize fields
-          let lr={}; try{ lr=typeof row.last_result==='string'?JSON.parse(row.last_result||'{}'):(row.last_result||{}); }catch(_){}
-          const unmatched=lr.unmatched||[];
-          const catalog=unmatched.length&&unmatched.every(u=>u.reason==='product_sku_not_found');
-          return {
-            productLabel: `کالا شماره ${row.product_id}`,
-            channelLabel: row.channel==='RETAIL'?'سایت خرده‌فروشی':'سایت عمده',
-            statusLabel: row.status==='done'?'انجام شد':row.status==='error'?'نیاز به رسیدگی':'در صف ارسال',
-            outcome: catalog?'کد کالا در سایت پیدا نشد':(row.last_error||row.status||''),
-            nextStep: catalog?'کد کالا را در سایت وصل یا بسازید، بعد دوباره همگام‌سازی کنید':'',
-            tone: catalog||row.status==='error'?'warn':(row.status==='pending'?'wait':'ok'),
-            variantHints: unmatched.slice(0,4).map(u=>[u.color,u.size].filter(Boolean).join(' / ')||u.erpVariantSku).filter(Boolean),
-            attempts: row.attempts||0,
-          };
-        });
-    const summaryLine=(r.summary&&r.summary.line)
-      || `${Number(r.counts?.done||0)} انجام‌شده · ${Number(r.counts?.pending||0)} در صف · ${Number(r.counts?.error||0)} نیاز به رسیدگی`;
-    if(!items.length){
-      if(box) box.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`padding:8px 0`)}">الان موردی در صف نیست. صف، به‌روزرسانی موجودی انبار روی سایت عمده و خرده‌فروشی را نشان می‌دهد.</div>`;
-      return;
-    }
-    const cards=items.slice(0,20).map(it=>{
-      const tone=it.tone||'ok';
-      const hints=(it.variantHints||[]).length
-        ? `<div data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);margin-top:4px`)}">نمونه‌ها: ${esc((it.variantHints||[]).join(' · '))}</div>`
-        : '';
-      const next=it.nextStep
-        ? `<div data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">قدم بعد: ${esc(it.nextStep)}</div>`
-        : '';
-      const tries=it.attempts>1?` · تلاش ${esc(String(it.attempts))}`:'';
-      return `<div data-csp-style="${CSP.style(`border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin:8px 0;background:${websiteOutboxToneBg(tone)}`)}">
-        <div data-csp-style="${CSP.style(`font-weight:700;color:var(--text)`)}">${esc(it.productLabel||'کالا')}</div>
-        <div data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);margin-top:2px`)}">${esc(it.channelLabel||'')} · <span data-csp-style="${CSP.style(`color:${websiteOutboxToneColor(tone)};font-weight:600`)}">${esc(it.statusLabel||'')}</span>${tries}</div>
-        <div data-csp-style="${CSP.style(`margin-top:6px;color:${websiteOutboxToneColor(tone)}`)}">${esc(it.outcome||'')}</div>
-        ${hints}${next}
-      </div>`;
-    }).join('');
-    if(box) box.innerHTML=`
-      <div data-csp-style="${CSP.style(`padding:8px 10px;border-radius:8px;background:#f3f4f6;font-weight:600;margin-bottom:4px`)}">وضعیت صف: ${esc(summaryLine)}</div>
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px`)}">هر کارت یک کالاست؛ می‌گوید موجودی‌اش روی سایت چه شده.</div>
-      ${cards}`;
-  }catch(e){ if(box) box.textContent=e.message||'خطا'; }
+    if(req!==WQ_REQ) return;
+    WQ_CACHE=wqNormalize(r);
+    renderWebsiteQueue();
+  }catch(e){
+    if(req!==WQ_REQ) return;
+    const msg=e&&e.message?e.message:'خطا';
+    if(WQ_CACHE){
+      const live2=el('wq-live');
+      if(live2) live2.textContent=msg;
+    }else if(box) box.textContent=msg;
+  }
 }
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id'];
@@ -25503,7 +25641,7 @@ function renderAdminGuide(){
         <li><b>پیگیری:</b> تازگی مشتری با تاریخ شمسی درست حساب می‌شود. یادآور پیگیری معوق هر چند روز (پیش‌فرض ۷) تکرار می‌شود؛ از خود پیگیری می‌توان آن را خاموش یا به تعویق انداخت.</li>
         <li><b>بودجه و جریان نقد:</b> سال بودجه از دورهٔ مالی شمسی است. جریان مختلط به نسبت مبلغ طرف مقابل شکسته می‌شود و انتقال صندوق‌به‌صندوق خالص را باد نمی‌کند. محاسبهٔ ناقص صفرِ جعلی نشان نمی‌دهد. این خروجی هنوز امضای حسابدار ایرانی ندارد.</li>
         <li><b>منوی بستن:</b> افتتاحیه، بستن موقت، بستن دائم و تسعیر قالب سند دستی هستند، نه بستن خودکار دوره.</li>
-        <li><b>سینک سایت:</b> SKU جورنشده موفق اعلام نمی‌شود و ادغام فازی انجام نمی‌شود. «نیاز به رسیدگی» برای هر کانال (عمده و تکی) جدا شمرده می‌شود. اگر کد کالا را بعداً در سایت ساخته باشید، همگام‌سازی بعدی دوباره همان کد را می‌پرسد و جواب قدیمی را قطعی حساب نمی‌کند. اگر رنگ فرق داشته باشد (مثلاً شتری در ERP و کرم تیره در سایت) موجودی روی رنگ نزدیک نوشته نمی‌شود و پیام، رنگ‌های واقعی سایت را نشان می‌دهد. در بازرسی نگاشت، کد کالا (مثل ۷۱۴۱) را بزنید نه شناسهٔ داخلی ردیف.</li>
+        <li><b>سینک سایت:</b> گزارش صف سه شمارنده دارد (رسیدگی، در صف، انجام‌شده) و سه وابستگی (خود سایت، کد کالا، رنگ/سایز). HTTP 503 یعنی سایت جواب نداده، نه اینکه کد کالا غلط است. هر ردیف یک کانال است. SKU جورنشده موفق اعلام نمی‌شود و ادغام فازی انجام نمی‌شود. «نیاز به رسیدگی» برای هر کانال (عمده و تکی) جدا شمرده می‌شود. اگر کد کالا را بعداً در سایت ساخته باشید، همگام‌سازی بعدی دوباره همان کد را می‌پرسد و جواب قدیمی را قطعی حساب نمی‌کند. اگر رنگ فرق داشته باشد (مثلاً شتری در ERP و کرم تیره در سایت) موجودی روی رنگ نزدیک نوشته نمی‌شود و پیام، رنگ‌های واقعی سایت را نشان می‌دهد. در بازرسی نگاشت، کد کالا (مثل ۷۱۴۱) را بزنید نه شناسهٔ داخلی ردیف. نتیجهٔ بازرسی جای گزارش صف را نمی‌گیرد.</li>
       </ul>`),
     helpSec('🎯','نسخه نمایشی',`
       <p>دو سطح نمایش جدا از هم وجود دارد — با هم وصل نمی‌شوند:</p>

@@ -65,5 +65,58 @@ const okRow = summarizeOutboxRow({
 });
 ok(/به‌روز|انجام/.test(okRow.outcome), 'success outcome');
 ok(okRow.tone === 'ok', 'success tone ok');
+ok(okRow.cause === 'ok', 'success cause ok');
+ok(catalog.cause === 'catalog', 'catalog cause is the site SKU dependency');
+ok(timeout.cause === 'site', 'timeout cause is the site API dependency');
+
+const http503 = summarizeOutboxRow({
+  id: 9,
+  product_id: 44,
+  product_code: '7200',
+  product_name: 'کابشن معمولی یلدا',
+  channel: 'RETAIL',
+  status: 'pending',
+  attempts: 3,
+  last_error: 'HTTP 503',
+  last_result: '',
+});
+ok(http503.cause === 'site', 'HTTP 503 is a site dependency, not a missing SKU');
+ok(http503.statusLabel === 'در صف ارسال', '503 while pending stays in the queue');
+ok(/جواب نداد/.test(http503.outcome) && /503/.test(http503.outcome), '503 outcome is Persian and keeps the code');
+ok(!/^HTTP 503$/.test(http503.outcome), '503 is not shown as a raw status line');
+ok(/کد کالا را برای این خطا نسازید|نه به کد کالا/.test(http503.nextStep), '503 next step does not send the operator to create a SKU');
+
+const variant = summarizeOutboxRow({
+  id: 10,
+  product_id: 55,
+  product_code: '7136',
+  product_name: 'مانتو',
+  channel: 'WHOLESALE',
+  status: 'error',
+  attempts: 2,
+  last_error: '',
+  last_result: JSON.stringify({
+    matched: [{ color: 'مشکی', size: 'فری' }],
+    unmatched: [{ color: 'شتری', size: 'فری', reason: 'color_mismatch' }],
+    onSite: ['کرم تیره', 'کرم'],
+  }),
+});
+ok(variant.cause === 'variant', 'partial color mismatch is the variant dependency');
+ok(/هم‌خوان/.test(variant.outcome), 'variant outcome counts matches');
+ok(/کرم تیره/.test(variant.nextStep), 'variant next step quotes on-site colors');
+
+const auth = summarizeOutboxRow({
+  id: 11,
+  product_id: 1,
+  product_code: '1',
+  product_name: 'تست',
+  channel: 'RETAIL',
+  status: 'error',
+  attempts: 1,
+  last_error: 'HTTP 401',
+  last_result: '',
+});
+ok(auth.cause === 'auth', '401 is the saved API key, not the product');
+ok(/کلید/.test(auth.outcome), '401 outcome names the key');
 
 console.log(`ALL PASS (${n})`);

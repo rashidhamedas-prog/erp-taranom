@@ -1089,23 +1089,50 @@ function summarizeOutboxRow(row) {
   let outcome = '';
   let nextStep = '';
   let tone = 'ok'; // ok | warn | bad | wait
+  // What the operator must fix. Independent of the status counter.
+  // catalog = site SKU, variant = color/size names, site = API up,
+  // auth = saved key, queued = drain has not run, ok = stock written.
+  let cause = 'other';
+
+  const httpMatch = err.match(/\bHTTP\s+(\d{3})\b/);
+  const httpCode = httpMatch ? Number(httpMatch[1]) : 0;
+  const authHttp = httpCode === 401 || httpCode === 403;
+  const siteHttp = httpCode >= 500 || httpCode === 429
+    || (httpCode === 0 && /HTTP\s+0|بدون پاسخ/.test(err));
 
   if (status === 'pending' && !err && !unmatchedN) {
     outcome = 'هنوز نتیجه نیامده';
-    nextStep = '';
+    nextStep = 'وابسته به نوبت تخلیهٔ صف است. تا جواب نیاید کد کالا را عوض نکنید.';
     tone = 'wait';
+    cause = 'queued';
   } else if (catalogMissing) {
     outcome = 'کد کالا در سایت پیدا نشد';
-    nextStep = 'کد کالا را در سایت وصل یا بسازید، بعد دوباره همگام‌سازی کنید';
-    tone = status === 'pending' ? 'warn' : 'warn';
-  } else if (isTimeout || (status !== 'done' && /timeout|مهلت/i.test(err))) {
-    outcome = 'پاسخ سایت به‌موقع نرسید';
-    nextStep = 'کمی بعد دوباره تلاش می‌شود؛ اگر تکرار شد اتصال سایت را چک کنید';
+    nextStep = 'وابسته به ساخت یا وصل همان کد در فروشگاه است، نه به رنگ و نه به بالا بودن سایت. بعد از ساخت کد، دوباره همگام‌سازی کنید.';
+    tone = 'warn';
+    cause = 'catalog';
+  } else if (authHttp) {
+    outcome = `کلید یا دسترسی API سایت رد شد (HTTP ${httpCode})`;
+    nextStep = 'وابسته به کلید ذخیره‌شده در تنظیمات است، نه به این کالا. کلید را دوباره ذخیره کنید و آزمایش اتصال را بزنید.';
+    tone = 'bad';
+    cause = 'auth';
+  } else if (isTimeout || siteHttp) {
+    if (isTimeout) {
+      outcome = 'پاسخ سایت به‌موقع نرسید';
+      nextStep = 'کمی بعد دوباره تلاش می‌شود؛ اگر تکرار شد اتصال سایت را چک کنید';
+    } else if (httpCode === 429) {
+      outcome = `سایت درخواست را موقتاً محدود کرد (HTTP ${httpCode})`;
+      nextStep = 'وابسته به ظرفیت API سایت است، نه به کد کالا. کمی بعد دوباره تلاش می‌شود.';
+    } else {
+      outcome = `سایت موقتاً جواب نداد (HTTP ${httpCode || 'نامشخص'})`;
+      nextStep = 'وابسته به در دسترس بودن API سایت است. کد کالا را برای این خطا نسازید. ردیف در صف می‌ماند و دوباره فرستاده می‌شود.';
+    }
     tone = status === 'error' ? 'bad' : 'warn';
+    cause = 'site';
   } else if (status === 'done' && unmatchedN === 0 && !err) {
     outcome = matched > 0 ? 'موجودی در سایت به‌روز شد' : 'انجام شد';
     nextStep = '';
     tone = 'ok';
+    cause = 'ok';
   } else if (unmatchedN > 0 && status !== 'pending') {
     // Partial match is never success (row is 'error' since NONTAX-P1; older
     // rows may still carry status 'done' from before the fix).
@@ -1115,17 +1142,21 @@ function summarizeOutboxRow(row) {
       ? `روی سایت این رنگ/سایزها هست: ${present.join('، ')}. نام در ERP باید عین همان باشد؛ رنگ نزدیک حدس زده نمی‌شود.`
       : 'رنگ/سایزهای بدون هم‌خوانی را در سایت وصل کنید، بعد دوباره همگام‌سازی کنید';
     tone = 'warn';
+    cause = 'variant';
   } else if (status === 'error') {
     outcome = err || 'ارسال ناموفق بود';
     nextStep = 'دوباره همگام‌سازی کنید یا پشتیبانی را در جریان بگذارید';
     tone = 'bad';
+    cause = 'other';
   } else if (err) {
     outcome = err;
     nextStep = '';
     tone = 'warn';
+    cause = 'other';
   } else {
     outcome = statusLabel;
     tone = status === 'pending' ? 'wait' : 'ok';
+    cause = status === 'pending' ? 'queued' : (status === 'done' ? 'ok' : 'other');
   }
 
   const variantHints = unmatched.slice(0, 4).map((u) => {
@@ -1149,35 +1180,60 @@ function summarizeOutboxRow(row) {
     outcome,
     nextStep,
     tone,
+    cause,
     matched,
     unmatched: unmatchedN,
+    updated_at: row.updated_at || null,
     variantHints,
     last_error: err,
   };
 }
+
+const OUTBOX_REPORT_LIMIT = 180;
+const OUTBOX_CAUSE_RANK = { site: 0, auth: 1, catalog: 2, variant: 3, other: 4, queued: 5, ok: 6 };
 
 function outboxStatus(db) {
   ensureWebsiteStockOutbox(db);
   const rows = db.prepare(`
     SELECT status, COUNT(*) AS c FROM website_stock_outbox GROUP BY status
   `).all();
-  const recent = db.prepare(`
+  const all = db.prepare(`
     SELECT o.id, o.product_id, o.channel, o.status, o.attempts, o.last_error, o.last_result, o.updated_at,
            p.code AS product_code, p.name AS product_name
     FROM website_stock_outbox o
     LEFT JOIN products p ON p.id = o.product_id
-    ORDER BY o.updated_at DESC LIMIT 30
+    ORDER BY o.updated_at DESC
   `).all();
   const counts = {};
   for (const r of rows) counts[r.status] = r.c;
-  const items = recent.map(summarizeOutboxRow);
+  const summarized = all.map(summarizeOutboxRow);
+  const causes = { catalog: 0, variant: 0, site: 0, auth: 0, queued: 0, ok: 0, other: 0 };
+  for (const it of summarized) {
+    const key = causes[it.cause] == null ? 'other' : it.cause;
+    causes[key] += 1;
+  }
+  const ranked = summarized.slice().sort((a, b) => {
+    const d = (OUTBOX_CAUSE_RANK[a.cause] ?? 9) - (OUTBOX_CAUSE_RANK[b.cause] ?? 9);
+    if (d) return d;
+    return (Number(b.attempts) || 0) - (Number(a.attempts) || 0);
+  });
+  const attention = ranked.filter((it) => it.cause !== 'ok');
+  const doneSample = ranked.filter((it) => it.cause === 'ok').slice(0, 12);
+  const items = attention.length > OUTBOX_REPORT_LIMIT
+    ? attention.slice(0, OUTBOX_REPORT_LIMIT)
+    : attention.concat(doneSample);
+  const truncated = Math.max(0, attention.length - (attention.length > OUTBOX_REPORT_LIMIT ? OUTBOX_REPORT_LIMIT : attention.length));
+  const recent = all.slice(0, 30);
   const summary = {
     done: Number(counts.done || 0),
     pending: Number(counts.pending || 0),
     error: Number(counts.error || 0),
     line: `${Number(counts.done || 0)} انجام‌شده · ${Number(counts.pending || 0)} در صف · ${Number(counts.error || 0)} نیاز به رسیدگی`,
+    shown: items.length,
+    total: summarized.length,
+    truncated,
   };
-  return { counts, summary, recent, items };
+  return { counts, causes, summary, recent, items };
 }
 
 // Legacy alias used by older call sites
