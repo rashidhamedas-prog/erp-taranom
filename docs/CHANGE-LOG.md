@@ -3,7 +3,8 @@
 - **هدف:** مسیر حرفه‌ای پرداخت خارج از رابطه کارگری با مبنای قانونی صریح
 - **رفتار:** radio در پردازش؛ مبنا پیمانکار/بازاریاب/صاحب‌کار/سایر؛ بیمه و مالیات پذیرفته نمی‌شود؛ JE بدون ۲۱۰۵/۲۱۰۶؛ خروج از گزارش/CSV قانونی؛ بلاک قانون کار وقتی insurance=none
 - **فایل‌ها:** `lib/payroll/{manual-exempt,schema,export-legal}.js`, `routes/payroll.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-payroll-manual-exempt-v329.js`
-- **Deploy:** ⏳ pending
+- **تست:** روی ایران `test-payroll-manual-exempt-v329` ۲۱/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `59f50d5` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، SW `erp-taranom-v329`.
 
 ### ۱۴۰۵/۰۷/۱۴ — انتخاب هر سطح کدینگ در پرداخت هزینه (SW v328)
 
