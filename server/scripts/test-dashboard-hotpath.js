@@ -85,6 +85,29 @@ function ok(cond, label, extra) {
   `).get(today).c;
   ok(sqliteCount === 0, 'sqlite date() on Jalali matches nothing', sqliteCount);
 
+  const insBook = db.prepare(`
+    INSERT INTO cheque_records (direction, amount, due_date, lifecycle_status, settlement_id, record_status, cheque_number)
+    VALUES ('in', 1000, ?, ?, ?, 'posted', ?)
+  `);
+  const clearedSett = insChq.run(admin.id, codeA.id, 1, 'cheque', today, horizon, 'pending').lastInsertRowid;
+  const clearedBook = insBook.run(horizon, 'cleared', clearedSett, 'CLR-1').lastInsertRowid;
+  const openSett = insChq.run(admin.id, codeA.id, 1, 'cheque', today, horizon, 'pending').lastInsertRowid;
+  insBook.run(horizon, 'registered', openSett, 'REG-1');
+  insBook.run(addDaysToJalali(today, -1), 'in_collection', null, 'COL-1');
+  insBook.run(horizon, 'cleared', null, 'CLR-ORPHAN');
+
+  const { syncSettlementChequeStatus, countOpenDueCheques } = require('../lib/cheque-due');
+  const mirrored = syncSettlementChequeStatus(db, clearedBook);
+  ok(mirrored.cheque_status === 'received', 'clear mirrors settlement to received', mirrored);
+  ok(db.prepare('SELECT cheque_status FROM settlements WHERE id=?').get(clearedSett).cheque_status === 'received', 'settlement row is received');
+
+  const before = countOpenDueCheques(db, horizon);
+  ok(before === 4, 'two legacy orphans + registered book + in collection; cleared excluded', before);
+  db.prepare("UPDATE cheque_records SET lifecycle_status='cleared' WHERE cheque_number='REG-1'").run();
+  db.prepare('UPDATE settlements SET cheque_status=? WHERE id=?').run('pending', openSett);
+  const after = countOpenDueCheques(db, horizon);
+  ok(after === 3, 'stale pending settlement does not keep a cleared cheque on the alert', after);
+
   const { issueStaffSession, closeSessionStore } = require('../lib/auth-sessions');
   const token = issueStaffSession(db, admin, {
     device_kind: 'test', device_name: 'hotpath', device_fingerprint: 'hotpath-fp',
@@ -100,7 +123,7 @@ function ok(cond, label, extra) {
   });
   const body = await r.json();
   const cheque = (body.data && body.data.alerts || []).find((a) => a.type === 'cheque_due');
-  ok(r.status === 200 && cheque && cheque.count === 2, 'alert counts overdue and next 7 Jalali days only', body);
+  ok(r.status === 200 && cheque && cheque.count === 3, 'alert counts live cheque-book rows, not a cleared cheque left pending on the settlement', body);
   server.close();
   closeSessionStore();
   console.log(fail ? `FAIL ${fail}` : `PASS ${pass}`);

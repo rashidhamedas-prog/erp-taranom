@@ -133,27 +133,10 @@ function chequeStats(db) {
   };
   const today = todayJalali();
   try {
-    if (tableExists(db, 'settlements') && tableHasColumn(db, 'settlements', 'cheque_status')) {
-      const amtExpr = tableHasColumn(db, 'settlements', 'cheque_amount')
-        ? 'COALESCE(cheque_amount, amount, 0)'
-        : 'COALESCE(amount, 0)';
-      const pending = db.prepare(`
-        SELECT COALESCE(SUM(${amtExpr}),0) AS s
-        FROM settlements
-        WHERE pay_type='cheque' AND COALESCE(cheque_status,'pending')='pending'
-      `).get();
-      out.pending_in_rial = Math.round(Number(pending && pending.s) || 0);
-      if (tableHasColumn(db, 'settlements', 'cheque_due')) {
-        const overdue = db.prepare(`
-          SELECT COUNT(*) AS n, COALESCE(SUM(${amtExpr}),0) AS s
-          FROM settlements
-          WHERE pay_type='cheque' AND COALESCE(cheque_status,'pending')='pending'
-            AND cheque_due IS NOT NULL AND cheque_due<>'' AND cheque_due < ?
-        `).get(today);
-        out.overdue_in_count = Number(overdue && overdue.n) || 0;
-        out.overdue_in_rial = Math.round(Number(overdue && overdue.s) || 0);
-      }
-    }
+    const live = require('./cheque-due').openIncomingPortfolio(db, today);
+    out.pending_in_rial = live.open_rial;
+    out.overdue_in_count = live.overdue_count;
+    out.overdue_in_rial = live.overdue_rial;
   } catch (_) { /* */ }
   try {
     if (tableExists(db, 'cheque_records')) {

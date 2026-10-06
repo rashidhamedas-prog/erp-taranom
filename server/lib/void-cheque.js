@@ -72,6 +72,8 @@ function voidChequeRecord(db, chequeId, user) {
       WHERE id=?
     `).run(lastReversal, user.id, row.id);
 
+    require('./cheque-due').syncSettlementChequeStatus(db, row.id);
+
     const { reverseChequeLedgerByRef } = require('./cheque-party-books');
     reverseChequeLedgerByRef(db, {
       chequeId: row.id,

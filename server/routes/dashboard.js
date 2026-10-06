@@ -104,12 +104,7 @@ router.get('/alerts', auth, adminOrAccounting, (req, res) => {
 
   try {
     const horizon = require('../jalali').addDaysToJalali(today, 7);
-    const chequesDue = db.prepare(`
-      SELECT COUNT(*) c FROM settlements
-      WHERE pay_type='cheque' AND cheque_status='pending'
-        AND TRIM(COALESCE(cheque_due,'')) <> ''
-        AND cheque_due <= ?
-    `).get(horizon)?.c;
+    const chequesDue = require('../lib/cheque-due').countOpenDueCheques(db, horizon);
     if (chequesDue) alerts.push({ type: 'cheque_due', count: chequesDue, message: `${chequesDue} چک سررسیدشده یا تا ۷ روز آینده` });
   } catch (_) { /* */ }
 

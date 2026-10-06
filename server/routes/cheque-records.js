@@ -18,6 +18,7 @@ const {
   isOpeningCheque,
   sqlIsRegistered,
 } = require('../lib/cheque-lifecycle');
+const { syncSettlementChequeStatus } = require('../lib/cheque-due');
 
 function resolveChequeParty(db, body) {
   const partyId = parseInt(body && body.party_id, 10);
@@ -264,6 +265,7 @@ function postChequeAction(db, {
     err.code = 'E_CHEQUE_LIFECYCLE';
     throw err;
   }
+  syncSettlementChequeStatus(db, row.id);
   return id;
 }
 
@@ -588,6 +590,7 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
       if (!updated.changes) {
         throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      syncSettlementChequeStatus(db, row.id);
       return id;
     })();
 
@@ -645,6 +648,7 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
       if (!updated.changes) {
         throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      syncSettlementChequeStatus(db, row.id);
       return id;
     })();
 
@@ -679,6 +683,7 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
       if (!updated.changes) {
         throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      syncSettlementChequeStatus(db, row.id);
       return id;
     })();
 
@@ -736,6 +741,7 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
       if (!updated.changes) {
         throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      syncSettlementChequeStatus(db, row.id);
       return { id, prior, cheque_number: row.cheque_number };
     })();
 
