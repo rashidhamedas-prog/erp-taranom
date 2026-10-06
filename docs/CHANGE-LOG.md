@@ -4,7 +4,7 @@
 - **رفتار:** ستون `products.website_stock_push` (پیش‌فرض ۱). کلید سراسری «فعال‌سازی سینک موجودی» + تیک «ارسال موجودی این کالا به سایت» در فرم کالا. خاموش = آن SKU به صف push نمی‌رود؛ موجودی انبار/فاکتور دست نمی‌خورد. کارت کالا «ارسال موجودی به سایت: خاموش» را نشان می‌دهد.
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/routes/products.js`, `server/db.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-website-stock-push-v330.js`
 - **تست:** `node --check server/public/app.js`؛ `test-website-stock-push-v330.js` (و پس از deploy: `test-sms`, `test-sync`).
-- **Deploy:** ⏳ — SW `erp-taranom-v330`، `app.js`/`app.css` با `?v=330`.
+- **Deploy:** ✅ `026eda0` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، `/` و `/health` = 200، SW `erp-taranom-v330`. روی سرور: `test-website-stock-push-v330` ۲۵/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
 
 ### ۱۴۰۵/۰۷/۱۶ — ثبت دستی حقوق بدون بیمه و مالیات (SW v329)
 
