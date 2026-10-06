@@ -410,12 +410,12 @@ function amendSettlement(db, id, body, userId) {
 
 function assertPurchaseRoom(db, invoiceId, paymentId, supplierId, amount, extraTable) {
   if (!invoiceId) return;
-  const inv = db.prepare('SELECT id, supplier_id, final, total FROM purchase_invoices WHERE id=?').get(invoiceId);
+  const inv = db.prepare('SELECT id, supplier_id, final FROM purchase_invoices WHERE id=?').get(invoiceId);
   if (!inv) throw httpErr(400, 'فاکتور خرید یافت نشد', 'E_PO');
   if (supplierId && Number(inv.supplier_id) !== Number(supplierId)) {
     throw httpErr(400, 'فاکتور خرید متعلق به این تأمین‌کننده نیست', 'E_PO_SUPPLIER');
   }
-  const cap = Math.round(Number(inv.final != null ? inv.final : inv.total) || 0);
+  const cap = Math.round(Number(inv.final) || 0);
   if (!cap) return;
   const paidSup = db.prepare(`
     SELECT COALESCE(SUM(amount),0) s FROM supplier_payments
