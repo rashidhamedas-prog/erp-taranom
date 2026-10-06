@@ -6001,9 +6001,11 @@ function invDestHtml(row, i){
     </select>`;
   }
   if(pt==='pos_card'){
+    const terms=activePosTerminals();
+    if(!row.terminal_id && terms.length===1) row.terminal_id=terms[0].id;
     return `<select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].terminal_id=+this.value||null})}">
       <option value="">— کارتخوان —</option>
-      ${(CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}" ${Number(row.terminal_id)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
+      ${terms.map(t=>`<option value="${t.id}" ${Number(row.terminal_id)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
     </select>`;
   }
   if(pt==='cheque'){
@@ -6201,6 +6203,7 @@ function toggleInvPayFields(){
     renderInvPayRows();
   }
   if(pt==='cash' && !multi) defaultInvCashBoxIfNew();
+  if(pt==='pos_card' && !multi) defaultInvPosIfSingle();
   syncInvCashPayAmount();
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
 }
@@ -16988,12 +16991,23 @@ function payTypeOptionsHtml(opts){
   if(opts.pos) h+='<option value="pos_card">کارتخوان</option>';
   return h;
 }
+function activePosTerminals(){
+  return (CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false);
+}
 function payPosFieldHtml(prefix){
-  const terms=CACHE.posTerminals||[];
+  const terms=activePosTerminals();
+  const only=terms.length===1?String(terms[0].id):'';
+  const empty=terms.length?'':`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px;line-height:1.7`)}">کارتخوان فعالی برای ثبت این دریافت در دسترس نیست.</div>`;
   return `<div class="fg" id="${prefix}-pos-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارتخوان</label>
     <select id="${prefix}-pos"><option value="">— انتخاب کارتخوان —</option>
-    ${terms.filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}">${esc(t.name||t.terminal_id||'')} — ${esc(t.terminal_id||'')}</option>`).join('')}
-    </select></div>`;
+    ${terms.map(t=>`<option value="${t.id}" ${only&&String(t.id)===only?'selected':''}>${esc(t.name||t.terminal_id||'')} — ${esc(t.terminal_id||'')}</option>`).join('')}
+    </select>${empty}</div>`;
+}
+function defaultInvPosIfSingle(){
+  const sel=el('inv-pos');
+  if(!sel || sel.value || window._invBuilderId) return;
+  const terms=activePosTerminals();
+  if(terms.length===1) sel.value=String(terms[0].id);
 }
 async function ensurePayCaches(){
   async function soft(path){
@@ -17003,7 +17017,12 @@ async function ensurePayCaches(){
   if(!CACHE.banks) CACHE.banks=await soft('/banks');
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await soft('/cash-boxes');
   if(!CACHE.checkCategories) CACHE.checkCategories=await soft('/check-categories');
-  if(!CACHE.posTerminals) CACHE.posTerminals=await soft('/pos/terminals');
+  try{
+    const pos=await api('GET','/pos/terminals/choices', null, false, true);
+    if(Array.isArray(pos)) CACHE.posTerminals=pos;
+  }catch(e){
+    if(!Array.isArray(CACHE.posTerminals)) CACHE.posTerminals=[];
+  }
   if(!CACHE.costCenters) CACHE.costCenters=await soft('/accounting/cost-centers');
 }
 function payFg(prefix, kind){
@@ -21252,9 +21271,11 @@ function stlDestCell(r,i){
     </select>`;
   }
   if(pt==='pos_card'){
+    const terms=activePosTerminals();
+    if(!r.terminal_id && terms.length===1) r.terminal_id=terms[0].id;
     return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].terminal_id=this.value;stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id=''})}">
       <option value="">— کارتخوان —</option>
-      ${(CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}" ${String(r.terminal_id)===String(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
+      ${terms.map(t=>`<option value="${t.id}" ${String(r.terminal_id)===String(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
     </select>`;
   }
   return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].bank_id=this.value;stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id=''})}">
@@ -25097,7 +25118,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
         <li>اگر ثبت فاکتور موجودی کالا را منفی کند، نوار هشدار زنده در سبد دیده می‌شود (نیاز / موجود / مانده پس از فاکتور). ذخیره مسدود نیست — فقط هشدار است. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
-        <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است</li>
+        <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است. فهرست کارتخوان همان دستگاه‌های فعال است و به منوی «تعریف کارتخوان» وابسته نیست؛ دفتر پخش و کارشناس فروش اگر اجازهٔ ثبت فاکتور داشته باشند همین فهرست را می‌بینند</li>
         <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
         <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر رویداد اقتصادی یک‌بار دیده می‌شود (کارتخوان: ردیف POS و settlement لینک‌شده ادغام می‌شوند). صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
         <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
@@ -25599,7 +25620,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v318</b> است و اسکریپت‌ها با <code>?v=318</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v319</b> است و اسکریپت‌ها با <code>?v=319</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -25778,7 +25799,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد و کسری هزینه جدا. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
         <li><b>گزارش کارتخوان:</b> منوی بانک و صندوق ← گزارشات. فیلتر تاریخ، پایانه، بانک، وضعیت و «فقط مغایرت». جمع مانده باز با حساب <b>وجوه در راه</b> و خالص تسویه با سند بانک باید صفر اختلاف باشد. اگر یک دسته چند پایانه داشته باشد، فیلتر پایانه سهم همان پایانه از سند تسویه را می‌سنجد (نه کل دسته). جدول حداکثر ۸۰۰ دریافت / ۵۰۰ دسته نشان می‌دهد ولی جمع‌ها و آشتی دفتر کامل است. خروجی CSV همان جمع‌ها را می‌نویسد.</li>
         <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
-        <li>فقط مدیر و حسابداری؛ فروشنده میدانی دسترسی تغییر ندارد. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
+        <li><b>انتخاب هنگام فاکتور و تسویه:</b> فهرست دستگاه‌های <b>فعال</b> برای کسی است که اجازهٔ ثبت فاکتور یا تسویهٔ مشتری را دارد (از جمله دفتر پخش و کارشناس فروش). این فهرست جدا از منوی تعریف دستگاه است و شناسهٔ پذیرنده را نشان نمی‌دهد. اگر دستگاه فعال باشد و در فاکتور نیاید، صفحه را یک‌بار نو کنید.</li>
+        <li>تعریف، غیرفعال‌سازی، دریافت مستقل و تسویهٔ دسته‌ای فقط مدیر و حسابدار است. فروشندهٔ میدانی آن صفحه‌ها را عوض نمی‌کند. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
         <li><b>طاقه پارچه (ADR-007 Accepted):</b> فقط انبار مواد اولیه. کالای آماده فروش بدون Lot/Serial/قفسه. دریافت از منوی انبار ← دریافت طاقه. لایه‌چینی و برش در تولید → عملیات است؛ رسید برش / PACK کالای آماده را بدون Lot به انبار محصول می‌برد.</li>
       </ul>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
@@ -25806,7 +25828,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v318</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v319</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان ستون با دادهٔ همان ستون یکی است. اگر جدول پهن شود، اسکرول افقی همان پنجره است و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>
@@ -25867,7 +25889,7 @@ function renderSalesGuide(){
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
         <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
-        <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
+        <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. کارتخوان‌های فعال همین‌جا می‌آیند، حتی اگر منوی تعریف دستگاه را نداشته باشید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
         <li>مرکز هزینه روی فاکتور فروش اختیاری است. اگر انتخاب شود، همان مرکز روی سطرهای سند فروش می‌نشیند</li>
         <li>بهای تمام‌شده کالا در API فروش نیست؛ فقط قیمت فروش روی کارت و فاکتور است</li>
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>

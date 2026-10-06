@@ -16,6 +16,7 @@ const {
   buildPosReport,
   posReportCsv,
 } = require('../lib/pos');
+const { canListPosChoices, toPosChoice } = require('../lib/pos-catalog');
 
 function sendErr(res, e) {
   const status = e.status || 400;
@@ -23,6 +24,20 @@ function sendErr(res, e) {
 }
 
 const gate = [auth, adminOrAccounting];
+
+// Picker for invoice / settlement. Not the admin device list: no inactive
+// rows and no merchant id. Do not put this behind adminOrAccounting — that
+// gate hid active terminals from distribution_office and field sales.
+router.get('/terminals/choices', auth, (req, res) => {
+  try {
+    const db = getDB();
+    if (!canListPosChoices(db, req.user)) {
+      return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_POS_CHOICES' });
+    }
+    const rows = listTerminals(db, { includeInactive: false }).map(toPosChoice);
+    res.json(rows);
+  } catch (e) { sendErr(res, e); }
+});
 
 router.get('/terminals', ...gate, (req, res) => {
   try {
