@@ -375,7 +375,63 @@ function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set') {
     throw Object.assign(new Error('موجودی نامعتبر است'), { status: 400 });
   }
   db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(next, id);
+  afterVariantStockWrite(db, row.product_id);
   return getVariant(db, id);
+}
+
+/**
+ * A color leaves this product's color rows when every size is company-wide zero.
+ * Variants are deactivated (not deleted) so invoices keep their variant_id.
+ * The shared color catalog row stays. Negative stock is kept so the shortage stays visible.
+ */
+function retireZeroStockColors(db, productId) {
+  const id = parseInt(productId, 10);
+  if (!id) return { retired: [] };
+  let groups = [];
+  try {
+    groups = db.prepare(`
+      SELECT color_id, COALESCE(SUM(stock),0) AS qty
+      FROM product_variants
+      WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
+        AND color_id IS NOT NULL
+      GROUP BY color_id
+    `).all(id);
+  } catch (_) {
+    return { retired: [] };
+  }
+  const deactivate = db.prepare(`
+    UPDATE product_variants
+    SET active=0, status='inactive', stock=0
+    WHERE product_id=? AND color_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
+  `);
+  const dropStyle = db.prepare('DELETE FROM product_style_colors WHERE product_id=? AND color_id=?');
+  const retired = [];
+  for (const group of groups) {
+    const qty = Number(group.qty) || 0;
+    if (qty > 1e-9 || qty < -1e-9) continue;
+    deactivate.run(id, group.color_id);
+    try { dropStyle.run(id, group.color_id); } catch (_) { /* style table may be absent in tiny fixtures */ }
+    retired.push(Number(group.color_id));
+  }
+  return { retired };
+}
+
+function websiteStockPushEnabled(db) {
+  try {
+    return !!require('../website-stock-sync').isStockPushEnabled(db);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Drop zero colors immediately when the website is not pushing stock.
+ * When it is pushing, leave the SKU active at qty 0 so the next matrix push
+ * sends 0; drain retires the color after that push is accepted.
+ */
+function afterVariantStockWrite(db, productId) {
+  if (websiteStockPushEnabled(db)) return { deferred: true, retired: [] };
+  return retireZeroStockColors(db, productId);
 }
 
 function softDeleteVariant(db, id) {
@@ -425,16 +481,19 @@ function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
   const sizes = new Set((sizeIds || []).map(Number).filter(Boolean));
   if (!colors.size || !sizes.size) return { deactivated: 0 };
   const rows = db.prepare(`
-    SELECT id, color_id, size_id FROM product_variants
+    SELECT id, color_id, size_id, stock FROM product_variants
     WHERE product_id=? AND is_default=0 AND active=1
   `).all(productId);
   let deactivated = 0;
   const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive', stock=0 WHERE id=?");
   for (const row of rows) {
-    if (!colors.has(Number(row.color_id)) || !sizes.has(Number(row.size_id))) {
-      upd.run(row.id);
-      deactivated += 1;
-    }
+    if (colors.has(Number(row.color_id)) && sizes.has(Number(row.size_id))) continue;
+    // Already-zero colors stay active until retireZeroStockColors so a website
+    // push can still send qty 0. Unchecking a color that still has stock removes it now.
+    const qty = Number(row.stock) || 0;
+    if (qty <= 1e-9 && qty >= -1e-9) continue;
+    upd.run(row.id);
+    deactivated += 1;
   }
   const colorList = [...colors];
   const sizeList = [...sizes];
@@ -556,8 +615,23 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
         .run(productStock, productId, warehouseId);
     }
   }
+  afterVariantStockWrite(db, productId);
+  let liveColorCount = 0;
+  try {
+    liveColorCount = db.prepare(`
+      SELECT COUNT(*) AS c FROM (
+        SELECT color_id FROM product_variants
+        WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
+          AND color_id IS NOT NULL
+        GROUP BY color_id
+        HAVING COALESCE(SUM(stock),0) > 0.0000001
+      )
+    `).get(productId).c;
+  } catch (_) {
+    liveColorCount = colorIds.length;
+  }
   db.prepare('UPDATE products SET stock=?, colors=? WHERE id=?').run(
-    productStock, Math.max(1, colorIds.length || Number(product.colors) || 1), productId
+    productStock, Math.max(1, Number(liveColorCount) || 0), productId
   );
   return {
     product_id: productId,
@@ -693,6 +767,8 @@ module.exports = {
   packSizeFor,
   applyStockMatrix,
   deactivateUnselectedVariants,
+  retireZeroStockColors,
+  afterVariantStockWrite,
   styleMetadata,
   variantLineSummary,
   attachVariantFlags,

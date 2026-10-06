@@ -231,13 +231,16 @@ router.get('/style/:productId', auth, (req, res) => {
         qtyStmt = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?');
       } catch (_) { qtyStmt = null; }
       variants = variants.map((v) => {
+        const stockGlobal = Number(v.stock) || 0;
         let stock = 0;
         if (qtyStmt) {
           const row = qtyStmt.get(v.id, warehouseId);
           stock = row ? Number(row.qty) || 0 : 0;
         }
-        return { ...v, stock, warehouse_id: warehouseId };
+        return { ...v, stock, stock_global: stockGlobal, warehouse_id: warehouseId };
       });
+    } else {
+      variants = variants.map((v) => ({ ...v, stock_global: Number(v.stock) || 0 }));
     }
     res.json({
       ...meta,

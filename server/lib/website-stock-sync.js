@@ -120,6 +120,15 @@ function syncPushEnabled(s) {
     && ['push', 'both'].includes(s.website_stock_sync_mode || 'pull');
 }
 
+function isStockPushEnabled(db) {
+  try {
+    const s = getSettingsMap(db, { needB2b: false, needWoo: false });
+    return syncPushEnabled(s);
+  } catch (_) {
+    return false;
+  }
+}
+
 function siteB2bEnabled(s) {
   const t = resolveTarget(s);
   return t === 'site_b2b' || t === 'both';
@@ -816,6 +825,13 @@ async function drainWebsiteStockOutbox(db) {
           row.id,
           row.updated_at
         );
+        if (push.ok) {
+          try {
+            require('./product-variants/service').retireZeroStockColors(db, row.product_id);
+          } catch (e) {
+            console.error('[website-stock-sync] retire zero color', e && e.message);
+          }
+        }
         results.push({
           id: row.id,
           ok: push.ok,
@@ -1145,6 +1161,7 @@ async function pushSiteB2bStock(db, product) {
 
 module.exports = {
   notifyStockChanged,
+  isStockPushEnabled,
   enqueueWebsiteStock,
   drainWebsiteStockOutbox,
   buildMatrixPayload,
