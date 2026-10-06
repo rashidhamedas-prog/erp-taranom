@@ -6645,6 +6645,7 @@ function productCardHtml(p, opts){
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
         <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
+        ${Number(p.website_stock_push)===0?'<div class="code">ارسال موجودی به سایت: خاموش</div>':''}
         ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?((Number(stockQty)||0)<=0
           ?`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px;opacity:.55`)}" disabled title="موجودی صفر">⛔ بدون موجودی</button>`
@@ -6703,6 +6704,12 @@ async function deleteProductCategory(id){
   if(!confirm('این دسته حذف شود؟')) return;
   try{ await api('DELETE','/product-categories/'+id); showToast('حذف شد'); productCategoriesModal(); }catch(e){}
 }
+function productWebsiteStockPushOn(p){
+  if(!p || !Object.prototype.hasOwnProperty.call(p,'website_stock_push')) return true;
+  const v=p.website_stock_push;
+  if(v==null || v==='') return true;
+  return v===true || v===1 || v==='1' || v==='true';
+}
 async function prodModal(id){
   await loadLiveWarehousesForAccess();
   await ensureProductCategories(true);
@@ -6752,6 +6759,7 @@ async function prodModal(id){
         </select>
       </div>
       <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:22px`)}"><input type="checkbox" id="p-is-manufactured" ${Number(p.is_manufactured)===1?'checked':''}> کالای ساختنی (سفارش تولید / نیمه‌ساخته مجاز در BOM)</label></div>
+      <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start;line-height:1.7`)}"><input type="checkbox" id="p-website-stock-push" ${productWebsiteStockPushOn(p)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:4px`)}"> <span>ارسال موجودی این کالا به سایت ${hlp('اگر خاموش باشد، موجودی همین کالا به فروشگاه فرستاده نمی‌شود. موجودی داخل ERP، فاکتور و انبار عوض نمی‌شود. عددی که قبلاً روی سایت نوشته شده تا روشن کردن دوبارهٔ این تیک همان‌جا می‌ماند و صفر نمی‌شود.')}</span></label></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('اگر ماتریس رنگ×سایز ساخته شود، پک فروش = رنگ‌های موجود × سایزهای موجود (زنده). این عدد فقط وقتی ماتریس نیست استفاده می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
       <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
@@ -7293,6 +7301,8 @@ async function saveProduct(id){
   fd.append('unit',el('p-unit').value||'عدد');
   fd.append('item_type',el('p-item_type')?.value||'finished');
   fd.append('is_manufactured', el('p-is-manufactured')?.checked ? '1' : '0');
+  const websitePushEl = el('p-website-stock-push');
+  if(websitePushEl) fd.append('website_stock_push', websitePushEl.checked ? '1' : '0');
   fd.append('colors',el('p-colors')?.value||1);
   fd.append('pack_size',el('p-pack_size')?.value||1);
   fd.append('barcode',el('p-barcode')?.value||'');
@@ -24574,7 +24584,7 @@ ROUTES.settings = async function(){
         کلید باید همان <code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت باشد — نه JWT ادمین.
       </div>
       ${unreadWebBanner}
-      <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'Push ماتریس از ERP به سایت بعد از هر حرکت انبار')}</div>
+      <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'Push ماتریس از ERP به سایت بعد از هر حرکت انبار. علاوه بر این کلید سراسری، در فرم هر کالا تیک «ارسال موجودی این کالا به سایت» جداگانه است (پیش‌فرض روشن)؛ خاموش = همان کالا به صف push نمی‌رود و موجودی ERP عوض نمی‌شود.')}</div>
       <div class="form-grid">
         <div class="fg fg-md"><label>مقصد</label><select id="s-website_target">
           <option value="site_b2b" ${siteTarget==='site_b2b'?'selected':''}>Site-B2B</option>
@@ -25689,6 +25699,14 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🌐','ارسال موجودی هر کالا به سایت',`
+      <p>دو سطح کنترل دارید: کلید سراسری <b>فعال‌سازی سینک موجودی</b> در تنظیمات → وب‌سایت، و تیک <b>ارسال موجودی این کالا به سایت</b> در فرم ویرایش هر کالا (مدیر/حسابدار).</p>
+      <ul>
+        <li>پیش‌فرض هر دو <b>روشن</b> است — کالای جدید هم push می‌شود مگر تیک را خاموش کنید.</li>
+        <li>اگر تیک کالا خاموش باشد، بعد از حرکت انبار آن کالا به صف سایت نمی‌رود (سکوت صف برای همان SKU)؛ موجودی داخل ERP، فاکتور و انبار تغییر نمی‌کند.</li>
+        <li>عدد قبلی روی فروشگاه تا روشن کردن دوبارهٔ تیک همان‌جا می‌ماند و خودکار صفر نمی‌شود.</li>
+        <li>روی کارت کالا، «ارسال موجودی به سایت: خاموش» فقط یادآور است.</li>
+      </ul>`),
     helpSec('👤','ورود مدیر به حساب کاربر',`
       <p>در <b>تنظیمات → کاربران</b> دکمه <b>ورود به حساب</b> مدیر را با دسترسی همان کاربر وارد برنامه می‌کند. نشست وب، ویندوز و اندروید او سر جایش می‌ماند.</p>
       <ul>
@@ -26293,7 +26311,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v324</b> است و اسکریپت حسابداری با <code>?v=324</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v330</b> است و اسکریپت حسابداری با <code>?v=330</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -26501,7 +26519,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v324</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v330</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان هر ستون روی دادهٔ همان ستون می‌ماند. جدول پهن داخل کادر خودش اسکرول می‌شود، هم در دسکتاپ و هم در موبایل، و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>

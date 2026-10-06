@@ -563,6 +563,11 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     }
   }
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
+  if (bodyHas(req.body, 'website_stock_push')) {
+    const { normalizeWebsiteStockPush } = require('../lib/website-stock-sync');
+    const flag = normalizeWebsiteStockPush(req.body.website_stock_push, 1);
+    db.prepare('UPDATE products SET website_stock_push=? WHERE id=?').run(flag, result.lastInsertRowid);
+  }
   try {
     await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
   } catch (e) {
@@ -687,6 +692,16 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
       .run(Math.round(Number(body.std_cost_rial) || 0), req.params.id);
   }
+  let websitePushNext = null;
+  if (bodyHas(body, 'website_stock_push')) {
+    const { normalizeWebsiteStockPush } = require('../lib/website-stock-sync');
+    const next = normalizeWebsiteStockPush(body.website_stock_push, 1);
+    const prev = normalizeWebsiteStockPush(prod.website_stock_push, 1);
+    if (next !== prev) {
+      db.prepare('UPDATE products SET website_stock_push=? WHERE id=?').run(next, req.params.id);
+      websitePushNext = next;
+    }
+  }
   // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
   // After warehouse circulation, Excel must not smash live qty.
   if (whId && !excelHasMoves) {
@@ -712,7 +727,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   try {
     audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${nameVal}`);
   } catch (_) {}
-  if (parseQty(stockVal) !== parseQty(oldStock)) {
+  if (websitePushNext === 0) {
+    try { require('../lib/website-stock-sync').silenceProductWebsiteOutbox(db, req.params.id); } catch (_) {}
+  } else if (websitePushNext === 1 || parseQty(stockVal) !== parseQty(oldStock)) {
     try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
   }
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);

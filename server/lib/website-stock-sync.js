@@ -19,6 +19,10 @@
  *
  * A previous product_sku_not_found does not veto the next pending delivery.
  * The site catalog is allowed to gain that SKU later (v323).
+ *
+ * Per product (v330): products.website_stock_push is the catalog gate.
+ * 1 (default) may enqueue; 0 never leaves ERP — matrix/Woo/webhook/dry-run/full sync.
+ * Turning off does not write zero on the site.
  */
 'use strict';
 
@@ -121,6 +125,42 @@ function resolveTarget(s) {
 function syncPushEnabled(s) {
   return s.website_stock_sync_enabled === '1'
     && ['push', 'both'].includes(s.website_stock_sync_mode || 'pull');
+}
+
+function normalizeWebsiteStockPush(raw, fallback = 1) {
+  if (raw == null || raw === '') return fallback;
+  if (raw === 0 || raw === '0') return 0;
+  const s = String(raw).trim().toLowerCase();
+  if (s === '0' || s === 'off' || s === 'false' || s === 'no') return 0;
+  if (s === '1' || s === 'on' || s === 'true' || s === 'yes') return 1;
+  return fallback;
+}
+
+function productAllowsWebsiteStockPush(row) {
+  if (row == null) return false;
+  if (!Object.prototype.hasOwnProperty.call(row, 'website_stock_push')) return true;
+  return normalizeWebsiteStockPush(row.website_stock_push) === 1;
+}
+
+function readWebsiteStockPushRow(db, productId) {
+  const pid = parseInt(productId, 10);
+  if (!pid) return null;
+  try {
+    return db.prepare('SELECT id, website_stock_push FROM products WHERE id=?').get(pid);
+  } catch (_) {
+    return db.prepare('SELECT id FROM products WHERE id=?').get(pid);
+  }
+}
+
+function silenceProductWebsiteOutbox(db, productId) {
+  ensureWebsiteStockOutbox(db);
+  const now = Math.floor(Date.now() / 1000);
+  const body = JSON.stringify({ skipped: true, reason: 'product_website_stock_off' });
+  return db.prepare(`
+    UPDATE website_stock_outbox
+    SET status='done', attempts=0, last_error='', last_result=?, updated_at=?
+    WHERE product_id=? AND status='pending'
+  `).run(body, now, productId);
 }
 
 function isStockPushEnabled(db) {
@@ -279,6 +319,7 @@ function formatChannelFailReason(reason) {
   if (r === 'no_matrix_variants') return 'این کالا ماتریس رنگ×سایز فعال ندارد';
   if (r === 'missing product.code') return 'کد کالا در ERP خالی است';
   if (r === 'warehouse_not_configured') return 'انبار این کانال انتخاب نشده';
+  if (r === 'product_website_stock_off') return 'ارسال موجودی این کالا به سایت خاموش است';
   return r;
 }
 
@@ -471,6 +512,14 @@ function stockPayload(product) {
 }
 
 async function fireStockWebhooks(db, product) {
+  let p = product;
+  if (p && !Object.prototype.hasOwnProperty.call(p, 'website_stock_push')) {
+    const row = readWebsiteStockPushRow(db, p.id);
+    if (row) p = { ...p, ...row };
+  }
+  if (!productAllowsWebsiteStockPush(p)) {
+    return { skipped: true, reason: 'product_website_stock_off' };
+  }
   try {
     const { guardDemoEgressOrBlock } = require('./demo-egress');
     const blocked = guardDemoEgressOrBlock('webhook');
@@ -480,7 +529,7 @@ async function fireStockWebhooks(db, product) {
       return { ok: false, simulated: true, demo: true, channel: 'webhook', code: 'demo_simulation' };
     }
   }
-  const payload = stockPayload(product);
+  const payload = stockPayload(p);
   const hooks = db.prepare('SELECT * FROM webhooks WHERE active=1').all()
     .filter((w) => String(w.events || '').includes('product.stock') || String(w.events || '').includes('*'));
   const s = getSettingsMap(db, { needB2b: false, needWoo: false });
@@ -500,6 +549,14 @@ async function fireStockWebhooks(db, product) {
 }
 
 async function pushWooCommerceStock(db, product) {
+  let p = product;
+  if (p && !Object.prototype.hasOwnProperty.call(p, 'website_stock_push')) {
+    const row = readWebsiteStockPushRow(db, p.id);
+    if (row) p = { ...p, ...row };
+  }
+  if (!productAllowsWebsiteStockPush(p)) {
+    return { skipped: true, reason: 'product_website_stock_off' };
+  }
   try {
     const { guardDemoEgressOrBlock } = require('./demo-egress');
     const blocked = guardDemoEgressOrBlock('woocommerce');
@@ -515,7 +572,7 @@ async function pushWooCommerceStock(db, product) {
   const base = (s.website_wc_url || '').replace(/\/$/, '');
   const key = s.website_wc_key || '';
   const secret = s.website_wc_secret || '';
-  const sku = String(product.code || '').trim();
+  const sku = String(p.code || '').trim();
   if (!base || !key || !secret || !sku) return { skipped: true, reason: 'missing wc config or sku' };
 
   const auth = Buffer.from(`${key}:${secret}`).toString('base64');
@@ -528,7 +585,7 @@ async function pushWooCommerceStock(db, product) {
   const upd = await requestJSON(
     `${base}/wp-json/wc/v3/products/${wcId}`,
     'PUT',
-    { manage_stock: true, stock_quantity: Math.max(0, Math.round(Number(product.stock) || 0)) },
+    { manage_stock: true, stock_quantity: Math.max(0, Math.round(Number(p.stock) || 0)) },
     { Authorization: `Basic ${auth}` }
   );
   return { ok: upd.status >= 200 && upd.status < 300, status: upd.status };
@@ -539,9 +596,17 @@ async function pushWooCommerceStock(db, product) {
  * Qty source is VWS only (never products.stock header).
  */
 function buildMatrixPayload(db, productId, channel, warehouseId) {
-  const product = db.prepare('SELECT id, code, name FROM products WHERE id=?').get(productId);
+  let product;
+  try {
+    product = db.prepare('SELECT id, code, name, website_stock_push FROM products WHERE id=?').get(productId);
+  } catch (_) {
+    product = db.prepare('SELECT id, code, name FROM products WHERE id=?').get(productId);
+  }
   if (!product) return null;
   const productSku = String(product.code || '').trim();
+  if (!productAllowsWebsiteStockPush(product)) {
+    return { skip: true, reason: 'product_website_stock_off', productSku };
+  }
   if (!productSku) return { skip: true, reason: 'missing product.code' };
 
   const rows = db.prepare(`
@@ -689,6 +754,12 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
   const pid = parseInt(productId, 10);
   if (!pid) return { skipped: true };
   ensureWebsiteStockOutbox(db);
+  const prodRow = readWebsiteStockPushRow(db, pid);
+  if (!prodRow) return { skipped: true, reason: 'missing_product', enqueued: 0 };
+  if (!productAllowsWebsiteStockPush(prodRow)) {
+    silenceProductWebsiteOutbox(db, pid);
+    return { skipped: true, reason: 'product_website_stock_off', enqueued: 0 };
+  }
   const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   if (!syncPushEnabled(s) && !opts.force) return { skipped: true, reason: 'disabled' };
   if (!siteB2bEnabled(s) && !opts.force) return { skipped: true, reason: 'target' };
@@ -862,8 +933,13 @@ async function drainWebsiteStockOutbox(db) {
       for (const row of due) {
         if (seen.has(row.product_id)) continue;
         seen.add(row.product_id);
-        const p = db.prepare('SELECT id,code,barcode,name,stock,unit FROM products WHERE id=?').get(row.product_id);
-        if (p) {
+        let p;
+        try {
+          p = db.prepare('SELECT id,code,barcode,name,stock,unit,website_stock_push FROM products WHERE id=?').get(row.product_id);
+        } catch (_) {
+          p = db.prepare('SELECT id,code,barcode,name,stock,unit FROM products WHERE id=?').get(row.product_id);
+        }
+        if (p && productAllowsWebsiteStockPush(p)) {
           await fireStockWebhooks(db, p).catch(() => {});
           await pushWooCommerceStock(db, p).catch(() => {});
         }
@@ -1044,16 +1120,34 @@ function enqueueFullSync(db) {
   // Site-B2B outbox only — never require Woo/webhook secrets here.
   const s = getSettingsMap(db, { needB2b: true, needWoo: false });
   if (!siteB2bEnabled(s)) return { ok: false, reason: 'site_b2b disabled' };
-  const products = db.prepare(`
-    SELECT DISTINCT product_id AS id FROM product_variants
-    WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
-  `).all();
+  let products;
+  let skippedWebsiteStockOff = 0;
+  try {
+    const eligible = db.prepare(`
+      SELECT DISTINCT v.product_id AS id
+      FROM product_variants v
+      INNER JOIN products p ON p.id = v.product_id
+      WHERE COALESCE(v.active,1)=1 AND COALESCE(v.is_default,0)=0
+        AND COALESCE(p.website_stock_push, 1)=1
+    `).all();
+    products = eligible;
+    const total = db.prepare(`
+      SELECT COUNT(DISTINCT product_id) AS c FROM product_variants
+      WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
+    `).get();
+    skippedWebsiteStockOff = Math.max(0, (Number(total && total.c) || 0) - products.length);
+  } catch (_) {
+    products = db.prepare(`
+      SELECT DISTINCT product_id AS id FROM product_variants
+      WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
+    `).all();
+  }
   let n = 0;
   for (const p of products) {
     const r = enqueueWebsiteStock(db, p.id, { force: true });
     n += r.enqueued || 0;
   }
-  return { ok: true, products: products.length, enqueued: n };
+  return { ok: true, products: products.length, enqueued: n, skippedWebsiteStockOff };
 }
 
 function parseOutboxLastResult(raw) {
@@ -1100,7 +1194,12 @@ function summarizeOutboxRow(row) {
   const siteHttp = httpCode >= 500 || httpCode === 429
     || (httpCode === 0 && /HTTP\s+0|بدون پاسخ/.test(err));
 
-  if (status === 'pending' && !err && !unmatchedN) {
+  if (lr.skipped === true && lr.reason === 'product_website_stock_off') {
+    outcome = 'ارسال موجودی این کالا به سایت خاموش است';
+    nextStep = 'در کارت کالا گزینهٔ «ارسال موجودی به سایت» را فعال کنید تا دوباره در صف قرار گیرد.';
+    tone = 'ok';
+    cause = 'ok';
+  } else if (status === 'pending' && !err && !unmatchedN) {
     outcome = 'هنوز نتیجه نیامده';
     nextStep = 'وابسته به نوبت تخلیهٔ صف است. تا جواب نیاید کد کالا را عوض نکنید.';
     tone = 'wait';
@@ -1278,6 +1377,9 @@ module.exports = {
   formatOnSiteLabels,
   priorCatalogMissBlocksDelivery,
   requeueFrozenWebsiteStockErrors,
+  normalizeWebsiteStockPush,
+  productAllowsWebsiteStockPush,
+  silenceProductWebsiteOutbox,
   DEBOUNCE_MS,
   MATRIX_TIMEOUT_MS,
   MATRIX_CHUNK_SIZE,

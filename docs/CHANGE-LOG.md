@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۱۶ — تیک per-product برای ارسال موجودی به سایت (SW v330)
+
+- **هدف:** خاموش کردن push موجودی برای یک کالا بدون تغییر موجودی ERP و بدون صفر کردن عدد قبلی روی فروشگاه
+- **رفتار:** ستون `products.website_stock_push` (پیش‌فرض ۱). کلید سراسری «فعال‌سازی سینک موجودی» + تیک «ارسال موجودی این کالا به سایت» در فرم کالا. خاموش = آن SKU به صف push نمی‌رود؛ موجودی انبار/فاکتور دست نمی‌خورد. کارت کالا «ارسال موجودی به سایت: خاموش» را نشان می‌دهد.
+- **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/routes/products.js`, `server/db.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-website-stock-push-v330.js`
+- **تست:** `node --check server/public/app.js`؛ `test-website-stock-push-v330.js` (و پس از deploy: `test-sms`, `test-sync`).
+- **Deploy:** ⏳ — SW `erp-taranom-v330`، `app.js`/`app.css` با `?v=330`.
+
 ### ۱۴۰۵/۰۷/۱۶ — ثبت دستی حقوق بدون بیمه و مالیات (SW v329)
 
 - **هدف:** مسیر حرفه‌ای پرداخت خارج از رابطه کارگری با مبنای قانونی صریح
