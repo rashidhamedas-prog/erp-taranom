@@ -2090,6 +2090,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'bounced_je_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'endorse_party_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'endorse_supplier_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'cost_center_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'expense_account_code', 'TEXT');
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
@@ -2485,6 +2487,18 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.error('❌ payroll/reporting/user-party schema init failed:', e.message);
     throw e;
+  }
+
+  try {
+    if (!isDevice()) {
+      const { repairHistoricalCostLinks } = require('./lib/cost-center-repair');
+      const repaired = repairHistoricalCostLinks(db);
+      if (repaired && !repaired.skipped) {
+        console.log('✅ cost_center_journal_repair_v317:', JSON.stringify(repaired));
+      }
+    }
+  } catch (e) {
+    console.warn('cost_center_journal_repair_v317:', e.message);
   }
 
   try {

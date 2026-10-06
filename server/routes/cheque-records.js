@@ -235,7 +235,7 @@ function assertOutPayableAction(row) {
 }
 
 function postChequeAction(db, {
-  row, user, date, sourceType, lifecycle, statusLabel, debitAcct, creditAcct,
+  row, user, date, sourceType, lifecycle, statusLabel, debitAcct, creditAcct, costCenterId,
 }) {
   const amountRial = chequeAmountRial(row);
   const amt = amountRial / 10;
@@ -246,9 +246,10 @@ function postChequeAction(db, {
     date,
     description: `${statusLabel} چک ${row.cheque_number || row.id}`,
     createdBy: user.id,
+    costCenterId: costCenterId || null,
     lines: [
-      { code: debitAcct.code, name: debitAcct.name, debit: amt, credit: 0, debit_rial: amountRial },
-      { code: creditAcct.code, name: creditAcct.name, debit: 0, credit: amt, credit_rial: amountRial },
+      { code: debitAcct.code, name: debitAcct.name, debit: amt, credit: 0, debit_rial: amountRial, cost_center_id: costCenterId || null },
+      { code: creditAcct.code, name: creditAcct.name, debit: 0, credit: amt, credit_rial: amountRial, cost_center_id: costCenterId || null },
     ],
   });
   const updated = db.prepare(`
@@ -266,15 +267,42 @@ function postChequeAction(db, {
   return id;
 }
 
-function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey }) {
+function chequeExpensePosting(db, body) {
+  const { resolveExpensePosting } = require('./expenses');
+  const b = body || {};
+  const section = String(b.cost_section || '');
+  return resolveExpensePosting(db, {
+    category: b.category || (section === 'selling' ? 'sales' : 'admin'),
+    account_code: b.account_code,
+    is_overhead: !!(b.is_overhead || section === 'production_overhead'),
+    cost_center_id: b.cost_center_id,
+  });
+}
+
+function bodyChoosesExpenseSection(body) {
+  const b = body || {};
+  return !!(b.cost_section || b.category || b.is_overhead || b.cost_center_id || b.account_code);
+}
+
+function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey, useExpensePosting }) {
   const db = getDB();
-  const entryDate = req.body.date || todayJalali();
+  const body = req.body || {};
+  const entryDate = body.date || todayJalali();
   const jeId = db.transaction(() => {
     const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='out'").get(req.params.id);
     assertOutPayableAction(row);
-    const debitAcct = resolveNamedAcct(db, req.body.account_key, debitKey);
-    const creditAcct = acct(db, 'coa_cheques_payable');
-    return postChequeAction(db, {
+    let debitAcct;
+    let costCenterId = null;
+    let expenseCode = null;
+    if (useExpensePosting && (bodyChoosesExpenseSection(body) || !body.account_key)) {
+      const posting = chequeExpensePosting(db, body);
+      debitAcct = posting.account;
+      costCenterId = posting.costCenterId;
+      expenseCode = posting.account.code;
+    } else {
+      debitAcct = resolveNamedAcct(db, req.body.account_key, debitKey);
+    }
+    const id = postChequeAction(db, {
       row,
       user: req.user,
       date: entryDate,
@@ -282,8 +310,17 @@ function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey }) {
       lifecycle,
       statusLabel,
       debitAcct,
-      creditAcct,
+      creditAcct: acct(db, 'coa_cheques_payable'),
+      costCenterId,
     });
+    if (expenseCode) {
+      db.prepare(`
+        UPDATE cheque_records
+        SET cost_center_id=?, expense_account_code=?
+        WHERE id=?
+      `).run(costCenterId, expenseCode, row.id);
+    }
+    return id;
   })();
   const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
   audit(req.user.id, sourceType, 'cheque_record', req.params.id, row?.cheque_number);
@@ -414,7 +451,7 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-/** خرج چک پرداختنی — Dr expense (acct key), Cr notes payable. */
+/** خرج چک پرداختنی — بخش مالک مثل پرداخت هزینه؛ بدون بخش = اداری ۶۱۰۲. */
 router.post('/:id/expense', auth, adminOrAccounting, (req, res) => {
   try {
     res.json(runOutAction(req, {
@@ -422,6 +459,7 @@ router.post('/:id/expense', auth, adminOrAccounting, (req, res) => {
       lifecycle: 'expensed',
       statusLabel: 'خرج‌شده',
       debitKey: 'coa_admin_expense',
+      useExpensePosting: true,
     }));
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -443,6 +481,7 @@ router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
         lifecycle: 'endorsed',
         statusLabel: 'خرج‌شده',
         debitKey: 'coa_admin_expense',
+        useExpensePosting: true,
       }));
     }
 
@@ -708,3 +747,4 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+module.exports.chequeExpensePosting = chequeExpensePosting;

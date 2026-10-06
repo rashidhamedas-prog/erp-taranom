@@ -109,14 +109,27 @@ router.get('/products/search', auth, adminOrAccounting, (req, res) => {
 // getting "access denied" on the catalog). Mutations below stay restricted.
 router.get('/', auth, (req, res) => {
   const db = getDB();
-  res.json(db.prepare('SELECT * FROM warehouses ORDER BY name').all());
+  res.json(db.prepare(`
+    SELECT w.*, cc.name AS cost_center_name, cc.code AS cost_center_code
+    FROM warehouses w
+    LEFT JOIN cost_centers cc ON cc.id = w.cost_center_id
+    ORDER BY w.name
+  `).all());
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system } = req.body;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
+  const { resolveWarehouseCostCenter } = require('../lib/cost-center-repair');
   const whCode = code || ('WH-' + Date.now().toString(36).toUpperCase());
+  const ent = entity || 'distribution_office';
+  let ccId;
+  try {
+    ccId = resolveWarehouseCostCenter(db, { cost_center_id, entity: ent, code: whCode });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message });
+  }
   const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
   const result = db.transaction(() => {
     if (is_default) db.prepare('UPDATE warehouses SET is_default=0').run();
@@ -125,9 +138,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       VALUES (?,?,?,?,?,?,?,?,?,?)
     `).run(
       name, address || '', whCode,
-      entity || 'distribution_office',
+      ent,
       warehouse_type || 'finished_goods',
-      cost_center_id ? parseInt(cost_center_id, 10) : null,
+      ccId,
       is_default ? 1 : 0,
       allow_negative ? 1 : 0,
       costing_method || null,
@@ -146,6 +159,16 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const invSys = inventory_system !== undefined
     ? (String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual')
     : (row.inventory_system || 'perpetual');
+  let nextCc = row.cost_center_id;
+  if (cost_center_id != null) {
+    try {
+      nextCc = cost_center_id
+        ? require('../lib/cost-center-repair').requireCostCenter(db, cost_center_id)
+        : null;
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message });
+    }
+  }
   db.transaction(() => {
     const def = is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0);
     if (def) db.prepare('UPDATE warehouses SET is_default=0 WHERE id<>?').run(req.params.id);
@@ -157,7 +180,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       active != null ? (active ? 1 : 0) : row.active,
       entity || row.entity || 'distribution_office',
       warehouse_type || row.warehouse_type || 'finished_goods',
-      cost_center_id != null ? (cost_center_id ? parseInt(cost_center_id, 10) : null) : row.cost_center_id,
+      nextCc,
       def,
       code || row.code || null,
       allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),

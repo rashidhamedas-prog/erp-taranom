@@ -1374,6 +1374,10 @@ function seedWarehouses(db) {
     }
   }
 
+  try {
+    require('../cost-center-repair').fillNullWarehouseCostCenters(db);
+  } catch (_) { /* centers may not exist on a partial boot */ }
+
   const idOf = (code) => db.prepare('SELECT id FROM warehouses WHERE code=?').get(code)?.id;
   const setIfEmpty = (key, id) => {
     if (!id) return;
