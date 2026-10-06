@@ -18616,12 +18616,86 @@ function filterCoaByMode(accounts, mode){
   return list;
 }
 const COA_SECTION_META={
-  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'چهار ستون از راست: گروه، کل، معین، تفصیلی — انتخاب هر سطح فرزندان بعدی را نشان می‌دهد'},
+  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'چهار ستون از راست: گروه، کل، معین، تفصیلی. تفصیلی، کد زندهٔ همان بخش است (تأمین‌کننده، مشتری، بانک، صندوق، شخص، کالا). پوستهٔ شش‌رقمی میانی مثل ۲۱۰۱۰۱ نشان داده نمی‌شود.'},
   'account-groups':{title:'گروه‌های حساب',hint:'سطح اول کدینگ (دارایی، بدهی، حقوق صاحبان سرمایه، درآمد، هزینه)'},
   'ledger-accounts':{title:'حساب‌های کل',hint:'حساب‌های سطح دوم زیر هر گروه — مثال: ۱۱ موجودی نقد و بانک، ۲۱ بدهی‌های جاری'},
   'subsidiary-accounts':{title:'حساب‌های معین',hint:'حساب‌های سطح سوم — تفصیل‌پذیر و قابل گردش در دفاتر'}
 };
 let COA_FOUR={group:null,kol:null,moin:null,tafsili:null,q:['','','','']};
+// COA_BROWSE_V324 — mirror of server/lib/coa-browse.js (shell = معین + '01')
+function coaIsOperationalTafsili(account){
+  const code=String(account&&account.code||'');
+  if(Number(account&&account.level)>=4) return true;
+  if(code.length>=12) return true;
+  if(code.includes('-')) return true;
+  return false;
+}
+function coaIsAutoShell(code, moinCode){
+  const c=String(code||'');
+  const m=String(moinCode||'');
+  return m.length>0 && c===m+'01' && c.length===m.length+2;
+}
+function coaTafsiliUnder(accounts, moinCode){
+  const moin=String(moinCode||'');
+  if(!moin) return [];
+  const list=(accounts||[]).filter(a=>a && a.is_active!==0 && a.code!=null && String(a.code)!=='');
+  const kids=new Map();
+  list.forEach(a=>{
+    const p=a.parent_code?String(a.parent_code):'';
+    if(!kids.has(p)) kids.set(p,[]);
+    kids.get(p).push(a);
+  });
+  const shellCode=moin+'01';
+  const out=[];
+  const seen=new Set();
+  function add(account){
+    const code=String(account.code);
+    if(seen.has(code)||code===moin||coaIsAutoShell(code, moin)) return;
+    seen.add(code);
+    out.push(account);
+  }
+  function hasOperationalDescendant(code, stack){
+    if(stack.has(code)) return false;
+    stack.add(code);
+    for(const child of kids.get(code)||[]){
+      const childCode=String(child.code);
+      if(coaIsOperationalTafsili(child)&&!coaIsAutoShell(childCode, moin)) return true;
+      if(hasOperationalDescendant(childCode, stack)) return true;
+    }
+    return false;
+  }
+  function walk(parentCode, stack){
+    if(stack.has(parentCode)) return;
+    stack.add(parentCode);
+    for(const child of kids.get(String(parentCode))||[]){
+      const code=String(child.code);
+      const descendants=kids.get(code)||[];
+      const shell=coaIsAutoShell(code, moin)||(!coaIsOperationalTafsili(child)&&hasOperationalDescendant(code, new Set()));
+      if(shell){ walk(code, stack); continue; }
+      if(coaIsOperationalTafsili(child)||descendants.length===0) add(child);
+      if(descendants.length) walk(code, stack);
+    }
+  }
+  walk(moin, new Set());
+  list.forEach(account=>{
+    const code=String(account.code);
+    if(seen.has(code)||code===moin||coaIsAutoShell(code, moin)) return;
+    if(!coaIsOperationalTafsili(account)) return;
+    const parent=account.parent_code?String(account.parent_code):'';
+    const underShell=code.startsWith(shellCode)&&code.length>shellCode.length;
+    const underMoin=code.startsWith(moin)&&code.length>moin.length&&(code.length>=12||code.includes('-'));
+    if(underShell||parent===shellCode||(underMoin&&(parent===moin||!parent))) add(account);
+  });
+  out.sort((a,b)=>String(a.code).localeCompare(String(b.code),'en'));
+  return out;
+}
+function coaTafsiliCreateParent(accounts, moinCode){
+  const moin=String(moinCode||'');
+  if(!moin) return '';
+  const shell=moin+'01';
+  const hit=(accounts||[]).some(a=>a && a.is_active!==0 && String(a.code)===shell);
+  return hit?shell:moin;
+}
 function coaFourKids(accounts, parent){
   if(!parent) return (accounts||[]).filter(a=>!a.parent_code);
   return (accounts||[]).filter(a=>a.parent_code===parent);
@@ -18662,11 +18736,13 @@ function renderCoaFourColumn(body, accounts, canEdit){
     <div class="coa-four">
       ${cols.map((col,ci)=>{
         const locked=ci>0 && !col.parent;
-        const list=locked?[]:coaFourKids(accounts, col.parent).filter(a=>coaFourMatch(a, COA_FOUR.q[ci]));
+        const raw=locked?[]:(col.key==='tafsili'?coaTafsiliUnder(accounts, col.parent):coaFourKids(accounts, col.parent));
+        const list=raw.filter(a=>coaFourMatch(a, COA_FOUR.q[ci]));
+        const createParent=col.key==='tafsili'?coaTafsiliCreateParent(accounts, col.parent):(col.parent||'');
         return `<div class="panel" data-csp-style="${CSP.style(`margin:0;min-width:0`)}">
           <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap`)}">
-            <h4>${col.title}</h4>
-            ${!locked && canEdit?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chartAccountModal(`${String((CSP.htmlDecode(String(esc(col.parent||'')))) ?? '')}`)})}">➕</button>`:''}
+            <h4>${col.title}${!locked?` <span class="muted">(${Number(list.length).toLocaleString('fa-IR')})</span>`:''}</h4>
+            ${!locked && canEdit?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chartAccountModal(`${String((CSP.htmlDecode(String(esc(createParent||'')))) ?? '')}`)})}">➕</button>`:''}
           </div>
           <div class="panel-body">
             <input class="search" placeholder="جستجو..." value="${esc(COA_FOUR.q[ci]||'')}" ${locked?'disabled':''}
@@ -18674,10 +18750,10 @@ function renderCoaFourColumn(body, accounts, canEdit){
               data-csp-style="${CSP.style(`width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}">
             <div data-csp-style="${CSP.style(`max-height:min(52vh,420px);overflow:auto`)}">
               ${locked?`<div class="empty">ابتدا سطح قبلی را انتخاب کنید</div>`:(list.map(a=>`
-                <button type="button" class="btn ${a.code===col.sel?'':'ghost'} sm" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;width:100%;margin-bottom:4px;text-align:right`)}"
+                <button type="button" class="btn ${a.code===col.sel?'':'ghost'} sm" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;margin-bottom:4px;text-align:right`)}"
                   data-csp-click="${CSP.bind('click',function(event){coaFourPick(`${String((col.key) ?? '')}`,`${String((CSP.htmlDecode(String(esc(a.code)))) ?? '')}`)})}">
-                  <span>${esc(a.name)}</span><span class="mono muted">${esc(a.code)}</span>
-                </button>`).join('')||`<div class="empty">${ci===3?'تفصیلی ثبت نشده':'موردی نیست'}</div>`)}
+                  <span data-csp-style="${CSP.style(`display:flex;flex-direction:column;align-items:flex-start;min-width:0`)}"><span>${esc(a.name)}</span>${a.tafsili_type?`<span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">${esc(a.tafsili_type)}</span>`:''}</span><span class="mono muted">${esc(a.code)}</span>
+                </button>`).join('')||`<div class="empty">${ci===3?'تفصیلی زنده‌ای برای این معین نیست':'موردی نیست'}</div>`)}
             </div>
           </div>
         </div>`;
@@ -25362,7 +25438,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
         <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند</li>
-        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
+        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است. با انتخاب «حساب‌های پرداختنی» تأمین‌کننده‌ها، با «دریافتنی» مشتری‌ها، و با بانک/صندوق/کالا/شخص همان کد ۱۲رقمی زندهٔ بخش خودش می‌آید. پوستهٔ شش‌رقمی (مثل ۲۱۰۱۰۱) ردیف تفصیلی نیست. شمارهٔ سندهای قبلی عوض نمی‌شود. با هر بار باز شدن صفحه، کدی که در بخش مربوطه هست ولی ردیف دفترکل ندارد ساخته یا وصل می‌شود. دکمه ➕ روی ستون تفصیلی زیر همان پوسته حساب می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
         <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
@@ -25893,7 +25969,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v323</b> است و اسکریپت‌ها با <code>?v=323</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v324</b> است و اسکریپت حسابداری با <code>?v=324</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -26101,7 +26177,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v321</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v324</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان هر ستون روی دادهٔ همان ستون می‌ماند. جدول پهن داخل کادر خودش اسکرول می‌شود، هم در دسکتاپ و هم در موبایل، و سرستون از ردیف‌ها جدا نمی‌شود.</div>
       <div class="tip">فاکتور رسمی بیش از موجودی قابل تعهد ثبت نمی‌شود. فروش آفلاین تا تأیید مرکز موجودی کم نمی‌کند. کسری فقط با تأیید مدیر یا حسابدار و با برچسب سفارش کسری است. یادآور پیگیری معوق هر چند روز تکرار می‌شود، مگر خاموش یا به تعویق افتاده باشد.</div>
       <div class="tip">در فاکتور و پیگیری جدید، لیست مشتریان شما خودکار بارگذاری می‌شود (حتی بدون باز کردن صفحهٔ مشتریان). سرچ کالا در کاتالوگ فقط همان صفحه را فیلتر می‌کند و به پیکر فاکتور سرایت نمی‌کند.</div>

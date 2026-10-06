@@ -1,6 +1,7 @@
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { acct: coaAcct, suggestChildCode, validateChildCode } = require('../lib/coa-map');
+const { syncLiveTafsili } = require('../lib/coa-live');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
@@ -1142,6 +1143,16 @@ router.get('/income-statement', auth, adminOrAccounting, (req, res, next) => {
 // Chart of accounts
 router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  if (!Object.prototype.hasOwnProperty.call(req.query, 'parent')) {
+    try {
+      const live = syncLiveTafsili(db);
+      if (live && ((live.filled || 0) > 0 || (live.repaired || 0) > 0)) {
+        console.log('coa live tafsili', live.filled || 0, 'filled', live.repaired || 0, 'repaired');
+      }
+    } catch (e) {
+      console.error('coa live sync:', e.message);
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(req.query, 'parent')) {
     const parent = String(req.query.parent ?? '');
     if (parent === '' || parent === '__root__') {
