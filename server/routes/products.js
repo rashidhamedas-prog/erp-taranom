@@ -704,15 +704,29 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   }
   // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
   // After warehouse circulation, Excel must not smash live qty.
+  let excelStockAbs = false;
   if (whId && !excelHasMoves) {
     if (body.excel_upsert || body.from_excel) {
       db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
         .run(req.params.id, whId);
       db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
         .run(stockVal, req.params.id, whId);
+      excelStockAbs = true;
     } else {
       db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
         .run(req.params.id, whId, stockVal);
+    }
+  }
+  // Absolute Excel stock must leave a kardex row (skipStock) so UI کاردکس matches WH qty.
+  if (excelStockAbs) {
+    try {
+      require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
+        createdBy: req.user.id,
+        noteIn: 'موجودی اکسل (هم‌ترازی کاردکس)',
+        noteOut: 'تعدیل اکسل (هم‌ترازی کاردکس)',
+      });
+    } catch (e) {
+      if (db.inTransaction) throw e;
     }
   }
   // Excel upsert must never clear primary image / gallery
@@ -737,7 +751,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   res.json(jsonSafeProduct(row));
 });
 
-// Update stock (admin only)
+// Update stock (admin only) — always via inventory_ledger so کاردکس stays truthful.
 router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const { stock, note } = req.body;
   if (stock === undefined) return res.status(400).json({ error: 'موجودی الزامی است' });
@@ -748,7 +762,7 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
     db, productId: Number(req.params.id), unit: prod.unit,
     integer: requiresIntegerQty(db, Number(req.params.id), prod.unit),
   });
-  const avg = Math.round(Number(prod.average_cost_rial) || 0);
+  const avg = Math.round(Number(prod.average_cost_rial) || Number(prod.cost) || 0);
   if (newStock > 0 && !avg) {
     return res.status(422).json({
       error: 'موجودی بدون بهای میانگین مجاز نیست — ابتدا بها را از حواله مواد یا کارت کالا ثبت کنید',
@@ -756,21 +770,55 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
       name: prod.name,
     });
   }
-  const change = newStock - (Number(prod.stock) || 0);
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
-  // Keep the product's warehouse_stock in step with the manual override so the
-  // per-warehouse figure (used by invoice deduction) never drifts from
-  // products.stock.
-  if (prod.warehouse_id) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-      .run(req.params.id, prod.warehouse_id);
-    db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty+? < 0 THEN 0 ELSE qty+? END WHERE product_id=? AND warehouse_id=?')
-      .run(change, change, req.params.id, prod.warehouse_id);
+  const oldStock = Number(prod.stock) || 0;
+  const change = newStock - oldStock;
+  let whId = prod.warehouse_id || null;
+  if (!whId) {
+    whId = db.prepare(`
+      SELECT id FROM warehouses WHERE COALESCE(active,1)=1
+      ORDER BY CASE WHEN COALESCE(is_default,0)=1 THEN 0 ELSE 1 END, id LIMIT 1
+    `).get()?.id || null;
+  }
+  if (!whId) {
+    return res.status(422).json({
+      error: 'برای تعدیل موجودی باید انبار کالا مشخص باشد',
+      code: 'E_STOCK_WAREHOUSE_REQUIRED',
+    });
+  }
+  try {
+    db.transaction(() => {
+      if (!prod.warehouse_id) {
+        db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, req.params.id);
+      }
+      db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+        .run(req.params.id, whId);
+      // Absolute override on primary WH so invoice deduction matches header.
+      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+        .run(newStock, req.params.id, whId);
+      // Kardex must reflect the absolute qty (skipStock — stock tables already set).
+      require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
+        createdBy: req.user.id,
+        noteIn: note || `تعدیل دستی موجودی → ${newStock}`,
+        noteOut: note || `تعدیل دستی موجودی → ${newStock}`,
+      });
+      if (Math.abs(change) > 1e-9) {
+        try {
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+            .run(req.params.id, req.user.id, change, note || `موجودی → ${newStock}`);
+        } catch (_) { /* optional legacy */ }
+      }
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({
+      error: e.message || 'تعدیل موجودی ناموفق',
+      code: e.code || 'E_STOCK_ADJUST',
+    });
   }
   audit(req.user.id, 'update_stock', 'product', req.params.id, note || `موجودی → ${newStock}`);
-  try { db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || ''); } catch (_) {}
   try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
-  res.json({ ok: true, stock: newStock, new_stock: newStock });
+  const live = db.prepare('SELECT stock FROM products WHERE id=?').get(req.params.id);
+  res.json({ ok: true, stock: Number(live?.stock) || newStock, new_stock: Number(live?.stock) || newStock });
 });
 
 // Delete (admin only) — cascade stock children; block if used in documents

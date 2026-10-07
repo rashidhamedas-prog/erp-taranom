@@ -112,6 +112,8 @@ function ensureUpdateMdSchema(db, ensureColumn) {
     website_b2b_token: '',
     website_wh_wholesale_id: '',
     website_wh_retail_id: '',
+    website_wh_retail_2_id: '',
+    website_wh_retail_3_id: '',
     rubika_bot_token: '',
     rubika_chat_id: '',
     rubika_invoice_enabled: '0',

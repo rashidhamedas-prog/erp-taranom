@@ -1,8 +1,10 @@
 /**
  * Website stock sync — ERP → Site-B2B matrix (color×size).
  *
- * System of record: variant_warehouse_stock for the warehouse configured
- * per channel (website_wh_wholesale_id / website_wh_retail_id).
+ * System of record: variant_warehouse_stock for the warehouse(s) configured
+ * per channel. WHOLESALE: website_wh_wholesale_id (single). RETAIL/سایت تک:
+ * website_wh_retail_id (+ optional website_wh_retail_2_id / _3_id) — qty is
+ * the SUM across the selected retail warehouses, still one Site channel RETAIL.
  *
  * Push contract: PUT {resolved}/erp/inventory/matrix
  * URL resolution via siteApiUrl(): Nest API hosts (api.*) use /v1/...;
@@ -92,6 +94,8 @@ function getSettingsMap(db, opts = {}) {
     'website_b2b_channel',
     'website_wh_wholesale_id',
     'website_wh_retail_id',
+    'website_wh_retail_2_id',
+    'website_wh_retail_3_id',
   ]);
   s.website_b2b_token = '';
   s.website_wc_key = '';
@@ -231,10 +235,52 @@ function b2bAuthHeaders(token) {
   };
 }
 
-function channelWarehouseId(s, channel) {
-  const key = channel === 'RETAIL' ? 'website_wh_retail_id' : 'website_wh_wholesale_id';
-  const n = parseInt(s[key], 10);
+function parseWarehouseSettingId(raw) {
+  const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Warehouse id set for a Site channel.
+ * RETAIL: primary website_wh_retail_id required; optional _2/_3 appended; deduped.
+ * WHOLESALE: single website_wh_wholesale_id.
+ */
+function channelWarehouseIds(s, channel) {
+  const ch = String(channel || '').toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
+  if (ch === 'RETAIL') {
+    const primary = parseWarehouseSettingId(s && s.website_wh_retail_id);
+    if (!primary) return [];
+    const out = [];
+    const seen = new Set();
+    for (const key of ['website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id']) {
+      const id = parseWarehouseSettingId(s && s[key]);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }
+  const id = parseWarehouseSettingId(s && s.website_wh_wholesale_id);
+  return id ? [id] : [];
+}
+
+/** Primary warehouse for channel (RETAIL = website_wh_retail_id only). */
+function channelWarehouseId(s, channel) {
+  const ids = channelWarehouseIds(s, channel);
+  return ids.length ? ids[0] : null;
+}
+
+function normalizeWarehouseIds(warehouseIdOrIds) {
+  const raw = Array.isArray(warehouseIdOrIds) ? warehouseIdOrIds : [warehouseIdOrIds];
+  const out = [];
+  const seen = new Set();
+  for (const x of raw) {
+    const id = parseWarehouseSettingId(x);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function configuredChannels(s) {
@@ -594,8 +640,9 @@ async function pushWooCommerceStock(db, product) {
 /**
  * Build matrix payload from variant_warehouse_stock for one product+channel.
  * Qty source is VWS only (never products.stock header).
+ * warehouseIdOrIds: one id or an array (RETAIL may sum up to 3 warehouses).
  */
-function buildMatrixPayload(db, productId, channel, warehouseId) {
+function buildMatrixPayload(db, productId, channel, warehouseIdOrIds) {
   let product;
   try {
     product = db.prepare('SELECT id, code, name, website_stock_push FROM products WHERE id=?').get(productId);
@@ -609,21 +656,50 @@ function buildMatrixPayload(db, productId, channel, warehouseId) {
   }
   if (!productSku) return { skip: true, reason: 'missing product.code' };
 
-  const rows = db.prepare(`
-    SELECT v.id AS variant_id, v.sku, v.barcode,
-           COALESCE(c.name, '') AS color_name,
-           COALESCE(s.name, '') AS size_name,
-           COALESCE(vws.qty, 0) AS qty
-    FROM product_variants v
-    LEFT JOIN product_colors c ON c.id = v.color_id
-    LEFT JOIN product_sizes s ON s.id = v.size_id
-    LEFT JOIN variant_warehouse_stock vws
-      ON vws.variant_id = v.id AND vws.warehouse_id = ?
-    WHERE v.product_id = ?
-      AND COALESCE(v.active, 1) = 1
-      AND COALESCE(v.is_default, 0) = 0
-    ORDER BY c.sort_order, s.sort_order, v.id
-  `).all(warehouseId, productId);
+  const warehouseIds = normalizeWarehouseIds(warehouseIdOrIds);
+  if (!warehouseIds.length) {
+    return { skip: true, reason: 'warehouse_not_configured', productSku };
+  }
+
+  let rows;
+  if (warehouseIds.length === 1) {
+    rows = db.prepare(`
+      SELECT v.id AS variant_id, v.sku, v.barcode,
+             COALESCE(c.name, '') AS color_name,
+             COALESCE(s.name, '') AS size_name,
+             COALESCE(vws.qty, 0) AS qty
+      FROM product_variants v
+      LEFT JOIN product_colors c ON c.id = v.color_id
+      LEFT JOIN product_sizes s ON s.id = v.size_id
+      LEFT JOIN variant_warehouse_stock vws
+        ON vws.variant_id = v.id AND vws.warehouse_id = ?
+      WHERE v.product_id = ?
+        AND COALESCE(v.active, 1) = 1
+        AND COALESCE(v.is_default, 0) = 0
+      ORDER BY c.sort_order, s.sort_order, v.id
+    `).all(warehouseIds[0], productId);
+  } else {
+    const placeholders = warehouseIds.map(() => '?').join(',');
+    rows = db.prepare(`
+      SELECT v.id AS variant_id, v.sku, v.barcode,
+             COALESCE(c.name, '') AS color_name,
+             COALESCE(s.name, '') AS size_name,
+             COALESCE(vws.qty, 0) AS qty
+      FROM product_variants v
+      LEFT JOIN product_colors c ON c.id = v.color_id
+      LEFT JOIN product_sizes s ON s.id = v.size_id
+      LEFT JOIN (
+        SELECT variant_id, SUM(COALESCE(qty, 0)) AS qty
+        FROM variant_warehouse_stock
+        WHERE warehouse_id IN (${placeholders})
+        GROUP BY variant_id
+      ) vws ON vws.variant_id = v.id
+      WHERE v.product_id = ?
+        AND COALESCE(v.active, 1) = 1
+        AND COALESCE(v.is_default, 0) = 0
+      ORDER BY c.sort_order, s.sort_order, v.id
+    `).all(...warehouseIds, productId);
+  }
 
   if (!rows.length) {
     return { skip: true, reason: 'no_matrix_variants', productSku };
@@ -637,11 +713,13 @@ function buildMatrixPayload(db, productId, channel, warehouseId) {
     qty: Math.max(0, Math.round(Number(r.qty) || 0)),
   }));
 
-  const idempotencyKey = `erp:${channel}:p${productId}:wh${warehouseId}:h${hashVariants(variants)}`;
+  const whKey = warehouseIds.join('+');
+  const idempotencyKey = `erp:${channel}:p${productId}:wh${whKey}:h${hashVariants(variants)}`;
   return {
     productSku,
     channel,
-    warehouseId,
+    warehouseId: warehouseIds[0],
+    warehouseIds,
     idempotencyKey,
     variants,
   };
@@ -785,10 +863,13 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
       updated_at=excluded.updated_at
   `);
 
+  const moveWh = opts.warehouseId != null ? parseWarehouseSettingId(opts.warehouseId) : null;
+
   let n = 0;
   for (const ch of channels) {
-    const wh = channelWarehouseId(s, ch);
-    if (!wh && !opts.force) continue;
+    const whIds = channelWarehouseIds(s, ch);
+    if (!whIds.length && !opts.force) continue;
+    if (moveWh && !whIds.includes(moveWh)) continue;
     upsert.run(pid, ch, nextAt, now);
     n += 1;
   }
@@ -827,15 +908,15 @@ async function drainWebsiteStockOutbox(db) {
     const results = [];
     for (const row of due) {
       const channel = row.channel === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
-      const wh = channelWarehouseId(s, channel);
-      if (!wh) {
+      const whIds = channelWarehouseIds(s, channel);
+      if (!whIds.length) {
         db.prepare(`UPDATE website_stock_outbox SET status='error', last_error=?, updated_at=? WHERE id=? AND updated_at=?`)
           .run('warehouse not configured for channel', now, row.id, row.updated_at);
         results.push({ id: row.id, ok: false, reason: 'no_warehouse' });
         continue;
       }
 
-      const payload = buildMatrixPayload(db, row.product_id, channel, wh);
+      const payload = buildMatrixPayload(db, row.product_id, channel, whIds);
       if (!payload || payload.skip) {
         db.prepare(`UPDATE website_stock_outbox SET status='done', last_result=?, last_error='', updated_at=? WHERE id=? AND updated_at=?`)
           .run(JSON.stringify({ skipped: true, reason: payload && payload.reason }), now, row.id, row.updated_at);
@@ -1011,11 +1092,11 @@ function startWebsiteStockDrainLoop(db) {
   if (typeof _drainLoop.unref === 'function') _drainLoop.unref();
 }
 
-/** Call after any stock mutation (non-blocking). */
-function notifyStockChanged(db, productId) {
+/** Call after any stock mutation (non-blocking). opts.warehouseId scopes to matching channels. */
+function notifyStockChanged(db, productId, opts = {}) {
   setImmediate(() => {
     try {
-      enqueueWebsiteStock(db, productId);
+      enqueueWebsiteStock(db, productId, opts);
     } catch (e) {
       console.error('[website-stock-sync]', e.message);
     }
@@ -1050,12 +1131,13 @@ async function testWebsiteConnection(arg) {
     const ok = res.status >= 200 && res.status < 300;
     const whW = channelWarehouseId(s, 'WHOLESALE');
     const whR = channelWarehouseId(s, 'RETAIL');
+    const retailIds = channelWarehouseIds(s, 'RETAIL');
     return {
       ok,
       target,
       status: res.status,
       reason: ok ? 'ok' : 'site_b2b unreachable or unauthorized',
-      warehouses: { wholesale: whW, retail: whR },
+      warehouses: { wholesale: whW, retail: whR, retailIds },
     };
   }
 
@@ -1082,12 +1164,12 @@ async function dryRunProductMatrix(db, raw) {
   const channels = configuredChannels(s);
   const results = [];
   for (const channel of channels) {
-    const wh = channelWarehouseId(s, channel);
-    if (!wh) {
+    const whIds = channelWarehouseIds(s, channel);
+    if (!whIds.length) {
       results.push({ channel, ok: false, reason: 'warehouse_not_configured' });
       continue;
     }
-    const payload = buildMatrixPayload(db, productId, channel, wh);
+    const payload = buildMatrixPayload(db, productId, channel, whIds);
     if (!payload || payload.skip) {
       results.push({ channel, ok: false, reason: payload && payload.reason });
       continue;
@@ -1362,6 +1444,7 @@ module.exports = {
   requestJSON,
   resolveTarget,
   channelWarehouseId,
+  channelWarehouseIds,
   configuredChannels,
   siteApiUrl,
   siteB2bApiUrl,

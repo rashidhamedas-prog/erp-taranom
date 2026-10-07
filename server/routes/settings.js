@@ -35,6 +35,7 @@ const ALLOWED_KEYS = [
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
   'website_target', 'website_b2b_url', 'website_b2b_token', 'website_b2b_channel',
   'website_wh_wholesale_id', 'website_wh_retail_id',
+  'website_wh_retail_2_id', 'website_wh_retail_3_id',
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',

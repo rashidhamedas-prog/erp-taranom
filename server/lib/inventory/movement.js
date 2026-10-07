@@ -340,7 +340,7 @@ function postStockMovement(db, opts) {
 
   const movement = db.prepare('SELECT * FROM inventory_movements WHERE id=?').get(ins.lastInsertRowid);
   try {
-    require('../website-stock-sync').notifyStockChanged(db, productId);
+    require('../website-stock-sync').notifyStockChanged(db, productId, { warehouseId });
   } catch (_) { /* sync is best-effort */ }
   return movement;
 }

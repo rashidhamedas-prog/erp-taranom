@@ -2472,14 +2472,23 @@ function initSyncSchema(db, opts) {
 
   try {
     if (!isDevice() && !opts.skipOpeningBackfill) {
-      const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
+      const {
+        backfillOpeningInventoryLedger,
+        reconcileInventoryLedgerGaps,
+      } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
       if (bf && !bf.skipped && bf.count) {
         console.log('✅ opening_inventory_ledger_backfill_v1:', JSON.stringify(bf));
       }
+      // Continuous heal: one-shot backfill can seal with count=0 before warehouse_stock
+      // exists; products then show stock with empty kardex (e.g. code 7134).
+      const gap = reconcileInventoryLedgerGaps(db);
+      if (gap && !gap.skipped && (gap.count || gap.seeded_wh)) {
+        console.log('✅ inventory_ledger_gap_reconcile_v1:', JSON.stringify(gap));
+      }
     }
   } catch (e) {
-    console.warn('opening_inventory_ledger_backfill_v1:', e.message);
+    console.warn('opening_inventory_ledger_backfill/reconcile:', e.message);
   }
 
   try {

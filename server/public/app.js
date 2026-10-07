@@ -10620,7 +10620,11 @@ async function loadItemKardex(productId){
           <td class="mono">${l.amount_rial!=null?fmt(l.amount_rial):('-')}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
         </tr>`;
-        }).join('')||'<tr><td colspan="10" class="empty">تراکنشی ثبت نشده</td></tr>'}
+        }).join('')||`<tr><td colspan="10" class="empty">${
+          Number(d.product?.stock||0)>0
+            ? 'ردیفی در دفتر موجودی نیست — با راه‌اندازی مجدد سرور هم‌ترازی انجام می‌شود؛ اگر ماند، پشتیبانی را خبر کنید'
+            : 'تراکنشی ثبت نشده'
+        }</td></tr>`}
         </tbody></table>
       </div>
     </div>`;
@@ -24578,8 +24582,8 @@ ROUTES.settings = async function(){
   const webPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (ماتریس رنگ×سایز)</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        ERP منبع حقیقت است. برای هر کانال (عمده / تکی) یک انبار انتخاب کنید؛ موجودی همان انبار
-        به‌صورت رنگ×سایز روی سایت نوشته می‌شود
+        ERP منبع حقیقت است. برای <b>عمده</b> یک انبار؛ برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری)
+        انتخاب کنید — موجودی تکی = <b>جمع</b> انبارهای انتخاب‌شده، همچنان یک کانال RETAIL روی سایت
         (<code dir="ltr">PUT /api/v1/erp/inventory/matrix</code>).
         کلید باید همان <code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت باشد — نه JWT ادمین.
       </div>
@@ -24604,10 +24608,22 @@ ROUTES.settings = async function(){
             ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_wholesale_id||'')===String(id)?' selected':''}`)}
           </select>
         </div>
-        <div class="fg fg-md"><label>انبار تکی (RETAIL)</label>
+        <div class="fg fg-md"><label>انبار تکی ۱ — اصلی (RETAIL)</label>
           <select id="s-website_wh_retail_id">
             <option value="">— انتخاب انبار —</option>
             ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_retail_id||'')===String(id)?' selected':''}`)}
+          </select>
+        </div>
+        <div class="fg fg-md"><label>انبار تکی ۲ (اختیاری — جمع با اصلی)</label>
+          <select id="s-website_wh_retail_2_id">
+            <option value="">— بدون انبار اضافه —</option>
+            ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_retail_2_id||'')===String(id)?' selected':''}`)}
+          </select>
+        </div>
+        <div class="fg fg-md"><label>انبار تکی ۳ (اختیاری — جمع با اصلی)</label>
+          <select id="s-website_wh_retail_3_id">
+            <option value="">— بدون انبار اضافه —</option>
+            ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_retail_3_id||'')===String(id)?' selected':''}`)}
           </select>
         </div>
         <div class="fg full"><label>آدرس وب‌هوک موجودی (اختیاری)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://…"></div>
@@ -25082,7 +25098,7 @@ async function loadWebsiteOutbox(){
   }
 }
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id'];
+  const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id','website_wh_retail_2_id','website_wh_retail_3_id'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
   if(window._clearAiKey){ data.ai_api_key=null; window._clearAiKey=0; }
@@ -25706,6 +25722,7 @@ function renderAdminGuide(){
         <li>اگر تیک کالا خاموش باشد، بعد از حرکت انبار آن کالا به صف سایت نمی‌رود (سکوت صف برای همان SKU)؛ موجودی داخل ERP، فاکتور و انبار تغییر نمی‌کند.</li>
         <li>عدد قبلی روی فروشگاه تا روشن کردن دوبارهٔ تیک همان‌جا می‌ماند و خودکار صفر نمی‌شود.</li>
         <li>روی کارت کالا، «ارسال موجودی به سایت: خاموش» فقط یادآور است.</li>
+        <li>در تنظیمات → وب‌سایت: انبار <b>عمده</b> یکی است؛ برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری). موجودی تکی روی سایت = <b>جمع</b> همان انبارها در یک کانال RETAIL. بدون انبار اصلی تکی، کانال تکی باز نمی‌شود.</li>
       </ul>`),
     helpSec('👤','ورود مدیر به حساب کاربر',`
       <p>در <b>تنظیمات → کاربران</b> دکمه <b>ورود به حساب</b> مدیر را با دسترسی همان کاربر وارد برنامه می‌کند. نشست وب، ویندوز و اندروید او سر جایش می‌ماند.</p>
@@ -26116,7 +26133,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
-        <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. پر کردن ردیف‌های قدیمی فقط روی سرور مرکزی است</li>
+        <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. اگر موجودی انبار باشد ولی جدول کاردکس خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد (موجودی فیزیکی عوض نمی‌شود). تعدیل دستی موجودی و موجودی مطلق اکسل هم ردیف دفتر می‌سازند</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). ارزش ریالی از میانگین موزون. فیلتر و خروجی CSV/اکسل</li>
@@ -26311,7 +26328,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v330</b> است و اسکریپت حسابداری با <code>?v=330</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v331</b> است و اسکریپت حسابداری با <code>?v=331</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -26519,7 +26536,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v330</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v331</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان هر ستون روی دادهٔ همان ستون می‌ماند. جدول پهن داخل کادر خودش اسکرول می‌شود، هم در دسکتاپ و هم در موبایل، و سرستون از ردیف‌ها جدا نمی‌شود.</div>
