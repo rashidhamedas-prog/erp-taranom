@@ -35,6 +35,7 @@ Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل
 - **Expiry:** **ندارد** (permanent per owner).
 - **Optional remediation (نه blocker P0/P1):** ارتقای CPU hypervisor به `x86-64-v2`/`host` سپس `scripts/deploy-sharp-production.ps1 -Deploy`.
 - **Do not claim:** «production روی 0.35.0 پچ شده» تا وقتی runtime واقعاً 0.35.0 نشود.
+- **v332 ops guard:** بعد از هر `npm install` روی VPS باید `node server/scripts/ensure-sharp-runtime.js` اجرا شود (recover/`0.33.5`). اگر sharp باز هم نباشد، `ImageEngine` در حالت `passthrough` آپلود را قطع نمی‌کند؛ وضعیت در `image_engine` روی health دیده می‌شود.
 
 ### W0-OPS-002 — بسته با waiver
 

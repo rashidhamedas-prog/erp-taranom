@@ -33,9 +33,13 @@ fi
 echo "==> npm install..."
 npm install --omit=dev
 
+echo "==> ensure sharp runtime (waiver 0.33.5 on pre-v2 CPU)..."
+node scripts/ensure-sharp-runtime.js || echo "⚠️ ensure-sharp-runtime failed — ImageEngine passthrough will keep uploads working"
+
 echo "==> pm2 restart..."
+# Never use --update-env unless every secret in ecosystem is accounted for.
 pm2 describe erp-taranom >/dev/null 2>&1 && \
-  pm2 restart erp-taranom --update-env || \
+  pm2 restart erp-taranom || \
   pm2 start ecosystem.config.js
 pm2 save
 

@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۷/۱۶ — ImageEngine: رفع ریشه‌ای خطای «پردازش تصویر در دسترس نیست» (SW v332)
+
+- **علامت:** در ویرایش کالا، انتخاب چند تصویر → toast قرمز «پردازش تصویر روی سرور در دسترس نیست؛ بعداً دوباره تلاش کنید» با وجود پیش‌نمایش محلی.
+- **ریشه:** `upload-policy` بدون `sharp` hard-fail می‌کرد. سورس/CI روی `sharp@0.35.0` است؛ VPS ایران (CPU بدون x86-64-v2) نمی‌تواند آن را لود کند. waiver `W0-OPS-002` اجازهٔ runtime `0.33.5` می‌دهد، ولی هر `npm install` ماژول را می‌شکند و health هم sharp را گزارش نمی‌کرد. `saveImage` فقط WebP می‌پذیرفت.
+- **رفع معماری:**
+  1. `server/lib/image-engine.js` — حالت `sharp` / `passthrough` / `unavailable`؛ passthrough با magic/EOF + ابعاد از هدر PNG/JPEG/WebP (بدون تضعیف polyglot checks).
+  2. `saveImage` پسوند/mime معتبر validated را می‌پذیرد.
+  3. `GET /api/system/health|ready` فیلد `image_engine`.
+  4. `server/scripts/ensure-sharp-runtime.js` بعد از npm install برای بازگرداندن runtime waiver؛ hook در `deploy-production.sh` / `finish-iran-deploy.py`.
+- **فایل‌ها:** `server/lib/{image-engine,upload-policy}.js`, `server/routes/products.js`, `server/server.js`, `server/scripts/{ensure-sharp-runtime,test-image-engine-fallback-v332}.js`, `server/public/{app.js,index.html,sw.js}`, `scripts/{deploy-production.sh,finish-iran-deploy.py}`, `docs/{CHANGE-LOG,PROJECT-HANDOFF,WAVE0-GATE-STATUS}.md`
+- **تست:** `test-image-engine-fallback-v332.js`؛ `test-sms`؛ `test-sync`؛ `test-upload-ssrf-sync-security.js` در صورت موجود بودن sharp محلی.
+- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v332`.
+
 ### ۱۴۰۵/۰۷/۱۶ — کاردکس خالی با وجود موجودی (هم‌ترازی دفتر انبار) (SW v331)
 
 - **علامت:** کالاهایی مثل کد ۷۱۳۴ (اورکت پشمی آتنا) موجودی فعلی (مثلاً ۱۰) و برچسب «دفتر کل انبار» داشتند ولی جدول کاردکس «تراکنشی ثبت نشده» بود.

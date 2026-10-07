@@ -26294,7 +26294,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سفارش/رسید خرید و GRNI:</b> سفارش <code dir="ltr">/api/purchases/orders</code>، رسید <code dir="ltr">/goods-receipts</code> سند بدهکار موجودی / بستانکار <code>2112</code>، فاکتور از رسید <code dir="ltr">/gr-invoices</code> GRNI را می‌بندد. تطبیق سه‌طرفه: <code dir="ltr">POST /api/purchases/three-way-match</code>.</li>
         <li><b>شعبه:</b> کاربر غیرمدیر فقط اسناد <code>branch_id</code> خودش را می‌بیند. سفارش فروش روی موجودی رزرو می‌گذارد و با حذف سفارش آزاد می‌شود.</li>
         <li><b>رمزنگاری</b>: <code dir="ltr">BACKUP_ENCRYPTION_KEY</code> / رمز تنظیمات؛ بدون رمز، پشتیبان قابل بازیابی نیست</li>
-        <li>آپلود تصویر روی سرور به موتور <code dir="ltr">sharp</code> وابسته است؛ اگر موتور در دسترس نباشد پیام خطای مشخص برمی‌گردد و بقیهٔ سیستم کار می‌کند</li>
+        <li>آپلود تصویر: ترجیح با موتور <code dir="ltr">sharp</code> (فشرده‌سازی WebP). اگر sharp روی سرور/دستگاه لود نشود، مسیر امن <code dir="ltr">passthrough</code> فعال می‌شود (بررسی magic/EOF + ابعاد از هدر، بدون re-encode). وضعیت در <code dir="ltr">/api/system/health</code> فیلد <code dir="ltr">image_engine</code> دیده می‌شود</li>
       </ul>`),
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>

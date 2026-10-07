@@ -1,4 +1,12 @@
-﻿## 2026-10-05 — Admin impersonation without kicking the target (SW v314)
+﻿## 2026-10-07 — ImageEngine root fix for product upload toast (SW v332)
+
+- Owner: skill-top full on «پردازش تصویر روی سرور در دسترس نیست».
+- Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}`, `server/routes/products.js`, `docs/CHANGE-LOG.md`. This session reclaims those only for ImageEngine/help/SW/changelog/`saveImage` mime relax. Did not edit production libs, `db.js`, or `capture.js`.
+- Root cause: sharp@0.35 unloadable on VPS CPU; upload-policy hard-failed; npm install keeps breaking waived 0.33.5.
+- Fix: `server/lib/image-engine.js` sharp|passthrough|unavailable; ensure-sharp-runtime after npm; health `image_engine`.
+- Notify PROD-ACC owner of shared-file reclaim.
+
+## 2026-10-05 — Admin impersonation without kicking the target (SW v314)
 
 - Owner asked for an admin to enter another user's account without logging that user out.
 - Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md` (2026-10-01). This session edits those only for the impersonation banner, help, cache query, and changelog. Did not edit `server/db.js`, `server/sync/tables.js`, or `capture.js`. Auth routes stay sync-blocklisted.

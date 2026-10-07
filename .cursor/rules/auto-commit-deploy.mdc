@@ -10,7 +10,7 @@ alwaysApply: true
 1. **هرگز نپرس** «آیا commit / deploy کنم؟» — خودت خودکار انجام بده.
 2. **Commit** روی شاخهٔ تسک (`feat|fix|chore|ai/...`) سپس merge/FF به `main`؛ alias قدیمی `claude/claude-md-docs-2ssrpy` را با `main` هم‌تِیپ نگه دار. فقط فایل‌های همان تسک (نه لاگ/APK/uploads/.env و نه `_deploy-*` یک‌بارمصرف).
 3. **Push** به `origin` (`main` + شاخهٔ تسک).
-4. **Deploy ایران:** سرور `94.249.244.208` کاربر `taranom` مسیر `/home/taranom/crm-taranom` — اگر درخت تمیز است `git pull --ff-only origin main` + در صورت نیاز `npm install --omit=dev` در `server/` + `pm2 restart erp-taranom` **بدون** `--update-env` + تأیید health HTTP 200. اگر درخت کثیف است overlay هدفمند، نه `reset --hard`.
+4. **Deploy ایران:** سرور `94.249.244.208` کاربر `taranom` مسیر `/home/taranom/crm-taranom` — اگر درخت تمیز است `git pull --ff-only origin main` + در صورت نیاز `npm install --omit=dev` در `server/` سپس **`node scripts/ensure-sharp-runtime.js`** (waiver CPU برای sharp) + `pm2 restart erp-taranom` **بدون** `--update-env` + تأیید health HTTP 200 و فیلد `image_engine` در `/api/system/health`. اگر درخت کثیف است overlay هدفمند، نه `reset --hard`.
 5. **CHANGE-LOG:** Deploy را `✅` کن با short hash؛ SW version را ذکر کن.
 6. اگر push یا SSH شکست خورد، یک‌بار با bundle/SFTP fallback (الگوی `scripts/_deploy-*.py`) تلاش کن و نتیجه را گزارش بده — باز هم نپرس؛ فقط رفع کن یا خطای غیرقابل‌رفع را بگو.
 

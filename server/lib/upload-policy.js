@@ -3,12 +3,7 @@
 const path = require('path');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
-let sharp = null;
-try {
-  sharp = require('sharp');
-} catch (err) {
-  console.warn('⚠️ sharp unavailable — image upload validation degraded:', err && err.message ? err.message : err);
-}
+const imageEngine = require('./image-engine');
 
 const MB = 1024 * 1024;
 const GENERIC_MIME = new Set(['', 'application/octet-stream']);
@@ -224,31 +219,13 @@ function inspectLwte(buffer) {
   }
 }
 
-async function normalizeImage(buffer, profile) {
-  if (!sharp) {
-    throw new UploadPolicyError('پردازش تصویر روی سرور در دسترس نیست؛ بعداً دوباره تلاش کنید', 'UPLOAD_IMAGE_ENGINE_UNAVAILABLE');
-  }
-  let metadata;
-  try {
-    metadata = await sharp(buffer, { failOn: 'warning', limitInputPixels: profile.maxPixels }).metadata();
-  } catch {
-    throw new UploadPolicyError('تصویر قابل decode نیست یا ساختار آن آسیب‌دیده است', 'UPLOAD_BAD_IMAGE');
-  }
-  const width = Number(metadata.width) || 0;
-  const height = Number(metadata.height) || 0;
-  if (!width || !height || width > profile.maxWidth || height > profile.maxHeight || width * height > profile.maxPixels) {
-    throw new UploadPolicyError('ابعاد یا تعداد پیکسل تصویر بیش از حد مجاز است', 'UPLOAD_IMAGE_DIMENSIONS');
-  }
-  try {
-    const output = await sharp(buffer, { failOn: 'warning', limitInputPixels: profile.maxPixels })
-      .rotate()
-      .resize({ width: profile.outputEdge, height: profile.outputEdge, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 78, effort: 3 })
-      .toBuffer();
-    return { buffer: output, width, height, mime: 'image/webp', extension: '.webp' };
-  } catch {
-    throw new UploadPolicyError('بازنویسی امن تصویر ناموفق بود', 'UPLOAD_IMAGE_REENCODE_FAILED');
-  }
+async function normalizeImage(buffer, profile, sourceMime, sourceExt) {
+  return imageEngine.normalizeImage(
+    buffer,
+    profile,
+    { mime: sourceMime, extension: sourceExt },
+    UploadPolicyError
+  );
 }
 
 async function validateUploadedFile(file, profileName) {
@@ -271,8 +248,10 @@ async function validateUploadedFile(file, profileName) {
   if (detected.kind === 'pdf') inspectPdf(file.buffer);
   if (detected.kind === 'lwte') inspectLwte(file.buffer);
 
-  let normalized = { buffer: file.buffer, mime: detected.mime, extension: detected.sourceExt };
-  if (detected.kind === 'image') normalized = await normalizeImage(file.buffer, profile);
+  let normalized = { buffer: file.buffer, mime: detected.mime, extension: detected.sourceExt, via: 'raw' };
+  if (detected.kind === 'image') {
+    normalized = await normalizeImage(file.buffer, profile, detected.mime, detected.sourceExt);
+  }
   return {
     ...file,
     originalname,
@@ -286,6 +265,7 @@ async function validateUploadedFile(file, profileName) {
     size: normalized.buffer.length,
     imageWidth: normalized.width || null,
     imageHeight: normalized.height || null,
+    imageEngineVia: normalized.via || null,
     uploadValidated: true,
   };
 }
@@ -391,5 +371,6 @@ module.exports = {
   createSecureUpload,
   createRelayEnvelopeUpload,
   uploadErrorResponse,
+  getImageEngineStatus: () => imageEngine.getStatus(),
   _test: { strictPngEnd, strictJpegEnd, strictWebpEnd, strictZipEnd, inspectXlsx, inspectPdf, inspectLwte },
 };

@@ -105,12 +105,16 @@ const {
 // Auto product code lives in lib/product-quick.js (shared with Excel commit).
 
 function saveImage(file) {
-  if (!file || !file.uploadValidated || file.mimetype !== 'image/webp' || !Buffer.isBuffer(file.buffer)) {
+  const allowed = new Set(['image/webp', 'image/jpeg', 'image/png']);
+  if (!file || !file.uploadValidated || !allowed.has(file.mimetype) || !Buffer.isBuffer(file.buffer)) {
     const error = new Error('تصویر پیش از ذخیره‌سازی اعتبارسنجی نشده است');
     error.status = 400;
     throw error;
   }
-  const filename = `p_${crypto.randomBytes(18).toString('hex')}.webp`;
+  const ext = /^\.(webp|jpe?g|png)$/i.test(file.extension || '')
+    ? String(file.extension).toLowerCase().replace('.jpeg', '.jpg')
+    : (file.mimetype === 'image/png' ? '.png' : file.mimetype === 'image/jpeg' ? '.jpg' : '.webp');
+  const filename = `p_${crypto.randomBytes(18).toString('hex')}${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, filename), file.buffer, { flag: 'wx', mode: 0o600 });
   return filename;
 }

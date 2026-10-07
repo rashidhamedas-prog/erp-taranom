@@ -326,6 +326,12 @@ app.use('/api', (req, res, next) => {
 app.get('/api/system/health', (req, res) => {
   const demo = refreshMaintenanceFlag();
   const st = bootGate.state();
+  let imageEngine = null;
+  try {
+    imageEngine = require('./lib/image-engine').getStatus();
+  } catch (_) {
+    imageEngine = { ok: false, mode: 'unavailable', reason: 'probe_failed' };
+  }
   res.json({
     ok: true,
     role: isDevice() ? 'device' : 'central',
@@ -336,6 +342,7 @@ app.get('/api/system/health', (req, res) => {
     starting: st.code === 'STARTING',
     restarting: st.code === 'RESTARTING',
     active_mutations: desktopActiveMutations,
+    image_engine: imageEngine,
   });
 });
 app.post('/api/system/desktop-safe-point', (req, res) => {
@@ -392,7 +399,13 @@ app.get('/api/system/ready', (req, res) => {
     });
   }
   if (checkDbReady(getDB)) {
-    return res.status(200).json({ ok: true, ready: true });
+    let imageEngine = null;
+    try {
+      imageEngine = require('./lib/image-engine').getStatus();
+    } catch (_) {
+      imageEngine = { ok: false, mode: 'unavailable', reason: 'probe_failed' };
+    }
+    return res.status(200).json({ ok: true, ready: true, image_engine: imageEngine });
   }
   jsonLog({
     level: 'error',

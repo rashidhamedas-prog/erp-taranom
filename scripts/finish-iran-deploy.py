@@ -37,9 +37,11 @@ def main() -> None:
 
     run(c, f"cd {APP} && git rev-parse --short HEAD && git status -sb")
     run(c, f"cd {APP}/server && npm install --omit=dev", timeout=600)
-    run(c, "pm2 restart erp-taranom --update-env")
+    run(c, f"cd {APP}/server && node scripts/ensure-sharp-runtime.js", timeout=300)
+    # Never use --update-env unless every secret in ecosystem is accounted for.
+    run(c, "pm2 restart erp-taranom")
     run(c, "sleep 3 && pm2 list")
-    run(c, "curl -sS -o /dev/null -w 'health:%{http_code}\\n' http://127.0.0.1:3000/api/system/health")
+    run(c, "curl -sS http://127.0.0.1:3000/api/system/health")
     run(
         c,
         f"cd {APP} && "
@@ -51,8 +53,8 @@ def main() -> None:
     # Re-apply production party-delete commit if still missing
     run(c, f"cd {APP} && git cherry-pick 74b4b46", timeout=180)
     run(c, f"cd {APP} && git log -4 --oneline")
-    run(c, "pm2 restart erp-taranom --update-env")
-    run(c, "curl -sS -o /dev/null -w 'health2:%{http_code}\\n' http://127.0.0.1:3000/api/system/health")
+    run(c, "pm2 restart erp-taranom")
+    run(c, "curl -sS http://127.0.0.1:3000/api/system/health")
     c.close()
     print("DONE")
 
