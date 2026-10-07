@@ -3039,6 +3039,17 @@ function initSyncSchema(db, opts) {
   const { migrateTomanToRial, seedStandardSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
 
+  // Unify products.cost ↔ average_cost_rial (both Rial; kill stale ×10 valuation)
+  try {
+    const { healProductCostRialUnits } = require('./lib/inventory/product-unit-cost');
+    const heal = healProductCostRialUnits(db);
+    if (heal && heal.ok) {
+      console.log('✅ product_cost_rial_unify_v333:', JSON.stringify(heal));
+    }
+  } catch (e) {
+    console.warn('product_cost_rial_unify_v333:', e.message);
+  }
+
   // Backfill debit_rial/credit_rial for old journal lines where only debit/credit were ×10'd to rial
   try {
     const mig = db.prepare("SELECT value FROM settings WHERE key='currency_rial_migration_v1'").get();

@@ -44,8 +44,9 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
         description: `بهای اولیه موجودی — ${p.name}`,
       });
     }
+    const { catalogCostFromAvgRial } = require('./product-unit-cost');
     db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-      .run(unit, Math.round(unit / 10), productId);
+      .run(unit, catalogCostFromAvgRial(unit), productId);
     const after = db.prepare('SELECT average_cost_rial, stock FROM products WHERE id=?').get(productId);
     return {
       ok: true,

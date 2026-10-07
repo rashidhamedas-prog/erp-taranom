@@ -560,6 +560,19 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     if (req.body.average_cost_rial != null) {
       db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
         .run(Math.round(Number(req.body.average_cost_rial) || 0), result.lastInsertRowid);
+    } else {
+      const costRial = Math.round(parseFloat(cost) || 0);
+      if (costRial > 0) {
+        db.prepare(`
+          UPDATE products SET average_cost_rial=?
+          WHERE id=? AND COALESCE(average_cost_rial,0)=0
+        `).run(costRial, result.lastInsertRowid);
+      }
+    } else if (openingUnit > 0) {
+      db.prepare(`
+        UPDATE products SET average_cost_rial=?
+        WHERE id=? AND COALESCE(average_cost_rial,0)=0
+      `).run(openingUnit, result.lastInsertRowid);
     }
     if (req.body.std_cost_rial != null) {
       db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
@@ -691,6 +704,16 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   if (bodyHas(body, 'average_cost_rial')) {
     db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
       .run(Math.round(Number(body.average_cost_rial) || 0), req.params.id);
+  } else if (bodyHas(body, 'cost')) {
+    // Catalog بها is Rial; seed moving average only when still unset so
+    // warehouse valuation does not fall through a stale toman×10 path.
+    const costRial = Math.round(Number(costVal) || 0);
+    if (costRial > 0) {
+      db.prepare(`
+        UPDATE products SET average_cost_rial=?
+        WHERE id=? AND COALESCE(average_cost_rial,0)=0
+      `).run(costRial, req.params.id);
+    }
   }
   if (bodyHas(body, 'std_cost_rial')) {
     db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')

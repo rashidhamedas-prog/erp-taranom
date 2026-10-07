@@ -145,8 +145,9 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
       }
       const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
       const newAvg = Math.round((stock * prevAvg + share) / stock);
+      const { catalogCostFromAvgRial } = require('./product-unit-cost');
       db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-        .run(newAvg, newAvg / 10, a.product_id);
+        .run(newAvg, catalogCostFromAvgRial(newAvg), a.product_id);
 
       bumpOpenLayersValue(db, {
         productId: a.product_id,
@@ -219,8 +220,9 @@ function voidLandedCost(db, docId, { createdBy = null, reason = '' } = {}) {
       if (stock > 0) {
         const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
         const newAvg = Math.max(0, Math.round((stock * prevAvg - share) / stock));
+        const { catalogCostFromAvgRial } = require('./product-unit-cost');
         db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-          .run(newAvg, newAvg / 10, a.product_id);
+          .run(newAvg, catalogCostFromAvgRial(newAvg), a.product_id);
       }
       bumpOpenLayersValue(db, {
         productId: a.product_id,

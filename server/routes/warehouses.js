@@ -8,12 +8,11 @@ const {
 } = require('../lib/warehouse-docs');
 const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
 const { buildVariantStockReport } = require('../lib/inventory/variant-report');
+const { productUnitCostRial } = require('../lib/inventory/product-unit-cost');
 
-
+/** @deprecated use productUnitCostRial — kept name for audit tests */
 function unitCostRialOf(p) {
-  const avg = Math.round(Number(p.average_cost_rial) || 0);
-  if (avg > 0) return avg;
-  return Math.round((Number(p.cost) || 0) * 10);
+  return productUnitCostRial(p);
 }
 
 function buildWarehouseStockRows(db, {

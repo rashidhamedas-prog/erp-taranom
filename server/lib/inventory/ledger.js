@@ -180,9 +180,10 @@ function applyMovingAverageIn(db, productId, qtyIn, amountRial, qtyBefore, avgBe
   const newQty = qtyBefore + q;
   let newAvg = avgBefore;
   if (newQty > 0) newAvg = Math.round((prevVal + amt) / newQty);
+  const { catalogCostFromAvgRial } = require('./product-unit-cost');
   db.prepare(`
     UPDATE products SET average_cost_rial=?, cost=? WHERE id=?
-  `).run(newAvg, newAvg / 10, productId);
+  `).run(newAvg, catalogCostFromAvgRial(newAvg), productId);
   return newAvg;
 }
 

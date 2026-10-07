@@ -254,11 +254,7 @@ function listFabricRolls(db, query = {}) {
 }
 
 function productUnitCostRial(prod) {
-  const avg = Math.round(Number(prod && prod.average_cost_rial) || 0);
-  if (avg > 0) return avg;
-  const c = Math.round(Number(prod && prod.cost) || 0);
-  if (c >= 1000) return c;
-  return Math.round(c * 10);
+  return require('./product-unit-cost').productUnitCostRial(prod);
 }
 
 function fabricLineFields(r) {

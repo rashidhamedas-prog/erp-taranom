@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۷/۱۶ — گزارش جامع انبار: میانگین بها ۱۰× (ریال/تومان) (SW v333)
+
+- **علامت:** برای کالاهایی مثل `K-00009` بهای تمام‌شده در کارت کالا ۲۰٬۵۰۰٬۰۰۰ ریال است ولی در «گزارش جامع انبار» میانگین بها ۲۰۵٬۰۰۰٬۰۰۰ و ارزش ریالی = موجودی×همان عدد؛ قیمت فروش درست می‌ماند.
+- **ریشه:** بعد از مهاجرت ریال، `products.cost` ریال است؛ ولی `unitCostRialOf` (و چند مسیر مشابه) وقتی `average_cost_rial` خالی بود `cost×۱۰` می‌زد (فرض تومان قدیمی). نویسنده‌های میانگین هم `cost=avg/۱۰` می‌نوشتند و واحد دوگانه می‌ماند.
+- **رفع:**
+  1. `server/lib/inventory/product-unit-cost.js` — خواندن/نوشتن واحد ریال + heal یک‌بارهٔ `product_cost_rial_unify_v333`.
+  2. گزارش انبار، تولید، انبارگردانی، امانی، برگشت فروش، طاقه، ledger/seed/opening/landed: بدون ×۱۰/÷۱۰.
+  3. ذخیرهٔ کالا: اگر میانگین صفر باشد از بهای کارت seed می‌شود.
+- **فایل‌ها:** `server/lib/inventory/{product-unit-cost,ledger,seed-avg,landed-cost,cycle-count,fabric-rolls}.js`, `opening-post.js`, `production/costing.js`, `consignments.js`, `routes/{warehouses,products,accounting}.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-warehouse-cost-rial-v333.js`, `docs/CHANGE-LOG.md`
+- **تست:** `test-warehouse-cost-rial-v333.js` ۱۹/۰ (sqlite native روی ویندوز Node24 SKIP)؛ `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۶ — ImageEngine: رفع ریشه‌ای خطای «پردازش تصویر در دسترس نیست» (SW v332)
 
 - **علامت:** در ویرایش کالا، انتخاب چند تصویر → toast قرمز «پردازش تصویر روی سرور در دسترس نیست؛ بعداً دوباره تلاش کنید» با وجود پیش‌نمایش محلی.

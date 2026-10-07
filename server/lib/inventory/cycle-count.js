@@ -113,8 +113,8 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
       if (!diff) return null;
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
       if (!prod) return null;
-      const unit = Math.round(Number(prod.average_cost_rial) || 0)
-        || Math.round((Number(prod.cost) || 0) * 10);
+      const { productUnitCostRial } = require('./product-unit-cost');
+      const unit = productUnitCostRial(prod);
       if (!unit) {
         throw invErr('E_STK_ZERO_COST', 422, {
           productId,

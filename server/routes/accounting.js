@@ -1592,7 +1592,8 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     }
     const sum = qty * price - discAmt;
     amount += sum;
-    const avgRial = Number(prod.average_cost_rial) || Math.round((Number(prod.cost) || 0) * 10) || 0;
+    const { productUnitCostRial } = require('../lib/inventory/product-unit-cost');
+    const avgRial = productUnitCostRial(prod);
     // sales_returns.cost_amount is INTEGER rial going forward (legacy rows may be toman).
     costAmount += Math.round(qty * avgRial);
     built.push({

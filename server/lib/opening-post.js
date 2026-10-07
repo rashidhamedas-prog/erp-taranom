@@ -156,10 +156,11 @@ function postProductOpeningInventory(db, {
       skipStock: true,
     });
   }
+  const { catalogCostFromAvgRial } = require('./inventory/product-unit-cost');
   db.prepare(`
     UPDATE products SET average_cost_rial=?, cost=?
     WHERE id=? AND COALESCE(average_cost_rial,0)=0
-  `).run(unit, Math.round(unit / 10), productId);
+  `).run(unit, catalogCostFromAvgRial(unit), productId);
   return entryId;
 }
 

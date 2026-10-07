@@ -1,4 +1,12 @@
-﻿## 2026-10-07 — ImageEngine root fix for product upload toast (SW v332)
+﻿## 2026-10-07 — Warehouse report avg cost ×10 (SW v333)
+
+- Owner: skill-top full on گزارش جامع انبار vs کارت کالا (K-00009).
+- Parallel RCA: warehouse API, costing deps, frontend — root is `unitCostRialOf` cost×10 when avg unset; cost already rial.
+- Fix: `product-unit-cost.js` + heal `product_cost_rial_unify_v333`; writers sync cost=avg in rial; consignments/production/cycle-count/accounting aligned.
+- Stale claim: PROD-ACC-PA02 still lists shared public/docs/db files. This session reclaims those only for cost-rial unify / help / SW / changelog. Did not edit `capture.js` or production close/posting cores beyond `production/costing.js` avgUnitRial.
+- Local: `test-warehouse-cost-rial-v333` 19/0; `test-sms` 22/0; `test-sync` needs Iran (Node24 sqlite ABI).
+
+## 2026-10-07 — ImageEngine root fix for product upload toast (SW v332)
 
 - Owner: skill-top full on «پردازش تصویر روی سرور در دسترس نیست».
 - Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}`, `server/routes/products.js`, `docs/CHANGE-LOG.md`. This session reclaims those only for ImageEngine/help/SW/changelog/`saveImage` mime relax. Did not edit production libs, `db.js`, or `capture.js`.

@@ -24,11 +24,9 @@ function getWhQty(db, productId, warehouseId) {
 }
 
 function avgUnitRial(db, productId) {
+  const { productUnitCostRial } = require('../inventory/product-unit-cost');
   const prod = db.prepare('SELECT average_cost_rial, cost FROM products WHERE id=?').get(productId);
-  const avg = Math.round(Number(prod?.average_cost_rial) || 0);
-  if (avg) return avg;
-  // legacy products.cost may be toman
-  return Math.round((Number(prod?.cost) || 0) * 10);
+  return productUnitCostRial(prod);
 }
 
 /**
@@ -204,8 +202,9 @@ function reverseReceiptStock(db, {
   });
   if (prevAvgRial != null) {
     const prev = Math.round(Number(prevAvgRial) || 0);
+    const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
     db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-      .run(prev, prev / 10, productId);
+      .run(prev, catalogCostFromAvgRial(prev), productId);
   }
   return led;
 }

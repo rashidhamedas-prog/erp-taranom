@@ -206,10 +206,8 @@ function resolveExplicitBuyer(db, body, consignor, userId) {
 
 function inventoryCostRial(product, qty) {
   const q = Number(qty) || 0;
-  const avg = Math.round(Number(product && product.average_cost_rial) || 0);
-  if (avg > 0) return Math.round(avg * q);
-  const costToman = Number(product && product.cost) || 0;
-  return Math.round(costToman * 10 * q);
+  const { productUnitCostRial } = require('./inventory/product-unit-cost');
+  return Math.round(productUnitCostRial(product) * q);
 }
 
 function cogsLines(db, warehouseId, amt, { outShipped = false } = {}) {
