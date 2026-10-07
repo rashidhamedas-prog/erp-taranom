@@ -1,20 +1,19 @@
 ### ۱۴۰۵/۰۷/۱۶ — کاردکس خالی با وجود موجودی (هم‌ترازی دفتر انبار) (SW v331)
 
 - **علامت:** کالاهایی مثل کد ۷۱۳۴ (اورکت پشمی آتنا) موجودی فعلی (مثلاً ۱۰) و برچسب «دفتر کل انبار» داشتند ولی جدول کاردکس «تراکنشی ثبت نشده» بود.
-- **ریشه:** موجودی روی products.stock / warehouse_stock آمده بود بدون ردیف inventory_ledger. بک‌فیل یک‌باره opening_inventory_ledger_backfill_v1 با count:0 قفل شده بود (قبل از seed انبار). UI از /api/ledgers/stock با lines:[] می‌خواند و به stock_logs برنمی‌گشت. روی production حدود ۳۲۶ گپ انبار×کالا.
-- **رفع:** هم‌ترازی پیوسته 
-econcileInventoryLedgerGaps در boot مرکزی (بدون قفل یک‌باره): ردیف opening/adjustment با skipStock تا کاردکس با موجودی انبار یکی شود؛ موجودی فیزیکی عوض نمی‌شود. تعدیل دستی PATCH /products/:id/stock و موجودی مطلق اکسل هم دفتر را هم‌تراز می‌کنند.
-- **فایل‌ها:** server/lib/opening-post.js, server/db.js, server/routes/products.js, server/public/{app.js,index.html,sw.js}, server/scripts/test-kardex-gap-reconcile-v331.js
-- **تست:** 	est-kardex-gap-reconcile-v331.js؛ 	est-qa-fix-opening-stock-ledger.js؛ 	est-sms؛ 	est-sync (روی ایران).
-- **Deploy:** ⏳
+- **ریشه:** موجودی روی `products.stock` / `warehouse_stock` آمده بود بدون ردیف `inventory_ledger`. بک‌فیل یک‌باره `opening_inventory_ledger_backfill_v1` با `count:0` قفل شده بود (قبل از seed انبار). UI از `/api/ledgers/stock` با `lines:[]` می‌خواند و به `stock_logs` برنمی‌گشت. روی production حدود ۳۲۶ گپ انبار×کالا.
+- **رفع:** هم‌ترازی پیوسته `reconcileInventoryLedgerGaps` در boot مرکزی (بدون قفل یک‌باره): ردیف opening/adjustment با `skipStock` تا کاردکس با موجودی انبار یکی شود؛ موجودی فیزیکی عوض نمی‌شود. تعدیل دستی `PATCH /products/:id/stock` و موجودی مطلق اکسل هم دفتر را هم‌تراز می‌کنند.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/routes/products.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-kardex-gap-reconcile-v331.js`
+- **تست:** روی ایران `test-kardex-gap-reconcile-v331` ۱۴/۰، `test-qa-fix-opening-stock-ledger` ۱۰/۰، `test-website-retail-multi-wh-v331` ALL PASS، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰. بعد از restart: هم‌ترازی ۳۳۶ ردیف؛ کالا ۷۱۳۴ ledger net=۱۰؛ گپ انبار باقی‌مانده ۰.
+- **Deploy:** ✅ `62f9f04` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، `/` و `/api/system/ready` = 200، SW `erp-taranom-v331`.
 
 ### ۱۴۰۵/۰۷/۱۶ — سه انبار برای سایت تک (جمع → RETAIL) (SW v331)
 
 - **هدف:** در تنظیمات → وب‌سایت، برای کانال سایت تک علاوه بر انبار اصلی، دو انبار اختیاری دیگر انتخاب شود.
 - **رفتار:** کلیدهای `website_wh_retail_2_id` / `website_wh_retail_3_id`. موجودی push تکی = SUM از `variant_warehouse_stock` روی انبارهای انتخاب‌شده؛ همچنان یک کانال Site `RETAIL` و یک ردیف outbox. بدون انبار اصلی تکی کانال باز نمی‌شود. عمده همچنان یک انبار. حرکت انبار فقط کانال‌هایی را enqueue می‌کند که همان انبار در مجموعهٔشان باشد.
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/lib/inventory/movement.js`, `server/routes/settings.js`, `server/lib/update-md-schema.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-website-retail-multi-wh-v331.js`
-- **تست:** `test-website-retail-multi-wh-v331.js`؛ `test-website-stock-matrix-v256`؛ `test-website-stock-push-v330`؛ `test-sms` ۲۲/۰. `test-sync` روی ویندوز به‌خاطر better-sqlite3/Node24 اجرا نشد (روی ایران بعد از deploy).
-- **Deploy:** ⏳
+- **تست:** روی ایران با همان deploy کاردکس: `test-website-retail-multi-wh-v331` ALL PASS، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `62f9f04` — همراه فیکس کاردکس (SW v331).
 
 ### ۱۴۰۵/۰۷/۱۶ — تیک per-product برای ارسال موجودی به سایت (SW v330)
 
