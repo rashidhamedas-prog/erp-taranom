@@ -7,8 +7,8 @@
   2. گزارش انبار، تولید، انبارگردانی، امانی، برگشت فروش، طاقه، ledger/seed/opening/landed: بدون ×۱۰/÷۱۰.
   3. ذخیرهٔ کالا: اگر میانگین صفر باشد از بهای کارت seed می‌شود.
 - **فایل‌ها:** `server/lib/inventory/{product-unit-cost,ledger,seed-avg,landed-cost,cycle-count,fabric-rolls}.js`, `opening-post.js`, `production/costing.js`, `consignments.js`, `routes/{warehouses,products,accounting}.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-warehouse-cost-rial-v333.js`, `docs/CHANGE-LOG.md`
-- **تست:** `test-warehouse-cost-rial-v333.js` ۱۹/۰ (sqlite native روی ویندوز Node24 SKIP)؛ `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
-- **Deploy:** ⏳
+- **تست:** روی ایران `test-warehouse-cost-rial-v333` ۲۶/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰. زندهٔ `K-00009`: `cost=20500000`، `average_cost_rial=20500000`، `unitCostRial=20500000`.
+- **Deploy:** ✅ `9a9d4ae` (+syntax fix) — overlay ایران + `pm2 restart` بدون `--update-env`؛ root/ready=200؛ SW `erp-taranom-v333`.
 
 ### ۱۴۰۵/۰۷/۱۶ — ImageEngine: رفع ریشه‌ای خطای «پردازش تصویر در دسترس نیست» (SW v332)
 
