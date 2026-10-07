@@ -13,7 +13,7 @@
 - **رفتار:** کلیدهای `website_wh_retail_2_id` / `website_wh_retail_3_id`. موجودی push تکی = SUM از `variant_warehouse_stock` روی انبارهای انتخاب‌شده؛ همچنان یک کانال Site `RETAIL` و یک ردیف outbox. بدون انبار اصلی تکی کانال باز نمی‌شود. عمده همچنان یک انبار. حرکت انبار فقط کانال‌هایی را enqueue می‌کند که همان انبار در مجموعهٔشان باشد.
 - **فایل‌ها:** `server/lib/website-stock-sync.js`, `server/lib/inventory/movement.js`, `server/routes/settings.js`, `server/lib/update-md-schema.js`, `server/public/{app.js,index.html,sw.js}`, `server/scripts/test-website-retail-multi-wh-v331.js`
 - **تست:** روی ایران با همان deploy کاردکس: `test-website-retail-multi-wh-v331` ALL PASS، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
-- **Deploy:** ✅ `62f9f04` — همراه فیکس کاردکس (SW v331).
+- **Deploy:** ✅ `62f9f04` — overlay تأیید مجدد ایران + `pm2 restart` بدون `--update-env`، `/` و `/health` = 200، SW `erp-taranom-v331` (همراه فیکس کاردکس).
 
 ### ۱۴۰۵/۰۷/۱۶ — تیک per-product برای ارسال موجودی به سایت (SW v330)
 
