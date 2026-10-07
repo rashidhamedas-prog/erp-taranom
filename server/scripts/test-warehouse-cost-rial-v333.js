@@ -75,7 +75,7 @@ try {
   const d = db.prepare('SELECT cost, average_cost_rial FROM products WHERE id=2').get();
   ok(Number(d.cost) === 20500000, 'heal promotes toman shadow cost to rial');
   const i = db.prepare('SELECT cost, average_cost_rial FROM products WHERE id=3').get();
-  ok(Number(i.average_cost_rial) === 20500000, 'heal shrinks avg when avg≫price (×10 trap)');
+  ok(Number(i.average_cost_rial) === 20500000, 'heal shrinks avg when avg >> price (x10 trap)');
 
   const again = healProductCostRialUnits(db);
   ok(again && again.skipped, 'heal idempotent');
