@@ -561,18 +561,13 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
       db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
         .run(Math.round(Number(req.body.average_cost_rial) || 0), result.lastInsertRowid);
     } else {
-      const costRial = Math.round(parseFloat(cost) || 0);
+      const costRial = Math.round(parseFloat(cost) || openingUnit || 0);
       if (costRial > 0) {
         db.prepare(`
           UPDATE products SET average_cost_rial=?
           WHERE id=? AND COALESCE(average_cost_rial,0)=0
         `).run(costRial, result.lastInsertRowid);
       }
-    } else if (openingUnit > 0) {
-      db.prepare(`
-        UPDATE products SET average_cost_rial=?
-        WHERE id=? AND COALESCE(average_cost_rial,0)=0
-      `).run(openingUnit, result.lastInsertRowid);
     }
     if (req.body.std_cost_rial != null) {
       db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
