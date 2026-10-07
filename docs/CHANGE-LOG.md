@@ -9,7 +9,7 @@
   4. `server/scripts/ensure-sharp-runtime.js` بعد از npm install برای بازگرداندن runtime waiver؛ hook در `deploy-production.sh` / `finish-iran-deploy.py`.
 - **فایل‌ها:** `server/lib/{image-engine,upload-policy}.js`, `server/routes/products.js`, `server/server.js`, `server/scripts/{ensure-sharp-runtime,test-image-engine-fallback-v332}.js`, `server/public/{app.js,index.html,sw.js}`, `scripts/{deploy-production.sh,finish-iran-deploy.py}`, `docs/{CHANGE-LOG,PROJECT-HANDOFF,WAVE0-GATE-STATUS}.md`
 - **تست:** `test-image-engine-fallback-v332.js`؛ `test-sms`؛ `test-sync`؛ `test-upload-ssrf-sync-security.js` در صورت موجود بودن sharp محلی.
-- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v332`.
+- **Deploy:** ✅ `987c6d3` — overlay ایران + `ensure-sharp-runtime` → `sharp@0.33.5` + `pm2 restart` بدون `--update-env`؛ health `image_engine.mode=sharp`؛ ready=200؛ `test-image-engine-fallback-v332` ۱۰/۰؛ `test-sms` ۲۲/۰؛ `test-sync` ۴۴/۰؛ SW `erp-taranom-v332`.
 
 ### ۱۴۰۵/۰۷/۱۶ — کاردکس خالی با وجود موجودی (هم‌ترازی دفتر انبار) (SW v331)
 
