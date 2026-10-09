@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۱۸ — تحقیق اشخاص↔حسابداری (پیش‌ADR جامع)
+
+- **هدف:** قفل وابستگی تک‌به‌تک منوی اشخاص، موجودیت‌های parties/customers/suppliers/persons، قالب‌های JE/زیردفتر، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های P0–P3 قبل از هر تغییر schema/UI گسترده.
+- **یافته‌های قفل‌شده:** منوی اشخاص ۶ آیتم (بدون عملیات مالی مستقیم)؛ SoT UI = `parties`؛ opening مسیر `/persons` فقط `person_ledger` بدون JE؛ `credit_limit` تزئینی (بدون enforce فاکتور)؛ چک می‌تواند dual customer+person ledger بنویسد در حالی که مانده لیست overwrite می‌کند؛ پورتال پرداخت JE روی کنترل بدون `person_ledger`؛ `postToLedger` بدون pairing خودکار زیردفتر؛ تنظیمات حرفه‌ای (default bank/expense، withholding، terms) MISSING.
+- **Verify:** ۸/۸ ادعا spot-check سبز؛ تنش ثبت‌شده: dual cheque books vs `partySignedBalanceMap`.
+- **مرجع:** ERPNext control AR/AP + Common Party؛ الگوی RESEARCH خزانه/تولید/انبار؛ وابسته به ADR بعدی برای dual-role و SoT مانده.
+- **تصمیم باز:** ADR-PARTY-001 (پیشنهاد Minimal در انتهای سند) — هنوز قفل ADR نشده.
+- **فایل‌ها:** `docs/architecture/PERSONS-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
+- **تست:** ندارد (docs-only).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — ADR-003 + اجرای P0–P3 حسابداری تولید (SW v336)
 
 - **تصمیم:** `PROD-ACC-ADR-003` — شش گزینهٔ تحقیق قفل و پیاده شد.
