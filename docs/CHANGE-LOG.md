@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۱۸ — بانک و صندوق گزینه ۱: ADR + صحت + تنظیمات حرفه‌ای (SW v335)
+
+- **تصمیم:** ADR-001 — چک standalone → ۱۱۰۹؛ overdraft per-bank (NULL/0/>0)؛ سقف تنخواه روی صندوق؛ شبا IR+۲۴؛ بلاک بانک/صندوق غیرفعال؛ بدون موتور ارزی/imprest جدا.
+- **بک‌اند:** `lib/treasury-guards.js`؛ settlements/batch/amend روی `settlementAssetAccount`؛ گاردها در transfers/expenses/banks؛ ستون‌های `overdraft_limit_rial` / `float_ceiling_rial`.
+- **UI/Help:** فیلد سقف در مودال بانک و صندوق؛ راهنمای حسابداری؛ SW `erp-taranom-v335`.
+- **فایل‌ها:** `lib/{treasury-guards,amend-cash-ops}.js`, `routes/{accounting,transfers,banks,cash-boxes,expenses}.js`, `db.js`, `public/{app.js,sw.js}`, `docs/architecture/TREASURY-BANK-FUND-{RESEARCH,ADR-001}.md`, `scripts/test-treasury-option1-v335.js`, CHANGE-LOG.
+- **تست:** `test-treasury-option1-v335` (+ sms/sync روی ایران).
+- **Deploy:** در انتظار
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق انبار↔حسابداری (پیش‌ADR)
 
 - **هدف:** قفل وابستگی تک‌به‌تک عملیات انبار، قالب‌های JE، تنظیمات حرفه‌ای per-warehouse و موج‌های P0–P3 قبل از هر تغییر schema/UI.

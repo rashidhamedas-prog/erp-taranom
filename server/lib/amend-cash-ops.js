@@ -20,6 +20,7 @@ const { parseFeeRial, outboundPaymentLines } = require('./payment-bank-fee');
 const { recvAcct } = require('./void-settlement');
 const { digitsOnly, normalizeSheba, recomputeInvoiceSettledBalances } = require('./invoice-payments');
 const { reverseJournalEntry } = require('./void-journal');
+const { assertActiveBank, assertActiveCashBox, assertBankOverdraftOk } = require('./treasury-guards');
 
 const RECEIPT_PAY = new Set(['cash', 'bank', 'bank_transfer', 'cheque']);
 const PAY_PAY = new Set(['cash', 'bank', 'bank_transfer', 'cheque']);
@@ -72,6 +73,10 @@ function coaOrThrow(db, code) {
 
 function cashAccount(db, payType, bankId, cashBoxId, accountCode) {
   const override = String(accountCode || '').trim();
+  // ADR-001: cheque receipts always hit notes receivable; ignore COA override.
+  if (String(payType || '') === 'cheque') {
+    return acct(db, 'coa_cheques_receivable');
+  }
   if (override) return coaOrThrow(db, override);
   return resolveCashAccount(db, payType || 'cash', bankId || null, cashBoxId || null);
 }
@@ -302,6 +307,8 @@ function amendSettlement(db, id, body, userId) {
   const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
   const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
   assertDest(payType, bankId, cashBoxId);
+  if (payType === 'cash') assertActiveCashBox(db, cashBoxId);
+  if (payType === 'bank' || payType === 'bank_transfer') assertActiveBank(db, bankId);
 
   const amountRial = Math.round(Number(body.amountRial != null ? body.amountRial : body.amount) || 0);
   if (amountRial <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');

@@ -1818,6 +1818,9 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cash_boxes', 'opening_balance_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'cash_boxes', 'opening_balance_je_id', 'INTEGER');
   ensureColumn(db, 'cash_boxes', 'opening_balance_date', 'TEXT');
+  // ADR-TREASURY-001 Option 1 — professional per-entity limits (NULL = unlimited)
+  ensureColumn(db, 'banks', 'overdraft_limit_rial', 'INTEGER');
+  ensureColumn(db, 'cash_boxes', 'float_ceiling_rial', 'INTEGER');
 
   // Single-device login sessions (central-only; not in SYNCABLE_TABLES)
   // Slots: mobile | desktop | web — یک نشست فعال به ازای هر اسلات (۱ موبایل + ۱ دسکتاپ + ۱ وب)

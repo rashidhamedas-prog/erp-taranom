@@ -135,18 +135,26 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, custodian, is_petty_cash, currency, is_foreign, opening_balance_rial, opening_balance_date } = req.body;
+  const {
+    name, custodian, is_petty_cash, currency, is_foreign, opening_balance_rial, opening_balance_date,
+    float_ceiling_rial,
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام صندوق الزامی است' });
   const db = getDB();
   const cur = String(currency || 'IRR').toUpperCase();
   const foreign = is_foreign ? 1 : (cur !== 'IRR' ? 1 : 0);
   const openingRial = Math.round(Number(opening_balance_rial) || 0);
+  const ceilRaw = float_ceiling_rial;
+  const floatCeil = (ceilRaw === null || ceilRaw === undefined || ceilRaw === '')
+    ? null
+    : Math.max(0, Math.round(Number(ceilRaw) || 0));
   const box = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO cash_boxes (name,custodian,is_petty_cash,currency,is_foreign,opening_balance_rial,opening_balance_date) VALUES (?,?,?,?,?,?,?)'
+      'INSERT INTO cash_boxes (name,custodian,is_petty_cash,currency,is_foreign,opening_balance_rial,opening_balance_date,float_ceiling_rial) VALUES (?,?,?,?,?,?,?,?)'
     ).run(
       name, custodian || '', is_petty_cash ? 1 : 0, cur, foreign,
-      openingRial > 0 ? openingRial : 0, opening_balance_date || (openingRial > 0 ? todayJalali() : null)
+      openingRial > 0 ? openingRial : 0, opening_balance_date || (openingRial > 0 ? todayJalali() : null),
+      floatCeil
     );
     try {
       const cc = allocTafsili(db, 'cashbox', name);
@@ -169,14 +177,22 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, custodian, active, is_petty_cash, currency, is_foreign, opening_balance_rial, opening_balance_date } = req.body;
+  const {
+    name, custodian, active, is_petty_cash, currency, is_foreign, opening_balance_rial, opening_balance_date,
+    float_ceiling_rial,
+  } = req.body;
   const cur = currency != null ? String(currency).toUpperCase() : (row.currency || 'IRR');
   const foreign = is_foreign != null ? (is_foreign ? 1 : 0) : (row.is_foreign || (cur !== 'IRR' ? 1 : 0));
+  const floatCeil = float_ceiling_rial === undefined
+    ? row.float_ceiling_rial
+    : ((float_ceiling_rial === null || float_ceiling_rial === '')
+      ? null
+      : Math.max(0, Math.round(Number(float_ceiling_rial) || 0)));
   db.transaction(() => {
-    db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=?,currency=?,is_foreign=?,opening_balance_date=COALESCE(?,opening_balance_date) WHERE id=?')
+    db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=?,currency=?,is_foreign=?,opening_balance_date=COALESCE(?,opening_balance_date),float_ceiling_rial=? WHERE id=?')
       .run(name || row.name, custodian ?? row.custodian, active != null ? (active ? 1 : 0) : row.active,
            is_petty_cash != null ? (is_petty_cash ? 1 : 0) : row.is_petty_cash, cur, foreign,
-           opening_balance_date || null, req.params.id);
+           opening_balance_date || null, floatCeil, req.params.id);
     const updated = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
     syncCashBoxAccount(db, updated);
     if (opening_balance_rial != null && !updated.opening_balance_je_id) {

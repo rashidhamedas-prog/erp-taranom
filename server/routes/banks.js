@@ -6,6 +6,7 @@ const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
+const { assertValidSheba } = require('../lib/treasury-guards');
 
 // Unrestricted bank management — no limit on how many banks can be created.
 // Every bank is simultaneously a real chart-of-accounts ledger row (see
@@ -147,20 +148,30 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     name, account_number, branch, account_type, phone, card_number, card_expiry, sheba, note,
     extra_accounts, currency, is_foreign, opening_balance_rial, opening_balance_date,
+    overdraft_limit_rial,
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام بانک الزامی است' });
+  let shebaNorm = '';
+  try { shebaNorm = assertValidSheba(sheba); } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const db = getDB();
   const extraJson = extra_accounts != null ? (typeof extra_accounts === 'string' ? extra_accounts : JSON.stringify(extra_accounts)) : '[]';
   const cur = String(currency || 'IRR').toUpperCase();
   const foreign = is_foreign ? 1 : (cur !== 'IRR' ? 1 : 0);
   const openingRial = Math.round(Number(opening_balance_rial) || 0);
+  const odRaw = overdraft_limit_rial;
+  const odLimit = (odRaw === null || odRaw === undefined || odRaw === '')
+    ? null
+    : Math.max(0, Math.round(Number(odRaw) || 0));
   const bank = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO banks (name,account_number,branch,account_type,phone,card_number,card_expiry,sheba,note,extra_accounts,currency,is_foreign,opening_balance_rial,opening_balance_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO banks (name,account_number,branch,account_type,phone,card_number,card_expiry,sheba,note,extra_accounts,currency,is_foreign,opening_balance_rial,opening_balance_date,overdraft_limit_rial) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(
       name, account_number || '', branch || '', account_type || '', phone || '', card_number || '',
-      card_expiry || '', sheba || '', note || '', extraJson, cur, foreign,
-      openingRial > 0 ? openingRial : 0, opening_balance_date || (openingRial > 0 ? todayJalali() : null)
+      card_expiry || '', shebaNorm, note || '', extraJson, cur, foreign,
+      openingRial > 0 ? openingRial : 0, opening_balance_date || (openingRial > 0 ? todayJalali() : null),
+      odLimit
     );
     try {
       const cc = allocTafsili(db, 'bank', name);
@@ -186,21 +197,33 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const {
     name, account_number, branch, active, account_type, phone, card_number, card_expiry, sheba, note,
     extra_accounts, currency, is_foreign, opening_balance_rial, opening_balance_date,
+    overdraft_limit_rial,
   } = req.body;
+  let shebaNorm;
+  try {
+    shebaNorm = sheba != null ? assertValidSheba(sheba) : (row.sheba || '');
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const extraJson = extra_accounts != null
     ? (typeof extra_accounts === 'string' ? extra_accounts : JSON.stringify(extra_accounts))
     : (row.extra_accounts || '[]');
   const cur = currency != null ? String(currency).toUpperCase() : (row.currency || 'IRR');
   const foreign = is_foreign != null ? (is_foreign ? 1 : 0) : (row.is_foreign || (cur !== 'IRR' ? 1 : 0));
+  const odLimit = overdraft_limit_rial === undefined
+    ? row.overdraft_limit_rial
+    : ((overdraft_limit_rial === null || overdraft_limit_rial === '')
+      ? null
+      : Math.max(0, Math.round(Number(overdraft_limit_rial) || 0)));
   db.transaction(() => {
-    db.prepare('UPDATE banks SET name=?,account_number=?,branch=?,active=?,account_type=?,phone=?,card_number=?,card_expiry=?,sheba=?,note=?,extra_accounts=?,currency=?,is_foreign=?,opening_balance_date=COALESCE(?,opening_balance_date) WHERE id=?')
+    db.prepare('UPDATE banks SET name=?,account_number=?,branch=?,active=?,account_type=?,phone=?,card_number=?,card_expiry=?,sheba=?,note=?,extra_accounts=?,currency=?,is_foreign=?,opening_balance_date=COALESCE(?,opening_balance_date),overdraft_limit_rial=? WHERE id=?')
       .run(
         name || row.name, account_number ?? row.account_number, branch ?? row.branch,
         active != null ? (active ? 1 : 0) : row.active,
         account_type ?? row.account_type ?? '', phone ?? row.phone ?? '',
         card_number ?? row.card_number ?? '', card_expiry ?? row.card_expiry ?? '',
-        sheba ?? row.sheba ?? '', note ?? row.note ?? '', extraJson, cur, foreign,
-        opening_balance_date || null, req.params.id
+        shebaNorm, note ?? row.note ?? '', extraJson, cur, foreign,
+        opening_balance_date || null, odLimit, req.params.id
       );
     const updated = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
     syncBankAccount(db, updated);

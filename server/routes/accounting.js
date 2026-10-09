@@ -69,6 +69,8 @@ function resolveSettlementFx(db, opts) {
 }
 
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
+const { settlementAssetAccount } = require('../lib/invoice-payments');
+const { assertActiveBank, assertActiveCashBox } = require('../lib/treasury-guards');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { reverseSettlementInTx } = require('../lib/void-settlement');
 const { reverseJournalEntry } = require('../lib/void-journal');
@@ -586,6 +588,15 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   }
   if (!fx.amountRial) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
   const amountRial = fx.amountRial;
+  const payTypeNorm = pay_type || 'cash';
+  try {
+    if (payTypeNorm === 'cash') assertActiveCashBox(db, cash_box_id, { allowNull: !cash_box_id });
+    if (payTypeNorm === 'bank' || payTypeNorm === 'bank_transfer') {
+      assertActiveBank(db, bank_id);
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const settlementId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO settlements
@@ -594,7 +605,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
          cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba,
          foreign_amount,fx_rate_rial,currency,account_code)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, cust_id, invoice_id || null, amountRial, amountRial, pay_type || 'cash',
+    ).run(req.user.id, cust_id, invoice_id || null, amountRial, amountRial, payTypeNorm,
           date || '', note || '', bank_id || null, cash_box_id || null, check_category_id || null,
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
@@ -602,7 +613,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
           fx.foreign_amount, fx.fx_rate_rial, fx.currency, String(account_code || '').slice(0, 32));
     const settlementId = result.lastInsertRowid;
 
-    const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
+    const payLabel = payTypeNorm === 'cheque' ? 'چک' : (payTypeNorm === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
     const fxNote = fx.foreign_amount && fx.fx_rate_rial
       ? ` (${fx.foreign_amount} ${fx.currency} × ${fx.fx_rate_rial})`
       : '';
@@ -612,9 +623,12 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
       description: `تسویه ${payLabel} - ${amountRial.toLocaleString('fa-IR')} ریال${fxNote}`,
       debit: 0, credit: amountRial, user_id: req.user.id
     });
-    let cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    // ADR-001: inbound cheque → 1109 (same as invoice splits); never generic bank.
+    let cash = settlementAssetAccount(db, {
+      pay_type: payTypeNorm, bank_id, cash_box_id,
+    });
     const overrideCode = String(account_code || '').trim();
-    if (overrideCode) {
+    if (overrideCode && payTypeNorm !== 'cheque') {
       const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
       if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
     }
@@ -691,7 +705,11 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         description: `تسویه ${payLabel} (قسط) - ${amount.toLocaleString('fa-IR')} ریال`,
         debit: 0, credit: amount, user_id: req.user.id
       });
-      const cash = resolveCashAccount(db, pay_type, p.bank_id, p.cash_box_id);
+      if (pay_type === 'cash' && p.cash_box_id) assertActiveCashBox(db, p.cash_box_id);
+      if ((pay_type === 'bank' || pay_type === 'bank_transfer') && p.bank_id) assertActiveBank(db, p.bank_id);
+      const cash = settlementAssetAccount(db, {
+        pay_type, bank_id: p.bank_id, cash_box_id: p.cash_box_id,
+      });
       postToLedger(db, {
         sourceType: 'settlement', sourceId: settlementId,
         date: p.date || todayJalali(), description: `تسویه ${payLabel} مشتری (قسط)`, createdBy: req.user.id,

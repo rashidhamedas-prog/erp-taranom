@@ -5,6 +5,9 @@ const { todayJalali } = require('../jalali');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
+const {
+  assertActiveBank, assertActiveCashBox, assertBankOverdraftOk,
+} = require('../lib/treasury-guards');
 
 const COST_SECTIONS = new Set(['admin', 'selling', 'production_overhead']);
 
@@ -230,6 +233,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
   const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
+  const payTypeNorm = pay_type || 'cash';
+  try {
+    if (payTypeNorm === 'cash' && cash_box_id) assertActiveCashBox(db, cash_box_id);
+    if (payTypeNorm === 'bank' || payTypeNorm === 'bank_transfer') {
+      assertActiveBank(db, bank_id);
+      assertBankOverdraftOk(db, bank_id, amt + fee);
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   let posting;
   try {
     posting = resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id });
@@ -241,14 +254,14 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const result = db.prepare(
       `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(category || 'admin', title || '', amt, fee, pay_type || 'cash', bank_id || null, cash_box_id || null,
+    ).run(category || 'admin', title || '', amt, fee, payTypeNorm, bank_id || null, cash_box_id || null,
           check_category_id || null, posting.costCenterId, date || todayJalali(), note || '',
           req.user.id, acc.code, purchase_invoice_id || null, posting.isOverhead);
     const expId = result.lastInsertRowid;
 
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const cash = resolveCashAccount(db, payTypeNorm, bank_id, cash_box_id);
     const { lines } = outboundPaymentLines(db, {
-      amount: amt, feeRial: fee, payType: pay_type || 'cash',
+      amount: amt, feeRial: fee, payType: payTypeNorm,
       dest: acc, cash, destDescription: title || '',
     });
     const entryId = postToLedger(db, {

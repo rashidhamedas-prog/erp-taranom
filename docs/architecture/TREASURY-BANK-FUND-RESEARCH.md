@@ -207,12 +207,13 @@ petty UI ─────────────────► همان expense
 
 ---
 
-## ۹) تصمیم‌های باز (نیاز به تأیید انسان)
+## ۹) تصمیم‌ها (قفل‌شده در ADR-001 Option 1)
 
-1. خروجی بعدی فقط ADRها باشد، یا بلافاصله Wave 2 schema؟
-2. سیاست overdraft: هشدار نرم / بلاک سخت / per-bank؟
-3. بانک ارزی در Wave اول داخل scope باشد یا صریحاً non-goal؟
-4. تنخواه: فقط سقف+replenish از بانک، یا سند imprest جدا با `sourceType` جدید؟
+1. ADR + پیاده‌سازی Option 1 هم‌زمان (نه فقط docs).
+2. Overdraft: بلاک سخت per-bank؛ `NULL`=نامحدود، `0`=بدون منفی، `>0`=کف `−limit`.
+3. بانک ارزی: non-goal این موج.
+4. تنخواه: سقف `float_ceiling_rial` + همان transfer/expense؛ بدون imprest `sourceType` جدید.
+5. جزئیات: `docs/architecture/TREASURY-BANK-FUND-ADR-001.md`
 
 ---
 

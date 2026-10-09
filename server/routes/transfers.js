@@ -4,6 +4,9 @@ const { postToLedger } = require('../lib/ledger');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { transferLines, transferReversalLines } = require('../lib/payment-bank-fee');
+const {
+  assertActiveBank, assertActiveCashBox, assertBankOverdraftOk, assertCashFloatCeilingOk,
+} = require('../lib/treasury-guards');
 
 const TYPES = ['cash', 'bank'];
 
@@ -41,6 +44,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const feeRaw = Math.max(0, Math.round(Number(fee_rial ?? bank_fee_rial) || 0));
   const fee = from_type === 'bank' ? feeRaw : 0;
   const db = getDB();
+  try {
+    if (from_type === 'bank') assertActiveBank(db, from_id);
+    else assertActiveCashBox(db, from_id);
+    if (to_type === 'bank') assertActiveBank(db, to_id);
+    else assertActiveCashBox(db, to_id);
+    if (from_type === 'bank') assertBankOverdraftOk(db, from_id, amt + fee);
+    if (to_type === 'cash') assertCashFloatCeilingOk(db, to_id, amt);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const transferId = db.transaction(() => {
     const result = db.prepare(
       'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,note,user_id) VALUES (?,?,?,?,?,?,?,?,?)'

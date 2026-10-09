@@ -11622,12 +11622,13 @@ async function renderWarehousesTab(body){
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/warehouses" data-bulk-label="حذف" data-bulk-confirm="{n} انبار حذف شود؟"><thead><tr>
-      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>مرکز هزینه</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>حساب موجودی</th><th>مرکز هزینه</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${warehouses.map(w=>`<tr data-id="${w.id}">
       <td class="mono">${esc(w.code||'-')}</td>
       <td>${esc(w.name)}</td>
       <td>${entityMap[w.entity]||w.entity||'-'}</td>
       <td>${typeMap[w.warehouse_type]||w.warehouse_type||'-'}</td>
+      <td class="mono" title="${esc(w.inventory_account_name||'')}">${esc(w.inventory_account_code||w.inventory_coa_code||'—')}</td>
       <td>${esc(w.cost_center_code?w.cost_center_code+' — ':'')}${esc(w.cost_center_name||'—')}</td>
       <td>${w.inventory_system==='periodic'?'ادواری':'دائمی'}</td>
       ${tdClip(w.address||'-', 180, true)}
@@ -11640,7 +11641,7 @@ async function renderWarehousesTab(body){
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){warehouseModal((w.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteWarehouse((w.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(10)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(11)}</tbody></table></div>`;
 }
 function warehousePeriodCloseModal(id,name){
   const ym=todayJalali().slice(0,7);
@@ -11745,6 +11746,10 @@ async function warehouseModal(id){
         <option value="perpetual" ${(w.inventory_system||'perpetual')!=='periodic'?'selected':''}>دائمی (Perpetual)</option>
         <option value="periodic" ${w.inventory_system==='periodic'?'selected':''}>ادواری (Periodic)</option>
       </select></div>
+      <div class="fg"><label>حساب موجودی (اختیاری) ${hlp('اگر خالی باشد از نوع انبار نگاشت می‌شود: مواد→۱۱۱۰، بسته‌بندی→۱۱۱۲، WIP→۱۱۱۱، امانی→۱۱۱۴، ضایعات→۱۱۱۳، محصول→۱۱۰۴. خرید/GR/COGS/هزینه حمل همین حساب را می‌زنند.')}</label>
+        <input id="wh-inv-coa" class="mono" dir="ltr" placeholder="مثلاً 1110" value="${esc(w.inventory_coa_code||'')}">
+        ${w.inventory_account_code?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اکنون: ${esc(w.inventory_account_code)} — ${esc(w.inventory_account_name||'')}</div>`:''}
+      </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -11778,7 +11783,8 @@ async function saveWarehouse(id){
     is_default:el('wh-default')?.checked?1:0,
     allow_negative:el('wh-neg')?.checked?1:0,
     costing_method:el('wh-costing')?.value||null,
-    inventory_system:el('wh-inv-sys')?.value||'perpetual'
+    inventory_system:el('wh-inv-sys')?.value||'perpetual',
+    inventory_coa_code:(el('wh-inv-coa')?.value||'').trim()||null
   };
   if(id) data.active=+el('wh-active').value;
   try{
@@ -12120,8 +12126,16 @@ function warehouseReceiptModal(){
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>انبار مقصد *</label><select id="wr-warehouse">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="wr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>نوع رسید / طرف حساب ${hlp('خرید با فاکتور را از «فاکتور خرید» یا «رسید کالا GR» ثبت کنید تا موجودی دوبار بدهکار نشود. این فرم برای تعدیل/افتتاحیه یا رسید تأمین‌کننده بدون فاکتور (GRNI) است.')}</label>
+        <select id="wr-class">
+          <option value="adjustment">تعدیل عملیاتی (طرف ۹۹۹۹)</option>
+          <option value="opening">موجودی اول دوره (۳۱۰۲)</option>
+          <option value="grni">رسید تأمین‌کننده بدون فاکتور — GRNI (۲۱۱۲)</option>
+        </select>
+      </div>
       <div class="fg full"><label>یادداشت</label><input id="wr-note"></div>
       <div class="fg full" id="whDocLines">${whDocLinesHtml()}</div>
+      <div class="muted full" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">حساب موجودی از نوع/تنظیم همان انبار مقصد گرفته می‌شود.</div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveWarehouseReceipt()})}">💾 ثبت رسید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -12133,8 +12147,9 @@ async function saveWarehouseReceipt(){
   const lines=whDocLinesPayload();
   if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
+  const receipt_class=el('wr-class')?.value||'adjustment';
   try{
-    const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value});
+    const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value,receipt_class,opening:receipt_class==='opening'?1:0});
     closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
@@ -19987,6 +20002,9 @@ function bankModal(id){
         <input id="bk-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}" ${b?.opening_balance_je_id?'disabled title="سند افتتاحیه قبلاً ثبت شده"':''}>
         ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند JE #${b.opening_balance_je_id}</span>`:''}
       </div>
+      <div class="fg"><label>سقف اضافه برداشت (ریال) ${hlp('خالی = بدون محدودیت. صفر = مانده منفی مجاز نیست. عدد مثبت = حداکثر بدهکاری مجاز زیر صفر.')}</label>
+        <input id="bk-overdraft" type="text" inputmode="numeric" class="money" placeholder="خالی = نامحدود" value="${b?.overdraft_limit_rial==null||b?.overdraft_limit_rial===''?'':moneyInit(b.overdraft_limit_rial)}">
+      </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="bk-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -19999,6 +20017,7 @@ function bankModal(id){
 async function saveBank(id){
   const name=el('bk-name').value.trim();
   if(!name){ showToast('نام بانک الزامی است','error'); return; }
+  const odRaw=String(el('bk-overdraft')?.value||'').trim();
   const data={name,account_number:el('bk-account').value,branch:el('bk-branch').value,
     account_type:el('bk-account_type')?.value||'',
     phone:el('bk-phone')?.value||'',
@@ -20010,6 +20029,7 @@ async function saveBank(id){
     is_foreign:el('bk-foreign')?.checked?1:0,
     opening_balance_rial:Math.round(moneyVal('bk-opening')||0),
     opening_balance_date:todayJalali(),
+    overdraft_limit_rial:odRaw===''?null:Math.round(moneyVal('bk-overdraft')||0),
     extra_accounts:collectBankExtraAccounts()
   };
   if(id) data.active=+el('bk-active').value;
@@ -20150,6 +20170,9 @@ function cashBoxModal(id){
         ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند JE #${b.opening_balance_je_id}</span>`:''}
       </div>
       <div class="fg full"><label><input type="checkbox" id="cb-petty" ${b?.is_petty_cash?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این صندوق تنخواه‌گردان است ${hlp('صندوق‌های تنخواه‌گردان جداگانه در صفحه «تنخواه گردان» نمایش داده می‌شوند.')}</label></div>
+      <div class="fg"><label>سقف موجودی / تنخواه (ریال) ${hlp('خالی = بدون سقف. با انتقال وجه به این صندوق، اگر مانده از این عدد بیشتر شود ثبت رد می‌شود.')}</label>
+        <input id="cb-float-ceil" type="text" inputmode="numeric" class="money" value="${b?.float_ceiling_rial==null||b?.float_ceiling_rial===''?'':moneyInit(b.float_ceiling_rial)}" placeholder="بدون سقف">
+      </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cb-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -20161,10 +20184,12 @@ function cashBoxModal(id){
 async function saveCashBox(id){
   const name=el('cb-name').value.trim();
   if(!name){ showToast('نام صندوق الزامی است','error'); return; }
+  const ceilRaw=String(el('cb-float-ceil')?.value||'').trim();
   const data={name,custodian:el('cb-custodian').value,is_petty_cash:el('cb-petty').checked,
     currency:el('cb-currency')?.value||'IRR', is_foreign:el('cb-foreign')?.checked?1:0,
     opening_balance_rial:Math.round(moneyVal('cb-opening')||0),
-    opening_balance_date:todayJalali()};
+    opening_balance_date:todayJalali(),
+    float_ceiling_rial:ceilRaw===''?null:Math.round(moneyVal('cb-float-ceil')||0)};
   if(id) data.active=+el('cb-active').value;
   try{
     if(id) await api('PUT','/cash-boxes/'+id,data); else await api('POST','/cash-boxes',data);
@@ -25812,7 +25837,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
-        <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند</li>
+        <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند. <b>تنظیمات حرفه‌ای:</b> سقف اضافه برداشت روی بانک (خالی=نامحدود، صفر=مانده منفی ممنوع)؛ سقف موجودی/تنخواه روی صندوق برای جلوگیری از بیش‌شارژ با انتقال؛ شبا در صورت ورود باید IR+۲۴ رقم باشد؛ بانک/صندوق غیرفعال در عملیات جدید قبول نمی‌شود. دریافت چک standalone مثل فاکتور به <code>۱۱۰۹</code> اسناد دریافتنی می‌خورد نه به بانک عمومی</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است. با انتخاب «حساب‌های پرداختنی» تأمین‌کننده‌ها، با «دریافتنی» مشتری‌ها، و با بانک/صندوق/کالا/شخص همان کد ۱۲رقمی زندهٔ بخش خودش می‌آید. پوستهٔ شش‌رقمی (مثل ۲۱۰۱۰۱) ردیف تفصیلی نیست. شمارهٔ سندهای قبلی عوض نمی‌شود. با هر بار باز شدن صفحه، کدی که در بخش مربوطه هست ولی ردیف دفترکل ندارد ساخته یا وصل می‌شود. دکمه ➕ روی ستون تفصیلی زیر همان پوسته حساب می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>پرداخت به حساب:</b> جستجو با کد یا نام هر حساب فعال را می‌آورد (گروه، کل، معین، تفصیلی). «ی» و «ي» و رقم فارسی یکی گرفته می‌شوند. حسابِ دارای زیرحساب هم قابل انتخاب است و مبلغ روی خود همان کد سند می‌شود، نه روی فرزندان. دریافت از حساب و سند دستی همچنان فقط حساب برگ هستند</li>
@@ -26151,13 +26176,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. اگر موجودی انبار باشد ولی جدول کاردکس خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد (موجودی فیزیکی عوض نمی‌شود). تعدیل دستی موجودی و موجودی مطلق اکسل هم ردیف دفتر می‌سازند</li>
-        <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
+        <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار (v333)</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). میانگین بها و ارزش ریالی از <code>average_cost_rial</code> یا بهای تمام‌شدهٔ کالا — هر دو ریال؛ دیگر بهای کاتالوگ را ×۱۰ (تومان قدیمی) نمی‌کند. فیلتر و خروجی CSV/اکسل</li>
         <li><b>هزینه حمل (Landed Cost)</b>: فقط روی کالای دارای موجودی سرمایه می‌شود؛ ابطال کامل میانگین و سند را برمی‌گرداند</li>
         <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک (=خواباندن) و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. متن آزاد «خواباندن» جایگزین واگذاری نیست. خرج/ظهرنویسی + <b>ابطال کامل</b></li>
@@ -26345,7 +26370,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v334</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v335</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
