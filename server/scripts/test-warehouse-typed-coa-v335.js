@@ -34,6 +34,12 @@ function ok(cond, msg, detail) {
 
 function seed() {
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('feature_perpetual_docs','1')").run();
+  let userId = db.prepare('SELECT id FROM users LIMIT 1').get()?.id;
+  if (!userId) {
+    userId = db.prepare(
+      "INSERT INTO users (name,username,password,role) VALUES ('t','t-wh335','x','admin')"
+    ).run().lastInsertRowid;
+  }
   // cost centers
   const cc = db.prepare("INSERT INTO cost_centers (code,name,active) VALUES ('CC-WH','مرکز تست',1)").run().lastInsertRowid;
   const raw = db.prepare(`
@@ -54,18 +60,15 @@ function seed() {
   `).run(cc, acct(db, 'coa_raw_materials').code).lastInsertRowid;
 
   const pRaw = db.prepare(`
-    INSERT INTO products (name,code,price,cost,stock,unit,warehouse_id,average_cost_rial)
-    VALUES ('پارچه تست','RAW-335',100000,50000,0,'متر',?,50000)
-  `).run(raw).lastInsertRowid;
+    INSERT INTO products (user_id,name,code,price,cost,stock,unit,warehouse_id,average_cost_rial)
+    VALUES (?,'پارچه تست','RAW-335',100000,50000,0,'متر',?,50000)
+  `).run(userId, raw).lastInsertRowid;
   const pFg = db.prepare(`
-    INSERT INTO products (name,code,price,cost,stock,unit,warehouse_id,average_cost_rial)
-    VALUES ('مانتو تست','FG-335',200000,80000,20,'عدد',?,80000)
-  `).run(fg).lastInsertRowid;
+    INSERT INTO products (user_id,name,code,price,cost,stock,unit,warehouse_id,average_cost_rial)
+    VALUES (?,'مانتو تست','FG-335',200000,80000,20,'عدد',?,80000)
+  `).run(userId, fg).lastInsertRowid;
 
-  const user = db.prepare("SELECT id FROM users LIMIT 1").get()
-    || { id: db.prepare("INSERT INTO users (name,username,password,role) VALUES ('t','t','x','admin')").run().lastInsertRowid };
-
-  return { raw, fg, pack, override, pRaw, pFg, user: user.id || user };
+  return { raw, fg, pack, override, pRaw, pFg, user: userId };
 }
 
 function main() {
