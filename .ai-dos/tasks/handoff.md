@@ -1,4 +1,12 @@
-﻿## 2026-10-07 — Warehouse report avg cost ×10 (SW v333)
+﻿## 2026-10-10 — Production accounting full research (docs-only)
+
+- Owner: skill-top full + ECC + tap-erp-architecture on «هر آیتم تولید قوانین/تنظیمات/JE دقیق».
+- Stale claim: PROD-ACC-PA02 still lists `docs/CHANGE-LOG.md`. This session reclaims CHANGE-LOG only for research entry; did not edit production libs, posting, engine, cutting, sync, or public UI.
+- Deliverable: `docs/architecture/PRODUCTION-ACCOUNTING-RESEARCH.md` (ops→PRD matrix, settings EXISTS/PARTIAL/MISSING, verify 10 gaps, P0–P3 waves, open decisions).
+- Slack search/API: no hits. Specialists: ops→JE, settings, verify.
+- Next: owner locks open decisions → ADR-003 → P0 (cutting PRD tags + period guard on stage issue + close precheck alignment). Notify PROD-ACC owner.
+
+## 2026-10-07 — Warehouse report avg cost ×10 (SW v333)
 
 - Owner: skill-top full on گزارش جامع انبار vs کارت کالا (K-00009).
 - Parallel RCA: warehouse API, costing deps, frontend — root is `unitCostRialOf` cost×10 when avg unset; cost already rial.

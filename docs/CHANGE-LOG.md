@@ -1,11 +1,22 @@
+### ۱۴۰۵/۰۷/۱۸ — تحقیق تولید↔حسابداری (پیش‌ADR جامع)
+
+- **هدف:** قفل وابستگی تک‌به‌تک همهٔ آیتم‌های منوی تولید، قالب‌های PRD/JE، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های P0–P3 قبل از هر تغییر schema/UI گسترده.
+- **یافته‌های قفل‌شده:** PRD-04/06/11/12/17 در کاتالوگ‌اند ولی پست نمی‌شوند (حقوق/هزینه جایگزین)؛ cutting با `postToLedger` موازی بدون تگ PRD؛ `5214` پست نمی‌شود؛ preview/rollup بدون `absorb_pct`؛ پنل Production Settings و بیشتر `production_*` seed بدون UI؛ issue مرحلهٔ advanced گیت ماه ناقص؛ legacy بدون JE (نوشتن گیت‌شده).
+- **تأیید FIXED نسبت به موج‌های قبلی:** F06 pack+PO، F01 costing، packaging→1112 در ledger، R13 شمارنده OH (v334).
+- **مرجع:** ERPNext Work Order/WIP WH؛ ADR-001/002 حفظ؛ وابسته به تحقیق انبار برای typed COA ورودی مواد.
+- **تصمیم باز:** واقعی‌سازی PRD-04/06 vs docs؛ تگ PRD برای cutting؛ نقش 5214؛ حساب محصول فرعی؛ ترتیب P0 قبل از UI تنظیمات.
+- **فایل‌ها:** `docs/architecture/PRODUCTION-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
+- **تست:** ندارد (docs-only).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — بانک و صندوق گزینه ۱: ADR + صحت + تنظیمات حرفه‌ای (SW v335)
 
 - **تصمیم:** ADR-001 — چک standalone → ۱۱۰۹؛ overdraft per-bank (NULL/0/>0)؛ سقف تنخواه روی صندوق؛ شبا IR+۲۴؛ بلاک بانک/صندوق غیرفعال؛ بدون موتور ارزی/imprest جدا.
 - **بک‌اند:** `lib/treasury-guards.js`؛ settlements/batch/amend روی `settlementAssetAccount`؛ گاردها در transfers/expenses/banks؛ ستون‌های `overdraft_limit_rial` / `float_ceiling_rial`.
 - **UI/Help:** فیلد سقف در مودال بانک و صندوق؛ راهنمای حسابداری؛ SW `erp-taranom-v335`.
 - **فایل‌ها:** `lib/{treasury-guards,amend-cash-ops}.js`, `routes/{accounting,transfers,banks,cash-boxes,expenses}.js`, `db.js`, `public/{app.js,sw.js}`, `docs/architecture/TREASURY-BANK-FUND-{RESEARCH,ADR-001}.md`, `scripts/test-treasury-option1-v335.js`, CHANGE-LOG.
-- **تست:** `test-treasury-option1-v335` (+ sms/sync روی ایران).
-- **Deploy:** در انتظار
+- **تست:** روی ایران `test-treasury-option1-v335` ۱۶/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `896c659` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`، ready=200؛ SW `erp-taranom-v335`.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق انبار↔حسابداری (پیش‌ADR)
 
