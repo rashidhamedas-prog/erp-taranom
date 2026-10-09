@@ -108,16 +108,25 @@ router.get('/products/search', auth, adminOrAccounting, (req, res) => {
 // getting "access denied" on the catalog). Mutations below stay restricted.
 router.get('/', auth, (req, res) => {
   const db = getDB();
-  res.json(db.prepare(`
+  const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
+  const rows = db.prepare(`
     SELECT w.*, cc.name AS cost_center_name, cc.code AS cost_center_code
     FROM warehouses w
     LEFT JOIN cost_centers cc ON cc.id = w.cost_center_id
     ORDER BY w.name
-  `).all());
+  `).all();
+  res.json(rows.map((w) => {
+    try {
+      const inv = inventoryAccountForWarehouse(db, w.id);
+      return { ...w, inventory_account_code: inv.code, inventory_account_name: inv.name };
+    } catch (_) {
+      return w;
+    }
+  }));
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system } = req.body;
+  const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system, inventory_coa_code } = req.body;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
   const { resolveWarehouseCostCenter } = require('../lib/cost-center-repair');
@@ -130,11 +139,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message });
   }
   const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
+  const invCoa = String(inventory_coa_code || '').trim() || null;
+  if (invCoa) {
+    const coa = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(invCoa);
+    if (!coa) return res.status(400).json({ error: 'کد حساب موجودی انبار در دفتر کل یافت نشد', code: 'E_WH_INV_COA' });
+  }
   const result = db.transaction(() => {
     if (is_default) db.prepare('UPDATE warehouses SET is_default=0').run();
     return db.prepare(`
-      INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system,inventory_coa_code)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       name, address || '', whCode,
       ent,
@@ -143,7 +157,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       is_default ? 1 : 0,
       allow_negative ? 1 : 0,
       costing_method || null,
-      invSys
+      invSys,
+      invCoa
     );
   })();
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
@@ -154,7 +169,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code, allow_negative, costing_method, inventory_system } = req.body;
+  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code, allow_negative, costing_method, inventory_system, inventory_coa_code } = req.body;
   const invSys = inventory_system !== undefined
     ? (String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual')
     : (row.inventory_system || 'perpetual');
@@ -168,11 +183,19 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       return res.status(e.status || 400).json({ error: e.message });
     }
   }
+  let nextInvCoa = row.inventory_coa_code || null;
+  if (inventory_coa_code !== undefined) {
+    nextInvCoa = String(inventory_coa_code || '').trim() || null;
+    if (nextInvCoa) {
+      const coa = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(nextInvCoa);
+      if (!coa) return res.status(400).json({ error: 'کد حساب موجودی انبار در دفتر کل یافت نشد', code: 'E_WH_INV_COA' });
+    }
+  }
   db.transaction(() => {
     const def = is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0);
     if (def) db.prepare('UPDATE warehouses SET is_default=0 WHERE id<>?').run(req.params.id);
     db.prepare(`
-      UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?
+      UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?,inventory_coa_code=?
       WHERE id=?
     `).run(
       name || row.name, address ?? row.address,
@@ -185,6 +208,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),
       costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
       invSys,
+      nextInvCoa,
       req.params.id
     );
   })();
@@ -489,6 +513,8 @@ const DEFAULT_WAREHOUSE_ENTITIES = [
 ];
 const DEFAULT_WAREHOUSE_TYPES = [
   { value: 'raw_material', label: 'مواد اولیه' },
+  { value: 'packaging', label: 'بسته‌بندی' },
+  { value: 'wip', label: 'در جریان ساخت (WIP)' },
   { value: 'finished_goods', label: 'محصول نهایی' },
   { value: 'consignment', label: 'امانی' },
   { value: 'scrap', label: 'ضایعات' },

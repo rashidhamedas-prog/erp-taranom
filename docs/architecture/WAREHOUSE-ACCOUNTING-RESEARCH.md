@@ -1,6 +1,6 @@
 # تحقیق انبار — تنظیمات حرفه‌ای + ثبت‌های دقیق حسابداری
 
-**وضعیت:** Research (pre-ADR) — قبل از هر تغییر schema/UI  
+**وضعیت:** Research → **P0/P1 پیاده‌سازی‌شده** در ADR-003 (`WAREHOUSE-ACC-ADR-003.md`)  
 **تاریخ:** ۱۴۰۵/۰۷/۱۸  
 **منبع:** skill-top **full** + متخصصان inventory/JE/verify + tap-erp-architecture + ECC (architect/planner)  
 **Slack:** در workspace متصل هیچ کانال/پیامی برای «انبار / warehouse / امانی / erp» یافت نشد — منبع حقیقت کد + CHANGE-LOG + ADRهای موجود است.

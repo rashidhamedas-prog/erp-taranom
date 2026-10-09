@@ -104,14 +104,52 @@ function warehouseQty(db, productId, warehouseId) {
   return 0;
 }
 
+/**
+ * Resolve inventory control account for a warehouse.
+ * Priority: warehouses.inventory_coa_code (valid COA) → warehouse_type map → coa_inventory.
+ * ADR-001: valuation stays at product header; this only picks the GL control account.
+ */
 function inventoryAccountForWarehouse(db, warehouseId) {
   if (!warehouseId) return acct(db, 'coa_inventory');
-  const wh = db.prepare('SELECT warehouse_type FROM warehouses WHERE id=?').get(warehouseId);
+  let wh;
+  try {
+    wh = db.prepare('SELECT warehouse_type, inventory_coa_code FROM warehouses WHERE id=?').get(warehouseId);
+  } catch (_) {
+    wh = db.prepare('SELECT warehouse_type FROM warehouses WHERE id=?').get(warehouseId);
+  }
+  const override = String(wh?.inventory_coa_code || '').trim();
+  if (override) {
+    const row = db.prepare(
+      'SELECT code, name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1'
+    ).get(override);
+    if (row) return { code: row.code, name: row.name };
+  }
   const t = wh?.warehouse_type || '';
   if (t === 'raw_material') return acct(db, 'coa_raw_materials');
+  if (t === 'packaging') return acct(db, 'coa_packaging_materials');
+  if (t === 'wip') return acct(db, 'coa_wip');
   if (t === 'scrap') return acct(db, 'coa_scrap_inventory');
   if (t === 'consignment') return acct(db, 'coa_subcontract_inventory');
   return acct(db, 'coa_finished_goods');
+}
+
+/**
+ * Aggregate rial amounts by warehouse inventory COA for multi-line JE debits/credits.
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ warehouseId?: number|null, amountRial: number }[]} items
+ * @returns {{ code: string, name: string, amountRial: number }[]}
+ */
+function inventoryAmountLinesByWarehouse(db, items) {
+  const map = new Map();
+  for (const it of items || []) {
+    const amt = Math.round(Number(it.amountRial) || 0);
+    if (!amt) continue;
+    const a = inventoryAccountForWarehouse(db, it.warehouseId || null);
+    const prev = map.get(a.code) || { code: a.code, name: a.name, amountRial: 0 };
+    prev.amountRial += amt;
+    map.set(a.code, prev);
+  }
+  return [...map.values()];
 }
 
 /**
@@ -381,6 +419,7 @@ module.exports = {
   getKardex,
   warehouseQty,
   inventoryAccountForWarehouse,
+  inventoryAmountLinesByWarehouse,
   allowNegative,
   costingMethod,
   invErr,

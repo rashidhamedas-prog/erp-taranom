@@ -535,9 +535,14 @@ function postCogsFromMovements(db, {
   const cogs = acct(db, 'coa_cogs');
   let invAcct;
   try {
-    invAcct = inventoryCoaCode
-      ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(inventoryCoaCode)
-      : acct(db, 'coa_inventory');
+    if (inventoryCoaCode) {
+      invAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(inventoryCoaCode);
+    }
+    if (!invAcct) {
+      // Prefer finished-goods control (same default as warehouse type map).
+      try { invAcct = acct(db, 'coa_finished_goods'); }
+      catch (_) { invAcct = acct(db, 'coa_inventory'); }
+    }
   } catch (_) {
     invAcct = acct(db, 'coa_inventory');
   }

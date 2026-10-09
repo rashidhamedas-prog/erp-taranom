@@ -11,6 +11,7 @@ const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { postPurchaseStockMovements, reverseStockBySource, assertJournalIdempotent } = require('../lib/sales-document');
+const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
 const { assertMakerChecker, assertBranchScope } = require('../lib/rbac');
 
 function httpErr(status, message, code) {
@@ -150,7 +151,7 @@ router.post('/goods-receipts', auth, adminOrAccounting, (req, res) => {
         userId: req.user.id, date, note: `رسید کالا ${num}`,
       });
       const amount = rows.reduce((s, x) => s + Math.round(Number(x.amount) || (x.qty * x.price) || 0), 0);
-      const inv = acct(db, 'coa_inventory');
+      const inv = inventoryAccountForWarehouse(db, whId);
       const grni = acct(db, 'coa_grni');
       assertJournalIdempotent(db, 'goods_receipt', grId);
       const jeId = postToLedger(db, {
@@ -181,7 +182,7 @@ router.delete('/goods-receipts/:id', auth, adminOrAccounting, (req, res) => {
       reverseStockBySource(db, 'goods_receipt', row.id, {
         createdBy: req.user.id, date: todayJalali(), note: `ابطال رسید ${row.num}`,
       });
-      const inv = acct(db, 'coa_inventory');
+      const inv = inventoryAccountForWarehouse(db, row.warehouse_id);
       const grni = acct(db, 'coa_grni');
       const rows = JSON.parse(row.rows || '[]');
       const amount = rows.reduce((s, x) => s + Math.round(Number(x.amount) || (x.qty * x.price) || 0), 0);

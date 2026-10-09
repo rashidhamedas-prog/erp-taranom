@@ -14,6 +14,7 @@ function initWarehouseInventorySystem(db) {
   ensureColumn(db, 'warehouses', 'inventory_system', "TEXT DEFAULT 'perpetual'");
   ensureColumn(db, 'warehouses', 'allow_negative', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'warehouses', 'costing_method', 'TEXT');
+  ensureColumn(db, 'warehouses', 'inventory_coa_code', 'TEXT');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS warehouse_period_closes (
@@ -108,7 +109,8 @@ function closePeriodicWarehouse(db, {
   const purchRial = Math.max(0, Math.round(Number(purchasesRial) || 0));
   const cogsRial = Math.max(0, beginRial + purchRial - endingRial);
 
-  const inv = acct(db, 'coa_inventory');
+  const { inventoryAccountForWarehouse } = require('./ledger');
+  const inv = inventoryAccountForWarehouse(db, warehouseId);
   const cogs = acct(db, 'coa_cogs');
   const gain = acct(db, 'coa_inventory_gain');
   const adj = acct(db, 'coa_adjustment');

@@ -33,7 +33,7 @@ const {
   perpetualDocsEnabled, assertJournalIdempotent,
   allocateFreight, applyFreightToDocTotals, freightChargedToCounterparty,
 } = require('../lib/sales-document');
-const { postInventoryMovement } = require('../lib/inventory/ledger');
+const { postInventoryMovement, inventoryAccountForWarehouse, inventoryAmountLinesByWarehouse } = require('../lib/inventory/ledger');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -298,8 +298,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, storedPayType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId, payAmountRial);
     const invId = result.lastInsertRowid;
 
+    const priced = buildInventoryValuationRows(built.rows, discAmt, freightChargedToCounterparty(freight_type));
     if (perpetualDocsEnabled(db)) {
-      const priced = buildInventoryValuationRows(built.rows, discAmt, freightChargedToCounterparty(freight_type));
       postPurchaseStockMovements(db, {
         rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
         userId: req.user.id, date: entryDate, note: `خرید ${num}`,
@@ -343,11 +343,25 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     });
 
     assertJournalIdempotent(db, 'purchase', invId);
-    const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
     const payable = payableAcct(db, supplier_id);
-    const inventoryDebit = rialToLedger(netBeforeVat);
-    const jLines = [{ code: invAcct.code, name: invAcct.name, debit: inventoryDebit, credit: 0 }];
+    // Typed inventory COA per destination warehouse (not bare coa_inventory).
+    let invGroups = inventoryAmountLinesByWarehouse(db, priced.map((r) => ({
+      warehouseId: r.warehouse_id || whId,
+      amountRial: r.amount_rial,
+    })));
+    if (!invGroups.length) {
+      const fallback = inventoryAccountForWarehouse(db, whId);
+      invGroups = [{ code: fallback.code, name: fallback.name, amountRial: netBeforeVat }];
+    } else {
+      // Absorb rounding so inventory debits == netBeforeVat
+      const sumInv = invGroups.reduce((s, g) => s + g.amountRial, 0);
+      const drift = Math.round(netBeforeVat) - sumInv;
+      if (drift !== 0) invGroups[invGroups.length - 1].amountRial += drift;
+    }
+    const jLines = invGroups.map((g) => ({
+      code: g.code, name: g.name, debit: rialToLedger(g.amountRial), credit: 0,
+    }));
     if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: rialToLedger(vatAmount), credit: 0, description: 'مالیات خرید' });
     jLines.push({ code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(final) });
     assertJournalLinesBalanced(jLines, 'فاکتور خرید');
@@ -481,7 +495,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       const hasNewShape = !!purchaseLed;
       const payTypeResolved = row.pay_type === 'bank_transfer' ? 'bank' : row.pay_type;
       const payable = payableAcct(db, row.supplier_id);
-      const invAcct = coaAcct(db, 'coa_inventory');
+      const invAcct = inventoryAccountForWarehouse(db, row.warehouse_id);
       const vatRec = coaAcct(db, 'coa_vat_receivable');
       const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0)
         + (freightChargedToCounterparty(row.freight_type) ? Math.round(row.freight_amount || 0) : 0);
@@ -627,11 +641,11 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       'INSERT INTO purchase_returns (user_id,supplier_id,purchase_invoice_id,date,note,rows,amount) VALUES (?,?,?,?,?,?,?)'
     ).run(req.user.id, supplier_id, purchase_invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built.rows), amount);
     const retId = result.lastInsertRowid;
+    const parent = purchase_invoice_id
+      ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(purchase_invoice_id)
+      : null;
 
     if (perpetualDocsEnabled(db)) {
-      const parent = purchase_invoice_id
-        ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(purchase_invoice_id)
-        : null;
       for (const r of built.rows) {
         const whId = r.warehouse_id || parent?.warehouse_id || null;
         postInventoryMovement(db, {
@@ -675,12 +689,14 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       description: `برگشت از خرید #${retId}`, debit: amount, credit: 0, user_id: req.user.id
     });
     assertJournalIdempotent(db, 'purchase_return', retId);
+    const retWh = parent?.warehouse_id || built.rows[0]?.warehouse_id || null;
+    const retInv = inventoryAccountForWarehouse(db, retWh);
     postToLedger(db, {
       sourceType: 'purchase_return', sourceId: retId,
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
       lines: [
         (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: rialToLedger(amount), credit: 0 };})(),
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: rialToLedger(amount) }
+        { code: retInv.code, name: retInv.name, debit: 0, credit: rialToLedger(amount) }
       ]
     });
     return retId;
@@ -727,11 +743,15 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
       supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
       description: `ابطال برگشت از خرید #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
     });
+    const parentInv = row.purchase_invoice_id
+      ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(row.purchase_invoice_id)
+      : null;
+    const revInv = inventoryAccountForWarehouse(db, parentInv?.warehouse_id || null);
     const reversalId = postToLedger(db, {
       sourceType: 'purchase_return_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال برگشت از خرید #${row.id}`, createdBy: req.user.id,
       lines: [
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: revInv.code, name: revInv.name, debit: rialToLedger(row.amount), credit: 0 },
         (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
       ]
     });

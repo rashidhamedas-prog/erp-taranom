@@ -806,8 +806,10 @@ function applySettle(db, row, path, { date, note, user, body }) {
       db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(inv.invId);
       const cogsAmt = stocked.cogsRial || purchaseAmt;
       if (cogsAmt > 0) {
+        const invCoa = inventoryAccountForWarehouse(db, row.warehouse_id);
         const cogsJe = postCogsFromMovements(db, {
           invId: inv.invId, num: inv.num, date, userId: user.id, cogsRial: cogsAmt,
+          inventoryCoaCode: invCoa.code,
         });
         if (!settleJeId) settleJeId = cogsJe;
       }

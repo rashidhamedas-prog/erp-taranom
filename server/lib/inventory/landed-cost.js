@@ -7,7 +7,10 @@
  */
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
-const { postInventoryMovement, reverseInventoryMovement, invErr } = require('./ledger');
+const {
+  postInventoryMovement, reverseInventoryMovement, invErr,
+  inventoryAccountForWarehouse, inventoryAmountLinesByWarehouse,
+} = require('./ledger');
 const { reverseJournalEntry } = require('../void-journal');
 
 function nextDocNo(db) {
@@ -109,8 +112,8 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
 
   const results = [];
   let allocatedSum = 0;
-  const invAcct = acct(db, 'coa_inventory');
   const ctrAcct = acct(db, counterpartAcctKey);
+  const shareByWh = [];
 
   db.transaction(() => {
     db.prepare('DELETE FROM landed_cost_allocations WHERE doc_id=?').run(docId);
@@ -181,18 +184,27 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
       ins.run(docId, a.product_id, a.warehouse_id || null, Number(a.qty) || 0,
         Math.round(Number(a.base_value_rial) || 0), share, ledgerId);
       results.push({ product_id: a.product_id, allocated_rial: share, ledger_id: ledgerId });
+      shareByWh.push({ warehouseId: a.warehouse_id || null, amountRial: share });
     }
 
+    let invGroups = inventoryAmountLinesByWarehouse(db, shareByWh);
+    if (!invGroups.length) {
+      const fb = inventoryAccountForWarehouse(db, null);
+      invGroups = [{ code: fb.code, name: fb.name, amountRial: total }];
+    }
+    const jeLines = invGroups.map((g) => ({
+      code: g.code, name: g.name, debit: g.amountRial / 10, credit: 0, description: 'تسهیم هزینه حمل',
+    }));
+    jeLines.push({
+      code: ctrAcct.code, name: ctrAcct.name, debit: 0, credit: total / 10, description: 'بدهی هزینه حمل',
+    });
     const jeId = postToLedger(db, {
       sourceType: 'landed_cost',
       sourceId: docId,
       date: date || doc.date,
       description: `هزینه‌های جانبی خرید ${doc.doc_no}`,
       createdBy,
-      lines: [
-        { code: invAcct.code, name: invAcct.name, debit: total / 10, credit: 0, description: 'تسهیم هزینه حمل' },
-        { code: ctrAcct.code, name: ctrAcct.name, debit: 0, credit: total / 10, description: 'بدهی هزینه حمل' },
-      ],
+      lines: jeLines,
     });
 
     db.prepare("UPDATE landed_cost_docs SET status='posted', je_id=? WHERE id=?").run(jeId, docId);

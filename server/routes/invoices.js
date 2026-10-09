@@ -650,8 +650,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         }
         // Periodic warehouses defer COGS to period-close — never post invoice_cogs here.
         if (warehouseUsesPerpetualValuation(db, whId) && saleCogsRial > 0) {
+          const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
+          const invCoa = inventoryAccountForWarehouse(db, whId);
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
+            inventoryCoaCode: invCoa.code,
           });
         }
         if (invType === 'final') enqueueMoadian(db, 'sales', invId);
@@ -1079,8 +1082,11 @@ router.post('/:id/convert', auth, (req, res) => {
         });
       }
       if (warehouseUsesPerpetualValuation(db, convertWhId) && saleCogsRial > 0) {
+        const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
+        const invCoa = inventoryAccountForWarehouse(db, convertWhId);
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
+          inventoryCoaCode: invCoa.code,
         });
       }
       if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);

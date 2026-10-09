@@ -405,18 +405,30 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     const valuationWh = type === 'receipt' ? toWh : fromWh;
     if (!isPeriodicWarehouse(db, valuationWh)) {
       const inventory = inventoryAccountForWarehouse(db, valuationWh);
-      const isOpening = !!(body.opening || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
-      const counterpart = acct(db, type === 'receipt'
-        ? (isOpening ? 'coa_opening_balance' : 'coa_adjustment')
-        : 'coa_inventory_loss');
+      const receiptClass = String(body.receipt_class || body.counterpart || '').toLowerCase().trim();
+      const isOpening = !!(body.opening || receiptClass === 'opening'
+        || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+      const isGrni = !isOpening && (receiptClass === 'grni' || receiptClass === 'supplier'
+        || receiptClass === 'supplier_receipt');
+      // Purchase with invoice must use /purchases or /procurement GR — not this path with 9999.
+      // Classes: opening→3102 | grni→2112 | adjustment (default)→9999 for ops/count fixes.
+      let counterpartKey = 'coa_inventory_loss';
+      if (type === 'receipt') {
+        counterpartKey = isOpening ? 'coa_opening_balance' : (isGrni ? 'coa_grni' : 'coa_adjustment');
+      }
+      const counterpart = acct(db, counterpartKey);
       const lineCc = whCc(valuationWh);
+      const receiptJeType = isOpening ? 'opening_inventory'
+        : (isGrni ? 'warehouse_receipt_grni' : `warehouse_${type}_batch`);
       jeId = postToLedger(db, {
-        sourceType: isOpening && type === 'receipt' ? 'opening_inventory' : `warehouse_${type}_batch`,
+        sourceType: type === 'receipt' ? receiptJeType : `warehouse_${type}_batch`,
         sourceId: ids[0],
         date,
-        description: isOpening && type === 'receipt'
+        description: type === 'receipt' && isOpening
           ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
-          : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`,
+          : (type === 'receipt' && isGrni
+            ? `رسید تأمین‌کننده (GRNI) — انبار ${num} (${ids.length} ردیف)`
+            : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`),
         createdBy: user.id,
         voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
         srcSystem: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
