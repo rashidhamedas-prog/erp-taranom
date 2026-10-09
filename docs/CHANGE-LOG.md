@@ -4,7 +4,7 @@
 - **P0:** فیلدهای صریح `receivables_gross_*` / `receivables_net_signed` روی `/dashboard/summary` و overview؛ `ALLOWED_KEYS`+UI برای `coa_sales_return` و کلیدهای چک/کارت؛ `POST /accounting/repair-ar-tafsili`؛ متن پورتال؛ Help؛ capture map؛ تست `test-crm-sales-acc-adr004-v337.js`.
 - **فایل‌ها:** `docs/architecture/CRM-SALES-ACCOUNTING-RESEARCH.md`, `CRM-SALES-ACC-ADR-004.md`, `routes/{settings,dashboard,accounting}.js`, `sync/capture.js`, `public/{app.js,sw.js}`, `scripts/test-crm-sales-acc-adr004-v337.js`, CHANGE-LOG.
 - **تست:** روی ایران `test-crm-sales-acc-adr004-v337` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `c516030` — overlay ایران + export `foldSignedRows`؛ `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v337`؛ تست ADR روی ایران + sms ۲۲/۰ + sync ۴۴/۰.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق اشخاص↔حسابداری (پیش‌ADR جامع)
 
