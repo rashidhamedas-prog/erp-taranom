@@ -5,7 +5,7 @@
 - **تصمیم باز:** (۱) فقط UI/API + wiring با فرمول فعلی، یا (۲) موتور IAS 2 ثابت/متغیر جدا.
 - **فایل‌ها:** `docs/architecture/PROD-OH-DRIVERS-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `51d8c5d` — overlay docs ایران (درخت سرور کثیف؛ بدون restart لازم)، ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۶ — گزارش جامع انبار: میانگین بها ۱۰× (ریال/تومان) (SW v333)
 
