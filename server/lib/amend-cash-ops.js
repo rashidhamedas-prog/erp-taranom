@@ -652,8 +652,11 @@ function amendExpensePayment(db, id, body, userId) {
     purchaseId, posting.isOverhead, row.id
   );
 
+  const expSrc = posting.isOverhead || posting.section === 'production_overhead'
+    ? 'production_overhead_actual'
+    : 'expense_payment';
   const jeId = rewriteOrThrow(db, {
-    sourceType: 'expense_payment', sourceId: row.id,
+    sourceType: expSrc, sourceId: row.id,
     date, description: `پرداخت هزینه: ${title}`,
     costCenterId: posting.costCenterId, lines,
   });

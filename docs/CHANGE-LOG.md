@@ -1,13 +1,24 @@
+### ۱۴۰۵/۰۷/۱۸ — ADR-003 + اجرای P0–P3 حسابداری تولید (SW v336)
+
+- **تصمیم:** `PROD-ACC-ADR-003` — شش گزینهٔ تحقیق قفل و پیاده شد.
+- **P0:** cutting → PRD-01/09/07؛ `assertPeriodOpen` روی issue مرحله؛ هزینه سربار → `production_overhead_actual`؛ precheck حقوق/سربار هم‌تراز واقعیت.
+- **P1:** پنل تنظیمات حرفه‌ای روی «نرخ سربار» + `GET/PUT /production/config` کامل (انبارها از جمله WIP، آستانه‌ها، تحلیل پیش‌فرض، گیت JE/Backflush).
+- **P2:** absorb٪ در preview/rollup؛ بستن 5214+5215؛ PRD-16 by→1104 / scrap→1113.
+- **P3:** گزارش reconciliation کنترل‌های ۵۲۰۱/۵۲۰۲/۵۲۰۳؛ Help.
+- **فایل‌ها:** `lib/production/{cutting,posting,close,engine,engine-advanced,bom-advanced,schema,reports}.js`, `routes/{production,expenses}.js`, `amend-cash-ops.js`, `public/{app.js,sw.js}`, `scripts/test-prod-acc-adr003-v336.js`, ADR-003 + research.
+- **تست:** `test-prod-acc-adr003-v336` (+ sms/sync روی ایران).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق تولید↔حسابداری (پیش‌ADR جامع)
 
 - **هدف:** قفل وابستگی تک‌به‌تک همهٔ آیتم‌های منوی تولید، قالب‌های PRD/JE، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های P0–P3 قبل از هر تغییر schema/UI گسترده.
 - **یافته‌های قفل‌شده:** PRD-04/06/11/12/17 در کاتالوگ‌اند ولی پست نمی‌شوند (حقوق/هزینه جایگزین)؛ cutting با `postToLedger` موازی بدون تگ PRD؛ `5214` پست نمی‌شود؛ preview/rollup بدون `absorb_pct`؛ پنل Production Settings و بیشتر `production_*` seed بدون UI؛ issue مرحلهٔ advanced گیت ماه ناقص؛ legacy بدون JE (نوشتن گیت‌شده).
 - **تأیید FIXED نسبت به موج‌های قبلی:** F06 pack+PO، F01 costing، packaging→1112 در ledger، R13 شمارنده OH (v334).
 - **مرجع:** ERPNext Work Order/WIP WH؛ ADR-001/002 حفظ؛ وابسته به تحقیق انبار برای typed COA ورودی مواد.
-- **تصمیم باز:** واقعی‌سازی PRD-04/06 vs docs؛ تگ PRD برای cutting؛ نقش 5214؛ حساب محصول فرعی؛ ترتیب P0 قبل از UI تنظیمات.
+- **تصمیم:** قفل در ADR-003 و پیاده‌سازی SW v336.
 - **فایل‌ها:** `docs/architecture/PRODUCTION-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** ✅ `24a2dd5` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
+- **Deploy:** ✅ `24a2dd5` / stamp `63cc982` — overlay docs ایران؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — بانک و صندوق گزینه ۱: ADR + صحت + تنظیمات حرفه‌ای (SW v335)
 

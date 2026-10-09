@@ -14661,10 +14661,51 @@ async function renderProductionRatesTab(body){
     const raw=await api('GET','/pricing-rules');
     pricing=Array.isArray(raw)?raw:(raw?.rows||[]);
   }catch(e){ pricing=[]; }
+  let prodCfg={};
+  try{ prodCfg=await api('GET','/production/config')||{}; }catch(e){ prodCfg={}; }
+  let whRows=[];
+  try{ whRows=await api('GET','/warehouses')||[]; if(!Array.isArray(whRows)) whRows=whRows.rows||[]; }catch(e){ whRows=[]; }
+  const whOpt=(key)=>{
+    const cur=String(prodCfg[key]||'');
+    return `<option value="">—</option>`+whRows.map(w=>`<option value="${w.id}" ${String(w.id)===cur?'selected':''}>${esc(w.code||'')} ${esc(w.name||'')}</option>`).join('');
+  };
   const globalRule=pricing.find(r=>r.scope==='global')||pricing[0]||{wholesale_markup_pct:20,retail_markup_pct:35,id:null};
   const wPct=Number(globalRule.wholesale_markup_pct??20);
   const rPct=Number(globalRule.retail_markup_pct??35);
+  const an=String(prodCfg.production_default_analysis||'fixed');
   body.innerHTML=`<div class="prod-scope">
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+      <div class="panel-head"><h4>تنظیمات حرفه‌ای تولید</h4></div>
+      <div class="panel-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">انبارهای پیش‌فرض، آستانه‌های انحراف/ضایعات، تحلیل پیش‌فرض سفارش و گیت ثبت سند. طبق ADR-003 قبل از تغییر موتور، این‌ها از اینجا ذخیره می‌شوند.</p>
+        <div class="form-grid">
+          <div class="fg"><label>انبار مواد</label><select id="pcfg-wh-raw">${whOpt('production_wh_raw_id')}</select></div>
+          <div class="fg"><label>انبار محصول</label><select id="pcfg-wh-fg">${whOpt('production_wh_fg_id')}</select></div>
+          <div class="fg"><label>انبار WIP برش</label><select id="pcfg-wh-wip">${whOpt('production_wh_wip_id')}</select></div>
+          <div class="fg"><label>انبار ضایعات</label><select id="pcfg-wh-scrap">${whOpt('production_wh_scrap_id')}</select></div>
+          <div class="fg"><label>انبار پیمانکار</label><select id="pcfg-wh-sub">${whOpt('production_wh_sub_id')}</select></div>
+          <div class="fg"><label>انبار پخش</label><select id="pcfg-wh-dist">${whOpt('production_wh_dist_id')}</select></div>
+          <div class="fg"><label>تحلیل پیش‌فرض سفارش</label>
+            <select id="pcfg-analysis">
+              <option value="fixed" ${an==='fixed'?'selected':''}>ثابت ساده</option>
+              <option value="variable" ${an==='variable'?'selected':''}>متغیر ساده</option>
+              <option value="fixed_adv" ${an==='fixed_adv'?'selected':''}>ثابت پیشرفته</option>
+              <option value="variable_adv" ${an==='variable_adv'?'selected':''}>متغیر پیشرفته</option>
+            </select>
+          </div>
+          <div class="fg"><label>ضایعات نرمال پیش‌فرض ٪</label><input id="pcfg-waste" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_normal_waste_default_pct||'3')}"></div>
+          <div class="fg"><label>آستانه انحراف بستن ٪</label><input id="pcfg-var-th" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_variance_threshold_pct||'0.5')}"></div>
+          <div class="fg"><label>آستانه هشدار بها ٪</label><input id="pcfg-dev" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_cost_deviation_alert_pct||prodCfg.production_cost_deviation_pct||'15')}"></div>
+          <div class="fg"><label>افق MRP (روز)</label><input id="pcfg-mrp" type="number" min="1" max="365" value="${esc(prodCfg.production_mrp_horizon_days||'30')}"></div>
+          <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:14px;align-items:center`)}">
+            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-auto-je" ${prodCfg.production_auto_post_je!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ثبت خودکار سند حسابداری</label>
+            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-backflush" ${prodCfg.production_backflush_on_receipt!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> Backflush در رسید ثابت</label>
+            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-neg" ${prodCfg.production_allow_negative_stock==='1'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> اجازه موجودی منفی تولید</label>
+          </div>
+          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){saveProdProConfig()})}">ذخیره تنظیمات تولید</button></div>
+        </div>
+      </div>
+    </div>
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
       <div class="panel-head"><h4>فرمول قیمت‌گذاری پس از بهای تمام‌شده</h4></div>
       <div class="panel-body">
@@ -14707,6 +14748,28 @@ function pricingPreviewSync(){
   const rt=Math.round(cost*(1+r/100));
   const warn=r<w?'<div class="oh-warn">سود تک کمتر از عمده است — معمولاً قیمت تک باید بالاتر باشد.</div>':'';
   box.innerHTML=`نمونه: اگر بها ${money(cost)} باشد، عمده <b>${money(wh)}</b> و تک <b>${money(rt)}</b>.${warn}`;
+}
+async function saveProdProConfig(){
+  try{
+    await api('PUT','/production/config',{
+      production_wh_raw_id:el('pcfg-wh-raw')?.value||'',
+      production_wh_fg_id:el('pcfg-wh-fg')?.value||'',
+      production_wh_wip_id:el('pcfg-wh-wip')?.value||'',
+      production_wh_scrap_id:el('pcfg-wh-scrap')?.value||'',
+      production_wh_sub_id:el('pcfg-wh-sub')?.value||'',
+      production_wh_dist_id:el('pcfg-wh-dist')?.value||'',
+      production_default_analysis:el('pcfg-analysis')?.value||'fixed',
+      production_normal_waste_default_pct:el('pcfg-waste')?.value||'3',
+      production_variance_threshold_pct:el('pcfg-var-th')?.value||'0.5',
+      production_cost_deviation_alert_pct:el('pcfg-dev')?.value||'15',
+      production_cost_deviation_pct:el('pcfg-dev')?.value||'15',
+      production_mrp_horizon_days:el('pcfg-mrp')?.value||'30',
+      production_auto_post_je:el('pcfg-auto-je')?.checked?1:0,
+      production_backflush_on_receipt:el('pcfg-backflush')?.checked?1:0,
+      production_allow_negative_stock:el('pcfg-neg')?.checked?1:0,
+    });
+    toast('تنظیمات حرفه‌ای تولید ذخیره شد','ok');
+  }catch(e){ toast(e.message||'خطا','err'); }
 }
 async function savePricingRule(id){
   const wholesale_markup_pct=parseFloat(el('prule-w')?.value);
@@ -25935,6 +25998,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
+        <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>

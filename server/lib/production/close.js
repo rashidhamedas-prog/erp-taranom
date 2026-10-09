@@ -412,15 +412,24 @@ function precheck(db, { period }) {
     items: openOrders.map(o => ({ order_no: o.order_no, wip_rial: Math.round(Number(o.wip_rial) || 0) })),
   });
 
+  // ADR-003 / PRD-04: payroll owns liabilities — accept payroll JE, records, or override.
+  const laborCode = (() => { try { return acct(db, 'coa_labor_control').code; } catch (_) { return '5201'; } })();
   const payrollPosted = db.prepare(`
     SELECT COUNT(*) c FROM journal_entries
-    WHERE ref_type = 'production_labor_actual' AND entry_date <= ?
+    WHERE ref_type IN ('production_labor_actual','payroll') AND entry_date <= ?
       AND entry_date >= ? AND COALESCE(deleted_at, 0) = 0
   `).get(endDate, row.start_date || `${period}/01`);
   let payrollCount = Number(payrollPosted?.c) || 0;
-  // PA-07 / ADR-001 #5: payroll owns liabilities; production only allocates labor.
-  // Accept a live (non-reversed) payroll_records row for the period as well as the
-  // production_labor_actual allocation JE, so the precheck matches the payroll source.
+  let payrollOnControl = 0;
+  try {
+    payrollOnControl = Number(db.prepare(`
+      SELECT COUNT(DISTINCT je.id) c
+      FROM journal_entries je
+      JOIN journal_lines jl ON jl.entry_id = je.id
+      WHERE je.ref_type = 'payroll' AND je.entry_date <= ? AND je.entry_date >= ?
+        AND COALESCE(je.deleted_at, 0) = 0 AND jl.account_code = ?
+    `).get(endDate, row.start_date || `${period}/01`, laborCode)?.c) || 0;
+  } catch (_) { payrollOnControl = 0; }
   let payrollRecCount = 0;
   try {
     payrollRecCount = Number(db.prepare(`
@@ -430,25 +439,41 @@ function precheck(db, { period }) {
     `).get(period, row.start_date || `${period}/01`, endDate)?.c) || 0;
   } catch (_) { payrollRecCount = 0; }
   const payrollSetting = setting(db, 'production_close_payroll_posted', '');
-  const payrollOk = payrollCount > 0 || payrollRecCount > 0 || payrollSetting === '1';
+  const payrollOk = payrollCount > 0 || payrollOnControl > 0 || payrollRecCount > 0 || payrollSetting === '1';
   checks.push({
     code: 'PAYROLL_POSTED',
     status: payrollOk ? 'pass' : 'fail',
     severity: 'error',
     message: payrollOk
-      ? (payrollCount > 0 ? 'حقوق ثبت شده ✅' : 'حقوق ماه در ماژول حقوق ثبت شده ✅ (تسهیم دستمزد تولید جداگانه)')
+      ? (payrollCount > 0 || payrollOnControl > 0
+        ? 'حقوق ثبت شده ✅'
+        : 'حقوق ماه در ماژول حقوق ثبت شده ✅ (تسهیم دستمزد تولید جداگانه)')
       : 'حقوق ماه هنوز ثبت نشده',
   });
 
+  // ADR-003 / PRD-06: production_overhead_actual OR legacy expense_payment → 5202
+  const ohCode = (() => { try { return acct(db, 'coa_overhead_control').code; } catch (_) { return '5202'; } })();
   const ohActual = db.prepare(`
     SELECT COUNT(*) c FROM journal_entries
     WHERE ref_type = 'production_overhead_actual' AND entry_date <= ?
       AND entry_date >= ? AND COALESCE(deleted_at, 0) = 0
   `).get(endDate, row.start_date || `${period}/01`);
-  const ohCount = Number(ohActual?.c) || 0;
+  let ohCount = Number(ohActual?.c) || 0;
+  if (!ohCount) {
+    try {
+      ohCount = Number(db.prepare(`
+        SELECT COUNT(DISTINCT je.id) c
+        FROM journal_entries je
+        JOIN journal_lines jl ON jl.entry_id = je.id
+        WHERE je.ref_type IN ('expense_payment','production_overhead_actual')
+          AND je.entry_date <= ? AND je.entry_date >= ?
+          AND COALESCE(je.deleted_at, 0) = 0 AND jl.account_code = ?
+      `).get(endDate, row.start_date || `${period}/01`, ohCode)?.c) || 0;
+    } catch (_) { /* ignore */ }
+  }
   const lastOh = db.prepare(`
     SELECT MAX(entry_date) d FROM journal_entries
-    WHERE ref_type = 'production_overhead_actual' AND entry_date <= ?
+    WHERE ref_type IN ('production_overhead_actual','expense_payment') AND entry_date <= ?
       AND COALESCE(deleted_at, 0) = 0
   `).get(endDate)?.d;
   checks.push({
@@ -603,10 +628,18 @@ function execute(db, { period, method, userId, date }) {
     });
     if (j21) journal_entries.push({ event: 'PRD-21', ...j21 });
 
+    let budgetRial = 0;
+    try {
+      budgetRial = Math.round(Number(db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(budget_fixed_oh_rial,0)+COALESCE(budget_var_oh_rial,0)),0) s
+        FROM cost_center_rates WHERE period_label=? AND COALESCE(status,'active') IN ('active','posted','')
+      `).get(period)?.s) || 0);
+    } catch (_) { budgetRial = 0; }
     const j22 = postCloseOverhead(db, {
       closeId, date: endDate, userId,
       appliedRial: variances.overhead.applied_rial,
       varianceRial: variances.overhead.variance_rial,
+      budgetRial: budgetRial > 0 ? budgetRial : null,
     });
     journal_entries.push(...j22.map(j => ({ event: 'PRD-22', ...j })));
 

@@ -1,4 +1,12 @@
-﻿## 2026-10-10 — Production accounting full research (docs-only)
+﻿## 2026-10-10 — ADR-003 production accounting P0–P3 implement (SW v336)
+
+- Owner: skill-top full — user asked to execute all open decisions in priority order.
+- Stale claim: PROD-ACC-PA02 lists production libs + public + CHANGE-LOG. Reclaimed for ADR-003 implementation; notify PROD-ACC owner.
+- Locked: docs/architecture/PROD-ACC-ADR-003-locked-decisions.md
+- Code: cutting PRD tags, stage issue period gate, expense→production_overhead_actual, close precheck+5214, absorb preview/rollup, PRD-16 accounts, production settings UI/API, reconciliation controls, Help, SW v336.
+- Tests: test-prod-acc-adr003-v336 static 11/0 locally (sqlite ABI skip); sms 22/0; full DB suite on Iran.
+
+## 2026-10-10 — Production accounting full research (docs-only)
 
 - Owner: skill-top full + ECC + tap-erp-architecture on «هر آیتم تولید قوانین/تنظیمات/JE دقیق».
 - Stale claim: PROD-ACC-PA02 still lists `docs/CHANGE-LOG.md`. This session reclaims CHANGE-LOG only for research entry; did not edit production libs, posting, engine, cutting, sync, or public UI.

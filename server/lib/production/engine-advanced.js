@@ -1007,6 +1007,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     let byCredit = 0;
     const scrapWh = whSetting(db, 'production_wh_scrap_id');
 
+    const fgWh = po.warehouse_fg_id || whSetting(db, 'production_wh_fg_id');
     for (const o of outs.filter(x => ['by', 'scrap'].includes(x.output_type))) {
       if (o.cost_method === 'zero') continue;
       const q = round6(num(o.qty_per_base) * qtyStart / (bom.base_qty || 1));
@@ -1015,11 +1016,14 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       if (!amt) continue;
       byCredit += amt;
 
+      // ADR-003: scrap→1113+WH scrap؛ by (همزاد)→1104+WH FG
+      const isScrapOut = o.output_type === 'scrap';
+      const invKey = isScrapOut ? 'coa_scrap_inventory' : 'coa_finished_goods';
       receiveScrap(db, {
         productId: o.product_id,
         qty: q,
         unitRial: nrv,
-        warehouseId: scrapWh,
+        warehouseId: isScrapOut ? scrapWh : fgWh,
         userId,
         orderId,
         date,
@@ -1033,7 +1037,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         description: `محصول فرعی — ${po.order_no}`,
         createdBy: userId,
         lines: [
-          dr(db, 'coa_scrap_inventory', amt),
+          dr(db, invKey, amt),
           cr(db, 'coa_wip', amt, po.coa_wip_tafsili),
         ],
       });
@@ -1421,6 +1425,7 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
     const stage = getStage(db, orderId, stageId);
     const date = body.date || todayJalali();
     const period = jalaliPeriod(date);
+    assertPeriodOpen(db, period);
     const materials = body.materials || body.lines || [];
     if (!materials.length) throw err('E_QTY_INVALID', 422);
 

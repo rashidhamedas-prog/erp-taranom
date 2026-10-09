@@ -92,11 +92,22 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 const OVERHEAD_KEYS = ['overhead_method', 'overhead_fixed_rate', 'overhead_period_production_qty', 'overhead_auto_suggest'];
+const { PRODUCTION_SETTINGS } = require('../lib/production/schema');
+const PRO_SETTINGS_KEYS = [
+  ...OVERHEAD_KEYS,
+  ...Object.keys(PRODUCTION_SETTINGS),
+  'production_wh_wip_id',
+  'pricing_margin_percent',
+];
 
 function readConfig(db) {
-  const obj = { overhead_method: 'tag', overhead_fixed_rate: '0', overhead_period_production_qty: '0', overhead_auto_suggest: '0' };
-  db.prepare(`SELECT key,value FROM settings WHERE key IN (${OVERHEAD_KEYS.map(() => '?').join(',')})`)
-    .all(...OVERHEAD_KEYS).forEach(r => { obj[r.key] = r.value; });
+  const obj = {
+    overhead_method: 'tag', overhead_fixed_rate: '0',
+    overhead_period_production_qty: '0', overhead_auto_suggest: '0',
+    ...PRODUCTION_SETTINGS,
+  };
+  db.prepare(`SELECT key,value FROM settings WHERE key IN (${PRO_SETTINGS_KEYS.map(() => '?').join(',')})`)
+    .all(...PRO_SETTINGS_KEYS).forEach(r => { obj[r.key] = r.value; });
   obj.legacy_runs_enabled = legacyRunsEnabled(db) ? '1' : '0';
   obj.advanced_available = advancedProductionAvailable(db);
   obj.legacy_blocked = legacyBlocked(db);
@@ -109,23 +120,72 @@ router.get('/config', auth, adminOrAccounting, (req, res) => {
 
 const isOn = v => v === '1' || v === 1 || v === true;
 
+const WH_KEYS = new Set([
+  'production_wh_raw_id', 'production_wh_fg_id', 'production_wh_wip_id',
+  'production_wh_sub_id', 'production_wh_scrap_id', 'production_wh_dist_id',
+]);
+const BOOL_KEYS = new Set([
+  'production_auto_post_je', 'production_backflush_on_receipt',
+  'production_allow_negative_stock', 'production_module_enabled',
+  'production_period_auto_open', 'overhead_auto_suggest',
+]);
+const NUM_KEYS = new Set([
+  'overhead_fixed_rate', 'overhead_period_production_qty',
+  'production_variance_threshold_pct', 'production_normal_waste_default_pct',
+  'production_cost_deviation_alert_pct', 'production_cost_deviation_pct',
+  'production_oh_bootstrap_months', 'production_mrp_horizon_days',
+  'production_variance_reason_threshold_pct', 'production_margin_percent',
+  'pricing_margin_percent',
+]);
+
 router.put('/config', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { overhead_method, overhead_fixed_rate, overhead_period_production_qty, overhead_auto_suggest, legacy_runs_enabled } = req.body;
-  if (legacy_runs_enabled != null && isOn(legacy_runs_enabled) !== legacyRunsEnabled(db) && req.user.role !== 'admin') {
+  const body = req.body || {};
+  if (body.legacy_runs_enabled != null && isOn(body.legacy_runs_enabled) !== legacyRunsEnabled(db) && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'فعال/غیرفعال کردن اجرای تولید قدیمی فقط با نقش admin است', code: 'E_FORBIDDEN' });
   }
   const stmt = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
-  if (overhead_method) stmt.run('overhead_method', overhead_method);
-  if (overhead_fixed_rate != null) stmt.run('overhead_fixed_rate', String(parseFloat(overhead_fixed_rate) || 0));
-  if (overhead_period_production_qty != null) stmt.run('overhead_period_production_qty', String(parseInt(overhead_period_production_qty) || 0));
-  if (overhead_auto_suggest != null) stmt.run('overhead_auto_suggest', isOn(overhead_auto_suggest) ? '1' : '0');
-  if (legacy_runs_enabled != null) {
-    stmt.run(LEGACY_FLAG_KEY, isOn(legacy_runs_enabled) ? '1' : '0');
+  if (body.overhead_method) stmt.run('overhead_method', body.overhead_method);
+  if (body.legacy_runs_enabled != null) {
+    stmt.run(LEGACY_FLAG_KEY, isOn(body.legacy_runs_enabled) ? '1' : '0');
     audit(req.user.id, 'update', 'settings', null,
-      `اجرای تولید قدیمی: ${isOn(legacy_runs_enabled) ? 'فعال' : 'غیرفعال'}`);
+      `اجرای تولید قدیمی: ${isOn(body.legacy_runs_enabled) ? 'فعال' : 'غیرفعال'}`);
   }
-  audit(req.user.id, 'update', 'settings', null, 'تنظیم سربار تولید');
+  for (const key of PRO_SETTINGS_KEYS) {
+    if (body[key] == null || key === 'overhead_method') continue;
+    if (WH_KEYS.has(key)) {
+      const id = parseInt(body[key], 10);
+      if (body[key] === '' || body[key] === '0') { stmt.run(key, ''); continue; }
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const wh = db.prepare('SELECT id FROM warehouses WHERE id=? AND COALESCE(active,1)=1').get(id);
+      if (!wh) return res.status(400).json({ error: `انبار تنظیم ${key} نامعتبر است`, code: 'E_WH' });
+      stmt.run(key, String(id));
+      continue;
+    }
+    if (BOOL_KEYS.has(key)) {
+      stmt.run(key, isOn(body[key]) ? '1' : '0');
+      continue;
+    }
+    if (NUM_KEYS.has(key)) {
+      stmt.run(key, String(Number(body[key]) || 0));
+      continue;
+    }
+    if (key === 'production_default_analysis') {
+      const a = String(body[key] || 'fixed');
+      if (!['fixed', 'variable', 'fixed_adv', 'variable_adv'].includes(a)) continue;
+      stmt.run(key, a);
+      continue;
+    }
+    stmt.run(key, String(body[key]));
+  }
+  // Keep alert/pct aliases aligned
+  if (body.production_cost_deviation_alert_pct != null && body.production_cost_deviation_pct == null) {
+    stmt.run('production_cost_deviation_pct', String(Number(body.production_cost_deviation_alert_pct) || 15));
+  }
+  if (body.production_margin_percent != null && body.pricing_margin_percent == null) {
+    stmt.run('pricing_margin_percent', String(Number(body.production_margin_percent) || 0));
+  }
+  audit(req.user.id, 'update', 'settings', null, 'تنظیمات حرفه‌ای تولید');
   res.json(readConfig(db));
 });
 

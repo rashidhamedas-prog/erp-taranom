@@ -184,7 +184,9 @@ function createOrder(db, body, userId) {
   if (!productId) throw err('E_QTY_INVALID', 422);
   const date = body.date || todayJalali();
   const period = body.period_label || jalaliPeriod(date);
-  const analysisType = body.analysis_type || 'fixed';
+  const analysisType = body.analysis_type
+    || setting(db, 'production_default_analysis', 'fixed')
+    || 'fixed';
 
   const product = db.prepare('SELECT id, name, is_manufactured FROM products WHERE id=?').get(productId);
   if (!product) throw err('E_NOT_FOUND', 404);
@@ -557,6 +559,11 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     const jes = [];
 
     // ═══ ۱. Backflush (PRD-01) ═══
+    if (String(setting(db, 'production_backflush_on_receipt', '1')) === '0') {
+      throw err('E_BACKFLUSH_DISABLED', 422, {
+        hint: 'برای رسید ثابت، Backflush را در تنظیمات حرفه‌ای تولید روشن کنید یا حوالهٔ قبلی ثبت کنید',
+      });
+    }
     const ex = explodeBom(db, {
       bomId: po.bom_id,
       qty: qtyStarted,
@@ -1055,10 +1062,11 @@ function previewReceiptFixed(db, { orderId, body }) {
     const period = jalaliPeriod(body.date || po.date);
     const rate = getOverheadRate(db, po.cost_center_id, period);
     if (rate) {
+      const { appliedOverheadRial } = require('./overhead');
       const dq = computeDriverQty(db, {
         driver: rate.driver, po, qtyStarted, laborRial, matRial,
       });
-      ohRial = Math.round(num(rate.total_rate_rial) * dq);
+      ohRial = appliedOverheadRial(rate, dq);
     }
   } catch { /* ignore */ }
 

@@ -93,6 +93,16 @@ function inferCostCenterId(db, event, sourceId) {
 function postEvent(db, { event, sourceId, date, description, createdBy, lines, costCenterId }) {
   const spec = PRD[event];
   if (!spec) throw err('E_UNKNOWN_PRD', 500, { event });
+  // ADR-003 / P1: honor production_auto_post_je (close events always post)
+  const closeEvents = new Set(['PRD-21', 'PRD-22', 'PRD-23', 'PRD-99']);
+  if (!closeEvents.has(event)) {
+    try {
+      const v = db.prepare("SELECT value FROM settings WHERE key='production_auto_post_je'").get()?.value;
+      if (v === '0') throw err('E_JE_DISABLED', 422, { event });
+    } catch (e) {
+      if (e && e.code === 'E_JE_DISABLED') throw e;
+    }
+  }
   const clean = plug(lines);
   if (!clean.length) return null;
   const cc = costCenterId || inferCostCenterId(db, event, sourceId);
@@ -129,8 +139,11 @@ function postCloseLabor(db, { closeId, date, userId, controlBalance }) {
   });
 }
 
-/** PRD-22 — transfer applied OH to control, then close control to volume variance. */
-function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRial }) {
+/**
+ * PRD-22 — transfer applied OH to control, then close to budget (5214) + volume (5215).
+ * ADR-003: when budgetRial is provided, split remaining variance; else all → 5215.
+ */
+function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRial, budgetRial }) {
   const out = [];
   const applied = Math.round(Number(appliedRial) || 0);
   if (applied > 0) {
@@ -147,19 +160,31 @@ function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRia
     }));
   }
   const variance = Math.round(Number(varianceRial) || 0);
-  if (variance) {
-    const amt = Math.abs(variance);
-    const lines = variance > 0
-      ? [dr(db, 'coa_var_oh_volume', amt), cr(db, 'coa_overhead_control', amt)]
-      : [dr(db, 'coa_overhead_control', amt), cr(db, 'coa_var_oh_volume', amt)];
+  const budget = budgetRial != null ? Math.round(Number(budgetRial) || 0) : null;
+  const pushVar = (key, amount, label) => {
+    const amt = Math.round(Number(amount) || 0);
+    if (!amt) return;
+    const lines = amt > 0
+      ? [dr(db, key, amt), cr(db, 'coa_overhead_control', amt)]
+      : [dr(db, 'coa_overhead_control', Math.abs(amt)), cr(db, key, Math.abs(amt))];
     out.push(postEvent(db, {
       event: 'PRD-22',
       sourceId: closeId,
       date,
-      description: 'بستن انحراف سربار',
+      description: label,
       createdBy: userId,
       lines,
     }));
+  };
+  if (variance && budget != null && budget > 0) {
+    // actual ≈ applied + variance (after transfer semantics); budget variance = actual − budget
+    const actual = applied + variance;
+    const budgetVar = actual - budget;
+    const volumeVar = variance - budgetVar;
+    pushVar('coa_var_oh_budget', budgetVar, 'بستن انحراف بودجه سربار');
+    pushVar('coa_var_oh_volume', volumeVar, 'بستن انحراف حجم سربار');
+  } else if (variance) {
+    pushVar('coa_var_oh_volume', variance, 'بستن انحراف سربار');
   }
   return out.filter(Boolean);
 }

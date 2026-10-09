@@ -825,6 +825,23 @@ function reconciliation(db, { date } = {}) {
     return prods.reduce((s, r) => s + Math.round(Number(r.stock) * Number(r.average_cost_rial)), 0);
   });
 
+  // ADR-003 / P3: control accounts should be ~0 after a clean period close
+  for (const [label, key] of [
+    ['کنترل دستمزد ۵۲۰۱', 'coa_labor_control'],
+    ['کنترل سربار ۵۲۰۲', 'coa_overhead_control'],
+    ['سربار جذب‌شده ۵۲۰۳', 'coa_overhead_applied'],
+  ]) {
+    const bal = ledgerBalance(db, key, asOf);
+    rows.push({
+      label,
+      ledger_rial: bal,
+      calculated_rial: 0,
+      diff_rial: bal,
+      ok: Math.abs(bal) <= 5,
+      note: 'پس از بستن دوره باید ≈۰ باشد',
+    });
+  }
+
   return {
     data: { rows, as_of: asOf },
     totals: { mismatches: rows.filter(r => !r.ok).length },

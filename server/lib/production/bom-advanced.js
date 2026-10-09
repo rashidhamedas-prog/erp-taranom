@@ -4,7 +4,7 @@
  * NO ledger posting.
  */
 const { explodeBom, resolveBom } = require('./bom');
-const { getOverheadRate } = require('./overhead');
+const { getOverheadRate, appliedOverheadRial } = require('./overhead');
 const { setting } = require('./costing');
 const { todayJalali } = require('../../jalali');
 
@@ -256,7 +256,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     const rate = getOverheadRate(db, op.cost_center_id, period) || { total_rate_rial: 0, is_estimated: 1 };
     if (rate.is_estimated) warnings.push(`نرخ سربار «${cc.name}» برآوردی است`);
     const driverQty = stageDriverQty(db, op, cc, { qty: qtyIn, labor, material });
-    const overhead = Math.round(Number(rate.total_rate_rial || 0) * driverQty);
+    const overhead = appliedOverheadRial(rate, driverQty);
 
     const qtyOut = round6(
       qtyIn * ((Number(op.yield_percent) || 100) / 100)

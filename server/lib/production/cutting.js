@@ -10,9 +10,8 @@ const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement } = require('../inventory/ledger');
 const { adjustBatchQty } = require('../inventory/batch-serial');
 const { explodeBom, resolveBom, round6 } = require('./bom');
-const { dr, cr } = require('./posting');
+const { dr, cr, postEvent } = require('./posting');
 const { setting } = require('./costing');
-const { postToLedger } = require('../ledger');
 
 function httpErr(status, message, code, extra) {
   const e = new Error(message);
@@ -629,10 +628,11 @@ function postCuttingLay(db, body, user) {
         `).run(id, r.batch.id, r.meters, r.unit_cost_rial, r.amount_rial, led.id);
       }
 
+      // ADR-003: JE tags follow PRD catalog (inventory movements keep cutting_*).
       let journalId = null;
       if (amount > 0) {
-        journalId = postToLedger(db, {
-          sourceType: 'cutting_lay',
+        const je = postEvent(db, {
+          event: 'PRD-01',
           sourceId: id,
           date,
           description: `مصرف پارچه لایه‌چینی ${layNo}`,
@@ -642,11 +642,12 @@ function postCuttingLay(db, body, user) {
             cr(db, 'coa_raw_materials', amount),
           ],
         });
+        journalId = je ? je.je_id : null;
       }
       let wasteJe = null;
       if (plan.waste_abnormal_m > 0 && wasteAmt > 0) {
-        wasteJe = postToLedger(db, {
-          sourceType: 'cutting_lay_waste',
+        const wje = postEvent(db, {
+          event: 'PRD-09',
           sourceId: id,
           date,
           description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} متر`,
@@ -656,6 +657,7 @@ function postCuttingLay(db, body, user) {
             cr(db, 'coa_wip', wasteAmt),
           ],
         });
+        wasteJe = wje ? wje.je_id : null;
       }
       db.prepare('UPDATE cutting_lays SET journal_id=?, waste_journal_id=? WHERE id=?')
         .run(journalId, wasteJe, id);
@@ -696,14 +698,14 @@ function voidCuttingLay(db, id, user, { reason } = {}) {
       reverseJournalEntry(db, row.waste_journal_id, {
         userId: user.id,
         reason: reason || 'ابطال ضایعات برش',
-        sourceType: 'cutting_lay_reversal',
+        sourceType: 'production_waste_reversal',
       });
     }
     if (row.journal_id) {
       revJe = reverseJournalEntry(db, row.journal_id, {
         userId: user.id,
         reason: reason || 'ابطال لایه‌چینی',
-        sourceType: 'cutting_lay_reversal',
+        sourceType: 'production_material_issue_reversal',
       });
     }
     db.prepare(`
@@ -835,8 +837,8 @@ function postCuttingPack(db, layId, body, user) {
 
       let journalId = null;
       if (postsFg && wipNet > 0) {
-        journalId = postToLedger(db, {
-          sourceType: 'cutting_pack',
+        const je = postEvent(db, {
+          event: 'PRD-07',
           sourceId: id,
           date,
           description: `رسید برش ${qty} عدد — ${packNo}`,
@@ -846,6 +848,7 @@ function postCuttingPack(db, layId, body, user) {
             cr(db, 'coa_wip', wipNet),
           ],
         });
+        journalId = je ? je.je_id : null;
       }
       db.prepare('UPDATE cutting_packs SET journal_id=?, ledger_id=? WHERE id=?')
         .run(journalId, led.id, id);
@@ -921,7 +924,7 @@ function voidCuttingPack(db, packId, user, { reason } = {}) {
       revJe = reverseJournalEntry(db, pack.journal_id, {
         userId: user.id,
         reason: reason || 'ابطال رسید برش',
-        sourceType: 'cutting_pack_reversal',
+        sourceType: 'production_receipt_reversal',
       });
     }
     db.prepare("UPDATE cutting_pack_bundles SET status='reversed' WHERE pack_id=? AND status='posted'")

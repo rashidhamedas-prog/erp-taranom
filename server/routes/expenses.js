@@ -264,8 +264,12 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       amount: amt, feeRial: fee, payType: payTypeNorm,
       dest: acc, cash, destDescription: title || '',
     });
+    // ADR-003 / PRD-06: production overhead JE tagged for period-close precheck
+    const expSourceType = posting.isOverhead || posting.section === 'production_overhead'
+      ? 'production_overhead_actual'
+      : 'expense_payment';
     const entryId = postToLedger(db, {
-      sourceType: 'expense_payment', sourceId: expId,
+      sourceType: expSourceType, sourceId: expId,
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
       createdBy: req.user.id, costCenterId: posting.costCenterId,
       lines,
@@ -330,8 +334,11 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const { lines } = outboundPaymentReversalLines(db, {
       amount: row.amount, feeRial: row.fee_rial || 0, dest: acc, cash,
     });
+    const revSrc = Number(row.is_overhead) === 1
+      ? 'production_overhead_actual_reversal'
+      : 'expense_payment_reversal';
     const reversalId = postToLedger(db, {
-      sourceType: 'expense_payment_reversal', sourceId: row.id,
+      sourceType: revSrc, sourceId: row.id,
       date: todayJalali(), description: `ابطال پرداخت هزینه #${row.id}`, createdBy: req.user.id,
       costCenterId: row.cost_center_id || null,
       lines,
