@@ -5,7 +5,7 @@
 - **UI/Help:** مودال پنج‌لایه + راهنمای محرک؛ SW `erp-taranom-v334`.
 - **فایل‌ها:** `lib/production/{overhead,schema,engine,engine-advanced,bom-advanced}.js`, `public/{app.js,sw.js}`, `scripts/test-overhead-drivers-v334.js`, `docs/architecture/PROD-OH-DRIVERS-{RESEARCH,ADR-002}.md`, CHANGE-LOG.
 - **تست:** `test-overhead-drivers-v334` + `test-overhead-rates-v299` + `test-sms` (+ sync پس از بک‌اند).
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `b77682a` — overlay ایران + `pm2 restart` بدون `--update-env`؛ `test-overhead-drivers-v334` ۱۶/۰، `test-sync` ۴۴/۰، sms/rates سبز؛ ready=200؛ SW `erp-taranom-v334`.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق محرک‌های سربار (پیش‌ADR)
 

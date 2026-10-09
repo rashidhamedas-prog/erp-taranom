@@ -61,8 +61,14 @@ try {
   const rateId = db.prepare('SELECT id FROM cost_center_rates WHERE cost_center_id=? AND period_label=?')
     .get(ccId, PERIOD).id;
 
-  const product = db.prepare("SELECT id FROM products WHERE COALESCE(is_manufactured,0)=1 LIMIT 1").get()
-    || db.prepare('SELECT id FROM products LIMIT 1').get();
+  let product = db.prepare('SELECT id FROM products LIMIT 1').get();
+  if (!product) {
+    const info = db.prepare(
+      "INSERT INTO products (user_id,name,price,stock) VALUES (1,'تست OH v334',0,0)"
+    ).run();
+    product = { id: info.lastInsertRowid };
+    try { db.prepare('UPDATE products SET is_manufactured=1 WHERE id=?').run(product.id); } catch { /* optional col */ }
+  }
   ok('has product', !!product?.id);
 
   let bomId = null;
