@@ -115,12 +115,18 @@ function syncPartyToLegacy(db, partyId) {
       ? db.prepare('SELECT * FROM suppliers WHERE id=?').get(p.legacy_id)
       : db.prepare('SELECT * FROM suppliers WHERE party_id=?').get(partyId);
     const name = p.company_name || p.full_name || p.biz;
+    // ADR-PARTY-001: dual-role must not copy AR leaf onto supplier AP.
+    const supplierCoaOnCreate = isCustomer ? '' : (p.coa_code || '');
     if (!sup) {
       const r = db.prepare(`
         INSERT INTO suppliers (name,phone,address,note,party_id,party_group_id,coa_code)
         VALUES (?,?,?,?,?,?,?)
-      `).run(name, p.phone || '', p.address || '', p.notes || '', partyId, p.party_group_id || null, p.coa_code || '');
+      `).run(name, p.phone || '', p.address || '', p.notes || '', partyId, p.party_group_id || null, supplierCoaOnCreate);
       if (!isCustomer) db.prepare('UPDATE parties SET legacy_table=?, legacy_id=? WHERE id=?').run('suppliers', r.lastInsertRowid, partyId);
+    } else if (isCustomer) {
+      db.prepare(`
+        UPDATE suppliers SET name=?, phone=?, address=?, note=?, party_id=?, party_group_id=? WHERE id=?
+      `).run(name, p.phone || '', p.address || '', p.notes || '', partyId, p.party_group_id || null, sup.id);
     } else {
       db.prepare(`
         UPDATE suppliers SET name=?, phone=?, address=?, note=?, party_id=?, party_group_id=?, coa_code=? WHERE id=?
@@ -129,6 +135,9 @@ function syncPartyToLegacy(db, partyId) {
   }
 
   try { require('./party-employee-sync').syncPartyToPerson(db, partyId); } catch (_) { /* persons projection is best-effort */ }
+  if (isCustomer && isSupplier) {
+    try { require('./party-tafsili').ensureDualRoleSeparateLeaves(db, partyId); } catch (_) { /* optional */ }
+  }
 }
 
 /** Resolve CRM customer ids linked to a party (party_id and/or legacy pointer). */

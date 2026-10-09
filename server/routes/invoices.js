@@ -29,6 +29,7 @@ const {
 } = require('../lib/invoice-payments');
 const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
 const { amendPostedInvoiceInPlace, defaultVatExempt, resolveVatExemptFlag } = require('../lib/amend-invoice');
+const { assertPartyCreditLimitOk, invoiceArDeltaRial } = require('../lib/party-credit');
 // NONTAX-P0-atp: available-to-promise gate for firm sales (non-tax; no VAT/Moadian field is touched).
 const { ensureAtpSchema, FULFILLMENT_STATES } = require('../lib/inventory/atp-schema');
 const {
@@ -568,6 +569,16 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       applyHeaderWarehouseToLines(built.rows, whId, { force: isSalesRep });
       assertWarehouseLines(db, built.rows, whId, { requirePositive: true, allowNegativeProduct: true });
     } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+    try {
+      const arDelta = invoiceArDeltaRial(final, payPlan, storedPayType);
+      assertPartyCreditLimitOk(db, cust_id, arDelta);
+    } catch (e) {
+      return res.status(e.status || 409).json({
+        error: e.message, code: e.code || 'E_CREDIT_LIMIT',
+        credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial,
+        additional_rial: e.additional_rial, available_rial: e.available_rial,
+      });
+    }
   }
 
   let created;
@@ -1016,6 +1027,17 @@ router.post('/:id/convert', auth, (req, res) => {
     }
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+  }
+  try {
+    const storedPt = convertPay.skipInvoiceCash ? 'credit' : (inv.pay_type || 'cash');
+    const arDelta = invoiceArDeltaRial(totals.final, convertPay, storedPt);
+    assertPartyCreditLimitOk(db, inv.cust_id, arDelta);
+  } catch (e) {
+    return res.status(e.status || 409).json({
+      error: e.message, code: e.code || 'E_CREDIT_LIMIT',
+      credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial,
+      additional_rial: e.additional_rial, available_rial: e.available_rial,
+    });
   }
 
   let convertFulfillment = null;

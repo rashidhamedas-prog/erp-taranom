@@ -1,7 +1,8 @@
 # تحقیق اشخاص — تنظیمات حرفه‌ای + ثبت‌های دقیق حسابداری
 
-**وضعیت:** Research (pre-ADR جامع) — Wave 0 freeze قبل از هر تغییر schema/UI گسترده  
+**وضعیت:** Research ✅ → ADR-PARTY-001 Accepted + P0 shipped (SW v337)  
 **تاریخ:** ۱۴۰۵/۰۷/۱۸  
+**ADR:** `PARTY-ACC-ADR-001.md` 
 **منبع:** skill-top **full** + tap-erp-architecture + ECC (architect/planner) + متخصصان موازی  
 [Map persons ops to JE](f18ca5ed-fc63-4e73-9c83-da779b59eb0c) · [Persons pro settings matrix](3ff84cd6-784a-4e0c-a270-34fecd9a6198) · [Cross-deps parties payroll cheque](0e1366a9-9c5e-4cc9-b758-6dfb36b3f731) · Verify [spot-check](24961361-5079-4336-8071-d2c1e4849943)  
 **Slack:** در workspace متصل هیچ پیام/کانالی برای «اشخاص / طرف‌حساب / ترنم» یافت نشد — منبع حقیقت کد + `ACC-CRM-UNIFY-AUDIT` + CHANGE-LOG است.  
@@ -185,17 +186,13 @@
 
 ---
 
-## ۹) پیشنهاد ADR بعدی (پیش‌نویس قفل‌نشده)
+## ۹) ADR-PARTY-001 — Accepted (Option 1 Minimal)
 
-**ADR-PARTY-001 — Option 1 Minimal (پیشنهاد پیش‌فرض، هم‌تراز Treasury ADR-001):**
+قفل در `PARTY-ACC-ADR-001.md`. P0 پیاده شد:
 
-- SoT تنظیمات حسابداری روی `parties`؛ mirror به legacy.  
-- Enforce `credit_limit > 0` روی فاکتور نسیه.  
-- Resolve leaf همیشه `coa_code`؛ `detail_accounts` یا sync ۱:۱ یا deprecate.  
-- Defaults گروه روی `party_groups` فقط برای create.  
-- P0 dual-book/dual-role قبل از UI تنظیمات گسترده.  
-- Full knobs (terms/withholding/default bank) فقط اگر کسب‌وکار تأیید کند.
+- Enforce `credit_limit` روی فاکتور رسمی / تبدیل پیش‌فاکتور (`E_CREDIT_LIMIT`)
+- چک دریافتنی: customer XOR person زیردفتر
+- Dual-role: برگ AR ≠ AP (`ensureDualRoleSeparateLeaves`)
+- تست: `server/scripts/test-party-acc-adr001-v337.js`
 
----
-
-*پایان Wave 0. هیچ تغییر schema/رفتار در این کامیت اعمال نشده — فقط docs.*
+موج‌های P1–P3 همچنان باز (پورتال، opening persons، defaults گروه، Full knobs).

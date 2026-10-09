@@ -53,6 +53,10 @@ function findCustomerId(db, { partyId, customerId }) {
   return null;
 }
 
+/**
+ * ADR-PARTY-001: customer XOR person for subledger targets.
+ * When a customer is linked, never also credit person_ledger for the same cheque.
+ */
 function resolveChequeInCredit(db, { partyId, customerId }) {
   const cid = findCustomerId(db, { partyId, customerId });
   if (cid) {
@@ -60,7 +64,7 @@ function resolveChequeInCredit(db, { partyId, customerId }) {
     return {
       creditAcct: receivableAcct(db, cid),
       customerId: cid,
-      personId: findLinkedPersonId(db, partyId),
+      personId: null,
     };
   }
   let person = null;
@@ -97,11 +101,19 @@ function resolveChequeInCredit(db, { partyId, customerId }) {
   };
 }
 
+/** Prefer customer; drop personId when both are set (XOR). */
+function xorChequeBookTargets(customerId, personId) {
+  if (customerId) return { customerId: Number(customerId), personId: null };
+  if (personId) return { customerId: null, personId: Number(personId) };
+  return { customerId: null, personId: null };
+}
+
 function postChequePartyBooks(db, {
   chequeId, customerId, personId, date, description, amountRial, userId, refType,
 }) {
   const rial = Math.round(Number(amountRial) || 0);
   if (!(rial > 0) || !chequeId) return;
+  ({ customerId, personId } = xorChequeBookTargets(customerId, personId));
   if (customerId) {
     const exists = db.prepare(`
       SELECT 1 FROM customer_ledger
@@ -280,6 +292,7 @@ function postChequeBounceBooks(db, {
 }) {
   const rial = Math.round(Number(amountRial) || 0);
   if (!(rial > 0) || !chequeId) return;
+  ({ customerId, personId } = xorChequeBookTargets(customerId, personId));
   if (customerId) {
     const exists = db.prepare(`
       SELECT 1 FROM customer_ledger
@@ -443,6 +456,7 @@ module.exports = {
   isOpeningCheque,
   chequeAmountRial,
   resolveChequeInCredit,
+  xorChequeBookTargets,
   postChequePartyBooks,
   postChequeInReceipt,
   bounceContraAccount,

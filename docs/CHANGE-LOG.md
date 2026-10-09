@@ -6,6 +6,15 @@
 - **تست:** روی ایران `test-crm-sales-acc-adr004-v337` + `test-sms` + `test-sync`.
 - **Deploy:** ✅ `c516030` — overlay ایران + export `foldSignedRows`؛ `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v337`؛ تست ADR روی ایران + sms ۲۲/۰ + sync ۴۴/۰.
 
+### ۱۴۰۵/۰۷/۱۸ — ADR-PARTY-001 + P0 اشخاص (SW v337)
+
+- **تصمیم:** Option 1 Minimal — SoT روی `parties`؛ سقف اعتبار hard block؛ چک XOR زیردفتر؛ dual-role برگ AR/AP جدا؛ مانده لیست همان قانون GL-if-agree.
+- **بک‌اند:** `lib/party-credit.js`؛ XOR در `cheque-party-books.js`؛ `ensureDualRoleSeparateLeaves` + sync legacy؛ enforce روی `POST /invoices` و convert.
+- **UI/Help:** راهنمای اشخاص + tooltip سقف اعتبار؛ SW `erp-taranom-v337`.
+- **فایل‌ها:** `lib/{party-credit,cheque-party-books,party-tafsili,parties-sync}.js`, `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `docs/architecture/PARTY-ACC-ADR-001.md`, RESEARCH، `scripts/test-party-acc-adr001-v337.js`, CHANGE-LOG.
+- **تست:** `test-party-acc-adr001-v337` (+ sms/sync روی ایران).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق اشخاص↔حسابداری (پیش‌ADR جامع)
 
 - **هدف:** قفل وابستگی تک‌به‌تک منوی اشخاص، موجودیت‌های parties/customers/suppliers/persons، قالب‌های JE/زیردفتر، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های P0–P3 قبل از هر تغییر schema/UI گسترده.

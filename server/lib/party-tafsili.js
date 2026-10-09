@@ -62,26 +62,122 @@ function ensureCustomerTafsili(db, customerId) {
   return code;
 }
 
+function kindMoeinPrefix(db, kind) {
+  try {
+    const { ensureControlParents } = require('./coa-map');
+    const parent = ensureControlParents(db, kind);
+    return parent && parent.code ? String(parent.code) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function codeUnderKind(db, code, kind) {
+  const prefix = kindMoeinPrefix(db, kind);
+  if (!prefix || !code) return false;
+  return String(code).startsWith(prefix);
+}
+
+/**
+ * ADR-PARTY-001: dual-role party must not use one leaf for AR and AP.
+ * parties/customers keep receivable leaf; each linked supplier gets a distinct payable leaf.
+ */
+function ensureDualRoleSeparateLeaves(db, partyId) {
+  const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+  if (!p) return null;
+  const roles = parseRoles(p.party_roles, p.party_type);
+  const dual = roles.includes('customer') && roles.includes('supplier');
+  if (!dual) return p.coa_code || null;
+
+  let arCode = p.coa_code && String(p.coa_code).trim() ? String(p.coa_code).trim() : null;
+  if (!arCode || !codeUnderKind(db, arCode, 'customer')) {
+    const cust = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyId)
+      || (p.legacy_table === 'customers' && p.legacy_id
+        ? db.prepare('SELECT id FROM customers WHERE id=?').get(p.legacy_id)
+        : null);
+    if (cust) {
+      arCode = ensureCustomerTafsili(db, cust.id);
+    } else {
+      const name = p.full_name || p.biz || p.company_name || (`شخص ${partyId}`);
+      arCode = allocTafsili(db, 'customer', name);
+      if (arCode) db.prepare('UPDATE parties SET coa_code=? WHERE id=?').run(arCode, partyId);
+    }
+  } else {
+    bindCoa(db, { partyId }, arCode);
+    const cust = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyId);
+    if (cust) bindCoa(db, { customerId: cust.id }, arCode);
+  }
+
+  const suppliers = db.prepare('SELECT id, name, coa_code FROM suppliers WHERE party_id=?').all(partyId);
+  if (p.legacy_table === 'suppliers' && p.legacy_id) {
+    const leg = db.prepare('SELECT id, name, coa_code FROM suppliers WHERE id=?').get(p.legacy_id);
+    if (leg && !suppliers.some((s) => s.id === leg.id)) suppliers.push(leg);
+  }
+  for (const s of suppliers) {
+    const cur = s.coa_code && String(s.coa_code).trim() ? String(s.coa_code).trim() : '';
+    const collide = !cur || cur === arCode || codeUnderKind(db, cur, 'customer') || !codeUnderKind(db, cur, 'supplier');
+    if (!collide) continue;
+    const name = s.name || p.company_name || p.full_name || (`تأمین‌کننده ${s.id}`);
+    const apCode = allocTafsili(db, 'supplier', name);
+    if (apCode) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(apCode, s.id);
+  }
+  return arCode;
+}
+
 /** Allocate (if missing) and dual-write supplier + linked party. */
 function ensureSupplierTafsili(db, supplierId) {
   const s = db.prepare('SELECT * FROM suppliers WHERE id=?').get(supplierId);
   if (!s) return null;
+  let partyId = s.party_id;
+  if (partyId) {
+    try {
+      const p = db.prepare('SELECT party_roles, party_type FROM parties WHERE id=?').get(partyId);
+      const roles = parseRoles(p?.party_roles, p?.party_type);
+      if (roles.includes('customer') && roles.includes('supplier')) {
+        ensureDualRoleSeparateLeaves(db, partyId);
+        const again = db.prepare('SELECT coa_code FROM suppliers WHERE id=?').get(supplierId);
+        if (again && again.coa_code && String(again.coa_code).trim()) return again.coa_code;
+      }
+    } catch (_) { /* optional */ }
+  }
   if (s.coa_code && String(s.coa_code).trim()) {
-    if (s.party_id) bindCoa(db, { partyId: s.party_id }, s.coa_code);
+    // Dual-role: never push supplier AP leaf onto parties header (AR leaf).
+    if (partyId) {
+      try {
+        const p = db.prepare('SELECT party_roles, party_type FROM parties WHERE id=?').get(partyId);
+        const roles = parseRoles(p?.party_roles, p?.party_type);
+        if (!(roles.includes('customer') && roles.includes('supplier'))) {
+          bindCoa(db, { partyId }, s.coa_code);
+        }
+      } catch (_) {
+        bindCoa(db, { partyId }, s.coa_code);
+      }
+    }
     return s.coa_code;
   }
   const name = s.name || (`تأمین‌کننده ${supplierId}`);
   const code = allocTafsili(db, 'supplier', name);
   if (!code) return null;
   db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(code, supplierId);
-  let partyId = s.party_id;
   if (!partyId) {
     try {
       const { syncSupplierToParty } = require('./parties-sync');
       partyId = syncSupplierToParty(db, supplierId);
     } catch (_) { /* optional */ }
   }
-  if (partyId) db.prepare('UPDATE parties SET coa_code=? WHERE id=?').run(code, partyId);
+  if (partyId) {
+    try {
+      const p = db.prepare('SELECT party_roles, party_type, coa_code FROM parties WHERE id=?').get(partyId);
+      const roles = parseRoles(p?.party_roles, p?.party_type);
+      if (roles.includes('customer') && roles.includes('supplier')) {
+        // keep parties.coa_code as AR; supplier already has AP leaf
+      } else if (!p?.coa_code) {
+        db.prepare('UPDATE parties SET coa_code=? WHERE id=?').run(code, partyId);
+      }
+    } catch (_) {
+      db.prepare('UPDATE parties SET coa_code=? WHERE id=?').run(code, partyId);
+    }
+  }
   return code;
 }
 
@@ -89,12 +185,17 @@ function ensureSupplierTafsili(db, supplierId) {
 function ensurePartyTafsili(db, partyId) {
   const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!p) return null;
+  const roles = parseRoles(p.party_roles, p.party_type);
+  const dual = roles.includes('customer') && roles.includes('supplier');
+
   if (p.coa_code && String(p.coa_code).trim()) {
     if (p.legacy_table === 'customers' && p.legacy_id) bindCoa(db, { customerId: p.legacy_id }, p.coa_code);
-    if (p.legacy_table === 'suppliers' && p.legacy_id) bindCoa(db, { supplierId: p.legacy_id }, p.coa_code);
+    if (!dual && p.legacy_table === 'suppliers' && p.legacy_id) {
+      bindCoa(db, { supplierId: p.legacy_id }, p.coa_code);
+    }
+    if (dual) return ensureDualRoleSeparateLeaves(db, partyId);
     return p.coa_code;
   }
-  const roles = parseRoles(p.party_roles, p.party_type);
   const kind = coaKindForRoles(roles);
   const name = p.full_name || p.biz || p.company_name || (`شخص ${partyId}`);
   const code = allocTafsili(db, kind, name);
@@ -103,9 +204,10 @@ function ensurePartyTafsili(db, partyId) {
   if (p.legacy_table === 'customers' && p.legacy_id) {
     db.prepare("UPDATE customers SET coa_code=? WHERE id=? AND (coa_code IS NULL OR TRIM(coa_code)='')").run(code, p.legacy_id);
   }
-  if (p.legacy_table === 'suppliers' && p.legacy_id) {
+  if (!dual && p.legacy_table === 'suppliers' && p.legacy_id) {
     db.prepare("UPDATE suppliers SET coa_code=? WHERE id=? AND (coa_code IS NULL OR TRIM(coa_code)='')").run(code, p.legacy_id);
   }
+  if (dual) return ensureDualRoleSeparateLeaves(db, partyId);
   return code;
 }
 
@@ -153,9 +255,11 @@ function backfillMissingPartyTafsili(db) {
 }
 
 module.exports = {
+  parseRoles,
   ensureCustomerTafsili,
   ensureSupplierTafsili,
   ensurePartyTafsili,
+  ensureDualRoleSeparateLeaves,
   backfillMissingPartyTafsili,
   coaKindForRoles,
 };
