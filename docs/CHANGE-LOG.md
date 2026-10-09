@@ -7,7 +7,7 @@
 - **تصمیم باز:** ADR-PARTY-001 (پیشنهاد Minimal در انتهای سند) — هنوز قفل ADR نشده.
 - **فایل‌ها:** `docs/architecture/PERSONS-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** ⏳
+- **Deploy:** ✅ `2b6494d` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — ADR-003 + اجرای P0–P3 حسابداری تولید (SW v336)
 
