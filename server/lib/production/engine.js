@@ -12,7 +12,7 @@ const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
   recalcAvgOnReturn, setting,
 } = require('./costing');
-const { applyOverhead } = require('./overhead');
+const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
 const { assertFabricIssueAllowed } = require('./cutting');
@@ -296,6 +296,12 @@ function createOrder(db, body, userId) {
       qtyPlanned > 0 ? Math.round((stdMat + stdLab + stdOh) / qtyPlanned) : 0,
       body.note || '', userId
     ).lastInsertRowid;
+    if (body.manual_driver_qty != null && body.manual_driver_qty !== '') {
+      try {
+        db.prepare('UPDATE production_orders SET manual_driver_qty=? WHERE id=?')
+          .run(Number(body.manual_driver_qty) || 0, orderId);
+      } catch { /* column missing on very old DBs before ensureColumn */ }
+    }
     if (!hasLineTable) return orderId;
 
     // PA-04: persist color×size order lines when provided (or derive from size_breakdown + color)
@@ -704,7 +710,12 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     }
 
     // ═══ ۳. Overhead (PRD-05) ═══
-    const oh = applyOverhead(db, { po, qtyStarted, laborRial, matRial, date, period, userId });
+    const oh = applyOverhead(db, {
+      po, qtyStarted, laborRial, matRial, date, period, userId,
+      machineMinutes: body.machine_minutes,
+      laborHours: body.labor_hours,
+      manualDriverQty: body.manual_driver_qty != null ? body.manual_driver_qty : po.manual_driver_qty,
+    });
     if (oh.amount_rial) {
       const je3 = postEvent(db, {
         event: 'PRD-05',
@@ -1197,6 +1208,7 @@ function reverseOrder(db, orderId, userId, reason = '') {
       note: `ابطال ضایعات ${po.order_no}`,
     });
 
+    reverseAppliedOverheadCounters(db, ohs);
     for (const o of ohs) {
       db.prepare(`UPDATE production_overhead_applications SET status='reversed' WHERE id=?`).run(o.id);
     }
@@ -1549,6 +1561,9 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       po, qtyStarted, laborRial,
       matRial: matActual + pkgActual,
       date, period, userId,
+      machineMinutes: body.machine_minutes,
+      laborHours: body.labor_hours,
+      manualDriverQty: body.manual_driver_qty != null ? body.manual_driver_qty : po.manual_driver_qty,
     });
     if (oh.amount_rial) {
       const je3 = postEvent(db, {
@@ -1986,6 +2001,7 @@ function updateOrder(db, orderId, body = {}) {
     warehouse_raw_id: 'warehouse_raw_id',
     warehouse_fg_id: 'warehouse_fg_id',
     cost_center_id: 'cost_center_id',
+    manual_driver_qty: 'manual_driver_qty',
   };
   for (const [k, col] of Object.entries(allow)) {
     if (body[k] !== undefined) {

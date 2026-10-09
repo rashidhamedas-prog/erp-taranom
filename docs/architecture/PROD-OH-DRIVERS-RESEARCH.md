@@ -82,12 +82,9 @@ Alias: `labor_rial`→`direct_labor_rial`, `labor_hours`/`hours`→`direct_labor
 - `server/scripts/test-overhead-rates-v299.js` — نرخ ازپیش‌تعیین، alias، absorb، ظرفیت برش
 - `server/scripts/test-production-overhead-labor.js` — بیشتر `stageDriverQty`؛ پوشش ضعیف `computeDriverQty` برای hours/machine/manual و رسید واقعی
 
-## تصمیم باز (قبل از کد)
+## تصمیم (قفل‌شده)
 
-| گزینه | معنی |
-|-------|------|
-| **1** | جداسازی UI/API لایه‌های A/B/C/D + بستن شکاف schema/wiring؛ همان فرمول `total × qty × absorb` |
-| **2** | علاوه بر ۱: جذب ثابت بر ظرفیت نرمال و متغیر بر استفاده واقعی (IAS 2 بند ۱۳ خالص) + مهاجرت/رگرسیون بستن دوره |
+**گزینه ۱ پذیرفته شد** — ADR-002. گزینه ۲ (IAS 2 خالص ثابت/متغیر) برای موج بعدی.
 
 ## فاز پیشنهادی پس از انتخاب
 

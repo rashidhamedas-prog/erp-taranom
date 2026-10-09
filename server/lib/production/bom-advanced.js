@@ -96,7 +96,9 @@ function stageLabor(db, op, qty, period) {
 
 function stageDriverQty(db, op, cc, ctx) {
   const { coerceDriver } = require('./overhead');
-  const driver = coerceDriver(op.overhead_driver || cc.driver || 'output_qty');
+  const driver = coerceDriver(
+    ctx.driver || op.overhead_driver || cc.driver || 'output_qty'
+  );
   switch (driver) {
     case 'output_qty':
       return ctx.qty;
@@ -114,7 +116,7 @@ function stageDriverQty(db, op, cc, ctx) {
     case 'material_rial':
       return ctx.material / 1_000_000;
     case 'manual':
-      return ctx.manualDriver || 0;
+      return Number(ctx.manualDriver) || 0;
     default:
       return 0;
   }

@@ -181,6 +181,7 @@ function ensureExistingColumns(db) {
   }
   if (tableExists(db, 'production_orders')) {
     ensureColumn(db, 'production_orders', 'has_matrix_lines', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'production_orders', 'manual_driver_qty', 'REAL DEFAULT 0');
   }
   ensureProdAccMatrixTables(db);
   if (tableExists(db, 'cutting_lays')) {
@@ -512,6 +513,7 @@ function createTables(db) {
       std_total_rial         INTEGER DEFAULT 0,
       std_unit_rial          INTEGER DEFAULT 0,
       estimate_id        INTEGER,
+      manual_driver_qty  REAL DEFAULT 0,
       note               TEXT DEFAULT '',
       closed_by          INTEGER,
       closed_at          INTEGER,

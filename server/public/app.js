@@ -14619,13 +14619,13 @@ function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmt(v||0); }
    نرخ سربار مراکز — GET/POST /production/cost-centers/rates
 ============================================================ */
 const OH_DRIVER_META={
-  output_qty:{label:'تعداد خروجی',unit:'ریال سربار به ازای هر عدد خروجی',sample:100,sampleLabel:'۱۰۰ عدد خروجی'},
-  direct_labor_rial:{label:'دستمزد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد'},
-  labor_rial:{label:'دستمزد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد'},
-  direct_labor_hours:{label:'ساعت کارگر',unit:'ریال سربار به ازای هر ساعت کارگر',sample:8,sampleLabel:'۸ ساعت کارگر'},
-  machine_hours:{label:'ساعت ماشین',unit:'ریال سربار به ازای هر ساعت ماشین',sample:6,sampleLabel:'۶ ساعت ماشین'},
-  material_rial:{label:'مواد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال مواد',sample:50,sampleLabel:'۵۰ میلیون ریال مواد'},
-  manual:{label:'دستی',unit:'ریال سربار به ازای واحد محرک دستی',sample:1,sampleLabel:'۱ واحد دستی'}
+  output_qty:{label:'تعداد خروجی',unit:'ریال سربار به ازای هر عدد خروجی',budgetUnit:'عدد خروجی برنامه‌ای ماه',sample:100,sampleLabel:'۱۰۰ عدد خروجی',tip:'محرک واقعی = تعداد شروع‌شدهٔ رسید (خوب+ضایعات).'},
+  direct_labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شدهٔ همین رسید ÷ ۱٬۰۰۰٬۰۰۰. حقوق ماهانه را اینجا بودجه نکنید — فیلد «دستمزد مستقیم / عدد» جداست.'},
+  labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شده ÷ ۱٬۰۰۰٬۰۰۰.'},
+  direct_labor_hours:{label:'ساعت کارگر',unit:'ریال سربار به ازای هر ساعت کارگر',budgetUnit:'ساعت کارگر برنامه‌ای ماه',sample:8,sampleLabel:'۸ ساعت کارگر',tip:'محرک واقعی از ثبت ساعات کارگر، وگرنه از مسیر BOM (setup+run×تعداد)×خدمه.'},
+  machine_hours:{label:'ساعت ماشین',unit:'ریال سربار به ازای هر ساعت ماشین',budgetUnit:'ساعت ماشین برنامه‌ای ماه',sample:6,sampleLabel:'۶ ساعت ماشین',tip:'محرک واقعی از دقیقه ماشین رسید یا Σ(دقیقه/واحد مسیر)×تعداد ÷ ۶۰.'},
+  material_rial:{label:'مواد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال مواد',budgetUnit:'میلیون‌ریال مواد برنامه‌ای ماه',sample:50,sampleLabel:'۵۰ میلیون ریال مواد',tip:'محرک واقعی = مواد (+بسته‌بندی در تحلیل متغیر) ÷ ۱٬۰۰۰٬۰۰۰.'},
+  manual:{label:'دستی',unit:'ریال سربار به ازای واحد محرک دستی',budgetUnit:'واحد محرک دستی برنامه‌ای ماه',sample:1,sampleLabel:'۱ واحد دستی',tip:'محرک واقعی = فیلد «مقدار محرک دستی» روی سفارش تولید (manual_driver_qty).'}
 };
 function ohDriverMeta(d){ return OH_DRIVER_META[d]||OH_DRIVER_META.output_qty; }
 function shiftJalaliYm(label,delta){
@@ -14799,7 +14799,11 @@ function prodRatePreviewSync(){
   const driver=el('prm-driver')?.value||'output_qty';
   const meta=ohDriverMeta(driver);
   const hint=el('prm-driver-hint');
-  if(hint) hint.textContent=meta.unit;
+  if(hint) hint.innerHTML=`<b>واحد نرخ:</b> ${esc(meta.unit)}<br><span data-csp-style="${CSP.style(`opacity:.9`)}">${esc(meta.tip||'')}</span>`;
+  const bqtyLab=el('prm-bqty-label');
+  if(bqtyLab) bqtyLab.textContent='مقدار محرک نرمال / برنامه ('+(meta.budgetUnit||'واحد محرک')+')';
+  const tipBox=el('prm-driver-panel');
+  if(tipBox) tipBox.innerHTML=`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0;line-height:1.75`)}">${esc(meta.tip||'')}</p>`;
   const budgetFixed=moneyVal('prm-bfix');
   const budgetVar=moneyVal('prm-bvar');
   const budgetQty=prodRateNum('prm-bqty');
@@ -14826,7 +14830,7 @@ function prodRatePreviewSync(){
   const poolWarn=(!fromBudget && total>=20000000 && (driver==='direct_labor_rial'||driver==='material_rial'||driver==='output_qty'))
     ? '<div class="oh-warn">این عدد خیلی بزرگ است و شبیه بودجهٔ ماه است — برای برش آن را صفر کنید و حقوق را در دستمزد هر عدد بگذارید.</div>'
     : '';
-  box.innerHTML=`${fromBudget?'نرخ از بودجه دوره محاسبه شد. ':''}با جذب ${fmt(absorb)}٪ برای ${esc(meta.sampleLabel)} حدود <b>${money(applied)}</b> سربار به بها می‌رود.${poolWarn}`;
+  box.innerHTML=`${fromBudget?'نرخ از بودجه دوره محاسبه شد. ':''}جذب نمونه: نرخ کل × ${esc(meta.sampleLabel)} × ${fmt(absorb)}٪ ≈ <b>${money(applied)}</b>. سند اجرا: بدهکار WIP / بستانکار ۵۲۰۳.${poolWarn}`;
 }
 async function prodRateEditModal(ccId){
   const ccRows=window._prodRatesCC||[];
@@ -14839,7 +14843,7 @@ async function prodRateEditModal(ccId){
   showModal(existing?'ویرایش نرخ سربار':'ثبت نرخ سربار',`
     <div class="oh-form">
       <div class="oh-section">
-        <h5>شناسه</h5>
+        <h5>۱) شناسه و محرک</h5>
         <div class="form-grid">
           <div class="fg"><label>مرکز هزینه</label>
             <select id="prm-cc" data-csp-change="${CSP.bind('change',function(){prodRateOnCcChange()})}">${ccRows.map(c=>`<option value="${c.id}" data-driver="${esc(c.driver||'output_qty')}" data-code="${esc(c.code||'')}" data-name="${esc(c.name||'')}" ${Number(c.id)===Number(ccId||existing?.cost_center_id||selectedCc?.id)?'selected':''}>${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select>
@@ -14847,13 +14851,14 @@ async function prodRateEditModal(ccId){
           <div class="fg"><label>دوره (سال/ماه)</label><input id="prm-period" value="${esc(existing?.period_label||period)}" placeholder="1405/07"></div>
           <div class="fg full"><label>محرک سربار</label>
             <select id="prm-driver" data-csp-change="${CSP.bind('change',function(){prodRatePreviewSync()})}">${driverOpts}</select>
-            <div id="prm-driver-hint" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}"></div>
+            <div id="prm-driver-hint" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.7`)}"></div>
           </div>
         </div>
+        <div id="prm-driver-panel" class="oh-preview" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>
       </div>
       <div class="oh-section" id="prm-cut-box">
-        <h5>برش — حقوق ثابت ماهانه (بدون سابقه)</h5>
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.75`)}">۳۰ میلیون تومان = <b>۳۰۰٬۰۰۰٬۰۰۰ ریال</b> و <b>دستمزد مستقیم</b> است. آن را در نرخ کل نگذارید. چون سال مالی تازه است، ظرفیت نرمال از ساعت کاری موردنظر مدیریت حساب می‌شود (IAS 2 بند ۱۳)، نه از تولید واقعی ماه اول.</p>
+        <h5>تنظیمات برش — دستمزد مستقیم (نه سربار)</h5>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.75`)}">۳۰ میلیون تومان = <b>۳۰۰٬۰۰۰٬۰۰۰ ریال</b> و <b>دستمزد مستقیم</b> است. آن را در بودجه/نرخ سربار نگذارید. ظرفیت نرمال از ساعت کاری موردنظر مدیریت (IAS 2 بند ۱۳).</p>
         <div class="form-grid">
           <div class="fg"><label>حقوق ماهانه برشکار ${moneyColLabel()}</label><input id="prm-wage" type="text" inputmode="numeric" class="money" value="${moneyInit(300000000)}" placeholder="300,000,000"></div>
           <div class="fg"><label>روز کاری</label><input id="prm-days" type="number" min="1" max="31" value="22"></div>
@@ -14865,26 +14870,38 @@ async function prodRateEditModal(ccId){
         <div id="prm-cut-out" class="oh-preview" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>
       </div>
       <div class="oh-section">
-        <h5>بودجه سربار غیرمستقیم (اجاره / برق / استهلاک)</h5>
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">اگر فقط حقوق دارید این سه فیلد را خالی بگذارید. نرخ سربار = بودجه ÷ مقدار محرک نرمال.</p>
+        <h5>۲) بودجه سربار غیرمستقیم (اجاره / برق / استهلاک)</h5>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">فقط هزینه‌های غیرمستقیم تولید. اگر فقط حقوق دارید خالی بگذارید. نرخ = بودجه ÷ محرک نرمال.</p>
         <div class="form-grid">
           <div class="fg"><label>بودجه سربار ثابت ${moneyColLabel()}</label><input id="prm-bfix" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_fixed_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
           <div class="fg"><label>بودجه سربار متغیر ${moneyColLabel()}</label><input id="prm-bvar" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_var_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg full"><label>مقدار محرک نرمال / برنامه</label><input id="prm-bqty" type="text" inputmode="decimal" value="${existing&&existing.budget_driver_qty?esc(String(existing.budget_driver_qty)):''}" placeholder="تعداد خروجی ماه یا ساعت" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg full"><label id="prm-bqty-label">مقدار محرک نرمال / برنامه</label><input id="prm-bqty" type="text" inputmode="decimal" value="${existing&&existing.budget_driver_qty?esc(String(existing.budget_driver_qty)):''}" placeholder="واحد محرک مطابق انتخاب بالا" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
         </div>
       </div>
       <div class="oh-section">
-        <h5>نرخ جذب و درصد تسهیم مرکز</h5>
+        <h5>۳) نرخ جذب ازپیش‌تعیین‌شده</h5>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">اگر بودجه پر باشد این فیلدها خودکار محاسبه می‌شوند. ورود مستقیم هم مجاز است.</p>
         <div class="form-grid">
           <div class="fg"><label>نرخ ثابت سربار</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
           <div class="fg"><label>نرخ متغیر سربار</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
           <div class="fg full"><label>نرخ کل سربار (نه حقوق ماه)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg full"><label>دستمزد مستقیم / هر عدد خروجی ${moneyColLabel()}</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
-          <div class="fg full"><label>درصد جذب این مرکز به بهای محصول</label><input id="prm-absorb" type="number" min="0" max="100" step="0.1" value="${existing&&existing.absorb_pct!=null?esc(String(existing.absorb_pct)):'100'}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}">
-            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.7`)}">۱۰۰٪ یعنی تمام دستمزد/سربار جذب‌شده به کالا می‌رود. مثلاً ۸۰٪ یعنی ۲۰٪ ظرفیت بیکار یا نمونه‌دوزی هزینهٔ دوره است.</div>
+        </div>
+      </div>
+      <div class="oh-section">
+        <h5>۴) درصد تسهیم مرکز به بهای محصول</h5>
+        <div class="form-grid">
+          <div class="fg full"><label>درصد جذب این مرکز</label><input id="prm-absorb" type="number" min="0" max="100" step="0.1" value="${existing&&existing.absorb_pct!=null?esc(String(existing.absorb_pct)):'100'}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}">
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.7`)}">۱۰۰٪ یعنی تمام سربار جذب‌شده به کالا می‌رود. مثلاً ۸۰٪ یعنی ۲۰٪ ظرفیت بیکار/نمونه‌دوزی هزینهٔ دوره است (کم‌جذبی در بستن به ۵۲۱۵).</div>
           </div>
         </div>
         <div id="prm-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}"></div>
+      </div>
+      <div class="oh-section">
+        <h5>۵) دستمزد مستقیم ماهانه (مسیر جدا — حساب ۵۲۰۱)</h5>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">این مبلغ سربار نیست و در بودجه/نرخ کل تکرار نشود. فقط جذب دستمزد مستقیم به WIP.</p>
+        <div class="form-grid">
+          <div class="fg full"><label>دستمزد مستقیم / هر عدد خروجی ${moneyColLabel()}</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
+        </div>
       </div>
       <div class="fg full"><label>یادداشت</label><input id="prm-note" value="${esc(existing?.note||'')}" placeholder="اختیاری"></div>
       <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;font-size:13px`)}"><input type="checkbox" id="prm-est" data-csp-style="${CSP.style(`width:auto`)}" ${existing?.is_estimated || !existing?'checked':''}> نرخ برآوردی است (سال مالی تازه / بدون سابقه)</label>
@@ -25892,7 +25909,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
-        <li><b>نرخ سربار مراکز (v301):</b> حقوق ثابت برشکار <b>دستمزد مستقیم</b> است نه سربار. بدون سابقه، ظرفیت نرمال = روز×ساعت×بازده (پیش‌فرض ۲۲×۸×۸۰٪ و ۱٫۲ دقیقه/عدد مسیر ترنم). دستمزد هر عدد = حقوق ماه ÷ ظرفیت. تیک برآوردی بماند. اجاره/برق جدا در بودجه سربار. <b>درصد جذب</b> سهم این مرکز در بهای محصول است (۰–۱۰۰؛ بقیه هزینه دوره طبق IAS 2). نرخ کل = بودجه ÷ محرک نرمال؛ هرگز حقوق ماه را در نرخ کل نگذارید. لغو نرخ حذف فیزیکی نیست.</li>
+        <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
@@ -26328,7 +26345,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v331</b> است و اسکریپت حسابداری با <code>?v=331</code> بارگذاری می‌شود؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v334</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

@@ -11,7 +11,10 @@ const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting,
 } = require('./costing');
-const { getOverheadRate, coerceDriver, appliedOverheadRial } = require('./overhead');
+const {
+  getOverheadRate, coerceDriver, appliedOverheadRial,
+  bumpRateApplied, reverseAppliedOverheadCounters,
+} = require('./overhead');
 const { postLabor } = require('./labor');
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
 const { assertFabricIssueAllowed } = require('./cutting');
@@ -203,7 +206,11 @@ function applyStageOverhead(db, {
   }
   const driver = coerceDriver(stage.driver || op?.overhead_driver || cc?.driver || rate.driver || 'output_qty');
   const driverQty = stageDriverQty(db, op || {}, cc || {}, {
-    qty: qtyIn, labor: laborRial, material: matRial,
+    qty: qtyIn,
+    labor: laborRial,
+    material: matRial,
+    manualDriver: num(po?.manual_driver_qty),
+    driver,
   });
   const rateRial = Math.round(num(rate.total_rate_rial));
   const amount = appliedOverheadRial(rate, driverQty);
@@ -224,7 +231,9 @@ function applyStageOverhead(db, {
     rateRial, amount, date, period, userId
   ).lastInsertRowid;
 
-  return { id, amount_rial: amount, driver, driver_qty: driverQty, rate_rial: rateRial };
+  bumpRateApplied(db, rate.id, amount, driverQty);
+
+  return { id, amount_rial: amount, driver, driver_qty: driverQty, rate_rial: rateRial, rate_id: rate.id };
 }
 
 function orderQtyStart(db, po) {
@@ -1332,6 +1341,7 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     for (const s of subs) {
       db.prepare(`UPDATE production_subcontract SET status='reversed' WHERE id=?`).run(s.id);
     }
+    reverseAppliedOverheadCounters(db, ohs.filter(o => o.status === 'posted'));
     for (const o of ohs) {
       if (o.status === 'posted') {
         db.prepare(`UPDATE production_overhead_applications SET status='reversed' WHERE id=?`).run(o.id);

@@ -450,6 +450,60 @@ function computeDriverQty(db, ctx = {}) {
  * applyOverhead — insert production_overhead_applications, update rate applied
  * totals. INTEGER rial. allocateNumber for doc. NO ledger posting.
  */
+function loadBomOps(db, bomId) {
+  if (!db || !bomId) return [];
+  try {
+    return db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(bomId);
+  } catch {
+    return [];
+  }
+}
+
+/** Build applyOverhead ctx: BOM ops + optional receipt overrides + PO manual qty. */
+function buildApplyCtx(db, po, extras = {}) {
+  const ops = Array.isArray(extras.ops) && extras.ops.length
+    ? extras.ops
+    : loadBomOps(db, po?.bom_id);
+  const manual = extras.manualDriverQty != null && extras.manualDriverQty !== ''
+    ? Number(extras.manualDriverQty)
+    : (po?.manual_driver_qty != null ? Number(po.manual_driver_qty) : 0);
+  return {
+    ops,
+    machineMinutes: extras.machineMinutes,
+    laborHours: extras.laborHours,
+    manualDriverQty: Number.isFinite(manual) ? manual : 0,
+  };
+}
+
+function bumpRateApplied(db, rateId, amountRial, driverQty) {
+  if (!rateId) return;
+  try {
+    db.prepare(`
+      UPDATE cost_center_rates SET
+        applied_oh_rial = COALESCE(applied_oh_rial,0) + ?,
+        actual_driver_qty = COALESCE(actual_driver_qty,0) + ?
+      WHERE id=?
+    `).run(Math.round(Number(amountRial) || 0), Number(driverQty) || 0, rateId);
+  } catch { /* older schema */ }
+}
+
+/** R13 — undo rate counters when OH applications are reversed. */
+function reverseAppliedOverheadCounters(db, ohRows) {
+  for (const o of ohRows || []) {
+    if (!o || !o.rate_id) continue;
+    const amt = Math.round(Number(o.amount_rial) || 0);
+    const dq = Number(o.driver_qty) || 0;
+    try {
+      db.prepare(`
+        UPDATE cost_center_rates SET
+          applied_oh_rial = MAX(0, COALESCE(applied_oh_rial,0) - ?),
+          actual_driver_qty = MAX(0, COALESCE(actual_driver_qty,0) - ?)
+        WHERE id=?
+      `).run(amt, dq, o.rate_id);
+    } catch { /* older schema */ }
+  }
+}
+
 function applyOverhead(db, {
   po,
   qtyStarted,
@@ -473,9 +527,18 @@ function applyOverhead(db, {
     return { amount_rial: 0, driver: null, driver_qty: 0, rate_rial: 0, is_estimated: 1, id: null };
   }
 
+  const ctx = buildApplyCtx(db, po, { ops, machineMinutes, laborHours, manualDriverQty });
   const driver = coerceDriver(rate.driver);
   const driverQty = computeDriverQty(db, {
-    driver, po, qtyStarted, laborRial, matRial, machineMinutes, ops, laborHours, manualDriverQty,
+    driver,
+    po,
+    qtyStarted,
+    laborRial,
+    matRial,
+    machineMinutes: ctx.machineMinutes,
+    ops: ctx.ops,
+    laborHours: ctx.laborHours,
+    manualDriverQty: ctx.manualDriverQty,
   });
   const rateRial = Math.round(Number(rate.total_rate_rial) || 0);
   const amount = appliedOverheadRial(rate, driverQty);
@@ -500,14 +563,7 @@ function applyOverhead(db, {
     rateRial, amount, date, period, userId
   ).lastInsertRowid;
 
-  try {
-    db.prepare(`
-      UPDATE cost_center_rates SET
-        applied_oh_rial = COALESCE(applied_oh_rial,0) + ?,
-        actual_driver_qty = COALESCE(actual_driver_qty,0) + ?
-      WHERE id=?
-    `).run(amount, driverQty, rate.id);
-  } catch { /* ignore older schemas */ }
+  bumpRateApplied(db, rate.id, amount, driverQty);
 
   return {
     id,
@@ -525,6 +581,10 @@ module.exports = {
   bootstrapRate,
   computeDriverQty,
   applyOverhead,
+  loadBomOps,
+  buildApplyCtx,
+  bumpRateApplied,
+  reverseAppliedOverheadCounters,
   normalizeDriver,
   coerceDriver,
   validatePeriodLabel,

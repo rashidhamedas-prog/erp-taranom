@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۱۸ — محرک‌های سربار گزینه ۱: لایه‌ها + wiring (SW v334)
+
+- **تصمیم:** ADR-002 — همان فرمول `نرخ × محرک × absorb٪`؛ جداسازی UI بودجه / نرخ / تسهیم / دستمزد مستقیم؛ بدون موتور IAS 2 خالص.
+- **بک‌اند:** `production_orders.manual_driver_qty`؛ `applyOverhead` با ops مسیر BOM؛ R13 کم‌کردن `applied_oh_rial`/`actual_driver_qty`؛ advanced هم شمارنده را می‌زند/برمی‌گرداند.
+- **UI/Help:** مودال پنج‌لایه + راهنمای محرک؛ SW `erp-taranom-v334`.
+- **فایل‌ها:** `lib/production/{overhead,schema,engine,engine-advanced,bom-advanced}.js`, `public/{app.js,sw.js}`, `scripts/test-overhead-drivers-v334.js`, `docs/architecture/PROD-OH-DRIVERS-{RESEARCH,ADR-002}.md`, CHANGE-LOG.
+- **تست:** `test-overhead-drivers-v334` + `test-overhead-rates-v299` + `test-sms` (+ sync پس از بک‌اند).
+- **Deploy:** در انتظار
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق محرک‌های سربار (پیش‌ADR)
 
 - **هدف:** آماده‌سازی جداسازی حرفه‌ای بودجه غیرمستقیم / نرخ جذب / درصد تسهیم و قوانین per-driver قبل از پیاده‌سازی.
