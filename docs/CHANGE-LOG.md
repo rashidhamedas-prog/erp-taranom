@@ -6,7 +6,7 @@
 - **تصمیم باز:** فقط رسید PI/GR برای خرید؛ اجباری بودن `inventory_coa_code`؛ ownership امانی in؛ in-transit همیشه یا اختیاری.
 - **فایل‌ها:** `docs/architecture/WAREHOUSE-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `865be2f` — overlay docs ایران؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق بانک و صندوق (پیش‌ADR)
 
