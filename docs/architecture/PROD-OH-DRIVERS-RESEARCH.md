@@ -1,9 +1,9 @@
 # تحقیق محرک‌های سربار — جداسازی تنظیمات حرفه‌ای
 
-**وضعیت:** Research (pre-ADR)  
+**وضعیت:** Research (pre-ADR) — ادغام کامل deps + ledger  
 **تاریخ:** ۱۴۰۵/۰۷/۱۸  
-**منبع:** skill-top full + [Map OH driver deps](3b6f1a8d-4363-475d-b710-df2fe2af0d45)  
-**مرجع JE:** `docs/Production/accounting-events.md` (PRD-05 / 06 / 22) + متخصص ledger (در حال ادغام)
+**منبع:** skill-top full + [Map OH driver deps](3b6f1a8d-4363-475d-b710-df2fe2af0d45) + [Map OH ledger JE](a70cb13a-b32a-4626-8ce7-bb463644af02)  
+**مرجع JE:** `docs/Production/accounting-events.md` + کد زنده `posting.js` / `expenses.js` / `close.js`
 
 ## هدف محصول
 
@@ -22,11 +22,33 @@
 amount_rial = round(total_rate_rial × driver_qty × absorb_pct/100)
 ```
 
-- اجرا: `applyOverhead` → JE **PRD-05** Dr WIP / Cr `5203`
-- واقعی به کنترل: **PRD-06** → `5202`
-- بستن: **PRD-22** انتقال جذب + انحراف حجم
+دستمزد مستقیم مسیر جدا (`monthly_labor_rate_rial` / **PRD-03** → Cr `5201`) است و هرگز داخل `total_rate_rial` جمع نمی‌شود.
 
-دستمزد مستقیم مسیر جدا (`monthly_labor_rate_rial` / PRD-03) است و نباید داخل بودجه سربار تکرار شود.
+## نقشه ثبت‌های حسابداری (کد زنده)
+
+| مرحله | رویداد / مسیر | بدهکار | بستانکار |
+|-------|----------------|--------|----------|
+| جذب اجرا/مرحله | **PRD-05** (`engine` / `engine-advanced`) | `1111` WIP | `5203` جذب‌شده |
+| سربار واقعی | `expense_payments` با `is_overhead` یا `cost_section=production_overhead` | همیشه `5202` | نقد/بانک/… |
+| بستن — انتقال جذب | **PRD-22** گام ۱ | `5203` | `5202` |
+| بستن — کم/بیش‌جذبی | **PRD-22** گام ۲ | کم‌جذبی: `5215` / بیش: `5202` | معکوس |
+| تسهیم انحراف | **PRD-23** | WIP/FG/COGS ± | `5215` (و انحراف دستمزد) |
+
+### شکاف‌های سند ↔ کد (قفل برای ADR)
+
+1. **PRD-06** در کاتالوگ و `posting.js` تعریف شده ولی **هیچ `postEvent(PRD-06)` فراخوانی نمی‌شود**؛ واقعی از مسیر هزینه با `sourceType=expense_payment` می‌آید. precheck بستن هنوز گاهی `production_overhead_actual` را هشدار می‌دهد.
+2. **`5214` انحراف بودجه** در COA هست؛ `postCloseOverhead` فقط حجم (`5215`) می‌زند.
+3. **R13:** ابطال سفارش/مرحله JE و وضعیت ردیف را برمی‌گرداند، ولی `cost_center_rates.applied_oh_rial` / `actual_driver_qty` کم نمی‌شود → شمارنده نرخ بعد از ابطال می‌تواند باد کند.
+4. هر `production_overhead_applications` با مبلغ >۰ باید `je_id` داشته باشد (health H4/C1).
+
+### ثابت‌های تغییرناپذیر redesign
+
+1. Apply فقط Cr `5203`؛ Actual فقط Dr `5202` — جابه‌جایی ممنوع.
+2. `monthly_labor_rate_rial` ↔ `5201`؛ `total_rate_rial` ↔ `5203`.
+3. مقیاس محرک: `direct_labor_rial` / `material_rial` ÷ ۱٬۰۰۰٬۰۰۰؛ ساعت ماشین از دقیقه÷۶۰ — بدون مهاجرت نرخ عوض نشود.
+4. مسیر variable: محرک مواد = مواد+بسته‌بندی **واقعی**.
+5. بعد از بستن: مانده کنترل‌های `5201`/`5202`/`5203`/`5215` ≈ ۰ (±۵ ریال).
+6. ابطال = reverse JE + status (حذف فیزیکی ممنوع)؛ شمارنده‌های نرخ باید در همان تراکنش اصلاح شوند.
 
 ## نقشه محرک → منبع مقدار
 
@@ -69,11 +91,11 @@ Alias: `labor_rial`→`direct_labor_rial`, `labor_hours`/`hours`→`direct_labor
 
 ## فاز پیشنهادی پس از انتخاب
 
-1. ADR قفل‌شده (این سند → ADR-00N)
-2. Schema: `production_orders.manual_driver_qty` (+ sync tables/backfill در صورت نیاز)
-3. Wiring: `engine.js` پاس‌دادن `ops` / ساعات / دقیقه ماشین برای محرک‌های زمانی
-4. UI: پنل پویا per-driver؛ جداسازی بصری A/B/C
-5. تست طلایی ۶ محرک + رگرسیون v299 / P4
+1. ADR قفل‌شده (این سند → ADR-00N) — شامل تصمیم PRD-06 واقعی‌سازی vs به‌روزرسانی docs/precheck
+2. Schema: `production_orders.manual_driver_qty` (+ sync append/backfill)
+3. Wiring: `engine.js` پاس‌دادن `ops` / ساعات / دقیقه ماشین؛ R13 کم‌کردن `applied_oh_rial`
+4. UI: پنل پویا per-driver؛ جداسازی بصری A/B/C (دستمزد فقط لایه جدا از بودجه OH)
+5. تست طلایی ۶ محرک + JE PRD-05/22 + رگرسیون v299 / P4 / close controls-zero
 6. Help + CHANGE-LOG + deploy
 
 ## استاندارد خارجی

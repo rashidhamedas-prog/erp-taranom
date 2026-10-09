@@ -1,11 +1,12 @@
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق محرک‌های سربار (پیش‌ADR)
 
 - **هدف:** آماده‌سازی جداسازی حرفه‌ای بودجه غیرمستقیم / نرخ جذب / درصد تسهیم و قوانین per-driver قبل از پیاده‌سازی.
-- **یافته‌های قفل‌شده:** `manual_driver_qty` فقط در `overhead.js` خوانده می‌شود و در schema/API نیست؛ مسیر سادهٔ `engine.js` برای محرک‌های ساعتی معمولاً `ops`/`laborHours`/`machineMinutes` نمی‌دهد؛ `absorb_pct` بین preview/rollup و apply ناسازگار است؛ advanced برای `machine_hours` سخت‌گیر و simple صفر نرم.
+- **یافته‌های قفل‌شده (deps):** `manual_driver_qty` فقط در `overhead.js` خوانده می‌شود و در schema/API نیست؛ مسیر سادهٔ `engine.js` برای محرک‌های ساعتی معمولاً `ops`/`laborHours`/`machineMinutes` نمی‌دهد؛ `absorb_pct` بین preview/rollup و apply ناسازگار است؛ advanced برای `machine_hours` سخت‌گیر و simple صفر نرم.
+- **یافته‌های قفل‌شده (ledger):** جذب همیشه Dr `1111`/Cr `5203` (PRD-05)؛ واقعی به `5202` از هزینهٔ tagged (نه فراخوان زندهٔ PRD-06)؛ بستن PRD-22→`5215` سپس PRD-23؛ `monthly_labor_rate_rial` فقط مسیر `5201`؛ R13 شمارندهٔ `applied_oh_rial` را کم نمی‌کند؛ `5214` هنوز پست نمی‌شود.
 - **تصمیم باز:** (۱) فقط UI/API + wiring با فرمول فعلی، یا (۲) موتور IAS 2 ثابت/متغیر جدا.
 - **فایل‌ها:** `docs/architecture/PROD-OH-DRIVERS-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** ✅ `51d8c5d` — overlay docs ایران (درخت سرور کثیف؛ بدون restart لازم)، ready=200؛ SW بدون تغییر.
+- **Deploy:** ✅ `51d8c5d` (+ادغام ledger) — overlay docs ایران، ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۶ — گزارش جامع انبار: میانگین بها ۱۰× (ریال/تومان) (SW v333)
 
