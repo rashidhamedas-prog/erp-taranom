@@ -1532,6 +1532,7 @@ module.exports = {
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
   canonicalCustomerFold,
+  foldSignedRows,
   applyCustomerBalances,
   sumPositiveCustomerBalancesRial,
   repairCustomerBooks,
