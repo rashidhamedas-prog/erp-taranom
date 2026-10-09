@@ -7,7 +7,7 @@
 - **تصمیم باز:** واقعی‌سازی PRD-04/06 vs docs؛ تگ PRD برای cutting؛ نقش 5214؛ حساب محصول فرعی؛ ترتیب P0 قبل از UI تنظیمات.
 - **فایل‌ها:** `docs/architecture/PRODUCTION-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** ⏳
+- **Deploy:** ✅ `24a2dd5` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — بانک و صندوق گزینه ۱: ADR + صحت + تنظیمات حرفه‌ای (SW v335)
 
