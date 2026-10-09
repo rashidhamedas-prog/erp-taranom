@@ -12,8 +12,8 @@
 - **بک‌اند:** `lib/party-credit.js`؛ XOR در `cheque-party-books.js`؛ `ensureDualRoleSeparateLeaves` + sync legacy؛ enforce روی `POST /invoices` و convert.
 - **UI/Help:** راهنمای اشخاص + tooltip سقف اعتبار؛ SW `erp-taranom-v337`.
 - **فایل‌ها:** `lib/{party-credit,cheque-party-books,party-tafsili,parties-sync}.js`, `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `docs/architecture/PARTY-ACC-ADR-001.md`, RESEARCH، `scripts/test-party-acc-adr001-v337.js`, CHANGE-LOG.
-- **تست:** `test-party-acc-adr001-v337` (+ sms/sync روی ایران).
-- **Deploy:** ⏳
+- **تست:** روی ایران `test-party-acc-adr001-v337` ۱۶/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `3455888` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v337`.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق اشخاص↔حسابداری (پیش‌ADR جامع)
 
