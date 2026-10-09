@@ -24,8 +24,8 @@
 - **بک‌اند:** `ledger.inventoryAccountForWarehouse` + `inventoryAmountLinesByWarehouse`؛ ستون `warehouses.inventory_coa_code`؛ به‌روزرسانی purchases/procurement/landed/periodic-close/warehouse-docs/invoices/consignments.
 - **UI/Help:** فرم انبار + ستون حساب موجودی؛ مودال رسید با نوع طرف حساب؛ راهنما؛ SW `erp-taranom-v335`.
 - **فایل‌ها:** `lib/inventory/{ledger,periodic-close,landed-cost}.js`, `warehouse-docs.js`, `sales-document.js`, `consignments.js`, `routes/{warehouses,purchases,procurement,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-warehouse-typed-coa-v335.js`, `docs/architecture/WAREHOUSE-ACC-ADR-003.md`, CHANGE-LOG.
-- **تست:** `test-warehouse-typed-coa-v335` + `test-sms` + `test-sync`.
-- **Deploy:** در انتظار
+- **تست:** روی ایران `test-warehouse-typed-coa-v335` ۱۳/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `9005906` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v335`.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق تولید↔حسابداری (پیش‌ADR جامع)
 
