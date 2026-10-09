@@ -6,7 +6,7 @@
 - **تصمیم باز:** فقط ADR بعدی، یا Wave schema؛ سیاست overdraft؛ scope بانک ارزی؛ imprest جدا vs سقف روی صندوق.
 - **فایل‌ها:** `docs/architecture/TREASURY-BANK-FUND-RESEARCH.md`, `docs/CHANGE-LOG.md`
 - **تست:** ندارد (docs-only).
-- **Deploy:** در انتظار
+- **Deploy:** ✅ `a9393a9` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)، `ready=200`؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — محرک‌های سربار گزینه ۱: لایه‌ها + wiring (SW v334)
 
