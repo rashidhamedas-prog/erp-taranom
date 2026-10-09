@@ -23,7 +23,12 @@ function customerArExposureRial(db, customerId) {
 }
 
 function resolvePartyCreditLimitRial(db, customerId) {
-  const c = db.prepare('SELECT id, party_id, credit_limit FROM customers WHERE id=?').get(customerId);
+  let c;
+  try {
+    c = db.prepare('SELECT id, party_id, credit_limit FROM customers WHERE id=?').get(customerId);
+  } catch (_) {
+    c = db.prepare('SELECT id, party_id FROM customers WHERE id=?').get(customerId);
+  }
   if (!c) {
     throw new PartyCreditError('مشتری یافت نشد', 'E_CUSTOMER_NOT_FOUND');
   }
