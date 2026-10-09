@@ -6,8 +6,8 @@
 - **P2:** absorb٪ در preview/rollup؛ بستن 5214+5215؛ PRD-16 by→1104 / scrap→1113.
 - **P3:** گزارش reconciliation کنترل‌های ۵۲۰۱/۵۲۰۲/۵۲۰۳؛ Help.
 - **فایل‌ها:** `lib/production/{cutting,posting,close,engine,engine-advanced,bom-advanced,schema,reports}.js`, `routes/{production,expenses}.js`, `amend-cash-ops.js`, `public/{app.js,sw.js}`, `scripts/test-prod-acc-adr003-v336.js`, ADR-003 + research.
-- **تست:** `test-prod-acc-adr003-v336` (+ sms/sync روی ایران).
-- **Deploy:** ⏳
+- **تست:** روی ایران `test-prod-acc-adr003-v336` ۱۳/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `dd5ca0c` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v336`.
 
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق تولید↔حسابداری (پیش‌ADR جامع)
 
