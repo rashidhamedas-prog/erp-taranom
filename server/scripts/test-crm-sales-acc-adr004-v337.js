@@ -140,9 +140,9 @@ function req(port, method, urlPath, body, token) {
   ok(repair.data && repair.data.ok === true, 'repair ok flag', repair.data);
 
   const { isFirmSale } = require('../lib/sales-document');
-  ok(isFirmSale({ type: 'normal' }) === true, 'normal is firm');
-  ok(isFirmSale({ type: 'final' }) === true, 'final is firm');
-  ok(isFirmSale({ type: 'proforma' }) === false, 'proforma not firm');
+  ok(isFirmSale('normal') === true, 'normal is firm');
+  ok(isFirmSale('final') === true, 'final is firm');
+  ok(isFirmSale('proforma') === false, 'proforma not firm');
 
   const capture = fs.readFileSync(path.join(__dirname, '../sync/capture.js'), 'utf8');
   ok(capture.includes("/api/accounting/repair-ar-tafsili"), 'PATH_TABLE_MAP repair route');
