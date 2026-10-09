@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۱۸ — تحقیق انبار↔حسابداری (پیش‌ADR)
+
+- **هدف:** قفل وابستگی تک‌به‌تک عملیات انبار، قالب‌های JE، تنظیمات حرفه‌ای per-warehouse و موج‌های P0–P3 قبل از هر تغییر schema/UI.
+- **یافته‌های قفل‌شده:** نگاشت فقط `warehouse_type`→COA (بدون Account روی انبار)؛ خرید/GR/landed/period-close/COGS اغلب **1104 untyped**؛ رسید WH → Cr **9999**؛ ریسک double-post اگر WH receipt + PI/GR همزمان؛ `inventory_auto_post_je` بدون gating؛ `/inventory/adjust` و تولید legacy بدون JE؛ انتقال بدون 1115؛ packaging→1112 نیست؛ NRV posting **وجود دارد** (`/api/reserves/inventory-nrv`).
+- **مرجع:** ERPNext warehouse account + perpetual؛ ADR-001 (avg روی header) حفظ می‌شود تا ADR جدید.
+- **تصمیم باز:** فقط رسید PI/GR برای خرید؛ اجباری بودن `inventory_coa_code`؛ ownership امانی in؛ in-transit همیشه یا اختیاری.
+- **فایل‌ها:** `docs/architecture/WAREHOUSE-ACCOUNTING-RESEARCH.md`, `docs/CHANGE-LOG.md`
+- **تست:** ندارد (docs-only).
+- **Deploy:** در انتظار
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق بانک و صندوق (پیش‌ADR)
 
 - **هدف:** قفل وابستگی‌ها، قالب‌های JE، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های پیاده‌سازی قبل از هر تغییر schema/UI.
