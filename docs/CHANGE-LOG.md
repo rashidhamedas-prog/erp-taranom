@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۱۸ — ADR-004 + P0 حسابداری CRM/فروش (SW v337)
+
+- **تصمیم:** `CRM-SALES-ACC-ADR-004` — شناسایی درآمد همان UNIFY؛ تهاتر = fold خانواده‌ها بدون JE بین‌مشتری؛ whitelist COA فروش/چک/کارت؛ repair کنترل→تفصیلی؛ پورتال convert به معمولی|رسمی؛ مودیان DEFER.
+- **P0:** فیلدهای صریح `receivables_gross_*` / `receivables_net_signed` روی `/dashboard/summary` و overview؛ `ALLOWED_KEYS`+UI برای `coa_sales_return` و کلیدهای چک/کارت؛ `POST /accounting/repair-ar-tafsili`؛ متن پورتال؛ Help؛ capture map؛ تست `test-crm-sales-acc-adr004-v337.js`.
+- **فایل‌ها:** `docs/architecture/CRM-SALES-ACCOUNTING-RESEARCH.md`, `CRM-SALES-ACC-ADR-004.md`, `routes/{settings,dashboard,accounting}.js`, `sync/capture.js`, `public/{app.js,sw.js}`, `scripts/test-crm-sales-acc-adr004-v337.js`, CHANGE-LOG.
+- **تست:** روی ایران `test-crm-sales-acc-adr004-v337` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — تحقیق اشخاص↔حسابداری (پیش‌ADR جامع)
 
 - **هدف:** قفل وابستگی تک‌به‌تک منوی اشخاص، موجودیت‌های parties/customers/suppliers/persons، قالب‌های JE/زیردفتر، ماتریس تنظیمات حرفه‌ای per-entity و موج‌های P0–P3 قبل از هر تغییر schema/UI گسترده.

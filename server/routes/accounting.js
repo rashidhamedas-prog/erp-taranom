@@ -99,6 +99,7 @@ function escapeHtml(value) {
 const {
   attachMissingInvoiceRows, stmtEntryType, glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance, canonicalCustomerFold, ensureCustomerBooksRepaired,
+  reclassifyControlArToCustomerLeaf,
 } = require('../lib/customer-books');
 const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 
@@ -350,6 +351,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       totalPayable: null,
       totalPayableLedger: null,
       totalReceivable,
+      receivables_gross_debit: totalReceivable,
+      receivables_gross_credit: creditorBalance,
+      receivables_net_signed: Math.round(Number(recvLive.signed) || 0),
       totalReceivableGl: null,
       creditorBalanceGl: null,
       outstandingLedger: outstanding,
@@ -422,6 +426,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     totalPayable,
     totalPayableLedger,
     totalReceivable,
+    receivables_gross_debit: totalReceivable,
+    receivables_gross_credit: creditorBalance,
+    receivables_net_signed: Math.round(Number(recvLive.signed) || 0),
     totalReceivableGl: recvGl.display,
     creditorBalanceGl: recvGl.creditor,
     outstandingLedger,
@@ -437,6 +444,34 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       creditor_delta: Math.round(Number(creditorBalance) - Number(recvGl.creditor)),
     },
     scoped: false,
+  });
+});
+
+/** ADR-004 P0: run books repair + control AR → customer tafsili reclass (central admin). */
+router.post('/repair-ar-tafsili', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  let books = {};
+  try {
+    books = ensureCustomerBooksRepaired(db) || {};
+  } catch (e) {
+    return res.status(500).json({ error: e.message || 'تعمیر دفتر مشتری ناموفق' });
+  }
+  let reclass = { moved: 0 };
+  try {
+    reclass = reclassifyControlArToCustomerLeaf(db) || { moved: 0 };
+  } catch (e) {
+    return res.status(500).json({ error: e.message || 'انتقال کنترل→تفصیلی ناموفق' });
+  }
+  audit(req.user.id, 'repair_ar_tafsili', 'customers', null,
+    JSON.stringify({ moved: reclass.moved, books }));
+  res.json({
+    ok: true,
+    moved: reclass.moved || 0,
+    skippedFy: reclass.skippedFy || 0,
+    books,
+    message: (reclass.moved || 0)
+      ? `${reclass.moved} سطر از کنترل دریافتنی به تفصیلی مشتری منتقل شد`
+      : 'سطر قابل انتقالی نبود یا قبلاً هم‌تراز است',
   });
 });
 

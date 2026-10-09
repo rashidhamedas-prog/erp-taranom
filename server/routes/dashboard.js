@@ -50,20 +50,28 @@ router.get('/summary', auth, (req, res) => {
     }
   } catch (_) { /* tables may be empty */ }
 
-  let receivables = 0;
+  let fold = { signed: 0, display: 0, creditor: 0 };
   try {
-    receivables = canonicalCustomerFold(db, { userId: uid }).signed;
+    fold = canonicalCustomerFold(db, { userId: uid });
     if (companyWide) {
       payables = db.prepare('SELECT COALESCE(SUM(credit)-SUM(debit),0) b FROM supplier_ledger').get()?.b || 0;
     }
   } catch (_) { /* */ }
 
+  const netSigned = Math.round(Number(fold.signed) || 0);
+  const grossDebit = Math.round(Number(fold.display) || 0);
+  const grossCredit = Math.round(Number(fold.creditor) || 0);
   res.json(ok({
     cash_bank_balance_rial: companyWide ? Math.round(cashBank) : 0,
     cash_bank_balance_toman: companyWide ? rialToToman(cashBank) : 0,
     today_sales_toman: todaySales,
     today_purchases_toman: companyWide ? todayPurchases : 0,
-    net_receivables_toman: receivables,
+    // ADR-004: three explicit fold fields (تهاتر خانواده‌ها، نه سند بین‌مشتری)
+    receivables_gross_debit_toman: grossDebit,
+    receivables_gross_credit_toman: grossCredit,
+    receivables_net_signed_toman: netSigned,
+    // legacy alias = net signed (not gross debtors)
+    net_receivables_toman: netSigned,
     net_payables_toman: companyWide ? payables : 0,
     fiscal_year: getActiveFiscalYear(db),
     scoped: !companyWide,

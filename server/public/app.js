@@ -8840,6 +8840,16 @@ function applyAccPreset(p){
   else if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE]();
 }
 
+async function repairArTafsiliFromDash(){
+  if(!isAdmin()){ showToast('فقط مدیر سیستم','error'); return; }
+  if(!confirm('انتقال مانده‌های کنترل دریافتنی به تفصیلی مشتری (در صورت امکان) اجرا شود؟')) return;
+  try{
+    const r=await api('POST','/accounting/repair-ar-tafsili',{});
+    showToast(r&&r.message?r.message:'هم‌ترازی انجام شد');
+    ROUTES['acc-dash']();
+  }catch(e){ showToast(e.message||'خطا در هم‌ترازی','error'); }
+}
+
 // ---- Accounting Shell dashboard (merged with General Ledger + Chart of Accounts) ----
 ROUTES['acc-dash'] = async function(){
   // Always refetch KPIs (do not serve stale zero-stats page cache)
@@ -8887,7 +8897,7 @@ ROUTES['acc-dash'] = async function(){
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">دفتر مشتری تا ${esc(cutoffLabel)}</span>
     </div>
-    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: ${esc(mismatchText)}. کارت مطالبات از دفتر مشتری است؛ بستانکاران جداگانه جمع می‌شوند. ابطال تسویه باید هر دو دفتر را معکوس کند.</div></div>`:''}
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between`)}"><span>هشدار: ${esc(mismatchText)}. کارت مطالبات از دفتر مشتری است؛ بستانکاران جداگانه جمع می‌شوند. ابطال تسویه باید هر دو دفتر را معکوس کند.</span>${isAdmin()?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){repairArTafsiliFromDash()})}">هم‌ترازی کنترل→تفصیلی</button>`:''}</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards bento-hero">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
@@ -23572,10 +23582,10 @@ ROUTES.b2bOrders = async function(){
         <td class="mono">${fmt(total)} ریال</td>
         <td class="muted" data-csp-style="${CSP.style(`font-size:12px;max-width:200px`)}">${esc(o.note||'-')}</td>
         <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
-        <td>${o.invoice_type==='final'?'<span class="tag t-done">تبدیل به فاکتور رسمی</span>':o.invoice_num?'<span class="tag t-pending">پیش‌فاکتور — در انتظار بررسی</span>':'-'}</td>
+        <td>${o.invoice_type==='final'?'<span class="tag t-done">فروش قطعی — رسمی</span>':o.invoice_type==='normal'?'<span class="tag t-done">فروش قطعی — معمولی</span>':o.invoice_num?'<span class="tag t-pending">پیش‌فاکتور — در انتظار بررسی</span>':'-'}</td>
       </tr>`;}).join('')||emptyRow(8)}
     </tbody></table></div></div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">برای تأیید سفارش، پیش‌فاکتور مربوطه را از صفحه «فاکتور» باز کرده و به فاکتور رسمی تبدیل کنید — موجودی و حسابداری همان‌جا اعمال می‌شود.</p>`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">برای تأیید سفارش، پیش‌فاکتور را از صفحه «فاکتور» با دکمهٔ <b>تبدیل</b> به فروش قطعی (<b>معمولی</b> یا <b>رسمی</b>) تبدیل کنید — موجودی و سند حسابداری همان‌جا اعمال می‌شود.</p>`;
 };
 
 /* ============================================================
@@ -23818,10 +23828,17 @@ const COA_MAP_LABELS = {
   coa_misc_persons: 'حساب اشخاص متفرقه (معین)',
   coa_sales: 'حساب درآمد فروش',
   coa_sales_discount: 'حساب تخفیفات فروش',
+  coa_sales_return: 'حساب برگشت از فروش',
+  coa_sales_expense: 'هزینه‌های توزیع و فروش',
+  coa_other_income: 'سایر درآمدها',
   coa_cogs: 'حساب بهای تمام‌شده',
   coa_inventory: 'حساب موجودی کالا (معین)',
   coa_cash_default: 'حساب صندوق پیش‌فرض (معین)',
   coa_bank_default: 'حساب بانک پیش‌فرض (معین)',
+  coa_cheques_receivable: 'اسناد دریافتنی (نزد صندوق)',
+  coa_cheques_in_collection: 'اسناد در جریان وصول',
+  coa_card_in_transit: 'وجوه در راه کارتخوان',
+  coa_card_fee: 'کارمزد کارتخوان',
   coa_adjustment: 'حساب اصلاحات و تعدیلات',
   coa_payroll_expense: 'حساب هزینه حقوق',
   coa_payroll_payable: 'حساب بدهی حقوق/بیمه',
@@ -25214,7 +25231,7 @@ async function saveSettings(){
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
   if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
-  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
+  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   data.currency_display = 'rial';
@@ -25889,6 +25906,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مودال‌ها</b> همیشه بالای منوی کناری و پنجره‌های MDI باز می‌شوند (پورتال ثابت روی ویوپورت؛ نه داخل جریان سند بلند). در دسکتاپ داخل ناحیه محتوا وسط‌چین‌اند و در موبایل از پایین صفحه به‌صورت شیت باز می‌شوند.</li>
         <li>اگر دکمهٔ «ویرایش» یا هر عملی ظاهراً بی‌اثر بود، معمولاً مودال پشت‌صحنه یا خارج از صفحه مانده بود — با نسخهٔ فعلی باید همان لحظه روی صفحه دیده شود. در غیر این صورت Hard Refresh بزنید.</li>
         <li><b>موبایل:</b> داشبورد خانه و داشبورد حسابداری با هیرو خلاصه، ریل فیلتر افقی، کارت‌های لمسی و جدول‌های کارتی (بدون اسکرول افقی اجباری) بازطراحی شده‌اند. منو با ☰ باز می‌شود.</li>
+      </ul>`),
+    helpSec('📒','حسابداری — فروش CRM، تهاتر و نگاشت COA (ADR-004)',`
+      <ul>
+        <li><b>پیش‌فاکتور</b> موجودی و سند نمی‌زند. <b>فاکتور معمولی/رسمی</b> همان لحظهٔ صدور یا تبدیل، مطالبات+درآمد (+موجودی/COGS) را ثبت می‌کنند. تأیید کمیسیون/مودیان جدا از شناسایی درآمد است.</li>
+        <li><b>تهاتر داشبورد:</b> بین دو مشتری سند تهاتر زده نمی‌شود. برای هر مشتری یک مانده؛ سپس جمع بدهکاران و جمع بستانکاران جداگانه («قبل از تهاتر») و ماندهٔ خالص = تفاضل خانواده‌ها. API خلاصه سه فیلد دارد: gross debit / gross credit / net signed.</li>
+        <li><b>سفارش پورتال</b> ابتدا پیش‌فاکتور است؛ از صفحهٔ فاکتور با دکمهٔ تبدیل به فروش قطعی <b>معمولی یا رسمی</b> بروید.</li>
+        <li><b>نگاشت COA فروش</b> در تنظیمات (برگشت از فروش، هزینه فروش، سایر درآمد، چک نزد صندوق/وصول، کارتخوان) قابل ویرایش است — دیگر فقط کد پیش‌فرض مخفی نیست.</li>
+        <li>اگر هشدار اختلاف دفتر مشتری و تفصیلی دیدید، مدیر می‌تواند از داشبورد حسابداری «هم‌ترازی کنترل→تفصیلی» را بزند (مرکزی؛ فقط مدیر).</li>
       </ul>`),
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
@@ -26642,7 +26667,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v331</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v337</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>
       <div class="tip">در همهٔ لیست‌ها عنوان هر ستون روی دادهٔ همان ستون می‌ماند. جدول پهن داخل کادر خودش اسکرول می‌شود، هم در دسکتاپ و هم در موبایل، و سرستون از ردیف‌ها جدا نمی‌شود.</div>
