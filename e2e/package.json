@@ -7,6 +7,6 @@
     "test:critical": "playwright test login.spec.js critical-paths.spec.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.2"
+    "@playwright/test": "^1.64.0"
   }
 }
