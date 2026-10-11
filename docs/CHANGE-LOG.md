@@ -2,8 +2,8 @@
 
 - **خلاصه:** برگشت لینک‌شده (`invoice_id`) در `recomputeInvoiceSettledBalances` و گزارش فاکتورهای باز / مطالبات per-invoice به‌عنوان «پرداخت‌شده» (خالص+VAT برگشت‌های فعال) منظور می‌شود — بدون ردیف تسویهٔ جعلی؛ recompute بعد از POST/ابطال برگشت.
 - **فایل‌ها:** `server/lib/invoice-payments.js`, `server/routes/accounting.js`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-returns-p2-finance-v341.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
-- **تست:** ایران `test-returns-p2-finance-v341` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-returns-p2-finance-v341` ۱۳/۰ + UX ۱۸/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `6201957` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v342`.
 
 ### ۱۴۰۵/۰۷/۱۹ — باگ جستجوی کالا در برگشت بدون فاکتور (SW v341)
 
