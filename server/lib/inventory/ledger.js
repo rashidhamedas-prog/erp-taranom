@@ -355,6 +355,8 @@ function postInventoryMovement(db, opts) {
   return {
     id: ledgerId,
     tx_no: txNo,
+    product_id: productId,
+    warehouse_id: warehouseId || null,
     qty_in: qtyIn,
     qty_out: qtyOut,
     qty_balance: stockInfo.qtyAfter,

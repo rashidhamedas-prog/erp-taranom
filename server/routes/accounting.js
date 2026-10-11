@@ -1733,10 +1733,17 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
         description: `برگشت از فروش #${retId}`, debit: 0, credit: gross, user_id: req.user.id
       });
       assertJournalIdempotent(db, 'sales_return', retId);
+      const { costItemsFromLedger } = require('../lib/returns-posting');
       let costItems = [];
       if (stocked && stocked.movements) {
         costItems = costItemsFromMovements(stocked.movements);
-      } else if (costAmount > 0) {
+      }
+      // Prefer ledger rows (authoritative warehouse_id) when movement objects omit WH.
+      if (!costItems.length || costItems.every((c) => c.warehouseId == null)) {
+        const fromLed = costItemsFromLedger(db, 'sales_return', retId);
+        if (fromLed.length) costItems = fromLed;
+      }
+      if (!costItems.length && costAmount > 0) {
         costItems = [{ warehouseId: parentWhId, amountRial: costAmount }];
       }
       const journalLines = buildSalesReturnJournalLines(db, {
