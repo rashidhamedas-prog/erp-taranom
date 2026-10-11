@@ -3,7 +3,7 @@
 **وضعیت:** Research (pre-ADR) — Wave 0 freeze  
 **تاریخ:** ۱۴۰۵/۰۷/۱۹  
 **منبع:** skill-top **full** + tap-erp-architecture + ui-ux + ECC plan-first  
-[Cheque API lifecycle](3b026a7e-ad0a-4e0a-8f92-c9d5e38fe92c) · [Cheque UI status button](a722b1f2-9f89-48f6-9894-a1cf48ddadea) · (ماتریس تنظیمات در حال تکمیل)  
+[Cheque API lifecycle](3b026a7e-ad0a-4e0a-8f92-c9d5e38fe92c) · [Cheque UI status button](a722b1f2-9f89-48f6-9894-a1cf48ddadea) · [Cheque pro settings](37ad6903-e6bb-4a07-8fb8-546274f4a7b2)  
 **Slack:** در workspace متصل پیامی دربارهٔ چک/دفتر چک یافت نشد — منبع حقیقت کد + CHANGE-LOG + ADRهای مرتبط است.  
 **وابسته به:** `ADR-ACC-CRM-UNIFY` §13 · `TREASURY-BANK-FUND-ADR-001` · `PARTY-ACC-ADR-001` (XOR زیردفتر چک) · `cheque-lifecycle.js` v303
 
@@ -165,22 +165,57 @@ voidChequeRecord (newest JE first) + syncSettlement + reverse زیردفتر
 
 ---
 
-## ۶) ماتریس تنظیمات حرفه‌ای (پیش‌نویس — تکمیل با متخصص سوم)
+## ۶) ماتریس تنظیمات حرفه‌ای (قفل)
 
-| Setting | Scope | Exists? | در posting؟ | شکاف برای برگه/چرخه |
-|---------|--------|---------|-------------|---------------------|
-| `coa_cheques_receivable` (۱۱۰۹) | global | EXISTS + ALLOWED | YES | — |
-| `coa_cheques_in_collection` (۱۱۱۶) | global | EXISTS + ALLOWED | YES | — |
-| `coa_cheques_payable` (۲۱۰۹) | global | LEGACY | YES | **خارج ALLOWED_KEYS** UI |
-| `coa_bank_default` / `banks.coa_code` | global / bank | EXISTS | YES clear | بانک وصول per-cheque فقط در واگذاری |
-| `coa_payable` / `coa_receivable` | global | EXISTS | YES | — |
-| `coa_opening_balance` (۳۱۰۲) | global | LEGACY | YES opening | خارج ALLOWED_KEYS |
-| `coa_admin_expense` (۶۱۰۲) | global | LEGACY | YES expense default | خارج ALLOWED_KEYS |
-| `check_categories` | دسته | EXISTS UI | leaf شمارش | بدون لینک اجباری به ردیف چک |
-| Default collection bank per party | party | **MISSING** | — | |
-| تاریخ/دلیل اجباری per-transition | transition | PARTIAL | واگذاری مودال؛ clear/bounce فقط confirm+امروز | |
-| پیوست تصویر چک / رسید بانک | cheque | **MISSING** | — | |
-| `module_trust_checks` | flag | EXISTS | trust بدون JE | جدا از دفتر |
+منبع: [Cheque pro settings](37ad6903-e6bb-4a07-8fb8-546274f4a7b2). نکته: ادعای قدیمی CRM که ۱۱۰۹/۱۱۱۶ خارج whitelist است **منسوخ** است (پس از ADR-004 هر دو در ALLOWED+UI).
+
+### ۶.۱ سطح شرکت (`settings` + `coa-map`)
+
+| Setting | Status | Evidence | برای leaf + lifecycle |
+|---------|--------|----------|------------------------|
+| `coa_cheques_receivable` (۱۱۰۹) | **EXISTS** | ALLOWED + UI `coaKeys` | ثبت نزد صندوق |
+| `coa_cheques_in_collection` (۱۱۱۶) | **EXISTS** | ALLOWED + `send-to-bank` | واگذاری↔وصول |
+| `coa_cheques_payable` (۲۱۰۹) | **PARTIAL** | فقط LEGACY؛ **نه** ALLOWED/UI | override اسناد پرداختنی |
+| `coa_bank_default` | **EXISTS** | clear/bounce fallback | بدون `collection_bank_id` |
+| `module_trust_checks` | **EXISTS** | MODULE_KEYS؛ خارج GL | امانی جدا |
+| `module_cheque` flag دفتر | **MISSING** | منو همیشه روشن | — |
+| حساب جدا «اسناد برگشتی» | **MISSING** | bounce → AR/party | سیاست حرفه‌ای برگشت |
+| سیاست اجباری صیاد ۱۶رقمی | **PARTIAL** | enforce فاکتور؛ بدون کلید settings سراسری | hard/soft/off |
+| هشدار سررسید N روز | **MISSING** | ثابت ~۷ روز | — |
+| `coa_opening_balance` / `coa_admin_expense` | **PARTIAL** | posting دارد؛ خارج ALLOWED_KEYS | knob UI |
+| پیوست تصویر برگه / رسید بانک | **MISSING** | — | — |
+
+### ۶.۲ دسته چک (`check_categories`)
+
+| Setting | Status | برای leaf |
+|---------|--------|-----------|
+| Master per-bank + بازه سریال + `leaf_count`/`current_leaf` | **EXISTS** | صدور از بانک |
+| `used_leaves` شمارش | **PARTIAL** | فقط purchase/supplier/incentive — نه همهٔ `cheque_records` |
+| auto-allocate / advance `current_leaf` | **MISSING** | جلوگیری تکرار شماره |
+| `check_category_id` روی `cheque_records` | **MISSING** | پیوند دفتر↔دسته |
+| فیلتر دسته بر اساس بانک در فرم | **EXISTS** | UX صدور |
+
+### ۶.۳ پیش‌فرض وصول per-bank
+
+| Setting | Status |
+|---------|--------|
+| `collection_bank_id` روی ردیف چک | **EXISTS** (runtime؛ اجباری در واگذاری) |
+| پیش‌فرض بانک وصول روی `banks` یا سراسری | **MISSING** |
+| کارمزد وصول چک per-bank | **MISSING** |
+| حساب وصول ≠ `banks.coa_code` | **MISSING** |
+
+### ۶.۴ اولویت knobs برای موج‌ها
+
+| اولویت | Setting | Status |
+|--------|---------|--------|
+| P0 UI برگه | تاریخچه/برگه — بدون knob جدید اجباری | — |
+| P0 settings | Whitelist+UI `coa_cheques_payable` | PARTIAL |
+| P0 leaf pay | Auto leaf + `check_category_id` روی `cheque_records` | MISSING |
+| P1 | Default collection bank | MISSING |
+| P1 | `used_leaves` کامل | PARTIAL |
+| P2 | module flag؛ N-day due؛ sayadi policy؛ bounce COA؛ T3 multi-row | MISSING/PARTIAL |
+
+Help چرخه عمر دفتر چک در `renderAdminGuide` (~26622) **EXISTS** و با ماشین حالت هم‌خوان است.
 
 ---
 
