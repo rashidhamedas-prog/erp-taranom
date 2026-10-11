@@ -2,8 +2,8 @@
 
 - **خلاصه:** مودال حرفه‌ای برگشت فروش/خرید — ستون‌های جدا رنگ/سایز (+ طاقه خرید)، برآورد بهای تمام‌شده برای نقش‌های مجاز، نوار پیش‌نمایش زنده مبلغ+بها؛ بدون فاکتور از ماتریس `openInvVariantSplitModal` با dest `sales_return`/`purchase_return` و persist `variant_id`؛ `buildRows` خرید color/size/variant.
 - **فایل‌ها:** `server/public/{app.js,sw.js,index.html}`, `server/routes/purchases.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, `server/scripts/test-returns-p2-ux-v340.js`, CHANGE-LOG.
-- **تست:** محلی `test-returns-p2-ux-v340` ۱۷/۰ + `test-sms` ۲۲/۰؛ `test-sync` روی ویندوز (نبود VS/native better-sqlite3) — روی ایران اجرا می‌شود.
-- **Deploy:** ⏳
+- **تست:** ایران `test-returns-p2-ux-v340` ۱۷/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `2941972` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ `image_engine` sharp؛ SW `erp-taranom-v340`.
 
 ### ۱۴۰۵/۰۷/۱۹ — ADR-RETURNS-005 + P0/P1 برگشت فروش/خرید (SW v339)
 
