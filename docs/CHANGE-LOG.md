@@ -1,10 +1,19 @@
+### ۱۴۰۵/۰۷/۱۹ — تحقیق دفتر چک: برگه وضعیت + تاریخچه (پیش‌ADR)
+
+- **هدف:** قفل وابستگی تک‌به‌تک دکمهٔ «وضعیت»، ماشین حالت `cheque_records`، قالب‌های JE، منابع تاریخچه، شکاف UI برگه، و موج‌های P0–P3 قبل از پیاده‌سازی مودال برگه چک.
+- **یافته‌های قفل‌شده:** دکمه وضعیت = دو `prompt` + `PATCH` غیرمالی؛ چرخه مالی فقط از endpointهای lifecycle؛ بدون GET `/:id/history` و بدون layout برگه؛ `collection_je_id` overload؛ دوگانگی منوی settlements vs دفتر چک.
+- **تصمیم باز:** نقش مودال (مشاهده vs هاب) و وفاداری بصری برگه — پیشنهادی موقت P0=مشاهده + برگه ERP.
+- **فایل‌ها:** `docs/architecture/CHEQUE-LEAF-STATUS-RESEARCH.md`, CHANGE-LOG.
+- **تست:** ندارد (docs-only).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۸ — ADR-004 + P0 حسابداری CRM/فروش (SW v337)
 
 - **تصمیم:** `CRM-SALES-ACC-ADR-004` — شناسایی درآمد همان UNIFY؛ تهاتر = fold خانواده‌ها بدون JE بین‌مشتری؛ whitelist COA فروش/چک/کارت؛ repair کنترل→تفصیلی؛ پورتال convert به معمولی|رسمی؛ مودیان DEFER.
 - **P0:** فیلدهای صریح `receivables_gross_*` / `receivables_net_signed` روی `/dashboard/summary` و overview؛ `ALLOWED_KEYS`+UI برای `coa_sales_return` و کلیدهای چک/کارت؛ `POST /accounting/repair-ar-tafsili`؛ متن پورتال؛ Help؛ capture map؛ تست `test-crm-sales-acc-adr004-v337.js`.
 - **فایل‌ها:** `docs/architecture/CRM-SALES-ACCOUNTING-RESEARCH.md`, `CRM-SALES-ACC-ADR-004.md`, `routes/{settings,dashboard,accounting}.js`, `sync/capture.js`, `public/{app.js,sw.js}`, `scripts/test-crm-sales-acc-adr004-v337.js`, CHANGE-LOG.
 - **تست:** روی ایران `test-crm-sales-acc-adr004-v337` + `test-sms` + `test-sync`.
-- **Deploy:** ✅ `c516030` — overlay ایران + export `foldSignedRows`؛ `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v337`؛ تست ADR روی ایران + sms ۲۲/۰ + sync ۴۴/۰.
+- **Deploy:** ✅ `6fb3f79` — overlay ایران؛ ready=200؛ SW `erp-taranom-v337`؛ `test-crm-sales-acc-adr004-v337` ۲۵/۰؛ sms/sync در deploy قبلی سبز.
 
 ### ۱۴۰۵/۰۷/۱۸ — ADR-PARTY-001 + P0 اشخاص (SW v337)
 
