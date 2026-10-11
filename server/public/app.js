@@ -5491,7 +5491,8 @@ function filterInvVariantColor(name){
 }
 function openInvVariantSplitModal(p, pack, opts){
   opts=opts||{};
-  const dest=opts.dest==='marketer'?'marketer':'invoice';
+  const destRaw=opts.dest||'invoice';
+  const dest=(destRaw==='marketer'||destRaw==='sales_return'||destRaw==='purchase_return')?destRaw:'invoice';
   // Always show the full color×size matrix; stock numbers are already warehouse-scoped.
   const rows=(pack.matrix&&pack.matrix.length)?pack.matrix:(pack.live||[]);
   const whLabel=opts.warehouseName || warehouseNameById(opts.warehouseId);
@@ -5515,7 +5516,9 @@ function openInvVariantSplitModal(p, pack, opts){
   });
   const confirmLabel=dest==='marketer'
     ? (replaceIndices?'اعمال روی سبد':'افزودن به سبد')
-    : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور');
+    : (dest==='sales_return'||dest==='purchase_return')
+      ? 'افزودن به لیست برگشت'
+      : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور');
   const firstColor=colorMeta.length?colorMeta[0].name:'*';
   const hint=dest==='marketer'
     ? '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).'
@@ -5587,6 +5590,39 @@ function confirmInvVariantSplit(pid, opts){
   });
   if(!added){ showToast('حداقل برای یک رنگ/سایز تعداد وارد کنید','error'); return; }
   const replaceIndices=opts.replaceIndices||pick.replaceIndices||null;
+  if(dest==='sales_return'||dest==='purchase_return'){
+    const isSr=dest==='sales_return';
+    const priceEl=isSr?el('sr-open-price'):el('pr-open-price');
+    const whEl=isSr?el('sr-wh'):el('pr-wh');
+    let defaultPrice=parseFloat(priceEl?.value);
+    if(!Number.isFinite(defaultPrice)) defaultPrice=0;
+    if(!defaultPrice){
+      defaultPrice=isSr?Number(p.price||0):Number(p.purchase_price||p.cost||0);
+    }
+    let lineWh=(pick.warehouse_id!=null&&pick.warehouse_id!=='')?+pick.warehouse_id:null;
+    if(!(Number.isFinite(lineWh)&&lineWh>0) && whEl?.value) lineWh=+whEl.value;
+    const unitCost=returnUnitCostEstimate(p);
+    const target=isSr?srOpenRows:prOpenRows;
+    next.forEach(row=>{
+      const line={
+        product_id:Number(p.id),
+        name:p.name||('#'+p.id),
+        qty:row.qty,
+        price:defaultPrice,
+        variant_id:row.variant_id||null,
+        color_name:row.color_name||row.color||'',
+        size_name:row.size_name||'',
+        unit_cost_est:unitCost,
+      };
+      if(Number.isFinite(lineWh)&&lineWh>0) line.warehouse_id=lineWh;
+      target.push(line);
+    });
+    closeNestedModal();
+    if(isSr) renderSrOpenRowsTbl(); else renderPrOpenRowsTbl();
+    updateReturnPreview(isSr?'sr':'pr');
+    showToast('به لیست برگشت اضافه شد');
+    return;
+  }
   if(dest==='marketer'){
     if(!(window.MarketerUI && typeof MarketerUI.addVariantLines==='function')){
       showToast('سبد بازاریاب در دسترس نیست','error');
@@ -17649,12 +17685,94 @@ function canOpenReturnWithoutInvoice(){
 let srOpenRows=[];
 let prOpenRows=[];
 
+function returnUnitCostEstimate(p){
+  if(!p) return 0;
+  return Number(p.average_cost_rial||p.cost||0)||0;
+}
+function updateReturnPreview(kind){
+  const isSr=kind==='sr';
+  const box=el(isSr?'srPreview':'prPreview');
+  if(!box) return;
+  let amount=0, costEst=0;
+  const linked=isSr?(srMode()==='linked'):(prMode()==='linked');
+  if(linked){
+    const sel=isSr?'.sr-qty-input':'.pr-qty-input';
+    document.querySelectorAll(sel).forEach(inp=>{
+      const qty=+inp.value||0;
+      if(qty<=0) return;
+      amount+=qty*(+inp.dataset.price||0);
+      const pid=+inp.dataset.pid||0;
+      const p=(CACHE.products||[]).find(x=>x.id===pid);
+      costEst+=qty*returnUnitCostEstimate(p);
+    });
+  } else {
+    const rows=isSr?srOpenRows:prOpenRows;
+    rows.forEach(r=>{
+      const qty=+r.qty||0;
+      amount+=qty*(+r.price||0);
+      const est=r.unit_cost_est!=null?Number(r.unit_cost_est):returnUnitCostEstimate((CACHE.products||[]).find(x=>x.id===r.product_id));
+      costEst+=qty*(est||0);
+    });
+  }
+  let html='مبلغ برگشت: <span class="mono">'+fmt(amount)+'</span> '+moneyColLabel();
+  if(window.__canSeeCost) html+=' &nbsp;|&nbsp; برآورد بهای تمام‌شده: <span class="mono">'+fmt(costEst)+'</span> ریال';
+  box.innerHTML=html;
+}
+function returnOpenRowsCostCol(){
+  return window.__canSeeCost?'<th>برآورد بهای واحد</th>':'';
+}
+function returnOpenRowsCostCell(r){
+  if(!window.__canSeeCost) return '';
+  const est=r.unit_cost_est!=null?r.unit_cost_est:returnUnitCostEstimate((CACHE.products||[]).find(x=>x.id===r.product_id));
+  return `<td class="mono muted">${fmt(est||0)}</td>`;
+}
+function returnLinkedCostHead(){
+  return window.__canSeeCost?'<th>برآورد بها</th>':'';
+}
+function returnLinkedCostCell(r){
+  if(!window.__canSeeCost) return '';
+  const p=(CACHE.products||[]).find(x=>x.id===r.product_id);
+  const est=Number(r.unit_cost||r.cost_rial||r.unit_cost_rial)||returnUnitCostEstimate(p);
+  return `<td class="mono muted">${fmt(est||0)}</td>`;
+}
+function returnQtyInputBind(kind){
+  return CSP.bind('input',function(){ updateReturnPreview(kind); });
+}
+async function ensureReturnProductsCache(){
+  if(!CACHE.products||!CACHE.products.length) CACHE.products=listRows(await api('GET','/products'));
+}
+async function openReturnProductPick(kind){
+  const isSr=kind==='sr';
+  const pid=+(el(isSr?'sr-open-prod':'pr-open-prod')?.value)||0;
+  if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  await ensureReturnProductsCache();
+  const p=(CACHE.products||[]).find(x=>Number(x.id)===pid);
+  if(!p){ showToast('کالا یافت نشد','error'); return; }
+  const whId=+(el(isSr?'sr-wh':'pr-wh')?.value)||null;
+  let style=null;
+  try{
+    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
+    style=await api('GET','/product-variants/style/'+pid+q);
+  }catch(_){ style=null; }
+  const pack=typeof livePackFromStyle==='function'?livePackFromStyle(style):{matrix:[]};
+  if(pack.matrix&&pack.matrix.length){
+    openInvVariantSplitModal(p, pack, {
+      dest: isSr?'sales_return':'purchase_return',
+      warehouseId: whId,
+      warehouseName: typeof warehouseNameById==='function'?warehouseNameById(whId):'',
+    });
+    return;
+  }
+  if(isSr) srOpenAddLineSimple(); else prOpenAddLineSimple();
+}
+
 function purchaseReturnModal(){
   prOpenRows=[];
   const openOk=canOpenReturnWithoutInvoice();
   openModal(`
     <div class="modal-head"><h3>↩️ برگشت از خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 12px;line-height:1.7`)}">رنگ×سایز و برآورد بهای تمام‌شده در جدول؛ بدون فاکتور از ماتریس همان انبار انتخاب کنید.</p>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>تأمین‌کننده * ${hlp('پس از انتخاب تأمین‌کننده، فاکتورهای خرید او برای انتخاب نمایش داده می‌شود.')}</label>${supplierSelect('pr-supplier',0)}</div>
         <div class="fg full"><label>حالت برگشت</label>
@@ -17663,20 +17781,27 @@ function purchaseReturnModal(){
             <label ${openOk?'':`title="فقط مدیر/حسابداری"`}><input type="radio" name="pr-mode" value="open" ${openOk?'':'disabled'} data-csp-change="${CSP.bind('change',function(){onPrModeChange()})}"> بدون فاکتور</label>
           </div>
         </div>
-        <div class="fg" id="pr-invoice-wrap"><label>فاکتور خرید ${hlp('قیمت از فاکتور خوانده می‌شود؛ سقف تعداد = فروخته‌شده منهای برگشتی قبلی.')}</label>
+        <div class="fg" id="pr-invoice-wrap"><label>فاکتور خرید ${hlp('قیمت از فاکتور خوانده می‌شود؛ سقف تعداد = خریداری‌شده منهای برگشتی قبلی.')}</label>
           <select id="pr-invoice" data-csp-change="${CSP.bind('change',function(event){loadPrReturnRows()})}" disabled><option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option></select>
         </div>
+        <div class="fg"><label>انبار (بدون فاکتور / پیش‌فرض ردیف)</label><select id="pr-wh">${warehouseOptionsHtml(null,'— پیش‌فرض —')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="pr-note"></div>
       </div>
       <div id="prRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
     </div>
-    <div class="modal-foot"><button class="btn orange" data-csp-click="${CSP.bind('click',function(event){savePurchaseReturn()})}">💾 ثبت برگشت</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`,true);
+    <div class="modal-foot" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center`)}">
+      <div id="prPreview" class="muted" data-csp-style="${CSP.style(`flex:1;min-width:180px;font-size:13px;line-height:1.6`)}">—</div>
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){savePurchaseReturn()})}">💾 ثبت برگشت</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      </div>
+    </div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   const supEl=el('pr-supplier');
   if(supEl) supEl.addEventListener('change', loadPrInvoices);
   onPrModeChange();
+  updateReturnPreview('pr');
 }
 function prMode(){ return document.querySelector('input[name="pr-mode"]:checked')?.value||'linked'; }
 function onPrModeChange(){
@@ -17712,67 +17837,103 @@ async function loadPrInvoices(){
 async function loadPrReturnRows(){
   const invId=+el('pr-invoice')?.value||0;
   const box=el('prRowsContainer');
-  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; updateReturnPreview('pr'); return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  await ensureReturnProductsCache();
   const d=await api('GET','/purchases/returns/available/'+invId);
-  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
+  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; updateReturnPreview('pr'); return; }
+  if(d.invoice&&d.invoice.warehouse_id&&el('pr-wh')&&!el('pr-wh').value) el('pr-wh').value=String(d.invoice.warehouse_id);
+  const qtyBind=returnQtyInputBind('pr');
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-    <th>کالا</th><th>رنگ / طاقه</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد</th><th>تعداد برگشتی</th>
-  </tr></thead><tbody>${d.rows.map(r=>`<tr>
+    <th>کالا</th><th>رنگ</th><th>سایز</th><th>طاقه</th><th>خریداری</th><th>برگشتی</th><th>قابل</th><th>فی</th>${returnLinkedCostHead()}<th>تعداد برگشتی</th>
+  </tr></thead><tbody>${d.rows.map(r=>{
+    const color=r.color_name||r.color||'';
+    const size=r.size_name||'';
+    return `<tr>
     <td>${esc(r.name)}</td>
-    <td>${esc(r.color||r.color_name||'')}${r.roll_no?(' · '+esc(r.roll_no)):''}</td>
+    <td>${esc(color||'—')}</td>
+    <td>${esc(size||'—')}</td>
+    <td class="muted">${esc(r.roll_no||'—')}</td>
     <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-key="${esc(r.line_key||'')}" data-batch="${r.batch_id||''}" data-color="${esc(r.color||'')}" class="pr-qty-input" data-csp-style="${CSP.style(`width:80px`)}"></td>
-  </tr>`).join('')}</tbody></table></div>`;
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
+    <td class="mono">${fmt(r.price)}</td>
+    ${returnLinkedCostCell(r)}
+    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-vid="${r.variant_id||''}" data-key="${esc(r.line_key||'')}" data-batch="${r.batch_id||''}" data-color="${esc(color)}" data-size="${esc(size)}" data-wh="${r.warehouse_id||''}" data-price="${Number(r.price)||0}" class="pr-qty-input num-fit" data-csp-input="${qtyBind}" data-csp-style="${CSP.style(`width:88px`)}"></td>
+  </tr>`;
+  }).join('')}</tbody></table></div>`;
+  updateReturnPreview('pr');
 }
 async function renderPrOpenPanel(){
   const box=el('prRowsContainer'); if(!box) return;
-  if(!CACHE.products||!CACHE.products.length) CACHE.products=listRows(await api('GET','/products'));
+  await ensureReturnProductsCache();
   box.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">بدون فاکتور: قیمت را دستی وارد کنید. سقف تعداد از فاکتور اعمال نمی‌شود.</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی خرید را دستی بزنید. اگر کالا ماتریس رنگ×سایز دارد، با «افزودن» ماتریس باز می‌شود. سقف از فاکتور اعمال نمی‌شود.</div>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
       <div class="fg">${productSelect('pr-open-prod',0)}</div>
-      <div class="fg"><label>تعداد</label><input id="pr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
-      <div class="fg"><label>فی</label><input id="pr-open-price" type="number" min="0" value="0"></div>
-      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){prOpenAddLine()})}">➕ افزودن</button></div>
+      <div class="fg"><label>تعداد (بدون ماتریس)</label><input id="pr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
+      <div class="fg"><label>فی خرید</label><input id="pr-open-price" type="number" min="0" value="0"></div>
+      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){openReturnProductPick('pr')})}">➕ افزودن / ماتریس</button></div>
     </div>
     <div id="prOpenRowsTbl"></div>`;
   initCustSearches(box);
   renderPrOpenRowsTbl();
+  updateReturnPreview('pr');
 }
-function prOpenAddLine(){
+function prOpenAddLineSimple(){
   const pid=+el('pr-open-prod')?.value||0;
   if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
   const p=(CACHE.products||[]).find(x=>x.id===pid);
   const qty=Math.max(0.001, parseQty(el('pr-open-qty')?.value,1));
-  const price=parseFloat(el('pr-open-price')?.value)||Number(p?.purchase_price||p?.price||0)||0;
-  prOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price});
+  const price=parseFloat(el('pr-open-price')?.value)||Number(p?.purchase_price||p?.cost||p?.price||0)||0;
+  const wh=+el('pr-wh')?.value||null;
+  const line={product_id:pid,name:p?.name||('#'+pid),qty,price,unit_cost_est:returnUnitCostEstimate(p)};
+  if(wh) line.warehouse_id=wh;
+  prOpenRows.push(line);
   renderPrOpenRowsTbl();
 }
+function prOpenAddLine(){ openReturnProductPick('pr'); }
 function renderPrOpenRowsTbl(){
   const box=el('prOpenRowsTbl'); if(!box) return;
-  if(!prOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; return; }
-  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th>فی</th><th></th></tr></thead>
-    <tbody>${prOpenRows.map((r,i)=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){prOpenRows.splice(i,1);renderPrOpenRowsTbl()})}">✕</button></td></tr>`).join('')}</tbody></table></div>`;
+  if(!prOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; updateReturnPreview('pr'); return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
+    <th>کالا</th><th>رنگ</th><th>سایز</th><th>تعداد</th><th>فی</th>${returnOpenRowsCostCol()}<th></th></tr></thead>
+    <tbody>${prOpenRows.map((r,i)=>`<tr>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.color_name||'—')}</td>
+      <td>${esc(r.size_name||'—')}</td>
+      <td class="mono">${fmt(r.qty)}</td>
+      <td class="mono">${fmt(r.price)}</td>
+      ${returnOpenRowsCostCell(r)}
+      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){prOpenRows.splice(i,1);renderPrOpenRowsTbl()})}">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  updateReturnPreview('pr');
 }
 async function savePurchaseReturn(){
   const supplier_id=+el('pr-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   const mode=prMode();
   let purchase_invoice_id=null, rows=[];
+  const defaultWh=+el('pr-wh')?.value||null;
   if(mode==='linked'){
     purchase_invoice_id=+el('pr-invoice')?.value||0;
     if(!purchase_invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
     rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({
       product_id:+inp.dataset.pid, qty:+inp.value||0,
       line_key:inp.dataset.key||'', batch_id:inp.dataset.batch?+inp.dataset.batch:null,
-      color:inp.dataset.color||''
+      color:inp.dataset.color||'', color_name:inp.dataset.color||'',
+      size_name:inp.dataset.size||'',
+      variant_id:inp.dataset.vid?+inp.dataset.vid:null,
+      warehouse_id:inp.dataset.wh?+inp.dataset.wh:(defaultWh||null),
     })).filter(r=>r.qty>0);
   } else {
     if(!canOpenReturnWithoutInvoice()){ showToast('برگشت بدون فاکتور فقط برای مدیر/حسابداری است','error'); return; }
-    rows=prOpenRows.filter(r=>r.qty>0).map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}));
+    rows=prOpenRows.filter(r=>r.qty>0).map(r=>({
+      product_id:r.product_id, qty:r.qty, price:r.price,
+      variant_id:r.variant_id||null,
+      color:r.color_name||'', color_name:r.color_name||'',
+      size_name:r.size_name||'',
+      warehouse_id:r.warehouse_id||defaultWh||null,
+    }));
   }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
@@ -17819,6 +17980,7 @@ function salesReturnModal(){
   openModal(`
     <div class="modal-head"><h3>↪️ برگشت از فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 12px;line-height:1.7`)}">رنگ و سایز جدا؛ برآورد بهای تمام‌شده (COGS) برای نقش‌های مجاز؛ بدون فاکتور از ماتریس انبار مقصد.</p>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>مشتری * ${hlp('پس از انتخاب مشتری، فاکتورهای قطعی (معمولی/رسمی) او نمایش داده می‌شود.')}</label>${custSelect('sr-cust',0)}</div>
         <div class="fg full"><label>حالت برگشت</label>
@@ -17836,12 +17998,18 @@ function salesReturnModal(){
       </div>
       <div id="srRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
     </div>
-    <div class="modal-foot"><button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveSalesReturn()})}">💾 ثبت برگشت</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`,true);
+    <div class="modal-foot" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center`)}">
+      <div id="srPreview" class="muted" data-csp-style="${CSP.style(`flex:1;min-width:180px;font-size:13px;line-height:1.6`)}">—</div>
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveSalesReturn()})}">💾 ثبت برگشت</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      </div>
+    </div>`,true);
   attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
   const custEl=el('sr-cust');
   if(custEl) custEl.addEventListener('change', loadSrInvoices);
   onSrModeChange();
+  updateReturnPreview('sr');
 }
 function srMode(){ return document.querySelector('input[name="sr-mode"]:checked')?.value||'linked'; }
 function onSrModeChange(){
@@ -17877,49 +18045,72 @@ async function loadSrInvoices(){
 async function loadSrReturnRows(){
   const invId=+el('sr-invoice')?.value||0;
   const box=el('srRowsContainer');
-  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; updateReturnPreview('sr'); return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  await ensureReturnProductsCache();
   const d=await api('GET','/accounting/sales-returns/available/'+invId);
-  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
+  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; updateReturnPreview('sr'); return; }
   if(d.invoice&&d.invoice.warehouse_id&&el('sr-wh')&&!el('sr-wh').value) el('sr-wh').value=String(d.invoice.warehouse_id);
+  const qtyBind=returnQtyInputBind('sr');
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-    <th>کالا</th><th>تعداد فروخته‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد</th><th>تعداد برگشتی</th>
-  </tr></thead><tbody>${d.rows.map(r=>`<tr>
-    <td>${esc(r.name)}${(r.color_name||r.color||r.size_name)?` <span class="muted">${esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><input type="number" class="num-fit sr-qty-input" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-vid="${r.variant_id||''}"></td>
-  </tr>`).join('')}</tbody></table></div>`;
+    <th>کالا</th><th>رنگ</th><th>سایز</th><th>فروخته</th><th>برگشتی</th><th>قابل</th><th>فی فروش</th>${returnLinkedCostHead()}<th>تعداد برگشتی</th>
+  </tr></thead><tbody>${d.rows.map(r=>{
+    const color=r.color_name||r.color||'';
+    const size=r.size_name||'';
+    return `<tr>
+    <td>${esc(r.name)}</td>
+    <td>${esc(color||'—')}</td>
+    <td>${esc(size||'—')}</td>
+    <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
+    <td class="mono">${fmt(r.price)}</td>
+    ${returnLinkedCostCell(r)}
+    <td><input type="number" class="num-fit sr-qty-input" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-vid="${r.variant_id||''}" data-price="${Number(r.price)||0}" data-csp-input="${qtyBind}"></td>
+  </tr>`;
+  }).join('')}</tbody></table></div>`;
+  updateReturnPreview('sr');
 }
 async function renderSrOpenPanel(){
   const box=el('srRowsContainer'); if(!box) return;
-  if(!CACHE.products||!CACHE.products.length) CACHE.products=listRows(await api('GET','/products'));
+  await ensureReturnProductsCache();
   box.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">بدون فاکتور: قیمت فروش را دستی وارد کنید. VAT متناسب فقط روی برگشتِ لینک‌شده اعمال می‌شود.</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی فروش دستی. کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز می‌گیرد. VAT متناسب فقط روی برگشت لینک‌شده است؛ بهای تمام‌شده در ثبت از میانگین کالا محاسبه می‌شود.</div>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
       <div class="fg">${productSelect('sr-open-prod',0)}</div>
-      <div class="fg"><label>تعداد</label><input id="sr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
+      <div class="fg"><label>تعداد (بدون ماتریس)</label><input id="sr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
       <div class="fg"><label>فی فروش</label><input id="sr-open-price" type="number" min="0" value="0"></div>
-      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){srOpenAddLine()})}">➕ افزودن</button></div>
+      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){openReturnProductPick('sr')})}">➕ افزودن / ماتریس</button></div>
     </div>
     <div id="srOpenRowsTbl"></div>`;
   initCustSearches(box);
   renderSrOpenRowsTbl();
+  updateReturnPreview('sr');
 }
-function srOpenAddLine(){
+function srOpenAddLineSimple(){
   const pid=+el('sr-open-prod')?.value||0;
   if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
   const p=(CACHE.products||[]).find(x=>x.id===pid);
   const qty=Math.max(0.001, parseQty(el('sr-open-qty')?.value,1));
   const price=parseFloat(el('sr-open-price')?.value)||Number(p?.price||0)||0;
-  srOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price});
+  srOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price,unit_cost_est:returnUnitCostEstimate(p)});
   renderSrOpenRowsTbl();
 }
+function srOpenAddLine(){ openReturnProductPick('sr'); }
 function renderSrOpenRowsTbl(){
   const box=el('srOpenRowsTbl'); if(!box) return;
-  if(!srOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; return; }
-  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th>فی</th><th></th></tr></thead>
-    <tbody>${srOpenRows.map((r,i)=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){srOpenRows.splice(i,1);renderSrOpenRowsTbl()})}">✕</button></td></tr>`).join('')}</tbody></table></div>`;
+  if(!srOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; updateReturnPreview('sr'); return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
+    <th>کالا</th><th>رنگ</th><th>سایز</th><th>تعداد</th><th>فی</th>${returnOpenRowsCostCol()}<th></th></tr></thead>
+    <tbody>${srOpenRows.map((r,i)=>`<tr>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.color_name||'—')}</td>
+      <td>${esc(r.size_name||'—')}</td>
+      <td class="mono">${fmt(r.qty)}</td>
+      <td class="mono">${fmt(r.price)}</td>
+      ${returnOpenRowsCostCell(r)}
+      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){srOpenRows.splice(i,1);renderSrOpenRowsTbl()})}">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  updateReturnPreview('sr');
 }
 async function saveSalesReturn(){
   const cust_id=+el('sr-cust').value;
@@ -17929,10 +18120,20 @@ async function saveSalesReturn(){
   if(mode==='linked'){
     invoice_id=+el('sr-invoice')?.value||0;
     if(!invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
-    rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,variant_id:+inp.dataset.vid||null,qty:+inp.value||0})).filter(r=>r.qty>0);
+    rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({
+      product_id:+inp.dataset.pid,
+      variant_id:+inp.dataset.vid||null,
+      qty:+inp.value||0,
+    })).filter(r=>r.qty>0);
   } else {
     if(!canOpenReturnWithoutInvoice()){ showToast('برگشت بدون فاکتور فقط برای مدیر/حسابداری است','error'); return; }
-    rows=srOpenRows.filter(r=>r.qty>0).map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}));
+    rows=srOpenRows.filter(r=>r.qty>0).map(r=>({
+      product_id:r.product_id, qty:r.qty, price:r.price,
+      variant_id:r.variant_id||null,
+      color_name:r.color_name||'',
+      size_name:r.size_name||'',
+      warehouse_id:r.warehouse_id||null,
+    }));
   }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   const warehouse_id=+el('sr-wh')?.value||null;
@@ -26578,7 +26779,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — در این حالت قیمت دستی است و سقف از فاکتور اعمال نمی‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). برگشت خرید رنگ/طاقه را نشان می‌دهد؛ برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. موجودی و حساب طرف مقابل خودکار</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. اگر موجودی انبار باشد ولی جدول کاردکس خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد (موجودی فیزیکی عوض نمی‌شود). تعدیل دستی موجودی و موجودی مطلق اکسل هم ردیف دفتر می‌سازند</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>

@@ -24,15 +24,22 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 4. **تنظیمات حرفه‌ای (knobs):** حداقل `returns_reverse_vat`, `returns_allow_open` در `ALLOWED_KEYS` + پنل تنظیمات حسابداری؛ `coa_sales_return` (موجود از ADR-004) بدون تغییر قرارداد.
 5. **تست:** regression perpetual + VAT returns (مثلاً گسترش `test-acc-crm-perpetual` یا تست اختصاصی returns-adr) پس از merge بک‌اند.
 
-### Out of scope (P2 / P3 — ADR یا موج جدا)
+### P2-UX — ماتریس رنگ×سایز + پیش‌نمایش COGS (shipped)
+
+1. جدول linked: ستون‌های جدا **رنگ** / **سایز** (+ طاقه در خرید)؛ ستون برآورد بها وقتی `__canSeeCost`.
+2. نوار پیش‌نمایش مودال: مبلغ برگشت + برآورد بهای تمام‌شده (زنده با تغییر qty).
+3. حالت بدون فاکتور: `openInvVariantSplitModal` با dest `sales_return` / `purchase_return`؛ ارسال `variant_id` + انبار؛ `buildRows` خرید variant/color/size را persist می‌کند.
+4. SW هدف: **`erp-taranom-v340`**.
+
+### Out of scope (P2 finance / P3 — ADR یا موج جدا)
 
 | موضوع | موج |
 |--------|-----|
-| Allocate credit/debit به فاکتور/PI باز مشتری/تأمین | P2 |
+| Allocate credit/debit به فاکتور/PI باز مشتری/تأمین | P2-finance |
 | Moadian credit/debit note | P3 |
-| معکوس کرایه (`freight_amount`) | P2 |
+| معکوس کرایه (`freight_amount`) | P2-finance |
 | Commission clawback JE | P3 |
-| Value-only کامل (`update_stock=0` UX)، reason codes، گزارش qty برگشتی روی فاکتور | P2 |
+| Value-only کامل (`update_stock=0` UX)، reason codes، گزارش qty برگشتی روی فاکتور | P2-finance |
 
 ## Invariants (unchanged)
 
@@ -47,6 +54,7 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 |------|---------|------------|
 | **P0** | firm picker + `listRows` + unlinked UI + Help + SW v339 | مشتری با فقط `normal` فاکتور می‌بیند؛ unlinked با admin/accounting ثبت می‌شود |
 | **P1** | proportional VAT + typed WH sales + vat columns + settings knobs + tests | ADR-004 §6 returns سبز؛ تراز AR/AP با منبع linked |
+| **P2-UX** | رنگ×سایز columns + COGS preview + open matrix + `variant_id` purchase buildRows + SW v340 | مودال حرفه‌ای؛ open PR/SR با variant؛ پیش‌نمایش بها برای نقش مجاز |
 
 ## Rollback
 
