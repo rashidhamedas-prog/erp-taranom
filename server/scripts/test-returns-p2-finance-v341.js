@@ -16,11 +16,12 @@ function ok(cond, name, extra) {
 }
 
 const root = path.join(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
-const sw = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
-const idx = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const acc = fs.readFileSync(path.join(root, 'routes', 'accounting.js'), 'utf8');
-const paySrc = fs.readFileSync(path.join(root, 'lib', 'invoice-payments.js'), 'utf8');
+const readUtf8 = (p) => fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '');
+const app = readUtf8(path.join(root, 'public', 'app.js'));
+const sw = readUtf8(path.join(root, 'public', 'sw.js'));
+const idx = readUtf8(path.join(root, 'public', 'index.html'));
+const acc = readUtf8(path.join(root, 'routes', 'accounting.js'));
+const paySrc = readUtf8(path.join(root, 'lib', 'invoice-payments.js'));
 
 console.log('-- returns P2-finance v341/v342 --');
 
