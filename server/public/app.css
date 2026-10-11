@@ -1975,6 +1975,58 @@ body.erp-demo-mode{padding-top:32px}
 }
 @media (max-width:900px){.chq-gl-grid{grid-template-columns:1fr}}
 
+/* ===== ADR-CHEQUE-LEAF-001 — برگه ERP خوانا + تاریخچه ===== */
+.chq-leaf{
+  border:1.5px solid #1B5C4A;border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,#F6F1E8 0%,#fff 48%);
+}
+.chq-leaf-band{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 14px;background:#1B5C4A;color:#fff;font-size:12px
+}
+.chq-leaf-brand{font-weight:700;letter-spacing:.02em}
+.chq-leaf-dir{
+  background:#C9A84C;color:#1a1a1a;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px
+}
+.chq-leaf-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid rgba(27,92,74,.15)
+}
+.chq-leaf-cell{
+  padding:10px 12px;border-bottom:1px solid rgba(27,92,74,.12);border-left:1px solid rgba(27,92,74,.12);
+  display:flex;flex-direction:column;gap:4px;min-height:52px
+}
+.chq-leaf-cell:nth-child(2n){border-left:none}
+.chq-leaf-span2{grid-column:1 / -1;border-left:none}
+.chq-leaf-amt .chq-leaf-v{font-size:18px;font-weight:800;color:#1B5C4A}
+.chq-leaf-k{font-size:11px;color:var(--muted,#6b7280)}
+.chq-leaf-v{font-size:13px;line-height:1.5;word-break:break-word}
+.chq-leaf-status{
+  display:flex;flex-wrap:wrap;gap:12px 18px;padding:12px 14px;
+  background:rgba(201,168,76,.12);border-top:1px dashed rgba(27,92,74,.25);font-size:13px
+}
+.chq-leaf-status .chq-leaf-k{display:block;margin-bottom:2px}
+.chq-hist{display:flex;flex-direction:column;gap:0;padding-right:8px}
+.chq-hist-item{
+  display:grid;grid-template-columns:16px 1fr;gap:10px;position:relative;
+  padding:0 0 14px
+}
+.chq-hist-item:not(:last-child) .chq-hist-dot::after{
+  content:"";position:absolute;top:14px;right:7px;width:2px;bottom:-14px;background:rgba(27,92,74,.2)
+}
+.chq-hist-dot{
+  width:14px;height:14px;border-radius:50%;background:#1B5C4A;margin-top:4px;
+  box-shadow:0 0 0 3px rgba(27,92,74,.15);position:relative;z-index:1
+}
+.chq-hist-rev .chq-hist-dot{background:#b45309}
+.chq-hist-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px}
+.chq-hist-je{margin-top:6px;font-size:12px}
+.chq-hist-je summary{cursor:pointer;color:#1B5C4A;font-weight:600}
+@media (max-width:640px){
+  .chq-leaf-grid{grid-template-columns:1fr}
+  .chq-leaf-cell{border-left:none}
+  .chq-leaf-span2{grid-column:auto}
+}
+
 /* ===== UX v273 — داشبورد خانه + حسابداری (موبایل‌اول) ===== */
 .dash-shell,.acc-dash-shell{display:flex;flex-direction:column;gap:14px}
 .dash-hero,.acc-dash-hero{

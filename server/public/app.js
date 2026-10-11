@@ -9390,7 +9390,7 @@ async function loadAccTab(tab){
         <td>${esc(r.status||'-')}${r.status_note?`<br><span class="muted">${esc(r.status_note)}</span>`:''}</td>
         <td class="muted">${esc(r.note||'-')}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editChequeRegisterStatus((r.id),`${String((CSP.htmlDecode(String(esc(r.status||'')))) ?? '')}`)})}">✏️ وضعیت</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openChequeLeafModal((r.id))})}" title="برگه چک، وضعیت و تاریخچه">📋 وضعیت</button>
           ${r.direction==='in'&&chequeLifecycleRegistered(r)?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeSendToBank((r.id))})}">🏦 واگذاری</button>`:''}
           ${r.direction==='in'&&chequeLifecycleRegistered(r)?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeEndorseIn((r.id))})}">✍️ خرج</button>`:''}
           ${payNav&&r.direction==='out'&&chequeLifecycleRegistered(r)?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequePayOut((r.id))})}">💸 پرداخت</button><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeExpenseOut((r.id))})}">📤 خرج چک</button>`:''}
@@ -21821,8 +21821,8 @@ async function settlementModal(custId){
   openModal(`
     <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
-      <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فاکتورهای قطعی با مانده باز (معمولی و رسمی).')}</label>
+      <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این دریافت از او ثبت می‌شود.')}</label>${custSelect('st-cust', custId)}</div>
+      <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این دریافت بابت یک فاکتور خاص است، آن را انتخاب کنید — فاکتورهای قطعی با مانده باز (معمولی و رسمی).')}</label>
         <select id="st-invoice" data-csp-change="${CSP.bind('change',function(event){stlApplyInvoiceAmt()})}"><option value="">— بدون تخصیص به فاکتور —</option>
         ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
         </select></div>
@@ -21833,11 +21833,11 @@ async function settlementModal(custId){
       <div id="stlSingleBlock">
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option><option value="pos_card">کارتخوان</option></select></div>
-          <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون بانک —</option>
+          <div class="fg"><label>روش دریافت ${hlp('نقد→صندوق شرکت، واریز→بانک شرکت، چک→اسناد دریافتنی نزد صندوق (نه واریز به بانک)، کارتخوان→وجوه در راه.')}</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک دریافتی</option><option value="pos_card">کارتخوان</option></select></div>
+          <div class="fg" id="st-bank-fg"><label>بانک مقصد (شرکت)</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— انتخاب بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
-          <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون صندوق —</option>
+          <div class="fg" id="st-cashbox-fg"><label>صندوق مقصد</label><select id="st-cashbox" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— انتخاب صندوق —</option>
             ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
           ${payPosFieldHtml('st')}
@@ -21939,6 +21939,9 @@ function stlDestCell(r,i){
       ${terms.map(t=>`<option value="${t.id}" ${String(r.terminal_id)===String(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
     </select>`;
   }
+  if(pt==='cheque'){
+    return `<span class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6`)}">اسناد دریافتنی<br>(نزد صندوق)</span>`;
+  }
   return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].bank_id=this.value;stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id=''})}">
     <option value="">— بانک —</option>
     ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(r.bank_id)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
@@ -21970,10 +21973,11 @@ function toggleStlCheque(){
   const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
   const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
   const bankRef=el('st-bankref-fg'); if(bankRef) bankRef.style.display=isBank?'block':'none';
-  const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
+  // چک دریافتی → اسناد دریافتنی نزد صندوق؛ بانک شرکت فقط برای واریز بانکی.
+  const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=isBank?'flex':'none';
   const cashFg=el('st-cashbox-fg'); if(cashFg) cashFg.style.display=isCash?'flex':'none';
   const posFg=el('st-pos-fg'); if(posFg) posFg.style.display=isPos?'flex':'none';
-  if(!(isBank||isCheque) && el('st-bank')) el('st-bank').value='';
+  if(!isBank && el('st-bank')) el('st-bank').value='';
   if(!isCash && el('st-cashbox')) el('st-cashbox').value='';
   if(!isPos && el('st-pos')) el('st-pos').value='';
   if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
@@ -22045,13 +22049,13 @@ async function saveSettlement(){
         cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
         cheque_branch:c.branch||'', cheque_sheba:c.sheba||'', cheque_due:c.due, cheque_owner:c.owner||'',
         cheque_amount:amount, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
-        bank_id:+el('st-bank')?.value||null, cash_box_id:+el('st-cashbox')?.value||null
+        bank_id:null, cash_box_id:null
       });
     }
     if(!payments.length){ showToast('حداقل یک چک وارد کنید','error'); return; }
     try{
       await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note')?.value||''});
-      _accRecvCache=null; closeModal(); showToast(payments.length+' چک در یک سند دریافت ثبت شد'); loadAccTab(accTab);
+      _accRecvCache=null; closeModal(); showToast(payments.length+' فقره چک در دفتر چک و صورت‌حساب ثبت شد'); loadAccTab(accTab);
     }catch(e){}
     return;
   }
@@ -22084,7 +22088,8 @@ async function saveSettlement(){
         posRows.push({amount, terminal_id:r.terminal_id, date:r.date||todayJalali(), invoice_id:+r.invoice_id||null, note:r.note||''});
       } else {
         if(r.pay_type==='cash' && !r.cash_box_id){ showToast('قسط '+toFa(i+1)+': صندوق را انتخاب کنید','error'); return; }
-        if((r.pay_type==='bank_transfer'||r.pay_type==='cheque') && !r.bank_id){ showToast('قسط '+toFa(i+1)+': بانک را انتخاب کنید','error'); return; }
+        if(r.pay_type==='bank_transfer' && !r.bank_id){ showToast('قسط '+toFa(i+1)+': بانک مقصد را انتخاب کنید','error'); return; }
+        if(r.pay_type==='cheque'){ showToast('قسط چک را از حالت تک‌مرحله با «ثبت چک بعدی» ثبت کنید (هر فقره مشخصات صیادی جدا می‌خواهد)','error'); return; }
         payments.push({
           amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||'',
           bank_id:+r.bank_id||null, cash_box_id:+r.cash_box_id||null
@@ -23995,14 +24000,107 @@ function chequeLifecycleRegistered(r){
   const lc=String(r&&r.lifecycle_status||'').trim();
   return !lc||lc==='registered'||lc==='in_hand'||lc==='pending';
 }
-async function editChequeRegisterStatus(id,current){
-  const status=prompt('وضعیت نمایشی چک (غیرمالی؛ واگذاری/وصول/خرج فقط از دکمه‌های عملیات):',current||'');
-  if(status===null) return;
-  const note=prompt('شرح وضعیت (اختیاری):','')||'';
+/** ADR-CHEQUE-LEAF-001 — view-only leaf + history (no lifecycle actions in modal). */
+async function openChequeLeafModal(id){
+  openModal(`
+    <div class="modal-head"><h3>📋 برگه چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="muted" data-csp-style="${CSP.style(`padding:24px;text-align:center`)}">در حال بارگذاری…</div></div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button></div>`, true);
   try{
-    await api('PATCH','/cheque-records/'+id+'/status',{status,status_note:note});
-    showToast('وضعیت چک به‌روز شد'); loadAccTab('cheque-register');
-  }catch(e){ showToast(e.message||'خطا','err'); }
+    const [chq, histWrap]=await Promise.all([
+      api('GET','/cheque-records/'+id),
+      api('GET','/cheque-records/'+id+'/history')
+    ]);
+    const events=(histWrap&&histWrap.events)||[];
+    renderChequeLeafModalBody(chq, events);
+  }catch(e){
+    closeModal();
+    showToast((e&&e.message)||'خطا در بارگذاری برگه چک','error');
+  }
+}
+function chequeHistWhen(ev){
+  if(ev&&ev.date) return escDate(ev.date);
+  if(ev&&ev.at){
+    try{ return new Date(Number(ev.at)*1000).toLocaleString('fa-IR'); }catch(_){ return String(ev.at); }
+  }
+  return '—';
+}
+function renderChequeLeafModalBody(chq, events){
+  const root=el('activeModal');
+  if(!root||!chq) return;
+  const lcBadge=esc(chq.lifecycle_label||chq.status||'—');
+  const dirBadge=chq.direction==='out'?'پرداختی':'دریافتی';
+  const leaf=`
+    <div class="chq-leaf" role="region" aria-label="برگه چک">
+      <div class="chq-leaf-band">
+        <span class="chq-leaf-brand">ERP ترنم — برگه چک</span>
+        <span class="chq-leaf-dir">${esc(dirBadge)}</span>
+      </div>
+      <div class="chq-leaf-grid">
+        <div class="chq-leaf-cell chq-leaf-amt"><span class="chq-leaf-k">مبلغ (ریال)</span><span class="chq-leaf-v mono">${fmt(chq.amount||0)}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">شماره چک</span><span class="chq-leaf-v mono">${esc(chq.cheque_number||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">صیاد</span><span class="chq-leaf-v mono">${esc(chq.sayadi||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">سررسید</span><span class="chq-leaf-v mono">${escDate(chq.due_date||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">تاریخ صدور</span><span class="chq-leaf-v mono">${escDate(chq.issue_date||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">تاریخ دریافت</span><span class="chq-leaf-v mono">${escDate(chq.receive_date||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">بانک</span><span class="chq-leaf-v">${esc(chq.bank_name||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">شعبه</span><span class="chq-leaf-v">${esc(chq.branch||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">شبا</span><span class="chq-leaf-v mono">${esc(chq.sheba||'—')}</span></div>
+        <div class="chq-leaf-cell"><span class="chq-leaf-k">شماره حساب</span><span class="chq-leaf-v mono">${esc(chq.account_number||'—')}</span></div>
+        <div class="chq-leaf-cell chq-leaf-span2"><span class="chq-leaf-k">طرف حساب</span><span class="chq-leaf-v">${esc(chq.party_name||'—')}</span></div>
+        <div class="chq-leaf-cell chq-leaf-span2"><span class="chq-leaf-k">شرح</span><span class="chq-leaf-v">${esc(chq.note||'—')}</span></div>
+      </div>
+      <div class="chq-leaf-status">
+        <div><span class="chq-leaf-k">وضعیت نمایشی</span><span class="chq-leaf-v">${esc(chq.status||'—')}${chq.status_note?` <span class="muted">— ${esc(chq.status_note)}</span>`:''}</span></div>
+        <div><span class="chq-leaf-k">وضعیت چرخه</span><span class="tag">${lcBadge}</span> <span class="muted mono">${esc(chq.lifecycle_normalized||chq.lifecycle_status||'')}</span></div>
+        ${chq.collection_bank_name?`<div><span class="chq-leaf-k">بانک وصول</span><span class="chq-leaf-v">${esc(chq.collection_bank_name)}</span></div>`:''}
+        ${chq.invoice_num?`<div><span class="chq-leaf-k">فاکتور</span><span class="chq-leaf-v mono">${esc(chq.invoice_num)}</span></div>`:''}
+        ${chq.is_opening?`<div><span class="tag">مانده اول دوره</span></div>`:''}
+        ${chq.record_status==='reversed'?`<div><span class="tag" data-csp-style="${CSP.style(`background:#fee;color:#a00`)}">ابطال‌شده</span></div>`:''}
+      </div>
+    </div>`;
+  const timeline=events.length?events.map((ev,i)=>{
+    const lines=(ev.lines||[]).map(l=>`
+      <tr>
+        <td class="mono">${esc(l.account_code||'')}</td>
+        <td>${esc(l.account_name||'')}</td>
+        <td class="mono">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial!=null?l.debit_rial:l.debit):'—'}</td>
+        <td class="mono">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial!=null?l.credit_rial:l.credit):'—'}</td>
+      </tr>`).join('');
+    const jeLink=ev.journal_entry_id
+      ? `<span class="tag mono">سند #${ev.journal_entry_id}${ev.voucher_number?' · '+esc(ev.voucher_number):''}</span>`
+      : `<span class="muted">${esc(ev.kind==='audit'?'ممیزی':(ev.kind||''))}</span>`;
+    return `
+      <div class="chq-hist-item${ev.reversed?' chq-hist-rev':''}">
+        <div class="chq-hist-dot" aria-hidden="true"></div>
+        <div class="chq-hist-body">
+          <div class="chq-hist-head">
+            <strong>${esc(ev.title||'رویداد')}</strong>
+            <span class="muted mono">${chequeHistWhen(ev)}</span>
+            ${jeLink}
+            ${ev.reversed?'<span class="tag">معکوس‌شده</span>':''}
+          </div>
+          ${ev.detail?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:4px 0`)}">${esc(ev.detail)}</div>`:''}
+          ${lines?`<details class="chq-hist-je"><summary>خطوط سند</summary>
+            <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr><th>کد</th><th>حساب</th><th>بدهکار</th><th>بستانکار</th></tr></thead>
+            <tbody>${lines}</tbody></table></div></details>`:''}
+        </div>
+      </div>`;
+  }).join(''):'<div class="empty">رویدادی ثبت نشده</div>';
+  root.innerHTML=`
+    <div class="modal-head"><h3>📋 برگه چک ${chq.cheque_number?esc(chq.cheque_number):('#'+chq.id)}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin-bottom:12px`)}">فقط مشاهده — واگذاری، وصول، خرج و برگشت از دکمه‌های همان ردیف در دفتر چک انجام می‌شود و سند حسابداری می‌زند.</p>
+      ${leaf}
+      <h4 data-csp-style="${CSP.style(`margin:18px 0 10px;font-size:14px`)}">تاریخچه</h4>
+      <div class="chq-hist">${timeline}</div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button></div>`;
+  try{ wireModalChrome(); }catch(_){}
+}
+async function editChequeRegisterStatus(id){
+  return openChequeLeafModal(id);
 }
 async function chequeSendToBank(id){
   if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
@@ -26465,7 +26563,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v337</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v338</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -26635,7 +26733,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند</li>
         <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود</li>
       </ul>
-      <div class="tip">«خواباندن به حساب» فقط با دکمهٔ <b>واگذاری</b> و انتخاب بانک انجام می‌شود — نوشتن متن آزاد در ستون وضعیت، سند حسابداری نمی‌زند و دکمه‌های چرخه را عوض نمی‌کند. هر گذار چرخه فقط یک‌بار سند می‌زند. <b>ابطال کامل</b> همهٔ اسناد را معکوس می‌کند (حذف فیزیکی نیست).</div>`),
+      <div class="tip">دکمهٔ <b>وضعیت</b> برگهٔ خوانای چک + وضعیت چرخه + تاریخچهٔ زمانی (با خطوط سند) را فقط برای مشاهده باز می‌کند — عملیات مالی همان دکمه‌های ردیف است. «خواباندن به حساب» فقط با <b>واگذاری</b> و انتخاب بانک انجام می‌شود. هر گذار چرخه فقط یک‌بار سند می‌زند. <b>ابطال کامل</b> همهٔ اسناد را معکوس می‌کند (حذف فیزیکی نیست).</div>`),
     helpSec('💳','کارتخوان (POS)',`
       <p>منوی حسابداری <b>دستگاه‌های کارت‌خوان</b> دیگر روی حافظه مرورگر نیست؛ پایانه‌ها، دریافت‌ها و تسویه دسته‌ای در پایگاه ذخیره می‌شوند.</p>
       <ul>

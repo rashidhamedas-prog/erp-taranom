@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۱۹ — ADR-CHEQUE-LEAF-001 + P0 برگه وضعیت/تاریخچه (SW v338)
+
+- **تصمیم:** مودال وضعیت = فقط مشاهده؛ برگه ERP خوانا (نه facsimile بانکی).
+- **بک‌اند:** `GET /cheque-records/:id` + `/:id/history` (بازسازی از JE+audit)؛ `lib/cheque-history.js`.
+- **UI/Help:** دکمه وضعیت → مودال برگه + timeline + خطوط سند؛ CSS برگه؛ SW `erp-taranom-v338`.
+- **فایل‌ها:** `lib/cheque-history.js`, `routes/cheque-records.js`, `public/{app.js,app.css,sw.js,index.html}`, ADR + RESEARCH، `scripts/test-cheque-leaf-history-v338.js`, CHANGE-LOG.
+- **تست:** روی ایران `test-cheque-leaf-history-v338` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — تحقیق دفتر چک: تکمیل ماتریس تنظیمات
 
 - **خلاصه:** بخش ۶ سند برگه/وضعیت چک با ماتریس کامل settings (COA، دسته، وصول per-bank، knobs P0–P2) قفل شد؛ ۲۱۰۹ خارج ALLOWED؛ auto-leaf و default collection bank غایب.

@@ -1,7 +1,9 @@
 # تحقیق دفتر چک — برگه وضعیت + تاریخچه + ثبت‌های دقیق
 
-**وضعیت:** Research (pre-ADR) — Wave 0 freeze  
+**وضعیت:** Research ✅ → ADR-CHEQUE-LEAF-001 Accepted + P0 shipped (SW v338)  
 **تاریخ:** ۱۴۰۵/۰۷/۱۹  
+**ADR:** `CHEQUE-LEAF-ADR-001.md`  
+
 **منبع:** skill-top **full** + tap-erp-architecture + ui-ux + ECC plan-first  
 [Cheque API lifecycle](3b026a7e-ad0a-4e0a-8f92-c9d5e38fe92c) · [Cheque UI status button](a722b1f2-9f89-48f6-9894-a1cf48ddadea) · [Cheque pro settings](37ad6903-e6bb-4a07-8fb8-546274f4a7b2)  
 **Slack:** در workspace متصل پیامی دربارهٔ چک/دفتر چک یافت نشد — منبع حقیقت کد + CHANGE-LOG + ADRهای مرتبط است.  
@@ -260,18 +262,17 @@ Help چرخه عمر دفتر چک در `renderAdminGuide` (~26622) **EXISTS** �
 
 ---
 
-## ۱۰) تصمیم‌های باز برای ADR-CHEQUE-LEAF-001
+## ۱۰) تصمیم‌های ADR-CHEQUE-LEAF-001
 
-1. **نقش مودال وضعیت:** فقط مشاهده (برگه+تاریخچه+لینک JE) یا هاب عملیات چرخه؟ *(منتظر کاربر)*  
-2. **وفاداری بصری برگه:** facsimile چک بانکی ایران vs برگهٔ ERP خوانا با فیلدهای جای‌گذاری‌شده؟ *(منتظر کاربر)*  
-3. تاریخچه: API بازسازی از JE+audit کافی است یا جدول `cheque_events`؟  
-4. آیا ستون/فیلتر لیست باید روی `lifecycle_status` برود (نه فقط LIKE روی `status`)؟  
-5. sunset یا redirect تب legacy `acc-cheques-recv` → دفتر چک؟  
-6. clear: اجبار انتخاب بانک اگر `collection_bank_id` خالی؛ تاریخ قابل ویرایش؟  
-7. ALLOWED_KEYS برای ۲۱۰۹ / ۳۱۰۲ / هزینهٔ پیش‌فرض خرج؟  
-8. جدا کردن ستون JE برای pay/endorse از `collection_je_id` (مهاجرت) یا فقط `ref_type` در history API؟  
-9. پیوست تصویر برگه چک — فایل sync؟  
-10. آیا PATCH وضعیت نمایشی در مودال جدید باقی بماند (یادداشت غیرمالی) یا حذف شود؟
+| # | سؤال | پاسخ |
+|---|------|------|
+| 1 | نقش مودال | **فقط مشاهده** (برگه + تاریخچه + سند) — Accepted |
+| 2 | ظاهر برگه | **ERP خوانا** با جایگاه فیلدها — Accepted |
+| 3 | تاریخچه | بازسازی JE+audit در P0؛ `cheque_events` بعداً |
+| 4 | فیلتر lifecycle در لیست | باز (P2) |
+| 5 | sunset legacy cheques tab | باز (P2) |
+| 6–9 | knobs پیشرفته | باز طبق §۶ |
+| 10 | PATCH در مودال | **خیر** — مودال فقط خواندنی |
 
 ---
 

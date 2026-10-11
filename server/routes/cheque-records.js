@@ -19,6 +19,7 @@ const {
   sqlIsRegistered,
 } = require('../lib/cheque-lifecycle');
 const { syncSettlementChequeStatus } = require('../lib/cheque-due');
+const { enrichChequeRow, buildChequeHistory } = require('../lib/cheque-history');
 
 function resolveChequeParty(db, body) {
   const partyId = parseInt(body && body.party_id, 10);
@@ -340,6 +341,21 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const rows = db.prepare(`SELECT * FROM cheque_records ${whereSql} ORDER BY due_date ASC, id DESC LIMIT 1000`).all(...params);
   res.json(rows);
+});
+
+/** ADR-CHEQUE-LEAF-001 — leaf detail (read-only). */
+router.get('/:id/history', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const events = buildChequeHistory(db, req.params.id);
+  if (events === null) return res.status(404).json({ error: 'چک یافت نشد' });
+  res.json({ cheque_id: Number(req.params.id), events });
+});
+
+router.get('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'چک یافت نشد' });
+  res.json(enrichChequeRow(db, row));
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
