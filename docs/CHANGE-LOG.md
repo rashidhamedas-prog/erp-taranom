@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۱۹ — تحقیق برگشت فروش/خرید (پیش‌ADR جامع)
+
+- **هدف:** قفل باگ picker فاکتور، پشتیبانی برگشت بدون فاکتور، ماتریس JE/VAT/انبار/تنظیمات حرفه‌ای و موج‌های P0–P3 قبل از پیاده‌سازی گسترده.
+- **یافته‌های قفل‌شده:** UI فقط `type==='final'` فیلتر می‌کند در حالی که فروش قطعی = `normal∪final`؛ API هر دو return بدون `invoice_id`/`purchase_invoice_id` را می‌پذیرد ولی UI بلاک می‌کند؛ JE برگشت فروش بدون VAT و با `coa_inventory` سراسری (نه typed WH)؛ خرید typed WH دارد ولی بدون VAT؛ `coa_sales_return` از v337 موجود؛ ADR-004 §6 returns هنوز P1 باز.
+- **تصمیم باز:** ADR-RETURNS-005 — پیشنهاد Option Minimal-Correct (P0 picker+unlinked UI؛ P1 آینه VAT/typed WH).
+- **فایل‌ها:** `docs/architecture/SALES-PURCHASE-RETURNS-RESEARCH.md`, CHANGE-LOG.
+- **تست:** ندارد (docs-only).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — ADR-CHEQUE-LEAF-001 + P0 برگه وضعیت/تاریخچه (SW v338)
 
 - **تصمیم:** مودال وضعیت = فقط مشاهده؛ برگه ERP خوانا (نه facsimile بانکی).
