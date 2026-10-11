@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۱۹ — تحقیق دفتر چک: تکمیل ماتریس تنظیمات
+
+- **خلاصه:** بخش ۶ سند برگه/وضعیت چک با ماتریس کامل settings (COA، دسته، وصول per-bank، knobs P0–P2) قفل شد؛ ۲۱۰۹ خارج ALLOWED؛ auto-leaf و default collection bank غایب.
+- **فایل‌ها:** `docs/architecture/CHEQUE-LEAF-STATUS-RESEARCH.md`, CHANGE-LOG.
+- **تست:** ندارد (docs-only).
+- **Deploy:** ✅ `b75e9a2` — overlay docs ایران؛ ready=200؛ SW بدون تغییر.
+
 ### ۱۴۰۵/۰۷/۱۹ — تحقیق دفتر چک: برگه وضعیت + تاریخچه (پیش‌ADR)
 
 - **هدف:** قفل وابستگی تک‌به‌تک دکمهٔ «وضعیت»، ماشین حالت `cheque_records`، قالب‌های JE، منابع تاریخچه، شکاف UI برگه، و موج‌های P0–P3 قبل از پیاده‌سازی مودال برگه چک.
