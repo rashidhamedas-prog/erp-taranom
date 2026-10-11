@@ -84,8 +84,8 @@ function req(app, method, url, body, token) {
   ok(!!token, 'session token');
 
   const partyId = db.prepare(`
-    INSERT INTO parties (person_code, party_type, full_name, is_active)
-    VALUES ('P-LEAF338','customer','طرف برگه v338',1)
+    INSERT INTO parties (person_code, party_type, full_name, phone, is_active)
+    VALUES ('P-LEAF338','customer','طرف برگه v338','09151234567',1)
   `).run().lastInsertRowid;
 
   const bankId = db.prepare(`

@@ -4,8 +4,8 @@
 - **بک‌اند:** `GET /cheque-records/:id` + `/:id/history` (بازسازی از JE+audit)؛ `lib/cheque-history.js`.
 - **UI/Help:** دکمه وضعیت → مودال برگه + timeline + خطوط سند؛ CSS برگه؛ SW `erp-taranom-v338`.
 - **فایل‌ها:** `lib/cheque-history.js`, `routes/cheque-records.js`, `public/{app.js,app.css,sw.js,index.html}`, ADR + RESEARCH، `scripts/test-cheque-leaf-history-v338.js`, CHANGE-LOG.
-- **تست:** روی ایران `test-cheque-leaf-history-v338` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** روی ایران `test-cheque-leaf-history-v338` ۱۵/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `442c5dd` — overlay ایران (درخت سرور کثیف؛ بدون `reset --hard`) + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v338`.
 
 ### ۱۴۰۵/۰۷/۱۹ — تحقیق دفتر چک: تکمیل ماتریس تنظیمات
 
