@@ -1,9 +1,10 @@
 ### ۱۴۰۵/۰۷/۱۹ — ریشهٔ دفتر چک / صورت‌حساب / دریافت (SW v341)
 
 - **خلاصه:** صورت‌حساب ردیف چک/تسویهٔ ابطال‌شده را از دفتر عملیاتی حذف می‌کند (R12/R13؛ JE معکوس در روزنامه). `backfillMissingSettlementCheques` + `POST /settlements(+batch)` برای هر چک یک ردیف `cheque_records`. فرم دریافت بدون حساب معین؛ بانک مقصد فقط واریز بانکی. فاکتور: `inv-cheque-face` + «ثبت چک بعدی»؛ مبلغ خالی روی کل فاکتور جمع نمی‌شود (`E_CHEQUE_FACE`). SW `erp-taranom-v341`.
-- **فایل‌ها:** `lib/{customer-books,invoice-payments,party-turnover}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cheque-books-v339.js`, CHANGE-LOG.
-- **تست:** روی ایران `test-cheque-books-v339` + `test-sms` + `test-sync` (لوکال better-sqlite3 ABI ندارد).
-- **Deploy:** ⏳
+- **R13 ابطال چک:** `voidChequeRecord` تسویهٔ مرتبط را با `reverseSettlementInTx(..., { skipChequeRecords: true })` برمی‌گرداند؛ حتی بدون JE زنده `settlements.status=reversed` می‌شود و مانده فاکتور بازمحاسبه می‌شود.
+- **فایل‌ها:** `lib/{customer-books,invoice-payments,party-turnover,void-cheque,void-settlement}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cheque-books-v339.js`, CHANGE-LOG.
+- **تست:** ایران `test-cheque-books-v339` ۲۲/۲۲ (بخش ۴: void receipt ⇒ settlement reversed) + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ overlay ایران (`void-cheque` + `void-settlement` + تست) + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت فروش/خرید P2-UX: رنگ×سایز + پیش‌نمایش COGS (SW v340)
 
@@ -25,7 +26,7 @@
 - **خلاصه:** صورت‌حساب ردیف‌های چک/تسویهٔ ابطال‌شده را از دفتر عملیاتی حذف می‌کند (R12/R13؛ JE معکوس در روزنامه). backfill تسویه→`cheque_records`. فرم دریافت بدون حساب معین؛ مقصد بانک فقط واریز بانکی. فاکتور: مبلغ هر برگ چک جدا + «ثبت چک بعدی». SW `erp-taranom-v340`.
 - **فایل‌ها:** `server/lib/customer-books.js`, `server/lib/invoice-payments.js`, `server/routes/accounting.js`, `server/lib/party-turnover.js`, `server/public/app.js`, `server/public/sw.js`, `server/public/index.html`, `server/scripts/test-cheque-books-v339.js`, CHANGE-LOG.
 - **تست:** `test-sms` + `test-sync` + `test-cheque-books-v339`.
-- **Deploy:** ⏳ — Help/cache v340؛ منتظر overlay ایران + `pm2 restart erp-taranom`؛ SW `erp-taranom-v340`.
+- **Deploy:** ✅ superseded by SW v341 entry above (same feature set + void cascade).
 
 ### ۱۴۰۵/۰۷/۱۹ — تحقیق برگشت فروش/خرید (پیش‌ADR جامع)
 
