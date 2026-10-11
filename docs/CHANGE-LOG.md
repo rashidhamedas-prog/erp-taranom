@@ -2,8 +2,8 @@
 
 - **خلاصه:** در حالت «بدون فاکتور»، `productSelect` دیگر روی `CACHE.allProducts=[]` خالی گیر نمی‌کند — `ensureReturnProductsCache` فقط `ensureProductsCache()` را صدا می‌زند و پنل‌های باز فروش/خرید لیست کامل را صریح به picker می‌دهند؛ انتخاب کالا فی را در صورت صفر پر می‌کند.
 - **فایل‌ها:** `server/public/app.js`, `server/scripts/test-returns-p2-ux-v341.js`, CHANGE-LOG.
-- **تست:** `node server/scripts/test-returns-p2-ux-v341.js` + parse `new Function(app.js)`.
-- **Deploy:** ⏳
+- **تست:** `node server/scripts/test-returns-p2-ux-v341.js` ۱۸/۰ + parse `new Function(app.js)`.
+- **Deploy:** ✅ `47e3375` — overlay `app.js` ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`.
 
 ### ۱۴۰۵/۰۷/۱۹ — ریشهٔ دفتر چک / صورت‌حساب / دریافت (SW v341)
 
