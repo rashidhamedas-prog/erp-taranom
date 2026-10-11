@@ -72,8 +72,6 @@ function voidChequeRecord(db, chequeId, user) {
       WHERE id=?
     `).run(lastReversal, user.id, row.id);
 
-    require('./cheque-due').syncSettlementChequeStatus(db, row.id);
-
     const { reverseChequeLedgerByRef } = require('./cheque-party-books');
     reverseChequeLedgerByRef(db, {
       chequeId: row.id,
@@ -82,6 +80,17 @@ function voidChequeRecord(db, chequeId, user) {
       userId: user.id,
       descriptionPrefix: `ابطال چک ${row.cheque_number || row.id}`,
     });
+
+    const settlementId = Number(row.settlement_id);
+    if (settlementId) {
+      const settlement = db.prepare('SELECT * FROM settlements WHERE id=?').get(settlementId);
+      if (settlement && settlement.status !== 'reversed') {
+        const { reverseSettlementInTx } = require('./void-settlement');
+        reverseSettlementInTx(db, settlement, user.id);
+      }
+    }
+
+    require('./cheque-due').syncSettlementChequeStatus(db, row.id);
   })();
 
   audit(user.id, 'reverse', 'cheque_record', row.id, `ابطال کامل چک ${row.cheque_number || row.id}`);
