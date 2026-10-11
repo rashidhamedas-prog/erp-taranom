@@ -5,7 +5,7 @@
 - **تصمیم باز:** نقش مودال (مشاهده vs هاب) و وفاداری بصری برگه — پیشنهادی موقت P0=مشاهده + برگه ERP.
 - **فایل‌ها:** `docs/architecture/CHEQUE-LEAF-STATUS-RESEARCH.md`, CHANGE-LOG.
 - **تست:** ندارد (docs-only).
-- **Deploy:** ⏳
+- **Deploy:** ✅ `df8001f` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۸ — ADR-004 + P0 حسابداری CRM/فروش (SW v337)
 
