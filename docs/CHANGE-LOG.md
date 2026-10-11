@@ -1,10 +1,17 @@
+### ۱۴۰۵/۰۷/۱۹ — باگ جستجوی کالا در برگشت بدون فاکتور (SW v341)
+
+- **خلاصه:** در حالت «بدون فاکتور»، `productSelect` دیگر روی `CACHE.allProducts=[]` خالی گیر نمی‌کند — `ensureReturnProductsCache` فقط `ensureProductsCache()` را صدا می‌زند و پنل‌های باز فروش/خرید لیست کامل را صریح به picker می‌دهند؛ انتخاب کالا فی را در صورت صفر پر می‌کند.
+- **فایل‌ها:** `server/public/app.js`, `server/scripts/test-returns-p2-ux-v341.js`, CHANGE-LOG.
+- **تست:** `node server/scripts/test-returns-p2-ux-v341.js` + parse `new Function(app.js)`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — ریشهٔ دفتر چک / صورت‌حساب / دریافت (SW v341)
 
 - **خلاصه:** صورت‌حساب ردیف چک/تسویهٔ ابطال‌شده را از دفتر عملیاتی حذف می‌کند (R12/R13؛ JE معکوس در روزنامه). `backfillMissingSettlementCheques` + `POST /settlements(+batch)` برای هر چک یک ردیف `cheque_records`. فرم دریافت بدون حساب معین؛ بانک مقصد فقط واریز بانکی. فاکتور: `inv-cheque-face` + «ثبت چک بعدی»؛ مبلغ خالی روی کل فاکتور جمع نمی‌شود (`E_CHEQUE_FACE`). SW `erp-taranom-v341`.
 - **R13 ابطال چک:** `voidChequeRecord` تسویهٔ مرتبط را با `reverseSettlementInTx(..., { skipChequeRecords: true })` برمی‌گرداند؛ حتی بدون JE زنده `settlements.status=reversed` می‌شود و مانده فاکتور بازمحاسبه می‌شود.
 - **فایل‌ها:** `lib/{customer-books,invoice-payments,party-turnover,void-cheque,void-settlement}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cheque-books-v339.js`, CHANGE-LOG.
 - **تست:** ایران `test-cheque-books-v339` ۲۲/۲۲ (بخش ۴: void receipt ⇒ settlement reversed) + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
-- **Deploy:** ✅ `ffa4cc9` — overlay ایران (`void-cheque` + `void-settlement` + تست) + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`.
+- **Deploy:** ✅ `56acc2c` — overlay ایران `lib/{void-cheque,void-settlement}.js` + `scripts/test-cheque-books-v339.js` + `pm2 restart erp-taranom` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`؛ cascade ابطال چک→تسویه (`reverseSettlementInTx` + `skipChequeRecords`) روی ایران فعال.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت فروش/خرید P2-UX: رنگ×سایز + پیش‌نمایش COGS (SW v340)
 
