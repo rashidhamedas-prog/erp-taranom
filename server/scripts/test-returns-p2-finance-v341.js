@@ -86,20 +86,20 @@ try {
   const c = db.prepare("INSERT INTO customers(biz,owner,user_id) VALUES('C','O',?)").run(uid);
   const cid = c.lastInsertRowid;
   const inv = db.prepare(`
-    INSERT INTO invoices(num,cust_id,date,type,status,final,final_rial,settled_amount,balance_due,created_by)
-    VALUES('T-P2F',?,strftime('%Y/%m/%d','now'),'normal','confirmed',1000000,1000000,0,1000000,?)
-  `).run(cid, uid);
+    INSERT INTO invoices(user_id,cust_id,num,date,type,status,final,final_rial,settled_amount,balance_due,pay_type)
+    VALUES(?,?,'T-P2F',strftime('%Y/%m/%d','now'),'normal','confirmed',1000000,1000000,0,1000000,'credit')
+  `).run(uid, cid);
   const iid = inv.lastInsertRowid;
 
   db.prepare(`
-    INSERT INTO settlements(cust_id,invoice_id,date,amount,amount_rial,pay_type,status,created_by)
-    VALUES(?,?,strftime('%Y/%m/%d','now'),300000,300000,'cash','posted',?)
-  `).run(cid, iid, uid);
+    INSERT INTO settlements(user_id,cust_id,invoice_id,date,amount,amount_rial,pay_type,status)
+    VALUES(?,?,?,strftime('%Y/%m/%d','now'),300000,300000,'cash','posted')
+  `).run(uid, cid, iid);
 
   db.prepare(`
-    INSERT INTO sales_returns(cust_id,invoice_id,date,amount,vat_amount,status,created_by)
-    VALUES(?,?,strftime('%Y/%m/%d','now'),200000,0,'posted',?)
-  `).run(cid, iid, uid);
+    INSERT INTO sales_returns(user_id,cust_id,invoice_id,date,amount,vat_amount,status,rows)
+    VALUES(?,?,?,strftime('%Y/%m/%d','now'),200000,0,'posted','[]')
+  `).run(uid, cid, iid);
 
   ok(sumLinkedSalesReturnsGrossRial(db, iid) === 200000, 'sum linked returns 200k (sqlite)');
   const r = recomputeInvoiceSettledBalances(db, iid);
