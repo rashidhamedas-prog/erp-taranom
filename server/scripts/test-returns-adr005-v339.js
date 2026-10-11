@@ -143,6 +143,18 @@ function jeBalanced(db, entryId) {
   return row && Number(row.d) === Number(row.c);
 }
 
+/** Mirror returns-posting.receivableAcct — AR posts to customer tafsili, not 1103 control. */
+function receivableAccountCode(db, custId) {
+  const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
+  const code = c && c.coa_code ? String(c.coa_code).trim() : '';
+  if (code) {
+    const hit = db.prepare('SELECT code FROM chart_of_accounts WHERE code=?').get(code);
+    if (hit) return code;
+  }
+  const { acct } = require('../lib/coa-map');
+  return acct(db, 'coa_receivable').code;
+}
+
 (async () => {
   const rp = require('../lib/returns-posting');
   ok(typeof rp.buildSalesReturnJournalLines === 'function', 'returns-posting module loads');
@@ -199,9 +211,8 @@ function jeBalanced(db, entryId) {
     db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('moadian_enabled','0')").run();
 
     const { acct } = require('../lib/coa-map');
-    const rawInvCoa = acct(db, 'coa_raw_materials');
+    const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
     const vatPayCoa = acct(db, 'coa_vat_payable');
-    const recvCoa = acct(db, 'coa_receivable');
 
     r = await j('POST', '/api/customers', { biz: 'مشتری برگشت v339', phone: '09151113901', city: 'مشهد' }, token);
     ok(r.status === 200 && r.data.id, 'create customer', r.data?.error);
@@ -255,13 +266,23 @@ function jeBalanced(db, entryId) {
     ok(!!srJe, 'linked sales return JE');
     ok(jeBalanced(db, srJe.id), 'linked sales return JE balanced');
 
+    const recvAcctCode = receivableAccountCode(db, custId);
     const vatDeb = db.prepare('SELECT debit_rial FROM journal_lines WHERE entry_id=? AND account_code=?').get(srJe.id, vatPayCoa.code)?.debit_rial || 0;
-    const arCred = db.prepare('SELECT credit_rial FROM journal_lines WHERE entry_id=? AND account_code=?').get(srJe.id, recvCoa.code)?.credit_rial || 0;
+    const arCred = db.prepare('SELECT credit_rial FROM journal_lines WHERE entry_id=? AND account_code=?').get(srJe.id, recvAcctCode)?.credit_rial || 0;
     ok(Number(vatDeb) === Number(srRow.vat_amount), 'VAT payable debit = return vat_amount', { vatDeb, vat: srRow.vat_amount });
-    ok(Number(arCred) === Number(srRow.amount) + Number(srRow.vat_amount), 'AR credit = net+vat', { arCred, amount: srRow.amount, vat: srRow.vat_amount });
+    ok(Number(arCred) === Number(srRow.amount) + Number(srRow.vat_amount), 'AR credit = net+vat (customer tafsili)', {
+      arCred, amount: srRow.amount, vat: srRow.vat_amount, recvAcctCode,
+    });
 
-    const invDebRaw = db.prepare('SELECT debit_rial FROM journal_lines WHERE entry_id=? AND account_code=?').get(srJe.id, rawInvCoa.code)?.debit_rial || 0;
-    ok(Number(invDebRaw) > 0, 'inventory debit uses typed raw_material COA (1110)', { code: rawInvCoa.code, invDebRaw });
+    const invCoa = inventoryAccountForWarehouse(db, whId);
+    const srLed = db.prepare(
+      "SELECT COALESCE(SUM(amount_rial),0) s FROM inventory_ledger WHERE source_type='sales_return' AND source_id=? AND status='posted'"
+    ).get(linkedSrId)?.s || 0;
+    const invDebRaw = db.prepare('SELECT COALESCE(SUM(debit_rial),0) s FROM journal_lines WHERE entry_id=? AND account_code=?').get(srJe.id, invCoa.code)?.s || 0;
+    ok(Number(srLed) > 0, 'sales return inventory_ledger amount', { srLed });
+    ok(Number(invDebRaw) === Number(srLed), 'inventory debit uses typed warehouse COA', {
+      code: invCoa.code, invDebRaw, srLed, whType: db.prepare('SELECT warehouse_type FROM warehouses WHERE id=?').get(whId)?.warehouse_type,
+    });
 
     r = await j('POST', '/api/accounting/sales-returns', {
       cust_id: custId, warehouse_id: whId,
@@ -293,10 +314,21 @@ function jeBalanced(db, entryId) {
     const afterVoid = db.prepare('SELECT status,reversal_journal_id FROM sales_returns WHERE id=?').get(linkedSrId);
     ok(afterVoid.status === 'reversed', 'sales return status reversed', afterVoid);
     ok(!!afterVoid.reversal_journal_id, 'reversal_journal_id set');
-    ok(jeBalanced(db, afterVoid.reversal_journal_id), 'void reversal JE balanced');
-
-    const revJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='sales_return_reversal' AND ref_id=?").get(linkedSrId);
-    ok(!!revJe, 'sales_return_reversal JE row');
+    if (afterVoid.reversal_journal_id) {
+      ok(jeBalanced(db, afterVoid.reversal_journal_id), 'voided original JE still balanced (lines unchanged)');
+    }
+    // v285+: postToLedger(sales_return_reversal) soft-voids the original JE — no paired reverse voucher.
+    const origSrJe = db.prepare("SELECT id, status, deleted_at FROM journal_entries WHERE ref_type='sales_return' AND ref_id=?").get(linkedSrId);
+    ok(!!origSrJe, 'original sales_return JE row kept');
+    ok(
+      String(origSrJe.status) === 'reversed' || Number(origSrJe.deleted_at || 0) > 0,
+      'sales return JE soft-voided (no standalone reversal voucher)',
+      origSrJe
+    );
+    const legacyRevJe = db.prepare(
+      "SELECT id FROM journal_entries WHERE ref_type='sales_return_reversal' AND ref_id=? AND COALESCE(deleted_at,0)=0"
+    ).get(linkedSrId);
+    ok(!legacyRevJe, 'no active sales_return_reversal JE (soft-void policy)');
 
     db.close();
   } catch (e) {
