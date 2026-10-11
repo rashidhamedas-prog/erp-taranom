@@ -31,11 +31,18 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 3. حالت بدون فاکتور: `openInvVariantSplitModal` با dest `sales_return` / `purchase_return`؛ ارسال `variant_id` + انبار؛ `buildRows` خرید variant/color/size را persist می‌کند.
 4. SW هدف: **`erp-taranom-v340`**.
 
-### Out of scope (P2 finance / P3 — ADR یا موج جدا)
+### P2-finance — مانده فاکتور با برگشت لینک‌شده (shipped)
+
+1. **بدون تسویهٔ جعلی:** برگشت فروش با `invoice_id` بستانکار AR را از قبل در JE/`customer_ledger` می‌زند — ردیف `settlements` اضافه نمی‌شود.
+2. **`recomputeInvoiceSettledBalances`:** `settled_amount` = دریافت‌های فاکتور (تسویه/POS) **+** جمع `amount + vat_amount` برگشت‌های فعال همان فاکتور؛ `balance_due = final_rial − settled`.
+3. **API:** پس از POST/ابطال برگشت لینک‌شده، recompute روی همان فاکتور؛ `open-invoices` و `receivables/by-invoice` همان فرمول را در SQL منعکس می‌کنند.
+4. **خرید:** معادل `purchase_invoices` / `purchase_returns` در این موج پیاده نشد (بدون recompute مشابه فروش).
+
+### Out of scope (P2 finance remainder / P3 — ADR یا موج جدا)
 
 | موضوع | موج |
 |--------|-----|
-| Allocate credit/debit به فاکتور/PI باز مشتری/تأمین | P2-finance |
+| Allocate credit/debit دستی به فاکتور/PI باز | P2-finance+ |
 | Moadian credit/debit note | P3 |
 | معکوس کرایه (`freight_amount`) | P2-finance |
 | Commission clawback JE | P3 |

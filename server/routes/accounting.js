@@ -574,9 +574,11 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const settParams = st ? [st] : ((!st && sf) ? [sf] : []);
   const scopeSql = uid != null ? ` AND ${customerVisibilitySql('c')}` : '';
   const scopeParams = uid != null ? [uid, uid] : [];
+  const retDate = st ? ' AND sr.date <= ?' : ((!st && sf) ? ' AND sr.date >= ?' : '');
+  const retParams = st ? [st] : ((!st && sf) ? [sf] : []);
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
-      COALESCE(sp.paid, 0) as paid
+      COALESCE(sp.paid, 0) + COALESCE(sr.returns_gross, 0) as paid
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
@@ -585,10 +587,16 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${settDate}
       GROUP BY invoice_id
     ) sp ON sp.invoice_id=i.id
+    LEFT JOIN (
+      SELECT invoice_id, SUM(COALESCE(amount,0) + COALESCE(vat_amount,0)) as returns_gross
+      FROM sales_returns sr
+      WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${retDate}
+      GROUP BY invoice_id
+    ) sr ON sr.invoice_id=i.id
     WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}${scopeSql}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
-  `).all(...settParams, ...params, ...scopeParams);
+  `).all(...settParams, ...retParams, ...params, ...scopeParams);
   rows.forEach(r => { r.outstanding = (r.final || 0) - (r.paid || 0); });
   res.json(rows.filter(r => Math.abs(r.outstanding) > 0.0001));
 });
@@ -1396,7 +1404,11 @@ router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, re
   const db = getDB();
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final,
-      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0) as paid
+      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0)
+      + COALESCE((
+        SELECT SUM(COALESCE(sr.amount,0) + COALESCE(sr.vat_amount,0)) FROM sales_returns sr
+        WHERE sr.invoice_id=i.id AND COALESCE(sr.status,'posted')<>'reversed'
+      ), 0) as paid
     FROM invoices i
     WHERE i.cust_id=? AND ${firmSaleTypeSql('i')}
     ORDER BY i.date DESC, i.id DESC
@@ -1759,6 +1771,7 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
+  if (invoice_id) recomputeInvoiceSettledBalances(db, invoice_id);
   audit(req.user.id, 'create', 'sales_return', retId, `برگشت از فروش به مبلغ ${amount}`);
   res.json({ id: retId, ok: true });
 });
@@ -1853,6 +1866,7 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
+  if (row.invoice_id) recomputeInvoiceSettledBalances(db, row.invoice_id);
   res.json({ ok: true });
 });
 

@@ -288,6 +288,24 @@ function paymentsFromStoredInvoice(inv, invoiceFinal) {
   }, invoiceFinal, { allowImplicitChequeFace: true });
 }
 
+/** Active linked sales returns — gross net+VAT in rial (same units as invoice final_rial). */
+function sumLinkedSalesReturnsGrossRial(db, invoiceId) {
+  if (!invoiceId) return 0;
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT amount, vat_amount FROM sales_returns
+      WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    `).all(invoiceId);
+  } catch (_) {
+    return 0;
+  }
+  return rows.reduce(
+    (a, r) => a + moneyRial(Number(r.amount) || 0) + moneyRial(Number(r.vat_amount) || 0),
+    0
+  );
+}
+
 function recomputeInvoiceSettledBalances(db, invoiceId) {
   try {
     const receipts = loadInvoiceReceipts(db, invoiceId);
@@ -299,7 +317,9 @@ function recomputeInvoiceSettledBalances(db, invoiceId) {
     );
     // POS receipts already create a settlement row with the same amount — count settlements only
     // when both exist for the same cash movement. Prefer settlement sum; if no settlements, use POS.
-    const paid = paidSett > 0 ? paidSett : paidPos;
+    const paidReceipts = paidSett > 0 ? paidSett : paidPos;
+    const paidReturns = sumLinkedSalesReturnsGrossRial(db, invoiceId);
+    const paid = paidReceipts + paidReturns;
     const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
     const finalAmt = moneyRial(finalRow && (Number(finalRow.final_rial) || finalRow.final));
     db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
@@ -596,6 +616,7 @@ module.exports = {
   usesSplitPosting,
   applyInvoicePaySplits,
   recomputeInvoiceSettledBalances,
+  sumLinkedSalesReturnsGrossRial,
   persistInvoicePayPlan,
   paymentsFromStoredInvoice,
   settlementAssetAccount,

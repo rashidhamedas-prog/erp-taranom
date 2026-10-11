@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۱۹ — برگشت فروش P2-finance: مانده فاکتور (SW v342)
+
+- **خلاصه:** برگشت لینک‌شده (`invoice_id`) در `recomputeInvoiceSettledBalances` و گزارش فاکتورهای باز / مطالبات per-invoice به‌عنوان «پرداخت‌شده» (خالص+VAT برگشت‌های فعال) منظور می‌شود — بدون ردیف تسویهٔ جعلی؛ recompute بعد از POST/ابطال برگشت.
+- **فایل‌ها:** `server/lib/invoice-payments.js`, `server/routes/accounting.js`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-returns-p2-finance-v341.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
+- **تست:** ایران `test-returns-p2-finance-v341` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — باگ جستجوی کالا در برگشت بدون فاکتور (SW v341)
 
 - **خلاصه:** در حالت «بدون فاکتور»، `productSelect` دیگر روی `CACHE.allProducts=[]` خالی گیر نمی‌کند — `ensureReturnProductsCache` فقط `ensureProductsCache()` را صدا می‌زند و پنل‌های باز فروش/خرید لیست کامل را صریح به picker می‌دهند؛ انتخاب کالا فی را در صورت صفر پر می‌کند.

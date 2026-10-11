@@ -22,8 +22,8 @@ const purchases = fs.readFileSync(path.join(root, 'routes', 'purchases.js'), 'ut
 
 console.log('-- returns P2-UX v341 (open catalog) --');
 
-ok(sw.includes("erp-taranom-v341"), 'SW cache v341');
-ok(idx.includes('app.js?v=341'), 'index.html app.js?v=341');
+ok(/erp-taranom-v34[12]/.test(sw), 'SW cache v341|v342');
+ok(/app\.js\?v=34[12]/.test(idx), 'index.html app.js?v=341|v342');
 
 ok(/async function ensureReturnProductsCache\(\)\{\s*return ensureProductsCache\(\);/.test(app),
   'ensureReturnProductsCache delegates to ensureProductsCache');
