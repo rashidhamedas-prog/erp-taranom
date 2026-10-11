@@ -81,12 +81,19 @@ function voidChequeRecord(db, chequeId, user) {
       descriptionPrefix: `ابطال چک ${row.cheque_number || row.id}`,
     });
 
-    const settlementId = Number(row.settlement_id);
+    // R13: settlement-created cheques post AR credit on ref_type=settlement — reverse that too.
+    const settlementId = Number(row.settlement_id) || 0;
     if (settlementId) {
       const settlement = db.prepare('SELECT * FROM settlements WHERE id=?').get(settlementId);
       if (settlement && settlement.status !== 'reversed') {
         const { reverseSettlementInTx } = require('./void-settlement');
-        reverseSettlementInTx(db, settlement, user.id);
+        reverseSettlementInTx(db, settlement, user.id, { skipChequeRecords: true });
+        if (settlement.invoice_id) {
+          try {
+            const { recomputeInvoiceSettledBalances } = require('./invoice-payments');
+            recomputeInvoiceSettledBalances(db, settlement.invoice_id);
+          } catch (_) { /* optional */ }
+        }
       }
     }
 

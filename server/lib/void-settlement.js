@@ -89,16 +89,21 @@ function reverseSettlementBooks(db, settlement, userId) {
   return n;
 }
 
-function reverseSettlementInTx(db, settlement, userId) {
-  if (!settlement || settlement.status === 'reversed') return null;
-  reverseSettlementBooks(db, settlement, userId);
-  // Shadow/backfill rows (amounts already on invoice JE) — mark reversed without second GL.
-  if (!settlementHasLiveJe(db, settlement.id)) {
-    db.prepare("UPDATE settlements SET status='reversed',reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-      .run(userId, settlement.id);
-    reverseChequeRecordsForSettlement(db, settlement.id);
-    return null;
-  }
+/** Always mark business row reversed once books/GL work is attempted (R13). */
+function markSettlementReversed(db, settlementId, userId, reversalJournalId) {
+  if (!settlementId) return;
+  const revJe = reversalJournalId != null && reversalJournalId !== '' ? reversalJournalId : null;
+  db.prepare(`
+    UPDATE settlements SET
+      status='reversed',
+      reversal_journal_id=COALESCE(?, reversal_journal_id),
+      reversed_at=strftime('%s','now'),
+      reversed_by=?
+    WHERE id=? AND COALESCE(status,'posted')<>'reversed'
+  `).run(revJe, userId, settlementId);
+}
+
+function reverseSettlementGlInTx(db, settlement, userId) {
   let cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
   const overrideCode = String(settlement.account_code || '').trim();
   if (overrideCode) {
@@ -114,6 +119,7 @@ function reverseSettlementInTx(db, settlement, userId) {
     }
   }
   const amt = settlementAmountRial(settlement);
+  // v285+: soft-voids original settlement JE(s); null when already void / missing original.
   const reversalId = postToLedger(db, {
     sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
     description: `ابطال تسویه شماره ${settlement.id}`, createdBy: userId,
@@ -122,29 +128,47 @@ function reverseSettlementInTx(db, settlement, userId) {
       { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) },
     ],
   });
-  // Mark original settlement JE(s) as reversed for document lists (both stay in TB → net zero)
   try {
     db.prepare(`
       UPDATE journal_entries SET status='reversed'
       WHERE ref_type='settlement' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted')<>'reversed'
-        AND id<>?
-    `).run(settlement.id, reversalId);
+        AND (? IS NULL OR id<>?)
+    `).run(settlement.id, reversalId, reversalId);
   } catch (_) {}
-  reverseCommissionAccrual(db, 'settlement', settlement.id, userId, todayJalali());
+  return reversalId;
+}
 
-  const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);
-  if (sub) {
-    db.prepare("UPDATE rep_payment_submissions SET status='rejected', rejection_note=?, approved_by=?, approved_at=strftime('%s','now') WHERE id=?")
-      .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', userId, sub.id);
-    notifyRep(db, sub.rep_id,
-      `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} ریال\nوضعیت جدید: رد شده`,
-      userId);
-    audit(userId, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
+function reverseSettlementInTx(db, settlement, userId, opts) {
+  const options = opts || {};
+  if (!settlement || settlement.status === 'reversed') return null;
+  reverseSettlementBooks(db, settlement, userId);
+
+  let reversalId = null;
+  if (settlementHasLiveJe(db, settlement.id)) {
+    try {
+      reversalId = reverseSettlementGlInTx(db, settlement, userId);
+    } catch (_) {
+      reversalId = null;
+    }
+    try {
+      reverseCommissionAccrual(db, 'settlement', settlement.id, userId, todayJalali());
+    } catch (_) { /* must not block settlement.status=reversed */ }
+
+    try {
+      const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);
+      if (sub) {
+        db.prepare("UPDATE rep_payment_submissions SET status='rejected', rejection_note=?, approved_by=?, approved_at=strftime('%s','now') WHERE id=?")
+          .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', userId, sub.id);
+        notifyRep(db, sub.rep_id,
+          `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} ریال\nوضعیت جدید: رد شده`,
+          userId);
+        audit(userId, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
+      }
+    } catch (_) { /* optional */ }
   }
 
-  db.prepare("UPDATE settlements SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-    .run(reversalId, userId, settlement.id);
-  reverseChequeRecordsForSettlement(db, settlement.id);
+  markSettlementReversed(db, settlement.id, userId, reversalId);
+  if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
   return reversalId;
 }
 
