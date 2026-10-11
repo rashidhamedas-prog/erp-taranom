@@ -4,7 +4,7 @@
 - **R13 ابطال چک:** `voidChequeRecord` تسویهٔ مرتبط را با `reverseSettlementInTx(..., { skipChequeRecords: true })` برمی‌گرداند؛ حتی بدون JE زنده `settlements.status=reversed` می‌شود و مانده فاکتور بازمحاسبه می‌شود.
 - **فایل‌ها:** `lib/{customer-books,invoice-payments,party-turnover,void-cheque,void-settlement}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cheque-books-v339.js`, CHANGE-LOG.
 - **تست:** ایران `test-cheque-books-v339` ۲۲/۲۲ (بخش ۴: void receipt ⇒ settlement reversed) + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
-- **Deploy:** ✅ overlay ایران (`void-cheque` + `void-settlement` + تست) + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`.
+- **Deploy:** ✅ `ffa4cc9` — overlay ایران (`void-cheque` + `void-settlement` + تست) + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v341`.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت فروش/خرید P2-UX: رنگ×سایز + پیش‌نمایش COGS (SW v340)
 
