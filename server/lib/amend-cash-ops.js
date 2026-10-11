@@ -19,6 +19,9 @@ const { createLedgerEntry, resolveCashAccount } = require('../db');
 const { parseFeeRial, outboundPaymentLines } = require('./payment-bank-fee');
 const { recvAcct } = require('./void-settlement');
 const { digitsOnly, normalizeSheba, recomputeInvoiceSettledBalances } = require('./invoice-payments');
+const {
+  sumLinkedPurchaseReturnsGrossRial, recomputePurchaseInvoiceSettledBalances,
+} = require('./purchase-payments');
 const { reverseJournalEntry } = require('./void-journal');
 const { assertActiveBank, assertActiveCashBox, assertBankOverdraftOk } = require('./treasury-guards');
 
@@ -282,6 +285,11 @@ function refreshInvoiceBalances(db, prevId, nextId) {
   for (const id of ids) recomputeInvoiceSettledBalances(db, id);
 }
 
+function refreshPurchaseInvoiceBalances(db, prevId, nextId) {
+  const ids = new Set([prevId, nextId].map((x) => parseInt(x, 10)).filter((x) => x > 0));
+  for (const id of ids) recomputePurchaseInvoiceSettledBalances(db, id);
+}
+
 function amendSettlement(db, id, body, userId) {
   const row = db.prepare('SELECT * FROM settlements WHERE id=?').get(id);
   if (!row) throw httpErr(404, 'تسویه یافت نشد', 'E_NOT_FOUND');
@@ -424,6 +432,8 @@ function assertPurchaseRoom(db, invoiceId, paymentId, supplierId, amount, extraT
   }
   const cap = Math.round(Number(inv.final) || 0);
   if (!cap) return;
+  const returnsGross = sumLinkedPurchaseReturnsGrossRial(db, invoiceId);
+  const room = Math.max(0, cap - returnsGross);
   const paidSup = db.prepare(`
     SELECT COALESCE(SUM(amount),0) s FROM supplier_payments
     WHERE purchase_invoice_id=? AND id<>? AND COALESCE(status,'posted')<>'reversed'
@@ -432,7 +442,7 @@ function assertPurchaseRoom(db, invoiceId, paymentId, supplierId, amount, extraT
     SELECT COALESCE(SUM(amount),0) s FROM expense_payments
     WHERE purchase_invoice_id=? AND id<>? AND COALESCE(status,'posted')<>'reversed'
   `).get(invoiceId, extraTable === 'expense' ? paymentId : 0).s;
-  if ((Number(paidSup) || 0) + (Number(paidExp) || 0) + amount - cap > 0.5) {
+  if ((Number(paidSup) || 0) + (Number(paidExp) || 0) + amount - room > 0.5) {
     throw httpErr(409, 'مبلغ از ماندهٔ فاکتور خرید بیشتر است', 'E_OVER_ALLOC');
   }
 }
@@ -501,6 +511,7 @@ function amendSupplierPayment(db, id, body, userId) {
     sourceType: 'supplier_payment', sourceId: row.id,
     date, description: 'پرداخت به تأمین‌کننده', lines,
   });
+  refreshPurchaseInvoiceBalances(db, row.purchase_invoice_id, purchaseId);
   return {
     id: row.id, amount, journal_id: jeId,
     summary: `اصلاح پرداخت تأمین‌کننده #${row.id}: ${Math.round(Number(row.amount) || 0)} → ${amount} ریال`,
@@ -664,6 +675,7 @@ function amendExpensePayment(db, id, body, userId) {
     .run(posting.costCenterId, jeId);
   db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(jeId, row.id);
 
+  refreshPurchaseInvoiceBalances(db, row.purchase_invoice_id, purchaseId);
   return {
     id: row.id, amount, journal_id: jeId,
     summary: `اصلاح هزینه #${row.id}: ${Math.round(Number(row.amount) || 0)} → ${amount} ریال`,

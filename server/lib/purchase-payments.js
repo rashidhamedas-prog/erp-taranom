@@ -229,6 +229,7 @@ function applyPurchasePaySplits(db, {
     });
     ids.push({ kind: 'supplier_payment', id: payId });
   });
+  recomputePurchaseInvoiceSettledBalances(db, purchaseId);
   return ids;
 }
 
@@ -299,6 +300,46 @@ function insertPurchasePayment(db, { userId, supplierId, purchaseId, split, date
   return payId;
 }
 
+/** Active linked purchase returns — gross net+VAT in rial (same units as purchase final). */
+function sumLinkedPurchaseReturnsGrossRial(db, purchaseInvoiceId) {
+  if (!purchaseInvoiceId) return 0;
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT amount, vat_amount FROM purchase_returns
+      WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    `).all(purchaseInvoiceId);
+  } catch (_) {
+    return 0;
+  }
+  return rows.reduce(
+    (a, r) => a + moneyRial(Number(r.amount) || 0) + moneyRial(Number(r.vat_amount) || 0),
+    0
+  );
+}
+
+function recomputePurchaseInvoiceSettledBalances(db, purchaseInvoiceId) {
+  try {
+    const paidSup = db.prepare(`
+      SELECT COALESCE(SUM(amount),0) s FROM supplier_payments
+      WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    `).get(purchaseInvoiceId).s;
+    const paidExp = db.prepare(`
+      SELECT COALESCE(SUM(amount),0) s FROM expense_payments
+      WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    `).get(purchaseInvoiceId).s;
+    const paidReturns = sumLinkedPurchaseReturnsGrossRial(db, purchaseInvoiceId);
+    const paid = moneyRial(paidSup) + moneyRial(paidExp) + paidReturns;
+    const finalRow = db.prepare('SELECT final FROM purchase_invoices WHERE id=?').get(purchaseInvoiceId);
+    const finalAmt = moneyRial(finalRow && finalRow.final);
+    db.prepare('UPDATE purchase_invoices SET settled_amount=?, balance_due=? WHERE id=?')
+      .run(paid, Math.max(0, finalAmt - paid), purchaseInvoiceId);
+    return { paid, balance_due: Math.max(0, finalAmt - paid) };
+  } catch (_) {
+    return null;
+  }
+}
+
 module.exports = {
   resolvePurchasePayments,
   applyPurchasePaySplits,
@@ -306,4 +347,6 @@ module.exports = {
   headerPayTypeFromSplits,
   paymentCreditAccount,
   SPLIT_TYPES,
+  sumLinkedPurchaseReturnsGrossRial,
+  recomputePurchaseInvoiceSettledBalances,
 };

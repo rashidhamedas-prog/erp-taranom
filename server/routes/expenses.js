@@ -291,6 +291,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       user: req.user.name,
     }));
   } catch (_) {}
+  if (purchase_invoice_id) {
+    const { recomputePurchaseInvoiceSettledBalances } = require('../lib/purchase-payments');
+    recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
+  }
   res.json({ id: expId, ok: true });
 });
 
@@ -352,6 +356,10 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare("UPDATE expense_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();
+  if (row.purchase_invoice_id) {
+    const { recomputePurchaseInvoiceSettledBalances } = require('../lib/purchase-payments');
+    recomputePurchaseInvoiceSettledBalances(db, row.purchase_invoice_id);
+  }
   audit(req.user.id, 'reverse', 'expense_payment', req.params.id, `ابطال پرداخت هزینه #${req.params.id}`);
   res.json({ ok: true });
 });

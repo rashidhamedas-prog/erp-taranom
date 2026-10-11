@@ -16,6 +16,7 @@ const { assertJournalLinesBalanced } = require('../lib/customer-books');
 const { resolveCashPaid, assertCashBoxRequired } = require('../lib/cash-on-document');
 const {
   resolvePurchasePayments, applyPurchasePaySplits, persistPurchasePayPlan, headerPayTypeFromSplits,
+  recomputePurchaseInvoiceSettledBalances,
 } = require('../lib/purchase-payments');
 const { reverseJournalEntry } = require('../lib/void-journal');
 
@@ -719,6 +720,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     return retId;
   })();
 
+  if (purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
   audit(req.user.id, 'create', 'purchase_return', retId, `برگشت از خرید به مبلغ ${amount}`);
   res.json({ id: retId, ok: true });
 });
@@ -788,6 +790,7 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare("UPDATE purchase_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();
+  if (row.purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, row.purchase_invoice_id);
   res.json({ ok: true });
 });
 
@@ -837,6 +840,7 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
     return payId;
   })();
 
+  if (purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
   audit(req.user.id, 'create', 'supplier_payment', payId, `پرداخت ${amount} ریال به تأمین‌کننده`);
   try {
     const { dispatchSmsEvent } = require('../lib/sms-dispatch');
@@ -890,6 +894,7 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare("UPDATE supplier_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();
+  if (row.purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, row.purchase_invoice_id);
   res.json({ ok: true });
 });
 

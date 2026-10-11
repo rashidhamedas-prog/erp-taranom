@@ -36,7 +36,7 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 1. **بدون تسویهٔ جعلی:** برگشت فروش با `invoice_id` بستانکار AR را از قبل در JE/`customer_ledger` می‌زند — ردیف `settlements` اضافه نمی‌شود.
 2. **`recomputeInvoiceSettledBalances`:** `settled_amount` = دریافت‌های فاکتور (تسویه/POS) **+** جمع `amount + vat_amount` برگشت‌های فعال همان فاکتور؛ `balance_due = final_rial − settled`.
 3. **API:** پس از POST/ابطال برگشت لینک‌شده، recompute روی همان فاکتور؛ `open-invoices` و `receivables/by-invoice` همان فرمول را در SQL منعکس می‌کنند.
-4. **خرید:** معادل `purchase_invoices` / `purchase_returns` در این موج پیاده نشد (بدون recompute مشابه فروش).
+4. **خرید (mirror v343):** `recomputePurchaseInvoiceSettledBalances` — `settled_amount` = پرداخت‌های تأمین‌کننده + هزینه‌های لینک‌شده + جمع `amount + vat_amount` برگشت‌های فعال؛ recompute بعد از POST/ابطال برگشت و پرداخت/هزینهٔ لینک‌شده؛ `GET /accounting/suppliers/:id/open-invoices` و `payables/by-invoice` همان فرمول را در SQL منعکس می‌کنند.
 
 ### Out of scope (P2 finance remainder / P3 — ADR یا موج جدا)
 
@@ -62,6 +62,8 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 | **P0** | firm picker + `listRows` + unlinked UI + Help + SW v339 | مشتری با فقط `normal` فاکتور می‌بیند؛ unlinked با admin/accounting ثبت می‌شود |
 | **P1** | proportional VAT + typed WH sales + vat columns + settings knobs + tests | ADR-004 §6 returns سبز؛ تراز AR/AP با منبع linked |
 | **P2-UX** | رنگ×سایز columns + COGS preview + open matrix + `variant_id` purchase buildRows + SW v340 | مودال حرفه‌ای؛ open PR/SR با variant؛ پیش‌نمایش بها برای نقش مجاز |
+| **P2-finance** | sales invoice balance + returns gross | `balance_due` پس از برگشت لینک‌شده درست است |
+| **P2b-finance** | purchase invoice balance mirror + open-invoices/payables APIs + SW v343 | PI `balance_due` با برگشت خرید؛ freight خارج از موج |
 
 ## Rollback
 

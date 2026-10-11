@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۱۹ — برگشت خرید P2b-finance: مانده فاکتور خرید (SW v343)
+
+- **خلاصه:** آینهٔ v342 برای AP — `recomputePurchaseInvoiceSettledBalances` (پرداخت تأمین‌کننده + هزینه لینک‌شده + برگشت خرید خالص+VAT) روی `purchase_invoices`؛ recompute بعد از returns/payments/expenses؛ `assertPurchaseRoom` سقف منهای برگشت؛ API `GET /accounting/suppliers/:id/open-invoices` و `payables/by-invoice`؛ Help. کرایه عمداً خارج از این موج (NO-GO تا ADR جدا).
+- **فایل‌ها:** `server/lib/{purchase-payments,amend-cash-ops}.js`, `server/routes/{purchases,accounting,expenses}.js`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/{test-returns-p2-purchase-finance-v343,_backfill-purchase-return-balances-v343}.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
+- **تست:** محلی ۱۵/۰ + `test-sms` ۲۲/۰؛ sync روی ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — برگشت فروش P2-finance: مانده فاکتور (SW v342)
 
 - **خلاصه:** برگشت لینک‌شده (`invoice_id`) در `recomputeInvoiceSettledBalances` و گزارش فاکتورهای باز / مطالبات per-invoice به‌عنوان «پرداخت‌شده» (خالص+VAT برگشت‌های فعال) منظور می‌شود — بدون ردیف تسویهٔ جعلی؛ recompute بعد از POST/ابطال برگشت.

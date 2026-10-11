@@ -1417,6 +1417,59 @@ router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, re
   res.json(rows.filter(r => r.outstanding > 0));
 });
 
+// Open purchase invoices for a supplier (payment allocation)
+router.get('/suppliers/:supplierId/open-invoices', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT p.id, p.num, p.date, p.final,
+      COALESCE((SELECT SUM(sp.amount) FROM supplier_payments sp
+        WHERE sp.purchase_invoice_id=p.id AND COALESCE(sp.status,'posted')<>'reversed'), 0)
+      + COALESCE((SELECT SUM(ep.amount) FROM expense_payments ep
+        WHERE ep.purchase_invoice_id=p.id AND COALESCE(ep.status,'posted')<>'reversed'), 0)
+      + COALESCE((
+        SELECT SUM(COALESCE(pr.amount,0) + COALESCE(pr.vat_amount,0)) FROM purchase_returns pr
+        WHERE pr.purchase_invoice_id=p.id AND COALESCE(pr.status,'posted')<>'reversed'
+      ), 0) as paid
+    FROM purchase_invoices p
+    WHERE p.supplier_id=? AND COALESCE(p.status,'posted')<>'reversed'
+    ORDER BY p.date DESC, p.id DESC
+  `).all(req.params.supplierId);
+  rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });
+  res.json(rows.filter(r => r.outstanding > 0));
+});
+
+// Payables per purchase invoice (mirror receivables/by-invoice)
+router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT p.id, p.num, p.date, p.final, p.supplier_id, s.name as supplier_name,
+      COALESCE(sp.paid_sup, 0) + COALESCE(ep.paid_exp, 0) + COALESCE(pr.returns_gross, 0) as paid
+    FROM purchase_invoices p
+    JOIN suppliers s ON p.supplier_id=s.id
+    LEFT JOIN (
+      SELECT purchase_invoice_id, SUM(amount) as paid_sup FROM supplier_payments
+      WHERE purchase_invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'
+      GROUP BY purchase_invoice_id
+    ) sp ON sp.purchase_invoice_id=p.id
+    LEFT JOIN (
+      SELECT purchase_invoice_id, SUM(amount) as paid_exp FROM expense_payments
+      WHERE purchase_invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'
+      GROUP BY purchase_invoice_id
+    ) ep ON ep.purchase_invoice_id=p.id
+    LEFT JOIN (
+      SELECT purchase_invoice_id, SUM(COALESCE(amount,0) + COALESCE(vat_amount,0)) as returns_gross
+      FROM purchase_returns
+      WHERE purchase_invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'
+      GROUP BY purchase_invoice_id
+    ) pr ON pr.purchase_invoice_id=p.id
+    WHERE COALESCE(p.status,'posted')<>'reversed'
+    ORDER BY p.date DESC, p.id DESC
+    LIMIT 500
+  `).all();
+  rows.forEach(r => { r.outstanding = (r.final || 0) - (r.paid || 0); });
+  res.json(rows.filter(r => Math.abs(r.outstanding) > 0.0001));
+});
+
 // Journal entries with lines (paginated, date-filtered)
 router.get('/journal', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
