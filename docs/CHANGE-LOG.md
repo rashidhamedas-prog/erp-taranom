@@ -5,7 +5,7 @@
 - **تصمیم باز:** ADR-RETURNS-005 — پیشنهاد Option Minimal-Correct (P0 picker+unlinked UI؛ P1 آینه VAT/typed WH).
 - **فایل‌ها:** `docs/architecture/SALES-PURCHASE-RETURNS-RESEARCH.md`, CHANGE-LOG.
 - **تست:** ندارد (docs-only).
-- **Deploy:** ⏳
+- **Deploy:** ✅ `fb4c686` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
 
 ### ۱۴۰۵/۰۷/۱۹ — ADR-CHEQUE-LEAF-001 + P0 برگه وضعیت/تاریخچه (SW v338)
 
