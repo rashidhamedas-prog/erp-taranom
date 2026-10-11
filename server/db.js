@@ -1931,6 +1931,25 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'sales_returns', 'cost_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'sales_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'purchase_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'sales_returns', 'reason_code', "TEXT DEFAULT ''");
+  ensureColumn(db, 'purchase_returns', 'reason_code', "TEXT DEFAULT ''");
+
+  // P2c — unlinked return credit allocated to open invoices (no JE; balance only)
+  db.exec(`CREATE TABLE IF NOT EXISTS return_credit_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    side TEXT NOT NULL,
+    return_id INTEGER NOT NULL,
+    invoice_id INTEGER NOT NULL,
+    amount_rial REAL NOT NULL DEFAULT 0,
+    status TEXT DEFAULT 'posted',
+    note TEXT DEFAULT '',
+    user_id INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    reversed_at INTEGER,
+    reversed_by INTEGER
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rca_side_return ON return_credit_allocations(side, return_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rca_side_invoice ON return_credit_allocations(side, invoice_id)`);
   ensureColumn(db, 'incentive_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
   ensureColumn(db, 'incentive_payments', 'reversal_journal_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'reversed_at', 'INTEGER');
@@ -2904,6 +2923,21 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v19','1')").run();
+    }
+
+    // v20: return_credit_allocations (P2c unlinked return → open invoice)
+    const backfillV20 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v20'").get();
+    if (!backfillV20 || backfillV20.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v20 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v20','1')").run();
     }
   }
 

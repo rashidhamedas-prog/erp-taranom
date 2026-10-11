@@ -578,7 +578,7 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const retParams = st ? [st] : ((!st && sf) ? [sf] : []);
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
-      COALESCE(sp.paid, 0) + COALESCE(sr.returns_gross, 0) as paid
+      COALESCE(sp.paid, 0) + COALESCE(sr.returns_gross, 0) + COALESCE(rca.alloc_gross, 0) as paid
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
@@ -593,6 +593,11 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${retDate}
       GROUP BY invoice_id
     ) sr ON sr.invoice_id=i.id
+    LEFT JOIN (
+      SELECT invoice_id, SUM(amount_rial) as alloc_gross FROM return_credit_allocations
+      WHERE side='sales' AND COALESCE(status,'posted')<>'reversed'
+      GROUP BY invoice_id
+    ) rca ON rca.invoice_id=i.id
     WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}${scopeSql}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
@@ -1408,6 +1413,10 @@ router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, re
       + COALESCE((
         SELECT SUM(COALESCE(sr.amount,0) + COALESCE(sr.vat_amount,0)) FROM sales_returns sr
         WHERE sr.invoice_id=i.id AND COALESCE(sr.status,'posted')<>'reversed'
+      ), 0)
+      + COALESCE((
+        SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
+        WHERE rca.side='sales' AND rca.invoice_id=i.id AND COALESCE(rca.status,'posted')<>'reversed'
       ), 0) as paid
     FROM invoices i
     WHERE i.cust_id=? AND ${firmSaleTypeSql('i')}
@@ -1429,6 +1438,10 @@ router.get('/suppliers/:supplierId/open-invoices', auth, adminOrAccounting, (req
       + COALESCE((
         SELECT SUM(COALESCE(pr.amount,0) + COALESCE(pr.vat_amount,0)) FROM purchase_returns pr
         WHERE pr.purchase_invoice_id=p.id AND COALESCE(pr.status,'posted')<>'reversed'
+      ), 0)
+      + COALESCE((
+        SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
+        WHERE rca.side='purchase' AND rca.invoice_id=p.id AND COALESCE(rca.status,'posted')<>'reversed'
       ), 0) as paid
     FROM purchase_invoices p
     WHERE p.supplier_id=? AND COALESCE(p.status,'posted')<>'reversed'
@@ -1443,7 +1456,7 @@ router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT p.id, p.num, p.date, p.final, p.supplier_id, s.name as supplier_name,
-      COALESCE(sp.paid_sup, 0) + COALESCE(ep.paid_exp, 0) + COALESCE(pr.returns_gross, 0) as paid
+      COALESCE(sp.paid_sup, 0) + COALESCE(ep.paid_exp, 0) + COALESCE(pr.returns_gross, 0) + COALESCE(rca.alloc_gross, 0) as paid
     FROM purchase_invoices p
     JOIN suppliers s ON p.supplier_id=s.id
     LEFT JOIN (
@@ -1462,6 +1475,11 @@ router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE purchase_invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'
       GROUP BY purchase_invoice_id
     ) pr ON pr.purchase_invoice_id=p.id
+    LEFT JOIN (
+      SELECT invoice_id, SUM(amount_rial) as alloc_gross FROM return_credit_allocations
+      WHERE side='purchase' AND COALESCE(status,'posted')<>'reversed'
+      GROUP BY invoice_id
+    ) rca ON rca.invoice_id=p.id
     WHERE COALESCE(p.status,'posted')<>'reversed'
     ORDER BY p.date DESC, p.id DESC
     LIMIT 500
@@ -1681,9 +1699,10 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
 });
 
 router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, date, note, rows, warehouse_id } = req.body;
+  const { cust_id, invoice_id, date, note, rows, warehouse_id, reason_code } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
+  const reasonCode = String(reason_code || '').trim().slice(0, 40);
 
   // Invoice-linked return: original price/discount are always taken from the
   // invoice itself (never trusted from the client), and the returned quantity
@@ -1754,8 +1773,8 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
   try {
     retId = db.transaction(() => {
       const result = db.prepare(
-        'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount) VALUES (?,?,?,?,?,?,?,?)'
-      ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount);
+        'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount,reason_code) VALUES (?,?,?,?,?,?,?,?,?)'
+      ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount, reasonCode);
       const retId = result.lastInsertRowid;
 
       let stocked = null;
@@ -1825,8 +1844,75 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   if (invoice_id) recomputeInvoiceSettledBalances(db, invoice_id);
+  else {
+    try {
+      const { autoAllocateIfEnabled, SIDE_SALES } = require('../lib/return-credit-allocate');
+      autoAllocateIfEnabled(db, { side: SIDE_SALES, returnId: retId, userId: req.user.id });
+    } catch (e) {
+      console.warn('sales-return auto-allocate:', e && e.message);
+    }
+  }
   audit(req.user.id, 'create', 'sales_return', retId, `برگشت از فروش به مبلغ ${amount}`);
   res.json({ id: retId, ok: true });
+});
+
+router.get('/sales-returns/reason-codes', auth, adminOrAccounting, (_req, res) => {
+  const { REASON_CODES } = require('../lib/return-credit-allocate');
+  res.json(REASON_CODES);
+});
+
+router.get('/sales-returns/:id/allocations', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const {
+    listAllocationsForReturn, unallocatedGrossRial, returnGrossRial, SIDE_SALES,
+  } = require('../lib/return-credit-allocate');
+  res.json({
+    return_id: row.id,
+    invoice_id: row.invoice_id,
+    gross_rial: returnGrossRial(row),
+    unallocated_rial: row.invoice_id ? 0 : unallocatedGrossRial(db, SIDE_SALES, row),
+    allocations: listAllocationsForReturn(db, SIDE_SALES, row.id),
+  });
+});
+
+router.post('/sales-returns/:id/allocate', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { allocateReturnCredit, SIDE_SALES } = require('../lib/return-credit-allocate');
+    const body = req.body || {};
+    const allocations = Array.isArray(body.allocations)
+      ? body.allocations
+      : (body.invoice_id ? [{ invoice_id: body.invoice_id, amount_rial: body.amount_rial || body.amount }] : []);
+    const out = allocateReturnCredit(db, {
+      side: SIDE_SALES,
+      returnId: parseInt(req.params.id, 10),
+      allocations,
+      userId: req.user.id,
+      note: body.note || '',
+    });
+    audit(req.user.id, 'allocate', 'sales_return', req.params.id, `تخصیص اعتبار برگشت به ${out.recomputed.length} فاکتور`);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.delete('/sales-returns/:id/allocations/:allocId', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { reverseAllocation, SIDE_SALES } = require('../lib/return-credit-allocate');
+    const out = reverseAllocation(db, {
+      side: SIDE_SALES,
+      allocId: parseInt(req.params.allocId, 10),
+      userId: req.user.id,
+    });
+    audit(req.user.id, 'void_allocate', 'sales_return', req.params.id, `ابطال تخصیص #${req.params.allocId}`);
+    res.json(out);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 /** رسید برگشت به انبار — برگه عملیاتی بدون مبلغ */
@@ -1915,11 +2001,24 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
       });
       db.prepare("UPDATE sales_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
         .run(reversalId, req.user.id, row.id);
+      try {
+        const { reverseAllocationsForReturn, SIDE_SALES } = require('../lib/return-credit-allocate');
+        reverseAllocationsForReturn(db, SIDE_SALES, row.id, req.user.id);
+      } catch (_) { /* older DBs */ }
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   if (row.invoice_id) recomputeInvoiceSettledBalances(db, row.invoice_id);
+  else {
+    try {
+      const all = db.prepare(`
+        SELECT DISTINCT invoice_id FROM return_credit_allocations
+        WHERE side='sales' AND return_id=?
+      `).all(row.id);
+      for (const a of all) recomputeInvoiceSettledBalances(db, a.invoice_id);
+    } catch (_) { /* ignore */ }
+  }
   res.json({ ok: true });
 });
 

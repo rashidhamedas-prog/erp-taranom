@@ -38,11 +38,24 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 3. **API:** پس از POST/ابطال برگشت لینک‌شده، recompute روی همان فاکتور؛ `open-invoices` و `receivables/by-invoice` همان فرمول را در SQL منعکس می‌کنند.
 4. **خرید (mirror v343):** `recomputePurchaseInvoiceSettledBalances` — `settled_amount` = پرداخت‌های تأمین‌کننده + هزینه‌های لینک‌شده + جمع `amount + vat_amount` برگشت‌های فعال؛ recompute بعد از POST/ابطال برگشت و پرداخت/هزینهٔ لینک‌شده؛ `GET /accounting/suppliers/:id/open-invoices` و `payables/by-invoice` همان فرمول را در SQL منعکس می‌کنند.
 
+### P2c-allocate — تخصیص اعتبار برگشت بدون فاکتور (shipped)
+
+1. **جدول `return_credit_allocations`:** side (`sales`|`purchase`)، `return_id`، `invoice_id`، `amount_rial`، soft-void (`status=reversed`) — **بدون JE**؛ فقط `settled_amount` / `balance_due` را via recompute به‌روز می‌کند.
+2. **فقط unlinked:** برگشت با `invoice_id` / `purchase_invoice_id` از قبل در P2-finance در مانده لحاظ شده — POST `.../allocate` رد می‌شود (`E_ALLOC_ALREADY_LINKED`).
+3. **API:** `POST /api/accounting/sales-returns/:id/allocate` و `POST /api/purchases/returns/:id/allocate`؛ recompute روی هر فاکتور هدف؛ `open-invoices` / `payables` و recompute در `invoice-payments` / `purchase-payments` جمع تخصیص‌های فعال (`sumAllocationsToInvoice`) را اضافه می‌کنند.
+4. **`reason_code`:** ستون روی `sales_returns` / `purchase_returns` (کدهای ثابت در `return-credit-allocate.js`).
+5. **Knob:** `returns_auto_allocate_credit` — FIFO خودکار روی قدیمی‌ترین فاکتور/PI باز همان طرف (`autoAllocateIfEnabled`).
+6. **R13:** ابطال برگشت → `reverseAllocationsForReturn` همهٔ تخصیص‌های فعال را soft-reverse و recompute فاکتورهای مرتبط.
+7. **Sync:** append `return_credit_allocations` در `tables.js`؛ `capture.js` مسیر `:id/allocate`؛ `sync_seq_backfill_v20`.
+8. **SW هدف:** **`erp-taranom-v344`**.
+
+**کرایه:** معکوس `freight_amount` همچنان **NO-GO** (خارج از این موج).
+
 ### Out of scope (P2 finance remainder / P3 — ADR یا موج جدا)
 
 | موضوع | موج |
 |--------|-----|
-| Allocate credit/debit دستی به فاکتور/PI باز | P2-finance+ |
+| Allocate credit/debit دستی به فاکتور/PI باز | ~~P2-finance+~~ **shipped P2c** |
 | Moadian credit/debit note | P3 |
 | معکوس کرایه (`freight_amount`) | P2-finance |
 | Commission clawback JE | P3 |
@@ -64,6 +77,7 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 | **P2-UX** | رنگ×سایز columns + COGS preview + open matrix + `variant_id` purchase buildRows + SW v340 | مودال حرفه‌ای؛ open PR/SR با variant؛ پیش‌نمایش بها برای نقش مجاز |
 | **P2-finance** | sales invoice balance + returns gross | `balance_due` پس از برگشت لینک‌شده درست است |
 | **P2b-finance** | purchase invoice balance mirror + open-invoices/payables APIs + SW v343 | PI `balance_due` با برگشت خرید؛ freight خارج از موج |
+| **P2c-allocate** | `return_credit_allocations` + allocate APIs + recompute/open SQL + reason_code + auto knob + R13 reverse allocs + SW v344 | unlinked credit به فاکتور باز؛ linked بدون allocate جدا؛ بدون JE |
 
 ## Rollback
 

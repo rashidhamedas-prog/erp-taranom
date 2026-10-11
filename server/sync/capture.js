@@ -183,6 +183,13 @@ function tableForPath(path) {
   if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
   // Periodic close/reopen: mid-path :id — must not fall through to generic warehouses.
   if (path.startsWith('/api/warehouses/') && /\/period-close/.test(path)) return 'warehouse_period_closes';
+  // Returns P2c allocate — mid-path :id/allocate must tag return_credit_allocations
+  if (path.startsWith('/api/accounting/sales-returns/') && /\/allocate/.test(path)) {
+    return 'return_credit_allocations';
+  }
+  if (path.startsWith('/api/purchases/returns/') && /\/allocate/.test(path)) {
+    return 'return_credit_allocations';
+  }
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

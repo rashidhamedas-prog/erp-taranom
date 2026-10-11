@@ -579,9 +579,10 @@ router.get('/returns/available/:invoiceId', auth, adminOrAccounting, (req, res) 
 });
 
 router.post('/returns', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, purchase_invoice_id, date, note, rows } = req.body;
+  const { supplier_id, purchase_invoice_id, date, note, rows, reason_code } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
+  const reasonCode = String(reason_code || '').trim().slice(0, 40);
 
   // Invoice-linked return: original price is always taken from the invoice
   // itself, and returned quantity per product is capped at what's still
@@ -644,8 +645,8 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
   const amount = built.subtotal;
   const retId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO purchase_returns (user_id,supplier_id,purchase_invoice_id,date,note,rows,amount) VALUES (?,?,?,?,?,?,?)'
-    ).run(req.user.id, supplier_id, purchase_invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built.rows), amount);
+      'INSERT INTO purchase_returns (user_id,supplier_id,purchase_invoice_id,date,note,rows,amount,reason_code) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(req.user.id, supplier_id, purchase_invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built.rows), amount, reasonCode);
     const retId = result.lastInsertRowid;
     const parent = purchase_invoice_id
       ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(purchase_invoice_id)
@@ -721,8 +722,72 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
   })();
 
   if (purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
+  else {
+    try {
+      const { autoAllocateIfEnabled, SIDE_PURCHASE } = require('../lib/return-credit-allocate');
+      autoAllocateIfEnabled(db, { side: SIDE_PURCHASE, returnId: retId, userId: req.user.id });
+    } catch (e) {
+      console.warn('purchase-return auto-allocate:', e && e.message);
+    }
+  }
   audit(req.user.id, 'create', 'purchase_return', retId, `برگشت از خرید به مبلغ ${amount}`);
   res.json({ id: retId, ok: true });
+});
+
+router.get('/returns/:id/allocations', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM purchase_returns WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const {
+    listAllocationsForReturn, unallocatedGrossRial, returnGrossRial, SIDE_PURCHASE,
+  } = require('../lib/return-credit-allocate');
+  res.json({
+    return_id: row.id,
+    purchase_invoice_id: row.purchase_invoice_id,
+    gross_rial: returnGrossRial(row),
+    unallocated_rial: row.purchase_invoice_id ? 0 : unallocatedGrossRial(db, SIDE_PURCHASE, row),
+    allocations: listAllocationsForReturn(db, SIDE_PURCHASE, row.id),
+  });
+});
+
+router.post('/returns/:id/allocate', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { allocateReturnCredit, SIDE_PURCHASE } = require('../lib/return-credit-allocate');
+    const body = req.body || {};
+    const allocations = Array.isArray(body.allocations)
+      ? body.allocations
+      : ((body.invoice_id || body.purchase_invoice_id)
+        ? [{ invoice_id: body.invoice_id || body.purchase_invoice_id, amount_rial: body.amount_rial || body.amount }]
+        : []);
+    const out = allocateReturnCredit(db, {
+      side: SIDE_PURCHASE,
+      returnId: parseInt(req.params.id, 10),
+      allocations,
+      userId: req.user.id,
+      note: body.note || '',
+    });
+    audit(req.user.id, 'allocate', 'purchase_return', req.params.id, `تخصیص بدهکار برگشت به ${out.recomputed.length} فاکتور خرید`);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.delete('/returns/:id/allocations/:allocId', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { reverseAllocation, SIDE_PURCHASE } = require('../lib/return-credit-allocate');
+    const out = reverseAllocation(db, {
+      side: SIDE_PURCHASE,
+      allocId: parseInt(req.params.allocId, 10),
+      userId: req.user.id,
+    });
+    audit(req.user.id, 'void_allocate', 'purchase_return', req.params.id, `ابطال تخصیص #${req.params.allocId}`);
+    res.json(out);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
@@ -789,8 +854,21 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
     });
     db.prepare("UPDATE purchase_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
+    try {
+      const { reverseAllocationsForReturn, SIDE_PURCHASE } = require('../lib/return-credit-allocate');
+      reverseAllocationsForReturn(db, SIDE_PURCHASE, row.id, req.user.id);
+    } catch (_) { /* older DBs */ }
   })();
   if (row.purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, row.purchase_invoice_id);
+  else {
+    try {
+      const all = db.prepare(`
+        SELECT DISTINCT invoice_id FROM return_credit_allocations
+        WHERE side='purchase' AND return_id=?
+      `).all(row.id);
+      for (const a of all) recomputePurchaseInvoiceSettledBalances(db, a.invoice_id);
+    } catch (_) { /* ignore */ }
+  }
   res.json({ ok: true });
 });
 

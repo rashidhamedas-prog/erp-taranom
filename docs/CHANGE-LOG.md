@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۱۹ — برگشت P2c-allocate: تخصیص اعتبار بدون فاکتور (SW v344)
+
+- **خلاصه:** جدول `return_credit_allocations` — اعتبار/بدهی برگشت **unlinked** به فاکتور/PI باز (بدون JE)؛ `recomputeInvoiceSettledBalances` / `recomputePurchaseInvoiceSettledBalances` + SQL فاکتورهای باز با `sumAllocationsToInvoice`؛ POST allocate فروش/خرید؛ `reason_code` روی returns؛ knob `returns_auto_allocate_credit` (FIFO)؛ R13 `reverseAllocationsForReturn` روی ابطال. کرایه خارج از scope (NO-GO).
+- **فایل‌ها:** `server/lib/return-credit-allocate.js`, `server/lib/{invoice-payments,purchase-payments}.js`, `server/routes/{accounting,purchases,settings}.js`, `server/{db.js,sync/{tables,capture}.js}`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-returns-p2c-allocate-v344.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
+- **تست:** `node server/scripts/test-returns-p2c-allocate-v344.js` (static + mock recompute paidAlloc).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۱۹ — برگشت خرید P2b-finance: مانده فاکتور خرید (SW v343)
 
 - **خلاصه:** آینهٔ v342 برای AP — `recomputePurchaseInvoiceSettledBalances` (پرداخت تأمین‌کننده + هزینه لینک‌شده + برگشت خرید خالص+VAT) روی `purchase_invoices`؛ recompute بعد از returns/payments/expenses؛ `assertPurchaseRoom` سقف منهای برگشت؛ API `GET /accounting/suppliers/:id/open-invoices` و `payables/by-invoice`؛ Help. کرایه عمداً خارج از این موج (NO-GO تا ADR جدا).

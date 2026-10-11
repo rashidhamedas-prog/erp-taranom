@@ -231,6 +231,8 @@ const SYNCABLE_TABLES = [
   { name: 'warehouse_period_closes',           upsertKey: 'id' },
   // Payroll multi-leg payments (append-only)
   { name: 'payroll_payments',                  upsertKey: 'id' },
+  // Returns P2c — allocate unlinked return credit to open invoices (append-only)
+  { name: 'return_credit_allocations',         upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -281,6 +283,7 @@ const FK_COLUMNS = [
   ['customer_ledger', 'customer_id'],
   ['purchase_invoices', 'supplier_id'], ['purchase_invoices', 'bank_id'], ['purchase_invoices', 'cash_box_id'], ['purchase_invoices', 'check_category_id'],
   ['purchase_returns', 'supplier_id'], ['purchase_returns', 'purchase_invoice_id'],
+  ['return_credit_allocations', 'return_id'], ['return_credit_allocations', 'invoice_id'],
   ['supplier_payments', 'supplier_id'], ['supplier_payments', 'purchase_invoice_id'], ['supplier_payments', 'bank_id'], ['supplier_payments', 'cash_box_id'],
   ['supplier_ledger', 'supplier_id'],
   ['persons', 'category_id'],

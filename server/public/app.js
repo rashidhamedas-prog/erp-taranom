@@ -429,6 +429,35 @@ function payTypeLabel(pt){
     pos_card:'کارتخوان', mixed:'چندمرحله‌ای'
   }[pt]||pt||'نقد';
 }
+function summarizePaySplitTypes(items){
+  if(!items||!items.length) return '';
+  const counts={cheque:0,cash:0,bank_transfer:0,pos_card:0};
+  (items||[]).forEach(it=>{
+    const pt=it.pay_type||it.pt||'';
+    const key=pt==='bank'?'bank_transfer':pt;
+    if(key in counts) counts[key]++;
+  });
+  const parts=[];
+  if(counts.cheque) parts.push(toFa(counts.cheque)+' فقره چک');
+  if(counts.pos_card) parts.push(counts.pos_card>1?(toFa(counts.pos_card)+' کارتخوان'):'کارتخوان');
+  if(counts.cash) parts.push(counts.cash>1?(toFa(counts.cash)+' نقد'):'نقد');
+  if(counts.bank_transfer) parts.push(counts.bank_transfer>1?(toFa(counts.bank_transfer)+' واریز بانکی'):'واریز بانکی');
+  return parts.join(' + ');
+}
+function invoicePayMixLabel(inv){
+  if(!inv) return '—';
+  let parsed=null;
+  try{ parsed=inv.pay_splits_json?JSON.parse(inv.pay_splits_json):null; }catch(_){ parsed=null; }
+  if(Array.isArray(parsed)&&parsed.length){
+    const sum=summarizePaySplitTypes(parsed);
+    if(sum) return sum;
+  }
+  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی',bank:'واریز بانکی',pos_card:'کارتخوان',mixed:'چندمرحله‌ای'};
+  return payLabel[inv.pay_type]||payTypeLabel(inv.pay_type)||inv.pay_type||'—';
+}
+function settlementPayTypeLabel(pt){
+  return {cheque:'🧾 چک',cash:'💵 نقد',bank_transfer:'🏦 واریز',bank:'🏦 واریز',pos_card:'💳 کارتخوان'}[pt]||payTypeLabel(pt);
+}
 function moneyColLabel(){ return `(${currencyUnit()})`; }
 function fmtCompact(n){
   n=Number(n)||0;
@@ -4888,11 +4917,13 @@ async function _openInvBuilder(id){
   await ensureProductsCache();
   await ensurePayCaches();
   let inv = null;
+  invReturnQtyMap={};
   if(id){
     inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
     if(!inv?.rows?.length){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
+    if(inv&&isFirmInvoiceType(inv.type)) await refreshInvReturnQtyMap(id);
   }
   const pendingMk = (!id && Array.isArray(window.__pendingMarketerInvRows) && window.__pendingMarketerInvRows.length)
     ? window.__pendingMarketerInvRows.slice()
@@ -5830,6 +5861,8 @@ function renderCart(){
       const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
       const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
       const oneLine=isPack?invPackOneLine(indices):([r.color_name||r.color,r.size_name].filter(Boolean).join(' · '));
+      const retQty=(!isIncome&&invReturnQtyMap[invReturnLineKey(r)])||0;
+      const retHint=retQty>0?('<div class="muted" data-csp-style="'+CSP.style('font-size:11px;margin-top:2px')+'">برگشتی: <span class="mono">'+fmt(retQty)+'</span></div>'):'';
       const packNote=isPack
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
@@ -5842,7 +5875,7 @@ function renderCart(){
       const freightHint=lineFreight?('<div class="muted" data-csp-style="'+CSP.style('font-size:10px;font-weight:500')+'">کرایه '+fmt(lineFreight)+(freight?(' · '+Math.round(lineFreight*100/freight)+'٪'):'')+'</div>'):'';
       return ''
       +'<tr>'
-        +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+packNote+'</td>'
+        +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+retHint+packNote+'</td>'
         +'<td class="col-qty">'+qtyCell+'</td>'
         +'<td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
         +(showLineDisc?'<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
@@ -5963,18 +5996,27 @@ function invPayDestLabel(pt, row){
   }
   return '';
 }
+function invReceiptStepTitle(r, multiStage){
+  const lbl=typeof payTypeLabel==='function'?payTypeLabel(r.pay_type):r.pay_type;
+  if(r.pay_type==='cheque'&&r.chequeLeafNo) return lbl+' — فقره '+toFa(r.chequeLeafNo);
+  if(multiStage) return lbl+' — مرحله '+toFa(r.i);
+  return lbl;
+}
 function collectLiveInvReceipts(){
   const final=Number(window._invLastFinal)||0;
   const multi=!!el('inv-multi')?.checked || el('inv-pay-type')?.value==='mixed';
   const rows=[];
   if(multi){
+    let chequeLeafNo=0;
     (invPayRows||[]).forEach((r,i)=>{
       const amt=parseInvMoney(r.amount);
       if(!(amt>0)) return;
       const pt=r.pay_type||'cash';
+      if(pt==='cheque') chequeLeafNo++;
       rows.push({
         i:i+1,
         pay_type:pt,
+        chequeLeafNo:pt==='cheque'?chequeLeafNo:0,
         label:(typeof payTypeLabel==='function'?payTypeLabel(pt):(pt==='cheque'?'چک':pt)),
         dest:invPayDestLabel(pt,r),
         amount:amt
@@ -6024,12 +6066,15 @@ function renderInvReceiptLedger(){
   }
   let paid=0;
   let over=false;
+  const multiStage=rows.length>1;
+  const mixSummary=summarizePaySplitTypes(rows);
   const lines=rows.map(r=>{
     paid+=r.amount;
     const remainAfter=final-paid;
     if(remainAfter<0) over=true;
+    const title=invReceiptStepTitle(r, multiStage);
     return `<div class="inv-receipt-step">
-      <div class="inv-summary-row"><span>${toFa(r.i)} · ${esc(r.label)}${r.dest?' · '+esc(r.dest):''}</span><span class="mono">${fmt(r.amount)} ریال</span></div>
+      <div class="inv-summary-row"><span>${esc(title)}${r.dest?' · '+esc(r.dest):''}</span><span class="mono">${fmt(r.amount)} ریال</span></div>
       <div class="inv-summary-row inv-receipt-after ${remainAfter<0?'red':(remainAfter===0?'ok':'')}">
         <span>مانده پس از این دریافت</span><span class="mono">${fmt(Math.max(0,remainAfter))} ریال${remainAfter<0?' (مازاد)':''}</span>
       </div>
@@ -6038,6 +6083,7 @@ function renderInvReceiptLedger(){
   const remain=final-paid;
   box.innerHTML=`
     <div class="inv-receipt-live-head">دریافت‌ها</div>
+    ${mixSummary&&multiStage?`<div class="inv-summary-row muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}"><span>${esc(mixSummary)}</span><span class="mono">${toFa(rows.length)} مرحله</span></div>`:''}
     ${lines}
     <div class="inv-summary-row"><span>جمع دریافت‌ها</span><span class="mono">${fmt(paid)} ریال</span></div>
     <div class="inv-summary-row inv-receipt-remain ${over?'red':(remain===0?'ok':'')}">
@@ -6162,17 +6208,38 @@ function invSnapshotSingleChequeRow(){
     cheque_info:(el('inv-cheque-info')?.value||'').trim()
   };
 }
+function invClearSingleChequeFields(){
+  ['inv-cheque-face','inv-cheque-bank','inv-cheque-branch','inv-cheque-account','inv-cheque-number','inv-cheque-sayadi','inv-cheque-due','inv-cheque-owner','inv-cheque-sheba','inv-cheque-info'].forEach(id=>{
+    const n=el(id); if(n) n.value='';
+  });
+}
 function invAddNextCheque(){
   const snap=invSnapshotSingleChequeRow();
   if(!snap) return;
   invPayRows=invPayRows||[];
-  invPayRows[0]=snap;
+  // Keep prior cheque leaves; replace/append current face as last cheque row.
+  const chqIdx=[];
+  invPayRows.forEach((r,i)=>{ if((r.pay_type||'')==='cheque') chqIdx.push(i); });
+  if(chqIdx.length){
+    invPayRows[chqIdx[chqIdx.length-1]]=snap;
+  }else if(invPayRows.length){
+    invPayRows[0]=snap;
+  }else{
+    invPayRows=[snap];
+  }
   invPayRows.push({amount:'',pay_type:'cheque'});
   invPayEnsureChequeDefaults(invPayRows[invPayRows.length-1]);
+  invClearSingleChequeFields();
   const m=el('inv-multi');
   if(m) m.checked=true;
   toggleInvPayFields();
-  showToast('چک اول ثبت شد — مشخصات چک بعدی را در بخش چندمرحله‌ای وارد کنید');
+  renderInvPayRows();
+  try{
+    const cards=el('invPayChequeCards');
+    if(cards) cards.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(_){}
+  const n=invPayRows.filter(r=>(r.pay_type||'')==='cheque').length;
+  showToast('فقرهٔ چک '+toFa(n-1)+' ذخیره شد — مشخصات فقرهٔ '+toFa(n)+' را در جدول چندمرحله‌ای وارد کنید (کارتخوان در دفتر چک نمی‌آید)');
 }
 function collectInvPaySplits(){
   if(!el('inv-multi')?.checked) return null;
@@ -17667,8 +17734,11 @@ async function renderPurchaseReturnsTab(body){
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:var(--red)`)}">${fmt(r.amount)}</td>
-      <td class="muted">${esc(r.note||'-')}</td>
-      <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}</td>
+      <td class="muted">${esc(r.note||'-')}${r.reason_code?` <span class="muted">(${esc(r.reason_code)})</span>`:''}</td>
+      <td data-csp-style="${CSP.style('white-space:nowrap')}">
+        ${!r.purchase_invoice_id&&canManageReturnAllocations()?`<button class="btn sm blue" data-csp-click="${CSP.bind('click',function(){purchaseReturnAllocateModal((r.id),(r.supplier_id),(r.supplier_name||''))})}">تخصیص به فاکتور</button> `:''}
+        ${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}
+      </td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
   if(typeof enhanceDataTable==='function'){
     const t=el('purchaseReturnsTbl');
@@ -17681,6 +17751,118 @@ function canOpenReturnWithoutInvoice(){
   if(ME&&(ME.role==='admin'||ME.role==='accounting')) return true;
   const s=CACHE.settings||{};
   return String(s.returns_allow_open||'0')==='1';
+}
+function canManageReturnAllocations(){
+  return !!(ME&&(ME.role==='admin'||ME.role==='accounting'));
+}
+async function salesReturnAllocateModal(returnId, custId, custBiz){
+  return openReturnAllocateModal('sales', returnId, custId, custBiz||'');
+}
+async function purchaseReturnAllocateModal(returnId, supplierId, supplierName){
+  return openReturnAllocateModal('purchase', returnId, supplierId, supplierName||'');
+}
+async function openReturnAllocateModal(side, returnId, partyId, partyLabel){
+  const isSales=side==='sales';
+  const allocPath=isSales
+    ?('/accounting/sales-returns/'+returnId+'/allocations')
+    :('/purchases/returns/'+returnId+'/allocations');
+  const openPath=isSales
+    ?('/accounting/customers/'+partyId+'/open-invoices')
+    :('/accounting/suppliers/'+partyId+'/open-invoices');
+  let info={}, open=[];
+  try{
+    [info, open]=await Promise.all([api('GET', allocPath)||{}, api('GET', openPath)||[]]);
+  }catch(e){ showToast(e.message||'خطا در بارگذاری تخصیص','error'); return; }
+  if(!Array.isArray(open)) open=[];
+  const unalloc=Number(info.unallocated_rial||0)||0;
+  const existing=Array.isArray(info.allocations)?info.allocations:[];
+  openModal(`
+    <div class="modal-head"><h3>📎 تخصیص اعتبار برگشت${partyLabel?' — '+esc(partyLabel):''}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 12px`)}">بدون سند تسویهٔ جعلی — فقط مانده فاکتور کم می‌شود. اعتبار باقی‌مانده: <b class="mono">${fmt(unalloc)}</b> ریال.</p>
+      ${unalloc>0&&open.length?`<div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+        <div class="fg"><label>فاکتور باز</label>
+          <select id="rca-inv">${open.map(i=>{
+            const out=Number(i.outstanding!=null?i.outstanding:(Number(i.final||0)-Number(i.paid||0)))||0;
+            return `<option value="${i.id}" data-out="${out}">${esc(i.num||('#'+i.id))} — ${escDate(i.date)} — مانده ${fmt(out)}</option>`;
+          }).join('')}</select>
+        </div>
+        <div class="fg"><label>مبلغ تخصیص (ریال)</label><input id="rca-amt" type="number" min="1" value="${Math.min(unalloc, Number(open[0]&&(open[0].outstanding!=null?open[0].outstanding:(Number(open[0].final||0)-Number(open[0].paid||0))))||unalloc)}"></div>
+      </div>`:`<div class="empty" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${unalloc<=0?'اعتبار قابل تخصیص باقی نمانده':(isSales?'فاکتور فروش باز نیست':'فاکتور خرید باز نیست')}</div>`}
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>شناسه</th><th>فاکتور</th><th>مبلغ</th><th></th></tr></thead>
+      <tbody>${existing.map(a=>`<tr>
+        <td class="mono">${a.id}</td><td class="mono">#${a.invoice_id}</td><td class="mono">${fmt(a.amount_rial)}</td>
+        <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){voidReturnAllocation(side,returnId,a.id,partyId,partyLabel)})}">ابطال</button></td>
+      </tr>`).join('')||emptyRow(4)}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      ${unalloc>0&&open.length?`<button class="btn orange" data-csp-click="${CSP.bind('click',function(){submitReturnAllocation(side,returnId,partyId,partyLabel)})}">💾 ثبت تخصیص</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
+    </div>`,true);
+  const invSel=el('rca-inv');
+  if(invSel){
+    invSel.addEventListener('change',function(){
+      const opt=this.selectedOptions&&this.selectedOptions[0];
+      const out=Number(opt&&opt.dataset.out)||0;
+      const amt=el('rca-amt');
+      if(amt) amt.value=String(Math.min(unalloc, out||unalloc));
+    });
+  }
+}
+async function submitReturnAllocation(side, returnId, partyId, partyLabel){
+  const invId=+el('rca-inv')?.value||0;
+  const amt=Math.round(Number(el('rca-amt')?.value)||0);
+  if(!invId||amt<=0){ showToast('فاکتور و مبلغ را وارد کنید','error'); return; }
+  const path=side==='sales'
+    ?('/accounting/sales-returns/'+returnId+'/allocate')
+    :('/purchases/returns/'+returnId+'/allocate');
+  try{
+    await api('POST', path, { invoice_id: invId, amount_rial: amt });
+    showToast('تخصیص ثبت شد');
+    closeModal();
+    openReturnAllocateModal(side, returnId, partyId, partyLabel);
+  }catch(e){}
+}
+async function voidReturnAllocation(side, returnId, allocId, partyId, partyLabel){
+  if(!confirm('این تخصیص ابطال شود؟')) return;
+  const path=side==='sales'
+    ?('/accounting/sales-returns/'+returnId+'/allocations/'+allocId)
+    :('/purchases/returns/'+returnId+'/allocations/'+allocId);
+  try{
+    await api('DELETE', path);
+    showToast('تخصیص ابطال شد');
+    closeModal();
+    openReturnAllocateModal(side, returnId, partyId, partyLabel);
+  }catch(e){}
+}
+async function loadReturnReasonCodes(){
+  if(Array.isArray(CACHE.returnReasonCodes)&&CACHE.returnReasonCodes.length) return CACHE.returnReasonCodes;
+  try{ CACHE.returnReasonCodes=await api('GET','/accounting/sales-returns/reason-codes')||[]; }
+  catch(_){ CACHE.returnReasonCodes=[]; }
+  return CACHE.returnReasonCodes;
+}
+function returnReasonOptionsHtml(selected){
+  const sel=String(selected||'');
+  return '<option value="">— بدون کد علت —</option>'+(CACHE.returnReasonCodes||[]).map(c=>'<option value="'+esc(c.code)+'"'+(c.code===sel?' selected':'')+'>'+esc(c.label)+'</option>').join('');
+}
+let invReturnQtyMap={};
+function invReturnLineKey(r){
+  if(!r) return '';
+  return r.variant_id ? ('v:'+r.variant_id) : ('p:'+r.product_id);
+}
+async function refreshInvReturnQtyMap(invoiceId){
+  invReturnQtyMap={};
+  if(!invoiceId) return;
+  try{
+    const list=await api('GET','/accounting/sales-returns')||[];
+    list.filter(x=>Number(x.invoice_id)===Number(invoiceId)).forEach(ret=>{
+      (ret.rows||[]).forEach(r=>{
+        const k=invReturnLineKey(r);
+        if(!k) return;
+        invReturnQtyMap[k]=(invReturnQtyMap[k]||0)+Number(r.qty||0);
+      });
+    });
+  }catch(_){}
 }
 let srOpenRows=[];
 let prOpenRows=[];
@@ -17786,6 +17968,7 @@ function purchaseReturnModal(){
         </div>
         <div class="fg"><label>انبار (بدون فاکتور / پیش‌فرض ردیف)</label><select id="pr-wh">${warehouseOptionsHtml(null,'— پیش‌فرض —')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>کد علت (اختیاری)</label><select id="pr-reason">${returnReasonOptionsHtml('')}</select></div>
         <div class="fg full"><label>یادداشت</label><input id="pr-note"></div>
       </div>
       <div id="prRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
@@ -17945,8 +18128,11 @@ async function savePurchaseReturn(){
     }));
   }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
+  const reason_code=(el('pr-reason')?.value||'').trim();
+  const payload={supplier_id,purchase_invoice_id,date:el('pr-date').value,note:el('pr-note').value,rows};
+  if(reason_code) payload.reason_code=reason_code;
   try{
-    await api('POST','/purchases/returns',{supplier_id,purchase_invoice_id,date:el('pr-date').value,note:el('pr-note').value,rows});
+    await api('POST','/purchases/returns',payload);
     closeModal(); showToast('برگشت از خرید ثبت شد'); loadAccTab('purchase-returns');
   }catch(e){}
 }
@@ -17975,7 +18161,7 @@ async function renderSalesReturnsTab(body){
       <td>${esc(r.note||'-')}</td>
       <td data-csp-style="${CSP.style('white-space:nowrap')}">
         <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('sales_return',(r.id))})}" title="رسید برگشت به انبار">📦 رسید انبار</button>
-        ${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalesReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}
+        ${!r.invoice_id&&canManageReturnAllocations()?`<button class="btn sm blue" data-csp-click="${CSP.bind('click',function(){salesReturnAllocateModal((r.id),(r.cust_id),(r.cust_biz||''))})}">تخصیص به فاکتور</button> `:''}${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalesReturn((r.id))})}" title="ابطال">⛔ ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
   if(typeof enhanceDataTable==='function'){
@@ -17983,7 +18169,8 @@ async function renderSalesReturnsTab(body){
     enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
   }
 }
-function salesReturnModal(){
+async function salesReturnModal(){
+  await loadReturnReasonCodes();
   srOpenRows=[];
   const openOk=canOpenReturnWithoutInvoice();
   openModal(`
@@ -18003,6 +18190,7 @@ function salesReturnModal(){
         </div>
         <div class="fg"><label>انبار مقصد برگشت</label><select id="sr-wh">${warehouseOptionsHtml(null,'— از فاکتور / پیش‌فرض —')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="sr-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>کد علت (اختیاری)</label><select id="sr-reason">${returnReasonOptionsHtml('')}</select></div>
         <div class="fg full"><label>یادداشت</label><input id="sr-note"></div>
       </div>
       <div id="srRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
@@ -18155,8 +18343,11 @@ async function saveSalesReturn(){
   }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   const warehouse_id=+el('sr-wh')?.value||null;
+  const reason_code=(el('sr-reason')?.value||'').trim();
+  const payload={cust_id,invoice_id,warehouse_id,date:el('sr-date').value,note:el('sr-note').value,rows};
+  if(reason_code) payload.reason_code=reason_code;
   try{
-    await api('POST','/accounting/sales-returns',{cust_id,invoice_id,warehouse_id,date:el('sr-date').value,note:el('sr-note').value,rows});
+    await api('POST','/accounting/sales-returns',payload);
     closeModal(); showToast('برگشت از فروش ثبت شد'); loadAccTab('sales-returns');
   }catch(e){}
 }
@@ -25762,6 +25953,7 @@ async function saveSettings(){
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   if(el('s-returns_reverse_vat')) data.returns_reverse_vat = el('s-returns_reverse_vat').checked ? '1' : '0';
   if(el('s-returns_allow_open')) data.returns_allow_open = el('s-returns_allow_open').checked ? '1' : '0';
+  if(el('s-returns_auto_allocate_credit')) data.returns_auto_allocate_credit = el('s-returns_auto_allocate_credit').checked ? '1' : '0';
   data.currency_display = 'rial';
   data.currency_base = 'rial';
   // پنجره چندگانه — تنظیم محلی مرورگر/دسکتاپ
@@ -26800,7 +26992,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. موجودی و حساب طرف مقابل خودکار</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. اگر موجودی انبار باشد ولی جدول کاردکس خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد (موجودی فیزیکی عوض نمی‌شود). تعدیل دستی موجودی و موجودی مطلق اکسل هم ردیف دفتر می‌سازند</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
@@ -26811,7 +27003,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
-        <li><b>دفتر چک</b>: هر فقره <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>
+        <li><b>دفتر چک</b>: فقط برگ‌های <b>pay_type=چک</b> را نشان می‌دهد — کارتخوان/نقد/واریز اینجا نمی‌آیند. برچسب «قسط N» در شرح قدیمی یعنی <b>مرحلهٔ دریافت</b> (مثلاً چک+کارتخوان)، نه لزوماً دو فقره چک. هر فقره چک <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>
         <li><b>انبارگردانی</b>: هنگام اعمال اصلاحات، موجودی سیستم دوباره از دفتر زنده خوانده می‌شود (نه فقط عدد شروع جلسه) تا اختلاف واقعی ثبت شود</li>
@@ -27204,7 +27396,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v337</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v344</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>

@@ -319,7 +319,12 @@ function recomputeInvoiceSettledBalances(db, invoiceId) {
     // when both exist for the same cash movement. Prefer settlement sum; if no settlements, use POS.
     const paidReceipts = paidSett > 0 ? paidSett : paidPos;
     const paidReturns = sumLinkedSalesReturnsGrossRial(db, invoiceId);
-    const paid = paidReceipts + paidReturns;
+    let paidAlloc = 0;
+    try {
+      const { sumAllocationsToInvoice, SIDE_SALES } = require('./return-credit-allocate');
+      paidAlloc = sumAllocationsToInvoice(db, SIDE_SALES, invoiceId);
+    } catch (_) { paidAlloc = 0; }
+    const paid = paidReceipts + paidReturns + paidAlloc;
     const finalRow = db.prepare('SELECT final, final_rial FROM invoices WHERE id=?').get(invoiceId);
     const finalAmt = moneyRial(finalRow && (Number(finalRow.final_rial) || finalRow.final));
     db.prepare('UPDATE invoices SET settled_amount=?, balance_due=? WHERE id=?')
@@ -337,10 +342,22 @@ function applyInvoicePaySplits(db, {
   const when = date || todayJalali();
   const base = Math.max(0, Math.round(Number(startIndex) || 0));
   const ids = [];
+  let chequeLeaf = 0;
+  const multi = (base + splits.length) > 1;
   splits.forEach((s, i) => {
     const absI = base + i;
-    const note = s.note || `دریافت هنگام فاکتور ${num || invoiceId}`
-      + ((base + splits.length) > 1 ? ` — قسط ${absI + 1}` : '');
+    // «قسط» برای همهٔ انواع گمراه‌کننده است — برگ چک را فقره بنام؛ کارتخوان/نقد را قسط.
+    let stage = '';
+    if (multi) {
+      if (s.pay_type === 'cheque') {
+        chequeLeaf += 1;
+        stage = ` — فقره چک ${chequeLeaf}`;
+      } else {
+        const kind = s.pay_type === 'pos_card' ? 'کارتخوان' : (s.pay_type === 'cash' ? 'نقد' : 'قسط');
+        stage = ` — ${kind} ${absI + 1}`;
+      }
+    }
+    const note = s.note || `دریافت هنگام فاکتور ${num || invoiceId}${stage}`;
     if (s.pay_type === 'pos_card') {
       if (skipJournal) {
         ids.push({ kind: 'pos_skipped', id: null });

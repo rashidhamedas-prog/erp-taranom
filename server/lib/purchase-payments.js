@@ -329,7 +329,12 @@ function recomputePurchaseInvoiceSettledBalances(db, purchaseInvoiceId) {
       WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'
     `).get(purchaseInvoiceId).s;
     const paidReturns = sumLinkedPurchaseReturnsGrossRial(db, purchaseInvoiceId);
-    const paid = moneyRial(paidSup) + moneyRial(paidExp) + paidReturns;
+    let paidAlloc = 0;
+    try {
+      const { sumAllocationsToInvoice, SIDE_PURCHASE } = require('./return-credit-allocate');
+      paidAlloc = sumAllocationsToInvoice(db, SIDE_PURCHASE, purchaseInvoiceId);
+    } catch (_) { paidAlloc = 0; }
+    const paid = moneyRial(paidSup) + moneyRial(paidExp) + paidReturns + paidAlloc;
     const finalRow = db.prepare('SELECT final FROM purchase_invoices WHERE id=?').get(purchaseInvoiceId);
     const finalAmt = moneyRial(finalRow && finalRow.final);
     db.prepare('UPDATE purchase_invoices SET settled_amount=?, balance_due=? WHERE id=?')
