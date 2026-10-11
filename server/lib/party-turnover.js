@@ -80,13 +80,15 @@ function buildPartyTurnover(db, partyId) {
     `).all(custId);
     // Attach firm invoices missing from books (same as statement)
     try {
-      const { attachMissingInvoiceRows, stmtEntryType, normalizeStmtRefType } = require('./customer-books');
-      const tagged = rows.slice();
+      const { attachMissingInvoiceRows, stmtEntryType, normalizeStmtRefType, hideVoidedBookRows } = require('./customer-books');
+      const tagged = hideVoidedBookRows(db, rows.slice());
       attachMissingInvoiceRows(db, custId, tagged);
       const ENTRY_LABEL = {
         invoice: 'فاکتور فروش', settlement: 'دریافت وجه', reversal: 'ابطال/اصلاح',
         opening: 'مانده اول دوره', invoice_payment: 'دریافت هنگام فاکتور',
-        cheque: 'چک', cheque_in: 'ثبت چک', journal: 'سند حسابداری',
+        cheque: 'ثبت چک دریافتی', cheque_in: 'ثبت چک دریافتی',
+        cheque_endorse: 'خرج/ظهرنویسی چک', cheque_clear: 'وصول چک', cheque_bounce: 'برگشت چک',
+        journal: 'سند حسابداری',
       };
       const entries = [];
       let run = 0;

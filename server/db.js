@@ -1929,6 +1929,8 @@ function initSyncSchema(db, opts) {
     ensureColumn(db, tbl, 'reversed_by', 'INTEGER');
   }
   ensureColumn(db, 'sales_returns', 'cost_amount', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'sales_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'purchase_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'incentive_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
   ensureColumn(db, 'incentive_payments', 'reversal_journal_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'reversed_at', 'INTEGER');

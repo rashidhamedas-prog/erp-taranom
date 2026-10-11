@@ -1,6 +1,6 @@
 # تحقیق برگشت از فروش / برگشت از خرید — وابستگی‌ها، حسابداری، تنظیمات حرفه‌ای
 
-**وضعیت:** Research ✅ → ADR بعدی (پیشنهاد RETURNS-ADR-005) هنوز قفل نشده  
+**وضعیت:** ADR Accepted — [`RETURNS-ACC-ADR-005.md`](RETURNS-ACC-ADR-005.md) (Option Minimal-Correct) · **P0+P1 shipping** (SW `erp-taranom-v339`)  
 **تاریخ:** ۱۴۰۵/۰۷/۱۹  
 **منبع:** skill-top **full** + tap-erp-architecture + ECC (plan-before-execute) + Slack search (بدون نتیجه)  
 **متخصصان موازی:** [Map return accounting deps](148f46f2-447b-40ab-be67-b978b9093062) · [Find invoice picker bug](7537c2da-8c66-4cda-9588-ae58651ee232)  
@@ -233,20 +233,19 @@ Dr  AP / tafsili               (gross)
 
 ---
 
-## ۸) تصمیم‌های باز برای ADR-RETURNS-005
+## ۸) تصمیم‌های قفل‌شده — ADR-RETURNS-005 (Accepted)
 
-1. **آیا unlinked به‌صورت پیش‌فرض باز است یا پشت تنظیمات؟** پیشنهاد: باز برای admin/accounting + هشدار UI؛ فروشنده فقط linked.  
-2. **آیا VAT همیشه متناسب qty معکوس شود یا فقط وقتی فاکتور `vat_amount>0`؟** پیشنهاد: اگر منبع vat داشت، بله.  
-3. **آیا credit مشتری بعد از برگشت خودکار به فاکتور همان مشتری allocate شود؟** پیشنهاد P2؛ P1 فقط مانده.  
-4. **کلید جدا `coa_purchase_return` یا فقط Cr موجودی؟** پیشنهاد: نگه داشتن مدل فعلی خرید (AP/Inv) مگر سیاست «برگشت به هزینه» برای غیرکالایی.  
-5. **Value-only در P1 یا P2؟** پیشنهاد: اسکلت فلگ در P1؛ UX کامل P2.
+مرجع کامل: [`RETURNS-ACC-ADR-005.md`](RETURNS-ACC-ADR-005.md).
 
-### پیشنهاد موقت (تا قفل ADR)
+| # | موضوع | تصمیم |
+|---|--------|--------|
+| 1 | unlinked | admin/accounting + `returns_allow_open`؛ فروشنده فقط linked |
+| 2 | VAT | linked + منبع `vat_amount>0` + `returns_reverse_vat=1` → proportional |
+| 3 | allocate credit | **P2**؛ P1 فقط مانده بستانکار/بدهکار |
+| 4 | purchase return COA | مدل فعلی AP/Inv typed WH؛ بدون `coa_purchase_return` جدا در P1 |
+| 5 | value-only UX | **P2** (اسکلت فلگ در صورت نیاز بعداً) |
 
-Option **Minimal-Correct** (مشابه ADR-PARTY Option 1):
-
-- P0 باگ + UI unlinked  
-- P1 حسابداری آینهٔ فاکتور (VAT + typed WH) بدون allocate و بدون مودیان  
+Option **Minimal-Correct** — P0 picker+unlinked؛ P1 VAT + typed WH sales؛ out of scope: allocate، Moadian، freight، commission (P2/P3).
 
 ---
 
@@ -283,4 +282,4 @@ Option **Minimal-Correct** (مشابه ADR-PARTY Option 1):
 **چرا بدون فاکتور نمی‌شود:** محدودیت UI است نه سرور.  
 **چرا «حرفه‌ای» نیست:** معکوس VAT/تخفیف/انبار typed و تنظیمات سیاست هنوز پیاده نشده‌اند — در ADR-004 به‌عنوان P1 ثبت شده‌اند.
 
-**قدم بعدی پیشنهادی:** تأیید Option Minimal-Correct → ADR-RETURNS-005 یک‌صفحه‌ای → پیاده‌سازی P0 فوری → P1 حسابداری.
+**قدم بعدی:** پیاده‌سازی/تأیید P0+P1 روی SW v339 طبق ADR؛ سپس P2 allocate/freight و P3 Moadian/clawback.

@@ -684,20 +684,32 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       }
     }
 
+    const {
+      settingFlag, proportionalVat, invoiceNetBase, invoiceSourceVat,
+      buildPurchaseReturnJournalLines,
+    } = require('../lib/returns-posting');
+    let vatAmount = 0;
+    if (purchase_invoice_id && settingFlag(db, 'returns_reverse_vat', true)) {
+      const inv = db.prepare('SELECT final,vat_amount,subtotal,disc_amt FROM purchase_invoices WHERE id=?').get(purchase_invoice_id);
+      vatAmount = proportionalVat(invoiceSourceVat(inv), amount, invoiceNetBase(inv));
+    }
+    db.prepare('UPDATE purchase_returns SET vat_amount=? WHERE id=?').run(vatAmount, retId);
+    const gross = amount + vatAmount;
     createSupplierLedgerEntry(db, {
       supplier_id, date: date || todayJalali(), entry_type: 'purchase_return', ref_type: 'purchase_return', ref_id: retId,
-      description: `برگشت از خرید #${retId}`, debit: amount, credit: 0, user_id: req.user.id
+      description: `برگشت از خرید #${retId}`, debit: gross, credit: 0, user_id: req.user.id
     });
     assertJournalIdempotent(db, 'purchase_return', retId);
-    const retWh = parent?.warehouse_id || built.rows[0]?.warehouse_id || null;
-    const retInv = inventoryAccountForWarehouse(db, retWh);
+    const costItems = built.rows.map((r) => ({
+      warehouseId: r.warehouse_id || parent?.warehouse_id || null,
+      amountRial: Math.round((Number(r.qty) || 0) * (Number(r.price) || 0)),
+    })).filter((x) => x.amountRial > 0);
     postToLedger(db, {
       sourceType: 'purchase_return', sourceId: retId,
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
-      lines: [
-        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: rialToLedger(amount), credit: 0 };})(),
-        { code: retInv.code, name: retInv.name, debit: 0, credit: rialToLedger(amount) }
-      ]
+      lines: buildPurchaseReturnJournalLines(db, {
+        supplierId: supplier_id, amountNet: amount, vatAmount, costItems,
+      }),
     });
     return retId;
   })();
@@ -712,6 +724,21 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت خرید قبلاً ابطال شده است' });
   db.transaction(() => {
+    const { buildPurchaseReturnJournalLines, costItemsFromLedger } = require('../lib/returns-posting');
+    let costItems = costItemsFromLedger(db, 'purchase_return', row.id);
+    if (!costItems.length) {
+      const invRows = JSON.parse(row.rows || '[]');
+      const parentInv = row.purchase_invoice_id
+        ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(row.purchase_invoice_id)
+        : null;
+      costItems = invRows.map((r) => ({
+        warehouseId: r.warehouse_id || parentInv?.warehouse_id || null,
+        amountRial: Math.round((Number(r.qty) || 0) * (Number(r.price) || 0)),
+      })).filter((x) => x.amountRial > 0);
+      if (!costItems.length && Number(row.amount) > 0) {
+        costItems = [{ warehouseId: parentInv?.warehouse_id || null, amountRial: Math.round(Number(row.amount) || 0) }];
+      }
+    }
     if (perpetualDocsEnabled(db)) {
       const reversed = reverseStockBySource(db, 'purchase_return', row.id, {
         createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
@@ -739,21 +766,19 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
         db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
       }
     }
+    const vatAmount = Math.round(Number(row.vat_amount) || 0);
+    const amountNet = Math.round(Number(row.amount) || 0);
+    const gross = amountNet + vatAmount;
     createSupplierLedgerEntry(db, {
       supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
-      description: `ابطال برگشت از خرید #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
+      description: `ابطال برگشت از خرید #${row.id}`, debit: 0, credit: gross, user_id: req.user.id
     });
-    const parentInv = row.purchase_invoice_id
-      ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(row.purchase_invoice_id)
-      : null;
-    const revInv = inventoryAccountForWarehouse(db, parentInv?.warehouse_id || null);
     const reversalId = postToLedger(db, {
       sourceType: 'purchase_return_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال برگشت از خرید #${row.id}`, createdBy: req.user.id,
-      lines: [
-        { code: revInv.code, name: revInv.name, debit: rialToLedger(row.amount), credit: 0 },
-        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
-      ]
+      lines: buildPurchaseReturnJournalLines(db, {
+        supplierId: row.supplier_id, amountNet, vatAmount, costItems, reverse: true,
+      }),
     });
     db.prepare("UPDATE purchase_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);

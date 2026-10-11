@@ -69,7 +69,9 @@ function resolveSettlementFx(db, opts) {
 }
 
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
-const { settlementAssetAccount } = require('../lib/invoice-payments');
+const {
+  settlementAssetAccount, insertChequeRecordForSettlement, recomputeInvoiceSettledBalances,
+} = require('../lib/invoice-payments');
 const { assertActiveBank, assertActiveCashBox } = require('../lib/treasury-guards');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { reverseSettlementInTx } = require('../lib/void-settlement');
@@ -97,7 +99,7 @@ function escapeHtml(value) {
 }
 
 const {
-  attachMissingInvoiceRows, stmtEntryType, glCustomersTafsiliBalance,
+  attachMissingInvoiceRows, stmtEntryType, hideVoidedBookRows, glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance, canonicalCustomerFold, ensureCustomerBooksRepaired,
   reclassifyControlArToCustomerLeaf,
 } = require('../lib/customer-books');
@@ -109,10 +111,11 @@ const ENTRY_LABEL = {
   reversal: 'ابطال/اصلاح',
   opening: 'مانده اول دوره',
   invoice_payment: 'دریافت هنگام فاکتور',
-  cheque: 'خرج/ظهرنویسی چک',
+  cheque: 'ثبت چک دریافتی',
   cheque_endorse: 'خرج/ظهرنویسی چک',
   cheque_bounce: 'برگشت چک',
-  cheque_in: 'ثبت چک',
+  cheque_in: 'ثبت چک دریافتی',
+  cheque_clear: 'وصول چک',
   journal: 'سند حسابداری',
   manual: 'سند دستی',
 };
@@ -235,12 +238,12 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     'SELECT c.id,c.biz,c.owner,c.city,c.phone,c.balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.id=?'
   ).get(customerId);
   if (!customer) return null;
-  const all = db.prepare(`
+  const all = hideVoidedBookRows(db, db.prepare(`
     SELECT cl.*, u.name as user_name
     FROM customer_ledger cl LEFT JOIN users u ON cl.user_id=u.id
     WHERE cl.customer_id=?
     ORDER BY cl.created_at ASC, cl.id ASC
-  `).all(customerId);
+  `).all(customerId));
 
   const ledgerTagged = [];
   for (const e of all) ledgerTagged.push(e);
@@ -270,11 +273,18 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
   // posting on a new coa_code must not become the statement.
   const tagged = ledgerTagged;
   for (const e of tagged) {
-    if (e.ref_type) {
+    const rawType = String(e.entry_type || '');
+    const rawRef = String(e.ref_type || '');
+    if (rawType === 'reversal' || rawRef.includes('reversal')) {
+      e.entry_type = 'reversal';
+      e.type_label = ENTRY_LABEL.reversal;
+    } else if (e.ref_type) {
       const fromRef = stmtEntryType(e.ref_type);
       if (fromRef && ENTRY_LABEL[fromRef]) e.entry_type = fromRef;
+      e.type_label = ENTRY_LABEL[e.entry_type] || ENTRY_LABEL[e.ref_type] || e.entry_type || '-';
+    } else {
+      e.type_label = ENTRY_LABEL[e.entry_type] || e.entry_type || '-';
     }
-    e.type_label = ENTRY_LABEL[e.entry_type] || ENTRY_LABEL[e.ref_type] || e.entry_type || '-';
     e.reference = (e.ref_type ? e.ref_type + '-' : '') + (e.ref_id || '');
   }
   let opening = ledger_opening;
@@ -645,7 +655,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
           cheque_status || 'pending', cheque_branch || '', cheque_sheba || '',
-          fx.foreign_amount, fx.fx_rate_rial, fx.currency, String(account_code || '').slice(0, 32));
+          fx.foreign_amount, fx.fx_rate_rial, fx.currency, '');
     const settlementId = result.lastInsertRowid;
 
     const payLabel = payTypeNorm === 'cheque' ? 'چک' : (payTypeNorm === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
@@ -658,15 +668,10 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
       description: `تسویه ${payLabel} - ${amountRial.toLocaleString('fa-IR')} ریال${fxNote}`,
       debit: 0, credit: amountRial, user_id: req.user.id
     });
-    // ADR-001: inbound cheque → 1109 (same as invoice splits); never generic bank.
-    let cash = settlementAssetAccount(db, {
+    // Customer receipt debit is the instrument only: cash box / bank / 1109.
+    const cash = settlementAssetAccount(db, {
       pay_type: payTypeNorm, bank_id, cash_box_id,
     });
-    const overrideCode = String(account_code || '').trim();
-    if (overrideCode && payTypeNorm !== 'cheque') {
-      const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
-      if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
-    }
     postToLedger(db, {
       sourceType: 'settlement', sourceId: settlementId,
       date: date || todayJalali(), description: `تسویه ${payLabel} مشتری${fxNote}`, createdBy: req.user.id,
@@ -675,11 +680,20 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
         (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amountRial) };})()
       ]
     });
+    if (payTypeNorm === 'cheque') {
+      insertChequeRecordForSettlement(db, {
+        settlementId, invoiceId: invoice_id || null, custId: cust_id, amountRial,
+        date: date || '', note: note || '',
+        cheque_number, cheque_due, cheque_bank, cheque_branch: cheque_branch || '',
+        sayadi: cheque_sayadi, sheba: cheque_sheba || '', cheque_account,
+      });
+    }
     if (invoice_id) {
       const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(invoice_id);
       if (inv) {
         recordSettlementCommissionAccrual(db, { id: settlementId, amount: amountRial, date: date || '' }, inv, req.user.id);
       }
+      recomputeInvoiceSettledBalances(db, invoice_id);
     }
     return settlementId;
   })();
@@ -753,11 +767,21 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
           (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})()
         ]
       });
+      if (pay_type === 'cheque') {
+        insertChequeRecordForSettlement(db, {
+          settlementId, invoiceId: p.invoice_id || null, custId: cust_id, amountRial: amount,
+          date: p.date || '', note: note || p.note || '',
+          cheque_number: p.cheque_number, cheque_due: p.cheque_due,
+          cheque_bank: p.cheque_bank, cheque_branch: p.cheque_branch || '',
+          sayadi: p.cheque_sayadi, sheba: p.cheque_sheba || '', cheque_account: p.cheque_account,
+        });
+      }
       if (p.invoice_id) {
         const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(p.invoice_id);
         if (inv) {
           recordSettlementCommissionAccrual(db, { id: settlementId, amount, date: p.date || '' }, inv, req.user.id);
         }
+        recomputeInvoiceSettledBalances(db, p.invoice_id);
       }
       created.push({ id: settlementId, amount });
     }
@@ -1669,8 +1693,9 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
       ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount);
       const retId = result.lastInsertRowid;
 
+      let stocked = null;
       if (perpetualDocsEnabled(db)) {
-        const stocked = postSaleReturnStockMovements(db, {
+        stocked = postSaleReturnStockMovements(db, {
           rows: built,
           warehouseId: parentWhId,
           sourceType: 'sales_return',
@@ -1690,24 +1715,33 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
           db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
         }
       }
+      const {
+        settingFlag, proportionalVat, invoiceNetBase, invoiceSourceVat,
+        buildSalesReturnJournalLines, costItemsFromMovements,
+      } = require('../lib/returns-posting');
+      let vatAmount = 0;
+      if (invoice_id && settingFlag(db, 'returns_reverse_vat', true)) {
+        const inv = db.prepare(
+          'SELECT final,final_rial,vat_amount,vat_amount_rial,subtotal,disc_amt FROM invoices WHERE id=?'
+        ).get(invoice_id);
+        vatAmount = proportionalVat(invoiceSourceVat(inv), amount, invoiceNetBase(inv));
+      }
+      db.prepare('UPDATE sales_returns SET vat_amount=? WHERE id=?').run(vatAmount, retId);
+      const gross = amount + vatAmount;
       createLedgerEntry(db, {
         customer_id: cust_id, date: date || todayJalali(), entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
-        description: `برگشت از فروش #${retId}`, debit: 0, credit: amount, user_id: req.user.id
+        description: `برگشت از فروش #${retId}`, debit: 0, credit: gross, user_id: req.user.id
       });
       assertJournalIdempotent(db, 'sales_return', retId);
-      const salesReturn = coaAcct(db, 'coa_sales_return');
-      const inventory = coaAcct(db, 'coa_inventory');
-      const cogs = coaAcct(db, 'coa_cogs');
-      const journalLines = [
-        { code: salesReturn.code, name: salesReturn.name, debit: rialToLedger(amount), credit: 0 },
-        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})(),
-      ];
-      if (costAmount > 0) {
-        journalLines.push(
-          { code: inventory.code, name: inventory.name, debit: rialToLedger(costAmount), credit: 0 },
-          { code: cogs.code, name: cogs.name, debit: 0, credit: rialToLedger(costAmount) }
-        );
+      let costItems = [];
+      if (stocked && stocked.movements) {
+        costItems = costItemsFromMovements(stocked.movements);
+      } else if (costAmount > 0) {
+        costItems = [{ warehouseId: parentWhId, amountRial: costAmount }];
       }
+      const journalLines = buildSalesReturnJournalLines(db, {
+        custId: cust_id, amountNet: amount, vatAmount, costItems,
+      });
       postToLedger(db, {
         sourceType: 'sales_return', sourceId: retId,
         date: date || todayJalali(), description: `برگشت از فروش #${retId}`, createdBy: req.user.id,
@@ -1758,6 +1792,13 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت فروش قبلاً ابطال شده است' });
   try {
     db.transaction(() => {
+      const {
+        buildSalesReturnJournalLines, costItemsFromLedger,
+      } = require('../lib/returns-posting');
+      let costItems = costItemsFromLedger(db, 'sales_return', row.id);
+      if (!costItems.length && Number(row.cost_amount) > 0) {
+        costItems = [{ warehouseId: null, amountRial: Math.round(Number(row.cost_amount) || 0) }];
+      }
       if (perpetualDocsEnabled(db)) {
         const reversed = reverseStockBySource(db, 'sales_return', row.id, {
           createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از فروش #${row.id}`,
@@ -1785,23 +1826,16 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
           db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
         }
       }
+      const vatAmount = Math.round(Number(row.vat_amount) || 0);
+      const amountNet = Math.round(Number(row.amount) || 0);
+      const gross = amountNet + vatAmount;
       createLedgerEntry(db, {
         customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
-        description: `ابطال برگشت از فروش #${row.id}`, debit: row.amount, credit: 0, user_id: req.user.id
+        description: `ابطال برگشت از فروش #${row.id}`, debit: gross, credit: 0, user_id: req.user.id
       });
-      const salesReturn = coaAcct(db, 'coa_sales_return');
-      const inventory = coaAcct(db, 'coa_inventory');
-      const cogs = coaAcct(db, 'coa_cogs');
-      const journalLines = [
-        (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(row.amount), credit: 0 };})(),
-        { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: rialToLedger(row.amount) },
-      ];
-      if (row.cost_amount > 0) {
-        journalLines.push(
-          { code: cogs.code, name: cogs.name, debit: rialToLedger(row.cost_amount), credit: 0 },
-          { code: inventory.code, name: inventory.name, debit: 0, credit: rialToLedger(row.cost_amount) }
-        );
-      }
+      const journalLines = buildSalesReturnJournalLines(db, {
+        custId: row.cust_id, amountNet, vatAmount, costItems, reverse: true,
+      });
       const reversalId = postToLedger(db, {
         sourceType: 'sales_return_reversal', sourceId: row.id, date: todayJalali(),
         description: `ابطال برگشت از فروش #${row.id}`, createdBy: req.user.id, lines: journalLines,

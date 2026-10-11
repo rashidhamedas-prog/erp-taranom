@@ -4958,6 +4958,21 @@ async function _openInvBuilder(id){
   window._invBuilderId = id || 0;
   captureInvoiceStockBaseline(inv);
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
+  let chequeFaceInit = 0;
+  if(inv && (inv.pay_type==='cheque' || inv.pay_type==='mixed')){
+    let chqLeaves=[];
+    try{
+      const parsed=inv.pay_splits_json?JSON.parse(inv.pay_splits_json):null;
+      if(Array.isArray(parsed)) chqLeaves=parsed.filter(s=>(s.pay_type||'')==='cheque');
+    }catch(_){ chqLeaves=[]; }
+    if(chqLeaves.length===1){
+      chequeFaceInit=Number(chqLeaves[0].amount||chqLeaves[0].amount_rial||0);
+    }else if(chqLeaves.length>1){
+      chequeFaceInit=0;
+    }else{
+      chequeFaceInit=Number(inv.pay_amount_rial||0);
+    }
+  }
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':(forceProformaNew?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
@@ -5038,8 +5053,9 @@ async function _openInvBuilder(id){
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
       <div id="chequeFields" data-csp-style="${CSP.style(`${!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
-        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">چک دریافتی به حساب اسناد دریافتنی (نزد صندوق) ثبت می‌شود — تا وصول به بانک/صندوق نمی‌رود.</div>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">چک دریافتی به حساب اسناد دریافتنی (نزد صندوق) ثبت می‌شود — تا وصول به بانک/صندوق نمی‌رود. هر فقره = یک ردیف در دفتر چک؛ مبالغ چند فقره روی یک صیاد جمع نمی‌شوند.</div>
         <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+          <div class="fg"><label>مبلغ این فقره چک (ریال) *</label><input id="inv-cheque-face" type="text" inputmode="numeric" class="money" value="${moneyInit(chequeFaceInit)}" data-csp-input="${CSP.bind('input',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></div>
           <div class="fg"><label>نام بانک *</label><input id="inv-cheque-bank" value="${esc(inv&&inv.cheque_bank?inv.cheque_bank:'')}" placeholder="مثال: ملی"></div>
           <div class="fg"><label>شعبه *</label><input id="inv-cheque-branch" value="${esc(inv&&inv.cheque_branch?inv.cheque_branch:'')}"></div>
           <div class="fg"><label>شماره حساب *</label><input id="inv-cheque-account" dir="ltr" value="${esc(inv&&inv.cheque_account?inv.cheque_account:'')}"></div>
@@ -5051,6 +5067,7 @@ async function _openInvBuilder(id){
           <div class="fg full"><label>نام صادرکننده *</label><input id="inv-cheque-owner" value="${esc(inv&&inv.cheque_owner?inv.cheque_owner:'')}"></div>
           <div class="fg full"><label>توضیحات چک</label><input id="inv-cheque-info" value="${esc(inv&&inv.cheque_info?inv.cheque_info:'')}"></div>
         </div>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invAddNextCheque()})}">➕ ثبت چک بعدی</button>
       </div>
       <div class="inv-layout">
         <div>
@@ -5861,6 +5878,10 @@ function invPayAmountVisible(){
 function syncInvCashPayAmount(){
   const inp=el('inv-pay-amount');
   const pt=el('inv-pay-type')?.value;
+  if(pt==='cheque'){
+    if(typeof renderInvCashRemainder==='function') renderInvCashRemainder();
+    return;
+  }
   if(!inp || !invPayAmountVisible()){
     if(typeof renderInvCashRemainder==='function') renderInvCashRemainder();
     return;
@@ -5926,7 +5947,7 @@ function collectLiveInvReceipts(){
   }else{
     const pt=el('inv-pay-type')?.value;
     if(pt && pt!=='credit' && pt!=='mixed'){
-      const amt=invPayAmountRial();
+      const amt=pt==='cheque'?parseInvMoney(el('inv-cheque-face')?.value):invPayAmountRial();
       if(amt>0){
         const fake={
           cash_box_id:+el('inv-cashbox')?.value||null,
@@ -6073,6 +6094,50 @@ function invPayAddRow(){
   invPayRows=invPayRows||[];
   invPayRows.push({amount:'',pay_type:'cheque'});
 }
+function invSnapshotSingleChequeRow(){
+  const face=parseInvMoney(el('inv-cheque-face')?.value);
+  if(!(face>0)){ showToast('مبلغ این فقره چک (ریال) را وارد کنید','error'); return null; }
+  const missing=[];
+  if(!(el('inv-cheque-bank')?.value||'').trim()) missing.push('بانک');
+  if(!(el('inv-cheque-branch')?.value||'').trim()) missing.push('شعبه');
+  if(!(el('inv-cheque-account')?.value||'').trim()) missing.push('شماره حساب');
+  if(!(el('inv-cheque-number')?.value||'').trim()) missing.push('شماره چک');
+  const sayadiEn=toEnDigits(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,'');
+  if(!/^\d{16}$/.test(sayadiEn)) missing.push('صیاد ۱۶ رقمی');
+  if(!(el('inv-cheque-due')?.value||'').trim()) missing.push('سررسید');
+  if(!(el('inv-cheque-owner')?.value||'').trim()) missing.push('صادرکننده');
+  let shebaEn=toEnDigits(el('inv-cheque-sheba')?.value||'').replace(/\s/g,'').toUpperCase();
+  if(shebaEn){
+    if(/^\d{24}$/.test(shebaEn)) shebaEn='IR'+shebaEn;
+    if(!/^IR\d{24}$/.test(shebaEn)) missing.push('شبا (IR+۲۴ رقم)');
+  }
+  if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی/معتبر نیست','error'); return null; }
+  return {
+    amount:el('inv-cheque-face')?.value||String(face),
+    pay_type:'cheque',
+    cheque_bank:(el('inv-cheque-bank')?.value||'').trim(),
+    cheque_branch:(el('inv-cheque-branch')?.value||'').trim(),
+    cheque_account:(el('inv-cheque-account')?.value||'').trim(),
+    cheque_number:(el('inv-cheque-number')?.value||'').trim(),
+    sayadi:sayadiEn,
+    cheque_owner:(el('inv-cheque-owner')?.value||'').trim(),
+    sheba:shebaEn,
+    cheque_due:(el('inv-cheque-due')?.value||'').trim(),
+    cheque_info:(el('inv-cheque-info')?.value||'').trim()
+  };
+}
+function invAddNextCheque(){
+  const snap=invSnapshotSingleChequeRow();
+  if(!snap) return;
+  invPayRows=invPayRows||[];
+  invPayRows[0]=snap;
+  invPayRows.push({amount:'',pay_type:'cheque'});
+  invPayEnsureChequeDefaults(invPayRows[invPayRows.length-1]);
+  const m=el('inv-multi');
+  if(m) m.checked=true;
+  toggleInvPayFields();
+  showToast('چک اول ثبت شد — مشخصات چک بعدی را در بخش چندمرحله‌ای وارد کنید');
+}
 function collectInvPaySplits(){
   if(!el('inv-multi')?.checked) return null;
   try{
@@ -6208,6 +6273,10 @@ function toggleInvPayFields(){
   }
   if(pt==='cash' && !multi) defaultInvCashBoxIfNew();
   if(pt==='pos_card' && !multi) defaultInvPosIfSingle();
+  if(pt==='cheque' && !multi){
+    const faceInp=el('inv-cheque-face');
+    if(faceInp && typeof ensureMoneyField==='function') ensureMoneyField(faceInp);
+  }
   syncInvCashPayAmount();
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
 }
@@ -6284,9 +6353,11 @@ async function saveInvoice(id){
       if(!/^IR\d{24}$/.test(shebaEn)) missing.push('شبا (IR+۲۴ رقم)');
     }
     if(missing.length){ showToast('چک دریافتی: '+missing.join('، ')+' الزامی/معتبر نیست','error'); return; }
+    const faceAmt=parseInvMoney(el('inv-cheque-face')?.value);
+    if(!(faceAmt>0)){ showToast('مبلغ این فقره چک (ریال) را وارد کنید','error'); return; }
   }
   if(!splits && pay_type && pay_type!=='credit'){
-    const chkAmt=invPayAmountRial();
+    const chkAmt=pay_type==='cheque'?parseInvMoney(el('inv-cheque-face')?.value):invPayAmountRial();
     const chkFinal=Number(window._invLastFinal)||0;
     if(chkAmt>chkFinal){ showToast('مبلغ دریافت نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
   }
@@ -6343,7 +6414,7 @@ async function saveInvoice(id){
     const types=[...new Set(splits.map(s=>s.pay_type))];
     if(types.length===1) data.pay_type=types[0];
   }else{
-    const payAmt=invPayAmountRial();
+    const payAmt=pay_type==='cheque'?parseInvMoney(el('inv-cheque-face')?.value):invPayAmountRial();
     if(pay_type && pay_type!=='credit') data.pay_amount=payAmt;
     if(pay_type==='pos_card') data.pos_terminal_id=+el('inv-pos')?.value||null;
     if(pay_type==='cash'){ data.bank_id=null; data.pos_terminal_id=null; }
@@ -17568,13 +17639,31 @@ async function renderPurchaseReturnsTab(body){
     enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
   }
 }
+function isFirmInvoiceType(t){ return t==='final'||t==='normal'; }
+function invoiceTypeShortLabel(t){ return t==='final'?'رسمی':(t==='normal'?'معمولی':'پیش'); }
+function canOpenReturnWithoutInvoice(){
+  if(ME&&(ME.role==='admin'||ME.role==='accounting')) return true;
+  const s=CACHE.settings||{};
+  return String(s.returns_allow_open||'0')==='1';
+}
+let srOpenRows=[];
+let prOpenRows=[];
+
 function purchaseReturnModal(){
+  prOpenRows=[];
+  const openOk=canOpenReturnWithoutInvoice();
   openModal(`
     <div class="modal-head"><h3>↩️ برگشت از خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>تأمین‌کننده * ${hlp('پس از انتخاب تأمین‌کننده، فاکتورهای خرید او برای انتخاب نمایش داده می‌شود.')}</label>${supplierSelect('pr-supplier',0)}</div>
-        <div class="fg"><label>فاکتور خرید * ${hlp('فقط از روی یک فاکتور واقعی می‌توان برگشت ثبت کرد — قیمت اصلی همان فاکتور حفظ می‌شود.')}</label>
+        <div class="fg full"><label>حالت برگشت</label>
+          <div data-csp-style="${CSP.style(`display:flex;gap:14px;flex-wrap:wrap;align-items:center`)}">
+            <label><input type="radio" name="pr-mode" value="linked" checked data-csp-change="${CSP.bind('change',function(){onPrModeChange()})}"> روی فاکتور خرید</label>
+            <label ${openOk?'':`title="فقط مدیر/حسابداری"`}><input type="radio" name="pr-mode" value="open" ${openOk?'':'disabled'} data-csp-change="${CSP.bind('change',function(){onPrModeChange()})}"> بدون فاکتور</label>
+          </div>
+        </div>
+        <div class="fg" id="pr-invoice-wrap"><label>فاکتور خرید ${hlp('قیمت از فاکتور خوانده می‌شود؛ سقف تعداد = فروخته‌شده منهای برگشتی قبلی.')}</label>
           <select id="pr-invoice" data-csp-change="${CSP.bind('change',function(event){loadPrReturnRows()})}" disabled><option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option></select>
         </div>
         <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
@@ -17587,14 +17676,30 @@ function purchaseReturnModal(){
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   const supEl=el('pr-supplier');
   if(supEl) supEl.addEventListener('change', loadPrInvoices);
+  onPrModeChange();
+}
+function prMode(){ return document.querySelector('input[name="pr-mode"]:checked')?.value||'linked'; }
+function onPrModeChange(){
+  const linked=prMode()==='linked';
+  const wrap=el('pr-invoice-wrap');
+  if(wrap) wrap.style.display=linked?'':'none';
+  const box=el('prRowsContainer');
+  if(!box) return;
+  if(linked){
+    if(el('pr-supplier')?.value) loadPrInvoices();
+    else box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
+  } else {
+    renderPrOpenPanel();
+  }
 }
 async function loadPrInvoices(){
+  if(prMode()!=='linked') return;
   const supId=+el('pr-supplier')?.value||0;
   const invSel=el('pr-invoice');
   const rowsBox=el('prRowsContainer');
   if(!supId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
-  const allPurchases=await api('GET','/purchases')||[];
-  const invs=allPurchases.filter(i=>i.supplier_id===supId);
+  const allPurchases=listRows(await api('GET','/purchases'));
+  const invs=allPurchases.filter(i=>Number(i.supplier_id)===supId && (i.status||'posted')!=='reversed');
   if(!invs.length){
     invSel.disabled=true; invSel.innerHTML='<option value="">-- این تأمین‌کننده فاکتور خرید ندارد --</option>';
     rowsBox.innerHTML='<div class="empty">این تأمین‌کننده فاکتور خریدی برای برگشت ندارد</div>';
@@ -17612,7 +17717,7 @@ async function loadPrReturnRows(){
   const d=await api('GET','/purchases/returns/available/'+invId);
   if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-    <th>کالا</th><th>رنگ / طاقه</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
+    <th>کالا</th><th>رنگ / طاقه</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد</th><th>تعداد برگشتی</th>
   </tr></thead><tbody>${d.rows.map(r=>`<tr>
     <td>${esc(r.name)}</td>
     <td>${esc(r.color||r.color_name||'')}${r.roll_no?(' · '+esc(r.roll_no)):''}</td>
@@ -17621,16 +17726,54 @@ async function loadPrReturnRows(){
     <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-key="${esc(r.line_key||'')}" data-batch="${r.batch_id||''}" data-color="${esc(r.color||'')}" class="pr-qty-input" data-csp-style="${CSP.style(`width:80px`)}"></td>
   </tr>`).join('')}</tbody></table></div>`;
 }
+async function renderPrOpenPanel(){
+  const box=el('prRowsContainer'); if(!box) return;
+  if(!CACHE.products||!CACHE.products.length) CACHE.products=listRows(await api('GET','/products'));
+  box.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">بدون فاکتور: قیمت را دستی وارد کنید. سقف تعداد از فاکتور اعمال نمی‌شود.</div>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
+      <div class="fg">${productSelect('pr-open-prod',0)}</div>
+      <div class="fg"><label>تعداد</label><input id="pr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
+      <div class="fg"><label>فی</label><input id="pr-open-price" type="number" min="0" value="0"></div>
+      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){prOpenAddLine()})}">➕ افزودن</button></div>
+    </div>
+    <div id="prOpenRowsTbl"></div>`;
+  initCustSearches(box);
+  renderPrOpenRowsTbl();
+}
+function prOpenAddLine(){
+  const pid=+el('pr-open-prod')?.value||0;
+  if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  const p=(CACHE.products||[]).find(x=>x.id===pid);
+  const qty=Math.max(0.001, parseQty(el('pr-open-qty')?.value,1));
+  const price=parseFloat(el('pr-open-price')?.value)||Number(p?.purchase_price||p?.price||0)||0;
+  prOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price});
+  renderPrOpenRowsTbl();
+}
+function renderPrOpenRowsTbl(){
+  const box=el('prOpenRowsTbl'); if(!box) return;
+  if(!prOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th>فی</th><th></th></tr></thead>
+    <tbody>${prOpenRows.map((r,i)=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.price)}</td>
+    <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){prOpenRows.splice(i,1);renderPrOpenRowsTbl()})}">✕</button></td></tr>`).join('')}</tbody></table></div>`;
+}
 async function savePurchaseReturn(){
   const supplier_id=+el('pr-supplier').value;
-  const purchase_invoice_id=+el('pr-invoice')?.value||0;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
-  if(!purchase_invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
-  const rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({
-    product_id:+inp.dataset.pid, qty:+inp.value||0,
-    line_key:inp.dataset.key||'', batch_id:inp.dataset.batch?+inp.dataset.batch:null,
-    color:inp.dataset.color||''
-  })).filter(r=>r.qty>0);
+  const mode=prMode();
+  let purchase_invoice_id=null, rows=[];
+  if(mode==='linked'){
+    purchase_invoice_id=+el('pr-invoice')?.value||0;
+    if(!purchase_invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
+    rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({
+      product_id:+inp.dataset.pid, qty:+inp.value||0,
+      line_key:inp.dataset.key||'', batch_id:inp.dataset.batch?+inp.dataset.batch:null,
+      color:inp.dataset.color||''
+    })).filter(r=>r.qty>0);
+  } else {
+    if(!canOpenReturnWithoutInvoice()){ showToast('برگشت بدون فاکتور فقط برای مدیر/حسابداری است','error'); return; }
+    rows=prOpenRows.filter(r=>r.qty>0).map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}));
+  }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
     await api('POST','/purchases/returns',{supplier_id,purchase_invoice_id,date:el('pr-date').value,note:el('pr-note').value,rows});
@@ -17671,14 +17814,23 @@ async function renderSalesReturnsTab(body){
   }
 }
 function salesReturnModal(){
+  srOpenRows=[];
+  const openOk=canOpenReturnWithoutInvoice();
   openModal(`
     <div class="modal-head"><h3>↪️ برگشت از فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-        <div class="fg"><label>مشتری * ${hlp('پس از انتخاب مشتری، فاکتورهای رسمی او برای انتخاب نمایش داده می‌شود.')}</label>${custSelect('sr-cust',0)}</div>
-        <div class="fg"><label>فاکتور فروش * ${hlp('فقط از روی یک فاکتور واقعی می‌توان برگشت ثبت کرد — قیمت و تخفیف اصلی همان فاکتور حفظ می‌شود.')}</label>
+        <div class="fg"><label>مشتری * ${hlp('پس از انتخاب مشتری، فاکتورهای قطعی (معمولی/رسمی) او نمایش داده می‌شود.')}</label>${custSelect('sr-cust',0)}</div>
+        <div class="fg full"><label>حالت برگشت</label>
+          <div data-csp-style="${CSP.style(`display:flex;gap:14px;flex-wrap:wrap;align-items:center`)}">
+            <label><input type="radio" name="sr-mode" value="linked" checked data-csp-change="${CSP.bind('change',function(){onSrModeChange()})}"> روی فاکتور فروش</label>
+            <label ${openOk?'':`title="فقط مدیر/حسابداری"`}><input type="radio" name="sr-mode" value="open" ${openOk?'':'disabled'} data-csp-change="${CSP.bind('change',function(){onSrModeChange()})}"> بدون فاکتور</label>
+          </div>
+        </div>
+        <div class="fg" id="sr-invoice-wrap"><label>فاکتور فروش قطعی ${hlp('معمولی و رسمی؛ قیمت و تخفیف از همان فاکتور.')}</label>
           <select id="sr-invoice" data-csp-change="${CSP.bind('change',function(event){loadSrReturnRows()})}" disabled><option value="">-- ابتدا مشتری را انتخاب کنید --</option></select>
         </div>
+        <div class="fg"><label>انبار مقصد برگشت</label><select id="sr-wh">${warehouseOptionsHtml(null,'— از فاکتور / پیش‌فرض —')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="sr-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="sr-note"></div>
       </div>
@@ -17689,21 +17841,37 @@ function salesReturnModal(){
   attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
   const custEl=el('sr-cust');
   if(custEl) custEl.addEventListener('change', loadSrInvoices);
+  onSrModeChange();
+}
+function srMode(){ return document.querySelector('input[name="sr-mode"]:checked')?.value||'linked'; }
+function onSrModeChange(){
+  const linked=srMode()==='linked';
+  const wrap=el('sr-invoice-wrap');
+  if(wrap) wrap.style.display=linked?'':'none';
+  const box=el('srRowsContainer');
+  if(!box) return;
+  if(linked){
+    if(el('sr-cust')?.value) loadSrInvoices();
+    else box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
+  } else {
+    renderSrOpenPanel();
+  }
 }
 async function loadSrInvoices(){
+  if(srMode()!=='linked') return;
   const custId=+el('sr-cust')?.value||0;
   const invSel=el('sr-invoice');
   const rowsBox=el('srRowsContainer');
   if(!custId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا مشتری را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
-  CACHE.invoices=await api('GET','/invoices')||[];
-  const invs=CACHE.invoices.filter(i=>i.cust_id===custId && i.type==='final');
+  CACHE.invoices=listRows(await api('GET','/invoices'));
+  const invs=CACHE.invoices.filter(i=>Number(i.cust_id)===custId && isFirmInvoiceType(i.type) && (i.status||'posted')!=='reversed' && !i.deleted_at);
   if(!invs.length){
-    invSel.disabled=true; invSel.innerHTML='<option value="">-- این مشتری فاکتور رسمی ندارد --</option>';
-    rowsBox.innerHTML='<div class="empty">این مشتری فاکتور رسمی‌ای برای برگشت ندارد</div>';
+    invSel.disabled=true; invSel.innerHTML='<option value="">-- این مشتری فاکتور قطعی ندارد --</option>';
+    rowsBox.innerHTML='<div class="empty">این مشتری فاکتور معمولی/رسمی برای برگشت ندارد</div>';
     return;
   }
   invSel.disabled=false;
-  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${invoiceTypeShortLabel(i.type)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
   rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
 }
 async function loadSrReturnRows(){
@@ -17713,23 +17881,63 @@ async function loadSrReturnRows(){
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const d=await api('GET','/accounting/sales-returns/available/'+invId);
   if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
+  if(d.invoice&&d.invoice.warehouse_id&&el('sr-wh')&&!el('sr-wh').value) el('sr-wh').value=String(d.invoice.warehouse_id);
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-    <th>کالا</th><th>تعداد فروخته‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
+    <th>کالا</th><th>تعداد فروخته‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد</th><th>تعداد برگشتی</th>
   </tr></thead><tbody>${d.rows.map(r=>`<tr>
     <td>${esc(r.name)}${(r.color_name||r.color||r.size_name)?` <span class="muted">${esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
     <td><input type="number" class="num-fit sr-qty-input" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-vid="${r.variant_id||''}"></td>
   </tr>`).join('')}</tbody></table></div>`;
 }
+async function renderSrOpenPanel(){
+  const box=el('srRowsContainer'); if(!box) return;
+  if(!CACHE.products||!CACHE.products.length) CACHE.products=listRows(await api('GET','/products'));
+  box.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">بدون فاکتور: قیمت فروش را دستی وارد کنید. VAT متناسب فقط روی برگشتِ لینک‌شده اعمال می‌شود.</div>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
+      <div class="fg">${productSelect('sr-open-prod',0)}</div>
+      <div class="fg"><label>تعداد</label><input id="sr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
+      <div class="fg"><label>فی فروش</label><input id="sr-open-price" type="number" min="0" value="0"></div>
+      <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){srOpenAddLine()})}">➕ افزودن</button></div>
+    </div>
+    <div id="srOpenRowsTbl"></div>`;
+  initCustSearches(box);
+  renderSrOpenRowsTbl();
+}
+function srOpenAddLine(){
+  const pid=+el('sr-open-prod')?.value||0;
+  if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  const p=(CACHE.products||[]).find(x=>x.id===pid);
+  const qty=Math.max(0.001, parseQty(el('sr-open-qty')?.value,1));
+  const price=parseFloat(el('sr-open-price')?.value)||Number(p?.price||0)||0;
+  srOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price});
+  renderSrOpenRowsTbl();
+}
+function renderSrOpenRowsTbl(){
+  const box=el('srOpenRowsTbl'); if(!box) return;
+  if(!srOpenRows.length){ box.innerHTML='<div class="muted">ردیفی اضافه نشده</div>'; return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th>فی</th><th></th></tr></thead>
+    <tbody>${srOpenRows.map((r,i)=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.price)}</td>
+    <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){srOpenRows.splice(i,1);renderSrOpenRowsTbl()})}">✕</button></td></tr>`).join('')}</tbody></table></div>`;
+}
 async function saveSalesReturn(){
   const cust_id=+el('sr-cust').value;
-  const invoice_id=+el('sr-invoice')?.value||0;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
-  if(!invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
-  const rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,variant_id:+inp.dataset.vid||null,qty:+inp.value||0})).filter(r=>r.qty>0);
+  const mode=srMode();
+  let invoice_id=null, rows=[];
+  if(mode==='linked'){
+    invoice_id=+el('sr-invoice')?.value||0;
+    if(!invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
+    rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,variant_id:+inp.dataset.vid||null,qty:+inp.value||0})).filter(r=>r.qty>0);
+  } else {
+    if(!canOpenReturnWithoutInvoice()){ showToast('برگشت بدون فاکتور فقط برای مدیر/حسابداری است','error'); return; }
+    rows=srOpenRows.filter(r=>r.qty>0).map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}));
+  }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
+  const warehouse_id=+el('sr-wh')?.value||null;
   try{
-    await api('POST','/accounting/sales-returns',{cust_id,invoice_id,date:el('sr-date').value,note:el('sr-note').value,rows});
+    await api('POST','/accounting/sales-returns',{cust_id,invoice_id,warehouse_id,date:el('sr-date').value,note:el('sr-note').value,rows});
     closeModal(); showToast('برگشت از فروش ثبت شد'); loadAccTab('sales-returns');
   }catch(e){}
 }
@@ -21826,15 +22034,15 @@ async function settlementModal(custId){
         <select id="st-invoice" data-csp-change="${CSP.bind('change',function(event){stlApplyInvoiceAmt()})}"><option value="">— بدون تخصیص به فاکتور —</option>
         ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
         </select></div>
-      ${moayanAcctHtml('st','حساب معین طرف نقد/بانک در سند دریافت — سطح معین کدینگ')}
       <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
         <input type="checkbox" id="st-multi" data-csp-change="${CSP.bind('change',function(event){stlToggleMulti()})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
       </label></div>
       <div id="stlSingleBlock">
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-          <div class="fg"><label>روش دریافت ${hlp('نقد→صندوق شرکت، واریز→بانک شرکت، چک→اسناد دریافتنی نزد صندوق (نه واریز به بانک)، کارتخوان→وجوه در راه.')}</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک دریافتی</option><option value="pos_card">کارتخوان</option></select></div>
-          <div class="fg" id="st-bank-fg"><label>بانک مقصد (شرکت)</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— انتخاب بانک —</option>
+          <div class="fg"><label>روش دریافت ${hlp('نقد→صندوق؛ چک→اسناد دریافتنی (بدون بانک مقصد)؛ واگذاری بعداً از دفتر چک؛ واریز بانکی→بانک مقصد؛ کارتخوان→وجوه در راه.')}</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک دریافتی</option><option value="pos_card">کارتخوان</option></select>
+            <div class="muted" id="st-recv-hint" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6;margin-top:4px`)}">نقد→صندوق · چک→اسناد دریافتنی (بدون بانک مقصد) · واگذاری بعداً از دفتر چک · واریز بانکی→بانک مقصد</div></div>
+          <div class="fg" id="st-bank-fg" data-csp-style="${CSP.style(`display:none`)}"><label>بانک مقصد (شرکت)</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— انتخاب بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
           <div class="fg" id="st-cashbox-fg"><label>صندوق مقصد</label><select id="st-cashbox" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— انتخاب صندوق —</option>
@@ -22111,7 +22319,7 @@ async function saveSettlement(){
   const amount=moneyVal('st-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
   if(pay_type==='cash' && !el('st-cashbox')?.value){ showToast('صندوق را انتخاب کنید','error'); return; }
-  if((pay_type==='bank_transfer'||pay_type==='cheque') && !el('st-bank')?.value){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(pay_type==='bank_transfer' && !el('st-bank')?.value){ showToast('بانک مقصد را انتخاب کنید','error'); return; }
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
@@ -22120,14 +22328,13 @@ async function saveSettlement(){
       note:(el('st-note').value||'')+(pay_type==='bank_transfer'&&el('st-bankref')?.value?(' | پیگیری: '+el('st-bankref').value):''),
       bank_id:+el('st-bank').value||null,
       cash_box_id:+el('st-cashbox').value||null,
-      account_code:el('st-account-code')?.value||'',
       cheque_status:'pending',
       foreign_amount:+el('st-foreign')?.value||null,
       fx_rate_rial:+el('st-fx-rate')?.value||null,
       currency:(el('st-bank')?.selectedOptions?.[0]?.dataset?.cur
         || el('st-cashbox')?.selectedOptions?.[0]?.dataset?.cur || 'IRR')
     });
-    _accRecvCache=null; closeModal(); showToast('پرداخت ثبت شد');
+    _accRecvCache=null; closeModal(); showToast('دریافت ثبت شد');
     loadAccTab(accTab);
   }catch(e){}
 }
@@ -24881,6 +25088,8 @@ ROUTES.settings = async function(){
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
       </div>
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_reverse_vat', s.returns_reverse_vat!=='0', 'برگشت VAT روی برگشتِ لینک‌شده به فاکتور', 'فقط وقتی فاکتور مرجع انتخاب شده؛ سهم مالیات برگشتی متناسب با همان فاکتور در سند حسابداری معکوس می‌شود')}</div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_allow_open', s.returns_allow_open==='1', 'اجازه برگشت بدون فاکتور (غیر از مدیر/حسابداری)', 'مدیر و حسابداری همیشه می‌توانند؛ با روشن بودن این گزینه سایر نقش‌های مجاز هم حالت «بدون فاکتور» را می‌بینند')}</div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
@@ -25332,6 +25541,8 @@ async function saveSettings(){
   const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
+  if(el('s-returns_reverse_vat')) data.returns_reverse_vat = el('s-returns_reverse_vat').checked ? '1' : '0';
+  if(el('s-returns_allow_open')) data.returns_allow_open = el('s-returns_allow_open').checked ? '1' : '0';
   data.currency_display = 'rial';
   data.currency_base = 'rial';
   // پنجره چندگانه — تنظیم محلی مرورگر/دسکتاپ
@@ -26367,7 +26578,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. در برگشت فروش دکمهٔ <b>📦 رسید انبار</b> برگهٔ ورود فیزیکی کالای برگشتی را چاپ می‌کند. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — در این حالت قیمت دستی است و سقف از فاکتور اعمال نمی‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). برگشت خرید رنگ/طاقه را نشان می‌دهد؛ برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا</b>: ماندهٔ فروش‌پذیر از ردیف‌های عادی دفتر موجودی است؛ حرکت WIP (<code>warehouseOnly</code>) فقط در ستون فیزیکی انبار دیده می‌شود و موجودی قابل‌فروش را تغییر نمی‌دهد. موجودی اول دوره (با بها) هم سند افتتاحیه و هم ردیف دفتر می‌سازد. اگر موجودی انبار باشد ولی جدول کاردکس خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد (موجودی فیزیکی عوض نمی‌شود). تعدیل دستی موجودی و موجودی مطلق اکسل هم ردیف دفتر می‌سازند</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>

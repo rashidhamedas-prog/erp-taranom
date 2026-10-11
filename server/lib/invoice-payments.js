@@ -111,7 +111,7 @@ function normalizeInvoicePaySplits(body, invoiceFinal) {
  * Every non-credit immediate receipt becomes settlement splits.
  * Invoice JE must use payType credit (skipInvoiceCash) whenever splits exist.
  */
-function resolveInvoicePayments(body, invoiceFinal) {
+function resolveInvoicePayments(body, invoiceFinal, opts) {
   const finalAmt = moneyRial(invoiceFinal);
   const b = body || {};
   if (Array.isArray(b.pay_splits) && b.pay_splits.length > 0) {
@@ -124,6 +124,17 @@ function resolveInvoicePayments(body, invoiceFinal) {
   }
   if (!SPLIT_TYPES.has(pt)) {
     return { splits: [], skipInvoiceCash: false };
+  }
+  // A blank cheque face used to become the whole invoice (one leaf, summed).
+  if (pt === 'cheque' && !(opts && opts.allowImplicitChequeFace)) {
+    const rawAmt = b.pay_amount;
+    const declared = rawAmt != null && rawAmt !== '' ? moneyRial(rawAmt) : 0;
+    if (!(declared > 0)) {
+      const e = new Error('مبلغ این فقره چک را جدا وارد کنید؛ مبلغ خالی روی یک برگه با کل فاکتور جمع نمی‌شود');
+      e.status = 400;
+      e.code = 'E_CHEQUE_FACE';
+      throw e;
+    }
   }
   const { paid } = resolveCashPaid(b, finalAmt);
   if (paid <= 0) {
@@ -274,7 +285,7 @@ function paymentsFromStoredInvoice(inv, invoiceFinal) {
     cheque_owner: inv && inv.cheque_owner,
     cheque_sheba: inv && (inv.cheque_sheba || inv.sheba),
     sheba: inv && (inv.sheba || inv.cheque_sheba),
-  }, invoiceFinal);
+  }, invoiceFinal, { allowImplicitChequeFace: true });
 }
 
 function recomputeInvoiceSettledBalances(db, invoiceId) {
@@ -337,7 +348,112 @@ function applyInvoicePaySplits(db, {
   return ids;
 }
 
+/**
+ * Live cheque receipts that never got a دفتر چک row (older receive path)
+ * get exactly one instrument. Does not post a second JE or customer credit.
+ */
+function backfillMissingSettlementCheques(db) {
+  const FLAG = 'cheque_receipt_mirror_v339';
+  let done = null;
+  try { done = db.prepare('SELECT value FROM settings WHERE key=?').get(FLAG); } catch (_) { done = null; }
+  if (done && done.value === '1') return { inserted: 0, skipped: true };
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT id, cust_id, invoice_id, amount, amount_rial, date, note,
+             cheque_number, cheque_due, cheque_bank, cheque_branch, cheque_sayadi,
+             cheque_sheba, cheque_account
+      FROM settlements
+      WHERE pay_type='cheque' AND COALESCE(status,'posted')<>'reversed'
+        AND NOT EXISTS (
+          SELECT 1 FROM cheque_records cr
+          WHERE cr.settlement_id=settlements.id
+            AND COALESCE(cr.record_status,'posted')<>'reversed'
+        )
+    `).all();
+  } catch (_) {
+    return { inserted: 0, skipped: true };
+  }
+  let inserted = 0;
+  const run = db.transaction(() => {
+    for (const s of rows) {
+      const amountRial = Math.round(Number(s.amount_rial != null ? s.amount_rial : s.amount) || 0);
+      if (!(amountRial > 0)) continue;
+      try {
+        const id = insertChequeRecordForSettlement(db, {
+          settlementId: s.id,
+          invoiceId: s.invoice_id || null,
+          custId: s.cust_id,
+          amountRial,
+          date: s.date || '',
+          note: s.note || '',
+          cheque_number: s.cheque_number,
+          cheque_due: s.cheque_due,
+          cheque_bank: s.cheque_bank,
+          cheque_branch: s.cheque_branch || '',
+          sayadi: s.cheque_sayadi,
+          sheba: s.cheque_sheba || '',
+          cheque_account: s.cheque_account,
+        });
+        if (id) inserted += 1;
+      } catch (e) {
+        if (e && e.code === 'E_CHEQUE_SAYADI_DUP') continue;
+        throw e;
+      }
+    }
+    db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
+      .run(FLAG);
+  });
+  run();
+  if (inserted) console.log(`✅ چک دریافت بدون ردیف دفتر ساخته شد (${inserted})`);
+  return { inserted };
+}
+
+/**
+ * One physical cheque ⇒ one دفتر چک row. Never sum several leaves onto one sayadi.
+ */
+function insertChequeRecordForSettlement(db, {
+  settlementId, invoiceId, custId, amountRial, date, note,
+  cheque_number, cheque_due, cheque_bank, cheque_branch, sayadi, sheba, cheque_account,
+}) {
+  if (!settlementId || !amountRial) return null;
+  const sayadiNorm = digitsOnly(sayadi);
+  if (sayadiNorm) {
+    const dup = db.prepare(
+      "SELECT id FROM cheque_records WHERE sayadi=? AND direction='in' AND COALESCE(record_status,'posted')<>'reversed'"
+    ).get(sayadiNorm);
+    if (dup) {
+      const e = new Error('شناسه صیاد این چک قبلاً ثبت شده است');
+      e.status = 409;
+      e.code = 'E_CHEQUE_SAYADI_DUP';
+      throw e;
+    }
+  }
+  const existing = db.prepare(`
+    SELECT id FROM cheque_records
+    WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+    LIMIT 1
+  `).get(settlementId);
+  if (existing) return existing.id;
+  const cust = custId
+    ? db.prepare('SELECT biz, owner, party_id FROM customers WHERE id=?').get(custId)
+    : null;
+  const result = db.prepare(`
+    INSERT INTO cheque_records
+      (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
+       account_number, party_name, party_id, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
+    VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    cheque_number || '', date || '', cheque_due || '', cheque_bank || '', cheque_branch || '',
+    sayadiNorm || '', sheba || '', cheque_account || '',
+    (cust && (cust.biz || cust.owner)) || '', (cust && cust.party_id) || null, custId || null,
+    'نزد صندوق', amountRial, note || '', invoiceId || null, settlementId, 'registered'
+  );
+  return result.lastInsertRowid;
+}
+
 function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, note, chequeHeader, skipJournal }) {
+
   const { createLedgerEntry } = require('../db');
   const { recvAcct } = lazyRecv();
   const amountRial = split.amount;
@@ -376,19 +492,13 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
   );
   const settlementId = result.lastInsertRowid;
   if (pay_type === 'cheque') {
-    const cust = db.prepare('SELECT biz, owner, party_id FROM customers WHERE id=?').get(custId);
     // Canonical lifecycle: registered (= نزد صندوق). Never in_hand/in_collection until send-to-bank.
-    db.prepare(`
-      INSERT INTO cheque_records
-        (direction, cheque_number, receive_date, due_date, bank_name, branch, sayadi, sheba,
-         account_number, party_name, party_id, customer_id, status, amount, note, invoice_id, settlement_id, lifecycle_status)
-      VALUES ('in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      split.cheque_number || '', date || '', chequeDue, split.cheque_bank || '', split.cheque_branch || '',
-      split.sayadi || '', split.sheba || '', split.cheque_account || '',
-      (cust && (cust.biz || cust.owner)) || '', (cust && cust.party_id) || null, custId,
-      'نزد صندوق', amountRial, settNote, invoiceId, settlementId, 'registered'
-    );
+    insertChequeRecordForSettlement(db, {
+      settlementId, invoiceId, custId, amountRial, date, note: settNote,
+      cheque_number: split.cheque_number, cheque_due: chequeDue,
+      cheque_bank: split.cheque_bank, cheque_branch: split.cheque_branch,
+      sayadi: split.sayadi, sheba: split.sheba, cheque_account: split.cheque_account,
+    });
   }
   const payLabel = pay_type === 'cheque' ? 'چک'
     : (pay_type === 'bank_transfer' || pay_type === 'bank') ? 'واریز بانکی' : 'نقد';
@@ -489,6 +599,8 @@ module.exports = {
   persistInvoicePayPlan,
   paymentsFromStoredInvoice,
   settlementAssetAccount,
+  insertChequeRecordForSettlement,
+  backfillMissingSettlementCheques,
   loadInvoiceReceipts,
   digitsOnly,
   toAsciiDigits,

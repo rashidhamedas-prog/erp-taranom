@@ -57,15 +57,59 @@ function normalizeStmtRefType(refType) {
 function stmtEntryType(refType, normalized) {
   const raw = String(refType || '');
   if (raw === 'invoice_payment') return 'settlement';
+  // Keep the instrument. Collapsing every cheque ref into "cheque" made a
+  // receipt and an opening-cheque correction look like an endorsement.
+  if (raw === 'cheque_in') return 'cheque_in';
+  if (raw === 'cheque_endorse') return 'cheque_endorse';
+  if (raw === 'cheque_clear') return 'cheque_clear';
+  if (raw === 'cheque_bounce') return 'cheque_bounce';
   const n = normalized || normalizeStmtRefType(refType);
   if (n === 'invoice') return 'invoice';
   if (n === 'invoice_payment' || n === 'settlement') return 'settlement';
   if (n === 'cheque_bounce') return 'cheque_bounce';
-  if (n === 'cheque' || n === 'cheque_endorse' || n === 'cheque_in' || n === 'cheque_clear') return 'cheque';
+  if (n === 'cheque_in' || n === 'cheque') return 'cheque_in';
+  if (n === 'cheque_endorse') return 'cheque_endorse';
+  if (n === 'cheque_clear') return 'cheque_clear';
   if (n === 'opening') return 'opening';
   if (n === 'reversal') return 'reversal';
-  if (String(refType || '').includes('reversal')) return 'reversal';
+  if (raw.includes('reversal')) return 'reversal';
   return n || 'journal';
+}
+
+const CHEQUE_BOOK_REFS = new Set([
+  'cheque', 'cheque_in', 'cheque_endorse', 'cheque_clear', 'cheque_bounce',
+]);
+
+/**
+ * Operational statement omits a voided document and its reversal.
+ * The journal stays reversed (R12); the customer book no longer shows it.
+ */
+function hideVoidedBookRows(db, rows) {
+  let reversedCheques = new Set();
+  let reversedSettlements = new Set();
+  try {
+    reversedCheques = new Set(
+      db.prepare(`
+        SELECT id FROM cheque_records
+        WHERE COALESCE(record_status,'posted')='reversed'
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* table optional on ancient DBs */ }
+  try {
+    reversedSettlements = new Set(
+      db.prepare(`
+        SELECT id FROM settlements
+        WHERE COALESCE(status,'posted')='reversed'
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* optional */ }
+  return (rows || []).filter((e) => {
+    const refId = Number(e.ref_id);
+    const rt = String(e.ref_type || '');
+    if (CHEQUE_BOOK_REFS.has(rt) && reversedCheques.has(refId)) return false;
+    if (rt === 'settlement' && reversedSettlements.has(refId)) return false;
+    return true;
+  });
 }
 
 function isImmediatePay(payType) {
@@ -1511,7 +1555,17 @@ function ensureCustomerBooksRepaired(db) {
     console.error('reversed settlement books repair:', e.message);
     settRevBooks = { error: e.message };
   }
-  return { ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true }, openingCheque, settBooks, settRevBooks };
+  let chequeMirror = {};
+  try {
+    chequeMirror = require('./invoice-payments').backfillMissingSettlementCheques(db);
+  } catch (e) {
+    console.error('cheque receipt mirror:', e.message);
+    chequeMirror = { error: e.message };
+  }
+  return {
+    ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true },
+    openingCheque, settBooks, settRevBooks, chequeMirror,
+  };
 }
 
 module.exports = {
@@ -1528,6 +1582,7 @@ module.exports = {
   listCustomerGlMovements,
   normalizeStmtRefType,
   stmtEntryType,
+  hideVoidedBookRows,
   glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,

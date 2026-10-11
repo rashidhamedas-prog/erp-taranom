@@ -1,3 +1,18 @@
+### ۱۴۰۵/۰۷/۱۹ — ADR-RETURNS-005 + P0/P1 برگشت فروش/خرید (SW v339)
+
+- **تصمیم:** Option **Minimal-Correct** — P0: picker فاکتور قطعی (`normal|final`)، `listRows`، UI unlinked برای admin/accounting (+ knob `returns_allow_open`)؛ P1: معکوس VAT متناسب (`returns_reverse_vat`، ستون `*_rial`)، انبار typed فروش via `inventoryAmountLinesByWarehouse`، `vat_amount` روی returns.
+- **خارج از scope:** allocate credit، Moadian، معکوس کرایه، commission clawback (P2/P3).
+- **فایل‌ها:** `lib/returns-posting.js`, `routes/{accounting,purchases,settings}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-returns-adr005-v339.js`, `docs/architecture/{RETURNS-ACC-ADR-005,SALES-PURCHASE-RETURNS-RESEARCH}.md`, CHANGE-LOG.
+- **تست:** محلی unit ۱۲/۰ (`test-returns-adr005-v339`؛ harness HTTP روی ویندوز بدون native better-sqlite3 skip)؛ روی ایران + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
+### ۱۴۰۵/۰۷/۱۹ — ریشهٔ دفتر چک/صورت‌حساب و دریافت (SW v339)
+
+- **خلاصه:** صورت‌حساب ردیف‌های چک/تسویهٔ ابطال‌شده را از دفتر عملیاتی حذف می‌کند (R12/R13؛ JE معکوس در روزنامه). backfill تسویه→`cheque_records`. فرم دریافت بدون حساب معین؛ مقصد بانک فقط واریز بانکی. فاکتور: مبلغ هر برگ چک جدا + «ثبت چک بعدی». SW `erp-taranom-v339`.
+- **فایل‌ها:** `server/routes/*`, `server/lib/*`, `server/public/{app.js,app.css,sw.js,index.html}`, Help (پچ `scripts/_help-sw-v339-patch.md`), CHANGE-LOG.
+- **تست:** (پس از merge والد) `test-sms` + `test-sync` + تست‌های چک v339 در صورت وجود.
+- **Deploy:** ⏳ تا deploy والد.
+
 ### ۱۴۰۵/۰۷/۱۹ — تحقیق برگشت فروش/خرید (پیش‌ADR جامع)
 
 - **هدف:** قفل باگ picker فاکتور، پشتیبانی برگشت بدون فاکتور، ماتریس JE/VAT/انبار/تنظیمات حرفه‌ای و موج‌های P0–P3 قبل از پیاده‌سازی گسترده.
