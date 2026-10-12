@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۱ — داشبورد پیشرفته فروش و خرید (SW v355)
+
+- **هدف:** داشبورد گزارش‌گیری مدیریتی فروش+خرید زیر حسابداری → فروش و خرید → گزارشات، با الگوی ۲۰۲۶ (KPI اقدام‌پذیر، مقایسه دوره قبل، exception-first، drill-down، mix مشتری/تأمین‌کننده/کالا).
+- **Backend:** `GET /api/adv-reports/sales-purchase-dashboard` + `lib/sales-purchase-dashboard.js` — فاکتور قطعی (`normal|final`)، خرید زنده، کسر برگشت فعال؛ سری ماهانه؛ Top N؛ مقایسه بازهٔ هم‌طول قبل؛ alerts + health_score؛ مبالغ ریال.
+- **Frontend:** منوی `acc-sales-purchase-dashboard`؛ UI در `portal-ui.js` (فیلتر مشتری/تأمین‌کننده/کارشناس + نوار تاریخ)؛ Chart.js فروش vs خرید؛ Help؛ SW/cache `v355`.
+- **RBAC:** `ACC_ITEMS` با prefix API اختصاصی؛ `adminOrAccounting`.
+- **فایل‌ها:** `lib/sales-purchase-dashboard.js`, `routes/adv-reports.js`, `lib/accounting-access.js`, `public/{acc-nav,portal-ui,app,app.css,sw,index}.html|js`, `scripts/test-sales-purchase-dashboard-v355.js`, CHANGE-LOG.
+- **تست:** `test-sales-purchase-dashboard-v355` (+ sms/sync روی ایران پس از deploy).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — فهرست اسناد: همهٔ اسناد + جستجوی شماره سند (SW v354)
 
 - **مشکل:** سقف ۵۰ سند در `GET /api/accounting/journal`؛ برچسب «۵۰ سند» گمراه‌کننده. کادر «جستجو در این لیست» فقط خطوط همان جدول را فیلتر می‌کرد، نه شماره سند در کل دیتابیس.

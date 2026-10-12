@@ -76,6 +76,7 @@ const ACC_ITEMS = {
   'acc-orders-list': { apis: ['/api/orders'] },
   'acc-settlements': { apis: ['/api/accounting/settlements', '/api/accounting/account-payments', '/api/accounting/account-receipts'] },
   'acc-pl-statement': { apis: ['/api/accounting/income-statement', '/api/accounting/general'] },
+  'acc-sales-purchase-dashboard': { apis: ['/api/adv-reports/sales-purchase-dashboard'] },
   'acc-invoice-list-tax': { apis: ['/api/moadian', '/api/accounting/invoices'] },
   'acc-opening-recv-cheques': { apis: ['/api/accounting/cheques', '/api/cheque-records'] },
   'acc-opening-pay-cheques': { apis: ['/api/accounting/cheques', '/api/cheque-records'] },

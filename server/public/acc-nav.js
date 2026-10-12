@@ -121,6 +121,7 @@ const ACC_TAB_RESOLVE = {
   'acc-cheque-dashboard': 'cheque-dashboard',
   'acc-chequebook-report': 'chequebook-report',
   'acc-kpi-dashboard': 'kpi-dashboard',
+  'acc-sales-purchase-dashboard': 'sales-purchase-dashboard',
   'acc-settings': 'company-settings',
   'acc-backup': 'company-settings',
   'acc-devices': 'sync-devices',
@@ -211,6 +212,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-settlements', icon: '💵', label: 'عملیات دریافت و پرداخت' },
     ]},
     { title: 'گزارشات', items: [
+      { id: 'acc-sales-purchase-dashboard', icon: '📊', label: 'داشبورد فروش و خرید' },
       { id: 'acc-pl-statement', icon: '📈', label: 'صورت سود و زیان' },
       { id: 'acc-invoice-list-tax', icon: '🧾', label: 'ارزش افزوده و صورتحساب مالیاتی' },
     ]},

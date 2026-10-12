@@ -1610,6 +1610,317 @@
     } catch (_) { /* chart optional */ }
   }
 
+  async function renderSalesPurchaseDashboardTab(body) {
+    body.innerHTML = `
+      <div class="trsy-wrap sp-dash">
+        <div class="trsy-hero">
+          <div>
+            <div class="trsy-kicker">فروش و خرید · تحلیل مدیریتی ۲۰۲۶</div>
+            <h3 class="trsy-title">داشبورد فروش و خرید</h3>
+            <p class="trsy-lead">KPIهای اقدام‌پذیر، مقایسه دوره قبل، ترکیب مشتری/تأمین‌کننده/کالا، روند ماهانه و drill-down به فاکتور — اعداد زنده از فاکتور قطعی و خرید.</p>
+          </div>
+          <div class="trsy-hero-actions">
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('sales-purchase-dashboard'); })}">↻ بروزرسانی</button>
+            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-sales-invoices'); })}">فاکتور فروش</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-purchases'); })}">فاکتور خرید</button>
+          </div>
+        </div>
+        <div class="sp-filter-bar" id="spDashFilters">
+          <select id="spCust" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:140px`)}">
+            <option value="">همه مشتریان</option>
+          </select>
+          <select id="spSupplier" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:140px`)}">
+            <option value="">همه تأمین‌کنندگان</option>
+          </select>
+          <select id="spRep" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+            <option value="">همه کارشناسان</option>
+          </select>
+          <button class="btn sm" data-csp-click="${CSP.bind('click', function () { loadSalesPurchaseDashboard(); })}">اعمال فیلتر</button>
+        </div>
+        <div id="spDashBody"><div class="muted">در حال بارگذاری داشبورد فروش و خرید…</div></div>
+      </div>`;
+    try {
+      const listify = (x) => {
+        if (Array.isArray(x)) return x;
+        if (x && Array.isArray(x.rows)) return x.rows;
+        if (typeof listRows === 'function') return listRows(x) || [];
+        return [];
+      };
+      let custList = (typeof CACHE !== 'undefined' && CACHE.customers) || [];
+      let supList = (typeof CACHE !== 'undefined' && CACHE.suppliers) || [];
+      let userList = (typeof CACHE !== 'undefined' && CACHE.users) || [];
+      if (!custList.length) custList = listify(await api('GET', '/customers', null, false, true).catch(() => []));
+      if (!supList.length) supList = listify(await api('GET', '/suppliers', null, false, true).catch(() => []));
+      if (!userList.length) userList = listify(await api('GET', '/users', null, false, true).catch(() => []));
+      const custSel = document.getElementById('spCust');
+      const supSel = document.getElementById('spSupplier');
+      const repSel = document.getElementById('spRep');
+      if (custSel) {
+        custList.slice(0, 400).forEach((c) => {
+          const o = document.createElement('option');
+          o.value = c.id;
+          o.textContent = c.biz || c.name || ('#' + c.id);
+          custSel.appendChild(o);
+        });
+      }
+      if (supSel) {
+        supList.slice(0, 400).forEach((s) => {
+          const o = document.createElement('option');
+          o.value = s.id;
+          o.textContent = s.name || ('#' + s.id);
+          supSel.appendChild(o);
+        });
+      }
+      if (repSel) {
+        userList.filter((u) => u && u.active !== 0).slice(0, 200).forEach((u) => {
+          const o = document.createElement('option');
+          o.value = u.id;
+          o.textContent = u.name || u.username || ('#' + u.id);
+          repSel.appendChild(o);
+        });
+      }
+    } catch (_) { /* filters optional */ }
+    await loadSalesPurchaseDashboard();
+  }
+
+  async function loadSalesPurchaseDashboard() {
+    const box = document.getElementById('spDashBody');
+    if (!box) return;
+    box.innerHTML = '<div class="muted">در حال بارگذاری داشبورد فروش و خرید…</div>';
+    const qp = [];
+    if (typeof accDateFrom !== 'undefined' && accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
+    if (typeof accDateTo !== 'undefined' && accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
+    const cust = document.getElementById('spCust');
+    const sup = document.getElementById('spSupplier');
+    const rep = document.getElementById('spRep');
+    if (cust && cust.value) qp.push('cust_id=' + encodeURIComponent(cust.value));
+    if (sup && sup.value) qp.push('supplier_id=' + encodeURIComponent(sup.value));
+    if (rep && rep.value) qp.push('user_id=' + encodeURIComponent(rep.value));
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/sales-purchase-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
+    } catch (e) {
+      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
+      return;
+    }
+    window._spDashLast = d;
+    const k = d.kpis || {};
+    const cmp = d.comparison || {};
+    const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
+    const health = Number(d.health_score) || 0;
+    const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+    const deltaTone = (pct) => {
+      const v = Number(pct) || 0;
+      if (v > 0) return 'var(--green)';
+      if (v < 0) return 'var(--red)';
+      return 'var(--text)';
+    };
+    const deltaLabel = (pct) => {
+      const v = Number(pct) || 0;
+      const sign = v > 0 ? '+' : '';
+      return sign + fmt(v) + '٪ vs دوره قبل';
+    };
+    const partyRows = (rows, kind) => (rows || []).map((r) => `
+      <tr>
+        <td><b>${esc(r.name || '—')}</b></td>
+        <td class="mono">${fmt(r.doc_count || 0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.amount_rial || 0)}</td>
+        <td>
+          <div class="trsy-share-cell">
+            <span class="mono">${fmt(r.share_pct != null ? r.share_pct : 0)}٪</span>
+            ${treasuryShareBar(r.share_pct)}
+          </div>
+        </td>
+        <td>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(kind === 'cust' ? 'acc-receivables' : 'acc-purchases'); })}">باز</button>
+        </td>
+      </tr>`).join('') || emptyRow(5);
+
+    box.innerHTML = `
+      <div class="trsy-meta">
+        <span class="inv-badge moadian-approved">🟢 فاکتور قطعی + خرید زنده</span>
+        <span>بازه: <b>${esc(d.from || 'ابتدا')}</b> تا <b>${esc(d.to || 'اکنون')}</b></span>
+        <span>بروزرسانی: ${esc(liveAt)}</span>
+        <span class="trsy-chip ${healthCls}">سلامت ${fmt(health)}٪</span>
+      </div>
+
+      <div class="rep-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-sales-invoices'); })}">
+          <div class="kpi-icon">🧾</div>
+          <div class="kpi-label">فروش خالص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(k.sales_net_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.sales_count || 0)} فاکتور · میانگین ${fmt(k.sales_avg_rial || 0)}
+            <span data-csp-style="${CSP.style(`color:${deltaTone(cmp.sales_delta_pct)}`)}"> · ${esc(deltaLabel(cmp.sales_delta_pct))}</span>
+          </div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-purchases'); })}">
+          <div class="kpi-icon">📦</div>
+          <div class="kpi-label">خرید خالص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(k.purchase_net_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.purchase_count || 0)} فاکتور · میانگین ${fmt(k.purchase_avg_rial || 0)}
+            <span data-csp-style="${CSP.style(`color:${deltaTone(cmp.purchase_delta_pct)}`)}"> · ${esc(deltaLabel(cmp.purchase_delta_pct))}</span>
+          </div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⚖️</div>
+          <div class="kpi-label">شکاف تجاری (فروش−خرید)</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.trade_gap_rial)}`)}">${fmt(k.trade_gap_rial || 0)}</div>
+          <div class="kpi-sub">ناخالص فروش ${fmt(k.sales_gross_rial || 0)} · خرید ${fmt(k.purchase_gross_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-sales-returns'); })}">
+          <div class="kpi-icon">↪️</div>
+          <div class="kpi-label">برگشت فروش</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(k.returns_sales_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.returns_sales_count || 0)} سند · برگشت خرید ${fmt(k.returns_purchase_rial || 0)}</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">🧮</div>
+          <div class="kpi-label">VAT خالص دوره</div>
+          <div class="kpi-val">${fmt(k.vat_net_rial || 0)}</div>
+          <div class="kpi-sub">خروجی ${fmt(k.vat_sales_rial || 0)} · ورودی ${fmt(k.vat_purchase_rial || 0)} · تخفیف ${fmt(k.discount_rial || 0)}</div>
+        </div>
+      </div>
+
+      ${(d.alerts || []).length ? `
+      <div class="panel trsy-alerts" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>🔔 بینش و اقدام</h4>
+          <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">exception-first</span>
+        </div>
+        <div class="panel-body">
+          <div class="trsy-alert-list">
+            ${(d.alerts || []).map((a) => `
+              <button type="button" class="trsy-alert-item" data-csp-click="${CSP.bind('click', function () { if (a.action_nav) go(a.action_nav); })}">
+                ${treasuryStatusChip(a.severity)}
+                <div><b>${esc(a.title)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:2px`)}">${esc(a.detail)}</div></div>
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>` : ''}
+
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>📈 روند ماهانه فروش در برابر خرید</h4></div>
+          <div class="panel-body">
+            <div class="crm-chart-box" data-csp-style="${CSP.style(`height:240px`)}"><canvas id="spMonthChart"></canvas></div>
+            <div class="trsy-cheque-strip">
+              <div><span class="muted">دوره قبل فروش</span><b class="mono">${fmt(cmp.prior_sales_rial || 0)}</b></div>
+              <div><span class="muted">دوره قبل خرید</span><b class="mono">${fmt(cmp.prior_purchase_rial || 0)}</b></div>
+              <div><span class="muted">تمرکز Top-3</span><b class="mono">${fmt((d.concentration && d.concentration.top3_pct) || 0)}٪</b></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>👥 کارشناسان فروش</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>کارشناس</th><th>تعداد</th><th data-col-kind="money">فروش</th>
+            </tr></thead><tbody>
+              ${(d.by_rep || []).map((r) => `<tr>
+                <td>${esc(r.name || '—')}</td>
+                <td class="mono">${fmt(r.doc_count || 0)}</td>
+                <td class="mono">${fmt(r.amount_rial || 0)}</td>
+              </tr>`).join('') || emptyRow(3)}
+            </tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>🏆 مشتریان برتر</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سهم از فروش</span>
+          </div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>مشتری</th><th>تعداد</th><th data-col-kind="money">مبلغ</th><th>سهم</th><th class="no-sort"></th>
+            </tr></thead><tbody>${partyRows(d.by_customer, 'cust')}</tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>🏭 تأمین‌کنندگان برتر</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>تأمین‌کننده</th><th>تعداد</th><th data-col-kind="money">مبلغ</th><th>سهم</th><th class="no-sort"></th>
+            </tr></thead><tbody>${partyRows((d.by_supplier || []).map((r, _, arr) => {
+              const tot = arr.reduce((a, x) => a + (x.amount_rial || 0), 0) || 1;
+              return { ...r, share_pct: Math.round(((r.amount_rial || 0) / tot) * 1000) / 10 };
+            }), 'sup')}</tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>👗 پرفروش‌ترین کالاها</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>کالا</th><th>تعداد</th><th data-col-kind="money">مبلغ</th>
+            </tr></thead><tbody>
+              ${(d.by_product || []).map((r) => `<tr>
+                <td>${esc(r.name || '—')}</td>
+                <td class="mono">${fmt(r.qty || 0)}</td>
+                <td class="mono">${fmt(r.amount_rial || 0)}</td>
+              </tr>`).join('') || emptyRow(3)}
+            </tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>📄 آخرین اسناد (drill-down)</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>نوع</th><th>شماره</th><th>تاریخ</th><th>طرف</th><th data-col-kind="money">مبلغ</th><th class="no-sort"></th>
+            </tr></thead><tbody>
+              ${(d.recent_docs || []).map((r) => `<tr>
+                <td>${r.kind === 'sales' ? 'فروش' : 'خرید'}</td>
+                <td class="mono">${esc(r.num || ('#' + r.id))}</td>
+                <td class="mono">${esc(r.date || '—')}</td>
+                <td>${esc(r.party_name || '—')}</td>
+                <td class="mono">${fmt(r.amount_rial || 0)}</td>
+                <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(r.nav || 'acc-sales-invoices'); })}">لیست</button></td>
+              </tr>`).join('') || emptyRow(6)}
+            </tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="trsy-footnote muted">
+        ${esc(d.unit_note || 'مبالغ به ریال است.')}
+        مقایسه دوره قبل روی بازهٔ هم‌طول بلافاصله قبل از «از» نوار تاریخ حساب می‌شود
+        ${cmp.prior_from ? ` (${esc(cmp.prior_from)} تا ${esc(cmp.prior_to)})` : ''}.
+      </div>`;
+
+    if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+    try {
+      if (typeof loadProdChartJs === 'function') await loadProdChartJs();
+      const months = d.monthly || [];
+      const canvas = document.getElementById('spMonthChart');
+      if (canvas && typeof Chart !== 'undefined') {
+        if (window._spDashChart) { try { window._spDashChart.destroy(); } catch (_) { /* */ } }
+        window._spDashChart = new Chart(canvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: months.map((m) => m.month),
+            datasets: [
+              { label: 'فروش', data: months.map((m) => m.sales_rial || 0), backgroundColor: 'rgba(34,197,94,0.55)', borderRadius: 6 },
+              { label: 'خرید', data: months.map((m) => m.purchase_rial || 0), backgroundColor: 'rgba(249,115,22,0.45)', borderRadius: 6 },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { font: { family: 'Vazirmatn, Tahoma' } } } },
+            scales: {
+              x: { ticks: { font: { family: 'Vazirmatn, Tahoma', size: 11 } } },
+              y: { ticks: { font: { family: 'Vazirmatn, Tahoma', size: 10 }, callback: (v) => (Number(v) || 0).toLocaleString('fa-IR') } },
+            },
+          },
+        });
+      } else if (canvas && !months.length) {
+        canvas.parentElement.innerHTML = '<div class="empty">در این بازه روند ماهانه‌ای نیست</div>';
+      }
+    } catch (_) { /* chart optional */ }
+  }
+
   async function renderChequeDashboardTab(body) {
     body.innerHTML = `
       <div class="trsy-wrap">
@@ -2118,6 +2429,8 @@
     renderKpiDashboardTab,
     renderTreasuryDashboardTab,
     loadTreasuryDashboard,
+    renderSalesPurchaseDashboardTab,
+    loadSalesPurchaseDashboard,
     renderChequeDashboardTab,
     loadChequeDashboard,
     renderChequebookReportTab,
@@ -2198,6 +2511,8 @@
   global.renderKpiDashboardTab = renderKpiDashboardTab;
   global.renderTreasuryDashboardTab = renderTreasuryDashboardTab;
   global.loadTreasuryDashboard = loadTreasuryDashboard;
+  global.renderSalesPurchaseDashboardTab = renderSalesPurchaseDashboardTab;
+  global.loadSalesPurchaseDashboard = loadSalesPurchaseDashboard;
   global.renderChequeDashboardTab = renderChequeDashboardTab;
   global.loadChequeDashboard = loadChequeDashboard;
   global.renderChequebookReportTab = renderChequebookReportTab;

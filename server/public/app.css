@@ -1891,6 +1891,15 @@ body.erp-demo-mode{padding-top:32px}
   .vsr-kpi,.vsr-cell,.vsr-view{transition:none}
 }
 
+/* ===== داشبورد فروش و خرید ===== */
+.sp-dash .sp-filter-bar{
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card)
+}
+@media (max-width:720px){
+  .sp-dash .sp-filter-bar select{min-width:0;flex:1 1 140px}
+}
+
 /* ===== داشبورد نقدینگی بانک و صندوق (treasury) ===== */
 .trsy-wrap{display:flex;flex-direction:column;gap:14px}
 .trsy-hero{

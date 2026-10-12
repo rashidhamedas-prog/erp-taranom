@@ -9,6 +9,7 @@ const { buildCashFlowReport } = require('../lib/cash-flow');
 const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
 const { buildChequeDashboard } = require('../lib/cheque-dashboard');
 const { buildChequebookDashboard } = require('../lib/chequebook-dashboard');
+const { buildSalesPurchaseDashboard } = require('../lib/sales-purchase-dashboard');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -606,6 +607,30 @@ router.get('/chequebook-dashboard', auth, adminOrAccounting, (req, res) => {
       books: [],
       alerts: [{ severity: 'fail', title: 'خطای گزارش', detail: 'گزارش دفتر چک در دسترس نیست', action_nav: 'acc-chequebook-report' }],
       warning: 'گزارش دفتر چک در دسترس نیست',
+    });
+  }
+});
+
+/** داشبورد پیشرفته فروش و خرید — KPI + روند + Top N + مقایسه دوره + هشدار */
+router.get('/sales-purchase-dashboard', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildSalesPurchaseDashboard(getDB(), req.query));
+  } catch (e) {
+    console.error('GET /adv-reports/sales-purchase-dashboard', e && e.message);
+    res.status(200).json({
+      from: req.query.from || '',
+      to: req.query.to || '',
+      health_score: 0,
+      kpis: { sales_net_rial: 0, purchase_net_rial: 0 },
+      monthly: [],
+      by_customer: [],
+      by_supplier: [],
+      by_product: [],
+      by_rep: [],
+      recent_docs: [],
+      comparison: {},
+      alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد فروش و خرید در دسترس نیست', action_nav: 'acc-sales-purchase-dashboard' }],
+      warning: 'داشبورد فروش و خرید در دسترس نیست',
     });
   }
 });
