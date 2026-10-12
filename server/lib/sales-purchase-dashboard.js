@@ -5,7 +5,7 @@
  * مبالغ KPI به ریال. هرگز به HTTP پرتاب نمی‌کند (caller catch می‌کند).
  */
 
-const { firmSaleTypeSql } = require('./sales-document');
+const { firmSaleTypeSql, commissionEligibleSql } = require('./sales-document');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 
 function tableExists(db, name) {
@@ -212,6 +212,149 @@ function sumReturns(db, table, partyCol, filters, side) {
   }
 }
 
+function productUnitCostMap(db) {
+  const map = {};
+  const hasAvg = tableHasColumn(db, 'products', 'average_cost_rial');
+  try {
+    const rows = hasAvg
+      ? db.prepare('SELECT id, COALESCE(NULLIF(average_cost_rial,0), ROUND(cost), 0) AS unit_cost FROM products').all()
+      : db.prepare('SELECT id, COALESCE(ROUND(cost),0) AS unit_cost FROM products').all();
+    for (const p of rows) map[p.id] = Number(p.unit_cost) || 0;
+  } catch (_) { /* */ }
+  return map;
+}
+
+function lineUnitCost(line, costMap) {
+  const fromLine = Number(line.unit_cost_rial) || Number(line.cost_rial) || Number(line.cost) || 0;
+  if (fromLine > 0) return fromLine;
+  return costMap[Number(line.product_id) || 0] || 0;
+}
+
+/** بهای تمام‌شده فروش از خطوط فاکتور قطعی — هم‌تراز منطق /accounting/general. */
+function sumCogsFromSales(db, filters) {
+  const { where, params } = buildSalesWhere(filters, 'i');
+  const costMap = productUnitCostMap(db);
+  const wantPid = filters.product_id || 0;
+  let cogs = 0;
+  try {
+    const invoices = db.prepare(`SELECT i.rows FROM invoices i WHERE ${where}`).all(...params);
+    for (const inv of invoices) {
+      let lines;
+      try { lines = JSON.parse(inv.rows || '[]'); } catch (_) { continue; }
+      if (!Array.isArray(lines)) continue;
+      for (const l of lines) {
+        const pid = Number(l.product_id) || 0;
+        if (wantPid && pid !== wantPid) continue;
+        cogs += (Number(l.qty) || 0) * lineUnitCost(l, costMap);
+      }
+    }
+  } catch (_) { /* */ }
+  return Math.round(cogs);
+}
+
+function sumSalesReturnCogs(db, filters) {
+  if (!tableExists(db, 'sales_returns')) return 0;
+  const alias = 'r';
+  const where = [returnAliveSql(alias, db, 'sales_returns')];
+  const params = [];
+  if (filters.from) { where.push(`${alias}.date>=?`); params.push(filters.from); }
+  if (filters.to) { where.push(`${alias}.date<=?`); params.push(filters.to); }
+  if (filters.cust_id) { where.push(`${alias}.cust_id=?`); params.push(filters.cust_id); }
+  if (filters.user_id && tableHasColumn(db, 'sales_returns', 'user_id')) {
+    where.push(`${alias}.user_id=?`);
+    params.push(filters.user_id);
+  }
+  if (tableHasColumn(db, 'sales_returns', 'cost_amount')) {
+    try {
+      const row = db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(${alias}.cost_amount,0)),0) AS c
+        FROM sales_returns ${alias}
+        WHERE ${where.join(' AND ')}
+      `).get(...params);
+      return Math.round(Number(row && row.c) || 0);
+    } catch (_) { /* fall through */ }
+  }
+  // fallback: برآورد از خطوط برگشت × بهای کاتالوگ
+  const costMap = productUnitCostMap(db);
+  const wantPid = filters.product_id || 0;
+  let cogs = 0;
+  try {
+    const rows = db.prepare(`SELECT ${alias}.rows FROM sales_returns ${alias} WHERE ${where.join(' AND ')}`).all(...params);
+    for (const r of rows) {
+      let lines;
+      try { lines = JSON.parse(r.rows || '[]'); } catch (_) { continue; }
+      if (!Array.isArray(lines)) continue;
+      for (const l of lines) {
+        const pid = Number(l.product_id) || 0;
+        if (wantPid && pid !== wantPid) continue;
+        cogs += (Number(l.qty) || 0) * lineUnitCost(l, costMap);
+      }
+    }
+  } catch (_) { /* */ }
+  return Math.round(cogs);
+}
+
+/** انگیزه فروش برآوردی — همان الگوی /accounting/general با فیلتر بازه/طرف. */
+function sumCommissionExpense(db, filters) {
+  const where = [commissionEligibleSql('i'), 'COALESCE(i.deleted_at,0)=0'];
+  const params = [];
+  if (filters.from) { where.push('i.date>=?'); params.push(filters.from); }
+  if (filters.to) { where.push('i.date<=?'); params.push(filters.to); }
+  if (filters.cust_id) { where.push('i.cust_id=?'); params.push(filters.cust_id); }
+  if (filters.user_id) { where.push('i.user_id=?'); params.push(filters.user_id); }
+  if (filters.warehouse_id && filters.hasInvWh) {
+    where.push('i.warehouse_id=?');
+    params.push(filters.warehouse_id);
+  }
+  const amt = rialExpr('i', 'final_rial', 'final');
+  try {
+    const users = db.prepare('SELECT id, commission_cash, commission_cheque FROM users WHERE active=1').all();
+    let total = 0;
+    for (const u of users) {
+      if (filters.user_id && Number(u.id) !== filters.user_id) continue;
+      const cash = db.prepare(`
+        SELECT COALESCE(SUM(${amt}),0) s FROM invoices i
+        WHERE ${where.join(' AND ')} AND i.user_id=? AND i.pay_type='cash'
+      `).get(...params, u.id);
+      const cheq = db.prepare(`
+        SELECT COALESCE(SUM(${amt}),0) s FROM invoices i
+        WHERE ${where.join(' AND ')} AND i.user_id=? AND i.pay_type='cheque'
+      `).get(...params, u.id);
+      total += (Number(cash && cash.s) || 0) * (Number(u.commission_cash) || 0) / 100;
+      total += (Number(cheq && cheq.s) || 0) * (Number(u.commission_cheque) || 0) / 100;
+    }
+    return Math.round(total);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function marginPct(profit, sales) {
+  const s = Number(sales) || 0;
+  if (!s) return 0;
+  return Math.round(((Number(profit) || 0) / s) * 1000) / 10;
+}
+
+function buildProfitBlock(db, filters, salesNet) {
+  const cogsGross = sumCogsFromSales(db, filters);
+  const cogsReturns = sumSalesReturnCogs(db, filters);
+  const cogsNet = Math.max(0, cogsGross - cogsReturns);
+  const grossProfit = Math.round(salesNet - cogsNet);
+  const commission = sumCommissionExpense(db, filters);
+  const netProfit = Math.round(grossProfit - commission);
+  return {
+    cogs_gross_rial: cogsGross,
+    cogs_returns_rial: cogsReturns,
+    cogs_rial: cogsNet,
+    gross_profit_rial: grossProfit,
+    gross_margin_pct: marginPct(grossProfit, salesNet),
+    commission_rial: commission,
+    net_profit_rial: netProfit,
+    net_margin_pct: marginPct(netProfit, salesNet),
+    method_note: 'سود ناخالص = فروش خالص − بهای تمام‌شده (qty×میانگین/بهای کالا، منهای بهای برگشت). سود خالص = سود ناخالص − برآورد انگیزه فروش (مثل صورت سود و زیان). خرید در سود مستقیم نیست (موجودی).',
+  };
+}
+
 function monthlySeries(db, filters) {
   const salesW = buildSalesWhere(filters, 'i');
   const purW = buildPurchaseWhere(filters, 'p');
@@ -221,6 +364,20 @@ function monthlySeries(db, filters) {
     ? rialExpr('p', 'final_rial', 'final')
     : 'COALESCE(ROUND(p.final),0)';
   const map = {};
+  const ensure = (month) => {
+    if (!map[month]) {
+      map[month] = {
+        month,
+        sales_rial: 0,
+        purchase_rial: 0,
+        sales_count: 0,
+        purchase_count: 0,
+        cogs_rial: 0,
+        net_profit_rial: 0,
+      };
+    }
+    return map[month];
+  };
   try {
     const sRows = db.prepare(`
       SELECT substr(i.date,1,7) AS month,
@@ -232,13 +389,9 @@ function monthlySeries(db, filters) {
       ORDER BY month
     `).all(...salesW.params);
     for (const r of sRows) {
-      map[r.month] = {
-        month: r.month,
-        sales_rial: Math.round(Number(r.sales_rial) || 0),
-        purchase_rial: 0,
-        sales_count: Number(r.sales_count) || 0,
-        purchase_count: 0,
-      };
+      const m = ensure(r.month);
+      m.sales_rial = Math.round(Number(r.sales_rial) || 0);
+      m.sales_count = Number(r.sales_count) || 0;
     }
   } catch (_) { /* */ }
   try {
@@ -252,19 +405,39 @@ function monthlySeries(db, filters) {
       ORDER BY month
     `).all(...purW.params);
     for (const r of pRows) {
-      if (!map[r.month]) {
-        map[r.month] = {
-          month: r.month,
-          sales_rial: 0,
-          purchase_rial: 0,
-          sales_count: 0,
-          purchase_count: 0,
-        };
-      }
-      map[r.month].purchase_rial = Math.round(Number(r.purchase_rial) || 0);
-      map[r.month].purchase_count = Number(r.purchase_count) || 0;
+      const m = ensure(r.month);
+      m.purchase_rial = Math.round(Number(r.purchase_rial) || 0);
+      m.purchase_count = Number(r.purchase_count) || 0;
     }
   } catch (_) { /* */ }
+
+  // COGS ماهانه از خطوط فاکتور (بدون انگیزه برای سبک بودن سری)
+  const costMap = productUnitCostMap(db);
+  const wantPid = filters.product_id || 0;
+  try {
+    const invs = db.prepare(`
+      SELECT substr(i.date,1,7) AS month, i.rows
+      FROM invoices i WHERE ${salesW.where}
+    `).all(...salesW.params);
+    for (const inv of invs) {
+      let lines;
+      try { lines = JSON.parse(inv.rows || '[]'); } catch (_) { continue; }
+      if (!Array.isArray(lines)) continue;
+      let cogs = 0;
+      for (const l of lines) {
+        const pid = Number(l.product_id) || 0;
+        if (wantPid && pid !== wantPid) continue;
+        cogs += (Number(l.qty) || 0) * lineUnitCost(l, costMap);
+      }
+      const m = ensure(inv.month);
+      m.cogs_rial += Math.round(cogs);
+    }
+  } catch (_) { /* */ }
+  for (const k of Object.keys(map)) {
+    const m = map[k];
+    m.cogs_rial = Math.round(m.cogs_rial || 0);
+    m.net_profit_rial = Math.round((m.sales_rial || 0) - (m.cogs_rial || 0));
+  }
   return Object.keys(map).sort().map((k) => map[k]);
 }
 
@@ -603,6 +776,21 @@ function buildAlerts(kpis, comparison, topCustomersList) {
       action_nav: 'acc-sales-invoices',
     });
   }
+  if ((kpis.net_profit_rial || 0) < 0 && (kpis.sales_net_rial || 0) > 0) {
+    alerts.push({
+      severity: 'fail',
+      title: 'سود خالص منفی',
+      detail: 'پس از کسر بهای تمام‌شده و برآورد انگیزه، دوره زیان‌ده است.',
+      action_nav: 'acc-pl-statement',
+    });
+  } else if ((kpis.gross_margin_pct || 0) > 0 && (kpis.gross_margin_pct || 0) < 10 && (kpis.sales_net_rial || 0) > 0) {
+    alerts.push({
+      severity: 'warn',
+      title: 'حاشیه ناخالص پایین',
+      detail: `حاشیه ناخالص حدود ${kpis.gross_margin_pct}٪ است — بها یا قیمت فروش را بررسی کنید.`,
+      action_nav: 'acc-pl-statement',
+    });
+  }
   const topShare = topCustomersList[0] && sales > 0
     ? Math.round((topCustomersList[0].amount_rial / sales) * 1000) / 10
     : 0;
@@ -678,14 +866,22 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     : { amount_rial: 0 };
   const priorSalesNet = Math.max(0, priorSales.gross_rial - priorSRet.amount_rial);
   const priorPurchaseNet = Math.max(0, priorPurchases.gross_rial - priorPRet.amount_rial);
+  const profit = buildProfitBlock(db, filters, salesNet);
+  const priorProfit = prior.from
+    ? buildProfitBlock(db, priorFilters, priorSalesNet)
+    : { net_profit_rial: 0, gross_profit_rial: 0, cogs_rial: 0 };
 
   const comparison = {
     prior_from: prior.from,
     prior_to: prior.to,
     prior_sales_rial: priorSalesNet,
     prior_purchase_rial: priorPurchaseNet,
+    prior_net_profit_rial: priorProfit.net_profit_rial || 0,
+    prior_gross_profit_rial: priorProfit.gross_profit_rial || 0,
     sales_delta_pct: pctDelta(salesNet, priorSalesNet),
     purchase_delta_pct: pctDelta(purchaseNet, priorPurchaseNet),
+    net_profit_delta_pct: pctDelta(profit.net_profit_rial, priorProfit.net_profit_rial),
+    gross_profit_delta_pct: pctDelta(profit.gross_profit_rial, priorProfit.gross_profit_rial),
   };
 
   const kpis = {
@@ -706,6 +902,14 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     vat_sales_rial: sales.vat_rial,
     vat_purchase_rial: purchases.vat_rial,
     vat_net_rial: sales.vat_rial - purchases.vat_rial - sRet.vat_rial + pRet.vat_rial,
+    cogs_rial: profit.cogs_rial,
+    cogs_gross_rial: profit.cogs_gross_rial,
+    cogs_returns_rial: profit.cogs_returns_rial,
+    gross_profit_rial: profit.gross_profit_rial,
+    gross_margin_pct: profit.gross_margin_pct,
+    commission_rial: profit.commission_rial,
+    net_profit_rial: profit.net_profit_rial,
+    net_margin_pct: profit.net_margin_pct,
   };
 
   const byCustomer = topCustomers(db, filters, limit);
@@ -735,7 +939,7 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     from: from || '',
     to: to || '',
     currency: 'IRR',
-    unit_note: 'مبالغ به ریال — فاکتور قطعی فروش (معمولی/رسمی) و فاکتور خرید زنده؛ برگشت‌های فعال از خالص کسر شده‌اند. Drill: KPI/بعد → اسناد → باز کردن فاکتور.',
+    unit_note: 'مبالغ به ریال — فاکتور قطعی فروش (معمولی/رسمی) و فاکتور خرید زنده؛ برگشت‌های فعال از خالص کسر شده‌اند. سود خالص = فروش خالص − COGS − برآورد انگیزه (مثل صورت سود و زیان). خرید موجودی است و مستقیم از سود کم نمی‌شود. Drill: KPI/بعد → اسناد → باز کردن فاکتور.',
     filters_applied: {
       cust_id: filters.cust_id || null,
       supplier_id: filters.supplier_id || null,
@@ -745,6 +949,7 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     },
     health_score: health,
     kpis,
+    profit,
     comparison,
     concentration,
     monthly,

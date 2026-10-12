@@ -1828,6 +1828,20 @@
             <span data-csp-style="${CSP.style(`color:${deltaTone(cmp.purchase_delta_pct)}`)}"> · ${esc(deltaLabel(cmp.purchase_delta_pct))}</span>
           </div>
         </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-pl-statement'); })}" title="صورت سود و زیان">
+          <div class="kpi-icon">💎</div>
+          <div class="kpi-label">سود خالص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.net_profit_rial)}`)}">${fmt(k.net_profit_rial || 0)}</div>
+          <div class="kpi-sub">حاشیه ${fmt(k.net_margin_pct || 0)}٪
+            <span data-csp-style="${CSP.style(`color:${deltaTone(cmp.net_profit_delta_pct)}`)}"> · ${esc(deltaLabel(cmp.net_profit_delta_pct))}</span>
+          </div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-pl-statement'); })}">
+          <div class="kpi-icon">📈</div>
+          <div class="kpi-label">سود ناخالص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.gross_profit_rial)}`)}">${fmt(k.gross_profit_rial || 0)}</div>
+          <div class="kpi-sub">حاشیه ${fmt(k.gross_margin_pct || 0)}٪ · COGS ${fmt(k.cogs_rial || 0)}</div>
+        </div>
         <div class="rep-kpi-card">
           <div class="kpi-icon">⚖️</div>
           <div class="kpi-label">شکاف تجاری (فروش−خرید)</div>
@@ -1845,6 +1859,32 @@
           <div class="kpi-label">VAT خالص دوره</div>
           <div class="kpi-val">${fmt(k.vat_net_rial || 0)}</div>
           <div class="kpi-sub">خروجی ${fmt(k.vat_sales_rial || 0)} · ورودی ${fmt(k.vat_purchase_rial || 0)} · تخفیف ${fmt(k.discount_rial || 0)}</div>
+        </div>
+      </div>
+
+      <div class="panel sp-profit-bridge" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>💰 پل سود (هم‌تراز صورت سود و زیان)</h4>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-pl-statement'); })}">صورت کامل</button>
+        </div>
+        <div class="panel-body">
+          <div class="sp-profit-steps">
+            <div class="sp-profit-step"><span class="muted">فروش خالص</span><b class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(k.sales_net_rial || 0)}</b></div>
+            <div class="sp-profit-op">−</div>
+            <div class="sp-profit-step"><span class="muted">بهای تمام‌شده</span><b class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(k.cogs_rial || 0)}</b>
+              <small class="muted">ناخالص ${fmt(k.cogs_gross_rial || 0)} − برگشت بها ${fmt(k.cogs_returns_rial || 0)}</small>
+            </div>
+            <div class="sp-profit-op">=</div>
+            <div class="sp-profit-step"><span class="muted">سود ناخالص</span><b class="mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.gross_profit_rial)}`)}">${fmt(k.gross_profit_rial || 0)}</b>
+              <small class="muted">${fmt(k.gross_margin_pct || 0)}٪ حاشیه</small>
+            </div>
+            <div class="sp-profit-op">−</div>
+            <div class="sp-profit-step"><span class="muted">برآورد انگیزه</span><b class="mono">${fmt(k.commission_rial || 0)}</b></div>
+            <div class="sp-profit-op">=</div>
+            <div class="sp-profit-step sp-profit-net"><span class="muted">سود خالص</span><b class="mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(k.net_profit_rial)}`)}">${fmt(k.net_profit_rial || 0)}</b>
+              <small class="muted">${fmt(k.net_margin_pct || 0)}٪ · دوره قبل ${fmt(cmp.prior_net_profit_rial || 0)}</small>
+            </div>
+          </div>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:10px;line-height:1.7`)}">${esc((d.profit && d.profit.method_note) || 'خرید در این پل به‌عنوان موجودی است؛ مستقیم از سود کم نمی‌شود.')}</div>
         </div>
       </div>
 
@@ -1871,7 +1911,7 @@
             <div class="crm-chart-box" data-csp-style="${CSP.style(`height:240px`)}"><canvas id="spMonthChart"></canvas></div>
             <div class="trsy-cheque-strip">
               <div><span class="muted">دوره قبل فروش</span><b class="mono">${fmt(cmp.prior_sales_rial || 0)}</b></div>
-              <div><span class="muted">دوره قبل خرید</span><b class="mono">${fmt(cmp.prior_purchase_rial || 0)}</b></div>
+              <div><span class="muted">دوره قبل سود خالص</span><b class="mono">${fmt(cmp.prior_net_profit_rial || 0)}</b></div>
               <div><span class="muted">تمرکز Top-3</span><b class="mono">${fmt((d.concentration && d.concentration.top3_pct) || 0)}٪</b></div>
             </div>
           </div>
@@ -1978,12 +2018,20 @@
       if (canvas && typeof Chart !== 'undefined') {
         if (window._spDashChart) { try { window._spDashChart.destroy(); } catch (_) { /* */ } }
         window._spDashChart = new Chart(canvas.getContext('2d'), {
-          type: 'bar',
           data: {
             labels: months.map((m) => m.month),
             datasets: [
-              { label: 'فروش', data: months.map((m) => m.sales_rial || 0), backgroundColor: 'rgba(34,197,94,0.55)', borderRadius: 6 },
-              { label: 'خرید', data: months.map((m) => m.purchase_rial || 0), backgroundColor: 'rgba(249,115,22,0.45)', borderRadius: 6 },
+              { type: 'bar', label: 'فروش', data: months.map((m) => m.sales_rial || 0), backgroundColor: 'rgba(34,197,94,0.55)', borderRadius: 6 },
+              { type: 'bar', label: 'خرید', data: months.map((m) => m.purchase_rial || 0), backgroundColor: 'rgba(249,115,22,0.45)', borderRadius: 6 },
+              {
+                type: 'line',
+                label: 'سود تقریبی (فروش−COGS)',
+                data: months.map((m) => m.net_profit_rial || 0),
+                borderColor: 'rgba(37,99,235,0.9)',
+                backgroundColor: 'rgba(37,99,235,0.12)',
+                tension: 0.25,
+                yAxisID: 'y',
+              },
             ],
           },
           options: {

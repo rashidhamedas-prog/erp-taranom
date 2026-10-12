@@ -1904,8 +1904,25 @@ body.erp-demo-mode{padding-top:32px}
 .sp-dash .sp-doc-row{cursor:pointer}
 .sp-dash .sp-dim-row:hover,
 .sp-dash .sp-doc-row:hover{background:rgba(26,92,56,.06)}
+.sp-dash .sp-profit-steps{
+  display:flex;flex-wrap:wrap;align-items:stretch;gap:8px 6px
+}
+.sp-dash .sp-profit-step{
+  flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:12px;
+  border:1px solid var(--border);background:var(--card);
+  display:flex;flex-direction:column;gap:4px
+}
+.sp-dash .sp-profit-step small{font-size:10px;line-height:1.4}
+.sp-dash .sp-profit-step.sp-profit-net{
+  border-color:rgba(26,92,56,.35);background:rgba(26,92,56,.06)
+}
+.sp-dash .sp-profit-op{
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;color:var(--muted);min-width:18px
+}
 @media (max-width:720px){
   .sp-dash .sp-filter-bar select{min-width:0;flex:1 1 140px}
+  .sp-dash .sp-profit-op{display:none}
 }
 
 /* ===== داشبورد نقدینگی بانک و صندوق (treasury) ===== */
