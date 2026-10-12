@@ -1,12 +1,15 @@
 $TTL 300
 @       IN      SOA     ns1.erptaranom.com. hostmaster.erptaranom.com. (
-                        2026101201 ; serial
+                        2026101301 ; serial
                         3600       ; refresh
                         900        ; retry
                         604800     ; expire
                         300 )      ; minimum
+; Multi-primary: Iran BIND (ns1/ns2) + Cloudflare NS — keep records in sync via scripts/_sync-dns-erptaranom-cf.py
         IN      NS      ns1.erptaranom.com.
         IN      NS      ns2.erptaranom.com.
+        IN      NS      connie.ns.cloudflare.com.
+        IN      NS      finley.ns.cloudflare.com.
         IN      A       94.249.244.208
         IN      CAA     0 issue "letsencrypt.org"
         IN      CAA     0 issuewild "letsencrypt.org"

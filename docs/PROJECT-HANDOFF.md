@@ -114,7 +114,7 @@ cd /home/taranom/crm-taranom && git pull --ff-only origin main \
 - **رمزنگاری بکاپ** ✅ — AES-256-GCM با رمزِ کلید تنظیمات `backup_password` (صفحهٔ «پشتیبان») یا env `BACKUP_PASSWORD`؛ بازگشایی با `server/scripts/decrypt-backup.js`.
 - **اسرار در گیت** ✅ (فایل‌ها) — رمز keystore از `android/app/build.gradle` و `android/BUILD.md` حذف شد (حالا `android/keystore.properties` در gitignore)، `crm-taranom.jks` از مخزن حذف شد، `JWT_SECRET` هاردکد از `ecosystem.config.js` حذف شد (حالا `server/jwt-secret.txt` در gitignore). ⚠️ تاریخچهٔ گیت پاک نشده — **چرخش keystore و رمزها الزامی است** (دستور در `docs/SECURITY-HARDENING.md`).
 - **کلید JWT پیش‌فرض**: `middleware/auth.js` هنوز مقدار پشتیبان توسعه دارد، اما `assertSecurityConfig()` در production بدون `JWT_SECRET` معتبر سرور را بالا نمی‌آورد. روی سرور: `node -e "..." > server/jwt-secret.txt` (جزئیات در `docs/SECURITY-HARDENING.md`).
-- **HTTPS**: عمومی `https://erptaranom.com` — DNS Cloudflare **DNS-only** + Let's Encrypt روی nginx ایران (`94.249.244.208`). زون CF آماده است ولی پروکسی نارنجی به‌خاطر قطع مسیر CF→ایران روشن نیست. `ALLOWED_ORIGINS` / `PUBLIC_URL` در `server/ecosystem.config.js`. دامنهٔ قدیمی `erp.poshaktaranom.com` بازنشسته. جزئیات: `docs/SECURITY-HARDENING.md` بخش «د».
+- **HTTPS / DNS**: `https://erptaranom.com` — Multi-primary: BIND ایران (`ns1`/`ns2`) + Cloudflare DNS-only (`connie`/`finley`)، رکوردها هم‌سان به `94.249.244.208`؛ LE روی nginx. پروکسی نارنجی خاموش. `ALLOWED_ORIGINS` / `PUBLIC_URL` در ecosystem. جزئیات: `docs/SECURITY-HARDENING.md` بخش «د».
 
 **ج) هوش مصنوعی (تصمیم معماری):**
 - سرویس‌های AI خارجی (Anthropic/OpenAI/Google) آی‌پی ایران را تحریمی مسدود می‌کنند و ToS استفاده از ایران را ممنوع کرده.
