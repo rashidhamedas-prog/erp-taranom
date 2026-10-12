@@ -71,8 +71,8 @@ try {
   let prod = db.prepare("SELECT id FROM products WHERE COALESCE(is_manufactured,0)=1 LIMIT 1").get();
   if (!prod) {
     const info = db.prepare(`
-      INSERT INTO products (code,name,price,cost,average_cost_rial,is_manufactured,active)
-      VALUES ('RV-T1','reval test',120000,100000,100000,1,1)
+      INSERT INTO products (code,name,price,cost,average_cost_rial,is_manufactured)
+      VALUES ('RV-T1','reval test',120000,100000,100000,1)
     `).run();
     prod = { id: info.lastInsertRowid };
   } else {
