@@ -1488,12 +1488,15 @@ router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
   res.json(rows.filter(r => Math.abs(r.outstanding) > 0.0001));
 });
 
-// Journal entries with lines (paginated, date-filtered)
+// Journal entries with lines (paginated, date-filtered, search by doc#)
 router.get('/journal', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { from, to, page = '1', ref_type } = req.query;
-  const pageNum = Math.max(1, parseInt(page));
-  const limit = 50, offset = (pageNum - 1) * limit;
+  const { from, to, page = '1', ref_type, q } = req.query;
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  // Default 200; cap 500 — UI pages through until total is reached (no hard 50 ceiling).
+  const limitRaw = parseInt(req.query.limit, 10);
+  const limit = Math.min(500, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 200));
+  const offset = (pageNum - 1) * limit;
   const where = [], params = [];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to)   { where.push('je.entry_date <= ?'); params.push(to); }
@@ -1503,6 +1506,25 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
     else if (types.length > 1) {
       where.push(`je.ref_type IN (${types.map(() => '?').join(',')})`);
       params.push(...types);
+    }
+  }
+  // Search by document number: internal id (#329) and/or voucher_number label.
+  const qRaw = String(q == null ? '' : q).trim();
+  if (qRaw) {
+    const needle = qRaw
+      .replace(/[۰-۹]/g, (ch) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)))
+      .replace(/[٠-٩]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch)))
+      .replace(/^#+/, '')
+      .trim();
+    if (needle) {
+      if (/^\d+$/.test(needle)) {
+        where.push('(je.id = ? OR IFNULL(je.voucher_number,\'\') = ? OR IFNULL(je.voucher_number,\'\') LIKE ?)');
+        params.push(Number(needle), needle, '%' + needle + '%');
+      } else {
+        where.push('(CAST(je.id AS TEXT) LIKE ? OR IFNULL(je.voucher_number,\'\') LIKE ?)');
+        const like = '%' + needle + '%';
+        params.push(like, like);
+      }
     }
   }
   where.push('COALESCE(je.deleted_at,0)=0');
