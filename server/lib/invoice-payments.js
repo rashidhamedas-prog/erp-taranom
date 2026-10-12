@@ -489,6 +489,28 @@ function insertChequeRecordForSettlement(db, {
   return result.lastInsertRowid;
 }
 
+/** True when the sale JE already carries Dr cash / Cr AR for invoice-time pay. */
+function invoiceHasCashPairOnJe(db, invoiceId) {
+  if (!invoiceId) return false;
+  try {
+    return !!db.prepare(`
+      SELECT 1 FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE je.ref_type='invoice' AND je.ref_id=?
+        AND COALESCE(je.deleted_at,0)=0
+        AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        AND (
+          jl.description LIKE '%دریافت هنگام فاکتور%'
+          OR jl.description LIKE '%تسویه هنگام فاکتور%'
+        )
+        AND COALESCE(jl.debit_rial, jl.debit, 0) > 0
+      LIMIT 1
+    `).get(invoiceId);
+  } catch (_) {
+    return false;
+  }
+}
+
 function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, note, chequeHeader, skipJournal }) {
 
   const { createLedgerEntry } = require('../db');
@@ -558,7 +580,13 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
       debit: 0, credit: amountRial, user_id: userId,
     });
   }
-  if (skipJournal) {
+  // skipJournal is only valid when the invoice JE already Cr'd AR (legacy cash-on-sale).
+  // Modern path (skipInvoiceCash): invoice is Dr leaf / Cr sales only — settlement MUST post JE.
+  let skipGl = !!skipJournal;
+  if (skipGl && !invoiceHasCashPairOnJe(db, invoiceId)) {
+    skipGl = false;
+  }
+  if (skipGl) {
     return settlementId;
   }
   const recv = recvAcct(db, custId);
@@ -640,6 +668,7 @@ module.exports = {
   insertChequeRecordForSettlement,
   backfillMissingSettlementCheques,
   loadInvoiceReceipts,
+  invoiceHasCashPairOnJe,
   digitsOnly,
   toAsciiDigits,
   normalizeSheba,

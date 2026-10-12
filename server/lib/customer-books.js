@@ -1403,6 +1403,7 @@ function repairOpeningChequeLedgerMirrors(db) {
 
 function repairSettlementsMissingBooks(db) {
   const { createLedgerEntry } = require('../db');
+  const { invoiceHasCashPairOnJe } = require('./invoice-payments');
   const FLAG = 'settlement_books_backfill_v295';
   const done = db.prepare('SELECT value FROM settings WHERE key=?').get(FLAG);
   if (done && done.value === '1') return { inserted: 0, skipped: true };
@@ -1433,6 +1434,14 @@ function repairSettlementsMissingBooks(db) {
         `).get(s.cust_id, amountRial, s.date || '');
         if (posHit) continue;
       }
+      // Never invent a books-only credit without leaf JE or invoice cash-pair (KPI desync).
+      const liveJe = db.prepare(`
+        SELECT 1 FROM journal_entries
+        WHERE ref_type='settlement' AND ref_id=?
+          AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+        LIMIT 1
+      `).get(s.id);
+      if (!liveJe && !invoiceHasCashPairOnJe(db, s.invoice_id)) continue;
       const payLabel = s.pay_type === 'cheque' ? 'چک'
         : (s.pay_type === 'bank_transfer' || s.pay_type === 'bank') ? 'واریز بانکی'
           : (s.pay_type === 'pos_card' ? 'کارتخوان' : 'نقد');
@@ -1455,6 +1464,86 @@ function repairSettlementsMissingBooks(db) {
   run();
   if (inserted) console.log(`✅ ردیف دفتر مشتری برای تسویه‌های بدون کتاب تکمیل شد (${inserted})`);
   return { inserted };
+}
+
+/**
+ * Continuous: posted settlements with customer_ledger credit but no live settlement JE
+ * and no invoice cash-pair → post Dr asset / Cr customer leaf so fold matches tafsili.
+ */
+function repairSettlementsMissingLeafJe(db) {
+  const { settlementAssetAccount, invoiceHasCashPairOnJe } = require('./invoice-payments');
+  const { todayJalali } = require('../jalali');
+  const rows = db.prepare(`
+    SELECT s.id, s.cust_id, s.amount, s.amount_rial, s.pay_type, s.date, s.user_id,
+           s.invoice_id, s.bank_id, s.cash_box_id, s.account_code, s.note
+    FROM settlements s
+    WHERE COALESCE(s.status,'posted')<>'reversed'
+      AND EXISTS (
+        SELECT 1 FROM customer_ledger cl
+        WHERE cl.ref_type='settlement' AND cl.ref_id=s.id
+          AND COALESCE(cl.entry_type,'')<>'reversal' AND COALESCE(cl.credit,0)>0
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM journal_entries je
+        WHERE je.ref_type='settlement' AND je.ref_id=s.id
+          AND COALESCE(je.deleted_at,0)=0
+          AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+      )
+  `).all();
+  let posted = 0;
+  let skippedShadow = 0;
+  for (const s of rows) {
+    if (invoiceHasCashPairOnJe(db, s.invoice_id)) {
+      skippedShadow += 1;
+      continue;
+    }
+    // POS settlements are mirrored by pos_receipt JE — never double-post.
+    if (String(s.pay_type || '') === 'pos_card' || /کارتخوان/.test(String(s.note || ''))) {
+      skippedShadow += 1;
+      continue;
+    }
+    const amountRial = Math.round(Number(s.amount_rial != null ? s.amount_rial : s.amount) || 0);
+    if (amountRial <= 0 || !s.cust_id) continue;
+    const recv = receivableAcct(db, s.cust_id);
+    let asset;
+    try {
+      const override = String(s.account_code || '').trim();
+      if (override) {
+        asset = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(override);
+      }
+      if (!asset) {
+        asset = settlementAssetAccount(db, {
+          pay_type: s.pay_type, bank_id: s.bank_id, cash_box_id: s.cash_box_id,
+        });
+      }
+    } catch (e) {
+      console.error('settlement missing leaf JE asset', s.id, e.message);
+      continue;
+    }
+    if (!asset || !asset.code) continue;
+    const payLabel = s.pay_type === 'cheque' ? 'چک'
+      : (s.pay_type === 'bank_transfer' || s.pay_type === 'bank') ? 'واریز بانکی' : 'نقد';
+    try {
+      db.transaction(() => {
+        postToLedger(db, {
+          sourceType: 'settlement',
+          sourceId: s.id,
+          date: s.date || todayJalali(),
+          description: `تسویه ${payLabel} هنگام فاکتور (هم‌ترازی دفتر/تفصیلی)`,
+          createdBy: s.user_id || null,
+          lines: [
+            { code: asset.code, name: asset.name, debit: rialToLedger(amountRial), credit: 0 },
+            { code: recv.code, name: recv.name, debit: 0, credit: rialToLedger(amountRial) },
+          ],
+        });
+      })();
+      posted += 1;
+    } catch (e) {
+      console.error('settlement missing leaf JE', s.id, e.message);
+    }
+  }
+  if (posted) console.log(`✅ سند کل برای تسویه‌های بدون JE روی تفصیلی تکمیل شد (${posted})`);
+  return { posted, skippedShadow, scanned: rows.length };
 }
 
 /**
@@ -1555,6 +1644,13 @@ function ensureCustomerBooksRepaired(db) {
     console.error('reversed settlement books repair:', e.message);
     settRevBooks = { error: e.message };
   }
+  let settLeafJe = {};
+  try {
+    settLeafJe = repairSettlementsMissingLeafJe(db);
+  } catch (e) {
+    console.error('settlement leaf JE repair:', e.message);
+    settLeafJe = { error: e.message };
+  }
   let chequeMirror = {};
   try {
     chequeMirror = require('./invoice-payments').backfillMissingSettlementCheques(db);
@@ -1564,7 +1660,7 @@ function ensureCustomerBooksRepaired(db) {
   }
   return {
     ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true },
-    openingCheque, settBooks, settRevBooks, chequeMirror,
+    openingCheque, settBooks, settRevBooks, settLeafJe, chequeMirror,
   };
 }
 
@@ -1599,6 +1695,7 @@ module.exports = {
   repairOpeningChequeLedgerMirrors,
   repairSettlementsMissingBooks,
   repairReversedSettlementBooks,
+  repairSettlementsMissingLeafJe,
   ensureCustomerBooksRepaired,
   resolveCustomerIdFromArJe,
   isFirmSale,

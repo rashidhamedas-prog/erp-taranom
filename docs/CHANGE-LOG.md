@@ -1,3 +1,17 @@
+### ۱۴۰۵/۰۷/۲۱ — ریشه اختلاف مطالبات دفتر مشتری vs تفصیلی (SW v351)
+
+- **علامت:** داشبورد مالی: مطالبات دفتر مشتری ۱۳٬۰۶۲٬۱۹۳٬۴۲۰ با تفصیلی ۱۳٬۱۳۸٬۹۹۳٬۴۲۰ (Δ=۷۶٬۸۰۰٬۰۰۰)؛ هشدار ابطال تسویه.
+- **ریشه (پروب ایران):** مشتری «مد روز» (id=24) — فاکتور T-0001 روی تفصیلی بدهکار است؛ تسویهٔ #۱ قبلاً به کنترل `1103` خورده و ابطال شده؛ تسویهٔ #۳ زنده فقط در `customer_ledger` است و JE روی برگ تفصیلی ندارد (`skipJournal`/بک‌فیل ناامن).
+- **رفع کد:**
+  - `insertInvoiceSettlement`: `skipJournal` فقط اگر سند فاکتور واقعاً جفت نقد/تسویه داشته باشد؛ وگرنه اجباری Dr بانک/صندوق + Cr تفصیلی مشتری.
+  - `repair-invoice-settlements`: حذف fallback ناامن «کل مبلغ فاکتور بدون جفت نقد روی سند».
+  - `repairSettlementsMissingLeafJe` (پیوسته در `ensureCustomerBooksRepaired`): ترمیم تسویه‌های دارای اعتبار دفتر بدون JE زنده.
+  - `repairSettlementsMissingBooks`: دیگر اعتبار دفتر بدون JE/جفت نقد نمی‌سازد.
+  - `void-settlement`: خطای JE بلعیده نمی‌شود؛ معکوس چندردیفی دفتر با `return` امن.
+- **فایل‌ها:** `lib/{invoice-payments,customer-books,void-settlement,repair-invoice-settlements}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-settlement-leaf-je-v351.js`, CHANGE-LOG.
+- **تست:** `test-settlement-leaf-je-v351` + `test-sms` + `test-sync` روی ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — Multi-primary DNS (BIND ایران + Cloudflare)
 
 - **هدف:** مقاومت DNS اگر یکی از مسیرها قطع شود؛ در قطعی اینترنت جهانی، NSهای ایران (`ns1`/`ns2`) روی همان VPS جواب می‌دهند.

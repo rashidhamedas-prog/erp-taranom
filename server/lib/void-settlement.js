@@ -66,13 +66,13 @@ function reverseSettlementBooks(db, settlement, userId) {
       AND COALESCE(entry_type,'')<>'reversal'
   `).all(settlement.id, settlement.cust_id);
   let n = 0;
+  const already = db.prepare(`
+    SELECT 1 FROM customer_ledger
+    WHERE ref_type='settlement' AND ref_id=? AND customer_id=? AND entry_type='reversal'
+    LIMIT 1
+  `).get(settlement.id, settlement.cust_id);
+  if (already) return 0;
   for (const row of open) {
-    const already = db.prepare(`
-      SELECT 1 FROM customer_ledger
-      WHERE ref_type='settlement' AND ref_id=? AND customer_id=? AND entry_type='reversal'
-      LIMIT 1
-    `).get(settlement.id, settlement.cust_id);
-    if (already) break;
     createLedgerEntry(db, {
       customer_id: settlement.cust_id,
       date: todayJalali(),
@@ -145,11 +145,8 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
 
   let reversalId = null;
   if (settlementHasLiveJe(db, settlement.id)) {
-    try {
-      reversalId = reverseSettlementGlInTx(db, settlement, userId);
-    } catch (_) {
-      reversalId = null;
-    }
+    // R13: JE reverse must not be swallowed — abort the surrounding transaction.
+    reversalId = reverseSettlementGlInTx(db, settlement, userId);
     try {
       reverseCommissionAccrual(db, 'settlement', settlement.id, userId, todayJalali());
     } catch (_) { /* must not block settlement.status=reversed */ }

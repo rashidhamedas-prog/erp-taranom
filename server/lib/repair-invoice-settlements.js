@@ -70,13 +70,9 @@ function repairMissingInvoiceSettlements(db, opts = {}) {
         continue;
       }
       const finalAmt = moneyRial(inv.final_rial != null ? inv.final_rial : inv.final);
-      let paid = cashPairAmountOnInvoiceJe(db, inv.id);
-      if (paid <= 0) {
-        paid = moneyRial(inv.pay_amount_rial);
-        if (paid <= 0 && inv.pay_type && inv.pay_type !== 'credit' && inv.pay_type !== 'mixed') {
-          paid = finalAmt;
-        }
-      }
+      // Only invent a books-only settlement when cash already sits on the sale JE.
+      // Fallback to full final without a cash pair created ghost credits (مد روز / 76.8M).
+      const paid = cashPairAmountOnInvoiceJe(db, inv.id);
       if (paid <= 0) continue;
 
       const pt = inv.pay_type === 'bank' ? 'bank_transfer' : inv.pay_type;
