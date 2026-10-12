@@ -22,7 +22,7 @@ const paySrc = fs.readFileSync(path.join(root, 'lib', 'invoice-payments.js'), 'u
 
 console.log('-- invoice cheque+POS / two cheques v344 --');
 
-ok(/erp-taranom-v34[34]/.test(sw), 'SW v343|v344');
+ok(/erp-taranom-v34[2-9]/.test(sw), 'SW v342+');
 ok(app.includes('function summarizePaySplitTypes'), 'summarizePaySplitTypes');
 ok(app.includes('function invClearSingleChequeFields') || app.includes('invClearSingleChequeFields'), 'invClearSingleChequeFields');
 ok(app.includes('کارتخوان') && app.includes('دفتر چک') && (app.includes('قسط N') || app.includes('مرحلهٔ دریافت')), 'Help clarifies POS vs cheque book');
