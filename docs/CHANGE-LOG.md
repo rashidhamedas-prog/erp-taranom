@@ -5,7 +5,7 @@
 - **تأیید:** health=200 + `image_engine` sharp؛ CORS جدید/www سبز؛ Origin قدیمی و بیگانه `403`؛ redirect محلی Host قدیمی `301 Location: https://erptaranom.com/`.
 - **فایل‌ها:** `server/ecosystem.config.js`, `server/public/{app.js,sw.js,index.html}`, `scripts/_harden-cors-drop-old-erp.py`, `scripts/_finish-harden-cors-v348.py`, CHANGE-LOG.
 - **Help:** بخش دامنه — ذکر هدایت ۳۰۱ و حذف Origin قدیمی از CORS؛ SW `erp-taranom-v348`.
-- **Deploy:** ⏳ commit/push سپس overlay ایران.
+- **Deploy:** ✅ `c44e537` — overlay ایران؛ health=200 + sharp؛ SW `erp-taranom-v348`؛ `ALLOWED_ORIGINS` بدون دامنهٔ قدیمی.
 
 ### ۱۴۰۵/۰۷/۲۰ — بستن تسک CF 520 (harden + rollback Tunnel)
 
