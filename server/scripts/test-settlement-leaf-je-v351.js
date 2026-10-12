@@ -140,15 +140,40 @@ postToLedger(db, {
   ],
 });
 
-const before = {
-  fold: canonicalCustomerFold(db).display,
-  gl: glCustomersTafsiliBalance(db).display,
-};
-ok(Math.abs(Number(before.fold) - Number(before.gl)) > 1,
-  'ghost books-only creates mismatch before repair', before);
+// Raw sums — do NOT call canonicalCustomerFold (it runs ensure→repair).
+const ledBefore = db.prepare(
+  'SELECT COALESCE(SUM(debit)-SUM(credit),0) b FROM customer_ledger WHERE customer_id=?'
+).get(custId).b;
+const glBefore = db.prepare(`
+  SELECT COALESCE(SUM(
+    CASE WHEN jl.debit_rial IS NOT NULL THEN jl.debit_rial ELSE ROUND(COALESCE(jl.debit,0)*10) END
+    - CASE WHEN jl.credit_rial IS NOT NULL THEN jl.credit_rial ELSE ROUND(COALESCE(jl.credit,0)*10) END
+  ),0) b
+  FROM journal_lines jl
+  JOIN journal_entries je ON je.id=jl.entry_id
+  WHERE jl.account_code=?
+    AND COALESCE(je.deleted_at,0)=0
+    AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+`).get(code).b;
+ok(Math.abs(Number(ledBefore) - Number(glBefore)) > 1,
+  'ghost books-only creates mismatch before repair', { ledBefore, glBefore });
+
+const noJe = db.prepare(`
+  SELECT 1 FROM journal_entries
+  WHERE ref_type='settlement' AND ref_id=?
+    AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+`).get(settGhost);
+ok(!noJe, 'ghost settlement has no live JE before repair');
 
 const repaired = repairSettlementsMissingLeafJe(db);
 ok(repaired.posted >= 1, 'repair posts missing leaf JE', repaired);
+
+const afterJe = db.prepare(`
+  SELECT 1 FROM journal_entries
+  WHERE ref_type='settlement' AND ref_id=?
+    AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+`).get(settGhost);
+ok(!!afterJe, 'ghost settlement has live JE after repair');
 
 const after = {
   fold: canonicalCustomerFold(db).display,
