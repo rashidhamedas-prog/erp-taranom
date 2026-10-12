@@ -8,11 +8,11 @@ assert.ok(compareVersion('2.0.24', '2.0.25') < 0);
 assert.ok(compareVersion('2.0.25', '2.0.25') === 0);
 assert.ok(compareVersion('2.1.0', '2.0.25') > 0);
 assert.strictEqual(
-  resolveReleaseUrl('/releases/latest.yml', 'https://erp.poshaktaranom.com'),
-  'https://erp.poshaktaranom.com/releases/latest.yml'
+  resolveReleaseUrl('/releases/latest.yml', 'https://erptaranom.com'),
+  'https://erptaranom.com/releases/latest.yml'
 );
-assert.strictEqual(resolveReleaseUrl('javascript:alert(1)', 'https://erp.poshaktaranom.com'), null);
-assert.strictEqual(resolveReleaseUrl('../outside', 'https://erp.poshaktaranom.com'), null);
+assert.strictEqual(resolveReleaseUrl('javascript:alert(1)', 'https://erptaranom.com'), null);
+assert.strictEqual(resolveReleaseUrl('../outside', 'https://erptaranom.com'), null);
 
 const manifest = {
   android: { version: '2.0.25', versionCode: 27, url: '', distribution: 'local', notes: 'sideload' },

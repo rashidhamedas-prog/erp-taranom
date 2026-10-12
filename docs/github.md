@@ -10,7 +10,7 @@ Product architecture stays in `docs/PROJECT-HANDOFF.md`.
 | Remote | `https://github.com/rashidhamedas-prog/erp-taranom.git` |
 | Default branch | `main` |
 | Production | Iran VPS `taranom@94.249.244.208` → `/home/taranom/crm-taranom` |
-| Public URL | `https://erp.poshaktaranom.com` |
+| Public URL | `https://erptaranom.com` |
 | License | Proprietary (`LICENSE`) |
 
 The on-disk VPS folder name `crm-taranom` is historical. Do not rename it without updating every deploy script.

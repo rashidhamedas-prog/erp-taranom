@@ -100,7 +100,7 @@ class LegacyDbMigratorTest {
             ),
             kv = mapOf(
                 "device_id" to "7",
-                "central_url" to "https://erp.poshaktaranom.com",
+                "central_url" to "https://erptaranom.com",
                 "device_token" to "enc:v1:abc",
             ),
         )

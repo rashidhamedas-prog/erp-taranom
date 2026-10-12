@@ -11,7 +11,7 @@ if (!t.includes('PORT: 3000')) {
 }
 t = t.replace(
   'PORT: 3000,',
-  "PORT: 3000,\n      PUBLIC_URL: process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com',"
+  "PORT: 3000,\n      PUBLIC_URL: process.env.PUBLIC_URL || 'https://erptaranom.com',"
 );
 fs.writeFileSync(p, t);
 console.log('PUBLIC_URL added');

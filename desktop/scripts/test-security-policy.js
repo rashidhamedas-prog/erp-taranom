@@ -47,26 +47,30 @@ test('child windows allow only blank print documents or the exact loopback origi
   assert.strictEqual(isAllowedChildWindowUrl('about:blank', 43123), true);
   assert.strictEqual(isAllowedChildWindowUrl('http://127.0.0.1:43123/print', 43123), true);
   assert.strictEqual(isAllowedChildWindowUrl('about:srcdoc', 43123), false);
-  assert.strictEqual(isAllowedChildWindowUrl('https://erp.poshaktaranom.com/', 43123), false);
+  assert.strictEqual(isAllowedChildWindowUrl('https://erptaranom.com/', 43123), false);
 });
 
 test('external allowlist accepts only HTTPS Taranom hosts on 443', () => {
   const accepted = [
+    'https://erptaranom.com/',
+    'https://erptaranom.com/releases/latest.yml',
+    'https://downloads.erptaranom.com:443/releases/app.exe?token=public',
     'https://poshaktaranom.com/',
-    'https://erp.poshaktaranom.com/releases/latest.yml',
-    'https://downloads.poshaktaranom.com:443/releases/app.exe?token=public'
+    'https://www.poshaktaranom.com/shop',
   ];
   for (const value of accepted) assert.strictEqual(isAllowedExternalUrl(value), true, value);
 });
 
 test('external allowlist rejects credentials, non-443 ports, and lookalike hosts', () => {
   const rejected = [
-    'http://erp.poshaktaranom.com/',
-    'https://erp.poshaktaranom.com:444/',
-    'https://user:pass@erp.poshaktaranom.com/',
-    'https://poshaktaranom.com.evil.example/',
-    'https://evilposhaktaranom.com/',
-    'https://poshaktaranom.com./',
+    'http://erptaranom.com/',
+    'https://erptaranom.com:444/',
+    'https://user:pass@erptaranom.com/',
+    'https://erptaranom.com.evil.example/',
+    'https://evilerptaranom.com/',
+    'https://erptaranom.com./',
+    // retired ERP host — shop apex stays allowed, not erp.*
+    'https://erp.poshaktaranom.com/',
     'https://127.0.0.1/',
     'file:///tmp/update.exe',
     'javascript:alert(1)'
@@ -83,7 +87,7 @@ test('update allowlist accepts this repo GitHub Releases and rejects other repos
     isAllowedUpdateUrl('https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v2.0.12/latest.yml'),
     true
   );
-  assert.strictEqual(isAllowedUpdateUrl('https://erp.poshaktaranom.com/releases/latest.yml'), true);
+  assert.strictEqual(isAllowedUpdateUrl('https://erptaranom.com/releases/latest.yml'), true);
   assert.strictEqual(
     isAllowedUpdateUrl('https://github.com/evil/other/releases/download/v1/setup.exe'),
     false
@@ -111,7 +115,7 @@ test('SHA-256 and size normalization is strict', () => {
 
 test('manual installer payload must exactly match trusted main-process state', () => {
   const expected = {
-    url: 'https://erp.poshaktaranom.com/releases/setup.exe',
+    url: 'https://erptaranom.com/releases/setup.exe',
     sha256: 'A'.repeat(64),
     size: 1234
   };
@@ -130,7 +134,7 @@ test('manual installer payload must exactly match trusted main-process state', (
 });
 
 test('manual installer rejects invalid trusted state even when renderer matches it', () => {
-  const unsafe = { url: 'http://erp.poshaktaranom.com/setup.exe', sha256: 'a'.repeat(64), size: 10 };
+  const unsafe = { url: 'http://erptaranom.com/setup.exe', sha256: 'a'.repeat(64), size: 10 };
   assert.deepStrictEqual(validateManualUpdateMetadata(unsafe, unsafe), {
     ok: false,
     code: 'E_UPDATE_METADATA_MISSING'

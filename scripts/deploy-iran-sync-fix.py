@@ -77,7 +77,7 @@ def main() -> None:
         c,
         f"cd {APP_DIR} && grep -n 'sync_seq_backfill_v2' server/db.js | head -3; "
         f"grep -n 'OVERFLOW_FLOOR' server/sync/tables.js | head -3; "
-        f"grep -n 'erp.poshaktaranom.com' server/public/index.html | head -3; "
+        f"grep -n 'erptaranom.com' server/public/index.html | head -3; "
         f"head -5 server/routes/import.js",
     )
     c.close()

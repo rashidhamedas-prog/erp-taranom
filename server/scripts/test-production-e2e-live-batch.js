@@ -3,7 +3,7 @@
  * Production 0→100 live E2E batch (admin HTTP against central ERP).
  *
  * Usage:
- *   set ERP_BASE_URL=https://erp.poshaktaranom.com
+ *   set ERP_BASE_URL=https://erptaranom.com
  *   set ERP_ADMIN_USER=admin
  *   set ERP_ADMIN_PASSWORD=***
  *   node server/scripts/test-production-e2e-live-batch.js
@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { todayJalali } = require('../jalali');
 
-const BASE = (process.env.ERP_BASE_URL || 'https://erp.poshaktaranom.com').replace(/\/$/, '');
+const BASE = (process.env.ERP_BASE_URL || 'https://erptaranom.com').replace(/\/$/, '');
 const USER = process.env.ERP_ADMIN_USER || 'admin';
 const PASS = process.env.ERP_ADMIN_PASSWORD || '';
 const TIMEOUT_MS = Number(process.env.ERP_E2E_TIMEOUT_MS || 90000);

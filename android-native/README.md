@@ -151,7 +151,7 @@ cd android-native
 - ماژول `:update` همان قرارداد `server/lib/app-update.js` /
   `server/public/releases/manifest.json` را پیاده می‌کند:
   `version`/`versionCode`/`url`/`sha256`/`size`، resolve مسیر نسبی، allowlist
-  میزبان (`erp.poshaktaranom.com` / `poshaktaranom.com`)، دانلود فقط وقتی
+  میزبان (`erptaranom.com` / `poshaktaranom.com`)، دانلود فقط وقتی
   integrity کامل باشد (fail-closed).
 - `UpdateCheckWorker` / `SyncCheckWorker` با `BackgroundSchedulers` در
   `Application.onCreate` به‌صورت periodic ثبت می‌شوند؛ خرابی feed فروش آفلاین

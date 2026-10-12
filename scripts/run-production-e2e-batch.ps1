@@ -1,9 +1,9 @@
 # Production 0→100 live E2E batch (admin HTTP)
 # Usage:
 #   .\scripts\run-production-e2e-batch.ps1 -Password '***'
-#   .\scripts\run-production-e2e-batch.ps1 -BaseUrl 'https://erp.poshaktaranom.com' -User 'admin' -Password '***'
+#   .\scripts\run-production-e2e-batch.ps1 -BaseUrl 'https://erptaranom.com' -User 'admin' -Password '***'
 param(
-  [string]$BaseUrl = $(if ($env:ERP_BASE_URL) { $env:ERP_BASE_URL } else { 'https://erp.poshaktaranom.com' }),
+  [string]$BaseUrl = $(if ($env:ERP_BASE_URL) { $env:ERP_BASE_URL } else { 'https://erptaranom.com' }),
   [string]$User = $(if ($env:ERP_ADMIN_USER) { $env:ERP_ADMIN_USER } else { 'admin' }),
   [Parameter(Mandatory = $false)]
   [string]$Password = $env:ERP_ADMIN_PASSWORD,

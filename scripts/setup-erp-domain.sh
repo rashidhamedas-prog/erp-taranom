@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Setup erp.poshaktaranom.com behind nginx + Let's Encrypt
+# Setup erptaranom.com (+ www) behind nginx + Let's Encrypt (DIRECT on Iran VPS, no Cloudflare proxy)
 set -euo pipefail
-DOMAIN="${1:-erp.poshaktaranom.com}"
+DOMAIN="${1:-erptaranom.com}"
 
 echo "==> [1/5] writing nginx HTTP config for ${DOMAIN}"
 sudo tee /etc/nginx/sites-available/erp-taranom >/dev/null <<EOF
 server {
   listen 80 default_server;
   listen [::]:80 default_server;
-  server_name ${DOMAIN} _;
+  server_name ${DOMAIN} www.${DOMAIN} _;
 
   client_max_body_size 20m;
 
@@ -44,7 +44,7 @@ if ! command -v certbot >/dev/null 2>&1; then
 fi
 
 echo "==> [3/5] request Let's Encrypt certificate for ${DOMAIN}"
-if sudo certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+if sudo certbot --nginx -d "${DOMAIN}" -d "www.${DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
   echo "==> certbot success"
 else
   echo "==> CERTBOT FAILED — keeping HTTP. Check DNS and port 80."

@@ -16,12 +16,15 @@ try {
 } catch { /* services/crypto.js validates the data key during production boot. */ }
 
 // Non-secret production defaults for Iran central (override via env when needed).
+// Canonical: erptaranom.com. Keep retired erp.poshaktaranom.com in CORS only until DNS cutover completes.
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
-  || 'https://erp.poshaktaranom.com,https://poshaktaranom.com';
-const PUBLIC_URL = process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com';
+  || 'https://erptaranom.com,https://www.erptaranom.com,https://erp.poshaktaranom.com';
+const PUBLIC_URL = process.env.PUBLIC_URL || 'https://erptaranom.com';
 const BACKUP_OFFSITE_DIR = process.env.BACKUP_OFFSITE_DIR || '/home/taranom/crm-offsite-backups';
 // Same-VPS offsite is not true DR; keep backups alive until S3/volume exists.
 const BACKUP_ALLOW_SAME_DEVICE = process.env.BACKUP_ALLOW_SAME_DEVICE || '1';
+// Bind loopback only — nginx terminates TLS; never expose Node on 0.0.0.0 in production.
+const LISTEN_HOST = process.env.LISTEN_HOST || '127.0.0.1';
 
 module.exports = {
   apps: [{
@@ -42,6 +45,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: Number(process.env.PORT) || 3000,
+      LISTEN_HOST,
       PUBLIC_URL,
       ALLOWED_ORIGINS,
       BACKUP_OFFSITE_DIR,

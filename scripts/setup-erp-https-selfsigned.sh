@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# HTTPS for erp.poshaktaranom.com without certbot (Iran apt/snap often blocked).
-# Uses OpenSSL self-signed cert. Pair with Cloudflare SSL mode "Full" (orange cloud)
-# OR replace with Cloudflare Origin Certificate later.
+# HTTPS for erptaranom.com without certbot (Iran apt/snap often blocked).
+# TEMPORARY fallback only: OpenSSL self-signed cert (browsers will warn).
+# Production canonical is DIRECT nginx + Let's Encrypt (scripts/setup-erp-domain.sh).
 set -euo pipefail
-DOMAIN="${1:-erp.poshaktaranom.com}"
+DOMAIN="${1:-erptaranom.com}"
 CERT_DIR="/etc/ssl/taranom"
 KEY="${CERT_DIR}/${DOMAIN}.key"
 CRT="${CERT_DIR}/${DOMAIN}.crt"
@@ -14,7 +14,7 @@ if [ ! -f "${KEY}" ] || [ ! -f "${CRT}" ]; then
   sudo openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
     -keyout "${KEY}" -out "${CRT}" \
     -subj "/CN=${DOMAIN}/O=Poshak Taranom/C=IR" \
-    -addext "subjectAltName=DNS:${DOMAIN}"
+    -addext "subjectAltName=DNS:${DOMAIN},DNS:www.${DOMAIN}"
   sudo chmod 600 "${KEY}"
   echo "    created self-signed cert"
 else
@@ -27,7 +27,7 @@ sudo tee /etc/nginx/sites-available/erp-taranom >/dev/null <<EOF
 server {
   listen 80 default_server;
   listen [::]:80 default_server;
-  server_name ${DOMAIN} _;
+  server_name ${DOMAIN} www.${DOMAIN} _;
   client_max_body_size 20m;
 
   location /.well-known/acme-challenge/ {
@@ -42,7 +42,7 @@ server {
 server {
   listen 443 ssl http2 default_server;
   listen [::]:443 ssl http2 default_server;
-  server_name ${DOMAIN} _;
+  server_name ${DOMAIN} www.${DOMAIN} _;
 
   ssl_certificate     ${CRT};
   ssl_certificate_key ${KEY};

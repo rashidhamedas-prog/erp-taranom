@@ -93,7 +93,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://erp.poshaktaranom.com/releases/"
+        "url": "https://erptaranom.com/releases/"
       }
     ]
   }

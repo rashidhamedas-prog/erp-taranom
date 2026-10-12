@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | محصول | **ERP ترنم** |
-| دامنه | `https://erp.poshaktaranom.com` |
+| دامنه | `https://erptaranom.com` |
 | مخزن | [`rashidhamedas-prog/erp-taranom`](https://github.com/rashidhamedas-prog/erp-taranom) |
 | شاخهٔ رسمی | **`main`** |
 | مجوز | اختصاصی — [`LICENSE`](LICENSE) |
@@ -16,9 +16,9 @@
 ## معماری
 
 ```text
-                    HTTPS (Cloudflare Full strict)
+                    HTTPS (nginx + Let's Encrypt مستقیم روی VPS ایران)
                               │
-                    erp.poshaktaranom.com
+                    erptaranom.com
                               │
               Iran VPS  ·  PM2 `erp-taranom`
                               │

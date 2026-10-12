@@ -12,7 +12,7 @@
 - داده: `/data/data/ir.taranom.crm/files/crm-data/{crm.db,uploads,tmp}`
 - JWT: Keystore alias `erp_taranom_jwt_aes_gcm_v1` + prefs `secure_secret_store_v1`
 - sync secrets در `sync_local_kv` با envelope `enc:v1:` (HKDF از JWT_SECRET)
-- Update hosts: `erp.poshaktaranom.com`, `poshaktaranom.com`؛ verify SHA-256 + signer + versionCode
+- Update hosts: `erptaranom.com`, `poshaktaranom.com`؛ verify SHA-256 + signer + versionCode
 - Release بدون keystore ⇒ debug sign (ممنوع برای کانال انتشار بومی)
 - REUSE: applicationId، crm.db schema/data، SecureSecretStore semantics، network_security_config، verify APK
 - DELETE در محصول نهایی: WebView MainActivity، libnode، assets/nodejs-project، native-lib، copyServerSources tasks
@@ -107,7 +107,7 @@
 ### Updater
 
 - منبع: `GET {central}/releases/manifest.json` فقط روی HTTPS + hosts
-  `erp.poshaktaranom.com` / `poshaktaranom.com`.
+  `erptaranom.com` / `poshaktaranom.com`.
 - دانلودپذیر فقط اگر `sha256` ۶۴hex + `size` معتبر + URL `.apk` روی همان hosts.
 - نصب PackageInstaller / verify signer هنوز TODO (الگوی legacy `MainActivity.verifyApkIdentityAndSigner`).
 

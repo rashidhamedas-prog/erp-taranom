@@ -12,6 +12,8 @@ const PROD_PATH_SNIPPETS = [
   '/home/taranom-admin',
   '94.249.244.208',
   '45.90.98.99',
+  'erptaranom.com',
+  'www.erptaranom.com',
   'erp.poshaktaranom.com',
   'poshaktaranom.com',
   'server\\crm.db',
@@ -20,6 +22,8 @@ const PROD_PATH_SNIPPETS = [
 ];
 
 const PROD_HOSTS = [
+  'erptaranom.com',
+  'www.erptaranom.com',
   'erp.poshaktaranom.com',
   'poshaktaranom.com',
   '94.249.244.208',

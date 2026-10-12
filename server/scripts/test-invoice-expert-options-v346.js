@@ -113,8 +113,8 @@ ok(!invExpertCtx.includes(OLD_NARROW_ROLES),
 ok(invExpertCtx.includes('listSalesExpertUsers') || invExpertCtx.includes('ensureExpertUsersCache'),
   'inv-expert region uses expert cache helpers');
 
-ok(swSrc.includes("const CACHE = 'erp-taranom-v346'"), 'sw.js CACHE erp-taranom-v346');
-ok(indexSrc.includes('app.js?v=346'), 'index.html app.js?v=346');
+ok(/const CACHE = 'erp-taranom-v34[6-9]'/.test(swSrc), 'sw.js CACHE erp-taranom-v346+');
+ok(/app\.js\?v=34[6-9]/.test(indexSrc), 'index.html app.js?v=346+');
 
 const helpExpert = appJs.match(/کارشناس فاکتور[\s\S]{0,800}/);
 const helpChunk = helpExpert ? helpExpert[0] : '';

@@ -57,33 +57,31 @@ EOF
 ### ج) رمز پشتیبان
 از منوی «پشتیبان» در نسخه وب، یک رمز قوی (≥۸ کاراکتر) تعیین کنید و آن را خارج از سرور (مثلاً مدیر سیستم) نگه دارید.
 
-### د) HTTPS (سرور ایران + Cloudflare)
+### د) HTTPS (سرور ایران + Let's Encrypt مستقیم)
 
-عمومی: `https://erp.poshaktaranom.com` پشت Cloudflare (پروکسی نارنجی) با حالت **Full (strict)**.
+عمومی: `https://erptaranom.com` (و `https://www.erptaranom.com`) — **DNS مستقیم** به VPS ایران (`94.249.244.208`)؛ nginx گواهی عمومی **Let's Encrypt** (certbot / `scripts/setup-erp-domain.sh`) را ارائه می‌دهد. برای این دامنه **Cloudflare Origin CA استفاده نمی‌شود** و پروکسی Cloudflare الزامی نیست.
 
-**گواهی مبدأ (اعمال‌شده ۱۴۰۵/۰۶/۱۰):** Cloudflare Origin CA، RSA ۲۰۴۸، میزبان `*.poshaktaranom.com` + apex، اعتبار **۱۵ سال** (تا ۲۰۴۱-۰۸-۲۷). فایل‌ها روی nginx:
+- گواهی: `/etc/letsencrypt/live/erptaranom.com/{fullchain,privkey}.pem` (تمدید خودکار certbot؛ بررسی: `certbot renew --dry-run`).
+- اپلیکیشن: `PUBLIC_URL=https://erptaranom.com`، `ALLOWED_ORIGINS=https://erptaranom.com,https://www.erptaranom.com` (پیش‌فرض `server/ecosystem.config.js`).
+- دسکتاپ/اندروید: میزبان‌های مجاز `erptaranom.com` و `www.erptaranom.com`؛ `central_url` ذخیره‌شدهٔ قدیمی در `server/sync/client.js` خودکار مهاجرت می‌شود.
+- دامنهٔ قدیمی `erp.poshaktaranom.com` از برنامه **بازنشسته** است (دیگر در allowlistها نیست؛ فقط در تاریخچهٔ CHANGE-LOG).
+- اگر دسترسی ایران به API لتس‌انکریپت ناپایدار بود: `scripts/setup-erp-https-selfsigned.sh` فقط راه‌حل موقت است (مرورگر هشدار می‌دهد)؛ سپس گواهی معتبر بگیرید.
 
-- `/etc/ssl/taranom/erp.poshaktaranom.com.crt`
-- `/etc/ssl/taranom/erp.poshaktaranom.com.key` (فقط root، `600`)
+نمونهٔ پیکربندی nginx (server_name = `erptaranom.com www.erptaranom.com`):
 
-مرورگر فقط گواهی لبهٔ Cloudflare را می‌بیند؛ تمدید ۹۰روزه لازم نیست. VPS ایران به API لِت‌اِنکریپت دسترسی پایدار ندارد — **certbot روی این سرور راه پایدار نیست**.
-
-**Authenticated Origin Pulls را روشن نکنید** مگر CA مربوطه روی nginx نصب شود؛ وگرنه سایت قطع می‌شود.
-
-اگر گواهی خودامضا روی مبدأ بماند، Cloudflare در Full (strict) خطای **۵۲۶** می‌دهد.
 3. **پیکربندی Nginx** (نمونه کامل):
    ```nginx
    server {
      listen 80;
-     server_name crm.example.ir;
+     server_name erptaranom.com www.erptaranom.com;
      return 301 https://$host$request_uri;
    }
    server {
      listen 443 ssl http2;
-     server_name crm.example.ir;
+     server_name erptaranom.com www.erptaranom.com;
 
-     ssl_certificate     /etc/letsencrypt/live/crm.example.ir/fullchain.pem;
-     ssl_certificate_key /etc/letsencrypt/live/crm.example.ir/privkey.pem;
+     ssl_certificate     /etc/letsencrypt/live/erptaranom.com/fullchain.pem;
+     ssl_certificate_key /etc/letsencrypt/live/erptaranom.com/privkey.pem;
      ssl_protocols TLSv1.2 TLSv1.3;
 
      add_header Strict-Transport-Security "max-age=31536000" always;
@@ -157,7 +155,7 @@ python scripts/bootstrap-server-harden.py
 ## ۴) وضعیت باقی‌مانده
 
 - [x] VPS ایران (`94.249.244.208`) سرور production فعلی است؛ سرور آلمان از رده خارج شد
-- [x] HTTPS عمومی Cloudflare + Origin CA ۱۵ساله روی nginx ایران (`erp.poshaktaranom.com`)
+- [x] HTTPS مستقیم nginx + Let's Encrypt روی VPS ایران (`erptaranom.com`؛ دامنهٔ قدیمی `erp.poshaktaranom.com` بازنشسته)
 - [ ] اجرای باقی چک‌لیست بخش ۲ روی سرور production (JWT / بکاپ)
 - [x] تغییر اجباری رمز پیش‌فرض — کد کامل
 - [x] رمزنگاری بکاپ — کد کامل (فعال‌سازی: تعیین رمز از UI)

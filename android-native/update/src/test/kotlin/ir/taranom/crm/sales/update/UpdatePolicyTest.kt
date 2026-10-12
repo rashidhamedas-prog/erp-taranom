@@ -47,7 +47,7 @@ class ApkUpdateEvaluatorTest {
             android = PlatformRelease(
                 version = "3.0.1",
                 versionCode = 101,
-                url = "https://erp.poshaktaranom.com/releases/erp-taranom.apk",
+                url = "https://erptaranom.com/releases/erp-taranom.apk",
                 sha256 = sampleSha,
                 size = 1000,
                 distribution = "server",
@@ -57,7 +57,7 @@ class ApkUpdateEvaluatorTest {
             manifest = manifest,
             currentVersion = "3.0.0-alpha01",
             currentVersionCode = 100,
-            baseUrl = "https://erp.poshaktaranom.com",
+            baseUrl = "https://erptaranom.com",
         )
         assertTrue(result.updateAvailable)
         assertTrue(result.downloadable)
@@ -79,7 +79,7 @@ class ApkUpdateEvaluatorTest {
             manifest,
             currentVersion = "1.0.0",
             currentVersionCode = 1,
-            baseUrl = "https://erp.poshaktaranom.com",
+            baseUrl = "https://erptaranom.com",
         )
         assertTrue(result.updateAvailable)
         assertFalse(result.downloadable)
@@ -90,9 +90,9 @@ class ApkUpdateEvaluatorTest {
     fun resolvesRelativeUrlAgainstBase() {
         val resolved = UpdateHosts.resolveReleaseUrl(
             "/releases/erp-taranom.apk",
-            "https://erp.poshaktaranom.com",
+            "https://erptaranom.com",
         )
-        assertEquals("https://erp.poshaktaranom.com/releases/erp-taranom.apk", resolved)
+        assertEquals("https://erptaranom.com/releases/erp-taranom.apk", resolved)
         assertTrue(UpdateHosts.isAllowedApkUpdateUrl(resolved))
     }
 }

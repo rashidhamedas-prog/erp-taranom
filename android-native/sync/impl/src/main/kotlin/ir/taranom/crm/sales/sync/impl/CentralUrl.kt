@@ -4,7 +4,7 @@ import java.net.URI
 
 object CentralUrl {
     /** Production central from `server/sync/client.js`. */
-    const val PRODUCTION = "https://erp.poshaktaranom.com"
+    const val PRODUCTION = "https://erptaranom.com"
 
     private val LEGACY_HOSTS = setOf("45.90.98.99")
 

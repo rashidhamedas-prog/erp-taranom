@@ -47,7 +47,7 @@ def main() -> None:
         f"cd {APP} && "
         "grep -n sync_seq_backfill_v2 server/db.js | head -2; "
         "grep -n OVERFLOW_FLOOR server/sync/tables.js | head -2; "
-        "grep -n erp.poshaktaranom.com server/public/index.html | head -2; "
+        "grep -n erptaranom.com server/public/index.html | head -2; "
         "head -3 server/routes/import.js",
     )
     # Re-apply production party-delete commit if still missing

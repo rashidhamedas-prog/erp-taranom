@@ -5,6 +5,15 @@
 - **یادداشت:** تلاش Cloudflare Tunnel (CNAME به `*.cfargotunnel.com`) به‌خاطر ثبت‌نشدن connector در API لغو شد؛ تونل در حساب CF می‌ماند ولی به DNS وصل نیست.
 - **Deploy:** ✅ rollback DNS + origin health/nginx ۲۰۰؛ SW بدون bump.
 
+### ۱۴۰۵/۰۷/۲۱ — cutover دامنه به erptaranom.com (کد + infra DNS)
+
+- **هدف:** حذف `erp.poshaktaranom.com` از برنامه؛ دامنهٔ رسمی `https://erptaranom.com` مستقیم روی VPS ایران (`94.249.244.208`).
+- **کد:** `PUBLIC_URL` / sync canonical / pairing+Help / desktop+Android allowlist → `erptaranom.com`؛ مهاجرت خودکار `central_url` قدیمی؛ CORS موقت شامل دامنهٔ قدیمی تا پایان cutover؛ `LISTEN_HOST=127.0.0.1`؛ SW `erp-taranom-v347`.
+- **Infra:** ChildNS `ns1/ns2.erptaranom.com` → IP سرور؛ BIND authoritative روی VPS (zone + CAA Let’s Encrypt)؛ nginx dual-host آماده؛ certbot نصب‌شده — صدور LE پس از انتشار NS رجیستری.
+- **فایل‌ها:** `server/{ecosystem.config.js,sync/client.js,public/{app.js,sw.js,index.html}}`, desktop/android allowlists, docs SECURITY/HANDOFF/08-deployment, `scripts/{dns-erptaranom.zone,_setup-bind-erptaranom.py,nginx-crm-taranom-erptaranom.conf,_apply-nginx-erptaranom.py,_issue-le-erptaranom.sh}`.
+- **تست:** sms ۲۲/۰؛ desktop security ۲۰/۲۰؛ platform ۷/۷؛ android-platform ۲۷/۲۷؛ parse `app.js` OK.
+- **Deploy:** ⏳ منتظر انتشار NS رجیستری (`ns1/ns2.erptaranom.com`) سپس LE + overlay/pm2؛ سایت قدیمی CF تا آن لحظه زنده می‌ماند.
+
 ### ۱۴۰۵/۰۷/۲۰ — سخت‌سازی ریشه Cloudflare Error 520 (infra)
 
 - **علامت:** Cloudflare Error 520 روی `erp.poshaktaranom.com`.

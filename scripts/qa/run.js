@@ -86,7 +86,7 @@ async function main() {
     process.env.ERP_TEST_ISOLATION = '1';
 
     const guardOk = looksProduction('server/crm.db')
-      && looksProduction('https://erp.poshaktaranom.com')
+      && looksProduction('https://erptaranom.com')
       && !looksProduction(dbPath);
     rep.rec({
       id: 'harness.fail_closed_guard', suite: 'harness', module: 'harness',

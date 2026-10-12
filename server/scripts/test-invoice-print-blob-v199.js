@@ -43,11 +43,11 @@ const sample = `<html><head>
 <img src="/logo-sm.png" alt="لوگو">
 <script src="/print-page.js"></script>
 </body></html>`;
-const out = rewrite(sample, 'https://erp.poshaktaranom.com');
+const out = rewrite(sample, 'https://erptaranom.com');
 ok(out.includes('nonce="KeepMe"'), 'nonce survives rewrite');
-ok(out.includes('https://erp.poshaktaranom.com/invoice-print.css'), 'css becomes absolute');
-ok(out.includes('https://erp.poshaktaranom.com/logo-sm.png'), 'logo becomes absolute');
-ok(out.includes('https://erp.poshaktaranom.com/print-page.js'), 'print script becomes absolute');
+ok(out.includes('https://erptaranom.com/invoice-print.css'), 'css becomes absolute');
+ok(out.includes('https://erptaranom.com/logo-sm.png'), 'logo becomes absolute');
+ok(out.includes('https://erptaranom.com/print-page.js'), 'print script becomes absolute');
 ok(!out.includes('href="/invoice-print.css"'), 'no leftover root-relative css href');
 
 const html = renderInvoicePrintHtml({
@@ -63,14 +63,14 @@ ok(html.includes('/invoice-print.css'), 'print stylesheet linked');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const sent = {};
 sendSecureHtml({
-  req: { headers: { host: 'erp.poshaktaranom.com' } },
+  req: { headers: { host: 'erptaranom.com' } },
   status() { return this; },
   type() { return this; },
   setHeader(name, value) { sent[name] = value; },
   send(value) { sent.body = value; return value; },
 }, html, { allowPrintScript: true });
-ok(sent.body.includes('https://erp.poshaktaranom.com/invoice-print.css'), 'server print HTML uses absolute CSS URL');
-ok(sent.body.includes('https://erp.poshaktaranom.com/logo-sm.png'), 'server print HTML uses absolute logo URL');
+ok(sent.body.includes('https://erptaranom.com/invoice-print.css'), 'server print HTML uses absolute CSS URL');
+ok(sent.body.includes('https://erptaranom.com/logo-sm.png'), 'server print HTML uses absolute logo URL');
 ok(sent.body.includes('nonce="'), 'style nonce still present after absolutize');
 ok(html.includes('words-fa') || html.includes('به حروف'), 'payable-in-words block present');
 

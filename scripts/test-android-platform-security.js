@@ -88,15 +88,15 @@ function allowedApkUrl(value) {
 }
 
 check('APK HTTPS allowlist accepts the production artifact',
-  allowedApkUrl('https://erp.poshaktaranom.com/releases/erp-taranom.apk'));
+  allowedApkUrl('https://erptaranom.com/releases/erp-taranom.apk'));
 check('APK HTTPS allowlist rejects scheme/host/port/userinfo/fragment/path attacks', [
-  'http://erp.poshaktaranom.com/releases/erp-taranom.apk',
+  'http://erptaranom.com/releases/erp-taranom.apk',
   'https://evil.example/releases/erp-taranom.apk',
-  'https://erp.poshaktaranom.com.evil.example/release.apk',
-  'https://erp.poshaktaranom.com:444/release.apk',
-  'https://user@erp.poshaktaranom.com/release.apk',
-  'https://erp.poshaktaranom.com/release.apk#fragment',
-  'https://erp.poshaktaranom.com/release.exe',
+  'https://erptaranom.com.evil.example/release.apk',
+  'https://erptaranom.com:444/release.apk',
+  'https://user@erptaranom.com/release.apk',
+  'https://erptaranom.com/release.apk#fragment',
+  'https://erptaranom.com/release.exe',
 ].every(value => !allowedApkUrl(value)));
 
 check('DownloadManager reports and enforces byte size before install',

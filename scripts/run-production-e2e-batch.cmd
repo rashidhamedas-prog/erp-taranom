@@ -10,7 +10,7 @@ if "%ERP_ADMIN_PASSWORD%"=="" (
   echo Password required as arg1 or ERP_ADMIN_PASSWORD
   exit /b 2
 )
-if "%ERP_BASE_URL%"=="" set ERP_BASE_URL=https://erp.poshaktaranom.com
+if "%ERP_BASE_URL%"=="" set ERP_BASE_URL=https://erptaranom.com
 if "%ERP_ADMIN_USER%"=="" set ERP_ADMIN_USER=admin
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-production-e2e-batch.ps1" -BaseUrl "%ERP_BASE_URL%" -User "%ERP_ADMIN_USER%" -Password "%ERP_ADMIN_PASSWORD%"

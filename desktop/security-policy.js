@@ -3,8 +3,11 @@
 const crypto = require('crypto');
 
 const ALLOWED_EXTERNAL_HOSTS = Object.freeze([
+  'erptaranom.com',
+  'www.erptaranom.com',
+  // فروشگاه (غیر ERP) — برای openExternal به سایت پوشاک
   'poshaktaranom.com',
-  'erp.poshaktaranom.com'
+  'www.poshaktaranom.com',
 ]);
 
 /** GitHub Releases host for this product only — used by updater, not shell.openExternal. */
@@ -44,7 +47,7 @@ function isAllowedChildWindowUrl(value, port) {
 
 function isAllowedExternalHost(hostname) {
   return ALLOWED_EXTERNAL_HOSTS.includes(hostname)
-    || hostname.endsWith('.poshaktaranom.com');
+    || hostname.endsWith('.erptaranom.com');
 }
 
 function isAllowedExternalUrl(value) {

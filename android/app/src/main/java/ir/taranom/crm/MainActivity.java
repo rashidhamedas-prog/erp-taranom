@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
     private static final long MAX_APK_SIZE_BYTES = 512L * 1024L * 1024L;
     private static final String APK_PREFS = "verified_apk_download";
     private static final Set<String> APK_UPDATE_HOSTS = Collections.unmodifiableSet(
-            new HashSet<>(Arrays.asList("erp.poshaktaranom.com", "poshaktaranom.com")));
+            new HashSet<>(Arrays.asList("erptaranom.com", "www.erptaranom.com")));
     private static int updateNotifId = 7100;
 
     /** JNI bridge implemented in cpp/native-lib.cpp */

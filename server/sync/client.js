@@ -34,17 +34,20 @@ const state = {
 };
 
 /** Canonical production central (Iran). Legacy German IP must never be used. */
-const CANONICAL_CENTRAL_URL = 'https://erp.poshaktaranom.com';
+const CANONICAL_CENTRAL_URL = 'https://erptaranom.com';
 /** Remote fallbacks — HTTPS only (P0-S1). Loopback HTTP remains allowed for local tests. */
 const FALLBACK_CENTRAL_URLS = [
-  'https://erp.poshaktaranom.com',
+  'https://erptaranom.com',
 ];
 const LEGACY_CENTRAL_HOSTS = [
   '45.90.98.99',
   'http://45.90.98.99',
   'http://45.90.98.99:3000',
   'https://45.90.98.99',
-  'https://45.90.98.99:3000'
+  'https://45.90.98.99:3000',
+  // retired canonical (domain cutover to erptaranom.com): stored central_url is migrated
+  'http://erp.poshaktaranom.com',
+  'https://erp.poshaktaranom.com'
 ];
 
 let initialSyncPromise = null;
@@ -177,7 +180,7 @@ function networkErrorMessage(err, context) {
   }
   if (/certificate|SSL|TLS|UNABLE_TO_VERIFY/i.test(msg)) {
     console.error('[sync-security] TLS certificate validation failed');
-    return `${context}: خطای گواهی SSL — فقط HTTPS معتبر است؛ از https://erp.poshaktaranom.com استفاده کنید`;
+    return `${context}: خطای گواهی SSL — فقط HTTPS معتبر است؛ از https://erptaranom.com استفاده کنید`;
   }
   return msg ? `${context}: ${msg}` : context;
 }
@@ -353,7 +356,7 @@ async function pair(centralUrl, username, password, deviceName) {
 
   const base = await resolveReachableCentralUrl(preferred);
   if (!base) {
-    throw new Error('سرور مرکزی در دسترس نیست — اینترنت موبایل/وای‌فای را روشن کنید و آدرس https://erp.poshaktaranom.com را بررسی کنید');
+    throw new Error('سرور مرکزی در دسترس نیست — اینترنت موبایل/وای‌فای را روشن کنید و آدرس https://erptaranom.com را بررسی کنید');
   }
 
   // Transport tokens may be copied from logs or a compromised proxy. Replay

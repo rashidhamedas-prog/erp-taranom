@@ -28,14 +28,14 @@ ok('localhost http allowed', (() => {
   catch (e) { return false; }
 })());
 ok('remote http rejected', (() => {
-  try { assertCentralUrlAllowed('http://erp.poshaktaranom.com'); return false; }
+  try { assertCentralUrlAllowed('http://erptaranom.com'); return false; }
   catch (e) { return e.code === 'E_SYNC_HTTPS_REQUIRED'; }
 })());
 ok('remote https allowed', (() => {
-  try { return assertCentralUrlAllowed('https://erp.poshaktaranom.com') === 'https://erp.poshaktaranom.com'; }
+  try { return assertCentralUrlAllowed('https://erptaranom.com') === 'https://erptaranom.com'; }
   catch (e) { return false; }
 })());
-ok('upgrade http→https', upgradeHttpCentralUrl('http://erp.poshaktaranom.com') === 'https://erp.poshaktaranom.com');
+ok('upgrade http→https', upgradeHttpCentralUrl('http://erptaranom.com') === 'https://erptaranom.com');
 ok('loopback not upgraded', upgradeHttpCentralUrl('http://127.0.0.1:4100') === 'http://127.0.0.1:4100');
 ok('tokens masked in errors', !maskSensitive('Device 7:abcdef012345 Bearer aaa.bbb.ccc?token=secret').includes('abcdef012345'));
 ok('invalid certificate becomes safe TLS error', (() => {

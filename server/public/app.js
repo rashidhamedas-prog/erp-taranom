@@ -3141,8 +3141,8 @@ function openSyncPairModal(opts){
       </div>
       <div class="form-grid">
         <div class="fg full"><label>آدرس سرور مرکزی *</label>
-          <input id="pair-url" dir="ltr" placeholder="https://erp.poshaktaranom.com" value="https://erp.poshaktaranom.com" ${repair?'disabled':''}>
-          <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پیش‌فرض درست است — معمولاً عوض نکنید. فقط <code dir="ltr">https://erp.poshaktaranom.com</code> — HTTP ریموت مجاز نیست.</div>
+          <input id="pair-url" dir="ltr" placeholder="https://erptaranom.com" value="https://erptaranom.com" ${repair?'disabled':''}>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پیش‌فرض درست است — معمولاً عوض نکنید. فقط <code dir="ltr">https://erptaranom.com</code> — HTTP ریموت مجاز نیست.</div>
         </div>
         <div class="fg"><label>نام کاربری مدیر سیستم *</label><input id="pair-user" dir="ltr" autocomplete="username" ${repair?'disabled':''}></div>
         <div class="fg"><label>رمز عبور مدیر سیستم *</label><input id="pair-pass" type="password" dir="ltr" autocomplete="current-password" ${repair?'disabled':''}></div>
@@ -3241,7 +3241,7 @@ async function doSyncPair(){
 }
 
 async function editCentralUrlUI(){
-  const cur = (SYNC_STATUS && SYNC_STATUS.central_url) || 'https://erp.poshaktaranom.com';
+  const cur = (SYNC_STATUS && SYNC_STATUS.central_url) || 'https://erptaranom.com';
   const next = prompt('آدرس جدید سرور مرکزی:', cur);
   if(next==null) return;
   const url = String(next).trim();
@@ -3278,7 +3278,7 @@ async function resetPairingUI(){
 }
 
 async function factoryResetDeviceFromLogin(){
-  if(!confirm('اتصال خراب دستگاه قطع و داده‌های محلی پاک می‌شود.\nسپس با admin / admin123 وارد شوید و دوباره به https://erp.poshaktaranom.com وصل کنید.\nادامه؟')) return;
+  if(!confirm('اتصال خراب دستگاه قطع و داده‌های محلی پاک می‌شود.\nسپس با admin / admin123 وارد شوید و دوباره به https://erptaranom.com وصل کنید.\nادامه؟')) return;
   try{
     const r = await fetch('/api/sync/factory-reset-device',{
       method:'POST',
@@ -26615,6 +26615,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🔗','دامنه و آدرس سرور مرکزی',`
+      <p>آدرس رسمی ERP: <b dir="ltr">https://erptaranom.com</b> (و در صورت نیاز <span dir="ltr">www.erptaranom.com</span>). دامنهٔ قدیمی <span dir="ltr">erp.poshaktaranom.com</span> از برنامه بازنشسته شده است.</p>
+      <ul>
+        <li>دستگاه‌های ویندوز/اندروید که هنوز آدرس قدیمی دارند، با همگام‌سازی بعدی به آدرس جدید مهاجرت می‌کنند.</li>
+        <li>اگر ورود یا همگام‌سازی قطع شد، یک‌بار Hard Refresh کنید و در پنل همگام‌سازی آدرس را <span dir="ltr">https://erptaranom.com</span> بگذارید.</li>
+        <li>TLS مستقیم روی سرور ایران است (Let's Encrypt)؛ پشت Cloudflare برای این دامنه الزامی نیست.</li>
+      </ul>`),
     helpSec('🌐','ارسال موجودی هر کالا به سایت',`
       <p>دو سطح کنترل دارید: کلید سراسری <b>فعال‌سازی سینک موجودی</b> در تنظیمات → وب‌سایت، و تیک <b>ارسال موجودی این کالا به سایت</b> در فرم ویرایش هر کالا (مدیر/حسابدار).</p>
       <ul>
@@ -27222,7 +27229,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دسکتاپ ویندوز ۲.۰.۱۴:</b> نصب‌کننده امضاشده (فعلاً خودامضا CN=Poshak Taranom). رفع crash ماژول <code>work-area</code> و فارسی صفحه ورود نسبت به ۲.۰.۱۳. داده در <code>%APPDATA%\\ERP Taranom</code>. پس از دانلود آپدیت، در نخستین نقطهٔ امن نصب می‌شود. روی ویندوز دیگر ممکن است SmartScreen «ناشر ناشناس» بماند</li>
         <li><b>بزرگ‌نمایی پنجره:</b> در حالت Maximize، پنجره فقط داخل ناحیهٔ کاری ویندوز (بالای تسک‌بار) قرار می‌گیرد و پایین برنامه زیر تسک‌بار نمی‌رود</li>
         <li>ورود موقت محلی: <code>admin / admin123</code> — فقط برای باز شدن پنجره اتصال</li>
-        <li>در پنجره «اتصال به سرور مرکزی»: آدرس <code dir="ltr">https://erp.poshaktaranom.com</code> + نام کاربری/رمز <b>مدیر سیستم نسخه وب</b> (نه لزوماً admin123 محلی). اینترنت لازم است</li>
+        <li>در پنجره «اتصال به سرور مرکزی»: آدرس <code dir="ltr">https://erptaranom.com</code> + نام کاربری/رمز <b>مدیر سیستم نسخه وب</b> (نه لزوماً admin123 محلی). اینترنت لازم است</li>
         <li>بعد از ثبت دستگاه، صفحه پیشرفت دریافت اطلاعات می‌آید — برنامه را نبندید. سپس با کاربر/رمز اصلی خودتان وارد شوید</li>
       </ol>
       <h5>اگر ورود/سینک خراب شد («قبلاً متصل شده» / رمز خودتان کار نمی‌کند)</h5><ul>
@@ -27287,7 +27294,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اجبار برای نقش‌ها از <b>تنظیمات → کاربران</b> روشن می‌شود. تا وقتی تیک خالی است، 2FA اختیاری می‌ماند</li>
         <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
         <li><b>وب کروم:</b> همهٔ رویدادهای رابط کاربری از registry امن و فایل‌های اسکریپت محلی اجرا می‌شوند؛ CSP استفاده از رویداد و اسکریپت inline را مسدود می‌کند. اگر دکمه‌ای واکنش نداشت، Console و گزارش CSP را برای پشتیبانی ارسال کنید.</li>
-        <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. روی وب مرکزی رمز کارخانه‌ای نشان داده نمی‌شود؛ اگر رمز را فراموش کردید از «رمز را فراموش کرده‌اید؟» (پیامک به موبایل ثبت‌شده) استفاده کنید. <code>admin / admin123</code> فقط برای ورود موقت دستگاه unpaired است و پس از اولین ورود وب باید عوض شده باشد.</li>
+        <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erptaranom.com</code> است (آدرس مرکزی ERP؛ دامنهٔ قدیمی <code dir="ltr">erp.poshaktaranom.com</code> بازنشسته شده — دستگاه‌های قدیمی خودکار به آدرس جدید منتقل می‌شوند) — اگر با http باز شود خودکار به https می‌رود. روی وب مرکزی رمز کارخانه‌ای نشان داده نمی‌شود؛ اگر رمز را فراموش کردید از «رمز را فراموش کرده‌اید؟» (پیامک به موبایل ثبت‌شده) استفاده کنید. <code>admin / admin123</code> فقط برای ورود موقت دستگاه unpaired است و پس از اولین ورود وب باید عوض شده باشد.</li>
         <li><b>ساخت ادمین دوم رمز ادمین اول را عوض نمی‌کند.</b> هر مدیر فقط روی یک مرورگر وب همزمان وارد می‌ماند. اگر بعد از ساخت کاربر جدید، ورود <code>admin</code> خطا داد، معمولاً نشست وب قبلی هنوز باز است — در پنجره تأیید، قطع نشست قبلی را بپذیرید؛ این یعنی رمز اشتباه نیست.</li>
       </ul>`),
     helpSec('🤖','دستیار فروش AI',`
@@ -27455,7 +27462,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v344</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v347</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>

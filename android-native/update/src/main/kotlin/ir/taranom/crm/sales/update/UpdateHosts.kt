@@ -6,8 +6,8 @@ package ir.taranom.crm.sales.update
  */
 object UpdateHosts {
     val ALLOWED: Set<String> = setOf(
-        "erp.poshaktaranom.com",
-        "poshaktaranom.com",
+        "erptaranom.com",
+        "www.erptaranom.com",
     )
 
     const val MAX_APK_SIZE_BYTES: Long = 512L * 1024L * 1024L
