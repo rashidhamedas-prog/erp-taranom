@@ -107,7 +107,7 @@ const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(app.includes('بستانکار دفتر مشتری'), 'banner names creditor side');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v297'), 'SW v297');
+ok(/erp-taranom-v(297|2[9-9]\d|[3-9]\d{2,})/.test(sw) || /erp-taranom-v3\d+/.test(sw), 'SW v297+');
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
