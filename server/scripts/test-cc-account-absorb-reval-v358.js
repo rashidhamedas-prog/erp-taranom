@@ -70,10 +70,11 @@ try {
   // Product + stock for revaluation
   let prod = db.prepare("SELECT id FROM products WHERE COALESCE(is_manufactured,0)=1 LIMIT 1").get();
   if (!prod) {
+    const uid = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()?.id || 1;
     const info = db.prepare(`
-      INSERT INTO products (code,name,price,cost,average_cost_rial,is_manufactured)
-      VALUES ('RV-T1','reval test',120000,100000,100000,1)
-    `).run();
+      INSERT INTO products (user_id,code,name,price,cost,average_cost_rial,is_manufactured)
+      VALUES (?,'RV-T1','reval test',120000,100000,100000,1)
+    `).run(uid);
     prod = { id: info.lastInsertRowid };
   } else {
     db.prepare('UPDATE products SET average_cost_rial=100000, cost=100000, is_manufactured=1 WHERE id=?').run(prod.id);
