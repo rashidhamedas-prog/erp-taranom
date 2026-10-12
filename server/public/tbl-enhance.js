@@ -514,6 +514,12 @@
     return null;
   }
 
+  /** پس از هر فیلتر DOM (جستجو/مخفی کردن ردیف) جمع ستون را از ردیف‌های visible بساز */
+  function afterRowFilter(table) {
+    if (!table) return;
+    rebuildFooter(table);
+  }
+
   global.enhanceDataTable = enhanceDataTable;
   global.tblSyncColumns = tblSyncColumns;
   global.tblSelectedIds = selectedIds;
@@ -521,4 +527,5 @@
   global.tblInferBulkDelete = inferBulkDelete;
   global.tblEnsureRowIds = ensureRowIds;
   global.tblRebuildFooter = rebuildFooter;
+  global.tblAfterRowFilter = afterRowFilter;
 })(window);

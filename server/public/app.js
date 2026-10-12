@@ -20165,15 +20165,38 @@ async function deleteOpeningCheque(id){
   if(!confirm('این چک حذف شود؟')) return;
   try{ await api('DELETE','/cheque-records/'+id); showToast('حذف شد'); loadAccTab(accTab); }catch(e){}
 }
+/** بارگذاری تمام صفحات فهرست اسناد (+ جستجوی شماره سند سمت سرور). */
+async function fetchAllJournalDocs(extra){
+  const base=new URLSearchParams(extra||{});
+  if(!base.has('limit')) base.set('limit','200');
+  let page=1, total=0, out=[];
+  for(;;){
+    base.set('page', String(page));
+    const d=await api('GET','/accounting/journal?'+base.toString())||{};
+    const batch=d.entries||[];
+    total=Number(d.total)||0;
+    out=out.concat(batch);
+    if(!batch.length || out.length>=total || page>=100) break;
+    page++;
+  }
+  return { entries: out, total: total||out.length };
+}
+let _jdSearchTimer=null;
+let _jdSearchQ='';
 async function renderJournalDocsTab(body){
-  const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
-  const d=await api('GET','/accounting/journal'+dq)||{entries:[]};
+  const qs=new URLSearchParams();
+  if(accDateFrom) qs.set('from', accDateFrom);
+  if(accDateTo) qs.set('to', accDateTo);
+  if(_jdSearchQ) qs.set('q', _jdSearchQ);
+  const d=await fetchAllJournalDocs(qs.toString());
   const entries=d.entries||[];
+  const total=d.total!=null?d.total:entries.length;
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">لیست تمامی اسناد حسابداری — برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b>؛ ورود اکسل با برچسب سبز «اکسل»</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">لیست تمامی اسناد حسابداری — برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b>؛ ورود اکسل با برچسب سبز «اکسل». جستجو روی <b>شماره سند</b> (مثلاً ۳۲۹ یا #۳۲۹) در کل دیتابیس است.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){voucherModal()})}">➕ سند دستی</button>
-      <span class="tag">${fmt(entries.length)} سند</span>
+      <input id="jdSearch" type="search" inputmode="search" class="mono" placeholder="جستجو شماره سند…" value="${esc(_jdSearchQ)}" autocomplete="off" data-csp-style="${CSP.style(`min-width:200px;max-width:280px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}" data-csp-input="${CSP.bind('input',function(event){onJournalDocsSearch(this.value)})}">
+      <span class="tag">${fmt(total)} سند${_jdSearchQ?' (نتیجه جستجو)':''}</span>
     </div>
     ${entries.map(e=>`
       <div class="erp-fold">
@@ -20185,13 +20208,26 @@ async function renderJournalDocsTab(body){
             <span class="muted">${esc(e.created_by_name||'-')}</span>
           </span>
         </div>
-        <div class="erp-fold-body tbl-wrap tbl-no-sticky"><table class="tbl tbl-no-sticky" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
+        <div class="erp-fold-body tbl-wrap tbl-no-sticky" data-quick-search="1"><table class="tbl tbl-no-sticky" data-csp-style="${CSP.style(`font-size:12px;margin:0`)}"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
           <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
         </tr>`).join('')}</tbody></table></div>
-      </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
+      </div>`).join('')||`<div class="empty">${_jdSearchQ?'سندی با این شماره یافت نشد':'سندی ثبت نشده'}</div>`}`;
+  if(_jdSearchQ){
+    const inp=el('jdSearch');
+    if(inp){ try{ const v=inp.value; inp.focus(); inp.setSelectionRange(v.length,v.length); }catch(_){ } }
+  }
+}
+function onJournalDocsSearch(val){
+  const next=String(val||'').trim();
+  if(_jdSearchTimer) clearTimeout(_jdSearchTimer);
+  _jdSearchTimer=setTimeout(()=>{
+    if(next===_jdSearchQ) return;
+    _jdSearchQ=next;
+    loadAccTab('journal-docs');
+  },280);
 }
 
 async function renderDetailAccountsTab(body){
@@ -27505,7 +27541,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v351</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v352</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
