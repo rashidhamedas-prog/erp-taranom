@@ -529,7 +529,7 @@ function packSubtitleFromRows(rows){
   (rows||[]).forEach(r=>{
     if(!r) return;
     const c=String(r.color_name||r.color||'').trim();
-    const s=String(r.size_name||'').trim();
+    const s=displaySizeName(r.size_name||'');
     const q=Number(r.qty)||0;
     if(c && colors.indexOf(c)<0) colors.push(c);
     if(s) sizeMap[s]=(sizeMap[s]||0)+q;
@@ -878,6 +878,19 @@ function rebuildChartsForTheme(){
 }
 function toFa(n){ return String(n||0).replace(/[0-9]/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]); }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/** نمایش سایز بدون توضیح تناسب «(مناسب تا/از …)» — نام ذخیره‌شده در کاتالوگ عوض نمی‌شود */
+function stripSizeFitNote(s){
+  return String(s==null?'':s)
+    .replace(/\s*[\(（]\s*مناسب\s+(?:از|تا)[^\)）]*[\)）]/gu,'')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+}
+function displaySizeName(s){ return stripSizeFitNote(s); }
+function variantAttrsLabel(color, size, sep){
+  const c=String(color==null?'':color).trim();
+  const z=displaySizeName(size);
+  return [c,z].filter(Boolean).join(sep==null?' / ':sep);
+}
 function escDate(s){ // validate and display Jalali date; if corrupted, show '-'
   if(!s) return '-';
   const str=String(s);
@@ -25500,6 +25513,7 @@ ROUTES.settings = async function(){
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_reverse_vat', s.returns_reverse_vat!=='0', 'برگشت VAT روی برگشتِ لینک‌شده به فاکتور', 'فقط وقتی فاکتور مرجع انتخاب شده؛ سهم مالیات برگشتی متناسب با همان فاکتور در سند حسابداری معکوس می‌شود')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_allow_open', s.returns_allow_open==='1', 'اجازه برگشت بدون فاکتور (غیر از مدیر/حسابداری)', 'مدیر و حسابداری همیشه می‌توانند؛ با روشن بودن این گزینه سایر نقش‌های مجاز هم حالت «بدون فاکتور» را می‌بینند')}</div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_auto_allocate_credit', s.returns_auto_allocate_credit==='1', 'تخصیص خودکار اعتبار برگشت بدون فاکتور به فاکتورهای باز', 'پس از ثبت برگشت بدون فاکتور، اعتبار باقی‌مانده به ترتیب قدیمی‌ترین فاکتور باز همان طرف‌حساب تخصیص می‌یابد (بدون سند تسویهٔ جعلی)')}</div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
