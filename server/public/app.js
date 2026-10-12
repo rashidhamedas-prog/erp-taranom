@@ -15417,29 +15417,30 @@ async function ccAccountMapsLoad(){
     </tbody></table></div>`;
   }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
 }
+function syncCcaDraftFromDom(){
+  const n=(window._ccaDraft||[]).length;
+  if(!n || (!el('cca0-account-code') && !el('cca0-account-search'))) return;
+  window._ccaDraft=Array.from({length:n},(_,i)=>({
+    account_code:el('cca'+i+'-account-code')?.value?.trim()||'',
+    base_type:el('cca-base-'+i)?.value||'period_debit',
+    absorb_pct:Number.isFinite(parseFloat(el('cca-pct-'+i)?.value))?parseFloat(el('cca-pct-'+i).value):100,
+    budget_rial:moneyVal('cca-bud-'+i)||0,
+  }));
+}
 async function ccAccountMapsEdit(){
   const ccId=+(el('cca-cc')?.value||window._ccaCcId||0);
   if(!ccId){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
   let rows=window._ccaMaps||[];
   try{ rows=(await api('GET','/production/cost-centers/account-maps?cost_center_id='+ccId))?.rows||[]; }catch(e){}
-  let accounts=[];
   try{
-    const all=CACHE.chartOfAccounts||await api('GET','/accounting/chart-of-accounts')||[];
-    CACHE.chartOfAccounts=all;
-    accounts=all.filter(a=>a._depth>=2||String(a.code||'').length>=4);
-  }catch(e){ accounts=[]; }
-  if(!accounts.length){
-    try{ accounts=(await api('GET','/accounting/chart-of-accounts'))||[]; }catch(e){}
-  }
-  const opts=accounts.slice(0,800).map(a=>`<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name||'')}</option>`).join('');
+    CACHE.chartOfAccounts=CACHE.chartOfAccounts||await api('GET','/accounting/chart-of-accounts')||[];
+  }catch(e){ CACHE.chartOfAccounts=CACHE.chartOfAccounts||[]; }
   const draft=rows.length?rows:[{account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0}];
   window._ccaDraft=draft.map(m=>({...m}));
   const renderDraft=()=>{
     const box=el('cca-draft'); if(!box) return;
     box.innerHTML=window._ccaDraft.map((m,i)=>`<div class="form-grid" data-csp-style="${CSP.style(`border-top:1px solid var(--border,#e5e7eb);padding-top:8px;margin-top:8px`)}">
-      <div class="fg"><label>معین</label>
-        <input list="cca-acct-list" id="cca-code-${i}" value="${esc(m.account_code||'')}" placeholder="کد معین">
-      </div>
+      ${moayanAcctHtml('cca'+i,'حساب معین از کدینگ — فقط سطح معین؛ برای جذب سربار به این مرکز هزینه.')}
       <div class="fg"><label>مبنا</label>
         <select id="cca-base-${i}">
           <option value="period_debit" ${m.base_type==='period_debit'?'selected':''}>گردش بدهکار دوره</option>
@@ -15449,14 +15450,15 @@ async function ccAccountMapsEdit(){
       </div>
       <div class="fg"><label>جذب ٪</label><input id="cca-pct-${i}" type="number" min="0" max="100" step="0.1" value="${esc(String(m.absorb_pct!=null?m.absorb_pct:100))}"></div>
       <div class="fg"><label>بودجه (ریال)</label><input id="cca-bud-${i}" type="text" inputmode="numeric" class="money" value="${moneyInit(m.budget_rial||0)}"></div>
-      <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){window._ccaDraft.splice(i,1);renderDraft();})}">حذف</button></div>
-    </div>`).join('')+`<datalist id="cca-acct-list">${opts}</datalist>`;
+      <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){syncCcaDraftFromDom();window._ccaDraft.splice(i,1);if(!window._ccaDraft.length)window._ccaDraft=[{account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0}];renderDraft();})}">حذف</button></div>
+    </div>`).join('');
+    window._ccaDraft.forEach((m,i)=>{ if(m.account_code) moayanAcctPick('cca'+i, m.account_code); });
   };
   showModal('نگاشت معین → مرکز هزینه',`
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8`)}">هر معین فقط یک‌بار. برای مبنای بودجه، مبلغ بودجه همان ردیف لازم است.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8`)}">انتخاب معین از جستجوی کدینگ (همان picker استاندارد). هر معین فقط یک‌بار. برای مبنای بودجه، مبلغ بودجه همان ردیف لازم است.</p>
     <div id="cca-draft"></div>
     <div data-csp-style="${CSP.style(`margin-top:10px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap`)}">
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){window._ccaDraft.push({account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0});renderDraft();})}">＋ معین</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){syncCcaDraftFromDom();window._ccaDraft.push({account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0});renderDraft();})}">＋ معین</button>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button>
         <button class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsSave(ccId)})}">ذخیره</button>
@@ -15465,8 +15467,9 @@ async function ccAccountMapsEdit(){
   setTimeout(renderDraft,0);
 }
 async function ccAccountMapsSave(ccId){
+  syncCcaDraftFromDom();
   const maps=(window._ccaDraft||[]).map((_,i)=>({
-    account_code:el('cca-code-'+i)?.value?.trim(),
+    account_code:el('cca'+i+'-account-code')?.value?.trim(),
     base_type:el('cca-base-'+i)?.value||'period_debit',
     absorb_pct:parseFloat(el('cca-pct-'+i)?.value),
     budget_rial:moneyVal('cca-bud-'+i)||0,
@@ -27152,7 +27155,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
-        <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004):</b> در همان صفحهٔ نرخ سربار (یا از ویرایش مرکز هزینه → «جذب از معین») یک یا چند حساب معین را انتخاب کنید؛ برای هر معین درصد جذب ۰–۱۰۰ و مبنای مبلغ را بگذارید: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>. پیش‌نمایش جمع جذب دوره را نشان می‌دهد؛ «اعمال به بودجه نرخ» همان مبلغ را روی بودجهٔ ثابت نرخ سربار دوره می‌نشاند.</li>
+        <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> در همان صفحهٔ نرخ سربار (یا از ویرایش مرکز هزینه → «جذب از معین») یک یا چند حساب معین را با <b>جستجوی استاندارد کدینگ</b> (moayan) انتخاب کنید؛ برای هر معین درصد جذب ۰–۱۰۰ و مبنای مبلغ را بگذارید: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>. پیش‌نمایش جمع جذب دوره را نشان می‌دهد؛ «اعمال به بودجه نرخ» همان مبلغ را روی بودجهٔ ثابت نرخ سربار دوره می‌نشاند.</li>
         <li><b>تعدیل بها (v358):</b> زیر نرخ سربار — <b>اتومات</b> (بازه تاریخ برای کالاهای تولیدشدهٔ دارای موجودی) یا <b>دستی</b> (یک کالا). بهای تمام‌شده از roll-up BOM/نرخ دوره دوباره محاسبه می‌شود، قیمت عمده/تک از فرمول مارک‌آپ، و Δ ارزش موجودی با سند به ۵۲۱۴ ثبت می‌شود. ابطال = برگشت بها/قیمت + soft-void سند (بدون حذف فیزیکی).</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
