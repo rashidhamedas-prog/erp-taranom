@@ -5,8 +5,8 @@
 - **Frontend:** کارت KPI سود خالص/ناخالص، پل سود، خط سود در نمودار ماهانه؛ Help؛ SW `v357`.
 - **نکته:** خرید به‌عنوان موجودی مستقیم از سود کم نمی‌شود (مثل P&L).
 - **فایل‌ها:** `lib/sales-purchase-dashboard.js`, `public/{portal-ui,app,app.css,sw,index}.html|js`, `scripts/test-sales-purchase-dashboard-v357.js`, CHANGE-LOG.
-- **تست:** در حال اجرا روی ایران.
-- **Deploy:** ⏳
+- **تست:** `test-sales-purchase-dashboard-v357` ۱۸/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران.
+- **Deploy:** ✅ `68d2c84` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v357`.
 
 ### ۱۴۰۵/۰۷/۲۱ — Drill-down سند در داشبورد فروش و خرید (SW v356)
 
