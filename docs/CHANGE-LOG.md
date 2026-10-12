@@ -3,8 +3,8 @@
 - **مشکل:** سقف ۵۰ سند در `GET /api/accounting/journal`؛ برچسب «۵۰ سند» گمراه‌کننده. کادر «جستجو در این لیست» فقط خطوط همان جدول را فیلتر می‌کرد، نه شماره سند در کل دیتابیس.
 - **رفع:** `limit` قابل تنظیم (پیش‌فرض ۲۰۰، سقف ۵۰۰) + `q` روی `id` / `voucher_number` (ارقام فارسی و `#`). فرانت همهٔ صفحات را می‌گیرد؛ کادر «جستجو شماره سند» سروری است؛ شمارنده = `total`.
 - **فایل‌ها:** `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-journal-docs-list-v353.js`, CHANGE-LOG, Help.
-- **تست:** `test-journal-docs-list-v353` (+ sms/sync روی ایران).
-- **Deploy:** ⏳
+- **تست:** `test-journal-docs-list-v353` ۱۴/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران.
+- **Deploy:** ✅ `85de476` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v354`.
 
 ### ۱۴۰۵/۰۷/۲۱ — فیلتر بازه + جمع ستون هم‌خوان با جستجو (SW v353)
 
