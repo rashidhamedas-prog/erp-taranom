@@ -49,45 +49,27 @@ try {
   `).run(uid, cid).lastInsertRowid;
   // skipJournal skips POS posting — apply both without skip so notes/leaves match prod T-0015 shape,
   // but if GL seed is thin, fall back to cheque-only apply + manual POS settlement.
-  let usedFallback = false;
-  try {
-    applyInvoicePaySplits(db, {
-      invoiceId: invA, custId: cid, date: '1405/07/19', userId: uid, num: 'T-MIX',
-      splits: [
-        {
-          pay_type: 'cheque', amount: 1800000000,
-          cheque_bank: 'سپه', cheque_branch: 'سبزوار', cheque_account: '1',
-          cheque_number: '519196', sayadi: '3810050050916587', cheque_owner: 'علی',
-          cheque_due: '1405/07/19', sheba: '',
-        },
-        { pay_type: 'pos_card', amount: 27500000, terminal_id: 1 },
-      ],
-      skipJournal: false,
-    });
-  } catch (_) {
-    usedFallback = true;
-    applyInvoicePaySplits(db, {
-      invoiceId: invA, custId: cid, date: '1405/07/19', userId: uid, num: 'T-MIX',
-      splits: [
-        {
-          pay_type: 'cheque', amount: 1800000000,
-          cheque_bank: 'سپه', cheque_branch: 'سبزوار', cheque_account: '1',
-          cheque_number: '519196', sayadi: '3810050050916587', cheque_owner: 'علی',
-          cheque_due: '1405/07/19', sheba: '',
-        },
-        { pay_type: 'pos_card', amount: 27500000, terminal_id: 1 },
-      ],
-      skipJournal: true,
-    });
-    // With skipJournal, POS is skipped — mirror prod with a posted POS settlement row.
-    db.prepare(`
-      INSERT INTO settlements(user_id,cust_id,invoice_id,amount,amount_rial,pay_type,date,note,status)
-      VALUES(?,?,?,?,?,'pos_card','1405/07/19','دریافت هنگام فاکتور T-MIX — کارتخوان 2','posted')
-    `).run(uid, cid, invA, 27500000, 27500000);
-  }
+  // skipJournal: POS stage skipped (no terminal needed); still labels cheque as فقره because splits.length>1
+  applyInvoicePaySplits(db, {
+    invoiceId: invA, custId: cid, date: '1405/07/19', userId: uid, num: 'T-MIX',
+    splits: [
+      {
+        pay_type: 'cheque', amount: 1800000000,
+        cheque_bank: 'سپه', cheque_branch: 'سبزوار', cheque_account: '1',
+        cheque_number: '519196', sayadi: '3810050050916587', cheque_owner: 'علی',
+        cheque_due: '1405/07/19', sheba: '',
+      },
+      { pay_type: 'pos_card', amount: 27500000, terminal_id: 1 },
+    ],
+    skipJournal: true,
+  });
+  db.prepare(`
+    INSERT INTO settlements(user_id,cust_id,invoice_id,amount,amount_rial,pay_type,date,note,status)
+    VALUES(?,?,?,?,?,'pos_card','1405/07/19','دریافت هنگام فاکتور T-MIX — کارتخوان 2','posted')
+  `).run(uid, cid, invA, 27500000, 27500000);
   const settA = db.prepare("SELECT pay_type, note FROM settlements WHERE invoice_id=? ORDER BY id").all(invA);
   const chqA = db.prepare("SELECT id, amount FROM cheque_records WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'").all(invA);
-  ok(settA.length >= 2 || usedFallback, 'mixed: settlements present', settA.length);
+  ok(settA.length >= 2, 'mixed: settlements present', settA.length);
   ok(settA.filter(s => s.pay_type === 'cheque').length === 1, 'mixed: 1 cheque settlement');
   ok(chqA.length === 1, 'mixed: exactly 1 cheque_records (POS not in book)', chqA.length);
   const chqNote = String((settA.find(s => s.pay_type === 'cheque') || {}).note || '');
