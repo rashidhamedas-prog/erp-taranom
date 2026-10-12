@@ -384,63 +384,187 @@ function aggregateProducts(db, filters, limit) {
     }));
 }
 
-function recentDocs(db, filters, limit) {
+function mapSalesDoc(r) {
+  return {
+    kind: 'sales',
+    id: r.id,
+    num: r.num,
+    date: r.date,
+    type: r.type,
+    party_id: r.party_id || null,
+    party_name: r.party_name || '—',
+    amount_rial: Math.round(Number(r.amount_rial) || 0),
+    open_action: 'invoice',
+    nav: 'acc-sales-invoices',
+  };
+}
+
+function mapPurchaseDoc(r) {
+  return {
+    kind: 'purchase',
+    id: r.id,
+    num: r.num,
+    date: r.date,
+    type: 'purchase',
+    party_id: r.party_id || null,
+    party_name: r.party_name || '—',
+    amount_rial: Math.round(Number(r.amount_rial) || 0),
+    open_action: 'purchase',
+    nav: 'acc-purchases',
+  };
+}
+
+function listSalesDocs(db, filters, limit) {
   const salesW = buildSalesWhere(filters, 'i');
-  const purW = buildPurchaseWhere(filters, 'p');
   const sAmt = rialExpr('i', 'final_rial', 'final');
-  const hasFinalRial = tableHasColumn(db, 'purchase_invoices', 'final_rial');
-  const pAmt = hasFinalRial
-    ? rialExpr('p', 'final_rial', 'final')
-    : 'COALESCE(ROUND(p.final),0)';
-  const out = [];
   try {
-    const s = db.prepare(`
-      SELECT i.id, i.num, i.date, i.type, ${sAmt} AS amount_rial,
-        c.biz AS party_name, 'sales' AS kind
+    return db.prepare(`
+      SELECT i.id, i.num, i.date, i.type, i.cust_id AS party_id,
+        ${sAmt} AS amount_rial, c.biz AS party_name
       FROM invoices i
       LEFT JOIN customers c ON c.id = i.cust_id
       WHERE ${salesW.where}
       ORDER BY i.date DESC, i.id DESC
       LIMIT ?
-    `).all(...salesW.params, limit);
-    for (const r of s) {
-      out.push({
-        kind: 'sales',
-        id: r.id,
-        num: r.num,
-        date: r.date,
-        type: r.type,
-        party_name: r.party_name || '—',
-        amount_rial: Math.round(Number(r.amount_rial) || 0),
-        nav: 'acc-sales-invoices',
-      });
-    }
-  } catch (_) { /* */ }
+    `).all(...salesW.params, limit).map(mapSalesDoc);
+  } catch (_) {
+    return [];
+  }
+}
+
+function listPurchaseDocs(db, filters, limit) {
+  const purW = buildPurchaseWhere(filters, 'p');
+  const hasFinalRial = tableHasColumn(db, 'purchase_invoices', 'final_rial');
+  const pAmt = hasFinalRial
+    ? rialExpr('p', 'final_rial', 'final')
+    : 'COALESCE(ROUND(p.final),0)';
   try {
-    const p = db.prepare(`
-      SELECT p.id, p.num, p.date, ${pAmt} AS amount_rial,
-        s.name AS party_name, 'purchase' AS kind
+    return db.prepare(`
+      SELECT p.id, p.num, p.date, p.supplier_id AS party_id,
+        ${pAmt} AS amount_rial, s.name AS party_name
       FROM purchase_invoices p
       LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE ${purW.where}
       ORDER BY p.date DESC, p.id DESC
       LIMIT ?
-    `).all(...purW.params, limit);
-    for (const r of p) {
-      out.push({
-        kind: 'purchase',
-        id: r.id,
-        num: r.num,
-        date: r.date,
-        type: 'purchase',
-        party_name: r.party_name || '—',
-        amount_rial: Math.round(Number(r.amount_rial) || 0),
-        nav: 'acc-purchases',
-      });
-    }
-  } catch (_) { /* */ }
+    `).all(...purW.params, limit).map(mapPurchaseDoc);
+  } catch (_) {
+    return [];
+  }
+}
+
+function recentDocs(db, filters, limit) {
+  const half = Math.max(4, Math.ceil(limit / 2));
+  const out = [...listSalesDocs(db, filters, half), ...listPurchaseDocs(db, filters, half)];
   out.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id));
   return out.slice(0, limit);
+}
+
+/** اسناد فروش که شامل product_id هستند — مبلغ ردیف همان کالا. */
+function listSalesDocsForProduct(db, filters, productId, limit) {
+  const salesW = buildSalesWhere(filters, 'i');
+  const sAmt = rialExpr('i', 'final_rial', 'final');
+  let rows;
+  try {
+    rows = db.prepare(`
+      SELECT i.id, i.num, i.date, i.type, i.cust_id AS party_id, i.rows,
+        ${sAmt} AS amount_rial, c.biz AS party_name
+      FROM invoices i
+      LEFT JOIN customers c ON c.id = i.cust_id
+      WHERE ${salesW.where}
+      ORDER BY i.date DESC, i.id DESC
+    `).all(...salesW.params);
+  } catch (_) {
+    return [];
+  }
+  const out = [];
+  for (const r of rows) {
+    let lines;
+    try { lines = JSON.parse(r.rows || '[]'); } catch (_) { continue; }
+    if (!Array.isArray(lines)) continue;
+    let lineSum = 0;
+    let hit = false;
+    for (const l of lines) {
+      if (Number(l.product_id) !== productId) continue;
+      hit = true;
+      lineSum += Math.round(Number(l.sum) || ((Number(l.price) || 0) * (Number(l.qty) || 0)) || 0);
+    }
+    if (!hit) continue;
+    out.push(mapSalesDoc({
+      ...r,
+      amount_rial: lineSum || r.amount_rial,
+    }));
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function resolveDrillTitle(db, drillType, drillId) {
+  try {
+    if (drillType === 'customer') {
+      const r = db.prepare('SELECT biz AS name FROM customers WHERE id=?').get(drillId);
+      return r && r.name ? ('مشتری: ' + r.name) : ('مشتری #' + drillId);
+    }
+    if (drillType === 'supplier') {
+      const r = db.prepare('SELECT name FROM suppliers WHERE id=?').get(drillId);
+      return r && r.name ? ('تأمین‌کننده: ' + r.name) : ('تأمین‌کننده #' + drillId);
+    }
+    if (drillType === 'product') {
+      const r = db.prepare('SELECT name, code FROM products WHERE id=?').get(drillId);
+      if (!r) return 'کالا #' + drillId;
+      return 'کالا: ' + (r.code ? (r.code + ' · ') : '') + (r.name || '');
+    }
+    if (drillType === 'rep') {
+      const r = db.prepare('SELECT COALESCE(name, username) AS name FROM users WHERE id=?').get(drillId);
+      return r && r.name ? ('کارشناس: ' + r.name) : ('کارشناس #' + drillId);
+    }
+  } catch (_) { /* */ }
+  if (drillType === 'sales') return 'همه فاکتورهای فروش بازه';
+  if (drillType === 'purchase') return 'همه فاکتورهای خرید بازه';
+  return 'جزئیات';
+}
+
+/**
+ * Drill سطح ۱: KPI/بعد → لیست اسناد تراکنشی (با حفظ فیلترهای داشبورد).
+ * drill_type: customer|supplier|product|rep|sales|purchase
+ */
+function buildDrill(db, filters, drillType, drillId, limit) {
+  const type = String(drillType || '').trim().toLowerCase();
+  if (!type) return null;
+  const id = toInt(drillId);
+  const title = resolveDrillTitle(db, type, id);
+  let docs = [];
+  if (type === 'customer') {
+    if (!id) return null;
+    docs = listSalesDocs(db, { ...filters, cust_id: id }, limit);
+  } else if (type === 'supplier') {
+    if (!id) return null;
+    docs = listPurchaseDocs(db, { ...filters, supplier_id: id }, limit);
+  } else if (type === 'rep') {
+    if (!id) return null;
+    docs = listSalesDocs(db, { ...filters, user_id: id }, limit);
+  } else if (type === 'product') {
+    if (!id) return null;
+    docs = listSalesDocsForProduct(db, filters, id, limit);
+  } else if (type === 'sales') {
+    docs = listSalesDocs(db, filters, limit);
+  } else if (type === 'purchase') {
+    docs = listPurchaseDocs(db, filters, limit);
+  } else {
+    return null;
+  }
+  const total_rial = docs.reduce((a, d) => a + (d.amount_rial || 0), 0);
+  return {
+    type,
+    id: id || null,
+    title,
+    count: docs.length,
+    total_rial: Math.round(total_rial),
+    docs,
+    open_hint: type === 'purchase' || (docs[0] && docs[0].kind === 'purchase')
+      ? 'باز کردن = پیش‌نمایش چاپ فاکتور خرید'
+      : 'باز کردن = فرم/جزئیات فاکتور فروش',
+  };
 }
 
 function buildAlerts(kpis, comparison, topCustomersList) {
@@ -530,6 +654,9 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     hasPurWh: tableHasColumn(db, 'purchase_invoices', 'warehouse_id'),
   };
   const limit = Math.min(Math.max(toInt(query.limit) || 10, 5), 50);
+  const drillLimit = Math.min(Math.max(toInt(query.drill_limit) || 40, 10), 100);
+  const drillType = String(query.drill_type || '').trim().toLowerCase();
+  const drillId = toInt(query.drill_id);
 
   const sales = sumSales(db, filters);
   const purchases = sumPurchases(db, filters);
@@ -587,6 +714,9 @@ function buildSalesPurchaseDashboard(db, query = {}) {
   const byProduct = aggregateProducts(db, filters, limit);
   const monthly = monthlySeries(db, filters);
   const recent = recentDocs(db, filters, 16);
+  const drill = drillType
+    ? buildDrill(db, filters, drillType, drillId, drillLimit)
+    : null;
   const alerts = buildAlerts(kpis, comparison, byCustomer);
   const health = healthScore(kpis, alerts);
 
@@ -605,7 +735,7 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     from: from || '',
     to: to || '',
     currency: 'IRR',
-    unit_note: 'مبالغ به ریال — فاکتور قطعی فروش (معمولی/رسمی) و فاکتور خرید زنده؛ برگشت‌های فعال از خالص کسر شده‌اند.',
+    unit_note: 'مبالغ به ریال — فاکتور قطعی فروش (معمولی/رسمی) و فاکتور خرید زنده؛ برگشت‌های فعال از خالص کسر شده‌اند. Drill: KPI/بعد → اسناد → باز کردن فاکتور.',
     filters_applied: {
       cust_id: filters.cust_id || null,
       supplier_id: filters.supplier_id || null,
@@ -621,13 +751,28 @@ function buildSalesPurchaseDashboard(db, query = {}) {
     by_customer: byCustomer.map((r) => ({
       ...r,
       share_pct: Math.round((r.amount_rial / totalCust) * 1000) / 10,
+      drill_type: 'customer',
+      drill_id: r.id,
     })),
-    by_supplier: bySupplier,
-    by_rep: byRep,
-    by_product: byProduct,
+    by_supplier: bySupplier.map((r) => ({
+      ...r,
+      drill_type: 'supplier',
+      drill_id: r.id,
+    })),
+    by_rep: byRep.map((r) => ({
+      ...r,
+      drill_type: 'rep',
+      drill_id: r.id,
+    })),
+    by_product: byProduct.map((r) => ({
+      ...r,
+      drill_type: 'product',
+      drill_id: r.product_id,
+    })),
     recent_docs: recent,
+    drill,
     alerts,
   };
 }
 
-module.exports = { buildSalesPurchaseDashboard };
+module.exports = { buildSalesPurchaseDashboard, buildDrill };

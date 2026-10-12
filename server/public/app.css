@@ -1896,6 +1896,14 @@ body.erp-demo-mode{padding-top:32px}
   display:flex;flex-wrap:wrap;gap:8px;align-items:center;
   padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card)
 }
+.sp-dash .sp-drill-panel{
+  border:1.5px solid rgba(26,92,56,.28);
+  box-shadow:0 0 0 3px rgba(26,92,56,.06);
+}
+.sp-dash .sp-dim-row,
+.sp-dash .sp-doc-row{cursor:pointer}
+.sp-dash .sp-dim-row:hover,
+.sp-dash .sp-doc-row:hover{background:rgba(26,92,56,.06)}
 @media (max-width:720px){
   .sp-dash .sp-filter-bar select{min-width:0;flex:1 1 140px}
 }

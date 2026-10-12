@@ -1683,6 +1683,42 @@
     await loadSalesPurchaseDashboard();
   }
 
+  function spDashDrill(type, id) {
+    window._spDashDrill = { type: String(type || ''), id: id != null && id !== '' ? Number(id) : null };
+    loadSalesPurchaseDashboard();
+  }
+  function spDashClearDrill() {
+    window._spDashDrill = null;
+    loadSalesPurchaseDashboard();
+  }
+  function spDashOpenDoc(kind, id) {
+    if (typeof openAccTradeDoc === 'function') openAccTradeDoc(kind, id);
+    else if (String(kind) === 'purchase' && typeof printPurchase === 'function') printPurchase(id);
+    else if (typeof openInvBuilder === 'function') openInvBuilder(id);
+  }
+  function spDashDocRows(docs) {
+    return (docs || []).map((r) => `
+      <tr class="sp-doc-row" data-csp-click="${CSP.bind('click', function (ev) {
+        if (ev && ev.target && ev.target.closest && ev.target.closest('button')) return;
+        spDashOpenDoc(r.kind, r.id);
+      })}">
+        <td>${r.kind === 'sales' ? 'فروش' : 'خرید'}</td>
+        <td class="mono"><b>${esc(r.num || ('#' + r.id))}</b></td>
+        <td class="mono">${esc(r.date || '—')}</td>
+        <td>${esc(r.party_name || '—')}</td>
+        <td class="mono">${fmt(r.amount_rial || 0)}</td>
+        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+          <button class="btn sm" data-csp-click="${CSP.bind('click', function () { spDashOpenDoc(r.kind, r.id); })}" title="باز کردن سند">باز کردن</button>
+          ${r.kind === 'sales' && typeof printInvoice === 'function'
+            ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { printInvoice(r.id); })}" title="چاپ">🖨️</button>`
+            : (r.kind === 'purchase' && typeof printPurchase === 'function'
+              ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { printPurchase(r.id); })}" title="چاپ">🖨️</button>`
+              : '')}
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(r.nav || (r.kind === 'purchase' ? 'acc-purchases' : 'acc-sales-invoices')); })}" title="لیست">لیست</button>
+        </td>
+      </tr>`).join('') || emptyRow(6);
+  }
+
   async function loadSalesPurchaseDashboard() {
     const box = document.getElementById('spDashBody');
     if (!box) return;
@@ -1696,6 +1732,11 @@
     if (cust && cust.value) qp.push('cust_id=' + encodeURIComponent(cust.value));
     if (sup && sup.value) qp.push('supplier_id=' + encodeURIComponent(sup.value));
     if (rep && rep.value) qp.push('user_id=' + encodeURIComponent(rep.value));
+    const drill = window._spDashDrill || null;
+    if (drill && drill.type) {
+      qp.push('drill_type=' + encodeURIComponent(drill.type));
+      if (drill.id) qp.push('drill_id=' + encodeURIComponent(drill.id));
+    }
     let d = {};
     try {
       d = await api('GET', '/adv-reports/sales-purchase-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
@@ -1706,6 +1747,7 @@
     window._spDashLast = d;
     const k = d.kpis || {};
     const cmp = d.comparison || {};
+    const dr = d.drill || null;
     const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
     const health = Number(d.health_score) || 0;
     const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
@@ -1720,8 +1762,14 @@
       const sign = v > 0 ? '+' : '';
       return sign + fmt(v) + '٪ vs دوره قبل';
     };
-    const partyRows = (rows, kind) => (rows || []).map((r) => `
-      <tr>
+    const partyRows = (rows, kind) => (rows || []).map((r) => {
+      const dtype = r.drill_type || (kind === 'cust' ? 'customer' : 'supplier');
+      const did = r.drill_id != null ? r.drill_id : r.id;
+      return `
+      <tr class="sp-dim-row" data-csp-click="${CSP.bind('click', function (ev) {
+        if (ev && ev.target && ev.target.closest && ev.target.closest('button')) return;
+        spDashDrill(dtype, did);
+      })}">
         <td><b>${esc(r.name || '—')}</b></td>
         <td class="mono">${fmt(r.doc_count || 0)}</td>
         <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.amount_rial || 0)}</td>
@@ -1732,9 +1780,10 @@
           </div>
         </td>
         <td>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(kind === 'cust' ? 'acc-receivables' : 'acc-purchases'); })}">باز</button>
+          <button class="btn sm" data-csp-click="${CSP.bind('click', function () { spDashDrill(dtype, did); })}">اسناد</button>
         </td>
-      </tr>`).join('') || emptyRow(5);
+      </tr>`;
+    }).join('') || emptyRow(5);
 
     box.innerHTML = `
       <div class="trsy-meta">
@@ -1742,10 +1791,28 @@
         <span>بازه: <b>${esc(d.from || 'ابتدا')}</b> تا <b>${esc(d.to || 'اکنون')}</b></span>
         <span>بروزرسانی: ${esc(liveAt)}</span>
         <span class="trsy-chip ${healthCls}">سلامت ${fmt(health)}٪</span>
+        <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">کلیک روی KPI/ردیف → اسناد ← باز کردن فاکتور</span>
       </div>
 
+      ${dr ? `
+      <div class="panel sp-drill-panel" id="spDrillPanel">
+        <div class="panel-head">
+          <h4>🔎 ${esc(dr.title || 'جزئیات اسناد')}</h4>
+          <div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;flex-wrap:wrap`)}">
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${fmt(dr.count || 0)} سند · ${fmt(dr.total_rial || 0)} ریال</span>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { spDashClearDrill(); })}">✕ بستن drill</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(dr.open_hint || 'روی ردیف یا «باز کردن» بزنید تا سند اصلی باز شود.')}</div>
+          <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>نوع</th><th>شماره</th><th>تاریخ</th><th>طرف</th><th data-col-kind="money">مبلغ</th><th class="no-sort">عملیات</th>
+          </tr></thead><tbody>${spDashDocRows(dr.docs)}</tbody></table></div>
+        </div>
+      </div>` : ''}
+
       <div class="rep-kpi-grid trsy-kpi">
-        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-sales-invoices'); })}">
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { spDashDrill('sales'); })}" title="نمایش فاکتورهای فروش این بازه">
           <div class="kpi-icon">🧾</div>
           <div class="kpi-label">فروش خالص</div>
           <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(k.sales_net_rial || 0)}</div>
@@ -1753,7 +1820,7 @@
             <span data-csp-style="${CSP.style(`color:${deltaTone(cmp.sales_delta_pct)}`)}"> · ${esc(deltaLabel(cmp.sales_delta_pct))}</span>
           </div>
         </div>
-        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-purchases'); })}">
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { spDashDrill('purchase'); })}" title="نمایش فاکتورهای خرید این بازه">
           <div class="kpi-icon">📦</div>
           <div class="kpi-label">خرید خالص</div>
           <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(k.purchase_net_rial || 0)}</div>
@@ -1810,16 +1877,22 @@
           </div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h4>👥 کارشناسان فروش</h4></div>
+          <div class="panel-head"><h4>👥 کارشناسان فروش</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">کلیک = اسناد</span>
+          </div>
           <div class="panel-body tbl-wrap">
             <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-              <th>کارشناس</th><th>تعداد</th><th data-col-kind="money">فروش</th>
+              <th>کارشناس</th><th>تعداد</th><th data-col-kind="money">فروش</th><th class="no-sort"></th>
             </tr></thead><tbody>
-              ${(d.by_rep || []).map((r) => `<tr>
+              ${(d.by_rep || []).map((r) => `<tr class="sp-dim-row" data-csp-click="${CSP.bind('click', function (ev) {
+                if (ev && ev.target && ev.target.closest && ev.target.closest('button')) return;
+                spDashDrill('rep', r.drill_id || r.id);
+              })}">
                 <td>${esc(r.name || '—')}</td>
                 <td class="mono">${fmt(r.doc_count || 0)}</td>
                 <td class="mono">${fmt(r.amount_rial || 0)}</td>
-              </tr>`).join('') || emptyRow(3)}
+                <td><button class="btn sm" data-csp-click="${CSP.bind('click', function () { spDashDrill('rep', r.drill_id || r.id); })}">اسناد</button></td>
+              </tr>`).join('') || emptyRow(4)}
             </tbody></table>
           </div>
         </div>
@@ -1851,34 +1924,35 @@
 
       <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
         <div class="panel">
-          <div class="panel-head"><h4>👗 پرفروش‌ترین کالاها</h4></div>
+          <div class="panel-head"><h4>👗 پرفروش‌ترین کالاها</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">کلیک = فاکتورهای شامل کالا</span>
+          </div>
           <div class="panel-body tbl-wrap">
             <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-              <th>کالا</th><th>تعداد</th><th data-col-kind="money">مبلغ</th>
+              <th>کالا</th><th>تعداد</th><th data-col-kind="money">مبلغ</th><th class="no-sort"></th>
             </tr></thead><tbody>
-              ${(d.by_product || []).map((r) => `<tr>
+              ${(d.by_product || []).map((r) => `<tr class="sp-dim-row" data-csp-click="${CSP.bind('click', function (ev) {
+                if (ev && ev.target && ev.target.closest && ev.target.closest('button')) return;
+                if (r.drill_id || r.product_id) spDashDrill('product', r.drill_id || r.product_id);
+              })}">
                 <td>${esc(r.name || '—')}</td>
                 <td class="mono">${fmt(r.qty || 0)}</td>
                 <td class="mono">${fmt(r.amount_rial || 0)}</td>
-              </tr>`).join('') || emptyRow(3)}
+                <td>${(r.drill_id || r.product_id)
+                  ? `<button class="btn sm" data-csp-click="${CSP.bind('click', function () { spDashDrill('product', r.drill_id || r.product_id); })}">اسناد</button>`
+                  : '—'}</td>
+              </tr>`).join('') || emptyRow(4)}
             </tbody></table>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h4>📄 آخرین اسناد (drill-down)</h4></div>
+          <div class="panel-head"><h4>📄 آخرین اسناد</h4>
+            <span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">کلیک ردیف = باز کردن فاکتور</span>
+          </div>
           <div class="panel-body tbl-wrap">
             <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-              <th>نوع</th><th>شماره</th><th>تاریخ</th><th>طرف</th><th data-col-kind="money">مبلغ</th><th class="no-sort"></th>
-            </tr></thead><tbody>
-              ${(d.recent_docs || []).map((r) => `<tr>
-                <td>${r.kind === 'sales' ? 'فروش' : 'خرید'}</td>
-                <td class="mono">${esc(r.num || ('#' + r.id))}</td>
-                <td class="mono">${esc(r.date || '—')}</td>
-                <td>${esc(r.party_name || '—')}</td>
-                <td class="mono">${fmt(r.amount_rial || 0)}</td>
-                <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(r.nav || 'acc-sales-invoices'); })}">لیست</button></td>
-              </tr>`).join('') || emptyRow(6)}
-            </tbody></table>
+              <th>نوع</th><th>شماره</th><th>تاریخ</th><th>طرف</th><th data-col-kind="money">مبلغ</th><th class="no-sort">عملیات</th>
+            </tr></thead><tbody>${spDashDocRows(d.recent_docs)}</tbody></table>
           </div>
         </div>
       </div>
@@ -1887,9 +1961,16 @@
         ${esc(d.unit_note || 'مبالغ به ریال است.')}
         مقایسه دوره قبل روی بازهٔ هم‌طول بلافاصله قبل از «از» نوار تاریخ حساب می‌شود
         ${cmp.prior_from ? ` (${esc(cmp.prior_from)} تا ${esc(cmp.prior_to)})` : ''}.
+        فروش → فرم فاکتور؛ خرید → پیش‌نمایش چاپ (ویرایش خرید پس از ثبت نیست).
       </div>`;
 
     if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+    if (dr) {
+      const panel = document.getElementById('spDrillPanel');
+      if (panel && typeof panel.scrollIntoView === 'function') {
+        try { panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { /* */ }
+      }
+    }
     try {
       if (typeof loadProdChartJs === 'function') await loadProdChartJs();
       const months = d.monthly || [];
@@ -2431,6 +2512,9 @@
     loadTreasuryDashboard,
     renderSalesPurchaseDashboardTab,
     loadSalesPurchaseDashboard,
+    spDashDrill,
+    spDashClearDrill,
+    spDashOpenDoc,
     renderChequeDashboardTab,
     loadChequeDashboard,
     renderChequebookReportTab,
@@ -2513,6 +2597,9 @@
   global.loadTreasuryDashboard = loadTreasuryDashboard;
   global.renderSalesPurchaseDashboardTab = renderSalesPurchaseDashboardTab;
   global.loadSalesPurchaseDashboard = loadSalesPurchaseDashboard;
+  global.spDashDrill = spDashDrill;
+  global.spDashClearDrill = spDashClearDrill;
+  global.spDashOpenDoc = spDashOpenDoc;
   global.renderChequeDashboardTab = renderChequeDashboardTab;
   global.loadChequeDashboard = loadChequeDashboard;
   global.renderChequebookReportTab = renderChequebookReportTab;

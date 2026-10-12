@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۱ — Drill-down سند در داشبورد فروش و خرید (SW v356)
+
+- **هدف:** drill اصولی دو سطحی: KPI/بعد (مشتری، تأمین‌کننده، کالا، کارشناس، فروش، خرید) → لیست اسناد همان فیلتر → باز کردن فاکتور واقعی.
+- **Backend:** `drill_type` + `drill_id` روی `GET /adv-reports/sales-purchase-dashboard`؛ پاسخ `drill.docs` با `open_action`؛ drill کالا روی مبلغ خط.
+- **Frontend:** پنل drill؛ `openAccTradeDoc` (فروش=`openInvBuilder`، خرید=`printPurchase`)؛ کلیک ردیف/KPI؛ Help؛ SW `v356`.
+- **فایل‌ها:** `lib/sales-purchase-dashboard.js`, `public/{portal-ui,app,app.css,sw,index}.html|js`, `scripts/test-sales-purchase-dashboard-v356.js`, CHANGE-LOG.
+- **تست:** `test-sales-purchase-dashboard-v356` (+ sms/sync روی ایران).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — داشبورد پیشرفته فروش و خرید (SW v355)
 
 - **هدف:** داشبورد گزارش‌گیری مدیریتی فروش+خرید زیر حسابداری → فروش و خرید → گزارشات، با الگوی ۲۰۲۶ (KPI اقدام‌پذیر، مقایسه دوره قبل، exception-first، drill-down، mix مشتری/تأمین‌کننده/کالا).
