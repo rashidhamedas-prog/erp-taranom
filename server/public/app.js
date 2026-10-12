@@ -9063,12 +9063,46 @@ let accHideZero = true;
 let accRecvViewMode = 'customer';
 let accRecvQ = '';
 let stmtCustId = '', stmtType = '';
+/** نوار فیلتر بازه در شل حسابداری / MDI — پس از عوض شدن preset باید بازسازی شود (ورودی بازه دلخواه). */
+function accFilterWrapEl(){
+  const focused=window.WinMgr&&WinMgr.focusedBody&&WinMgr.focusedBody();
+  if(focused){
+    const fw=focused.querySelector('#accShellFilterWrap');
+    if(fw) return fw;
+  }
+  const viewRoot=document.getElementById('view');
+  return (viewRoot&&viewRoot.querySelector('#accShellFilterWrap'))||el('accShellFilterWrap');
+}
+function refreshAccFilterChrome(){
+  if(!accTab || (typeof ACC_NOFILTER_TABS!=='undefined' && ACC_NOFILTER_TABS.has(accTab))) return;
+  const fw=accFilterWrapEl();
+  if(!fw) return;
+  fw.style.display='';
+  fw.innerHTML=buildAccFilterHtml(accTab);
+  try{ attachDatepickers(fw); }catch(_){}
+}
+function applyAccDatesFromInputs(){
+  const f=el('accFrom'), t=el('accTo');
+  if(f) accDateFrom=f.value||'';
+  if(t) accDateTo=t.value||'';
+}
 function applyAccPreset(p){
   accPreset=p;
   if(p!=='custom') [accDateFrom,accDateTo]=jPresetRange(p);
   _accRecvCache=null;
-  if(IN_ACC_SHELL && accTab && el('accBody')) loadAccTab(accTab);
-  else if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE]();
+  // داشبورد مالی صفحهٔ جداست؛ فقط ROUTES را دوباره بساز
+  if(typeof CURRENT_PAGE!=='undefined' && CURRENT_PAGE==='acc-dash'){
+    ROUTES['acc-dash']();
+    return;
+  }
+  refreshAccFilterChrome();
+  if(IN_ACC_SHELL && accTab){
+    // برای custom فقط UI ورودی‌ها را نشان بده؛ داده با «اعمال» می‌آید
+    if(p==='custom') return;
+    loadAccTab(accTab);
+  } else if(ROUTES[CURRENT_PAGE]){
+    ROUTES[CURRENT_PAGE]();
+  }
 }
 
 async function repairArTafsiliFromDash(){
@@ -9217,10 +9251,10 @@ function buildAccFilterHtml(tabKey){
   return `<div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center;flex-wrap:wrap`)}">
     ${presetSelect('accPresetSel',accPreset,'applyAccPreset')}
     ${accPreset==='custom'?`
-    <input id="accFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateFrom}" data-csp-change="${CSP.bind('change',function(event){accDateFrom=this.value})}">
-    <input id="accTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateTo}" data-csp-change="${CSP.bind('change',function(event){accDateTo=this.value})}">
-    <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab(accTab)})}">🔍 اعمال</button>
-    <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){accDateFrom='';accDateTo='';el('accFrom').value='';el('accTo').value='';loadAccTab(accTab)})}">✕</button>`:
+    <input id="accFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateFrom}" data-csp-change="${CSP.bind('change',function(event){accDateFrom=this.value})}" data-csp-input="${CSP.bind('input',function(event){accDateFrom=this.value})}">
+    <input id="accTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateTo}" data-csp-change="${CSP.bind('change',function(event){accDateTo=this.value})}" data-csp-input="${CSP.bind('input',function(event){accDateTo=this.value})}">
+    <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){applyAccDatesFromInputs();accPreset='custom';_accRecvCache=null;loadAccTab(accTab)})}">🔍 اعمال</button>
+    <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){accDateFrom='';accDateTo='';accPreset='all';_accRecvCache=null;refreshAccFilterChrome();loadAccTab(accTab)})}">✕</button>`:
     `<span class="tag" data-csp-style="${CSP.style(`background:var(--purple-light);color:var(--purple)`)}">${accDateFrom||'ابتدا'} الی ${accDateTo||'انتها'}</span>`}
     ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" data-csp-click="${CSP.bind('click',function(event){resyncAccounting()})}">🔄 همگام‌سازی</button>`:''}
   </div>`;
@@ -9877,6 +9911,9 @@ function enhanceAccTables(root){
         const hay=(tr.textContent||'').toLowerCase();
         tr.style.display=!q || hay.includes(q)?'':'none';
       });
+      // جمع ستون = همان ردیف‌های visible (نه کل دیتاست)
+      if(typeof tblAfterRowFilter==='function') tblAfterRowFilter(t);
+      else if(typeof tblRebuildFooter==='function') tblRebuildFooter(t);
     });
     bar.appendChild(inp);
     if(wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
@@ -10741,6 +10778,8 @@ function filterAccInvTable(){
     const hay=(tr.dataset.search||tr.textContent||'').toLowerCase();
     tr.style.display=!q||hay.includes(q)?'':'none';
   });
+  const t=el('accSalesInvTbl');
+  if(t&&typeof tblRebuildFooter==='function') tblRebuildFooter(t);
 }
 async function captureInvoicePrintImage(id){
   if(typeof html2canvas==='undefined') return null;
@@ -11029,6 +11068,8 @@ function filterFabricRollRows(){
     const hay=tr.getAttribute('data-hay')||'';
     tr.style.display=!q||hay.includes(q)?'':'none';
   });
+  const t=el('frTable');
+  if(t&&typeof tblRebuildFooter==='function') tblRebuildFooter(t);
 }
 async function renderFabricRollKardexTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
@@ -20346,6 +20387,8 @@ function filterOrdersTbl(){
     const hay=(tr.dataset.search||tr.textContent||'').toLowerCase();
     tr.style.display=!q||hay.includes(q)?'':'none';
   });
+  const t=el('accOrdersTbl');
+  if(t&&typeof tblRebuildFooter==='function') tblRebuildFooter(t);
 }
 async function orderModal(id){
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
@@ -21292,6 +21335,14 @@ async function deletePersonPosition(id){
 /* ============================================================
    CASH OPS — unified receive (settlements) + pay (outgoing) tab
 ============================================================ */
+/** فیلتر بازهٔ مشترک حسابداری روی فیلد تاریخ جلالی YYYY/MM/DD */
+function inAccDateRange(dateStr){
+  const d=String(dateStr||'').trim();
+  if(!d) return !(accDateFrom||accDateTo);
+  if(accDateFrom && d < accDateFrom) return false;
+  if(accDateTo && d > accDateTo) return false;
+  return true;
+}
 async function renderCashOpsTab(body, dq){
   const rows=await api('GET','/accounting/settlements'+dq)||[];
   const pendingRepPay=await api('GET','/reps/payments/pending').catch(()=>[]);
@@ -21303,11 +21354,12 @@ async function renderCashOpsTab(body, dq){
     api('GET','/accounting/incentive-payments')||[],
     api('GET','/expenses')||[]
   ]);
+  // پرداخت‌های خروجی API بازه ندارند — همان فیلتر از/تا نوار بالا روی تاریخ سند
   const payRows=[
     ...(supPay||[]).map(r=>({...r,kind:'supplier',target:r.supplier_name||'-'})),
     ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
     ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
-  ].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  ].filter(r=>inAccDateRange(r.date)).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   window._cashOpsIndex={};
   (rows||[]).forEach(r=>{ window._cashOpsIndex['settlement:'+r.id]=r; });
   payRows.forEach(r=>{ window._cashOpsIndex[r.kind+':'+r.id]=r; });
@@ -21317,12 +21369,12 @@ async function renderCashOpsTab(body, dq){
     ${(pendingRepPay||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px;border-color:#fde68a`)}">
       <div class="panel-head"><h4>⏳ دریافت‌های میدانی در انتظار تأیید (${pendingRepPay.length})</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>تاریخ</th><th>نماینده</th><th>مشتری</th><th>نوع</th><th>مبلغ</th><th>رسید</th><th>عملیات</th>
+        <th>تاریخ</th><th>نماینده</th><th>مشتری</th><th>نوع</th><th data-col-kind="money">مبلغ</th><th>رسید</th><th>عملیات</th>
       </tr></thead><tbody>${pendingRepPay.map(p=>`<tr>
         <td class="mono">${escDate(p.date)}</td><td>${esc(p.rep_name)}</td>
         <td>${esc(p.cust_biz||'-')}${p.cust_owner?`<br><span class="muted">${esc(p.cust_owner)}</span>`:''}</td>
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
-        <td class="mono">${fmt(p.amount)}</td>
+        <td class="mono" data-col-kind="money">${fmt(p.amount)}</td>
         <td>${repReceiptBtn(p.receipt_url)}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){approveRepPayment((p.id))})}">✅ تأیید</button>
@@ -21336,13 +21388,13 @@ async function renderCashOpsTab(body, dq){
     </div>
     <h4 data-csp-style="${CSP.style(`margin:0 0 8px`)}">💵 دریافت‌ها (از مشتریان)</h4>
     <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:20px`)}"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>فاکتور</th><th>مبلغ ${moneyColLabel()}</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>فاکتور</th><th data-col-kind="money">مبلغ ${moneyColLabel()}</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.cust_biz||'-')}</td>
       <td class="mono">${r.invoice_num?esc(r.invoice_num):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(r.amount)}</td>
+      <td class="mono" data-col-kind="money" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(r.amount)}</td>
       <td>${r.pay_type==='cheque'?'🧾 چک':'💵 نقد'}</td>
       <td class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${r.installment_group?esc(r.installment_group):'-'}</td>
       <td class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')):'-'}</td>
@@ -21352,21 +21404,16 @@ async function renderCashOpsTab(body, dq){
         <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc('settlement',(r.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSettlement((r.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(10)}</tbody>
-    <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="3">جمع دریافت (${fmt(rows.length)})</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:800`)}">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
-      <td colspan="6"></td>
-    </tr></tfoot></table></div>
+    </tr>`).join('')||emptyRow(10)}</tbody></table></div>
     <h4 data-csp-style="${CSP.style(`margin:0 0 8px`)}">💸 پرداخت‌ها (خروجی)</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>سند مرجع</th><th>نوع</th><th>به/بابت</th><th>مبلغ ${moneyColLabel()}</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>سند مرجع</th><th>نوع</th><th>به/بابت</th><th data-col-kind="money">مبلغ ${moneyColLabel()}</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${payRows.map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${kindLabel[r.kind]}</td>
       <td>${esc(r.target)}</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${fmt(r.amount)}</td>
+      <td class="mono" data-col-kind="money" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${fmt(r.amount)}</td>
       <td>${payLabel(r.pay_type)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder||'-')}</td>
@@ -21374,12 +21421,7 @@ async function renderCashOpsTab(body, dq){
         <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(8)}</tbody>
-    <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="3">جمع پرداخت (${fmt(payRows.length)})</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--red);font-weight:800`)}">${fmt(payRows.reduce((a,r)=>a+(r.amount||0),0))}</td>
-      <td colspan="4"></td>
-    </tr></tfoot></table></div>`;
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 
 /* ============================================================
@@ -27038,13 +27080,14 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. با ورود به حسابداری همهٔ سرفصل‌ها <b>بسته‌اند</b>؛ با کلیک باز می‌شوند. انتخاب طرف‌حساب و کالا در فرم‌ها با کادر جستجو (نام، موبایل، کد) است.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
-      <p><b>جداول:</b> هر لیست یک جدول است و اسکرول افقی و عمودی‌اش داخل همان کادر می‌ماند؛ صفحه و منوی کناری با جدول پهن جابه‌جا نمی‌شوند. سرستون به بالای همان کادر می‌چسبد و با ستون داده قفل است. ستون تیک عرض ثابت دارد و ردیف جمع، همان ستون را در شمارش خانه حساب می‌کند تا مبلغ بدهکار و بستانکار زیر عنوان خودش بماند. داخل پوشهٔ پیگیری فریز خاموش است. در لیست‌های چندردیفه جمع، میانگین و تفاضل رنگی هست. انتخاب چندتایی و حذف یا ابطال گروهی روی جدول‌های تیک‌دار فعال است. روی موبایل همین شبکه می‌ماند و انگشت داخل کادر جدول می‌لغزد.</p>
+      <p><b>جداول:</b> هر لیست یک جدول است و اسکرول افقی و عمودی‌اش داخل همان کادر می‌ماند؛ صفحه و منوی کناری با جدول پهن جابه‌جا نمی‌شوند. سرستون به بالای همان کادر می‌چسبد و با ستون داده قفل است. ستون تیک عرض ثابت دارد و ردیف جمع، همان ستون را در شمارش خانه حساب می‌کند تا مبلغ بدهکار و بستانکار تحت عنوان خودش بماند. داخل پوشهٔ پیگیری فریز خاموش است. در لیست‌های چندردیفه جمع، میانگین و تفاضل رنگی هست — و با <b>جستجوی بالای جدول</b> یا فیلتر ستون، جمع فقط روی ردیف‌های باقی‌مانده حساب می‌شود. انتخاب چندتایی و حذف یا ابطال گروهی روی جدول‌های تیک‌دار فعال است. روی موبایل همین شبکه می‌ماند و انگشت داخل کادر جدول می‌لغزد.</p>
+      <p><b>فیلتر بازهٔ حسابداری:</b> در صفحات دارای نوار تاریخ (مثل عملیات دریافت و پرداخت)، انتخاب ماه جاری / هفته / ماه قبل / همه بلافاصله لیست را تازه می‌کند؛ <b>بازه دلخواه</b> فیلد از/تا را نشان می‌دهد و با دکمهٔ اعمال اعمال می‌شود. برچسب بازه کنار انتخاب‌گر همیشه با فیلتر فعال هم‌خوان است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
-        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است و مبلغ روی همان کد می‌نشیند. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت به شخص یا حساب که فقط سند دستی است از این فهرست اصلاح نمی‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
@@ -27254,7 +27297,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v351</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v352</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

@@ -194,7 +194,7 @@ ok(!voidSrc.includes('reversalId = null;\n    }'), 'void no longer swallows JE e
 ok(voidSrc.includes('if (already) return 0'), 'multi-row books reverse uses early return');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v351'), 'SW v351');
+ok(/erp-taranom-v(351|352|[3-9]\d{2,})/.test(sw), 'SW v351+');
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

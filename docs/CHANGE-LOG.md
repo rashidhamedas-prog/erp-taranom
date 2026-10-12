@@ -1,4 +1,15 @@
-### ۱۴۰۵/۰۷/۲۱ — ریشه اختلاف مطالبات دفتر مشتری vs تفصیلی (SW v351)
+### ۱۴۰۵/۰۷/۲۱ — فیلتر بازه + جمع ستون هم‌خوان با جستجو (SW v352)
+
+- **علامت:** در «عملیات دریافت و پرداخت» انتخاب‌های زمانی (ماه/هفته/بازه دلخواه) عملاً کار نمی‌کرد؛ جمع مبلغ با فیلتر نام شخص عوض نمی‌شد (مثلاً ۳٫۴ میلیارد به‌جای جمع ردیف‌های visible).
+- **ریشه:**
+  1. `applyAccPreset` فقط `loadAccTab` می‌زد و نوار `#accShellFilterWrap` را بازسازی نمی‌کرد → ورودی‌های «بازه دلخواه» ظاهر نمی‌شد و برچسب بازه کهنه می‌ماند.
+  2. جستجوی سریع `enhanceAccTables` ردیف‌ها را `display:none` می‌کرد ولی `tblRebuildFooter` را صدا نمی‌زد (جمع روی کل دیتاست می‌ماند).
+  3. جدول پرداخت‌های خروجی بدون فیلتر تاریخ نوار بالا لود می‌شد.
+- **رفع ریشه‌ای:** `refreshAccFilterChrome` + خواندن از/تا هنگام اعمال؛ پس از هر جستجوی جدول `tblAfterRowFilter`/`tblRebuildFooter`؛ فیلتر `inAccDateRange` روی پرداخت‌های خروجی؛ علامت `data-col-kind="money"` روی ستون مبلغ؛ همین الگو برای `filterAccInvTable` / `filterOrdersTbl` / `filterFabricRollRows`.
+- **فایل‌ها:** `server/public/{app.js,tbl-enhance.js,sw.js,index.html}`, CHANGE-LOG, Help.
+- **Deploy:** ⏳
+
+### ۱۴۰۵/۰۷/۲۱ — ریشه اختلاف مطالبات دفتر مشتری vs تفصیلی (SW v352)
 
 - **علامت:** داشبورد مالی: مطالبات دفتر مشتری ۱۳٬۰۶۲٬۱۹۳٬۴۲۰ با تفصیلی ۱۳٬۱۳۸٬۹۹۳٬۴۲۰ (Δ=۷۶٬۸۰۰٬۰۰۰)؛ هشدار ابطال تسویه.
 - **ریشه (پروب ایران):** مشتری «مد روز» (id=24) — فاکتور T-0001 روی تفصیلی بدهکار است؛ تسویهٔ #۱ قبلاً به کنترل `1103` خورده و ابطال شده؛ تسویهٔ #۳ زنده فقط در `customer_ledger` است و JE روی برگ تفصیلی ندارد (`skipJournal`/بک‌فیل ناامن).
@@ -9,8 +20,8 @@
   - `repairSettlementsMissingBooks`: دیگر اعتبار دفتر بدون JE/جفت نقد نمی‌سازد.
   - `void-settlement`: خطای JE بلعیده نمی‌شود؛ معکوس چندردیفی دفتر با `return` امن.
 - **فایل‌ها:** `lib/{invoice-payments,customer-books,void-settlement,repair-invoice-settlements}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-settlement-leaf-je-v351.js`, CHANGE-LOG.
-- **تست:** `test-settlement-leaf-je-v351` + `test-sms` + `test-sync` روی ایران.
-- **Deploy:** ⏳
+- **تست:** `test-settlement-leaf-je-v351` + `test-reversed-settlement-books-v297` + `test-sms` + `test-sync` روی ایران.
+- **Deploy:** ⏳ SW `erp-taranom-v352`
 
 ### ۱۴۰۵/۰۷/۲۱ — Multi-primary DNS (BIND ایران + Cloudflare)
 
