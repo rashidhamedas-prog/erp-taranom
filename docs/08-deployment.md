@@ -6,7 +6,7 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 
 - **HTTPS base:** `https://erptaranom.com` (also `https://www.erptaranom.com`)
 - Deploy / smoke defaults (e.g. `scripts/deploy-sharp-production.ps1` `-PublicBaseUrl`) must use this host — not legacy `erp.taranom.app`.
-- **TLS (direct, no Cloudflare proxy):** nginx on the Iran VPS terminates TLS itself with a public **Let's Encrypt** certificate for `erptaranom.com` + `www.erptaranom.com` (`scripts/setup-erp-domain.sh`; certs under `/etc/letsencrypt/live/erptaranom.com/`). Cloudflare Origin CA is **not** used for this domain. `PUBLIC_URL`/`ALLOWED_ORIGINS` defaults live in `server/ecosystem.config.js`.
+- **TLS:** Cloudflare DNS (NS `connie`/`finley`) with **DNS-only** A records → Iran VPS. Origin nginx uses public **Let's Encrypt** (`/etc/letsencrypt/live/erptaranom.com/`). Orange-cloud proxy is prepared (Origin CA issued, real_ip conf) but kept off while CF→Iran origin path is unreliable. `PUBLIC_URL`/`ALLOWED_ORIGINS` defaults live in `server/ecosystem.config.js`.
 - **Retired:** `erp.poshaktaranom.com` is retired from the application (allowlists, sync defaults, desktop/Android update hosts). Stored device `central_url` values pointing to it are migrated to `https://erptaranom.com` by `server/sync/client.js`.
 
 ## Cloudflare / origin hardening (CF 520)
@@ -70,7 +70,7 @@ marker and never restore deleted test backup history merely to roll back code.
 
 ## Direct DNS to the VPS
 
-`erptaranom.com` / `www.erptaranom.com` point **directly** (DNS-only A records) to the Iran VPS
+`erptaranom.com` / `www.erptaranom.com` are Cloudflare DNS-only A records to the Iran VPS
 `94.249.244.208`; nginx serves a publicly trusted Let's Encrypt certificate. Keep TTL low during
 cutover, verify `curl -I https://erptaranom.com/api/system/health` (HTTP 200) and renewal
 (`certbot renew --dry-run`). The CF-520/HTTP2 notes above apply only to the retired

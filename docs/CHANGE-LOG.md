@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۱ — تلاش دسترسی با VPN از طریق Cloudflare (نتیجه: DNS-only)
+
+- **مشکل:** با VPN خروجی خارج از ایران، IP سرور ایران (`94.249.244.208`) از مسیر VPN timeout می‌شود.
+- **اقدام:** زون CF `erptaranom.com` + NS `connie/finley`؛ تست پروکسی نارنجی + Origin CA RSA + SSL Full/Strict + `cloudflare-realip.conf`.
+- **نتیجه:** مسیر Cloudflare→ایران فعلاً ناپایدار است (حتی `erp.poshaktaranom.com` proxied هم از خارج timeout). بنابراین A/www روی CF **DNS-only** ماند؛ nginx دوباره LE. راهنما: split-tunnel برای VPN.
+- **فایل‌ها:** scripts `_apply-cf-realip*`, `_install-origin-ca*`, `_smoke-cf*`, docs/Help، CHANGE-LOG.
+- **Deploy:** ✅ DNS-only + LE؛ health مستقیم `200`.
+
 ### ۱۴۰۵/۰۷/۲۱ — soak cutover: حذف Origin قدیمی از CORS
 
 - **هدف:** پس از لاگین موفق روی `https://erptaranom.com`، دامنهٔ بازنشسته از `ALLOWED_ORIGINS` حذف شد.

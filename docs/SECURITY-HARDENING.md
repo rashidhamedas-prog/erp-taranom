@@ -59,7 +59,7 @@ EOF
 
 ### د) HTTPS (سرور ایران + Let's Encrypt مستقیم)
 
-عمومی: `https://erptaranom.com` (و `https://www.erptaranom.com`) — **DNS مستقیم** به VPS ایران (`94.249.244.208`)؛ nginx گواهی عمومی **Let's Encrypt** (certbot / `scripts/setup-erp-domain.sh`) را ارائه می‌دهد. برای این دامنه **Cloudflare Origin CA استفاده نمی‌شود** و پروکسی Cloudflare الزامی نیست.
+عمومی: `https://erptaranom.com` (و `https://www.erptaranom.com`) — DNS روی Cloudflare به‌صورت **DNS-only** (بدون پروکسی نارنجی) به VPS ایران (`94.249.244.208`)؛ nginx گواهی **Let's Encrypt** دارد. پروکسی نارنجی فعلاً به‌خاطر قطع مسیر Cloudflare→ایران (همان مشکل روی `erp.poshaktaranom.com`) پایدار نیست؛ با VPN معمولاً باید split-tunnel برای این دامنه بزنید.
 
 - گواهی: `/etc/letsencrypt/live/erptaranom.com/{fullchain,privkey}.pem` (تمدید خودکار certbot؛ بررسی: `certbot renew --dry-run`).
 - اپلیکیشن: `PUBLIC_URL=https://erptaranom.com`، `ALLOWED_ORIGINS=https://erptaranom.com,https://www.erptaranom.com` (پیش‌فرض `server/ecosystem.config.js`).
