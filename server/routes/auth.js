@@ -6,12 +6,14 @@ const { getDB, audit, isDevice } = require('../db');
 const {
   auth,
   adminOnly,
+  adminOrAccounting,
   centralOnlyStrict,
   invalidateUserCache,
   revokeUserSessions,
   revokeCurrentSession,
   SECRET,
 } = require('../middleware/auth');
+const { salesExpertRolesSql } = require('../lib/sales-experts');
 const {
   issueStaffSession,
   issueImpersonationSession,
@@ -605,6 +607,24 @@ router.get('/users', auth, adminOnly, (req, res) => {
     p.postal_code AS person_postal_code,p.birth_date AS person_birth_date,p.notes AS person_notes,
     p.party_group_id AS person_party_group_id,p.account_nature AS person_account_nature
     FROM users u LEFT JOIN parties p ON p.id=u.party_id ORDER BY u.created_at DESC`).all();
+  res.json(users);
+});
+
+/** Lite list for invoice/party «کارشناس» pickers — admin + accounting (not full /users). */
+router.get('/expert-options', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const users = db.prepare(`
+    SELECT id, name, username, role, active
+    FROM users
+    WHERE COALESCE(active, 1) = 1 AND role IN ${salesExpertRolesSql()}
+    ORDER BY name ASC, id ASC
+  `).all();
+  // Optional: keep current expert visible even if inactive / outside sales roles.
+  const includeId = parseInt(req.query.include_id, 10);
+  if (includeId > 0 && !users.some((u) => Number(u.id) === includeId)) {
+    const extra = db.prepare('SELECT id, name, username, role, active FROM users WHERE id=?').get(includeId);
+    if (extra) users.unshift(extra);
+  }
   res.json(users);
 });
 

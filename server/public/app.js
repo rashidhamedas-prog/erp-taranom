@@ -2183,6 +2183,38 @@ function guardBackupAccess(){
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 function isSalesProformaOnlyRole(r){ return isRepRole(r) || r==='salesperson'; }
+/** Keep in sync with server/lib/sales-experts.js — who may appear as «کارشناس» on invoices. */
+const SALES_EXPERT_ROLES = ['admin','accounting','field_sales','inside_sales','salesperson','sales_manager','distribution_office'];
+function isSalesExpertRole(r){ return SALES_EXPERT_ROLES.includes(String(r||'')); }
+function listSalesExpertUsers(users, includeIds){
+  const keep = new Set((includeIds||[]).map(Number).filter(n=>n>0));
+  const byId = new Map();
+  for(const u of (users||[])){
+    if(!u) continue;
+    const id = Number(u.id);
+    if(!id) continue;
+    // Keep current invoice/customer expert even if inactive or outside role set.
+    if(keep.has(id)){ byId.set(id, u); continue; }
+    if(u.active===0 || u.active==='0') continue;
+    if(!isSalesExpertRole(u.role)) continue;
+    byId.set(id, u);
+  }
+  return [...byId.values()].sort((a,b)=>String(a.name||a.username||'').localeCompare(String(b.name||b.username||''),'fa'));
+}
+async function ensureExpertUsersCache(force, includeId){
+  if(!force && Array.isArray(CACHE.expertUsers) && CACHE.expertUsers.length) return CACHE.expertUsers;
+  const q = includeId ? ('?include_id='+encodeURIComponent(includeId)) : '';
+  try{
+    const rows = await api('GET','/auth/expert-options'+q);
+    CACHE.expertUsers = Array.isArray(rows) ? rows : [];
+  }catch(_){
+    if(!(CACHE.users||[]).length){
+      try{ CACHE.users = await api('GET','/auth/users')||[]; }catch(__){ CACHE.users=[]; }
+    }
+    CACHE.expertUsers = listSalesExpertUsers(CACHE.users, includeId ? [includeId] : []);
+  }
+  return CACHE.expertUsers;
+}
 function canConvertProforma(){
   const r=ME&&ME.role;
   if(isSalesProformaOnlyRole(r)) return false;
@@ -4970,14 +5002,26 @@ async function _openInvBuilder(id){
   await loadLiveWarehousesForAccess();
   const isAdmin = ME.role==='admin';
   const canPickExpert = ME.role==='admin' || ME.role==='accounting';
-  if(canPickExpert && !(CACHE.users||[]).length){
-    try{ CACHE.users = await api('GET','/auth/users')||[]; }catch(_){ CACHE.users=[]; }
-  }
-  const salesUsers=(CACHE.users||[]).filter(u=>u.active!==0 && ['admin','accounting','field_sales','inside_sales','salesperson','sales_manager'].includes(u.role));
   const defExpert = inv?.user_id || (()=>{
     const c=(CACHE.customers||[]).find(x=>x.id===inv?.cust_id);
     return c?.user_id || ME.id;
   })();
+  if(canPickExpert){
+    // Always refresh — stale CACHE.users previously hid new experts; accounting cannot call /auth/users.
+    await ensureExpertUsersCache(true, defExpert || inv?.user_id || 0);
+  }
+  const salesUsers = listSalesExpertUsers(CACHE.expertUsers || CACHE.users, [defExpert, inv?.user_id]);
+  // Legacy expert may be missing from /expert-options (inactive / old role) — keep visible option.
+  const ensureExpertId = Number(defExpert || inv?.user_id || 0);
+  if(ensureExpertId && !salesUsers.some(u=>Number(u.id)===ensureExpertId)){
+    salesUsers.unshift({
+      id: ensureExpertId,
+      name: inv?.seller_name || inv?.salesperson || ('کارشناس #'+ensureExpertId),
+      username: '',
+      role: '',
+      active: 1
+    });
+  }
 
   const isSalesRole = typeof isRepRole==='function' && isRepRole(ME?.role);
   const salesProformaOnly = typeof isSalesProformaOnlyRole==='function' && isSalesProformaOnlyRole(ME?.role);
@@ -5022,7 +5066,7 @@ async function _openInvBuilder(id){
     <div class="modal-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
         <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}</div>
-        ${canPickExpert?`<div class="fg"><label>کارشناس ${hlp('کارشناس فروش مسئول این فاکتور — برای انگیزه فروش و گزارش عملکرد.')}</label>
+        ${canPickExpert?`<div class="fg"><label>کارشناس ${hlp('همهٔ کاربران فعال با نقش فروش: میدانی، داخلی، مدیر فروش، دفتر پخش، و مدیر/حسابدار. برای انگیزه فروش و گزارش عملکرد. گزینهٔ خودکار = کارشناس مشتری یا خود شما.')}</label>
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
@@ -26704,6 +26748,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مانده لیست مشتریان و صورتحساب:</b> همیشه از دفتر مشتری است (به‌اضافه فاکتور قطعی جاافتاده). سندهای تاریخی که روی حساب کنترل دریافتنی مانده‌اند با سند انتقال متعادل به تفصیلی همان مشتری منتقل می‌شوند تا هشدار نارنجی خاموش شود. افتتاحیهٔ ادمین همزمان دفتر و سند دفتر کل را می‌نویسد. صفحه اصلی، کارت مشتری، مطالبات و داشبورد همین رقم را می‌خوانند.</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
+        <li><b>کارشناس فاکتور:</b> مدیر و حسابدار در فرم فاکتور همهٔ کارشناسان فعال فروش را می‌بینند — میدانی، داخلی، مدیر فروش، <b>دفتر پخش</b>، و مدیر/حسابدار. فهرست از <code>/auth/expert-options</code> تازه بارگذاری می‌شود (نه کش قدیمی کاربران). انگیزهٔ کمیسیون همچنان فقط برای نقش‌های میدانی/داخلی است.</li>
         <li><b>چاپ:</b> خطوط مشکی‌زاغ؛ مبالغ بولد؛ رنگ/سایز در چاپ نمایش داده نمی‌شود (فقط نام کالا و تعداد جمع‌شده). قالب‌ها فشرده‌اند تا چند ردیف در یک صفحه بماند</li>
       </ul>`),
     helpSec('📞','پیگیری CRM',`

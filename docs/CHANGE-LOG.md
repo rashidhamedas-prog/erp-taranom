@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۰ — dropdown کارشناس فاکتور: دفتر پخش و نقش‌های کامل (SW v346)
+
+- **علامت:** در فاکتور، لیست «کارشناس» برخی کاربران (به‌ویژه نقش `distribution_office` / دفتر پخش) را نشان نمی‌داد یا ناقص بود.
+- **ریشه:** whitelist نقش در کلاینت باریک‌تر از واقعیت کسب‌وکار بود؛ برای پر کردن picker، حسابداری به `GET /auth/users` (فقط admin) وابسته بود و 403 می‌گرفت.
+- **رفع:** ماژول `server/lib/sales-experts.js` با نقش‌های canonical (شامل `distribution_office`)؛ endpoint سبک `GET /auth/expert-options` با `adminOrAccounting` (+`include_id` برای کارشناس فعلی حتی غیرفعال/نقش قدیمی)؛ `listSalesExpertUsers` + `ensureExpertUsersCache(true, …)` قبل از باز کردن picker؛ stub نام از `seller_name` اگر در لیست نبود. SW `erp-taranom-v346`.
+- **فایل‌ها:** `server/lib/sales-experts.js`, `server/routes/auth.js`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-invoice-expert-options-v346.js`, CHANGE-LOG.
+- **تست:** `node server/scripts/test-invoice-expert-options-v346.js` + `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
+- **Deploy:** ⏳ pending — overlay ایران + `pm2 restart erp-taranom` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v346`؛ `app.js?v=346`.
+
 ### ۱۴۰۵/۰۷/۱۹ — شفاف‌سازی چک+کارتخوان vs دو فقره چک (SW v344)
 
 - **ریشه (T-0015 / پوشاک شریفی):** در DB فقط **یک چک** ۱٫۸۰۰٫۰۰۰٫۰۰۰ + **یک کارتخوان** ۲۷٫۵۰۰٫۰۰۰ ثبت شده (`pay_splits_json`)؛ دفتر چک درست یک برگ نشان می‌دهد. برچسب «قسط ۱» از چندمرحله‌ای بودن (چک+POS) بود نه دو چک.
