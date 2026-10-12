@@ -15,7 +15,8 @@
   3. جدول پرداخت‌های خروجی بدون فیلتر تاریخ نوار بالا لود می‌شد.
 - **رفع ریشه‌ای:** `refreshAccFilterChrome` + خواندن از/تا هنگام اعمال؛ پس از هر جستجوی جدول `tblAfterRowFilter`/`tblRebuildFooter`؛ فیلتر `inAccDateRange` روی پرداخت‌های خروجی؛ علامت `data-col-kind="money"` روی ستون مبلغ؛ همین الگو برای `filterAccInvTable` / `filterOrdersTbl` / `filterFabricRollRows`.
 - **فایل‌ها:** `server/public/{app.js,tbl-enhance.js,sw.js,index.html}`, CHANGE-LOG, Help.
-- **Deploy:** ⏳
+- **تست ایران:** sms ۲۲/۰ + sync ۴۴/۰؛ parse app/tbl-enhance OK؛ health=200 + sharp؛ SW `erp-taranom-v353`.
+- **Deploy:** ✅ `cca4ac7` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v353`؛ `app.js?v=353`.
 
 ### ۱۴۰۵/۰۷/۲۱ — ریشه اختلاف مطالبات دفتر مشتری vs تفصیلی (SW v352)
 
