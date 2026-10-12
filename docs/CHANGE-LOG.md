@@ -4,7 +4,7 @@
 - **UI:** segmented panes — نرخ مراکز / جذب معین / تعدیل بها / قیمت‌گذاری / تنظیمات؛ همان idهای فرم و endpointها؛ CSS `.oh-hub` / `.oh-seg`.
 - **الهام:** الگوی segmented tabs (21st metadata) + interaction patterns فرم/جدول؛ بدون نصب کامپوننت React.
 - **فایل‌ها:** `public/{app.js,app.css,sw.js,index.html}`, Help, CHANGE-LOG.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `29309f9` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v360`؛ `app.js?v=360` / `app.css?v=360`.
 
 ### ۱۴۰۵/۰۷/۲۱ — picker معین استاندارد روی نگاشت جذب سربار (SW v359)
 
