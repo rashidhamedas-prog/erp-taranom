@@ -4,15 +4,18 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 
 ## Canonical public domain
 
-- **HTTPS base:** `https://erp.poshaktaranom.com`
+- **HTTPS base:** `https://erptaranom.com` (also `https://www.erptaranom.com`)
 - Deploy / smoke defaults (e.g. `scripts/deploy-sharp-production.ps1` `-PublicBaseUrl`) must use this host — not legacy `erp.taranom.app`.
-- **Origin TLS (Cloudflare Full strict):** nginx uses Cloudflare Origin CA (15y, `*.poshaktaranom.com` + apex) at `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`. Do not revert to self-signed (CF 526) and do not enable Authenticated Origin Pulls without the AOP client CA. Iran VPS cannot reliably reach Let's Encrypt API.
+- **TLS (direct, no Cloudflare proxy):** nginx on the Iran VPS terminates TLS itself with a public **Let's Encrypt** certificate for `erptaranom.com` + `www.erptaranom.com` (`scripts/setup-erp-domain.sh`; certs under `/etc/letsencrypt/live/erptaranom.com/`). Cloudflare Origin CA is **not** used for this domain. `PUBLIC_URL`/`ALLOWED_ORIGINS` defaults live in `server/ecosystem.config.js`.
+- **Retired:** `erp.poshaktaranom.com` is retired from the application (allowlists, sync defaults, desktop/Android update hosts). Stored device `central_url` values pointing to it are migrated to `https://erptaranom.com` by `server/sync/client.js`.
 
 ## Cloudflare / origin hardening (CF 520)
 
 - **Network → HTTP/2 to Origin:** OFF (`origin_max_http_version=1`) for this origin — mitigates intermittent CF **520** when the edge speaks HTTP/2 to nginx/Node.
 - After any `pm2 delete` / `pm2 start` from ecosystem, confirm `wait_ready` (and `listen_timeout`) via `pm2 describe erp-taranom` — a live process can lose these if started without the ecosystem file.
-- Keep **Authenticated Origin Pulls OFF**; TLS mode **Full (strict)** + Cloudflare Origin CA (above). nginx: keep `proxy_connect_timeout 5s`.
+- Keep **Authenticated Origin Pulls OFF**; TLS mode **Full (strict)** + Cloudflare Origin CA (above). nginx: keep `proxy_connect_timeout 5s`; prefer `listen 443 ssl` **without** `http2` on the origin.
+- **DNS:** `erp` must stay **A → Iran VPS** (proxied) unless a Cloudflare Tunnel connector is proven **active** in the Zero Trust API. A CNAME to an inactive tunnel takes the site down for all clients.
+- Optional Tunnel `erp-taranom` may exist in the account but must **not** own DNS until `cloudflared` registers connections reliably (QUIC/UDP 7844 often blocked on Iran VPS — force `--protocol http2`).
 
 ## Hard rules on Iran VPS (`taranom@94.249.244.208`)
 
@@ -67,12 +70,11 @@ marker and never restore deleted test backup history merely to roll back code.
 
 ## Direct DNS to the VPS
 
-`erp.poshaktaranom.com` currently stays **Proxied** with Cloudflare Full (strict).
-The origin presents a Cloudflare Origin CA certificate, which public browsers do
-not trust when Cloudflare is bypassed. Do not switch the record to DNS-only until
-a publicly trusted origin certificate is installed and verified, direct-origin
-firewall/rate-limit exposure is reviewed, TTL is lowered, and an immediate DNS
-rollback is prepared. Direct DNS does not fix application disk exhaustion.
+`erptaranom.com` / `www.erptaranom.com` point **directly** (DNS-only A records) to the Iran VPS
+`94.249.244.208`; nginx serves a publicly trusted Let's Encrypt certificate. Keep TTL low during
+cutover, verify `curl -I https://erptaranom.com/api/system/health` (HTTP 200) and renewal
+(`certbot renew --dry-run`). The CF-520/HTTP2 notes above apply only to the retired
+`erp.poshaktaranom.com` Cloudflare-proxied setup. Direct DNS does not fix application disk exhaustion.
 
 ## Evidence recipes (read-only / non-mutating)
 
@@ -114,7 +116,7 @@ Checks:
 - UI markers in `app.js` / index: `اقلام`, `مسیر عملیات`, `خروجی‌ها`, `بهای تمام‌شده`
 - With credentials: login + BOM GET endpoints; operator path asserts cost fields stripped (or `std-cost` 403)
 
-Override base: `$env:SMOKE_BASE_URL="https://erp.poshaktaranom.com"`.
+Override base: `$env:SMOKE_BASE_URL="https://erptaranom.com"`.
 
 ## After an approved overlay
 

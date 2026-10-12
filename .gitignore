@@ -9,6 +9,7 @@ android/keystore.properties
 *.jks
 *.keystore
 .env
+.tmp-tunnel-token.txt
 id_ed25519_taranom
 id_ed25519_taranom_backup
 **/.ssh/id_ed25519_taranom

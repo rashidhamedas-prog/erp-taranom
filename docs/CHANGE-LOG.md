@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۲۰ — بستن تسک CF 520 (harden + rollback Tunnel)
+
+- **وضعیت نهایی:** DNS `erp` دوباره **A → 94.249.244.208 (proxied)**؛ Tunnel `erp-taranom` به‌خاطر `inactive`/۰ connection از مسیر عمومی برداشته شد؛ `cloudflared` روی VPS **disable**.
+- **سخت‌سازی‌های باقی‌مانده روی ایران:** CF `origin_max_http_version=1`؛ nginx بدون `http2` روی ۴۴۳ + `proxy_connect_timeout 5s` / `proxy_next_upstream off` + `ssl_session_cache`؛ PM2 از ecosystem با `wait_ready`؛ MTU eth0 موقتاً ۱۴۲۰ (تا reboot).
+- **یادداشت:** تلاش Cloudflare Tunnel (CNAME به `*.cfargotunnel.com`) به‌خاطر ثبت‌نشدن connector در API لغو شد؛ تونل در حساب CF می‌ماند ولی به DNS وصل نیست.
+- **Deploy:** ✅ rollback DNS + origin health/nginx ۲۰۰؛ SW بدون bump.
+
 ### ۱۴۰۵/۰۷/۲۰ — سخت‌سازی ریشه Cloudflare Error 520 (infra)
 
 - **علامت:** Cloudflare Error 520 روی `erp.poshaktaranom.com`.
