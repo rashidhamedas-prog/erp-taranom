@@ -4,7 +4,7 @@
 - **محدودیت:** Zone Transfer / Secondary رسمی Cloudflare فقط **Enterprise** است → به‌جای AXFR، multi-primary هم‌سان.
 - **اعمال:** zone `scripts/dns-erptaranom.zone` (NS: ns1/ns2 + connie/finley)؛ BIND master روی VPS؛ رکوردهای CF DNS-only هم‌سان (A/CAA/ns1/ns2)؛ رجیستری ایران‌سرور صف NS چهارتایی؛ اسکریپت sync `_sync-dns-erptaranom-cf.py`.
 - **فایل‌ها:** `scripts/dns-erptaranom.zone`, `_setup-bind-erptaranom-multiprimary.py`, `_sync-dns-erptaranom-cf.py`, docs, Help.
-- **Deploy:** ✅ infra BIND + CF records؛ رجیستری ایران‌سرور NS چهارتایی در صف پردازش (dig عمومی فعلاً هنوز CF-only تا انتشار)؛ SW `erp-taranom-v350`.
+- **Deploy:** ✅ `de20277` — BIND + CF records هم‌سان؛ رجیستری ایران‌سرور NS چهارتایی در صف پردازش (dig `@8.8.8.8` فعلاً CF-only؛ از ns1 هر چهار NS دیده می‌شود)؛ health=200؛ SW `erp-taranom-v350`.
 
 ### ۱۴۰۵/۰۷/۲۱ — تلاش دسترسی با VPN از طریق Cloudflare (نتیجه: DNS-only)
 
