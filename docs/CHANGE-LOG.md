@@ -98,6 +98,12 @@
 - **تست:** ندارد (docs-only).
 - **Deploy:** ✅ `fb4c686` — overlay docs ایران (درخت سرور کثیف؛ بدون `reset --hard`)؛ ready=200؛ SW بدون تغییر.
 
+### ۱۴۰۵/۰۷/۲۰ — Redeploy کامل tip main روی ایران (برگه چک + SW v346)
+
+- **خلاصه:** درخت محلی بدون تغییر کد جدید؛ `main` / alias / شاخه‌های `ai/cheque-leaf-*` روی tip `33d6ed6` هم‌تراز و push شدند. سرور ایران (درخت کثیف؛ بدون `git pull` به‌خاطر credential HTTPS) با overlay هدفمند فایل‌های tip + `pm2 restart` بدون `--update-env`.
+- **تأیید:** `test-cheque-leaf-history-v338` ۱۵/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰؛ ready=200؛ health `image_engine.ok`؛ SW `erp-taranom-v346`؛ `openChequeLeafModal` روی سرور.
+- **Deploy:** ✅ overlay tip `33d6ed6` روی ایران.
+
 ### ۱۴۰۵/۰۷/۱۹ — ADR-CHEQUE-LEAF-001 + P0 برگه وضعیت/تاریخچه (SW v338)
 
 - **تصمیم:** مودال وضعیت = فقط مشاهده؛ برگه ERP خوانا (نه facsimile بانکی).
