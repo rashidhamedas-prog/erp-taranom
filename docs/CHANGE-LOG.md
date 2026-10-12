@@ -4,7 +4,7 @@
 - **اقدام:** زون CF `erptaranom.com` + NS `connie/finley`؛ تست پروکسی نارنجی + Origin CA RSA + SSL Full/Strict + `cloudflare-realip.conf`.
 - **نتیجه:** مسیر Cloudflare→ایران فعلاً ناپایدار است (حتی `erp.poshaktaranom.com` proxied هم از خارج timeout). بنابراین A/www روی CF **DNS-only** ماند؛ nginx دوباره LE. راهنما: split-tunnel برای VPN.
 - **فایل‌ها:** scripts `_apply-cf-realip*`, `_install-origin-ca*`, `_smoke-cf*`, docs/Help، CHANGE-LOG.
-- **Deploy:** ✅ DNS-only + LE؛ health مستقیم `200`.
+- **Deploy:** ✅ `5902a23` — DNS-only + LE؛ health مستقیم `200`؛ SW `erp-taranom-v349`.
 
 ### ۱۴۰۵/۰۷/۲۱ — soak cutover: حذف Origin قدیمی از CORS
 
