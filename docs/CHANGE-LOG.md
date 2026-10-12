@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۱ — soak cutover: حذف Origin قدیمی از CORS
+
+- **هدف:** پس از لاگین موفق روی `https://erptaranom.com`، دامنهٔ بازنشسته از `ALLOWED_ORIGINS` حذف شد.
+- **اعمال:** `server/ecosystem.config.js` → فقط `https://erptaranom.com,https://www.erptaranom.com`؛ PM2 `delete`+`start` از ecosystem (بدون `--update-env`)؛ nginx از قبل `erp.poshaktaranom.com` را `301` به apex می‌فرستد.
+- **تأیید:** health=200 + `image_engine` sharp؛ CORS جدید/www سبز؛ Origin قدیمی و بیگانه `403`؛ redirect محلی Host قدیمی `301 Location: https://erptaranom.com/`.
+- **فایل‌ها:** `server/ecosystem.config.js`, `server/public/{app.js,sw.js,index.html}`, `scripts/_harden-cors-drop-old-erp.py`, `scripts/_finish-harden-cors-v348.py`, CHANGE-LOG.
+- **Help:** بخش دامنه — ذکر هدایت ۳۰۱ و حذف Origin قدیمی از CORS؛ SW `erp-taranom-v348`.
+- **Deploy:** ⏳ commit/push سپس overlay ایران.
+
 ### ۱۴۰۵/۰۷/۲۰ — بستن تسک CF 520 (harden + rollback Tunnel)
 
 - **وضعیت نهایی:** DNS `erp` دوباره **A → 94.249.244.208 (proxied)**؛ Tunnel `erp-taranom` به‌خاطر `inactive`/۰ connection از مسیر عمومی برداشته شد؛ `cloudflared` روی VPS **disable**.

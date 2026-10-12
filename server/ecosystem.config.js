@@ -16,9 +16,9 @@ try {
 } catch { /* services/crypto.js validates the data key during production boot. */ }
 
 // Non-secret production defaults for Iran central (override via env when needed).
-// Canonical: erptaranom.com. Keep retired erp.poshaktaranom.com in CORS only until DNS cutover completes.
+// Canonical: erptaranom.com only (retired erp.poshaktaranom.com dropped from CORS after cutover).
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
-  || 'https://erptaranom.com,https://www.erptaranom.com,https://erp.poshaktaranom.com';
+  || 'https://erptaranom.com,https://www.erptaranom.com';
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://erptaranom.com';
 const BACKUP_OFFSITE_DIR = process.env.BACKUP_OFFSITE_DIR || '/home/taranom/crm-offsite-backups';
 // Same-VPS offsite is not true DR; keep backups alive until S3/volume exists.
