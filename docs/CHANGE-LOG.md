@@ -11,7 +11,7 @@
 - **خلاصه:** جدول `return_credit_allocations` — اعتبار/بدهی برگشت **unlinked** به فاکتور/PI باز (بدون JE)؛ `recomputeInvoiceSettledBalances` / `recomputePurchaseInvoiceSettledBalances` + SQL فاکتورهای باز با `sumAllocationsToInvoice`؛ POST allocate فروش/خرید؛ `reason_code` روی returns؛ knob `returns_auto_allocate_credit` (FIFO)؛ R13 `reverseAllocationsForReturn` روی ابطال. کرایه خارج از scope (NO-GO).
 - **فایل‌ها:** `server/lib/return-credit-allocate.js`, `server/lib/{invoice-payments,purchase-payments}.js`, `server/routes/{accounting,purchases,settings}.js`, `server/{db.js,sync/{tables,capture}.js}`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-returns-p2c-allocate-v344.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
 - **تست:** ایران `test-returns-p2c-allocate-v344` ۲۷/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
-- **Deploy:** ✅ `8c5ecf3` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v344`.
+- **Deploy:** ✅ `8c5ecf3` (+ hotfix toggle `7ea5e99`) — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ SW `erp-taranom-v344`.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت خرید P2b-finance: مانده فاکتور خرید (SW v343)
 
