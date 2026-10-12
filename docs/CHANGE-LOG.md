@@ -1,3 +1,9 @@
+### ۱۴۰۵/۰۷/۲۰ — Deploy کامل tip main روی ایران (SW v346)
+
+- **خلاصه:** commit/merge/push شاخهٔ `main` + alias + `feat/returns-p2c-allocate-v344` هم‌تِیپ؛ overlay هدفمند tip (returns P2c + display-size + expert-options + چک/تست‌ها) روی درخت کثیف ایران بدون `reset --hard`؛ تست‌های tip سبز؛ `pm2 restart` بدون `--update-env`.
+- **تست ایران:** P2c ۲۷/۰ + display-size ۳۵/۰ + expert-options ۲۹/۰ + cheque-pos ۱۳/۰ + cheque-books ۳۳/۰ + sms ۲۲/۰ + sync ۴۴/۰.
+- **Deploy:** ✅ tip `ed6a68c` / stamp `5ce5a17` — ready=200؛ `image_engine` sharp؛ SW `erp-taranom-v346`؛ `app.js?v=346`.
+
 ### ۱۴۰۵/۰۷/۲۰ — dropdown کارشناس فاکتور: دفتر پخش و نقش‌های کامل (SW v346)
 
 - **علامت:** در فاکتور، لیست «کارشناس» برخی کاربران (به‌ویژه نقش `distribution_office` / دفتر پخش) را نشان نمی‌داد یا ناقص بود.
