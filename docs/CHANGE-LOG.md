@@ -2,8 +2,8 @@
 
 - **هدف:** در مودال نگاشت معین→مرکز، به‌جای datalist آزاد از `moayanAcctHtml` / `moayanAcctPick` (جستجوی سطح معین کدینگ) استفاده شود.
 - **فایل‌ها:** `public/{app.js,sw.js,index.html}`, CHANGE-LOG, Help.
-- **تست:** parse `app.js` + deploy ایران.
-- **Deploy:** ⏳
+- **تست:** parse `app.js` سبز؛ restart ایران.
+- **Deploy:** ✅ `03ee923` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v359`؛ `app.js?v=359`.
 
 ### ۱۴۰۵/۰۷/۲۱ — جذب انتخابی معین + تعدیل بها (SW v358 / ADR-004)
 
