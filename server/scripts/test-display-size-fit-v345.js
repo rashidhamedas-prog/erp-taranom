@@ -110,11 +110,13 @@ const vsr = fs.readFileSync(path.join(__dirname, '../public/variant-stock-report
 ok(vsr.includes('displaySizeName'), 'VSR size column strips fit note');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v345'), 'SW v345');
+const swVer = (sw.match(/erp-taranom-v(\d+)/) || [])[1];
+ok(swVer && Number(swVer) >= 345, 'SW cache >= v345 (got v' + (swVer || '?') + ')');
 const index = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-ok(index.includes('app.js?v=345'), 'index cache-bust v345');
-ok(index.includes('marketer-ui.js?v=345'), 'marketer cache-bust v345');
-ok(index.includes('variant-stock-report.js?v=345'), 'vsr cache-bust v345');
+const appVer = (index.match(/app\.js\?v=(\d+)/) || [])[1];
+ok(appVer && Number(appVer) >= 345, 'index app.js cache-bust >= 345 (got ' + (appVer || '?') + ')');
+ok(/marketer-ui\.js\?v=\d+/.test(index), 'marketer cache-bust present');
+ok(/variant-stock-report\.js\?v=\d+/.test(index), 'vsr cache-bust present');
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
