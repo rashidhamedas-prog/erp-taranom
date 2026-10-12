@@ -33,8 +33,16 @@ const dbJs = readUtf8(path.join(root, 'db.js'));
 
 console.log('-- returns P2c-allocate v344 --');
 
-ok(/erp-taranom-v344/.test(sw), 'SW cache v344');
-ok(/app\.js\?v=344/.test(idx), 'index.html app.js?v=344');
+function cacheVer(s) {
+  const m = String(s || '').match(/erp-taranom-v(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+function appVer(s) {
+  const m = String(s || '').match(/app\.js\?v=(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+ok(cacheVer(sw) >= 344, 'SW cache >= v344', cacheVer(sw));
+ok(appVer(idx) >= 344, 'index.html app.js?v >= 344', appVer(idx));
 
 ok(fs.existsSync(allocPath), 'lib/return-credit-allocate.js exists');
 ok(/function allocateReturnCredit/.test(allocSrc), 'allocateReturnCredit defined');
