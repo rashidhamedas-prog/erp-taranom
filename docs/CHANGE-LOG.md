@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۱ — جذب انتخابی معین + تعدیل بها (SW v358 / ADR-004)
+
+- **هدف:** (۱) برای هر مرکز هزینه انتخاب یک/چند حساب معین با درصد جذب و مبنای گزینه‌ای (`period_debit` / `ending_balance` / `budget`)؛ (۲) تعدیل بهای تمام‌شده و قیمت فروش به‌صورت اتومات (بازه) یا دستی (یک کالا) با سند موجودی و ابطال کامل R13.
+- **Backend:** جداول `cost_center_account_maps`، `cost_revaluations`، `cost_revaluation_lines`؛ `lib/production/{cc-account-absorb,cost-revaluation}.js`؛ API زیر `/production/cost-centers/account-maps*` و `/production/cost-revaluations*`؛ sync append + `PATH_TABLE_MAP` + `sync_seq_backfill_v21`؛ ADR-004.
+- **Frontend:** پنل نگاشت معین + پنل تعدیل بها در «نرخ سربار مراکز»؛ میانبر از مودال مرکز هزینه؛ Help؛ SW `v358`.
+- **فایل‌ها:** `lib/production/{schema,cc-account-absorb,cost-revaluation}.js`, `routes/{production-cost-centers,production-cost-revaluations}.js`, `server.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `docs/architecture/PROD-CC-ACCOUNT-ABSORB-REVAL-ADR-004.md`, `scripts/test-cc-account-absorb-reval-v358.js`, CHANGE-LOG.
+- **تست:** `test-cc-account-absorb-reval-v358` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — سود خالص در داشبورد فروش و خرید (SW v357)
 
 - **هدف:** محاسبه و نمایش سود ناخالص/خالص در گزارشات فروش و خرید، هم‌تراز صورت سود و زیان.

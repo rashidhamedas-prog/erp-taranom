@@ -82,6 +82,9 @@ const SYNCABLE_TABLES = [
   { name: 'cost_center_rates',                upsertKey: 'id' },
   { name: 'overhead_allocation_rules',        upsertKey: 'id' },
   { name: 'overhead_allocation_weights',      upsertKey: 'id' },
+  { name: 'cost_center_account_maps',         upsertKey: 'id' },
+  { name: 'cost_revaluations',                upsertKey: 'id' },
+  { name: 'cost_revaluation_lines',           upsertKey: 'id' },
   { name: 'production_orders',                upsertKey: 'id' },
   { name: 'production_order_stages',          upsertKey: 'id' },
   { name: 'production_material_issues',       upsertKey: 'id' },
@@ -534,6 +537,12 @@ const FK_COLUMNS = [
   ['payroll_payments', 'payroll_record_id'],
   ['payroll_payments', 'bank_id'],
   ['payroll_payments', 'cash_box_id'],
+  // ADR-004 selective OH account maps + cost revaluation (append-only)
+  ['cost_center_account_maps', 'cost_center_id'],
+  ['cost_revaluations', 'product_id'],
+  ['cost_revaluations', 'je_id'],
+  ['cost_revaluation_lines', 'revaluation_id'],
+  ['cost_revaluation_lines', 'product_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

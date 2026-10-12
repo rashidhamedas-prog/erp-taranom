@@ -15015,6 +15015,51 @@ async function renderProductionRatesTab(body){
         <div id="prule-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
       </div>
     </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+      <div class="panel-head"><h4>جذب انتخابی از حساب‌های معین (ADR-004)</h4></div>
+      <div class="panel-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">برای هر مرکز هزینه یک یا چند معین انتخاب کنید و درصد جذب بگذارید. مبنا به‌صورت گزینه‌ای: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>.</p>
+        <div class="form-grid">
+          <div class="fg"><label>مرکز هزینه</label>
+            <select id="cca-cc">${ccRows.map(c=>`<option value="${c.id}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select>
+          </div>
+          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
+            <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری نگاشت</button>
+            <button class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت معین</button>
+          </div>
+          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
+            <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش جذب دوره</button>
+            ${(canPerm('production_cost','edit')||isAdmin())?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>`:''}
+          </div>
+        </div>
+        <div id="cca-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}">مرکز را انتخاب و بارگذاری کنید.</div>
+      </div>
+    </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+      <div class="panel-head"><h4>تعدیل بها (اتومات / دستی)</h4></div>
+      <div class="panel-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">بعد از تغییر هزینه/فرایند در بازه تولید، بهای تمام‌شده و قیمت فروش را دوباره محاسبه می‌کند و ارزش موجودی را با سند تعدیل اصلاح می‌کند. ابطال = برگشت کامل (R13).</p>
+        <div class="form-grid">
+          <div class="fg"><label>حالت</label>
+            <select id="crv-mode" data-csp-change="${CSP.bind('change',function(){crvModeUi()})}">
+              <option value="auto">اتومات — بازه زمانی + کالاهای دارای موجودی</option>
+              <option value="manual">دستی — یک کالا</option>
+            </select>
+          </div>
+          <div class="fg"><label>از تاریخ</label><input id="crv-from" value="${esc(period+'/01')}" placeholder="1405/07/01"></div>
+          <div class="fg"><label>تا تاریخ</label><input id="crv-to" value="${esc(period+'/29')}" placeholder="1405/07/29"></div>
+          <div class="fg"><label>دوره نرخ (سال/ماه)</label><input id="crv-period" value="${esc(period)}" placeholder="1405/07"></div>
+          <div class="fg" id="crv-prod-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>کد / شناسه کالا</label><input id="crv-product" placeholder="product id"></div>
+          <div class="fg full"><label>یادداشت</label><input id="crv-note" placeholder="اختیاری"></div>
+          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
+            <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){crvPreview()})}">پیش‌نمایش</button>
+            ${(canPerm('production_cost','edit')||isAdmin())?`<button class="btn" data-csp-click="${CSP.bind('click',function(){crvPost()})}">اجرای تعدیل بها</button>`:''}
+          </div>
+        </div>
+        <div id="crv-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}"></div>
+        <div id="crv-hist" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
+      </div>
+    </div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>دوره: <input id="pra-period" value="${esc(period)}" placeholder="1405/07" data-csp-style="${CSP.style(`width:100px`)}"></label>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodRatesLoad()})}">بارگذاری</button>
@@ -15029,6 +15074,9 @@ async function renderProductionRatesTab(body){
   window._prodRuleId=globalRule.id||0;
   pricingPreviewSync();
   await prodRatesLoad();
+  if(ccRows[0]) { window._ccaCcId=ccRows[0].id; await ccAccountMapsLoad(); }
+  await crvHistLoad();
+  crvModeUi();
 }
 function pricingPreviewSync(){
   const box=el('prule-preview'); if(!box) return;
@@ -15345,6 +15393,201 @@ async function prodRateSave(){
     closeModal();
     showToast(saved?.warning||'نرخ ذخیره شد', saved?.warning?'error':'success');
     loadAccTab('production-rates');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+
+const CC_ABSORB_BASE_FA={period_debit:'گردش بدهکار دوره',ending_balance:'مانده پایان دوره',budget:'بودجه معین'};
+async function ccAccountMapsLoad(){
+  const ccId=+(el('cca-cc')?.value||window._ccaCcId||0);
+  window._ccaCcId=ccId;
+  const area=el('cca-area'); if(!area||!ccId) return;
+  try{
+    const r=await api('GET','/production/cost-centers/account-maps?cost_center_id='+ccId);
+    const rows=r?.rows||[];
+    window._ccaMaps=rows;
+    if(!rows.length){ area.innerHTML='نگاشتی ثبت نشده — «ویرایش نگاشت معین» را بزنید.'; return; }
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>معین</th><th>مبنا</th><th>جذب ٪</th><th>بودجه</th></tr></thead><tbody>
+      ${rows.map(m=>`<tr>
+        <td class="mono"><b>${esc(m.account_code)}</b> ${esc(m.account_name||'')}</td>
+        <td>${esc(CC_ABSORB_BASE_FA[m.base_type]||m.base_type)}</td>
+        <td class="num">${fmt(m.absorb_pct)}٪</td>
+        <td class="num">${m.base_type==='budget'?money(m.budget_rial):'—'}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+}
+async function ccAccountMapsEdit(){
+  const ccId=+(el('cca-cc')?.value||window._ccaCcId||0);
+  if(!ccId){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
+  let rows=window._ccaMaps||[];
+  try{ rows=(await api('GET','/production/cost-centers/account-maps?cost_center_id='+ccId))?.rows||[]; }catch(e){}
+  let accounts=[];
+  try{
+    const all=CACHE.chartOfAccounts||await api('GET','/accounting/chart-of-accounts')||[];
+    CACHE.chartOfAccounts=all;
+    accounts=all.filter(a=>a._depth>=2||String(a.code||'').length>=4);
+  }catch(e){ accounts=[]; }
+  if(!accounts.length){
+    try{ accounts=(await api('GET','/accounting/chart-of-accounts'))||[]; }catch(e){}
+  }
+  const opts=accounts.slice(0,800).map(a=>`<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name||'')}</option>`).join('');
+  const draft=rows.length?rows:[{account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0}];
+  window._ccaDraft=draft.map(m=>({...m}));
+  const renderDraft=()=>{
+    const box=el('cca-draft'); if(!box) return;
+    box.innerHTML=window._ccaDraft.map((m,i)=>`<div class="form-grid" data-csp-style="${CSP.style(`border-top:1px solid var(--border,#e5e7eb);padding-top:8px;margin-top:8px`)}">
+      <div class="fg"><label>معین</label>
+        <input list="cca-acct-list" id="cca-code-${i}" value="${esc(m.account_code||'')}" placeholder="کد معین">
+      </div>
+      <div class="fg"><label>مبنا</label>
+        <select id="cca-base-${i}">
+          <option value="period_debit" ${m.base_type==='period_debit'?'selected':''}>گردش بدهکار دوره</option>
+          <option value="ending_balance" ${m.base_type==='ending_balance'?'selected':''}>مانده پایان دوره</option>
+          <option value="budget" ${m.base_type==='budget'?'selected':''}>بودجه معین</option>
+        </select>
+      </div>
+      <div class="fg"><label>جذب ٪</label><input id="cca-pct-${i}" type="number" min="0" max="100" step="0.1" value="${esc(String(m.absorb_pct!=null?m.absorb_pct:100))}"></div>
+      <div class="fg"><label>بودجه (ریال)</label><input id="cca-bud-${i}" type="text" inputmode="numeric" class="money" value="${moneyInit(m.budget_rial||0)}"></div>
+      <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){window._ccaDraft.splice(i,1);renderDraft();})}">حذف</button></div>
+    </div>`).join('')+`<datalist id="cca-acct-list">${opts}</datalist>`;
+  };
+  showModal('نگاشت معین → مرکز هزینه',`
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8`)}">هر معین فقط یک‌بار. برای مبنای بودجه، مبلغ بودجه همان ردیف لازم است.</p>
+    <div id="cca-draft"></div>
+    <div data-csp-style="${CSP.style(`margin-top:10px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap`)}">
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){window._ccaDraft.push({account_code:'',absorb_pct:100,base_type:'period_debit',budget_rial:0});renderDraft();})}">＋ معین</button>
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
+        <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button>
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsSave(ccId)})}">ذخیره</button>
+      </div>
+    </div>`);
+  setTimeout(renderDraft,0);
+}
+async function ccAccountMapsSave(ccId){
+  const maps=(window._ccaDraft||[]).map((_,i)=>({
+    account_code:el('cca-code-'+i)?.value?.trim(),
+    base_type:el('cca-base-'+i)?.value||'period_debit',
+    absorb_pct:parseFloat(el('cca-pct-'+i)?.value),
+    budget_rial:moneyVal('cca-bud-'+i)||0,
+  })).filter(m=>m.account_code);
+  try{
+    await api('PUT','/production/cost-centers/account-maps/'+ccId,{maps});
+    closeModal(); showToast('نگاشت معین ذخیره شد');
+    if(el('cca-cc')) el('cca-cc').value=String(ccId);
+    await ccAccountMapsLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ccAccountMapsPreview(){
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  const area=el('cca-area');
+  try{
+    const r=await api('POST','/production/cost-centers/account-maps/preview',{cost_center_id:ccId,period_label:period});
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    area.innerHTML=`پیش‌نمایش ${esc(r.period_label)} (${esc(r.date_from)} تا ${esc(r.date_to)}) — جمع جذب: <b>${money(r.pool_rial)}</b>
+      <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><thead><tr><th>معین</th><th>مبنا</th><th>پایه</th><th>٪</th><th>جذب</th></tr></thead><tbody>
+      ${(r.lines||[]).map(l=>`<tr>
+        <td class="mono">${esc(l.account_code)}</td>
+        <td>${esc(CC_ABSORB_BASE_FA[l.base_type]||l.base_type)}</td>
+        <td class="num">${money(l.base_rial)}</td>
+        <td class="num">${fmt(l.absorb_pct)}٪</td>
+        <td class="num">${money(l.absorbed_rial)}</td>
+      </tr>`).join('')||'<tr><td colspan="5">ردیفی نیست</td></tr>'}
+      </tbody></table></div>`;
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ccAccountMapsApplyBudget(){
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  if(!confirm('جمع جذب معین‌ها به‌عنوان بودجه ثابت نرخ سربار همین دوره ذخیره شود؟')) return;
+  try{
+    const r=await api('POST','/production/cost-centers/account-maps/apply-budget',{cost_center_id:ccId,period_label:period});
+    showToast(r?.warning||'بودجه نرخ از معین به‌روز شد', r?.warning?'error':'success');
+    prodRatesLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+function crvModeUi(){
+  const m=el('crv-mode')?.value||'auto';
+  const wrap=el('crv-prod-wrap');
+  if(wrap) wrap.style.display=m==='manual'?'':'none';
+}
+async function crvPreview(){
+  const area=el('crv-area'); if(!area) return;
+  const body={
+    mode:el('crv-mode')?.value||'auto',
+    date_from:el('crv-from')?.value||'',
+    date_to:el('crv-to')?.value||'',
+    period_label:el('crv-period')?.value||'',
+    product_id:+(el('crv-product')?.value||0)||undefined,
+    note:el('crv-note')?.value||'',
+  };
+  try{
+    const r=await api('POST','/production/cost-revaluations/preview',body);
+    window._crvPreview=r;
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    if(!r.lines?.length){ area.innerHTML='کالایی برای تعدیل یافت نشد (موجودی یا تولید در بازه).'; return; }
+    area.innerHTML=`${r.line_count} کالا — جمع Δ موجودی: <b>${money(r.delta_inventory_rial)}</b>
+      <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><thead><tr>
+        <th>کالا</th><th>موجودی</th><th>بهای قدیم</th><th>بهای جدید</th><th>Δ موجودی</th><th>عمده جدید</th>
+      </tr></thead><tbody>
+      ${r.lines.map(l=>`<tr>
+        <td><b>${esc(l.product_code||'')}</b> ${esc(l.product_name||'')}</td>
+        <td class="num">${fmt(l.qty_on_hand)}</td>
+        <td class="num">${money(l.old_unit_cost_rial)}</td>
+        <td class="num">${money(l.new_unit_cost_rial)}</td>
+        <td class="num">${money(l.delta_inventory_rial)}</td>
+        <td class="num">${money(l.new_wholesale_rial)}</td>
+      </tr>`).join('')}
+      </tbody></table></div>`;
+  }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+}
+async function crvPost(){
+  if(!window._crvPreview?.lines?.length){ await crvPreview(); }
+  if(!window._crvPreview?.lines?.length){ showToast('پیش‌نمایش خالی است','error'); return; }
+  if(!confirm('تعدیل بها ثبت شود؟ بهای کالا، قیمت فروش و سند موجودی به‌روز می‌شوند.')) return;
+  try{
+    const body={
+      mode:el('crv-mode')?.value||'auto',
+      date_from:el('crv-from')?.value||'',
+      date_to:el('crv-to')?.value||'',
+      period_label:el('crv-period')?.value||'',
+      product_id:+(el('crv-product')?.value||0)||undefined,
+      entry_date:el('crv-to')?.value||'',
+      note:el('crv-note')?.value||'',
+    };
+    const r=await api('POST','/production/cost-revaluations',body);
+    showToast('تعدیل بها #'+r.id+' ثبت شد');
+    await crvHistLoad();
+    await crvPreview();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function crvHistLoad(){
+  const box=el('crv-hist'); if(!box) return;
+  try{
+    const r=await api('GET','/production/cost-revaluations?limit=15');
+    const rows=r?.rows||[];
+    if(!rows.length){ box.innerHTML='<div class="muted">هنوز تعدیل بها ثبت نشده.</div>'; return; }
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    const stFa={posted:'ثبت‌شده',reversed:'ابطال',draft:'پیش‌نویس'};
+    box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>حالت</th><th>بازه</th><th>Δ موجودی</th><th>وضعیت</th><th></th></tr></thead><tbody>
+      ${rows.map(h=>`<tr>
+        <td>${h.id}</td>
+        <td>${h.mode==='manual'?'دستی':'اتومات'}${h.product_code?' · '+esc(h.product_code):''}</td>
+        <td class="mono">${esc(h.date_from||'—')} → ${esc(h.date_to||'—')}</td>
+        <td class="num">${money(h.delta_inventory_rial)}</td>
+        <td>${esc(stFa[h.status]||h.status)}</td>
+        <td>${h.status==='posted'&&(canPerm('production_cost','edit')||isAdmin())
+          ?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){crvReverse(h.id)})}">ابطال</button>`:''}</td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  }catch(e){ box.innerHTML=`<span class="oh-warn">${esc(e.message||'')}</span>`; }
+}
+async function crvReverse(id){
+  if(!confirm('این تعدیل بها ابطال شود و بهای/قیمت قبلی برگردد؟')) return;
+  try{
+    await api('POST','/production/cost-revaluations/'+id+'/reverse',{});
+    showToast('ابطال شد'); crvHistLoad();
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
@@ -19122,7 +19365,9 @@ async function costCenterModal(id){
         <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveCostCenter((id||0))})}">💾 ذخیره</button>
+    <div class="modal-foot">
+      ${id?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal();go('acc-production-rates');setTimeout(function(){const s=el('cca-cc');if(s){s.value=String(id);ccAccountMapsEdit();}},200);})}">جذب از معین…</button>`:''}
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){saveCostCenter((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function saveCostCenter(id){
@@ -26907,6 +27152,8 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
+        <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004):</b> در همان صفحهٔ نرخ سربار (یا از ویرایش مرکز هزینه → «جذب از معین») یک یا چند حساب معین را انتخاب کنید؛ برای هر معین درصد جذب ۰–۱۰۰ و مبنای مبلغ را بگذارید: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>. پیش‌نمایش جمع جذب دوره را نشان می‌دهد؛ «اعمال به بودجه نرخ» همان مبلغ را روی بودجهٔ ثابت نرخ سربار دوره می‌نشاند.</li>
+        <li><b>تعدیل بها (v358):</b> زیر نرخ سربار — <b>اتومات</b> (بازه تاریخ برای کالاهای تولیدشدهٔ دارای موجودی) یا <b>دستی</b> (یک کالا). بهای تمام‌شده از roll-up BOM/نرخ دوره دوباره محاسبه می‌شود، قیمت عمده/تک از فرمول مارک‌آپ، و Δ ارزش موجودی با سند به ۵۲۱۴ ثبت می‌شود. ابطال = برگشت بها/قیمت + soft-void سند (بدون حذف فیزیکی).</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>

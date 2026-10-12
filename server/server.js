@@ -634,6 +634,7 @@ app.use('/api/production/reports', require('./routes/production-reports'));
 app.use('/api/production/boms', require('./routes/production-boms'));
 app.use('/api/production/orders', require('./routes/production-orders'));
 app.use('/api/production/cost-centers', require('./routes/production-cost-centers'));
+app.use('/api/production/cost-revaluations', require('./routes/production-cost-revaluations'));
 app.use('/api/production/execution', require('./routes/production-execution'));
 app.use('/api/production/cutting-lays', require('./routes/production-cutting'));
 app.use('/api/production/mrp', require('./routes/production-mrp'));

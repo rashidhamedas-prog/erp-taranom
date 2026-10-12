@@ -23,6 +23,7 @@ const PROD_TABLES = [
   'bom_headers', 'bom_lines', 'bom_operations', 'bom_outputs', 'bom_change_log',
   'bom_material_assignments', 'bom_allowed_variants',
   'cost_center_rates', 'overhead_allocation_rules', 'overhead_allocation_weights',
+  'cost_center_account_maps', 'cost_revaluations', 'cost_revaluation_lines',
   'production_orders', 'production_order_stages', 'production_order_lines',
   'production_material_issues', 'production_labor_entries',
   'production_overhead_applications', 'production_waste', 'production_rework',
@@ -47,6 +48,7 @@ const PROD_SEQUENCES = [
   { key: 'mrp_run', prefix: 'MRP' },
   { key: 'cutting_lay', prefix: 'LAY' },
   { key: 'cutting_pack', prefix: 'PK' },
+  { key: 'cost_revaluation', prefix: 'CRV' },
 ];
 
 const PRODUCTION_SETTINGS = {
@@ -447,6 +449,62 @@ function createTables(db) {
       FOREIGN KEY(cost_center_id) REFERENCES cost_centers(id)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS ux_ccrate ON cost_center_rates(cost_center_id, period_label);
+
+    CREATE TABLE IF NOT EXISTS cost_center_account_maps (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      cost_center_id INTEGER NOT NULL,
+      account_code   TEXT NOT NULL,
+      absorb_pct     REAL NOT NULL DEFAULT 100,
+      base_type      TEXT NOT NULL DEFAULT 'period_debit',
+      budget_rial    INTEGER DEFAULT 0,
+      active         INTEGER DEFAULT 1,
+      note           TEXT DEFAULT '',
+      created_by     INTEGER,
+      created_at     INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(cost_center_id) REFERENCES cost_centers(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_cc_acct_map ON cost_center_account_maps(cost_center_id, account_code);
+    CREATE INDEX IF NOT EXISTS ix_cc_acct_map_cc ON cost_center_account_maps(cost_center_id, active);
+
+    CREATE TABLE IF NOT EXISTS cost_revaluations (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      mode                  TEXT NOT NULL,
+      date_from             TEXT DEFAULT '',
+      date_to               TEXT DEFAULT '',
+      period_label          TEXT DEFAULT '',
+      product_id            INTEGER,
+      status                TEXT DEFAULT 'draft',
+      note                  TEXT DEFAULT '',
+      je_id                 INTEGER,
+      reversed_je_id        INTEGER,
+      line_count            INTEGER DEFAULT 0,
+      delta_inventory_rial  INTEGER DEFAULT 0,
+      created_by            INTEGER,
+      created_at            INTEGER DEFAULT (strftime('%s','now')),
+      posted_at             INTEGER,
+      reversed_at           INTEGER,
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_cost_reval_status ON cost_revaluations(status, created_at);
+
+    CREATE TABLE IF NOT EXISTS cost_revaluation_lines (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      revaluation_id        INTEGER NOT NULL,
+      product_id            INTEGER NOT NULL,
+      qty_on_hand           REAL DEFAULT 0,
+      old_unit_cost_rial    INTEGER DEFAULT 0,
+      new_unit_cost_rial    INTEGER DEFAULT 0,
+      old_wholesale_rial    INTEGER DEFAULT 0,
+      new_wholesale_rial    INTEGER DEFAULT 0,
+      old_retail_rial       INTEGER DEFAULT 0,
+      new_retail_rial       INTEGER DEFAULT 0,
+      delta_inventory_rial  INTEGER DEFAULT 0,
+      bom_id                INTEGER,
+      note                  TEXT DEFAULT '',
+      FOREIGN KEY(revaluation_id) REFERENCES cost_revaluations(id) ON DELETE CASCADE,
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_cost_reval_lines ON cost_revaluation_lines(revaluation_id);
 
     CREATE TABLE IF NOT EXISTS overhead_allocation_rules (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,

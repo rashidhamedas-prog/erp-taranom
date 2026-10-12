@@ -116,7 +116,9 @@ const PATH_TABLE_MAP = [
   ['/api/units', 'units_of_measure'],
   ['/api/fixed-assets', 'fixed_assets'],
   // Production — longer prefixes BEFORE /api/production (legacy production_runs)
+  ['/api/production/cost-centers/account-maps', 'cost_center_account_maps'],
   ['/api/production/cost-centers/rates', 'cost_center_rates'],
+  ['/api/production/cost-revaluations', 'cost_revaluations'],
   // BOM ops/outputs: /api/production/boms/:id/{operations|outputs} — id mid-path;
   // cannot encode with startsWith prefixes; see tableForPath custom branch (PROD-P5).
   ['/api/production/boms', 'bom_headers'],

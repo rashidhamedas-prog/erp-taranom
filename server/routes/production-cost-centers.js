@@ -10,6 +10,13 @@ const {
   computePredeterminedRates,
   looksLikePoolNotRate,
 } = require('../lib/production/overhead');
+const {
+  listMaps,
+  replaceMaps,
+  softDeactivateMap,
+  previewAbsorbForCenter,
+  BASE_TYPES,
+} = require('../lib/production/cc-account-absorb');
 
 function handle(res, fn) {
   try {
@@ -182,6 +189,92 @@ router.put('/rates/:id', auth, requirePermission('production_cost', 'edit'), (re
     if (out) out.driver = coerceDriver(out.driver);
     if (saved.warning) out.warning = saved.warning;
     return out;
+  });
+});
+
+/* ── Selective معین → cost-center absorption maps (ADR-004) ── */
+
+router.get('/account-maps', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const ccId = Number(req.query.cost_center_id);
+    if (!ccId) {
+      const e = new Error('مرکز هزینه الزامی است');
+      e.status = 400;
+      e.code = 'E_CC_REQUIRED';
+      throw e;
+    }
+    return {
+      base_types: BASE_TYPES,
+      rows: listMaps(getDB(), ccId, { includeInactive: req.query.all === '1' }),
+    };
+  });
+});
+
+router.put('/account-maps/:costCenterId', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+  handle(res, () => {
+    const rows = replaceMaps(getDB(), req.params.costCenterId, req.body?.maps || req.body?.rows || [], req.user?.id);
+    return { rows, base_types: BASE_TYPES };
+  });
+});
+
+router.delete('/account-maps/:id', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+  handle(res, () => softDeactivateMap(getDB(), req.params.id));
+});
+
+router.post('/account-maps/preview', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const b = req.body || {};
+    const ccId = Number(b.cost_center_id);
+    const period = validatePeriodLabel(b.period_label || b.period);
+    return previewAbsorbForCenter(getDB(), ccId, period);
+  });
+});
+
+router.post('/account-maps/apply-budget', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const b = req.body || {};
+    const ccId = Number(b.cost_center_id);
+    const period = validatePeriodLabel(b.period_label || b.period);
+    const preview = previewAbsorbForCenter(db, ccId, period);
+    if (!preview.pool_rial) {
+      const e = new Error('مبلغ جذبی از معین‌ها صفر است');
+      e.status = 400;
+      e.code = 'E_POOL_ZERO';
+      throw e;
+    }
+    const existing = db.prepare(`
+      SELECT id FROM cost_center_rates WHERE cost_center_id=? AND period_label=?
+    `).get(ccId, period);
+    const body = {
+      cost_center_id: ccId,
+      period_label: period,
+      driver: b.driver
+        || (existing
+          ? db.prepare('SELECT driver FROM cost_center_rates WHERE id=?').get(existing.id)?.driver
+          : null)
+        || 'output_qty',
+      budget_fixed_oh_rial: preview.pool_rial,
+      budget_var_oh_rial: Number(b.budget_var_oh_rial) || 0,
+      budget_driver_qty: Number(b.budget_driver_qty) || (existing
+        ? Number(db.prepare('SELECT budget_driver_qty FROM cost_center_rates WHERE id=?').get(existing.id)?.budget_driver_qty) || 0
+        : 0),
+      monthly_labor_rate_rial: Number(b.monthly_labor_rate_rial) || 0,
+      absorb_pct: b.absorb_pct != null ? b.absorb_pct : 100,
+      note: b.note || `بودجه از جذب معین (${preview.lines.length} حساب)`,
+      status: 'active',
+      is_estimated: 0,
+    };
+    if (!body.budget_driver_qty) {
+      // Keep pool as budget; rates stay 0 until driver qty filled — still persist budget.
+      body.total_rate_rial = 0;
+      body.fixed_rate_rial = 0;
+      body.var_rate_rial = 0;
+    }
+    const saved = persistRate(db, body, req.user?.id, existing?.id || null);
+    const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(saved.id);
+    if (row) row.driver = coerceDriver(row.driver);
+    return { rate: row, preview, warning: saved.warning || undefined };
   });
 });
 
