@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۰ — سخت‌سازی ریشه Cloudflare Error 520 (infra)
+
+- **علامت:** Cloudflare Error 520 روی `erp.poshaktaranom.com`.
+- **یافته‌ها:** Node/nginx روی origin به‌صورت محلی سالم بودند؛ قطع لحظه‌ای upstream (connection refused) هنگام `pm2 restart` (~08:41 UTC → 502)؛ فرایند زندهٔ PM2 بدون `wait_ready`/`listen_timeout` از ecosystem؛ در Cloudflare `origin_max_http_version` برابر ۲ بود.
+- **رفع:** HTTP/2 به origin خاموش → `origin_max_http_version=1`؛ `pm2 delete` + `pm2 start ecosystem.config.js` + `pm2 save` تا `wait_ready`/`listen_timeout`/`min_uptime`/`exp_backoff` فعال شوند؛ nginx `proxy_connect_timeout 5s` + `proxy_send_timeout 120s` + `proxy_next_upstream off`؛ اسکریپت‌های تشخیص/اعمال `scripts/_diag-cf520-origin.py` و `scripts/_fix-cf520-root.py`.
+- **فایل‌ها:** `server/ecosystem.config.js`, `docs/08-deployment.md`, nginx `crm-taranom` (VPS), `scripts/_diag-cf520-origin.py`, `scripts/_fix-cf520-root.py`, CHANGE-LOG.
+- **تأیید:** origin health=200؛ nginx local HTTPS=200؛ PM2 `wait_ready=true`، `listen_timeout=25000`، restarts=0؛ CF `origin_max_http_version=1`، AOP=off، SSL=strict.
+- **Deploy:** ✅ infra روی ایران (PM2/nginx/CF) — docs/scripts روی git؛ SW بدون bump (infra-only).
+
 ### ۱۴۰۵/۰۷/۲۰ — Deploy کامل tip main روی ایران (SW v346)
 
 - **خلاصه:** commit/merge/push شاخهٔ `main` + alias + `feat/returns-p2c-allocate-v344` هم‌تِیپ؛ overlay هدفمند tip (returns P2c + display-size + expert-options + چک/تست‌ها) روی درخت کثیف ایران بدون `reset --hard`؛ تست‌های tip سبز؛ `pm2 restart` بدون `--update-env`.

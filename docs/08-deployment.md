@@ -8,6 +8,12 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 - Deploy / smoke defaults (e.g. `scripts/deploy-sharp-production.ps1` `-PublicBaseUrl`) must use this host — not legacy `erp.taranom.app`.
 - **Origin TLS (Cloudflare Full strict):** nginx uses Cloudflare Origin CA (15y, `*.poshaktaranom.com` + apex) at `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`. Do not revert to self-signed (CF 526) and do not enable Authenticated Origin Pulls without the AOP client CA. Iran VPS cannot reliably reach Let's Encrypt API.
 
+## Cloudflare / origin hardening (CF 520)
+
+- **Network → HTTP/2 to Origin:** OFF (`origin_max_http_version=1`) for this origin — mitigates intermittent CF **520** when the edge speaks HTTP/2 to nginx/Node.
+- After any `pm2 delete` / `pm2 start` from ecosystem, confirm `wait_ready` (and `listen_timeout`) via `pm2 describe erp-taranom` — a live process can lose these if started without the ecosystem file.
+- Keep **Authenticated Origin Pulls OFF**; TLS mode **Full (strict)** + Cloudflare Origin CA (above). nginx: keep `proxy_connect_timeout 5s`.
+
 ## Hard rules on Iran VPS (`taranom@94.249.244.208`)
 
 | Forbidden | Why |
