@@ -555,7 +555,7 @@ async function showInvVariantDetail(pid, indices){
   if(Array.isArray(indices) && indices.length){
     const chips=indices.map(i=>{
       const r=invCart[i]; if(!r) return '';
-      const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ')||'SKU';
+      const label=variantAttrsLabel(r.color_name||r.color, r.size_name)||'SKU';
       return `<span class="var-chip">${esc(label)} <b>× ${fmt(r.qty)}</b></span>`;
     }).filter(Boolean).join('');
     body=`<div class="var-chip-wrap">${chips}</div>`;
@@ -573,7 +573,7 @@ async function showInvVariantDetail(pid, indices){
         const rows=(pack.matrix||[]).filter(v=>(Number(v.stock)||0)>0);
         if(rows.length){
           stockRows=`<div class="tbl-wrap" data-csp-style="${CSP.style('margin-top:10px')}"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی</th></tr></thead><tbody>`
-            +rows.map(v=>`<tr><td>${esc(v.color_name||'—')}</td><td>${esc(v.size_name||'—')}</td><td class="mono">${fmt(Number(v.stock)||0)}</td></tr>`).join('')
+            +rows.map(v=>`<tr><td>${esc(v.color_name||'—')}</td><td>${esc(displaySizeName(v.size_name)||'—')}</td><td class="mono">${fmt(Number(v.stock)||0)}</td></tr>`).join('')
             +`</tbody></table></div>`;
         }
       }catch(_){}
@@ -626,7 +626,7 @@ function collectInvoiceStockWarnings(cart){
     if(r.variant_id && r.sku_stock!=null){
       const vid=String(r.variant_id);
       if(!bySku[vid]){
-        const sku=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ');
+        const sku=variantAttrsLabel(r.color_name||r.color, r.size_name);
         bySku[vid]={name:(r.name||'')+(sku?(' — '+sku):''), qty:0, avail:Number(r.sku_stock)||0};
       }
       bySku[vid].qty+=qty;
@@ -5589,7 +5589,7 @@ function openInvVariantSplitModal(p, pack, opts){
         const plus=CSP.bind('click',function(){bumpInvVarQty(vid,1)});
         return `<tr data-vcolor="${esc(v.color_name||'')}">
         <td>${esc(v.color_name||'—')}</td>
-        <td>${esc(v.size_name||'—')}</td>
+        <td>${esc(displaySizeName(v.size_name)||'—')}</td>
         <td class="mono">${fmt(Number(v.stock)||0)}</td>
         <td><div class="inv-var-qty-cell">
           <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${minus}">−</button>
@@ -5784,7 +5784,7 @@ function invCartGroups(){
 function invPackSummary(indices){
   const parts=indices.map(i=>{
     const r=invCart[i]; if(!r) return '';
-    const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ');
+    const label=variantAttrsLabel(r.color_name||r.color, r.size_name);
     return (label||'SKU')+' × '+fmt(r.qty);
   }).filter(Boolean);
   return parts.join('، ');
@@ -5873,7 +5873,7 @@ function renderCart(){
       const whChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'warehouse_id',+this.value||null)});
       const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
       const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
-      const oneLine=isPack?invPackOneLine(indices):([r.color_name||r.color,r.size_name].filter(Boolean).join(' · '));
+      const oneLine=isPack?invPackOneLine(indices):(variantAttrsLabel(r.color_name||r.color, r.size_name, ' · '));
       const retQty=(!isIncome&&invReturnQtyMap[invReturnLineKey(r)])||0;
       const retHint=retQty>0?('<div class="muted" data-csp-style="'+CSP.style('font-size:11px;margin-top:2px')+'">برگشتی: <span class="mono">'+fmt(retQty)+'</span></div>'):'';
       const packNote=isPack
@@ -7195,7 +7195,7 @@ async function refreshProdVariantsPanel(productId){
       ${matrix.map(v=>`<tr>
         <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
         <td>${esc(v.color_name||v.color_code||'—')}</td>
-        <td>${esc(v.size_name||v.size_code||'—')}</td>
+        <td>${esc(displaySizeName(v.size_name||v.size_code)||'—')}</td>
         <td><input type="number" min="0" step="1" inputmode="numeric" class="pv-stock-edit" data-color="${v.color_id||0}" data-size="${v.size_id||0}" value="${fmtPieceQty(v.stock)}" data-csp-style="${CSP.style(`width:88px`)}"></td>
         <td class="mono" dir="ltr">${esc(v.barcode||'—')}</td>
       </tr>`).join('')}
@@ -8046,7 +8046,7 @@ function stkDetailRows(items, editable){
         <td class="mono">${esc(it.code||'-')}</td>
         <td>${esc(it.name||'-')}</td>
         <td>${esc(it.color_name||'—')}</td>
-        <td>${esc(it.size_name||'—')}</td>
+        <td>${esc(displaySizeName(it.size_name)||'—')}</td>
         <td>${esc(it.unit||'-')}</td>
         <td class="mono">${fmt(it.system_qty||0)}</td>
         <td>${editable?`<input type="number" min="0" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmt(c1)}</span>`}</td>
@@ -9937,7 +9937,7 @@ function renderGenCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${esc(r.name)}${(r.color_name||r.size_name)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc([r.color_name,r.size_name].filter(Boolean).join(' · '))}</div>`:(r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:'')}</td>
+        <td class="cn">${esc(r.name)}${(r.color_name||r.size_name)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(variantAttrsLabel(r.color_name, r.size_name, ' · '))}</div>`:(r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:'')}</td>
         <td class="col-qty"><input type="number" class="num-fit" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         <td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="${moneyInit(r.price)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=moneyParseInput(this);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
@@ -12074,7 +12074,7 @@ async function viewWarehouseDoc(id){
         </tr></thead><tbody>${lines.map((l,i)=>`<tr>
           <td class="mono">${fmt(l.line_no||(i+1))}</td>
           <td>${esc(l.product_name||'-')}${l.product_code?` <span class="mono muted">${esc(l.product_code)}</span>`:''}</td>
-          <td class="muted">${esc([l.color_name,l.size_name].filter(Boolean).join(' / ')||'-')}</td>
+          <td class="muted">${esc(variantAttrsLabel(l.color_name, l.size_name)||'-')}</td>
           <td class="mono">${fmt(l.qty)}</td>
         </tr>`).join('')||emptyRow(4)}</tbody></table></div>
       </div>
@@ -12254,7 +12254,7 @@ async function whPickProduct(i,id,label,available){
     const newLines=live.map(function(v){
       const cname=v.color_name||'';
       const sname=v.size_name||'';
-      const bits=[label, [cname,sname].filter(Boolean).join(' / ')].filter(Boolean);
+      const bits=[label, variantAttrsLabel(cname, sname)].filter(Boolean);
       return {
         product_id:id,
         product_label:bits.join(' — '),
@@ -12445,7 +12445,7 @@ async function renderConsignmentsTab(body){
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td class="mono">${esc(r.doc_num||(r.doc_id?('#'+r.doc_id):'—'))}${r.line_no?`<span class="muted"> · ${fmt(r.line_no)}</span>`:''}</td>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
-      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}${(r.color_name||r.size_name)?` <span class="muted">${esc([r.color_name,r.size_name].filter(Boolean).join(' / '))}</span>`:''}</td>
+      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}${(r.color_name||r.size_name)?` <span class="muted">${esc(variantAttrsLabel(r.color_name, r.size_name))}</span>`:''}</td>
       <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
       <td class="mono">${escDate(r.date)}</td>
       <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
@@ -12473,7 +12473,7 @@ function csProductPickerHtml(i,l){
       data-csp-input="${CSP.bind('input',function(){csScheduleProductSearch((i),this.value)})}"
       data-csp-focus="${CSP.bind('focus',function(){csScheduleProductSearch((i),this.value)})}">
     <div id="cs-dd-${i}" hidden data-csp-style="${CSP.style('position:absolute;z-index:30;right:0;left:0;max-height:220px;overflow:auto;background:#fff;border:1px solid var(--border);border-radius:8px')}"></div>
-    <div id="cs-atp-${i}" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}">${atp}${l.color_name||l.size_name?(' · '+esc([l.color_name,l.size_name].filter(Boolean).join(' / '))):''}</div>
+    <div id="cs-atp-${i}" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}">${atp}${l.color_name||l.size_name?(' · '+esc(variantAttrsLabel(l.color_name, l.size_name))):''}</div>
   </div>`;
 }
 function csScheduleProductSearch(i,q){
@@ -12530,7 +12530,7 @@ async function csPickProduct(i,id,label,available){
     const newLines=live.map(function(v){
       const cname=v.color_name||'';
       const sname=v.size_name||'';
-      const bits=[label, [cname,sname].filter(Boolean).join(' / ')].filter(Boolean);
+      const bits=[label, variantAttrsLabel(cname, sname)].filter(Boolean);
       return {
         product_id:id,
         product_label:bits.join(' — '),
@@ -15753,7 +15753,7 @@ async function prodOrderReceiptModal(id){
     if(!orderColor||String(v.color_name||'')!==orderColor) return 0;
     return Number(bd[v.size_name])||0;
   };
-  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pr-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${prefQty(v)}"></td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع این ردیف‌ها باید با تعداد سالم برابر باشد.${orderColor?' رنگ سفارش: '+esc(orderColor):''}</p></div>`:'';
+  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pr-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${prefQty(v)}"></td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع این ردیف‌ها باید با تعداد سالم برابر باشد.${orderColor?' رنگ سفارش: '+esc(orderColor):''}</p></div>`:'';
   showModal('رسید تولید — '+esc(order.order_no||''),`
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
@@ -15873,7 +15873,7 @@ async function prodOrderIssueModal(id){
       if(!active.length) return;
       const row=document.querySelector('#pim-rows tr[data-idx="'+i+'"] td');
       if(!row || row.querySelector('.pim-variant')) return;
-      row.insertAdjacentHTML('beforeend', '<div><select class="pim-variant"><option value="">رنگ/سایز</option>'+active.map(v=>'<option value="'+v.id+'">'+esc(v.color_name||'')+' / '+esc(v.size_name||'')+'</option>').join('')+'</select></div>');
+      row.insertAdjacentHTML('beforeend', '<div><select class="pim-variant"><option value="">رنگ/سایز</option>'+active.map(v=>'<option value="'+v.id+'">'+esc(v.color_name||'')+' / '+esc(displaySizeName(v.size_name)||'')+'</option>').join('')+'</select></div>');
     }).catch(()=>{});
   });
 }
@@ -16215,7 +16215,7 @@ async function prodOrderFinalize(orderId){
   }
 
   const mismatch=planSum>0 && Math.abs(planSum-qtyGood)>0.001;
-  const varBlock=`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
+  const varBlock=`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
     <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع ردیف‌ها باید با خروجی نهایی (${toFa(qtyGood)}) برابر باشد.${mismatch?' برنامه سفارش '+toFa(planSum)+' با خروجی فرق دارد — تعداد واقعی را اصلاح کنید.':planSum?'':' برنامه رنگ×سایز روی سفارش خالی است — تعداد واقعی هر ترکیب را وارد کنید.'}</p></div>`;
 
   showModal('نهایی‌سازی — '+esc(order.order_no||''),`
@@ -16426,11 +16426,11 @@ async function pdLoadVariants(){
   rows=(rows||[]).filter(v=>!v.is_default);
   if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; if(matrixWrap){ matrixWrap.hidden=true; matrixWrap.innerHTML=''; } return; }
   wrap.hidden=false;
-  sel.innerHTML='<option value="">— یک ترکیب (یا ماتریس پایین) —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(v.size_name||'')}</option>`).join('');
+  sel.innerHTML='<option value="">— یک ترکیب (یا ماتریس پایین) —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(displaySizeName(v.size_name)||'')}</option>`).join('');
   if(matrixWrap){
     matrixWrap.hidden=false;
     matrixWrap.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد</th></tr></thead><tbody>
-      ${rows.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(v.size_name||'')}</td><td><input class="pd-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="0"></td></tr>`).join('')}
+      ${rows.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pd-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="0"></td></tr>`).join('')}
     </tbody></table></div><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">اگر بیش از یک ترکیب می‌زنید، جمع باید با تعداد تولید برابر باشد.</p>`;
   }
 }
@@ -18048,7 +18048,7 @@ async function loadPrReturnRows(){
     return `<tr>
     <td>${esc(r.name)}</td>
     <td>${esc(color||'—')}</td>
-    <td>${esc(size||'—')}</td>
+    <td>${esc(displaySizeName(size)||'—')}</td>
     <td class="muted">${esc(r.roll_no||'—')}</td>
     <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
@@ -18105,7 +18105,7 @@ function renderPrOpenRowsTbl(){
     <tbody>${prOpenRows.map((r,i)=>`<tr>
       <td>${esc(r.name)}</td>
       <td>${esc(r.color_name||'—')}</td>
-      <td>${esc(r.size_name||'—')}</td>
+      <td>${esc(displaySizeName(r.size_name)||'—')}</td>
       <td class="mono">${fmt(r.qty)}</td>
       <td class="mono">${fmt(r.price)}</td>
       ${returnOpenRowsCostCell(r)}
@@ -18270,7 +18270,7 @@ async function loadSrReturnRows(){
     return `<tr>
     <td>${esc(r.name)}</td>
     <td>${esc(color||'—')}</td>
-    <td>${esc(size||'—')}</td>
+    <td>${esc(displaySizeName(size)||'—')}</td>
     <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
     <td class="mono">${fmt(r.price)}</td>
@@ -18323,7 +18323,7 @@ function renderSrOpenRowsTbl(){
     <tbody>${srOpenRows.map((r,i)=>`<tr>
       <td>${esc(r.name)}</td>
       <td>${esc(r.color_name||'—')}</td>
-      <td>${esc(r.size_name||'—')}</td>
+      <td>${esc(displaySizeName(r.size_name)||'—')}</td>
       <td class="mono">${fmt(r.qty)}</td>
       <td class="mono">${fmt(r.price)}</td>
       ${returnOpenRowsCostCell(r)}
@@ -26941,7 +26941,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تخفیف کل فاکتور سند حسابداری را تراز نگه می‌دارد — حتی اگر طاقه را از سبد حذف کنید و بقیه را ذخیره کنید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>دکمهٔ <b>چاپ</b> در ستون عملیات لیست (متن خوانا، نه فقط آیکون) و داخل فرم فاکتور است. اگر چند دکمه جا نشود زیر هم می‌پیچد. پیش‌نمایش باید برگهٔ گرافیکی (بنر سبز، جدول خط‌دار، مهر) باشد نه متن خام. اگر صفحه بدون رنگ یا لوگو باز شد یک‌بار Ctrl+Shift+R بزنید. قالب‌ها: اداری رسمی، ERP مدرن، پرمیوم، ساده و حرارتی. ستون <b>کد</b> فقط کد کالا است (مثل K-00002). رنگ، سایز و عبارت‌هایی مثل «فری سایز (مناسب تا ۴۸)» که به SKU ماتریس چسبیده‌اند در فاکتور فروش و خرید چاپ نمی‌شوند. حوالهٔ انبار همان رنگ و سایز را جدا نشان می‌دهد.</p>
+      <h5>چاپ</h5><p>دکمهٔ <b>چاپ</b> در ستون عملیات لیست (متن خوانا، نه فقط آیکون) و داخل فرم فاکتور است. اگر چند دکمه جا نشود زیر هم می‌پیچد. پیش‌نمایش باید برگهٔ گرافیکی (بنر سبز، جدول خط‌دار، مهر) باشد نه متن خام. اگر صفحه بدون رنگ یا لوگو باز شد یک‌بار Ctrl+Shift+R بزنید. قالب‌ها: اداری رسمی، ERP مدرن، پرمیوم، ساده و حرارتی. ستون <b>کد</b> فقط کد کالا است (مثل K-00002). رنگ، سایز و عبارت‌هایی مثل «فری سایز (مناسب تا ۴۸)» که به SKU ماتریس چسبیده‌اند در فاکتور فروش و خرید چاپ نمی‌شوند. حوالهٔ انبار رنگ و سایز را جدا نشان می‌دهد؛ سایز بدون توضیح تناسب «(مناسب تا/از …)» است و کد همان کد کاتالوگ است نه SKU ماتریس.</p>
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -27481,8 +27481,9 @@ function renderSalesGuide(){
         <li>کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ در لیست فاکتور دکمهٔ خوانای <b>چاپ</b> هست و اگر جا کم باشد زیر دکمهٔ تبدیل می‌پیچد. چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب و کاغذ ISO (A4 210×297 یا A5 148×210 میلی‌متر) را می‌پرسد. پیش‌نمایش وسط صفحه و هم‌اندازهٔ کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
-        <li>دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار است (کد/نام/رنگ/سایز/تعداد — بدون مبلغ)</li>
+        <li>دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار است (کد/نام/رنگ/سایز/تعداد — بدون مبلغ). کد = کد کاتالوگ؛ سایز بدون «(مناسب تا/از …)»</li>
         <li>چاپ فاکتور فروش/خرید: ستون کد فقط <b>کد کالا</b> است (مثل K-00002) به‌اضافهٔ نام استایل تمیز. SKU ماتریس مثل «K-00002-مشگی-فری سایز (مناسب تا ۴۸)» و برچسب «سفید-سایز ۱ (مناسب از …)» چاپ نمی‌شود؛ واریانت‌های هم‌قیمت در یک ردیف با تعداد جمع می‌شوند</li>
+        <li>در کل برنامه، نمایش سایز برای picking/لیست/حواله توضیح تناسب داخل پرانتز را نشان نمی‌دهد؛ نام کامل فقط در ویرایش master سایز کاتالوگ می‌ماند</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
         <li>چک دریافتی: «مبلغ این فقره چک (ریال)» و «➕ ثبت چک بعدی» برای هر برگ جدا است؛ جمع چند فقره روی یک صیاد به یک برگهٔ واحد تبدیل نمی‌شود</li>
       </ol>

@@ -10,7 +10,10 @@ const VSR_COLS = [
   { key: 'category', label: 'گروه', kind: '', pick: function (c) { return c.category || ''; } },
   { key: 'warehouse', label: 'انبار', kind: '', pick: function (c) { return c.warehouse_name || ''; } },
   { key: 'color', label: 'رنگ', kind: '', pick: function (c) { return c.color_name || ''; } },
-  { key: 'size', label: 'سایز', kind: '', pick: function (c) { return c.size_name || ''; } },
+  { key: 'size', label: 'سایز', kind: '', pick: function (c) {
+    const raw = c.size_name || '';
+    return (typeof displaySizeName === 'function') ? displaySizeName(raw) : raw;
+  } },
   { key: 'sku', label: 'SKU', kind: '', pick: function (c) { return c.sku || ''; } },
   { key: 'qty', label: 'موجودی', kind: 'qty', pick: function (c) { return c.qty || 0; } },
   { key: 'cost', label: 'بهای واحد', kind: 'avg', pick: function (c) { return c.unit_cost_rial || 0; } },

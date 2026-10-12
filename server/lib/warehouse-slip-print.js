@@ -4,11 +4,13 @@
  * Invariant: فقط‌خواندنی — موجودی/دفتر را عوض نمی‌کند.
  * Segregation: مبلغ/فی/تخفیف چاپ نمی‌شود (برگه انبار ≠ فاکتور مالی).
  * Picking: رنگ و سایز و کد کالا باید دیده شوند (برخلاف فشرده‌سازی چاپ فاکتور).
+ * کد = کد کاتالوگ (نه SKU ماتریس)؛ سایز بدون پرانتز «مناسب تا/از».
  * Paper: فقط ISO A4 / A5.
  */
 'use strict';
 
 const { ISO_PAPER } = require('./invoice-print');
+const { displayProductCode, displaySizeName } = require('./display-labels');
 
 const DOC_TITLES = Object.freeze({
   sales_issue: 'حواله خروج انبار',
@@ -69,11 +71,22 @@ function normalizeSlipLines(rawRows, opts = {}) {
     if (!Number.isFinite(qty) || qty === 0) continue;
     lineNo += 1;
     const color = String(r.color_name || r.color || '').trim();
-    const size = String(r.size_name || '').trim();
-    const code = String(r.code || r.sku || r.barcode || r.product_code || r.variant_sku || '').trim();
+    const sizeRaw = String(r.size_name || '').trim();
+    const size = displaySizeName(sizeRaw);
+    const code = displayProductCode({
+      product_code: r.product_code,
+      code: r.code || r.sku || r.barcode || r.variant_sku,
+      sku: r.sku || r.variant_sku,
+      barcode: r.barcode,
+      color_name: color,
+      color,
+      size_name: sizeRaw,
+    });
     const name = String(r.name || r.product_name || r.product_label || '').trim() || '—';
     const unit = String(r.unit || r.product_unit || 'عدد').trim() || 'عدد';
-    const note = String(r.description || r.note || '').trim();
+    // توضیح ردیف اگر فقط برچسب تناسب/واریانت باشد چاپ نشود
+    let note = String(r.description || r.note || '').trim();
+    if (note && /مناسب\s+(?:از|تا)/u.test(note) && note.length < 80) note = '';
     const warehouse = String(
       r.warehouse_name || r.from_warehouse_name || r.to_warehouse_name || opts.defaultWarehouse || ''
     ).trim();
@@ -106,7 +119,9 @@ function enrichInvoiceRowsForSlip(db, rows) {
       try {
         const p = db.prepare('SELECT code, name, unit, barcode FROM products WHERE id=?').get(pid);
         if (p) {
-          if (!code) code = String(p.code || p.barcode || '').trim();
+          // حواله: همیشه کد کاتالوگ را ترجیح بده (نه SKU ماتریس روی ردیف)
+          const catalog = String(p.code || p.barcode || '').trim();
+          if (catalog) code = catalog;
           if (!name) name = String(p.name || '').trim();
           if (!unit) unit = String(p.unit || 'عدد').trim();
         }
@@ -241,7 +256,7 @@ function renderWarehouseSlipHtml(opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(title)} ${esc(doc.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link href="/warehouse-slip-print.css?v=277" rel="stylesheet">
+<link href="/warehouse-slip-print.css?v=345" rel="stylesheet">
 <style>
 @page { size: ${dims.widthMm}mm ${dims.heightMm}mm; margin: ${dims.pageMargin}; }
 @media print {

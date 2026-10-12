@@ -762,9 +762,12 @@ function variantLineSummary(db, productId, warehouseId) {
     }
     return (Number(v.stock) || 0) > 0;
   });
+  const { displaySizeName } = require('../display-labels');
   const colors = [...new Set(live.map((v) => String(v.color_name || '').trim()).filter(Boolean))];
+  // sizes[] = نام کامل master (هویت/match)؛ line = برچسب نمایش بدون «(مناسب تا/از …)»
   const sizes = [...new Set(live.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
-  const line = [colors.length ? colors.join('، ') : '', sizes.length ? sizes.join(' ') : ''].filter(Boolean).join(' · ');
+  const sizesDisp = [...new Set(sizes.map((z) => displaySizeName(z)).filter(Boolean))];
+  const line = [colors.length ? colors.join('، ') : '', sizesDisp.length ? sizesDisp.join(' ') : ''].filter(Boolean).join(' · ');
   return {
     line,
     colors,

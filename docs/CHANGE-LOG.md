@@ -6,6 +6,15 @@
 - **تست:** ایران `test-invoice-cheque-pos-v344` ۱۳/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
 - **Deploy:** ✅ `0465428` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v344`.
 
+### ۱۴۰۵/۰۷/۲۰ — نمایش سایز بدون «(مناسب تا/از …)» ریشه در کل برنامه (SW v345)
+
+- **علامت:** در حواله خروج انبار ستون کد `K-00007-آبی…-فری سایز (مناسب تا 48)` و ستون سایز همان توضیح تناسب را نشان می‌داد.
+- **ریشه:** نام سایز در master شامل پرانتز تناسب است؛ `buildSku` آن را در SKU ماتریس می‌چسباند. حواله قبلاً کد/سایز خام را چاپ می‌کرد.
+- **رفع:** ماژول مشترک `lib/display-labels.js` (`stripSizeFitNote` / `displaySizeName` / `displayProductCode`)؛ `warehouse-slip-print.normalizeSlipLines` کد کاتالوگ + سایز کوتاه؛ فرانت `variantAttrsLabel` در picking/لیست/سبد/برگشت/انبار/امانی؛ `variantLineSummary.line` و گزارش موجودی واریانت و فروش بازاریاب. دادهٔ کاتالوگ و `data-sname`/`size_name` ذخیره‌شده تغییر نمی‌کند.
+- **فایل‌ها:** `server/lib/{display-labels,warehouse-slip-print,product-variants/service}.js`, `server/public/{app.js,marketer-ui.js,variant-stock-report.js,sw.js,index.html}`, `server/scripts/test-display-size-fit-v345.js`, CHANGE-LOG.
+- **تست:** `node server/scripts/test-display-size-fit-v345.js` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۷/۱۹ — برگشت P2c-allocate: تخصیص اعتبار بدون فاکتور (SW v344)
 
 - **خلاصه:** جدول `return_credit_allocations` — اعتبار/بدهی برگشت **unlinked** به فاکتور/PI باز (بدون JE)؛ `recomputeInvoiceSettledBalances` / `recomputePurchaseInvoiceSettledBalances` + SQL فاکتورهای باز با `sumAllocationsToInvoice`؛ POST allocate فروش/خرید؛ `reason_code` روی returns؛ knob `returns_auto_allocate_credit` (FIFO)؛ R13 `reverseAllocationsForReturn` روی ابطال. کرایه خارج از scope (NO-GO).

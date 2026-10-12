@@ -103,7 +103,13 @@
   }
 
   function skuLabel(c) {
-    const label = [c.color_name || c.color, c.size_name].filter(Boolean).join(' / ');
+    if (typeof variantAttrsLabel === 'function') {
+      return variantAttrsLabel(c.color_name || c.color, c.size_name) || '';
+    }
+    const z = (typeof displaySizeName === 'function')
+      ? displaySizeName(c.size_name)
+      : (c.size_name || '');
+    const label = [c.color_name || c.color, z].filter(Boolean).join(' / ');
     return label ? label : '';
   }
 
@@ -462,7 +468,7 @@
       const already = row ? (Number(row.qty) || 0) : 0;
       if (skuStock != null && skuStock >= 0 && already + qty > skuStock) {
         showToast(
-          'موجودی «' + (line.color_name || '') + ' ' + (line.size_name || '') + '» کافی نیست (موجود: ' + fmt(skuStock) + ')',
+          'موجودی «' + (skuLabel(line) || [line.color_name || '', (typeof displaySizeName === 'function' ? displaySizeName(line.size_name) : (line.size_name || ''))].filter(Boolean).join(' ')) + '» کافی نیست (موجود: ' + fmt(skuStock) + ')',
           'error'
         );
         return;
