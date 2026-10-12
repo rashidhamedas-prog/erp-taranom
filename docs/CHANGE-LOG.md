@@ -5,7 +5,7 @@
 - **رفع:** ماژول `server/lib/sales-experts.js` با نقش‌های canonical (شامل `distribution_office`)؛ endpoint سبک `GET /auth/expert-options` با `adminOrAccounting` (+`include_id` برای کارشناس فعلی حتی غیرفعال/نقش قدیمی)؛ `listSalesExpertUsers` + `ensureExpertUsersCache(true, …)` قبل از باز کردن picker؛ stub نام از `seller_name` اگر در لیست نبود. SW `erp-taranom-v346`.
 - **فایل‌ها:** `server/lib/sales-experts.js`, `server/routes/auth.js`, `server/public/{app.js,sw.js,index.html}`, `server/scripts/test-invoice-expert-options-v346.js`, CHANGE-LOG.
 - **تست:** `node server/scripts/test-invoice-expert-options-v346.js` + `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
-- **Deploy:** ⏳ pending — overlay ایران + `pm2 restart erp-taranom` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v346`؛ `app.js?v=346`.
+- **Deploy:** ✅ `0af46c6` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ `image_engine` sharp؛ SW `erp-taranom-v346`؛ `app.js?v=346`؛ تست ایران expert-options + sms ۲۲/۰ + sync ۴۴/۰.
 
 ### ۱۴۰۵/۰۷/۱۹ — شفاف‌سازی چک+کارتخوان vs دو فقره چک (SW v344)
 
