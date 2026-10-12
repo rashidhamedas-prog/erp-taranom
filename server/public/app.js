@@ -14969,114 +14969,175 @@ async function renderProductionRatesTab(body){
   const wPct=Number(globalRule.wholesale_markup_pct??20);
   const rPct=Number(globalRule.retail_markup_pct??35);
   const an=String(prodCfg.production_default_analysis||'fixed');
-  body.innerHTML=`<div class="prod-scope">
-    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-      <div class="panel-head"><h4>تنظیمات حرفه‌ای تولید</h4></div>
-      <div class="panel-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">انبارهای پیش‌فرض، آستانه‌های انحراف/ضایعات، تحلیل پیش‌فرض سفارش و گیت ثبت سند. طبق ADR-003 قبل از تغییر موتور، این‌ها از اینجا ذخیره می‌شوند.</p>
-        <div class="form-grid">
-          <div class="fg"><label>انبار مواد</label><select id="pcfg-wh-raw">${whOpt('production_wh_raw_id')}</select></div>
-          <div class="fg"><label>انبار محصول</label><select id="pcfg-wh-fg">${whOpt('production_wh_fg_id')}</select></div>
-          <div class="fg"><label>انبار WIP برش</label><select id="pcfg-wh-wip">${whOpt('production_wh_wip_id')}</select></div>
-          <div class="fg"><label>انبار ضایعات</label><select id="pcfg-wh-scrap">${whOpt('production_wh_scrap_id')}</select></div>
-          <div class="fg"><label>انبار پیمانکار</label><select id="pcfg-wh-sub">${whOpt('production_wh_sub_id')}</select></div>
-          <div class="fg"><label>انبار پخش</label><select id="pcfg-wh-dist">${whOpt('production_wh_dist_id')}</select></div>
-          <div class="fg"><label>تحلیل پیش‌فرض سفارش</label>
-            <select id="pcfg-analysis">
-              <option value="fixed" ${an==='fixed'?'selected':''}>ثابت ساده</option>
-              <option value="variable" ${an==='variable'?'selected':''}>متغیر ساده</option>
-              <option value="fixed_adv" ${an==='fixed_adv'?'selected':''}>ثابت پیشرفته</option>
-              <option value="variable_adv" ${an==='variable_adv'?'selected':''}>متغیر پیشرفته</option>
-            </select>
+  const canEditOh=canPerm('production_cost','edit')||isAdmin();
+  const pane=window._prodRatesPane||'rates';
+  body.innerHTML=`<div class="prod-scope oh-hub">
+    <div class="oh-hub-head">
+      <div>
+        <h3>نرخ سربار و بهای تولید</h3>
+        <p>کار روزمره اینجاست: نرخ دوره را ببینید و ثبت کنید. جذب معین، تعدیل بها، قیمت و تنظیمات در تب‌های جدا هستند تا صفحه شلوغ نشود.</p>
+      </div>
+      <div class="oh-hub-period">
+        <label>دوره <input id="pra-period" value="${esc(period)}" placeholder="1405/07"></label>
+        <button type="button" class="btn secondary sm" data-csp-click="${CSP.bind('click',function(){prodRatesLoad(); if(window._prodRatesPane==='absorb') ccAccountMapsLoad();})}">بارگذاری</button>
+      </div>
+    </div>
+    <div class="oh-seg" role="tablist" aria-label="بخش‌های نرخ سربار">
+      <button type="button" role="tab" class="oh-seg-btn ${pane==='rates'?'active':''}" data-pane="rates" aria-selected="${pane==='rates'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){prodRatesShowPane('rates')})}">نرخ مراکز</button>
+      <button type="button" role="tab" class="oh-seg-btn ${pane==='absorb'?'active':''}" data-pane="absorb" aria-selected="${pane==='absorb'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){prodRatesShowPane('absorb')})}">جذب معین</button>
+      <button type="button" role="tab" class="oh-seg-btn ${pane==='reval'?'active':''}" data-pane="reval" aria-selected="${pane==='reval'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){prodRatesShowPane('reval')})}">تعدیل بها</button>
+      <button type="button" role="tab" class="oh-seg-btn ${pane==='pricing'?'active':''}" data-pane="pricing" aria-selected="${pane==='pricing'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){prodRatesShowPane('pricing')})}">قیمت‌گذاری</button>
+      <button type="button" role="tab" class="oh-seg-btn ${pane==='settings'?'active':''}" data-pane="settings" aria-selected="${pane==='settings'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){prodRatesShowPane('settings')})}">تنظیمات تولید</button>
+    </div>
+
+    <div class="oh-pane ${pane==='rates'?'active':''}" data-oh-pane="rates" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head"><h4>نرخ سربار دوره</h4>
+          <div class="oh-actions">
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodRateEditModal()})}">ثبت نرخ</button>
+            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesBootstrap()})}">برآورد ۳ ماه</button>
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesCopyPrev()})}">کپی ماه قبل</button>`:''}
+            <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}"><input type="checkbox" id="pra-all" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodRatesLoad()})}"> لغوشده‌ها</label>
           </div>
-          <div class="fg"><label>ضایعات نرمال پیش‌فرض ٪</label><input id="pcfg-waste" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_normal_waste_default_pct||'3')}"></div>
-          <div class="fg"><label>آستانه انحراف بستن ٪</label><input id="pcfg-var-th" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_variance_threshold_pct||'0.5')}"></div>
-          <div class="fg"><label>آستانه هشدار بها ٪</label><input id="pcfg-dev" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_cost_deviation_alert_pct||prodCfg.production_cost_deviation_pct||'15')}"></div>
-          <div class="fg"><label>افق MRP (روز)</label><input id="pcfg-mrp" type="number" min="1" max="365" value="${esc(prodCfg.production_mrp_horizon_days||'30')}"></div>
-          <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:14px;align-items:center`)}">
-            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-auto-je" ${prodCfg.production_auto_post_je!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ثبت خودکار سند حسابداری</label>
-            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-backflush" ${prodCfg.production_backflush_on_receipt!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> Backflush در رسید ثابت</label>
-            <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-neg" ${prodCfg.production_allow_negative_stock==='1'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> اجازه موجودی منفی تولید</label>
-          </div>
-          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){saveProdProConfig()})}">ذخیره تنظیمات تولید</button></div>
+        </div>
+        <div class="panel-body">
+          <p class="oh-pane-lead">نرخ جذب = بودجه سربار ÷ محرک نرمال (IAS 2). سربار سفارش = نرخ × محرک واقعی × درصد جذب مرکز.</p>
+          <div id="pra-area"><div class="muted">در حال بارگذاری...</div></div>
         </div>
       </div>
     </div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-      <div class="panel-head"><h4>فرمول قیمت‌گذاری پس از بهای تمام‌شده</h4></div>
-      <div class="panel-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">مارک‌آپ روی <b>بهای تمام‌شده تولید</b> است نه حاشیه فروش: قیمت = بها × (۱ + ٪سود). بعد از نهایی‌سازی سفارش روی قیمت عمده/تک کالا اعمال می‌شود.</p>
-        <div class="form-grid">
-          <div class="fg"><label>سود عمده ٪ (مارک‌آپ)</label><input id="prule-w" type="number" min="0" max="500" step="0.1" value="${wPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
-          <div class="fg"><label>سود تک ٪ (مارک‌آپ)</label><input id="prule-r" type="number" min="0" max="500" step="0.1" value="${rPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
-          <div class="fg"><label>نمونه بها ${moneyColLabel()}</label><input id="prule-sample" type="text" inputmode="numeric" class="money" value="${moneyInit(10000000)}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
-          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePricingRule((globalRule.id||0))})}">ذخیره فرمول</button></div>
-        </div>
-        <div id="prule-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
-      </div>
-    </div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-      <div class="panel-head"><h4>جذب انتخابی از حساب‌های معین (ADR-004)</h4></div>
-      <div class="panel-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">برای هر مرکز هزینه یک یا چند معین انتخاب کنید و درصد جذب بگذارید. مبنا به‌صورت گزینه‌ای: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>.</p>
-        <div class="form-grid">
-          <div class="fg"><label>مرکز هزینه</label>
-            <select id="cca-cc">${ccRows.map(c=>`<option value="${c.id}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select>
-          </div>
-          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
-            <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری نگاشت</button>
-            <button class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت معین</button>
-          </div>
-          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
-            <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش جذب دوره</button>
-            ${(canPerm('production_cost','edit')||isAdmin())?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>`:''}
+
+    <div class="oh-pane ${pane==='absorb'?'active':''}" data-oh-pane="absorb" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head"><h4>جذب انتخابی از معین</h4>
+          <div class="oh-actions">
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت</button>
+            <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری</button>
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش دوره</button>
+            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>`:''}
           </div>
         </div>
-        <div id="cca-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}">مرکز را انتخاب و بارگذاری کنید.</div>
+        <div class="panel-body">
+          <p class="oh-pane-lead">یک یا چند معین با درصد جذب و مبنا: گردش بدهکار دوره، مانده پایان دوره، یا بودجه معین.</p>
+          <div class="form-grid">
+            <div class="fg"><label>مرکز هزینه</label>
+              <select id="cca-cc" data-csp-change="${CSP.bind('change',function(){ccAccountMapsLoad()})}">${ccRows.map(c=>`<option value="${c.id}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div id="cca-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}">مرکز را انتخاب کنید.</div>
+        </div>
       </div>
     </div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-      <div class="panel-head"><h4>تعدیل بها (اتومات / دستی)</h4></div>
-      <div class="panel-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8;margin:0 0 12px`)}">بعد از تغییر هزینه/فرایند در بازه تولید، بهای تمام‌شده و قیمت فروش را دوباره محاسبه می‌کند و ارزش موجودی را با سند تعدیل اصلاح می‌کند. ابطال = برگشت کامل (R13).</p>
-        <div class="form-grid">
-          <div class="fg"><label>حالت</label>
-            <select id="crv-mode" data-csp-change="${CSP.bind('change',function(){crvModeUi()})}">
-              <option value="auto">اتومات — بازه زمانی + کالاهای دارای موجودی</option>
-              <option value="manual">دستی — یک کالا</option>
-            </select>
-          </div>
-          <div class="fg"><label>از تاریخ</label><input id="crv-from" value="${esc(period+'/01')}" placeholder="1405/07/01"></div>
-          <div class="fg"><label>تا تاریخ</label><input id="crv-to" value="${esc(period+'/29')}" placeholder="1405/07/29"></div>
-          <div class="fg"><label>دوره نرخ (سال/ماه)</label><input id="crv-period" value="${esc(period)}" placeholder="1405/07"></div>
-          <div class="fg" id="crv-prod-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>کد / شناسه کالا</label><input id="crv-product" placeholder="product id"></div>
-          <div class="fg full"><label>یادداشت</label><input id="crv-note" placeholder="اختیاری"></div>
-          <div class="fg" data-csp-style="${CSP.style(`align-self:end`)}">
-            <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){crvPreview()})}">پیش‌نمایش</button>
-            ${(canPerm('production_cost','edit')||isAdmin())?`<button class="btn" data-csp-click="${CSP.bind('click',function(){crvPost()})}">اجرای تعدیل بها</button>`:''}
+
+    <div class="oh-pane ${pane==='reval'?'active':''}" data-oh-pane="reval" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head"><h4>تعدیل بها</h4>
+          <div class="oh-actions">
+            <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(){crvPreview()})}">پیش‌نمایش</button>
+            ${canEditOh?`<button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){crvPost()})}">اجرای تعدیل</button>`:''}
           </div>
         </div>
-        <div id="crv-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px`)}"></div>
-        <div id="crv-hist" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
+        <div class="panel-body">
+          <p class="oh-pane-lead">بازمحاسبه بهای تمام‌شده و قیمت فروش؛ اصلاح ارزش موجودی با سند. ابطال = برگشت کامل (R13).</p>
+          <div class="form-grid">
+            <div class="fg"><label>حالت</label>
+              <select id="crv-mode" data-csp-change="${CSP.bind('change',function(){crvModeUi()})}">
+                <option value="auto">اتومات — بازه + کالاهای دارای موجودی</option>
+                <option value="manual">دستی — یک کالا</option>
+              </select>
+            </div>
+            <div class="fg"><label>از تاریخ</label><input id="crv-from" value="${esc(period+'/01')}" placeholder="1405/07/01"></div>
+            <div class="fg"><label>تا تاریخ</label><input id="crv-to" value="${esc(period+'/29')}" placeholder="1405/07/29"></div>
+            <div class="fg"><label>دوره نرخ</label><input id="crv-period" value="${esc(period)}" placeholder="1405/07"></div>
+            <div class="fg" id="crv-prod-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>شناسه کالا</label><input id="crv-product" placeholder="product id"></div>
+            <div class="fg full"><label>یادداشت</label><input id="crv-note" placeholder="اختیاری"></div>
+          </div>
+          <div id="crv-area" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
+          <div id="crv-hist" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
+        </div>
       </div>
     </div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      <label>دوره: <input id="pra-period" value="${esc(period)}" placeholder="1405/07" data-csp-style="${CSP.style(`width:100px`)}"></label>
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodRatesLoad()})}">بارگذاری</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal()})}">ثبت نرخ</button>
-      ${canPerm('production_cost','edit')||isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){prodRatesBootstrap()})}">برآورد از ۳ ماه قبل</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){prodRatesCopyPrev()})}">کپی ماه قبل</button>`:''}
-      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}"><input type="checkbox" id="pra-all" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodRatesLoad()})}"> نمایش لغوشده‌ها</label>
+
+    <div class="oh-pane ${pane==='pricing'?'active':''}" data-oh-pane="pricing" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head"><h4>فرمول قیمت پس از بها</h4>
+          <div class="oh-actions">
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){savePricingRule((globalRule.id||0))})}">ذخیره فرمول</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <p class="oh-pane-lead">مارک‌آپ روی بهای تمام‌شده: قیمت = بها × (۱ + ٪سود). پس از نهایی‌سازی سفارش اعمال می‌شود.</p>
+          <div class="form-grid">
+            <div class="fg"><label>سود عمده ٪</label><input id="prule-w" type="number" min="0" max="500" step="0.1" value="${wPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+            <div class="fg"><label>سود تک ٪</label><input id="prule-r" type="number" min="0" max="500" step="0.1" value="${rPct}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+            <div class="fg"><label>نمونه بها ${moneyColLabel()}</label><input id="prule-sample" type="text" inputmode="numeric" class="money" value="${moneyInit(10000000)}" data-csp-input="${CSP.bind('input',function(){pricingPreviewSync()})}"></div>
+          </div>
+          <div id="prule-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
+        </div>
+      </div>
     </div>
-    <div id="pra-area"><div class="muted">در حال بارگذاری...</div></div>
+
+    <div class="oh-pane ${pane==='settings'?'active':''}" data-oh-pane="settings" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head"><h4>تنظیمات حرفه‌ای تولید</h4>
+          <div class="oh-actions">
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){saveProdProConfig()})}">ذخیره تنظیمات</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <p class="oh-pane-lead">انبارهای پیش‌فرض، آستانه‌ها، تحلیل سفارش و گیت ثبت سند (ADR-003).</p>
+          <div class="form-grid">
+            <div class="fg"><label>انبار مواد</label><select id="pcfg-wh-raw">${whOpt('production_wh_raw_id')}</select></div>
+            <div class="fg"><label>انبار محصول</label><select id="pcfg-wh-fg">${whOpt('production_wh_fg_id')}</select></div>
+            <div class="fg"><label>انبار WIP برش</label><select id="pcfg-wh-wip">${whOpt('production_wh_wip_id')}</select></div>
+            <div class="fg"><label>انبار ضایعات</label><select id="pcfg-wh-scrap">${whOpt('production_wh_scrap_id')}</select></div>
+            <div class="fg"><label>انبار پیمانکار</label><select id="pcfg-wh-sub">${whOpt('production_wh_sub_id')}</select></div>
+            <div class="fg"><label>انبار پخش</label><select id="pcfg-wh-dist">${whOpt('production_wh_dist_id')}</select></div>
+            <div class="fg"><label>تحلیل پیش‌فرض سفارش</label>
+              <select id="pcfg-analysis">
+                <option value="fixed" ${an==='fixed'?'selected':''}>ثابت ساده</option>
+                <option value="variable" ${an==='variable'?'selected':''}>متغیر ساده</option>
+                <option value="fixed_adv" ${an==='fixed_adv'?'selected':''}>ثابت پیشرفته</option>
+                <option value="variable_adv" ${an==='variable_adv'?'selected':''}>متغیر پیشرفته</option>
+              </select>
+            </div>
+            <div class="fg"><label>ضایعات نرمال ٪</label><input id="pcfg-waste" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_normal_waste_default_pct||'3')}"></div>
+            <div class="fg"><label>آستانه انحراف بستن ٪</label><input id="pcfg-var-th" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_variance_threshold_pct||'0.5')}"></div>
+            <div class="fg"><label>آستانه هشدار بها ٪</label><input id="pcfg-dev" type="number" min="0" max="100" step="0.1" value="${esc(prodCfg.production_cost_deviation_alert_pct||prodCfg.production_cost_deviation_pct||'15')}"></div>
+            <div class="fg"><label>افق MRP (روز)</label><input id="pcfg-mrp" type="number" min="1" max="365" value="${esc(prodCfg.production_mrp_horizon_days||'30')}"></div>
+            <div class="fg full" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:14px;align-items:center`)}">
+              <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-auto-je" ${prodCfg.production_auto_post_je!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ثبت خودکار سند</label>
+              <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-backflush" ${prodCfg.production_backflush_on_receipt!=='0'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> Backflush در رسید</label>
+              <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pcfg-neg" ${prodCfg.production_allow_negative_stock==='1'?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> موجودی منفی تولید</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>`;
   window._prodRatesCC=ccRows;
   window._prodRuleId=globalRule.id||0;
+  window._prodRatesPane=pane;
   pricingPreviewSync();
   await prodRatesLoad();
-  if(ccRows[0]) { window._ccaCcId=ccRows[0].id; await ccAccountMapsLoad(); }
-  await crvHistLoad();
-  crvModeUi();
+  if(ccRows[0]) window._ccaCcId=ccRows[0].id;
+  if(pane==='absorb') await ccAccountMapsLoad();
+  if(pane==='reval'){ await crvHistLoad(); crvModeUi(); }
+}
+function prodRatesShowPane(name){
+  const id=String(name||'rates');
+  window._prodRatesPane=id;
+  document.querySelectorAll('.oh-seg-btn').forEach(b=>{
+    const on=b.getAttribute('data-pane')===id;
+    b.classList.toggle('active',on);
+    b.setAttribute('aria-selected', on?'true':'false');
+  });
+  document.querySelectorAll('[data-oh-pane]').forEach(p=>{
+    p.classList.toggle('active', p.getAttribute('data-oh-pane')===id);
+  });
+  if(id==='absorb') ccAccountMapsLoad();
+  if(id==='reval'){ crvHistLoad(); crvModeUi(); }
+  if(id==='pricing') pricingPreviewSync();
 }
 function pricingPreviewSync(){
   const box=el('prule-preview'); if(!box) return;
@@ -27155,8 +27216,9 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
-        <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> در همان صفحهٔ نرخ سربار (یا از ویرایش مرکز هزینه → «جذب از معین») یک یا چند حساب معین را با <b>جستجوی استاندارد کدینگ</b> (moayan) انتخاب کنید؛ برای هر معین درصد جذب ۰–۱۰۰ و مبنای مبلغ را بگذارید: <b>گردش بدهکار دوره</b>، <b>مانده پایان دوره</b>، یا <b>بودجه معین</b>. پیش‌نمایش جمع جذب دوره را نشان می‌دهد؛ «اعمال به بودجه نرخ» همان مبلغ را روی بودجهٔ ثابت نرخ سربار دوره می‌نشاند.</li>
-        <li><b>تعدیل بها (v358):</b> زیر نرخ سربار — <b>اتومات</b> (بازه تاریخ برای کالاهای تولیدشدهٔ دارای موجودی) یا <b>دستی</b> (یک کالا). بهای تمام‌شده از roll-up BOM/نرخ دوره دوباره محاسبه می‌شود، قیمت عمده/تک از فرمول مارک‌آپ، و Δ ارزش موجودی با سند به ۵۲۱۴ ثبت می‌شود. ابطال = برگشت بها/قیمت + soft-void سند (بدون حذف فیزیکی).</li>
+        <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
+        <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> تب «جذب معین» (یا از ویرایش مرکز هزینه → «جذب از معین») — انتخاب معین با جستجوی کدینگ؛ درصد جذب و مبنا: گردش بدهکار / مانده پایان / بودجه. پیش‌نمایش و «اعمال به بودجه نرخ» همان‌جا.</li>
+        <li><b>تعدیل بها (v358):</b> تب «تعدیل بها» — اتومات یا دستی؛ بازمحاسبه بها/قیمت و سند Δ موجودی به ۵۲۱۴؛ ابطال کامل R13.</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>

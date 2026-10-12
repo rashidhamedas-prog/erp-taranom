@@ -827,6 +827,42 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 @media(max-width:720px){
   .oh-kpi-row{grid-template-columns:1fr}
 }
+
+/* Overhead rates hub — segmented panes (UI-only) */
+.oh-hub{display:flex;flex-direction:column;gap:12px}
+.oh-hub-head{
+  display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:var(--card);
+}
+.oh-hub-head h3{margin:0 0 4px;font-size:16px;font-weight:800;color:var(--text)}
+.oh-hub-head p{margin:0;font-size:12.5px;line-height:1.75;color:var(--muted);max-width:36rem}
+.oh-hub-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.oh-hub-period label{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.oh-hub-period input{width:96px}
+.oh-seg{
+  display:flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:12px;
+  background:var(--bg);border:1px solid var(--border);
+}
+.oh-seg-btn{
+  appearance:none;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:12.5px;font-weight:600;padding:8px 12px;border-radius:9px;
+  cursor:pointer;line-height:1.4;transition:background .15s,color .15s;
+}
+.oh-seg-btn:hover{color:var(--text);background:rgba(0,0,0,.04)}
+.oh-seg-btn.active{background:var(--card);color:var(--purple);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.oh-seg-btn:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+.oh-pane{display:none}
+.oh-pane.active{display:block}
+.oh-pane .panel{margin-bottom:0}
+.oh-pane-lead{font-size:12.5px;line-height:1.8;color:var(--muted);margin:0 0 12px}
+.oh-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.oh-actions .btn{white-space:nowrap}
+@media(max-width:720px){
+  .oh-hub-head{padding:12px 14px}
+  .oh-hub-period{width:100%}
+  .oh-seg{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .oh-seg-btn{flex:0 0 auto}
+}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
 .fg label{font-size:13px;color:var(--muted)}

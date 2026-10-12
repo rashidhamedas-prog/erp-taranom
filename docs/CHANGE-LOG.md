@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۱ — بازطراحی UI نرخ سربار مراکز (SW v360)
+
+- **هدف:** صفحهٔ شلوغ نرخ سربار به هاب تب‌دار خلوت تبدیل شود بدون تغییر بک‌اند/API.
+- **UI:** segmented panes — نرخ مراکز / جذب معین / تعدیل بها / قیمت‌گذاری / تنظیمات؛ همان idهای فرم و endpointها؛ CSS `.oh-hub` / `.oh-seg`.
+- **الهام:** الگوی segmented tabs (21st metadata) + interaction patterns فرم/جدول؛ بدون نصب کامپوننت React.
+- **فایل‌ها:** `public/{app.js,app.css,sw.js,index.html}`, Help, CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — picker معین استاندارد روی نگاشت جذب سربار (SW v359)
 
 - **هدف:** در مودال نگاشت معین→مرکز، به‌جای datalist آزاد از `moayanAcctHtml` / `moayanAcctPick` (جستجوی سطح معین کدینگ) استفاده شود.
