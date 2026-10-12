@@ -12,7 +12,7 @@
 - **Infra:** ChildNS `ns1/ns2.erptaranom.com` → IP سرور؛ BIND authoritative روی VPS (zone + CAA Let’s Encrypt)؛ nginx dual-host آماده؛ certbot نصب‌شده — صدور LE پس از انتشار NS رجیستری.
 - **فایل‌ها:** `server/{ecosystem.config.js,sync/client.js,public/{app.js,sw.js,index.html}}`, desktop/android allowlists, docs SECURITY/HANDOFF/08-deployment, `scripts/{dns-erptaranom.zone,_setup-bind-erptaranom.py,nginx-crm-taranom-erptaranom.conf,_apply-nginx-erptaranom.py,_issue-le-erptaranom.sh}`.
 - **تست:** sms ۲۲/۰؛ desktop security ۲۰/۲۰؛ platform ۷/۷؛ android-platform ۲۷/۲۷؛ parse `app.js` OK.
-- **Deploy:** ⏳ منتظر انتشار NS رجیستری (`ns1/ns2.erptaranom.com`) سپس LE + overlay/pm2؛ سایت قدیمی CF تا آن لحظه زنده می‌ماند.
+- **Deploy:** ✅ `7a39de7` — NS=`ns1/ns2.erptaranom.com`؛ LE تا ۲۰۲۷-۰۱-۱۰؛ `https://erptaranom.com` health=200 + `image_engine` sharp؛ PM2 `LISTEN_HOST=127.0.0.1` + `PUBLIC_URL=https://erptaranom.com`؛ SW `erp-taranom-v347`؛ CORS جدید سبز / Origin بیگانه ۴۰۳.
 
 ### ۱۴۰۵/۰۷/۲۰ — سخت‌سازی ریشه Cloudflare Error 520 (infra)
 
