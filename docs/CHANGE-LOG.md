@@ -12,8 +12,8 @@
 - **ریشه:** نام سایز در master شامل پرانتز تناسب است؛ `buildSku` آن را در SKU ماتریس می‌چسباند. حواله قبلاً کد/سایز خام را چاپ می‌کرد.
 - **رفع:** ماژول مشترک `lib/display-labels.js` (`stripSizeFitNote` / `displaySizeName` / `displayProductCode`)؛ `warehouse-slip-print.normalizeSlipLines` کد کاتالوگ + سایز کوتاه؛ فرانت `variantAttrsLabel` در picking/لیست/سبد/برگشت/انبار/امانی؛ `variantLineSummary.line` و گزارش موجودی واریانت و فروش بازاریاب. دادهٔ کاتالوگ و `data-sname`/`size_name` ذخیره‌شده تغییر نمی‌کند.
 - **فایل‌ها:** `server/lib/{display-labels,warehouse-slip-print,product-variants/service}.js`, `server/public/{app.js,marketer-ui.js,variant-stock-report.js,sw.js,index.html}`, `server/scripts/test-display-size-fit-v345.js`, CHANGE-LOG.
-- **تست:** `node server/scripts/test-display-size-fit-v345.js` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳ pending
+- **تست:** ایران `test-display-size-fit-v345` ۳۵/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `c0ffea6` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ `image_engine` sharp؛ SW `erp-taranom-v345`.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت P2c-allocate: تخصیص اعتبار بدون فاکتور (SW v344)
 
