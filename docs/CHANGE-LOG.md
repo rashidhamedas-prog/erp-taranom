@@ -21,7 +21,7 @@
   - `void-settlement`: خطای JE بلعیده نمی‌شود؛ معکوس چندردیفی دفتر با `return` امن.
 - **فایل‌ها:** `lib/{invoice-payments,customer-books,void-settlement,repair-invoice-settlements}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-settlement-leaf-je-v351.js`, CHANGE-LOG.
 - **تست:** `test-settlement-leaf-je-v351` + `test-reversed-settlement-books-v297` + `test-sms` + `test-sync` روی ایران.
-- **Deploy:** ⏳ SW `erp-taranom-v352`
+- **Deploy:** ✅ `96780ed` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + `image_engine` sharp؛ SW `erp-taranom-v352`؛ تست‌ها ۱۷/۰ + ۱۱/۰ + sms ۲۲/۰ + sync ۴۴/۰؛ پروب: `fold=gl=13,062,193,420` و `delta=0`؛ تسویه #۳ مد روز JE زنده روی `110301000001` با Cr=۷۶٫۸M.
 
 ### ۱۴۰۵/۰۷/۲۱ — Multi-primary DNS (BIND ایران + Cloudflare)
 
