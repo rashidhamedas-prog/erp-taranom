@@ -7,6 +7,13 @@
 - **تست:** `node server/scripts/test-invoice-expert-options-v346.js` + `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
 - **Deploy:** ✅ `0af46c6` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ `image_engine` sharp؛ SW `erp-taranom-v346`؛ `app.js?v=346`؛ تست ایران expert-options + sms ۲۲/۰ + sync ۴۴/۰.
 
+### ۱۴۰۵/۰۷/۲۰ — تست دفتر چک: چک+POS و دو فقره (SW v346)
+
+- **خلاصه:** تقویت `test-cheque-books-v339` (دو settlement برای دو چک؛ بخش ۳b چک+کارتخوان → یک برگ دفتر) + نرم‌کردن assert نسخهٔ SW در `test-invoice-cheque-pos-v344`.
+- **فایل‌ها:** `server/scripts/test-cheque-books-v339.js`, `server/scripts/test-invoice-cheque-pos-v344.js`, CHANGE-LOG.
+- **تست:** ایران `test-cheque-books-v339` ۳۳/۰ + `test-invoice-cheque-pos-v344` ۱۳/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `531e56a` — overlay ایران (`void-settlement` + تست‌ها) + `pm2 restart` بدون `--update-env`؛ health=200؛ `image_engine` sharp؛ SW `erp-taranom-v346`؛ alias `claude/claude-md-docs-2ssrpy` = `main`.
+
 ### ۱۴۰۵/۰۷/۱۹ — شفاف‌سازی چک+کارتخوان vs دو فقره چک (SW v344)
 
 - **ریشه (T-0015 / پوشاک شریفی):** در DB فقط **یک چک** ۱٫۸۰۰٫۰۰۰٫۰۰۰ + **یک کارتخوان** ۲۷٫۵۰۰٫۰۰۰ ثبت شده (`pay_splits_json`)؛ دفتر چک درست یک برگ نشان می‌دهد. برچسب «قسط ۱» از چندمرحله‌ای بودن (چک+POS) بود نه دو چک.
