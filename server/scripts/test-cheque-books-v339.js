@@ -254,17 +254,110 @@ db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
     ],
   });
 
+  const setts = db.prepare(`
+    SELECT id, pay_type, amount, amount_rial FROM settlements
+    WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    ORDER BY id
+  `).all(invId);
+  ok(setts.length === 2, 'two settlements for two cheque splits', setts.length);
+  ok(setts.every((s) => s.pay_type === 'cheque'), 'both settlements pay_type=cheque', setts);
+
   const rows = db.prepare(`
     SELECT amount, sayadi, settlement_id FROM cheque_records
     WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'
     ORDER BY amount
   `).all(invId);
   ok(rows.length === 2, 'two cheque_records for two splits', rows.length);
+  ok(new Set(rows.map((r) => r.settlement_id)).size === 2, 'one cheque_record per settlement', rows);
   const amounts = rows.map((r) => Number(r.amount)).sort((a, b) => a - b);
   ok(amounts[0] === Math.min(A1, A2) && amounts[1] === Math.max(A1, A2), 'amounts match splits', amounts);
   ok(Number(rows.reduce((s, r) => s + Number(r.amount), 0)) !== Math.min(A1, A2), 'not collapsed to single sum row');
   const sayadis = new Set(rows.map((r) => r.sayadi));
   ok(sayadis.size === 2, 'distinct sayadi per split', [...sayadis]);
+})();
+
+// ── 3b) One cheque + one pos_card split → one cheque_records; POS not in cheque book ──
+(function assertChequePlusPosSplit() {
+  console.log('\n— 3b invoice cheque + pos_card —');
+  const CHQ = 2_500_000;
+  const POS = 1_500_000;
+  const custId = db.prepare(`
+    INSERT INTO customers (user_id, biz, owner, phone, status)
+    VALUES (?, 'مشتری v339-3b', 'چک+POS', '09153333903b', 'active')
+  `).run(admin.id).lastInsertRowid;
+  const invId = db.prepare(`
+    INSERT INTO invoices (user_id, cust_id, num, date, type, status, subtotal, final, pay_type)
+    VALUES (?, ?, 'T-V339-3B', '1405/07/13', 'final', 'confirmed', ?, ?, 'mixed')
+  `).run(admin.id, custId, CHQ + POS, CHQ + POS).lastInsertRowid;
+
+  const bankCoa = '1102-v339-mix-pos';
+  db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,?)')
+    .run(bankCoa, 'بانک تست v339 mix', 'asset', '1102', 4);
+  const bankId = db.prepare(`
+    INSERT INTO banks (name, account_number, active, coa_code) VALUES ('ملت v339 mix', '3399966', 1, ?)
+  `).run(bankCoa).lastInsertRowid;
+  const termId = db.prepare(`
+    INSERT INTO pos_terminals (name, terminal_id, bank_id, active)
+    VALUES ('ترمینال v339', 'POS-V339-MIX', ?, 1)
+  `).run(bankId).lastInsertRowid;
+
+  applyInvoicePaySplits(db, {
+    invoiceId: invId,
+    custId,
+    date: '1405/07/13',
+    userId: admin.id,
+    num: 'T-V339-3B',
+    splits: [
+      {
+        pay_type: 'cheque',
+        amount: CHQ,
+        cheque_bank: 'ملت',
+        cheque_branch: 'مرکزی',
+        cheque_account: '339b1',
+        cheque_number: '339B01',
+        sayadi: '5149050050730644',
+        cheque_owner: 'چک+POS',
+        cheque_due: '1405/08/13',
+      },
+      {
+        pay_type: 'pos_card',
+        amount: POS,
+        terminal_id: termId,
+      },
+    ],
+  });
+
+  const setts = db.prepare(`
+    SELECT id, pay_type FROM settlements
+    WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'
+    ORDER BY pay_type
+  `).all(invId);
+  ok(setts.length === 2, 'cheque + pos → two settlements', setts.length);
+  ok(setts.some((s) => s.pay_type === 'cheque') && setts.some((s) => s.pay_type === 'pos_card'),
+    'settlement types cheque and pos_card', setts);
+
+  const posSett = setts.find((s) => s.pay_type === 'pos_card');
+  const posSettId = posSett && posSett.id;
+  const posReceipts = db.prepare(`
+    SELECT id, settlement_id FROM pos_receipts
+    WHERE invoice_id=? AND COALESCE(status,'open')<>'reversed'
+  `).all(invId);
+  ok(posReceipts.length === 1, 'one pos_receipt for pos split', posReceipts.length);
+  ok(Number(posReceipts[0] && posReceipts[0].settlement_id) === Number(posSettId),
+    'pos_receipt links pos settlement', posReceipts[0]);
+
+  const chqRows = db.prepare(`
+    SELECT id, settlement_id, amount FROM cheque_records
+    WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'
+  `).all(invId);
+  ok(chqRows.length === 1, 'exactly one cheque_records (cheque split only)', chqRows);
+  ok(Number(chqRows[0] && chqRows[0].amount) === CHQ, 'cheque_record amount = cheque split', chqRows[0]);
+
+  const posInBook = db.prepare(`
+    SELECT id FROM cheque_records
+    WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
+  `).all(posSettId);
+  ok(posInBook.length === 0, 'POS settlement has no cheque_records row', posInBook.length);
 })();
 
 // ── 4) Void receipt cheque with settlement_id → settlement reversed, statement drops line ──
@@ -341,6 +434,28 @@ db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
   if (!insertChequeRecordForSettlement) {
     console.log('  NOTE insertChequeRecordForSettlement not exported yet (accounting agent)');
   }
+
+  const ag = appJs.indexOf('function renderAdminGuide()');
+  const sg = appJs.indexOf('function renderSalesGuide()');
+  const guideBlob = ag >= 0
+    ? appJs.slice(ag, sg > ag ? sg + 120000 : appJs.length)
+    : appJs;
+  const posNotChequeBook = (
+    (/کارتخوان→(در جریان|وجوه)/.test(guideBlob)
+      || /کارتخوان[\s\S]{0,120}(وجوه در راه|۱۱۱۸)/.test(guideBlob))
+    && /(هر چک دریافتی|هر فقره)[\s\S]{0,120}دفتر چک/.test(guideBlob)
+  );
+  const installmentVsCheque = (
+    (/فقره چک|مبلغ این فقره چک/.test(guideBlob)
+      || /هر فقره[\s\S]{0,80}دفتر چک/.test(appJs))
+    && (/قسط[\s\S]{0,80}کارتخوان|کارتخوان[\s\S]{0,80}قسط/.test(guideBlob + appJs)
+      || /ثبت چک بعدی/.test(appJs))
+  );
+  softOk(
+    posNotChequeBook || installmentVsCheque,
+    'Help: کارتخوان not دفتر چک or فقره/قسط vs چک',
+    { posNotChequeBook, installmentVsCheque }
+  );
 })();
 
 // ── 6) stmtEntryType + type_label for cheque_in ──
