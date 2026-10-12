@@ -3,8 +3,8 @@
 - **ریشه (T-0015 / پوشاک شریفی):** در DB فقط **یک چک** ۱٫۸۰۰٫۰۰۰٫۰۰۰ + **یک کارتخوان** ۲۷٫۵۰۰٫۰۰۰ ثبت شده (`pay_splits_json`)؛ دفتر چک درست یک برگ نشان می‌دهد. برچسب «قسط ۱» از چندمرحله‌ای بودن (چک+POS) بود نه دو چک.
 - **رفع:** یادداشت تسویه برای چک = «فقره چک N»، برای POS/نقد جدا؛ UI `summarizePaySplitTypes` + `invAddNextCheque` پاک‌کردن فرم تک‌برگ؛ Help: کارتخوان در دفتر چک نیست.
 - **فایل‌ها:** `lib/invoice-payments.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-cheque-pos-v344.js`, CHANGE-LOG.
-- **تست:** ایران `test-invoice-cheque-pos-v344` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-invoice-cheque-pos-v344` ۱۳/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `0465428` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200؛ SW `erp-taranom-v344`.
 
 ### ۱۴۰۵/۰۷/۱۹ — برگشت P2c-allocate: تخصیص اعتبار بدون فاکتور (SW v344)
 
