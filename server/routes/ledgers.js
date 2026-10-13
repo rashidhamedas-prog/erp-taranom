@@ -38,6 +38,8 @@ function stockQuery(req) {
     warehouse_id: req.query.warehouse_id,
     from,
     to,
+    show_cancelled: req.query.show_cancelled,
+    event_type: req.query.event_type,
   }, { stripCost: req.user?.role === 'field_sales' });
 }
 

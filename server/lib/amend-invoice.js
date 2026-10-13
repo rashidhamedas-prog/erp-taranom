@@ -170,9 +170,23 @@ function updateMovementQty(db, mv, qtyOut) {
   return amt;
 }
 
+/**
+ * Soft-retire a sale ledger row during in-place amend (v364).
+ * Stock qty was already corrected via applyStockDelta — do NOT post a reverse
+ * movement (that would double-adjust warehouse). Mark reversed so kardex
+ * (active-only) hides the ghost instead of showing qty=0 + leftover unit_cost.
+ */
+function retireAmendedMovement(db, mv) {
+  if (!mv || !mv.id) return;
+  if (String(mv.status || '') === 'reversed') return;
+  db.prepare(
+    "UPDATE inventory_ledger SET status='reversed', note=? WHERE id=? AND status='posted'"
+  ).run(noteAmended(mv.note), mv.id);
+}
+
+/** @deprecated use retireAmendedMovement */
 function zeroMovement(db, mv) {
-  db.prepare('UPDATE inventory_ledger SET qty_out=0, amount_rial=0, note=? WHERE id=?')
-    .run(noteAmended(mv.note), mv.id);
+  retireAmendedMovement(db, mv);
 }
 
 function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num }) {
@@ -225,8 +239,12 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
       }
       if (meta.variantId && Math.abs(delta) > 1e-9) adjustVariant(db, meta.variantId, delta);
       if (mvs.length) {
-        cogsRial += updateMovementQty(db, mvs[0], newQty);
-        for (let i = 1; i < mvs.length; i++) zeroMovement(db, mvs[i]);
+        if (newQty <= 0) {
+          for (const mv of mvs) retireAmendedMovement(db, mv);
+        } else {
+          cogsRial += updateMovementQty(db, mvs[0], newQty);
+          for (let i = 1; i < mvs.length; i++) retireAmendedMovement(db, mvs[i]);
+        }
         if (meta.isFabric && meta.batchId) syncFabricAfterLedger(db, meta.batchId);
       } else if (perpetual && newQty > 0 && Math.abs(oldQty) < 1e-9) {
         cogsRial += postNewSaleLine(db, { meta, qty: newQty, sourceId: row.id, userId, date, num });
@@ -243,7 +261,7 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
       }
       if (meta.variantId) adjustVariant(db, meta.variantId, oldQty);
       if (mvs.length) {
-        for (const mv of mvs) zeroMovement(db, mv);
+        for (const mv of mvs) retireAmendedMovement(db, mv);
         if (meta.isFabric && meta.batchId) syncFabricAfterLedger(db, meta.batchId);
       } else if (meta.isFabric && meta.batchId) {
         const { adjustBatchQty } = require('./inventory/batch-serial');
@@ -269,15 +287,20 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
   }
 
   for (const mv of unused) {
-    const q = Number(mv.qty_out) || 0;
-    if (q <= 0) continue;
+    const qIn = Number(mv.qty_in) || 0;
+    const qOut = Number(mv.qty_out) || 0;
+    const q = qOut || qIn;
+    if (q <= 0) {
+      retireAmendedMovement(db, mv);
+      continue;
+    }
     if (!mv.batch_id) {
       applyStockDelta(db, {
         productId: mv.product_id, warehouseId: mv.warehouse_id,
-        qtyDelta: q, allowNegative: true,
+        qtyDelta: qOut > 0 ? qOut : -qIn, allowNegative: true,
       });
     }
-    zeroMovement(db, mv);
+    retireAmendedMovement(db, mv);
     if (mv.batch_id) syncFabricAfterLedger(db, mv.batch_id);
   }
 

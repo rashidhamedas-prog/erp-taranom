@@ -56,7 +56,7 @@ const ACC_ITEMS = {
   'acc-consignments': { apis: ['/api/consignments', '/api/inventory'] },
   'acc-warehouse-report': { apis: ['/api/inventory', '/api/adv-reports/inventory-valuation', '/api/adv-reports/inventory-health'] },
   'acc-variant-stock-report': { apis: ['/api/inventory', '/api/product-variants'] },
-  'acc-item-kardex': { apis: ['/api/inventory'] },
+  'acc-item-kardex': { apis: ['/api/inventory', '/api/ledgers'] },
   'acc-fabric-roll-kardex': { apis: ['/api/inventory'] },
   'acc-banks': { apis: ['/api/banks'] },
   'acc-cash-boxes': { apis: ['/api/cash-boxes'] },

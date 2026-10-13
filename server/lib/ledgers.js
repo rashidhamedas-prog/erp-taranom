@@ -329,7 +329,16 @@ function buildFinancialLedger(db, { entity_type, entity_id, from, to } = {}) {
   };
 }
 
-function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { stripCost = false } = {}) {
+function isStockLedgerGhost(r) {
+  const qIn = Number(r.qty_in) || 0;
+  const qOut = Number(r.qty_out) || 0;
+  const amt = Math.round(Number(r.amount_rial) || 0);
+  return qIn === 0 && qOut === 0 && amt === 0;
+}
+
+function buildStockLedger(db, {
+  product_id, warehouse_id, from, to, show_cancelled, event_type,
+} = {}, { stripCost = false } = {}) {
   const pid = parseInt(product_id, 10);
   if (!Number.isFinite(pid) || pid <= 0) throw LedgerError(400, 'شناسه کالا الزامی است');
   const product = db.prepare('SELECT id, name, code, unit, stock FROM products WHERE id=?').get(pid);
@@ -345,28 +354,47 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
     throw LedgerError(404, 'دفتر موجودی یافت نشد');
   }
 
+  const showCancelled = show_cancelled === true
+    || show_cancelled === 1
+    || String(show_cancelled || '') === '1'
+    || String(show_cancelled || '').toLowerCase() === 'true';
+  const eventFilter = event_type != null && String(event_type).trim() !== ''
+    ? String(event_type).trim()
+    : null;
+
   const where = ["l.product_id=?", "l.status IN ('posted','reversed')"];
   const params = [pid];
   if (whId) { where.push('l.warehouse_id=?'); params.push(whId); }
 
   const rows = db.prepare(`
-    SELECT l.*, w.name AS warehouse_name
+    SELECT l.*, w.name AS warehouse_name, u.name AS user_name
     FROM inventory_ledger l
     LEFT JOIN warehouses w ON l.warehouse_id=w.id
+    LEFT JOIN users u ON l.created_by=u.id
     WHERE ${where.join(' AND ')}
     ORDER BY l.date ASC, l.id ASC
   `).all(...params);
 
-  const posted = rows.filter((r) => r.status === 'posted');
   let isWarehouseOnlyRow = () => false;
+  let isZeroQtyValueGhost = isStockLedgerGhost;
   try {
-    ({ isWarehouseOnlyRow } = require('./inventory/ledger'));
+    const invLed = require('./inventory/ledger');
+    isWarehouseOnlyRow = invLed.isWarehouseOnlyRow || isWarehouseOnlyRow;
+    if (typeof invLed.isZeroQtyValueGhost === 'function') {
+      isZeroQtyValueGhost = invLed.isZeroQtyValueGhost;
+    }
   } catch (_) { /* optional */ }
+
+  const active = rows.filter((r) => (
+    r.status === 'posted'
+    && !isZeroQtyValueGhost(r)
+    && (!eventFilter || r.event_type === eventFilter)
+  ));
 
   let opening_qty = 0;
   let opening_wh_qty = 0;
   if (from) {
-    for (const r of posted) {
+    for (const r of active) {
       if ((r.date || '') < from) {
         const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
         opening_wh_qty += delta;
@@ -375,31 +403,44 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
     }
   }
 
+  const display = showCancelled
+    ? rows.filter((r) => {
+      if (isZeroQtyValueGhost(r) && r.status === 'posted') return false;
+      if (eventFilter && r.event_type !== eventFilter && r.event_type !== 'reversal') return false;
+      return true;
+    })
+    : active;
+
   let period_qty_in = 0;
   let period_qty_out = 0;
   let running = opening_qty;
   let runningWh = opening_wh_qty;
   const lines = [];
-  for (const r of posted) {
+  for (const r of display) {
     if (from && (r.date || '') < from) continue;
     if (to && (r.date || '') > to) continue;
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
     const wipOnly = isWarehouseOnlyRow(r);
-    if (!wipOnly) {
-      period_qty_in += qIn;
-      period_qty_out += qOut;
-      running += qIn - qOut;
+    const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r);
+    if (contributes) {
+      if (!wipOnly) {
+        period_qty_in += qIn;
+        period_qty_out += qOut;
+        running += qIn - qOut;
+      }
+      runningWh += qIn - qOut;
     }
-    runningWh += qIn - qOut;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
       ref_id: r.source_id,
       journal_id: r.je_id,
     });
+    const cancelled = r.status === 'reversed' || r.event_type === 'reversal';
     lines.push({
       id: r.id,
+      tx_no: r.tx_no || null,
       date: r.date,
       description: r.note || r.event_type || '',
       event_type: r.event_type,
@@ -410,8 +451,14 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
       running_qty: running,
       warehouse_running_qty: runningWh,
       warehouse_only: !!wipOnly,
-      unit_cost_rial: r.unit_cost_rial,
+      unit_cost_rial: (contributes || showCancelled) ? r.unit_cost_rial : null,
       amount_rial: r.amount_rial,
+      status: r.status || 'posted',
+      cancelled: !!cancelled,
+      reversed_of: r.reversed_of || null,
+      user_name: r.user_name || '',
+      source_type: r.source_type || null,
+      source_id: r.source_id || null,
       source: 'inventory_ledger',
       ...link,
     });
@@ -447,13 +494,14 @@ function buildStockLedger(db, { product_id, warehouse_id, from, to } = {}, { str
     period_net_qty,
     closing_qty,
     closing_warehouse_qty,
+    show_cancelled: showCancelled,
+    event_type: eventFilter,
     lines,
     source: 'inventory_ledger',
   };
   if (stripCost) payload = stripCostFields(payload);
   return payload;
 }
-
 function csvEsc(v) {
   return `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
 }

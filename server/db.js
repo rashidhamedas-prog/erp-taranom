@@ -2536,6 +2536,21 @@ function initSyncSchema(db, opts) {
     console.warn('fabric_wh_sync_v363:', e.message);
   }
 
+  // v364 — retire amend ghosts (posted qty=0 amount=0) so kardex is clean.
+  try {
+    if (!isDevice()) {
+      const flag = db.prepare("SELECT value FROM settings WHERE key='kardex_ghost_retire_v364'").get();
+      if (!flag || flag.value !== '1') {
+        const { retireZeroQtyLedgerGhosts } = require('./lib/inventory/ledger');
+        const healed = retireZeroQtyLedgerGhosts(db);
+        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_ghost_retire_v364','1')").run();
+        console.log('✅ kardex_ghost_retire_v364:', JSON.stringify(healed));
+      }
+    }
+  } catch (e) {
+    console.warn('kardex_ghost_retire_v364:', e.message);
+  }
+
   try {
     require('./lib/payroll/schema').initPayrollSchema(db);
     require('./lib/accounting/reporting-schema').initReportingSchema(db);

@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۷/۲۱ — کاردکس کالا حرفه‌ای بدون شبح اصلاح فاکتور (SW v365)
+
+- **علائم:** کاردکس «اورکت کتان لاله» ده‌ها ردیف تکراری «فروش … اصلاح فاکتور» با ورود/خروج خالی و بهای واحد پر.
+- **ریشه:** zeroMovement در اصلاح فاکتور qty/amount را صفر می‌کرد ولی ردیف را posted می‌گذاشت؛ uildStockLedger همهٔ postedها را نشان می‌داد.
+- **رفع (استاندارد ۲۰۲۶ / ERPNext immutable):** اصلاح فاکتور → 
+etireAmendedMovement (نرم‌باطل بدون reverse دوبل موجودی)؛ فیلتر شبح در uildStockLedger؛ heal یک‌بار kardex_ghost_retire_v364؛ harden ابطال روی ردیف صفر؛ UI فیلتر انبار/بازه/رویداد + KPI + drill + نمایش ابطال‌شده‌ها؛ Help.
+- **مراجع:** ERPNext Immutable Ledger، Odoo valuation، الگوی ledger append-only.
+- **فایل‌ها:** lib/amend-invoice.js, lib/inventory/ledger.js, lib/ledgers.js, lib/sales-document.js, 
+outes/ledgers.js, lib/accounting-access.js, db.js, public/{app.js,sw.js,index.html}, scripts/test-kardex-professional-v364.js, CHANGE-LOG, Help.
+- **تست:** 	est-kardex-professional-v365 + 	est-sms + 	est-sync روی ایران؛ parse فرانت سبز.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش لایه‌چینی (R13 amend روی همان lay_no) (SW v364)
 
 - **هدف:** دکمهٔ ویرایش روی هر ردیف لایه‌چینی با وابستگی‌ها؛ ابطال کامل اثرات سپس ثبت مجدد روی همان `id`/`lay_no`.

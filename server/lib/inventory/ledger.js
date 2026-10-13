@@ -415,10 +415,63 @@ function getKardex(db, productId, { warehouseId, limit = 500 } = {}) {
   return { product, rows };
 }
 
+/** True when a posted row has no qty and no value — amend ghost / noop. */
+function isZeroQtyValueGhost(row) {
+  if (!row) return false;
+  const qIn = Number(row.qty_in) || 0;
+  const qOut = Number(row.qty_out) || 0;
+  const amt = Math.round(Number(row.amount_rial) || 0);
+  return qIn === 0 && qOut === 0 && amt === 0;
+}
+
+/**
+ * Soft-retire a posted ledger row without posting an opposite movement.
+ * Use when stock was already adjusted elsewhere (amend) or the row is a zero ghost.
+ */
+function softRetireLedgerRow(db, ledgerId, { note } = {}) {
+  const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
+  if (!row) return null;
+  if (row.status === 'reversed') return row;
+  if (note) {
+    db.prepare("UPDATE inventory_ledger SET status='reversed', note=? WHERE id=?").run(String(note).slice(0, 240), ledgerId);
+  } else {
+    db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(ledgerId);
+  }
+  return db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
+}
+
+/**
+ * One-shot heal: tombstone historical amend ghosts (posted qty=0 amount=0).
+ */
+function retireZeroQtyLedgerGhosts(db) {
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
+    return { skipped: true, reason: 'no_table' };
+  }
+  const info = db.prepare(`
+    SELECT COUNT(*) c FROM inventory_ledger
+    WHERE status='posted'
+      AND COALESCE(qty_in,0)=0 AND COALESCE(qty_out,0)=0
+      AND COALESCE(amount_rial,0)=0
+  `).get();
+  const n = Number(info && info.c) || 0;
+  if (n <= 0) return { count: 0 };
+  const r = db.prepare(`
+    UPDATE inventory_ledger
+    SET status='reversed'
+    WHERE status='posted'
+      AND COALESCE(qty_in,0)=0 AND COALESCE(qty_out,0)=0
+      AND COALESCE(amount_rial,0)=0
+  `).run();
+  return { count: r.changes || 0 };
+}
+
 module.exports = {
   postInventoryMovement,
   reverseInventoryMovement,
   getKardex,
+  isZeroQtyValueGhost,
+  softRetireLedgerRow,
+  retireZeroQtyLedgerGhosts,
   warehouseQty,
   inventoryAccountForWarehouse,
   inventoryAmountLinesByWarehouse,

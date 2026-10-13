@@ -503,13 +503,18 @@ function postSaleReturnStockMovements(db, {
 }
 
 function reverseStockBySource(db, sourceType, sourceId, { createdBy, date, note } = {}) {
+  const { softRetireLedgerRow, isZeroQtyValueGhost } = require('./inventory/ledger');
   const rows = db.prepare(`
-    SELECT id, batch_id, qty_out FROM inventory_ledger
+    SELECT id, batch_id, qty_out, qty_in, amount_rial FROM inventory_ledger
     WHERE source_type=? AND source_id=? AND status='posted' AND COALESCE(reversed_of,0)=0
     ORDER BY id DESC
   `).all(sourceType, sourceId);
   const out = [];
   for (const r of rows) {
+    if (isZeroQtyValueGhost(r)) {
+      softRetireLedgerRow(db, r.id, { note: note || 'بازنشستگی ردیف صفر اصلاح' });
+      continue;
+    }
     out.push(reverseInventoryMovement(db, r.id, { createdBy, date, note }));
   }
   try {
