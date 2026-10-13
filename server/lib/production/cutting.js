@@ -496,6 +496,116 @@ function postCuttingLay(db, body, user) {
   if (existing) return getCuttingLay(db, existing.id);
 
   const plan = planCutting(db, body);
+  const { prepared, wh } = prepareCuttingLayRolls(db, body, plan);
+  const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
+  const unitCost = plan.actual_meters > 0 ? Math.round(amount / plan.actual_meters) : 0;
+  let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
+  if (wasteAmt > amount) wasteAmt = amount;
+  const date = String(body.date || todayJalali()).trim();
+  assertCutPeriodOpen(db, date);
+  let color = String(body.color || '').trim();
+  const widthCm = Math.round(Number(body.width_cm) || 0);
+  const po = resolveOptionalOrder(db, body.production_order_id, plan.product.id);
+  if (po && po.color) {
+    const { colorsMatch } = require('../inventory/fabric-rolls');
+    if (!color) color = String(po.color).trim();
+    else if (!colorsMatch(po.color, color)) {
+      throw httpErr(400, 'رنگ برش باید با رنگ سفارش تولید یکی باشد', 'E_CUT_PO_COLOR', {
+        po_color: po.color, lay_color: color,
+      });
+    }
+  }
+  if (!color) {
+    throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
+  }
+  assertCuttingLayColorWidth(db, prepared, color, widthCm);
+
+  let layId;
+  try {
+    layId = db.transaction(() => {
+      const raced = db.prepare('SELECT id FROM cutting_lays WHERE idempotency_key=?').get(key);
+      if (raced) return raced.id;
+      let layNo;
+      try {
+        const { allocateNumber } = require('../../db');
+        layNo = allocateNumber(db, 'cutting_lay', 'LAY');
+      } catch (_) {
+        layNo = 'LAY-' + Date.now().toString(36).toUpperCase();
+      }
+      const ins = db.prepare(`
+        INSERT INTO cutting_lays (
+          lay_no, product_id, bom_id, warehouse_id, fabric_product_id, color,
+          marker_length_m, ply_count, width_cm, planned_meters, actual_meters, matrix_meters,
+          size_breakdown, size_matrix, qty_pieces, waste_normal_m, waste_abnormal_m, waste_allowed_m,
+          unit_cost_rial, amount_rial, waste_amount_rial, status, idempotency_key, date, note, created_by,
+          production_order_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?)
+      `).run(
+        layNo, plan.product.id, plan.bom_id, wh.id, plan.fabric_product_id, color,
+        plan.marker_length_m, plan.ply_count, widthCm, plan.planned_meters, plan.actual_meters, plan.matrix_meters,
+        JSON.stringify(plan.size_breakdown), JSON.stringify(plan.size_matrix), plan.qty_pieces,
+        plan.waste_normal_m, plan.waste_abnormal_m, plan.waste_allowed_m,
+        unitCost, amount, wasteAmt, key, date, String(body.note || '').trim(), user.id,
+        po ? po.id : null
+      );
+      const id = ins.lastInsertRowid;
+      postCuttingLayStockAndJe(db, {
+        id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user,
+      });
+      return id;
+    })();
+  } catch (e) {
+    if (e && (e.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE/i.test(String(e.message)))) {
+      const again = db.prepare('SELECT id FROM cutting_lays WHERE idempotency_key=?').get(key);
+      if (again) return getCuttingLay(db, again.id);
+    }
+    throw e;
+  }
+  return getCuttingLay(db, layId);
+}
+
+/**
+ * R13 — reverse all create-side effects of a posted cutting lay
+ * (inventory + batch qty + JE) without deleting the header row.
+ * Caller decides whether to mark status=reversed (void) or re-post (amend).
+ */
+function reverseCuttingLayEffects(db, row, user, reason) {
+  const { reverseJournalEntry } = require('../void-journal');
+  const rolls = db.prepare("SELECT * FROM cutting_lay_rolls WHERE lay_id=? AND status='posted'").all(row.id);
+  for (const r of rolls) {
+    if (r.ledger_id) {
+      reverseInventoryMovement(db, r.ledger_id, {
+        createdBy: user.id,
+        note: reason || 'ابطال لایه‌چینی',
+      });
+    }
+    adjustBatchQty(db, r.batch_id, Number(r.meters) || 0);
+    db.prepare("UPDATE cutting_lay_rolls SET status='reversed' WHERE id=?").run(r.id);
+  }
+  let revJe = null;
+  if (row.waste_journal_id) {
+    reverseJournalEntry(db, row.waste_journal_id, {
+      userId: user.id,
+      reason: reason || 'ابطال ضایعات برش',
+      sourceType: 'production_waste_reversal',
+    });
+  }
+  if (row.journal_id) {
+    revJe = reverseJournalEntry(db, row.journal_id, {
+      userId: user.id,
+      reason: reason || 'ابطال لایه‌چینی',
+      sourceType: 'production_material_issue_reversal',
+    });
+  }
+  db.prepare('UPDATE cutting_lays SET journal_id=NULL, waste_journal_id=NULL WHERE id=?').run(row.id);
+  return { revJe };
+}
+
+/**
+ * Validate + cost rolls for create/amend. Call AFTER any reverse so live
+ * meters include restored qty from this lay.
+ */
+function prepareCuttingLayRolls(db, body, plan) {
   const rollsIn = Array.isArray(body.rolls) ? body.rolls : [];
   if (!rollsIn.length) throw httpErr(400, 'حداقل یک طاقه انتخاب کنید', 'E_CUT_ROLLS');
 
@@ -542,14 +652,12 @@ function postCuttingLay(db, body, user) {
     item.amount_rial = assertSafeRial(Math.round(unit * meters), 'cut roll');
     delete item._metersIn;
   }
-  // Realign product warehouse cache from Σ roll meters so untagged drains
-  // cannot block a valid tagged roll consume (batch ledger is authoritative).
   {
     const seen = new Set();
     for (const item of prepared) {
-      const key = `${item.batch.product_id}:${wh.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const k = `${item.batch.product_id}:${wh.id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
       syncFabricProductWarehouse(db, item.batch.product_id, wh.id);
     }
   }
@@ -558,141 +666,85 @@ function postCuttingLay(db, body, user) {
       rolls: rollSum, actual: plan.actual_meters,
     });
   }
-  const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
-  const unitCost = plan.actual_meters > 0 ? Math.round(amount / plan.actual_meters) : 0;
-  let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
-  if (wasteAmt > amount) wasteAmt = amount;
-  const date = String(body.date || todayJalali()).trim();
-  assertCutPeriodOpen(db, date);
-  let color = String(body.color || '').trim();
-  const widthCm = Math.round(Number(body.width_cm) || 0);
-  const po = resolveOptionalOrder(db, body.production_order_id, plan.product.id);
-  if (po && po.color) {
-    const { colorsMatch } = require('../inventory/fabric-rolls');
-    if (!color) color = String(po.color).trim();
-    else if (!colorsMatch(po.color, color)) {
-      throw httpErr(400, 'رنگ برش باید با رنگ سفارش تولید یکی باشد', 'E_CUT_PO_COLOR', {
-        po_color: po.color, lay_color: color,
+  return { prepared, wh, rollSum };
+}
+
+function assertCuttingLayColorWidth(db, prepared, color, widthCm) {
+  const { colorsMatch } = require('../inventory/fabric-rolls');
+  for (const item of prepared) {
+    const batch = item.batch;
+    if (!colorsMatch(batch.color, color)) {
+      throw httpErr(400, 'طاقه باید همان رنگ برش/سفارش باشد', 'E_CUT_ROLL_COLOR', {
+        batch_no: batch.batch_no, roll_color: batch.color, lay_color: color,
+      });
+    }
+    const rollW = Math.round(Number(batch.width_cm) || 0);
+    if (widthCm > 0 && rollW > 0 && rollW !== widthCm) {
+      throw httpErr(400, 'عرض طاقه با عرض لایه‌چینی یکی نیست', 'E_CUT_ROLL_WIDTH', {
+        batch_no: batch.batch_no, roll_width: rollW, lay_width: widthCm,
       });
     }
   }
-  if (!color) {
-    throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
-  }
-  {
-    const { colorsMatch } = require('../inventory/fabric-rolls');
-    for (const item of prepared) {
-      const batch = item.batch;
-      if (!colorsMatch(batch.color, color)) {
-        throw httpErr(400, 'طاقه باید همان رنگ برش/سفارش باشد', 'E_CUT_ROLL_COLOR', {
-          batch_no: batch.batch_no, roll_color: batch.color, lay_color: color,
-        });
-      }
-      const rollW = Math.round(Number(batch.width_cm) || 0);
-      if (widthCm > 0 && rollW > 0 && rollW !== widthCm) {
-        throw httpErr(400, 'عرض طاقه با عرض لایه‌چینی یکی نیست', 'E_CUT_ROLL_WIDTH', {
-          batch_no: batch.batch_no, roll_width: rollW, lay_width: widthCm,
-        });
-      }
-    }
-  }
+}
 
-  let layId;
-  try {
-    layId = db.transaction(() => {
-      const raced = db.prepare('SELECT id FROM cutting_lays WHERE idempotency_key=?').get(key);
-      if (raced) return raced.id;
-      let layNo;
-      try {
-        const { allocateNumber } = require('../../db');
-        layNo = allocateNumber(db, 'cutting_lay', 'LAY');
-      } catch (_) {
-        layNo = 'LAY-' + Date.now().toString(36).toUpperCase();
-      }
-      const ins = db.prepare(`
-        INSERT INTO cutting_lays (
-          lay_no, product_id, bom_id, warehouse_id, fabric_product_id, color,
-          marker_length_m, ply_count, width_cm, planned_meters, actual_meters, matrix_meters,
-          size_breakdown, size_matrix, qty_pieces, waste_normal_m, waste_abnormal_m, waste_allowed_m,
-          unit_cost_rial, amount_rial, waste_amount_rial, status, idempotency_key, date, note, created_by,
-          production_order_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?)
-      `).run(
-        layNo, plan.product.id, plan.bom_id, wh.id, plan.fabric_product_id, color,
-        plan.marker_length_m, plan.ply_count, widthCm, plan.planned_meters, plan.actual_meters, plan.matrix_meters,
-        JSON.stringify(plan.size_breakdown), JSON.stringify(plan.size_matrix), plan.qty_pieces,
-        plan.waste_normal_m, plan.waste_abnormal_m, plan.waste_allowed_m,
-        unitCost, amount, wasteAmt, key, date, String(body.note || '').trim(), user.id,
-        po ? po.id : null
-      );
-      const id = ins.lastInsertRowid;
-      assertJournalIdempotent(db, 'cutting_lay', id);
-
-      for (const r of prepared) {
-        const led = postInventoryMovement(db, {
-          eventType: 'production_issue',
-          productId: r.batch.product_id,
-          warehouseId: wh.id,
-          qtyOut: r.meters,
-          unitCostRial: r.unit_cost_rial,
-          amountRial: r.amount_rial,
-          sourceType: 'cutting_lay',
-          sourceId: id,
-          batchId: r.batch.id,
-          date,
-          note: `لایه‌چینی ${layNo}`,
-          createdBy: user.id,
-        });
-        adjustBatchQty(db, r.batch.id, -r.meters);
-        db.prepare(`
-          INSERT INTO cutting_lay_rolls (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status)
-          VALUES (?,?,?,?,?,?, 'posted')
-        `).run(id, r.batch.id, r.meters, r.unit_cost_rial, r.amount_rial, led.id);
-      }
-
-      // ADR-003: JE tags follow PRD catalog (inventory movements keep cutting_*).
-      let journalId = null;
-      if (amount > 0) {
-        const je = postEvent(db, {
-          event: 'PRD-01',
-          sourceId: id,
-          date,
-          description: `مصرف پارچه لایه‌چینی ${layNo}`,
-          createdBy: user.id,
-          lines: [
-            dr(db, 'coa_wip', amount),
-            cr(db, 'coa_raw_materials', amount),
-          ],
-        });
-        journalId = je ? je.je_id : null;
-      }
-      let wasteJe = null;
-      if (plan.waste_abnormal_m > 0 && wasteAmt > 0) {
-        const wje = postEvent(db, {
-          event: 'PRD-09',
-          sourceId: id,
-          date,
-          description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} متر`,
-          createdBy: user.id,
-          lines: [
-            dr(db, 'coa_abnormal_waste', wasteAmt),
-            cr(db, 'coa_wip', wasteAmt),
-          ],
-        });
-        wasteJe = wje ? wje.je_id : null;
-      }
-      db.prepare('UPDATE cutting_lays SET journal_id=?, waste_journal_id=? WHERE id=?')
-        .run(journalId, wasteJe, id);
-      return id;
-    })();
-  } catch (e) {
-    if (e && (e.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE/i.test(String(e.message)))) {
-      const again = db.prepare('SELECT id FROM cutting_lays WHERE idempotency_key=?').get(key);
-      if (again) return getCuttingLay(db, again.id);
-    }
-    throw e;
+function postCuttingLayStockAndJe(db, {
+  id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user,
+}) {
+  assertJournalIdempotent(db, 'production_material_issue', id);
+  for (const r of prepared) {
+    const led = postInventoryMovement(db, {
+      eventType: 'production_issue',
+      productId: r.batch.product_id,
+      warehouseId: wh.id,
+      qtyOut: r.meters,
+      unitCostRial: r.unit_cost_rial,
+      amountRial: r.amount_rial,
+      sourceType: 'cutting_lay',
+      sourceId: id,
+      batchId: r.batch.id,
+      date,
+      note: `لایه‌چینی ${layNo}`,
+      createdBy: user.id,
+    });
+    adjustBatchQty(db, r.batch.id, -r.meters);
+    db.prepare(`
+      INSERT INTO cutting_lay_rolls (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status)
+      VALUES (?,?,?,?,?,?, 'posted')
+    `).run(id, r.batch.id, r.meters, r.unit_cost_rial, r.amount_rial, led.id);
   }
-  return getCuttingLay(db, layId);
+  let journalId = null;
+  if (amount > 0) {
+    const je = postEvent(db, {
+      event: 'PRD-01',
+      sourceId: id,
+      date,
+      description: `مصرف پارچه لایه‌چینی ${layNo}`,
+      createdBy: user.id,
+      lines: [
+        dr(db, 'coa_wip', amount),
+        cr(db, 'coa_raw_materials', amount),
+      ],
+    });
+    journalId = je ? je.je_id : null;
+  }
+  let wasteJe = null;
+  if (plan.waste_abnormal_m > 0 && wasteAmt > 0) {
+    assertJournalIdempotent(db, 'production_waste', id);
+    const wje = postEvent(db, {
+      event: 'PRD-09',
+      sourceId: id,
+      date,
+      description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} متر`,
+      createdBy: user.id,
+      lines: [
+        dr(db, 'coa_abnormal_waste', wasteAmt),
+        cr(db, 'coa_wip', wasteAmt),
+      ],
+    });
+    wasteJe = wje ? wje.je_id : null;
+  }
+  db.prepare('UPDATE cutting_lays SET journal_id=?, waste_journal_id=? WHERE id=?')
+    .run(journalId, wasteJe, id);
 }
 
 function voidCuttingLay(db, id, user, { reason } = {}) {
@@ -702,39 +754,99 @@ function voidCuttingLay(db, id, user, { reason } = {}) {
   if (postedPackForLay(db, row.id)) {
     throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
   }
-  const { reverseJournalEntry } = require('../void-journal');
   db.transaction(() => {
-    const rolls = db.prepare("SELECT * FROM cutting_lay_rolls WHERE lay_id=? AND status='posted'").all(row.id);
-    for (const r of rolls) {
-      if (r.ledger_id) {
-        reverseInventoryMovement(db, r.ledger_id, {
-          createdBy: user.id,
-          note: reason || 'ابطال لایه‌چینی',
-        });
-      }
-      adjustBatchQty(db, r.batch_id, Number(r.meters) || 0);
-      db.prepare("UPDATE cutting_lay_rolls SET status='reversed' WHERE id=?").run(r.id);
-    }
-    let revJe = null;
-    if (row.waste_journal_id) {
-      reverseJournalEntry(db, row.waste_journal_id, {
-        userId: user.id,
-        reason: reason || 'ابطال ضایعات برش',
-        sourceType: 'production_waste_reversal',
-      });
-    }
-    if (row.journal_id) {
-      revJe = reverseJournalEntry(db, row.journal_id, {
-        userId: user.id,
-        reason: reason || 'ابطال لایه‌چینی',
-        sourceType: 'production_material_issue_reversal',
-      });
-    }
+    const { revJe } = reverseCuttingLayEffects(db, row, user, reason || 'ابطال لایه‌چینی');
     db.prepare(`
       UPDATE cutting_lays
       SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=?
       WHERE id=?
     `).run(user.id, revJe, row.id);
+  })();
+  return getCuttingLay(db, row.id);
+}
+
+/**
+ * R13 Edit ⇒ reverse all create effects, then re-post on the same lay_no/id.
+ * Product is immutable. Pack must be voided first.
+ */
+function updateCuttingLay(db, id, body, user) {
+  const row = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(id));
+  if (!row) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
+  if (row.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل ویرایش نیست', 'E_CUT_REVERSED');
+  if (postedPackForLay(db, row.id)) {
+    throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
+  }
+  if (body.product_id != null && Number(body.product_id) !== Number(row.product_id)) {
+    throw httpErr(400, 'کالای لایه‌چینی قابل تغییر نیست — ابطال و ثبت جدید کنید', 'E_CUT_PRODUCT_LOCKED');
+  }
+  const bodyForPlan = Object.assign({}, body, { product_id: row.product_id });
+  const plan = planCutting(db, bodyForPlan);
+  const date = String(body.date || row.date || todayJalali()).trim();
+  assertCutPeriodOpen(db, date);
+
+  db.transaction(() => {
+    reverseCuttingLayEffects(db, row, user, body.reason || 'ویرایش لایه‌چینی');
+    const { prepared, wh } = prepareCuttingLayRolls(db, bodyForPlan, plan);
+    const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
+    const unitCost = plan.actual_meters > 0 ? Math.round(amount / plan.actual_meters) : 0;
+    let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
+    if (wasteAmt > amount) wasteAmt = amount;
+    let color = String(body.color != null ? body.color : row.color || '').trim();
+    const widthCm = body.width_cm != null ? Math.round(Number(body.width_cm) || 0) : (Number(row.width_cm) || 0);
+    const po = resolveOptionalOrder(
+      db,
+      body.production_order_id !== undefined ? body.production_order_id : row.production_order_id,
+      plan.product.id
+    );
+    if (po && po.color) {
+      const { colorsMatch } = require('../inventory/fabric-rolls');
+      if (!color) color = String(po.color).trim();
+      else if (!colorsMatch(po.color, color)) {
+        throw httpErr(400, 'رنگ برش باید با رنگ سفارش تولید یکی باشد', 'E_CUT_PO_COLOR', {
+          po_color: po.color, lay_color: color,
+        });
+      }
+    }
+    if (!color) {
+      throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
+    }
+    assertCuttingLayColorWidth(db, prepared, color, widthCm);
+
+    db.prepare(`
+      UPDATE cutting_lays SET
+        bom_id=?, warehouse_id=?, fabric_product_id=?, color=?,
+        marker_length_m=?, ply_count=?, width_cm=?,
+        planned_meters=?, actual_meters=?, matrix_meters=?,
+        size_breakdown=?, size_matrix=?, qty_pieces=?,
+        waste_normal_m=?, waste_abnormal_m=?, waste_allowed_m=?,
+        unit_cost_rial=?, amount_rial=?, waste_amount_rial=?,
+        date=?, note=?, production_order_id=?,
+        status='posted', reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL
+      WHERE id=?
+    `).run(
+      plan.bom_id, wh.id, plan.fabric_product_id, color,
+      plan.marker_length_m, plan.ply_count, widthCm,
+      plan.planned_meters, plan.actual_meters, plan.matrix_meters,
+      JSON.stringify(plan.size_breakdown), JSON.stringify(plan.size_matrix), plan.qty_pieces,
+      plan.waste_normal_m, plan.waste_abnormal_m, plan.waste_allowed_m,
+      unitCost, amount, wasteAmt,
+      date, String(body.note != null ? body.note : row.note || '').trim(),
+      po ? po.id : null,
+      row.id
+    );
+
+    postCuttingLayStockAndJe(db, {
+      id: row.id,
+      layNo: row.lay_no,
+      prepared,
+      wh,
+      plan,
+      amount,
+      wasteAmt,
+      unitCost,
+      date,
+      user,
+    });
   })();
   return getCuttingLay(db, row.id);
 }
@@ -973,6 +1085,7 @@ module.exports = {
   listCuttingLays,
   getCuttingLay,
   postCuttingLay,
+  updateCuttingLay,
   voidCuttingLay,
   classifyWasteMeters,
   assertFabricIssueAllowed,

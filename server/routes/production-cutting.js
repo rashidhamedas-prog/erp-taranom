@@ -3,7 +3,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const {
-  planCutting, listCuttingLays, getCuttingLay, postCuttingLay, voidCuttingLay,
+  planCutting, listCuttingLays, getCuttingLay, postCuttingLay, updateCuttingLay, voidCuttingLay,
   postCuttingPack, voidCuttingPackByLay, getCuttingPack, linkCuttingLayOrder,
 } = require('../lib/production/cutting');
 const { listFabricRolls } = require('../lib/inventory/fabric-rolls');
@@ -76,6 +76,15 @@ router.post('/', auth, requirePermission('production', 'create'), (req, res) => 
     const db = getDB();
     const row = postCuttingLay(db, req.body || {}, req.user);
     audit(req.user.id, 'create', 'cutting_lay', row.id, `لایه‌چینی ${row.lay_no}`);
+    sendRow(req, res, row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.put('/:id', auth, requirePermission('production', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const row = updateCuttingLay(db, req.params.id, req.body || {}, req.user);
+    audit(req.user.id, 'update', 'cutting_lay', row.id, `ویرایش لایه‌چینی ${row.lay_no}`);
     sendRow(req, res, row);
   } catch (e) { sendErr(res, e); }
 });

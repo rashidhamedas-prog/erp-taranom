@@ -10858,65 +10858,172 @@ async function voidInvoiceDoc(id,num){
 }
 
 /* ============================================================
-   ITEM KARDEX (کاردکس کالا) — per-product stock movement ledger with a
-   running balance, reconstructed from stock_logs.
+   ITEM KARDEX (کاردکس کالا) — professional stock ledger (v364)
+   Active posted rows only by default; amend ghosts retired; optional history.
 ============================================================ */
+let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'', show_cancelled:false };
+
 async function renderItemKardexTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
+  await ensureWarehouses().catch(()=>{});
   const products=CACHE.products||CACHE.allProducts||[];
+  const whs=(CACHE.warehouses||CACHE._prodWarehouses||[]).filter(w=>w && (w.active==null||w.active));
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      ${productSelect('kardexProduct','',products)}
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:end`)}">
+      <div class="fg" data-csp-style="${CSP.style(`min-width:220px;flex:1`)}">
+        <label data-csp-style="${CSP.style(`font-size:11px`)}">کالا</label>
+        ${productSelect('kardexProduct',_kardexState.productId||'',products)}
+      </div>
+      <div class="fg" data-csp-style="${CSP.style(`min-width:140px`)}">
+        <label data-csp-style="${CSP.style(`font-size:11px`)}">انبار</label>
+        <select id="kardexWh" data-csp-style="${CSP.style(`padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;width:100%`)}">
+          <option value="">همه انبارها</option>
+          ${whs.map(w=>`<option value="${w.id}" ${String(_kardexState.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fg"><label data-csp-style="${CSP.style(`font-size:11px`)}">از تاریخ</label>
+        <input id="kardexFrom" type="text" placeholder="1405/01/01" value="${esc(_kardexState.from||'')}" data-csp-style="${CSP.style(`padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;width:110px`)}">
+      </div>
+      <div class="fg"><label data-csp-style="${CSP.style(`font-size:11px`)}">تا تاریخ</label>
+        <input id="kardexTo" type="text" placeholder="1405/12/29" value="${esc(_kardexState.to||'')}" data-csp-style="${CSP.style(`padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;width:110px`)}">
+      </div>
+      <div class="fg"><label data-csp-style="${CSP.style(`font-size:11px`)}">نوع رویداد</label>
+        <select id="kardexEvt" data-csp-style="${CSP.style(`padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit`)}">
+          <option value="">همه</option>
+          ${['sale','purchase','transfer_in','transfer_out','opening','adjustment','receipt','issue','reversal'].map(e=>
+            `<option value="${e}" ${String(_kardexState.event_type)===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px;padding-bottom:8px`)}">
+        <input type="checkbox" id="kardexShowCanc" ${_kardexState.show_cancelled?'checked':''}> نمایش ابطال‌شده‌ها
+      </label>
+      <button type="button" class="btn" id="kardexReload" data-csp-style="${CSP.style(`margin-bottom:2px`)}">نمایش</button>
+      <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}">CSV</a>
     </div>
-    <div id="kardexBody">${products.length?'':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
+    <div id="kardexBody">${products.length?'<div class="muted">کالا را انتخاب کنید</div>':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
   initCustSearches(body);
-  el('kardexProduct')?.addEventListener('change',function(){ loadItemKardex(this.value); });
+  const reload=()=>{
+    _kardexState.productId=el('kardexProduct')?.value||'';
+    _kardexState.warehouse_id=el('kardexWh')?.value||'';
+    _kardexState.from=el('kardexFrom')?.value?.trim()||'';
+    _kardexState.to=el('kardexTo')?.value?.trim()||'';
+    _kardexState.event_type=el('kardexEvt')?.value||'';
+    _kardexState.show_cancelled=!!el('kardexShowCanc')?.checked;
+    loadItemKardex(_kardexState.productId);
+  };
+  el('kardexProduct')?.addEventListener('change',reload);
+  el('kardexReload')?.addEventListener('click',reload);
+  el('kardexShowCanc')?.addEventListener('change',reload);
+  el('kardexCsv')?.addEventListener('click',function(ev){
+    ev.preventDefault();
+    const pid=el('kardexProduct')?.value;
+    if(!pid){ toast('ابتدا کالا را انتخاب کنید','err'); return; }
+    const q=new URLSearchParams({ product_id:pid, format:'csv' });
+    if(el('kardexWh')?.value) q.set('warehouse_id',el('kardexWh').value);
+    if(el('kardexFrom')?.value?.trim()) q.set('from',el('kardexFrom').value.trim());
+    if(el('kardexTo')?.value?.trim()) q.set('to',el('kardexTo').value.trim());
+    if(el('kardexEvt')?.value) q.set('event_type',el('kardexEvt').value);
+    if(el('kardexShowCanc')?.checked) q.set('show_cancelled','1');
+    window.open('/api/ledgers/stock?'+q.toString(),'_blank');
+  });
+  if(_kardexState.productId) loadItemKardex(_kardexState.productId);
 }
+
+function _kardexOpenSource(refType, refId){
+  if(!refType || !refId) return;
+  if(refType==='invoice'){ openInvBuilder(refId); return; }
+  if(refType==='purchase'){ if(typeof printPurchase==='function') printPurchase(refId); else toast('فاکتور خرید #'+refId); return; }
+  if(typeof openAccTradeDoc==='function'){ openAccTradeDoc(refType, refId); return; }
+  toast(refType+' #'+refId);
+}
+
 async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
   if(!productId){ box.innerHTML=''; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  let d=await api('GET','/ledgers/stock?product_id='+encodeURIComponent(productId)).catch(()=>null);
-  if(d && d.lines){
-    d={ product:d.product, logs:d.lines.map(l=>({
-      date:l.date, event_type:l.event_type, note:l.description, warehouse_name:l.warehouse_name,
-      change:(Number(l.qty_in)||0)-(Number(l.qty_out)||0), qty_in:l.qty_in, qty_out:l.qty_out,
-      running_balance:l.running_qty, unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
-      user_name:'', status:'posted', source:'inventory_ledger'
-    })), source:'inventory_ledger' };
+  const q=new URLSearchParams({ product_id:String(productId) });
+  if(_kardexState.warehouse_id) q.set('warehouse_id',_kardexState.warehouse_id);
+  if(_kardexState.from) q.set('from',_kardexState.from);
+  if(_kardexState.to) q.set('to',_kardexState.to);
+  if(_kardexState.event_type) q.set('event_type',_kardexState.event_type);
+  if(_kardexState.show_cancelled) q.set('show_cancelled','1');
+  let raw=await api('GET','/ledgers/stock?'+q.toString()).catch(()=>null);
+  let d=null;
+  if(raw && raw.lines){
+    d={
+      product:raw.product,
+      opening_qty:raw.opening_qty,
+      period_qty_in:raw.period_qty_in,
+      period_qty_out:raw.period_qty_out,
+      closing_qty:raw.closing_qty,
+      closing_warehouse_qty:raw.closing_warehouse_qty,
+      warehouse_qty:raw.warehouse_qty,
+      logs:raw.lines.map(l=>({
+        id:l.id, date:l.date, tx_no:l.tx_no, event_type:l.event_type, note:l.description,
+        warehouse_name:l.warehouse_name, qty_in:l.qty_in, qty_out:l.qty_out,
+        running_balance:l.running_qty, warehouse_running_qty:l.warehouse_running_qty,
+        unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
+        user_name:l.user_name||'', status:l.status||'posted', cancelled:!!l.cancelled,
+        ref_type:l.ref_type, ref_id:l.ref_id, source_type:l.source_type, source_id:l.source_id,
+        warehouse_only:!!l.warehouse_only
+      })),
+      source:'inventory_ledger'
+    };
   } else {
-    d=await api('GET','/products/'+productId+'/kardex');
+    d=await api('GET','/products/'+productId+'/kardex').catch(()=>null);
   }
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
   const logs=d.logs||[];
+  const unit=esc(d.product.unit||'عدد');
+  const kpi=(label,val,tone)=>`<div data-csp-style="${CSP.style(`flex:1;min-width:110px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card,var(--bg))`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${label}</div>
+    <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmt(val||0)}</div>
+  </div>`;
   box.innerHTML=`
     <div class="panel">
-      <div class="panel-head"><h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
-        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmt(d.product.stock||0)} ${esc(d.product.unit||'')}
-          ${d.source==='inventory_ledger'?' · دفتر کل انبار':''}
-          ${d.product.average_cost_rial!=null&&window.__canSeeCost?' · میانگین: '+fmt(d.product.average_cost_rial||0)+' ریال':''}
+      <div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
+        <h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
+        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmt(d.product.stock||0)} ${unit}
+          ${d.source==='inventory_ledger'?' · دفتر کل انبار (فعال)':''}
+          ${_kardexState.show_cancelled?' · شامل تاریخچه ابطال':''}
+          ${d.warehouse_qty!=null?' · موجودی انبار فیلتر: '+fmt(d.warehouse_qty):''}
         </span>
+      </div>
+      <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
+        ${kpi('اول دوره', d.opening_qty)}
+        ${kpi('ورود دوره', d.period_qty_in, 'var(--green)')}
+        ${kpi('خروج دوره', d.period_qty_out, 'var(--red)')}
+        ${kpi('پایان دوره (فروش‌پذیر)', d.closing_qty)}
+        ${d.closing_warehouse_qty!=null?kpi('پایان فیزیکی انبار', d.closing_warehouse_qty):''}
       </div>
       <div class="panel-body tbl-wrap">
         <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-          <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>موجودی</th>
+          <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>مانده</th>
           ${window.__canSeeCost?'<th>بهای واحد</th><th>مبلغ</th>':''}
           <th>ثبت‌کننده</th>
         </tr></thead><tbody>
         ${logs.map(l=>{
           const dt=l.date||(l.created_at?new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR'):'-');
-          const ch=l.change!=null?l.change:((l.qty_in||0)-(l.qty_out||0));
-          return `<tr data-csp-style="${CSP.style(`${l.status==='reversed'?'opacity:.55':''}`)}">
+          const qIn=Number(l.qty_in)||0;
+          const qOut=Number(l.qty_out)||0;
+          const cancelled=l.cancelled||l.status==='reversed';
+          const canDrill=l.ref_type && l.ref_id;
+          const noteHtml=canDrill
+            ? `<a href="#" data-kardex-ref="${esc(l.ref_type)}" data-kardex-id="${esc(String(l.ref_id))}" data-csp-style="${CSP.style(`color:var(--accent,var(--purple));text-decoration:underline`)}">${esc(l.note||'-')}</a>`
+            : esc(l.note||'-');
+          const badge=cancelled?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">${l.event_type==='reversal'?'معکوس':'ابطال'}</span>`:'';
+          const wip=l.warehouse_only?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">WIP</span>`:'';
+          return `<tr data-csp-style="${CSP.style(`${cancelled?'opacity:.55':''}`)}">
           <td class="mono">${esc(dt)}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.tx_no||l.event_type||'-')}</td>
-          <td>${esc(l.note||'-')}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.tx_no||l.event_type||'-')}${badge}${wip}</td>
+          <td>${noteHtml}</td>
           <td class="muted">${esc(l.warehouse_name||'-')}</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${ch>0?fmt(ch):'-'}</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${ch<0?fmt(-ch):'-'}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${qIn?fmt(qIn):'-'}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${qOut?fmt(qOut):'-'}</td>
           <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(l.running_balance||0)}</td>
-          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null?fmt(l.unit_cost_rial):('-')}</td>
-          <td class="mono">${l.amount_rial!=null?fmt(l.amount_rial):('-')}</td>`:''}
+          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut||cancelled)?fmt(l.unit_cost_rial):'-'}</td>
+          <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
         </tr>`;
         }).join('')||`<tr><td colspan="10" class="empty">${
@@ -10927,6 +11034,12 @@ async function loadItemKardex(productId){
         </tbody></table>
       </div>
     </div>`;
+  box.querySelectorAll('[data-kardex-ref]').forEach(a=>{
+    a.addEventListener('click',function(ev){
+      ev.preventDefault();
+      _kardexOpenSource(this.getAttribute('data-kardex-ref'), this.getAttribute('data-kardex-id'));
+    });
+  });
 }
 
 let _sharedLedgerPrefill=null;
@@ -11476,7 +11589,10 @@ async function renderCuttingLaysTab(body){
       if(r.status==='reversed') acts='ابطال‌شده';
       else {
         if(view==='lays'){
-          acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال لایه‌چینی</button>';
+          if(!isPacked){
+            acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش</button> ';
+          }
+          acts+='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال لایه‌چینی</button>';
         }
         if(isPacked){
           acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackPrint(r.id)})+'">چاپ بارکد</button>';
@@ -11499,44 +11615,98 @@ function goCuttingLaysView(view){
   try{ sessionStorage.setItem('cuttingLaysView', v); }catch(_){}
   go('acc-cutting-lays');
 }
-function cuttingLayModal(){
-  window._cutIdemKey=newCutIdemKey();
+async function cuttingLayModal(editId){
+  window._cutEditId=editId?Number(editId):null;
+  window._cutEditRollBoost={};
+  window._cutIdemKey=window._cutEditId?null:newCutIdemKey();
   window._cutFabricProductId=null;
+  let lay=null;
+  if(window._cutEditId){
+    try{ lay=await api('GET','/production/cutting-lays/'+window._cutEditId); }
+    catch(e){ showToast(e.message||'لایه یافت نشد','error'); return; }
+    if(!lay || lay.status==='reversed'){ showToast('لایه ابطال‌شده قابل ویرایش نیست','error'); return; }
+    const packed=(lay.packs||[]).some(p=>p.status==='posted')||Number(lay.pack_posted)===1;
+    if(packed){ showToast('ابتدا رسید محصول را ابطال کنید','error'); return; }
+    (lay.rolls||[]).filter(r=>r.status==='posted').forEach(r=>{
+      const bid=Number(r.batch_id); if(!bid) return;
+      window._cutEditRollBoost[bid]=(window._cutEditRollBoost[bid]||0)+Number(r.meters||0);
+    });
+  }
   const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
   const list=prods.length?prods:(CACHE.allProducts||[]);
-  showModal('لایه‌چینی و برش',`
+  const prodVal=lay?String(lay.product_id||''):'';
+  const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):'لایه‌چینی و برش';
+  showModal(title,`
     <div class="form-grid">
-      <div class="fg"><label>کالای دوخته‌شده</label>${productSelect('cl-prod','',list)}</div>
-      <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="2"></div>
-      <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="10"></div>
-      <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01"></div>
-      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="150" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}"></div>
+      <div class="fg"><label>کالای دوخته‌شده${window._cutEditId?' (ثابت)':''}</label>${productSelect('cl-prod',prodVal,list)}</div>
+      <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="${lay?esc(String(lay.marker_length_m||2)):'2'}"></div>
+      <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="${lay?esc(String(lay.ply_count||10)):'10'}"></div>
+      <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null?esc(String(lay.actual_meters)):''}"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="${lay?esc(String(lay.width_cm||150)):'150'}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}"></div>
       <div class="fg"><label>رنگ *</label>
         <select id="cl-color"><option value="">— انتخاب از طاقه‌های موجود —</option></select>
-        <input id="cl-color-extra" placeholder="یا رنگ دستی" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
+        <input id="cl-color-extra" placeholder="یا رنگ دستی" value="${lay?esc(String(lay.color||'')):''}" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
       </div>
-      <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
+      <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش" value="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
     </div>
+    ${window._cutEditId?'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">ویرایش = ابطال کامل اثرات قبلی همین شماره لایه و ثبت مجدد (موجودی طاقه و سند حسابداری). کالا قابل تغییر نیست. اگر رسید محصول دارد اول ابطالش کنید.</p>':''}
     <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
     <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(sz=>`<div class="fg"><label>${sz}</label><input type="number" min="0" step="1" value="0" data-cut-size="${sz}"></div>`).join('')}</div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده) — انبار از طاقه تشخیص داده می‌شود</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود</div>
     <div id="cl-rolls"><span class="muted">ابتدا کالا و رنگ را انتخاب کنید…</span></div>
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت لایه‌چینی</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">${window._cutEditId?'ذخیره ویرایش':'ثبت لایه‌چینی'}</button>
     </div>`);
   const prodEl=el('cl-prod');
+  if(window._cutEditId && prodEl){
+    prodEl.disabled=true;
+    prodEl.setAttribute('aria-readonly','true');
+  }
   const refreshSizes=async()=>{ cuttingRenderSizeGrid(await cuttingSizeLabelsForProduct(+prodEl?.value||0)); };
-  if(prodEl){
+  if(prodEl && !window._cutEditId){
     prodEl.addEventListener('change', async()=>{
       await refreshSizes();
       await cuttingResolveFabricAndRolls();
     });
   }
   el('cl-color')?.addEventListener('change', ()=>{ if(el('cl-color-extra')) el('cl-color-extra').value=''; cuttingRefreshRollPicker(); });
-  refreshSizes().then(()=>cuttingResolveFabricAndRolls());
+  const finish=async()=>{
+    await refreshSizes();
+    if(lay){
+      let bd=lay.size_breakdown;
+      if(typeof bd==='string'){ try{ bd=JSON.parse(bd); }catch(_){ bd={}; } }
+      if(bd && typeof bd==='object'){
+        const keys=Object.keys(bd);
+        if(keys.length) cuttingRenderSizeGrid(keys);
+        Object.entries(bd).forEach(([sz,q])=>{
+          const inp=document.querySelector('#cl-size-grid [data-cut-size="'+String(sz).replace(/"/g,'')+'"]');
+          if(inp) inp.value=q;
+        });
+      }
+    }
+    await cuttingResolveFabricAndRolls();
+    if(lay && lay.color){
+      if(el('cl-color-extra') && !el('cl-color-extra').value) el('cl-color-extra').value=lay.color;
+      await cuttingLoadRollColors();
+      if(el('cl-color')){
+        const opt=[...el('cl-color').options].find(o=>o.value===lay.color);
+        if(opt) el('cl-color').value=lay.color;
+      }
+      await cuttingRefreshRollPicker();
+      const postedRolls=(lay.rolls||[]).filter(r=>r.status==='posted');
+      postedRolls.forEach(r=>{
+        const ch=document.querySelector('.cl-roll[data-id="'+r.batch_id+'"]');
+        if(!ch) return;
+        ch.checked=true;
+        const inp=ch.parentElement && ch.parentElement.querySelector('.cl-roll-m');
+        if(inp) inp.value=String(r.meters||'');
+      });
+    }
+  };
+  finish();
 }
 async function cuttingResolveFabricAndRolls(){
   const pid=+el('cl-prod')?.value||0;
@@ -11597,22 +11767,34 @@ function cuttingRenderRollPicker(rows, color){
     box.innerHTML='<span class="muted">رنگ را انتخاب کنید تا طاقه‌های هم‌رنگ از انبار مواد لیست شوند.</span>';
     return;
   }
-  if(!rows.length){
+  const boost=window._cutEditRollBoost||{};
+  // Include rolls already on this lay even if live is temporarily 0 before reverse.
+  const byId=new Map((rows||[]).map(b=>[Number(b.id), b]));
+  Object.keys(boost).forEach(idStr=>{
+    const id=Number(idStr);
+    if(!byId.has(id) && Number(boost[id])>0){
+      byId.set(id, { id, batch_no:'#'+id, color, qty_live:0, qty_on_hand:0 });
+    }
+  });
+  const list=[...byId.values()];
+  if(!list.length){
     box.innerHTML='<span class="muted">طاقهٔ فعالی با این پارچه/رنگ/عرض نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.</span>';
     return;
   }
-  box.innerHTML=rows.map(b=>{
-    const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+  box.innerHTML=list.map(b=>{
+    const base=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+    const live=base+(Number(boost[b.id])||0);
+    if(!(live>0)) return '';
     const w=b.width_cm?(' · عرض '+b.width_cm):'';
     const pat=b.pattern?(' · '+esc(b.pattern)):'';
     return '<label data-csp-style="'+CSP.style('display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;flex-wrap:wrap')+'">'
       +'<input type="checkbox" class="cl-roll" data-id="'+b.id+'" data-wh="'+(b.warehouse_id||'')+'" data-max="'+live+'" data-color="'+esc(b.color||'')+'"> '
-      +'<span class="mono">'+esc(b.batch_no)+'</span> '
+      +'<span class="mono">'+esc(b.batch_no||('#'+b.id))+'</span> '
       +esc(b.color||'')+pat+w
       +' — مانده <b>'+fmt(live)+'</b> متر'
       +(b.product_name?(' <span class="muted">('+esc(b.product_name)+')</span>'):'')
       +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="متر"></label>';
-  }).join('');
+  }).filter(Boolean).join('');
 }
 async function cuttingApplyPo(){
   const id=+el('cl-po')?.value||0;
@@ -11677,16 +11859,23 @@ async function cuttingLaySave(){
   });
   if(!Object.keys(cuttingLayBreakdown()).length){ showToast('ماتریس سایز را وارد کنید','error'); return; }
   if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
+  const payload={
+    product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
+    marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
+    actual_meters:actual, width_cm:+el('cl-w').value||0,
+    production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
+    size_breakdown:cuttingLayBreakdown(), rolls,
+    reason: window._cutEditId ? 'ویرایش از گزارش' : undefined,
+  };
   try{
-    await api('POST','/production/cutting-lays',{
-      product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
-      marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
-      actual_meters:actual, width_cm:+el('cl-w').value||0,
-      production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
-      size_breakdown:cuttingLayBreakdown(), rolls,
-      idempotency_key:window._cutIdemKey||newCutIdemKey()
-    });
-    closeModal(); showToast('لایه‌چینی ثبت شد'); loadAccTab('cutting-lays');
+    if(window._cutEditId){
+      await api('PUT','/production/cutting-lays/'+window._cutEditId, payload);
+      closeModal(); showToast('لایه‌چینی ویرایش شد'); loadAccTab('cutting-lays');
+    } else {
+      payload.idempotency_key=window._cutIdemKey||newCutIdemKey();
+      await api('POST','/production/cutting-lays', payload);
+      closeModal(); showToast('لایه‌چینی ثبت شد'); loadAccTab('cutting-lays');
+    }
   }catch(e){}
 }
 async function voidCuttingLayRow(id){
@@ -27248,6 +27437,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد. دکمهٔ <b>بستن</b> فقط وقتی مانده WIP تقریباً صفر است کار می‌کند؛ در سفارش متغیر پیشرفته، بهای مواد فقط هنگام <b>حوالهٔ مرحله</b> روی سفارش می‌نشیند (نه دوباره هنگام تکمیل خروجی). <b>دستمزد تولید ≠ فیش حقوق:</b> جذب دستمزد مرحله (قطعه‌ای/ساعتی/ماهانه از نرخ مرکز) فقط بهای WIP و کنترل دستمزد را می‌سازد و در ماژول «حقوق و دستمزد» ظاهر نمی‌شود. حقوق ماهانهٔ برشکار از مسیر حقوق (حکم + محاسبهٔ دوره) ثبت می‌شود؛ برای جذب ماهانه در تولید باید در «نرخ مرکز هزینه» فیلد <code>monthly_labor_rate_rial</code> = بودجه حقوق مرکز ÷ برنامه تولید ماه پر شود (مثلاً ریال به ازای هر عدد برش‌خورده). اگر روش عملیات برش «ماهانه» باشد ولی نرخ مرکز صفر باشد، برای آن مرحله دستمزدی جذب نمی‌شود.</li>
         <li><b>لایه‌چینی + رسید انبار محصول (دو رویداد جدا):</b> تولید → عملیات → لایه‌چینی / رسید محصول. تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP (مارکر × لایه، ماتریس سایز، ضایعات). تب «رسید انبار محصول» = ورود FG و صفر کردن WIP همان لایه — <b>برش دوباره نیست</b>. مبلغ رسید = مانده WIP لایه. بارکد بسته هویت عملیاتی است نه سریال. حواله همان متر با E_FABRIC_ALREADY_CUT قفل است.
+          <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.</li>
@@ -27494,7 +27684,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است. بعد از ابطال لایه‌چینی، مانده طاقه دوبل شمرده نمی‌شود (جمع همهٔ ردیف‌های دفتر شامل ابطال). قبل از مصرف/فروش، موجودی انبار کالا با مجموع مانده طاقه‌ها هم‌تراز می‌شود تا حوالهٔ بدون طاقه مانع برش نشود</li>
-        <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
+        <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. ویرایش لایه = reverse کامل + ثبت مجدد روی همان شماره (بدون رسید محصول). همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: فقط برگ‌های <b>pay_type=چک</b> را نشان می‌دهد — کارتخوان/نقد/واریز اینجا نمی‌آیند. برچسب «قسط N» در شرح قدیمی یعنی <b>مرحلهٔ دریافت</b> (مثلاً چک+کارتخوان)، نه لزوماً دو فقره چک. هر فقره چک <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>

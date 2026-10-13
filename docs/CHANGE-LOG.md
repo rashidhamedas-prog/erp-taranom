@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۱ — ویرایش لایه‌چینی (R13 amend روی همان lay_no) (SW v364)
+
+- **هدف:** دکمهٔ ویرایش روی هر ردیف لایه‌چینی با وابستگی‌ها؛ ابطال کامل اثرات سپس ثبت مجدد روی همان `id`/`lay_no`.
+- **Backend:** `updateCuttingLay` + هلپرهای مشترک create/amend (`reverseCuttingLayEffects`, `prepareCuttingLayRolls`, `postCuttingLayStockAndJe`)؛ `PUT /api/production/cutting-lays/:id`؛ قفل کالا؛ بلاک اگر pack posted (`E_CUT_HAS_PACK`).
+- **Frontend:** دکمهٔ ویرایش در تب لایه‌چینی؛ مودال با پیش‌پر و boost مانده طاقهٔ همین لایه؛ Help؛ SW `v364`.
+- **فایل‌ها:** `lib/production/cutting.js`, `routes/production-cutting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cutting-lay-amend-v364.js`, CHANGE-LOG, Help.
+- **تست:** `test-cutting-lay-amend-v364` + `test-sms` + `test-sync` (روی ایران پس از deploy).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — مانده طاقه بعد از ابطال لایه‌چینی / انبار خالی (SW v363)
 
 - **علائم:** گردش طاقه LOT-0005 مانده ~۱۸۱ نشان می‌داد؛ لایه‌چینی ۶۷ متر → «موجودی انبار کافی نیست».
