@@ -7,8 +7,8 @@
   3. `books_mismatch` ماندهٔ AP را با برگهٔ AR هدر party مقایسه می‌کرد (نقش دوگانه).
 - **رفع معماری:** fallthrough به تأمین/خرید/تفصیلی؛ dedup با `journal_id`؛ stamp `ref_id` روی voucher؛ `partySignedBalanceDetailMap` + مقایسهٔ همان-leaf؛ مودال خالی به‌جای toast خطا.
 - **فایل‌ها:** `lib/{party-turnover,party-books,party-control-dashboard}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-turnover-v362.js`, CHANGE-LOG, Help.
-- **تست:** `test-party-books-turnover-v362` + `test-sms` + `test-sync` روی ایران.
-- **Deploy:** ⏳
+- **تست:** `test-party-books-turnover-v362` ۲۰/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران؛ parse فرانت سبز.
+- **Deploy:** ✅ `c619688` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v362`؛ `app.js?v=362`.
 
 ### ۱۴۰۵/۰۷/۲۱ — داشبورد کنترل حساب اشخاص (SW v361)
 
