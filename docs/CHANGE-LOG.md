@@ -8,7 +8,7 @@ etireAmendedMovement (نرم‌باطل بدون reverse دوبل موجودی)�
 - **فایل‌ها:** lib/amend-invoice.js, lib/inventory/ledger.js, lib/ledgers.js, lib/sales-document.js, 
 outes/ledgers.js, lib/accounting-access.js, db.js, public/{app.js,sw.js,index.html}, scripts/test-kardex-professional-v364.js, CHANGE-LOG, Help.
 - **تست:** 	est-kardex-professional-v365 + 	est-sms + 	est-sync روی ایران؛ parse فرانت سبز.
-- **Deploy:** ⏳
+- **Deploy:** ✅ 84c3894 — overlay ایران + pm2 restart بدون --update-env؛ health=200 + sharp؛ SW erp-taranom-v365؛ pp.js?v=365؛ heal: 93 ghost retired؛ 7141 kardex lines=32 amendNotes=0 closing=105.
 
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش لایه‌چینی (R13 amend روی همان lay_no) (SW v364)
 
