@@ -4,8 +4,8 @@
 - **Backend:** `updateCuttingLay` + هلپرهای مشترک create/amend (`reverseCuttingLayEffects`, `prepareCuttingLayRolls`, `postCuttingLayStockAndJe`)؛ `PUT /api/production/cutting-lays/:id`؛ قفل کالا؛ بلاک اگر pack posted (`E_CUT_HAS_PACK`).
 - **Frontend:** دکمهٔ ویرایش در تب لایه‌چینی؛ مودال با پیش‌پر و boost مانده طاقهٔ همین لایه؛ Help؛ SW `v364`.
 - **فایل‌ها:** `lib/production/cutting.js`, `routes/production-cutting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cutting-lay-amend-v364.js`, CHANGE-LOG, Help.
-- **تست:** `test-cutting-lay-amend-v364` + `test-sms` + `test-sync` (روی ایران پس از deploy).
-- **Deploy:** ⏳
+- **تست:** `test-cutting-lay-amend-v364` ۱۹/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران؛ parse `app.js` سبز.
+- **Deploy:** ✅ `6eb7d77` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v364`؛ `app.js?v=364`.
 
 ### ۱۴۰۵/۰۷/۲۱ — مانده طاقه بعد از ابطال لایه‌چینی / انبار خالی (SW v363)
 
