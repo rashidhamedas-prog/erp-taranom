@@ -4,8 +4,8 @@
 - **ریشه:** منو با `acc_settlements.view` درست باز می‌شد، اما `renderCashOpsTab` با `Promise.all` همزمان `incentive-payments` (نگاشت به `acc_commissions`)، و فرم‌ها COA/vouchers را می‌خواستند؛ بدون آن بخش‌ها API‏۴۰۳ کل صفحه را می‌کشت.
 - **رفع معماری:** کاتالوگ `acc-settlements` شامل APIهای همراه cash-ops + `readApis` فقط‌خواندنی (COA/commissions/…)؛ `delegatedAccountingAllowed` با `matchAccAccess`/`accessHitAllows`؛ soft-fail لیست‌های جانبی در UI؛ Help.
 - **فایل‌ها:** `lib/accounting-access.js`, `middleware/auth.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-accounting-access.js`, CHANGE-LOG, Help.
-- **تست:** `test-accounting-access` + `test-sms` + `test-sync` (روی ایران).
-- **Deploy:** ⏳
+- **تست:** `test-accounting-access` (شامل cash-ops/readApi) + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران.
+- **Deploy:** ✅ `c33e69e` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v366`؛ `app.js?v=366`.
 
 ### ۱۴۰۵/۰۷/۲۱ — کاردکس کالا حرفه‌ای بدون شبح اصلاح فاکتور (SW v365)
 
