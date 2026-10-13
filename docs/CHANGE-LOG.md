@@ -5,8 +5,8 @@
 - **Frontend:** منوی `acc-party-control-dashboard`؛ UI در `portal-ui.js` (KPI + فیلتر + aging + جدول + CSV + drill گردش/صورت‌حساب)؛ Help؛ CSS `.pc-dash`؛ SW `v361`.
 - **الهام:** الگوی ERPNext AR aging / AR cockpit (KPI→worklist→drill) + UI/UX interaction patterns؛ 21st فقط metadata (بدون pull کد پولی).
 - **فایل‌ها:** `lib/party-control-dashboard.js`, `routes/{adv-reports,search}.js`, `lib/accounting-access.js`, `public/{acc-nav,portal-ui,app,app.css,sw,index}`, `scripts/test-party-control-dashboard-v361.js`, CHANGE-LOG.
-- **تست:** `test-party-control-dashboard-v361` روی ایران (لوکال Node24 بدون better-sqlite3)؛ parse فرانت سبز؛ `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** `test-party-control-dashboard-v361` ۲۱/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران؛ parse فرانت سبز.
+- **Deploy:** ✅ `a9da2e3` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v361`؛ `app.js?v=361` / `portal-ui.js?v=361`.
 
 ### ۱۴۰۵/۰۷/۲۱ — بازطراحی UI نرخ سربار مراکز (SW v360)
 
