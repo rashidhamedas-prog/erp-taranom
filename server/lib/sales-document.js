@@ -294,6 +294,11 @@ function postSaleStockMovements(db, {
           err.status = 409; err.code = 'E_FABRIC_QTY';
           throw err;
         }
+        // Align product warehouse cache with Σ roll meters before stock delta.
+        if (whId) {
+          const { syncFabricProductWarehouse } = require('./inventory/fabric-rolls');
+          syncFabricProductWarehouse(db, r.product_id, whId);
+        }
       }
     }
     // Legacy seed: products that predate warehouse_stock get their home-warehouse

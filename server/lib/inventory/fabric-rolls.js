@@ -13,6 +13,14 @@ const { createBatch, adjustBatchQty } = require('./batch-serial');
 
 /**
  * Authoritative roll meters = tagged ledger inbound − outbound.
+ *
+ * IMPORTANT — reverseInventoryMovement both:
+ *   1) marks the original row status='reversed', and
+ *   2) posts an opposite 'reversal' row (still status='posted').
+ * Summing only status='posted' therefore double-counts every void
+ * (exclude original out AND add reversal in). Balance must include ALL
+ * ledger rows for the batch; status is UI metadata, not a qty filter.
+ *
  * Purchase identity used to be attached AFTER the receipt movement, so the
  * inbound row often has batch_id NULL. Reconstruct inbound from qty_received
  * (or cached on-hand + already-tagged outbound) so a later sale does not see
@@ -31,7 +39,7 @@ function liveBatchMeters(db, batchId) {
       COALESCE(SUM(qty_out),0) AS qty_out,
       COUNT(*) AS n
     FROM inventory_ledger
-    WHERE batch_id=? AND status='posted'
+    WHERE batch_id=?
   `).get(id);
   if (!agg || !Number(agg.n)) return null;
   const taggedIn = Number(agg.qty_in) || 0;
@@ -43,6 +51,57 @@ function liveBatchMeters(db, batchId) {
     ? received
     : (cached + taggedOut);
   return inbound - taggedOut;
+}
+
+/**
+ * Fabric warehouse_stock is a denormalized cache of Σ live batch meters.
+ * Untagged production issues can drain the product bucket while rolls still
+ * hold meters — realign the cache from batch ledgers before consume/sale.
+ */
+function syncFabricProductWarehouse(db, productId, warehouseId) {
+  const pid = Number(productId);
+  const wid = Number(warehouseId);
+  if (!pid || !wid) return null;
+  const batches = db.prepare(`
+    SELECT id FROM inventory_batches
+    WHERE product_id=? AND warehouse_id=?
+      AND COALESCE(kind,'generic')='fabric'
+      AND COALESCE(status,'') <> 'reversed'
+  `).all(pid, wid);
+  let expected = 0;
+  for (const b of batches) {
+    const live = liveBatchMeters(db, b.id);
+    if (live != null && Number.isFinite(live)) expected += Math.max(0, live);
+  }
+  const { warehouseQty, ensureWhRow } = require('./ledger');
+  ensureWhRow(db, pid, wid);
+  const current = warehouseQty(db, pid, wid);
+  const delta = expected - current;
+  if (Math.abs(delta) < 1e-6) return { expected, current, delta: 0 };
+  db.prepare(
+    'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
+  ).run(expected, pid, wid);
+  const total = db.prepare(
+    'SELECT COALESCE(SUM(qty),0) AS s FROM warehouse_stock WHERE product_id=?'
+  ).get(pid);
+  db.prepare('UPDATE products SET stock=? WHERE id=?').run(Number(total.s) || 0, pid);
+  return { expected, current, delta };
+}
+
+function healAllFabricWarehouseStock(db) {
+  const pairs = db.prepare(`
+    SELECT DISTINCT product_id, warehouse_id
+    FROM inventory_batches
+    WHERE COALESCE(kind,'generic')='fabric'
+      AND COALESCE(status,'') <> 'reversed'
+      AND product_id IS NOT NULL AND warehouse_id IS NOT NULL
+  `).all();
+  let n = 0;
+  for (const p of pairs) {
+    const r = syncFabricProductWarehouse(db, p.product_id, p.warehouse_id);
+    if (r && Math.abs(r.delta) > 1e-6) n += 1;
+  }
+  return n;
 }
 
 function healUntaggedBatchReceipt(db, batchId) {
@@ -101,18 +160,28 @@ function applyLiveRollQty(db, r) {
     r.qty_live = Number(r.qty_on_hand) || 0;
     return r;
   }
-  if (Math.abs(live - (Number(r.qty_on_hand) || 0)) > 1e-6) {
-    db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(live, r.id);
-    r.qty_on_hand = live;
+  const liveQty = Math.max(0, live);
+  if (Math.abs(liveQty - (Number(r.qty_on_hand) || 0)) > 1e-6) {
+    db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(liveQty, r.id);
+    r.qty_on_hand = liveQty;
   } else {
-    r.qty_on_hand = live;
+    r.qty_on_hand = liveQty;
   }
-  r.qty_live = live;
+  if (liveQty > 1e-9 && r.status === 'empty') {
+    db.prepare("UPDATE inventory_batches SET status='active' WHERE id=?").run(r.id);
+    r.status = 'active';
+  } else if (liveQty <= 1e-9 && r.status === 'active') {
+    db.prepare("UPDATE inventory_batches SET status='empty' WHERE id=?").run(r.id);
+    r.status = 'empty';
+  }
+  r.qty_live = liveQty;
   return r;
 }
 
 function listFabricCirculation(db, query = {}) {
-  const where = ["COALESCE(b.kind,'generic')='fabric'", "l.status='posted'"];
+  // Include reversed originals + reversal children so running meters net correctly
+  // (see liveBatchMeters). UI can style status=reversed rows.
+  const where = ["COALESCE(b.kind,'generic')='fabric'"];
   const params = [];
   if (query.batch_id) { where.push('l.batch_id=?'); params.push(Number(query.batch_id)); }
   if (query.product_id) { where.push('b.product_id=?'); params.push(Number(query.product_id)); }
@@ -125,8 +194,8 @@ function listFabricCirculation(db, query = {}) {
   if (query.to) { where.push('l.date<=?'); params.push(String(query.to)); }
   const rows = db.prepare(`
     SELECT l.id, l.date, l.event_type, l.qty_in, l.qty_out, l.note, l.source_type, l.source_id,
-           l.batch_id, b.batch_no, b.color, b.pattern, p.name AS product_name,
-           w.name AS warehouse_name, u.name AS user_name
+           l.status AS ledger_status, l.reversed_of, l.batch_id, b.batch_no, b.color, b.pattern,
+           p.name AS product_name, w.name AS warehouse_name, u.name AS user_name
     FROM inventory_ledger l
     JOIN inventory_batches b ON b.id = l.batch_id
     LEFT JOIN products p ON p.id = b.product_id
@@ -316,18 +385,18 @@ function attachFabricIdentityOnPurchase(db, {
     productId: row.product_id,
     warehouseId,
     batchNo: f.roll_no || undefined,
-    qty: meters,
+    qty: 0,
     note: `فاکتور خرید — طاقه ${color}`,
     createdBy: user && user.id,
   });
   db.prepare(`
     UPDATE inventory_batches
     SET kind='fabric', color=?, pattern=?, width_cm=?, unit='m', unit_cost_rial=?,
-        supplier_id=?, qty_received=?, ledger_id=?, source_type='purchase', source_id=?
+        supplier_id=?, qty_received=?, qty_on_hand=?, ledger_id=?, source_type='purchase', source_id=?
     WHERE id=?
   `).run(
     color, f.pattern, f.width_cm, unitCost,
-    supplierId || null, meters, movement && movement.id || null,
+    supplierId || null, meters, meters, movement && movement.id || null,
     sourceId || null, batch.id
   );
   if (movement && movement.id) {
@@ -440,12 +509,13 @@ function receiveFabricRoll(db, body, user) {
     if (raced) return { existing: raced };
     let batch;
     try {
+      // createBatch forbids inventing qty — meters enter via ledger + qty_on_hand below.
       batch = createBatch(db, {
         productId,
         warehouseId: wh.id,
         batchNo: rollNo || undefined,
         supplierBatch: String(body.supplier_batch || '').trim(),
-        qty: meters,
+        qty: 0,
         note: String(body.note || '').trim(),
         createdBy: user.id,
       });
@@ -459,11 +529,11 @@ function receiveFabricRoll(db, body, user) {
       db.prepare(`
         UPDATE inventory_batches
         SET kind='fabric', color=?, pattern=?, width_cm=?, unit=?, unit_cost_rial=?,
-            supplier_id=?, qty_received=?, idempotency_key=?
+            supplier_id=?, qty_received=?, qty_on_hand=?, idempotency_key=?
         WHERE id=?
       `).run(
         color, pattern, widthCm, unit, unitCost,
-        supplierId || null, meters, key, batch.id
+        supplierId || null, meters, meters, key, batch.id
       );
     } catch (e) {
       if (/UNIQUE/i.test(String(e && e.message))) {
@@ -748,6 +818,8 @@ module.exports = {
   listFabricCirculation,
   liveBatchMeters,
   availableBatchMeters,
+  syncFabricProductWarehouse,
+  healAllFabricWarehouseStock,
   healUntaggedBatchReceipt,
   applyLiveRollQty,
   receiveFabricRoll,

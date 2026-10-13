@@ -2515,6 +2515,27 @@ function initSyncSchema(db, opts) {
     console.warn('opening_inventory_ledger_backfill/reconcile:', e.message);
   }
 
+  // v363 — fabric roll live meters must include reversed+reversal pairs; realign
+  // warehouse_stock cache to Σ batch lives (untagged drains were blocking cutting).
+  try {
+    if (!isDevice()) {
+      const flag = db.prepare("SELECT value FROM settings WHERE key='fabric_wh_sync_v363'").get();
+      if (!flag || flag.value !== '1') {
+        const {
+          healAllFabricWarehouseStock,
+          listFabricRolls,
+        } = require('./lib/inventory/fabric-rolls');
+        // Heal qty_on_hand from corrected liveBatchMeters, then warehouse cache.
+        try { listFabricRolls(db, {}); } catch (_) { /* list heals batches */ }
+        const n = healAllFabricWarehouseStock(db);
+        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('fabric_wh_sync_v363','1')").run();
+        console.log('✅ fabric_wh_sync_v363:', JSON.stringify({ pairs_healed: n }));
+      }
+    }
+  } catch (e) {
+    console.warn('fabric_wh_sync_v363:', e.message);
+  }
+
   try {
     require('./lib/payroll/schema').initPayrollSchema(db);
     require('./lib/accounting/reporting-schema').initReportingSchema(db);

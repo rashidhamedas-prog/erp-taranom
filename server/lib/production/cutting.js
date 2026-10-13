@@ -9,6 +9,11 @@ const { assertSafeRial } = require('../money');
 const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement } = require('../inventory/ledger');
 const { adjustBatchQty } = require('../inventory/batch-serial');
+const {
+  availableBatchMeters,
+  applyLiveRollQty,
+  syncFabricProductWarehouse,
+} = require('../inventory/fabric-rolls');
 const { explodeBom, resolveBom, round6 } = require('./bom');
 const { dr, cr, postEvent } = require('./posting');
 const { setting } = require('./costing');
@@ -518,8 +523,14 @@ function postCuttingLay(db, body, user) {
     if (Number(batch.warehouse_id) && Number(batch.warehouse_id) !== Number(wh.id)) {
       throw httpErr(400, 'طاقه باید در انبار مواد باشد', 'E_CUT_ROLL_WH');
     }
-    if ((Number(batch.qty_on_hand) || 0) + 1e-9 < meters) {
-      throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { batch_no: batch.batch_no });
+    applyLiveRollQty(db, batch);
+    const avail = availableBatchMeters(db, batch.id);
+    if (avail + 1e-9 < meters) {
+      throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', {
+        batch_no: batch.batch_no,
+        available: avail,
+        needed: meters,
+      });
     }
     if (plan.fabric_product_id && Number(batch.product_id) !== Number(plan.fabric_product_id)) {
       throw httpErr(400, 'طاقه باید همان پارچهٔ فرمول باشد', 'E_CUT_ROLL_PRODUCT');
@@ -530,6 +541,17 @@ function postCuttingLay(db, body, user) {
     item.unit_cost_rial = unit;
     item.amount_rial = assertSafeRial(Math.round(unit * meters), 'cut roll');
     delete item._metersIn;
+  }
+  // Realign product warehouse cache from Σ roll meters so untagged drains
+  // cannot block a valid tagged roll consume (batch ledger is authoritative).
+  {
+    const seen = new Set();
+    for (const item of prepared) {
+      const key = `${item.batch.product_id}:${wh.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      syncFabricProductWarehouse(db, item.batch.product_id, wh.id);
+    }
   }
   if (Math.abs(rollSum - plan.actual_meters) > 0.01) {
     throw httpErr(400, 'جمع متر طاقه‌ها باید با مصرف واقعی برابر باشد', 'E_CUT_ROLL_SUM', {
