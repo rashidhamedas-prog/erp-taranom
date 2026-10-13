@@ -63,9 +63,9 @@ if (!wh) {
 }
 
 const fabricId = db.prepare(`
-  INSERT INTO products (name, unit, stock, cost, average_cost_rial, is_manufactured, item_type)
-  VALUES ('پارچه تست v363', 'متر', 0, 100000, 100000000, 0, 'raw')
-`).run().lastInsertRowid;
+  INSERT INTO products (user_id, name, unit, stock, cost, average_cost_rial, is_manufactured, item_type)
+  VALUES (?, 'پارچه تست v363', 'متر', 0, 100000, 100000000, 0, 'raw')
+`).run(admin.id).lastInsertRowid;
 
 const roll = receiveFabricRoll(db, {
   product_id: fabricId,
