@@ -5,11 +5,9 @@
 'use strict';
 
 const { j2g } = require('../jalali');
-const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
-const { partySignedBalanceMap } = require('./party-books');
+const { partySignedBalanceDetailMap, glSignedForCoa } = require('./party-books');
 const { firmSaleTypeSql } = require('./sales-document');
 
-const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
 const ROLE_LABELS = {
   customer: 'مشتری',
   supplier: 'تأمین‌کننده',
@@ -64,27 +62,6 @@ function agingBucket(days) {
   if (d <= 60) return 'b31_60';
   if (d <= 90) return 'b61_90';
   return 'b90plus';
-}
-
-function glSignedByParty(db) {
-  const map = new Map();
-  if (!tableExists(db, 'parties') || !tableExists(db, 'journal_lines')) return map;
-  try {
-    const rows = db.prepare(`
-      SELECT p.id AS party_id,
-        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS signed
-      FROM parties p
-      JOIN journal_lines jl ON jl.account_code = p.coa_code
-      JOIN journal_entries je ON je.id = jl.entry_id
-      WHERE p.coa_code IS NOT NULL AND TRIM(p.coa_code) <> ''
-        AND ${JE_ALIVE}
-      GROUP BY p.id
-    `).all();
-    for (const r of rows) {
-      map.set(Number(r.party_id), Math.round(Number(r.signed) || 0));
-    }
-  } catch (_) { /* optional */ }
-  return map;
 }
 
 /** Oldest unpaid firm-invoice age (days) per customer_id — FIFO vs settlements */
@@ -170,8 +147,7 @@ function buildPartyControlDashboard(db, query = {}) {
     };
   }
 
-  const balMap = partySignedBalanceMap(db);
-  const glMap = glSignedByParty(db);
+  const balDetail = partySignedBalanceDetailMap(db);
   const agingByCust = customerAgingDaysMap(db);
 
   const custLink = new Map();
@@ -215,9 +191,19 @@ function buildPartyControlDashboard(db, query = {}) {
   for (const p of rows) {
     const id = Number(p.id);
     const roles = parseRoles(p.party_roles, p.party_type);
-    const balance = balMap.has(id) ? balMap.get(id) : Math.round(Number(p.opening_balance) || 0);
-    const glBal = glMap.has(id) ? glMap.get(id) : null;
-    const booksMismatch = glBal != null && p.coa_code && Math.abs(balance - glBal) > 1;
+    const info = balDetail.get(id) || {
+      balance: Math.round(Number(p.opening_balance) || 0),
+      source: 'opening',
+      coa_code: p.coa_code || null,
+    };
+    const balance = info.balance;
+    // Same-leaf compare only (dual-role AR≠AP leaf must not false-flag)
+    const leaf = info.coa_code || p.coa_code || null;
+    const glBal = leaf ? glSignedForCoa(db, leaf) : null;
+    const booksMismatch = glBal != null
+      && leaf
+      && info.source !== 'opening'
+      && Math.abs(balance - glBal) > 1;
     const creditLimit = Math.round(Number(p.credit_limit) || 0);
     const debitSide = balance > 0 ? balance : 0;
     const creditSide = balance < 0 ? -balance : 0;
@@ -289,6 +275,8 @@ function buildPartyControlDashboard(db, query = {}) {
       over_credit: overCredit,
       books_mismatch: booksMismatch,
       gl_balance_rial: glBal,
+      balance_source: info.source || null,
+      balance_coa_code: leaf,
       aging_days: ageDays,
       aging_bucket: bucket,
       linked_customer_id: custId,

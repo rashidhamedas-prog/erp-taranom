@@ -2146,6 +2146,8 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
         ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
       })),
     });
+    // Stamp self ref_id so party-turnover can XOR-dedup person_ledger against GL (same as account-payments)
+    try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=? AND (ref_id IS NULL OR ref_id=0)').run(entryId, entryId); } catch (_) {}
     if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
     for (const p of built.personPostings) {
       createPersonLedgerEntry(db, {

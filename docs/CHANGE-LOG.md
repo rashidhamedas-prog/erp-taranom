@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۷/۲۱ — ریشهٔ گردش خالی / دوبل / اختلاف دفتر اشخاص (SW v362)
+
+- **علائم:** toast «دفتر گردش یافت نشد» برای تأمین‌کنندهٔ چندسمتی با مانده؛ دوبل «پرداخت به شخص» در گردش؛ ۷ نفر «اختلاف دفتر» کاذب در کنترل حساب.
+- **ریشه:**
+  1. `buildPartyTurnover` با لینک مشتری خالی زودبرمی‌گشت و به دفتر تأمین/تفصیلی نمی‌رسید.
+  2. سند دستی `ref_id=NULL` بود؛ dedup فقط `JE.ref_id` را می‌دید → GL + `person_ledger` هر دو در UI.
+  3. `books_mismatch` ماندهٔ AP را با برگهٔ AR هدر party مقایسه می‌کرد (نقش دوگانه).
+- **رفع معماری:** fallthrough به تأمین/خرید/تفصیلی؛ dedup با `journal_id`؛ stamp `ref_id` روی voucher؛ `partySignedBalanceDetailMap` + مقایسهٔ همان-leaf؛ مودال خالی به‌جای toast خطا.
+- **فایل‌ها:** `lib/{party-turnover,party-books,party-control-dashboard}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-turnover-v362.js`, CHANGE-LOG, Help.
+- **تست:** `test-party-books-turnover-v362` + `test-sms` + `test-sync` روی ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — داشبورد کنترل حساب اشخاص (SW v361)
 
 - **هدف:** در اشخاص → گزارشات یک داشبورد حرفه‌ای برای کنترل مانده/ریسک/گزارش همهٔ اشخاص با هر سمت.
