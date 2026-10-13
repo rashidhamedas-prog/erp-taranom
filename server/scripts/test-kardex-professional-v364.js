@@ -85,9 +85,9 @@ try {
   }
 
   const prod = db.prepare(`
-    INSERT INTO products (name, code, unit, stock, average_cost_rial, active)
-    VALUES ('کالای کاردکس تست','KX-364','عدد',10,1000,1)
-  `).run();
+    INSERT INTO products (user_id, name, code, unit, stock, cost, average_cost_rial, warehouse_id)
+    VALUES (?, 'کالای کاردکس تست','KX-364','عدد',10,100,1000,?)
+  `).run(admin.id, whId);
   const pid = prod.lastInsertRowid;
 
   // Live sale
