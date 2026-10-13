@@ -48,9 +48,9 @@ db.prepare(`
 `).run('P-E1', 'other', JSON.stringify(['employee']), 'کارمند بدون مانده', '09120000003', 0, 0, 1);
 
 db.prepare(`
-  INSERT INTO customers (user_id, biz, owner, city, phone, type, status, party_id, credit_limit)
-  VALUES (?,?,?,?,?,?,?,?,?)
-`).run(1, 'فروشگاه کنترل', 'مالک', 'مشهد', '09120000001', 'بوتیک', 'active', partyCust, 1000000);
+  INSERT INTO customers (user_id, biz, owner, city, phone, type, status, party_id)
+  VALUES (?,?,?,?,?,?,?,?)
+`).run(1, 'فروشگاه کنترل', 'مالک', 'مشهد', '09120000001', 'بوتیک', 'active', partyCust);
 const custId = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyCust).id;
 
 db.prepare(`
