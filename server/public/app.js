@@ -21901,21 +21901,36 @@ function inAccDateRange(dateStr){
   return true;
 }
 async function renderCashOpsTab(body, dq){
-  const rows=await api('GET','/accounting/settlements'+dq)||[];
-  const pendingRepPay=await api('GET','/reps/payments/pending').catch(()=>[]);
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
-  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  const softGet=async (path)=>{
+    try{ return await api('GET', path); }
+    catch(e){
+      if(e && (e.status===403 || e.code==='E_FORBIDDEN')) return null;
+      throw e;
+    }
+  };
+  const rows=await softGet('/accounting/settlements'+dq);
+  if(rows==null){
+    body.innerHTML='<div class="empty">دسترسی مشاهدهٔ دریافت/پرداخت را ندارید. در دسترسی‌های کاربر، مشاهدهٔ «عملیات دریافت و پرداخت» و تب حسابداری را فعال کنید.</div>';
+    return;
+  }
+  const pendingRepPay=await softGet('/reps/payments/pending')||[];
+  if(!CACHE.banks) CACHE.banks=await softGet('/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await softGet('/cash-boxes')||[];
+  if(!CACHE.checkCategories){
+    try{ CACHE.checkCategories=await softGet('/check-categories')||[]; }
+    catch(_){ CACHE.checkCategories=[]; }
+  }
+  // Companion lists must not 403-kill the whole screen when only acc_settlements is granted.
   const [supPay,incPay,expPay]=await Promise.all([
-    api('GET','/purchases/payments/list')||[],
-    api('GET','/accounting/incentive-payments')||[],
-    api('GET','/expenses')||[]
+    softGet('/purchases/payments/list'),
+    softGet('/accounting/incentive-payments'),
+    softGet('/expenses')
   ]);
   // پرداخت‌های خروجی API بازه ندارند — همان فیلتر از/تا نوار بالا روی تاریخ سند
   const payRows=[
-    ...(supPay||[]).map(r=>({...r,kind:'supplier',target:r.supplier_name||'-'})),
-    ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
-    ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
+    ...(Array.isArray(supPay)?supPay:[]).map(r=>({...r,kind:'supplier',target:r.supplier_name||'-'})),
+    ...(Array.isArray(incPay)?incPay:[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
+    ...(Array.isArray(expPay)?expPay:[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
   ].filter(r=>inAccDateRange(r.date)).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   window._cashOpsIndex={};
   (rows||[]).forEach(r=>{ window._cashOpsIndex['settlement:'+r.id]=r; });
@@ -27754,6 +27769,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>
       <h5>دسترسی بخش‌های حسابداری</h5>
       <p>در ویرایش کاربر، دکمه <b>دسترسی‌ها</b> بخش «دسترسی حسابداری» را باز می‌کند. تیک <b>مشاهده</b> روی «تب حسابداری» همان تب را به منوی کاربر اضافه می‌کند. هر ردیف پایین، یک صفحهٔ داخل همان تب است: اگر مشاهده‌اش روشن باشد در منوی حسابداری دیده می‌شود. ایجاد، ویرایش، حذف، تأیید و خروجی فقط همان عمل را روی همان صفحه باز می‌کند.</p>
+      <p><b>عملیات دریافت و پرداخت:</b> با دادن مشاهده/ایجاد همین بخش (به‌همراه مشاهدهٔ تب حسابداری) کاربر غیرحسابدار می‌تواند همان صفحه را باز کند و دریافت/پرداخت مرتبط را ثبت کند؛ دیگر لازم نیست جداگانه «انگیزه فروش» یا کل کدینگ را تیک بزند. فهرست‌های جانبی بدون مجوز، خالی می‌مانند ولی صفحه از کار نمی‌افتد. بعد از ذخیرهٔ دسترسی‌ها یک‌بار از حساب آن کاربر خارج و دوباره وارد شوید.</p>
       <p>نقش حسابدار از قبل همهٔ این بخش‌ها را دارد. برای کارشناس یا مدیر فروش فقط همان بخش‌هایی را روشن کنید که باید ببینند. تنظیمات سیستم، دستگاه‌ها، پشتیبان و عملیات سال مالی حتی با تیک، فقط توسط مدیر سیستم اجرا می‌شوند.</p>`),
     helpSec('👤','حذف کامل کاربر',`
       <p>در تنظیمات → کاربران، دکمه <b>حذف کامل</b> کاربر را از سیستم پاک می‌کند (نه فقط غیرفعال):</p>

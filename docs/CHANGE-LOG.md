@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۱ — دسترسی «عملیات دریافت و پرداخت» برای نقش غیرحسابدار (SW v366)
+
+- **علائم:** برای کاربر `sharafi` (نقش `distribution_office`) همهٔ تیک‌های «عملیات دریافت و پرداخت» + تب حسابداری در DB ذخیره بود، ولی صفحه در حساب او باز نمی‌شد / خطای دسترسی می‌داد.
+- **ریشه:** منو با `acc_settlements.view` درست باز می‌شد، اما `renderCashOpsTab` با `Promise.all` همزمان `incentive-payments` (نگاشت به `acc_commissions`)، و فرم‌ها COA/vouchers را می‌خواستند؛ بدون آن بخش‌ها API‏۴۰۳ کل صفحه را می‌کشت.
+- **رفع معماری:** کاتالوگ `acc-settlements` شامل APIهای همراه cash-ops + `readApis` فقط‌خواندنی (COA/commissions/…)؛ `delegatedAccountingAllowed` با `matchAccAccess`/`accessHitAllows`؛ soft-fail لیست‌های جانبی در UI؛ Help.
+- **فایل‌ها:** `lib/accounting-access.js`, `middleware/auth.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-accounting-access.js`, CHANGE-LOG, Help.
+- **تست:** `test-accounting-access` + `test-sms` + `test-sync` (روی ایران).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — کاردکس کالا حرفه‌ای بدون شبح اصلاح فاکتور (SW v365)
 
 - **علائم:** کاردکس «اورکت کتان لاله» ده‌ها ردیف تکراری «فروش … اصلاح فاکتور» با ورود/خروج خالی و بهای واحد پر.

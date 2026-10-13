@@ -203,12 +203,13 @@ function requestPath(req) {
  */
 function delegatedAccountingAllowed(req) {
   if (!req.user || req.user.role === 'admin' || req.user.role === 'accounting') return false;
-  const { matchAccResources, flagsAllowMethod } = require('../lib/accounting-access');
+  const { matchAccAccess, accessHitAllows } = require('../lib/accounting-access');
   const { getUserPermissions } = require('../lib/rbac');
-  const resources = matchAccResources(requestPath(req));
-  if (!resources.length) return false;
+  const hits = matchAccAccess(requestPath(req));
+  if (!hits.length) return false;
   const perms = getUserPermissions(getDB(), req.user.id, req.user.role);
-  return resources.some((resource) => flagsAllowMethod(perms[resource], req.method, requestPath(req)));
+  const path = requestPath(req);
+  return hits.some((hit) => accessHitAllows(hit, perms[hit.resource], req.method, path));
 }
 
 function adminOrAccounting(req, res, next) {

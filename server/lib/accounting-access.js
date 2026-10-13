@@ -75,7 +75,34 @@ const ACC_ITEMS = {
   'acc-sales-returns': { apis: ['/api/accounting/sales-returns'] },
   'acc-purchase-returns': { apis: ['/api/purchases'] },
   'acc-orders-list': { apis: ['/api/orders'] },
-  'acc-settlements': { apis: ['/api/accounting/settlements', '/api/accounting/account-payments', '/api/accounting/account-receipts'] },
+  // Cash-ops screen bundles receive + outgoing pay. Companion APIs must open with
+  // this section alone — otherwise delegated users (e.g. distribution_office) get
+  // menu access but the page dies on Promise.all 403 (incentive-payments / COA / vouchers).
+  'acc-settlements': {
+    apis: [
+      '/api/accounting/settlements',
+      '/api/accounting/account-payments',
+      '/api/accounting/account-receipts',
+      '/api/accounting/incentive-payments',
+      '/api/accounting/vouchers',
+      '/api/accounting/customers',
+      '/api/accounting/suppliers',
+      '/api/reps/payments',
+      '/api/transfers',
+      // Same-length OR with acc_expenses — do NOT add /api/purchases/payments
+      // (longer than /api/purchases and would steal purchase-only delegates).
+      '/api/expenses',
+    ],
+    readApis: [
+      '/api/accounting/chart-of-accounts',
+      '/api/accounting/coa',
+      '/api/accounting/commissions',
+      '/api/accounting/cost-centers',
+      '/api/expenses/categories',
+      '/api/suppliers',
+      '/api/check-categories',
+    ],
+  },
   'acc-pl-statement': { apis: ['/api/accounting/income-statement', '/api/accounting/general'] },
   'acc-sales-purchase-dashboard': { apis: ['/api/adv-reports/sales-purchase-dashboard'] },
   'acc-invoice-list-tax': { apis: ['/api/moadian', '/api/accounting/invoices'] },
@@ -175,7 +202,10 @@ const API_ROWS = [];
 for (const [navId, spec] of Object.entries(ACC_ITEMS)) {
   const resource = resourceForNav(navId);
   for (const prefix of spec.apis || []) {
-    API_ROWS.push({ prefix, resource });
+    API_ROWS.push({ prefix, resource, readOnly: false });
+  }
+  for (const prefix of spec.readApis || []) {
+    API_ROWS.push({ prefix, resource, readOnly: true });
   }
 }
 API_ROWS.sort((a, b) => b.prefix.length - a.prefix.length);
@@ -202,22 +232,39 @@ function prefixMatch(urlPath, prefix) {
   return urlPath === prefix || urlPath.startsWith(prefix + '/');
 }
 
-/** Longest-prefix match. Equal-length prefixes are OR (shared APIs). */
-function matchAccResources(urlPath) {
+/**
+ * Longest-prefix match. Equal-length prefixes are OR (shared APIs).
+ * Returns { resource, readOnly }[] — readOnly rows only authorize GET/HEAD via view/export.
+ */
+function matchAccAccess(urlPath) {
   const path = String(urlPath || '').split('?')[0];
   let best = -1;
   const found = [];
+  const seen = new Set();
   for (const row of API_ROWS) {
     if (!prefixMatch(path, row.prefix)) continue;
     if (row.prefix.length > best) {
       best = row.prefix.length;
       found.length = 0;
-      found.push(row.resource);
-    } else if (row.prefix.length === best && !found.includes(row.resource)) {
-      found.push(row.resource);
+      seen.clear();
+    } else if (row.prefix.length < best) {
+      continue;
     }
+    const key = row.resource + ':' + (row.readOnly ? 'r' : 'w');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ resource: row.resource, readOnly: !!row.readOnly });
   }
   return found;
+}
+
+/** Resources only (legacy helpers / tests). */
+function matchAccResources(urlPath) {
+  const out = [];
+  for (const hit of matchAccAccess(urlPath)) {
+    if (!out.includes(hit.resource)) out.push(hit.resource);
+  }
+  return out;
 }
 
 function flagsAllowMethod(flags, method, urlPath) {
@@ -234,6 +281,17 @@ function flagsAllowMethod(flags, method, urlPath) {
   return false;
 }
 
+/** Whether delegated user flags authorize this hit (honours readOnly). */
+function accessHitAllows(hit, flags, method, urlPath) {
+  if (!hit) return false;
+  const m = String(method || 'GET').toUpperCase();
+  if (hit.readOnly) {
+    if (m !== 'GET' && m !== 'HEAD') return false;
+    return !!(flags && (flags.view || flags.export));
+  }
+  return flagsAllowMethod(flags, method, urlPath);
+}
+
 module.exports = {
   ACC_ITEMS,
   ACC_SECTION_RESOURCES,
@@ -242,6 +300,8 @@ module.exports = {
   resourceForNav,
   isAccSectionResource,
   accSectionDefault,
+  matchAccAccess,
   matchAccResources,
   flagsAllowMethod,
+  accessHitAllows,
 };

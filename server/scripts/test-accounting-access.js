@@ -40,14 +40,30 @@ for (const id of SALES_MANAGER_ACC_NAVIDS) {
   ok('manager section ' + id, manager[resourceForNav(id)].view === true);
 }
 
+const { matchAccAccess, accessHitAllows } = require('../lib/accounting-access');
 ok('settlement path maps to settlements', matchAccResources('/api/accounting/settlements/9').includes('acc_settlements'));
 ok('trial balance is not settlements', !matchAccResources('/api/accounting/trial-balance').includes('acc_settlements'));
 ok('expense categories beat expenses', matchAccResources('/api/expenses/categories').includes('acc_expense_categories')
   && !matchAccResources('/api/expenses/categories').includes('acc_expenses'));
+ok('cash-ops incentive maps to settlements', matchAccResources('/api/accounting/incentive-payments').includes('acc_settlements'));
+ok('cash-ops vouchers maps to settlements', matchAccResources('/api/accounting/vouchers').includes('acc_settlements'));
+ok('cash-ops COA read maps to settlements', matchAccResources('/api/accounting/chart-of-accounts').includes('acc_settlements'));
+ok('purchases payments still maps to purchases', matchAccResources('/api/purchases/payments/list').includes('acc_purchases'));
 ok('unknown accounting path stays closed', matchAccResources('/api/accounting/not-a-real-path').length === 0);
 ok('settings path is not delegated', matchAccResources('/api/settings').length === 0);
 ok('backup path is not delegated', matchAccResources('/api/admin/backup-restore').length === 0);
 ok('fiscal rollover path is not delegated', matchAccResources('/api/fiscal-year/rollover').length === 0);
+
+const settView = { view: true, create: true, edit: false, delete: false, approve: false, export: false };
+const coaHits = matchAccAccess('/api/accounting/chart-of-accounts');
+const settCoaRead = coaHits.find((h) => h.resource === 'acc_settlements' && h.readOnly);
+ok('settlements COA hit is readOnly', !!settCoaRead);
+ok('settlements view can GET COA', accessHitAllows(settCoaRead, settView, 'GET', '/api/accounting/chart-of-accounts'));
+ok('settlements create cannot POST COA via readApi', !accessHitAllows(settCoaRead, settView, 'POST', '/api/accounting/chart-of-accounts'));
+ok('settlements create can POST incentive', accessHitAllows(
+  matchAccAccess('/api/accounting/incentive-payments').find((h) => h.resource === 'acc_settlements' && !h.readOnly),
+  settView, 'POST', '/api/accounting/incentive-payments'
+));
 
 ok('view allows GET', flagsAllowMethod({ view: true }, 'GET'));
 ok('view blocks POST', !flagsAllowMethod({ view: true }, 'POST'));
