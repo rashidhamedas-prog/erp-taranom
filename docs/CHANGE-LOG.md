@@ -6,8 +6,8 @@
   2. `qty_on_hand` با همان ماندهٔ غلط heal می‌شد؛ انبار کالا با حواله‌های بدون طاقه خالی مانده بود و برش را رد می‌کرد.
 - **رفع معماری:** مانده طاقه = Σ همهٔ ردیف‌های دفتر بچ (status فقط UI)؛ گردش طاقه ردیف ابطال‌شده را نشان می‌دهد؛ قبل از لایه‌چینی/فروش طاقه `syncFabricProductWarehouse` انبار را با Σ مانده طاقه‌ها هم‌تراز می‌کند؛ heal یک‌بار `fabric_wh_sync_v363`؛ دریافت طاقه با `createBatch(qty:0)` + `qty_on_hand`.
 - **فایل‌ها:** `lib/inventory/fabric-rolls.js`, `lib/production/cutting.js`, `lib/sales-document.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-fabric-reversal-live-v363.js`, CHANGE-LOG, Help.
-- **تست:** `test-fabric-reversal-live-v363` + `test-sms` + `test-sync` روی ایران.
-- **Deploy:** ⏳
+- **تست:** `test-fabric-reversal-live-v363` ۱۲/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران؛ LOT-0005 بعد از heal: live=113، warehouse=260.178.
+- **Deploy:** ✅ `d556941` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v363`؛ `app.js?v=363`.
 
 ### ۱۴۰۵/۰۷/۲۱ — ریشهٔ گردش خالی / دوبل / اختلاف دفتر اشخاص (SW v362)
 
