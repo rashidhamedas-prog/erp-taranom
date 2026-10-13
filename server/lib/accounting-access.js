@@ -40,6 +40,7 @@ const ACC_ITEMS = {
   'acc-customer-groups': { apis: ['/api/accounting/customer-groups'] },
   'acc-receivables': { apis: ['/api/accounting/receivables', '/api/accounting/customers'] },
   'acc-statement': { apis: ['/api/accounting/statement'] },
+  'acc-party-control-dashboard': { apis: ['/api/adv-reports/party-control-dashboard', '/api/parties'] },
   'acc-products': { apis: ['/api/products'] },
   'acc-product-groups': { apis: ['/api/product-categories'] },
   'acc-product-colors': { apis: ['/api/product-variants'] },

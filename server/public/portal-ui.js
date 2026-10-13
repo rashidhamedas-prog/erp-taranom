@@ -2546,6 +2546,331 @@
     return true;
   }
 
+  function pcMoneyTone(n) {
+    const v = Number(n) || 0;
+    if (v > 0) return 'var(--red)';
+    if (v < 0) return 'var(--green)';
+    return 'var(--text)';
+  }
+
+  function pcRiskChip(level) {
+    const map = {
+      high: { cls: 'trsy-fail', label: 'بحرانی' },
+      medium: { cls: 'trsy-warn', label: 'توجه' },
+      ok: { cls: 'trsy-ok', label: 'عادی' },
+    };
+    const m = map[level] || map.ok;
+    return `<span class="trsy-chip ${m.cls}">${m.label}</span>`;
+  }
+
+  function pcAgingBar(aging) {
+    const a = aging || {};
+    const total = Math.max(1, Number(a.total) || 0);
+    const parts = [
+      { key: 'b0_30', label: '۰–۳۰', color: 'rgba(34,197,94,.7)', v: a.b0_30 || 0 },
+      { key: 'b31_60', label: '۳۱–۶۰', color: 'rgba(234,179,8,.75)', v: a.b31_60 || 0 },
+      { key: 'b61_90', label: '۶۱–۹۰', color: 'rgba(249,115,22,.8)', v: a.b61_90 || 0 },
+      { key: 'b90plus', label: '۹۰+', color: 'rgba(239,68,68,.85)', v: a.b90plus || 0 },
+    ];
+    return `
+      <div class="pc-aging">
+        <div class="pc-aging-track">${parts.map((p) => {
+          const w = Math.max(0, Math.round((p.v / total) * 1000) / 10);
+          return `<i title="${p.label}: ${fmt(p.v)}" data-csp-style="${CSP.style(`width:${w}%;background:${p.color}`)}"></i>`;
+        }).join('')}</div>
+        <div class="pc-aging-legend">${parts.map((p) => `
+          <span><b>${p.label}</b> ${fmt(p.v)}</span>`).join('')}</div>
+      </div>`;
+  }
+
+  async function renderPartyControlDashboardTab(body) {
+    body.innerHTML = `
+      <div class="trsy-wrap pc-dash">
+        <div class="trsy-hero">
+          <div>
+            <div class="trsy-kicker">اشخاص · کنترل حساب ۲۰۲۶</div>
+            <h3 class="trsy-title">داشبورد کنترل حساب اشخاص</h3>
+            <p class="trsy-lead">مانده زنده همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی و فهرست اقدام — از اینجا حساب هرکسی را کامل کنترل کنید.</p>
+          </div>
+          <div class="trsy-hero-actions">
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">↻ بروزرسانی</button>
+            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">اطلاعات اشخاص</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-receivables'); })}">مطالبات</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-statement'); })}">صورت‌حساب</button>
+          </div>
+        </div>
+        <div class="sp-filter-bar pc-filter-bar" id="pcDashFilters">
+          <input id="pcSearch" type="search" placeholder="جستجو نام / تلفن / کد / تفصیلی…" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:180px;flex:1 1 160px`)}" />
+          <select id="pcRole" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+            <option value="">همه سمت‌ها</option>
+            <option value="customer">مشتری</option>
+            <option value="supplier">تأمین‌کننده</option>
+            <option value="employee">کارمند</option>
+            <option value="shareholder">سهامدار</option>
+            <option value="other">سایر</option>
+          </select>
+          <select id="pcSide" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:110px`)}">
+            <option value="all">بدهکار و بستانکار</option>
+            <option value="debit">فقط بدهکار</option>
+            <option value="credit">فقط بستانکار</option>
+          </select>
+          <select id="pcBalance" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:110px`)}">
+            <option value="nonzero">فقط مانده‌دار</option>
+            <option value="all">همه</option>
+            <option value="zero">مانده صفر</option>
+          </select>
+          <select id="pcRisk" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+            <option value="all">همه ریسک‌ها</option>
+            <option value="high">بحرانی</option>
+            <option value="over_credit">عبور از سقف</option>
+            <option value="mismatch">اختلاف دفتر</option>
+          </select>
+          <select id="pcSort" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+            <option value="balance_abs">مرتب: بزرگ‌ترین مانده</option>
+            <option value="risk">مرتب: ریسک</option>
+            <option value="aging">مرتب: پیری</option>
+            <option value="credit_util">مرتب: مصرف اعتبار</option>
+            <option value="name">مرتب: نام</option>
+            <option value="balance">مرتب: مانده امضاشده</option>
+          </select>
+          <button class="btn sm" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">اعمال</button>
+        </div>
+        <div id="pcDashBody"><div class="muted">در حال بارگذاری داشبورد کنترل اشخاص…</div></div>
+      </div>`;
+    const searchEl = document.getElementById('pcSearch');
+    if (searchEl) {
+      searchEl.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') loadPartyControlDashboard();
+      });
+    }
+    await loadPartyControlDashboard();
+  }
+
+  async function loadPartyControlDashboard() {
+    const box = document.getElementById('pcDashBody');
+    if (!box) return;
+    box.innerHTML = '<div class="muted">در حال بارگذاری داشبورد کنترل اشخاص…</div>';
+    const qp = [];
+    const g = (id) => document.getElementById(id);
+    const search = (g('pcSearch') && g('pcSearch').value) || '';
+    const role = (g('pcRole') && g('pcRole').value) || '';
+    const side = (g('pcSide') && g('pcSide').value) || 'all';
+    const balance = (g('pcBalance') && g('pcBalance').value) || 'nonzero';
+    const risk = (g('pcRisk') && g('pcRisk').value) || 'all';
+    const sort = (g('pcSort') && g('pcSort').value) || 'balance_abs';
+    if (search) qp.push('search=' + encodeURIComponent(search));
+    if (role) qp.push('role=' + encodeURIComponent(role));
+    if (side) qp.push('side=' + encodeURIComponent(side));
+    if (balance) qp.push('balance=' + encodeURIComponent(balance));
+    if (risk) qp.push('risk=' + encodeURIComponent(risk));
+    if (sort) qp.push('sort=' + encodeURIComponent(sort));
+    qp.push('limit=300');
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/party-control-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
+    } catch (e) {
+      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
+      return;
+    }
+    window._pcDashLast = d;
+    const k = d.kpis || {};
+    const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
+    const health = Number(d.health_score) || 0;
+    const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+    const alertsHtml = (d.alerts || []).length
+      ? `<div class="pc-alerts">${(d.alerts || []).map((a) => `
+          <div class="pc-alert ${a.severity === 'fail' ? 'pc-alert-fail' : 'pc-alert-warn'}">
+            <b>${esc(a.title || '')}</b>
+            <span>${esc(a.detail || '')}</span>
+            ${a.action_nav ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(a.action_nav); })}">باز کردن</button>` : ''}
+          </div>`).join('')}</div>`
+      : '';
+
+    const roleRows = (d.by_role || []).map((r) => `
+      <tr class="pc-role-row" data-csp-click="${CSP.bind('click', function () {
+        const sel = document.getElementById('pcRole');
+        if (sel) { sel.value = r.role || ''; loadPartyControlDashboard(); }
+      })}">
+        <td><b>${esc(r.label || r.role || '')}</b></td>
+        <td class="mono">${fmt(r.count || 0)}</td>
+        <td class="mono">${fmt(r.with_balance || 0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(r.debit_rial || 0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(r.credit_rial || 0)}</td>
+      </tr>`).join('') || emptyRow(5);
+
+    const workRows = (d.worklist || []).map((w) => `
+      <tr>
+        <td><b>${esc(w.name)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc((w.party_roles || []).join(' · '))}</div></td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(w.balance_rial)}`)}">${fmt(w.balance_rial || 0)}</td>
+        <td>${pcRiskChip(w.risk_level)}${w.aging_days != null ? ` <span class="muted mono">${fmt(w.aging_days)} روز</span>` : ''}</td>
+        <td data-csp-style="${CSP.style(`font-size:12px`)}">${esc(w.next_action || '')}</td>
+        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(w.id, w.name); })}">گردش</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">کارت</button>
+        </td>
+      </tr>`).join('') || emptyRow(5);
+
+    const partyRows = (d.parties || []).map((p) => `
+      <tr class="pc-party-row">
+        <td>
+          <b>${esc(p.name)}</b>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(p.person_code || '')}${p.city ? ' · ' + esc(p.city) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div>
+          <div class="pc-role-chips">${(p.role_labels || []).map((x) => `<span class="pc-chip">${esc(x)}</span>`).join('')}${p.position_name ? `<span class="pc-chip pc-chip-pos">${esc(p.position_name)}</span>` : ''}</div>
+        </td>
+        <td class="mono muted">${esc(p.coa_code || '—')}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(p.balance_rial)}`)}">${fmt(p.balance_rial || 0)}</td>
+        <td class="mono">${fmt(p.debit_rial || 0)}</td>
+        <td class="mono">${fmt(p.credit_rial || 0)}</td>
+        <td>
+          ${p.credit_limit_rial > 0
+            ? `<div class="mono">${fmt(p.credit_used_rial || 0)} / ${fmt(p.credit_limit_rial)}</div>
+               <div class="pc-util"><i data-csp-style="${CSP.style(`width:${Math.min(100, p.credit_util_pct || 0)}%;background:${p.over_credit ? 'var(--red)' : 'var(--green)'}`)}"></i></div>
+               <div class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">${fmt(p.credit_util_pct || 0)}٪${p.over_credit ? ' · عبور' : ''}</div>`
+            : '<span class="muted">نامحدود</span>'}
+        </td>
+        <td>${p.aging_days != null ? `<span class="mono">${fmt(p.aging_days)}</span> روز` : '—'}
+          ${p.books_mismatch ? '<div class="pc-chip pc-chip-warn">اختلاف دفتر</div>' : ''}
+        </td>
+        <td>${pcRiskChip(p.risk_level)}</td>
+        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(p.id, p.name); })}">گردش</button>
+          ${p.linked_customer_id
+            ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () {
+                if (typeof stmtCustId !== 'undefined') { try { stmtCustId = p.linked_customer_id; } catch (_) {} }
+                go('acc-statement');
+              })}">صورت‌حساب</button>`
+            : ''}
+        </td>
+      </tr>`).join('') || emptyRow(9);
+
+    const fDeb = Number(k.total_debit_rial) || 0;
+    const fCred = Number(k.total_credit_rial) || 0;
+    const footDeb = (d.parties || []).reduce((s, r) => s + (Number(r.debit_rial) || 0), 0);
+    const footCred = (d.parties || []).reduce((s, r) => s + (Number(r.credit_rial) || 0), 0);
+
+    box.innerHTML = `
+      <div class="trsy-meta">
+        <span class="inv-badge moadian-approved">🟢 مانده زنده party-books</span>
+        <span>بروزرسانی: ${esc(liveAt)}</span>
+        <span class="trsy-chip ${healthCls}">سلامت کنترل ${fmt(health)}٪</span>
+        <span>نمایش ${fmt((d.parties || []).length)} از ${fmt(k.parties_filtered || 0)} فیلترشده · کل اشخاص ${fmt(k.parties_total || 0)}</span>
+      </div>
+      ${alertsHtml}
+
+      <div class="rep-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📥</div>
+          <div class="kpi-label">جمع بدهکار</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(fDeb)}</div>
+          <div class="kpi-sub">ریال · اشخاص بدهکار به ما</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📤</div>
+          <div class="kpi-label">جمع بستانکار</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(fCred)}</div>
+          <div class="kpi-sub">ریال · بدهی ما به اشخاص</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⚖️</div>
+          <div class="kpi-label">مانده خالص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${pcMoneyTone(k.net_signed_rial)}`)}">${fmt(k.net_signed_rial || 0)}</div>
+          <div class="kpi-sub">${fmt(k.parties_with_balance || 0)} شخص مانده‌دار</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () {
+          const sel = document.getElementById('pcRisk');
+          if (sel) { sel.value = 'over_credit'; loadPartyControlDashboard(); }
+        })}">
+          <div class="kpi-icon">🚨</div>
+          <div class="kpi-label">عبور از سقف اعتبار</div>
+          <div class="kpi-val">${fmt(k.over_credit_count || 0)}</div>
+          <div class="kpi-sub">مازاد ${fmt(k.over_credit_rial || 0)} ریال</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () {
+          const sel = document.getElementById('pcRisk');
+          if (sel) { sel.value = 'mismatch'; loadPartyControlDashboard(); }
+        })}">
+          <div class="kpi-icon">🧩</div>
+          <div class="kpi-label">اختلاف دفتر / تفصیلی</div>
+          <div class="kpi-val">${fmt(k.mismatch_count || 0)}</div>
+          <div class="kpi-sub">نیازمند تطبیق</div>
+        </div>
+      </div>
+
+      <div class="pc-grid-2">
+        <div class="panel">
+          <div class="panel-h"><b>پیری مطالبات مشتری (FIFO)</b></div>
+          <div class="panel-body">
+            ${pcAgingBar(d.aging)}
+            <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:8px 0 0`)}">سطل‌های پیری فقط برای ماندهٔ بدهکار مشتریان (فاکتور رسمی/معمولی منهای تسویه) است.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><b>تفکیک بر اساس سمت</b><span class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-right:8px`)}">کلیک = فیلتر</span></div>
+          <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
+            <table class="data"><thead><tr>
+              <th>سمت</th><th>تعداد</th><th>مانده‌دار</th><th>بدهکار</th><th>بستانکار</th>
+            </tr></thead><tbody>${roleRows}</tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><b>فهرست اقدام (Worklist)</b><span class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-right:8px`)}">اولویت‌بندی ریسک × مانده × پیری</span></div>
+        <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
+          <table class="data"><thead><tr>
+            <th>شخص</th><th>مانده</th><th>ریسک</th><th>اقدام پیشنهادی</th><th></th>
+          </tr></thead><tbody>${workRows}</tbody></table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><b>جدول کنترل حساب</b>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { exportPartyControlCsv(); })}">CSV</button>
+        </div>
+        <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
+          <table class="data" id="pcControlTable"><thead><tr>
+            <th>شخص / سمت</th><th>تفصیلی</th><th>مانده</th><th>بدهکار</th><th>بستانکار</th><th>سقف اعتبار</th><th>پیری</th><th>ریسک</th><th>عملیات</th>
+          </tr></thead>
+          <tbody>${partyRows}</tbody>
+          <tfoot><tr>
+            <td colspan="3"><b>جمع صفحه</b></td>
+            <td class="mono"><b>${fmt(footDeb)}</b></td>
+            <td class="mono"><b>${fmt(footCred)}</b></td>
+            <td colspan="4"></td>
+          </tr></tfoot>
+          </table>
+        </div>
+      </div>`;
+
+    if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+    if (typeof fitStatNums === 'function') fitStatNums();
+  }
+
+  function exportPartyControlCsv() {
+    const d = window._pcDashLast;
+    if (!d || !(d.parties || []).length) {
+      if (typeof showToast === 'function') showToast('داده‌ای برای خروجی نیست', 'error');
+      return;
+    }
+    const header = ['کد', 'نام', 'سمت‌ها', 'شهر', 'تلفن', 'تفصیلی', 'مانده', 'بدهکار', 'بستانکار', 'سقف', 'مصرف‌اعتبار', 'پیری_روز', 'ریسک'];
+    const lines = [header.join(',')];
+    for (const p of d.parties) {
+      const cells = [
+        p.person_code, p.name, (p.party_roles || []).join('|'), p.city, p.phone, p.coa_code,
+        p.balance_rial, p.debit_rial, p.credit_rial, p.credit_limit_rial, p.credit_used_rial,
+        p.aging_days != null ? p.aging_days : '', p.risk_level,
+      ].map((x) => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"');
+      lines.push(cells.join(','));
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'party-control-' + Date.now() + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    if (typeof showToast === 'function') showToast('خروجی CSV آماده شد');
+  }
+
   const PortalUI = {
     renderPortalUnitsTab,
     renderPortalMyDeptTab,
@@ -2563,6 +2888,9 @@
     spDashDrill,
     spDashClearDrill,
     spDashOpenDoc,
+    renderPartyControlDashboardTab,
+    loadPartyControlDashboard,
+    exportPartyControlCsv,
     renderChequeDashboardTab,
     loadChequeDashboard,
     renderChequebookReportTab,
@@ -2648,6 +2976,9 @@
   global.spDashDrill = spDashDrill;
   global.spDashClearDrill = spDashClearDrill;
   global.spDashOpenDoc = spDashOpenDoc;
+  global.renderPartyControlDashboardTab = renderPartyControlDashboardTab;
+  global.loadPartyControlDashboard = loadPartyControlDashboard;
+  global.exportPartyControlCsv = exportPartyControlCsv;
   global.renderChequeDashboardTab = renderChequeDashboardTab;
   global.loadChequeDashboard = loadChequeDashboard;
   global.renderChequebookReportTab = renderChequebookReportTab;

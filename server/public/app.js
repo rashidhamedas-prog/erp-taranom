@@ -1915,6 +1915,7 @@ const LU = (()=> {
     'acc-vat-return':'receipt', 'acc-seasonal-169':'clipboard', 'acc-cash-flow-std':'banknote',
     'acc-treasury-dashboard':'trending', 'acc-cheque-dashboard':'trending', 'acc-chequebook-report':'book',
     'acc-kpi-dashboard':'trending', 'acc-sales-purchase-dashboard':'trending',
+    'acc-party-control-dashboard':'trending',
   };
   const out = {};
   for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key] || d.file);
@@ -9256,7 +9257,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -9570,6 +9571,8 @@ async function loadAccTab(tab){
     await renderTreasuryDashboardTab(body);
   } else if(tab==='sales-purchase-dashboard'){
     await renderSalesPurchaseDashboardTab(body);
+  } else if(tab==='party-control-dashboard'){
+    await renderPartyControlDashboardTab(body);
   } else if(tab==='cheque-dashboard'){
     await renderChequeDashboardTab(body);
   } else if(tab==='chequebook-report'){
@@ -27107,6 +27110,15 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>چک دریافتنی:</b> برای یک چک فقط یک زیردفتر نوشته می‌شود — مشتری یا شخص متفرقه (نه هر دو). اگر مشتری لینک باشد همان اولویت دارد.</li>
         <li><b>نقش مشتری+تأمین‌کننده:</b> برگ دریافتنی و پرداختنی جدا می‌مانند؛ یک کد تفصیلی برای هر دو نقش استفاده نمی‌شود.</li>
       </ul>`),
+    helpSec('🎛️','اشخاص — داشبورد کنترل حساب (v361)',`
+      <ul>
+        <li>مسیر: <b>حسابداری → اشخاص → گزارشات → کنترل حساب اشخاص</b>.</li>
+        <li><b>KPI:</b> جمع بدهکار / بستانکار / مانده خالص، تعداد عبور از سقف اعتبار، اختلاف دفتر زنده با تفصیلی.</li>
+        <li><b>فیلتر:</b> جستجو، سمت (مشتری/تأمین/کارمند/سهامدار/…)، بدهکار یا بستانکار، فقط مانده‌دار، ریسک، مرتب‌سازی.</li>
+        <li><b>پیری:</b> برای مشتریان با مانده بدهکار، سطل‌های ۰–۳۰ / ۳۱–۶۰ / ۶۱–۹۰ / ۹۰+ از فاکتور قطعی منهای تسویه (FIFO).</li>
+        <li><b>Worklist:</b> اولویت اقدام بر اساس مانده × پیری × عبور سقف × اختلاف دفتر؛ از هر ردیف «گردش» یا صورت‌حساب مشتری باز می‌شود.</li>
+        <li><b>خروجی CSV</b> همان جدول فیلترشده را می‌دهد. اعداد به ریال و از <code>party-books</code> زنده هستند.</li>
+      </ul>`),
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
@@ -27448,6 +27460,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
+        <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، پرداخت به شخص (ثبت در دفتر/تفصیلی همان شخص)، و پرداخت هزینه عمومی (اجاره، قبض، ...). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است و مبلغ روی همان کد می‌نشیند. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت به شخص یا حساب که فقط سند دستی است از این فهرست اصلاح نمی‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی ۶۱۱۵؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>

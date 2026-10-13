@@ -1961,6 +1961,44 @@ body.erp-demo-mode{padding-top:32px}
   .sp-dash .sp-profit-op{display:none}
 }
 
+/* ===== داشبورد کنترل حساب اشخاص ===== */
+.pc-dash .pc-filter-bar input[type=search]{font-family:inherit}
+.pc-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pc-aging{display:flex;flex-direction:column;gap:10px}
+.pc-aging-track{
+  display:flex;height:14px;border-radius:999px;overflow:hidden;background:var(--well);border:1px solid var(--border)
+}
+.pc-aging-track>i{display:block;height:100%;min-width:0}
+.pc-aging-legend{
+  display:flex;flex-wrap:wrap;gap:8px 14px;font-size:11px;color:var(--muted)
+}
+.pc-aging-legend b{color:var(--text);margin-left:4px}
+.pc-role-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.pc-chip{
+  display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;
+  font-size:10px;font-weight:700;background:rgba(26,92,56,.08);color:var(--text);border:1px solid var(--border)
+}
+.pc-chip-pos{background:rgba(59,130,246,.08)}
+.pc-chip-warn{background:rgba(245,158,11,.14);color:#92400e;border-color:rgba(245,158,11,.35);margin-top:4px}
+.pc-util{
+  height:5px;border-radius:999px;background:var(--well);overflow:hidden;margin-top:4px;min-width:72px
+}
+.pc-util>i{display:block;height:100%;border-radius:999px}
+.pc-alerts{display:flex;flex-direction:column;gap:8px}
+.pc-alert{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+  padding:10px 12px;border-radius:12px;border:1px solid var(--border);font-size:12px
+}
+.pc-alert-warn{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.35);color:#92400e}
+.pc-alert-fail{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.35);color:#991b1b}
+.pc-role-row{cursor:pointer}
+.pc-role-row:hover{background:rgba(26,92,56,.05)}
+@media (max-width:900px){
+  .pc-grid-2{grid-template-columns:1fr}
+  .pc-dash .pc-filter-bar input[type=search],
+  .pc-dash .pc-filter-bar select{min-width:0;flex:1 1 140px}
+}
+
 /* ===== داشبورد نقدینگی بانک و صندوق (treasury) ===== */
 .trsy-wrap{display:flex;flex-direction:column;gap:14px}
 .trsy-hero{

@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۱ — داشبورد کنترل حساب اشخاص (SW v361)
+
+- **هدف:** در اشخاص → گزارشات یک داشبورد حرفه‌ای برای کنترل مانده/ریسک/گزارش همهٔ اشخاص با هر سمت.
+- **Backend:** `GET /api/adv-reports/party-control-dashboard` + `lib/party-control-dashboard.js` — مانده زنده `party-books`، تفکیک سمت، پیری FIFO مشتری، سقف اعتبار، اختلاف تفصیلی، worklist اولویت‌دار.
+- **Frontend:** منوی `acc-party-control-dashboard`؛ UI در `portal-ui.js` (KPI + فیلتر + aging + جدول + CSV + drill گردش/صورت‌حساب)؛ Help؛ CSS `.pc-dash`؛ SW `v361`.
+- **الهام:** الگوی ERPNext AR aging / AR cockpit (KPI→worklist→drill) + UI/UX interaction patterns؛ 21st فقط metadata (بدون pull کد پولی).
+- **فایل‌ها:** `lib/party-control-dashboard.js`, `routes/{adv-reports,search}.js`, `lib/accounting-access.js`, `public/{acc-nav,portal-ui,app,app.css,sw,index}`, `scripts/test-party-control-dashboard-v361.js`, CHANGE-LOG.
+- **تست:** `test-party-control-dashboard-v361` روی ایران (لوکال Node24 بدون better-sqlite3)؛ parse فرانت سبز؛ `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — بازطراحی UI نرخ سربار مراکز (SW v360)
 
 - **هدف:** صفحهٔ شلوغ نرخ سربار به هاب تب‌دار خلوت تبدیل شود بدون تغییر بک‌اند/API.

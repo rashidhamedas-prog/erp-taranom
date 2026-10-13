@@ -10,6 +10,7 @@ const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
 const { buildChequeDashboard } = require('../lib/cheque-dashboard');
 const { buildChequebookDashboard } = require('../lib/chequebook-dashboard');
 const { buildSalesPurchaseDashboard } = require('../lib/sales-purchase-dashboard');
+const { buildPartyControlDashboard } = require('../lib/party-control-dashboard');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -631,6 +632,25 @@ router.get('/sales-purchase-dashboard', auth, adminOrAccounting, (req, res) => {
       comparison: {},
       alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد فروش و خرید در دسترس نیست', action_nav: 'acc-sales-purchase-dashboard' }],
       warning: 'داشبورد فروش و خرید در دسترس نیست',
+    });
+  }
+});
+
+/** داشبورد کنترل حساب اشخاص — مانده زنده + نقش/سمت + پیری + سقف اعتبار + worklist */
+router.get('/party-control-dashboard', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildPartyControlDashboard(getDB(), req.query));
+  } catch (e) {
+    console.error('GET /adv-reports/party-control-dashboard', e && e.message);
+    res.status(200).json({
+      health_score: 0,
+      kpis: { parties_total: 0, total_debit_rial: 0, total_credit_rial: 0 },
+      by_role: [],
+      aging: { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0, total: 0 },
+      parties: [],
+      worklist: [],
+      alerts: [{ severity: 'fail', title: 'خطای داشبورد', detail: 'داشبورد کنترل اشخاص در دسترس نیست', action_nav: 'acc-party-control-dashboard' }],
+      warning: 'داشبورد کنترل اشخاص در دسترس نیست',
     });
   }
 });

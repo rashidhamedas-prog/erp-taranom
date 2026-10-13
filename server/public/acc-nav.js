@@ -97,6 +97,7 @@ const ACC_TAB_RESOLVE = {
   'acc-adv-reports': 'adv-reports',
   'acc-receivables': 'receivables',
   'acc-statement': 'statement',
+  'acc-party-control-dashboard': 'party-control-dashboard',
   'acc-parties': 'parties',
   'acc-party-groups': 'party-groups',
   'acc-product-groups': 'product-groups',
@@ -144,6 +145,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-customer-groups', icon: '📂', label: 'گروه‌های مشتری' },
     ]},
     { title: 'گزارشات', items: [
+      { id: 'acc-party-control-dashboard', icon: '🎛️', label: 'کنترل حساب اشخاص' },
       { id: 'acc-receivables', icon: '🧾', label: 'مطالبات مشتریان' },
       { id: 'acc-statement', icon: '📄', label: 'صورت‌حساب مشتری' },
     ]},

@@ -93,6 +93,7 @@ router.get('/', auth, (req, res) => {
     { type: 'page', id: 'reports', label: 'گزارشات', route: 'reports' },
     { type: 'page', id: 'settings', label: 'تنظیمات', route: 'settings' },
     { type: 'page', id: 'accounting', label: 'حسابداری', route: 'accounting' },
+    { type: 'page', id: 'acc-party-control-dashboard', label: 'کنترل حساب اشخاص', route: 'acc-party-control-dashboard' },
     { type: 'page', id: 'acc-receivables', label: 'مطالبات مشتریان', route: 'acc-receivables' },
     { type: 'page', id: 'acc-statement', label: 'صورت‌حساب مشتری', route: 'acc-statement' },
     { type: 'page', id: 'stocktaking', label: 'انبارگردانی', route: 'stocktaking' },
