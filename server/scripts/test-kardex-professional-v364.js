@@ -90,6 +90,13 @@ try {
   `).run(admin.id, whId);
   const pid = prod.lastInsertRowid;
 
+  // Opening stock so sale does not trip negative-stock trigger
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: pid, warehouseId: whId,
+    qtyIn: 10, unitCostRial: 1000, sourceType: 'opening', sourceId: pid,
+    date: '1405/01/01', note: 'اول دوره تست', createdBy: admin.id, allowNegative: true,
+  });
+
   // Live sale
   postInventoryMovement(db, {
     eventType: 'sale', productId: pid, warehouseId: whId,
@@ -115,7 +122,7 @@ try {
   `).run('TX-GHOST-2', 'sale', pid, whId, admin.id);
 
   let ledger = buildStockLedger(db, { product_id: pid });
-  ok(ledger.lines.length === 1, 'default kardex hides 2 ghosts', ledger.lines.length);
+  ok(ledger.lines.length === 2, 'default kardex = opening+sale, hides 2 ghosts', ledger.lines.length);
   ok(!ledger.lines.some((l) => /اصلاح فاکتور/.test(l.description || '')),
     'no اصلاح فاکتور in active kardex');
 
@@ -123,20 +130,23 @@ try {
   ok(healed.count >= 2, 'heal retires ghosts', healed);
 
   ledger = buildStockLedger(db, { product_id: pid });
-  ok(ledger.lines.length === 1, 'after heal still 1 active line', ledger.lines.length);
+  ok(ledger.lines.length === 2, 'after heal still 2 active lines', ledger.lines.length);
 
   const withHist = buildStockLedger(db, { product_id: pid, show_cancelled: 1 });
-  ok(withHist.lines.length >= 3, 'show_cancelled reveals retired rows', withHist.lines.length);
+  ok(withHist.lines.length >= 4, 'show_cancelled reveals retired rows', withHist.lines.length);
   ok(withHist.lines.some((l) => l.cancelled || l.status === 'reversed'),
     'history marks cancelled');
 
-  // Soft-retire a live line (amend-style) without reverse stock post
+  // Soft-retire the sale line (amend-style) without reverse stock post
   const live = db.prepare(`
-    SELECT * FROM inventory_ledger WHERE product_id=? AND status='posted' ORDER BY id LIMIT 1
+    SELECT * FROM inventory_ledger
+    WHERE product_id=? AND status='posted' AND event_type='sale'
+    ORDER BY id LIMIT 1
   `).get(pid);
   retireAmendedMovement(db, live.id, { note: (live.note || '') + ' — اصلاح فاکتور' });
   ledger = buildStockLedger(db, { product_id: pid });
-  ok(ledger.lines.length === 0, 'after soft-retire active empty', ledger.lines.length);
+  ok(ledger.lines.length === 1, 'after soft-retire sale, opening remains', ledger.lines.length);
+  ok(ledger.lines[0].event_type === 'opening', 'remaining line is opening');
 
   console.log(`\n${fail ? '💥' : '🎉'} ${pass} passed, ${fail} failed`);
   process.exitCode = fail ? 1 : 0;
