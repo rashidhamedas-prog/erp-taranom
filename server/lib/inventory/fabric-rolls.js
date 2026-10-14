@@ -146,11 +146,22 @@ function normalizeFabricColor(raw) {
     .toLowerCase();
 }
 
+/**
+ * Soft key for clothing colors where و / نیم‌فاصله / فاصله عوض می‌شود ولی معنی یکی است.
+ * مثال واقعی تولید: طاقه/لایه «سورمه ای» vs master «سرمه‌ای» (بدون و).
+ */
+function fabricColorMatchKey(raw) {
+  return normalizeFabricColor(raw)
+    .replace(/\u0648/g, '') // و اختیاری (سورمه ↔ سرمه)
+    .replace(/\s+/g, '');
+}
+
 function colorsMatch(a, b) {
   const na = normalizeFabricColor(a);
   const nb = normalizeFabricColor(b);
   if (!na || !nb) return false;
-  return na === nb;
+  if (na === nb) return true;
+  return fabricColorMatchKey(na) === fabricColorMatchKey(nb);
 }
 
 function applyLiveRollQty(db, r) {
@@ -807,6 +818,7 @@ function updateFabricRoll(db, id, body, user) {
 
 module.exports = {
   normalizeFabricColor,
+  fabricColorMatchKey,
   colorsMatch,
   listFabricRolls,
   listFabricCirculation,

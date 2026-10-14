@@ -11648,6 +11648,22 @@ function cuttingRenderSizeGrid(sizes){
   const box=el('cl-size-grid'); if(!box) return;
   box.innerHTML=window._cutSizes.map(s=>`<div class="fg"><label>${esc(s)}</label><input type="number" min="0" step="1" value="0" data-cut-size="${esc(s)}"></div>`).join('');
 }
+/** هم‌تراز سرور: فاصله/نیم‌فاصله/و اختیاری (سورمه ای ≈ سرمه‌ای) */
+function normalizeFabricColor(raw){
+  return String(raw==null?'':raw).trim()
+    .replace(/\u200c/g,' ')
+    .replace(/[\u064A\u0649]/g,'\u06cc')
+    .replace(/\u0643/g,'\u06a9')
+    .replace(/\s+/g,' ')
+    .toLowerCase();
+}
+function colorsMatch(a,b){
+  const na=normalizeFabricColor(a), nb=normalizeFabricColor(b);
+  if(!na||!nb) return false;
+  if(na===nb) return true;
+  const key=s=>s.replace(/\u0648/g,'').replace(/\s+/g,'');
+  return key(na)===key(nb);
+}
 async function renderCuttingLaysTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   const [lays, rolls]=await Promise.all([
@@ -11841,15 +11857,31 @@ async function cuttingResolveFabricAndRolls(){
 }
 async function cuttingLoadRollColors(){
   const sel=el('cl-color'); if(!sel) return;
-  const prev=sel.value;
+  const prev=sel.value || (el('cl-color-extra')?.value||'').trim();
+  const fgPid=+el('cl-prod')?.value||0;
   const qs=new URLSearchParams({status:'active', min_qty:'0.01'});
   if(window._cutFabricProductId) qs.set('product_id', String(window._cutFabricProductId));
   let rows=[];
   try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
   window._cutRollsAll=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
-  const colors=[...new Set(window._cutRollsAll.map(b=>String(b.color||'').trim()).filter(Boolean))];
-  sel.innerHTML='<option value="">— انتخاب از طاقه‌های موجود —</option>'+colors.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
-  if(prev && colors.includes(prev)) sel.value=prev;
+  const rollColors=[...new Set(window._cutRollsAll.map(b=>String(b.color||'').trim()).filter(Boolean))];
+  // ماتریس کالای دوخته‌شده را اول بگذار تا PACK همان نام master را ببیند؛ طاقه با colorsMatch نرم جور می‌شود.
+  let matrixColors=[];
+  if(fgPid){
+    try{
+      const vars=await api('GET','/product-variants?product_id='+fgPid+'&include_default=0')||[];
+      matrixColors=[...new Set(vars.filter(v=>!v.is_default).map(v=>String(v.color_name||'').trim()).filter(Boolean))];
+    }catch(_){ matrixColors=[]; }
+  }
+  const colors=[...matrixColors];
+  rollColors.forEach(rc=>{
+    if(!colors.some(mc=>typeof colorsMatch==='function'?colorsMatch(mc,rc):mc===rc)) colors.push(rc);
+  });
+  sel.innerHTML='<option value="">— انتخاب رنگ (اولویت: ماتریس کالا) —</option>'+colors.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+  if(prev){
+    const hit=colors.find(c=>c===prev || (typeof colorsMatch==='function' && colorsMatch(c,prev)));
+    if(hit) sel.value=hit;
+  }
 }
 async function cuttingRefreshRollPicker(){
   const color=(el('cl-color-extra')?.value||'').trim() || (el('cl-color')?.value||'').trim();
@@ -27854,6 +27886,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» رسید محصول است (نه تابلوی خط خالی). تابلوی خط فقط سفارش چندمرحله‌ای را نشان می‌دهد و لایه‌های منتظر PACK را در ستون «برش / WIP» می‌آورد. در حواله مواد، پارچهٔ مصرف‌شده در لایه‌چینی قفل می‌شود تا آستر/زیپ قابل ثبت بمانند. ورود به انبار محصول رنگ طاقه را با <code>colorsMatch</code> به واریانت کالا وصل می‌کند (از جمله فری‌سایز با چند رنگ).
+          <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان حساب می‌شود (مثلاً «سورمه ای» طاقه با «سرمه‌ای» کاتالوگ). لیست رنگ لایه‌چینی اول از ماتریس کالا پر می‌شود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
