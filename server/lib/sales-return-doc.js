@@ -236,7 +236,7 @@ function postSalesReturnEffects(db, {
   createLedgerEntry(db, {
     customer_id: custId,
     date: date || todayJalali(),
-    entry_type: 'reversal',
+    entry_type: 'sales_return',
     ref_type: 'sales_return',
     ref_id: retId,
     description: `برگشت از فروش #${retId}`,
@@ -330,16 +330,12 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
   const parts = returnMoneyParts(row);
   const { amountNet, vatAmount, gross, goodsAmount, hdrDiscAmt, extraDiscAmt } = parts;
 
-  createLedgerEntry(db, {
-    customer_id: row.cust_id,
-    date: todayJalali(),
-    entry_type: 'reversal',
-    ref_type: 'sales_return_reversal',
-    ref_id: row.id,
-    description: reason || `ابطال برگشت از فروش #${row.id}`,
-    debit: gross,
-    credit: 0,
-    user_id: userId,
+  // v373: retire party-book rows — no hollow «ابطال/اصلاح» on the statement.
+  const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
+  retireCustomerLedgerByRef(db, {
+    refTypes: ['sales_return', 'sales_return_reversal'],
+    refId: row.id,
+    customerId: row.cust_id,
   });
 
   const journalLines = buildSalesReturnJournalLines(db, {

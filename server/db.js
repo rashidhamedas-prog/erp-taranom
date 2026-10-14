@@ -2629,6 +2629,21 @@ function initSyncSchema(db, opts) {
     console.warn('purge_reversal_docs_v285:', e.message);
   }
 
+  // v373 — purge hollow party-ledger reverse rows (operational books = final state only)
+  try {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='purge_hollow_party_ledger_v373'").get();
+    if (!flag || flag.value !== '1') {
+      const { purgeHollowPartyLedgerReversals } = require('./lib/party-ledger-retire');
+      const result = purgeHollowPartyLedgerReversals(db);
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('purge_hollow_party_ledger_v373','1')").run();
+      if (result.relabeled || result.customerDeleted || result.personDeleted || result.supplierDeleted) {
+        console.log('✅ purge_hollow_party_ledger_v373:', JSON.stringify(result));
+      }
+    }
+  } catch (e) {
+    console.warn('purge_hollow_party_ledger_v373:', e.message);
+  }
+
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {

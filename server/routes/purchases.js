@@ -468,21 +468,16 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const purchaseLed = db.prepare(
       "SELECT credit FROM supplier_ledger WHERE supplier_id=? AND ref_type='purchase' AND ref_id=? AND entry_type='purchase' LIMIT 1"
     ).get(row.supplier_id, row.id);
-    if (purchaseLed) {
-      createSupplierLedgerEntry(db, {
-        supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
-        description: `ابطال فاکتور خرید ${row.num}`, debit: purchaseLed.credit || row.final, credit: 0, user_id: req.user.id
-      });
-    }
     const payLed = db.prepare(
       "SELECT debit FROM supplier_ledger WHERE supplier_id=? AND ref_type='purchase' AND ref_id=? AND entry_type='payment' LIMIT 1"
     ).get(row.supplier_id, row.id);
-    if (payLed && Number(payLed.debit) > 0) {
-      createSupplierLedgerEntry(db, {
-        supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
-        description: `ابطال پرداخت هنگام خرید ${row.num}`, debit: 0, credit: payLed.debit, user_id: req.user.id
-      });
-    }
+    // v373: retire supplier books — no hollow «ابطال/اصلاح» on statements.
+    const { retireSupplierLedgerByRef } = require('../lib/party-ledger-retire');
+    retireSupplierLedgerByRef(db, {
+      refTypes: ['purchase', 'purchase_invoice'],
+      refId: row.id,
+      supplierId: row.supplier_id,
+    });
     const origJe = db.prepare(`
       SELECT id FROM journal_entries
       WHERE ref_type='purchase' AND ref_id=? AND COALESCE(deleted_at,0)=0
@@ -953,9 +948,11 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
     const {
       amountNet, vatAmount, gross, goodsAmount, hdrDiscAmt, extraDiscAmt,
     } = parts;
-    createSupplierLedgerEntry(db, {
-      supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
-      description: `ابطال برگشت از خرید #${row.id}`, debit: 0, credit: gross, user_id: req.user.id
+    const { retireSupplierLedgerByRef } = require('../lib/party-ledger-retire');
+    retireSupplierLedgerByRef(db, {
+      refTypes: ['purchase_return', 'purchase_return_reversal'],
+      refId: row.id,
+      supplierId: row.supplier_id,
     });
     const reversalId = postToLedger(db, {
       sourceType: 'purchase_return_reversal', sourceId: row.id,
@@ -1064,9 +1061,11 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این پرداخت قبلاً ابطال شده است' });
   db.transaction(() => {
-    createSupplierLedgerEntry(db, {
-      supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'supplier_payment', ref_id: row.id,
-      description: `ابطال پرداخت #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
+    const { retireSupplierLedgerByRef } = require('../lib/party-ledger-retire');
+    retireSupplierLedgerByRef(db, {
+      refTypes: ['supplier_payment'],
+      refId: row.id,
+      supplierId: row.supplier_id,
     });
     let cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
     const overrideCode = String(row.account_code || '').trim();

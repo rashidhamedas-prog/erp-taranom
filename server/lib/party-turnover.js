@@ -81,7 +81,8 @@ function buildCustomerTurnover(db, partyId, custIds) {
     const tagged = hideVoidedBookRows(db, rows.slice());
     attachMissingInvoiceRows(db, custId, tagged);
     const ENTRY_LABEL = {
-      invoice: 'فاکتور فروش', settlement: 'دریافت وجه', reversal: 'ابطال/اصلاح',
+      invoice: 'فاکتور فروش', settlement: 'دریافت وجه', sales_return: 'برگشت از فروش',
+      reversal: 'ابطال/اصلاح',
       opening: 'مانده اول دوره', invoice_payment: 'دریافت هنگام فاکتور',
       cheque: 'ثبت چک دریافتی', cheque_in: 'ثبت چک دریافتی',
       cheque_endorse: 'خرج/ظهرنویسی چک', cheque_clear: 'وصول چک', cheque_bounce: 'برگشت چک',
@@ -91,7 +92,8 @@ function buildCustomerTurnover(db, partyId, custIds) {
     let run = 0;
     for (const e of tagged) {
       run += (Number(e.debit) || 0) - (Number(e.credit) || 0);
-      const et = e.entry_type || stmtEntryType(e.ref_type, normalizeStmtRefType(e.ref_type));
+      let et = e.entry_type || stmtEntryType(e.ref_type, normalizeStmtRefType(e.ref_type));
+      if (String(e.ref_type || '') === 'sales_return') et = 'sales_return';
       const label = ENTRY_LABEL[et] || ENTRY_LABEL[e.ref_type] || et || '';
       entries.push({
         date: e.date || '',

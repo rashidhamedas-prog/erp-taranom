@@ -57,6 +57,8 @@ function normalizeStmtRefType(refType) {
 function stmtEntryType(refType, normalized) {
   const raw = String(refType || '');
   if (raw === 'invoice_payment') return 'settlement';
+  if (raw === 'sales_return') return 'sales_return';
+  if (raw === 'pos_receipt') return 'settlement';
   // Keep the instrument. Collapsing every cheque ref into "cheque" made a
   // receipt and an opening-cheque correction look like an endorsement.
   if (raw === 'cheque_in') return 'cheque_in';
@@ -66,6 +68,7 @@ function stmtEntryType(refType, normalized) {
   const n = normalized || normalizeStmtRefType(refType);
   if (n === 'invoice') return 'invoice';
   if (n === 'invoice_payment' || n === 'settlement') return 'settlement';
+  if (n === 'sales_return') return 'sales_return';
   if (n === 'cheque_bounce') return 'cheque_bounce';
   if (n === 'cheque_in' || n === 'cheque') return 'cheque_in';
   if (n === 'cheque_endorse') return 'cheque_endorse';
@@ -81,12 +84,16 @@ const CHEQUE_BOOK_REFS = new Set([
 ]);
 
 /**
- * Operational statement omits a voided document and its reversal.
- * The journal stays reversed (R12); the customer book no longer shows it.
+ * Operational statement omits a voided document and its hollow reverse lines.
+ * GL stays soft-voided (v285/R12); party books show only the final live state (v373).
+ * Matches ERPNext «hide cancelled entries» on statements.
  */
 function hideVoidedBookRows(db, rows) {
   let reversedCheques = new Set();
   let reversedSettlements = new Set();
+  let reversedSalesReturns = new Set();
+  let reversedPosReceipts = new Set();
+  let reversedInvoices = new Set();
   try {
     reversedCheques = new Set(
       db.prepare(`
@@ -103,11 +110,60 @@ function hideVoidedBookRows(db, rows) {
       `).all().map((r) => Number(r.id))
     );
   } catch (_) { /* optional */ }
+  try {
+    reversedSalesReturns = new Set(
+      db.prepare(`
+        SELECT id FROM sales_returns
+        WHERE COALESCE(status,'posted')='reversed'
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* optional */ }
+  try {
+    reversedPosReceipts = new Set(
+      db.prepare(`
+        SELECT id FROM pos_receipts
+        WHERE COALESCE(status,'open') IN ('reversed','void')
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* optional */ }
+  try {
+    reversedInvoices = new Set(
+      db.prepare(`
+        SELECT id FROM invoices
+        WHERE COALESCE(status,'') IN ('reversed','void','cancelled')
+           OR COALESCE(deleted_at,0)>0
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) {
+    try {
+      reversedInvoices = new Set(
+        db.prepare(`
+          SELECT id FROM invoices WHERE COALESCE(deleted_at,0)>0
+        `).all().map((r) => Number(r.id))
+      );
+    } catch (__) { /* optional */ }
+  }
   return (rows || []).filter((e) => {
     const refId = Number(e.ref_id);
     const rt = String(e.ref_type || '');
+    const et = String(e.entry_type || '');
     if (CHEQUE_BOOK_REFS.has(rt) && reversedCheques.has(refId)) return false;
     if (rt === 'settlement' && reversedSettlements.has(refId)) return false;
+    if ((rt === 'sales_return' || rt === 'sales_return_reversal') && reversedSalesReturns.has(refId)) {
+      return false;
+    }
+    if (rt === 'pos_receipt' && reversedPosReceipts.has(refId)) return false;
+    if ((rt === 'invoice' || rt === 'invoice_payment' || rt === 'invoice_ar_reclass')
+      && reversedInvoices.has(refId)) {
+      return false;
+    }
+    // Hollow reverse lines (legacy) — never show on operational statement
+    if (et === 'reversal' || rt.endsWith('_reversal') || rt.includes('reversal')) {
+      // Live sales_return was mis-tagged as entry_type=reversal before v373 —
+      // keep it if the return is still posted.
+      if (rt === 'sales_return' && !reversedSalesReturns.has(refId)) return true;
+      return false;
+    }
     return true;
   });
 }
@@ -339,26 +395,14 @@ function updateInvoiceCustomerLedger(db, {
 }
 
 function reverseInvoiceCustomerLedger(db, inv, userId, date) {
-  const { createLedgerEntry } = require('../db');
-  const { todayJalali } = require('../jalali');
-  const when = date || todayJalali();
-  createLedgerEntry(db, {
-    customer_id: inv.cust_id, date: when, entry_type: 'reversal',
-    ref_type: 'invoice', ref_id: inv.id,
-    description: `ابطال فاکتور ${inv.num}`,
-    debit: 0, credit: inv.final, user_id: userId,
+  // v373: retire subledger rows — no hollow «ابطال/اصلاح» lines on the statement.
+  void userId; void date;
+  const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
+  retireCustomerLedgerByRef(db, {
+    refTypes: ['invoice', 'invoice_payment', 'invoice_ar_reclass'],
+    refId: inv.id,
+    customerId: inv.cust_id,
   });
-  const pay = db.prepare(
-    "SELECT 1 FROM customer_ledger WHERE ref_type='invoice_payment' AND ref_id=? LIMIT 1"
-  ).get(inv.id);
-  if (pay) {
-    createLedgerEntry(db, {
-      customer_id: inv.cust_id, date: when, entry_type: 'reversal',
-      ref_type: 'invoice_payment', ref_id: inv.id,
-      description: `ابطال دریافت هنگام فاکتور ${inv.num}`,
-      debit: inv.final, credit: 0, user_id: userId,
-    });
-  }
 }
 
 function invoiceJeHitsCustomerAr(db, inv) {
@@ -1331,66 +1375,41 @@ function repairCustomerBooks(db) {
 function repairOpeningChequeLedgerMirrors(db) {
   const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(REPAIR_FLAG_OPENING_CHEQUE);
   if (flag && flag.value === '1') return { skipped: true, reversed: 0 };
-  const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
+  const { retireCustomerLedgerByRef, retirePersonLedgerByRef } = require('./party-ledger-retire');
   let reversed = 0;
   const run = db.transaction(() => {
     let rows = [];
     try {
       rows = db.prepare(`
-        SELECT cl.customer_id, cl.ref_id, cl.debit, cl.credit, cl.date, cl.user_id
+        SELECT DISTINCT cl.customer_id, cl.ref_id
         FROM customer_ledger cl
         JOIN cheque_records cr ON cr.id = cl.ref_id
-        WHERE cl.ref_type='cheque_in' AND COALESCE(cl.entry_type,'')<>'reversal'
+        WHERE cl.ref_type='cheque_in'
           AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
       `).all();
     } catch (_) { rows = []; }
     for (const led of rows) {
-      const rev = db.prepare(`
-        SELECT 1 FROM customer_ledger
-        WHERE ref_type='cheque_in' AND ref_id=? AND customer_id=? AND entry_type='reversal'
-        LIMIT 1
-      `).get(led.ref_id, led.customer_id);
-      if (rev) continue;
-      createLedgerEntry(db, {
-        customer_id: led.customer_id,
-        date: led.date || '',
-        entry_type: 'reversal',
-        ref_type: 'cheque_in',
-        ref_id: led.ref_id,
-        description: 'اصلاح: چک اول دوره دریافت از مشتری نیست',
-        debit: Math.round(Number(led.credit) || 0),
-        credit: Math.round(Number(led.debit) || 0),
-        user_id: led.user_id || null,
+      // v373: drop phantom opening-cheque credits (not a customer receipt).
+      reversed += retireCustomerLedgerByRef(db, {
+        refTypes: ['cheque_in'],
+        refId: led.ref_id,
+        customerId: led.customer_id,
       });
-      reversed += 1;
     }
     try {
       const personRows = db.prepare(`
-        SELECT pl.person_id, pl.ref_id, pl.debit, pl.credit, pl.date, pl.user_id
+        SELECT DISTINCT pl.person_id, pl.ref_id
         FROM person_ledger pl
         JOIN cheque_records cr ON cr.id = pl.ref_id
-        WHERE pl.ref_type='cheque_in' AND COALESCE(pl.entry_type,'')<>'reversal'
+        WHERE pl.ref_type='cheque_in'
           AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
       `).all();
       for (const led of personRows) {
-        const rev = db.prepare(`
-          SELECT 1 FROM person_ledger
-          WHERE ref_type='cheque_in' AND ref_id=? AND person_id=? AND entry_type='reversal'
-          LIMIT 1
-        `).get(led.ref_id, led.person_id);
-        if (rev) continue;
-        createPersonLedgerEntry(db, {
-          person_id: led.person_id,
-          date: led.date || '',
-          entry_type: 'reversal',
-          ref_type: 'cheque_in',
-          ref_id: led.ref_id,
-          description: 'اصلاح: چک اول دوره دریافت از شخص نیست',
-          debit: Math.round(Number(led.credit) || 0),
-          credit: Math.round(Number(led.debit) || 0),
-          user_id: led.user_id || null,
+        reversed += retirePersonLedgerByRef(db, {
+          refTypes: ['cheque_in'],
+          refId: led.ref_id,
+          personId: led.person_id,
         });
-        reversed += 1;
       }
     } catch (_) { /* person_ledger optional */ }
     db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
@@ -1548,43 +1567,30 @@ function repairSettlementsMissingLeafJe(db) {
 
 /**
  * R13 repair: reversed settlements must not leave a live credit in customer_ledger.
+ * v373: retire leftover rows (no hollow reverse inserts).
  */
 function repairReversedSettlementBooks(db) {
-  const { createLedgerEntry } = require('../db');
-  const { todayJalali } = require('../jalali');
+  const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
   const rows = db.prepare(`
-    SELECT cl.customer_id, cl.ref_id, cl.debit, cl.credit, cl.user_id, cl.date
+    SELECT DISTINCT cl.customer_id, cl.ref_id
     FROM customer_ledger cl
     JOIN settlements s ON s.id = cl.ref_id
     WHERE cl.ref_type='settlement'
-      AND COALESCE(cl.entry_type,'')<>'reversal'
       AND COALESCE(s.status,'posted')='reversed'
-      AND NOT EXISTS (
-        SELECT 1 FROM customer_ledger r
-        WHERE r.ref_type='settlement' AND r.ref_id=cl.ref_id
-          AND r.customer_id=cl.customer_id AND r.entry_type='reversal'
-      )
   `).all();
   if (!rows.length) return { reversed: 0 };
   let reversed = 0;
   const run = db.transaction(() => {
     for (const row of rows) {
-      createLedgerEntry(db, {
-        customer_id: row.customer_id,
-        date: row.date || todayJalali(),
-        entry_type: 'reversal',
-        ref_type: 'settlement',
-        ref_id: row.ref_id,
-        description: `ابطال تسویه شماره ${row.ref_id}`,
-        debit: Math.round(Number(row.credit) || 0),
-        credit: Math.round(Number(row.debit) || 0),
-        user_id: row.user_id || null,
+      reversed += retireCustomerLedgerByRef(db, {
+        refTypes: ['settlement'],
+        refId: row.ref_id,
+        customerId: row.customer_id,
       });
-      reversed += 1;
     }
   });
   run();
-  if (reversed) console.log(`✅ دفتر مشتری برای تسویه‌های ابطال‌شده معکوس شد (${reversed} ردیف)`);
+  if (reversed) console.log(`✅ دفتر مشتری برای تسویه‌های ابطال‌شده بازنشسته شد (${reversed} ردیف)`);
   return { reversed };
 }
 

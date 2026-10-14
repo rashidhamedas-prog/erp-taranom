@@ -444,11 +444,12 @@ function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed, date } = 
     sourceType: 'pos_receipt_reversal',
   });
   if (row.cust_id) {
-    dbApi().createLedgerEntry(db, {
-      customer_id: row.cust_id, date: when, entry_type: 'reversal',
-      ref_type: 'pos_receipt', ref_id: row.id,
-      description: `ابطال دریافت کارتخوان شماره ${row.id}`,
-      debit: row.amount_rial, credit: 0, user_id: uid,
+    // v373: retire party-book row — no hollow «ابطال دریافت کارتخوان» on statement.
+    const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
+    retireCustomerLedgerByRef(db, {
+      refTypes: ['pos_receipt'],
+      refId: row.id,
+      customerId: row.cust_id,
     });
   }
   if (row.settlement_id) {

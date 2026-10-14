@@ -343,57 +343,13 @@ function postChequeBounceBooks(db, {
 function reverseChequeLedgerByRef(db, { chequeId, refTypes, date, userId, descriptionPrefix }) {
   const types = Array.isArray(refTypes) ? refTypes : [refTypes];
   if (!chequeId || !types.length) return;
-  const { createLedgerEntry } = require('../db');
-  const originals = db.prepare(`
-    SELECT * FROM customer_ledger
-    WHERE ref_type IN (${types.map(() => '?').join(',')}) AND ref_id=? AND entry_type<>'reversal'
-  `).all(...types, chequeId);
-  for (const led of originals) {
-    const rev = db.prepare(`
-      SELECT 1 FROM customer_ledger
-      WHERE ref_type=? AND ref_id=? AND customer_id=? AND entry_type='reversal'
-      LIMIT 1
-    `).get(led.ref_type, chequeId, led.customer_id);
-    if (rev) continue;
-    createLedgerEntry(db, {
-      customer_id: led.customer_id,
-      date: date || todayJalali(),
-      entry_type: 'reversal',
-      ref_type: led.ref_type,
-      ref_id: chequeId,
-      description: `${descriptionPrefix || 'ابطال'} ${led.ref_type}`,
-      debit: led.credit || 0,
-      credit: led.debit || 0,
-      user_id: userId || null,
-    });
-  }
-  try {
-    const { createPersonLedgerEntry } = require('../db');
-    const personRows = db.prepare(`
-      SELECT * FROM person_ledger
-      WHERE ref_type IN (${types.map(() => '?').join(',')}) AND ref_id=?
-        AND COALESCE(entry_type,'')<>'reversal'
-    `).all(...types, chequeId);
-    for (const led of personRows) {
-      const rev = db.prepare(`
-        SELECT 1 FROM person_ledger
-        WHERE ref_type=? AND ref_id=? AND person_id=? AND entry_type='reversal'
-        LIMIT 1
-      `).get(led.ref_type, chequeId, led.person_id);
-      if (rev) continue;
-      createPersonLedgerEntry(db, {
-        person_id: led.person_id,
-        date: date || todayJalali(),
-        entry_type: 'reversal',
-        ref_type: led.ref_type,
-        ref_id: chequeId,
-        description: `${descriptionPrefix || 'ابطال'} چک`,
-        debit: led.credit || 0,
-        credit: led.debit || 0,
-        user_id: userId || null,
-      });
-    }
-  } catch (_) { /* person_ledger optional on older DBs */ }
+  void date; void userId; void descriptionPrefix;
+  // v373: retire party books — no hollow reverse lines on statements.
+  const {
+    retireCustomerLedgerByRef, retirePersonLedgerByRef,
+  } = require('./party-ledger-retire');
+  retireCustomerLedgerByRef(db, { refTypes: types, refId: chequeId });
+  retirePersonLedgerByRef(db, { refTypes: types, refId: chequeId });
 }
 
 /**

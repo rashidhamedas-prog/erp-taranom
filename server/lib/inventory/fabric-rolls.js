@@ -637,15 +637,12 @@ function voidFabricRoll(db, id, user, { reason } = {}) {
       'fabric void amount'
     );
     if (row.supplier_id && amount > 0) {
-      postSupplierLedger(db, {
-        supplier_id: row.supplier_id,
-        date: todayJalali(),
-        entry_type: 'reversal',
-        ref_id: row.id,
-        description: reason || `ابطال دریافت طاقه ${row.batch_no}`,
-        debit: amount,
-        credit: 0,
-        user_id: user.id,
+      // v373: retire supplier books — no hollow reverse lines.
+      const { retireSupplierLedgerByRef } = require('../party-ledger-retire');
+      retireSupplierLedgerByRef(db, {
+        refTypes: ['fabric_roll'],
+        refId: row.id,
+        supplierId: row.supplier_id,
       });
     }
     adjustBatchQty(db, row.id, -onHand);
@@ -725,15 +722,11 @@ function updateFabricRoll(db, id, body, user) {
         });
       }
       if (row.supplier_id && oldAmount > 0) {
-        postSupplierLedger(db, {
-          supplier_id: row.supplier_id,
-          date,
-          entry_type: 'reversal',
-          ref_id: row.id,
-          description: `ویرایش طاقه ${row.batch_no} — برگشت بها`,
-          debit: oldAmount,
-          credit: 0,
-          user_id: user.id,
+        const { retireSupplierLedgerByRef } = require('../party-ledger-retire');
+        retireSupplierLedgerByRef(db, {
+          refTypes: ['fabric_roll'],
+          refId: row.id,
+          supplierId: row.supplier_id,
         });
       }
     }

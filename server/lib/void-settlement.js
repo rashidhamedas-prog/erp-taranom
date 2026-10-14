@@ -5,7 +5,7 @@
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
 const { acct } = require('./coa-map');
-const { createLedgerEntry, resolveCashAccount, audit } = require('../db');
+const { resolveCashAccount, audit } = require('../db');
 const { reverseCommissionAccrual, notifyRep } = require('./rep-ledger');
 const { todayJalali } = require('../jalali');
 
@@ -57,37 +57,16 @@ function settlementAmountRial(settlement) {
   return Math.round(Number(settlement && (settlement.amount_rial != null ? settlement.amount_rial : settlement.amount)) || 0);
 }
 
-/** R13: reverse customer_ledger even when the settlement JE is missing or already reversed. */
+/** R13: clear customer_ledger for the settlement (v373: retire, no hollow reverse rows). */
 function reverseSettlementBooks(db, settlement, userId, opts) {
   if (!settlement || !settlement.id || !settlement.cust_id) return 0;
-  const when = String((opts && opts.date) || todayJalali()).trim() || todayJalali();
-  const open = db.prepare(`
-    SELECT * FROM customer_ledger
-    WHERE ref_type='settlement' AND ref_id=? AND customer_id=?
-      AND COALESCE(entry_type,'')<>'reversal'
-  `).all(settlement.id, settlement.cust_id);
-  let n = 0;
-  const already = db.prepare(`
-    SELECT 1 FROM customer_ledger
-    WHERE ref_type='settlement' AND ref_id=? AND customer_id=? AND entry_type='reversal'
-    LIMIT 1
-  `).get(settlement.id, settlement.cust_id);
-  if (already) return 0;
-  for (const row of open) {
-    createLedgerEntry(db, {
-      customer_id: settlement.cust_id,
-      date: when,
-      entry_type: 'reversal',
-      ref_type: 'settlement',
-      ref_id: settlement.id,
-      description: `ابطال تسویه شماره ${settlement.id}`,
-      debit: Math.round(Number(row.credit) || 0),
-      credit: Math.round(Number(row.debit) || 0),
-      user_id: userId || null,
-    });
-    n += 1;
-  }
-  return n;
+  void userId; void opts;
+  const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
+  return retireCustomerLedgerByRef(db, {
+    refTypes: ['settlement'],
+    refId: settlement.id,
+    customerId: settlement.cust_id,
+  });
 }
 
 /** Always mark business row reversed once books/GL work is attempted (R13). */

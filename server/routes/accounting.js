@@ -104,6 +104,7 @@ const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 const ENTRY_LABEL = {
   invoice: 'فاکتور فروش',
   settlement: 'دریافت وجه',
+  sales_return: 'برگشت از فروش',
   reversal: 'ابطال/اصلاح',
   opening: 'مانده اول دوره',
   invoice_payment: 'دریافت هنگام فاکتور',
@@ -271,7 +272,11 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
   for (const e of tagged) {
     const rawType = String(e.entry_type || '');
     const rawRef = String(e.ref_type || '');
-    if (rawType === 'reversal' || rawRef.includes('reversal')) {
+    // Live sales_return must never be labeled «ابطال/اصلاح» (legacy entry_type bug).
+    if (rawRef === 'sales_return' && !rawRef.includes('_reversal')) {
+      e.entry_type = 'sales_return';
+      e.type_label = ENTRY_LABEL.sales_return;
+    } else if (rawType === 'reversal' || rawRef.includes('reversal')) {
       e.entry_type = 'reversal';
       e.type_label = ENTRY_LABEL.reversal;
     } else if (e.ref_type) {
@@ -2282,40 +2287,26 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
         : 'ابطال دریافت از حساب',
       sourceType: entry.ref_type + '_reversal',
     });
+    // v373: retire party books — no hollow reverse lines on statements.
+    const {
+      retireCustomerLedgerByRef, retirePersonLedgerByRef,
+    } = require('../lib/party-ledger-retire');
     if (entry.ref_type === 'manual_voucher') {
-      const personRows = db.prepare("SELECT * FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").all(req.params.id);
-      for (const p of personRows) {
-        createPersonLedgerEntry(db, {
-          person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
-          ref_type: 'manual_voucher_reversal', ref_id: Number(req.params.id),
-          description: `ابطال ${p.description || 'سند دستی'}`, debit: p.credit, credit: p.debit, user_id: req.user.id,
-        });
-      }
+      retirePersonLedgerByRef(db, {
+        refTypes: ['manual_voucher', 'manual_voucher_reversal'],
+        refId: Number(req.params.id),
+      });
     }
     if (entry.ref_type === 'account_receipt' || entry.ref_type === 'account_payment') {
       const revType = entry.ref_type + '_reversal';
-      const custRows = db.prepare(
-        "SELECT * FROM customer_ledger WHERE ref_type=? AND ref_id=? AND entry_type<>'reversal'"
-      ).all(entry.ref_type, req.params.id);
-      for (const c of custRows) {
-        createLedgerEntry(db, {
-          customer_id: c.customer_id, date: todayJalali(), entry_type: 'reversal',
-          ref_type: revType, ref_id: Number(req.params.id),
-          description: `ابطال ${c.description || entry.ref_type}`, debit: c.credit, credit: c.debit,
-          user_id: req.user.id,
-        });
-      }
-      const personRows = db.prepare(
-        "SELECT * FROM person_ledger WHERE ref_type=? AND ref_id=? AND entry_type<>'reversal'"
-      ).all(entry.ref_type, req.params.id);
-      for (const p of personRows) {
-        createPersonLedgerEntry(db, {
-          person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
-          ref_type: revType, ref_id: Number(req.params.id),
-          description: `ابطال ${p.description || entry.ref_type}`, debit: p.credit, credit: p.debit,
-          user_id: req.user.id,
-        });
-      }
+      retireCustomerLedgerByRef(db, {
+        refTypes: [entry.ref_type, revType],
+        refId: Number(req.params.id),
+      });
+      retirePersonLedgerByRef(db, {
+        refTypes: [entry.ref_type, revType],
+        refId: Number(req.params.id),
+      });
     }
   })();
   audit(req.user.id, 'reverse', entry.ref_type, req.params.id, `ابطال ${entry.ref_type} #${req.params.id}`);
