@@ -21755,9 +21755,9 @@ function bankModal(id){
         ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
       </select></div>
       <div class="fg"><label><input type="checkbox" id="bk-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> بانک ارزی</label></div>
-      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('در ایجاد/اولین ثبت، سند افتتاحیه خودکار صادر می‌شود.')}</label>
-        <input id="bk-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}" ${b?.opening_balance_je_id?'disabled title="سند افتتاحیه قبلاً ثبت شده"':''}>
-        ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند JE #${b.opening_balance_je_id}</span>`:''}
+      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('قابل ویرایش است. با ذخیره، مبلغ سند افتتاحیه بازنویسی می‌شود و تاریخ سند روی شروع سال مالی فعال می‌نشیند. صفر = ابطال افتتاحیه.')}</label>
+        <input id="bk-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}">
+        ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند #${b.opening_balance_je_id} JE${b.opening_balance_date?` — ${esc(b.opening_balance_date)}`:''}</span>`:''}
       </div>
       <div class="fg"><label>سقف اضافه برداشت (ریال) ${hlp('خالی = بدون محدودیت. صفر = مانده منفی مجاز نیست. عدد مثبت = حداکثر بدهکاری مجاز زیر صفر.')}</label>
         <input id="bk-overdraft" type="text" inputmode="numeric" class="money" placeholder="خالی = نامحدود" value="${b?.overdraft_limit_rial==null||b?.overdraft_limit_rial===''?'':moneyInit(b.overdraft_limit_rial)}">
@@ -21785,7 +21785,6 @@ async function saveBank(id){
     currency:el('bk-currency')?.value||'IRR',
     is_foreign:el('bk-foreign')?.checked?1:0,
     opening_balance_rial:Math.round(moneyVal('bk-opening')||0),
-    opening_balance_date:todayJalali(),
     overdraft_limit_rial:odRaw===''?null:Math.round(moneyVal('bk-overdraft')||0),
     extra_accounts:collectBankExtraAccounts()
   };
@@ -21922,9 +21921,9 @@ function cashBoxModal(id){
         ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
       </select></div>
       <div class="fg"><label><input type="checkbox" id="cb-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> صندوق ارزی</label></div>
-      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('در ایجاد/اولین ثبت، سند افتتاحیه خودکار صادر می‌شود.')}</label>
-        <input id="cb-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}" ${b?.opening_balance_je_id?'disabled title="سند افتتاحیه قبلاً ثبت شده"':''}>
-        ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند JE #${b.opening_balance_je_id}</span>`:''}
+      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('قابل ویرایش است. با ذخیره، مبلغ سند افتتاحیه بازنویسی می‌شود و تاریخ سند روی شروع سال مالی فعال می‌نشیند. صفر = ابطال افتتاحیه.')}</label>
+        <input id="cb-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}">
+        ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند #${b.opening_balance_je_id} JE${b.opening_balance_date?` — ${esc(b.opening_balance_date)}`:''}</span>`:''}
       </div>
       <div class="fg full"><label><input type="checkbox" id="cb-petty" ${b?.is_petty_cash?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این صندوق تنخواه‌گردان است ${hlp('صندوق‌های تنخواه‌گردان جداگانه در صفحه «تنخواه گردان» نمایش داده می‌شوند.')}</label></div>
       <div class="fg"><label>سقف موجودی / تنخواه (ریال) ${hlp('خالی = بدون سقف. با انتقال وجه به این صندوق، اگر مانده از این عدد بیشتر شود ثبت رد می‌شود.')}</label>
@@ -21945,7 +21944,6 @@ async function saveCashBox(id){
   const data={name,custodian:el('cb-custodian').value,is_petty_cash:el('cb-petty').checked,
     currency:el('cb-currency')?.value||'IRR', is_foreign:el('cb-foreign')?.checked?1:0,
     opening_balance_rial:Math.round(moneyVal('cb-opening')||0),
-    opening_balance_date:todayJalali(),
     float_ceiling_rial:ceilRaw===''?null:Math.round(moneyVal('cb-float-ceil')||0)};
   if(id) data.active=+el('cb-active').value;
   try{
@@ -27769,7 +27767,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
-        <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. ابطال افتتاحیه = reverse سند. <b>تنظیمات حرفه‌ای:</b> سقف اضافه برداشت روی بانک (خالی=نامحدود، صفر=مانده منفی ممنوع)؛ سقف موجودی/تنخواه روی صندوق برای جلوگیری از بیش‌شارژ با انتقال؛ شبا در صورت ورود باید IR+۲۴ رقم باشد؛ بانک/صندوق غیرفعال در عملیات جدید قبول نمی‌شود. دریافت چک standalone مثل فاکتور به <code>۱۱۰۹</code> اسناد دریافتنی می‌خورد نه به بانک عمومی</li>
+        <li><b>بانک / صندوق / دسته‌چک</b> (حسابداری → بانک و صندوق → اطلاعات پایه): موجودی زنده فقط از دفتر کل روی <code>coa_code</code> تفصیلی خوانده می‌شود (ورود محک مثل ملت ۹۹۵۵ = کد <code>206001…</code>). داشبورد «نقد+بانک» همهٔ کدهای بانک/صندوق mapped را جمع می‌کند نه فقط <code>1101/1102</code>. دسته‌چک مصرف برگ را از اسناد پرداخت نشان می‌دهد. <b>موجودی اول دوره قابل ویرایش است</b> — با ذخیره، مبلغ همان سند افتتاحیه (<code>bank_opening</code>/<code>cash_opening</code>) بازنویسی می‌شود و تاریخ سند روی <b>شروع سال مالی فعال</b> می‌نشیند؛ صفر کردن مبلغ = ابطال افتتاحیه. دکمهٔ «⛔ افتتاحیه» هم همان ابطال است (R13). <b>تنظیمات حرفه‌ای:</b> سقف اضافه برداشت روی بانک (خالی=نامحدود، صفر=مانده منفی ممنوع)؛ سقف موجودی/تنخواه روی صندوق؛ شبا در صورت ورود باید IR+۲۴ رقم باشد؛ بانک/صندوق غیرفعال در عملیات جدید قبول نمی‌شود. دریافت چک standalone مثل فاکتور به <code>۱۱۰۹</code> اسناد دریافتنی می‌خورد نه به بانک عمومی</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است. با انتخاب «حساب‌های پرداختنی» تأمین‌کننده‌ها، با «دریافتنی» مشتری‌ها، و با بانک/صندوق/کالا/شخص همان کد ۱۲رقمی زندهٔ بخش خودش می‌آید. پوستهٔ شش‌رقمی (مثل ۲۱۰۱۰۱) ردیف تفصیلی نیست. شمارهٔ سندهای قبلی عوض نمی‌شود. با هر بار باز شدن صفحه، کدی که در بخش مربوطه هست ولی ردیف دفترکل ندارد ساخته یا وصل می‌شود. دکمه ➕ روی ستون تفصیلی زیر همان پوسته حساب می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>پرداخت به حساب:</b> جستجو با کد یا نام هر حساب فعال را می‌آورد (گروه، کل، معین، تفصیلی). «ی» و «ي» و رقم فارسی یکی گرفته می‌شوند. حسابِ دارای زیرحساب هم قابل انتخاب است و مبلغ روی خود همان کد سند می‌شود، نه روی فرزندان. دریافت از حساب و سند دستی همچنان فقط حساب برگ هستند</li>

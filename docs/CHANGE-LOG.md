@@ -7,6 +7,15 @@
 - **تست:** static v379 ۴/۰؛ soft-match سورمه ای~سرمه‌ای؛ sms ۲۲/۰ + sync ۴۴/۰؛ health=200.
 - **Deploy:** ✅ `f264e03` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v379`؛ `app.js?v=379`.
 
+### ۱۴۰۵/۰۷/۲۲ — ویرایش موجودی اول دوره بانک/صندوق + تاریخ شروع سال مالی (SW v380)
+
+- **علائم:** در ویرایش بانک فیلد «موجودی اول دوره» بعد از صدور سند افتتاحیه قفل بود؛ تغییر مبلغ ممکن نبود و سندهای تعمیر خودکار (مثل ملت ۹۹۵۵) با تاریخ وسط سال (مثلاً ۱۴۰۵/۰۷/۰۴) در دفتر می‌ماندند.
+- **رفع:** `upsertBankOpening` / `upsertCashOpening` — با PUT مبلغ master + خطوط همان JE (`rewriteJournalEntry`) هم‌تراز می‌شود؛ تاریخ همیشه `getActiveFiscalYear().start_date`؛ مبلغ صفر = `reverseJournalEntry` + پاک‌کردن لینک. اگر اشاره‌گر به JE غیر `bank_opening`/`cash_opening` باشد، اشاره‌گر پاک و سند درست ساخته می‌شود (جلوگیری از master/GL جدا). UI فیلد را editable کرد؛ Help به‌روز شد.
+- **فایل‌ها:** `routes/{banks,cash-boxes}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-opening-edit-v379.js`, CHANGE-LOG.
+- **مراجع:** ERPNext opening amend در دورهٔ باز؛ R12/R13 (بدون حذف فیزیکی JE).
+- **تست:** ایران `test-bank-opening-edit-v379` + `test-sms` + `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — مسیر برش: حواله/کانبان/PACK رنگ×سایز (SW v378)
 
 - **علائم:** (A) ثبت حواله مواد بعد از لایه‌چینی → `این متر پارچه در لایه‌چینی مصرف شده است` و بقیهٔ BOM (آستر/زیپ) هم می‌افتاد؛ (B) تابلوی خط خالی در حالی که لایه منتظر رسید محصول بود؛ (C) ورود به انبار محصول → `رنگ و سایز «فری سایز…» مشخص نیست` برای کالای چندرنگ.

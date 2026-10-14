@@ -2,63 +2,132 @@ const router = require('express').Router();
 const { allocTafsili, releaseTafsili, acct } = require('../lib/coa-map');
 const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
-const { postToLedger } = require('../lib/ledger');
+const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
+const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
 // Unrestricted cash box management — mirrors banks.js (opening balance + live ledger).
 
-function postCashOpeningJe(db, box, openingRial, userId) {
-  const amt = Math.round(Number(openingRial) || 0);
-  if (amt <= 0) return null;
+function fiscalOpeningDate(db) {
+  const fy = getActiveFiscalYear(db);
+  return (fy && fy.start_date) || todayJalali();
+}
+
+function liveCashOpeningJeId(db, box) {
   if (box.opening_balance_je_id) {
     const live = db.prepare(
       "SELECT id FROM journal_entries WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')"
     ).get(box.opening_balance_je_id);
-    if (live) return box.opening_balance_je_id;
+    if (live) return live.id;
     db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
-    box = { ...box, opening_balance_je_id: null };
+    box.opening_balance_je_id = null;
   }
   const existing = db.prepare(
-    "SELECT id FROM journal_entries WHERE ref_type='cash_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1"
+    "SELECT id FROM journal_entries WHERE ref_type='cash_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void') ORDER BY id DESC LIMIT 1"
   ).get(box.id);
   if (existing) {
     db.prepare('UPDATE cash_boxes SET opening_balance_je_id=? WHERE id=?').run(existing.id, box.id);
+    box.opening_balance_je_id = existing.id;
     return existing.id;
   }
+  return null;
+}
+
+function cashOpeningLines(db, box, amt) {
   syncCashBoxAccount(db, box);
   const joinCode = resolveCashJoinCode(db, box);
   const cashAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(joinCode);
   const cashCode = cashAcct || { code: joinCode, name: box.name };
   const openingAccount = acct(db, 'coa_opening_balance');
   const valueToman = rialToLedger(amt);
+  return [
+    { code: cashCode.code, name: cashCode.name || box.name, debit: valueToman, credit: 0 },
+    { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+  ];
+}
+
+/** Upsert opening JE: create / rewrite amount+FY-start date / void when amt≤0. */
+function upsertCashOpening(db, box, openingRial, userId, { dateOverride } = {}) {
+  const amt = Math.round(Number(openingRial) || 0);
+  const date = dateOverride || fiscalOpeningDate(db);
+  let jeId = liveCashOpeningJeId(db, box);
+
+  if (amt <= 0) {
+    if (jeId) {
+      reverseJournalEntry(db, jeId, {
+        userId: userId || 1,
+        reason: `ابطال موجودی اول دوره صندوق ${box.name}`,
+        sourceType: 'cash_opening_reversal',
+      });
+    }
+    db.prepare('UPDATE cash_boxes SET opening_balance_rial=0, opening_balance_je_id=NULL, opening_balance_date=? WHERE id=?')
+      .run(date, box.id);
+    return null;
+  }
+
+  const lines = cashOpeningLines(db, box, amt);
+  const description = `موجودی اول دوره صندوق ${box.name}`;
+
+  if (jeId) {
+    const je = db.prepare('SELECT entry_date, total_debit_rial, ref_type FROM journal_entries WHERE id=?').get(jeId);
+    const currentRial = Math.round(Number(je && je.total_debit_rial) || 0);
+    const isCashOpening = String(je && je.ref_type || '') === 'cash_opening';
+    if (!isCashOpening) {
+      db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
+      jeId = null;
+    } else if (currentRial !== amt || String(je && je.entry_date || '') !== String(date)) {
+      const rewritten = rewriteJournalEntry(db, {
+        sourceType: 'cash_opening',
+        sourceId: box.id,
+        date,
+        description,
+        lines,
+      });
+      if (!rewritten) {
+        db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
+        jeId = null;
+      } else {
+        db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
+          .run(amt, rewritten, date, box.id);
+        return rewritten;
+      }
+    } else {
+      db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
+        .run(amt, jeId, date, box.id);
+      return jeId;
+    }
+  }
+
   const journalId = postToLedger(db, {
     sourceType: 'cash_opening',
     sourceId: box.id,
-    date: box.opening_balance_date || todayJalali(),
-    description: `موجودی اول دوره صندوق ${box.name}`,
+    date,
+    description,
     createdBy: userId,
     voucherType: 'opening',
-    lines: [
-      { code: cashCode.code, name: cashCode.name || box.name, debit: valueToman, credit: 0 },
-      { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-    ],
+    lines,
   });
-  db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=COALESCE(opening_balance_date,?) WHERE id=?')
-    .run(amt, journalId, todayJalali(), box.id);
+  db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
+    .run(amt, journalId, date, box.id);
   return journalId;
+}
+
+function postCashOpeningJe(db, box, openingRial, userId) {
+  return upsertCashOpening(db, box, openingRial, userId);
 }
 
 function repairCashOpeningIfNeeded(db, box, userId) {
   const amt = Math.round(Number(box.opening_balance_rial) || 0);
   if (amt <= 0) return box;
+  if (liveCashOpeningJeId(db, box)) return db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(box.id) || box;
   try {
-    postCashOpeningJe(db, box, amt, userId || 1);
+    upsertCashOpening(db, box, amt, userId || 1);
   } catch (e) {
     if (e && (e.status === 422 || /سال مالی|fiscal/i.test(String(e.message || '')))) {
       try {
-        postCashOpeningJe(db, { ...box, opening_balance_je_id: null, opening_balance_date: todayJalali() }, amt, userId || 1);
+        upsertCashOpening(db, box, amt, userId || 1, { dateOverride: todayJalali() });
       } catch (e2) {
         console.error('cash opening repair retry', box.id, e2 && e2.message);
       }
@@ -144,6 +213,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const cur = String(currency || 'IRR').toUpperCase();
   const foreign = is_foreign ? 1 : (cur !== 'IRR' ? 1 : 0);
   const openingRial = Math.round(Number(opening_balance_rial) || 0);
+  const openDate = fiscalOpeningDate(db);
   const ceilRaw = float_ceiling_rial;
   const floatCeil = (ceilRaw === null || ceilRaw === undefined || ceilRaw === '')
     ? null
@@ -153,7 +223,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       'INSERT INTO cash_boxes (name,custodian,is_petty_cash,currency,is_foreign,opening_balance_rial,opening_balance_date,float_ceiling_rial) VALUES (?,?,?,?,?,?,?,?)'
     ).run(
       name, custodian || '', is_petty_cash ? 1 : 0, cur, foreign,
-      openingRial > 0 ? openingRial : 0, opening_balance_date || (openingRial > 0 ? todayJalali() : null),
+      openingRial > 0 ? openingRial : 0, openingRial > 0 ? openDate : (opening_balance_date || null),
       floatCeil
     );
     try {
@@ -164,7 +234,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     syncCashBoxAccount(db, row);
     row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
     if (openingRial > 0) {
-      postCashOpeningJe(db, row, openingRial, req.user.id);
+      upsertCashOpening(db, row, openingRial, req.user.id);
       row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
     }
     return row;
@@ -188,20 +258,30 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     : ((float_ceiling_rial === null || float_ceiling_rial === '')
       ? null
       : Math.max(0, Math.round(Number(float_ceiling_rial) || 0)));
-  db.transaction(() => {
-    db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=?,currency=?,is_foreign=?,opening_balance_date=COALESCE(?,opening_balance_date),float_ceiling_rial=? WHERE id=?')
-      .run(name || row.name, custodian ?? row.custodian, active != null ? (active ? 1 : 0) : row.active,
-           is_petty_cash != null ? (is_petty_cash ? 1 : 0) : row.is_petty_cash, cur, foreign,
-           opening_balance_date || null, floatCeil, req.params.id);
-    const updated = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
-    syncCashBoxAccount(db, updated);
-    if (opening_balance_rial != null && !updated.opening_balance_je_id) {
-      const amt = Math.round(Number(opening_balance_rial) || 0);
-      if (amt > 0) postCashOpeningJe(db, updated, amt, req.user.id);
-    }
-  })();
-  audit(req.user.id, 'update', 'cash_box', req.params.id, `ویرایش صندوق ${name || row.name}`);
-  res.json({ ok: true });
+  try {
+    const updated = db.transaction(() => {
+      db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=?,currency=?,is_foreign=?,float_ceiling_rial=? WHERE id=?')
+        .run(name || row.name, custodian ?? row.custodian, active != null ? (active ? 1 : 0) : row.active,
+             is_petty_cash != null ? (is_petty_cash ? 1 : 0) : row.is_petty_cash, cur, foreign,
+             floatCeil, req.params.id);
+      let next = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
+      syncCashBoxAccount(db, next);
+      next = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
+      if (opening_balance_rial != null) {
+        upsertCashOpening(db, next, opening_balance_rial, req.user.id);
+        next = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
+      } else if (opening_balance_date != null && opening_balance_date !== '') {
+        db.prepare('UPDATE cash_boxes SET opening_balance_date=? WHERE id=?').run(opening_balance_date, req.params.id);
+        next = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
+      }
+      return next;
+    })();
+    audit(req.user.id, 'update', 'cash_box', req.params.id, `ویرایش صندوق ${name || row.name}`);
+    res.json({ ok: true, cash_box: updated });
+  } catch (e) {
+    const status = e && e.status ? e.status : 500;
+    res.status(status).json({ error: e.message || 'خطا در ذخیره صندوق' });
+  }
 });
 
 router.get('/petty-cash/summary', auth, adminOrAccounting, (req, res) => {
