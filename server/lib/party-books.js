@@ -326,7 +326,7 @@ function partySignedBalanceDetailMap(db) {
         if (!lf.coa_code || !glByCode.has(String(lf.coa_code))) return lf;
         const glSigned = glByCode.get(String(lf.coa_code));
         const fromSub = lf.source && lf.source !== 'opening';
-        if (!fromSub || Math.abs(lf.balance - glSigned) <= 1) {
+        if (!fromSub || Math.abs(lf.balance - glSigned) <= 2) {
           changed = true;
           return {
             coa_code: lf.coa_code,
@@ -400,7 +400,8 @@ function partyBooksMismatch(db, detailInfo) {
     if (Math.abs(lf.balance) <= 1) continue;
     const glBal = glSignedForCoa(db, lf.coa_code);
     if (glBal == null) continue;
-    if (Math.abs(lf.balance - glBal) > 1) return true;
+    // ≤2 rial = rounding noise (payroll toman↔rial), not a books gap
+    if (Math.abs(lf.balance - glBal) > 2) return true;
   }
   return false;
 }

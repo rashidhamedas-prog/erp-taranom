@@ -28,8 +28,9 @@
 - **رفع اصولی:** ترکیب opening+subledger دقیقاً یک‌بار؛ SoT تأمین = `supplier_ledger`؛ mismatch چندبرگ `partyBooksMismatch`؛ opening JE → همهٔ زیردفترهای لینک‌شده؛ ADR-PARTY-001 amendment؛ Help.
 - **فایل‌ها:** `lib/{party-books,party-control-dashboard,opening-post}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-opening-align-v368.js`, `PARTY-ACC-ADR-001.md`, CHANGE-LOG.
 - **تست:** `test-party-books-opening-align-v368` ۲۲/۰ + `test-party-books-turnover-v362` + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران.
-- **Follow-up در همان موج:** نرمال‌سازی `personLedgerLineRial` با JE حقوق + heal یک‌بار `person_payroll_payment_pl_heal_v368` برای پرداخت‌های بدون ردیف زیردفتر.
-- **Deploy:** ⏳
+- **Follow-up در همان موج:** نرمال‌سازی `personLedgerLineRial` با JE حقوق + heal یک‌بار `person_payroll_payment_pl_heal_v368` برای پرداخت‌های بدون ردیف زیردفتر؛ آستانهٔ تطبیق ۲ ریال.
+- **نتیجه ایران:** KPI اختلاف ۱۰→۰؛ تست‌های v368/v362/sms/sync سبز.
+- **Deploy:** ✅ `a815053` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ منطق v368 روی سرور (SW جاری ممکن است توسط موج موازی v369/v370 بالاتر رفته باشد).
 
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش برگشت از فروش (R13 same-id amend) (SW v367)
 
