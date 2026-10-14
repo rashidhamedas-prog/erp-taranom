@@ -34,14 +34,27 @@ const admin = db.prepare(`SELECT id FROM users WHERE role='admin' LIMIT 1`).get(
   })();
 const adminId = admin.id;
 
-let whRaw = db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW-V384'").get();
-let whFg = db.prepare("SELECT id FROM warehouses WHERE code='WH-FG-V384'").get();
-if (!whRaw) {
-  whRaw = { id: db.prepare(`INSERT INTO warehouses (code,name,warehouse_kind,is_active) VALUES ('WH-RAW-V384','مواد','raw',1)`).run().lastInsertRowid };
+const whCols = new Set(db.prepare('PRAGMA table_info(warehouses)').all().map((c) => c.name));
+function insertWh(code, name, kind) {
+  const cols = ['name'];
+  const vals = [name];
+  if (whCols.has('code')) { cols.push('code'); vals.push(code); }
+  if (whCols.has('warehouse_kind')) { cols.push('warehouse_kind'); vals.push(kind); }
+  else if (whCols.has('kind')) { cols.push('kind'); vals.push(kind); }
+  else if (whCols.has('warehouse_type')) { cols.push('warehouse_type'); vals.push(kind === 'raw' ? 'raw_material' : 'finished'); }
+  if (whCols.has('is_active')) { cols.push('is_active'); vals.push(1); }
+  else if (whCols.has('active')) { cols.push('active'); vals.push(1); }
+  const sql = `INSERT INTO warehouses (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
+  return { id: db.prepare(sql).run(...vals).lastInsertRowid };
 }
-if (!whFg) {
-  whFg = { id: db.prepare(`INSERT INTO warehouses (code,name,warehouse_kind,is_active) VALUES ('WH-FG-V384','محصول','finished',1)`).run().lastInsertRowid };
-}
+let whRaw = whCols.has('code')
+  ? db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW-V384'").get()
+  : null;
+let whFg = whCols.has('code')
+  ? db.prepare("SELECT id FROM warehouses WHERE code='WH-FG-V384'").get()
+  : null;
+if (!whRaw) whRaw = insertWh('WH-RAW-V384', 'مواد v384', 'raw');
+if (!whFg) whFg = insertWh('WH-FG-V384', 'محصول v384', 'finished');
 
 const fabId = db.prepare(`
   INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, item_type)
