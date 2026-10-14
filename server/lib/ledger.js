@@ -104,6 +104,17 @@ function postToLedger(db, opts) {
   }
 
   const stamped = stampCostCenter(lines, costCenterId);
+  try {
+    const { assertExpenseLinesHaveCostCenter } = require('./cost-center-policy');
+    assertExpenseLinesHaveCostCenter(db, stamped, {
+      sourceType, costCenterId, warehouseId: opts.warehouseId,
+      deriveCostCenterId: opts.deriveCostCenterId, skipCcPolicy: opts.skipCcPolicy,
+    });
+  } catch (e) {
+    if (e && e.code === 'CC_REQUIRED_ON_EXPENSE') throw e;
+    if (e && e.status === 422) throw e;
+    throw e;
+  }
   const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,
@@ -199,6 +210,16 @@ function rewriteJournalEntry(db, opts) {
   }
 
   const stamped = stampCostCenter(lines, costCenterId);
+  try {
+    const { assertExpenseLinesHaveCostCenter } = require('./cost-center-policy');
+    assertExpenseLinesHaveCostCenter(db, stamped, {
+      sourceType, costCenterId, warehouseId: opts.warehouseId,
+      deriveCostCenterId: opts.deriveCostCenterId, skipCcPolicy: opts.skipCcPolicy,
+    });
+  } catch (e) {
+    if (e && (e.code === 'CC_REQUIRED_ON_EXPENSE' || e.status === 422)) throw e;
+    throw e;
+  }
   const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,

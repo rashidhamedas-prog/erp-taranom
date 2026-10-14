@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۲ — الزام قابل‌تنظیم مرکز هزینه روی همهٔ هزینه‌ها (SW v375)
+
+- **هدف:** هر ثبت هزینه/بهای تمام‌شده بتواند مرکز هزینه اجباری داشته باشد؛ اجبار از تنظیمات روشن/خاموش شود (منبع حقیقت سرور).
+- **معماری:** `lib/cost-center-policy.js` + دروازه در `postToLedger` / `rewriteJournalEntry` پس از `stampCostCenter`؛ کلید `require_cc_on_expense` (پیش‌فرض خاموش برای ایمنی تولید؛ سربار تولید همیشه اجباری می‌ماند). مشتق خودکار: COGS و انبارگردانی از مرکز انبار، انگیزه از مرکز فاکتور.
+- **UI:** سوییچ در تنظیمات → حسابداری؛ ستاره/بلاک روی پرداخت هزینه، اصلاح هزینه، خرج چک، سند دستی، فاکتور؛ Help؛ SW `v375`.
+- **فایل‌ها:** `lib/{cost-center-policy,ledger,sales-document,rep-ledger,inventory/cycle-count}.js`, `routes/{expenses,settings,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-require-cc-expense-v375.js`, CHANGE-LOG.
+- **مراجع:** SAP CO primary cost assignment + IFRS 18 functional area via cost center؛ TAP ERP invariants.
+- **تست:** `test-require-cc-expense-v375` + sms + sync؛ parse `app.js`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — ابطال پرداخت حقوق بدون ردیف پوچ + heal v374 (SW v374)
 
 - **دنبالهٔ v373:** `voidOnePayrollPayment` بعد از soft-delete هنوز `payroll_payment_reversal` در دفتر شخص می‌ساخت؛ در گردش شخص دیده می‌شد.

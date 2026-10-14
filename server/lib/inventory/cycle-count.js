@@ -246,12 +246,19 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
       }
 
       if (lines.length) {
+        let whCc = null;
+        try {
+          const { warehouseCostCenterId } = require('../cost-center-policy');
+          whCc = warehouseCostCenterId(db, session.warehouse_id);
+        } catch (_) { whCc = null; }
         jeId = postToLedger(db, {
           sourceType: 'stocktaking',
           sourceId: session.id,
           date: session.date || '',
           description: `سند انبارگردانی #${session.id}`,
           createdBy,
+          costCenterId: whCc,
+          warehouseId: session.warehouse_id,
           lines,
         });
         db.prepare('UPDATE inventory_ledger SET je_id=? WHERE source_type=? AND source_id=?')

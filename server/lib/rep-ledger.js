@@ -450,12 +450,15 @@ function recordCommissionAccrual(db, inv, userId) {
   if (existing) return amount;
   const expense = acct(db, 'coa_rep_commission_expense');
   const payable = acct(db, 'coa_rep_commission_payable');
+  const ccId = parseInt(inv.cost_center_id, 10) || null;
   postToLedger(db, {
     sourceType: 'commission_accrual_invoice', sourceId: inv.id,
     date: inv.date || require('../jalali').todayJalali(),
     description: `تعهد انگیزه فروش — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
+    costCenterId: ccId,
+    warehouseId: inv.warehouse_id || null,
     lines: [
-      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0, cost_center_id: ccId || null },
       { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
@@ -503,12 +506,15 @@ function recordSettlementCommissionAccrual(db, settlement, inv, userId) {
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(repId);
   const expense = acct(db, 'coa_rep_commission_expense');
   const payable = acct(db, 'coa_rep_commission_payable');
+  const ccId = parseInt(inv.cost_center_id, 10) || null;
   postToLedger(db, {
     sourceType: 'commission_accrual_settlement', sourceId: settlement.id,
     date: settlement.date || require('../jalali').todayJalali(),
     description: `تعهد انگیزه وصول — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
+    costCenterId: ccId,
+    warehouseId: inv.warehouse_id || null,
     lines: [
-      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0, cost_center_id: ccId || null },
       { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });

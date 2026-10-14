@@ -531,6 +531,7 @@ function reverseStockBySource(db, sourceType, sourceId, { createdBy, date, note 
  */
 function postCogsFromMovements(db, {
   invId, num, date, userId, cogsRial, reverse = false, inventoryCoaCode = null,
+  costCenterId = null, warehouseId = null,
 }) {
   const amt = Math.round(Number(cogsRial) || 0);
   if (amt <= 0) return null;
@@ -556,6 +557,23 @@ function postCogsFromMovements(db, {
   } catch (_) {
     invAcct = acct(db, 'coa_inventory');
   }
+  let ccId = costCenterId ? parseInt(costCenterId, 10) : null;
+  if (!ccId && warehouseId) {
+    try {
+      const { warehouseCostCenterId } = require('./cost-center-policy');
+      ccId = warehouseCostCenterId(db, warehouseId);
+    } catch (_) { ccId = null; }
+  }
+  if (!ccId && invId) {
+    try {
+      const inv = db.prepare('SELECT cost_center_id, warehouse_id FROM invoices WHERE id=?').get(invId);
+      ccId = parseInt(inv?.cost_center_id, 10) || null;
+      if (!ccId && inv?.warehouse_id) {
+        const { warehouseCostCenterId } = require('./cost-center-policy');
+        ccId = warehouseCostCenterId(db, inv.warehouse_id);
+      }
+    } catch (_) { /* ignore */ }
+  }
   const L = rialToLedger(amt);
   const lines = reverse
     ? [
@@ -563,7 +581,7 @@ function postCogsFromMovements(db, {
       { code: cogs.code, name: cogs.name, debit: 0, credit: L },
     ]
     : [
-      { code: cogs.code, name: cogs.name, debit: L, credit: 0 },
+      { code: cogs.code, name: cogs.name, debit: L, credit: 0, cost_center_id: ccId || null },
       { code: invAcct.code, name: invAcct.name, debit: 0, credit: L },
     ];
   return postToLedger(db, {
@@ -572,6 +590,8 @@ function postCogsFromMovements(db, {
     date: date || '',
     description: `بهای تمام‌شده فاکتور ${num}${reverse ? ' (ابطال)' : ''}`,
     createdBy: userId,
+    costCenterId: ccId || null,
+    warehouseId: warehouseId || null,
     lines,
   });
 }

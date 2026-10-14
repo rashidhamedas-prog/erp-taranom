@@ -5098,7 +5098,7 @@ async function _openInvBuilder(id){
           <select id="inv-warehouse" ${isSalesRole?'disabled':''}>${warehouseOptionsHtml(defSalesWh,'— انتخاب انبار —')}</select>
           ${isSalesRole?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}">انبار مبدأ شما ثابت است و قابل تغییر نیست.</div>`:''}
         </div>
-        ${salesProformaOnly?`<input type="hidden" id="inv-cc" value="">`:`<div class="fg"><label>مرکز هزینه ${hlp('اختیاری — برای گزارش هزینه/درآمد بر اساس مرکز.')}</label><select id="inv-cc"><option value="">—</option>
+        ${salesProformaOnly?`<input type="hidden" id="inv-cc" value="">`:`<div class="fg"><label>${expenseCcFieldLabel('برای گزارش هزینه/درآمد و سند بهای تمام‌شده/انگیزه. با روشن بودن الزام مرکز هزینه، اگر فاکتور هزینهٔ دوره یا COGS بزند مرکز لازم است — انبار هم مرکز خودش را می‌دهد.')}</label><select id="inv-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'—'}</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`}
         <div class="fg"><label>کرایه حمل ${moneyColLabel()} ${hlp('مبلغ کرایه به ریال. با سرشکن روی ردیف‌ها تقسیم می‌شود.')}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
         <div class="fg"><label>سرشکن کرایه ${hlp('نسبت تقسیم کرایه روی اقلام: مبلغ، مقدار یا مساوی.')}</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
@@ -19338,8 +19338,8 @@ async function voucherModal(){
           <option value="">-- بدون قالب --</option>
           ${CACHE.voucherTemplates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
         </select></div>`:''}
-        ${(CACHE.costCenters||[]).length?`<div class="fg full"><label>مرکز هزینه (اختیاری)</label><select id="vc-cc">
-          <option value="">-- بدون مرکز هزینه --</option>
+        ${(CACHE.costCenters||[]).length?`<div class="fg full"><label>${expenseCcFieldLabel('اگر سطر بدهکار هزینه/بهای تمام‌شده باشد و تنظیم الزام روشن باشد، مرکز هزینه الزامی است.')}</label><select id="vc-cc">
+          <option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'-- بدون مرکز هزینه --'}</option>
           ${CACHE.costCenters.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
         </select></div>`:''}
       </div>
@@ -19414,6 +19414,19 @@ function buildVoucherLinesPayload(){
       ?{person_id:l.person_id,debit:l.debit,credit:l.credit,description:l.description,tafsili2_code:l.tafsili2_code||null}
       :{code:l.code,debit:l.debit,credit:l.credit,description:l.description,tafsili2_code:l.tafsili2_code||null});
 }
+function voucherHasExpenseDebit(lines){
+  const coa=CACHE.chartOfAccounts||[];
+  return (lines||[]).some(l=>{
+    if(!(Number(l.debit)>0)) return false;
+    const a=coa.find(x=>String(x.code)===String(l.code||l.account_code||''));
+    if(!a){
+      const c=String(l.code||l.account_code||'');
+      return c.startsWith('5')||c.startsWith('6');
+    }
+    const t=String(a.type||'').toLowerCase();
+    return t==='expense'||t==='cogs'||String(a.code||'').startsWith('5')||String(a.code||'').startsWith('6');
+  });
+}
 async function saveVoucher(){
   const desc=el('vc-desc').value.trim();
   if(!desc){ showToast('شرح سند الزامی است','error'); return; }
@@ -19422,6 +19435,9 @@ async function saveVoucher(){
   if(Math.abs(totD-totC)>0.01){ showToast('سند نامتوازن است — بدهکار باید با بستانکار برابر باشد','error'); return; }
   const lines=buildVoucherLinesPayload();
   if(lines.length<2){ showToast('حداقل دو ردیف معتبر لازم است','error'); return; }
+  if(isExpenseCcRequired() && voucherHasExpenseDebit(lines) && !(+el('vc-cc')?.value)){
+    showToast('مرکز هزینه برای سطر هزینه الزامی است','error'); return;
+  }
   try{
     await api('POST','/accounting/vouchers',{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines});
     closeModal(); showToast('سند ثبت شد'); loadAccTab('vouchers');
@@ -22758,8 +22774,8 @@ async function expensePaymentModal(){
       <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`padding:1px 8px;font-size:11px`)}" data-csp-click="${CSP.bind('click',function(event){exAddCategory()})}">➕ دستهٔ جدید</button></label>      <select id="ex-category" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}">
         ${expenseCategoryOptionsHtml()}
       </select></div>
-      <div class="fg"><label>مرکز هزینه ${hlp('برای سربار تولید الزامی است. اداری و فروش اختیاری‌اند و همان مرکز روی سند می‌نشیند.')}</label>
-        <select id="ex-cc"><option value="">— بدون مرکز —</option>
+      <div class="fg"><label>${expenseCcFieldLabel('برای سربار تولید همیشه الزامی است. با روشن بودن تنظیم «الزام مرکز هزینه» برای اداری و فروش هم اجباری می‌شود.')}</label>
+        <select id="ex-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'— بدون مرکز —'}</option>
           ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}${c.is_stage?' (مرحله)':''}</option>`).join('')}
         </select></div>
       ${coaAcctHtml('ex','هر حساب فعال هزینه، از گروه تا تفصیلی. جستجو با کد یا نام. اگر زیرحساب داشته باشد مبلغ روی خود همان کد می‌نشیند. خالی بماند از دسته یا پیش‌فرض بخش استفاده می‌شود. سربار تولید همیشه ۵۲۰۲ است.',{any:true,scope:'expense',optional:true})}
@@ -22821,6 +22837,18 @@ function expenseCategoryOptionsHtml(selected){
     const sel=selected!=null && String(selected)===val?' selected':'';
     return `<option value="${esc(val)}" data-section="${esc(c.cost_section||'')}" data-account="${esc(acc)}"${sel}>${esc(c.name)}</option>`;
   }).join('');
+}
+/** Settings flag: require cost center on expense/COGS (server is source of truth). */
+function isExpenseCcRequired(){
+  const f=CACHE.moduleFlags||CACHE.settings||{};
+  return String(f.require_cc_on_expense||'0')==='1';
+}
+function expenseCcFieldLabel(contextHelp){
+  const req=isExpenseCcRequired();
+  const help=contextHelp||(req
+    ?'طبق تنظیمات سیستم، ثبت هر هزینه بدون مرکز هزینه ممکن نیست.'
+    :'اختیاری — مگر سربار تولید. با روشن کردن «الزام مرکز هزینه» در تنظیمات حسابداری، برای همهٔ هزینه‌ها اجباری می‌شود.');
+  return `مرکز هزینه${req?' *':''} ${hlp(help)}`;
 }
 function exCategoryChanged(){
   const sel=el('ex-category')||el('cde-category');
@@ -22889,6 +22917,7 @@ async function saveExpensePayment(){
   const overhead=!!el('ex-overhead')?.checked || section==='production_overhead';
   const costCenterId=+el('ex-cc')?.value||null;
   if(overhead && !costCenterId){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
+  if(isExpenseCcRequired() && !costCenterId){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
   try{
     let first=true;
     for(const amount of amounts){
@@ -23024,7 +23053,7 @@ async function openCashDocEdit(kind, row){
       ${kind==='expense'?`<div class="fg"><label>دسته هزینه</label><select id="cde-category" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}">
           ${expenseCategoryOptionsHtml(row.category)}
         </select></div>
-        <div class="fg"><label>مرکز هزینه</label><select id="cde-cc"><option value="">— بدون مرکز —</option>
+        <div class="fg"><label>${expenseCcFieldLabel()}</label><select id="cde-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'— بدون مرکز —'}</option>
           ${(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}" ${Number(c.id)===Number(row.cost_center_id)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('')}
         </select></div>
         ${coaAcctHtml('ex','هر سطح کدینگ هزینه. مبلغ روی خود همان کد می‌نشیند. سربار تولید همیشه ۵۲۰۲ است.',{any:true,scope:'expense',optional:true})}
@@ -23144,6 +23173,7 @@ async function saveCashDocEdit(kind, id){
     const overhead=!!el('cde-overhead')?.checked || section==='production_overhead';
     const cost_center_id=+el('cde-cc')?.value||null;
     if(overhead && !cost_center_id){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
+    if(isExpenseCcRequired() && !cost_center_id){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
     path='/expenses/'+id;
     Object.assign(payload,{
       title, category:el('cde-category')?.value||'admin',
@@ -25672,8 +25702,8 @@ async function chequeExpenseOut(id){
             <option value="selling">فروش و توزیع — ۶۱۰۳</option>
             <option value="production_overhead">سربار تولید — کنترل ۵۲۰۲</option>
           </select></div>
-        <div class="fg full"><label>مرکز هزینه</label>
-          <select id="chq-cc"><option value="">— بدون مرکز —</option>${ccOpts}</select></div>
+        <div class="fg full"><label>${expenseCcFieldLabel('سربار تولید همیشه مرکز می‌خواهد؛ با تنظیم الزام، اداری و فروش هم اجباری‌اند.')}</label>
+          <select id="chq-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'— بدون مرکز —'}</option>${ccOpts}</select></div>
         <div class="fg"><label>تاریخ</label><input id="chq-ex-date" data-jdate value="${todayJalali()}"></div>
       </div>
     </div>
@@ -25686,6 +25716,9 @@ async function chequeExpenseOutSave(id){
   const cost_center_id=+el('chq-cc')?.value||null;
   if(cost_section==='production_overhead' && !cost_center_id){
     showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return;
+  }
+  if(isExpenseCcRequired() && !cost_center_id){
+    showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return;
   }
   try{
     await api('POST','/cheque-records/'+id+'/expense',{
@@ -26384,6 +26417,7 @@ ROUTES.settings = async function(){
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
       </div>
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-require_cc_on_expense', s.require_cc_on_expense==='1', 'الزام مرکز هزینه روی همهٔ هزینه‌ها', 'وقتی روشن باشد، هر بدهکار حساب هزینه/بهای تمام‌شده (پرداخت هزینه، سند دستی، خرج چک، COGS، انگیزه، کسری انبار و …) بدون مرکز هزینه ثبت نمی‌شود. سربار تولید حتی با خاموش بودن این گزینه هم همیشه مرکز می‌خواهد. اسناد قدیمی تغییر نمی‌کنند.')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_reverse_vat', s.returns_reverse_vat!=='0', 'برگشت VAT روی برگشتِ لینک‌شده به فاکتور', 'فقط وقتی فاکتور مرجع انتخاب شده؛ سهم مالیات برگشتی متناسب با همان فاکتور در سند حسابداری معکوس می‌شود')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_allow_open', s.returns_allow_open==='1', 'اجازه برگشت بدون فاکتور (غیر از مدیر/حسابداری)', 'مدیر و حسابداری همیشه می‌توانند؛ با روشن بودن این گزینه سایر نقش‌های مجاز هم حالت «بدون فاکتور» را می‌بینند')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_auto_allocate_credit', s.returns_auto_allocate_credit==='1', 'تخصیص خودکار اعتبار برگشت بدون فاکتور به فاکتورهای باز', 'پس از ثبت برگشت بدون فاکتور، اعتبار باقی‌مانده به ترتیب قدیمی‌ترین فاکتور باز همان طرف‌حساب تخصیص می‌یابد (بدون سند تسویهٔ جعلی)')}</div>
@@ -26838,6 +26872,7 @@ async function saveSettings(){
   const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
+  if(el('s-require_cc_on_expense')) data.require_cc_on_expense = el('s-require_cc_on_expense').checked ? '1' : '0';
   if(el('s-returns_reverse_vat')) data.returns_reverse_vat = el('s-returns_reverse_vat').checked ? '1' : '0';
   if(el('s-returns_allow_open')) data.returns_allow_open = el('s-returns_allow_open').checked ? '1' : '0';
   if(el('s-returns_auto_allocate_credit')) data.returns_auto_allocate_credit = el('s-returns_auto_allocate_credit').checked ? '1' : '0';
@@ -27930,7 +27965,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص. مانده بستانکار اشخاص/مشتری به‌عنوان بدهی جاری و مانده بدهکار تأمین‌کننده به‌عنوان دارایی طبقه‌بندی می‌شود. اگر سندی روی حساب بدون ردیف کدینگ نشسته باشد، همان حساب در گزارش می‌آید تا تراز به‌هم نخورد؛ اختلاف (در صورت وجود) به ریال نمایش داده می‌شود. هر ستون جدا اسکرول می‌شود</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). در پرداخت هزینه هر سطح کدینگ هزینه (گروه تا تفصیلی) قابل انتخاب است و مبلغ روی همان کد می‌نشیند. سند دستی همچنان فقط حساب برگ است.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
-        <li><b>مراکز هزینه و کدینگ هزینه</b>: هر هزینه یک بخش مالک دارد — اداری (۶۱۰۲)، فروش و توزیع (۶۱۰۳)، یا سربار تولید (کنترل ۵۲۰۲). دسته‌بندی هزینه بخش را مشخص می‌کند و اگر خودش حساب نداشته باشد از دستهٔ والد ارث می‌برد. مرکز هزینه روی همان سند، روی همهٔ سطرهای دفترکل می‌نشیند. سربار تولید بدون مرکز هزینه ثبت نمی‌شود. مرحله‌های برش تا اتو زیر مرکز «کارگاه تولید» هستند. سند فروش، خرید و سند دستی هم اگر مرکز داشته باشند همان مرکز را به سطرها می‌دهند. اسناد قبلی که مرکزشان روی فاکتور، خرید، هزینه، نماینده یا سفارش تولید بوده و سطر دفترکل خالی بوده، یک‌بار پر می‌شوند. هزینهٔ سربار که قبلاً به ۶۱ رفته و هنوز ابطال نشده به ۵۲۰۲ منتقل می‌شود. خرج چکِ قدیمی که بخشی ذخیره نکرده همان اداری می‌ماند</li>
+        <li><b>مراکز هزینه و کدینگ هزینه</b>: هر هزینه یک بخش مالک دارد — اداری (۶۱۰۲)، فروش و توزیع (۶۱۰۳)، یا سربار تولید (کنترل ۵۲۰۲). دسته‌بندی هزینه بخش را مشخص می‌کند و اگر خودش حساب نداشته باشد از دستهٔ والد ارث می‌برد. مرکز هزینه روی همان سند، روی همهٔ سطرهای دفترکل می‌نشیند. سربار تولید بدون مرکز هزینه ثبت نمی‌شود. در <b>تنظیمات → حسابداری</b> سوییچ «الزام مرکز هزینه روی همهٔ هزینه‌ها» وقتی روشن باشد، هر بدهکار هزینه/بهای تمام‌شده (پرداخت هزینه، سند دستی، خرج چک، COGS از انبار، انگیزه، کسری انبارگردانی و …) بدون مرکز رد می‌شود — سرور منبع حقیقت است. اسناد تاریخی عوض نمی‌شوند. مرحله‌های برش تا اتو زیر مرکز «کارگاه تولید» هستند. سند فروش، خرید و سند دستی هم اگر مرکز داشته باشند همان مرکز را به سطرها می‌دهند</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
         <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری (فاکتور نقدی و نسیه، دریافت، برگشت از فروش، افتتاحیه، ثبت/برگشت چک) با مانده اول دوره و مانده لحظه‌ای. اسناد ابطال‌شده و ردیف‌های «ابطال/اصلاح» پوچ در گزارش عملیاتی دیده نمی‌شوند (v373). فاکتور قطعی همیشه در دفتر مشتری و تفصیلی همان مشتری ثبت می‌شود. خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
         <li><b>گزارشات پیشرفته</b>: پنج گزارش تخصصی در یک صفحه —
@@ -28007,7 +28042,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند). آپلود پشتیبان در وب فقط درستی بسته را چک می‌کند. برگرداندن داده با دستور آفلاین است: هر شرکت جدا، بدون WAL قدیمی، و جایگزینی کامل پوشهٔ تصاویر</li>
         <li><b>وب‌سایت</b>: سینک ماتریس رنگ×سایز به Site-B2B. در کادر بازرسی، <b>کد کالا</b> را وارد کنید (همان SKU سایت)؛ شناسهٔ داخلی ردیف هم پذیرفته می‌شود. اگر «کد کالا در سایت پیدا نشد» دیدید، نگاشت را در سایت درست کنید و فقط «ارسال دوبارهٔ همین کالا» را بزنید. توضیح پرانتزی سایز، رقم فارسی، و فاصله به‌جای نیم‌فاصله در نام رنگ مانع جفت‌شدن نیست. «کرم» و «کرمی» همچنان دو رنگ‌اند. هر کالا در چند درخواست کوچک فرستاده می‌شود تا قطع‌شدن ارتباط، کل ماتریس را ناموفق نکند. همگام‌سازی کامل همهٔ کالاهای موفق را هم دوباره می‌فرستد.</li>
-        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
+        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی (افتتاح خام جدا از انتقال با مانده)، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود). سوییچ <b>الزام مرکز هزینه روی همهٔ هزینه‌ها</b> وقتی روشن باشد، هر بدهکار حساب هزینه/بهای تمام‌شده (پرداخت هزینه، سند دستی، خرج چک، COGS، انگیزه، کسری انبار و …) بدون مرکز هزینه رد می‌شود؛ سربار تولید حتی با خاموش بودن هم همیشه مرکز می‌خواهد. اسناد تاریخی عوض نمی‌شوند</li>
         <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت فقط روی سرور مرکزی. تاریخ خالی فیلتر روز نمی‌گذارد</li>
       </ul>
@@ -28272,7 +28307,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
       <ul>
         <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
-        <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند</li>
+        <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند. با روشن بودن «الزام مرکز هزینه» در تنظیمات، مرکز برای همهٔ بخش‌ها اجباری است (سربار همیشه اجباری بوده)</li>
         <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود</li>
       </ul>
       <div class="tip">دکمهٔ <b>وضعیت</b> برگهٔ خوانای چک + وضعیت چرخه + تاریخچهٔ زمانی (با خطوط سند) را فقط برای مشاهده باز می‌کند — عملیات مالی همان دکمه‌های ردیف است. «خواباندن به حساب» فقط با <b>واگذاری</b> و انتخاب بانک انجام می‌شود. هر گذار چرخه فقط یک‌بار سند می‌زند. <b>ابطال کامل</b> همهٔ اسناد را معکوس می‌کند (حذف فیزیکی نیست).</div>`),

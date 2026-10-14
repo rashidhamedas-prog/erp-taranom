@@ -677,6 +677,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
             inventoryCoaCode: invCoa.code,
+            costCenterId: ccId, warehouseId: whId,
           });
         }
         if (invType === 'final') enqueueMoadian(db, 'sales', invId);
@@ -1120,6 +1121,7 @@ router.post('/:id/convert', auth, (req, res) => {
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
           inventoryCoaCode: invCoa.code,
+          costCenterId: inv.cost_center_id, warehouseId: convertWhId,
         });
       }
       if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);

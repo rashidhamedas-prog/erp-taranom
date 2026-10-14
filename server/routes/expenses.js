@@ -94,16 +94,19 @@ function resolveExpensePosting(db, { category, account_code, is_overhead, cost_c
   let section = chain.section || (category === 'sales' ? 'selling' : 'admin');
   if (is_overhead || section === 'production_overhead') section = 'production_overhead';
 
-  let ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
-  if (ccId) {
-    const cc = db.prepare('SELECT id FROM cost_centers WHERE id=? AND COALESCE(active,1)=1').get(ccId);
-    if (!cc) throw sectionError(400, 'مرکز هزینه یافت نشد یا غیرفعال است');
-  } else {
-    ccId = null;
+  const { assertExpenseDocumentCostCenter } = require('../lib/cost-center-policy');
+  let ccId;
+  try {
+    ccId = assertExpenseDocumentCostCenter(db, {
+      cost_center_id,
+      is_overhead: !!(is_overhead || section === 'production_overhead'),
+      section,
+    });
+  } catch (e) {
+    throw sectionError(e.status || 400, e.message);
   }
 
   if (section === 'production_overhead') {
-    if (!ccId) throw sectionError(400, 'سربار تولید بدون مرکز هزینه ثبت نمی‌شود');
     return {
       account: acct(db, 'coa_overhead_control'),
       section,

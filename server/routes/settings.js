@@ -30,6 +30,8 @@ const ALLOWED_KEYS = [
   'vat_rate', 'moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path',
   // AI assistant (v4 port) + B2B customer portal feature flags
   'feature_ai_assistant', 'ai_api_key', 'ai_model', 'ai_provider', 'feature_b2b_portal',
+  // Cost-center policy: require CC on expense/COGS journal lines (default OFF)
+  'require_cc_on_expense',
   // Website stock sync + Rubika invoice
   'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
@@ -51,7 +53,8 @@ const MODULE_KEYS = [
   'module_consignments', 'module_production', 'module_payroll', 'module_reps',
   'module_moadian', 'module_fixed_assets', 'module_portal',
   'feature_ai_assistant', 'feature_b2b_portal',
-  'coa_mode', 'currency_display'
+  'coa_mode', 'currency_display',
+  'require_cc_on_expense',
 ];
 router.get('/modules', auth, (req, res) => {
   const db = getDB();
@@ -61,6 +64,7 @@ router.get('/modules', auth, (req, res) => {
     if (k === 'coa_mode') obj[k] = '';
     else if (k === 'currency_display') obj[k] = 'rial';
     else if (k.startsWith('feature_')) obj[k] = '0';
+    else if (k === 'require_cc_on_expense') obj[k] = '0';
     else obj[k] = '1';
   }
   for (const r of rows) obj[r.key] = r.value;
