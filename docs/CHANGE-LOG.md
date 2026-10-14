@@ -4,8 +4,8 @@
 - **ریشه:** چک اول‌دوره #2 مشتری ۷۲ (بیوتی بوتیک) اعتبار ۸۰۰M در `customer_ledger`؛ heal یک‌شات `opening_cheque_ledger_mirror_v1` بعد از purge hollow v374 (حذف بدهکار «اصلاح:») دیگر اجرا نمی‌شد → اعتبار یتیم KPI بستانکار را باد کرد. ابطال تسویه فعلی هر دو دفتر را می‌زند؛ این رقم باگ void جدید نبود.
 - **رفع بنیادی:** heal چک اول‌دوره **پیوسته** (v2)؛ `purgeHollow` همزمان اعتبار `cheque_in` اول‌دوره را بازنشسته می‌کند؛ `sqlCustomerLedgerLive` + `hideVoidedBookRows` برای KPI/صورت‌حساب (ابطال‌شده + چک اول‌دوره)؛ boot در `db.js`؛ Help؛ SW `v376`.
 - **فایل‌ها:** `lib/{customer-books,party-ledger-retire}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-opening-cheque-creditor-v376.js`, CHANGE-LOG.
-- **تست:** `test-opening-cheque-creditor-v376` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-opening-cheque-creditor-v376` ۱۴/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ parse `app.js` سبز؛ پس از restart `opening_cheque_books_left=0`.
+- **Deploy:** ✅ `3bf53ca` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v376`؛ `app.js?v=376`.
 
 ### ۱۴۰۵/۰۷/۲۲ — الزام قابل‌تنظیم مرکز هزینه روی همهٔ هزینه‌ها (SW v375)
 
