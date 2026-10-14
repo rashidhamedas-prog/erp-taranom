@@ -172,6 +172,26 @@ function purgeHollowPartyLedgerReversals(db) {
       customerDeleted += Number(r.changes || 0);
     } catch (_) { /* ignore */ }
 
+    // v376: after removing corrective «اصلاح:» debits, also drop phantom opening
+    // cheque_in credits (notes/equity JE — never a customer receipt).
+    try {
+      const openIds = db.prepare(`
+        SELECT id FROM cheque_records cr
+        WHERE IFNULL(cr.note,'') LIKE '%مانده اول دوره%'
+           OR IFNULL(cr.status,'') LIKE '%اول دوره%'
+      `).all().map((r) => Number(r.id));
+      for (const id of openIds) {
+        customerDeleted += retireCustomerLedgerByRef(db, {
+          refTypes: ['cheque_in'],
+          refId: id,
+        });
+        personDeleted += retirePersonLedgerByRef(db, {
+          refTypes: ['cheque_in'],
+          refId: id,
+        });
+      }
+    } catch (_) { /* optional */ }
+
     // Reversed cheques — drop book rows (hideVoided already filters; purge cleans DB)
     try {
       const ids = db.prepare(`

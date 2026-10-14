@@ -9219,7 +9219,7 @@ ROUTES['acc-dash'] = async function(){
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">دفتر مشتری تا ${esc(cutoffLabel)}</span>
     </div>
-    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between`)}"><span>هشدار: ${esc(mismatchText)}. کارت مطالبات از دفتر مشتری است؛ بستانکاران جداگانه جمع می‌شوند. ابطال تسویه باید هر دو دفتر را معکوس کند.</span>${isAdmin()?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){repairArTafsiliFromDash()})}">هم‌ترازی کنترل→تفصیلی</button>`:''}</div></div>`:''}
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between`)}"><span>هشدار: ${esc(mismatchText)}. کارت مطالبات از دفتر مشتری است؛ بستانکاران جداگانه جمع می‌شوند. ابطال تسویه/چک باید هر دو دفتر را معکوس کند؛ چک اول‌دوره اعتبار مشتری نیست (از v376 heal پیوسته).</span>${isAdmin()?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){repairArTafsiliFromDash()})}">هم‌ترازی کنترل→تفصیلی</button>`:''}</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards bento-hero">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
@@ -27563,6 +27563,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سفارش پورتال</b> ابتدا پیش‌فاکتور است؛ از صفحهٔ فاکتور با دکمهٔ تبدیل به فروش قطعی <b>معمولی یا رسمی</b> بروید.</li>
         <li><b>نگاشت COA فروش</b> در تنظیمات (برگشت از فروش، هزینه فروش، سایر درآمد، چک نزد صندوق/وصول، کارتخوان) قابل ویرایش است — دیگر فقط کد پیش‌فرض مخفی نیست.</li>
         <li>اگر هشدار اختلاف دفتر مشتری و تفصیلی دیدید، مدیر می‌تواند از داشبورد حسابداری «هم‌ترازی کنترل→تفصیلی» را بزند (مرکزی؛ فقط مدیر). از v351 سرور خودش تسویه‌های «فقط دفتر» بدون سند روی تفصیلی را با سند Dr بانک/صندوق و Cr تفصیلی مشتری ترمیم می‌کند؛ <code>skipJournal</code> فقط وقتی مجاز است که همان دریافت روی سند فاکتور ثبت شده باشد.</li>
+        <li><b>v376 — بستانکار دفتر vs تفصیلی:</b> چک اول‌دوره فقط اسناد دریافتنی/افتتاحیه است و نباید اعتبار در دفتر مشتری بسازد. اگر ردیف قدیمی مانده باشد، heal پیوسته آن را بازنشسته می‌کند؛ KPI داشبورد هم ردیف‌های ابطال‌شده و چک اول‌دوره را در جمع بستانکار نمی‌آورد. ابطال تسویه همچنان JE + دفتر مشتری را با هم معکوس می‌کند (R13).</li>
       </ul>`),
     helpSec('👥','اشخاص — سقف اعتبار و نقش دوگانه (v337 / ADR-PARTY-001)',`
       <ul>
@@ -28308,7 +28309,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
         <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند. با روشن بودن «الزام مرکز هزینه» در تنظیمات، مرکز برای همهٔ بخش‌ها اجباری است (سربار همیشه اجباری بوده)</li>
-        <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود</li>
+        <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود. <b>چک اول‌دوره دریافتنی</b> فقط اسناد/افتتاحیه است و اعتبار در دفتر مشتری نمی‌سازد (v376؛ heal پیوسته ردیف‌های قدیمی را پاک می‌کند).</li>
       </ul>
       <div class="tip">دکمهٔ <b>وضعیت</b> برگهٔ خوانای چک + وضعیت چرخه + تاریخچهٔ زمانی (با خطوط سند) را فقط برای مشاهده باز می‌کند — عملیات مالی همان دکمه‌های ردیف است. «خواباندن به حساب» فقط با <b>واگذاری</b> و انتخاب بانک انجام می‌شود. هر گذار چرخه فقط یک‌بار سند می‌زند. <b>ابطال کامل</b> همهٔ اسناد را معکوس می‌کند (حذف فیزیکی نیست).</div>`),
     helpSec('💳','کارتخوان (POS)',`

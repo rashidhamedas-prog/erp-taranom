@@ -2645,6 +2645,17 @@ function initSyncSchema(db, opts) {
     console.warn('purge_hollow_party_ledger_v374:', e.message);
   }
 
+  // v376 — continuous: opening-cheque phantom credits must not inflate creditor KPI
+  try {
+    const { repairOpeningChequeLedgerMirrors } = require('./lib/customer-books');
+    const oc = repairOpeningChequeLedgerMirrors(db);
+    if (oc && oc.reversed) {
+      console.log('✅ opening_cheque_ledger_mirror_v2:', JSON.stringify(oc));
+    }
+  } catch (e) {
+    console.warn('opening_cheque_ledger_mirror_v2:', e.message);
+  }
+
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {

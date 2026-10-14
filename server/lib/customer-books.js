@@ -29,8 +29,68 @@ const JE_ALIVE = `${JE_NOT_DELETED} AND COALESCE(je.status,'posted') NOT IN ('re
 const ENTRY_ALIVE = `COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')`;
 const REPAIR_FLAG = 'customer_books_repair_v1';
 const REPAIR_FLAG_V2 = 'customer_books_repair_v2';
+/** Legacy one-shot flag (v1). v374 hollow-purge deleted corrective debits and left credits; heal is continuous from v376. */
 const REPAIR_FLAG_OPENING_CHEQUE = 'opening_cheque_ledger_mirror_v1';
+const REPAIR_FLAG_OPENING_CHEQUE_V2 = 'opening_cheque_ledger_mirror_v2';
 const AR_CONTROL_RECLASS = 'ar_control_reclass';
+const OPENING_CHEQUE_NOTE_SQL = `(IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')`;
+
+/**
+ * SQL: customer_ledger alias is operationally live (aligns with hideVoidedBookRows +
+ * opening-cheque policy — opening receipt is notes/equity, never a customer creditor).
+ */
+function sqlCustomerLedgerLive(alias) {
+  const a = alias || 'cl';
+  return `
+    NOT (
+      (COALESCE(${a}.entry_type,'')='reversal' OR ${a}.ref_type LIKE '%reversal%')
+      AND NOT (
+        ${a}.ref_type='sales_return'
+        AND EXISTS (
+          SELECT 1 FROM sales_returns _sr
+          WHERE _sr.id=${a}.ref_id AND COALESCE(_sr.status,'posted')<>'reversed'
+        )
+      )
+    )
+    AND NOT (
+      ${a}.ref_type='settlement' AND EXISTS (
+        SELECT 1 FROM settlements _s
+        WHERE _s.id=${a}.ref_id AND COALESCE(_s.status,'posted')='reversed'
+      )
+    )
+    AND NOT (
+      ${a}.ref_type IN ('cheque','cheque_in','cheque_endorse','cheque_clear','cheque_bounce')
+      AND EXISTS (
+        SELECT 1 FROM cheque_records cr WHERE cr.id=${a}.ref_id
+          AND (
+            COALESCE(cr.record_status,'posted')='reversed'
+            OR ${OPENING_CHEQUE_NOTE_SQL}
+          )
+      )
+    )
+    AND NOT (
+      ${a}.ref_type IN ('sales_return','sales_return_reversal') AND EXISTS (
+        SELECT 1 FROM sales_returns _sr
+        WHERE _sr.id=${a}.ref_id AND COALESCE(_sr.status,'posted')='reversed'
+      )
+    )
+    AND NOT (
+      ${a}.ref_type='pos_receipt' AND EXISTS (
+        SELECT 1 FROM pos_receipts _pr
+        WHERE _pr.id=${a}.ref_id AND COALESCE(_pr.status,'open') IN ('reversed','void')
+      )
+    )
+    AND NOT (
+      ${a}.ref_type IN ('invoice','invoice_payment','invoice_ar_reclass') AND EXISTS (
+        SELECT 1 FROM invoices _i WHERE _i.id=${a}.ref_id
+          AND (
+            COALESCE(_i.status,'') IN ('reversed','void','cancelled')
+            OR COALESCE(_i.deleted_at,0)>0
+          )
+      )
+    )
+  `;
+}
 
 const STMT_REF_ALIAS = {
   invoice_ar_reclass: 'invoice',
@@ -90,6 +150,7 @@ const CHEQUE_BOOK_REFS = new Set([
  */
 function hideVoidedBookRows(db, rows) {
   let reversedCheques = new Set();
+  let openingCheques = new Set();
   let reversedSettlements = new Set();
   let reversedSalesReturns = new Set();
   let reversedPosReceipts = new Set();
@@ -102,6 +163,14 @@ function hideVoidedBookRows(db, rows) {
       `).all().map((r) => Number(r.id))
     );
   } catch (_) { /* table optional on ancient DBs */ }
+  try {
+    openingCheques = new Set(
+      db.prepare(`
+        SELECT id FROM cheque_records cr
+        WHERE ${OPENING_CHEQUE_NOTE_SQL}
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* optional */ }
   try {
     reversedSettlements = new Set(
       db.prepare(`
@@ -148,6 +217,8 @@ function hideVoidedBookRows(db, rows) {
     const rt = String(e.ref_type || '');
     const et = String(e.entry_type || '');
     if (CHEQUE_BOOK_REFS.has(rt) && reversedCheques.has(refId)) return false;
+    // Opening cheque = notes/equity JE only — never a live customer receipt credit.
+    if (rt === 'cheque_in' && openingCheques.has(refId)) return false;
     if (rt === 'settlement' && reversedSettlements.has(refId)) return false;
     if ((rt === 'sales_return' || rt === 'sales_return_reversal') && reversedSalesReturns.has(refId)) {
       return false;
@@ -1070,7 +1141,9 @@ function customerSignedBalanceMap(db) {
   try {
     led = db.prepare(`
       SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
-      FROM customer_ledger GROUP BY customer_id
+      FROM customer_ledger cl
+      WHERE ${sqlCustomerLedgerLive('cl')}
+      GROUP BY customer_id
     `).all();
   } catch (e) {
     console.error('customerSignedBalanceMap ledger:', e.message);
@@ -1125,12 +1198,14 @@ function canonicalCustomerFold(db, { asOf, userId } = {}) {
   const foldParams = [];
   if (asOf) foldParams.push(asOf);
   if (userId != null) foldParams.push(userId, userId);
+  const liveSql = sqlCustomerLedgerLive('cl');
   const rows = db.prepare(`
     SELECT c.id AS customer_id,
       COALESCE(SUM(cl.debit),0) AS debit,
       COALESCE(SUM(cl.credit),0) AS credit
     FROM customers c
     LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${asOfSql}
+      AND (${liveSql})
     ${scopeSql}
     GROUP BY c.id
   `).all(...foldParams);
@@ -1273,6 +1348,7 @@ function customerLedgerTafsiliBalance(db, { asOf } = {}) {
   const params = [];
   let asOfSql = '';
   if (asOf) { asOfSql = ' AND cl.date <= ?'; params.push(asOf); }
+  const liveSql = sqlCustomerLedgerLive('cl');
   const rows = db.prepare(`
     SELECT
       COALESCE(SUM(cl.debit), 0) AS debit,
@@ -1284,6 +1360,7 @@ function customerLedgerTafsiliBalance(db, { asOf } = {}) {
       GROUP BY coa_code
     ) c
     LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${asOfSql}
+      AND (${liveSql})
     GROUP BY c.id
   `).all(...params);
   return foldSignedRows(rows);
@@ -1369,12 +1446,11 @@ function repairCustomerBooks(db) {
 }
 
 /**
- * Opening cheques post Dr notes / Cr equity, but older builds also credited
- * customer_ledger. That phantom credit zeroed a later bounce. Reverse it once.
+ * Opening cheques post Dr notes / Cr equity — never a customer/person receipt.
+ * Older builds credited party books; v1 heal was one-shot. After v374 hollow-purge
+ * removed corrective «اصلاح:» debits, orphan credits returned. Continuous from v376.
  */
 function repairOpeningChequeLedgerMirrors(db) {
-  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(REPAIR_FLAG_OPENING_CHEQUE);
-  if (flag && flag.value === '1') return { skipped: true, reversed: 0 };
   const { retireCustomerLedgerByRef, retirePersonLedgerByRef } = require('./party-ledger-retire');
   let reversed = 0;
   const run = db.transaction(() => {
@@ -1385,11 +1461,10 @@ function repairOpeningChequeLedgerMirrors(db) {
         FROM customer_ledger cl
         JOIN cheque_records cr ON cr.id = cl.ref_id
         WHERE cl.ref_type='cheque_in'
-          AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
+          AND ${OPENING_CHEQUE_NOTE_SQL}
       `).all();
     } catch (_) { rows = []; }
     for (const led of rows) {
-      // v373: drop phantom opening-cheque credits (not a customer receipt).
       reversed += retireCustomerLedgerByRef(db, {
         refTypes: ['cheque_in'],
         refId: led.ref_id,
@@ -1402,7 +1477,7 @@ function repairOpeningChequeLedgerMirrors(db) {
         FROM person_ledger pl
         JOIN cheque_records cr ON cr.id = pl.ref_id
         WHERE pl.ref_type='cheque_in'
-          AND (IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')
+          AND ${OPENING_CHEQUE_NOTE_SQL}
       `).all();
       for (const led of personRows) {
         reversed += retirePersonLedgerByRef(db, {
@@ -1412,12 +1487,15 @@ function repairOpeningChequeLedgerMirrors(db) {
         });
       }
     } catch (_) { /* person_ledger optional */ }
+    // Observability only — never skip on subsequent boots (v1 left orphans).
     db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
       .run(REPAIR_FLAG_OPENING_CHEQUE);
+    db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
+      .run(REPAIR_FLAG_OPENING_CHEQUE_V2);
   });
   run();
   if (reversed) console.log(`✅ اعتبار چک اول دوره از دفتر طرف حساب برداشته شد (${reversed} ردیف)`);
-  return { reversed };
+  return { reversed, continuous: true };
 }
 
 function repairSettlementsMissingBooks(db) {
@@ -1685,6 +1763,7 @@ module.exports = {
   normalizeStmtRefType,
   stmtEntryType,
   hideVoidedBookRows,
+  sqlCustomerLedgerLive,
   glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
