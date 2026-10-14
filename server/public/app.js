@@ -18408,6 +18408,24 @@ async function renderPurchaseReturnsTab(body){
 }
 function isFirmInvoiceType(t){ return t==='final'||t==='normal'; }
 function invoiceTypeShortLabel(t){ return t==='final'?'رسمی':(t==='normal'?'معمولی':'پیش'); }
+/** مبلغ صورت‌حساب پس از تخفیف تجاری (وجه دریافتنی/پرداختنی) — نه جمع ناخالص ردیف‌ها. */
+function invoiceFaceRial(i){
+  if(!i) return 0;
+  const fr=Number(i.amount_rial!=null?i.amount_rial:(i.final_rial!=null?i.final_rial:i.final));
+  return Math.round(Number.isFinite(fr)?fr:0)||0;
+}
+/** برچسب تخصیص فاکتور: خالص پس از تخفیف (+ مانده زنده در صورت وجود). */
+function formatInvoiceAllocOption(i, opts){
+  opts=opts||{};
+  const face=invoiceFaceRial(i);
+  const disc=Math.round(Number(i.disc_amt)||0)||0;
+  const out=i.outstanding!=null?Math.round(Number(i.outstanding)||0):null;
+  const typeBit=opts.withType?` — ${invoiceTypeShortLabel(i.type)}`:'';
+  let amt=`خالص ${fmt(face)} ریال`;
+  if(disc>0) amt+=` (تخفیف ${fmt(disc)})`;
+  if(opts.showOutstanding&&out!=null) amt+=` — مانده ${fmt(out)}`;
+  return `${esc(i.num||('#'+i.id))}${typeBit} — ${escDate(i.date)} — ${amt}`;
+}
 function canOpenReturnWithoutInvoice(){
   if(ME&&(ME.role==='admin'||ME.role==='accounting')) return true;
   const s=CACHE.settings||{};
@@ -18444,8 +18462,8 @@ async function openReturnAllocateModal(side, returnId, partyId, partyLabel){
       ${unalloc>0&&open.length?`<div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
         <div class="fg"><label>فاکتور باز</label>
           <select id="rca-inv">${open.map(i=>{
-            const out=Number(i.outstanding!=null?i.outstanding:(Number(i.final||0)-Number(i.paid||0)))||0;
-            return `<option value="${i.id}" data-out="${out}">${esc(i.num||('#'+i.id))} — ${escDate(i.date)} — مانده ${fmt(out)}</option>`;
+            const out=Number(i.outstanding!=null?i.outstanding:(invoiceFaceRial(i)-Number(i.paid||0)))||0;
+            return `<option value="${i.id}" data-out="${out}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{showOutstanding:true})}</option>`;
           }).join('')}</select>
         </div>
         <div class="fg"><label>مبلغ تخصیص (ریال)</label><input id="rca-amt" type="number" min="1" value="${Math.min(unalloc, Number(open[0]&&(open[0].outstanding!=null?open[0].outstanding:(Number(open[0].final||0)-Number(open[0].paid||0))))||unalloc)}"></div>
@@ -18682,7 +18700,7 @@ function purchaseReturnModal(){
             <label ${openOk?'':`title="فقط مدیر/حسابداری"`}><input type="radio" name="pr-mode" value="open" ${openOk?'':'disabled'} data-csp-change="${CSP.bind('change',function(){onPrModeChange()})}"> بدون فاکتور</label>
           </div>
         </div>
-        <div class="fg" id="pr-invoice-wrap"><label>فاکتور خرید ${hlp('قیمت از فاکتور خوانده می‌شود؛ سقف تعداد = خریداری‌شده منهای برگشتی قبلی.')}</label>
+        <div class="fg" id="pr-invoice-wrap"><label>فاکتور خرید ${hlp('مبلغ لیست = خالص پس از تخفیف فاکتور خرید (AP). قیمت و تخفیف ردیف از همان فاکتور؛ سقف تعداد = خریداری‌شده منهای برگشتی قبلی.')}</label>
           <select id="pr-invoice" data-csp-change="${CSP.bind('change',function(event){loadPrReturnRows()})}" disabled><option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option></select>
         </div>
         <div class="fg"><label>انبار (بدون فاکتور / پیش‌فرض ردیف)</label><select id="pr-wh">${warehouseOptionsHtml(null,'— پیش‌فرض —')}</select></div>
@@ -18728,15 +18746,14 @@ async function loadPrInvoices(){
   const invSel=el('pr-invoice');
   const rowsBox=el('prRowsContainer');
   if(!supId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
-  const allPurchases=listRows(await api('GET','/purchases'));
-  const invs=allPurchases.filter(i=>Number(i.supplier_id)===supId && (i.status||'posted')!=='reversed');
+  const invs=listRows(await api('GET','/accounting/suppliers/'+supId+'/purchase-invoices'))||[];
   if(!invs.length){
     invSel.disabled=true; invSel.innerHTML='<option value="">-- این تأمین‌کننده فاکتور خرید ندارد --</option>';
     rowsBox.innerHTML='<div class="empty">این تأمین‌کننده فاکتور خریدی برای برگشت ندارد</div>';
     return;
   }
   invSel.disabled=false;
-  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i)}</option>`).join('');
   rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
 }
 async function loadPrReturnRows(){
@@ -18938,7 +18955,7 @@ async function salesReturnModal(editRow){
             <label ${openOk?'':`title="فقط مدیر/حسابداری"`}><input type="radio" name="sr-mode" value="open" ${!linkedDefault?'checked':''} ${openOk?'':'disabled'} data-csp-change="${CSP.bind('change',function(){onSrModeChange()})}"> بدون فاکتور</label>
           </div>
         </div>
-        <div class="fg" id="sr-invoice-wrap"><label>فاکتور فروش قطعی ${hlp('معمولی و رسمی؛ قیمت و تخفیف از همان فاکتور.')}</label>
+        <div class="fg" id="sr-invoice-wrap"><label>فاکتور فروش قطعی ${hlp('معمولی و رسمی. مبلغ لیست = خالص پس از تخفیف تجاری فاکتور (همان وجه دریافتنی AR)؛ نه جمع قیمت قبل از تخفیف کل.')}</label>
           <select id="sr-invoice" data-csp-change="${CSP.bind('change',function(event){loadSrReturnRows()})}" disabled><option value="">-- ابتدا مشتری را انتخاب کنید --</option></select>
         </div>
         <div class="fg"><label>انبار مقصد برگشت</label><select id="sr-wh">${warehouseOptionsHtml(null,'— از فاکتور / پیش‌فرض —')}</select></div>
@@ -19008,15 +19025,14 @@ async function loadSrInvoices(){
   const invSel=el('sr-invoice');
   const rowsBox=el('srRowsContainer');
   if(!custId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا مشتری را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
-  CACHE.invoices=listRows(await api('GET','/invoices'));
-  const invs=CACHE.invoices.filter(i=>Number(i.cust_id)===custId && isFirmInvoiceType(i.type) && (i.status||'posted')!=='reversed' && !i.deleted_at);
+  const invs=listRows(await api('GET','/accounting/customers/'+custId+'/firm-invoices'))||[];
   if(!invs.length){
     invSel.disabled=true; invSel.innerHTML='<option value="">-- این مشتری فاکتور قطعی ندارد --</option>';
     rowsBox.innerHTML='<div class="empty">این مشتری فاکتور معمولی/رسمی برای برگشت ندارد</div>';
     return;
   }
   invSel.disabled=false;
-  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${invoiceTypeShortLabel(i.type)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{withType:true})}</option>`).join('');
   rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
 }
 async function loadSrReturnRows(){
@@ -22960,7 +22976,7 @@ async function cdeLoadInvoices(custId, selectedId, selectedLabel){
     extra=`<option value="${selectedId}">${esc(selectedLabel||('فاکتور #'+selectedId))} — همین تخصیص</option>`;
   }
   sel.innerHTML='<option value="">— بدون تخصیص به فاکتور —</option>'+extra+
-    open.map(i=>`<option value="${i.id}">${esc(i.num)} — مانده ${fmt(i.outstanding)}</option>`).join('');
+    open.map(i=>`<option value="${i.id}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{showOutstanding:true})}</option>`).join('');
   if(selectedId) sel.value=String(selectedId);
 }
 async function openCashDocEdit(kind, row){
@@ -23312,7 +23328,7 @@ async function settlementModal(custId){
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این دریافت از او ثبت می‌شود.')}</label>${custSelect('st-cust', custId)}</div>
       <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این دریافت بابت یک فاکتور خاص است، آن را انتخاب کنید — فاکتورهای قطعی با مانده باز (معمولی و رسمی).')}</label>
         <select id="st-invoice" data-csp-change="${CSP.bind('change',function(event){stlApplyInvoiceAmt()})}"><option value="">— بدون تخصیص به فاکتور —</option>
-        ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
+        ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{showOutstanding:true})}</option>`).join('')}
         </select></div>
       <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
         <input type="checkbox" id="st-multi" data-csp-change="${CSP.bind('change',function(event){stlToggleMulti()})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
@@ -23394,7 +23410,7 @@ async function stlCustChanged(){
   stlOpenInvoices=custId?await api('GET','/accounting/customers/'+custId+'/open-invoices')||[]:[];
   const sel=el('st-invoice');
   if(sel) sel.innerHTML='<option value="">— بدون تخصیص به فاکتور —</option>'+
-    stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('');
+    stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{showOutstanding:true})}</option>`).join('');
   renderStlRows();
 }
 function stlApplyInvoiceAmt(){
@@ -23442,7 +23458,7 @@ function renderStlRows(){
     <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';stlRows[(i)].terminal_id='';}else if(this.value==='pos_card'){stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id='';}else{stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option><option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option></select></td>
     <td>${stlDestCell(r,i)}</td>
     <td><input data-jdate value="${esc(r.date)}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].date=this.value})}" data-csp-style="${CSP.style(`width:100px`)}"></td>
-    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].invoice_id=this.value})}">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ریال)</option>`).join('')}</select></td>
+    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].invoice_id=this.value})}">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''} data-face="${invoiceFaceRial(inv)}">${esc(inv.num)} (مانده ${fmt(inv.outstanding)} · خالص ${fmt(invoiceFaceRial(inv))})</option>`).join('')}</select></td>
     <td>${stlRows.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){stlRows.splice((i),1);renderStlRows()})}">×</button>`:''}</td>
   </tr>`).join('');
   attachDatepickers(body);
@@ -27579,6 +27595,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
         <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره. در ویرایش، همهٔ دریافت‌های ثبت‌شده (نقد/بانک/چک/کارتخوان) مثل زمان ثبت لود می‌شوند.</li>
         <li><b>اصلاح پرداخت کارتخوان (v369):</b> تغییر مبلغ یا روش پرداخت در ویرایش فاکتور، دریافت کارتخوان را ابطال اصولی می‌کند (JE + دفتر مشتری + سایهٔ تسویه) و با مبلغ جدید دوباره ثبت می‌کند — ماندهٔ فاکتور و گردش مشتری هر دو با یک مبلغ سازگار می‌مانند (نه فقط UI).</li>
+        <li><b>تاریخ اصلاح فاکتور (v371):</b> ابطال/ثبت مجدد دریافت، دفتر مشتری، و حرکت موجودی هنگام ویرایش فاکتور با <b>تاریخ خود فاکتور</b> ثبت می‌شود — نه تاریخ روز.</li>
         <li><b>کارشناس فاکتور:</b> مدیر و حسابدار در فرم فاکتور همهٔ کارشناسان فعال فروش را می‌بینند — میدانی، داخلی، مدیر فروش، <b>دفتر پخش</b>، و مدیر/حسابدار. فهرست از <code>/auth/expert-options</code> تازه بارگذاری می‌شود (نه کش قدیمی کاربران). انگیزهٔ کمیسیون همچنان فقط برای نقش‌های میدانی/داخلی است.</li>
         <li><b>چاپ:</b> خطوط مشکی‌زاغ؛ مبالغ بولد؛ رنگ/سایز در چاپ نمایش داده نمی‌شود (فقط نام کالا و تعداد جمع‌شده). قالب‌ها فشرده‌اند تا چند ردیف در یک صفحه بماند</li>
       </ul>`),
@@ -28372,6 +28389,7 @@ function renderSalesGuide(){
         <li>در کل برنامه، نمایش سایز برای picking/لیست/حواله توضیح تناسب داخل پرانتز را نشان نمی‌دهد؛ نام کامل فقط در ویرایش master سایز کاتالوگ می‌ماند</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
         <li>در ویرایش فاکتور، دریافت‌های قبلی (نقد/بانک/چک/کارتخوان) مثل زمان ثبت دیده می‌شوند؛ اصلاح کارتخوان دفتر مشتری را هم هم‌تراز می‌کند (نه فقط مانده روی فرم).</li>
+        <li>تغییرات ویرایش فاکتور (ابطال/ثبت مجدد دریافت و موجودی) با تاریخ خود فاکتور ثبت می‌شود نه تاریخ روز (v371).</li>
         <li>چک دریافتی: «مبلغ این فقره چک (ریال)» و «➕ ثبت چک بعدی» برای هر برگ جدا است؛ جمع چند فقره روی یک صیاد به یک برگهٔ واحد تبدیل نمی‌شود</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),

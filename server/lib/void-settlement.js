@@ -58,8 +58,9 @@ function settlementAmountRial(settlement) {
 }
 
 /** R13: reverse customer_ledger even when the settlement JE is missing or already reversed. */
-function reverseSettlementBooks(db, settlement, userId) {
+function reverseSettlementBooks(db, settlement, userId, opts) {
   if (!settlement || !settlement.id || !settlement.cust_id) return 0;
+  const when = String((opts && opts.date) || todayJalali()).trim() || todayJalali();
   const open = db.prepare(`
     SELECT * FROM customer_ledger
     WHERE ref_type='settlement' AND ref_id=? AND customer_id=?
@@ -75,7 +76,7 @@ function reverseSettlementBooks(db, settlement, userId) {
   for (const row of open) {
     createLedgerEntry(db, {
       customer_id: settlement.cust_id,
-      date: todayJalali(),
+      date: when,
       entry_type: 'reversal',
       ref_type: 'settlement',
       ref_id: settlement.id,
@@ -103,7 +104,8 @@ function markSettlementReversed(db, settlementId, userId, reversalJournalId) {
   `).run(revJe, userId, settlementId);
 }
 
-function reverseSettlementGlInTx(db, settlement, userId) {
+function reverseSettlementGlInTx(db, settlement, userId, opts) {
+  const when = String((opts && opts.date) || todayJalali()).trim() || todayJalali();
   let cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
   const overrideCode = String(settlement.account_code || '').trim();
   if (overrideCode) {
@@ -121,7 +123,7 @@ function reverseSettlementGlInTx(db, settlement, userId) {
   const amt = settlementAmountRial(settlement);
   // v285+: soft-voids original settlement JE(s); null when already void / missing original.
   const reversalId = postToLedger(db, {
-    sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
+    sourceType: 'settlement_reversal', sourceId: settlement.id, date: when,
     description: `ابطال تسویه شماره ${settlement.id}`, createdBy: userId,
     lines: [
       (() => { const a = recvAcct(db, settlement.cust_id); return { code: a.code, name: a.name, debit: rialToLedger(amt), credit: 0 }; })(),
@@ -141,6 +143,7 @@ function reverseSettlementGlInTx(db, settlement, userId) {
 function reverseSettlementInTx(db, settlement, userId, opts) {
   const options = opts || {};
   if (!settlement || settlement.status === 'reversed') return null;
+  const when = String(options.date || todayJalali()).trim() || todayJalali();
 
   // POS shadow settlements post AR credit + JE on pos_receipt — never patch/reverse as cash settlement.
   try {
@@ -148,8 +151,9 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
     const livePos = pos.findLivePosReceiptForSettlement(db, settlement);
     if (livePos) {
       pos.voidReceiptInTx(db, livePos.id, { id: userId }, {
-        reason: (options && options.reason) || 'ابطال تسویه کارتخوان',
+        reason: options.reason || 'ابطال تسویه کارتخوان',
         allowAlreadyReversed: true,
+        date: when,
       });
       if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
       // voidReceiptInTx already marks settlement reversed; ensure flag if orphan link.
@@ -161,14 +165,14 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
     /* fall through to cash/bank/cheque reverse if POS module unavailable */
   }
 
-  reverseSettlementBooks(db, settlement, userId);
+  reverseSettlementBooks(db, settlement, userId, { date: when });
 
   let reversalId = null;
   if (settlementHasLiveJe(db, settlement.id)) {
     // R13: JE reverse must not be swallowed — abort the surrounding transaction.
-    reversalId = reverseSettlementGlInTx(db, settlement, userId);
+    reversalId = reverseSettlementGlInTx(db, settlement, userId, { date: when });
     try {
-      reverseCommissionAccrual(db, 'settlement', settlement.id, userId, todayJalali());
+      reverseCommissionAccrual(db, 'settlement', settlement.id, userId, when);
     } catch (_) { /* must not block settlement.status=reversed */ }
 
     try {

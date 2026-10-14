@@ -417,7 +417,7 @@ function postReceipt(db, body, user) {
  * Core POS void for use inside an open db.transaction (invoice amend / settlement reverse).
  * Clears idempotency_key so amend can re-post the same logical key.
  */
-function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
+function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed, date } = {}) {
   const row = db.prepare('SELECT * FROM pos_receipts WHERE id=?').get(id);
   if (!row) throw httpErr(404, 'دریافت کارتخوان یافت نشد', 'E_POS_RECEIPT');
   if (row.status === 'reversed') {
@@ -435,6 +435,8 @@ function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
   }
 
   const uid = user && user.id != null ? user.id : null;
+  // Invoice amend: use invoice date; standalone void: today (or caller date).
+  const when = String(date || todayJalali()).trim() || todayJalali();
   const { reverseJournalEntry } = voidJournalApi();
   const revJe = reverseJournalEntry(db, row.journal_id, {
     userId: uid,
@@ -443,7 +445,7 @@ function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
   });
   if (row.cust_id) {
     dbApi().createLedgerEntry(db, {
-      customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
+      customer_id: row.cust_id, date: when, entry_type: 'reversal',
       ref_type: 'pos_receipt', ref_id: row.id,
       description: `ابطال دریافت کارتخوان شماره ${row.id}`,
       debit: row.amount_rial, credit: 0, user_id: uid,
@@ -454,7 +456,7 @@ function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
       UPDATE settlements SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?
       WHERE id=? AND COALESCE(status,'posted')<>'reversed'
     `).run(uid, row.settlement_id);
-    try { repLedgerApi().reverseCommissionAccrual(db, 'settlement', row.settlement_id, uid, todayJalali()); }
+    try { repLedgerApi().reverseCommissionAccrual(db, 'settlement', row.settlement_id, uid, when); }
     catch (_) { /* optional */ }
   }
   // Release idempotency so invoice amend can recreate the same inv-…-pos-… key.
@@ -467,8 +469,8 @@ function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
   return { id: row.id, status: 'reversed', reversal_journal_id: revJe };
 }
 
-function voidReceipt(db, id, user, { reason } = {}) {
-  const out = db.transaction(() => voidReceiptInTx(db, id, user, { reason }))();
+function voidReceipt(db, id, user, { reason, date } = {}) {
+  const out = db.transaction(() => voidReceiptInTx(db, id, user, { reason, date }))();
   dbApi().audit(user.id, 'reverse', 'pos_receipt', id, `ابطال دریافت کارتخوان #${id}`);
   return Object.assign(db.prepare('SELECT * FROM pos_receipts WHERE id=?').get(id), out);
 }
@@ -502,7 +504,7 @@ function findLivePosReceiptForSettlement(db, settlement) {
 }
 
 /** Void any still-live POS receipts for an invoice (orphan cleanup after amend reverse). */
-function voidLivePosReceiptsForInvoice(db, invoiceId, user, { reason } = {}) {
+function voidLivePosReceiptsForInvoice(db, invoiceId, user, { reason, date } = {}) {
   if (!invoiceId) return 0;
   let rows = [];
   try {
@@ -516,6 +518,7 @@ function voidLivePosReceiptsForInvoice(db, invoiceId, user, { reason } = {}) {
     voidReceiptInTx(db, r.id, user, {
       reason: reason || 'اصلاح فاکتور — ابطال دریافت کارتخوان',
       allowAlreadyReversed: true,
+      date,
     });
     n += 1;
   }

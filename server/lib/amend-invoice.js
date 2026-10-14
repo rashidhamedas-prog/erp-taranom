@@ -162,11 +162,17 @@ function postNewSaleLine(db, { meta, qty, sourceId, userId, date, num }) {
   return Math.round(Number(mv.amount_rial) || 0);
 }
 
-function updateMovementQty(db, mv, qtyOut) {
+function updateMovementQty(db, mv, qtyOut, date) {
   const unit = Math.round(Number(mv.unit_cost_rial) || 0);
   const amt = Math.round(unit * qtyOut);
-  db.prepare('UPDATE inventory_ledger SET qty_out=?, amount_rial=? WHERE id=?')
-    .run(qtyOut, amt, mv.id);
+  const when = date != null && String(date).trim() !== '' ? String(date).trim() : null;
+  if (when) {
+    db.prepare('UPDATE inventory_ledger SET qty_out=?, amount_rial=?, date=? WHERE id=?')
+      .run(qtyOut, amt, when, mv.id);
+  } else {
+    db.prepare('UPDATE inventory_ledger SET qty_out=?, amount_rial=? WHERE id=?')
+      .run(qtyOut, amt, mv.id);
+  }
   return amt;
 }
 
@@ -242,7 +248,7 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
         if (newQty <= 0) {
           for (const mv of mvs) retireAmendedMovement(db, mv);
         } else {
-          cogsRial += updateMovementQty(db, mvs[0], newQty);
+          cogsRial += updateMovementQty(db, mvs[0], newQty, date);
           for (let i = 1; i < mvs.length; i++) retireAmendedMovement(db, mvs[i]);
         }
         if (meta.isFabric && meta.batchId) syncFabricAfterLedger(db, meta.batchId);
@@ -511,15 +517,20 @@ function patchOneInvoiceTimeSettlement(db, {
   }
 }
 
-function reverseInvoiceTimePaymentsInTx(db, invoiceTime, invoiceId, userId) {
+function reverseInvoiceTimePaymentsInTx(db, invoiceTime, invoiceId, userId, date) {
   const { reverseSettlementInTx } = require('./void-settlement');
+  const when = String(date || '').trim();
   for (const sett of invoiceTime) {
-    reverseSettlementInTx(db, sett, userId, { reason: 'اصلاح فاکتور — بازنویسی دریافت هنگام فاکتور' });
+    reverseSettlementInTx(db, sett, userId, {
+      reason: 'اصلاح فاکتور — بازنویسی دریافت هنگام فاکتور',
+      date: when || undefined,
+    });
   }
   // Orphan POS (e.g. prior amend patched settlement amount without voiding pos_receipt).
   try {
     require('./pos').voidLivePosReceiptsForInvoice(db, invoiceId, { id: userId }, {
       reason: 'اصلاح فاکتور — ابطال یتیم کارتخوان',
+      date: when || undefined,
     });
   } catch (e) {
     if (e && e.status) throw e;
@@ -561,7 +572,7 @@ function rewriteInvoiceTimeSettlements(db, {
         'E_AMEND_SPLIT_COUNT'
       );
     }
-    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId);
+    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId, date);
     if (splits.length) {
       applyInvoicePaySplits(db, {
         invoiceId: row.id, custId, date, splits, userId, num,
@@ -607,7 +618,7 @@ function rewriteInvoiceTimeSettlements(db, {
         'E_AMEND_SPLIT_COUNT'
       );
     }
-    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId);
+    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId, date);
     if (splits.length) {
       applyInvoicePaySplits(db, {
         invoiceId: row.id, custId, date, splits, userId, num,
