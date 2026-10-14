@@ -135,7 +135,13 @@ function partySignedBalanceDetailMap(db) {
       for (const [pid, bal0] of plBal) {
         const leaf = plCoa.get(pid);
         let bal = Math.round(Number(bal0) || 0);
-        if (!plHasOpening.has(pid)) bal += takeOpening(pid, leaf);
+        if (plHasOpening.has(pid)) {
+          // Opening already inside person_ledger — never fold header again
+          const meta = partyMeta.get(pid);
+          if (meta) meta.openingUsed = true;
+        } else {
+          bal += takeOpening(pid, leaf);
+        }
         putLeaf(pid, leaf, bal, 'person');
       }
     } catch (_) { /* optional */ }
@@ -162,7 +168,12 @@ function partySignedBalanceDetailMap(db) {
         seen.add(pid);
         const leaf = r.cust_coa || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null;
         let bal = Math.round(Number(r.bal) || 0);
-        if (!Number(r.open_n)) bal += takeOpening(pid, leaf);
+        if (Number(r.open_n)) {
+          const meta = partyMeta.get(pid);
+          if (meta) meta.openingUsed = true;
+        } else {
+          bal += takeOpening(pid, leaf);
+        }
         putLeaf(pid, leaf, bal, 'customer');
       }
       for (const c of db.prepare(
@@ -200,7 +211,10 @@ function partySignedBalanceDetailMap(db) {
             if (isOpeningRef(ln.ref_type, ln.entry_type)) hasOpening = true;
           }
         }
-        if (!hasOpening) {
+        if (hasOpening) {
+          const meta = partyMeta.get(pid);
+          if (meta) meta.openingUsed = true;
+        } else {
           // Header opening on this leaf (signed). Also fold suppliers.balance if
           // it is the only opening store and party.opening was not used.
           bal += takeOpening(pid, leaf);
