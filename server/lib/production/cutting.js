@@ -255,46 +255,81 @@ function nextBundleBarcode(db, packNo, sizeCode, color) {
 
 /**
  * Remaining fabric meters that may still be issued via PO material issue after cutting.
- * Cut meters are global for the fabric SKU (independent of production_order_id).
- * `allowed === null` means no cutting lock (SKU not consumed in any live lay).
+ *
+ * Scope (v384): cut meters count only lays that belong to THIS production order
+ * (production_order_id) OR, for legacy lays without PO, the same finished goods
+ * product_id as the order. Lays for a different FG/SKU must NOT lock another
+ * order's BOM fabric line (cross-product contamination bug on PO-0009 / آبان).
+ *
+ * Double-issue of the same physical roll is still blocked by batch_id check in
+ * assertFabricIssueAllowed — independent of this scope.
+ *
+ * `allowed === null` means no cutting lock for this order/FG.
  */
 function fabricIssueAllowance(db, { productId, orderId } = {}) {
   const out = {
     product_id: productId ? Number(productId) : null,
     cut_meters: 0,
+    cut_scope: null,
+    cut_fg_product_id: null,
     std_qty: 0,
     already_issued: 0,
     allowed: null,
     remaining: null,
   };
   if (!productId) return out;
-  const cutRow = db.prepare(`
-    SELECT COALESCE(SUM(l.actual_meters),0) AS s
-    FROM cutting_lays l
-    WHERE l.fabric_product_id=?
-      AND COALESCE(l.status,'posted') <> 'reversed'
-  `).get(Number(productId));
-  const cutMeters = Number(cutRow && cutRow.s) || 0;
+
+  let cutMeters = 0;
+  let po = null;
+  if (orderId) {
+    po = db.prepare('SELECT id, product_id, bom_id, qty_planned, size_breakdown FROM production_orders WHERE id=?')
+      .get(Number(orderId));
+  }
+
+  if (po) {
+    // PO-linked lays for this order + legacy unlinked lays for the same FG only.
+    const cutRow = db.prepare(`
+      SELECT COALESCE(SUM(l.actual_meters),0) AS s
+      FROM cutting_lays l
+      WHERE l.fabric_product_id=?
+        AND COALESCE(l.status,'posted') <> 'reversed'
+        AND (
+          l.production_order_id = ?
+          OR (l.production_order_id IS NULL AND l.product_id = ?)
+        )
+    `).get(Number(productId), Number(po.id), Number(po.product_id));
+    cutMeters = Number(cutRow && cutRow.s) || 0;
+    out.cut_scope = 'order_or_fg';
+    out.cut_fg_product_id = Number(po.product_id);
+  } else {
+    // No order context — keep legacy fabric-SKU sum (batch guard still applies).
+    const cutRow = db.prepare(`
+      SELECT COALESCE(SUM(l.actual_meters),0) AS s
+      FROM cutting_lays l
+      WHERE l.fabric_product_id=?
+        AND COALESCE(l.status,'posted') <> 'reversed'
+    `).get(Number(productId));
+    cutMeters = Number(cutRow && cutRow.s) || 0;
+    out.cut_scope = 'fabric_sku_global';
+  }
+
   out.cut_meters = cutMeters;
   if (cutMeters <= 0) return out;
 
   let stdQty = 0;
-  if (orderId) {
-    const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(Number(orderId));
-    if (po && po.bom_id) {
-      try {
-        const qtyStarted = Number(po.qty_planned) || 0;
-        const { explodeBom } = require('./bom');
-        const ex = explodeBom(db, {
-          bomId: po.bom_id,
-          qty: qtyStarted,
-          sizeBreakdown: parseJson(po.size_breakdown, {}) || {},
-          priceBasis: 'average',
-        });
-        const line = (ex.lines || []).find((L) => Number(L.product_id) === Number(productId));
-        stdQty = line ? Number(line.qty_net != null ? line.qty_net : line.qty_final) || 0 : 0;
-      } catch (_) { stdQty = 0; }
-    }
+  if (po && po.bom_id) {
+    try {
+      const qtyStarted = Number(po.qty_planned) || 0;
+      const { explodeBom } = require('./bom');
+      const ex = explodeBom(db, {
+        bomId: po.bom_id,
+        qty: qtyStarted,
+        sizeBreakdown: parseJson(po.size_breakdown, {}) || {},
+        priceBasis: 'average',
+      });
+      const line = (ex.lines || []).find((L) => Number(L.product_id) === Number(productId));
+      stdQty = line ? Number(line.qty_net != null ? line.qty_net : line.qty_final) || 0 : 0;
+    } catch (_) { stdQty = 0; }
   }
   const issuedRow = orderId
     ? db.prepare(`
@@ -313,10 +348,10 @@ function fabricIssueAllowance(db, { productId, orderId } = {}) {
 }
 
 /**
- * Block PO issue/backflush of fabric already consumed by a posted cutting lay.
- * Cut meters are global for the fabric SKU (independent of production_order_id)
- * so linking a lay to a decoy order cannot unlock another order.
- * Remaining unused BOM meters (std − cut) may still be issued from other rolls.
+ * Block PO issue/backflush of fabric already consumed by a posted cutting lay
+ * for this order/FG. Same physical roll (batch) cannot be re-issued regardless
+ * of order. Remaining unused BOM meters (std − cut_scoped) may still be issued
+ * from other rolls / other orders.
  */
 function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
   const AQ = Number(qty) || 0;
@@ -340,6 +375,8 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
     throw httpErr(409, 'این متر پارچه در لایه‌چینی مصرف شده است', 'E_FABRIC_ALREADY_CUT', {
       product_id: Number(productId),
       cut_meters: allow.cut_meters,
+      cut_scope: allow.cut_scope,
+      cut_fg_product_id: allow.cut_fg_product_id,
       allowed: allow.allowed,
       remaining: allow.remaining,
     });

@@ -167,7 +167,7 @@ function postPartyOpeningBalance(db, {
  * Dr inventory / Cr opening_balance
  */
 function postProductOpeningInventory(db, {
-  productId, qty, unitCostRial, date, userId, description, srcSystem,
+  productId, qty, unitCostRial, date, userId, description, srcSystem, skipLedger,
 }) {
   const q = Math.max(0, Number(qty) || 0);
   const unit = Math.max(0, Math.round(Number(unitCostRial) || 0));
@@ -194,7 +194,9 @@ function postProductOpeningInventory(db, {
     ],
   });
 
-  if (product.warehouse_id) {
+  // skipLedger: accounting value only (seed-avg when kardex already has qty).
+  // skipStock alone still wrote qty_in and inflated cardex until reconcile.
+  if (product.warehouse_id && !skipLedger) {
     const { postInventoryMovement } = require('./inventory/ledger');
     postInventoryMovement(db, {
       eventType: 'opening',

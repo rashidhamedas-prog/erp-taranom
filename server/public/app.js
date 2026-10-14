@@ -268,9 +268,15 @@ async function api(method, path, data, isFormData, silent){
         E_ZERO_AVG_COST: pname
           ? ('بهای میانگین «'+pname+'» صفر است — ابتدا فاکتور خرید (یا موجودی اول‌دوره با بها) ثبت کنید')
           : 'بهای میانگین کالا صفر است — ابتدا فاکتور خرید (یا موجودی اول‌دوره با بها) ثبت کنید',
-        E_NEGATIVE_STOCK: pname
-          ? ('موجودی «'+pname+'» برای حواله کافی نیست')
-          : 'موجودی انبار برای حواله کافی نیست',
+        E_NEGATIVE_STOCK: (()=>{
+          const avail=j.available!=null?j.available:j.stock_available;
+          const need=j.needed!=null?j.needed:j.qty;
+          const base=pname
+            ? ('موجودی «'+pname+'» برای حواله کافی نیست')
+            : 'موجودی انبار برای حواله کافی نیست';
+          if(avail==null && need==null) return base;
+          return base+' (موجود: '+(avail!=null?avail:'—')+(need!=null?'، نیاز: '+need:'')+')';
+        })(),
         E_VARIANCE_NEEDS_REASON: pname
           ? ('انحراف «'+pname+'» زیاد است — دلیل الزامی است')
           : 'انحراف زیاد است — دلیل الزامی است',
@@ -17044,11 +17050,15 @@ async function prodOrderIssueModal(id){
     : '';
   const cutLockedCount=lines.filter(L=>Number(L.fabric_cut_locked)===1).length;
   const cutHint=cutLockedCount
-    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#2D7A5F`)}">پارچه‌ای که در لایه‌چینی مصرف شده از حواله حذف/قفل شده تا دوباره‌مصرف نشود. بقیهٔ اقلام BOM (آستر، زیپ، …) را ثبت کنید.</div>`
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#2D7A5F`)}">پارچه‌ای که در لایه‌چینی <b>همین سفارش/کالای دوخته</b> مصرف شده از حواله قفل است تا دوباره‌مصرف نشود. لایه‌چینی محصول دیگر روی این سفارش اثر ندارد. بقیهٔ اقلام BOM (آستر، زیپ، …) را ثبت کنید.</div>`
+    : '';
+  const shortLines=lines.filter(L=>Number(L.stock_short)===1 && Number(L.fabric_cut_locked)!==1);
+  const shortHint=shortLines.length
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">موجودی انبار مواد برای این اقلام کمتر از مقدار حواله است: ${esc(shortLines.map(L=>(L.name||('#'+L.product_id))+' (موجود '+(L.stock_available??'—')+' / نیاز '+(L.qty_actual??L.qty_standard)+')').join('؛ '))} — ابتدا رسید/خرید ثبت کنید یا مقدار واقعی را کم کنید.</div>`
     : '';
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
-    ${zeroHint}${cutHint}
+    ${zeroHint}${cutHint}${shortHint}
     <div id="pim-summary" class="prod-issue-summary" data-csp-style="${CSP.style(`display:${seeCost?'flex':'none'};gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px`)}"></div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th>
@@ -17057,10 +17067,12 @@ async function prodOrderIssueModal(id){
     </tr></thead><tbody id="pim-rows">
       ${lines.map((L,i)=>{
         const locked=Number(L.fabric_cut_locked)===1;
-        const lockNote=locked?` <span class="muted">(مصرف‌شده در لایه‌چینی${L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':''})</span>`
+        const lockNote=locked?` <span class="muted">(مصرف‌شده در لایه‌چینی همین سفارش/کالا${L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':''})</span>`
           :(L.fabric_qty_allowed!=null && Number(L.fabric_cut_meters)>0?` <span class="muted">(مانده مجاز ${L.fabric_qty_allowed} متر)</span>`:'');
+        const shortNote=Number(L.stock_short)===1 && !locked
+          ? ` <span style="color:#C0392B">(کسری انبار: موجود ${L.stock_available??'—'})</span>` : '';
         return `<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial||0}" data-ap="${L.average_cost_rial||0}" data-avg-ok="${lineAvgOk(L)?1:0}" data-fabric-locked="${locked?1:0}">
-        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}${lockNote}</td>
+        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}${lockNote}${shortNote}</td>
         <td class="num">${L.qty_standard}</td>
         <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" ${locked?'readonly disabled':''} data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
         <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
@@ -28314,6 +28326,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» رسید محصول است (نه تابلوی خط خالی). تابلوی خط فقط سفارش چندمرحله‌ای را نشان می‌دهد و لایه‌های منتظر PACK را در ستون «برش / WIP» می‌آورد. در حواله مواد، پارچهٔ مصرف‌شده در لایه‌چینی قفل می‌شود تا آستر/زیپ قابل ثبت بمانند. ورود به انبار محصول رنگ طاقه را با <code>colorsMatch</code> به واریانت کالا وصل می‌کند (از جمله فری‌سایز با چند رنگ).
+          <br><b>v384 قفل پارچه فقط برای همین سفارش/کالا:</b> متر لایه‌چینی محصول دیگر (مثلاً یلدا روی سفارش آبان) حواله را قفل نمی‌کند. همان طاقهٔ فیزیکی همچنان با شناسهٔ دسته مسدود است. کمبود موجودی (مثل زیپ) با «موجود / نیاز» در پیام و هشدار قبل از ثبت نشان داده می‌شود. ثبت «بهای اولیه» دیگر ردیف اضافهٔ کاردکس نمی‌سازد اگر موجودی از قبل در کاردکس باشد.
           <br><b>v382 دروازهٔ ترتیبی مسیر ۶مرحله‌ای:</b> ورود به هر کارت/میانبر/منوی مراحل ۲…۶ فقط وقتی مراحل قبلی کامل باشند مجاز است. کارت قفل‌شده با قفل و پیام دقیق (اولین پیش‌نیاز ناقص + فهرست علت‌ها) مسدود می‌شود. مرحله ۲ = سفارش <b>آزادشده</b> (پیش‌نویس کافی نیست). مرحله ۴ در مسیر بدون مراحل پیشرفته خودکار تکمیل است. منوی سایدبار همان گیت را اعمال می‌کند و در صورت رد به داشبورد برمی‌گرداند.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان حساب می‌شود (مثلاً «سورمه ای» طاقه با «سرمه‌ای» کاتالوگ). لیست رنگ لایه‌چینی اول از ماتریس کالا پر می‌شود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.

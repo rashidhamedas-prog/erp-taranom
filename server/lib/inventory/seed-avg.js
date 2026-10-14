@@ -34,6 +34,17 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
       LIMIT 1
     `).get(productId);
     let jeId = existing?.id || null;
+    // Kardex qty already present (opening/reconcile) → never invent a second qty_in
+    // row; that doubled cardex (INV-1187) until stock_reconcile removed it.
+    let ledgerNet = 0;
+    try {
+      ledgerNet = Number(db.prepare(`
+        SELECT COALESCE(SUM(qty_in - qty_out), 0) AS s
+        FROM inventory_ledger
+        WHERE product_id=? AND COALESCE(status,'posted')='posted'
+      `).get(productId)?.s) || 0;
+    } catch (_) { ledgerNet = 0; }
+    const kardexCoversStock = qty > 0 && ledgerNet + 1e-9 >= qty;
     if (!jeId && qty > 0) {
       jeId = postProductOpeningInventory(db, {
         productId,
@@ -42,6 +53,8 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
         userId,
         date: date || todayJalali(),
         description: `بهای اولیه موجودی — ${p.name}`,
+        // Value JE only when kardex already shows the qty — seed must not change qty.
+        skipLedger: kardexCoversStock,
       });
     }
     const { catalogCostFromAvgRial } = require('./product-unit-cost');

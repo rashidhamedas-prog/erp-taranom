@@ -10,7 +10,7 @@ const { explodeBom, resolveBom } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
-  recalcAvgOnReturn, setting,
+  recalcAvgOnReturn, setting, getWhQty,
 } = require('./costing');
 const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
@@ -1249,11 +1249,13 @@ function issueTemplate(db, { orderId, qtyStarted }) {
     color: po.color,
     priceBasis: 'std',
   });
+  const whId = po.warehouse_raw_id || null;
   return {
     order_id: orderId,
     qty_started: qty,
+    warehouse_raw_id: whId,
     lines: ex.lines.map(L => {
-      const p = db.prepare('SELECT name, average_cost_rial, item_type FROM products WHERE id=?').get(L.product_id);
+      const p = db.prepare('SELECT name, average_cost_rial, item_type, stock FROM products WHERE id=?').get(L.product_id);
       const avg = Math.round(Number(p?.average_cost_rial) || 0);
       const stdQty = Number(L.qty_final) || 0;
       const allow = fabricIssueAllowance(db, { productId: L.product_id, orderId });
@@ -1261,13 +1263,22 @@ function issueTemplate(db, { orderId, qtyStarted }) {
       let fabricCutLocked = 0;
       let fabricCutMeters = 0;
       let fabricQtyAllowed = null;
-      // After cutting, do not prefill re-issue of consumed fabric meters (ADR: cut = consumption).
+      // After cutting for THIS order/FG, do not prefill re-issue of consumed fabric meters.
       if (allow.allowed != null) {
         fabricCutMeters = allow.cut_meters;
         fabricQtyAllowed = allow.remaining;
         qtyActual = Math.min(stdQty, Math.max(0, Number(allow.remaining) || 0));
         fabricCutLocked = qtyActual <= 0 ? 1 : 0;
       }
+      let stockAvail = null;
+      try {
+        stockAvail = whId
+          ? Number(getWhQty(db, L.product_id, whId)) || 0
+          : Number(p?.stock) || 0;
+      } catch (_) {
+        stockAvail = Number(p?.stock) || 0;
+      }
+      const stockShort = !fabricCutLocked && qtyActual > 0 && stockAvail + 1e-9 < qtyActual ? 1 : 0;
       return {
         product_id: L.product_id,
         name: p?.name,
@@ -1281,6 +1292,9 @@ function issueTemplate(db, { orderId, qtyStarted }) {
         fabric_cut_meters: fabricCutMeters,
         fabric_qty_allowed: fabricQtyAllowed,
         fabric_cut_locked: fabricCutLocked,
+        fabric_cut_scope: allow.cut_scope || null,
+        stock_available: stockAvail,
+        stock_short: stockShort,
       };
     }),
   };
