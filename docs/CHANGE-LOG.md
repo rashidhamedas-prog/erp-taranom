@@ -5,8 +5,8 @@
 - **رفع:** `fabricIssueAllowance` + قالب/UI قفل پارچهٔ بریده‌شده؛ journey → PACK وقتی `pendingPack>0`؛ کانبان ستون «برش/WIP»؛ apparel با `colorsMatch`+`sizesMatch` و پیام چندرنگ؛ pack از خطوط ماتریس PO؛ `normalizeFabricColor` نیم‌فاصله را فاصله می‌گیرد؛ اصلاح نحوی `purchaseInvoiceModal` (آکولاد اضافه).
 - **فایل‌ها:** `lib/production/{cutting,engine}.js`, `lib/inventory/{apparel-lines,fabric-rolls}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-cut-pack-{static,flow}-v378.js`, CHANGE-LOG, Help.
 - **مراجع:** ADR-011 (انحراف مواد بدون JE) + مصرف پارچه در لایه‌چینی = موجودی→WIP؛ بدون double-issue.
-- **تست:** static v378 محلی ۶/۰؛ flow v378 + sms + sync روی ایران.
-- **Deploy:** ⏳
+- **تست:** static v378 محلی ۶/۰؛ ایران flow v378 ۱۵/۰ + sms ۲۲/۰ + sync ۴۴/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `9251af3` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v378`؛ `app.js?v=378`.
 
 ### ۱۴۰۵/۰۷/۲۲ — بازطراحی UX فاکتور فروش و خرید (SW v377)
 
