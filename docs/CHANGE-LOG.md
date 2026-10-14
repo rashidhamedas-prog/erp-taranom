@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۲ — تخفیف برگشت فروش/خرید مطابق ۱۴۰۵ (SW v370)
+
+- **هدف:** روی برگشت از فروش و برگشت از خرید، تخفیف ردیف و سهم تخفیف کل فاکتور مرجع اعمال شود و فیلد **تخفیف کلی** روی خود سند برگشت هم باشد (قفل فی از مرجع — صورتحساب الکترونیکی ۱۴۰۵).
+- **Backend:** `lib/returns-discount.js`؛ گسترش `sales-return-doc` / `returns-posting` / `purchases` POST؛ ستون‌های `goods_amount`/`hdr_disc_amt`/`extra_disc_*`؛ JE: بستانکار تخفیفات فروش برای H+X؛ خرید: موجودی خالص + تعدیل برای X.
+- **Frontend:** ستون تخفیف/خالص واحد، فیلد تخفیف کلی٪/مبلغ، پیش‌نمایش لایه‌ای؛ Help؛ SW `erp-taranom-v370`؛ `app.js?v=370`.
+- **مراجع:** دستورالعمل صورتحساب الکترونیکی (مبلغ واحد غیرقابل تغییر) + الگوی ERPNext proportional header discount؛ ADR-005 §P2e.
+- **فایل‌ها:** `lib/returns-discount.js`, `lib/sales-return-doc.js`, `lib/returns-posting.js`, `routes/{accounting,purchases}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-returns-discount-v369.js`, ADR, CHANGE-LOG, Help.
+- **تست:** `test-returns-discount-v369` + `test-sms` + `test-sync`؛ parse `app.js`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — اصلاح پرداخت کارتخوان در ویرایش فاکتور (SW v369)
 
 - **علائم:** در ویرایش فاکتور UI مانده ۰ و دریافت کارتخوان کامل نشان می‌داد، ولی گردش مشتری فقط بستانکار جزئی (مثلاً ۶۰۰٬۰۰۰ به‌جای ۳۳٬۰۰۰٬۰۰۰) داشت؛ نیاز به «دریافت از شخص» دستی.
@@ -17,17 +27,8 @@
   3. `postPartyOpeningBalance` فقط مسیر `legacy_table` را به زیردفتر می‌نوشت؛ لینک `party_id` اغلب بدون ردیف افتتاحیه می‌ماند.
 - **رفع اصولی:** ترکیب opening+subledger دقیقاً یک‌بار؛ SoT تأمین = `supplier_ledger`؛ mismatch چندبرگ `partyBooksMismatch`؛ opening JE → همهٔ زیردفترهای لینک‌شده؛ ADR-PARTY-001 amendment؛ Help.
 - **فایل‌ها:** `lib/{party-books,party-control-dashboard,opening-post}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-opening-align-v368.js`, `PARTY-ACC-ADR-001.md`, CHANGE-LOG.
-- **تست:** `test-party-books-opening-align-v368` + `test-sms` + `test-sync` روی ایران؛ parse فرانت.
-- **Deploy:** ⏳
-
-### ۱۴۰۵/۰۷/۲۲ — تخفیف برگشت فروش/خرید مطابق ۱۴۰۵ (SW v369)
-
-- **هدف:** روی برگشت از فروش و برگشت از خرید، تخفیف ردیف و سهم تخفیف کل فاکتور مرجع اعمال شود و فیلد **تخفیف کلی** روی خود سند برگشت هم باشد (قفل فی از مرجع — صورتحساب الکترونیکی ۱۴۰۵).
-- **Backend:** `lib/returns-discount.js`؛ گسترش `sales-return-doc` / `returns-posting` / `purchases` POST؛ ستون‌های `goods_amount`/`hdr_disc_amt`/`extra_disc_*`؛ JE: بستانکار تخفیفات فروش برای H+X؛ خرید: موجودی خالص + تعدیل برای X.
-- **Frontend:** ستون تخفیف/خالص واحد، فیلد تخفیف کلی٪/مبلغ، پیش‌نمایش لایه‌ای؛ Help؛ SW `erp-taranom-v369`؛ `app.js?v=369`.
-- **مراجع:** دستورالعمل صورتحساب الکترونیکی (مبلغ واحد غیرقابل تغییر) + الگوی ERPNext proportional header discount؛ ADR-005 §P2e.
-- **فایل‌ها:** `lib/returns-discount.js`, `lib/sales-return-doc.js`, `lib/returns-posting.js`, `routes/{accounting,purchases}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-returns-discount-v369.js`, ADR, CHANGE-LOG, Help.
-- **تست:** `test-returns-discount-v369` + `test-sms` + `test-sync`؛ parse `app.js`.
+- **تست:** `test-party-books-opening-align-v368` ۲۲/۰ + `test-party-books-turnover-v362` + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰ روی ایران.
+- **Follow-up در همان موج:** نرمال‌سازی `personLedgerLineRial` با JE حقوق + heal یک‌بار `person_payroll_payment_pl_heal_v368` برای پرداخت‌های بدون ردیف زیردفتر.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش برگشت از فروش (R13 same-id amend) (SW v367)

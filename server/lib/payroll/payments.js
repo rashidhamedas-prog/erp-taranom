@@ -197,7 +197,8 @@ function postPayrollPayments(db, {
     );
     const paymentId = info.lastInsertRowid;
 
-    // person_ledger legacy amounts are toman (net_pay units)
+    // person_ledger = INTEGER rial (ADR money). personLedgerLineRial matches amount_rial 1:1.
+    // Legacy toman rows still scale via personLedgerLineRial when mag×10 = amount_rial.
     createPersonLedgerEntry(db, {
       person_id: row.person_id,
       date: payDate,
@@ -205,7 +206,7 @@ function postPayrollPayments(db, {
       ref_type: 'payroll_payment',
       ref_id: paymentId,
       description: `پرداخت حقوق ${row.period_label || ''} (${leg.amount_rial.toLocaleString('fa-IR')} ریال)`,
-      debit: leg.amount_rial / 10,
+      debit: leg.amount_rial,
       credit: 0,
       user_id: userId,
     });
@@ -261,7 +262,7 @@ function voidOnePayrollPayment(db, payment, userId, createPersonLedgerEntry) {
       ref_id: row.id,
       description: `ابطال پرداخت حقوق ${row.period_label || ''}`,
       debit: 0,
-      credit: payment.amount_rial / 10,
+      credit: payment.amount_rial,
       user_id: userId,
     });
   } else {
@@ -273,7 +274,7 @@ function voidOnePayrollPayment(db, payment, userId, createPersonLedgerEntry) {
       ref_id: payment.id,
       description: `ابطال پرداخت حقوق ${row.period_label || ''} (#${payment.id})`,
       debit: 0,
-      credit: payment.amount_rial / 10,
+      credit: payment.amount_rial,
       user_id: userId,
     });
   }

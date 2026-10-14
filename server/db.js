@@ -1933,6 +1933,13 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'purchase_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'sales_returns', 'reason_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'purchase_returns', 'reason_code', "TEXT DEFAULT ''");
+  // v369 — return discounts (line+header from invoice + extra on return)
+  for (const tbl of ['sales_returns', 'purchase_returns']) {
+    ensureColumn(db, tbl, 'goods_amount', 'REAL NOT NULL DEFAULT 0');
+    ensureColumn(db, tbl, 'hdr_disc_amt', 'REAL NOT NULL DEFAULT 0');
+    ensureColumn(db, tbl, 'extra_disc_amt', 'REAL NOT NULL DEFAULT 0');
+    ensureColumn(db, tbl, 'extra_disc_pct', 'REAL NOT NULL DEFAULT 0');
+  }
 
   // P2c — unlinked return credit allocated to open invoices (no JE; balance only)
   db.exec(`CREATE TABLE IF NOT EXISTS return_credit_allocations (
@@ -2549,6 +2556,19 @@ function initSyncSchema(db, opts) {
     }
   } catch (e) {
     console.warn('kardex_ghost_retire_v364:', e.message);
+  }
+
+  // v368 — mirror missing payroll_payment rows into person_ledger (JE had payment, PL did not)
+  try {
+    if (!isDevice()) {
+      const { healMissingPayrollPaymentPersonLedger } = require('./lib/person-ledger-money');
+      const healedPay = healMissingPayrollPaymentPersonLedger(db);
+      if (healedPay && !healedPay.skipped) {
+        console.log('✅ person_payroll_payment_pl_heal_v368:', JSON.stringify(healedPay));
+      }
+    }
+  } catch (e) {
+    console.warn('person_payroll_payment_pl_heal_v368:', e.message);
   }
 
   try {
