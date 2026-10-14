@@ -127,7 +127,10 @@ console.log('\n— 6 labels / version —');
 const acc = fs.readFileSync(path.join(__dirname, '../routes/accounting.js'), 'utf8');
 ok(acc.includes("sales_return: 'برگشت از فروش'"), 'ENTRY_LABEL sales_return');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v373/.test(sw), 'SW v373');
+ok(/erp-taranom-v37[34]/.test(sw), 'SW v373+');
+const paySrc = fs.readFileSync(path.join(__dirname, '../lib/payroll/payments.js'), 'utf8');
+ok(!/entry_type:\s*'payroll_payment_reversal'/.test(paySrc),
+  'payroll void does not insert hollow payroll_payment_reversal');
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

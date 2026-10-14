@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۲۲ — ابطال پرداخت حقوق بدون ردیف پوچ + heal v374 (SW v374)
+
+- **دنبالهٔ v373:** `voidOnePayrollPayment` بعد از soft-delete هنوز `payroll_payment_reversal` در دفتر شخص می‌ساخت؛ در گردش شخص دیده می‌شد.
+- **رفع:** فقط retire/`deleted_at` روی ردیف‌های پرداخت؛ heal `purge_hollow_party_ledger_v374` ردیف‌های `*_reversal` شخص را هم پاک می‌کند؛ SW `v374`.
+- **فایل‌ها:** `lib/payroll/payments.js`, `lib/party-ledger-retire.js`, `db.js`, `public/{sw.js,index.html}`, `scripts/test-hollow-void-books-v373.js`, CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — حذف سندهای پوچ ابطال/اصلاح از گزارش‌های حسابداری (SW v373)
 
 - **علائم:** در گردش مشتری (مثلاً مشتری عمومی کیمیا) بعد از ویرایش/ابطال برگشت فروش یا کارتخوان، ردیف‌های `ابطال/اصلاح — برگشت از فروش #…` و `ابطال دریافت کارتخوان` دیده می‌شد؛ سند زنده هم به‌اشتباه «ابطال/اصلاح» برچسب می‌خورد.

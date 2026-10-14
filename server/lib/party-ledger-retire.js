@@ -241,19 +241,34 @@ function purgeHollowPartyLedgerReversals(db) {
       }
     } catch (_) { /* optional */ }
 
-    // Person ledger hollow reversals
+    // Person ledger hollow reversals (incl. payroll_payment_reversal leftovers)
     try {
       const r = db.prepare(`
         DELETE FROM person_ledger
-        WHERE entry_type='reversal'
-          AND (
-            ref_type LIKE '%\\_reversal' ESCAPE '\\'
-            OR description LIKE 'ابطال %'
-            OR description LIKE 'ابطال/%'
-          )
+        WHERE (
+          entry_type='reversal'
+          OR entry_type LIKE '%\\_reversal' ESCAPE '\\'
+          OR ref_type LIKE '%\\_reversal' ESCAPE '\\'
+          OR description LIKE 'ابطال %'
+          OR description LIKE 'ابطال/%'
+        )
       `).run();
       personDeleted += Number(r.changes || 0);
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      try {
+        const r2 = db.prepare(`
+          UPDATE person_ledger SET deleted_at=strftime('%s','now')
+          WHERE COALESCE(deleted_at,0)=0
+            AND (
+              entry_type='reversal'
+              OR entry_type LIKE '%\\_reversal' ESCAPE '\\'
+              OR ref_type LIKE '%\\_reversal' ESCAPE '\\'
+              OR description LIKE 'ابطال %'
+            )
+        `).run();
+        personDeleted += Number(r2.changes || 0);
+      } catch (__) { /* ignore */ }
+    }
 
     try {
       const r = db.prepare(`

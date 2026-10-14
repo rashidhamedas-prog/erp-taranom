@@ -245,39 +245,24 @@ function voidOnePayrollPayment(db, payment, userId, createPersonLedgerEntry) {
     });
   }
 
+  // v374: retire person books only — no hollow «ابطال پرداخت حقوق» reverse rows.
+  void createPersonLedgerEntry;
   try {
     db.prepare(`
       UPDATE person_ledger SET deleted_at=strftime('%s','now')
-      WHERE ref_type='payroll_payment' AND ref_id=? AND COALESCE(deleted_at,0)=0
-    `).run(payment.id);
+      WHERE COALESCE(deleted_at,0)=0
+        AND (
+          (ref_type='payroll_payment' AND ref_id=?)
+          OR (ref_type='payroll_payment_reversal' AND ref_id=?)
+          OR (ref_type='payroll_payment' AND ref_id=? AND ?=1)
+          OR (ref_type='payroll_payment_reversal' AND ref_id=? AND ?=1)
+        )
+    `).run(
+      payment.id, payment.id,
+      row.id, payment.legacy_ref_payroll_record ? 1 : 0,
+      row.id, payment.legacy_ref_payroll_record ? 1 : 0
+    );
   } catch (_) { /* person_ledger may lack deleted_at on very old DBs */ }
-
-  // Legacy full-pay rows used ref_id = payroll_record_id
-  if (payment.legacy_ref_payroll_record) {
-    createPersonLedgerEntry(db, {
-      person_id: row.person_id,
-      date: todayJalali(),
-      entry_type: 'payroll_payment_reversal',
-      ref_type: 'payroll_payment_reversal',
-      ref_id: row.id,
-      description: `ابطال پرداخت حقوق ${row.period_label || ''}`,
-      debit: 0,
-      credit: payment.amount_rial,
-      user_id: userId,
-    });
-  } else {
-    createPersonLedgerEntry(db, {
-      person_id: row.person_id,
-      date: todayJalali(),
-      entry_type: 'payroll_payment_reversal',
-      ref_type: 'payroll_payment_reversal',
-      ref_id: payment.id,
-      description: `ابطال پرداخت حقوق ${row.period_label || ''} (#${payment.id})`,
-      debit: 0,
-      credit: payment.amount_rial,
-      user_id: userId,
-    });
-  }
 
   db.prepare(`
     UPDATE payroll_payments SET
@@ -307,17 +292,15 @@ function voidAllPayrollPayments(db, row, userId, createPersonLedgerEntry) {
       reason: `ابطال پرداخت حقوق #${row.id}`,
       sourceType: 'payroll_payment_reversal',
     });
-    createPersonLedgerEntry(db, {
-      person_id: row.person_id,
-      date: todayJalali(),
-      entry_type: 'payroll_payment_reversal',
-      ref_type: 'payroll_payment_reversal',
-      ref_id: row.id,
-      description: `ابطال پرداخت حقوق ${row.period_label || ''}`,
-      debit: 0,
-      credit: (row.net_pay != null ? row.net_pay : netPayRial(row) / 10),
-      user_id: userId,
-    });
+    void createPersonLedgerEntry;
+    try {
+      db.prepare(`
+        UPDATE person_ledger SET deleted_at=strftime('%s','now')
+        WHERE person_id=? AND COALESCE(deleted_at,0)=0
+          AND ref_type IN ('payroll_payment','payroll_payment_reversal')
+          AND ref_id=?
+      `).run(row.person_id, row.id);
+    } catch (_) { /* optional */ }
     db.prepare(`
       UPDATE payroll_records SET paid=0, paid_rial=0, status='posted',
         payment_journal_id=NULL, paid_at=NULL WHERE id=?
