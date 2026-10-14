@@ -16,7 +16,7 @@
 - **فایل‌ها:** `lib/{amend-invoice,pos,void-settlement}.js`, `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-amend-pos-v369.js`, CHANGE-LOG, Help.
 - **ترمیم داده:** ذخیرهٔ مجدد همان فاکتور با مبلغ درست کارتخوان دفتر را هم‌تراز می‌کند (مثلاً T-0018).
 - **تست:** `test-invoice-amend-pos-v369` + `test-sms` + `test-sync` روی ایران؛ parse `app.js`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `ae0efce` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v369`؛ `app.js?v=369`؛ test-invoice-amend-pos-v369 23/0 + sms 22/0 + sync 44/0.
 
 ### ۱۴۰۵/۰۷/۲۲ — ریشهٔ اختلاف مانده زنده / تفصیلی اشخاص (SW v368)
 
