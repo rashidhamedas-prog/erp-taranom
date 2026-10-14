@@ -5,8 +5,8 @@
 - **UI:** سوییچ در تنظیمات → حسابداری؛ ستاره/بلاک روی پرداخت هزینه، اصلاح هزینه، خرج چک، سند دستی، فاکتور؛ Help؛ SW `v375`.
 - **فایل‌ها:** `lib/{cost-center-policy,ledger,sales-document,rep-ledger,inventory/cycle-count}.js`, `routes/{expenses,settings,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-require-cc-expense-v375.js`, CHANGE-LOG.
 - **مراجع:** SAP CO primary cost assignment + IFRS 18 functional area via cost center؛ TAP ERP invariants.
-- **تست:** `test-require-cc-expense-v375` + sms + sync؛ parse `app.js`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-require-cc-expense-v375` ۱۱/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ parse `app.js` سبز.
+- **Deploy:** ✅ `66bf51a` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v375`؛ `app.js?v=375`.
 
 ### ۱۴۰۵/۰۷/۲۲ — ابطال پرداخت حقوق بدون ردیف پوچ + heal v374 (SW v374)
 
