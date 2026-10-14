@@ -5075,10 +5075,31 @@ async function _openInvBuilder(id){
       chequeFaceInit=Number(inv.pay_amount_rial||0);
     }
   }
+  const invDocTitle=id?'ویرایش فاکتور':(forceProformaNew?'پیش‌فاکتور جدید':'فاکتور جدید');
+  const invTypeBadge=builderType==='final'?'فاکتور رسمی':(builderType==='normal'?'فاکتور معمولی':'پیش‌فاکتور');
+  const invPayInit=inv?(inv.pay_type||'credit'):'cash';
+  const invPaySecOpen=invPayInit && invPayInit!=='credit';
+  const invSaveLabel=id?'ذخیره تغییرات':'ذخیره فاکتور';
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش فاکتور':(forceProformaNew?'پیش‌فاکتور جدید':'فاکتور جدید')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body">
-      <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+    <div class="modal-head"><h3>${invDocTitle}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body inv-doc">
+      <header class="inv-doc-head">
+        <div class="inv-doc-head-main">
+          <h4 class="inv-doc-title">${invDocTitle}</h4>
+          <div class="inv-doc-meta">
+            <span class="inv-doc-badge">${esc(invTypeBadge)}</span>
+            ${id?`<span class="inv-doc-badge muted mono">${esc(inv.num||('#'+id))}</span>`:`<span class="inv-doc-badge muted">پیش‌نویس</span>`}
+            ${isAmendEdit?`<span class="inv-doc-badge warn">اصلاح در محل</span>`:''}
+            ${forceProformaNew?`<span class="inv-doc-badge ok">فقط پیش‌فاکتور</span>`:''}
+          </div>
+        </div>
+        <div class="inv-doc-head-aside">
+          <span>تاریخ سند</span>
+          <span class="mono">${esc(inv?inv.date:todayJalali())}</span>
+        </div>
+      </header>
+
+      <div class="inv-doc-essentials">
         <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}</div>
         ${canPickExpert?`<div class="fg"><label>کارشناس ${hlp('همهٔ کاربران فعال با نقش فروش: میدانی، داخلی، مدیر فروش، دفتر پخش، و مدیر/حسابدار. برای انگیزه فروش و گزارش عملکرد. گزینهٔ خودکار = کارشناس مشتری یا خود شما.')}</label>
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
@@ -5092,96 +5113,122 @@ async function _openInvBuilder(id){
           ${!forceProformaNew&&inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}
           ${!forceProformaNew&&inv&&inv.type==='normal'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">نوع فاکتور ثبت‌شده از ویرایش عوض نمی‌شود.</div>`:''}</div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
-        <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
-        <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
         <div class="fg"><label>انبار مبدأ ${hlp('انبار خروج کالا. برای کارشناس فروش روی انبار تخصیص‌یافته قفل است و سرور همان را اعمال می‌کند.')}</label>
           <select id="inv-warehouse" ${isSalesRole?'disabled':''}>${warehouseOptionsHtml(defSalesWh,'— انتخاب انبار —')}</select>
           ${isSalesRole?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}">انبار مبدأ شما ثابت است و قابل تغییر نیست.</div>`:''}
         </div>
         ${salesProformaOnly?`<input type="hidden" id="inv-cc" value="">`:`<div class="fg"><label>${expenseCcFieldLabel('برای گزارش هزینه/درآمد و سند بهای تمام‌شده/انگیزه. با روشن بودن الزام مرکز هزینه، اگر فاکتور هزینهٔ دوره یا COGS بزند مرکز لازم است — انبار هم مرکز خودش را می‌دهد.')}</label><select id="inv-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'—'}</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`}
-        <div class="fg"><label>کرایه حمل ${moneyColLabel()} ${hlp('مبلغ کرایه به ریال. با سرشکن روی ردیف‌ها تقسیم می‌شود.')}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
-        <div class="fg"><label>سرشکن کرایه ${hlp('نسبت تقسیم کرایه روی اقلام: مبلغ، مقدار یا مساوی.')}</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
-          <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
-          <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
-          <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
-        </select></div>
-        <div class="fg"><label>نوع کرایه ${hlp('عهده خریدار به مبلغ مشتری اضافه می‌شود؛ عهده فروشنده هزینه توزیع است.')}</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
-          <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
-          <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
-        <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${vatExemptChecked?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات ${hlp('پیش‌فاکتور و معمولی پیش‌فرض معاف‌اند؛ رسمی پیش‌فرض مشمول است. در ویرایش، مقدار ذخیره‌شده حفظ می‌شود.')}</label></div>
-        <div class="fg" id="inv-moadian-wrap" data-csp-style="${CSP.style(builderType==='final'?'':'display:none')}">
-          <label>نوع صورتحساب مودیان ${hlp('فقط برای فاکتور رسمی. پیش‌فاکتور و معمولی به صف مودیان نمی‌روند.')}</label>
-          <select id="inv-moadian-type">
-            <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>${T('نوع ۱ — کسب‌وکار به کسب‌وکار')}</option>
-            <option value="2" ${inv&&Number(inv.moadian_invoice_type)===2?'selected':''}>نوع ۲ — B2C</option>
-            <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
-          </select>
-        </div>
-        <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز بدون دریافت. نقد→صندوق، واریز→بانک، کارتخوان→در جریان، چک→اسناد دریافتنی (نزد صندوق) با مشخصات صیادی. چندمرحله‌ای: ترکیب چند روش تا سقف مبلغ فاکتور؛ مانده روی حساب مشتری.')}</label><select id="inv-pay-type" data-csp-change="${CSP.bind('change',function(event){toggleInvPayFields()})}">
-          <option value="credit" ${inv&&inv.pay_type==='credit'?'selected':''}>نسیه (حساب باز)</option>
-          <option value="cash" ${!inv||inv.pay_type==='cash'||!inv.pay_type?'selected':''}>نقد</option>
-          <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک دریافتی</option>
-          <option value="bank_transfer" ${inv&&(inv.pay_type==='bank_transfer'||inv.pay_type==='bank')?'selected':''}>واریز بانکی</option>
-          <option value="pos_card" ${inv&&inv.pay_type==='pos_card'?'selected':''}>کارتخوان</option>
-          ${inv&&inv.pay_type==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
-        </select></div>
-        <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
-          <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder();if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}">
-          <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
-        <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز به حساب بانکی</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
-          <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
-        </select></div>
-        <div class="fg" id="inv-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دریافت در صندوق *</label><select id="inv-cashbox">
-          <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':(!inv && defCashBoxId && Number(b.id)===Number(defCashBoxId)?'selected':'')}>${esc(b.name)}</option>`).join('')}
-        </select></div>
-        ${payPosFieldHtml('inv')}
-        <div class="fg" id="inv-checkcat-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک (پرداختنی)</label><select id="inv-checkcat"><option value="">—</option></select></div>
-        <div class="fg full" id="inv-multi-wrap" data-csp-style="${CSP.style(`display:none`)}">
-          <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
-            <input type="checkbox" id="inv-multi" data-csp-change="${CSP.bind('change',function(){toggleInvPayFields()})}" data-csp-style="${CSP.style(`width:auto`)}" ${inv&&inv.pay_type==='mixed'?'checked':''}> پرداخت طی چند مرحله (مثلاً بخشی نقد، بخشی چک / کارتخوان)
-          </label>
-        </div>
-        <div class="fg full" id="inv-multi-block" data-csp-style="${CSP.style(`display:none`)}">
-          <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر ردیف یک نوع پرداخت با مبلغ و مقصد جدا است. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود. برای چک دریافتی همهٔ مشخصات صیادی الزامی است.</div>
-          <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-            <th>مبلغ (ریال)</th><th>نوع</th><th>مقصد</th><th></th>
-          </tr></thead><tbody id="invPayRowsBody"></tbody></table></div>
-          <div id="invPayChequeCards"></div>
-          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invPayAddRow();renderInvPayRows()})}">➕ مرحله دیگر</button>
-        </div>
-        <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
-        <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
-        <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
+        <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
+        <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
       </div>
-      <div id="chequeFields" data-csp-style="${CSP.style(`${!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
-        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">چک دریافتی به حساب اسناد دریافتنی (نزد صندوق) ثبت می‌شود — تا وصول به بانک/صندوق نمی‌رود. هر فقره = یک ردیف در دفتر چک؛ مبالغ چند فقره روی یک صیاد جمع نمی‌شوند.</div>
-        <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-          <div class="fg"><label>مبلغ این فقره چک (ریال) *</label><input id="inv-cheque-face" type="text" inputmode="numeric" class="money" value="${moneyInit(chequeFaceInit)}" data-csp-input="${CSP.bind('input',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></div>
-          <div class="fg"><label>نام بانک *</label><input id="inv-cheque-bank" value="${esc(inv&&inv.cheque_bank?inv.cheque_bank:'')}" placeholder="مثال: ملی"></div>
-          <div class="fg"><label>شعبه *</label><input id="inv-cheque-branch" value="${esc(inv&&inv.cheque_branch?inv.cheque_branch:'')}"></div>
-          <div class="fg"><label>شماره حساب *</label><input id="inv-cheque-account" dir="ltr" value="${esc(inv&&inv.cheque_account?inv.cheque_account:'')}"></div>
-          <div class="fg"><label>شبا (اختیاری)</label><input id="inv-cheque-sheba" dir="ltr" value="${esc(inv&&inv.cheque_sheba?inv.cheque_sheba:'')}" placeholder="IR..."></div>
-          <div class="fg"><label>شماره چک *</label><input id="inv-cheque-number" dir="ltr" value="${esc(inv&&inv.cheque_number?inv.cheque_number:'')}"></div>
-          <div class="fg"><label>شناسه صیاد ۱۶ رقمی *</label><input id="inv-cheque-sayadi" dir="ltr" class="mono" value="${esc(inv&&(inv.cheque_sayadi||inv.sayadi)?(inv.cheque_sayadi||inv.sayadi):'')}"></div>
-          <div class="fg"><label>تاریخ سررسید *</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
-          <div class="fg"><label>مدت چک (روز)</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
-          <div class="fg full"><label>نام صادرکننده *</label><input id="inv-cheque-owner" value="${esc(inv&&inv.cheque_owner?inv.cheque_owner:'')}"></div>
-          <div class="fg full"><label>توضیحات چک</label><input id="inv-cheque-info" value="${esc(inv&&inv.cheque_info?inv.cheque_info:'')}"></div>
+
+      <details class="inv-doc-sec" id="inv-sec-pay" ${invPaySecOpen?'open':''}>
+        <summary>پرداخت و دریافت</summary>
+        <div class="inv-doc-sec-body">
+          <p class="inv-doc-sec-hint">نسیه حساب باز می‌ماند؛ نقد/واریز/کارتخوان/چک همان لحظه دریافت ثبت می‌شود. چندمرحله‌ای تا سقف مبلغ فاکتور.</p>
+          <div class="form-grid">
+            <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز بدون دریافت. نقد→صندوق، واریز→بانک، کارتخوان→در جریان، چک→اسناد دریافتنی (نزد صندوق) با مشخصات صیادی. چندمرحله‌ای: ترکیب چند روش تا سقف مبلغ فاکتور؛ مانده روی حساب مشتری.')}</label><select id="inv-pay-type" data-csp-change="${CSP.bind('change',function(event){toggleInvPayFields();const s=el('inv-sec-pay');if(s&&this.value&&this.value!=='credit')s.open=true})}">
+              <option value="credit" ${inv&&inv.pay_type==='credit'?'selected':''}>نسیه (حساب باز)</option>
+              <option value="cash" ${!inv||inv.pay_type==='cash'||!inv.pay_type?'selected':''}>نقد</option>
+              <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک دریافتی</option>
+              <option value="bank_transfer" ${inv&&(inv.pay_type==='bank_transfer'||inv.pay_type==='bank')?'selected':''}>واریز بانکی</option>
+              <option value="pos_card" ${inv&&inv.pay_type==='pos_card'?'selected':''}>کارتخوان</option>
+              ${inv&&inv.pay_type==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
+            </select></div>
+            <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
+              <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder();if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}">
+              <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
+            <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز به حساب بانکی</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
+              <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+            </select></div>
+            <div class="fg" id="inv-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دریافت در صندوق *</label><select id="inv-cashbox">
+              <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':(!inv && defCashBoxId && Number(b.id)===Number(defCashBoxId)?'selected':'')}>${esc(b.name)}</option>`).join('')}
+            </select></div>
+            ${payPosFieldHtml('inv')}
+            <div class="fg" id="inv-checkcat-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک (پرداختنی)</label><select id="inv-checkcat"><option value="">—</option></select></div>
+            <div class="fg full" id="inv-multi-wrap" data-csp-style="${CSP.style(`display:none`)}">
+              <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
+                <input type="checkbox" id="inv-multi" data-csp-change="${CSP.bind('change',function(){toggleInvPayFields()})}" data-csp-style="${CSP.style(`width:auto`)}" ${inv&&inv.pay_type==='mixed'?'checked':''}> پرداخت طی چند مرحله (مثلاً بخشی نقد، بخشی چک / کارتخوان)
+              </label>
+            </div>
+            <div class="fg full" id="inv-multi-block" data-csp-style="${CSP.style(`display:none`)}">
+              <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر ردیف یک نوع پرداخت با مبلغ و مقصد جدا است. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود. برای چک دریافتی همهٔ مشخصات صیادی الزامی است.</div>
+              <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+                <th>مبلغ (ریال)</th><th>نوع</th><th>مقصد</th><th></th>
+              </tr></thead><tbody id="invPayRowsBody"></tbody></table></div>
+              <div id="invPayChequeCards"></div>
+              <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invPayAddRow();renderInvPayRows()})}">➕ مرحله دیگر</button>
+            </div>
+          </div>
+          <div id="chequeFields" data-csp-style="${CSP.style(`${!(inv&&inv.pay_type==='cheque')?'display:none':''}`)}">
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:12px 0 8px;line-height:1.8`)}">چک دریافتی به حساب اسناد دریافتنی (نزد صندوق) ثبت می‌شود — تا وصول به بانک/صندوق نمی‌رود. هر فقره = یک ردیف در دفتر چک؛ مبالغ چند فقره روی یک صیاد جمع نمی‌شوند.</div>
+            <div class="form-grid">
+              <div class="fg"><label>مبلغ این فقره چک (ریال) *</label><input id="inv-cheque-face" type="text" inputmode="numeric" class="money" value="${moneyInit(chequeFaceInit)}" data-csp-input="${CSP.bind('input',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></div>
+              <div class="fg"><label>نام بانک *</label><input id="inv-cheque-bank" value="${esc(inv&&inv.cheque_bank?inv.cheque_bank:'')}" placeholder="مثال: ملی"></div>
+              <div class="fg"><label>شعبه *</label><input id="inv-cheque-branch" value="${esc(inv&&inv.cheque_branch?inv.cheque_branch:'')}"></div>
+              <div class="fg"><label>شماره حساب *</label><input id="inv-cheque-account" dir="ltr" value="${esc(inv&&inv.cheque_account?inv.cheque_account:'')}"></div>
+              <div class="fg"><label>شبا (اختیاری)</label><input id="inv-cheque-sheba" dir="ltr" value="${esc(inv&&inv.cheque_sheba?inv.cheque_sheba:'')}" placeholder="IR..."></div>
+              <div class="fg"><label>شماره چک *</label><input id="inv-cheque-number" dir="ltr" value="${esc(inv&&inv.cheque_number?inv.cheque_number:'')}"></div>
+              <div class="fg"><label>شناسه صیاد ۱۶ رقمی *</label><input id="inv-cheque-sayadi" dir="ltr" class="mono" value="${esc(inv&&(inv.cheque_sayadi||inv.sayadi)?(inv.cheque_sayadi||inv.sayadi):'')}"></div>
+              <div class="fg"><label>تاریخ سررسید *</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
+              <div class="fg"><label>مدت چک (روز)</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
+              <div class="fg full"><label>نام صادرکننده *</label><input id="inv-cheque-owner" value="${esc(inv&&inv.cheque_owner?inv.cheque_owner:'')}"></div>
+              <div class="fg full"><label>توضیحات چک</label><input id="inv-cheque-info" value="${esc(inv&&inv.cheque_info?inv.cheque_info:'')}"></div>
+            </div>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invAddNextCheque()})}">➕ ثبت چک بعدی</button>
+          </div>
         </div>
-        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invAddNextCheque()})}">➕ ثبت چک بعدی</button>
-      </div>
-      <div class="inv-layout">
-        <div>
-          <input class="search" id="invProdSearch" placeholder="جستجوی کالا..." data-csp-style="${CSP.style(`margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px`)}" data-csp-input="${CSP.bind('input',function(event){renderInvPicker()})}">
-          ${canAccounting()?`<button type="button" class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-bottom:6px`)}" data-csp-click="${CSP.bind('click',function(event){invProdQuickModal(el('invProdSearch')?.value)})}">➕ ساخت کالای جدید</button>`:''}
-          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-bottom:8px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(scanBarcodeToCart)})}">📷 اسکن بارکد</button>
-          <div id="mobPickHint" data-csp-style="${CSP.style(`display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center`)}">👆 برای افزودن، دو بار روی کالا بزنید</div>
+      </details>
+
+      <details class="inv-doc-sec" id="inv-sec-freight">
+        <summary>کرایه، مالیات و مودیان</summary>
+        <div class="inv-doc-sec-body">
+          <div class="form-grid">
+            <div class="fg"><label>کرایه حمل ${moneyColLabel()} ${hlp('مبلغ کرایه به ریال. با سرشکن روی ردیف‌ها تقسیم می‌شود.')}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
+            <div class="fg"><label>سرشکن کرایه ${hlp('نسبت تقسیم کرایه روی اقلام: مبلغ، مقدار یا مساوی.')}</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
+              <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
+              <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
+              <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
+            </select></div>
+            <div class="fg"><label>نوع کرایه ${hlp('عهده خریدار به مبلغ مشتری اضافه می‌شود؛ عهده فروشنده هزینه توزیع است.')}</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
+              <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
+              <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
+            <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${vatExemptChecked?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(){renderCart()})}"> معاف از مالیات ${hlp('پیش‌فاکتور و معمولی پیش‌فرض معاف‌اند؛ رسمی پیش‌فرض مشمول است. در ویرایش، مقدار ذخیره‌شده حفظ می‌شود.')}</label></div>
+            <div class="fg" id="inv-moadian-wrap" data-csp-style="${CSP.style(builderType==='final'?'':'display:none')}">
+              <label>نوع صورتحساب مودیان ${hlp('فقط برای فاکتور رسمی. پیش‌فاکتور و معمولی به صف مودیان نمی‌روند.')}</label>
+              <select id="inv-moadian-type">
+                <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>${T('نوع ۱ — کسب‌وکار به کسب‌وکار')}</option>
+                <option value="2" ${inv&&Number(inv.moadian_invoice_type)===2?'selected':''}>نوع ۲ — B2C</option>
+                <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="inv-doc-sec" id="inv-sec-notes">
+        <summary>یادداشت و بازاریابی</summary>
+        <div class="inv-doc-sec-body">
+          <div class="form-grid">
+            <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
+            <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
+            <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="inv-doc-body">
+        <aside class="inv-doc-picker">
+          <input class="search" id="invProdSearch" placeholder="جستجوی کالا..." data-csp-style="${CSP.style(`margin-bottom:2px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px`)}" data-csp-input="${CSP.bind('input',function(event){renderInvPicker()})}">
+          ${canAccounting()?`<button type="button" class="btn sm" data-csp-style="${CSP.style(`width:100%`)}" data-csp-click="${CSP.bind('click',function(event){invProdQuickModal(el('invProdSearch')?.value)})}">➕ ساخت کالای جدید</button>`:''}
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(scanBarcodeToCart)})}">📷 اسکن بارکد</button>
+          <div id="mobPickHint" data-csp-style="${CSP.style(`display:none;font-size:11px;color:var(--muted);text-align:center`)}">👆 برای افزودن، دو بار روی کالا بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
-        </div>
-        <div class="inv-cart">
+        </aside>
+        <section class="inv-doc-lines">
           <div class="inv-cart-head">
-            <h4>📋 اقلام فاکتور فروش</h4>
+            <h4>اقلام فاکتور فروش</h4>
             <span class="inv-cart-meta" id="invCartCount">${fmt(invCart.length)} ردیف</span>
           </div>
           <div data-csp-style="${CSP.style(`display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap`)}">
@@ -5190,16 +5237,24 @@ async function _openInvBuilder(id){
           </div>
           <div id="invStockWarn" hidden></div>
           <div class="inv-lines-wrap" id="cartRows"></div>
+          <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px`)}">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
+        </section>
+        <aside class="inv-doc-rail">
           <div class="cart-tot" id="cartTot"></div>
-          ${allowSaveEdit?`<button id="inv-save-btn" class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${id?'💾 ذخیره تغییرات':'💾 ذخیره فاکتور'}</button>
-          ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.8`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود. موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود.</p>`:''}`
-          :`<div class="warn" data-csp-style="${CSP.style(`margin-top:12px;line-height:1.8;font-size:13px`)}">فاکتور رسمی از این نقش قابل ذخیره نیست. برای اصلاح با مدیر/حسابدار هماهنگ کنید یا ابطال کنید.</div>`}
-          ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
-          ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('invoice',(id))})}">📦 حواله انبار</button>`:''}
-          ${id&&inv&&inv.type==='proforma'&&!inv.converted&&canConvertProforma()?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
-        </div>
+          <div class="inv-doc-rail-actions">
+            ${allowSaveEdit?`<button id="inv-save-btn" class="btn green" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${invSaveLabel}</button>
+            ${isAmendEdit?`<p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:0`)}">تغییرات روی همان فاکتور و همان سند حسابداری اعمال می‌شود؛ سند جدید یا سند معکوس ثبت نمی‌شود. موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود.</p>`:''}`
+            :`<div class="warn" data-csp-style="${CSP.style(`line-height:1.8;font-size:13px`)}">فاکتور رسمی از این نقش قابل ذخیره نیست. برای اصلاح با مدیر/حسابدار هماهنگ کنید یا ابطال کنید.</div>`}
+            ${id?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">چاپ فاکتور</button>`:''}
+            ${id?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('invoice',(id))})}">حواله انبار</button>`:''}
+            ${id&&inv&&inv.type==='proforma'&&!inv.converted&&canConvertProforma()?`<button class="btn orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">تبدیل به فاکتور قطعی</button>`:''}
+          </div>
+          ${allowSaveEdit?`<div class="inv-doc-mobile-bar" id="inv-mobile-bar">
+            <span class="inv-m-final" id="inv-mobile-final">—</span>
+            <button type="button" class="btn green" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">${invSaveLabel}</button>
+          </div>`:''}
+        </aside>
       </div>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px`)}">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
     </div>`, true);
   renderInvPicker();
   renderCart();
@@ -5984,16 +6039,19 @@ function renderCart(){
   const final = subtotal-discAmt+vatAmount+chargedFreight;
   window._invLastFinal = final;
   if(typeof syncInvCashPayAmount==='function') syncInvCashPayAmount();
-  el('cartTot').innerHTML = `
-    <div class="inv-builder-summary-box">
-      ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
-      <div class="inv-summary-row"><span>جمع ناخالص کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-      <div class="inv-summary-row"><span>تخفیف کلی فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(discAmt)} ریال</span></div>
-      ${!vatExempt?`<div class="inv-summary-row"><span>مالیات بر ارزش افزوده (${fmt(vatRate)}٪):</span><span class="mono">${fmt(vatAmount)} ریال</span></div>`:''}
-      ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-      <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
+  const cartTotEl=el('cartTot');
+  if(cartTotEl) cartTotEl.innerHTML = `
+    <div class="inv-builder-summary-box inv-summary-ledger">
+      ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)}</span></div>`:''}
+      <div class="inv-summary-row"><span>جمع ناخالص</span><span class="mono">${fmt(subtotal)}</span></div>
+      <div class="inv-summary-row"><span>تخفیف کل (${fmt(disc)}٪)</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(discAmt)}</span></div>
+      ${!vatExempt?`<div class="inv-summary-row"><span>مالیات (${fmt(vatRate)}٪)</span><span class="mono">${fmt(vatAmount)}</span></div>`:''}
+      ${freight?`<div class="inv-summary-row"><span>کرایه ${freightSeller?'(فروشنده)':'(خریدار)'}</span><span class="mono">${fmt(freight)}</span></div>`:''}
+      <div class="inv-summary-row grand-total"><span>قابل پرداخت</span><span class="mono">${fmt(final)}</span></div>
       <div id="inv-receipt-live" class="inv-receipt-live" aria-live="polite"></div>
     </div>`;
+  const mobFinal=el('inv-mobile-final');
+  if(mobFinal) mobFinal.textContent=fmt(final)+' ریال';
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
   if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
   try{ bindNumFit(el('cartRows')); }catch(_){}
@@ -14369,17 +14427,25 @@ async function fetchProdJourneyState(period){
   const layRows=(lays&&lays.rows)||[];
   const postedLays=layRows.filter(r=>r.status!=='reversed' && ((r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1));
   const pendingPack=layRows.filter(r=>r.status!=='reversed' && !(r.packs||[]).some(p=>p.status==='posted') && Number(r.pack_posted)!==1).length;
-  const kanbanActive=(kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','done'].includes(card.status)));
+  const kanbanActive=(kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','blocked'].includes(card.status)));
+  const hasAdvStages=(kanban?.data?.all_stages||[]).length>0
+    || orderRows.some(o=>['fixed_adv','variable_adv'].includes(String(o.analysis_type||'')));
   const hasUnitCost=Number(k.unit_cost?.value_rial||0)>0 || orderRows.some(o=>Number(o.unit_cost_rial||0)>0);
   const steps=[
     {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both'},
     {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:openOrders>0, path:'order'},
     {n:'۳', title:'لایه‌چینی', desc:'مصرف طاقه → WIP', goFn:'goCuttingLaysView', goArg:'lays', cta:'ثبت لایه‌چینی', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
-    {n:'۴', title:'تابلوی خط', desc:'پیشرفت کارگاه', go:'acc-production-kanban', cta:'کانبان', done:kanbanActive, path:'order'},
+    // کانبان فقط برای سفارش چندمرحله‌ای؛ مسیر برش بعد از لایه → رسید محصول است نه تابلوی خالی
+    {n:'۴', title:'تابلوی خط', desc:hasAdvStages?'پیشرفت کارگاه':'مخصوص سفارش چندمرحله‌ای', go:'acc-production-kanban', cta:'کانبان', done:!hasAdvStages || kanbanActive, path:'order'},
     {n:'۵', title:'رسید انبار محصول', desc:'WIP → کالای آماده (PACK)', goFn:'goCuttingLaysView', goArg:'pending-pack', cta:pendingPack?'ورود محصول معلق':'ورود به انبار محصول', done:postedLays.length>0 && pendingPack===0, path:'cut'},
     {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both'},
   ];
-  const nextIdx=steps.findIndex(s=>!s.done);
+  let nextIdx=steps.findIndex(s=>!s.done);
+  // اگر لایه منتظر PACK است، اقدام بعدی را به قدم ۵ ببر (نه کانبان خالی)
+  if(pendingPack>0){
+    const packIdx=steps.findIndex(s=>s.goArg==='pending-pack');
+    if(packIdx>=0 && !steps[packIdx].done) nextIdx=packIdx;
+  }
   return { dash, k, openOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows };
 }
 function prodJourneyHtml(state){
@@ -15048,9 +15114,32 @@ async function prodKanbanLoad(){
   catch(e){ if(board) board.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`; return; }
   if(!board) return;
   const cols=r.data?.columns||[];
+  const cardCount=cols.reduce((n,c)=>n+(c.cards||[]).length,0);
+  let pendingPackRows=[];
+  try{
+    const lays=await api('GET','/production/cutting-lays');
+    const layRows=(lays&&lays.rows)||[];
+    pendingPackRows=layRows.filter(row=>row.status!=='reversed' && !(row.packs||[]).some(p=>p.status==='posted') && Number(row.pack_posted)!==1);
+  }catch(_){ pendingPackRows=[]; }
   const stLabel={pending:'📝',in_progress:'🔵',done:'✅',blocked:'⛔'};
+  const emptyHint=!cardCount?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`line-height:1.8;font-size:13px`)}">
+    <b>تابلوی خط مخصوص سفارش چندمرحله‌ای (fixed_adv / variable_adv) است.</b>
+    مسیر برش بعد از لایه‌چینی به «رسید انبار محصول» می‌رود نه کانبان.
+    ${pendingPackRows.length?`<div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">📦 ${fmt(pendingPackRows.length)} لایه منتظر ورود به انبار محصول</button></div>`:''}
+  </div></div>`:'';
+  const cutCol=pendingPackRows.length?`<div class="prod-kanban-col">
+    <div class="prod-kanban-col-head"><span>✂️ برش / WIP</span><span>(${pendingPackRows.length})</span></div>
+    ${pendingPackRows.map(lay=>`<div class="prod-kanban-card st-in_progress" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">
+      <div data-csp-style="${CSP.style(`font-weight:700`)}">${esc(lay.lay_no||('#'+lay.id))}</div>
+      <div>${esc(lay.product_name||'')}</div>
+      <div class="num">${esc(lay.color||'')} · ${fmt(lay.qty_pieces||lay.actual_meters||0)}</div>
+      <div>⌛ منتظر رسید محصول</div>
+    </div>`).join('')}
+  </div>`:'';
   board.innerHTML=`
+    ${emptyHint}
     <div class="prod-kanban-board">
+      ${cutCol}
       ${cols.map(c=>`<div class="prod-kanban-col">
         <div class="prod-kanban-col-head"><span>${esc(c.cc_code||'')} ${esc(c.cc_name||'')}</span><span>(${c.cards.length})</span></div>
         ${c.cards.map(card=>`<div class="prod-kanban-card st-${esc(card.status)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((card.order_id))})}">
@@ -15059,9 +15148,9 @@ async function prodKanbanLoad(){
           <div class="num">${card.qty_in??0} → ${card.qty_out??0}</div>
           <div>${stLabel[card.status]||''} ${esc(card.status)}</div>
         </div>`).join('')||`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">خالی</div>`}
-      </div>`).join('')||'<div class="muted">داده‌ای یافت نشد</div>'}
+      </div>`).join('')||(!cutCol?'<div class="muted">داده‌ای یافت نشد</div>':'')}
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">سفارش‌های باز: ${r.totals?.open_orders??0}</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">سفارش‌های مرحله‌ای باز: ${r.totals?.open_orders??0}${pendingPackRows.length?' · لایه‌های منتظر محصول: '+pendingPackRows.length:''}</div>`;
 }
 async function prodOrderOpenFromKanban(orderId){
   try{
@@ -16491,25 +16580,34 @@ async function prodOrderIssueModal(id){
       ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div data-csp-style="${CSP.style(`margin-bottom:8px`)}">این کالاها موجودی دارند ولی بها ندارند. بهای هر واحد (ریال) را بنویسید — سند افتتاحیه ثبت می‌شود و حواله باز می‌شود.</div>${zeroCost.map(L=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:6px 0`)}"><span>${esc(L.name||('#'+L.product_id))}</span><input data-seed-cost="pim" data-pid="${L.product_id}" inputmode="numeric" placeholder="بهای هر واحد" data-csp-style="${CSP.style(`width:140px`)}"></label>`).join('')}<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){seedIssueAvgFrom('pim',function(){prodOrderIssueModal(id)})})}">ثبت بها</button></div>`
       : `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر است. از حسابداری بخواهید بها را ثبت کند: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`)
     : '';
+  const cutLockedCount=lines.filter(L=>Number(L.fabric_cut_locked)===1).length;
+  const cutHint=cutLockedCount
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#2D7A5F`)}">پارچه‌ای که در لایه‌چینی مصرف شده از حواله حذف/قفل شده تا دوباره‌مصرف نشود. بقیهٔ اقلام BOM (آستر، زیپ، …) را ثبت کنید.</div>`
+    : '';
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
-    ${zeroHint}
+    ${zeroHint}${cutHint}
     <div id="pim-summary" class="prod-issue-summary" data-csp-style="${CSP.style(`display:${seeCost?'flex':'none'};gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px`)}"></div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th>
       ${seeCost?'<th>انحراف نرخ</th><th>انحراف مقدار</th><th>جمع انحراف</th>':''}
       <th>دلیل (در صورت انحراف زیاد)</th>
     </tr></thead><tbody id="pim-rows">
-      ${lines.map((L,i)=>`<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial||0}" data-ap="${L.average_cost_rial||0}" data-avg-ok="${lineAvgOk(L)?1:0}">
-        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}</td>
+      ${lines.map((L,i)=>{
+        const locked=Number(L.fabric_cut_locked)===1;
+        const lockNote=locked?` <span class="muted">(مصرف‌شده در لایه‌چینی${L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':''})</span>`
+          :(L.fabric_qty_allowed!=null && Number(L.fabric_cut_meters)>0?` <span class="muted">(مانده مجاز ${L.fabric_qty_allowed} متر)</span>`:'');
+        return `<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial||0}" data-ap="${L.average_cost_rial||0}" data-avg-ok="${lineAvgOk(L)?1:0}" data-fabric-locked="${locked?1:0}">
+        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}${lockNote}</td>
         <td class="num">${L.qty_standard}</td>
-        <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
+        <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" ${locked?'readonly disabled':''} data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
         <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
         ${seeCost?`<td class="num" id="pim-vp-${i}">۰</td><td class="num" id="pim-vq-${i}">۰</td><td class="num" id="pim-vt-${i}">۰</td>`:''}
-        <td><input class="pim-reason" id="pim-reason-${i}" placeholder="دلیل انحراف" data-csp-style="${CSP.style(`width:140px`)}"></td>
-      </tr>`).join('')||`<tr><td colspan="${seeCost?8:5}" data-csp-style="${CSP.style(`text-align:center`)}">فرمولی برای این سفارش نیست</td></tr>`}
+        <td><input class="pim-reason" id="pim-reason-${i}" placeholder="دلیل انحراف" ${locked?'disabled':''} data-csp-style="${CSP.style(`width:140px`)}"></td>
+      </tr>`;
+      }).join('')||`<tr><td colspan="${seeCost?8:5}" data-csp-style="${CSP.style(`text-align:center`)}">فرمولی برای این سفارش نیست</td></tr>`}
     </tbody></table></div>
-    <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011).</p>
+    <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011). متر پارچهٔ بریده‌شده از مسیر لایه‌چینی مصرف شده و دوباره حواله نمی‌شود.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}" ${zeroCost.length?'disabled title="بهای میانگین صفر"':''}>ثبت حواله</button>
@@ -16528,13 +16626,17 @@ async function prodOrderIssueModal(id){
 function prodIssueRecalc(i){
   const row=document.querySelector(`#pim-rows tr[data-idx="${i}"]`);
   if(!row) return;
+  const locked=Number(row.dataset.fabricLocked)===1;
   const SQ=+row.dataset.sq||0, SP=+row.dataset.sp||0, AP=+row.dataset.ap||0;
   const AQ=+row.querySelector('.pim-qty-actual').value||0;
-  const v=window.ProdUI?window.ProdUI.calcVariance(AQ,SQ,AP,SP):{pct:SQ?((AQ-SQ)/SQ*100):(AQ>0?100:0),varPrice:0,varQtyR:0,total:0,favorable:false};
+  // Locked fabric is consumed at cutting — do not treat zero issue as a variance that blocks submit.
+  const v=locked
+    ? {pct:0,varPrice:0,varQtyR:0,total:0,favorable:true}
+    :(window.ProdUI?window.ProdUI.calcVariance(AQ,SQ,AP,SP):{pct:SQ?((AQ-SQ)/SQ*100):(AQ>0?100:0),varPrice:0,varQtyR:0,total:0,favorable:false});
   const fav='#2D7A5F', unfav='#C0392B';
   const color=v.favorable?fav:(Math.abs(v.pct)>0.0001?unfav:'inherit');
   const cell=el('pim-pct-'+i);
-  if(cell){ cell.textContent=(window.ProdUI?window.ProdUI.pct(v.pct,true):v.pct.toFixed(1)+'٪'); cell.style.color=color; }
+  if(cell){ cell.textContent=locked?'قفل':(window.ProdUI?window.ProdUI.pct(v.pct,true):v.pct.toFixed(1)+'٪'); cell.style.color=locked?fav:color; }
   const fmtN=(n)=> (window.ProdUI&&window.ProdUI.rial)?window.ProdUI.rial(n):String(Math.round(n||0));
   const vp=el('pim-vp-'+i); if(vp){ vp.textContent=fmtN(v.varPrice); vp.style.color=(v.varPrice||0)<0?fav:(v.varPrice?unfav:'inherit'); }
   const vq=el('pim-vq-'+i); if(vq){ vq.textContent=fmtN(v.varQtyR); vq.style.color=(v.varQtyR||0)<0?fav:(v.varQtyR?unfav:'inherit'); }
@@ -16542,7 +16644,7 @@ function prodIssueRecalc(i){
   const reasonEl=el('pim-reason-'+i);
   const threshold=5;
   if(reasonEl){
-    if(Math.abs(v.pct)>threshold && !reasonEl.value.trim()){
+    if(!locked && Math.abs(v.pct)>threshold && !reasonEl.value.trim()){
       reasonEl.classList.add('prod-required-error');
       reasonEl.placeholder=`دلیل انحراف ${v.pct.toFixed(1)}٪ الزامی`;
     } else {
@@ -18197,65 +18299,105 @@ async function purchaseInvoiceModal(){
   await loadLiveWarehousesForAccess();
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   openModal(`
-    <div class="modal-head"><h3>📦 فاکتور خرید جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body">
-      <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+    <div class="modal-head"><h3>فاکتور خرید جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body inv-doc">
+      <header class="inv-doc-head">
+        <div class="inv-doc-head-main">
+          <h4 class="inv-doc-title">فاکتور خرید جدید</h4>
+          <div class="inv-doc-meta">
+            <span class="inv-doc-badge">خرید</span>
+            <span class="inv-doc-badge muted">پیش‌نویس</span>
+            <span class="inv-doc-badge warn">بدون ویرایش پس از ثبت</span>
+          </div>
+        </div>
+        <div class="inv-doc-head-aside">
+          <span>تاریخ سند</span>
+          <span class="mono">${todayJalali()}</span>
+        </div>
+      </header>
+
+      <div class="inv-doc-essentials">
         <div class="fg"><label>تأمین‌کننده *</label>${supplierSelect('po-supplier',0)}</div>
         <div class="fg"><label>تاریخ</label><input id="po-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg"><label>انبار مقصد</label><select id="po-warehouse">${warehouseOptionsHtml('','— انتخاب انبار —')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="po-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" data-csp-change="${CSP.bind('change',function(event){togglePoBankFields()})}">
-          <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
-          <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
-        <div class="fg" id="po-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب تأمین‌کننده می‌ماند.')}</label>
-          <input id="po-pay-amount" type="text" inputmode="numeric" class="money" value="" placeholder="مبلغ پرداختی" data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderPoCashRemainder==='function')renderPoCashRemainder()})}">
-          <div id="po-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
         <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
-        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
-        <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}">
-          <option value="amount">به نسبت مبلغ</option>
-          <option value="qty">به نسبت مقدار</option>
-          <option value="equal">مساوی</option>
-        </select></div>
-        <div class="fg"><label><input type="checkbox" id="po-vat-exempt" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
-        <div class="fg" id="po-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از بانک</label><select id="po-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('po')})}">
-          <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-        </select></div>
-        <div class="fg" id="po-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از صندوق *</label><select id="po-cashbox">
-          <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-        </select></div>
-        <div class="fg" id="po-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="po-checkcat"><option value="">—</option></select></div>
-        <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
       </div>
-      <div id="poChequeFields" data-csp-style="${CSP.style(`display:none`)}">
-        <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-          <div class="fg"><label>مدت چک (روز)</label><input id="po-cheque-dur" type="number" value=""></div>
-          <div class="fg"><label>تاریخ سررسید</label><input id="po-cheque-due" data-jdate value=""></div>
-          <div class="fg full"><label>اطلاعات چک</label><input id="po-cheque-info" placeholder="بانک، شماره صیادی، …"></div>
+
+      <details class="inv-doc-sec" id="po-sec-pay">
+        <summary>پرداخت</summary>
+        <div class="inv-doc-sec-body">
+          <p class="inv-doc-sec-hint">نسیه حساب تأمین‌کننده را باز می‌گذارد؛ نقد/چک/واریز همان لحظه پرداخت ثبت می‌شود.</p>
+          <div class="form-grid">
+            <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" data-csp-change="${CSP.bind('change',function(event){togglePoBankFields();const s=el('po-sec-pay');if(s&&this.value&&this.value!=='credit')s.open=true})}">
+              <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
+              <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
+            <div class="fg" id="po-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب تأمین‌کننده می‌ماند.')}</label>
+              <input id="po-pay-amount" type="text" inputmode="numeric" class="money" value="" placeholder="مبلغ پرداختی" data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderPoCashRemainder==='function')renderPoCashRemainder()})}">
+              <div id="po-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
+            <div class="fg" id="po-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از بانک</label><select id="po-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('po')})}">
+              <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+            </select></div>
+            <div class="fg" id="po-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از صندوق *</label><select id="po-cashbox">
+              <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+            </select></div>
+            <div class="fg" id="po-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="po-checkcat"><option value="">—</option></select></div>
+          </div>
+          <div id="poChequeFields" data-csp-style="${CSP.style(`display:none`)}">
+            <div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
+              <div class="fg"><label>مدت چک (روز)</label><input id="po-cheque-dur" type="number" value=""></div>
+              <div class="fg"><label>تاریخ سررسید</label><input id="po-cheque-due" data-jdate value=""></div>
+              <div class="fg full"><label>اطلاعات چک</label><input id="po-cheque-info" placeholder="بانک، شماره صیادی، …"></div>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="inv-layout">
-        <div>${genProductSearchHtml()}
-          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
-          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>
+      </details>
+
+      <details class="inv-doc-sec" id="po-sec-freight">
+        <summary>کرایه، مالیات و یادداشت</summary>
+        <div class="inv-doc-sec-body">
+          <div class="form-grid">
+            <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
+            <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
+            <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}">
+              <option value="amount">به نسبت مبلغ</option>
+              <option value="qty">به نسبت مقدار</option>
+              <option value="equal">مساوی</option>
+            </select></div>
+            <div class="fg"><label><input type="checkbox" id="po-vat-exempt" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
+            <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
+          </div>
         </div>
-        <div class="inv-cart">
+      </details>
+
+      <div class="inv-doc-body">
+        <aside class="inv-doc-picker">
+          ${genProductSearchHtml()}
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>
+        </aside>
+        <section class="inv-doc-lines">
           <div class="inv-cart-head">
-            <h4>📦 اقلام فاکتور خرید</h4>
+            <h4>اقلام فاکتور خرید</h4>
             <span class="inv-cart-meta" id="poCartCount">0 ردیف</span>
           </div>
           <div class="inv-lines-wrap" id="genCartRows"></div>
+        </section>
+        <aside class="inv-doc-rail">
           <div class="cart-tot" id="genCartTot"></div>
-        </div>
+          <div class="inv-doc-rail-actions">
+            <button class="btn green" id="po-save-btn" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">ثبت فاکتور خرید</button>
+            <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+          </div>
+          <div class="inv-doc-mobile-bar" id="po-mobile-bar">
+            <span class="inv-m-final" id="po-mobile-final">—</span>
+            <button type="button" class="btn green" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">ثبت خرید</button>
+          </div>
+        </aside>
       </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">💾 ثبت فاکتور خرید</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-    </div>`,true);
+    </div>`,true);}
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   renderGenCart(); togglePoBankFields();
   const poWh=el('po-warehouse');
