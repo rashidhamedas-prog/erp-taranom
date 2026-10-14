@@ -4,7 +4,7 @@
 - **منطق:** ماژول مشترک `prod-journey-gate.js` — مرحله ۲ = سفارش آزادشده (نه پیش‌نویس)؛ ۴ در مسیر بدون مراحل پیشرفته خودکار؛ ۵ فقط وقتی ۱…۴ کامل؛ قفل UI با `is-locked` + toast؛ `prodJourneyRouteEnter` برای BOM/سفارش/لایه/کانبان/برگه بها.
 - **فایل‌ها:** `public/{prod-journey-gate.js,app.js,prod-ui.css,sw.js,index.html}`, `scripts/test-prod-journey-gate-v382.js`, CHANGE-LOG, Help.
 - **تست:** `test-prod-journey-gate-v382` + parse app.js؛ sms/sync در صورت نیاز.
-- **Deploy:** ⏳ — SW `erp-taranom-v382`؛ `app.js?v=382`؛ `prod-journey-gate.js?v=382`.
+- **Deploy:** ✅ `d63dadd` — overlay gzip+sha ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v382`؛ `app.js?v=382`؛ `prod-journey-gate.js?v=382`؛ تست ایران ۹/۰ + sms ۲۲/۰ + sync ۴۴/۰.
 
 ### ۱۴۰۵/۰۷/۲۲ — ویرایش طاقه پارچه (متادیتا همیشه + amend مالی مصرف‌نشده) (SW v381)
 
