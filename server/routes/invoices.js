@@ -400,8 +400,8 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   const pq = listQueryPlan(req.query);
   // List view omits the heavy `rows` JSON blob — fetch line items via GET /:id when editing.
-  const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
-    i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
+  const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.final_rial,i.pay_type,
+    i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,i.deleted_at,
     i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
     i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method,i.fulfillment_state`;
   const typeFilter = String(req.query.type || '').trim();

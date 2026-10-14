@@ -6,11 +6,11 @@
 - **تست:** `test-invoice-amend-date-v371` + `test-sms` + `test-sync` روی ایران.
 - **Deploy:** ✅ `ba262db` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v371`؛ `app.js?v=371`؛ test-invoice-amend-date-v371 11/0 + sms 22/0 + sync 44/0.
 
-### ۱۴۰۵/۰۷/۲۲ — تخصیص فاکتور با مبلغ خالص پس از تخفیف (SW v371)
+### ۱۴۰۵/۰۷/۲۲ — تخصیص فاکتور با مبلغ خالص پس از تخفیف (SW v372)
 
 - **علائم:** در برگشت از فروش (مثلاً T-0008) لیست تخصیص/انتخاب فاکتور با مبلغ ردیف قبل از تخفیف کل هم‌خوان نبود؛ کاربر انتظار مبلغ بعد از تخفیف (وجه دریافتنی) داشت.
 - **ریشه:** T-0008: `subtotal=25.4M`، `disc_amt=400k`، `final/final_rial=25M`. لیست برگشت از `GET /invoices` + `fmt(i.final)` تغذیه می‌شد بدون برچسب/SoT یکسان؛ open-invoices از `i.final` خام؛ خرید بدون API تخصصی تخصیص.
-- **رفع (حسابداری ایران / AR≈2030 + ERPNext outstanding):** هلپر `lib/invoice-face-amount.js` — face = بعد از تخفیف تجاری؛ APIهای `firm-invoices` / `purchase-invoices` + اصلاح `open-invoices` و by-invoice با face؛ UI همهٔ pickerهای تخصیص با `formatInvoiceAllocOption` («خالص … (تخفیف …)» / مانده زنده)؛ Help؛ SW `v371`.
+- **رفع (حسابداری ایران / AR≈2030 + ERPNext outstanding):** هلپر `lib/invoice-face-amount.js` — face = بعد از تخفیف تجاری؛ APIهای `firm-invoices` / `purchase-invoices` + اصلاح `open-invoices` و by-invoice با face؛ UI همهٔ pickerهای تخصیص با `formatInvoiceAllocOption` («خالص … (تخفیف …)» / مانده زنده)؛ Help؛ SW `v372`.
 - **فایل‌ها:** `lib/invoice-face-amount.js`, `routes/{accounting,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-face-alloc-v371.js`, CHANGE-LOG.
 - **تست:** `test-invoice-face-alloc-v371` + sms + sync.
 - **Deploy:** ⏳

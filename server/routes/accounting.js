@@ -572,8 +572,10 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const scopeParams = uid != null ? [uid, uid] : [];
   const retDate = st ? ' AND sr.date <= ?' : ((!st && sf) ? ' AND sr.date >= ?' : '');
   const retParams = st ? [st] : ((!st && sf) ? [sf] : []);
+  const face = sqlInvoiceFaceRial('i');
   const rows = db.prepare(`
-    SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
+    SELECT i.id, i.num, i.date, ${face} AS final, ${face} AS amount_rial,
+      c.id as cust_id, c.biz, c.owner, u.name as salesperson,
       COALESCE(sp.paid, 0) + COALESCE(sr.returns_gross, 0) + COALESCE(rca.alloc_gross, 0) as paid
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
@@ -1400,58 +1402,106 @@ router.patch('/link-coa', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ ok: true, coa_code: acc.code, coa_name: acc.name });
 });
 
-// Open invoices for a customer (for payment allocation)
-router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, res) => {
+const {
+  sqlInvoiceFaceRial, sqlPurchaseFaceRial, allocPickerFields,
+} = require('../lib/invoice-face-amount');
+
+const SALES_INV_PAID_SQL = `
+  COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0)
+  + COALESCE((
+    SELECT SUM(COALESCE(sr.amount,0) + COALESCE(sr.vat_amount,0)) FROM sales_returns sr
+    WHERE sr.invoice_id=i.id AND COALESCE(sr.status,'posted')<>'reversed'
+  ), 0)
+  + COALESCE((
+    SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
+    WHERE rca.side='sales' AND rca.invoice_id=i.id AND COALESCE(rca.status,'posted')<>'reversed'
+  ), 0)`;
+
+const PURCHASE_INV_PAID_SQL = `
+  COALESCE((SELECT SUM(sp.amount) FROM supplier_payments sp
+    WHERE sp.purchase_invoice_id=p.id AND COALESCE(sp.status,'posted')<>'reversed'), 0)
+  + COALESCE((SELECT SUM(ep.amount) FROM expense_payments ep
+    WHERE ep.purchase_invoice_id=p.id AND COALESCE(ep.status,'posted')<>'reversed'), 0)
+  + COALESCE((
+    SELECT SUM(COALESCE(pr.amount,0) + COALESCE(pr.vat_amount,0)) FROM purchase_returns pr
+    WHERE pr.purchase_invoice_id=p.id AND COALESCE(pr.status,'posted')<>'reversed'
+  ), 0)
+  + COALESCE((
+    SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
+    WHERE rca.side='purchase' AND rca.invoice_id=p.id AND COALESCE(rca.status,'posted')<>'reversed'
+  ), 0)`;
+
+/** Firm sales invoices for return / allocation pickers — face = after discount (AR). */
+router.get('/customers/:custId/firm-invoices', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const face = sqlInvoiceFaceRial('i');
   const rows = db.prepare(`
-    SELECT i.id, i.num, i.date, i.final,
-      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0)
-      + COALESCE((
-        SELECT SUM(COALESCE(sr.amount,0) + COALESCE(sr.vat_amount,0)) FROM sales_returns sr
-        WHERE sr.invoice_id=i.id AND COALESCE(sr.status,'posted')<>'reversed'
-      ), 0)
-      + COALESCE((
-        SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
-        WHERE rca.side='sales' AND rca.invoice_id=i.id AND COALESCE(rca.status,'posted')<>'reversed'
-      ), 0) as paid
+    SELECT i.id, i.num, i.date, i.type, i.subtotal, i.disc_amt, i.final, i.final_rial,
+      ${face} AS amount_rial,
+      ${SALES_INV_PAID_SQL} AS paid
     FROM invoices i
     WHERE i.cust_id=? AND ${firmSaleTypeSql('i')}
+      AND COALESCE(i.deleted_at,0)=0
+      AND COALESCE(i.status,'posted')<>'reversed'
     ORDER BY i.date DESC, i.id DESC
   `).all(req.params.custId);
-  rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });
-  res.json(rows.filter(r => r.outstanding > 0));
+  res.json(rows.map((r) => allocPickerFields(r, { paid: r.paid })));
+});
+
+// Open invoices for a customer (for payment allocation) — outstanding from net face
+router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const face = sqlInvoiceFaceRial('i');
+  const rows = db.prepare(`
+    SELECT i.id, i.num, i.date, i.type, i.subtotal, i.disc_amt, i.final, i.final_rial,
+      ${face} AS amount_rial,
+      ${SALES_INV_PAID_SQL} AS paid
+    FROM invoices i
+    WHERE i.cust_id=? AND ${firmSaleTypeSql('i')}
+      AND COALESCE(i.deleted_at,0)=0
+      AND COALESCE(i.status,'posted')<>'reversed'
+    ORDER BY i.date DESC, i.id DESC
+  `).all(req.params.custId);
+  res.json(rows.map((r) => allocPickerFields(r, { paid: r.paid })).filter((r) => r.outstanding > 0));
+});
+
+/** Purchase invoices for return / allocation pickers — face = after discount (AP). */
+router.get('/suppliers/:supplierId/purchase-invoices', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const face = sqlPurchaseFaceRial('p');
+  const rows = db.prepare(`
+    SELECT p.id, p.num, p.date, p.subtotal, p.disc_amt, p.final,
+      ${face} AS amount_rial,
+      ${PURCHASE_INV_PAID_SQL} AS paid
+    FROM purchase_invoices p
+    WHERE p.supplier_id=? AND COALESCE(p.status,'posted')<>'reversed'
+    ORDER BY p.date DESC, p.id DESC
+  `).all(req.params.supplierId);
+  res.json(rows.map((r) => allocPickerFields(r, { paid: r.paid })));
 });
 
 // Open purchase invoices for a supplier (payment allocation)
 router.get('/suppliers/:supplierId/open-invoices', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const face = sqlPurchaseFaceRial('p');
   const rows = db.prepare(`
-    SELECT p.id, p.num, p.date, p.final,
-      COALESCE((SELECT SUM(sp.amount) FROM supplier_payments sp
-        WHERE sp.purchase_invoice_id=p.id AND COALESCE(sp.status,'posted')<>'reversed'), 0)
-      + COALESCE((SELECT SUM(ep.amount) FROM expense_payments ep
-        WHERE ep.purchase_invoice_id=p.id AND COALESCE(ep.status,'posted')<>'reversed'), 0)
-      + COALESCE((
-        SELECT SUM(COALESCE(pr.amount,0) + COALESCE(pr.vat_amount,0)) FROM purchase_returns pr
-        WHERE pr.purchase_invoice_id=p.id AND COALESCE(pr.status,'posted')<>'reversed'
-      ), 0)
-      + COALESCE((
-        SELECT SUM(rca.amount_rial) FROM return_credit_allocations rca
-        WHERE rca.side='purchase' AND rca.invoice_id=p.id AND COALESCE(rca.status,'posted')<>'reversed'
-      ), 0) as paid
+    SELECT p.id, p.num, p.date, p.subtotal, p.disc_amt, p.final,
+      ${face} AS amount_rial,
+      ${PURCHASE_INV_PAID_SQL} AS paid
     FROM purchase_invoices p
     WHERE p.supplier_id=? AND COALESCE(p.status,'posted')<>'reversed'
     ORDER BY p.date DESC, p.id DESC
   `).all(req.params.supplierId);
-  rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });
-  res.json(rows.filter(r => r.outstanding > 0));
+  res.json(rows.map((r) => allocPickerFields(r, { paid: r.paid })).filter((r) => r.outstanding > 0));
 });
 
 // Payables per purchase invoice (mirror receivables/by-invoice)
 router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const face = sqlPurchaseFaceRial('p');
   const rows = db.prepare(`
-    SELECT p.id, p.num, p.date, p.final, p.supplier_id, s.name as supplier_name,
+    SELECT p.id, p.num, p.date, ${face} AS final, ${face} AS amount_rial,
+      p.supplier_id, s.name as supplier_name,
       COALESCE(sp.paid_sup, 0) + COALESCE(ep.paid_exp, 0) + COALESCE(pr.returns_gross, 0) + COALESCE(rca.alloc_gross, 0) as paid
     FROM purchase_invoices p
     JOIN suppliers s ON p.supplier_id=s.id
