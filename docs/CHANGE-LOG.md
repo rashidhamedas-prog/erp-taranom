@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۷/۲۲ — ریشهٔ اختلاف مانده زنده / تفصیلی اشخاص (SW v368)
+
+- **علائم:** داشبورد کنترل حساب → «اختلاف دفتر و تفصیلی ۱۰ شخص»؛ KPI نیازمند تطبیق.
+- **ریشه (معماری/حسابداری):**
+  1. افتتاحیه روی JE/هدر `parties.opening_balance` بود ولی با آمدن ردیف زیردفتر، ماندهٔ زنده فقط Σ زیردفتر می‌شد و افتتاحیه حذف می‌شد → live ≠ GL به‌اندازهٔ opening.
+  2. تأمین‌کننده از فرمول خرید/پرداخت (مستعد تومان/ریال) خوانده می‌شد نه از `supplier_ledger`.
+  3. `postPartyOpeningBalance` فقط مسیر `legacy_table` را به زیردفتر می‌نوشت؛ لینک `party_id` اغلب بدون ردیف افتتاحیه می‌ماند.
+- **رفع اصولی:** ترکیب opening+subledger دقیقاً یک‌بار؛ SoT تأمین = `supplier_ledger`؛ mismatch چندبرگ `partyBooksMismatch`؛ opening JE → همهٔ زیردفترهای لینک‌شده؛ ADR-PARTY-001 amendment؛ Help.
+- **فایل‌ها:** `lib/{party-books,party-control-dashboard,opening-post}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-opening-align-v368.js`, `PARTY-ACC-ADR-001.md`, CHANGE-LOG.
+- **تست:** `test-party-books-opening-align-v368` + `test-sms` + `test-sync` روی ایران؛ parse فرانت.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش برگشت از فروش (R13 same-id amend) (SW v367)
 
 - **هدف:** دکمهٔ ویرایش روی لیست برگشت از فروش با رعایت کامل وابستگی‌ها (JE، انبار، دفتر مشتری، تخصیص اعتبار، مانده فاکتور).

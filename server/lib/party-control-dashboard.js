@@ -5,7 +5,7 @@
 'use strict';
 
 const { j2g } = require('../jalali');
-const { partySignedBalanceDetailMap, glSignedForCoa } = require('./party-books');
+const { partySignedBalanceDetailMap, glSignedForCoa, partyBooksMismatch } = require('./party-books');
 const { firmSaleTypeSql } = require('./sales-document');
 
 const ROLE_LABELS = {
@@ -197,13 +197,10 @@ function buildPartyControlDashboard(db, query = {}) {
       coa_code: p.coa_code || null,
     };
     const balance = info.balance;
-    // Same-leaf compare only (dual-role AR≠AP leaf must not false-flag)
+    // Per-leaf compare (dual-role AR≠AP must not false-flag across leaves)
     const leaf = info.coa_code || p.coa_code || null;
     const glBal = leaf ? glSignedForCoa(db, leaf) : null;
-    const booksMismatch = glBal != null
-      && leaf
-      && info.source !== 'opening'
-      && Math.abs(balance - glBal) > 1;
+    const booksMismatch = partyBooksMismatch(db, info);
     const creditLimit = Math.round(Number(p.credit_limit) || 0);
     const debitSide = balance > 0 ? balance : 0;
     const creditSide = balance < 0 ? -balance : 0;

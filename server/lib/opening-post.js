@@ -77,29 +77,85 @@ function postPartyOpeningBalance(db, {
     lines,
   });
 
-  // Sub-ledgers (amounts in rial identity, same as customer_ledger after migration)
+  // Sub-ledgers (rial). Always mirror onto every linked role row — not only legacy_table.
+  // Missing this is the root of «مانده زنده ≠ تفصیلی» when opening JE hits GL only.
   try {
-    const { createLedgerEntry } = require('../db');
+    const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
     const debit = amt > 0 ? Math.abs(amt) : 0;
     const credit = amt < 0 ? Math.abs(amt) : 0;
-    if (party.legacy_table === 'customers' && party.legacy_id) {
-      db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(party.legacy_id);
+    const openDate = date || party.opening_balance_date || todayJalali();
+
+    const custIds = new Set();
+    if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
+    try {
+      for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
+        custIds.add(Number(r.id));
+      }
+    } catch (_) { /* */ }
+    for (const cid of custIds) {
+      if (!Number.isFinite(cid)) continue;
+      db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(cid);
       createLedgerEntry(db, {
-        customer_id: party.legacy_id, date: date || '', entry_type: 'opening',
-        ref_type: 'opening', ref_id: party.legacy_id,
+        customer_id: cid, date: openDate, entry_type: 'opening',
+        ref_type: 'opening', ref_id: entryId,
         description: 'مانده اولیه حساب', debit, credit, user_id: userId,
       });
-      db.prepare('UPDATE customers SET balance=? WHERE id=?').run(amt, party.legacy_id);
+      db.prepare('UPDATE customers SET balance=? WHERE id=?').run(amt, cid);
     }
-    // person_ledger FKs to persons(id) — only when a legacy persons row exists
-    if (party.legacy_table === 'persons' && party.legacy_id) {
-      const { createPersonLedgerEntry } = require('../db');
+
+    const personIds = new Set();
+    if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
+    try {
+      for (const r of db.prepare('SELECT id FROM persons WHERE party_id=?').all(partyId)) {
+        personIds.add(Number(r.id));
+      }
+    } catch (_) { /* */ }
+    for (const peid of personIds) {
+      if (!Number.isFinite(peid)) continue;
+      try {
+        db.prepare(`
+          DELETE FROM person_ledger
+          WHERE person_id=? AND (
+            LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+            OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+          )
+        `).run(peid);
+      } catch (_) { /* */ }
       createPersonLedgerEntry(db, {
-        person_id: party.legacy_id, date: date || todayJalali(), entry_type: 'opening',
+        person_id: peid, date: openDate, entry_type: 'opening',
         ref_type: 'opening_balance', ref_id: entryId,
         description: description || 'مانده اول دوره', debit, credit, user_id: userId,
       });
     }
+
+    // Supplier AP opening: credit nature on leaf (we owe them when amt < 0)
+    try {
+      const supRows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId);
+      for (const s of supRows) {
+        const sid = Number(s.id);
+        if (!Number.isFinite(sid)) continue;
+        db.prepare(`
+          DELETE FROM supplier_ledger
+          WHERE supplier_id=? AND (
+            LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+            OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+          )
+        `).run(sid);
+        // supplier_ledger: credit increases payable; amt<0 (we owe) → credit = |amt|
+        const sDebit = amt > 0 ? Math.abs(amt) : 0;
+        const sCredit = amt < 0 ? Math.abs(amt) : 0;
+        db.prepare(`
+          INSERT INTO supplier_ledger
+            (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
+          VALUES (?,?,?,?,?,?,?,?,?)
+        `).run(
+          sid, openDate, 'opening', 'opening_balance', entryId,
+          description || 'مانده اول دوره', sDebit, sCredit, userId || 1
+        );
+        // suppliers.balance stores payable (>0 = we owe)
+        db.prepare('UPDATE suppliers SET balance=? WHERE id=?').run(amt < 0 ? Math.abs(amt) : 0, sid);
+      }
+    } catch (_) { /* supplier_ledger optional */ }
   } catch (e) {
     if (db.inTransaction) throw e;
   }

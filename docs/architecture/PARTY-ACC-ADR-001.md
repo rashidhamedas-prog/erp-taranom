@@ -16,6 +16,13 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 6. **Balance display:** keep `partySignedBalanceMap` rule (subledger first; GL only if absent or `|Δ|≤1`).
 7. **Masters R13:** party deactivate + reverse opening unchanged; physical DELETE of unused masters unchanged.
 
+### Amendment v368 (opening + supplier SoT)
+
+8. **Opening once:** live balance = role subledger + `parties.opening_balance` only when that subledger has no opening row. Never drop header opening when later activity exists (root of false «اختلاف دفتر»).
+9. **Supplier SoT:** `supplier_ledger` (debit−credit, rial) — not purchase/payment document formula.
+10. **Opening post:** `postPartyOpeningBalance` mirrors JE onto every linked `customers` / `persons` / `suppliers` row by `party_id` (not only `legacy_table`).
+11. **Mismatch:** per-leaf compare via `partyBooksMismatch` (dual-role AR≠AP).
+
 ## Also in scope (P0)
 
 - Server guards + regression test `test-party-acc-adr001-v337.js`

@@ -2,9 +2,14 @@
  * Live signed balances for unified parties (اطلاعات اشخاص).
  * Positive = بدهکار (owes us), negative = بستانکار (we owe them). Amounts in rial.
  *
- * SoT rule (ADR-PARTY-001): subledger first; GL only if absent or |Δ|≤1.
- * Detail map also returns which leaf (coa_code) the balance came from so
- * «اختلاف دفتر» compares the same leaf — dual-role AR/AP must not false-flag.
+ * SoT (ADR-PARTY-001 + v368 invariant):
+ *   Subledger first; GL only if absent or |Δ|≤1 on the compared leaf.
+ *   Opening is included EXACTLY once: if the role subledger has no opening row,
+ *   add parties.opening_balance onto the leaf that matches party.coa_code
+ *   (or the sole linked role leaf). Never drop opening when later activity exists.
+ *   Supplier uses supplier_ledger (debit−credit), NEVER purchase/payment formula
+ *   (toman/rial drift + skips opening JE).
+ *   Dual-role AR/AP keep separate leaves; net = Σ leaves; mismatch is per-leaf.
  */
 'use strict';
 
@@ -12,6 +17,10 @@ const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
 
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
+
+const OPENING_REF_TYPES = new Set([
+  'opening', 'opening_balance', 'افتتاحیه', 'مانده اول دوره', 'beginning',
+]);
 
 function tableExists(db, name) {
   try {
@@ -21,121 +30,259 @@ function tableExists(db, name) {
   }
 }
 
-function setDetail(map, fromSub, pid, balance, source, coaCode) {
-  if (!Number.isFinite(pid)) return;
-  map.set(pid, {
-    balance: Math.round(Number(balance) || 0),
-    source: source || 'opening',
-    coa_code: coaCode ? String(coaCode) : null,
-  });
-  if (source && source !== 'opening' && source !== 'gl') fromSub.add(pid);
+function isOpeningRef(refType, entryType) {
+  const a = String(refType || '').toLowerCase();
+  const b = String(entryType || '').toLowerCase();
+  if (OPENING_REF_TYPES.has(a) || OPENING_REF_TYPES.has(b)) return true;
+  if (a.includes('opening') || b.includes('opening')) return true;
+  if (a.includes('افتتاح') || b.includes('افتتاح')) return true;
+  return false;
 }
 
 /**
- * @returns {Map<number, { balance:number, source:string, coa_code:string|null }>}
+ * @returns {Map<number, {
+ *   balance:number, source:string, coa_code:string|null,
+ *   leaves: Array<{coa_code:string, balance:number, source:string}>
+ * }>}
  */
 function partySignedBalanceDetailMap(db) {
   const map = new Map();
-  const fromSubledger = new Set();
-
   if (!tableExists(db, 'parties')) return map;
 
-  const partyCoa = new Map();
-  for (const r of db.prepare('SELECT id, opening_balance, coa_code FROM parties').all()) {
+  const parties = db.prepare(
+    'SELECT id, opening_balance, coa_code FROM parties'
+  ).all();
+  const partyMeta = new Map();
+  for (const r of parties) {
     const pid = Number(r.id);
-    partyCoa.set(pid, r.coa_code || null);
-    setDetail(map, fromSubledger, pid, r.opening_balance, 'opening', r.coa_code);
+    partyMeta.set(pid, {
+      opening: Math.round(Number(r.opening_balance) || 0),
+      coa: r.coa_code ? String(r.coa_code) : null,
+      openingUsed: false,
+    });
+    map.set(pid, {
+      balance: Math.round(Number(r.opening_balance) || 0),
+      source: 'opening',
+      coa_code: r.coa_code ? String(r.coa_code) : null,
+      leaves: [],
+    });
   }
 
-  // Legacy person_ledger via persons.party_id — convert toman payroll rows to rial
+  /** Allocate header opening once onto a leaf that owns it. */
+  function takeOpening(pid, leafCode) {
+    const meta = partyMeta.get(pid);
+    if (!meta || meta.openingUsed || !meta.opening) return 0;
+    const leaf = leafCode ? String(leafCode) : null;
+    if (meta.coa && leaf && meta.coa !== leaf) return 0;
+    meta.openingUsed = true;
+    return meta.opening;
+  }
+
+  /** leafAcc: Map<partyId, Map<coa, {balance, source}>> */
+  const leafAcc = new Map();
+  function putLeaf(pid, coaCode, balance, source) {
+    if (!Number.isFinite(pid)) return;
+    const code = coaCode ? String(coaCode) : '__none__';
+    if (!leafAcc.has(pid)) leafAcc.set(pid, new Map());
+    const m = leafAcc.get(pid);
+    const prev = m.get(code);
+    if (!prev) {
+      m.set(code, { balance: Math.round(Number(balance) || 0), source });
+      return;
+    }
+    // Same leaf, two roles: keep the larger-|balance| view (opening already folded in).
+    // Do not sum — same GL leaf must not be double-counted (cheque XOR / dual link).
+    if (Math.abs(Number(balance) || 0) >= Math.abs(prev.balance)) {
+      m.set(code, { balance: Math.round(Number(balance) || 0), source });
+    }
+  }
+
+  // ── Person sub-ledger ──
   if (tableExists(db, 'person_ledger') && tableExists(db, 'persons')) {
     try {
       const alive = personLedgerAliveSql(db);
       const rows = db.prepare(`
         SELECT pe.party_id AS party_id, pe.coa_code AS person_coa,
-               pl.debit, pl.credit, pl.ref_type, pl.ref_id
+               pl.debit, pl.credit, pl.ref_type, pl.ref_id, pl.entry_type
         FROM person_ledger pl
         JOIN persons pe ON pe.id = pl.person_id
         WHERE pe.party_id IS NOT NULL AND ${alive}
       `).all();
       const plBal = new Map();
       const plCoa = new Map();
+      const plHasOpening = new Set();
       for (const r of rows) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
         const amt = personLedgerLineRial(db, r);
         plBal.set(pid, (plBal.get(pid) || 0) + amt.debit - amt.credit);
         if (!plCoa.has(pid)) {
-          plCoa.set(pid, r.person_coa || partyCoa.get(pid) || null);
+          const meta = partyMeta.get(pid);
+          plCoa.set(pid, r.person_coa || (meta && meta.coa) || null);
         }
+        if (isOpeningRef(r.ref_type, r.entry_type)) plHasOpening.add(pid);
       }
-      for (const [pid, bal] of plBal) {
-        setDetail(map, fromSubledger, pid, bal, 'person', plCoa.get(pid) || partyCoa.get(pid));
+      // Parties linked to persons but with empty ledger still need opening on that leaf
+      const linkedPersons = db.prepare(`
+        SELECT party_id, coa_code FROM persons WHERE party_id IS NOT NULL
+      `).all();
+      for (const pe of linkedPersons) {
+        const pid = Number(pe.party_id);
+        if (!Number.isFinite(pid)) continue;
+        if (!plCoa.has(pid)) plCoa.set(pid, pe.coa_code || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null);
+        if (!plBal.has(pid)) plBal.set(pid, 0);
+      }
+      for (const [pid, bal0] of plBal) {
+        const leaf = plCoa.get(pid);
+        let bal = Math.round(Number(bal0) || 0);
+        if (!plHasOpening.has(pid)) bal += takeOpening(pid, leaf);
+        putLeaf(pid, leaf, bal, 'person');
       }
     } catch (_) { /* optional */ }
   }
 
-  // Customer sub-ledger via customers.party_id
+  // ── Customer sub-ledger ──
   if (tableExists(db, 'customer_ledger') && tableExists(db, 'customers')) {
     try {
       const rows = db.prepare(`
         SELECT c.party_id AS party_id, c.coa_code AS cust_coa,
-          COALESCE(SUM(cl.debit) - SUM(cl.credit), 0) AS bal
+          COALESCE(SUM(cl.debit) - SUM(cl.credit), 0) AS bal,
+          SUM(CASE WHEN LOWER(COALESCE(cl.ref_type,'')) IN ('opening','opening_balance')
+                    OR LOWER(COALESCE(cl.entry_type,'')) IN ('opening','opening_balance')
+               THEN 1 ELSE 0 END) AS open_n
         FROM customer_ledger cl
         JOIN customers c ON c.id = cl.customer_id
         WHERE c.party_id IS NOT NULL
         GROUP BY c.party_id
       `).all();
+      const seen = new Set();
       for (const r of rows) {
         const pid = Number(r.party_id);
         if (!Number.isFinite(pid)) continue;
-        setDetail(
-          map, fromSubledger, pid, r.bal, 'customer',
-          r.cust_coa || partyCoa.get(pid) || null
-        );
+        seen.add(pid);
+        const leaf = r.cust_coa || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null;
+        let bal = Math.round(Number(r.bal) || 0);
+        if (!Number(r.open_n)) bal += takeOpening(pid, leaf);
+        putLeaf(pid, leaf, bal, 'customer');
+      }
+      for (const c of db.prepare(
+        'SELECT party_id, coa_code FROM customers WHERE party_id IS NOT NULL'
+      ).all()) {
+        const pid = Number(c.party_id);
+        if (!Number.isFinite(pid) || seen.has(pid)) continue;
+        const leaf = c.coa_code || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null;
+        const bal = takeOpening(pid, leaf);
+        if (bal || leaf) putLeaf(pid, leaf, bal, 'customer');
       }
     } catch (_) { /* optional */ }
   }
 
-  // Supplier payable → credit nature (negative signed); compare to supplier leaf
+  // ── Supplier: supplier_ledger only (rial signed = debit − credit) ──
   if (tableExists(db, 'suppliers')) {
     try {
-      const rows = db.prepare(`
-        SELECT s.party_id AS party_id, s.coa_code AS sup_coa,
-          COALESCE(s.balance, 0)
-            + COALESCE(pi.total_purchased, 0)
-            - COALESCE(sp.total_paid, 0)
-            - COALESCE(pr.total_returned, 0) AS payable
-        FROM suppliers s
-        LEFT JOIN (
-          SELECT supplier_id, SUM(final) AS total_purchased
-          FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id
-        ) pi ON pi.supplier_id = s.id
-        LEFT JOIN (
-          SELECT supplier_id, SUM(amount) AS total_paid
-          FROM supplier_payments GROUP BY supplier_id
-        ) sp ON sp.supplier_id = s.id
-        LEFT JOIN (
-          SELECT supplier_id, SUM(amount) AS total_returned
-          FROM purchase_returns GROUP BY supplier_id
-        ) pr ON pr.supplier_id = s.id
-        WHERE s.party_id IS NOT NULL
-      `).all();
-      for (const r of rows) {
-        const pid = Number(r.party_id);
+      const hasSl = tableExists(db, 'supplier_ledger');
+      const suppliers = db.prepare(
+        'SELECT id, party_id, coa_code, balance FROM suppliers WHERE party_id IS NOT NULL'
+      ).all();
+      for (const s of suppliers) {
+        const pid = Number(s.party_id);
         if (!Number.isFinite(pid)) continue;
-        const payable = Math.round(Number(r.payable) || 0);
-        if (payable !== 0) {
-          setDetail(
-            map, fromSubledger, pid, -payable, 'supplier',
-            r.sup_coa || partyCoa.get(pid) || null
-          );
+        const leaf = s.coa_code || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null;
+        let bal = 0;
+        let hasOpening = false;
+        if (hasSl) {
+          const lines = db.prepare(`
+            SELECT debit, credit, ref_type, entry_type
+            FROM supplier_ledger WHERE supplier_id=?
+          `).all(s.id);
+          for (const ln of lines) {
+            bal += Math.round(Number(ln.debit) || 0) - Math.round(Number(ln.credit) || 0);
+            if (isOpeningRef(ln.ref_type, ln.entry_type)) hasOpening = true;
+          }
         }
+        if (!hasOpening) {
+          // Header opening on this leaf (signed). Also fold suppliers.balance if
+          // it is the only opening store and party.opening was not used.
+          bal += takeOpening(pid, leaf);
+          const meta = partyMeta.get(pid);
+          if (meta && !meta.openingUsed) {
+            const supOpen = Math.round(Number(s.balance) || 0);
+            if (supOpen) {
+              // suppliers.balance > 0 ⇒ we owe them ⇒ بستانکار ⇒ negative signed
+              bal += -supOpen;
+              meta.openingUsed = true;
+            }
+          }
+        }
+        putLeaf(pid, leaf, bal, 'supplier');
       }
     } catch (_) { /* optional */ }
   }
 
-  // GL replaces the subledger only when there is no subledger, or the two agree on the SAME leaf.
+  // Fold leaf maps → party detail (net + primary leaf)
+  for (const [pid, leaves] of leafAcc) {
+    const leafList = [];
+    let net = 0;
+    let primary = null;
+    // Prefer customer leaf as primary for display when dual-role
+    const order = { customer: 0, supplier: 1, person: 2 };
+    const sorted = [...leaves.entries()].sort((a, b) => {
+      const sa = order[a[1].source] != null ? order[a[1].source] : 9;
+      const sb = order[b[1].source] != null ? order[b[1].source] : 9;
+      return sa - sb;
+    });
+    for (const [code, info] of sorted) {
+      const coa = code === '__none__' ? null : code;
+      leafList.push({ coa_code: coa, balance: info.balance, source: info.source });
+      net += info.balance;
+      if (!primary) primary = { coa_code: coa, source: info.source, balance: info.balance };
+    }
+    // If opening never consumed and no leaf activity, keep opening-only row
+    const meta = partyMeta.get(pid);
+    if (meta && !meta.openingUsed && meta.opening && !leafList.length) {
+      map.set(pid, {
+        balance: meta.opening,
+        source: 'opening',
+        coa_code: meta.coa,
+        leaves: meta.coa
+          ? [{ coa_code: meta.coa, balance: meta.opening, source: 'opening' }]
+          : [],
+      });
+      continue;
+    }
+    if (meta && !meta.openingUsed && meta.opening && leafList.length) {
+      // Opening leaf unknown — attach to header coa or first leaf
+      const attach = meta.coa || (primary && primary.coa_code);
+      net += meta.opening;
+      meta.openingUsed = true;
+      if (attach) {
+        const existing = leafList.find((l) => l.coa_code === attach);
+        if (existing) existing.balance += meta.opening;
+        else leafList.unshift({ coa_code: attach, balance: meta.opening, source: 'opening' });
+      }
+    }
+    map.set(pid, {
+      balance: Math.round(net),
+      source: (primary && primary.source) || 'opening',
+      coa_code: (primary && primary.coa_code) || (meta && meta.coa) || null,
+      leaves: leafList,
+    });
+  }
+
+  // Parties with only opening (no linked subledger rows touched leafAcc)
+  for (const [pid, meta] of partyMeta) {
+    if (leafAcc.has(pid)) continue;
+    map.set(pid, {
+      balance: meta.opening,
+      source: 'opening',
+      coa_code: meta.coa,
+      leaves: meta.coa && meta.opening
+        ? [{ coa_code: meta.coa, balance: meta.opening, source: 'opening' }]
+        : [],
+    });
+  }
+
+  // GL replaces a leaf only when that leaf has no subledger signal or |Δ|≤1
   try {
     const glByCode = new Map();
     const glRows = db.prepare(`
@@ -151,16 +298,36 @@ function partySignedBalanceDetailMap(db) {
     }
 
     for (const [pid, cur] of [...map.entries()]) {
-      const code = cur.coa_code || partyCoa.get(pid);
-      if (!code || !glByCode.has(String(code))) continue;
-      const glSigned = glByCode.get(String(code));
-      if (!fromSubledger.has(pid) || Math.abs(cur.balance - glSigned) <= 1) {
-        map.set(pid, {
-          balance: glSigned,
-          source: fromSubledger.has(pid) ? cur.source : 'gl',
-          coa_code: code,
-        });
-      }
+      const leaves = (cur.leaves && cur.leaves.length)
+        ? cur.leaves.slice()
+        : (cur.coa_code
+          ? [{ coa_code: cur.coa_code, balance: cur.balance, source: cur.source }]
+          : []);
+      if (!leaves.length) continue;
+      let changed = false;
+      const nextLeaves = leaves.map((lf) => {
+        if (!lf.coa_code || !glByCode.has(String(lf.coa_code))) return lf;
+        const glSigned = glByCode.get(String(lf.coa_code));
+        const fromSub = lf.source && lf.source !== 'opening';
+        if (!fromSub || Math.abs(lf.balance - glSigned) <= 1) {
+          changed = true;
+          return {
+            coa_code: lf.coa_code,
+            balance: glSigned,
+            source: fromSub ? lf.source : 'gl',
+          };
+        }
+        return lf;
+      });
+      if (!changed) continue;
+      const net = nextLeaves.reduce((s, l) => s + l.balance, 0);
+      const primary = nextLeaves[0];
+      map.set(pid, {
+        balance: Math.round(net),
+        source: primary.source,
+        coa_code: primary.coa_code,
+        leaves: nextLeaves,
+      });
     }
   } catch (_) { /* optional */ }
 
@@ -198,6 +365,27 @@ function glSignedForCoa(db, coaCode) {
   }
 }
 
+/**
+ * True when any leaf's subledger disagrees with that leaf's GL by >1 rial.
+ * Dual-role AR≠AP must not false-flag across leaves.
+ */
+function partyBooksMismatch(db, detailInfo) {
+  if (!detailInfo) return false;
+  const leaves = (detailInfo.leaves && detailInfo.leaves.length)
+    ? detailInfo.leaves
+    : (detailInfo.coa_code
+      ? [{ coa_code: detailInfo.coa_code, balance: detailInfo.balance, source: detailInfo.source }]
+      : []);
+  for (const lf of leaves) {
+    if (!lf.coa_code) continue;
+    if (!lf.source || lf.source === 'opening') continue;
+    const glBal = glSignedForCoa(db, lf.coa_code);
+    if (glBal == null) continue;
+    if (Math.abs(lf.balance - glBal) > 1) return true;
+  }
+  return false;
+}
+
 function applyPartyBalances(db, rows) {
   if (!rows || !rows.length) return rows;
   const map = partySignedBalanceMap(db);
@@ -219,5 +407,6 @@ module.exports = {
   partySignedBalanceMap,
   partySignedBalanceDetailMap,
   glSignedForCoa,
+  partyBooksMismatch,
   applyPartyBalances,
 };
