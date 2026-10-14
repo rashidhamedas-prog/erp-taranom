@@ -16672,6 +16672,7 @@ function prodIssueUpdateSubmitState(){
   const rows=document.querySelectorAll('#pim-rows tr[data-idx]');
   let blocked=false;
   rows.forEach(row=>{
+    if(Number(row.dataset.fabricLocked)===1) return;
     const reasonEl=row.querySelector('.pim-reason');
     if(reasonEl && reasonEl.classList.contains('prod-required-error')) blocked=true;
     const AQ=+row.querySelector('.pim-qty-actual')?.value||0;
@@ -16684,6 +16685,8 @@ async function prodOrderIssueSave(id){
   const rows=document.querySelectorAll('#pim-rows tr[data-idx]');
   const materials=[];
   rows.forEach(row=>{
+    // Omit fully cut fabric so server does not 409 the whole multi-line issue.
+    if(Number(row.dataset.fabricLocked)===1) return;
     materials.push({
       product_id:+row.dataset.pid,
       variant_id:+row.querySelector('.pim-variant')?.value||undefined,
@@ -16691,6 +16694,7 @@ async function prodOrderIssueSave(id){
       reason:row.querySelector('.pim-reason')?.value||'',
     });
   });
+  if(!materials.length){ showToast('قلمی برای حواله نمانده — پارچه در لایه‌چینی مصرف شده','error'); return; }
   try{
     await api('POST','/production/orders/'+id+'/issue',{date:el('pim-date').value,materials});
     closeModal(); showToast('حواله ثبت شد'); loadAccTab('production-orders');
@@ -18397,7 +18401,7 @@ async function purchaseInvoiceModal(){
           </div>
         </aside>
       </div>
-    </div>`,true);}
+    </div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   renderGenCart(); togglePoBankFields();
   const poWh=el('po-warehouse');
@@ -27849,6 +27853,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>لایه‌چینی + رسید انبار محصول (دو رویداد جدا):</b> تولید → عملیات → لایه‌چینی / رسید محصول. تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP (مارکر × لایه، ماتریس سایز، ضایعات). تب «رسید انبار محصول» = ورود FG و صفر کردن WIP همان لایه — <b>برش دوباره نیست</b>. مبلغ رسید = مانده WIP لایه. بارکد بسته هویت عملیاتی است نه سریال. حواله همان متر با E_FABRIC_ALREADY_CUT قفل است.
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
+          <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» رسید محصول است (نه تابلوی خط خالی). تابلوی خط فقط سفارش چندمرحله‌ای را نشان می‌دهد و لایه‌های منتظر PACK را در ستون «برش / WIP» می‌آورد. در حواله مواد، پارچهٔ مصرف‌شده در لایه‌چینی قفل می‌شود تا آستر/زیپ قابل ثبت بمانند. ورود به انبار محصول رنگ طاقه را با <code>colorsMatch</code> به واریانت کالا وصل می‌کند (از جمله فری‌سایز با چند رنگ).
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>

@@ -13,6 +13,7 @@ const {
   availableBatchMeters,
   applyLiveRollQty,
   syncFabricProductWarehouse,
+  colorsMatch,
 } = require('../inventory/fabric-rolls');
 const { explodeBom, resolveBom, round6 } = require('./bom');
 const { dr, cr, postEvent } = require('./posting');
@@ -253,28 +254,20 @@ function nextBundleBarcode(db, packNo, sizeCode, color) {
 }
 
 /**
- * Block PO issue/backflush of fabric already consumed by a posted cutting lay.
- * Cut meters are global for the fabric SKU (independent of production_order_id)
- * so linking a lay to a decoy order cannot unlock another order.
- * Remaining unused BOM meters (std − cut) may still be issued from other rolls.
+ * Remaining fabric meters that may still be issued via PO material issue after cutting.
+ * Cut meters are global for the fabric SKU (independent of production_order_id).
+ * `allowed === null` means no cutting lock (SKU not consumed in any live lay).
  */
-function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
-  const AQ = Number(qty) || 0;
-  if (!(AQ > 0) || !productId) return;
-  if (batchId) {
-    const used = db.prepare(`
-      SELECT COALESCE(SUM(r.meters),0) AS s
-      FROM cutting_lay_rolls r
-      JOIN cutting_lays l ON l.id = r.lay_id
-      WHERE r.batch_id=? AND r.status='posted' AND COALESCE(l.status,'posted') <> 'reversed'
-    `).get(Number(batchId));
-    if ((Number(used && used.s) || 0) > 0) {
-      throw httpErr(409, 'این طاقه در لایه‌چینی مصرف شده است', 'E_FABRIC_ALREADY_CUT', {
-        batch_id: Number(batchId),
-      });
-    }
-  }
-  // Global physical lock: linked-to-PO-A must still block issue on PO B of the same SKU.
+function fabricIssueAllowance(db, { productId, orderId } = {}) {
+  const out = {
+    product_id: productId ? Number(productId) : null,
+    cut_meters: 0,
+    std_qty: 0,
+    already_issued: 0,
+    allowed: null,
+    remaining: null,
+  };
+  if (!productId) return out;
   const cutRow = db.prepare(`
     SELECT COALESCE(SUM(l.actual_meters),0) AS s
     FROM cutting_lays l
@@ -282,7 +275,8 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
       AND COALESCE(l.status,'posted') <> 'reversed'
   `).get(Number(productId));
   const cutMeters = Number(cutRow && cutRow.s) || 0;
-  if (cutMeters <= 0) return;
+  out.cut_meters = cutMeters;
+  if (cutMeters <= 0) return out;
 
   let stdQty = 0;
   if (orderId) {
@@ -311,11 +305,43 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
     : { s: 0 };
   const alreadyIssued = Number(issuedRow && issuedRow.s) || 0;
   const allowed = Math.max(0, round6(stdQty - cutMeters));
-  if (alreadyIssued + AQ > allowed + 1e-9) {
+  out.std_qty = stdQty;
+  out.already_issued = alreadyIssued;
+  out.allowed = allowed;
+  out.remaining = Math.max(0, round6(allowed - alreadyIssued));
+  return out;
+}
+
+/**
+ * Block PO issue/backflush of fabric already consumed by a posted cutting lay.
+ * Cut meters are global for the fabric SKU (independent of production_order_id)
+ * so linking a lay to a decoy order cannot unlock another order.
+ * Remaining unused BOM meters (std − cut) may still be issued from other rolls.
+ */
+function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
+  const AQ = Number(qty) || 0;
+  if (!(AQ > 0) || !productId) return;
+  if (batchId) {
+    const used = db.prepare(`
+      SELECT COALESCE(SUM(r.meters),0) AS s
+      FROM cutting_lay_rolls r
+      JOIN cutting_lays l ON l.id = r.lay_id
+      WHERE r.batch_id=? AND r.status='posted' AND COALESCE(l.status,'posted') <> 'reversed'
+    `).get(Number(batchId));
+    if ((Number(used && used.s) || 0) > 0) {
+      throw httpErr(409, 'این طاقه در لایه‌چینی مصرف شده است', 'E_FABRIC_ALREADY_CUT', {
+        batch_id: Number(batchId),
+      });
+    }
+  }
+  const allow = fabricIssueAllowance(db, { productId, orderId });
+  if (allow.allowed == null) return;
+  if (allow.already_issued + AQ > allow.allowed + 1e-9) {
     throw httpErr(409, 'این متر پارچه در لایه‌چینی مصرف شده است', 'E_FABRIC_ALREADY_CUT', {
       product_id: Number(productId),
-      cut_meters: cutMeters,
-      allowed,
+      cut_meters: allow.cut_meters,
+      allowed: allow.allowed,
+      remaining: allow.remaining,
     });
   }
 }
@@ -943,9 +969,39 @@ function postCuttingPack(db, layId, body, user) {
       let fgLines = [];
       if (hasActiveMatrixVariants(db, lay.product_id)) {
         // Fail closed: resolve variants BEFORE header stock credit.
-        fgLines = apparel.resolveApparelLines(db, {
-          productId: lay.product_id, qty, sizeBreakdown: breakdown, color,
-        });
+        // Prefer PO matrix variant_id when lay color matches a planned line.
+        if (po && color) {
+          try {
+            const hasPol = db.prepare(`
+              SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_order_lines'
+            `).get();
+            const olines = hasPol ? db.prepare(`
+              SELECT l.variant_id, l.qty, c.name AS color_name
+              FROM production_order_lines l
+              LEFT JOIN product_colors c ON c.id = l.color_id
+              WHERE l.order_id=? AND l.variant_id IS NOT NULL AND COALESCE(l.qty,0) > 0
+            `).all(po.id).filter((ln) => colorsMatch(ln.color_name || '', color)) : [];
+            if (olines.length === 1) {
+              fgLines = [{ variantId: Number(olines[0].variant_id), qty }];
+            } else if (olines.length > 1) {
+              // Split pack qty by planned line weights when several sizes share the color.
+              const planned = olines.reduce((s, ln) => s + (Number(ln.qty) || 0), 0) || 1;
+              fgLines = olines.map((ln) => ({
+                variantId: Number(ln.variant_id),
+                qty: Math.round((qty * (Number(ln.qty) || 0) / planned) * 1000) / 1000,
+              })).filter((ln) => ln.qty > 0);
+              const sum = fgLines.reduce((s, ln) => s + ln.qty, 0);
+              if (fgLines.length && Math.abs(sum - qty) > 0.001) {
+                fgLines[0].qty = Math.round((fgLines[0].qty + (qty - sum)) * 1000) / 1000;
+              }
+            }
+          } catch (_) { fgLines = []; }
+        }
+        if (!fgLines.length) {
+          fgLines = apparel.resolveApparelLines(db, {
+            productId: lay.product_id, qty, sizeBreakdown: breakdown, color,
+          });
+        }
         if (!fgLines.length) {
           throw httpErr(400, 'برای کالای ماتریسی تفکیک رنگ×سایز الزامی است', 'E_VARIANT_REQUIRED');
         }
@@ -1089,6 +1145,7 @@ module.exports = {
   voidCuttingLay,
   classifyWasteMeters,
   assertFabricIssueAllowed,
+  fabricIssueAllowance,
   linkCuttingLayOrder,
   postCuttingPack,
   getCuttingPack,

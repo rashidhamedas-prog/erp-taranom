@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۲ — مسیر برش: حواله/کانبان/PACK رنگ×سایز (SW v378)
+
+- **علائم:** (A) ثبت حواله مواد بعد از لایه‌چینی → `این متر پارچه در لایه‌چینی مصرف شده است` و بقیهٔ BOM (آستر/زیپ) هم می‌افتاد؛ (B) تابلوی خط خالی در حالی که لایه منتظر رسید محصول بود؛ (C) ورود به انبار محصول → `رنگ و سایز «فری سایز…» مشخص نیست` برای کالای چندرنگ.
+- **ریشه:** (A) قفل پارچه بعد از cut درست بود ولی `issueTemplate` همچنان qty کامل BOM را می‌فرستاد؛ (B) journey قدم ۴ کانبان را قبل از PACK پیشنهاد می‌کرد در حالی که کانبان فقط `production_order_stages` پیشرفته دارد؛ (C) `resolveApparelLines` با `===` رنگ/سایز، بدون `colorsMatch` / strip تناسب.
+- **رفع:** `fabricIssueAllowance` + قالب/UI قفل پارچهٔ بریده‌شده؛ journey → PACK وقتی `pendingPack>0`؛ کانبان ستون «برش/WIP»؛ apparel با `colorsMatch`+`sizesMatch` و پیام چندرنگ؛ pack از خطوط ماتریس PO؛ `normalizeFabricColor` نیم‌فاصله را فاصله می‌گیرد؛ اصلاح نحوی `purchaseInvoiceModal` (آکولاد اضافه).
+- **فایل‌ها:** `lib/production/{cutting,engine}.js`, `lib/inventory/{apparel-lines,fabric-rolls}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-cut-pack-{static,flow}-v378.js`, CHANGE-LOG, Help.
+- **مراجع:** ADR-011 (انحراف مواد بدون JE) + مصرف پارچه در لایه‌چینی = موجودی→WIP؛ بدون double-issue.
+- **تست:** static v378 محلی ۶/۰؛ flow v378 + sms + sync روی ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — بازطراحی UX فاکتور فروش و خرید (SW v377)
 
 - **هدف:** workspace حرفه‌ای ۲۰۲۶ برای فاکتور فروش (ایجاد/ویرایش) و فاکتور خرید (ایجاد): هدر سند، فیلدهای ضروری، بخش‌های جمع‌شونده، جدول اقلام در مرکز، ریل sticky جمع/CTA، نوار موبایل.

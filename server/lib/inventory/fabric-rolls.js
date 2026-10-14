@@ -138,7 +138,8 @@ function availableBatchMeters(db, batchId) {
 function normalizeFabricColor(raw) {
   return String(raw == null ? '' : raw)
     .trim()
-    .replace(/\u200c/g, '')
+    // ZWNJ often stands in for a space (سورمه‌ای ≈ سورمه ای) — treat as whitespace.
+    .replace(/\u200c/g, ' ')
     .replace(/[\u064A\u0649]/g, '\u06cc')
     .replace(/\u0643/g, '\u06a9')
     .replace(/\s+/g, ' ')

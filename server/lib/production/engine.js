@@ -15,7 +15,7 @@ const {
 const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
-const { assertFabricIssueAllowed } = require('./cutting');
+const { assertFabricIssueAllowed, fabricIssueAllowance } = require('./cutting');
 const variance = require('./variance');
 const {
   computeVariance, insertVarianceMemo, varianceReasonThreshold, varianceAnalysis,
@@ -1255,16 +1255,32 @@ function issueTemplate(db, { orderId, qtyStarted }) {
     lines: ex.lines.map(L => {
       const p = db.prepare('SELECT name, average_cost_rial, item_type FROM products WHERE id=?').get(L.product_id);
       const avg = Math.round(Number(p?.average_cost_rial) || 0);
+      const stdQty = Number(L.qty_final) || 0;
+      const allow = fabricIssueAllowance(db, { productId: L.product_id, orderId });
+      let qtyActual = stdQty;
+      let fabricCutLocked = 0;
+      let fabricCutMeters = 0;
+      let fabricQtyAllowed = null;
+      // After cutting, do not prefill re-issue of consumed fabric meters (ADR: cut = consumption).
+      if (allow.allowed != null) {
+        fabricCutMeters = allow.cut_meters;
+        fabricQtyAllowed = allow.remaining;
+        qtyActual = Math.min(stdQty, Math.max(0, Number(allow.remaining) || 0));
+        fabricCutLocked = qtyActual <= 0 ? 1 : 0;
+      }
       return {
         product_id: L.product_id,
         name: p?.name,
-        qty_standard: L.qty_final,
-        qty_actual: L.qty_final,
+        qty_standard: stdQty,
+        qty_actual: qtyActual,
         std_cost_rial: L.unit_cost_rial,
         average_cost_rial: avg,
         avg_cost_ok: avg > 0 ? 1 : 0,
         line_kind: L.line_kind,
         bom_line_id: L.bom_line_id,
+        fabric_cut_meters: fabricCutMeters,
+        fabric_qty_allowed: fabricQtyAllowed,
+        fabric_cut_locked: fabricCutLocked,
       };
     }),
   };

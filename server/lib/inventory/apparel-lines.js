@@ -5,6 +5,8 @@
  * This module only posts the variant layer (applyHeaderStock false).
  */
 const { round3 } = require('../round3');
+const { colorsMatch } = require('./fabric-rolls');
+const { stripSizeFitNote } = require('../display-labels');
 const {
   hasActiveMatrixVariants,
   postVariantLayer,
@@ -16,6 +18,15 @@ function fail(code, status, message) {
   e.code = code;
   e.status = status;
   throw e;
+}
+
+function sizesMatch(a, b) {
+  const sa = String(a == null ? '' : a).trim();
+  const sb = String(b == null ? '' : b).trim();
+  if (!sa && !sb) return true;
+  if (!sa || !sb) return false;
+  if (sa === sb) return true;
+  return stripSizeFitNote(sa) === stripSizeFitNote(sb);
 }
 
 function parseBreakdown(raw) {
@@ -87,12 +98,31 @@ function resolveApparelLines(db, opts) {
       }
       const wantColor = String(row.color || colorWant).trim();
       const hits = variants.filter(v => {
-        const sizeOk = !row.size || String(v.size_name || '') === String(row.size);
-        const colorOk = !wantColor || String(v.color_name || '') === wantColor;
+        const sizeOk = !row.size || sizesMatch(v.size_name, row.size);
+        const colorOk = !wantColor || colorsMatch(v.color_name, wantColor);
         return sizeOk && colorOk;
       });
       if (hits.length !== 1) {
-        fail('E_VARIANT_REQUIRED', 400, `رنگ و سایز «${row.size || '—'}» برای این کالا مشخص نیست`);
+        const sizeLabel = row.size || '—';
+        if (!wantColor && hits.length > 1) {
+          const cols = [...new Set(hits.map(h => h.color_name).filter(Boolean))];
+          fail(
+            'E_VARIANT_REQUIRED',
+            400,
+            `برای سایز «${sizeLabel}» چند رنگ تعریف شده — رنگ را مشخص کنید (${cols.join('، ') || '—'})`
+          );
+        }
+        if (wantColor && hits.length === 0) {
+          const sameSize = variants.filter(v => !row.size || sizesMatch(v.size_name, row.size));
+          const cols = [...new Set(sameSize.map(v => v.color_name).filter(Boolean))];
+          fail(
+            'E_VARIANT_REQUIRED',
+            400,
+            `رنگ «${wantColor}» و سایز «${sizeLabel}» برای این کالا پیدا نشد`
+              + (cols.length ? ` — رنگ‌های موجود: ${cols.join('، ')}` : '')
+          );
+        }
+        fail('E_VARIANT_REQUIRED', 400, `رنگ و سایز «${wantColor || sizeLabel}» برای این کالا مشخص نیست`);
       }
       lines.push({ variantId: hits[0].id, qty: row.qty });
     }
