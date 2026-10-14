@@ -148,7 +148,11 @@ catch (e) { ok(false, 'app.js parses', e && e.message); }
   ok(activeJeCount('sales_return', retId) === 1, 'one active JE after amend');
 
   r = await api('GET', '/api/accounting/sales-returns/available/' + invId + '?exclude_return_id=' + retId);
-  ok(r.status === 200 && Number(r.data.rows[0].max_returnable) === 5, 'max excludes self', r.data);
+  // Self excluded → already=0 → max = sold 10 (not 10−5).
+  ok(r.status === 200 && r.data && r.data.rows && r.data.rows[0]
+    && Number(r.data.rows[0].max_returnable) === 10, 'max excludes self (=10)', r.data && r.data.rows && r.data.rows[0]);
+  const rNoEx = await api('GET', '/api/accounting/sales-returns/available/' + invId);
+  ok(rNoEx.status === 200 && Number(rNoEx.data.rows[0].max_returnable) === 5, 'without exclude max=5', rNoEx.data && rNoEx.data.rows && rNoEx.data.rows[0]);
 
   r = await api('PUT', '/api/accounting/sales-returns/' + retId, {
     cust_id: custId + 99999, invoice_id: invId, rows: [{ product_id: prodId, qty: 1 }],
