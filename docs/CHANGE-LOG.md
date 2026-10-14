@@ -4,8 +4,8 @@
 - **ریشه:** `fabricIssueAllowance` متر همهٔ لایه‌های همان `fabric_product_id` را سراسری جمع می‌کرد (مستقل از `production_order_id` / کالای دوخته). `seed-avg` با `skipStock` باز هم `qty_in` در کاردکس می‌نوشت.
 - **رفع:** قفل پارچه فقط لایه‌های همین PO یا (legacy) همان FG؛ طاقهٔ فیزیکی همچنان با `batch_id` مسدود است. قالب حواله `stock_available`/`stock_short`؛ پیام `E_NEGATIVE_STOCK` با موجود/نیاز؛ seed-avg با `skipLedger` وقتی کاردکس از قبل qty دارد. Help + تست static/flow v384.
 - **فایل‌ها:** `lib/production/{cutting,engine}.js`, `lib/inventory/seed-avg.js`, `lib/opening-post.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-fabric-cut-scope-{static,}-v384.js`, CHANGE-LOG.
-- **تست:** static v384 محلی ۱۷/۰؛ ایران flow v384 + sms/sync پس از deploy.
-- **Deploy:** ⏳
+- **تست:** static v384 محلی/ایران ۱۷/۰؛ flow v384 ایران ۱۹/۰؛ `test-sms` ۲۲/۰؛ `test-sync` harness pairing روی ایران با «توکن یافت نشد» شکست خورد (خارج از دامنه؛ همان وضعیت v383).
+- **Deploy:** ✅ `d723f2a` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v384`؛ `app.js?v=384`.
 
 ### ۱۴۰۵/۰۷/۲۲ — فروش سریع فروشگاهی / Quick Store Sale (SW v383)
 
