@@ -9438,7 +9438,7 @@ ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر �
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ (Lot)');
 ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
 ROUTES['acc-fabric-roll-kardex']=()=>renderAccPage('fabric-roll-kardex','🧵','گردش طاقه');
-ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی / رسید محصول');
+ROUTES['acc-cutting-lays']=()=>prodJourneyRouteEnter('acc-cutting-lays',()=>renderAccPage('cutting-lays','✂️','لایه‌چینی / رسید محصول'));
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
@@ -9446,14 +9446,14 @@ ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیا
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-production']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
-ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
-ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋',T('فرمول تولید'));
+ROUTES['acc-production-orders']=()=>prodJourneyRouteEnter('acc-production-orders',()=>renderAccPage('production-orders','🏭','سفارش‌های تولید'));
+ROUTES['acc-production-boms']=()=>prodJourneyRouteEnter('acc-production-boms',()=>renderAccPage('production-boms','📋',T('فرمول تولید')));
 ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
 ROUTES['acc-production-close']=()=>renderAccPage('production-close','🔒','بستن دوره تولید');
 ROUTES['acc-production-monthly-profit']=()=>renderAccPage('production-monthly-profit','💰','سود دقیق ماهانه');
-ROUTES['acc-production-cost-sheet']=()=>renderAccPage('production-cost-sheet','📄','برگه بهای تمام‌شده');
+ROUTES['acc-production-cost-sheet']=()=>prodJourneyRouteEnter('acc-production-cost-sheet',()=>renderAccPage('production-cost-sheet','📄','برگه بهای تمام‌شده'));
 ROUTES['acc-production-estimate']=()=>renderAccPage('production-estimate','🧮','برآورد سریع');
-ROUTES['acc-production-kanban']=()=>renderAccPage('production-kanban','📋','تابلوی خط');
+ROUTES['acc-production-kanban']=()=>prodJourneyRouteEnter('acc-production-kanban',()=>renderAccPage('production-kanban','📋','تابلوی خط'));
 ROUTES['acc-production-variance']=()=>renderAccPage('production-variance','🔍','ماتریس انحراف');
 ROUTES['acc-production-mrp']=()=>renderAccPage('production-mrp','📦','برنامه‌ریزی مواد (MRP)');
 ROUTES['acc-production-rates']=()=>renderAccPage('production-rates','⚙️','نرخ سربار مراکز');
@@ -11750,8 +11750,15 @@ async function renderCuttingLaysTab(body){
     }).join('')||('<tr><td colspan="8" class="empty">'+(view==='pending-pack'?'لایه‌ای منتظر رسید محصول نیست':'لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»')+'</td></tr>')}
     </tbody></table></div></div></div>`;
 }
-function goCuttingLaysView(view){
+async function goCuttingLaysView(view){
   const v=view==='pending-pack'?'pending-pack':'lays';
+  try{
+    if(!window._prodJourneyState){
+      const period=window._prodDashPeriod||todayJalali().slice(0,7);
+      await fetchProdJourneyState(period);
+    }
+  }catch(_){}
+  if(!prodJourneyTryEnter(v)) return;
   window._cuttingLaysView=v;
   try{ sessionStorage.setItem('cuttingLaysView', v); }catch(_){}
   go('acc-cutting-lays');
@@ -14467,6 +14474,82 @@ async function prodDashRenderCharts(dash){
   }catch(e){ console.warn('prod charts',e); }
 }
 
+/** دروازهٔ ترتیبی مسیر ۶مرحله‌ای — ProdJourneyGate (prod-journey-gate.js) */
+function prodJourneyGateApi(){
+  return (typeof ProdJourneyGate!=='undefined' && ProdJourneyGate) ? ProdJourneyGate : null;
+}
+function prodJourneyRemember(state){
+  window._prodJourneyState=state||null;
+  return state;
+}
+function prodJourneyCanEnterSilent(target){
+  const G=prodJourneyGateApi();
+  const state=window._prodJourneyState;
+  if(!G || !state || !Array.isArray(state.steps)) return true;
+  const idx=typeof target==='number' ? target : G.stepIndexForTarget(target);
+  if(idx<0) return true;
+  return !!G.canEnter(state.steps, idx).ok;
+}
+function prodJourneyTryEnter(target){
+  const G=prodJourneyGateApi();
+  const state=window._prodJourneyState;
+  if(!G || !state || !Array.isArray(state.steps)) return true;
+  const idx=typeof target==='number' ? target : G.stepIndexForTarget(target);
+  if(idx<0) return true;
+  const gate=G.canEnter(state.steps, idx);
+  if(gate.ok) return true;
+  const msg=G.blockMessage(state.steps, idx);
+  if(typeof showToast==='function') showToast(msg, 'error');
+  else if(typeof alert==='function') alert(msg);
+  return false;
+}
+async function prodJourneyEnsureState(){
+  // همیشه تازه — جلوگیری از قفل کاذب بعد از فعال‌سازی BOM / آزادسازی سفارش / لایه‌چینی
+  const period=window._prodDashPeriod||todayJalali().slice(0,7);
+  return fetchProdJourneyState(period);
+}
+async function prodJourneyGoRoute(route){
+  try{ await prodJourneyEnsureState(); }catch(_){}
+  if(!prodJourneyTryEnter(route)) return;
+  go(route);
+}
+function prodJourneyStepClick(stepIndex){
+  const state=window._prodJourneyState;
+  if(!state || !state.steps || !state.steps[stepIndex]) return;
+  if(!prodJourneyTryEnter(stepIndex)) return;
+  const s=state.steps[stepIndex];
+  if(s.goFn==='goCuttingLaysView'){
+    // از کارت مسیر؛ گیت همین‌جا پاس شده — بدون گیت دوباره
+    window._cuttingLaysView=s.goArg==='pending-pack'?'pending-pack':'lays';
+    try{ sessionStorage.setItem('cuttingLaysView', window._cuttingLaysView); }catch(_){}
+    go('acc-cutting-lays');
+    return;
+  }
+  if(s.go) go(s.go);
+}
+/** ورود از منو/سایدبار به صفحات مسیر تولید — در صورت قفل، داشبورد + پیام خطا */
+async function prodJourneyRouteEnter(target, renderFn){
+  try{ await prodJourneyEnsureState(); }catch(_){}
+  if(target==='acc-cutting-lays'){
+    let view=window._cuttingLaysView||(typeof sessionStorage!=='undefined'?sessionStorage.getItem('cuttingLaysView'):null)||'lays';
+    if(view!=='pending-pack') view='lays';
+    if(!prodJourneyCanEnterSilent(view)){
+      // منو یک صفحه برای دو مرحله است؛ اگر PACK قفل بود ولی لایه‌چینی باز، بدون toast اضافه به تب lays
+      if(view==='pending-pack' && prodJourneyCanEnterSilent('lays')){
+        window._cuttingLaysView='lays';
+        try{ sessionStorage.setItem('cuttingLaysView','lays'); }catch(_){}
+        return renderFn();
+      }
+      prodJourneyTryEnter(view);
+      return renderAccPage('production-dashboard','📊','داشبورد تولید');
+    }
+    return renderFn();
+  }
+  if(!prodJourneyTryEnter(target)){
+    return renderAccPage('production-dashboard','📊','داشبورد تولید');
+  }
+  return renderFn();
+}
 async function fetchProdJourneyState(period){
   let dash=null, lays=null, orders=null, boms=null, kanban=null;
   try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(_){ dash=null; }
@@ -14477,48 +14560,73 @@ async function fetchProdJourneyState(period){
   const k=dash?.data?.kpis||{};
   const orderRows=Array.isArray(orders)?orders:(orders.rows||[]);
   const openOrders=(dash?.data?.open_orders||[]).length || orderRows.filter(o=>o.status!=='closed'&&o.status!=='cancelled'&&o.status!=='completed').length;
+  const releasedOrders=orderRows.filter(o=>{
+    const st=String(o.status||'');
+    return st && !['draft','cancelled','voided'].includes(st);
+  }).length;
   const bomRows=Array.isArray(boms)?boms:(boms.rows||boms.data||[]);
   const activeBoms=bomRows.filter(b=>b.status==='active'||b.is_active).length;
   const layRows=(lays&&lays.rows)||[];
   const postedLays=layRows.filter(r=>r.status!=='reversed' && ((r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1));
   const pendingPack=layRows.filter(r=>r.status!=='reversed' && !(r.packs||[]).some(p=>p.status==='posted') && Number(r.pack_posted)!==1).length;
-  const kanbanActive=(kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','blocked'].includes(card.status)));
-  const hasAdvStages=(kanban?.data?.all_stages||[]).length>0
+  // ستون‌های کانبان فقط in_progress/blocked دارند؛ done فقط در all_stages است
+  const allStages=kanban?.data?.all_stages||[];
+  const kanbanTouched=allStages.some(s=>['in_progress','blocked','done'].includes(String(s.status||'')))
+    || (kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','blocked','done'].includes(card.status)));
+  const hasAdvStages=allStages.length>0
     || orderRows.some(o=>['fixed_adv','variable_adv'].includes(String(o.analysis_type||'')));
   const hasUnitCost=Number(k.unit_cost?.value_rial||0)>0 || orderRows.some(o=>Number(o.unit_cost_rial||0)>0);
-  const steps=[
-    {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both'},
-    {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:openOrders>0, path:'order'},
-    {n:'۳', title:'لایه‌چینی', desc:'مصرف طاقه → WIP', goFn:'goCuttingLaysView', goArg:'lays', cta:'ثبت لایه‌چینی', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
-    // کانبان فقط برای سفارش چندمرحله‌ای؛ مسیر برش بعد از لایه → رسید محصول است نه تابلوی خالی
-    {n:'۴', title:'تابلوی خط', desc:hasAdvStages?'پیشرفت کارگاه':'مخصوص سفارش چندمرحله‌ای', go:'acc-production-kanban', cta:'کانبان', done:!hasAdvStages || kanbanActive, path:'order'},
-    {n:'۵', title:'رسید انبار محصول', desc:'WIP → کالای آماده (PACK)', goFn:'goCuttingLaysView', goArg:'pending-pack', cta:pendingPack?'ورود محصول معلق':'ورود به انبار محصول', done:postedLays.length>0 && pendingPack===0, path:'cut'},
-    {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both'},
-  ];
-  let nextIdx=steps.findIndex(s=>!s.done);
-  // اگر لایه منتظر PACK است، اقدام بعدی را به قدم ۵ ببر (نه کانبان خالی)
-  if(pendingPack>0){
-    const packIdx=steps.findIndex(s=>s.goArg==='pending-pack');
-    if(packIdx>=0 && !steps[packIdx].done) nextIdx=packIdx;
+  const G=prodJourneyGateApi();
+  const metrics={
+    activeBoms,
+    releasedOrders,
+    hasLay:layRows.some(r=>r.status!=='reversed'),
+    hasAdvStages,
+    kanbanTouched,
+    postedPacks:postedLays.length,
+    pendingPack,
+    hasUnitCost,
+  };
+  const steps=G
+    ? G.buildSteps(metrics)
+    : [
+      {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both', how:'فرمول فعال لازم است.', index:0},
+      {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:releasedOrders>0, path:'order', how:'سفارش آزادشده لازم است.', index:1},
+      {n:'۳', title:'لایه‌چینی', desc:'مصرف طاقه → WIP', goFn:'goCuttingLaysView', goArg:'lays', cta:'ثبت لایه‌چینی', done:layRows.some(r=>r.status!=='reversed'), path:'cut', how:'لایه‌چینی لازم است.', index:2},
+      {n:'۴', title:'تابلوی خط', desc:hasAdvStages?'پیشرفت کارگاه':'مخصوص سفارش چندمرحله‌ای', go:'acc-production-kanban', cta:'کانبان', done:!hasAdvStages || kanbanTouched, path:'order', how:'پیشرفت کانبان لازم است.', index:3},
+      {n:'۵', title:'رسید انبار محصول', desc:'WIP → کالای آماده (PACK)', goFn:'goCuttingLaysView', goArg:'pending-pack', cta:pendingPack?'ورود محصول معلق':'ورود به انبار محصول', done:postedLays.length>0 && pendingPack===0, path:'cut', how:'رسید محصول لازم است.', index:4},
+      {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both', how:'بهای واحد لازم است.', index:5},
+    ];
+  let nextIdx=G ? G.nextIndex(steps) : steps.findIndex(s=>!s.done);
+  // فقط وقتی پیش‌نیازهای قبل از PACK کامل‌اند، اقدام بعدی را به PACK بکش
+  if(pendingPack>0 && nextIdx>=0){
+    const packIdx=4;
+    const priorOk=steps.slice(0, packIdx).every(s=>s.done);
+    if(priorOk && !steps[packIdx].done) nextIdx=packIdx;
   }
-  return { dash, k, openOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows };
+  return prodJourneyRemember({ dash, k, openOrders, releasedOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows, metrics });
 }
 function prodJourneyHtml(state){
   const { steps, nextIdx, k, openOrders, activeBoms, pendingPack }=state;
-  const stepNav=s=>{
-    if(s.goFn==='goCuttingLaysView') return CSP.bind('click',function(){goCuttingLaysView(s.goArg)});
-    return CSP.bind('click',function(){go(s.go)});
+  const G=prodJourneyGateApi();
+  const stepNav=i=>CSP.bind('click',function(){prodJourneyStepClick(i)});
+  const lockedHint=i=>{
+    if(!G) return '';
+    const gate=G.canEnter(steps, i);
+    if(gate.ok || steps[i].done) return '';
+    const first=gate.blockers[0];
+    return first ? ('قفل — اول: '+first.title) : 'قفل';
   };
   return `
     <div class="prod-home-hero">
       <div>
         <h3 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:20px`)}">داشبورد تولید</h3>
-        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">نمودارها + مسیر کارگاه. مسیر سریع: لایه‌چینی (مصرف پارچه) سپس رسید انبار محصول — دو رویداد جدا، نه دو بار برش.</p>
+        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">مسیر کارگاه باید پیوسته ۱→۶ طی شود؛ ورود زودهنگام به مرحلهٔ بعد مسدود است و علت دقیق اعلام می‌شود. لایه‌چینی و رسید محصول دو رویداد جدا هستند.</p>
       </div>
       <div class="prod-home-hero-actions">
         <button class="btn" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">✂️ لایه‌چینی</button>
-        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش جدید</button>
-        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-orders')})}">سفارش جدید</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-kanban')})}">کانبان</button>
       </div>
     </div>
     <div class="prod-kpi-grid">
@@ -14530,7 +14638,7 @@ function prodJourneyHtml(state){
     <div class="prod-dual-path">
       <div class="prod-path-card">
         <b>✂️ مسیر برش و بسته‌بندی</b>
-        <span class="muted">طاقه → لایه‌چینی (مواد→WIP) → رسید انبار محصول (WIP→FG)</span>
+        <span class="muted">طاقه → لایه‌چینی (مواد→WIP) → رسید انبار محصول (WIP→FG) — با رعایت ترتیب داشبورد</span>
         <div class="prod-path-actions">
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">طاقه</button>
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">لایه‌چینی</button>
@@ -14539,27 +14647,31 @@ function prodJourneyHtml(state){
       </div>
       <div class="prod-path-card">
         <b>🏭 مسیر سفارش تولید</b>
-        <span class="muted">BOM → سفارش → حواله/رسید یا مراحل پیشرفته → بستن</span>
+        <span class="muted">BOM → سفارش آزاد → حواله/رسید یا مراحل پیشرفته → بستن</span>
         <div class="prod-path-actions">
-          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">فرمول</button>
-          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش</button>
-          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-boms')})}">فرمول</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-orders')})}">سفارش</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-kanban')})}">کانبان</button>
         </div>
       </div>
     </div>
-    <div class="prod-journey">
-      ${steps.map((s,i)=>`<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}" data-csp-click="${stepNav(s)}">
+    <div class="prod-journey" role="list" aria-label="مسیر شش‌مرحله‌ای تولید">
+      ${steps.map((s,i)=>{
+        const locked=G?!G.canEnter(steps,i).ok:false;
+        const hint=lockedHint(i);
+        return `<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}${locked?' is-locked':''}" ${locked?'aria-disabled="true"':''} data-csp-click="${stepNav(i)}">
         <span class="prod-journey-n">${s.n}</span>
         <b>${esc(s.title)}</b>
         <span class="muted">${esc(s.desc)}</span>
-        <span class="prod-journey-cta">${s.done?'✓ انجام شده — ':i===nextIdx?'▶ اقدام بعدی — ':''}${esc(s.cta)}</span>
-      </button>`).join('')}
+        <span class="prod-journey-cta">${s.done?'✓ انجام شده — ':locked?('🔒 '+esc(hint)+' — '):i===nextIdx?'▶ اقدام بعدی — ':''}${esc(s.cta)}</span>
+      </button>`;
+      }).join('')}
     </div>
     ${nextIdx>=0?`<div class="panel" data-csp-style="${CSP.style(`margin:12px 0`)}"><div class="panel-head"><h4>اقدام بعدی</h4></div>
       <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-        <button class="btn" data-csp-click="${stepNav(steps[nextIdx])}">▶ ${esc(steps[nextIdx].title)}</button>
-        ${!activeBoms?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">اول فرمول بسازید</button>`:''}
-        ${pendingPack?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">${fmt(pendingPack)} لایه منتظر رسید محصول</button>`:''}
+        <button class="btn" data-csp-click="${stepNav(nextIdx)}">▶ ${esc(steps[nextIdx].title)}</button>
+        ${!activeBoms?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-boms')})}">اول فرمول بسازید</button>`:''}
+        ${pendingPack && steps.slice(0,4).every(s=>s.done)?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">${fmt(pendingPack)} لایه منتظر رسید محصول</button>`:''}
       </div></div>`:''}`;
 }
 const PROD_QUICK_REPORTS=[
@@ -27907,11 +28019,12 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = رسید انبار محصول (صف منتظرها). برچسب قدیمی «رسید برش» حذف شد تا با لایه‌چینی اشتباه نشود.
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» رسید محصول است (نه تابلوی خط خالی). تابلوی خط فقط سفارش چندمرحله‌ای را نشان می‌دهد و لایه‌های منتظر PACK را در ستون «برش / WIP» می‌آورد. در حواله مواد، پارچهٔ مصرف‌شده در لایه‌چینی قفل می‌شود تا آستر/زیپ قابل ثبت بمانند. ورود به انبار محصول رنگ طاقه را با <code>colorsMatch</code> به واریانت کالا وصل می‌کند (از جمله فری‌سایز با چند رنگ).
+          <br><b>v382 دروازهٔ ترتیبی مسیر ۶مرحله‌ای:</b> ورود به هر کارت/میانبر/منوی مراحل ۲…۶ فقط وقتی مراحل قبلی کامل باشند مجاز است. کارت قفل‌شده با قفل و پیام دقیق (اولین پیش‌نیاز ناقص + فهرست علت‌ها) مسدود می‌شود. مرحله ۲ = سفارش <b>آزادشده</b> (پیش‌نویس کافی نیست). مرحله ۴ در مسیر بدون مراحل پیشرفته خودکار تکمیل است. منوی سایدبار همان گیت را اعمال می‌کند و در صورت رد به داشبورد برمی‌گرداند.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان حساب می‌شود (مثلاً «سورمه ای» طاقه با «سرمه‌ای» کاتالوگ). لیست رنگ لایه‌چینی اول از ماتریس کالا پر می‌شود.
           <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید محصول باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
-        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد. گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
+        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای قفل‌شونده ۱→۶ + دو مسیر برش/PACK و سفارش تولید). بدون تکمیل مرحلهٔ قبل، کلیک کارت/میانبر/منو مسدود و علت دقیق نشان داده می‌شود (v382). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد. گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>

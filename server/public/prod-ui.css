@@ -300,6 +300,12 @@
 .prod-journey-card.is-done { border-right: 4px solid var(--brand-mid); }
 .prod-journey-card.is-next { border-color: var(--brand-gold); box-shadow: 0 0 0 2px rgba(201,168,76,.25); }
 .prod-journey-card.is-next .prod-journey-n { background: var(--brand-gold); color: #1A1A1A; }
+.prod-journey-card.is-locked {
+  opacity: 0.72; cursor: not-allowed;
+  border-style: dashed; background: color-mix(in srgb, var(--prod-bg) 88%, #999 12%);
+}
+.prod-journey-card.is-locked:hover { box-shadow: var(--prod-shadow); border-color: var(--prod-border); }
+.prod-journey-card.is-locked .prod-journey-cta { color: #8a5a00; }
 .prod-dual-path {
   display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
   margin-bottom: var(--sp-4);
