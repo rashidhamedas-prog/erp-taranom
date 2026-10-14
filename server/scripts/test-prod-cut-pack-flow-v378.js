@@ -1,7 +1,7 @@
 'use strict';
 /**
  * v378 — DB harness for cut → issue template / apparel pack resolve
- * Run on Iran (native better-sqlite3): node server/scripts/test-prod-cut-pack-flow-v378.js
+ * Run on Iran: node server/scripts/test-prod-cut-pack-flow-v378.js
  */
 const path = require('path');
 const fs = require('fs');
@@ -15,8 +15,7 @@ function ok(cond, msg, detail) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-v378-'));
-const dbPath = path.join(tmp, 't.db');
-process.env.DB_PATH = dbPath;
+process.env.DB_PATH = path.join(tmp, 't.db');
 process.env.SYNC_ROLE = 'central';
 
 const { initDB, getDB } = require('../db');
@@ -45,9 +44,10 @@ if (!whFg) {
   whFg = { id: db.prepare(`INSERT INTO warehouses (code,name,warehouse_kind,is_active) VALUES ('WH-FG','محصول','finished',1)`).run().lastInsertRowid };
 }
 
+// Non-matrix FG for PO/issue path (createOrder rejects matrix without lines).
 const fgId = db.prepare(`
   INSERT INTO products (user_id, name, code, price, stock, unit, is_manufactured, item_type)
-  VALUES (?, 'کاپشن تست v378', 'V378-FG', 0, 0, 'عدد', 1, 'finished')
+  VALUES (?, 'کاپشن ساده v378', 'V378-FG', 0, 0, 'عدد', 1, 'finished')
 `).run(adminId).lastInsertRowid;
 const fabId = db.prepare(`
   INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, item_type)
@@ -57,21 +57,6 @@ const zipId = db.prepare(`
   INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, item_type)
   VALUES (?, 'زیپ تست v378', 'V378-ZIP', 0, 0, 'عدد', 50000, 'raw')
 `).run(adminId).lastInsertRowid;
-
-const colorA = db.prepare(`INSERT INTO product_colors (name, code, active, sort_order) VALUES (?,?,1,1)`)
-  .run('مشکی', 'V378B').lastInsertRowid;
-const colorB = db.prepare(`INSERT INTO product_colors (name, code, active, sort_order) VALUES (?,?,1,2)`)
-  .run('سورمه ای', 'V378N').lastInsertRowid;
-const sizeId = db.prepare(`INSERT INTO product_sizes (name, code, active, sort_order) VALUES (?,?,1,1)`)
-  .run('فری سایز (مناسب تا 48)', 'V378FS').lastInsertRowid;
-const vA = db.prepare(`
-  INSERT INTO product_variants (product_id, color_id, size_id, sku, active, is_default)
-  VALUES (?,?,?,?,1,0)
-`).run(fgId, colorA, sizeId, 'V378-BLK-FS').lastInsertRowid;
-const vB = db.prepare(`
-  INSERT INTO product_variants (product_id, color_id, size_id, sku, active, is_default)
-  VALUES (?,?,?,?,1,0)
-`).run(fgId, colorB, sizeId, 'V378-NVY-FS').lastInsertRowid;
 
 const bom = bomLib.createBom(db, {
   product_id: fgId, name: 'BOM v378', base_qty: 1, yield_percent: 100,
@@ -96,13 +81,9 @@ db.prepare(`
     (lay_no, product_id, bom_id, warehouse_id, fabric_product_id, color, marker_length_m, ply_count,
      planned_meters, actual_meters, matrix_meters, size_breakdown, qty_pieces, unit_cost_rial,
      amount_rial, waste_amount_rial, status, idempotency_key, date, created_by, production_order_id)
-  VALUES ('LAY-V378',?,?,?,?,'مشکی',2,10,20,20,20,?,?,10,1000000,20000000,0,
+  VALUES ('LAY-V378',?,?,?,?,'مشکی',2,10,20,20,20,'{}',10,1000000,20000000,0,
     'posted','v378-lay',?,?,?)
-`).run(
-  fgId, bom.id, whRaw.id, fabId,
-  JSON.stringify({ 'فری سایز (مناسب تا 48)': 10 }),
-  DATE, adminId, po.id
-);
+`).run(fgId, bom.id, whRaw.id, fabId, DATE, adminId, po.id);
 
 console.log('\n== A: issueTemplate + allowance ==');
 const allow = cutting.fabricIssueAllowance(db, { productId: fabId, orderId: po.id });
@@ -117,7 +98,6 @@ ok(!!fabLine && Number(fabLine.fabric_cut_locked) === 1, 'fabric locked in templ
 ok(!!fabLine && Number(fabLine.qty_actual) === 0, 'fabric qty_actual 0');
 ok(!!zipLine && Number(zipLine.qty_actual) === Number(zipLine.qty_standard), 'zipper still full std');
 
-// Seed zipper stock + avg so issue can post
 db.prepare('UPDATE products SET stock=100, average_cost_rial=50000 WHERE id=?').run(zipId);
 db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,100)')
   .run(zipId, whRaw.id);
@@ -146,23 +126,42 @@ try {
 ok(blocked === 'E_FABRIC_ALREADY_CUT', 're-issue cut fabric still 409', blocked);
 
 console.log('\n== C: apparel color / free-size ==');
+const mxFg = db.prepare(`
+  INSERT INTO products (user_id, name, code, price, stock, unit, is_manufactured, item_type)
+  VALUES (?, 'کاپشن ماتریس v378', 'V378-MX', 0, 0, 'عدد', 1, 'finished')
+`).run(adminId).lastInsertRowid;
+const colorA = db.prepare(`INSERT INTO product_colors (name, code, active, sort_order) VALUES (?,?,1,1)`)
+  .run('مشکی', 'V378B').lastInsertRowid;
+const colorB = db.prepare(`INSERT INTO product_colors (name, code, active, sort_order) VALUES (?,?,1,2)`)
+  .run('سورمه ای', 'V378N').lastInsertRowid;
+const sizeId = db.prepare(`INSERT INTO product_sizes (name, code, active, sort_order) VALUES (?,?,1,1)`)
+  .run('فری سایز (مناسب تا 48)', 'V378FS').lastInsertRowid;
+const vA = db.prepare(`
+  INSERT INTO product_variants (product_id, color_id, size_id, sku, active, is_default)
+  VALUES (?,?,?,?,1,0)
+`).run(mxFg, colorA, sizeId, 'V378-BLK-FS').lastInsertRowid;
+const vB = db.prepare(`
+  INSERT INTO product_variants (product_id, color_id, size_id, sku, active, is_default)
+  VALUES (?,?,?,?,1,0)
+`).run(mxFg, colorB, sizeId, 'V378-NVY-FS').lastInsertRowid;
+
 ok(stripSizeFitNote('فری سایز (مناسب تا 48)') === 'فری سایز', 'strip fit note');
 let lines = apparel.resolveApparelLines(db, {
-  productId: fgId, qty: 10,
+  productId: mxFg, qty: 10,
   sizeBreakdown: { 'فری سایز (مناسب تا 48)': 10 },
   color: 'مشکی',
 });
 ok(lines.length === 1 && Number(lines[0].variantId) === Number(vA), 'exact color×size → variant A');
 
 lines = apparel.resolveApparelLines(db, {
-  productId: fgId, qty: 10,
+  productId: mxFg, qty: 10,
   sizeBreakdown: { 'فری سایز': 10 },
   color: 'سورمه ای',
 });
 ok(lines.length === 1 && Number(lines[0].variantId) === Number(vB), 'fit-note-stripped size + color → variant B');
 
 lines = apparel.resolveApparelLines(db, {
-  productId: fgId, qty: 5,
+  productId: mxFg, qty: 5,
   sizeBreakdown: [{ size: 'فری سایز (مناسب تا 48)', qty: 5 }],
   color: 'سورمه‌ای',
 });
@@ -171,7 +170,7 @@ ok(lines.length === 1 && Number(lines[0].variantId) === Number(vB), 'ZWNJ navy m
 let multiMsg = '';
 try {
   apparel.resolveApparelLines(db, {
-    productId: fgId, qty: 10,
+    productId: mxFg, qty: 10,
     sizeBreakdown: { 'فری سایز (مناسب تا 48)': 10 },
     color: '',
   });
