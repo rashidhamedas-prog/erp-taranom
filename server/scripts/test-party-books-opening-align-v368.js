@@ -43,20 +43,20 @@ function postJeOnLeaf(leaf, signedRial, date, refType, refId) {
   if (signedRial >= 0) {
     db.prepare(`
       INSERT INTO journal_lines (entry_id, account_code, account_name, debit, credit, debit_rial, credit_rial)
-      VALUES (?,?,'leaf',?,?,?,0)
-    `).run(jeId, leaf, t, 0, abs);
+      VALUES (?,?,'leaf',?,0,?,0)
+    `).run(jeId, leaf, t, abs);
     db.prepare(`
       INSERT INTO journal_lines (entry_id, account_code, account_name, debit, credit, debit_rial, credit_rial)
-      VALUES (?,'3102','opening',0,?,?,0,?)
+      VALUES (?,'3102','opening',0,?,0,?)
     `).run(jeId, t, abs);
   } else {
     db.prepare(`
       INSERT INTO journal_lines (entry_id, account_code, account_name, debit, credit, debit_rial, credit_rial)
-      VALUES (?,'3102','opening',?,?,?,0)
-    `).run(jeId, t, 0, abs);
+      VALUES (?,'3102','opening',?,0,?,0)
+    `).run(jeId, t, abs);
     db.prepare(`
       INSERT INTO journal_lines (entry_id, account_code, account_name, debit, credit, debit_rial, credit_rial)
-      VALUES (?,?,'leaf',0,?,?,0,?)
+      VALUES (?,?,'leaf',0,?,0,?)
     `).run(jeId, leaf, t, abs);
   }
   return jeId;
