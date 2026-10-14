@@ -5,8 +5,8 @@
 - **UI:** خوشهٔ عملیات (`prod-bom-ops`) — پیش‌نویس: ویرایش+حذف؛ فعال: «ویرایش…» (گیت نسخه جدید)+بایگانی+نسخه جدید+غیرفعال؛ مودال وابستگی قبل از mutate. Help + SW v385.
 - **فایل‌ها:** `lib/production/bom.js`, `routes/production-boms.js`, `public/{app.js,prod-ui.css,sw.js,index.html}`, `scripts/test-bom-ops-v385.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ERPNext BOM cancel/version؛ R13 soft-archive.
-- **تست:** `test-bom-ops-v385` + `test-sms` + `test-sync` (پس از deploy).
-- **Deploy:** ⏳
+- **تست:** ایران `test-bom-ops-v385` ۲۰/۰ + `test-sms` ۲۲/۰؛ `test-sync` harness pairing با «توکن یافت نشد» شکست خورد (خارج از دامنه؛ همان وضعیت v383/v384). health=200 + sharp.
+- **Deploy:** ✅ `d7a0426` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v385`؛ `app.js?v=385`؛ `prod-ui.css?v=385`.
 
 ### ۱۴۰۵/۰۷/۲۲ — قفل لایه‌چینی فقط برای همین سفارش/کالا + کسری موجودی شفاف (SW v384)
 
