@@ -44,7 +44,7 @@ function ok(cond, label, extra) {
 function jeDebitRial(jeId) {
   const row = db.prepare(`
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d
-    FROM journal_lines WHERE entry_id=?
+    FROM journal_lines jl WHERE jl.entry_id=?
   `).get(jeId);
   return Math.round(Number(row && row.d) || 0);
 }
