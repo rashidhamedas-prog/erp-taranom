@@ -6,7 +6,6 @@ const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
 const { todayJalali } = require('../jalali');
-const { parseQty } = require('../lib/round3');
 const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
@@ -77,9 +76,6 @@ const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommi
 const { reverseSettlementInTx } = require('../lib/void-settlement');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
-const {
-  perpetualDocsEnabled, postSaleReturnStockMovements, reverseStockBySource, assertJournalIdempotent,
-} = require('../lib/sales-document');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
@@ -1705,14 +1701,11 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
   const inv = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.invoiceId);
   if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
   const invRows = JSON.parse(inv.rows || '[]');
-  const lineKey = (r) => (r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`);
-  const alreadyReturned = {};
-  db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
-    JSON.parse(pr.rows || '[]').forEach(r => {
-      const k = lineKey(r);
-      alreadyReturned[k] = (alreadyReturned[k] || 0) + r.qty;
-    });
-  });
+  const { lineKey, returnedQtyMapForInvoice } = require('../lib/sales-return-doc');
+  const excludeReturnId = req.query.exclude_return_id
+    ? parseInt(req.query.exclude_return_id, 10)
+    : null;
+  const alreadyReturned = returnedQtyMapForInvoice(db, req.params.invoiceId, excludeReturnId);
   const rows = invRows.map(r => ({
     ...r, already_returned: alreadyReturned[lineKey(r)] || 0,
     max_returnable: r.qty - (alreadyReturned[lineKey(r)] || 0)
@@ -1721,161 +1714,28 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
 });
 
 router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, date, note, rows, warehouse_id, reason_code } = req.body;
-  if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
-  const reasonCode = String(reason_code || '').trim().slice(0, 40);
-
-  // Invoice-linked return: original price/discount are always taken from the
-  // invoice itself (never trusted from the client), and the returned quantity
-  // per product can never exceed what was actually sold minus what has
-  // already been returned against that same invoice.
-  let invoiceLineMap = null, alreadyReturnedMap = {};
-  let parentWhId = warehouse_id ? parseInt(warehouse_id, 10) : null;
-  if (invoice_id) {
-    const inv = db.prepare('SELECT * FROM invoices WHERE id=? AND cust_id=?').get(invoice_id, cust_id);
-    if (!inv) return res.status(400).json({ error: 'فاکتور یافت نشد یا متعلق به این مشتری نیست' });
-    if (!parentWhId && inv.warehouse_id) parentWhId = parseInt(inv.warehouse_id, 10);
-    invoiceLineMap = {};
-    JSON.parse(inv.rows || '[]').forEach(r => {
-      const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
-      invoiceLineMap[k] = r;
-    });
-    db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(invoice_id).forEach(pr => {
-      JSON.parse(pr.rows || '[]').forEach(r => {
-        const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
-        alreadyReturnedMap[k] = (alreadyReturnedMap[k] || 0) + r.qty;
-      });
-    });
-  }
-
-  const built = [];
-  let amount = 0, costAmount = 0;
-  for (const r of (rows || [])) {
-    const pid = parseInt(r.product_id);
-    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
-    if (!prod) continue;
-    let qty = Math.max(0.001, parseQty(r.qty, 1));
-    let price, disc = 0, discAmt = 0;
-    let lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
-    let origLine = null;
-    if (invoiceLineMap) {
-      const key = r.variant_id ? `v:${r.variant_id}` : `p:${pid}`;
-      origLine = invoiceLineMap[key] || invoiceLineMap[`p:${pid}`];
-      if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور وجود ندارد` });
-      const already = alreadyReturnedMap[key] || alreadyReturnedMap[`p:${pid}`] || 0;
-      const maxReturnable = origLine.qty - already;
-      if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
-      price = origLine.price;
-      disc = origLine.disc || 0;
-      discAmt = Math.round(qty * price * disc / 100);
-      if (!lineWh && origLine.warehouse_id) lineWh = parseInt(origLine.warehouse_id, 10);
-    } else {
-      price = parseFloat(r.price) || prod.price;
-    }
-    const sum = qty * price - discAmt;
-    amount += sum;
-    const { productUnitCostRial } = require('../lib/inventory/product-unit-cost');
-    const avgRial = productUnitCostRial(prod);
-    // sales_returns.cost_amount is INTEGER rial going forward (legacy rows may be toman).
-    costAmount += Math.round(qty * avgRial);
-    built.push({
-      product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum,
-      warehouse_id: lineWh || parentWhId || null,
-      unit_cost: avgRial,
-      cost_rial: avgRial,
-      variant_id: (origLine && origLine.variant_id) || r.variant_id || null,
-      color_name: (origLine && (origLine.color_name || origLine.color)) || r.color_name || '',
-      size_name: (origLine && origLine.size_name) || r.size_name || '',
-    });
-  }
-  if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
-
-  let retId;
   try {
-    retId = db.transaction(() => {
-      const result = db.prepare(
-        'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount,reason_code) VALUES (?,?,?,?,?,?,?,?,?)'
-      ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount, reasonCode);
-      const retId = result.lastInsertRowid;
-
-      let stocked = null;
-      if (perpetualDocsEnabled(db)) {
-        stocked = postSaleReturnStockMovements(db, {
-          rows: built,
-          warehouseId: parentWhId,
-          sourceType: 'sales_return',
-          sourceId: retId,
-          userId: req.user.id,
-          date: date || todayJalali(),
-          note: `برگشت از فروش #${retId}`,
-        });
-        if (stocked.costRial > 0) {
-          // Keep cost_amount in rial end-to-end (matches inventory_ledger.amount_rial).
-          costAmount = stocked.costRial;
-          db.prepare('UPDATE sales_returns SET cost_amount=? WHERE id=?').run(costAmount, retId);
-        }
-      } else {
-        for (const r of built) {
-          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
-        }
-      }
-      const {
-        settingFlag, proportionalVat, invoiceNetBase, invoiceSourceVat,
-        buildSalesReturnJournalLines, costItemsFromMovements,
-      } = require('../lib/returns-posting');
-      let vatAmount = 0;
-      if (invoice_id && settingFlag(db, 'returns_reverse_vat', true)) {
-        const inv = db.prepare(
-          'SELECT final,final_rial,vat_amount,vat_amount_rial,subtotal,disc_amt FROM invoices WHERE id=?'
-        ).get(invoice_id);
-        vatAmount = proportionalVat(invoiceSourceVat(inv), amount, invoiceNetBase(inv));
-      }
-      db.prepare('UPDATE sales_returns SET vat_amount=? WHERE id=?').run(vatAmount, retId);
-      const gross = amount + vatAmount;
-      createLedgerEntry(db, {
-        customer_id: cust_id, date: date || todayJalali(), entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
-        description: `برگشت از فروش #${retId}`, debit: 0, credit: gross, user_id: req.user.id
-      });
-      assertJournalIdempotent(db, 'sales_return', retId);
-      const { costItemsFromLedger } = require('../lib/returns-posting');
-      let costItems = [];
-      if (stocked && stocked.movements) {
-        costItems = costItemsFromMovements(stocked.movements);
-      }
-      // Prefer ledger rows (authoritative warehouse_id) when movement objects omit WH.
-      if (!costItems.length || costItems.every((c) => c.warehouseId == null)) {
-        const fromLed = costItemsFromLedger(db, 'sales_return', retId);
-        if (fromLed.length) costItems = fromLed;
-      }
-      if (!costItems.length && costAmount > 0) {
-        costItems = [{ warehouseId: parentWhId, amountRial: costAmount }];
-      }
-      const journalLines = buildSalesReturnJournalLines(db, {
-        custId: cust_id, amountNet: amount, vatAmount, costItems,
-      });
-      postToLedger(db, {
-        sourceType: 'sales_return', sourceId: retId,
-        date: date || todayJalali(), description: `برگشت از فروش #${retId}`, createdBy: req.user.id,
-        lines: journalLines,
-      });
-      return retId;
-    })();
+    const { createSalesReturn } = require('../lib/sales-return-doc');
+    const out = createSalesReturn(db, req.body || {}, req.user);
+    audit(req.user.id, 'create', 'sales_return', out.id, `برگشت از فروش به مبلغ ${out.amount}`);
+    res.json({ id: out.id, ok: true });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  if (invoice_id) recomputeInvoiceSettledBalances(db, invoice_id);
-  else {
-    try {
-      const { autoAllocateIfEnabled, SIDE_SALES } = require('../lib/return-credit-allocate');
-      autoAllocateIfEnabled(db, { side: SIDE_SALES, returnId: retId, userId: req.user.id });
-    } catch (e) {
-      console.warn('sales-return auto-allocate:', e && e.message);
-    }
+});
+
+/** R13 Edit ⇒ reverse all create effects, re-post on same id (customer locked). */
+router.put('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { updateSalesReturn } = require('../lib/sales-return-doc');
+    const out = updateSalesReturn(db, req.params.id, req.body || {}, req.user);
+    audit(req.user.id, 'amend', 'sales_return', out.id, `ویرایش برگشت از فروش به مبلغ ${out.amount}`);
+    res.json(out);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'create', 'sales_return', retId, `برگشت از فروش به مبلغ ${amount}`);
-  res.json({ id: retId, ok: true });
 });
 
 router.get('/sales-returns/reason-codes', auth, adminOrAccounting, (_req, res) => {
@@ -1968,80 +1828,14 @@ router.get('/sales-returns/:id/warehouse-slip', auth, adminOrAccounting, (req, r
 
 router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت فروش قبلاً ابطال شده است' });
   try {
-    db.transaction(() => {
-      const {
-        buildSalesReturnJournalLines, costItemsFromLedger,
-      } = require('../lib/returns-posting');
-      let costItems = costItemsFromLedger(db, 'sales_return', row.id);
-      if (!costItems.length && Number(row.cost_amount) > 0) {
-        costItems = [{ warehouseId: null, amountRial: Math.round(Number(row.cost_amount) || 0) }];
-      }
-      if (perpetualDocsEnabled(db)) {
-        const reversed = reverseStockBySource(db, 'sales_return', row.id, {
-          createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از فروش #${row.id}`,
-        });
-        try {
-          require('../lib/inventory/movement').reverseStockDocument(db, {
-            docType: 'sale_return_sku',
-            docId: row.id,
-            userId: req.user.id,
-            note: `ابطال رنگ×سایز برگشت از فروش #${row.id}`,
-            applyHeaderStock: false,
-          });
-        } catch (_) { /* older returns have no sku layer */ }
-        if (!reversed.length) {
-          const invRows = JSON.parse(row.rows || '[]');
-          for (const r of invRows) {
-            db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
-          }
-        }
-      } else {
-        const invRows = JSON.parse(row.rows || '[]');
-        for (const r of invRows) {
-          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
-        }
-      }
-      const vatAmount = Math.round(Number(row.vat_amount) || 0);
-      const amountNet = Math.round(Number(row.amount) || 0);
-      const gross = amountNet + vatAmount;
-      createLedgerEntry(db, {
-        customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
-        description: `ابطال برگشت از فروش #${row.id}`, debit: gross, credit: 0, user_id: req.user.id
-      });
-      const journalLines = buildSalesReturnJournalLines(db, {
-        custId: row.cust_id, amountNet, vatAmount, costItems, reverse: true,
-      });
-      const reversalId = postToLedger(db, {
-        sourceType: 'sales_return_reversal', sourceId: row.id, date: todayJalali(),
-        description: `ابطال برگشت از فروش #${row.id}`, createdBy: req.user.id, lines: journalLines,
-      });
-      db.prepare("UPDATE sales_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-        .run(reversalId, req.user.id, row.id);
-      try {
-        const { reverseAllocationsForReturn, SIDE_SALES } = require('../lib/return-credit-allocate');
-        reverseAllocationsForReturn(db, SIDE_SALES, row.id, req.user.id);
-      } catch (_) { /* older DBs */ }
-    })();
+    const { voidSalesReturn } = require('../lib/sales-return-doc');
+    voidSalesReturn(db, req.params.id, req.user);
+    audit(req.user.id, 'void', 'sales_return', req.params.id, 'ابطال برگشت از فروش');
+    res.json({ ok: true });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  if (row.invoice_id) recomputeInvoiceSettledBalances(db, row.invoice_id);
-  else {
-    try {
-      const all = db.prepare(`
-        SELECT DISTINCT invoice_id FROM return_credit_allocations
-        WHERE side='sales' AND return_id=?
-      `).all(row.id);
-      for (const a of all) recomputeInvoiceSettledBalances(db, a.invoice_id);
-    } catch (_) { /* ignore */ }
-  }
-  res.json({ ok: true });
 });
 
 // ============================================================

@@ -51,11 +51,20 @@ Ship **Option Minimal-Correct** — همان پیشنهاد RESEARCH: باگ pic
 
 **کرایه:** معکوس `freight_amount` همچنان **NO-GO** (خارج از این موج).
 
+### P2d — ویرایش برگشت فروش (R13 same-id amend) — shipped
+
+1. **`PUT /api/accounting/sales-returns/:id`:** reverse همهٔ اثرات create (انبار، soft-void JE، دفتر مشتری، تخصیص اعتبار) سپس re-post روی **همان id**؛ مشتری قفل.
+2. **`exclude_return_id`** روی `GET …/available/:invoiceId` تا سقف qty در ویرایش خود سند را دوباره حساب کند.
+3. UI دکمهٔ ویرایش + مودال پیش‌پر؛ Help + SW bump.
+4. الگوی مرجع داخلی: لایه‌چینی v364؛ بیرونی: ERPNext cancel+amend / immutable ledger (بدون overwrite خام posted).
+
 ### Out of scope (P2 finance remainder / P3 — ADR یا موج جدا)
 
 | موضوع | موج |
 |--------|-----|
 | Allocate credit/debit دستی به فاکتور/PI باز | ~~P2-finance+~~ **shipped P2c** |
+| ویرایش برگشت فروش (same-id amend) | ~~P2d~~ **shipped** |
+| ویرایش برگشت خرید (آینه) | P2d+ / موج جدا |
 | Moadian credit/debit note | P3 |
 | معکوس کرایه (`freight_amount`) | P2-finance |
 | Commission clawback JE | P3 |

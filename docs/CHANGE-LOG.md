@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۱ — ویرایش برگشت از فروش (R13 same-id amend) (SW v367)
+
+- **هدف:** دکمهٔ ویرایش روی لیست برگشت از فروش با رعایت کامل وابستگی‌ها (JE، انبار، دفتر مشتری، تخصیص اعتبار، مانده فاکتور).
+- **الگو:** مثل لایه‌چینی v364 + ERPNext cancel/amend — ابطال اثرات create سپس ثبت مجدد روی **همان id**؛ مشتری قفل؛ `exclude_return_id` برای سقف qty.
+- **Backend:** `lib/sales-return-doc.js` (create/void/update مشترک)؛ `PUT /accounting/sales-returns/:id`؛ refactor POST/DELETE؛ ADR-005 P2d.
+- **Frontend:** دکمهٔ ویرایش، مودال پیش‌پر، Help؛ SW `erp-taranom-v367`؛ `app.js?v=367`.
+- **فایل‌ها:** `lib/sales-return-doc.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-sales-return-amend-v367.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
+- **تست:** `test-sales-return-amend-v367` + `test-sms` + `test-sync`؛ parse `app.js` سبز.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۱ — دسترسی «عملیات دریافت و پرداخت» برای نقش غیرحسابدار (SW v366)
 
 - **علائم:** برای کاربر `sharafi` (نقش `distribution_office`) همهٔ تیک‌های «عملیات دریافت و پرداخت» + تب حسابداری در DB ذخیره بود، ولی صفحه در حساب او باز نمی‌شد / خطای دسترسی می‌داد.
