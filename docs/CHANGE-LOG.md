@@ -4,8 +4,8 @@
 - **رفع:** دکمهٔ «ویرایش» همیشه برای طاقهٔ فعال؛ رنگ/طرح/عرض/شماره همیشه؛ متر/بها/تأمین‌کننده فقط وقتی مانده زنده = متر دریافتی (heal با `applyLiveRollQty`). طاقهٔ `source_type=purchase`: فقط متادیتا؛ مالی از فاکتور خرید. ابطال فقط مصرف‌نشده. Help + تست static/flow v381.
 - **فایل‌ها:** `lib/inventory/fabric-rolls.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-fabric-roll-amend-v381.js`, `scripts/test-fabric-roll-amend-static-v381.js`, CHANGE-LOG, Help.
 - **مراجع:** R13 Edit⇒Cancel؛ الگوی amend لایه‌چینی؛ ADR-007 طاقه.
-- **تست:** static v381 محلی؛ ایران `test-fabric-roll-amend-v381` + `test-sms` + `test-sync`؛ health=200.
-- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v381`؛ `app.js?v=381`.
+- **تست:** static v381 محلی ۵/۰؛ ایران `test-fabric-roll-amend-v381` ۲۲/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `58c95c6` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v381`؛ `app.js?v=381`.
 
 ### ۱۴۰۵/۰۷/۲۲ — تطبیق نرم رنگ طاقه/ماتریس (سورمه ای ≈ سرمه‌ای) (SW v379)
 
