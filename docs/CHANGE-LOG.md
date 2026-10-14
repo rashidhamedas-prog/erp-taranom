@@ -6,8 +6,8 @@
 - **RBAC:** نقش `store_retail` (create فاکتور، خارج از proforma-only)؛ `distribution_office` حداقل view+create فاکتور؛ قفل انبار از `sales_warehouse_id` برای فروشگاهی.
 - **UI:** صفحهٔ `store-quick-sale` (اسکن/جستجو، سبد، tender)؛ منوی باریک برای فروشگاهی؛ Help + SW v383.
 - **فایل‌ها:** `lib/{store-quick-sale,rbac,sales-experts,user-party}.js`, `routes/{store,invoices}.js`, `sync/capture.js`, `db.js`, `server.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-store-quick-sale-v383.js`, CHANGE-LOG.
-- **تست:** `test-store-quick-sale-v383` ۳۴/۰ + `test-sms` ۲۲/۰ محلی؛ `test-sync` روی ایران (better-sqlite3 ویندوز Node ۲۴ ندارد).
-- **Deploy:** ⏳ — SW `erp-taranom-v383`؛ `app.js?v=383`.
+- **تست:** ایران `test-store-quick-sale-v383` ۳۴/۰ + `test-sms` ۲۲/۰؛ `test-sync` harness pairing روی ایران با «توکن یافت نشد» شکست خورد (خارج از دامنه این تسک؛ health و ماژول فروشگاهی سالم‌اند).
+- **Deploy:** ✅ `67df3bb` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v383`؛ `app.js?v=383`.
 
 ### ۱۴۰۵/۰۷/۲۲ — دروازهٔ ترتیبی مسیر ۶مرحله‌ای داشبورد تولید (SW v382)
 
