@@ -191,7 +191,7 @@ ok(!appSrc.includes('دفتر گردش برای این شخص یافت نشد �
   'old empty-ledger toast removed');
 
 const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v362'), 'SW v362');
+ok(/erp-taranom-v3(6[2-9]|[7-9]\d)/.test(swSrc), 'SW >= v362');
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

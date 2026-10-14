@@ -174,7 +174,7 @@ function partySignedBalanceDetailMap(db) {
         } else {
           bal += takeOpening(pid, leaf);
         }
-        putLeaf(pid, leaf, bal, 'customer');
+        if (bal || Number(r.open_n)) putLeaf(pid, leaf, bal, 'customer');
       }
       for (const c of db.prepare(
         'SELECT party_id, coa_code FROM customers WHERE party_id IS NOT NULL'
@@ -183,7 +183,8 @@ function partySignedBalanceDetailMap(db) {
         if (!Number.isFinite(pid) || seen.has(pid)) continue;
         const leaf = c.coa_code || (partyMeta.get(pid) && partyMeta.get(pid).coa) || null;
         const bal = takeOpening(pid, leaf);
-        if (bal || leaf) putLeaf(pid, leaf, bal, 'customer');
+        // Do not invent a zero AR leaf — noise GL on unused leaf would false-flag mismatch
+        if (bal) putLeaf(pid, leaf, bal, 'customer');
       }
     } catch (_) { /* optional */ }
   }
@@ -238,9 +239,11 @@ function partySignedBalanceDetailMap(db) {
     const leafList = [];
     let net = 0;
     let primary = null;
-    // Prefer customer leaf as primary for display when dual-role
+    // Primary = largest |balance| leaf (dual-role: don't prefer empty AR over live AP)
     const order = { customer: 0, supplier: 1, person: 2 };
     const sorted = [...leaves.entries()].sort((a, b) => {
+      const da = Math.abs(a[1].balance) - Math.abs(b[1].balance);
+      if (da !== 0) return da > 0 ? -1 : 1;
       const sa = order[a[1].source] != null ? order[a[1].source] : 9;
       const sb = order[b[1].source] != null ? order[b[1].source] : 9;
       return sa - sb;
@@ -393,6 +396,8 @@ function partyBooksMismatch(db, detailInfo) {
   for (const lf of leaves) {
     if (!lf.coa_code) continue;
     if (!lf.source || lf.source === 'opening') continue;
+    // Zero subledger leaf vs unrelated GL noise on that code is not a books gap
+    if (Math.abs(lf.balance) <= 1) continue;
     const glBal = glSignedForCoa(db, lf.coa_code);
     if (glBal == null) continue;
     if (Math.abs(lf.balance - glBal) > 1) return true;
