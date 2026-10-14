@@ -156,7 +156,7 @@ function purgeHollowPartyLedgerReversals(db) {
       } catch (__) { /* ignore */ }
     }
 
-    // Orphan hollow reverse lines (explicit void refs)
+    // Orphan hollow reverse lines (explicit void refs + opening-cheque mirror fixes)
     try {
       const r = db.prepare(`
         DELETE FROM customer_ledger
@@ -165,6 +165,8 @@ function purgeHollowPartyLedgerReversals(db) {
             ref_type LIKE '%\\_reversal' ESCAPE '\\'
             OR description LIKE 'ابطال %'
             OR description LIKE 'ابطال/%'
+            OR description LIKE 'اصلاح:%'
+            OR description LIKE 'اصلاح: %'
           )
       `).run();
       customerDeleted += Number(r.changes || 0);
