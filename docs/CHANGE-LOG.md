@@ -4,8 +4,8 @@
 - **ریشه:** سیاست JE از v285 soft-void بدون سند معکوس بود، ولی زیردفتر (`customer_ledger` / `supplier_ledger` / `person_ledger`) هنوز ردیف `entry_type=reversal` می‌ساخت؛ برگشت فروش هم از اول با `entry_type=reversal` ثبت می‌شد. `hideVoidedBookRows` فقط چک/تسویه را پنهان می‌کرد.
 - **رفع اصولی (حسابداری عملیاتی / ERPNext hide-cancelled + R13):** هلپر `lib/party-ledger-retire.js` — روی void/amend ردیف زیردفتر بازنشسته (DELETE) می‌شود نه insert معکوس؛ برچسب زندهٔ برگشت = `sales_return`؛ گسترش `hideVoidedBookRows`؛ heal یک‌بار `purge_hollow_party_ledger_v373`؛ Help.
 - **فایل‌ها:** `lib/{party-ledger-retire,customer-books,sales-return-doc,void-settlement,pos,cheque-party-books,party-turnover,inventory/fabric-rolls}.js`, `routes/{accounting,purchases}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-hollow-void-books-v373.js`, CHANGE-LOG.
-- **تست:** `test-hollow-void-books-v373` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-hollow-void-books-v373` ۱۱/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ heal boot: relabeled=۵، customerDeleted=۱۸.
+- **Deploy:** ✅ `e7c8b11` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v373`؛ `app.js?v=373`.
 
 ### ۱۴۰۵/۰۷/۲۲ — تاریخ اصلاح فاکتور = تاریخ سند (SW v371)
 
