@@ -4,8 +4,8 @@
 - **ریشه:** فاصله/نیم‌فاصله قبلاً یکی شده بود، ولی «سورمه» vs «سرمه» (حذف و) هنوز mismatch بود؛ لیست رنگ لایه‌چینی فقط از طاقه می‌آمد نه ماتریس کالا.
 - **رفع:** `fabricColorMatchKey` + `colorsMatch` نرم (نادیده گرفتن و و فاصله)؛ UI لایه‌چینی اولویت رنگ ماتریس کالا؛ Help؛ تست static v379.
 - **فایل‌ها:** `lib/inventory/fabric-rolls.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-color-soft-match-v379.js`, CHANGE-LOG, Help.
-- **تست:** static v379 محلی؛ sms + sync روی ایران.
-- **Deploy:** ⏳
+- **تست:** static v379 ۴/۰؛ soft-match سورمه ای~سرمه‌ای؛ sms ۲۲/۰ + sync ۴۴/۰؛ health=200.
+- **Deploy:** ✅ `f264e03` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v379`؛ `app.js?v=379`.
 
 ### ۱۴۰۵/۰۷/۲۲ — مسیر برش: حواله/کانبان/PACK رنگ×سایز (SW v378)
 
