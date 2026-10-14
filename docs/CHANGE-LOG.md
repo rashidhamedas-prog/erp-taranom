@@ -13,8 +13,8 @@
 - **رفع:** `upsertBankOpening` / `upsertCashOpening` — با PUT مبلغ master + خطوط همان JE (`rewriteJournalEntry`) هم‌تراز می‌شود؛ تاریخ همیشه `getActiveFiscalYear().start_date`؛ مبلغ صفر = `reverseJournalEntry` + پاک‌کردن لینک. اگر اشاره‌گر به JE غیر `bank_opening`/`cash_opening` باشد، اشاره‌گر پاک و سند درست ساخته می‌شود (جلوگیری از master/GL جدا). UI فیلد را editable کرد؛ Help به‌روز شد.
 - **فایل‌ها:** `routes/{banks,cash-boxes}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-opening-edit-v379.js`, CHANGE-LOG.
 - **مراجع:** ERPNext opening amend در دورهٔ باز؛ R12/R13 (بدون حذف فیزیکی JE).
-- **تست:** ایران `test-bank-opening-edit-v379` + `test-sms` + `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-bank-opening-edit-v379` ۳۱/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ health=200 + sharp؛ SW `erp-taranom-v380`؛ `app.js?v=380`.
+- **Deploy:** ✅ `ee13094` — overlay ایران + `pm2 restart` بدون `--update-env`.
 
 ### ۱۴۰۵/۰۷/۲۲ — مسیر برش: حواله/کانبان/PACK رنگ×سایز (SW v378)
 
