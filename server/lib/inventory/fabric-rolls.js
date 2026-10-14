@@ -619,14 +619,14 @@ function receiveFabricRoll(db, body, user) {
 }
 
 function voidFabricRoll(db, id, user, { reason } = {}) {
-  const row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
+  let row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
   if (!row || row.kind !== 'fabric') throw httpErr(404, 'طاقه یافت نشد', 'E_FABRIC_ROLL');
   if (row.status === 'reversed') throw httpErr(409, 'این طاقه قبلاً ابطال شده است', 'E_FABRIC_REVERSED');
-  const onHand = Number(row.qty_on_hand) || 0;
-  const received = Number(row.qty_received || row.qty_on_hand) || 0;
-  if (Math.abs(onHand - received) > 1e-9) {
+  row = applyLiveRollQty(db, row);
+  if (!rollUnused(row)) {
     throw httpErr(409, 'طاقه مصرف شده است؛ ابتدا مصرف را برگردانید', 'E_FABRIC_CONSUMED');
   }
+  const onHand = Number(row.qty_on_hand) || 0;
 
   const { reverseJournalEntry } = require('../void-journal');
   db.transaction(() => {
@@ -667,27 +667,27 @@ function voidFabricRoll(db, id, user, { reason } = {}) {
   return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
 }
 
+/** Live meters (after heal) equal received — safe for void / financial amend. */
 function rollUnused(row) {
-  const onHand = Number(row.qty_on_hand) || 0;
-  const received = Number(row.qty_received || row.qty_on_hand) || 0;
-  return Math.abs(onHand - received) <= 1e-9;
+  const live = Number(row.qty_live != null ? row.qty_live : row.qty_on_hand) || 0;
+  const received = Number(row.qty_received != null ? row.qty_received : row.qty_on_hand) || 0;
+  return Math.abs(live - received) <= 1e-9;
 }
 
 function updateFabricRoll(db, id, body, user) {
-  const row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
+  let row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
   if (!row || row.kind !== 'fabric') throw httpErr(404, 'طاقه یافت نشد', 'E_FABRIC_ROLL');
   if (row.status === 'reversed') throw httpErr(409, 'طاقه ابطال‌شده قابل ویرایش نیست', 'E_FABRIC_REVERSED');
-  if (!rollUnused(row)) {
-    throw httpErr(409, 'طاقه مصرف شده است؛ ابتدا مصرف را برگردانید', 'E_FABRIC_CONSUMED');
-  }
+  row = applyLiveRollQty(db, row);
 
   const color = String(body.color != null ? body.color : row.color || '').trim();
   if (!color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
   const pattern = String(body.pattern != null ? body.pattern : row.pattern || '').trim();
   const widthCm = body.width_cm != null ? Math.round(Number(body.width_cm) || 0) : (Number(row.width_cm) || 0);
+  const oldMeters = Number(row.qty_received != null ? row.qty_received : row.qty_on_hand) || 0;
   const meters = body.meters != null || body.qty != null
     ? Number(body.meters != null ? body.meters : body.qty)
-    : Number(row.qty_received || row.qty_on_hand) || 0;
+    : oldMeters;
   if (!(meters > 0) || !Number.isFinite(meters)) throw httpErr(400, 'متراژ باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
   let unitCost = body.unit_cost_rial != null
     ? Math.round(Number(body.unit_cost_rial) || 0)
@@ -707,11 +707,30 @@ function updateFabricRoll(db, id, body, user) {
   const date = String(body.date || todayJalali()).trim();
   const rollNo = String(body.roll_no != null ? body.roll_no : row.batch_no || '').trim();
   const oldAmount = assertSafeRial(
-    Math.round((Number(row.unit_cost_rial) || 0) * (Number(row.qty_received || row.qty_on_hand) || 0)),
+    Math.round((Number(row.unit_cost_rial) || 0) * oldMeters),
     'fabric old amount'
   );
-  const financialChanged = amount !== oldAmount || Number(supplierId || 0) !== Number(row.supplier_id || 0)
-    || meters !== (Number(row.qty_received || row.qty_on_hand) || 0);
+  const financialChanged = amount !== oldAmount
+    || Number(supplierId || 0) !== Number(row.supplier_id || 0)
+    || Math.abs(meters - oldMeters) > 1e-9;
+  const fromPurchase = String(row.source_type || '') === 'purchase';
+
+  if (financialChanged) {
+    if (fromPurchase) {
+      throw httpErr(
+        409,
+        'متر/بها/تأمین‌کننده طاقهٔ ناشی از فاکتور خرید را از همان فاکتور اصلاح کنید',
+        'E_FABRIC_PURCHASE_AMEND'
+      );
+    }
+    if (!rollUnused(row)) {
+      throw httpErr(
+        409,
+        'برای تغییر متر/بها/تأمین‌کننده طاقه باید مصرف‌نشده باشد؛ رنگ/طرح/عرض/شماره را می‌توانید ویرایش کنید',
+        'E_FABRIC_CONSUMED'
+      );
+    }
+  }
 
   const { postToLedger } = require('../ledger');
   const { reverseJournalEntry } = require('../void-journal');
@@ -743,8 +762,10 @@ function updateFabricRoll(db, id, body, user) {
       }
     }
 
-    const qtyDelta = meters - (Number(row.qty_on_hand) || 0);
-    if (qtyDelta) adjustBatchQty(db, row.id, qtyDelta);
+    if (financialChanged) {
+      const qtyDelta = meters - (Number(row.qty_on_hand) || 0);
+      if (qtyDelta) adjustBatchQty(db, row.id, qtyDelta);
+    }
     if (rollNo && rollNo !== row.batch_no) {
       try {
         db.prepare('UPDATE inventory_batches SET batch_no=? WHERE id=?').run(rollNo, row.id);
@@ -755,11 +776,19 @@ function updateFabricRoll(db, id, body, user) {
         throw e;
       }
     }
-    db.prepare(`
-      UPDATE inventory_batches
-      SET color=?, pattern=?, width_cm=?, unit_cost_rial=?, supplier_id=?, qty_received=?
-      WHERE id=?
-    `).run(color, pattern, widthCm, unitCost, supplierId || null, meters, row.id);
+    if (financialChanged) {
+      db.prepare(`
+        UPDATE inventory_batches
+        SET color=?, pattern=?, width_cm=?, unit_cost_rial=?, supplier_id=?, qty_received=?
+        WHERE id=?
+      `).run(color, pattern, widthCm, unitCost, supplierId || null, meters, row.id);
+    } else {
+      db.prepare(`
+        UPDATE inventory_batches
+        SET color=?, pattern=?, width_cm=?
+        WHERE id=?
+      `).run(color, pattern, widthCm, row.id);
+    }
 
     if (financialChanged) {
       const led = postInventoryMovement(db, {
@@ -810,10 +839,13 @@ function updateFabricRoll(db, id, body, user) {
       }
       db.prepare('UPDATE inventory_batches SET ledger_id=?, journal_id=? WHERE id=?')
         .run(led.id, journalId, row.id);
+      try {
+        syncFabricProductWarehouse(db, row.product_id, row.warehouse_id);
+      } catch (_) { /* heal best-effort */ }
     }
   })();
 
-  return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
+  return applyLiveRollQty(db, db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id)));
 }
 
 module.exports = {
@@ -831,6 +863,7 @@ module.exports = {
   receiveFabricRoll,
   voidFabricRoll,
   updateFabricRoll,
+  rollUnused,
   requireRawWarehouse,
   fabricLineFields,
   isFabricPurchaseLine,
