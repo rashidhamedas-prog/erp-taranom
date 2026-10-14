@@ -499,11 +499,94 @@ function updateBomHeader(db, bomId, body, userId) {
   })();
 }
 
+function countOpenOrdersForBom(db, bomId) {
+  return db.prepare(`
+    SELECT COUNT(*) c FROM production_orders
+    WHERE bom_id=? AND status IN ('draft','released','in_progress')
+  `).get(bomId).c;
+}
+
+/** پیش‌نمایش وابستگی برای ویرایش/حذف حرفه‌ای (بدون mutate) */
+function getBomDependencies(db, bomId) {
+  const b = db.prepare(`
+    SELECT bh.*, p.name AS product_name, p.default_bom_id AS product_default_bom_id
+    FROM bom_headers bh
+    LEFT JOIN products p ON p.id = bh.product_id
+    WHERE bh.id=? AND bh.deleted_at IS NULL
+  `).get(bomId);
+  if (!b) throw err('E_NOT_FOUND', 404);
+
+  const openOrders = db.prepare(`
+    SELECT id, order_no, status, qty_planned, date, product_id
+    FROM production_orders
+    WHERE bom_id=? AND status IN ('draft','released','in_progress')
+    ORDER BY id DESC
+    LIMIT 50
+  `).all(bomId);
+  const openCount = countOpenOrdersForBom(db, bomId);
+  const closedOrderCount = db.prepare(`
+    SELECT COUNT(*) c FROM production_orders
+    WHERE bom_id=? AND status NOT IN ('draft','released','in_progress')
+  `).get(bomId).c;
+  const isDefault = Number(b.product_default_bom_id) === Number(bomId);
+
+  const blockers = [];
+  if (openCount > 0) {
+    blockers.push({
+      code: 'E_BOM_IN_USE',
+      message: `این فرمول در ${openCount} سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.`,
+      n: openCount,
+    });
+  }
+
+  const can = {
+    view: true,
+    edit_inplace: b.status === 'draft',
+    version_up: b.status === 'active',
+    soft_delete: b.status === 'draft' && openCount === 0,
+    archive: (b.status === 'active' || b.status === 'draft') && openCount === 0,
+    deactivate: b.status === 'active' && openCount === 0,
+  };
+
+  let editMode = 'view_only';
+  if (can.edit_inplace) editMode = 'inplace';
+  else if (can.version_up) editMode = 'version_up';
+
+  let removeMode = 'none';
+  if (can.soft_delete) removeMode = 'soft_delete';
+  else if (can.archive) removeMode = 'archive';
+  else if (b.status === 'archived') removeMode = 'already_archived';
+  else if (openCount > 0) removeMode = 'blocked';
+
+  return {
+    id: b.id,
+    code: b.code,
+    name: b.name,
+    status: b.status,
+    version: b.version,
+    revision: b.revision,
+    product_id: b.product_id,
+    product_name: b.product_name,
+    is_default: isDefault ? 1 : 0,
+    open_orders: openOrders,
+    open_count: openCount,
+    closed_order_count: closedOrderCount,
+    can,
+    blockers,
+    actions: { edit: editMode, remove: removeMode },
+  };
+}
+
 function softDeleteBom(db, bomId, userId) {
   return db.transaction(() => {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
     assertDraft(b);
+    const open = countOpenOrdersForBom(db, bomId);
+    if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET deleted_at=?, status='obsolete' WHERE id=?").run(nowUnix(), bomId);
+    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
+      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
+    }
     audit(userId, 'delete', 'bom', bomId, `حذف پیش‌نویس ${b.code}`);
     return { ok: true };
   })();
@@ -703,12 +786,12 @@ function deactivateBom(db, bomId, userId) {
   return db.transaction(() => {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
     if (!b || b.status !== 'active') throw err('E_BOM_NOT_ACTIVE', 409);
-    const open = db.prepare(`
-      SELECT COUNT(*) c FROM production_orders
-      WHERE bom_id=? AND status IN ('draft','released','in_progress')
-    `).get(bomId).c;
+    const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET status='draft' WHERE id=?").run(bomId);
+    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
+      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
+    }
     audit(userId, 'edit', 'bom', bomId, `غیرفعال‌سازی ${b.code}`);
     return { ok: true };
   })();
@@ -716,15 +799,20 @@ function deactivateBom(db, bomId, userId) {
 
 function archiveBom(db, bomId, reason, userId) {
   return db.transaction(() => {
-    const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+    const b = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(bomId);
     if (!b) throw err('E_NOT_FOUND', 404);
-    const open = db.prepare(`
-      SELECT COUNT(*) c FROM production_orders
-      WHERE bom_id=? AND status IN ('draft','released','in_progress')
-    `).get(bomId).c;
+    if (b.status === 'archived') return { ok: true, already: true };
+    if (b.status === 'obsolete') throw err('E_NOT_FOUND', 404);
+    if (b.status !== 'active' && b.status !== 'draft') {
+      throw err('E_BOM_NOT_DRAFT', 409);
+    }
+    const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET status='archived' WHERE id=?").run(bomId);
-    logBomChange(db, bomId, 'archive', { reason }, userId);
+    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
+      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
+    }
+    logBomChange(db, bomId, 'archive', { reason: reason || '' }, userId);
     audit(userId, 'edit', 'bom', bomId, `بایگانی ${b.code}`);
     return { ok: true };
   })();
@@ -936,7 +1024,7 @@ module.exports = {
   validateBom, detectCircular, assertBomComponentType,
   activateBom, deactivateBom, archiveBom, versionUpBom, cloneBom, createAlternative,
   createBom, updateBomHeader, softDeleteBom, addLine, updateLine, deleteLine, replaceLines,
-  getBom, listBoms, whereUsed, stdCost, compareBoms, bomTree, logBomChange,
+  getBom, getBomDependencies, listBoms, whereUsed, stdCost, compareBoms, bomTree, logBomChange,
   assertProductNotInBom, round6,
   allowedSizeNamesForProduct, validateSizeMatrixKeys,
   buildComponentVariantHint, normalizeColorMode, resolveFgColorName,

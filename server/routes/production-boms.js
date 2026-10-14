@@ -36,6 +36,11 @@ function bomFaError(e) {
     E_CC_NOT_STAGE: 'مرکز هزینه باید از نوع مرحله تولید باشد.',
     E_STAGE_NOT_IN_ROUTING: 'مرکز مرحلهٔ قلم در مسیر عملیات نیست.',
     E_NOT_FOUND: 'عملیات یا فرمول یافت نشد.',
+    E_BOM_NOT_DRAFT: 'فقط پیش‌نویس قابل ویرایش مستقیم است — برای فرمول فعال از «نسخه جدید» استفاده کنید.',
+    E_BOM_NOT_ACTIVE: 'فرمول انتخاب‌شده فعال نیست.',
+    E_BOM_IN_USE: (e && e.extra && e.extra.n)
+      ? (`این فرمول در ${e.extra.n} سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.`)
+      : 'فرمول در سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.',
   };
   if (map[code]) return map[code];
   if (/updateOperation is not a function/i.test(code)) {
@@ -139,6 +144,10 @@ router.post('/validate', auth, requirePermission('production_bom', 'view'), (req
       // leave as draft for inspection or soft-delete
     }
   });
+});
+
+router.get('/:id/dependencies', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  handle(res, () => bom.getBomDependencies(getDB(), Number(req.params.id)));
 });
 
 router.get('/:id', auth, requirePermission('production_bom', 'view'), (req, res) => {

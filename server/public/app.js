@@ -13883,6 +13883,8 @@ async function renderProductionBomsTab(body){
   const st={draft:'پیش‌نویس',active:'فعال',archived:'بایگانی',obsolete:'حذف‌شده'};
   const canBomEdit=typeof canPerm==='function'&&canPerm('production_bom','edit');
   const canBomCreate=typeof canPerm==='function'&&(canPerm('production_bom','create')||canBomEdit);
+  const canBomDelete=typeof canPerm==='function'&&(canPerm('production_bom','delete')||canBomEdit);
+  const canBomApprove=typeof canPerm==='function'&&(canPerm('production_bom','approve')||canBomEdit);
   body.innerHTML=`
     <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
@@ -13890,7 +13892,7 @@ async function renderProductionBomsTab(body){
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-boms')})}">🔄 تازه‌سازی</button>
       <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: ماژول حسابداری → سایدبار «تولید» → اطلاعات پایه → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">ویرایشگر چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با <code>production_cost/view</code>). پیش‌نویس بسازید، اقلام/مسیر/خروجی را تکمیل کنید، سپس فعال کنید.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">ویرایشگر چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با <code>production_cost/view</code>). پیش‌نویس را مستقیم ویرایش/حذف کنید؛ فرمول <b>فعال</b> قفل است — ویرایش از «نسخه جدید»، حذف منطقی از «بایگانی» با چک وابستگی.</p>
     ${missing.length?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--well)`)}">
       ⚠️ ${toFa(missing.length)} کالای تولیدی بدون فرمول فعال:
       ${missing.slice(0,8).map(p=>`<button class="btn sm ghost" data-csp-style="${CSP.style(`margin:2px`)}" data-csp-click="${CSP.bind('click',function(event){prodBomCreateModal((p.id))})}">${esc(p.name)}</button>`).join('')}
@@ -13899,7 +13901,16 @@ async function renderProductionBomsTab(body){
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>کد</th><th>نام</th><th>محصول</th><th>نسخه</th><th>مسیر</th><th>بازده٪</th><th>وضعیت</th><th>اعتبار</th><th>عملیات</th>
     </tr></thead><tbody>
-      ${(rows||[]).map(b=>`<tr>
+      ${(rows||[]).map(b=>{
+        const editLabel=b.status==='draft'&&canBomEdit?'ویرایش':(b.status==='active'&&(canBomCreate||canBomEdit)?'ویرایش…':'مشاهده');
+        const editBtn=b.status==='active'&&(canBomCreate||canBomEdit)
+          ? `<button type="button" class="btn sm" title="فرمول فعال قفل است — مسیر ویرایش امن با نسخه جدید" data-csp-click="${CSP.bind('click',function(event){prodBomEditGate((b.id))})}">${editLabel}</button>`
+          : `<button type="button" class="btn sm ${b.status==='draft'&&canBomEdit?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((b.id))})}">${editLabel}</button>`;
+        const removeLabel=b.status==='draft'?'حذف':(b.status==='active'?'بایگانی':'');
+        const removeBtn=(removeLabel&&(b.status==='draft'?canBomDelete:canBomEdit))
+          ? `<button type="button" class="btn sm red" title="${b.status==='active'?'بایگانی نرم — بدون حذف فیزیکی':'حذف نرم پیش‌نویس'}" data-csp-click="${CSP.bind('click',function(event){prodBomRemoveGate((b.id))})}">${removeLabel}</button>`
+          : '';
+        return `<tr>
         <td data-label="کد" class="mono">${esc(b.code||'—')}</td>
         <td data-label="نام">${esc(b.name||'—')}</td>
         <td data-label="محصول">${esc(b.product_name||('#'+b.product_id))}</td>
@@ -13908,14 +13919,17 @@ async function renderProductionBomsTab(body){
         <td data-label="بازده٪" class="num">${b.has_routing?100:(b.yield_percent??100)}</td>
         <td data-label="وضعیت">${st[b.status]||b.status}</td>
         <td data-label="اعتبار" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(b.valid_from||'—')} → ${esc(b.valid_to||'…')}</td>
-        <td data-label="عملیات" data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((b.id))})}">${b.status==='draft'&&canBomEdit?'ویرایش':'مشاهده'}</button>
-          ${b.status==='draft'&&canBomEdit?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodBomActivate((b.id))})}">فعال‌سازی</button>`:''}
-          ${b.status==='draft'&&canBomEdit&&!b.has_routing?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRouting((b.id))})}">مسیر پیش‌فرض</button>`:''}
-          ${b.status==='draft'&&canBomEdit?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodBomDelete((b.id))})}">حذف</button>`:''}
-          ${b.status==='active'&&canBomEdit?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodBomVersionUp((b.id))})}">نسخه جدید</button>`:''}
-        </td>
-      </tr>`).join('')||`<tr><td colspan="9" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">فرمولی ثبت نشده — «فرمول جدید» را بزنید</td></tr>`}
+        <td data-label="عملیات"><div class="prod-bom-ops">
+          ${editBtn}
+          ${b.status==='draft'&&(canBomApprove||canBomEdit)?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodBomActivate((b.id))})}">فعال‌سازی</button>`:''}
+          ${b.status==='draft'&&canBomEdit&&!b.has_routing?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRouting((b.id))})}">مسیر پیش‌فرض</button>`:''}
+          ${b.status==='active'&&canBomCreate?`<button type="button" class="btn sm ghost" title="کپی پیش‌نویس برای تغییر ساختاری" data-csp-click="${CSP.bind('click',function(event){prodBomVersionUp((b.id))})}">نسخه جدید</button>`:''}
+          ${b.status==='active'&&canBomApprove?`<button type="button" class="btn sm ghost" title="برگشت به پیش‌نویس در صورت نبود سفارش باز" data-csp-click="${CSP.bind('click',function(event){prodBomDeactivateGate((b.id))})}">غیرفعال</button>`:''}
+          ${removeBtn}
+          ${b.status==='archived'?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}" title="بایگانی‌شده — حذف فیزیکی ندارد">آرشیو</span>`:''}
+        </div></td>
+      </tr>`;
+      }).join('')||`<tr><td colspan="9" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">فرمولی ثبت نشده — «فرمول جدید» را بزنید</td></tr>`}
     </tbody></table></div>
     </div>`;
 }
@@ -14677,9 +14691,105 @@ async function prodBomApplyRouting(id){
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodBomDelete(id){
-  if(!confirm('حذف پیش‌نویس فرمول؟')) return;
-  try{ await api('DELETE','/production/boms/'+id); showToast('حذف شد'); loadAccTab('production-boms'); }
-  catch(e){ showToast(e.message||'خطا','error'); }
+  return prodBomRemoveGate(id);
+}
+function prodBomDepStatusLabel(s){
+  return ({draft:'پیش‌نویس',released:'آزادشده',in_progress:'در جریان',completed:'تکمیل',closed:'بسته',cancelled:'لغو'})[s]||s||'—';
+}
+async function prodBomFetchDeps(id){
+  return await api('GET','/production/boms/'+id+'/dependencies');
+}
+async function prodBomEditGate(id){
+  let dep;
+  try{ dep=await prodBomFetchDeps(id); }
+  catch(e){ showToast(e.message||e.error||'خطا در خواندن وابستگی','error'); return; }
+  if(dep.actions?.edit==='inplace'){
+    await prodBomEditModal(id);
+    return;
+  }
+  if(dep.actions?.edit!=='version_up'){
+    await prodBomEditModal(id);
+    return;
+  }
+  const openN=Number(dep.open_count)||0;
+  showModal('ویرایش فرمول فعال — '+esc(dep.code||''),`
+    <p data-csp-style="${CSP.style(`line-height:1.8;margin:0 0 8px`)}">فرمول <b>${esc(dep.code||'')}</b> (v${dep.version||1}-${esc(dep.revision||'A')}) در وضعیت <b>فعال</b> است و برای حفظ تاریخچه <b>قفل</b> شده.</p>
+    <div class="prod-bom-dep-box ${openN?'is-blocked':'is-ok'}">
+      <div><b>وابستگی‌ها:</b> سفارش باز ${toFa(openN)} · سفارش بسته‌شده/سایر ${toFa(dep.closed_order_count||0)}${dep.is_default?' · فرمول پیش‌فرض کالا':''}</div>
+      ${openN?`<ul class="prod-bom-dep-list">${(dep.open_orders||[]).map(o=>`<li><span class="mono">${esc(o.order_no||('#'+o.id))}</span> — ${esc(prodBomDepStatusLabel(o.status))} · ${toFa(o.qty_planned||0)} عدد · ${esc(o.date||'')}</li>`).join('')}</ul>`:''}
+    </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">تغییر ساختاری امن: «نسخه جدید» یک پیش‌نویس کپی می‌سازد؛ پس از تکمیل و فعال‌سازی، نسخه قبلی خودکار بایگانی می‌شود. مشاهده فقط‌خواندنی هم ممکن است.</p>
+    <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
+      <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal();prodBomEditModal((id))})}">فقط مشاهده</button>
+      <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();prodBomVersionUp((id))})}">نسخه جدید برای ویرایش</button>
+    </div>`);
+}
+async function prodBomRemoveGate(id){
+  let dep;
+  try{ dep=await prodBomFetchDeps(id); }
+  catch(e){ showToast(e.message||e.error||'خطا در خواندن وابستگی','error'); return; }
+  const mode=dep.actions?.remove||'none';
+  const openN=Number(dep.open_count)||0;
+  const blocked=mode==='blocked'||openN>0;
+  if(mode==='already_archived'||mode==='none'){
+    showToast(mode==='already_archived'?'این فرمول از قبل بایگانی است':'حذف برای این وضعیت مجاز نیست','error');
+    return;
+  }
+  const title=mode==='soft_delete'?'حذف پیش‌نویس فرمول':'بایگانی فرمول فعال';
+  const actionLabel=mode==='soft_delete'?'حذف نرم':'بایگانی';
+  const explain=mode==='soft_delete'
+    ? 'پیش‌نویس به‌صورت نرم حذف می‌شود (وضعیت obsolete + deleted_at) و از فهرست خارج می‌گردد — حذف فیزیکی نیست.'
+    : 'فرمول فعال بایگانی می‌شود و دیگر برای سفارش جدید پیشنهاد نمی‌شود. تاریخچه و سفارش‌های بسته‌شده حفظ می‌مانند.';
+  showModal(title+' — '+esc(dep.code||''),`
+    <p data-csp-style="${CSP.style(`line-height:1.8;margin:0 0 8px`)}">${esc(explain)}</p>
+    <div class="prod-bom-dep-box ${blocked?'is-blocked':'is-ok'}">
+      <div><b>وابستگی‌ها:</b> سفارش باز ${toFa(openN)} · سایر سفارش‌ها ${toFa(dep.closed_order_count||0)}${dep.is_default?' · فرمول پیش‌فرض کالا (پس از بایگانی/حذف پاک می‌شود)':''}</div>
+      ${openN?`<ul class="prod-bom-dep-list">${(dep.open_orders||[]).map(o=>`<li><span class="mono">${esc(o.order_no||('#'+o.id))}</span> — ${esc(prodBomDepStatusLabel(o.status))} · برنامه ${toFa(o.qty_planned||0)} · ${esc(o.date||'')}</li>`).join('')}</ul>
+      <p data-csp-style="${CSP.style(`margin:8px 0 0;color:#b33`)}">تا وقتی سفارش باز به این فرمول وصل است، ${actionLabel} ممکن نیست. ابتدا سفارش را ببندید/لغو کنید یا BOM سفارش را عوض کنید.</p>`
+        :`<p class="muted" data-csp-style="${CSP.style(`margin:6px 0 0`)}">مانعی از سفارش باز نیست.</p>`}
+    </div>
+    ${!blocked&&mode==='archive'?`<div class="fg" data-csp-style="${CSP.style(`margin-top:8px`)}"><label>دلیل بایگانی (اختیاری)</label><input id="pb-arch-reason" placeholder="مثلاً جایگزین با نسخه جدید"></div>`:''}
+    <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
+      <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal();prodBomEditModal((id))})}">مشاهده فرمول</button>
+      ${blocked?'':`<button type="button" class="btn red" data-csp-click="${CSP.bind('click',function(event){prodBomRemoveConfirm((id),(mode))})}">${actionLabel}</button>`}
+    </div>`);
+}
+async function prodBomRemoveConfirm(id, mode){
+  try{
+    if(mode==='soft_delete'){
+      await api('DELETE','/production/boms/'+id);
+      showToast('پیش‌نویس حذف شد');
+    }else{
+      const reason=el('pb-arch-reason')?.value||'بایگانی از فهرست BOM';
+      await api('POST','/production/boms/'+id+'/archive',{reason});
+      showToast('فرمول بایگانی شد');
+    }
+    closeModal();
+    loadAccTab('production-boms');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+async function prodBomDeactivateGate(id){
+  let dep;
+  try{ dep=await prodBomFetchDeps(id); }
+  catch(e){ showToast(e.message||e.error||'خطا','error'); return; }
+  const openN=Number(dep.open_count)||0;
+  if(openN>0){
+    showModal('غیرفعال‌سازی ممکن نیست — '+esc(dep.code||''),`
+      <div class="prod-bom-dep-box is-blocked">
+        <div>این فرمول در ${toFa(openN)} سفارش باز استفاده شده.</div>
+        <ul class="prod-bom-dep-list">${(dep.open_orders||[]).map(o=>`<li><span class="mono">${esc(o.order_no||('#'+o.id))}</span> — ${esc(prodBomDepStatusLabel(o.status))}</li>`).join('')}</ul>
+      </div>
+      <div data-csp-style="${CSP.style(`margin-top:14px;text-align:left`)}"><button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+    return;
+  }
+  if(!confirm('فرمول فعال به پیش‌نویس برگردد؟ (فقط وقتی سفارش باز ندارد)')) return;
+  try{
+    await api('POST','/production/boms/'+id+'/deactivate',{});
+    showToast('فرمول غیرفعال شد (پیش‌نویس)');
+    loadAccTab('production-boms');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomVersionUp(id){
   if(!confirm('نسخه جدید پیش‌نویس از این فرمول ساخته شود؟')) return;
@@ -28320,6 +28430,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪. دکمه‌های «تسهیم خودکار (ارزش فروش)» و «تسهیم خودکار (فیزیکی)» سهم‌ها را از <code>POST .../outputs/auto-share</code> پر می‌کنند؛ ویرایش و حذف خروجی هم پشتیبانی می‌شود.</li>
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
+        <li><b>ویرایش و حذف حرفه‌ای فهرست BOM (v385):</b> در ستون عملیات برای هر فرمول دکمهٔ <b>ویرایش</b> / <b>ویرایش…</b> و <b>حذف</b> (پیش‌نویس) یا <b>بایگانی</b> (فعال) هست. قبل از حذف/بایگانی، سرور وابستگی‌ها را از <code>GET /api/production/boms/:id/dependencies</code> می‌خواند و سفارش‌های باز را نشان می‌دهد؛ اگر سفارش <code>draft/released/in_progress</code> به فرمول وصل باشد عملیات مسدود است (<code>E_BOM_IN_USE</code>). حذف فیزیکی نیست: پیش‌نویس → soft-delete (<code>obsolete</code>)، فعال → بایگانی. ویرایش فرمول فعال فقط از مسیر «نسخه جدید برای ویرایش» (با پیش‌نمایش وابستگی). «غیرفعال» فعال را به پیش‌نویس برمی‌گرداند اگر سفارش باز نباشد. بایگانی/حذف، اشاره‌گر <code>default_bom_id</code> کالا را هم پاک می‌کند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد. دکمهٔ <b>بستن</b> فقط وقتی مانده WIP تقریباً صفر است کار می‌کند؛ در سفارش متغیر پیشرفته، بهای مواد فقط هنگام <b>حوالهٔ مرحله</b> روی سفارش می‌نشیند (نه دوباره هنگام تکمیل خروجی). <b>دستمزد تولید ≠ فیش حقوق:</b> جذب دستمزد مرحله (قطعه‌ای/ساعتی/ماهانه از نرخ مرکز) فقط بهای WIP و کنترل دستمزد را می‌سازد و در ماژول «حقوق و دستمزد» ظاهر نمی‌شود. حقوق ماهانهٔ برشکار از مسیر حقوق (حکم + محاسبهٔ دوره) ثبت می‌شود؛ برای جذب ماهانه در تولید باید در «نرخ مرکز هزینه» فیلد <code>monthly_labor_rate_rial</code> = بودجه حقوق مرکز ÷ برنامه تولید ماه پر شود (مثلاً ریال به ازای هر عدد برش‌خورده). اگر روش عملیات برش «ماهانه» باشد ولی نرخ مرکز صفر باشد، برای آن مرحله دستمزدی جذب نمی‌شود.</li>
         <li><b>لایه‌چینی + رسید انبار محصول (دو رویداد جدا):</b> تولید → عملیات → لایه‌چینی / رسید محصول. تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP (مارکر × لایه، ماتریس سایز، ضایعات). تب «رسید انبار محصول» = ورود FG و صفر کردن WIP همان لایه — <b>برش دوباره نیست</b>. مبلغ رسید = مانده WIP لایه. بارکد بسته هویت عملیاتی است نه سریال. حواله همان متر با E_FABRIC_ALREADY_CUT قفل است.
