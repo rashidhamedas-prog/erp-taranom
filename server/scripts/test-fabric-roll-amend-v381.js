@@ -186,8 +186,9 @@ function expectHttp(fn, status, code) {
   ok(purchMeta.color === 'بژ' && Number(purchMeta.width_cm) === 145, 'purchase metadata ok');
 
   const listed = listFabricRolls(db, {});
-  const rowA = (listed.rows || []).find((x) => x.id === roll.id);
-  ok(!!rowA && rowA.color === 'مشکی', 'list shows edited color');
+  const listedRows = Array.isArray(listed) ? listed : (listed && listed.rows) || [];
+  const rowA = listedRows.find((x) => x.id === roll.id);
+  ok(!!rowA && rowA.color === 'مشکی', 'list shows edited color', rowA && rowA.color);
 
   // UI / Help static markers
   const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
