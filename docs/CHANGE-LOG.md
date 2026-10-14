@@ -2,8 +2,9 @@
 
 - **دنبالهٔ v373:** `voidOnePayrollPayment` بعد از soft-delete هنوز `payroll_payment_reversal` در دفتر شخص می‌ساخت؛ در گردش شخص دیده می‌شد.
 - **رفع:** فقط retire/`deleted_at` روی ردیف‌های پرداخت؛ heal `purge_hollow_party_ledger_v374` ردیف‌های `*_reversal` شخص را هم پاک می‌کند؛ SW `v374`.
-- **فایل‌ها:** `lib/payroll/payments.js`, `lib/party-ledger-retire.js`, `db.js`, `public/{sw.js,index.html}`, `scripts/test-hollow-void-books-v373.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **فایل‌ها:** `lib/payroll/payments.js`, `lib/party-ledger-retire.js`, `db.js`, `public/{sw.js,index.html,app.js}`, `scripts/test-hollow-void-books-v373.js`, CHANGE-LOG.
+- **تست:** ایران hollow-void ۱۲/۰ + sms ۲۲/۰ + sync ۴۴/۰؛ heal `personDeleted=2`.
+- **Deploy:** ✅ `84e3c8b` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v374`؛ `app.js?v=374`.
 
 ### ۱۴۰۵/۰۷/۲۲ — حذف سندهای پوچ ابطال/اصلاح از گزارش‌های حسابداری (SW v373)
 
