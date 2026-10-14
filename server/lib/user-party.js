@@ -1,6 +1,6 @@
 const { allocTafsili } = require('./coa-map');
 
-const SALES_ROLES = new Set(['salesperson', 'field_sales', 'inside_sales', 'distribution_office', 'sales_manager']);
+const SALES_ROLES = new Set(['salesperson', 'field_sales', 'inside_sales', 'distribution_office', 'sales_manager', 'store_retail']);
 
 function parseRoles(raw) {
   try {

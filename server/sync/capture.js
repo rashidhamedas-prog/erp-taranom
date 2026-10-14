@@ -73,6 +73,7 @@ const PATH_TABLE_MAP = [
   ['/api/persons', 'persons'],
   ['/api/customers', 'customers'],
   ['/api/parties', 'parties'],
+  ['/api/store/quick-sale', 'invoices'],
   ['/api/invoices', 'invoices'],
   ['/api/followups', 'followups'],
   ['/api/crm/opportunities', 'crm_opportunities'],

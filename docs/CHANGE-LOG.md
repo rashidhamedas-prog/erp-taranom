@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۲ — فروش سریع فروشگاهی / Quick Store Sale (SW v383)
+
+- **هدف:** صندوق تک‌فروشی برای نقش **فروشگاهی** (`store_retail`) + میانبر همان مدل برای مدیر / حسابدار / دفتر پخش؛ بدون دفتر فروش موازی.
+- **معماری:** `POST /api/store/quick-sale` و آماده‌سازی روی `POST /api/invoices` — فاکتور قطعی (`normal`) + `pay_splits` + موجودی + JE؛ کانال `sales_channel=store_quick`.
+- **مشتری:** seed سیستمی «مشتری نقدی فروشگاه»؛ walk-in فقط با تسویهٔ کامل نقد/کارت؛ نسیه/چک → مشتری واقعی.
+- **RBAC:** نقش `store_retail` (create فاکتور، خارج از proforma-only)؛ `distribution_office` حداقل view+create فاکتور؛ قفل انبار از `sales_warehouse_id` برای فروشگاهی.
+- **UI:** صفحهٔ `store-quick-sale` (اسکن/جستجو، سبد، tender)؛ منوی باریک برای فروشگاهی؛ Help + SW v383.
+- **فایل‌ها:** `lib/{store-quick-sale,rbac,sales-experts,user-party}.js`, `routes/{store,invoices}.js`, `sync/capture.js`, `db.js`, `server.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-store-quick-sale-v383.js`, CHANGE-LOG.
+- **تست:** `test-store-quick-sale-v383` ۳۴/۰ + `test-sms` ۲۲/۰ محلی؛ `test-sync` روی ایران (better-sqlite3 ویندوز Node ۲۴ ندارد).
+- **Deploy:** ⏳ — SW `erp-taranom-v383`؛ `app.js?v=383`.
+
 ### ۱۴۰۵/۰۷/۲۲ — دروازهٔ ترتیبی مسیر ۶مرحله‌ای داشبورد تولید (SW v382)
 
 - **هدف:** تا هر مرحله کامل نشده، ورود به مرحلهٔ بعد (کارت / میانبر / منوی سایدبار) مسدود شود؛ مسیر پیوسته ۱→۶؛ پیام خطا علت دقیق و همهٔ پیش‌نیازهای ناقص را بگوید.

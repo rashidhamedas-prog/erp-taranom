@@ -624,6 +624,7 @@ app.use('/api/person-positions', require('./routes/person-positions'));
 app.use('/api/pricing-rules', require('./routes/pricing-rules'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/pos', require('./routes/pos'));
+app.use('/api/store', require('./routes/store'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/portal', require('./routes/portal'));
 app.use('/api/bank-reconciliation', require('./routes/bank-reconciliation'));

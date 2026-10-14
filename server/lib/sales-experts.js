@@ -11,6 +11,7 @@ const SALES_EXPERT_ROLES = Object.freeze([
   'salesperson',
   'sales_manager',
   'distribution_office',
+  'store_retail',
 ]);
 
 function isSalesExpertRole(role) {

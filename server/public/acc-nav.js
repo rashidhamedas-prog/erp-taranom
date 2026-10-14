@@ -206,6 +206,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-expense-categories', icon: '🗂️', label: 'دسته‌بندی هزینه‌ها' },
     ]},
     { title: 'عملیات', items: [
+      { id: 'store-quick-sale', icon: '🏪', label: 'فروش سریع فروشگاهی' },
       { id: 'acc-sales-invoices', icon: '🧾', label: 'فاکتورهای فروش' },
       { id: 'acc-purchases', icon: '📦', label: 'فاکتورهای خرید' },
       { id: 'acc-sales-returns', icon: '↪️', label: 'برگشت از فروش' },

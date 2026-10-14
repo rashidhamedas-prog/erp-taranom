@@ -3227,6 +3227,13 @@ function initSyncSchema(db, opts) {
   if (!curBase) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_base','rial')").run();
   const curDisp = db.prepare("SELECT value FROM settings WHERE key='currency_display'").get();
   if (!curDisp) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_display','rial')").run();
+
+  // فروش سریع فروشگاهی — مشتری نقدی سیستمی (idempotent)
+  try {
+    require('./lib/store-quick-sale').ensureWalkinCustomer(db);
+  } catch (e) {
+    console.warn('store_walkin_customer seed:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding

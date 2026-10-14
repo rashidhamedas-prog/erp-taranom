@@ -123,13 +123,20 @@ function faNum(n) {
 
 // Sales channel is derived from WHO issues the invoice — never from the
 // request body for sales roles (spec 1.0.9 §1).
-const ROLE_CHANNEL = { field_sales: 'field', inside_sales: 'phone', salesperson: 'field' };
+const ROLE_CHANNEL = {
+  field_sales: 'field',
+  inside_sales: 'phone',
+  salesperson: 'field',
+  store_retail: 'store_quick',
+};
 function resolveSalesChannel(req) {
   const forced = ROLE_CHANNEL[req.user.role];
   if (forced) return forced;
-  // Admin/accounting may set explicitly when creating on behalf of the company
-  if (['admin', 'accounting', 'sales_manager'].includes(req.user.role)) {
-    return req.body.sales_channel || '';
+  const body = req.body || {};
+  // Admin/accounting/دفتر پخش/مدیر فروش may set explicitly (incl. فروش سریع فروشگاهی)
+  if (['admin', 'accounting', 'sales_manager', 'distribution_office'].includes(req.user.role)) {
+    if (body.store_quick || body.sales_channel === 'store_quick') return 'store_quick';
+    return body.sales_channel || '';
   }
   return '';
 }
@@ -476,11 +483,21 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
+  const db = getDB();
+  const {
+    isStoreQuickRequest, prepareStoreQuickSaleBody, assertStoreQuickSaleRules, locksStoreWarehouse,
+  } = require('../lib/store-quick-sale');
+  try {
+    if (isStoreQuickRequest(req.body, req.user.role)) {
+      req.body = prepareStoreQuickSaleBody(db, req.user, req.body || {});
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
-  const db = getDB();
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   try { built = buildRows(db, rows, canDiscount); }
@@ -539,9 +556,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
 
   const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(ownerUserId);
   const isSalesRep = isSalesProformaOnlyRole(req.user.role);
+  const lockWh = isSalesRep || locksStoreWarehouse(req.user.role);
   let whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
-  // فروشنده: فقط انبار تعریف‌شده در کاربر — انتخاب انبار در اقلام مجاز نیست
-  if (isSalesRep) {
+  // فروشنده / فروشگاهی: فقط انبار تعریف‌شده در کاربر — انتخاب انبار در اقلام مجاز نیست
+  if (lockWh) {
     const selfSeller = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
     if (!selfSeller?.sales_warehouse_id) {
       return res.status(400).json({ error: 'انبار فروش برای این کاربر تعریف نشده — از مدیر بخواهید در تعریف کاربر انبار فروش را تنظیم کند' });
@@ -574,10 +592,18 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
   }
 
+  if (isStoreQuickRequest(req.body, req.user.role)) {
+    try {
+      assertStoreQuickSaleRules(db, req.user, req.body, { final, payPlan, invType });
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    }
+  }
+
   if (isFirmSale(invType)) {
     try {
       whId = requireFirmHeaderWarehouse(whId);
-      applyHeaderWarehouseToLines(built.rows, whId, { force: isSalesRep });
+      applyHeaderWarehouseToLines(built.rows, whId, { force: lockWh });
       assertWarehouseLines(db, built.rows, whId, { requirePositive: true, allowNegativeProduct: true });
     } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
     try {
