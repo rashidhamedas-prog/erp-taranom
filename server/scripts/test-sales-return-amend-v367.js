@@ -85,8 +85,8 @@ catch (e) { ok(false, 'app.js parses', e && e.message); }
   }).token;
 
   const custId = db.prepare(
-    "INSERT INTO customers (biz,owner,phone,status) VALUES ('مشتری amend SR','مالک','09120000067','active')"
-  ).run().lastInsertRowid;
+    "INSERT INTO customers (user_id,biz,owner,phone,status) VALUES (?,'مشتری amend SR','مالک','09120000067','active')"
+  ).run(admin.id).lastInsertRowid;
   const prodId = db.prepare(`
     INSERT INTO products (user_id, name, code, price, stock, average_cost_rial, unit)
     VALUES (?, 'کالای amend SR', 'SR-AMD-1', 100000, 50, 40000, 'عدد')
