@@ -13,6 +13,10 @@ const {
 } = require('./sales-document');
 const { recomputeInvoiceSettledBalances } = require('./invoice-payments');
 const { parseQty } = require('./round3');
+const {
+  prorateLineDiscount, priorHeaderDiscConsumed, priorVatConsumed,
+  computeReturnTotals, returnMoneyParts, rial,
+} = require('./returns-discount');
 
 function httpErr(status, message, code) {
   const e = new Error(message);
@@ -29,22 +33,27 @@ function lineKey(r) {
  * Build validated line rows + amounts (shared by create/amend).
  * @param {object} opts
  * @param {number|null} [opts.excludeReturnId] — when amending, exclude self from returned qty caps
+ * @param {number} [opts.extraDiscAmt]
+ * @param {number} [opts.extraDiscPct]
  */
 function buildSalesReturnLines(db, {
   custId, invoiceId, rows, warehouseId, excludeReturnId = null,
+  extraDiscAmt = 0, extraDiscPct = 0,
 }) {
   if (!custId) throw httpErr(400, 'مشتری الزامی است', 'E_SR_CUST');
 
   let invoiceLineMap = null;
   const alreadyReturnedMap = {};
   let parentWhId = warehouseId ? parseInt(warehouseId, 10) : null;
+  let invRow = null;
+  let remainingGoodsOnInvoice = null;
 
   if (invoiceId) {
-    const inv = db.prepare('SELECT * FROM invoices WHERE id=? AND cust_id=?').get(invoiceId, custId);
-    if (!inv) throw httpErr(400, 'فاکتور یافت نشد یا متعلق به این مشتری نیست', 'E_SR_INV');
-    if (!parentWhId && inv.warehouse_id) parentWhId = parseInt(inv.warehouse_id, 10);
+    invRow = db.prepare('SELECT * FROM invoices WHERE id=? AND cust_id=?').get(invoiceId, custId);
+    if (!invRow) throw httpErr(400, 'فاکتور یافت نشد یا متعلق به این مشتری نیست', 'E_SR_INV');
+    if (!parentWhId && invRow.warehouse_id) parentWhId = parseInt(invRow.warehouse_id, 10);
     invoiceLineMap = {};
-    JSON.parse(inv.rows || '[]').forEach((r) => {
+    JSON.parse(invRow.rows || '[]').forEach((r) => {
       invoiceLineMap[lineKey(r)] = r;
     });
     const prior = db.prepare(
@@ -57,10 +66,19 @@ function buildSalesReturnLines(db, {
         alreadyReturnedMap[k] = (alreadyReturnedMap[k] || 0) + r.qty;
       });
     }
+    remainingGoodsOnInvoice = 0;
+    Object.values(invoiceLineMap).forEach((ol) => {
+      const key = lineKey(ol);
+      const already = alreadyReturnedMap[key] || alreadyReturnedMap[`p:${ol.product_id}`] || 0;
+      const remQty = Math.max(0, (Number(ol.qty) || 0) - already);
+      if (remQty <= 0) return;
+      const { discAmt } = prorateLineDiscount(ol, remQty, already);
+      remainingGoodsOnInvoice += rial(remQty * (Number(ol.price) || 0) - discAmt);
+    });
   }
 
   const built = [];
-  let amount = 0;
+  let goodsAmountA = 0;
   let costAmount = 0;
   const { productUnitCostRial } = require('./inventory/product-unit-cost');
 
@@ -86,14 +104,18 @@ function buildSalesReturnLines(db, {
         throw httpErr(400, `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}`, 'E_SR_QTY');
       }
       price = origLine.price;
-      disc = origLine.disc || 0;
-      discAmt = Math.round(qty * price * disc / 100);
+      const pr = prorateLineDiscount(origLine, qty, already);
+      disc = pr.discPct;
+      discAmt = pr.discAmt;
       if (!lineWh && origLine.warehouse_id) lineWh = parseInt(origLine.warehouse_id, 10);
     } else {
       price = parseFloat(r.price) || prod.price;
+      disc = Number(r.disc) || 0;
+      discAmt = r.disc_amt != null ? rial(r.disc_amt)
+        : (r.disc_amount != null ? rial(r.disc_amount) : rial(qty * price * disc / 100));
     }
-    const sum = qty * price - discAmt;
-    amount += sum;
+    const sum = rial(qty * price - discAmt);
+    goodsAmountA += sum;
     const avgRial = productUnitCostRial(prod);
     costAmount += Math.round(qty * avgRial);
     built.push({
@@ -114,19 +136,60 @@ function buildSalesReturnLines(db, {
   }
   if (!built.length) throw httpErr(400, 'حداقل یک ردیف لازم است', 'E_SR_ROWS');
 
-  return { built, amount, costAmount, parentWhId };
-}
+  const { settingFlag, invoiceNetBase, invoiceSourceVat } = require('./returns-posting');
+  let totals;
+  if (invoiceId && invRow) {
+    const priorHdr = priorHeaderDiscConsumed(db, {
+      table: 'sales_returns',
+      invoiceCol: 'invoice_id',
+      invoiceId,
+      invoiceDiscAmt: invRow.disc_amt,
+      invoiceSubtotal: invRow.subtotal,
+      excludeReturnId,
+    });
+    const priorVat = priorVatConsumed(db, {
+      table: 'sales_returns', invoiceCol: 'invoice_id', invoiceId, excludeReturnId,
+    });
+    totals = computeReturnTotals({
+      goodsAmountA,
+      invoiceDiscAmt: invRow.disc_amt,
+      invoiceSubtotal: invRow.subtotal,
+      priorHdrUsed: priorHdr,
+      remainingGoodsOnInvoice,
+      extraDiscAmt,
+      extraDiscPct,
+      sourceVat: invoiceSourceVat(invRow),
+      sourceNetBase: invoiceNetBase(invRow),
+      vatSettingOn: settingFlag(db, 'returns_reverse_vat', true),
+      priorVatUsed: priorVat,
+    });
+  } else {
+    totals = computeReturnTotals({
+      goodsAmountA,
+      invoiceDiscAmt: 0,
+      invoiceSubtotal: 0,
+      priorHdrUsed: 0,
+      remainingGoodsOnInvoice: null,
+      extraDiscAmt,
+      extraDiscPct,
+      sourceVat: 0,
+      sourceNetBase: 0,
+      vatSettingOn: false,
+      priorVatUsed: 0,
+    });
+  }
 
-function computeVatAmount(db, invoiceId, amountNet) {
-  if (!invoiceId) return 0;
-  const {
-    settingFlag, proportionalVat, invoiceNetBase, invoiceSourceVat,
-  } = require('./returns-posting');
-  if (!settingFlag(db, 'returns_reverse_vat', true)) return 0;
-  const inv = db.prepare(
-    'SELECT final,final_rial,vat_amount,vat_amount_rial,subtotal,disc_amt FROM invoices WHERE id=?'
-  ).get(invoiceId);
-  return proportionalVat(invoiceSourceVat(inv), amountNet, invoiceNetBase(inv));
+  return {
+    built,
+    amount: totals.amount,
+    goodsAmount: totals.goodsAmount,
+    hdrDiscAmt: totals.hdrDiscAmt,
+    extraDiscAmt: totals.extraDiscAmt,
+    extraDiscPct: totals.extraDiscPct,
+    vatAmount: totals.vatAmount,
+    costAmount,
+    parentWhId,
+  };
 }
 
 /**
@@ -135,6 +198,7 @@ function computeVatAmount(db, invoiceId, amountNet) {
  */
 function postSalesReturnEffects(db, {
   retId, custId, invoiceId, date, note, built, amount, costAmount, parentWhId, userId,
+  goodsAmount, hdrDiscAmt, extraDiscAmt, vatAmount: vatPrefill,
 }) {
   let cost = costAmount;
   let stocked = null;
@@ -160,9 +224,14 @@ function postSalesReturnEffects(db, {
     }
   }
 
-  const vatAmount = computeVatAmount(db, invoiceId, amount);
-  db.prepare('UPDATE sales_returns SET vat_amount=? WHERE id=?').run(vatAmount, retId);
-  const gross = amount + vatAmount;
+  const vatAmount = vatPrefill != null ? rial(vatPrefill) : 0;
+  const goods = goodsAmount != null ? rial(goodsAmount) : rial(amount);
+  const hdr = rial(hdrDiscAmt);
+  const extra = rial(extraDiscAmt);
+  db.prepare(`
+    UPDATE sales_returns SET vat_amount=?, goods_amount=?, hdr_disc_amt=?, extra_disc_amt=? WHERE id=?
+  `).run(vatAmount, goods, hdr, extra, retId);
+  const gross = rial(amount) + vatAmount;
 
   createLedgerEntry(db, {
     customer_id: custId,
@@ -192,7 +261,13 @@ function postSalesReturnEffects(db, {
     costItems = [{ warehouseId: parentWhId, amountRial: cost }];
   }
   const journalLines = buildSalesReturnJournalLines(db, {
-    custId, amountNet: amount, vatAmount, costItems,
+    custId,
+    amountNet: amount,
+    goodsAmount: goods,
+    hdrDiscAmt: hdr,
+    extraDiscAmt: extra,
+    vatAmount,
+    costItems,
   });
   postToLedger(db, {
     sourceType: 'sales_return',
@@ -252,9 +327,8 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
     }
   }
 
-  const vatAmount = Math.round(Number(row.vat_amount) || 0);
-  const amountNet = Math.round(Number(row.amount) || 0);
-  const gross = amountNet + vatAmount;
+  const parts = returnMoneyParts(row);
+  const { amountNet, vatAmount, gross, goodsAmount, hdrDiscAmt, extraDiscAmt } = parts;
 
   createLedgerEntry(db, {
     customer_id: row.cust_id,
@@ -269,7 +343,14 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
   });
 
   const journalLines = buildSalesReturnJournalLines(db, {
-    custId: row.cust_id, amountNet, vatAmount, costItems, reverse: true,
+    custId: row.cust_id,
+    amountNet,
+    goodsAmount,
+    hdrDiscAmt,
+    extraDiscAmt,
+    vatAmount,
+    costItems,
+    reverse: true,
   });
   // v285+: *_reversal soft-voids original JE (no paired voucher).
   const reversalId = postToLedger(db, {
@@ -324,17 +405,29 @@ function createSalesReturn(db, body, user) {
   const date = body.date || todayJalali();
   const note = body.note || '';
   const reasonCode = String(body.reason_code || '').trim().slice(0, 40);
-  const { built, amount, costAmount, parentWhId } = buildSalesReturnLines(db, {
+  const builtPack = buildSalesReturnLines(db, {
     custId,
     invoiceId,
     rows: body.rows,
     warehouseId: body.warehouse_id,
+    extraDiscAmt: body.extra_disc_amt != null ? body.extra_disc_amt : body.disc_extra_amt,
+    extraDiscPct: body.extra_disc_pct != null ? body.extra_disc_pct : body.disc_extra_pct,
   });
+  const {
+    built, amount, costAmount, parentWhId,
+    goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct, vatAmount,
+  } = builtPack;
 
   const retId = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount,reason_code) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(user.id, custId, invoiceId || null, date, note, JSON.stringify(built), amount, costAmount, reasonCode);
+    const result = db.prepare(`
+      INSERT INTO sales_returns (
+        user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount,reason_code,
+        goods_amount,hdr_disc_amt,extra_disc_amt,extra_disc_pct,vat_amount
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      user.id, custId, invoiceId || null, date, note, JSON.stringify(built), amount, costAmount, reasonCode,
+      goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct || 0, vatAmount
+    );
     const id = result.lastInsertRowid;
     postSalesReturnEffects(db, {
       retId: id,
@@ -347,6 +440,10 @@ function createSalesReturn(db, body, user) {
       costAmount,
       parentWhId,
       userId: user.id,
+      goodsAmount,
+      hdrDiscAmt,
+      extraDiscAmt,
+      vatAmount,
     });
     return id;
   })();
@@ -354,7 +451,7 @@ function createSalesReturn(db, body, user) {
   if (invoiceId) recomputeInvoiceSettledBalances(db, invoiceId);
   else autoAllocateSalesReturn(db, retId, user.id);
 
-  return { id: retId, amount };
+  return { id: retId, amount, goods_amount: goodsAmount, hdr_disc_amt: hdrDiscAmt, extra_disc_amt: extraDiscAmt };
 }
 
 /**
@@ -403,13 +500,21 @@ function updateSalesReturn(db, id, body, user) {
     ? String(body.reason_code || '').trim().slice(0, 40)
     : String(row.reason_code || '').trim().slice(0, 40);
 
-  const { built, amount, costAmount, parentWhId } = buildSalesReturnLines(db, {
+  const builtPack = buildSalesReturnLines(db, {
     custId,
     invoiceId,
     rows: body.rows,
     warehouseId: body.warehouse_id !== undefined ? body.warehouse_id : null,
     excludeReturnId: row.id,
+    extraDiscAmt: body.extra_disc_amt != null ? body.extra_disc_amt
+      : (body.disc_extra_amt != null ? body.disc_extra_amt : row.extra_disc_amt),
+    extraDiscPct: body.extra_disc_pct != null ? body.extra_disc_pct
+      : (body.disc_extra_pct != null ? body.disc_extra_pct : row.extra_disc_pct),
   });
+  const {
+    built, amount, costAmount, parentWhId,
+    goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct, vatAmount,
+  } = builtPack;
 
   const oldInvoiceId = row.invoice_id || null;
 
@@ -420,10 +525,11 @@ function updateSalesReturn(db, id, body, user) {
       UPDATE sales_returns SET
         invoice_id=?, date=?, note=?, rows=?, amount=?, cost_amount=?, reason_code=?,
         status='posted', reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL,
-        vat_amount=0
+        vat_amount=?, goods_amount=?, hdr_disc_amt=?, extra_disc_amt=?, extra_disc_pct=?
       WHERE id=?
     `).run(
       invoiceId || null, date, note, JSON.stringify(built), amount, costAmount, reasonCode,
+      vatAmount, goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct || 0,
       row.id
     );
 
@@ -438,6 +544,10 @@ function updateSalesReturn(db, id, body, user) {
       costAmount,
       parentWhId,
       userId: user.id,
+      goodsAmount,
+      hdrDiscAmt,
+      extraDiscAmt,
+      vatAmount,
     });
   })();
 

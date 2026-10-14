@@ -67,32 +67,50 @@ function payableAcct(db, supplierId) {
 /**
  * @param {object} opts
  * @param {number} opts.custId
- * @param {number} opts.amountNet — goods net (line totals)
+ * @param {number} opts.amountNet — persisted amount (= goods − header − extra); AR credit base
+ * @param {number} [opts.goodsAmount] — Dr sales-return (defaults to amountNet + hdr + extra)
+ * @param {number} [opts.hdrDiscAmt] — Cr sales discount (invoice header share)
+ * @param {number} [opts.extraDiscAmt] — Cr sales discount (return-level extra)
  * @param {number} [opts.vatAmount]
  * @param {{ warehouseId?: number|null, amountRial: number }[]} [opts.costItems]
  * @param {boolean} [opts.reverse] — void mirror
  */
 function buildSalesReturnJournalLines(db, opts = {}) {
   const reverse = !!opts.reverse;
+  const hdrDisc = Math.round(Number(opts.hdrDiscAmt) || 0);
+  const extraDisc = Math.round(Number(opts.extraDiscAmt) || 0);
+  const discTotal = hdrDisc + extraDisc;
   const amountNet = Math.round(Number(opts.amountNet) || 0);
+  const goodsAmount = opts.goodsAmount != null
+    ? Math.round(Number(opts.goodsAmount) || 0)
+    : (amountNet + discTotal);
   const vatAmount = Math.round(Number(opts.vatAmount) || 0);
   const gross = amountNet + vatAmount;
   const L = rialToLedger;
   const salesReturn = acct(db, 'coa_sales_return');
+  const salesDisc = acct(db, 'coa_sales_discount');
   const cogs = acct(db, 'coa_cogs');
   const vatPay = acct(db, 'coa_vat_payable');
   const recv = receivableAcct(db, opts.custId);
   const lines = [];
 
   if (!reverse) {
-    if (amountNet > 0) {
-      lines.push({ code: salesReturn.code, name: salesReturn.name, debit: L(amountNet), credit: 0, description: 'برگشت از فروش' });
+    if (goodsAmount > 0) {
+      lines.push({ code: salesReturn.code, name: salesReturn.name, debit: L(goodsAmount), credit: 0, description: 'برگشت از فروش' });
     }
     if (vatAmount > 0) {
       lines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'معکوس VAT برگشت فروش' });
     }
     if (gross > 0) {
       lines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(gross) });
+    }
+    if (discTotal > 0) {
+      lines.push({
+        code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discTotal),
+        description: hdrDisc && extraDisc
+          ? `برگشت تخفیف فاکتور ${hdrDisc} + تخفیف کلی برگشت ${extraDisc}`
+          : (hdrDisc ? 'برگشت تخفیف سرفاکتور فروش' : 'تخفیف کلی برگشت از فروش'),
+      });
     }
     for (const il of inventoryAmountLinesByWarehouse(db, opts.costItems || [])) {
       lines.push({ code: il.code, name: il.name, debit: L(il.amountRial), credit: 0, description: 'ورود موجودی برگشت فروش' });
@@ -103,36 +121,58 @@ function buildSalesReturnJournalLines(db, opts = {}) {
       lines.push({ code: cogs.code, name: cogs.name, debit: L(il.amountRial), credit: 0, description: 'ابطال معکوس COGS برگشت' });
       lines.push({ code: il.code, name: il.name, debit: 0, credit: L(il.amountRial), description: 'ابطال ورود موجودی برگشت' });
     }
+    if (discTotal > 0) {
+      lines.push({
+        code: salesDisc.code, name: salesDisc.name, debit: L(discTotal), credit: 0,
+        description: 'ابطال تخفیف برگشت فروش',
+      });
+    }
     if (gross > 0) {
       lines.push({ code: recv.code, name: recv.name, debit: L(gross), credit: 0 });
     }
     if (vatAmount > 0) {
       lines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'ابطال معکوس VAT' });
     }
-    if (amountNet > 0) {
-      lines.push({ code: salesReturn.code, name: salesReturn.name, debit: 0, credit: L(amountNet), description: 'ابطال برگشت از فروش' });
+    if (goodsAmount > 0) {
+      lines.push({ code: salesReturn.code, name: salesReturn.name, debit: 0, credit: L(goodsAmount), description: 'ابطال برگشت از فروش' });
     }
   }
   return assertJournalLinesBalanced(lines, reverse ? 'ابطال برگشت از فروش' : 'برگشت از فروش');
 }
 
 /**
- * Purchase return: Dr AP (gross) / Cr Inv (net) / Cr VAT receivable (vat).
+ * Purchase return: Dr AP (gross) [/ Dr adj for extra] / Cr Inv (landed net) / Cr VAT receivable.
+ * amountNet = goods − header − extra (AP debit base). Inventory credits goods − header.
  */
 function buildPurchaseReturnJournalLines(db, opts = {}) {
   const reverse = !!opts.reverse;
+  const hdrDisc = Math.round(Number(opts.hdrDiscAmt) || 0);
+  const extraDisc = Math.round(Number(opts.extraDiscAmt) || 0);
   const amountNet = Math.round(Number(opts.amountNet) || 0);
+  const goodsAmount = opts.goodsAmount != null
+    ? Math.round(Number(opts.goodsAmount) || 0)
+    : (amountNet + hdrDisc + extraDisc);
+  const invAmount = opts.inventoryAmount != null
+    ? Math.round(Number(opts.inventoryAmount) || 0)
+    : Math.max(0, goodsAmount - hdrDisc);
   const vatAmount = Math.round(Number(opts.vatAmount) || 0);
   const gross = amountNet + vatAmount;
   const L = rialToLedger;
   const payable = payableAcct(db, opts.supplierId);
   const vatRec = acct(db, 'coa_vat_receivable');
-  const invLines = inventoryAmountLinesByWarehouse(db, opts.costItems || [{ warehouseId: opts.warehouseId, amountRial: amountNet }]);
+  const adj = acct(db, 'coa_adjustment');
+  const invLines = inventoryAmountLinesByWarehouse(db, opts.costItems || [{ warehouseId: opts.warehouseId, amountRial: invAmount }]);
   const lines = [];
 
   if (!reverse) {
     if (gross > 0) {
       lines.push({ code: payable.code, name: payable.name, debit: L(gross), credit: 0, description: 'برگشت از خرید' });
+    }
+    if (extraDisc > 0) {
+      lines.push({
+        code: adj.code, name: adj.name, debit: L(extraDisc), credit: 0,
+        description: 'تخفیف کلی برگشت از خرید',
+      });
     }
     for (const il of invLines) {
       lines.push({ code: il.code, name: il.name, debit: 0, credit: L(il.amountRial), description: 'خروج موجودی برگشت خرید' });
@@ -146,6 +186,12 @@ function buildPurchaseReturnJournalLines(db, opts = {}) {
     }
     for (const il of invLines) {
       lines.push({ code: il.code, name: il.name, debit: L(il.amountRial), credit: 0, description: 'ابطال خروج موجودی برگشت' });
+    }
+    if (extraDisc > 0) {
+      lines.push({
+        code: adj.code, name: adj.name, debit: 0, credit: L(extraDisc),
+        description: 'ابطال تخفیف کلی برگشت خرید',
+      });
     }
     if (gross > 0) {
       lines.push({ code: payable.code, name: payable.name, debit: 0, credit: L(gross), description: 'ابطال برگشت از خرید' });

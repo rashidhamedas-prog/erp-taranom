@@ -1702,15 +1702,49 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
   if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
   const invRows = JSON.parse(inv.rows || '[]');
   const { lineKey, returnedQtyMapForInvoice } = require('../lib/sales-return-doc');
+  const {
+    lineOrigDiscAmt, priorHeaderDiscConsumed, priorVatConsumed, rial,
+  } = require('../lib/returns-discount');
+  const { invoiceNetBase, invoiceSourceVat } = require('../lib/returns-posting');
   const excludeReturnId = req.query.exclude_return_id
     ? parseInt(req.query.exclude_return_id, 10)
     : null;
   const alreadyReturned = returnedQtyMapForInvoice(db, req.params.invoiceId, excludeReturnId);
-  const rows = invRows.map(r => ({
-    ...r, already_returned: alreadyReturned[lineKey(r)] || 0,
-    max_returnable: r.qty - (alreadyReturned[lineKey(r)] || 0)
-  })).filter(r => r.max_returnable > 0);
-  res.json({ invoice: inv, rows });
+  const rows = invRows.map(r => {
+    const already = alreadyReturned[lineKey(r)] || 0;
+    const lineDisc = lineOrigDiscAmt(r);
+    const netUnit = (Number(r.qty) || 0) > 0
+      ? Math.max(0, rial((Number(r.price) || 0) - (lineDisc / (Number(r.qty) || 1))))
+      : rial(r.price);
+    return {
+      ...r,
+      already_returned: already,
+      max_returnable: r.qty - already,
+      line_disc_amt: lineDisc,
+      net_unit: netUnit,
+      disc: r.disc || 0,
+      disc_amt: r.disc_amt != null ? r.disc_amt : (r.disc_amount != null ? r.disc_amount : lineDisc),
+    };
+  }).filter(r => r.max_returnable > 0);
+  const hdrUsed = priorHeaderDiscConsumed(db, {
+    table: 'sales_returns', invoiceCol: 'invoice_id', invoiceId: inv.id,
+    invoiceDiscAmt: inv.disc_amt, invoiceSubtotal: inv.subtotal, excludeReturnId,
+  });
+  const vatUsed = priorVatConsumed(db, {
+    table: 'sales_returns', invoiceCol: 'invoice_id', invoiceId: inv.id, excludeReturnId,
+  });
+  const sourceVat = invoiceSourceVat(inv);
+  res.json({
+    invoice: inv,
+    rows,
+    discount: {
+      hdr_disc_amt: rial(inv.disc_amt),
+      hdr_disc_remaining: Math.max(0, rial(inv.disc_amt) - hdrUsed),
+      vat_remaining: Math.max(0, sourceVat - vatUsed),
+      subtotal: rial(inv.subtotal),
+      net_base: invoiceNetBase(inv),
+    },
+  });
 });
 
 router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
