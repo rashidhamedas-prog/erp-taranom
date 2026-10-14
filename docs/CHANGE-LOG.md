@@ -5,8 +5,8 @@
 - **Frontend:** ستون تخفیف/خالص واحد، فیلد تخفیف کلی٪/مبلغ، پیش‌نمایش لایه‌ای؛ Help؛ SW `erp-taranom-v370`؛ `app.js?v=370`.
 - **مراجع:** دستورالعمل صورتحساب الکترونیکی (مبلغ واحد غیرقابل تغییر) + الگوی ERPNext proportional header discount؛ ADR-005 §P2e.
 - **فایل‌ها:** `lib/returns-discount.js`, `lib/sales-return-doc.js`, `lib/returns-posting.js`, `routes/{accounting,purchases}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-returns-discount-v369.js`, ADR, CHANGE-LOG, Help.
-- **تست:** `test-returns-discount-v369` + `test-sms` + `test-sync`؛ parse `app.js`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-returns-discount-v369` ۲۲/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ parse `app.js` سبز.
+- **Deploy:** ✅ `3fb3eaa` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v370`؛ `app.js?v=370`.
 
 ### ۱۴۰۵/۰۷/۲۲ — اصلاح پرداخت کارتخوان در ویرایش فاکتور (SW v369)
 
