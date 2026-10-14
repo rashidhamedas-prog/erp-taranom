@@ -461,7 +461,18 @@ router.get('/:id', auth, (req, res) => {
   const row = loadInvoiceRow(db, req.params.id);
   if (!row) return res.status(404).json({ error: 'فاکتور پیدا نشد' });
   if (!canViewInvoice(req, row)) return res.status(403).json({ error: 'دسترسی ندارید' });
-  res.json(applyCatalogCostPolicy(db, req.user, { ...row, rows: JSON.parse(row.rows || '[]') }));
+  let receipts = { settlements: [], pos: [] };
+  try {
+    const { loadInvoiceReceipts } = require('../lib/invoice-payments');
+    receipts = loadInvoiceReceipts(db, row.id);
+  } catch (_) { /* optional */ }
+  res.json(applyCatalogCostPolicy(db, req.user, {
+    ...row,
+    rows: JSON.parse(row.rows || '[]'),
+    receipts,
+    settlements: receipts.settlements || [],
+    pos_receipts: receipts.pos || [],
+  }));
 });
 
 router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {

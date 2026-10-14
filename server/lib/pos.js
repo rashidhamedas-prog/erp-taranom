@@ -413,10 +413,17 @@ function postReceipt(db, body, user) {
   return Object.assign(row, { journal_id: result.journalId, settlement_id: result.settlementId });
 }
 
-function voidReceipt(db, id, user, { reason } = {}) {
+/**
+ * Core POS void for use inside an open db.transaction (invoice amend / settlement reverse).
+ * Clears idempotency_key so amend can re-post the same logical key.
+ */
+function voidReceiptInTx(db, id, user, { reason, allowAlreadyReversed } = {}) {
   const row = db.prepare('SELECT * FROM pos_receipts WHERE id=?').get(id);
   if (!row) throw httpErr(404, 'دریافت کارتخوان یافت نشد', 'E_POS_RECEIPT');
-  if (row.status === 'reversed') throw httpErr(409, 'این دریافت قبلاً ابطال شده است', 'E_POS_ALREADY_REVERSED');
+  if (row.status === 'reversed') {
+    if (allowAlreadyReversed) return Object.assign({}, row, { already: true });
+    throw httpErr(409, 'این دریافت قبلاً ابطال شده است', 'E_POS_ALREADY_REVERSED');
+  }
   const inBatch = db.prepare(`
     SELECT i.id FROM pos_settlement_items i
     JOIN pos_settlement_batches b ON b.id = i.batch_id
@@ -427,39 +434,92 @@ function voidReceipt(db, id, user, { reason } = {}) {
     throw httpErr(409, 'ابتدا دسته تسویه را ابطال کنید', 'E_POS_IN_BATCH');
   }
 
-  const out = db.transaction(() => {
-    const { reverseJournalEntry } = voidJournalApi();
-    const revJe = reverseJournalEntry(db, row.journal_id, {
-      userId: user.id,
-      reason: reason || 'ابطال دریافت کارتخوان',
-      sourceType: 'pos_receipt_reversal',
+  const uid = user && user.id != null ? user.id : null;
+  const { reverseJournalEntry } = voidJournalApi();
+  const revJe = reverseJournalEntry(db, row.journal_id, {
+    userId: uid,
+    reason: reason || 'ابطال دریافت کارتخوان',
+    sourceType: 'pos_receipt_reversal',
+  });
+  if (row.cust_id) {
+    dbApi().createLedgerEntry(db, {
+      customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
+      ref_type: 'pos_receipt', ref_id: row.id,
+      description: `ابطال دریافت کارتخوان شماره ${row.id}`,
+      debit: row.amount_rial, credit: 0, user_id: uid,
     });
-    if (row.cust_id) {
-      dbApi().createLedgerEntry(db, {
-        customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
-        ref_type: 'pos_receipt', ref_id: row.id,
-        description: `ابطال دریافت کارتخوان شماره ${row.id}`,
-        debit: row.amount_rial, credit: 0, user_id: user.id,
-      });
-    }
-    if (row.settlement_id) {
-      db.prepare(`
-        UPDATE settlements SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?
-        WHERE id=? AND COALESCE(status,'posted')<>'reversed'
-      `).run(user.id, row.settlement_id);
-      try { repLedgerApi().reverseCommissionAccrual(db, 'settlement', row.settlement_id, user.id, todayJalali()); }
-      catch (_) {}
-    }
+  }
+  if (row.settlement_id) {
     db.prepare(`
-      UPDATE pos_receipts
-      SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=?
-      WHERE id=?
-    `).run(user.id, revJe, row.id);
-    return { id: row.id, status: 'reversed', reversal_journal_id: revJe };
-  })();
+      UPDATE settlements SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?
+      WHERE id=? AND COALESCE(status,'posted')<>'reversed'
+    `).run(uid, row.settlement_id);
+    try { repLedgerApi().reverseCommissionAccrual(db, 'settlement', row.settlement_id, uid, todayJalali()); }
+    catch (_) { /* optional */ }
+  }
+  // Release idempotency so invoice amend can recreate the same inv-…-pos-… key.
+  db.prepare(`
+    UPDATE pos_receipts
+    SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?,
+        reversal_journal_id=?, idempotency_key=NULL
+    WHERE id=?
+  `).run(uid, revJe, row.id);
+  return { id: row.id, status: 'reversed', reversal_journal_id: revJe };
+}
 
-  dbApi().audit(user.id, 'reverse', 'pos_receipt', row.id, `ابطال دریافت کارتخوان #${row.id}`);
+function voidReceipt(db, id, user, { reason } = {}) {
+  const out = db.transaction(() => voidReceiptInTx(db, id, user, { reason }))();
+  dbApi().audit(user.id, 'reverse', 'pos_receipt', id, `ابطال دریافت کارتخوان #${id}`);
   return Object.assign(db.prepare('SELECT * FROM pos_receipts WHERE id=?').get(id), out);
+}
+
+/** Live POS receipt linked to a settlement (or invoice+amount fallback for legacy rows). */
+function findLivePosReceiptForSettlement(db, settlement) {
+  if (!settlement || !settlement.id) return null;
+  try {
+    const bySett = db.prepare(`
+      SELECT * FROM pos_receipts
+      WHERE settlement_id=? AND COALESCE(status,'open') NOT IN ('reversed','void')
+      LIMIT 1
+    `).get(settlement.id);
+    if (bySett) return bySett;
+  } catch (_) { /* schema lag */ }
+  const pt = String(settlement.pay_type || '');
+  const note = String(settlement.note || '');
+  if (pt !== 'pos_card' && !note.includes('کارتخوان')) return null;
+  if (!settlement.invoice_id) return null;
+  const amt = Math.round(Number(settlement.amount_rial != null ? settlement.amount_rial : settlement.amount) || 0);
+  try {
+    return db.prepare(`
+      SELECT * FROM pos_receipts
+      WHERE invoice_id=? AND amount_rial=?
+        AND COALESCE(status,'open') NOT IN ('reversed','void')
+      ORDER BY id DESC LIMIT 1
+    `).get(settlement.invoice_id, amt) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Void any still-live POS receipts for an invoice (orphan cleanup after amend reverse). */
+function voidLivePosReceiptsForInvoice(db, invoiceId, user, { reason } = {}) {
+  if (!invoiceId) return 0;
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT id FROM pos_receipts
+      WHERE invoice_id=? AND COALESCE(status,'open') NOT IN ('reversed','void')
+    `).all(invoiceId);
+  } catch (_) { return 0; }
+  let n = 0;
+  for (const r of rows) {
+    voidReceiptInTx(db, r.id, user, {
+      reason: reason || 'اصلاح فاکتور — ابطال دریافت کارتخوان',
+      allowAlreadyReversed: true,
+    });
+    n += 1;
+  }
+  return n;
 }
 
 function listBatches(db, query = {}) {
@@ -1091,6 +1151,9 @@ module.exports = {
   listReceipts,
   postReceipt,
   voidReceipt,
+  voidReceiptInTx,
+  findLivePosReceiptForSettlement,
+  voidLivePosReceiptsForInvoice,
   listBatches,
   settleBatch,
   voidBatch,

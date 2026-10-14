@@ -4977,9 +4977,10 @@ async function _openInvBuilder(id){
   let inv = null;
   invReturnQtyMap={};
   if(id){
-    inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
-    if(!inv?.rows?.length){
-      try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
+    // Always fetch detail so pay_splits + live settlements/POS hydrate like create-time.
+    try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
+    if(!inv){
+      inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
     }
     if(inv&&isFirmInvoiceType(inv.type)) await refreshInvReturnQtyMap(id);
   }
@@ -6379,6 +6380,40 @@ function collectInvPaySplits(){
     return base;
   }).filter(s=>s.amount>0);
 }
+function invPayRowsFromLiveReceipts(inv){
+  const setts=(inv&&inv.receipts&&inv.receipts.settlements)||inv.settlements||[];
+  const posList=(inv&&inv.receipts&&inv.receipts.pos)||inv.pos_receipts||[];
+  if(!Array.isArray(setts)||!setts.length) return [];
+  return setts.filter(s=>String(s.status||'posted')!=='reversed').map(s=>{
+    const pt=s.pay_type==='bank'?'bank_transfer':(s.pay_type||'cash');
+    const row={
+      amount:String(s.amount_rial!=null?s.amount_rial:(s.amount||'')),
+      pay_type:pt,
+      bank_id:s.bank_id||null,
+      cash_box_id:s.cash_box_id||null,
+      terminal_id:null
+    };
+    if(pt==='pos_card'){
+      const linked=(posList||[]).find(p=>Number(p.settlement_id)===Number(s.id))
+        ||(posList||[]).find(p=>Number(p.amount_rial||p.amount)===Number(row.amount));
+      if(linked) row.terminal_id=linked.terminal_id||null;
+    }
+    if(pt==='cheque'){
+      Object.assign(row,{
+        cheque_bank:s.cheque_bank||'',
+        cheque_branch:s.cheque_branch||'',
+        cheque_account:s.cheque_account||'',
+        cheque_number:s.cheque_number||'',
+        sayadi:s.cheque_sayadi||s.sayadi||'',
+        cheque_owner:s.cheque_owner||'',
+        sheba:s.cheque_sheba||s.sheba||'',
+        cheque_due:s.cheque_due||s.cheque_due_date||'',
+        cheque_info:s.note||''
+      });
+    }
+    return row;
+  }).filter(r=>Number(r.amount)>0);
+}
 function hydrateInvPayRows(inv){
   invPayRows=[];
   if(!inv) return;
@@ -6410,19 +6445,28 @@ function hydrateInvPayRows(inv){
     });
     // On edit, always expose multi-stage UI so an extra receipt can be appended.
     const m=el('inv-multi'); if(m) m.checked=true;
-  }else if(inv.pay_type && inv.pay_type!=='credit' && Number(inv.pay_amount_rial)>0){
-    invPayRows=[{
-      amount:String(inv.pay_amount_rial||''),
-      pay_type:inv.pay_type==='bank'?'bank_transfer':inv.pay_type,
-      bank_id:inv.bank_id||null,
-      cash_box_id:inv.cash_box_id||null,
-      terminal_id:inv.pos_terminal_id||null
-    }];
-    if(inv.id || window._invBuilderId){
+  }else{
+    const liveRows=invPayRowsFromLiveReceipts(inv);
+    if(liveRows.length){
+      invPayRows=liveRows;
       const m=el('inv-multi'); if(m) m.checked=true;
+    }else if(inv.pay_type && inv.pay_type!=='credit' && Number(inv.pay_amount_rial)>0){
+      invPayRows=[{
+        amount:String(inv.pay_amount_rial||''),
+        pay_type:inv.pay_type==='bank'?'bank_transfer':inv.pay_type,
+        bank_id:inv.bank_id||null,
+        cash_box_id:inv.cash_box_id||null,
+        terminal_id:inv.pos_terminal_id||null
+      }];
+      if(inv.id || window._invBuilderId){
+        const m=el('inv-multi'); if(m) m.checked=true;
+      }
     }
   }
   if(inv.pos_terminal_id){ const ps=el('inv-pos'); if(ps) ps.value=String(inv.pos_terminal_id); }
+  else if(invPayRows.some(r=>r.pay_type==='pos_card'&&r.terminal_id)){
+    const ps=el('inv-pos'); if(ps) ps.value=String(invPayRows.find(r=>r.terminal_id).terminal_id);
+  }
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -27419,7 +27463,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>رنگ/سایز در فاکتور:</b> در ویرایش فاکتور هم موجودی مودال رنگ/سایز فقط انبار همان ردیف است؛ نام انبار در توضیح مودال می‌آید. بدون انبار ردیف مودال باز نمی‌شود. چیپ‌های رنگ/سایز و خلاصهٔ picker هم از <code>/summaries?warehouse_id=</code> انبار انتخاب‌شده می‌آیند (نه موجودی سراسری).</li>
         <li><b>مانده لیست مشتریان و صورتحساب:</b> همیشه از دفتر مشتری است (به‌اضافه فاکتور قطعی جاافتاده). سندهای تاریخی که روی حساب کنترل دریافتنی مانده‌اند با سند انتقال متعادل به تفصیلی همان مشتری منتقل می‌شوند تا هشدار نارنجی خاموش شود. افتتاحیهٔ ادمین همزمان دفتر و سند دفتر کل را می‌نویسد. صفحه اصلی، کارت مشتری، مطالبات و داشبورد همین رقم را می‌خوانند.</li>
         <li><b>مبلغ فاکتور:</b> تخفیف مبلغی سربرگ (<code>disc_amt</code>) همراه درصد ذخیره می‌شود تا مبلغ فرم و لیست یکی بماند</li>
-        <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره</li>
+        <li><b>ویرایش:</b> کاربران با دسترسی ویرایش فاکتور می‌توانند معمولی و (مدیر/حسابدار/مدیر فروش) رسمی را درجا ذخیره کنند؛ موجودی فقط به اندازهٔ اختلاف اقلام جابه‌جا می‌شود نه کسر دوباره. در ویرایش، همهٔ دریافت‌های ثبت‌شده (نقد/بانک/چک/کارتخوان) مثل زمان ثبت لود می‌شوند.</li>
+        <li><b>اصلاح پرداخت کارتخوان (v369):</b> تغییر مبلغ یا روش پرداخت در ویرایش فاکتور، دریافت کارتخوان را ابطال اصولی می‌کند (JE + دفتر مشتری + سایهٔ تسویه) و با مبلغ جدید دوباره ثبت می‌کند — ماندهٔ فاکتور و گردش مشتری هر دو با یک مبلغ سازگار می‌مانند (نه فقط UI).</li>
         <li><b>کارشناس فاکتور:</b> مدیر و حسابدار در فرم فاکتور همهٔ کارشناسان فعال فروش را می‌بینند — میدانی، داخلی، مدیر فروش، <b>دفتر پخش</b>، و مدیر/حسابدار. فهرست از <code>/auth/expert-options</code> تازه بارگذاری می‌شود (نه کش قدیمی کاربران). انگیزهٔ کمیسیون همچنان فقط برای نقش‌های میدانی/داخلی است.</li>
         <li><b>چاپ:</b> خطوط مشکی‌زاغ؛ مبالغ بولد؛ رنگ/سایز در چاپ نمایش داده نمی‌شود (فقط نام کالا و تعداد جمع‌شده). قالب‌ها فشرده‌اند تا چند ردیف در یک صفحه بماند</li>
       </ul>`),
@@ -28211,6 +28256,7 @@ function renderSalesGuide(){
         <li>چاپ فاکتور فروش/خرید: ستون کد فقط <b>کد کالا</b> است (مثل K-00002) به‌اضافهٔ نام استایل تمیز. SKU ماتریس مثل «K-00002-مشگی-فری سایز (مناسب تا ۴۸)» و برچسب «سفید-سایز ۱ (مناسب از …)» چاپ نمی‌شود؛ واریانت‌های هم‌قیمت در یک ردیف با تعداد جمع می‌شوند</li>
         <li>در کل برنامه، نمایش سایز برای picking/لیست/حواله توضیح تناسب داخل پرانتز را نشان نمی‌دهد؛ نام کامل فقط در ویرایش master سایز کاتالوگ می‌ماند</li>
         <li>فاکتور نقد: مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری/تأمین‌کننده می‌ماند</li>
+        <li>در ویرایش فاکتور، دریافت‌های قبلی (نقد/بانک/چک/کارتخوان) مثل زمان ثبت دیده می‌شوند؛ اصلاح کارتخوان دفتر مشتری را هم هم‌تراز می‌کند (نه فقط مانده روی فرم).</li>
         <li>چک دریافتی: «مبلغ این فقره چک (ریال)» و «➕ ثبت چک بعدی» برای هر برگ جدا است؛ جمع چند فقره روی یک صیاد به یک برگهٔ واحد تبدیل نمی‌شود</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),

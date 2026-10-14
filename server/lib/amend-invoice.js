@@ -366,6 +366,16 @@ function isInvoiceTimeSettlement(s) {
   return note.includes('هنگام فاکتور') || note.includes('دریافت کارتخوان');
 }
 
+function isPosSettlementRow(s) {
+  const pt = String((s && s.pay_type) || '');
+  const note = String((s && s.note) || '');
+  return pt === 'pos_card' || note.includes('کارتخوان');
+}
+
+function splitsTouchPos(splits) {
+  return (splits || []).some((s) => String((s && s.pay_type) || '') === 'pos_card');
+}
+
 function listLiveSettlements(db, invoiceId) {
   return db.prepare(`
     SELECT * FROM settlements
@@ -501,6 +511,32 @@ function patchOneInvoiceTimeSettlement(db, {
   }
 }
 
+function reverseInvoiceTimePaymentsInTx(db, invoiceTime, invoiceId, userId) {
+  const { reverseSettlementInTx } = require('./void-settlement');
+  for (const sett of invoiceTime) {
+    reverseSettlementInTx(db, sett, userId, { reason: 'اصلاح فاکتور — بازنویسی دریافت هنگام فاکتور' });
+  }
+  // Orphan POS (e.g. prior amend patched settlement amount without voiding pos_receipt).
+  try {
+    require('./pos').voidLivePosReceiptsForInvoice(db, invoiceId, { id: userId }, {
+      reason: 'اصلاح فاکتور — ابطال یتیم کارتخوان',
+    });
+  } catch (e) {
+    if (e && e.status) throw e;
+  }
+  // Only reverse cheque leaves linked to invoice-time settlements (never later/manual ones).
+  try {
+    const ids = (invoiceTime || []).map((s) => s && s.id).filter(Boolean);
+    if (ids.length) {
+      db.prepare(`
+        UPDATE cheque_records SET record_status='reversed'
+        WHERE settlement_id IN (${ids.map(() => '?').join(',')})
+          AND COALESCE(record_status,'posted')<>'reversed'
+      `).run(...ids);
+    }
+  } catch (_) { /* column arrives with boot migration */ }
+}
+
 function rewriteInvoiceTimeSettlements(db, {
   row, payPlan, custId, date, userId, num, body,
 }) {
@@ -512,6 +548,29 @@ function rewriteInvoiceTimeSettlements(db, {
 
   if (later.length && Number(custId) !== Number(row.cust_id)) {
     throw httpErr(409, 'این فاکتور تسویه بعدی دارد؛ تغییر مشتری مجاز نیست', 'E_AMEND_CUST_SETTLED');
+  }
+
+  // Immutable POS books (ERPNext-style): never patch settlement-only when کارتخوان is involved.
+  // Prior bug: patch updated settlements/balance_due while customer_ledger stayed on stale pos_receipt.
+  const touchesPos = invoiceTime.some(isPosSettlementRow) || splitsTouchPos(splits);
+  if (touchesPos) {
+    if (later.length && splits.length !== invoiceTime.length) {
+      throw httpErr(
+        409,
+        'این فاکتور تسویهٔ جدا از ثبت فاکتور دارد؛ نوع پرداخت را عوض نکنید مگر آن تسویه ابطال شود',
+        'E_AMEND_SPLIT_COUNT'
+      );
+    }
+    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId);
+    if (splits.length) {
+      applyInvoicePaySplits(db, {
+        invoiceId: row.id, custId, date, splits, userId, num,
+        chequeHeader: body,
+      });
+    } else {
+      recomputeInvoiceSettledBalances(db, row.id);
+    }
+    return;
   }
 
   // Append new invoice-time stages without voiding existing ones (audit-friendly).
@@ -548,13 +607,7 @@ function rewriteInvoiceTimeSettlements(db, {
         'E_AMEND_SPLIT_COUNT'
       );
     }
-    const { reverseSettlementInTx } = require('./void-settlement');
-    for (const sett of invoiceTime) reverseSettlementInTx(db, sett, userId);
-    try {
-      db.prepare(
-        "UPDATE cheque_records SET record_status='reversed' WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'"
-      ).run(row.id);
-    } catch (_) { /* column arrives with boot migration */ }
+    reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId);
     if (splits.length) {
       applyInvoicePaySplits(db, {
         invoiceId: row.id, custId, date, splits, userId, num,
@@ -777,4 +830,5 @@ module.exports = {
   resolveVatExemptFlag,
   amendPostedInvoiceInPlace,
   replaceSaleStockInPlace,
+  rewriteInvoiceTimeSettlements,
 };

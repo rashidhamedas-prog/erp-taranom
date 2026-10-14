@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۲ — اصلاح پرداخت کارتخوان در ویرایش فاکتور (SW v369)
+
+- **علائم:** در ویرایش فاکتور UI مانده ۰ و دریافت کارتخوان کامل نشان می‌داد، ولی گردش مشتری فقط بستانکار جزئی (مثلاً ۶۰۰٬۰۰۰ به‌جای ۳۳٬۰۰۰٬۰۰۰) داشت؛ نیاز به «دریافت از شخص» دستی.
+- **ریشه:** `amendPostedInvoiceInPlace` → `patchOneInvoiceTimeSettlement` فقط ردیف `settlements` و `customer_ledger` با `ref_type=settlement` را عوض می‌کرد؛ اعتبار واقعی کارتخوان روی `pos_receipt` (JE در راه + دفتر مشتری) می‌ماند و ابطال نمی‌شد. `balance_due` از مبلغ settlement تغذیه می‌شد → UI و دفتر از هم جدا می‌شدند.
+- **رفع اصولی (immutable / R13):** اگر پرداخت قدیم یا جدید کارتخوان باشد → ابطال کامل `pos_receipt` (`voidReceiptInTx`: JE + دفتر + سایه settlement + آزادسازی idempotency) سپس `applyInvoicePaySplits` مجدد؛ `reverseSettlementInTx` برای `pos_card` به همین مسیر محول شد. فرانت: همیشه GET جزئیات + hydrate دریافت‌های زنده؛ Help.
+- **فایل‌ها:** `lib/{amend-invoice,pos,void-settlement}.js`, `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-amend-pos-v369.js`, CHANGE-LOG, Help.
+- **ترمیم داده:** ذخیرهٔ مجدد همان فاکتور با مبلغ درست کارتخوان دفتر را هم‌تراز می‌کند (مثلاً T-0018).
+- **تست:** `test-invoice-amend-pos-v369` + `test-sms` + `test-sync` روی ایران؛ parse `app.js`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۲ — ریشهٔ اختلاف مانده زنده / تفصیلی اشخاص (SW v368)
 
 - **علائم:** داشبورد کنترل حساب → «اختلاف دفتر و تفصیلی ۱۰ شخص»؛ KPI نیازمند تطبیق.
@@ -8,6 +18,16 @@
 - **رفع اصولی:** ترکیب opening+subledger دقیقاً یک‌بار؛ SoT تأمین = `supplier_ledger`؛ mismatch چندبرگ `partyBooksMismatch`؛ opening JE → همهٔ زیردفترهای لینک‌شده؛ ADR-PARTY-001 amendment؛ Help.
 - **فایل‌ها:** `lib/{party-books,party-control-dashboard,opening-post}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-books-opening-align-v368.js`, `PARTY-ACC-ADR-001.md`, CHANGE-LOG.
 - **تست:** `test-party-books-opening-align-v368` + `test-sms` + `test-sync` روی ایران؛ parse فرانت.
+- **Deploy:** ⏳
+
+### ۱۴۰۵/۰۷/۲۲ — تخفیف برگشت فروش/خرید مطابق ۱۴۰۵ (SW v369)
+
+- **هدف:** روی برگشت از فروش و برگشت از خرید، تخفیف ردیف و سهم تخفیف کل فاکتور مرجع اعمال شود و فیلد **تخفیف کلی** روی خود سند برگشت هم باشد (قفل فی از مرجع — صورتحساب الکترونیکی ۱۴۰۵).
+- **Backend:** `lib/returns-discount.js`؛ گسترش `sales-return-doc` / `returns-posting` / `purchases` POST؛ ستون‌های `goods_amount`/`hdr_disc_amt`/`extra_disc_*`؛ JE: بستانکار تخفیفات فروش برای H+X؛ خرید: موجودی خالص + تعدیل برای X.
+- **Frontend:** ستون تخفیف/خالص واحد، فیلد تخفیف کلی٪/مبلغ، پیش‌نمایش لایه‌ای؛ Help؛ SW `erp-taranom-v369`؛ `app.js?v=369`.
+- **مراجع:** دستورالعمل صورتحساب الکترونیکی (مبلغ واحد غیرقابل تغییر) + الگوی ERPNext proportional header discount؛ ADR-005 §P2e.
+- **فایل‌ها:** `lib/returns-discount.js`, `lib/sales-return-doc.js`, `lib/returns-posting.js`, `routes/{accounting,purchases}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-returns-discount-v369.js`, ADR, CHANGE-LOG, Help.
+- **تست:** `test-returns-discount-v369` + `test-sms` + `test-sync`؛ parse `app.js`.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۱ — ویرایش برگشت از فروش (R13 same-id amend) (SW v367)

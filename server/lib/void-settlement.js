@@ -141,6 +141,26 @@ function reverseSettlementGlInTx(db, settlement, userId) {
 function reverseSettlementInTx(db, settlement, userId, opts) {
   const options = opts || {};
   if (!settlement || settlement.status === 'reversed') return null;
+
+  // POS shadow settlements post AR credit + JE on pos_receipt — never patch/reverse as cash settlement.
+  try {
+    const pos = require('./pos');
+    const livePos = pos.findLivePosReceiptForSettlement(db, settlement);
+    if (livePos) {
+      pos.voidReceiptInTx(db, livePos.id, { id: userId }, {
+        reason: (options && options.reason) || 'ابطال تسویه کارتخوان',
+        allowAlreadyReversed: true,
+      });
+      if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
+      // voidReceiptInTx already marks settlement reversed; ensure flag if orphan link.
+      markSettlementReversed(db, settlement.id, userId, null);
+      return null;
+    }
+  } catch (e) {
+    if (e && e.status) throw e;
+    /* fall through to cash/bank/cheque reverse if POS module unavailable */
+  }
+
   reverseSettlementBooks(db, settlement, userId);
 
   let reversalId = null;
