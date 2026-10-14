@@ -12,8 +12,8 @@
 - **ریشه:** T-0008: `subtotal=25.4M`، `disc_amt=400k`، `final/final_rial=25M`. لیست برگشت از `GET /invoices` + `fmt(i.final)` تغذیه می‌شد بدون برچسب/SoT یکسان؛ open-invoices از `i.final` خام؛ خرید بدون API تخصصی تخصیص.
 - **رفع (حسابداری ایران / AR≈2030 + ERPNext outstanding):** هلپر `lib/invoice-face-amount.js` — face = بعد از تخفیف تجاری؛ APIهای `firm-invoices` / `purchase-invoices` + اصلاح `open-invoices` و by-invoice با face؛ UI همهٔ pickerهای تخصیص با `formatInvoiceAllocOption` («خالص … (تخفیف …)» / مانده زنده)؛ Help؛ SW `v372`.
 - **فایل‌ها:** `lib/invoice-face-amount.js`, `routes/{accounting,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-face-alloc-v371.js`, CHANGE-LOG.
-- **تست:** `test-invoice-face-alloc-v371` + sms + sync.
-- **Deploy:** ⏳
+- **تست:** ایران `test-invoice-face-alloc-v371` ۱۷/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `41b4a65` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v372`؛ `app.js?v=372`؛ face T-0008 = ۲۵٬۰۰۰٬۰۰۰ (بعد از تخفیف ۴۰۰٬۰۰۰).
 
 ### ۱۴۰۵/۰۷/۲۲ — تخفیف برگشت فروش/خرید مطابق ۱۴۰۵ (SW v370)
 
