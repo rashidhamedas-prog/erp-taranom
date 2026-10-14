@@ -5,8 +5,8 @@
 - **Backend:** `lib/sales-return-doc.js` (create/void/update مشترک)؛ `PUT /accounting/sales-returns/:id`؛ refactor POST/DELETE؛ ADR-005 P2d.
 - **Frontend:** دکمهٔ ویرایش، مودال پیش‌پر، Help؛ SW `erp-taranom-v367`؛ `app.js?v=367`.
 - **فایل‌ها:** `lib/sales-return-doc.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-sales-return-amend-v367.js`, `docs/architecture/RETURNS-ACC-ADR-005.md`, CHANGE-LOG.
-- **تست:** `test-sales-return-amend-v367` + `test-sms` + `test-sync`؛ parse `app.js` سبز.
-- **Deploy:** ⏳
+- **تست:** ایران `test-sales-return-amend-v367` ۲۸/۰ + `test-sms` ۲۲/۰ + `test-sync` ۴۴/۰؛ parse `app.js` سبز.
+- **Deploy:** ✅ `a4cc43e` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v367`؛ `app.js?v=367`.
 
 ### ۱۴۰۵/۰۷/۲۱ — دسترسی «عملیات دریافت و پرداخت» برای نقش غیرحسابدار (SW v366)
 
