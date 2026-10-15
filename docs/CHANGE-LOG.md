@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۳ — لیست پرداخت‌ها: پرداخت به شخص/حساب (SW v391)
+
+- **علائم:** «پرداخت به شخص» در گردش شخص دیده می‌شد (مثلاً ۱۰۰M به حامد رشید) ولی در «عملیات دریافت و پرداخت → پرداخت‌ها (خروجی)» نبود؛ فقط هزینه عمومی می‌آمد.
+- **ریشه:** از v295 مسیر سایر اشخاص از `/expenses` به `POST /accounting/vouchers` + `person_ledger` منتقل شد، اما `renderCashOpsTab` / `renderPaymentOpsTab` فقط supplier + incentive + expense را merge می‌کردند — شکاف لیست، نه ثبت دفتر.
+- **رفع سراسری:** `GET /accounting/cash-ops/outgoing` و `incoming-extra` (`lib/cash-ops-list.js`)؛ ادغام در هر دو تب UI؛ ابطال از `DELETE /vouchers/:id`؛ RBAC `acc-settlements`؛ Help؛ تست `test-cash-ops-person-list-v391`.
+- **فایل‌ها:** `lib/{cash-ops-list,accounting-access}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-{cash-ops-person-list-v391,accounting-access}.js`, CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — رفع layout فضای کاری فاکتور: اکاردئون/زوم ۱۰۰٪/موبایل (SW v389)
 
 - **علائم:** در ویرایش فاکتور با زوم ۱۰۰٪ بخش‌های «پرداخت / کرایه / یادداشت» مثل نوار سفید خالی دیده می‌شدند؛ با زوم ۵۰٪ ظاهر می‌شدند ولی بدنهٔ باز به‌هم‌ریخته بود (فیلد چسبیده به لبه، فضای خالی بزرگ). موبایل کاملاً به‌هم‌ریخته.
@@ -17,7 +25,8 @@
   - heal پیوستهٔ `repairOrphanArControlReclass` در boot (`db.js`) و `ensureCustomerBooksRepaired` — soft-void انتقال‌هایی که مبدأشان ابطال/حذف شده (تسویه/فاکتور/POS)؛ انتقال فاکتور زنده دست‌نخورده می‌ماند.
   - Help + متن هشدار داشبورد؛ تست `test-orphan-ar-reclass-void-v389`.
 - **فایل‌ها:** `lib/{customer-books,void-settlement}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-orphan-ar-reclass-void-v389.js`, CHANGE-LOG.
-- **Deploy:** ⏳ در حال اعمال.
+- **تست:** ایران `test-orphan-ar-reclass-void-v390` + `test-sms`؛ پروب: `delta_ar=0`، `orphan_alive=0`، صدوقی books=leaf؛ SW `erp-taranom-v390`.
+- **Deploy:** ✅ `415152e` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp.
 
 ### ۱۴۰۵/۰۷/۲۳ — کارمزد بانکی فقط روی برگ معین (رفع «۶۱۱۵ سطح پست نیست») (SW v388)
 
