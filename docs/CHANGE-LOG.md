@@ -11,8 +11,8 @@
 - **رفع:** `expandShortageAlternates` + `resolveIssueStd` + `E_SUBSTITUTE_INVALID` در `issueMaterialsVariable`/`preview`؛ UI جستجوی جایگزین در انبار مواد + مقدار پوشش + دلیل خودکار؛ Help؛ تست `test-material-issue-alt-v397`.
 - **فایل‌ها:** `lib/production/engine.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-material-issue-alt-v397.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ docs/Production/03-variable-analysis V-07؛ Dynamics/Sage substitute variance؛ tap-erp-architecture.
-- **تست:** ایران `test-material-issue-alt-v397` + `test-sms`؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
-- **Deploy:** ⏳
+- **تست:** ایران `test-material-issue-alt-v397` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Deploy:** ✅ `c4dd121` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v397`؛ `app.js?v=397`.
 
 ### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه اجباری در محاسبه و پردازش حقوق (SW v396)
 
