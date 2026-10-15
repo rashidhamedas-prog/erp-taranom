@@ -974,6 +974,13 @@ function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, r
       updateAvg: false,
       warehouseOnly: true,
     });
+    // Historical linked packs may have posted apparel before v399 — reverse once.
+    try {
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'cutting_pack', docId: p.id, userId: userId || null,
+        note: `تخلیه apparel WIP بسته ${p.id}`,
+      });
+    } catch (_) { /* no apparel layer */ }
     left -= take;
   }
 }
@@ -1055,6 +1062,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     // when plan qty matches output; else legacy color+size_breakdown.
     const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGood);
     const unitCost = Math.round(wipNet / qtyGood);
+    // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
+    // for this product — that would double products.stock / WH-FG.
+    require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
     // F06: packs linked to this order staged qty in WH-WIP without touching
     // sellable stock. Relieve that warehouse qty here (warehouse-only out) so
     // finalize is the single products.stock / FG-warehouse increase.

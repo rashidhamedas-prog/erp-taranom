@@ -15,7 +15,11 @@ const {
 const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
-const { assertFabricIssueAllowed, fabricIssueAllowance } = require('./cutting');
+const {
+  assertFabricIssueAllowed,
+  fabricIssueAllowance,
+  assertNoOrphanSellablePack,
+} = require('./cutting');
 const variance = require('./variance');
 const {
   computeVariance, insertVarianceMemo, varianceReasonThreshold, varianceAnalysis,
@@ -861,6 +865,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         color: body.color || po.color,
       });
       unitCost = Math.round(wipNet / qtyGood);
+      assertNoOrphanSellablePack(db, po.product_id, orderId);
       const avg = updateMovingAverage(db, {
         productId: po.product_id,
         warehouseId: po.warehouse_fg_id,
@@ -1818,6 +1823,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         color: body.color || po.color,
       });
       unitCost = Math.round(wipNet / qtyGood);
+      assertNoOrphanSellablePack(db, po.product_id, orderId);
       const avg = updateMovingAverage(db, {
         productId: po.product_id, warehouseId: po.warehouse_fg_id,
         qtyIn: qtyGood, amountRial: wipNet, userId, note: `تولید ${po.order_no}`,

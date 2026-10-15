@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — حذف ورود دوبل موجودی PACK + نهایی‌سازی تولید (SW v399)
+
+- **علائم:** در کاردکس کالا (مثل کاپشن مموری یلدا) هم «رسید برش / PACK» و هم «تولید PD-…» واردهٔ انبار محصول می‌زدند و موجودی دوبار بالا می‌رفت.
+- **ریشه:** F06 فقط وقتی `production_order_id` روی لایه/PACK بود WIP می‌کرد؛ UI اغلب بدون سفارش PACK می‌زد (`postsFg=true` → ورود FG) و بعد همان بچ با finalize دوباره FG می‌گرفت. apparel ماتریسی هم روی PACK پیوندی `product_variants.stock` را می‌زد.
+- **Invariant:** مالکیت موجودی فروش‌پذیر یک‌بار است — یا cut-to-stock (PACK بدون سفارش باز) یا finalize سفارش. PACK با سفارش باز فقط WIP (`warehouseOnly` / event `cutting_pack`)؛ finalize تنها PRD-07 / WH-FG.
+- **رفع:** اتولینک وقتی دقیقاً یک سفارش باز برای کالا هست؛ چند سفارش → `E_PACK_PO_REQUIRED`؛ `cut_to_stock=true` برای رسید مستقیم آگاهانه؛ گارد finalize با `E_STANDALONE_PACK_FG`؛ بدون apparel فروش‌پذیر روی PACK پیوندی؛ UI/Help/journey هم‌تراز؛ تست `test-prod-pack-double-fg-v399`.
+- **فایل‌ها:** `lib/production/{cutting,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html,prod-journey-gate.js}`, `scripts/test-prod-pack-double-fg-v399.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ explore pack/finalize map؛ tap-erp-architecture؛ PROD-ACC F06/ADR-001.
+- **تست:** (پس از اجرا پر می‌شود)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حذف مرکز هزینه بدون خطای ۵۰۰ (SW v398)
 
 - **علائم:** در «حسابداری → مراکز هزینه» کلیک 🗑️ پیام «خطای داخلی سرور» می‌داد (HTTP 500).

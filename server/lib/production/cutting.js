@@ -206,13 +206,109 @@ function resolveOptionalOrder(db, orderId, productId) {
   if (orderId == null || orderId === '' || Number(orderId) === 0) return null;
   const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(Number(orderId));
   if (!po) throw httpErr(404, 'سفارش تولید یافت نشد', 'E_PACK_ORDER');
-  if (['cancelled', 'closed'].includes(String(po.status || ''))) {
+  if (['cancelled', 'closed', 'voided'].includes(String(po.status || ''))) {
     throw httpErr(409, 'سفارش تولید بسته یا لغو شده است', 'E_PACK_ORDER_STATUS');
   }
   if (productId && Number(po.product_id) !== Number(productId)) {
     throw httpErr(400, 'سفارش باید همان کالای لایه باشد', 'E_PACK_ORDER_PRODUCT');
   }
   return po;
+}
+
+/** Open make-to-order jobs for a FG product (not yet completed). */
+function findOpenProductionOrdersForProduct(db, productId) {
+  const pid = Number(productId);
+  if (!pid) return [];
+  return db.prepare(`
+    SELECT id, order_no, status, product_id
+    FROM production_orders
+    WHERE product_id=?
+      AND COALESCE(status,'') NOT IN ('cancelled','closed','completed','done','voided')
+    ORDER BY id DESC
+  `).all(pid);
+}
+
+/**
+ * F06 ownership: sellable FG is posted once — either by finalize (PO path) or by
+ * standalone cut-to-stock PACK. Never both for the same physical pieces.
+ *
+ * When the lay/body omits PO but exactly one open order exists for the product,
+ * auto-link. Multiple open orders → force an explicit choice. Explicit
+ * cut_to_stock=true keeps the legacy FG receipt even if open orders exist.
+ */
+function resolvePackProductionOrder(db, lay, body) {
+  const cutToStock = body && (body.cut_to_stock === true || body.cut_to_stock === 1
+    || String(body.cut_to_stock || '').toLowerCase() === 'true');
+  let po = resolveOptionalOrder(
+    db,
+    body && body.production_order_id != null ? body.production_order_id : lay.production_order_id,
+    lay.product_id
+  );
+  if (po) {
+    const st = String(po.status || '');
+    if (['completed', 'done'].includes(st)) {
+      throw httpErr(
+        409,
+        `سفارش ${po.order_no || po.id} قبلاً نهایی شده — رسید محصول از مسیر PACK برای آن مجاز نیست`,
+        'E_PACK_ORDER_FINALIZED',
+        { order_id: po.id, order_no: po.order_no }
+      );
+    }
+    return { po, cutToStock: false, autoLinked: false };
+  }
+  if (cutToStock) return { po: null, cutToStock: true, autoLinked: false };
+
+  const open = findOpenProductionOrdersForProduct(db, lay.product_id);
+  if (open.length === 1) {
+    po = resolveOptionalOrder(db, open[0].id, lay.product_id);
+    return { po, cutToStock: false, autoLinked: true };
+  }
+  if (open.length > 1) {
+    throw httpErr(
+      400,
+      'برای این کالا چند سفارش تولید باز است — شناسه سفارش را در لایه‌چینی/PACK مشخص کنید (یا cut_to_stock=true برای رسید مستقیم بدون سفارش)',
+      'E_PACK_PO_REQUIRED',
+      {
+        orders: open.map((o) => ({ id: o.id, order_no: o.order_no, status: o.status })),
+      }
+    );
+  }
+  return { po: null, cutToStock: true, autoLinked: false };
+}
+
+/**
+ * Block finalize when a standalone (sellable) cutting pack already credited FG
+ * for the same product — that path already ran PRD-07 / products.stock.
+ */
+function assertNoOrphanSellablePack(db, productId, orderId) {
+  const has = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  if (!has) return;
+  // Sellable cut-to-stock packs use event_type=production_receipt (not cutting_pack WIP).
+  const rows = db.prepare(`
+    SELECT p.id, p.pack_no, p.qty, p.production_order_id
+    FROM cutting_packs p
+    WHERE p.product_id=?
+      AND p.status='posted'
+      AND (p.production_order_id IS NULL OR p.production_order_id = 0
+           OR p.production_order_id != ?)
+      AND EXISTS (
+        SELECT 1 FROM inventory_ledger il
+        WHERE il.source_type='cutting_pack' AND il.source_id=p.id
+          AND il.status='posted'
+          AND COALESCE(il.event_type,'') = 'production_receipt'
+          AND COALESCE(il.qty_in,0) > 0
+      )
+  `).all(Number(productId), Number(orderId) || 0);
+  if (!rows.length) return;
+  const sample = rows.slice(0, 3).map((r) => r.pack_no || ('#' + r.id)).join('، ');
+  throw httpErr(
+    409,
+    `برای این کالا رسید برش فروش‌پذیر بدون پیوند سفارش ثبت شده (${sample}). اول آن رسید را ابطال کنید یا به همین سفارش پیوند دهید تا موجودی دوبار وارد نشود`,
+    'E_STANDALONE_PACK_FG',
+    { packs: rows.map((r) => ({ id: r.id, pack_no: r.pack_no, qty: r.qty })) }
+  );
 }
 
 function attachPacks(db, row) {
@@ -953,12 +1049,9 @@ function postCuttingPack(db, layId, body, user) {
   const live = postedPackForLay(db, lay.id);
   if (live) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
 
-  const po = resolveOptionalOrder(
-    db,
-    body.production_order_id != null ? body.production_order_id : lay.production_order_id,
-    lay.product_id
-  );
-  // F06: linked PO → cut-bundle (no WIP→FG JE); standalone → legacy FG receipt
+  const resolved = resolvePackProductionOrder(db, lay, body || {});
+  const po = resolved.po;
+  // F06: linked PO → cut-bundle (no WIP→FG JE); standalone cut-to-stock → FG receipt
   const postsFg = !po;
   const wh = requirePackWarehouse(db, body.warehouse_id, { linkedOrder: !!po });
   const breakdown = parseSizeBreakdown(lay.size_breakdown);
@@ -1080,7 +1173,9 @@ function postCuttingPack(db, layId, body, user) {
       db.prepare('UPDATE cutting_packs SET journal_id=?, ledger_id=? WHERE id=?')
         .run(journalId, led.id, id);
 
-      if (fgLines.length) {
+      // Linked PO: do NOT credit sellable variant stock here — finalize posts apparel once.
+      // Bundles still keep variant_id for barcode / later FG receipt.
+      if (fgLines.length && postsFg) {
         apparel.postApparelLines(db, {
           productId: lay.product_id, warehouseId: wh.id, lines: fgLines,
           docType: 'cutting_pack', docId: id, userId: user.id,
@@ -1193,4 +1288,7 @@ module.exports = {
   isRawWarehouseRow,
   requirePackWarehouse,
   isWipWarehouseRow,
+  findOpenProductionOrdersForProduct,
+  resolvePackProductionOrder,
+  assertNoOrphanSellablePack,
 };
