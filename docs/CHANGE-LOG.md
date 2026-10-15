@@ -8,8 +8,9 @@
 - **UI:** دکمه «از رسید انبار بدون فاکتور (GRNI)» در فاکتور خرید؛ تأمین‌کننده اختیاری روی رسید GRNI؛ Help.
 - **فایل‌ها:** `lib/warehouse-grni-invoice.js`, `lib/warehouse-docs.js`, `routes/{procurement,purchases}.js`, `db.js`, `lib/{qa-gaps-schema,inventory/schema,accounting-access}.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-warehouse-grni-invoice-v400.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ ERPNext Purchase Receipt→Invoice (Update Stock OFF)؛ Odoo GRNI; tap-erp-architecture؛ explore schema/JE map.
-- **تست:** (پس از deploy ایران)
-- **Deploy:** ⏳
+- **تست:** ایران `test-warehouse-grni-invoice-v400` ۲۰/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **پیگیری:** `reverseInventoryMovement` برای ردیف‌های value-only (qty=۰) دیگر `E_INV_QTY_ZERO` نمی‌دهد — لازم برای ابطال تعدیل بهای GRNI/landed-cost.
+- **Deploy:** ✅ `8682e4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v400`؛ `app.js?v=400`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حذف ورود دوبل موجودی PACK + نهایی‌سازی تولید (SW v399)
 
