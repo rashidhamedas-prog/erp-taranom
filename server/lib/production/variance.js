@@ -2,7 +2,7 @@
 /**
  * Production Module 3 — material variance helpers (ADR-011: memo only, no JE).
  */
-const { explodeBom } = require('./bom');
+const { explodeBom, explodeProductScopeForOrder } = require('./bom');
 const { setting } = require('./costing');
 const { err } = require('./posting');
 
@@ -247,6 +247,7 @@ function standardMapFromBom(db, po, qtyStarted) {
     qty: qtyStarted,
     sizeBreakdown,
     priceBasis: 'std',
+    forProductId: explodeProductScopeForOrder(db, po),
   });
   const std = {};
   for (const L of ex.lines) {

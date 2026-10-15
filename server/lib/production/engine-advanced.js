@@ -5,7 +5,7 @@
 const { allocateNumber, audit } = require('../../db');
 const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
-const { explodeBom } = require('./bom');
+const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder } = require('./bom');
 const { backwardQty, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
@@ -198,7 +198,7 @@ function reserveMaterials(db, po, qtyStart) {
     color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
-    forProductId: po.product_id,
+    forProductId: explodeProductScopeForOrder(db, po),
   });
   for (const L of ex.lines) {
     db.prepare(`
@@ -249,7 +249,8 @@ function applyStageOverhead(db, {
 }
 
 function orderQtyStart(db, po) {
-  return backwardQty(db, po.bom_id, po.qty_planned).qty_start;
+  const qtyMain = explodeQtyForOrder(db, po);
+  return backwardQty(db, po.bom_id, qtyMain).qty_start;
 }
 
 /**
@@ -293,7 +294,7 @@ function explodedOrderLines(db, po) {
     color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
-    forProductId: po.product_id,
+    forProductId: explodeProductScopeForOrder(db, po),
   });
   return ex.lines || [];
 }
@@ -892,7 +893,7 @@ function releaseAdvancedOrder(db, orderId, userId) {
     `).all(po.bom_id);
     if (!ops.length) throw err('E_ROUTING_EMPTY', 422);
 
-    const { qty_start: qtyStart } = backwardQty(db, po.bom_id, po.qty_planned);
+    const { qty_start: qtyStart } = backwardQty(db, po.bom_id, explodeQtyForOrder(db, po));
 
     let qtyIn = qtyStart;
     const ins = db.prepare(`
@@ -984,7 +985,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const wipFinal = Math.round(num(last.cost_out_rial));
 
     const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
-    const qtyStart = backwardQty(db, po.bom_id, po.qty_planned).qty_start;
+    const qtyStart = backwardQty(db, po.bom_id, explodeQtyForOrder(db, po)).qty_start;
     const outs = db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(po.bom_id);
 
     let byCredit = 0;
@@ -1033,14 +1034,28 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const qtyGood = num(body.qty_produced != null ? body.qty_produced : last.qty_out);
     if (qtyGood <= 0) throw err('E_QTY_INVALID', 422);
 
+    // v420: override تعداد main/co از body.outputs[{product_id,qty}]
+    const qtyByProduct = {};
+    if (Array.isArray(body.outputs)) {
+      for (const row of body.outputs) {
+        const pid = Number(row?.product_id);
+        if (!pid) continue;
+        if (row.qty == null && row.qty_produced == null) continue;
+        qtyByProduct[pid] = num(row.qty != null ? row.qty : row.qty_produced);
+      }
+    }
+    const mainOverride = qtyByProduct[Number(po.product_id)];
+    const qtyGoodFinal = mainOverride != null ? mainOverride : qtyGood;
+    if (qtyGoodFinal <= 0) throw err('E_QTY_INVALID', 422);
+
     // Matrix FG must name color×size. Prefer body; else production_order_lines
     // when plan qty matches output; else legacy color+size_breakdown.
-    const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGood);
+    const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGoodFinal);
     // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
     // for this product — that would double products.stock / WH-FG.
     require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
     // Roll-fabric apparel: lay + PACK must cover FG qty before sellable receipt.
-    assertFabricCuttingPathForFgReceipt(db, po, qtyGood);
+    assertFabricCuttingPathForFgReceipt(db, po, qtyGoodFinal);
 
     // v418: تسهیم WIP بین main+co (و exclusive در roll-up تحلیلی؛ JE روی سهم خروجی)
     let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
@@ -1056,6 +1071,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     }
 
     // Analytical exclusive pull (same as rollUp) so JE matches cost tab when possible
+    // Joint multiproduct run: explode without forProductId (all shared+exclusive)
     let exclusiveByProduct = {};
     let exclusiveTotal = 0;
     try {
@@ -1063,6 +1079,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         bomId: po.bom_id, qty: qtyStart, priceBasis: 'average',
         yieldOverride: bom?.has_routing ? 100 : null,
         sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
+        forProductId: explodeProductScopeForOrder(db, po),
       });
       for (const L of exAll.lines || []) {
         if (String(L.product_scope || 'shared') !== 'exclusive' || !L.scoped_product_id) continue;
@@ -1077,14 +1094,26 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
 
     const allocations = shareOuts.map(o => {
       const isMain = o.output_type === 'main' || Number(o.product_id) === Number(po.product_id);
-      const q = isMain
-        ? qtyGood
-        : round6(num(o.qty_per_base) * qtyStart / (bom.base_qty || 1));
-      const excl = Math.round(exclusiveByProduct[Number(o.product_id)] || 0);
+      const pid = Number(o.product_id);
+      let q;
+      if (qtyByProduct[pid] != null) {
+        q = qtyByProduct[pid];
+      } else if (isMain) {
+        q = qtyGoodFinal;
+      } else {
+        q = round6(num(o.qty_per_base) * qtyStart / (bom.base_qty || 1));
+      }
+      if (!(q > 0) && shareOuts.length > 1) {
+        throw err('E_QTY_INVALID', 422, {
+          product_id: pid,
+          detail: 'تعداد رسید هم‌محصول باید مثبت باشد',
+        });
+      }
+      const excl = Math.round(exclusiveByProduct[pid] || 0);
       const pct = shareOuts.length === 1 ? 100 : (Number(o.cost_share_percent) || 0);
       const sharedPart = Math.round(sharedPool * pct / 100);
       return {
-        product_id: Number(o.product_id),
+        product_id: pid,
         output_type: isMain ? 'main' : 'co',
         qty: q,
         exclusive_rial: excl,
@@ -1175,8 +1204,15 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       unitCost = Math.round(mainAlloc.amount_rial / mainAlloc.qty);
     }
 
+    const orderAlloc = allocations.find(a => Number(a.product_id) === Number(po.product_id))
+      || mainAlloc;
+    const qtyProducedOrder = orderAlloc && orderAlloc.qty > 0 ? orderAlloc.qty : qtyGoodFinal;
+    const unitCostOrder = orderAlloc && orderAlloc.qty > 0
+      ? Math.round(orderAlloc.amount_rial / orderAlloc.qty)
+      : unitCost;
+
     relieveStagedPackQty(db, {
-      orderId, productId: po.product_id, qtyGood, userId, date, receiptId: primaryReceiptId,
+      orderId, productId: po.product_id, qtyGood: qtyProducedOrder, userId, date, receiptId: primaryReceiptId,
     });
 
     db.prepare(`
@@ -1190,7 +1226,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         period_label = ?,
         updated_at = strftime('%s','now')
       WHERE id=?
-    `).run(qtyGood, byCredit, wipNet, unitCost, date, period, orderId);
+    `).run(qtyProducedOrder, byCredit, wipNet, unitCostOrder, date, period, orderId);
 
     db.prepare(`
       UPDATE production_reservations SET status='consumed', qty_consumed=qty
@@ -1198,11 +1234,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     `).run(orderId);
 
     const residual = wipResidual(db, orderId);
-    emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCost, wipNet, receipts });
+    emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCostOrder, wipNet, receipts });
 
     try {
       const { applyPricingFromCost } = require('../../routes/pricing-rules');
-      applyPricingFromCost(db, po.product_id, unitCost);
+      applyPricingFromCost(db, po.product_id, unitCostOrder);
       for (const r of receipts) {
         if (Number(r.product_id) === Number(po.product_id)) continue;
         if (r.unit_cost_rial > 0) applyPricingFromCost(db, r.product_id, r.unit_cost_rial);
@@ -1213,11 +1249,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       ok: true,
       receipt_id: primaryReceiptId,
       receipts,
-      qty_produced: qtyGood,
+      qty_produced: qtyProducedOrder,
       byproduct_credit_rial: byCredit,
       wip_final_rial: wipFinal,
       amount_rial: wipNet,
-      unit_cost_rial: unitCost,
+      unit_cost_rial: unitCostOrder,
       journal_entries: jes,
       wip_residual_rial: residual,
     };

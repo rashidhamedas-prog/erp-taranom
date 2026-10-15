@@ -250,6 +250,7 @@ async function api(method, path, data, isFormData, silent){
         E_FORBIDDEN_CC:'دسترسی به این مرکز هزینه ندارید',
         E_BAD_SHARE_METHOD:'روش تسهیم نامعتبر است (فقط sales_value یا physical)',
         E_SHARE_NOT_100:'جمع سهم هزینهٔ خروجی‌های اصلی/هم‌محصول باید دقیقاً ۱۰۰٪ باشد',
+        E_BOM_PRODUCT_MISMATCH:'محصول سفارش در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست',
         E_NO_MAIN_OUTPUT:'خروجی اصلی (main) تعریف نشده یا ناقص است',
         E_MAIN_MISMATCH:'کالای خروجی اصلی با محصول سرفصل فرمول یکی نیست',
         E_SEQ_DUPLICATE:'ترتیب (seq) عملیات تکراری است',
@@ -17497,10 +17498,15 @@ async function prodOrderCreateModal(){
     if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
     await ensureWarehouses();
     let boms=[], ccs=[];
-    try{ boms=(await api('GET','/production/boms?status=active'))?.rows||[]; }catch(e){ boms=[]; }
+    try{ boms=(await api('GET','/production/boms?status=active&limit=100'))?.rows||[]; }catch(e){ boms=[]; }
     try{ ccs=(await api('GET','/production/cost-centers'))?.rows||[]; }catch(e){ ccs=[]; }
+    const activeBomIds=new Set((boms||[]).map(b=>Number(b.id)));
     const activeBomProductIds=new Set((boms||[]).filter(b=>b.status==='active'||!b.status).map(b=>Number(b.product_id)));
     const all=CACHE.allProducts||[];
+    // v420: هم‌محصول با default_bom_id به فرمول فعال هم در لیست ساختنی‌ها
+    all.forEach(p=>{
+      if(p.default_bom_id && activeBomIds.has(Number(p.default_bom_id))) activeBomProductIds.add(Number(p.id));
+    });
     let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
     if(!mfg.length) mfg=all.slice(0,200);
     const wh=(CACHE.warehouses||[]).filter(w=>w.active!==0);
@@ -17531,6 +17537,7 @@ async function prodOrderCreateModal(){
           <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
+        <div class="fg full" id="po-fg-plan" hidden></div>
         <div class="fg full" id="po-variant-panel" hidden></div>
       </div>
       <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
@@ -17538,18 +17545,71 @@ async function prodOrderCreateModal(){
         <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateSave()})}" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
       </div>`);
     el('po-product')?.addEventListener('change', prodOrderFilterBoms);
+    el('po-bom')?.addEventListener('change', ()=>{ prodOrderRefreshFgPlan(); prodOrderLoadVariantPanel(+el('po-product')?.value||0); });
+    el('po-qty')?.addEventListener('input', prodOrderRefreshFgPlan);
     prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
   }
 }
-function prodOrderFilterBoms(){
+async function prodOrderFilterBoms(){
   const pid=+el('po-product')?.value;
   const sel=el('po-bom'); if(!sel) return;
-  const boms=(window._prodCreateBoms||[]).filter(b=>!pid||Number(b.product_id)===pid);
+  let boms=[];
+  if(pid){
+    try{
+      boms=(await api('GET','/production/boms?status=active&for_product_id='+pid+'&limit=100'))?.rows||[];
+    }catch(_){
+      boms=(window._prodCreateBoms||[]).filter(b=>Number(b.product_id)===pid);
+    }
+  }else{
+    boms=window._prodCreateBoms||[];
+  }
   sel.innerHTML='<option value="">— خودکار (پیش‌فرض فعال) —</option>'+
-    boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}</option>`).join('');
+    boms.map(b=>{
+      const multi=Number(b.has_coproducts)===1?' · چندمحصولی':'';
+      const head=Number(b.product_id)===pid?'':` (سرفصل #${b.product_id})`;
+      return `<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}${multi}${head}</option>`;
+    }).join('');
+  await prodOrderRefreshFgPlan();
   prodOrderLoadVariantPanel(pid);
+}
+async function prodOrderRefreshFgPlan(){
+  const box=el('po-fg-plan'); if(!box) return;
+  const bomId=+el('po-bom')?.value||prodOrderEffectiveBomId();
+  const qty=+el('po-qty')?.value||0;
+  const orderPid=+el('po-product')?.value||0;
+  if(!bomId){ box.innerHTML=''; box.hidden=true; return; }
+  let bom=null;
+  try{ bom=await api('GET','/production/boms/'+bomId); }catch(_){ box.hidden=true; return; }
+  const multi=!!(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1);
+  if(!multi){ box.innerHTML=''; box.hidden=true; return; }
+  const an=el('po-analysis');
+  if(an && !['fixed_adv','variable_adv'].includes(an.value)){
+    an.value=an.value==='variable'?'variable_adv':'fixed_adv';
+  }
+  const base=Number(bom.base_qty)||1;
+  const outs=(bom.outputs||[]).filter(o=>['main','co'].includes(o.output_type));
+  const rows=outs.length?outs:[{product_id:bom.product_id,output_type:'main',qty_per_base:1,product_name:bom.product_name,cost_share_percent:100}];
+  const orderOut=rows.find(o=>Number(o.product_id)===orderPid);
+  const orderIsMain=!orderOut||orderOut.output_type==='main'||Number(orderPid)===Number(bom.product_id);
+  let qtyMain=qty;
+  if(!orderIsMain){
+    const qpb=Number(orderOut.qty_per_base)||1;
+    qtyMain=qpb>0?Math.round((qty*base/qpb)*1000)/1000:qty;
+  }
+  box.hidden=false;
+  box.innerHTML=`<label>برنامه محصولات این اجرای مشترک ${hlp('سفارش چندمحصولی = یک اجرای کارگاه: مواد مشترک + اختصاصی همهٔ محصولات حواله می‌شود. تعداد برنامه = مقدار محصول انتخاب‌شده؛ بقیه از نسبت فرمول (معادل سرفصل) محاسبه می‌شوند و در نهایی‌سازی قابل اصلاح‌اند.')}</label>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>نقش</th><th>محصول</th><th>تعداد برنامه‌ای</th><th>سهم٪</th></tr></thead>
+    <tbody>${rows.map(o=>{
+      const isMain=o.output_type==='main'||Number(o.product_id)===Number(bom.product_id);
+      const isOrder=Number(o.product_id)===orderPid;
+      let q=isMain?qtyMain:Math.round(((Number(o.qty_per_base)||1)*qtyMain/base)*1000)/1000;
+      if(isOrder) q=qty;
+      const nm=o.product_name||o.name||('#'+o.product_id);
+      return `<tr><td>${isMain?'اصلی':'هم‌محصول'}${isOrder?' ★':''}</td><td>${esc(nm)}</td><td class="num">${toFa(q)}</td><td class="num">${toFa(Number(o.cost_share_percent)||0)}</td></tr>`;
+    }).join('')}</tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px`)}">آنالیز خودکار روی مسیر پیشرفته قفل می‌شود تا رسید هم‌محصول در نهایی‌سازی ثبت شود.</p>`;
 }
 /* ---- PA-11: color×size order matrix (production_order_lines) ------------- */
 /** Active SKUs only — a cell with no active variant is not orderable. */
@@ -18382,13 +18442,41 @@ function prodOrderFinalizeLinesFromPref(pref){
     .map(([vid,qty])=>({variant_id:Number(vid), qty:Number(qty)||0}))
     .filter(l=>l.variant_id && l.qty>0);
 }
-async function prodOrderFinalizePost(orderId, qtyGood, variant_lines){
+async function prodOrderFinalizePost(orderId, qtyGood, variant_lines, outputs){
   const body={qty_produced:qtyGood};
   if(variant_lines&&variant_lines.length) body.variant_lines=variant_lines;
+  if(outputs&&outputs.length) body.outputs=outputs;
   const r=await api('POST','/production/execution/orders/'+orderId+'/finalize', body);
   closeModal();
-  showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال');
+  const nRec=(r.receipts||[]).length;
+  showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال'+(nRec>1?' · '+toFa(nRec)+' رسید FG':''));
   loadAccTab('production-orders');
+}
+function prodOrderFinalizeOutputsFromDom(order){
+  const plan=order.fg_plan||[];
+  if(!(order.is_multiproduct||plan.length>1)) return null;
+  const inputs=[...document.querySelectorAll('.pf-out-qty')];
+  if(!inputs.length){
+    return plan.map(p=>({product_id:Number(p.product_id), qty:Number(p.qty_planned)||0})).filter(o=>o.qty>0);
+  }
+  return inputs.map(inp=>({
+    product_id:+inp.getAttribute('data-pid'),
+    qty:+inp.value||0
+  })).filter(o=>o.product_id&&o.qty>0);
+}
+function prodOrderFinalizeFgBlock(order, qtyGood){
+  const plan=order.fg_plan||[];
+  if(!(order.is_multiproduct||plan.length>1)) return '';
+  return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><label>رسید محصولات (اصلی + هم‌محصول)</label>
+    <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>نقش</th><th>محصول</th><th>تعداد رسید</th><th>سهم٪</th></tr></thead>
+    <tbody>${plan.map(p=>{
+      const isMain=p.role==='main'||p.output_type==='main'||Number(p.product_id)===Number(order.product_id);
+      const defQ=isMain?qtyGood:(Number(p.qty_planned)||0);
+      return `<tr><td>${isMain?'اصلی':'هم‌محصول'}</td><td>${esc(p.product_name||('#'+p.product_id))}</td>
+        <td><input class="pf-out-qty num-fit" data-pid="${p.product_id}" type="number" min="0" step="any" value="${defQ}"></td>
+        <td class="num">${toFa(Number(p.cost_share_percent)||0)}</td></tr>`;
+    }).join('')}</tbody></table>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">تعداد اصلی پیش‌فرض = خروجی آخرین مرحله؛ هم‌محصول از نسبت فرمول. هر دو قابل اصلاح‌اند.</p></div>`;
 }
 async function prodOrderFinalize(orderId){
   let order=null, stages=[];
@@ -18401,6 +18489,9 @@ async function prodOrderFinalize(orderId){
   const qtyGood=+last?.qty_out||0;
   if(!(qtyGood>0)){ showToast('خروجی آخرین مرحله صفر است','error'); return; }
 
+  const fgBlock=prodOrderFinalizeFgBlock(order, qtyGood);
+  const multi=!!(order.is_multiproduct||(order.fg_plan||[]).length>1);
+
   let variants=[];
   try{
     const raw=await api('GET','/product-variants?product_id='+order.product_id+'&include_default=0');
@@ -18411,8 +18502,18 @@ async function prodOrderFinalize(orderId){
   // Non-matrix, or matrix plan on server but variant list failed to load:
   // POST without variant_lines → resolveFinalizeApparelLines uses production_order_lines.
   if(!variants.length){
+    if(multi){
+      showModal('نهایی‌سازی — '+esc(order.order_no||''),`
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">خروجی آخرین مرحله (محصول سفارش): <b>${toFa(qtyGood)}</b></p>
+        ${fgBlock}
+        <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
+          <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal();prodOrderStagesModal((orderId))})}">بازگشت</button>
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderFinalizeSave((orderId),(qtyGood))})}">✅ ثبت رسید و نهایی‌سازی</button>
+        </div>`);
+      return;
+    }
     if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
-    try{ await prodOrderFinalizePost(orderId, qtyGood, null); }
+    try{ await prodOrderFinalizePost(orderId, qtyGood, null, prodOrderFinalizeOutputsFromDom(order)); }
     catch(e){ /* toast از api */ }
     return;
   }
@@ -18423,7 +18524,8 @@ async function prodOrderFinalize(orderId){
 
   // Plan already equals final output — same as backend resolveFinalizeApparelLines.
   // Do not force an empty matrix modal (PO-0006 class of bug).
-  if(planMatches){
+  // Multiproduct: still show modal so co qtys can be confirmed/edited.
+  if(planMatches && !multi){
     const lines=prodOrderFinalizeLinesFromPref(pref);
     const summary=lines.length<=6
       ? '\n'+lines.map(l=>{
@@ -18432,24 +18534,25 @@ async function prodOrderFinalize(orderId){
         }).join('\n')
       : '\n('+toFa(lines.length)+' ترکیب رنگ×سایز از برنامه سفارش)';
     if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟'+summary)) return;
-    try{ await prodOrderFinalizePost(orderId, qtyGood, lines); }
+    try{ await prodOrderFinalizePost(orderId, qtyGood, lines, null); }
     catch(e){ /* toast از api */ }
     return;
   }
   // Order has plan rows but prefill could not map them — still try server auto-plan.
-  if(hasOrderPlan && planSum<=0){
+  if(hasOrderPlan && planSum<=0 && !multi){
     if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟\n(برنامه رنگ×سایز از سرور)')) return;
-    try{ await prodOrderFinalizePost(orderId, qtyGood, null); }
+    try{ await prodOrderFinalizePost(orderId, qtyGood, null, null); }
     catch(e){ /* toast از api */ }
     return;
   }
 
   const mismatch=planSum>0 && Math.abs(planSum-qtyGood)>0.001;
-  const varBlock=`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع ردیف‌ها باید با خروجی نهایی (${toFa(qtyGood)}) برابر باشد.${mismatch?' برنامه سفارش '+toFa(planSum)+' با خروجی فرق دارد — تعداد واقعی را اصلاح کنید.':planSum?'':' برنامه رنگ×سایز روی سفارش خالی است — تعداد واقعی هر ترکیب را وارد کنید.'}</p></div>`;
+  const varBlock=variants.length?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" type="number" min="0" value="${pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع ردیف‌ها باید با خروجی نهایی (${toFa(qtyGood)}) برابر باشد.${mismatch?' برنامه سفارش '+toFa(planSum)+' با خروجی فرق دارد — تعداد واقعی را اصلاح کنید.':planSum?'':' برنامه رنگ×سایز روی سفارش خالی است — تعداد واقعی هر ترکیب را وارد کنید.'}</p></div>`:'';
 
   showModal('نهایی‌سازی — '+esc(order.order_no||''),`
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">خروجی آخرین مرحله: <b>${toFa(qtyGood)}</b> — برای کالای رنگ×سایز تعداد هر ترکیب را مشخص کنید تا موجودی فروش‌پذیر درست ثبت شود.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">خروجی آخرین مرحله: <b>${toFa(qtyGood)}</b>${variants.length?' — برای کالای رنگ×سایز تعداد هر ترکیب را مشخص کنید تا موجودی فروش‌پذیر درست ثبت شود.':''}</p>
+    ${fgBlock}
     ${varBlock}
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal();prodOrderStagesModal((orderId))})}">بازگشت</button>
@@ -18457,17 +18560,38 @@ async function prodOrderFinalize(orderId){
     </div>`);
 }
 async function prodOrderFinalizeSave(orderId, qtyGood){
-  const qty=+qtyGood||0;
+  let qty=+qtyGood||0;
+  const mainOut=document.querySelector('.pf-out-qty');
+  // اگر تعداد اصلی در جدول هم‌محصول عوض شده باشد همان مبناست
+  const outInputs=[...document.querySelectorAll('.pf-out-qty')];
+  if(outInputs.length){
+    // محصول سفارش = اولین ردیف اصلی یا همان qtyGood؛ مقدار اصلی از input با data-pid سفارش
+    // (در save به order دسترسی نداریم — از بزرگ‌ترین/اولین با نقش اصلی از مقدار پیش‌فرض)
+  }
+  const outputs=outInputs.length?outInputs.map(inp=>({
+    product_id:+inp.getAttribute('data-pid'), qty:+inp.value||0
+  })).filter(o=>o.product_id&&o.qty>0):null;
+  if(outputs&&outputs.length){
+    // qty_produced = مقدار محصول اصلی اگر در outputs باشد، وگرنه qtyGood
+    // تشخیص اصلی: معمولاً اولین ردیف یا همان مقدار پیش‌فرض؛ سرور با product_id سفارش sync می‌کند
+    const mainInp=outInputs.find(inp=>{
+      const tr=inp.closest('tr');
+      return tr&&/اصلی/.test(tr.textContent||'');
+    })||outInputs[0];
+    if(mainInp) qty=+mainInp.value||qty;
+    if(!(qty>0)){ showToast('تعداد محصول اصلی باید مثبت باشد','error'); return; }
+    if(outputs.some(o=>!(o.qty>0))){ showToast('تعداد همهٔ محصولات رسید باید مثبت باشد','error'); return; }
+  }
   const variant_lines=[...document.querySelectorAll('.pf-vqty')].map(inp=>({
     variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
   })).filter(l=>l.qty>0);
   if(document.querySelector('.pf-vqty')){
     if(!variant_lines.length){ showToast('برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید','error'); return; }
     const sum=variant_lines.reduce((a,l)=>a+l.qty,0);
-    if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با خروجی نهایی برابر باشد','error'); return; }
+    if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با تعداد محصول اصلی برابر باشد','error'); return; }
   }
   if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
-  try{ await prodOrderFinalizePost(orderId, qty, variant_lines); }
+  try{ await prodOrderFinalizePost(orderId, qty, variant_lines.length?variant_lines:null, outputs); }
   catch(e){ /* toast از api */ }
 }
 
@@ -29899,7 +30023,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد (یا فرمول ساعتی/ماهانه)، سند PRD-03 بدهکار WIP و بستانکار حساب شخص است، و شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. بدون شخص، بستانکار همان کنترل دستمزد ۵۲۰۱ می‌ماند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v418):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌ها را هم می‌چسباند.</li>
-        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). حوالهٔ سفارش فقط اقلام مشترک + اختصاصی همان محصول سفارش را برمی‌دارد. در بهای تمام‌شده و رسید نهایی، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم و برای هر هم‌محصول رسید FG + سند حسابداری (PRD-07) ثبت می‌شود.</li>
+        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود.</li>
+        <li><b>سفارش چندمحصولی — اجرای مشترک (v420):</b> اگر فرمول هم‌محصول دارد، سفارش روی هر یک از محصولات (سرفصل یا co) ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات و نسبت هم‌محصول دیده می‌شود. در نهایی‌سازی می‌توانید تعداد رسید اصلی و هر هم‌محصول را اصلاح کنید؛ برای هر محصول رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>

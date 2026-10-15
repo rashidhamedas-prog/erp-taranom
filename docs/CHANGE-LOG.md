@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — سفارش تولید چندمحصولی: اجرای مشترک + برنامه FG (SW v420)
+- **هدف:** همان مدل چندمحصولی BOM (v418) روی سفارش تولید دقیق اعمال شود: انتخاب فرمول از سرفصل یا هم‌محصول، مسیر پیشرفته اجباری، مواد/رزرو/انحراف = اجرای مشترک (همه shared+exclusive)، برنامه main/co، نهایی‌سازی با اصلاح تعداد هر FG.
+- **بک‌اند:** `resolveBom` از `default_bom_id` / `bom_outputs`؛ `assertProductInBomFg`؛ `isMultiproductBom`؛ `explodeProductScopeForOrder` (multi→null)؛ `explodeQtyForOrder` / `orderQtyAsMainBase` (سفارش روی co → مقیاس سرفصل)؛ `planBomFgOutputs`؛ `listBoms(for_product_id)`؛ `createOrder` force `*_adv`؛ `getOrderDetail.fg_plan`؛ `finalizeAdvancedOrder` بدنهٔ `outputs[{product_id,qty}]`.
+- **UI/Help:** فرم سفارش — BOM با `for_product_id`، جدول برنامه FG، قفل آنالیز پیشرفته؛ نهایی‌سازی — ورودی تعداد main/co؛ راهنمای داخل برنامه؛ SW `erp-taranom-v420`.
+- **فایل‌ها:** `lib/production/{bom,engine,engine-advanced,variance}.js`, `routes/production-boms.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bom-order-multiproduct-v420.js`, CHANGE-LOG.
+- **Non-goals:** چند سفارش جدا per FG؛ حذف فیزیکی؛ بیلد APK/EXE.
+- **تست:** ایران `test-bom-order-multiproduct-v420` + `test-sms` / `test-sync`؛ parse `app.js` OK.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — BOM دستمزد عملیات → حساب شخص + شرح سند (SW v419)
 - **مشکل:** در مسیر BOM فیلد شخص و نرخ دستمزد ذخیره می‌شد و `production_labor_entries.person_id` پر می‌شد، ولی سند PRD-03 همیشه `Dr WIP / Cr 5201` می‌زد؛ حساب شخص بستانکار نمی‌شد و شرح سند فقط «جذب دستمزد — شماره سفارش» بود.
 - **رفع:** `absorbLaborJournal` — اگر `person_id` باشد: `Cr` برگ حساب شخص (`resolvePersonPayableAccount`) + ردیف `person_ledger` با `ref_type=production_labor`؛ بدون شخص همان `5201`. شرح کوتاه: عملیات — محصول — تعداد — روش — شخص — سفارش — مبلغ. ابطال مرحله/سفارش `person_ledger` را retire می‌کند (R13).

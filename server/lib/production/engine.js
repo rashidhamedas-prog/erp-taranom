@@ -6,7 +6,11 @@ const { allocateNumber, audit } = require('../../db');
 const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
 const { acct } = require('../coa-map');
-const { explodeBom, resolveBom } = require('./bom');
+const {
+  explodeBom, resolveBom, isMultiproductBom, assertProductInBomFg,
+  explodeProductScopeForOrder, planBomFgOutputs, orderQtyAsMainBase,
+  explodeQtyForOrder,
+} = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
@@ -232,9 +236,14 @@ function createOrder(db, body, userId) {
     'SELECT COUNT(*) AS c FROM bom_operations WHERE bom_id=?'
   ).get(bom.id)?.c || 0;
   const hasRouting = !!(bom.has_routing || opCount > 0);
-  if (hasRouting && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
+  const multiBom = isMultiproductBom(db, bom);
+  // چندمحصولی: فقط مسیر پیشرفته (تسهیم رسید main/co در finalize)
+  if (multiBom && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
+    analysisType = analysisType === 'variable' ? 'variable_adv' : 'fixed_adv';
+  } else if (hasRouting && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
     analysisType = analysisType === 'variable' ? 'variable_adv' : 'fixed_adv';
   }
+  assertProductInBomFg(db, bom, productId);
 
   const whRaw = body.warehouse_raw_id || whSetting(db, 'production_wh_raw_id');
   const whFg = body.warehouse_fg_id || whSetting(db, 'production_wh_fg_id');
@@ -288,11 +297,18 @@ function createOrder(db, body, userId) {
   }
   if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
 
+  // مقیاس مواد: برای سفارش روی هم‌محصول، qty را به معادل سرفصل تبدیل کن
+  const qtyExplode = multiBom
+    ? orderQtyAsMainBase(db, bom.id, qtyPlanned, productId)
+    : qtyPlanned;
+
   let stdMat = 0, stdLab = 0, stdOh = 0;
   try {
     const ex = explodeBom(db, {
-      bomId: bom.id, qty: qtyPlanned, priceBasis: 'std',
+      bomId: bom.id, qty: qtyExplode, priceBasis: 'std',
       sizeBreakdown: sizeBdObj, color,
+      // چندمحصولی = بهای استاندارد کل اجرای مشترک؛ تک = فقط قلم‌های همان محصول
+      forProductId: multiBom ? null : productId,
     });
     stdMat = ex.totals.total_rial;
   } catch { /* ignore */ }
@@ -418,11 +434,11 @@ function releaseOrder(db, orderId, userId) {
 
     const ex = explodeBom(db, {
       bomId: po.bom_id,
-      qty: po.qty_planned,
+      qty: explodeQtyForOrder(db, po),
       sizeBreakdown: safeJson(po.size_breakdown),
       color: po.color,
       priceBasis: 'average',
-      forProductId: po.product_id,
+      forProductId: explodeProductScopeForOrder(db, po),
     });
 
     for (const L of ex.lines) {
@@ -618,6 +634,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       sizeBreakdown: safeJson(po.size_breakdown),
       color: po.color,
       priceBasis: 'average',
+      forProductId: explodeProductScopeForOrder(db, po),
     });
 
     let matRial = 0, pkgRial = 0;
@@ -1078,6 +1095,7 @@ function previewReceiptFixed(db, { orderId, body }) {
     sizeBreakdown: safeJson(po.size_breakdown),
     color: po.color,
     priceBasis: 'average',
+    forProductId: explodeProductScopeForOrder(db, po),
   });
 
   let matRial = 0, pkgRial = 0;
@@ -1296,13 +1314,14 @@ function reverseOrder(db, orderId, userId, reason = '') {
 
 function issueTemplate(db, { orderId, qtyStarted }) {
   const po = getOrder(db, orderId);
-  const qty = num(qtyStarted) || num(po.qty_planned);
+  const qty = explodeQtyForOrder(db, po, qtyStarted != null ? num(qtyStarted) : null);
   const ex = explodeBom(db, {
     bomId: po.bom_id,
     qty,
     sizeBreakdown: safeJson(po.size_breakdown),
     color: po.color,
     priceBasis: 'std',
+    forProductId: explodeProductScopeForOrder(db, po),
   });
   const whId = po.warehouse_raw_id || null;
   return {
@@ -2054,9 +2073,15 @@ function listOrders(db, { status, productId, period, page = 1, limit = 50, inclu
 
 function getOrderDetail(db, orderId) {
   const po = getOrder(db, orderId);
+  const multi = !!(po.bom_id && isMultiproductBom(db, po.bom_id));
+  const fg_plan = po.bom_id
+    ? planBomFgOutputs(db, po.bom_id, po.qty_planned, po.product_id)
+    : [];
   return {
     ...po,
     ...fabricCuttingGateInfo(db, po),
+    is_multiproduct: multi,
+    fg_plan,
     issues: db.prepare('SELECT * FROM production_material_issues WHERE order_id=?').all(orderId),
     labor: db.prepare('SELECT * FROM production_labor_entries WHERE order_id=?').all(orderId),
     overhead: db.prepare('SELECT * FROM production_overhead_applications WHERE order_id=?').all(orderId),
@@ -2236,6 +2261,7 @@ function updateOrder(db, orderId, body = {}) {
       stdMat = explodeBom(db, {
         bomId: po.bom_id, qty: qtyPlanned, priceBasis: 'std',
         sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
+        forProductId: explodeProductScopeForOrder(db, po),
       }).totals.total_rial;
     } catch { /* keep 0 — same best-effort contract as createOrder */ }
     fields.push('qty_planned=?', 'std_material_rial=?', 'std_total_rial=?', 'std_unit_rial=?');

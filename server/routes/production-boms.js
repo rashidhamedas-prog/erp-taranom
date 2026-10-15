@@ -64,6 +64,8 @@ function bomFaError(e) {
 router.get('/', auth, requirePermission('production_bom', 'view'), (req, res) => {
   handle(res, () => bom.listBoms(getDB(), {
     product_id: req.query.product_id,
+    for_product_id: req.query.for_product_id,
+    include_co: req.query.include_co,
     status: req.query.status,
     bom_type: req.query.bom_type,
     search: req.query.q,

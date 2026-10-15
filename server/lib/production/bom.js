@@ -241,11 +241,122 @@ function tombstoneBomUniqueKeys(db, bomId, code) {
   `).run(tombVer, tombCode, bomId);
 }
 
+function assertProductInBomFg(db, bom, productId) {
+  const ids = bomFgProductIds(db, bom);
+  if (!ids.has(Number(productId))) {
+    throw err('E_BOM_PRODUCT_MISMATCH', 422, {
+      product_id: productId,
+      bom_id: bom.id,
+      detail: 'محصول سفارش در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست',
+    });
+  }
+}
+
+function isMultiproductBom(db, bomOrId) {
+  const bom = typeof bomOrId === 'object' && bomOrId
+    ? bomOrId
+    : db.prepare('SELECT id, has_coproducts FROM bom_headers WHERE id=?').get(bomOrId);
+  if (!bom) return false;
+  if (Number(bom.has_coproducts) === 1) return true;
+  const n = db.prepare(`
+    SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type='co'
+  `).get(bom.id)?.c || 0;
+  return n > 0;
+}
+
+/**
+ * دامنه explode برای سفارش:
+ * - BOM چندمحصولی = اجرای مشترک کارگاه → همهٔ اقلام (shared + exclusive همه FG)
+ * - تک‌محصولی → فقط shared + exclusive همان محصول سفارش
+ */
+function explodeProductScopeForOrder(db, po) {
+  if (!po?.bom_id) return po?.product_id ?? null;
+  if (isMultiproductBom(db, po.bom_id)) return null;
+  return po.product_id != null ? Number(po.product_id) : null;
+}
+
+/** qty برای explode/رزرو از روی سفارش (با تبدیل هم‌محصول→معادل سرفصل) */
+function explodeQtyForOrder(db, po, qtyOverride = null) {
+  const q = qtyOverride != null ? Number(qtyOverride) : Number(po?.qty_planned) || 0;
+  if (!po?.bom_id) return q;
+  return orderQtyAsMainBase(db, po.bom_id, q, po.product_id);
+}
+
+/**
+ * مقدار معادل سرفصل (main) برای مقیاس explode/مراحل از روی qty سفارش.
+ * اگر سفارش روی هم‌محصول باشد: qty_main = qty_order × base / qty_per_base(co)
+ */
+function orderQtyAsMainBase(db, bomId, qtyOrder, orderProductId) {
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+  if (!bom) return Number(qtyOrder) || 0;
+  const qty = Number(qtyOrder) || 0;
+  const base = Number(bom.base_qty) || 1;
+  const orderPid = orderProductId != null ? Number(orderProductId) : Number(bom.product_id);
+  if (!orderPid || orderPid === Number(bom.product_id)) return qty;
+  const out = db.prepare(`
+    SELECT qty_per_base, output_type FROM bom_outputs
+    WHERE bom_id=? AND product_id=? AND output_type IN ('main','co')
+  `).get(bomId, orderPid);
+  if (!out || out.output_type === 'main') return qty;
+  const qpb = Number(out.qty_per_base) || 1;
+  if (!(qpb > 0)) return qty;
+  return round6(qty * base / qpb);
+}
+
+/** برنامه مقدار main/co برای سفارش (qtyOrder = مقدار همان محصول سفارش) */
+function planBomFgOutputs(db, bomId, qtyOrder, orderProductId = null) {
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+  if (!bom) return [];
+  const qty = Number(qtyOrder) || 0;
+  const base = Number(bom.base_qty) || 1;
+  const orderPid = orderProductId != null ? Number(orderProductId) : Number(bom.product_id);
+  let outs = db.prepare(`
+    SELECT o.*, p.name AS product_name, p.code AS product_code
+    FROM bom_outputs o
+    LEFT JOIN products p ON p.id=o.product_id
+    WHERE o.bom_id=? AND o.output_type IN ('main','co')
+    ORDER BY CASE o.output_type WHEN 'main' THEN 0 ELSE 1 END, o.id
+  `).all(bomId);
+  if (!outs.length) {
+    const p = db.prepare('SELECT name, code FROM products WHERE id=?').get(bom.product_id);
+    return [{
+      product_id: bom.product_id,
+      product_name: p?.name || ('#' + bom.product_id),
+      product_code: p?.code || null,
+      role: 'main',
+      output_type: 'main',
+      qty_per_base: 1,
+      qty_planned: qty,
+      cost_share_percent: 100,
+    }];
+  }
+  const qtyMain = orderQtyAsMainBase(db, bomId, qty, orderPid);
+  return outs.map(o => {
+    const isMain = o.output_type === 'main' || Number(o.product_id) === Number(bom.product_id);
+    let q = isMain
+      ? qtyMain
+      : round6((Number(o.qty_per_base) || 1) * qtyMain / base);
+    // محصول خود سفارش: دقیقاً همان qty واردشده
+    if (Number(o.product_id) === orderPid) q = qty;
+    return {
+      product_id: o.product_id,
+      product_name: o.product_name || ('#' + o.product_id),
+      product_code: o.product_code || null,
+      role: isMain ? 'main' : 'co',
+      output_type: o.output_type,
+      qty_per_base: Number(o.qty_per_base) || 1,
+      qty_planned: q,
+      cost_share_percent: Number(o.cost_share_percent) || 0,
+    };
+  });
+}
+
 function resolveBom(db, { productId, date, preferredBomId = null, allowAlternative = false }) {
   if (preferredBomId) {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(preferredBomId);
     if (!b) throw err('E_NO_ACTIVE_BOM', 404);
     if (b.status !== 'active' && b.status !== 'archived') throw err('E_BOM_NOT_ACTIVE', 409);
+    if (productId) assertProductInBomFg(db, b, productId);
     return b;
   }
   // Historical resolve: active OR archived covering the date (T1-06)
@@ -259,8 +370,35 @@ function resolveBom(db, { productId, date, preferredBomId = null, allowAlternati
     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
              is_default DESC, valid_from DESC, version DESC
   `).all(productId, date, date);
-  if (!rows.length) throw err('E_NO_ACTIVE_BOM', 404, { productId, date });
-  return rows[0];
+  if (rows.length) return rows[0];
+
+  // v420: هم‌محصول — default_bom_id یا BOM فعال که این کالا را در خروجی main/co دارد
+  const def = db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(productId);
+  if (def?.default_bom_id) {
+    const b = db.prepare(`
+      SELECT * FROM bom_headers
+      WHERE id=? AND deleted_at IS NULL AND status IN ('active','archived')
+    `).get(def.default_bom_id);
+    if (b) {
+      try {
+        assertProductInBomFg(db, b, productId);
+        return b;
+      } catch { /* fall through */ }
+    }
+  }
+  const viaOut = db.prepare(`
+    SELECT bh.* FROM bom_outputs o
+    JOIN bom_headers bh ON bh.id = o.bom_id
+    WHERE o.product_id=? AND o.output_type IN ('main','co')
+      AND bh.deleted_at IS NULL AND bh.status='active'
+      AND (bh.valid_from='' OR bh.valid_from IS NULL OR bh.valid_from<=?)
+      AND (bh.valid_to='' OR bh.valid_to IS NULL OR bh.valid_to>=?)
+    ORDER BY bh.is_default DESC, bh.version DESC
+    LIMIT 1
+  `).get(productId, date, date);
+  if (viaOut) return viaOut;
+
+  throw err('E_NO_ACTIVE_BOM', 404, { productId, date });
 }
 
 function resolveSubstitutes(db, lines, factor, yieldF) {
@@ -1131,13 +1269,35 @@ function getBom(db, bomId) {
 }
 
 function listBoms(db, q = {}) {
-  const where = ['deleted_at IS NULL'];
+  const where = ['bh.deleted_at IS NULL'];
   const params = [];
-  if (q.product_id) { where.push('product_id=?'); params.push(q.product_id); }
-  if (q.status) { where.push('status=?'); params.push(q.status); }
-  if (q.bom_type) { where.push('bom_type=?'); params.push(q.bom_type); }
+  // for_product_id: سرفصل یا هم‌محصول (main/co) یا default_bom_id — برای انتخاب فرمول در سفارش
+  const forPid = q.for_product_id != null && q.for_product_id !== ''
+    ? Number(q.for_product_id)
+    : (q.product_id != null && q.product_id !== '' && String(q.include_co || '') === '1'
+      ? Number(q.product_id)
+      : null);
+  if (forPid) {
+    where.push(`(
+      bh.product_id=?
+      OR bh.id IN (
+        SELECT o.bom_id FROM bom_outputs o
+        WHERE o.product_id=? AND o.output_type IN ('main','co')
+      )
+      OR bh.id IN (
+        SELECT p.default_bom_id FROM products p
+        WHERE p.id=? AND p.default_bom_id IS NOT NULL
+      )
+    )`);
+    params.push(forPid, forPid, forPid);
+  } else if (q.product_id) {
+    where.push('bh.product_id=?');
+    params.push(q.product_id);
+  }
+  if (q.status) { where.push('bh.status=?'); params.push(q.status); }
+  if (q.bom_type) { where.push('bh.bom_type=?'); params.push(q.bom_type); }
   if (q.search) {
-    where.push('(code LIKE ? OR name LIKE ?)');
+    where.push('(bh.code LIKE ? OR bh.name LIKE ?)');
     params.push('%' + q.search + '%', '%' + q.search + '%');
   }
   const page = Math.max(1, Number(q.page) || 1);
@@ -1149,7 +1309,9 @@ function listBoms(db, q = {}) {
     WHERE ${where.join(' AND ')}
     ORDER BY bh.id DESC LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
-  const total = db.prepare(`SELECT COUNT(*) c FROM bom_headers WHERE ${where.join(' AND ')}`).get(...params).c;
+  const total = db.prepare(`
+    SELECT COUNT(*) c FROM bom_headers bh WHERE ${where.join(' AND ')}
+  `).get(...params).c;
   return { rows, total, page, limit };
 }
 
@@ -1227,4 +1389,6 @@ module.exports = {
   allowedSizeNamesForProduct, validateSizeMatrixKeys,
   buildComponentVariantHint, normalizeColorMode, resolveFgColorName,
   bomFgProductIds, normalizeProductScope, lineAppliesToProduct,
+  assertProductInBomFg, isMultiproductBom, explodeProductScopeForOrder, planBomFgOutputs,
+  orderQtyAsMainBase, explodeQtyForOrder,
 };
