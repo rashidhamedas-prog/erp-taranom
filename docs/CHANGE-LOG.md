@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — کارمزد بانکی فقط روی برگ معین (رفع «۶۱۱۵ سطح پست نیست») (SW v388)
+
+- **علائم:** در «پرداخت به شخص» با نوع سایر اشخاص + واریز بانکی + کارمزد، toast: «حساب 6115 سطح پست نیست؛ معین/تفصیلی برگ را انتخاب کنید».
+- **ریشه:** مسیر سایر اشخاص سند دستی `POST /accounting/vouchers` می‌سازد و خط کارمزد را با `code:'6115'` هاردکد می‌کند. `assertPostableAccount` اگر زیر ۶۱۱۵ معین فعال باشد والد را رد می‌کند. `bankFeeAccount`/`acct(coa_bank_fee)` هم بدون resolve به برگ بودند. Seed خودش فرزند نمی‌سازد؛ فرزند از کدینگ دستی می‌آید.
+- **رفع معماری:** `resolvePostableLeaf` + `ensureLogicalPostable` + boot `ensureSystemFeeAccountsPostable` (۶۱۱۵/۶۱۱۴/۴۱۱۵)؛ `bankFeeAccount` و bank-recon به برگ؛ `coerceSystemPostableCode` در voucher؛ UI با `resolveBankFeeCodeForUi`؛ settings allowlist `coa_bank_fee`/`coa_bank_interest`؛ Help.
+- **فایل‌ها:** `lib/{coa-map,payment-bank-fee,bank-recon}.js`, `routes/{accounting,settings}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-fee-leaf-v388.js`, CHANGE-LOG.
+- **تست:** `test-bank-fee-leaf-v388`؛ `test-sms` / `test-sync` پس از deploy ایران.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — فروش سریع فروشگاهی v2: واریانت، فی/تخفیف، مشتری، انبار/صندوق، تعویض (SW v387)
 
 - **هدف:** صندوق فروشگاهی هم‌تراز قوانین فاکتور/برگشت/انبار/صندوق برنامه — بدون دفتر موازی.

@@ -1973,7 +1973,11 @@ function validateAndBuildVoucherLines(db, lines) {
       });
       personPostings.push({ person_id: person.id, debit, credit, description: l.description || '' });
     } else {
-      const posted = assertPostableAccount(db, l.code);
+      // System fee/interest controls (6115/6114/4115) may have gained معین
+      // children in live books — coerce to healed leaf before postable guard.
+      const { coerceSystemPostableCode } = require('../lib/coa-map');
+      const lineCode = coerceSystemPostableCode(db, l.code);
+      const posted = assertPostableAccount(db, lineCode);
       if (posted.error) return posted;
       const acc = posted.acc;
       cleanLines.push({

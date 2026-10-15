@@ -338,6 +338,137 @@ function ensureMissingBaseCoa(db) {
   return inserted;
 }
 
+/** True when account has no active children (voucher/JE postable leaf). */
+function isPostableCode(db, code) {
+  const c = String(code || '').trim();
+  if (!c) return false;
+  const acc = db.prepare('SELECT code,is_active FROM chart_of_accounts WHERE code=?').get(c);
+  if (!acc || acc.is_active === 0) return false;
+  const child = db.prepare(
+    'SELECT 1 FROM chart_of_accounts WHERE parent_code=? AND is_active=1 LIMIT 1'
+  ).get(c);
+  return !child;
+}
+
+/**
+ * Walk to a stable postable leaf under `code`. Prefer existing children
+ * (lowest code / DFS), else create the next suggestChildCode leaf when
+ * `create` is true. Used for system fee/interest controls that operators
+ * sometimes expand with معین children (making the parent non-postable).
+ */
+function resolvePostableLeaf(db, code, opts = {}) {
+  const create = opts.create !== false;
+  const c = String(code || '').trim();
+  if (!c) return null;
+  const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(c);
+  if (!acc || acc.is_active === 0) return null;
+  if (isPostableCode(db, c)) {
+    return { code: acc.code, name: acc.name };
+  }
+  const children = db.prepare(`
+    SELECT code, name FROM chart_of_accounts
+    WHERE parent_code=? AND is_active=1
+    ORDER BY code
+  `).all(c);
+  for (const ch of children) {
+    const leaf = resolvePostableLeaf(db, ch.code, opts);
+    if (leaf) return leaf;
+  }
+  if (!create) return null;
+  const sug = suggestChildCode(db, c);
+  if (!sug || !sug.code) return null;
+  const cols = db.prepare('PRAGMA table_info(chart_of_accounts)').all().map((x) => x.name);
+  const leafName = `${acc.name} — پیش‌فرض`;
+  try {
+    if (cols.includes('level')) {
+      db.prepare(
+        'INSERT INTO chart_of_accounts (code,name,type,parent_code,level,is_active) VALUES (?,?,?,?,?,1)'
+      ).run(sug.code, leafName, acc.type, c, sug.level);
+    } else {
+      db.prepare(
+        'INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active) VALUES (?,?,?,?,1)'
+      ).run(sug.code, leafName, acc.type, c);
+    }
+  } catch (_) {
+    const existing = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(sug.code);
+    if (existing && isPostableCode(db, existing.code)) {
+      return { code: existing.code, name: existing.name };
+    }
+    return null;
+  }
+  return { code: sug.code, name: leafName };
+}
+
+/**
+ * Ensure a logical COA key (e.g. coa_bank_fee) maps to a postable leaf.
+ * Persists settings[key]=leaf when the control became a parent group.
+ * Returns { code, name, healed }.
+ */
+function ensureLogicalPostable(db, key) {
+  const legacy = LEGACY[key];
+  if (!legacy) throw new Error('coa-map: unknown key ' + key);
+  let preferred = String(legacy.code);
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    if (row && row.value) preferred = String(row.value).trim() || preferred;
+  } catch { /* boot */ }
+  let leaf = resolvePostableLeaf(db, preferred, { create: true });
+  if (!leaf) {
+    ensureMissingBaseCoa(db);
+    leaf = resolvePostableLeaf(db, legacy.code, { create: true });
+  }
+  if (!leaf) {
+    return { code: preferred, name: legacy.name, healed: false };
+  }
+  let healed = false;
+  try {
+    const cur = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    if (!cur || String(cur.value) !== String(leaf.code)) {
+      db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(key, leaf.code);
+      healed = true;
+    }
+  } catch { /* settings unavailable */ }
+  if (healed || String(preferred) !== String(leaf.code)) clearCoaCache();
+  return { code: leaf.code, name: leaf.name, healed };
+}
+
+/** Boot/heal: bank fee, card fee, deposit interest must stay postable. */
+function ensureSystemFeeAccountsPostable(db) {
+  let n = 0;
+  for (const key of ['coa_bank_fee', 'coa_card_fee', 'coa_bank_interest']) {
+    try {
+      const r = ensureLogicalPostable(db, key);
+      if (r && r.healed) n += 1;
+    } catch { /* ignore unknown / boot races */ }
+  }
+  return n;
+}
+
+/**
+ * If `code` is a known system fee/interest control that is no longer a leaf,
+ * return the healed leaf code; otherwise return the original code unchanged.
+ * Safety net for UI hardcodes (e.g. party payment voucher → 6115).
+ */
+function coerceSystemPostableCode(db, code) {
+  const c = String(code || '').trim();
+  if (!c) return c;
+  for (const key of ['coa_bank_fee', 'coa_card_fee', 'coa_bank_interest']) {
+    const legacy = LEGACY[key];
+    if (!legacy) continue;
+    let mapped = legacy.code;
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+      if (row && row.value) mapped = String(row.value).trim() || mapped;
+    } catch { /* ignore */ }
+    if (c === legacy.code || c === mapped) {
+      if (isPostableCode(db, c)) return c;
+      const leaf = ensureLogicalPostable(db, key);
+      if (leaf && leaf.code) return leaf.code;
+    }
+  }
+  return c;
+}
+
 /**
  * Delete a detail/tafsili COA row when its owning entity is gone and it has no journal usage.
  * Safe for sync: DELETE fires sync_tombstones triggers.
@@ -402,4 +533,6 @@ module.exports = {
   acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents,
   suggestChildCode, validateChildCode, LEGACY, rebuildBaseCoa, ensureMissingBaseCoa,
   releaseTafsili, releaseEntityCoa, baseCoaTree,
+  isPostableCode, resolvePostableLeaf, ensureLogicalPostable,
+  ensureSystemFeeAccountsPostable, coerceSystemPostableCode,
 };

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const { acct } = require('./coa-map');
+const { ensureLogicalPostable } = require('./coa-map');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 
 const ITEM_KINDS = new Set([
@@ -149,8 +149,8 @@ function computeBridge(statementBalance, bookBalance, items) {
 
 function adjustmentLines(db, bankAccount, items) {
   ensureBankReconAccounts(db);
-  const fee = acct(db, 'coa_bank_fee');
-  const interest = acct(db, 'coa_bank_interest');
+  const fee = ensureLogicalPostable(db, 'coa_bank_fee');
+  const interest = ensureLogicalPostable(db, 'coa_bank_interest');
   const lines = [];
   for (const it of items || []) {
     if (Number(it.matched) || Number(it.voided)) continue;

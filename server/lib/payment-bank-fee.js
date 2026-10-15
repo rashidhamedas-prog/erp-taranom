@@ -12,7 +12,7 @@
  */
 'use strict';
 
-const { acct } = require('./coa-map');
+const { ensureLogicalPostable } = require('./coa-map');
 const { rialToLedger } = require('./money');
 
 const BANK_PAY_TYPES = new Set(['bank', 'bank_transfer']);
@@ -24,8 +24,10 @@ function parseFeeRial(raw, payType) {
   return fee;
 }
 
+/** Always a postable leaf (heals when 6115 gained معین children). */
 function bankFeeAccount(db) {
-  return acct(db, 'coa_bank_fee');
+  const leaf = ensureLogicalPostable(db, 'coa_bank_fee');
+  return { code: leaf.code, name: leaf.name };
 }
 
 function outboundPaymentLines(db, opts) {
