@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۳ — ویرایش درجا برای پرداخت به شخص/حساب (SW v394)
+
+- **علائم:** در لیست پرداخت‌ها ردیف «شخص» (مثل JV-0389) فقط 🗑️ داشت و مداد نداشت؛ هزینه عمومی مداد داشت.
+- **ریشه:** در v391 عمداً مداد برای voucherها مخفی شد چون `openCashDocEdit`/`PUT` برای شخص/حساب وجود نداشت.
+- **رفع ریشه‌ای:** `amendPersonVoucherPayment` + `amendAccountPayment` با `rewriteJournalEntry` (همان id و شمارهٔ JV)؛ `PUT /accounting/vouchers/:id`؛ غنی‌سازی لیست cash-ops (`party_id`/`bank_id`/`fee_rial`/…); UI مداد + فرم اصلاح؛ Help. دریافت شخص/حساب هنوز ابطال+ثبت مجدد.
+- **فایل‌ها:** `lib/{amend-cash-ops,cash-ops-list}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cash-ops-person-amend-v394.js`, CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — لیست فاکتورها همیشه بر اساس تاریخ صدور (SW v393)
 
 - **علائم:** در صفحهٔ فاکتور، T-0022 با تاریخ `1405/07/02` بالای لیست بود در حالی که فاکتورهای `07/20` و `07/21` پایین‌تر بودند (سورت ظاهراً بر اساس شماره/`created_at`).
@@ -5,8 +13,8 @@
 - **رفع:** API و اکسل `ORDER BY i.date DESC, i.id DESC`؛ UI با `sortInvoicesByIssueDateDesc` در CRM و فاکتورهای فروش؛ `data-sort` روی ستون تاریخ؛ Help ادمین/فروش؛ SW v393.
 - **فایل‌ها:** `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-list-date-sort-v393.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ERP.net/metasfresh Document Date DESC؛ explore call-site map؛ tap-erp-architecture.
-- **تست:** `test-invoice-list-date-sort-v393` + `test-sms` (پس از deploy).
-- **Deploy:** ⏳
+- **تست:** ایران `test-invoice-list-date-sort-v393` ۱۱/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `5b5ccb2` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v393`؛ `app.js?v=393`.
 
 ### ۱۴۰۵/۰۷/۲۳ — الزام مرکز هزینه فقط با مبلغ هزینهٔ پر (SW v392)
 
