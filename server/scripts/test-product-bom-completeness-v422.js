@@ -125,22 +125,19 @@ function getStatus(id) {
 }
 
 // BOM with zero-cost component — issue/release should fail without waive
-const draft2 = bom.createBom(db, {
-  product_id: pFg,
-  name: 'BOM-v422-zero',
-  base_qty: 1,
-  yield_percent: 100,
-  lines: [
-    { component_product_id: pRaw, qty_per_base: 1, line_type: 'material' },
-    { component_product_id: pZipZero, qty_per_base: 1, line_type: 'material' },
-  ],
-}, adminId);
+// (نسخه جدید از فرمول فعال تا UNIQUE clash نشود)
+const vu = bom.versionUpBom(db, draft.id, 'v422-zero-cost', adminId);
+const draft2Id = vu.id;
+bom.replaceLines(db, draft2Id, [
+  { component_product_id: pRaw, qty_per_base: 1, line_type: 'material' },
+  { component_product_id: pZipZero, qty_per_base: 1, line_type: 'material' },
+], adminId);
 // activate still ok (cost soft on activate)
-bom.activateBom(db, draft2.id, '1405/07/24', adminId);
+bom.activateBom(db, draft2Id, '1405/07/24', adminId);
 
 const po2 = engine.createOrder(db, {
   product_id: pFg,
-  bom_id: draft2.id,
+  bom_id: draft2Id,
   qty_planned: 1,
   date: DATE,
   analysis_type: 'variable',
@@ -158,7 +155,7 @@ ok(releaseFail, 'T06 release blocked on zero-cost component');
 
 const po3 = engine.createOrder(db, {
   product_id: pFg,
-  bom_id: draft2.id,
+  bom_id: draft2Id,
   qty_planned: 1,
   date: DATE,
   analysis_type: 'variable',
