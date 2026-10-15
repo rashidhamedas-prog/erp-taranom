@@ -4,8 +4,8 @@
 - **ریشه:** `expenseCodingAccount` فیلتر ستون تفصیلی (`coaIsAutoShell`) را روی حساب هزینه گذاشته بود. آن فیلتر هر کد `parent+'01'` را پوستهٔ فنی می‌داند (مثل `2101` → `210101`). `suggestChildCode` اولین معین واقعی زیر کل را دقیقاً همین کد می‌دهد (`6103` → `610301`). سرور این حساب را رد نمی‌کند؛ فقط فهرست کلاینت حذفش می‌کرد.
 - **رفع:** جستجوی هزینه فقط حساب فعالِ نوع expense/cogs یا کد ۵/۶ را نشان می‌دهد. پوستهٔ کنترل اشخاص/بانک چون هزینه نیست نمی‌آید. ستون تفصیلی کدینگ عوض نشده. Help به‌روز شد.
 - **فایل‌ها:** `public/{app.js,index.html,sw.js}`, `lib/coa-browse.js` (توضیح مرز پوسته), `scripts/test-expense-coa-picker-v328.js`, CHANGE-LOG.
-- **تست:** `test-expense-coa-picker-v328` ۲۰/۰؛ `test-coa-browse-v324` ۱۷/۰؛ `node --check` روی `app.js`؛ `test-sms` ۲۲/۰.
-- **Deploy:** در انتظار
+- **تست:** `test-expense-coa-picker-v328` ۲۰/۰؛ `test-coa-browse-v324` ۱۷/۰؛ `node --check` روی `app.js`؛ `test-sms` ۲۲/۰. همان سه تست روی ایران هم سبز شد.
+- **Deploy:** ✅ `bc1ee76` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v386`؛ `app.js?v=386`.
 
 ### ۱۴۰۵/۰۷/۲۲ — ویرایش و حذف حرفه‌ای فرمول تولید (BOM) با پیش‌نمایش وابستگی (SW v385)
 
