@@ -88,6 +88,7 @@ const ACC_TAB_RESOLVE = {
   'acc-payroll': 'payroll',
   'acc-payroll-employees': 'payroll',
   'acc-payroll-structures': 'payroll',
+  'acc-payroll-labor': 'payroll',
   'acc-payroll-periods': 'payroll',
   'acc-payroll-tax': 'payroll',
   'acc-payroll-processing': 'payroll',
@@ -306,6 +307,7 @@ const ACC_NAV_SECTIONS = [
     { title: 'اطلاعات پایه', items: [
       { id: 'acc-payroll-employees', icon: '👥', label: 'پرونده کارکنان' },
       { id: 'acc-payroll-structures', icon: '🧾', label: 'ساختار حقوق و مزایا' },
+      { id: 'acc-payroll-labor', icon: '⚖️', label: 'پارامترهای قانونی سال' },
       { id: 'acc-payroll-tax', icon: '％', label: 'پلکان مالیات ماده ۸۴' },
     ]},
     { title: 'عملیات', items: [

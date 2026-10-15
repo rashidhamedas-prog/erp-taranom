@@ -155,6 +155,8 @@ function initPayrollSchema(db) {
     ['regular_hours_x100', 'INTEGER DEFAULT 0'],
     ['overtime_hours_x100', 'INTEGER DEFAULT 0'],
     ['night_shift_hours_x100', 'INTEGER DEFAULT 0'],
+    ['friday_hours_x100', 'INTEGER DEFAULT 0'],
+    ['seniority_days_x100', 'INTEGER DEFAULT 0'],
     ['base_pay_rial', 'INTEGER DEFAULT 0'],
     ['housing_allowance_rial', 'INTEGER DEFAULT 0'],
     ['grocery_allowance_rial', 'INTEGER DEFAULT 0'],
@@ -164,6 +166,8 @@ function initPayrollSchema(db) {
     ['other_allowance_rial', 'INTEGER DEFAULT 0'],
     ['overtime_pay_rial', 'INTEGER DEFAULT 0'],
     ['night_shift_pay_rial', 'INTEGER DEFAULT 0'],
+    ['friday_pay_rial', 'INTEGER DEFAULT 0'],
+    ['seniority_rial', 'INTEGER DEFAULT 0'],
     ['gross_earnings_rial', 'INTEGER DEFAULT 0'],
     ['insurance_base_rial', 'INTEGER DEFAULT 0'],
     ['taxable_income_rial', 'INTEGER DEFAULT 0'],
@@ -345,11 +349,19 @@ function initPayrollSchema(db) {
       ON payroll_labor_settings_versions(year, effective_from);
   `);
 
+  ensureColumn(db, 'payroll_labor_settings', 'spouse_allowance_rial', 'INTEGER NOT NULL DEFAULT 0');
+
   try {
     require('./rulings').initSalaryRulingExtras(db);
   } catch (e) {
     console.error('initSalaryRulingExtras failed:', e.message);
     throw e;
+  }
+
+  try {
+    require('./legal-pack').ensureDefaultLegalPacks(db);
+  } catch (e) {
+    console.warn('ensureDefaultLegalPacks:', e.message);
   }
 }
 

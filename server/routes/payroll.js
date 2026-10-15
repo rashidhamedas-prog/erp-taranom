@@ -33,6 +33,7 @@ const {
   minWageWarning,
 } = require('../lib/payroll/manual-exempt');
 const { voidPayrollAccrual } = require('../lib/payroll/void-accrual');
+const { seedLegalPack, legalPackForYear, insuranceCapMonthly } = require('../lib/payroll/legal-pack');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -52,11 +53,12 @@ function coercePersonTaxExemption(b, current) {
   return { tax_exemption_type: type, is_tax_exempt: flagged ? 1 : 0 };
 }
 
-// Hourly payroll — employees are Persons (category "کارمند"). Each record
-// accrues the salary as a real double-entry posting:
-//   Dr 6104 هزینه حقوق و دستمزد   = gross_pay - deductions
-//   Cr تفصیلی شخص (برگ 1106/2104) = net_pay        (what we now owe the employee)
-//   Cr 2105/2106 بیمه و مالیات    = insurance + tax withheld
+// Legacy hourly payroll — Persons category "کارمند". Accrual JE (R13-aligned with /process):
+//   Dr 6104 هزینه حقوق              = gross
+//   Cr تفصیلی شخص                   = net
+//   Cr 2105 بیمه پرداختنی           = employee SSO
+//   Cr 2106 مالیات حقوق پرداختنی    = tax withheld
+//   Cr 2108 سایر کسورات حقوق        = other deductions
 
 function createPayrollRecord(db, userId, data) {
   const {
@@ -97,12 +99,12 @@ function createPayrollRecord(db, userId, data) {
 
     const payable = resolvePersonPayableAccount(db, person);
     const lines = [
-      { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay - ded), credit: 0, cost_center_id: ccId, description: `حقوق ${person.name} - ${period_label || ''}` },
-      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(netPay) }
+      { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay), credit: 0, cost_center_id: ccId, description: `حقوق ${person.name} - ${period_label || ''}` },
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(netPay) },
     ];
-    if (ins + tax > 0) {
-      lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: rialToLedger(ins + tax) });
-    }
+    if (ins > 0) lines.push({ ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: rialToLedger(ins) });
+    if (tax > 0) lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: rialToLedger(tax) });
+    if (ded > 0) lines.push({ ...coaAcct(db, 'coa_payroll_other_deductions'), debit: 0, credit: rialToLedger(ded) });
     const journalId = postToLedger(db, {
       sourceType: 'payroll', sourceId: recId, date: date || todayJalali(),
       description: `حقوق ${person.name} (${period_label || ''})`,
@@ -868,7 +870,18 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
     }
     const calculation = calculatePayroll({ ...context, input: req.body });
     const warning = minWageWarning(context.structure, context.period, context.laborSettings);
-    res.json({ ok: true, calculation, warnings: warning ? [warning] : [] });
+    res.json({
+      ok: true,
+      calculation,
+      labor_settings: context.laborSettings || null,
+      structure: context.structure ? {
+        wage_basis: context.structure.wage_basis,
+        marital_status: context.structure.marital_status,
+        child_count: context.structure.child_count,
+        insurance_type: context.structure.insurance_type,
+      } : null,
+      warnings: warning ? [warning] : [],
+    });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
@@ -916,12 +929,14 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
           (person_id,period_id,period_label,regular_hours,overtime_hours,gross_pay,net_pay,
            insurance_deduction,tax_deduction,date,note,paid,created_by,
            working_days_x100,regular_hours_x100,overtime_hours_x100,night_shift_hours_x100,
+           friday_hours_x100,seniority_days_x100,
            base_pay_rial,housing_allowance_rial,grocery_allowance_rial,child_allowance_rial,
            spouse_allowance_rial,hardship_allowance_rial,other_allowance_rial,overtime_pay_rial,
-           night_shift_pay_rial,gross_earnings_rial,insurance_base_rial,taxable_income_rial,
+           night_shift_pay_rial,friday_pay_rial,seniority_rial,
+           gross_earnings_rial,insurance_base_rial,taxable_income_rial,
            income_tax_rial,sso_employee_rial,sso_employer_rial,other_deductions_rial,
            net_pay_rial,employer_cost_rial,cost_center_id,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted')
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted')
       `).run(
         personId, periodId, context.period.label, calc.regular_hours_x100 / 100,
         calc.overtime_hours_x100 / 100, calc.gross_earnings_rial / 10, calc.net_pay_rial / 10,
@@ -930,10 +945,12 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         input.note || (exemptMeta ? `بدون بیمه و مالیات — ${exemptMeta.reason_label}` : ''),
         0, req.user.id,
         calc.working_days_x100, calc.regular_hours_x100, calc.overtime_hours_x100,
-        calc.night_shift_hours_x100, calc.base_pay_rial, calc.housing_allowance_rial,
+        calc.night_shift_hours_x100, calc.friday_hours_x100 || 0, calc.seniority_days_x100 || 0,
+        calc.base_pay_rial, calc.housing_allowance_rial,
         calc.grocery_allowance_rial, calc.child_allowance_rial, calc.spouse_allowance_rial,
         calc.hardship_allowance_rial, calc.other_allowance_rial, calc.overtime_pay_rial,
-        calc.night_shift_pay_rial, calc.gross_earnings_rial, calc.insurance_base_rial,
+        calc.night_shift_pay_rial, calc.friday_pay_rial || 0, calc.seniority_rial || 0,
+        calc.gross_earnings_rial, calc.insurance_base_rial,
         calc.taxable_income_rial, calc.income_tax_rial, calc.sso_employee_rial,
         calc.sso_employer_rial, calc.other_deductions_rial, calc.net_pay_rial,
         calc.employer_cost_rial, ccId
@@ -1375,7 +1392,25 @@ router.get('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const year = parseInt(req.params.year, 10);
   const row = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(year);
-  res.json(row || { year, min_wage_daily_rial: 0, housing_allowance_rial: 0, food_allowance_rial: 0 });
+  const pack = legalPackForYear(year);
+  const defaults = pack ? {
+    year,
+    min_wage_daily_rial: pack.min_wage_daily_rial,
+    housing_allowance_rial: pack.housing_allowance_rial,
+    food_allowance_rial: pack.food_allowance_rial,
+    child_allowance_rial: pack.child_allowance_rial,
+    spouse_allowance_rial: pack.spouse_allowance_rial,
+    seniority_base_rial: pack.seniority_base_rial,
+    insurance_cap_monthly_rial: insuranceCapMonthly(pack, 30),
+    overtime_factor: pack.overtime_factor,
+    night_factor: pack.night_factor,
+    friday_factor: pack.friday_factor,
+    shift_factor: pack.shift_factor,
+    tax_exemption_rial: pack.tax_exemption_rial,
+    pack_label: pack.label,
+    has_legal_pack: true,
+  } : { year, has_legal_pack: false };
+  res.json(row ? { ...row, has_legal_pack: !!pack, pack_label: pack?.label || null } : defaults);
 });
 
 router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
@@ -1388,14 +1423,15 @@ router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create')
     db.prepare(`
       INSERT INTO payroll_labor_settings
         (year, min_wage_daily_rial, housing_allowance_rial, food_allowance_rial, child_allowance_rial,
-         seniority_base_rial, insurance_cap_monthly_rial, overtime_factor, night_factor, friday_factor,
+         spouse_allowance_rial, seniority_base_rial, insurance_cap_monthly_rial, overtime_factor, night_factor, friday_factor,
          shift_factor, tax_exemption_rial)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(year) DO UPDATE SET
         min_wage_daily_rial=excluded.min_wage_daily_rial,
         housing_allowance_rial=excluded.housing_allowance_rial,
         food_allowance_rial=excluded.food_allowance_rial,
         child_allowance_rial=excluded.child_allowance_rial,
+        spouse_allowance_rial=excluded.spouse_allowance_rial,
         seniority_base_rial=excluded.seniority_base_rial,
         insurance_cap_monthly_rial=excluded.insurance_cap_monthly_rial,
         overtime_factor=excluded.overtime_factor, night_factor=excluded.night_factor,
@@ -1403,7 +1439,8 @@ router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create')
         tax_exemption_rial=excluded.tax_exemption_rial
     `).run(
       year, money('min_wage_daily_rial'), money('housing_allowance_rial'), money('food_allowance_rial'),
-      money('child_allowance_rial'), money('seniority_base_rial'), money('insurance_cap_monthly_rial'),
+      money('child_allowance_rial'), money('spouse_allowance_rial'), money('seniority_base_rial'),
+      money('insurance_cap_monthly_rial'),
       Number(b.overtime_factor) || 1.4, Number(b.night_factor) || 1.35,
       Number(b.friday_factor) || 1.4, Number(b.shift_factor) || 1.225, money('tax_exemption_rial')
     );
@@ -1412,6 +1449,34 @@ router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create')
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+/** Seed canonical legal pack (labor floors + tax brackets) for a fiscal year. */
+router.post('/legal-pack/:year/seed', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const year = parseInt(req.params.year, 10);
+    const force = !!(req.body && req.body.force);
+    const result = seedLegalPack(db, year, { force });
+    if (!result.seeded) {
+      return res.status(400).json({ error: result.error || 'بسته قانونی موجود نیست' });
+    }
+    audit(req.user.id, 'seed', 'payroll_legal_pack', year, `بسته قانونی ${year}${force ? ' (بازنویسی)' : ''}`);
+    res.json({ ok: true, ...result, labor: result.labor, pack: undefined });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/legal-pack/:year', auth, adminOrAccounting, (req, res) => {
+  const year = parseInt(req.params.year, 10);
+  const pack = legalPackForYear(year);
+  if (!pack) return res.status(404).json({ error: `بسته قانونی سال ${year} تعریف نشده` });
+  res.json({
+    year,
+    ...pack,
+    insurance_cap_monthly_rial: insuranceCapMonthly(pack, 30),
+  });
 });
 
 function monthlyAccrualAmounts(db, personId, year, laborSettings) {

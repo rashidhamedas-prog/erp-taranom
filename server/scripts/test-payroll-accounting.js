@@ -103,11 +103,13 @@ assert(navSource.includes("title: 'حقوق و دستمزد'"), 'payroll navigat
 assert(navSource.includes("'acc-payroll-processing'"), 'payroll processing nav item missing');
 assert(navSource.includes("'acc-adv-reports'"), 'advanced reports nav item missing');
 for (const fn of [
-  'renderPayrollEmployees', 'renderSalaryStructures', 'renderPayrollPeriods',
+  'renderPayrollEmployees', 'renderSalaryStructures', 'renderPayrollLaborSettings',
+  'renderPayrollPeriods',
   'renderPayrollTaxConfig', 'renderPayrollProcessing', 'renderPayrollYearEnd',
   'renderPayrollLegalReports', 'renderVatLedgerReport', 'renderCostAccountingReport',
   'renderFinancialReportDesigner',
 ]) assert(uiBundle.includes(`function ${fn}`) || uiBundle.includes(`async function ${fn}`), `${fn} UI missing`);
+assert(navSource.includes("'acc-payroll-labor'"), 'payroll labor settings nav missing');
 assert(appSource.includes('/export/insurance-csv'), 'DRAFT insurance CSV export UI missing');
 assert(appSource.includes('/export/tax-csv'), 'DRAFT tax CSV export UI missing');
 const payrollUiStart = Math.max(uiBundle.indexOf('HOURLY PAYROLL'), 0);
