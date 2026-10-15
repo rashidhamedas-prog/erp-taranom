@@ -67,17 +67,24 @@ try {
     VALUES (?,'کالای تست ممیزی','AUD-400',0,0,1000,'عدد')
   `).run(adminId).lastInsertRowid;
 
-  const sale = postInventoryMovement(db, {
-    eventType: 'sale', productId: prod, warehouseId: wh,
-    qtyOut: 5, unitCostRial: 1000, sourceType: 'invoice', sourceId: 1,
-    date: '1405/07/20', note: 'فروش تست', createdBy: adminId,
-  });
+  // Receipt first so sale/void never hit E_NEGATIVE_STOCK on empty WH.
   const recv = postInventoryMovement(db, {
     eventType: 'production_receipt', productId: prod, warehouseId: wh,
     qtyIn: 10, unitCostRial: 1000, sourceType: 'production_receipt', sourceId: 2,
-    date: '1405/07/21', note: 'تولید تست', createdBy: adminId,
+    date: '1405/07/20', note: 'تولید تست', createdBy: adminId,
   });
-  reverseInventoryMovement(db, recv.id, {
+  const sale = postInventoryMovement(db, {
+    eventType: 'sale', productId: prod, warehouseId: wh,
+    qtyOut: 5, unitCostRial: 1000, sourceType: 'invoice', sourceId: 1,
+    date: '1405/07/21', note: 'فروش تست', createdBy: adminId,
+  });
+  // Void a small extra receipt (not the main one) so stock stays non-negative.
+  const recvVoid = postInventoryMovement(db, {
+    eventType: 'production_receipt', productId: prod, warehouseId: wh,
+    qtyIn: 2, unitCostRial: 1000, sourceType: 'production_receipt', sourceId: 3,
+    date: '1405/07/22', note: 'تولید ابطالی', createdBy: adminId,
+  });
+  reverseInventoryMovement(db, recvVoid.id, {
     createdBy: adminId, date: '1405/07/22', note: 'ابطال رسید تولید تست',
   });
   postInventoryMovement(db, {
@@ -87,6 +94,7 @@ try {
     skipStock: true,
   });
 
+  ok(!!recv && !!sale, 'seed movements posted');
   ok(isAuditOnlyStockRow({ event_type: 'reversal', status: 'posted', note: 'x' }), 'reversal is audit-only');
   ok(isAuditOnlyStockRow({ status: 'posted', note: 'هم‌ترازی کاردکس با موجودی انبار', source_type: 'opening' }),
     'هم‌ترازی note is audit-only');
@@ -96,9 +104,10 @@ try {
   const ops = buildStockLedger(db, { product_id: prod });
   const notes = (ops.lines || []).map((l) => l.description || '');
   ok(notes.some((n) => /فروش/.test(n)), 'operational view keeps real sale');
+  ok(notes.some((n) => /تولید تست/.test(n)), 'operational view keeps live receipt');
   ok(!notes.some((n) => /ابطال|معکوس|هم[\u200c\s]*ترازی/.test(n)),
     'operational view hides void and align notes');
-  ok(!notes.some((n) => /تولید تست/.test(n)), 'voided original receipt hidden');
+  ok(!notes.some((n) => /تولید ابطالی/.test(n)), 'voided original receipt hidden');
 
   const audit = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   const aNotes = (audit.lines || []).map((l) => l.description || '');

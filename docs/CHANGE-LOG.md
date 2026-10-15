@@ -30,11 +30,12 @@
 - **علائم:** در کاردکس (مثل کاپشن مموری پاندا) ردیف‌های «ابطال…» و «هم‌ترازی کاردکس با موجودی انبار» دیده می‌شدند؛ کاربر فقط اسناد حقیقی دارای ارزش را می‌خواست.
 - **ریشه:** `buildStockLedger` فقط `status=reversed` را از پیش‌فرض حذف می‌کرد؛ ردیف معکوس با `event_type=reversal` و `status=posted` و ردیف‌های هم‌ترازی (`stock_reconcile` / شرح هم‌ترازی) هنوز در لیست می‌آمدند. فهرست اسناد حسابداری هم‌ترازی‌های posted را نشان می‌داد.
 - **Invariant:** حذف فیزیکی ممنوع (R13). مانده اول/پایان دوره از جریان اقتصادی کامل حساب می‌شود؛ جدول/فهرست عملیاتی فقط اسناد حقیقی. ممیزی با تیک جدا.
-- **رفع:** `isAuditOnlyStockRow` + فیلتر نمایش در `buildStockLedger`؛ `include_audit` در `GET /accounting/journal` و اکسل journal-docs؛ UI کاردکس/اسناد «نمایش ابطال و هم‌ترازی»؛ Help؛ تست `test-hide-audit-rows-v400`.
+- **رفع:** `isAuditOnlyStockRow` + `isAuditOnlyJournalDescription` + فیلتر نمایش در `buildStockLedger`؛ `include_audit` در `GET /accounting/journal` و اکسل journal-docs؛ UI کاردکس/اسناد «نمایش ابطال و هم‌ترازی»؛ Help؛ تست `test-hide-audit-rows-v400`.
+- **Hotfix boot:** commit اولیه helper را export کرده بود ولی تعریف تابع جا افتاده بود → `ReferenceError` و حلقهٔ pm2؛ تعریف + پارامتر `show_audit` اضافه شد و سرویس برگشت.
 - **فایل‌ها:** `lib/ledgers.js`, `routes/{accounting,excel,ledgers}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-hide-audit-rows-v400.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ explore kardex/journal map؛ tap-erp-architecture.
-- **تست:** (پس از اجرا)
-- **Deploy:** ⏳
+- **تست:** ایران `test-hide-audit-rows-v400` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (`test-sync` روی harness ایران pairing از قبل شکننده؛ مستقل از این تغییر)
+- **Deploy:** ✅ `2e75c67` + hotfix ledgers — overlay ایران + `pm2 reset/restart` بدون `--update-env`؛ UI زیر SW فعلی (`erp-taranom-v401` / `app.js?v=401`).
 
 ### ۱۴۰۵/۰۷/۲۳ — حذف ورود دوبل موجودی PACK + نهایی‌سازی تولید (SW v399)
 

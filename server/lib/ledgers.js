@@ -336,8 +336,38 @@ function isStockLedgerGhost(r) {
   return qIn === 0 && qOut === 0 && amt === 0;
 }
 
+/** Strip ZWNJ/spaces so «هم‌ترازی» / «هم ترازی» / «همترازی» match the same. */
+function normalizeAuditText(s) {
+  return String(s || '').replace(/\u200c/g, '').replace(/\s+/g, '');
+}
+
+/** Journal/doc description that is void or technical alignment (operational hide). */
+function isAuditOnlyJournalDescription(desc) {
+  const raw = String(desc || '').trim();
+  if (!raw) return false;
+  if (/^\[?ابطال/.test(raw)) return true;
+  return normalizeAuditText(raw).includes('همترازی');
+}
+
+/**
+ * Inventory ledger rows that stay in the economic stream (balances) but are
+ * hidden from the operational kardex table unless audit toggle is on.
+ * — event_type=reversal (posted reverse of a void)
+ * — status=reversed (original that was voided)
+ * — source_type=stock_reconcile or note containing هم‌ترازی
+ */
+function isAuditOnlyStockRow(r) {
+  if (!r) return false;
+  if (String(r.status || '') === 'reversed') return true;
+  if (String(r.event_type || '') === 'reversal') return true;
+  if (String(r.source_type || '') === 'stock_reconcile') return true;
+  const note = String(r.note || r.description || '');
+  if (isAuditOnlyJournalDescription(note)) return true;
+  return false;
+}
+
 function buildStockLedger(db, {
-  product_id, warehouse_id, from, to, show_cancelled, event_type,
+  product_id, warehouse_id, from, to, show_cancelled, show_audit, event_type,
 } = {}, { stripCost = false } = {}) {
   const pid = parseInt(product_id, 10);
   if (!Number.isFinite(pid) || pid <= 0) throw LedgerError(400, 'شناسه کالا الزامی است');
