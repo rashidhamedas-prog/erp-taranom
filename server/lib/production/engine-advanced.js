@@ -1127,11 +1127,37 @@ function skipStage(db, orderId, stageId, userId, reason = '') {
   return db.transaction(() => {
     const stage = getStage(db, orderId, stageId);
     if (stage.status !== 'pending') throw err('E_INVALID_STATUS', 409);
+    const prev = prevStage(db, orderId, stage.seq);
+    if (prev && !['done', 'skipped'].includes(prev.status)) {
+      throw err('E_PREV_STAGE_OPEN', 409, { prev_seq: prev.seq, prev_status: prev.status });
+    }
     const hasCost = num(stage.material_added_rial) || num(stage.labor_rial);
     if (hasCost) throw err('E_STAGE_HAS_COST', 409);
+    // اگر این مرحله مواد BOM دارد، skip بدون حواله/JE ممنوع است
+    const po = getOrder(db, orderId);
+    const ownedMats = stageMaterialLines(db, po, stage);
+    if (ownedMats.some((L) => num(L.qty_final) > 0)) {
+      throw err('E_STAGE_HAS_MATERIALS', 409, {
+        detail: 'مرحله دارای مواد تعریف‌شده است — ابتدا حواله/خروجی بزنید یا مواد را از مسیر BOM جدا کنید',
+      });
+    }
     db.prepare(`
       UPDATE production_order_stages SET status='skipped', note=? WHERE id=?
     `).run(reason || 'رد شده', stageId);
+
+    // انتقال qty/cost از آخرین مرحلهٔ done به مرحلهٔ بعد (جلوگیری از qty_in=0)
+    const lastDone = db.prepare(`
+      SELECT * FROM production_order_stages
+      WHERE order_id=? AND status='done' AND seq < ?
+      ORDER BY seq DESC LIMIT 1
+    `).get(orderId, stage.seq);
+    const nxt = nextStage(db, orderId, stage.seq);
+    if (nxt && num(nxt.qty_in) <= 0 && lastDone && num(lastDone.qty_out) > 0) {
+      db.prepare(`
+        UPDATE production_order_stages SET qty_in=?, material_in_rial=? WHERE id=?
+      `).run(lastDone.qty_out, lastDone.cost_out_rial || 0, nxt.id);
+    }
+
     emit(db, 'production.stage.skipped', { orderId, stageId, reason });
     return { ok: true, stage_id: stageId, status: 'skipped' };
   })();
@@ -1393,6 +1419,17 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
     if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
 
     const stage = getStage(db, orderId, stageId);
+    if (stage.status !== 'in_progress') {
+      throw err('E_INVALID_STATUS', 409, {
+        status: stage.status,
+        detail: 'حواله مواد فقط برای مرحلهٔ در جریان مجاز است',
+      });
+    }
+    const prev = prevStage(db, orderId, stage.seq);
+    if (prev && !['done', 'skipped'].includes(prev.status)) {
+      throw err('E_PREV_STAGE_OPEN', 409, { prev_seq: prev.seq, prev_status: prev.status });
+    }
+
     const date = body.date || todayJalali();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
@@ -1416,6 +1453,13 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
       if (!prod) throw err('E_NOT_FOUND', 404);
       const s = std[L.product_id];
+      if (!s && AQ > 0) {
+        throw err('E_STAGE_MATERIAL_OWNER', 409, {
+          product_id: L.product_id,
+          name: prod.name,
+          detail: 'این قلم به این مرحله از مسیر BOM تعلق ندارد',
+        });
+      }
       const SQ = s?.qty ?? 0;
       const SP = s?.price ?? Math.round(num(prod.average_cost_rial));
       const AP = Math.round(num(prod.average_cost_rial));
@@ -1428,6 +1472,12 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
 
       let issued = null;
       if (AQ > 0) {
+        assertFabricIssueAllowed(db, {
+          productId: L.product_id,
+          qty: AQ,
+          batchId: L.batch_id || null,
+          orderId: po.id,
+        });
         issued = issueFromStock(db, {
           productId: L.product_id, warehouseId: po.warehouse_raw_id, qty: AQ, userId,
           note: `حواله مرحله ${stage.seq}`,
@@ -1511,6 +1561,18 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
         status = CASE WHEN status='released' THEN 'in_progress' ELSE status END
       WHERE id=?
     `).run(matRial, pkgRial, orderId);
+
+    db.prepare(`
+      UPDATE production_order_stages SET
+        material_added_rial = COALESCE(material_added_rial,0) + ?
+      WHERE id=?
+    `).run(totalRial, stageId);
+
+    if (totalRial > 0 && !je) {
+      throw err('E_JE_REQUIRED', 500, {
+        detail: 'حواله مواد بدون سند حسابداری ثبت نشد — تراکنش برگشت خورد',
+      });
+    }
 
     return {
       ok: true,

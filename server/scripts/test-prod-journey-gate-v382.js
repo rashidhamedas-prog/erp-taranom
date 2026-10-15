@@ -61,24 +61,45 @@ const mid = Gate.buildSteps({
   pendingPack: 1,
   hasUnitCost: false,
 });
-assert.strictEqual(mid[3].done, false, 'adv stages need kanban touch');
-assert.ok(!Gate.canEnter(mid, 4).ok, 'pack blocked until kanban when adv');
-assert.ok(Gate.blockMessage(mid, 4).includes('تابلوی خط') || Gate.blockMessage(mid, 4).includes('۴'), Gate.blockMessage(mid, 4));
-ok('adv path: pack blocked until kanban progress');
+assert.strictEqual(mid[3].done, false, 'adv stages need real stage done');
+assert.ok(!Gate.canEnter(mid, 4).ok, 'pack blocked until stage done when adv');
+assert.ok(
+  Gate.blockMessage(mid, 4).includes('تابلوی خط')
+    || Gate.blockMessage(mid, 4).includes('مراحل BOM')
+    || Gate.blockMessage(mid, 4).includes('۴'),
+  Gate.blockMessage(mid, 4)
+);
+ok('adv path: pack blocked until stage progress');
+
+// v409: in_progress-only (آزادسازی) نباید مرحله ۴ را باز کند — فقط stagesProgressed/done
+const releaseOnly = Gate.buildSteps({
+  activeBoms: 1,
+  releasedOrders: 1,
+  hasLay: true,
+  hasAdvStages: true,
+  stagesProgressed: false,
+  kanbanTouched: true, // سیگنال قدیمی اشتباه؛ با stagesProgressed صریح نادیده گرفته می‌شود
+  postedPacks: 0,
+  pendingPack: 1,
+  hasUnitCost: false,
+});
+assert.strictEqual(releaseOnly[3].done, false, 'v409: stagesProgressed=false beats legacy kanbanTouched');
+ok('v409: release-time in_progress does not unlock stage step');
 
 const afterKanbanDone = Gate.buildSteps({
   activeBoms: 1,
   releasedOrders: 1,
   hasLay: true,
   hasAdvStages: true,
-  kanbanTouched: true, // e.g. all_stages status=done (columns may be empty)
+  stagesProgressed: true,
+  kanbanTouched: true,
   postedPacks: 0,
   pendingPack: 1,
   hasUnitCost: false,
 });
 assert.strictEqual(afterKanbanDone[3].done, true);
 assert.ok(Gate.canEnter(afterKanbanDone, 4).ok);
-ok('adv path: kanbanTouched from done stages unlocks pack');
+ok('adv path: stagesProgressed (done stages) unlocks pack');
 
 const readyPack = Gate.buildSteps({
   activeBoms: 1,
@@ -118,22 +139,22 @@ const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 assert.ok(app.includes('prodJourneyTryEnter'));
 assert.ok(app.includes('prodJourneyRouteEnter'));
 assert.ok(app.includes('is-locked'));
-assert.ok(app.includes('v382 دروازه'));
+assert.ok(app.includes('v382 دروازه') || app.includes('v409 قرارداد'));
 assert.ok(app.includes('all_stages'));
 assert.ok(app.includes('همیشه تازه'));
 assert.ok(app.includes("prodJourneyRouteEnter('acc-production-orders'"));
 assert.ok(app.includes("prodJourneyRouteEnter('acc-cutting-lays'"));
 new Function(app);
-ok('app.js: gate helpers + locked UI + Help v382 + parse');
+ok('app.js: gate helpers + locked UI + Help + parse');
 
 const idx = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public/prod-ui.css'), 'utf8');
-assert.ok(idx.includes('prod-journey-gate.js?v=382'));
-assert.ok(idx.includes('app.js?v=382'));
-assert.ok(idx.includes('prod-ui.css?v=382'));
-assert.ok(sw.includes('erp-taranom-v382'));
+assert.ok(idx.includes('prod-journey-gate.js?v=409') || idx.includes('prod-journey-gate.js?v=382'));
+assert.ok(idx.includes('app.js?v=409') || idx.includes('app.js?v=382'));
+assert.ok(idx.includes('prod-ui.css?v=409') || idx.includes('prod-ui.css?v=382'));
+assert.ok(sw.includes('erp-taranom-v409') || sw.includes('erp-taranom-v382'));
 assert.ok(css.includes('.prod-journey-card.is-locked'));
-ok('SW/index/css stamp v382 + locked style');
+ok('SW/index/css stamp + locked style');
 
-console.log(`\nPASS ${n}/9 test-prod-journey-gate-v382`);
+console.log(`\nPASS ${n} checks test-prod-journey-gate-v382`);

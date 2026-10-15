@@ -200,7 +200,7 @@ function createOrder(db, body, userId) {
   if (!productId) throw err('E_QTY_INVALID', 422);
   const date = body.date || todayJalali();
   const period = body.period_label || jalaliPeriod(date);
-  const analysisType = body.analysis_type
+  let analysisType = body.analysis_type
     || setting(db, 'production_default_analysis', 'fixed')
     || 'fixed';
 
@@ -219,6 +219,15 @@ function createOrder(db, body, userId) {
     date,
     preferredBomId: body.bom_id ? Number(body.bom_id) : null,
   });
+
+  // BOM با مسیر عملیات ⇒ سفارش باید پیشرفته باشد تا مراحل/حواله/JE مرحله‌ای اعمال شود
+  const opCount = db.prepare(
+    'SELECT COUNT(*) AS c FROM bom_operations WHERE bom_id=?'
+  ).get(bom.id)?.c || 0;
+  const hasRouting = !!(bom.has_routing || opCount > 0);
+  if (hasRouting && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
+    analysisType = analysisType === 'variable' ? 'variable_adv' : 'fixed_adv';
+  }
 
   const whRaw = body.warehouse_raw_id || whSetting(db, 'production_wh_raw_id');
   const whFg = body.warehouse_fg_id || whSetting(db, 'production_wh_fg_id');
@@ -380,6 +389,21 @@ function releaseOrder(db, orderId, userId) {
   if (['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
     const { releaseAdvancedOrder } = require('./engine-advanced');
     return releaseAdvancedOrder(db, orderId, userId);
+  }
+  // سفارش ساده روی BOM مسیر‌دار: ارتقا به پیشرفته قبل از آزادسازی
+  if (po.bom_id) {
+    const bom = db.prepare('SELECT has_routing FROM bom_headers WHERE id=?').get(po.bom_id);
+    const opCount = db.prepare(
+      'SELECT COUNT(*) AS c FROM bom_operations WHERE bom_id=?'
+    ).get(po.bom_id)?.c || 0;
+    if (bom?.has_routing || opCount > 0) {
+      const upgraded = po.analysis_type === 'variable' ? 'variable_adv' : 'fixed_adv';
+      db.prepare(
+        'UPDATE production_orders SET analysis_type=?, updated_at=strftime(\'%s\',\'now\') WHERE id=?'
+      ).run(upgraded, orderId);
+      const { releaseAdvancedOrder } = require('./engine-advanced');
+      return releaseAdvancedOrder(db, orderId, userId);
+    }
   }
   return db.transaction(() => {
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });

@@ -362,6 +362,22 @@
   font-weight: 700; font-size: 13px;
 }
 .prod-journey-cta { font-size: 12px; font-weight: 600; color: var(--brand-mid); margin-top: auto; }
+.prod-stage-order {
+  border: 1px solid var(--prod-border); border-radius: var(--prod-radius);
+  padding: 10px 12px; background: color-mix(in srgb, var(--prod-bg) 92%, var(--brand-mid) 8%);
+}
+.prod-stage-order-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.prod-stage-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.prod-stage-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--prod-border); background: var(--prod-bg); color: var(--muted);
+}
+.prod-stage-chip.is-done { border-color: var(--brand-mid); color: var(--brand-dark); font-weight: 600; }
+.prod-stage-chip.is-next { border-color: var(--brand-gold); background: rgba(201,168,76,.12); color: #1A1A1A; font-weight: 600; }
+.prod-stage-chip.is-locked { border-style: dashed; opacity: 0.85; }
 @media (max-width: 1100px) {
   .prod-journey { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

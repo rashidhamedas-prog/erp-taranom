@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — تولید مرحله‌محور BOM: گیت حسابداری + داشبورد (SW v409)
+
+- **مشکل:** ترتیب مراحل در BOM تعریف می‌شد ولی اجرا/داشبورد آن را درست اعمال نمی‌کرد — journey با `in_progress` آزادسازی مرحلهٔ ۴ را باز می‌کرد؛ سفارش ساده روی BOM مسیر‌دار بدون `production_order_stages` آزاد می‌شد؛ حواله مرحله بدون گیت prev/status/مالکیت/پارچه/JE ممکن بود.
+- **قرارداد:** BOM مسیر ⇒ سفارش `*_adv`؛ مرحله N فقط پس از حواله (در صورت تعریف) + خروجی + JE کامل → مرحله N+1؛ پارچه از لایه‌چینی؛ R13 ابطال مرحله دست‌نخورده.
+- **بک‌اند:** `createOrder`/`releaseOrder` ارتقا به پیشرفته هنگام `has_routing`/وجود عملیات؛ `issueStageMaterials` گیت `in_progress` + prev + مالکیت + `assertFabricIssueAllowed` + JE اجباری + rollup `material_added_rial`؛ `skipStage` با handoff qty و ممنوعیت skip دارای مواد.
+- **UI:** نوار پیشرفت مراحل BOM روی داشبورد؛ مرحله ۴ = `stagesProgressed` (حداقل یک `done`)؛ کپی مسیر برش vs مراحل؛ Help + پیام‌های خطای فارسی.
+- **فایل‌ها:** `lib/production/{engine,engine-advanced}.js`, `public/{app.js,prod-journey-gate.js,prod-ui.css,sw.js,index.html}`, `scripts/test-prod-{journey-gate-v382,stage-gates-v409}.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ tap-erp-architecture؛ ERPNext Job Card / Manufacture SE؛ ultra-debug diagnosis.
+- **تست:** `test-prod-stage-gates-v409` + `test-prod-journey-gate-v382` + `test-sms` / `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۲: پرداخت بیمه/مالیات + مساعده + آزادسازی ذخیره (SW v408)
 
 - **هدف:** بستن شکاف‌های حسابداری حقوق پس از v406 — تسویه بدهی بیمه/مالیات، مساعده پرسنلی با کسر از فیش، و جلوگیری از دوباره‌شماری عیدی/سنوات هنگام ذخیره ماهانه.

@@ -46,12 +46,12 @@
     {
       key: 'kanban',
       n: '۴',
-      title: 'تابلوی خط',
-      desc: 'پیشرفت کارگاه',
+      title: 'مراحل BOM / تابلوی خط',
+      desc: 'تکمیل مرحله‌به‌مرحله با حواله و سند',
       cta: 'کانبان',
       go: 'acc-production-kanban',
       path: 'order',
-      how: 'برای سفارش چندمرحله‌ای باید پیشرفت در تابلوی خط ثبت شود؛ مسیر ساده بدون مراحل پیشرفته این مرحله را خودکار تکمیل می‌کند.',
+      how: 'برای سفارش چندمرحله‌ای حداقل یک مرحلهٔ مسیر BOM باید «انجام شد» باشد (آزادسازی به‌تنهایی کافی نیست). مسیر بدون مسیر عملیات این مرحله را خودکار تکمیل می‌کند.',
     },
     {
       key: 'pack',
@@ -90,7 +90,8 @@
     const releasedOrders = num(m.releasedOrders);
     const hasLay = !!m.hasLay;
     const hasAdvStages = !!m.hasAdvStages;
-    const kanbanTouched = !!m.kanbanTouched;
+    // v409: فقط تکمیل واقعی مرحله (done) — نه in_progress ناشی از آزادسازی
+    const stagesProgressed = !!(m.stagesProgressed != null ? m.stagesProgressed : m.kanbanTouched);
     const postedPacks = num(m.postedPacks);
     const pendingPack = num(m.pendingPack);
     const hasUnitCost = !!m.hasUnitCost;
@@ -99,7 +100,7 @@
       activeBoms > 0,
       releasedOrders > 0,
       hasLay,
-      !hasAdvStages || kanbanTouched,
+      !hasAdvStages || stagesProgressed,
       postedPacks > 0 && pendingPack === 0,
       hasUnitCost,
     ];
@@ -107,9 +108,14 @@
     return STEP_DEFS.map((def, i) => {
       const step = Object.assign({}, def, { done: !!doneFlags[i], index: i });
       if (i === 3) {
-        step.desc = hasAdvStages ? 'پیشرفت کارگاه' : 'مخصوص سفارش چندمرحله‌ای — در مسیر ساده خودکار تکمیل';
+        step.desc = hasAdvStages
+          ? 'حواله/خروجی/سند هر مرحله BOM'
+          : 'مخصوص سفارش چندمرحله‌ای — در مسیر ساده خودکار تکمیل';
         if (!hasAdvStages && step.done) {
           step.how = 'سفارش چندمرحله‌ای فعال نیست؛ این مرحله برای مسیر ساده خودکار تکمیل شده است.';
+        } else if (hasAdvStages && !step.done) {
+          step.how =
+            'حداقل یک مرحله از مسیر BOM باید «انجام شد» شود (حواله مواد + خروجی + سند حسابداری). آزادسازی سفارش که مرحله را «در جریان» می‌کند کافی نیست.';
         }
       }
       if (i === 4) {

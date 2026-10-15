@@ -288,7 +288,11 @@ async function api(method, path, data, isFormData, silent){
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
         E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — بهای مواد/دستمزد با رسید تولید هم‌خوان نیست؛ سفارش را بررسی یا ابطال/تعمیر کنید',
-        E_INVALID_STATUS:'وضعیت سفارش برای این عملیات مجاز نیست',
+        E_PREV_STAGE_OPEN:'مرحلهٔ قبلی هنوز تکمیل نشده — مسیر BOM باید به‌ترتیب طی شود',
+        E_STAGE_HAS_MATERIALS:'این مرحله مواد تعریف‌شده دارد و قابل رد کردن نیست — ابتدا حواله/خروجی بزنید',
+        E_STAGE_MATERIAL_OWNER:'این قلم مواد به این مرحله از مسیر BOM تعلق ندارد',
+        E_JE_REQUIRED:'ثبت بدون سند حسابداری مجاز نیست — عملیات برگشت خورد',
+        E_INVALID_STATUS:'وضعیت سفارش/مرحله برای این عملیات مجاز نیست',
         E_ORDER_CLOSED:'سفارش بسته یا لغو شده است',
         E_OPENING_COST_REQUIRED: pname
           ? ('موجودی «'+pname+'» بدون بهاست — بهای واحد را ثبت کنید')
@@ -15316,20 +15320,22 @@ async function fetchProdJourneyState(period){
   const layRows=(lays&&lays.rows)||[];
   const postedLays=layRows.filter(r=>r.status!=='reversed' && ((r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1));
   const pendingPack=layRows.filter(r=>r.status!=='reversed' && !(r.packs||[]).some(p=>p.status==='posted') && Number(r.pack_posted)!==1).length;
-  // ستون‌های کانبان فقط in_progress/blocked دارند؛ done فقط در all_stages است
+  // v409: پیشرفت واقعی = حداقل یک مرحله done (نه in_progress از آزادسازی)
   const allStages=kanban?.data?.all_stages||[];
-  const kanbanTouched=allStages.some(s=>['in_progress','blocked','done'].includes(String(s.status||'')))
-    || (kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','blocked','done'].includes(card.status)));
+  const stagesProgressed=allStages.some(s=>String(s.status||'')==='done')
+    || (kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>String(card.status||'')==='done'));
   const hasAdvStages=allStages.length>0
     || orderRows.some(o=>['fixed_adv','variable_adv'].includes(String(o.analysis_type||'')));
   const hasUnitCost=Number(k.unit_cost?.value_rial||0)>0 || orderRows.some(o=>Number(o.unit_cost_rial||0)>0);
+  const stageStrip=buildProdStageStrip(orderRows, allStages);
   const G=prodJourneyGateApi();
   const metrics={
     activeBoms,
     releasedOrders,
     hasLay:layRows.some(r=>r.status!=='reversed'),
     hasAdvStages,
-    kanbanTouched,
+    stagesProgressed,
+    kanbanTouched:stagesProgressed, // سازگاری با تست/کلاینت قدیمی
     postedPacks:postedLays.length,
     pendingPack,
     hasUnitCost,
@@ -15340,7 +15346,7 @@ async function fetchProdJourneyState(period){
       {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both', how:'فرمول فعال لازم است.', index:0},
       {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:releasedOrders>0, path:'order', how:'سفارش آزادشده لازم است.', index:1},
       {n:'۳', title:'لایه‌چینی', desc:'مصرف طاقه → WIP', goFn:'goCuttingLaysView', goArg:'lays', cta:'ثبت لایه‌چینی', done:layRows.some(r=>r.status!=='reversed'), path:'cut', how:'لایه‌چینی لازم است.', index:2},
-      {n:'۴', title:'تابلوی خط', desc:hasAdvStages?'پیشرفت کارگاه':'مخصوص سفارش چندمرحله‌ای', go:'acc-production-kanban', cta:'کانبان', done:!hasAdvStages || kanbanTouched, path:'order', how:'پیشرفت کانبان لازم است.', index:3},
+      {n:'۴', title:'مراحل BOM / تابلوی خط', desc:hasAdvStages?'حواله/خروجی/سند هر مرحله':'مخصوص سفارش چندمرحله‌ای', go:'acc-production-kanban', cta:'کانبان', done:!hasAdvStages || stagesProgressed, path:'order', how:'حداقل یک مرحله done لازم است.', index:3},
       {n:'۵', title:'PACK / رسید محصول', desc:'با سفارش: بسته‌بندی WIP؛ بدون سفارش: ورود FG؛ فروش‌پذیر با finalize', goFn:'goCuttingLaysView', goArg:'pending-pack', cta:pendingPack?'PACK معلق':'بسته\u200cبندی / رسید', done:postedLays.length>0 && pendingPack===0, path:'cut', how:'PACK لازم است؛ ورود فروش‌پذیر با سفارش فقط در نهایی\u200cسازی.', index:4},
       {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both', how:'بهای واحد لازم است.', index:5},
     ];
@@ -15351,10 +15357,46 @@ async function fetchProdJourneyState(period){
     const priorOk=steps.slice(0, packIdx).every(s=>s.done);
     if(priorOk && !steps[packIdx].done) nextIdx=packIdx;
   }
-  return prodJourneyRemember({ dash, k, openOrders, releasedOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows, metrics });
+  return prodJourneyRemember({ dash, k, openOrders, releasedOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows, metrics, stageStrip });
+}
+/** نوار پیشرفت مراحل BOM برای سفارش‌های پیشرفته باز */
+function buildProdStageStrip(orderRows, allStages){
+  const adv=orderRows.filter(o=>['fixed_adv','variable_adv'].includes(String(o.analysis_type||''))
+    && !['draft','cancelled','voided','closed'].includes(String(o.status||'')));
+  if(!adv.length) return '';
+  const byOrder={};
+  for(const s of (allStages||[])){
+    const oid=s.order_id||s.orderId;
+    if(!oid) continue;
+    if(!byOrder[oid]) byOrder[oid]=[];
+    byOrder[oid].push(s);
+  }
+  const stFa={pending:'منتظر',in_progress:'در جریان',done:'انجام شد',skipped:'رد شده',blocked:'متوقف'};
+  const cards=adv.slice(0,8).map(o=>{
+    const stages=(byOrder[o.id]||[]).slice().sort((a,b)=>Number(a.seq||0)-Number(b.seq||0));
+    const done=stages.filter(s=>s.status==='done').length;
+    const total=stages.length;
+    const chips=stages.map(s=>{
+      const cls=s.status==='done'?'is-done':(s.status==='in_progress'?'is-next':(s.status==='blocked'?'is-locked':''));
+      const label=(s.operation_name||s.name||('مرحله '+s.seq))+' · '+(stFa[s.status]||s.status||'—');
+      return `<span class="prod-stage-chip ${cls}" title="${esc(label)}">${esc(String(s.seq||''))} ${esc(stFa[s.status]||s.status||'')}</span>`;
+    }).join('');
+    return `<div class="prod-stage-order">
+      <div class="prod-stage-order-head"><b>${esc(o.order_no||('#'+o.id))}</b>
+        <span class="muted">${fmt(done)}/${fmt(total)} مرحله</span>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-kanban')})}">کانبان</button>
+      </div>
+      <div class="prod-stage-chips">${chips||'<span class="muted">مراحل هنوز ساخته نشده — سفارش را آزاد کنید</span>'}</div>
+    </div>`;
+  }).join('');
+  return `<div class="panel" data-csp-style="${CSP.style(`margin:12px 0`)}"><div class="panel-head"><h4>پیشرفت مراحل BOM (ترتیب حسابداری)</h4></div>
+    <div class="panel-body" data-csp-style="${CSP.style(`display:flex;flex-direction:column;gap:10px`)}">
+      <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.7;font-size:12px`)}">هر مرحله فقط بعد از حواله مواد (در صورت تعریف)، ثبت هزینه/دستمزد/سربار و خروجی با سند حسابداری «انجام شد» می‌شود؛ سپس مرحلهٔ بعد باز است. پارچهٔ طاقه‌دار از لایه‌چینی مصرف می‌شود و دوباره در حوالهٔ مرحله حواله نمی‌شود.</p>
+      ${cards}
+    </div></div>`;
 }
 function prodJourneyHtml(state){
-  const { steps, nextIdx, k, openOrders, activeBoms, pendingPack }=state;
+  const { steps, nextIdx, k, openOrders, activeBoms, pendingPack, stageStrip }=state;
   const G=prodJourneyGateApi();
   const stepNav=i=>CSP.bind('click',function(){prodJourneyStepClick(i)});
   const lockedHint=i=>{
@@ -15368,7 +15410,7 @@ function prodJourneyHtml(state){
     <div class="prod-home-hero">
       <div>
         <h3 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:20px`)}">داشبورد تولید</h3>
-        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">مسیر کارگاه باید پیوسته ۱→۶ طی شود؛ ورود زودهنگام به مرحلهٔ بعد مسدود است و علت دقیق اعلام می‌شود. لایه‌چینی و رسید محصول دو رویداد جدا هستند.</p>
+        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">ترتیب مراحل در <b>BOM → مسیر عملیات</b> تعریف می‌شود؛ هر مرحله باید با حواله/رسید/سند حسابداری کامل شود سپس مرحله بعد. مسیر داشبورد ۱→۶ ناوبری کارگاه است و با تکمیل واقعی مراحل قفل می‌شود.</p>
       </div>
       <div class="prod-home-hero-actions">
         <button class="btn" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">✂️ لایه‌چینی</button>
@@ -15382,10 +15424,11 @@ function prodJourneyHtml(state){
       ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'منتظر رسید محصول', value:fmt(pendingPack), icon:'📦'}):statCard('o','📦',fmt(pendingPack),'منتظر رسید محصول')}
       ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'فرمول فعال', value:fmt(activeBoms), icon:'📐'}):statCard('r','📐',fmt(activeBoms),'فرمول فعال')}
     </div>
+    ${stageStrip||''}
     <div class="prod-dual-path">
       <div class="prod-path-card">
         <b>✂️ مسیر برش و بسته‌بندی</b>
-        <span class="muted">طاقه → لایه‌چینی (مواد→WIP) → رسید انبار محصول (WIP→FG) — با رعایت ترتیب داشبورد</span>
+        <span class="muted">طاقه → لایه‌چینی (مصرف پارچه→WIP) → PACK → رسید فروش‌پذیر در نهایی‌سازی سفارش — پارچه دوباره در حواله مرحله مصرف نمی‌شود</span>
         <div class="prod-path-actions">
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">طاقه</button>
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">لایه‌چینی</button>
@@ -15393,8 +15436,8 @@ function prodJourneyHtml(state){
         </div>
       </div>
       <div class="prod-path-card">
-        <b>🏭 مسیر سفارش تولید</b>
-        <span class="muted">BOM → سفارش آزاد → حواله/رسید یا مراحل پیشرفته → بستن</span>
+        <b>🏭 مسیر مراحل BOM</b>
+        <span class="muted">BOM مسیر → سفارش پیشرفته → مرحله N: حواله+هزینه+خروجی+JE → مرحله N+1 → نهایی‌سازی</span>
         <div class="prod-path-actions">
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-boms')})}">فرمول</button>
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-orders')})}">سفارش</button>
@@ -29410,11 +29453,12 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» PACK است. تابلوی خط لایه‌های منتظر PACK را در «برش / WIP» می‌آورد. پارچهٔ لایه‌چینی در حواله با E_FABRIC_ALREADY_CUT قفل است.
           <br><b>v384 قفل پارچه فقط برای همین سفارش/کالا:</b> متر لایه‌چینی محصول دیگر حواله را قفل نمی‌کند. همان طاقهٔ فیزیکی با شناسهٔ دسته مسدود است.
           <br><b>v382 دروازهٔ ترتیبی مسیر ۶مرحله‌ای:</b> ورود به مراحل ۲…۶ فقط با تکمیل پیش‌نیازها.
+          <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
-        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای قفل‌شونده ۱→۶ + دو مسیر برش/PACK و سفارش تولید). بدون تکمیل مرحلهٔ قبل، کلیک کارت/میانبر/منو مسدود و علت دقیق نشان داده می‌شود (v382). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد. گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
+        <li><b>خانه تولید (v409):</b> ورود پیش‌فرض = <b>داشبورد تولید</b> — KPI + مسیر ۶مرحله‌ای قفل‌شونده + <b>نوار پیشرفت مراحل BOM</b> per سفارش پیشرفته + دو کارت «برش/PACK» و «مراحل BOM». مرحله ۴ = تکمیل واقعی مرحله (حواله+خروجی+JE)، نه in_progress ناشی از آزادسازی. بدون تکمیل مرحلهٔ قبل، کلیک کارت/میانبر/منو مسدود است (v382+v409). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد.</li>
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
