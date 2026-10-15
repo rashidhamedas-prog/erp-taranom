@@ -16,8 +16,8 @@
 - **رفع:** `upsertPartyOpening` در `lib/opening-post.js`؛ مسیر create/update اشخاص؛ deactivate با upsert(0)؛ Help + SW v405.
 - **فایل‌ها:** `lib/{opening-post,parties-sync}.js`, `routes/parties.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-opening-edit-v405.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ explore handoff party vs bank opening.
-- **تست:** `test-party-opening-edit-v405` + `test-sms` + `test-sync` (پس از اجرا).
-- **Deploy:** ⏳
+- **تست:** ایران `test-party-opening-edit-v405` ۳۷/۰ + `test-sms` ۲۲/۰؛ `test-sync` harness روی ایران pairing شکننده (مستقل از این تغییر؛ مثل v401).
+- **Deploy:** ✅ `fa95199` — overlay ایران + `pm2 restart` بدون `--update-env`؛ ready/health=200 + sharp؛ SW `erp-taranom-v405`؛ `app.js?v=405`.
 
 ### ۱۴۰۵/۰۷/۲۳ — گیت رسید FG برای سفارش طاقه‌دار: لایه‌چینی → PACK → رسید (SW v403)
 
