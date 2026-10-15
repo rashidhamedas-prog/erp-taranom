@@ -4,10 +4,11 @@
 - **ریشه:** `DELETE /accounting/cost-centers/:id` حذف فیزیکی خام بود؛ FK تولید/انبار/`user_cost_centers` و غیره → `SQLITE_CONSTRAINT` بدون catch → ۵۰۰.
 - **Invariant (TAP MDM):** مرکز هزینه‌ای که ارجاع دارد hard-delete نمی‌شود؛ یا بلاک با پیام فارسی (زیرمجموعه) یا `active=0`. مراکز سیستمی `CC-WORKSHOP` / `CC-DISTRIBUTION` هرگز حذف فیزیکی نمی‌شوند.
 - **رفع:** بررسی فرزند + ارجاعات whitelisted؛ ارجاع‌دار → غیرفعال؛ آزاد → DELETE؛ safety-net FK → deactivate. UI toast تمایز حذف/غیرفعال؛ Help.
+- **پیگیری research:** پروب ارجاع به ستون‌های بدون FK هم گسترش یافت (`expense_payments`, `journal_templates`, `voucher_drafts`, `persons`, `budget_lines`, `rep_expenses`, labor/OH/variance/estimate) تا حذف فیزیکی orphan نسازد.
 - **فایل‌ها:** `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cost-center-delete-v398.js`, CHANGE-LOG.
-- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی انبار/بانک.
-- **تست:** ایران `test-cost-center-delete-v398` ۱۲/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
-- **Deploy:** ✅ `63b0b4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v398`؛ `app.js?v=398`.
+- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی انبار/بانک؛ explore FK map.
+- **تست:** ایران `test-cost-center-delete-v398` ۱۲/۰ (+۲ assertion استاتیک در پیگیری) + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Deploy:** ✅ `63b0b4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v398`؛ `app.js?v=398`. پیگیری پروب: ⏳
 
 ### ۱۴۰۵/۰۷/۲۳ — آموزش کامل RTL بخش تولید (فایل ورود HTML)
 

@@ -2633,26 +2633,38 @@ router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
     .run(name, code || '', active ? 1 : 0, entity ?? '', parentId, req.params.id);
   res.json({ ok: true });
 });
-/** Whitelisted FK probes for cost-center delete (table, column, Persian label). */
+/** Whitelisted probes for cost-center delete (table, column, Persian label).
+ * Includes non-FK columns so hard-delete cannot orphan journals/docs (research v398). */
 const COST_CENTER_REF_SPECS = [
   ['warehouses', 'cost_center_id', 'انبار'],
   ['journal_lines', 'cost_center_id', 'سطر دفترکل'],
   ['journal_entries', 'cost_center_id', 'سند حسابداری'],
+  ['journal_templates', 'cost_center_id', 'قالب سند'],
+  ['voucher_drafts', 'cost_center_id', 'پیش‌نویس سند'],
   ['invoices', 'cost_center_id', 'فاکتور فروش'],
   ['purchase_invoices', 'cost_center_id', 'فاکتور خرید'],
   ['settlements', 'cost_center_id', 'تسویه'],
   ['cheque_records', 'cost_center_id', 'چک'],
+  ['expense_payments', 'cost_center_id', 'پرداخت هزینه'],
+  ['rep_expenses', 'cost_center_id', 'هزینه نماینده'],
   ['payroll_records', 'cost_center_id', 'حقوق'],
+  ['persons', 'cost_center_id', 'پرونده شخص'],
+  ['budget_lines', 'cost_center_id', 'بودجه'],
   ['bom_operations', 'cost_center_id', 'عملیات BOM'],
   ['bom_lines', 'stage_cost_center_id', 'مواد BOM'],
   ['bom_outputs', 'stage_cost_center_id', 'خروجی BOM'],
   ['cost_center_rates', 'cost_center_id', 'نرخ سربار'],
   ['cost_center_account_maps', 'cost_center_id', 'نگاشت معین'],
+  ['overhead_allocation_weights', 'cost_center_id', 'وزن جذب سربار'],
   ['user_cost_centers', 'cost_center_id', 'دسترسی کاربر'],
   ['production_orders', 'cost_center_id', 'سفارش تولید'],
   ['production_order_stages', 'cost_center_id', 'مرحله تولید'],
   ['production_material_issues', 'cost_center_id', 'حواله مواد'],
+  ['production_labor_entries', 'cost_center_id', 'دستمزد تولید'],
+  ['production_overhead_applications', 'cost_center_id', 'جذب سربار'],
   ['production_waste', 'cost_center_id', 'ضایعات'],
+  ['production_variances', 'cost_center_id', 'انحراف تولید'],
+  ['production_estimate_lines', 'cost_center_id', 'برآورد تولید'],
 ];
 
 const COST_CENTER_SEED_CODES = new Set(['CC-WORKSHOP', 'CC-DISTRIBUTION']);
