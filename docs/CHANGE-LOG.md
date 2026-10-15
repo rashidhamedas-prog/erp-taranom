@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: همهٔ سناریوهای مابه‌التفاوت (SW v412)
+
+- **هدف:** در «فروش سریع → تعویض / برگشت+فروش» همهٔ حالت‌های واقعی پوشش داده شود: فروش گران‌تر (دریافت)، برگشت گران‌تر (استرداد صندوق)، برابر، چندقلم، برگشت جزئی با سقف qty، فی قفل از فاکتور، نسیهٔ خالص برای مشتری واقعی، جبران اگر فروش بعد از برگشت شکست بخورد.
+- **بک‌اند:** `getInvoiceReturnablePack`؛ `GET /store/exchange-available/:id` + `GET /store/customer-firm-invoices/:custId`؛ `computeExchangeSettlement`؛ `quick-exchange` با preflight سقف + rollback (`voidSalesReturn` / `voidInvoiceFully`)؛ نسیهٔ خالص دیگر به اجبار نقد تبدیل نمی‌شود.
+- **UI:** جدول قابل‌برگشت (فروخته/قبلی/سقف/خالص واحد) به‌جای بارگذاری خودکار همهٔ سطرها؛ برچسب‌های دریافت/استرداد/برابر؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/{store-quick-sale,sales-return-doc}.js`, `routes/{store,accounting}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-store-quick-exchange-v411.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ChannelDock/Shopify/Qvian exchange net settlement؛ tap-erp-architecture.
+- **Non-goals:** فقط-برگشت بدون فروش جایگزین (مسیر «برگشت از فروش»)؛ void یک‌کلیکی کل بستهٔ تعویض (همان R13 جدا روی فاکتور/برگشت).
+- **تست:** `test-store-quick-exchange-v411` + parse `app.js` + `test-sms` / `test-sync` (در صورت در دسترس بودن).
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — اتصال لایه‌چینی به مرحلهٔ برش مسیر BOM (SW v411)
 
 - **هدف:** لایه‌چینی سفارش‌دار پیشرفته دیگر مسیر موازی جدا نیست — به مرحلهٔ برش (`CC-10` / نام برش / اولین مرحلهٔ پارچه) وصل می‌شود، مواد+تکمیل مرحله+باز شدن مرحلهٔ بعد را یکجا ثبت می‌کند.

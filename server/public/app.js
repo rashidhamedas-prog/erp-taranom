@@ -6910,13 +6910,14 @@ async function printWarehouseSlip(source, id, paper){
 }
 
 /* ============================================================
-   فروش سریع فروشگاهی (Quick Store Sale) — v387
+   فروش سریع فروشگاهی (Quick Store Sale) — v411 exchange scenarios
 ============================================================ */
 let _storeQs = {
   boot: null, lines: [], returnLines: [], payType: 'cash', cashBoxId: null, terminalId: null,
   custId: 0, discPct: 0, busy: false, scanQ: '',
   mode: 'sale', warehouseId: null,
   refInvoiceId: null, refInvoice: null, refInvoices: [],
+  availableRows: [], availableDisc: null,
 };
 
 function storeQsCanOpen(){
@@ -6956,12 +6957,57 @@ function storeQsFinal(){
 function storeQsReturnGross(){
   return (_storeQs.returnLines||[]).reduce((a,ln)=>{
     const qty=Number(ln.qty)||0;
-    const price=Math.round(Number(ln.unit_price!=null?ln.unit_price:ln.price)||0);
-    return a + Math.max(0, Math.round(qty*price));
+    if(!(qty>0)) return a;
+    const net=Math.round(Number(ln.net_unit!=null?ln.net_unit:(ln.unit_price!=null?ln.unit_price:ln.price))||0);
+    return a + Math.max(0, Math.round(qty*net));
   },0);
 }
 function storeQsNetDue(){
   return storeQsFinal() - storeQsReturnGross();
+}
+function storeQsSettlementCase(){
+  const net=storeQsNetDue();
+  if(net>0) return 'collect';
+  if(net<0) return 'refund';
+  return 'even';
+}
+/** Sync returnLines from availableRows where qty_return > 0. */
+function storeQsSyncReturnLines(){
+  const out=[];
+  (_storeQs.availableRows||[]).forEach(r=>{
+    const qty=Math.max(0, Number(r.qty_return)||0);
+    if(!(qty>0)) return;
+    const max=Number(r.max_returnable)||0;
+    const q=Math.min(qty, max);
+    if(!(q>0)) return;
+    out.push({
+      product_id:r.product_id,
+      name:r.name||'',
+      qty:q,
+      unit_price:Math.round(Number(r.price)||0),
+      price:Math.round(Number(r.price)||0),
+      net_unit:Math.round(Number(r.net_unit!=null?r.net_unit:r.price)||0),
+      max_returnable:max,
+      already_returned:Number(r.already_returned)||0,
+      variant_id:r.variant_id||null,
+      color_id:r.color_id||null,
+      size_id:r.size_id||null,
+      color_name:r.color_name||r.color||'',
+      size_name:r.size_name||'',
+      warehouse_id:r.warehouse_id||(_storeQs.refInvoice&&_storeQs.refInvoice.warehouse_id)||storeQsWhId(),
+    });
+  });
+  _storeQs.returnLines=out;
+}
+function storeQsSetAllReturnMax(){
+  (_storeQs.availableRows||[]).forEach(r=>{ r.qty_return=Number(r.max_returnable)||0; });
+  storeQsSyncReturnLines();
+  storeQsRenderBody();
+}
+function storeQsClearReturns(){
+  (_storeQs.availableRows||[]).forEach(r=>{ r.qty_return=0; });
+  _storeQs.returnLines=[];
+  storeQsRenderBody();
 }
 function storeQsRetailPrice(p){
   const retail = Math.round(Number(p.retail_price_rial || p.retail_price)||0);
@@ -7098,22 +7144,47 @@ function storeQsRenderLines(){
   }).join('')}</tbody></table></div>`;
 }
 function storeQsRenderReturnLines(){
-  if(!_storeQs.returnLines.length){
-    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">از فاکتور مرجع، کالاهای برگشتی را انتخاب کنید</div>`;
+  const rows=_storeQs.availableRows||[];
+  if(!_storeQs.refInvoiceId){
+    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">ابتدا فاکتور مرجع را انتخاب کنید</div>`;
   }
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>کالا برگشتی</th><th>تعداد</th><th data-col-kind="money">فی</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
-  </tr></thead><tbody>${_storeQs.returnLines.map((ln,idx)=>{
-    const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
-    const tot=Math.round((Number(ln.qty)||0)*Math.round(Number(ln.unit_price!=null?ln.unit_price:ln.price)||0));
-    return `<tr>
-      <td><b>${esc(ln.name||'')}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${varLbl?esc(varLbl):''}</div></td>
-      <td><input type="number" min="0.001" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.returnLines[idx].qty=Math.max(0.001,Number(this.value)||0);storeQsRenderBody();})}"></td>
-      <td class="mono">${fmt(ln.unit_price!=null?ln.unit_price:ln.price)}</td>
-      <td class="mono"><b>${fmt(tot)}</b></td>
-      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.returnLines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
-    </tr>`;
-  }).join('')}</tbody></table></div>`;
+  if(!rows.length){
+    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">همه اقلام این فاکتور قبلاً برگشت شده‌اند یا قابل برگشت نیست</div>`;
+  }
+  const returnGross=storeQsReturnGross();
+  return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin:6px 0`)}">
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsSetAllReturnMax();})}">انتخاب همه (حداکثر)</button>
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsClearReturns();})}">پاک کردن برگشتی</button>
+      <span class="muted" data-csp-style="${CSP.style(`align-self:center`)}">جمع برگشت (تقریبی): <b class="mono">${fmt(returnGross)}</b></span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
+      <th>کالا</th><th>فروخته</th><th>برگشتی قبل</th><th>قابل</th><th data-col-kind="money">فی</th><th data-col-kind="money">خالص واحد</th><th>تعداد برگشت</th><th data-col-kind="money">جمع</th>
+    </tr></thead><tbody>${rows.map((r,idx)=>{
+      const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(r.color_name||r.color, r.size_name):'';
+      const max=Number(r.max_returnable)||0;
+      const qty=Math.max(0, Math.min(max, Number(r.qty_return)||0));
+      const net=Math.round(Number(r.net_unit!=null?r.net_unit:r.price)||0);
+      const tot=Math.round(qty*net);
+      return `<tr>
+        <td><b>${esc(r.name||'')}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${varLbl?esc(varLbl):''}</div></td>
+        <td class="mono">${fmt(r.qty)}</td>
+        <td class="mono">${fmt(r.already_returned||0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(max)}</td>
+        <td class="mono">${fmt(r.price)}</td>
+        <td class="mono">${fmt(net)}</td>
+        <td><input type="number" min="0" max="${max}" step="1" value="${esc(String(qty))}" data-csp-style="${CSP.style(`width:72px`)}"
+          data-csp-input="${CSP.bind('input',function(){
+            const v=Math.max(0, Math.min(max, Number(this.value)||0));
+            _storeQs.availableRows[idx].qty_return=v;
+            storeQsSyncReturnLines();
+            storeQsRenderBody();
+          })}"></td>
+        <td class="mono"><b>${fmt(tot)}</b></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>
+    ${(_storeQs.availableDisc&&_storeQs.availableDisc.hdr_disc_remaining>0)
+      ? `<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">تخفیف کل باقیمانده فاکتور مرجع: ${fmt(_storeQs.availableDisc.hdr_disc_remaining)} — در سرور روی مبلغ برگشت اعمال می‌شود</div>`
+      : ''}`;
 }
 async function storeQsLoadRefInvoices(){
   const custId=Number(_storeQs.custId||0);
@@ -7121,40 +7192,39 @@ async function storeQsLoadRefInvoices(){
   _storeQs.refInvoiceId=null;
   _storeQs.refInvoice=null;
   _storeQs.returnLines=[];
+  _storeQs.availableRows=[];
+  _storeQs.availableDisc=null;
   if(!(custId>0)) return;
   try{
-    const rows=listRows(await api('GET','/invoices'));
-    _storeQs.refInvoices=(rows||[]).filter(i=>{
-      if(Number(i.cust_id)!==custId) return false;
-      if(i.deleted_at) return false;
-      const t=String(i.type||'');
-      return t==='normal'||t==='final';
-    }).slice(0,40);
-  }catch(_){ _storeQs.refInvoices=[]; }
+    const rows=listRows(await api('GET','/store/customer-firm-invoices/'+custId));
+    _storeQs.refInvoices=rows||[];
+  }catch(_){
+    try{
+      const rows=listRows(await api('GET','/invoices'));
+      _storeQs.refInvoices=(rows||[]).filter(i=>{
+        if(Number(i.cust_id)!==custId) return false;
+        if(i.deleted_at) return false;
+        const t=String(i.type||'');
+        return t==='normal'||t==='final';
+      }).slice(0,40);
+    }catch(__){ _storeQs.refInvoices=[]; }
+  }
 }
 async function storeQsSelectRefInvoice(id){
   _storeQs.refInvoiceId=Number(id)||null;
   _storeQs.returnLines=[];
+  _storeQs.availableRows=[];
+  _storeQs.availableDisc=null;
   if(!_storeQs.refInvoiceId){ _storeQs.refInvoice=null; storeQsRenderBody(); return; }
+  const custId=Number(_storeQs.custId||(_storeQs.boot&&_storeQs.boot.walkin_customer_id)||0);
   try{
-    const inv=await api('GET','/invoices/'+_storeQs.refInvoiceId);
-    _storeQs.refInvoice=inv;
-    const rows=Array.isArray(inv.rows)?inv.rows:JSON.parse(inv.rows||'[]');
-    _storeQs.returnLines=rows.filter(r=>r&&r.row_type!=='income'&&r.product_id).map(r=>({
-      product_id:r.product_id,
-      name:r.name||'',
-      qty:Number(r.qty)||1,
-      unit_price:Math.round(Number(r.unit_price!=null?r.unit_price:r.price)||0),
-      price:Math.round(Number(r.unit_price!=null?r.unit_price:r.price)||0),
-      variant_id:r.variant_id||null,
-      color_id:r.color_id||null,
-      size_id:r.size_id||null,
-      color_name:r.color_name||r.color||'',
-      size_name:r.size_name||'',
-      warehouse_id:r.warehouse_id||inv.warehouse_id||storeQsWhId(),
-    }));
+    const pack=await api('GET','/store/exchange-available/'+_storeQs.refInvoiceId+(custId?('?cust_id='+custId):''));
+    _storeQs.refInvoice=pack.invoice||null;
+    _storeQs.availableDisc=pack.discount||null;
+    _storeQs.availableRows=(pack.rows||[]).map(r=>({ ...r, qty_return:0 }));
+    storeQsSyncReturnLines();
   }catch(e){
-    showToast((e&&e.message)||'خطا در بارگذاری فاکتور','error');
+    showToast((e&&(e.error||e.message))||'خطا در بارگذاری اقلام قابل برگشت','error');
     _storeQs.refInvoice=null;
   }
   storeQsRenderBody();
@@ -7185,9 +7255,17 @@ function storeQsRenderBody(){
         ${whList.map(w=>`<option value="${w.id}" ${Number(whId)===Number(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
       </select>`;
   const cashSelectLocked=locksCash&&!storeQsCanChangeCash();
-  const netLabel=netDue>=0
-    ? `<span class="muted">قابل پرداخت (خالص)</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(mode==='exchange'?Math.max(0,netDue):finalAmt)}</div>`
-    : `<span class="muted">قابل استرداد به مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(Math.abs(netDue))}</div>`;
+  const settleCase=mode==='exchange'?storeQsSettlementCase():'sale';
+  let netLabel;
+  if(mode!=='exchange'){
+    netLabel=`<span class="muted">قابل پرداخت</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(finalAmt)}</div>`;
+  } else if(settleCase==='collect'){
+    netLabel=`<span class="muted">مابه‌التفاوت — دریافت از مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(netDue)}</div>`;
+  } else if(settleCase==='refund'){
+    netLabel=`<span class="muted">مابه‌التفاوت — استرداد به مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(Math.abs(netDue))}</div>`;
+  } else {
+    netLabel=`<span class="muted">تعویض برابر — بدون دریافت/استرداد</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--green)`)}">۰</div>`;
+  }
 
   box.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:10px;gap:8px`)}">
@@ -7210,9 +7288,9 @@ function storeQsRenderBody(){
           <option value="">— انتخاب فاکتور مشتری —</option>
           ${(_storeQs.refInvoices||[]).map(i=>`<option value="${i.id}" ${Number(_storeQs.refInvoiceId)===Number(i.id)?'selected':''}>${esc(i.num||('#'+i.id))} — ${esc(i.date||'')} — ${fmt(i.final||i.final_rial||0)}</option>`).join('')}
         </select>
-        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برگشت فقط روی فاکتور قطعی همان مشتری؛ فی از فاکتور قفل است</div>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برگشت فقط روی فاکتور قطعی همان مشتری؛ فی و تخفیف ردیف از فاکتور قفل است. تعداد را تا سقف «قابل» وارد کنید.</div>
       </div>
-      <div data-csp-style="${CSP.style(`margin-top:8px`)}"><b>اقلام برگشتی</b> — جمع برگشت: <b class="mono">${fmt(returnGross)}</b></div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}"><b>اقلام برگشتی</b></div>
       ${storeQsRenderReturnLines()}
     </div>`:''}
     <div data-csp-style="${CSP.style(`margin-bottom:6px`)}"><b>${mode==='exchange'?'سبد فروش جایگزین':'سبد فروش'}</b></div>
@@ -7235,21 +7313,21 @@ function storeQsRenderBody(){
             ${!isWalkin?`<option value="credit" ${_storeQs.payType==='credit'?'selected':''}>نسیه (مانده مشتری)</option>`:''}
           </select>
         </div>
-        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&netDue<0)?`<div class="fg"><label>صندوق *</label>
+        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&settleCase==='refund')?`<div class="fg"><label>صندوق *</label>
           ${cashSelectLocked
             ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
-               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر</div>`
+               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر${settleCase==='refund'?' — برای استرداد':''}</div>`
             : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;})}"><option value="">—</option>${cashOpts}</select>`}
         </div>`:''}
         ${_storeQs.payType==='pos_card'||_storeQs.payType==='mixed'?`<div class="fg"><label>کارتخوان *</label><select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select></div>`:''}
       </div>
       <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px`)}">
         <div>${netLabel}
-          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">فروش ${fmt(finalAmt)} − برگشت ${fmt(returnGross)}</div>`:''}
+          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">فروش ${fmt(finalAmt)} − برگشت ${fmt(returnGross)}${settleCase==='even'?' · برابر':settleCase==='collect'?' · مشتری می‌پردازد':' · استرداد'}</div>`:''}
         </div>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
-          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
-          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${mode==='exchange'?'ثبت تعویض':'ثبت فروش'}</button>
+          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];_storeQs.availableRows=[];_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
+          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${mode==='exchange'?(settleCase==='refund'?'ثبت تعویض + استرداد':settleCase==='even'?'ثبت تعویض برابر':'ثبت تعویض'):'ثبت فروش'}</button>
         </div>
       </div>
     </div>`;
@@ -7319,8 +7397,9 @@ async function storeQsCheckout(){
   const mode=_storeQs.mode||'sale';
   if(!_storeQs.lines.length){ showToast('سبد فروش خالی است','error'); return; }
   if(mode==='exchange'){
+    storeQsSyncReturnLines();
     if(!_storeQs.refInvoiceId){ showToast('فاکتور مرجع برگشت را انتخاب کنید','error'); return; }
-    if(!_storeQs.returnLines.length){ showToast('اقلام برگشتی خالی است','error'); return; }
+    if(!_storeQs.returnLines.length){ showToast('تعداد برگشتی را برای حداقل یک کالا وارد کنید','error'); return; }
   }
   const boot=_storeQs.boot||{};
   const walkinId=Number(boot.walkin_customer_id||0);
@@ -7330,11 +7409,16 @@ async function storeQsCheckout(){
   const finalAmt=storeQsFinal();
   if(!(finalAmt>0)){ showToast('مبلغ فاکتور نامعتبر است','error'); return; }
   const netDue=mode==='exchange'?storeQsNetDue():finalAmt;
+  const settleCase=mode==='exchange'?storeQsSettlementCase():'sale';
   const collectAmt=Math.max(0, netDue);
   const tender=storeQsBuildPaySplits(collectAmt);
   if(!tender) return;
-  if(mode==='sale'&&tender.payType==='credit'&&custId===walkinId){
+  if((mode==='sale'||(mode==='exchange'&&collectAmt>0))&&tender.payType==='credit'&&custId===walkinId){
     showToast('نسیه برای مشتری نقدی فروشگاه مجاز نیست','error'); return;
+  }
+  if(mode==='exchange'&&settleCase==='refund'){
+    const cashId=tender.cashBoxId||_storeQs.cashBoxId||boot.cash_box_id;
+    if(!cashId){ showToast('برای استرداد مابه‌التفاوت، صندوق الزامی است','error'); return; }
   }
   const whId=storeQsWhId();
   if(!whId){ showToast('انبار فروش را انتخاب کنید','error'); return; }
@@ -7343,6 +7427,9 @@ async function storeQsCheckout(){
   storeQsRenderBody();
   try{
     if(mode==='exchange'){
+      const payTypeOut=collectAmt>0
+        ? (tender.payType||'cash')
+        : 'credit';
       const body={
         cust_id:custId,
         invoice_id:_storeQs.refInvoiceId,
@@ -7367,16 +7454,22 @@ async function storeQsCheckout(){
           disc:Number(_storeQs.discPct)||0,
           rows:storeQsSaleRows(),
           warehouse_id:whId,
-          pay_type:collectAmt>0?(tender.payType==='credit'?'cash':tender.payType):'credit',
+          pay_type:payTypeOut,
           cash_box_id:tender.cashBoxId,
-          pay_splits:collectAmt>0?tender.pay_splits:undefined,
+          pay_splits:(collectAmt>0&&payTypeOut!=='credit')?tender.pay_splits:undefined,
         },
       };
       const out=await api('POST','/store/quick-exchange', body);
       const inv=out&&out.invoice;
-      showToast('تعویض ثبت شد'+(inv&&inv.num?(': '+inv.num):'')+(out.refund_rial?(' — استرداد '+fmt(out.refund_rial)):''));
+      let msg='تعویض ثبت شد'+(inv&&inv.num?(': '+inv.num):'');
+      if(out&&out.settlement_case==='refund'&&out.refund_rial) msg+=' — استرداد '+fmt(out.refund_rial);
+      else if(out&&out.settlement_case==='collect'&&out.net_collect) msg+=' — دریافت '+fmt(out.net_collect);
+      else if(out&&out.settlement_case==='even') msg+=' — برابر (بدون دریافت/استرداد)';
+      showToast(msg);
       _storeQs.lines=[];
       _storeQs.returnLines=[];
+      _storeQs.availableRows=[];
+      _storeQs.availableDisc=null;
       _storeQs.refInvoiceId=null;
       _storeQs.refInvoice=null;
       _storeQs.discPct=0;
@@ -18780,6 +18873,8 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>سایر کسورات (ریال)</label><input id="pc-ded" class="money" inputmode="numeric" value="0"> <span class="muted">غیر از بازپرداخت مساعده و بیمه/مالیات</span></div>
     <div class="fg"><label>بازپرداخت مساعده (ریال)</label><input id="pc-adv-rec" class="money" inputmode="numeric" value="0"> <span class="muted" id="pc-adv-bal">مانده مساعده پس از انتخاب کارمند</span></div>
     <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pc-adv-auto" data-csp-style="${CSP.style(`width:auto`)}"> تسویه خودکار تمام مانده مساعده</label></div>
+    <div class="fg"><label>قسط وام این ماه (ریال)</label><input id="pc-loan-rec" class="money" inputmode="numeric" value="0"> <span class="muted" id="pc-loan-bal">قسط سررسید پس از انتخاب کارمند</span></div>
+    <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pc-loan-auto" checked data-csp-style="${CSP.style(`width:auto`)}"> کسر خودکار قسط سررسید وام</label></div>
   </div>
   <div class="muted" data-csp-style="${CSP.style(`margin-top:8px;line-height:1.7`)}">کف مزد، مسکن، بن، اولاد، تأهل، سقف بیمه و ضرایب از <a href="#" data-csp-click="${CSP.bind('click',function(e){e.preventDefault();go('acc-payroll-labor')})}">پارامترهای قانونی سال</a> خوانده می‌شود. سند: Dr ۶۱۰۴+۶۱۰۶ / Cr شخص + ۲۱۰۵ (کارگر۷٪+کارفرما۲۰٪) + ۲۱۱۳ (بیکاری۳٪) + ۲۱۰۶ + ۲۱۰۸؛ مساعده ۱۱۱۹. حق اولاد خودکار از مبنای بیمه خارج است.</div>
   <div id="pc-manual-fields" data-csp-style="${CSP.style(`display:none;margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px`)}">
@@ -18850,6 +18945,7 @@ function payrollCalcPayload(){
     production_bonus_sso_exempt:1,
     other_allowance_rial:moneyVal('pc-other'),tax_exemption_rial:moneyVal('pc-tax-ex'),other_deductions_rial:moneyVal('pc-ded'),
     advance_recovery_rial:moneyVal('pc-adv-rec'),auto_recover_advance:el('pc-adv-auto')?.checked?1:0,
+    loan_recovery_rial:moneyVal('pc-loan-rec'),auto_recover_loan:el('pc-loan-auto')?.checked?1:0,
     insurance_exempt_rial:moneyVal('pc-ins-ex')};
 }
 function payrollWarnHtml(warnings){
@@ -18917,6 +19013,18 @@ async function payrollProcessingPersonChanged(){
       const balEl=el('pc-adv-bal');
       if(balEl) balEl.textContent='مانده مساعده: '+fmt(bal.balance_rial||0)+' ریال';
     }catch(_){ const balEl=el('pc-adv-bal'); if(balEl) balEl.textContent='مانده مساعده نامشخص'; }
+    try{
+      const periodId=el('pc-period')?.value;
+      const periods=CACHE.payrollPeriods||[];
+      const pl=periods.find(p=>String(p.id)===String(periodId))?.label||'';
+      const loan=await api('GET','/payroll/loans/due/'+personId+'?period_label='+encodeURIComponent(pl));
+      const loanEl=el('pc-loan-bal');
+      if(loanEl) loanEl.textContent='قسط سررسید: '+fmt(loan.due_rial||0)+' / مانده وام: '+fmt(loan.balance_rial||0);
+      if(el('pc-loan-rec') && moneyVal('pc-loan-rec')===0 && (loan.due_rial||0)>0){
+        el('pc-loan-rec').value=moneyInit(loan.due_rial);
+        ensureMoneyField(el('pc-loan-rec'));
+      }
+    }catch(_){ const loanEl=el('pc-loan-bal'); if(loanEl) loanEl.textContent='قسط وام نامشخص'; }
     const rows=await api('GET','/payroll/salary-structures')||[];
     const year=todayJalali().slice(0,4);
     const st=(Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId && String(r.fiscal_year)===String(year))
@@ -29674,7 +29782,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). نسخهٔ v387: رنگ×سایز، فی/تخفیف سطر، صندوق پیش‌فرض، و حالت تعویض.</p>
+      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). نسخهٔ v411: تعویض کامل با همهٔ سناریوهای مابه‌التفاوت.</p>
       <ul>
         <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه یا چک مشتری واقعی انتخاب کنید</li>
         <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند. در impersonation فیلتر روی کاربر مؤثر نشست است</li>
@@ -29682,7 +29790,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
         <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال <code>store_quick</code>؛ ثبت = فاکتور معمولی + موجودی + سند حسابداری</li>
         <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد</li>
-        <li>حالت <b>تعویض</b>: فاکتور مرجع مشتری → اقلام برگشتی + سبد جایگزین؛ مانده خالص (قابل پرداخت یا استرداد) لحظه‌ای؛ یک تراکنش برگشت+فروش</li>
+        <li><b>تعویض / برگشت+فروش (v411):</b> فاکتور قطعی مرجع → جدول اقلام قابل‌برگشت (فروخته / برگشتی قبل / سقف) با فی قفل؛ سبد جایگزین جدا. سه حالت خالص:
+          <ul>
+            <li>فروش گران‌تر → دریافت مابه‌التفاوت (نقد/کارت؛ برای مشتری واقعی نسیه هم مجاز)</li>
+            <li>برگشت گران‌تر → استرداد نقد از صندوق</li>
+            <li>برابر → بدون دریافت/استرداد</li>
+          </ul>
+          چندقلم برگشت + چندقلم فروش در یک ثبت؛ اگر نیمهٔ فروش شکست بخورد برگشت جبران (rollback) می‌شود</li>
+        <li>فقط برگشت بدون خرید جایگزین از منوی «برگشت از فروش» حسابداری است — اینجا همیشه برگشت+فروش است</li>
         <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -30240,12 +30355,12 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. v387: رنگ×سایز، ویرایش فی/تخفیف سطر، و حالت تعویض.</p>
+      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. v411: تعویض با مابه‌التفاوت (دریافت / استرداد / برابر).</p>
       <ul>
         <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ جستجوی مشتری کار می‌کند؛ برای نسیه مشتری واقعی بگذارید</li>
         <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فروشگاه فقط تراکنش‌های خودتان را در لیست فاکتور، تاریخچه و چاپ می‌بینید — فروش همکارانتان دیده نمی‌شود</li>
         <li>انبار و صندوق فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
-        <li>برای تعویض: حالت «تعویض» → فاکتور قبلی مشتری → اقلام برگشتی + کالای جایگزین → ثبت یکجا</li>
+        <li>تعویض: فاکتور قبلی → تعداد برگشتی تا سقف «قابل» → کالای جایگزین → سیستم خالص را نشان می‌دهد (پرداخت / استرداد / صفر) و یکجا ثبت می‌کند</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>

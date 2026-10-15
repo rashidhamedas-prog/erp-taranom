@@ -574,6 +574,93 @@ function returnedQtyMapForInvoice(db, invoiceId, excludeReturnId = null) {
   return alreadyReturned;
 }
 
+/**
+ * Invoice-linked return picker payload (sold / already / max / net unit + hdr disc remaining).
+ * Used by accounting UI and store quick-exchange.
+ */
+function getInvoiceReturnablePack(db, invoiceId, opts = {}) {
+  const invId = parseInt(invoiceId, 10);
+  if (!(invId > 0)) throw httpErr(400, 'فاکتور نامعتبر است', 'E_SR_INV');
+  const excludeReturnId = opts.excludeReturnId != null
+    ? parseInt(opts.excludeReturnId, 10)
+    : null;
+  const custIdFilter = opts.custId != null ? parseInt(opts.custId, 10) : null;
+
+  let inv;
+  if (custIdFilter > 0) {
+    inv = db.prepare(
+      'SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=? AND i.cust_id=?'
+    ).get(invId, custIdFilter);
+    if (!inv) throw httpErr(404, 'فاکتور یافت نشد یا متعلق به این مشتری نیست', 'E_SR_INV');
+  } else {
+    inv = db.prepare(
+      'SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?'
+    ).get(invId);
+    if (!inv) throw httpErr(404, 'فاکتور یافت نشد', 'E_SR_INV');
+  }
+
+  if (opts.requireFirm) {
+    const invType = String(inv.type || '');
+    if (invType !== 'normal' && invType !== 'final') {
+      throw httpErr(400, 'برگشت/تعویض فقط روی فاکتور قطعی (معمولی یا رسمی) مجاز است', 'E_SR_FIRM_ONLY');
+    }
+  }
+  if (inv.deleted_at && Number(inv.deleted_at) !== 0) {
+    throw httpErr(400, 'فاکتور حذف‌شده قابل برگشت نیست', 'E_SR_INV_DELETED');
+  }
+  if (String(inv.status || '') === 'reversed') {
+    throw httpErr(400, 'فاکتور ابطال‌شده قابل برگشت نیست', 'E_SR_INV_REVERSED');
+  }
+
+  const {
+    lineOrigDiscAmt, priorHeaderDiscConsumed, priorVatConsumed, rial: rialFn,
+  } = require('./returns-discount');
+  const { invoiceNetBase, invoiceSourceVat } = require('./returns-posting');
+  const invRows = JSON.parse(inv.rows || '[]');
+  const alreadyReturned = returnedQtyMapForInvoice(db, invId, excludeReturnId);
+  const rows = invRows.map((r) => {
+    if (!r || r.row_type === 'income' || !(parseInt(r.product_id, 10) > 0)) return null;
+    const already = alreadyReturned[lineKey(r)] || 0;
+    const maxRet = Math.max(0, (Number(r.qty) || 0) - already);
+    if (!(maxRet > 0)) return null;
+    const lineDisc = lineOrigDiscAmt(r);
+    const netUnit = (Number(r.qty) || 0) > 0
+      ? Math.max(0, rialFn((Number(r.price) || 0) - (lineDisc / (Number(r.qty) || 1))))
+      : rialFn(r.price);
+    return {
+      ...r,
+      already_returned: already,
+      max_returnable: maxRet,
+      line_disc_amt: lineDisc,
+      net_unit: netUnit,
+      disc: r.disc || 0,
+      disc_amt: r.disc_amt != null ? r.disc_amt
+        : (r.disc_amount != null ? r.disc_amount : lineDisc),
+    };
+  }).filter(Boolean);
+
+  const hdrUsed = priorHeaderDiscConsumed(db, {
+    table: 'sales_returns', invoiceCol: 'invoice_id', invoiceId: inv.id,
+    invoiceDiscAmt: inv.disc_amt, invoiceSubtotal: inv.subtotal, excludeReturnId,
+  });
+  const vatUsed = priorVatConsumed(db, {
+    table: 'sales_returns', invoiceCol: 'invoice_id', invoiceId: inv.id, excludeReturnId,
+  });
+  const sourceVat = invoiceSourceVat(inv);
+  return {
+    invoice: inv,
+    rows,
+    discount: {
+      hdr_disc_amt: rialFn(inv.disc_amt),
+      hdr_disc_remaining: Math.max(0, rialFn(inv.disc_amt) - hdrUsed),
+      vat_remaining: Math.max(0, sourceVat - vatUsed),
+      subtotal: rialFn(inv.subtotal),
+      net_base: invoiceNetBase(inv),
+      source_vat: sourceVat,
+    },
+  };
+}
+
 module.exports = {
   buildSalesReturnLines,
   createSalesReturn,
@@ -582,5 +669,6 @@ module.exports = {
   reverseSalesReturnEffects,
   postSalesReturnEffects,
   returnedQtyMapForInvoice,
+  getInvoiceReturnablePack,
   lineKey,
 };

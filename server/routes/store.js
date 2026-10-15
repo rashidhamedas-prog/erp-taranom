@@ -12,9 +12,16 @@ const {
   prepareExchangeSaleBody,
   postStoreExchangeRefund,
   resolveStoreCashBoxId,
+  computeExchangeSettlement,
+  estimateSaleFinalRial,
 } = require('../lib/store-quick-sale');
 const { moneyRial } = require('../lib/cash-on-document');
-const { createSalesReturn } = require('../lib/sales-return-doc');
+const {
+  createSalesReturn,
+  voidSalesReturn,
+  getInvoiceReturnablePack,
+} = require('../lib/sales-return-doc');
+const { voidInvoiceFully } = require('../lib/void-invoice');
 const { todayJalali } = require('../jalali');
 
 function allowStoreRole(user) {
@@ -62,12 +69,76 @@ function captureInvoiceCreate(req) {
   });
 }
 
+function rollbackExchange(db, user, { returnId, invoiceId }) {
+  const notes = [];
+  if (invoiceId) {
+    try {
+      voidInvoiceFully(db, invoiceId, user, { reason: 'store_exchange_rollback' });
+      notes.push('invoice_voided');
+    } catch (e) {
+      notes.push('invoice_void_fail:' + (e && e.message));
+    }
+  }
+  if (returnId) {
+    try {
+      voidSalesReturn(db, returnId, user);
+      notes.push('return_voided');
+    } catch (e) {
+      notes.push('return_void_fail:' + (e && e.message));
+    }
+  }
+  return notes;
+}
+
 router.get('/bootstrap', auth, requirePermission('invoices', 'create'), (req, res) => {
   try {
     const db = getDB();
     res.json(bootstrapStoreSale(db, req.user));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || 'خطای bootstrap فروشگاهی', code: e.code });
+  }
+});
+
+/** Firm invoices for a customer — available to store roles (for exchange ref picker). */
+router.get('/customer-firm-invoices/:custId', auth, requirePermission('invoices', 'create'), (req, res) => {
+  try {
+    if (!allowStoreRole(req.user) && !isStoreQuickRequest(req.body, req.user.role)) {
+      return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_STORE_FORBIDDEN' });
+    }
+    const db = getDB();
+    const custId = parseInt(req.params.custId, 10);
+    if (!(custId > 0)) return res.status(400).json({ error: 'مشتری نامعتبر', code: 'E_STORE_CUST' });
+    const rows = db.prepare(`
+      SELECT i.id, i.num, i.date, i.type, i.final, i.final_rial, i.cust_id, i.warehouse_id, i.status, i.deleted_at
+      FROM invoices i
+      WHERE i.cust_id=?
+        AND COALESCE(i.deleted_at,0)=0
+        AND COALESCE(i.status,'')<>'reversed'
+        AND i.type IN ('normal','final')
+      ORDER BY i.id DESC
+      LIMIT 60
+    `).all(custId);
+    res.json(rows);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || 'خطا', code: e.code });
+  }
+});
+
+/** Returnable lines for exchange (price-locked, max qty). */
+router.get('/exchange-available/:invoiceId', auth, requirePermission('invoices', 'create'), (req, res) => {
+  try {
+    if (!allowStoreRole(req.user)) {
+      return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_STORE_FORBIDDEN' });
+    }
+    const db = getDB();
+    const custId = req.query.cust_id ? parseInt(req.query.cust_id, 10) : null;
+    const pack = getInvoiceReturnablePack(db, req.params.invoiceId, {
+      custId: custId > 0 ? custId : null,
+      requireFirm: true,
+    });
+    res.json(pack);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || 'خطا', code: e.code });
   }
 });
 
@@ -85,7 +156,8 @@ router.post('/quick-sale', auth, requirePermission('invoices', 'create'), (req, 
 });
 
 /**
- * تعویض اتمیک: برگشت از فاکتور قبلی + فاکتور جایگزین + تسویه خالص / استرداد.
+ * تعویض اتمیک (با جبران): برگشت از فاکتور قبلی + فاکتور جایگزین + تسویه خالص / استرداد.
+ * سناریوها: collect (فروش>برگشت) | refund (برگشت>فروش) | even (برابر).
  * Body: {
  *   cust_id, invoice_id, return_rows, return_note?, reason_code?,
  *   sale: { rows, disc, pay_type, pay_splits, warehouse_id, cash_box_id, ... },
@@ -100,7 +172,7 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
   const body = req.body || {};
   const custId = parseInt(body.cust_id, 10);
   const invoiceId = parseInt(body.invoice_id, 10);
-  const returnRows = body.return_rows || body.returnRows || [];
+  const returnRowsRaw = body.return_rows || body.returnRows || [];
   const saleIn = body.sale || body.sale_body || {};
   if (!(custId > 0)) {
     return res.status(400).json({ error: 'مشتری الزامی است', code: 'E_STORE_CUST_REQUIRED' });
@@ -108,14 +180,82 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
   if (!(invoiceId > 0)) {
     return res.status(400).json({ error: 'فاکتور مرجع برای برگشت الزامی است', code: 'E_STORE_EXCHANGE_INV' });
   }
-  if (!Array.isArray(returnRows) || !returnRows.length) {
-    return res.status(400).json({ error: 'حداقل یک سطر برگشت لازم است', code: 'E_STORE_EXCHANGE_RETURN' });
+  const returnRows = (Array.isArray(returnRowsRaw) ? returnRowsRaw : [])
+    .filter((r) => r && Number(r.qty) > 0);
+  if (!returnRows.length) {
+    return res.status(400).json({ error: 'حداقل یک سطر برگشت با تعداد > ۰ لازم است', code: 'E_STORE_EXCHANGE_RETURN' });
   }
   if (!Array.isArray(saleIn.rows) || !saleIn.rows.length) {
     return res.status(400).json({ error: 'سبد فروش جایگزین خالی است', code: 'E_STORE_EXCHANGE_SALE' });
   }
 
-  let retOut;
+  // Preflight: ownership + returnable caps + settlement cash box
+  let avail;
+  try {
+    avail = getInvoiceReturnablePack(db, invoiceId, { custId, requireFirm: true });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const availMap = {};
+  for (const r of avail.rows || []) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    availMap[k] = r;
+  }
+  for (const r of returnRows) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    const a = availMap[k] || availMap[`p:${r.product_id}`];
+    if (!a) {
+      return res.status(400).json({
+        error: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
+        code: 'E_STORE_EXCHANGE_LINE',
+      });
+    }
+    if (Number(r.qty) > Number(a.max_returnable)) {
+      return res.status(400).json({
+        error: `حداکثر قابل برگشت برای ${a.name || 'کالا'}: ${a.max_returnable}`,
+        code: 'E_STORE_EXCHANGE_QTY',
+      });
+    }
+  }
+
+  const salePrepPreview = prepareStoreQuickSaleBody(db, req.user, {
+    ...saleIn,
+    cust_id: custId,
+    store_quick: true,
+    sales_channel: 'store_quick',
+  });
+  const saleFinalEst = estimateSaleFinalRial(salePrepPreview.rows, salePrepPreview.disc);
+  // Rough return estimate for cash-box preflight (exact after create)
+  let returnEst = 0;
+  for (const r of returnRows) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    const a = availMap[k] || availMap[`p:${r.product_id}`];
+    const net = Number(a && a.net_unit) || Number(a && a.price) || 0;
+    returnEst += Math.round(Number(r.qty) * net);
+  }
+  const settleEst = computeExchangeSettlement(saleFinalEst, returnEst);
+  let refundCashBoxId = null;
+  try {
+    if (settleEst.refundRial > 0 || settleEst.netCollect > 0) {
+      const needsCash = settleEst.refundRial > 0
+        || String(saleIn.pay_type || '').toLowerCase() === 'cash'
+        || String(saleIn.pay_type || '').toLowerCase() === 'mixed'
+        || (Array.isArray(saleIn.pay_splits) && saleIn.pay_splits.some((s) => s && s.pay_type === 'cash'));
+      if (settleEst.refundRial > 0 || needsCash) {
+        refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
+          cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || salePrepPreview.cash_box_id,
+        });
+      }
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+
+  let retOut = null;
+  let inv = null;
+  let prepared = null;
+  let refund = null;
+
   try {
     retOut = createSalesReturn(db, {
       cust_id: custId,
@@ -126,17 +266,12 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
       rows: returnRows,
       warehouse_id: body.warehouse_id || saleIn.warehouse_id,
     }, req.user);
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
 
-  const retRow = db.prepare(
-    'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
-  ).get(retOut.id);
-  const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
+    const retRow = db.prepare(
+      'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
+    ).get(retOut.id);
+    const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
 
-  let prepared;
-  try {
     prepared = prepareExchangeSaleBody(db, req.user, {
       ...saleIn,
       cust_id: custId,
@@ -144,55 +279,52 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
       sales_channel: 'store_quick',
       type: saleIn.type || 'normal',
       date: saleIn.date || body.date || todayJalali(),
+      note: (saleIn.note || '') || `تعویض فروشگاهی ← برگشت #${retOut.id}`,
     }, returnGross);
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
 
-  req.body = prepared.body;
-  let inv;
-  try {
-    inv = await captureInvoiceCreate(req);
-  } catch (e) {
-    return res.status(e.status || 400).json({
-      error: e.message || 'خطا در ثبت فاکتور جایگزین',
-      code: e.code || 'E_STORE_EXCHANGE_SALE_FAIL',
-      return_id: retOut.id,
-    });
-  }
-
-  let refund = null;
-  if (prepared.refundRial > 0) {
-    try {
-      const cashBoxId = resolveStoreCashBoxId(db, req.user, {
+    // Exact refund may differ from estimate — ensure cash box if refund now
+    if (prepared.refundRial > 0 && !(refundCashBoxId > 0)) {
+      refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
         cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || prepared.body.cash_box_id,
       });
+    }
+
+    req.body = prepared.body;
+    inv = await captureInvoiceCreate(req);
+
+    if (prepared.refundRial > 0) {
       refund = postStoreExchangeRefund(db, {
         custId,
         amountRial: prepared.refundRial,
-        cashBoxId,
+        cashBoxId: refundCashBoxId || prepared.body.cash_box_id,
         userId: req.user.id,
         date: body.date || todayJalali(),
         note: `استرداد تعویض — برگشت #${retOut.id} / فاکتور ${inv.num || inv.id}`,
         exchangeKey: `ex-${retOut.id}-${inv.id}`,
       });
-    } catch (e) {
-      return res.status(e.status || 400).json({
-        error: e.message,
-        code: e.code,
-        return_id: retOut.id,
-        invoice: inv,
-      });
     }
+  } catch (e) {
+    const rb = rollbackExchange(db, req.user, {
+      returnId: retOut && retOut.id,
+      invoiceId: inv && inv.id,
+    });
+    return res.status(e.status || 400).json({
+      error: e.message || 'خطا در ثبت تعویض',
+      code: e.code || 'E_STORE_EXCHANGE_FAIL',
+      rollback: rb,
+      return_id: retOut && retOut.id,
+      invoice_id: inv && inv.id,
+    });
   }
 
   res.json({
     ok: true,
     return_id: retOut.id,
-    return_gross: returnGross,
+    return_gross: prepared.returnGross,
     invoice: inv,
     net_collect: prepared.netCollect,
     refund_rial: prepared.refundRial,
+    settlement_case: prepared.settlementCase,
     refund,
     exchange: prepared.body._store_exchange || null,
   });

@@ -464,29 +464,66 @@ function bootstrapStoreSale(db, user) {
 }
 
 /**
- * Build sale body for exchange: net tender after return credit.
- * @returns {{ body, netCollect, refundRial, returnGross, exchangeCreditRial, saleFinal }}
+ * Three settlement cases for exchange:
+ * - collect: sale > return → customer pays net
+ * - refund: return > sale → cash refund to customer
+ * - even: equal → no tender
  */
-function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
+function computeExchangeSettlement(saleFinalRial, returnGrossRial) {
+  const saleFinal = moneyRial(saleFinalRial);
   const returnGross = moneyRial(returnGrossRial);
-  const prepared = prepareStoreQuickSaleBody(db, user, saleBody || {});
-  const saleFinal = estimateSaleFinalRial(prepared.rows, prepared.disc);
   const netCollect = Math.max(0, saleFinal - returnGross);
   const refundRial = Math.max(0, returnGross - saleFinal);
   const exchangeCreditRial = Math.min(returnGross, saleFinal);
+  let settlementCase = 'even';
+  if (netCollect > 0) settlementCase = 'collect';
+  else if (refundRial > 0) settlementCase = 'refund';
+  return {
+    saleFinal,
+    returnGross,
+    netCollect,
+    refundRial,
+    exchangeCreditRial,
+    settlementCase,
+  };
+}
+
+/**
+ * Build sale body for exchange: net tender after return credit.
+ * @returns {{ body, netCollect, refundRial, returnGross, exchangeCreditRial, saleFinal, settlementCase }}
+ */
+function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
+  const prepared = prepareStoreQuickSaleBody(db, user, saleBody || {});
+  const saleFinal = estimateSaleFinalRial(prepared.rows, prepared.disc);
+  const settle = computeExchangeSettlement(saleFinal, returnGrossRial);
+  const {
+    returnGross, netCollect, refundRial, exchangeCreditRial, settlementCase,
+  } = settle;
+
+  const wantsCredit = String(prepared.pay_type || '').toLowerCase() === 'credit'
+    || (!(Array.isArray(prepared.pay_splits) && prepared.pay_splits.length)
+      && String((saleBody && saleBody.pay_type) || '').toLowerCase() === 'credit');
+  const walkin = isWalkinCustomer(db, prepared.cust_id);
 
   const origSplits = Array.isArray(prepared.pay_splits) ? prepared.pay_splits : [];
   if (netCollect > 0) {
-    let scaled = scalePaySplitsToNet(origSplits, netCollect);
-    if (!scaled.length) {
-      const cashId = resolveStoreCashBoxId(db, user, prepared, { optional: false });
-      scaled = [{ pay_type: 'cash', amount: netCollect, cash_box_id: cashId }];
-      prepared.pay_type = 'cash';
-      prepared.cash_box_id = cashId;
+    if (wantsCredit && !walkin) {
+      // Net difference stays on customer AR
+      prepared.pay_splits = [];
+      prepared.pay_type = 'credit';
+    } else {
+      let scaled = scalePaySplitsToNet(origSplits, netCollect);
+      if (!scaled.length) {
+        const cashId = resolveStoreCashBoxId(db, user, prepared, { optional: false });
+        scaled = [{ pay_type: 'cash', amount: netCollect, cash_box_id: cashId }];
+        prepared.pay_type = 'cash';
+        prepared.cash_box_id = cashId;
+      }
+      prepared.pay_splits = scaled;
+      prepared.pay_type = scaled[0].pay_type || 'cash';
     }
-    prepared.pay_splits = scaled;
-    prepared.pay_type = scaled[0].pay_type || 'cash';
   } else {
+    // even or refund: invoice fully covered by return credit (refund posted separately)
     prepared.pay_splits = [];
     prepared.pay_type = 'credit';
   }
@@ -497,6 +534,7 @@ function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
     net_collect: netCollect,
     refund_rial: refundRial,
     exchange_credit_rial: exchangeCreditRial,
+    settlement_case: settlementCase,
   };
   return {
     body: prepared,
@@ -505,7 +543,24 @@ function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
     returnGross,
     exchangeCreditRial,
     saleFinal,
+    settlementCase,
   };
+}
+
+/** Estimate return credit for UI (qty × net_unit); server still uses createSalesReturn totals. */
+function estimateReturnGrossFromLines(lines) {
+  let sum = 0;
+  for (const ln of Array.isArray(lines) ? lines : []) {
+    if (!ln) continue;
+    const qty = Number(ln.qty) || 0;
+    if (!(qty > 0)) continue;
+    const net = Math.round(Number(
+      ln.net_unit != null ? ln.net_unit
+        : (ln.unit_price != null ? ln.unit_price : ln.price)
+    ) || 0);
+    sum += Math.max(0, Math.round(qty * net));
+  }
+  return moneyRial(sum);
 }
 
 module.exports = {
@@ -535,5 +590,7 @@ module.exports = {
   scalePaySplitsToNet,
   postStoreExchangeRefund,
   prepareExchangeSaleBody,
+  computeExchangeSettlement,
   estimateSaleFinalRial,
+  estimateReturnGrossFromLines,
 };
