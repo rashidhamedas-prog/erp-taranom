@@ -6,8 +6,8 @@
 - **رفع:** بررسی فرزند + ارجاعات whitelisted؛ ارجاع‌دار → غیرفعال؛ آزاد → DELETE؛ safety-net FK → deactivate. UI toast تمایز حذف/غیرفعال؛ Help.
 - **فایل‌ها:** `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cost-center-delete-v398.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی انبار/بانک.
-- **تست:** (در حال اجرا)
-- **Deploy:** ⏳
+- **تست:** ایران `test-cost-center-delete-v398` ۱۲/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Deploy:** ✅ `63b0b4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v398`؛ `app.js?v=398`.
 
 ### ۱۴۰۵/۰۷/۲۳ — آموزش کامل RTL بخش تولید (فایل ورود HTML)
 
