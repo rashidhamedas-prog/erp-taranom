@@ -125,7 +125,8 @@ function seedLegalPack(db, year, { force = false } = {}) {
   `).get(y).c;
   let bracketsWritten = 0;
   if (force || !activeBrackets) {
-    db.prepare('UPDATE payroll_tax_brackets SET active=0 WHERE fiscal_year=?').run(y);
+    // UNIQUE(fiscal_year, bracket_order) — must remove rows, not only deactivate
+    db.prepare('DELETE FROM payroll_tax_brackets WHERE fiscal_year=?').run(y);
     const ins = db.prepare(`
       INSERT INTO payroll_tax_brackets
         (fiscal_year, bracket_order, bracket_min_rial, bracket_max_rial, tax_rate_bp, active)
