@@ -2012,6 +2012,42 @@ router.get('/cash-ops/incoming-extra', auth, adminOrAccounting, (req, res) => {
   res.json(listCashOpsIncomingExtra(db, { limit: Number.isFinite(limit) ? limit : 300 }));
 });
 
+/**
+ * In-place amend of cash-ops vouchers (پرداخت به شخص / پرداخت به حساب).
+ * Same JE id + voucher_number; rewrites GL + party books.
+ */
+router.put('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const id = +req.params.id;
+  const entry = db.prepare(`
+    SELECT id, ref_type FROM journal_entries
+    WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+  `).get(id);
+  if (!entry) return res.status(404).json({ error: 'سند یافت نشد' });
+  try {
+    const {
+      amendPersonVoucherPayment, amendAccountPayment,
+    } = require('../lib/amend-cash-ops');
+    let out;
+    if (entry.ref_type === 'manual_voucher') {
+      out = db.transaction(() => amendPersonVoucherPayment(db, id, req.body || {}, req.user.id))();
+    } else if (entry.ref_type === 'account_payment') {
+      out = db.transaction(() => amendAccountPayment(db, id, req.body || {}, req.user.id))();
+    } else {
+      return res.status(400).json({
+        error: 'فقط پرداخت به شخص یا پرداخت به حساب از این مسیر اصلاح می‌شود',
+        code: 'E_VOUCHER_KIND',
+      });
+    }
+    audit(req.user.id, 'update', entry.ref_type, out.id, out.summary);
+    res.json({ ok: true, id: out.id, amount: out.amount, journal_id: out.journal_id });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('amend voucher', e);
+    res.status(status).json({ error: e.message || 'اصلاح سند ناموفق بود', code: e.code });
+  }
+});
+
 router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   const { date, description, doc_type, cost_center_id, lines, from_excel, src_system, voucher_type } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {

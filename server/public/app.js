@@ -23223,7 +23223,7 @@ async function renderCashOpsTab(body, dq){
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی',person:'👤 شخص',account:'📒 حساب'};
   const recvKindLabel={settlement:'👤 مشتری',person_receipt:'🧑 شخص',account_receipt:'📒 حساب'};
   const payLabel=p=>p==='cheque'?'🧾 چک':(p==='bank'||p==='bank_transfer')?'🏦 بانکی':'💵 نقد';
-  // دریافت شخص/حساب هنوز amend درجا ندارند — فقط ابطال. پرداخت شخص/حساب ویرایش دارند.
+  // دریافت شخص/حساب هنوز amend درجا ندارند — فقط ابطال. پرداخت شخص/حساب مداد دارند.
   const recvNoEdit=new Set(['person_receipt','account_receipt']);
   body.innerHTML=`
     ${(pendingRepPay||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px;border-color:#fde68a`)}">
@@ -23262,7 +23262,7 @@ async function renderCashOpsTab(body, dq){
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder_name||r.recorder||'-')}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${voucherKinds.has(r.kind)?'':`<button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc('settlement',(r.id))})}">✏️</button>`}
+        ${recvNoEdit.has(r.kind)?'':`<button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind)||'settlement')}`,(r.id))})}">✏️</button>`}
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){const k=`${String((r.kind) ?? '')}`;if(k==='person_receipt'||k==='account_receipt')deletePaymentOp(k,(r.id));else deleteSettlement((r.id));})}">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(11)}</tbody></table></div>
@@ -23279,7 +23279,7 @@ async function renderCashOpsTab(body, dq){
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder||'-')}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${voucherKinds.has(r.kind)?'':`<button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>`}
+        <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
@@ -23317,7 +23317,6 @@ async function renderPaymentOpsTab(body){
   rows.forEach(r=>{ window._cashOpsIndex[r.kind+':'+r.id]=r; });
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی',person:'👤 شخص',account:'📒 حساب'};
   const payLabel=p=>p==='cheque'?'🧾 چک':(p==='bank'||p==='bank_transfer')?'🏦 بانکی':'💵 نقد';
-  const voucherKinds=new Set(['person','account']);
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){paymentOpChooser()})}">➕ پرداخت جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
@@ -23331,7 +23330,7 @@ async function renderPaymentOpsTab(body){
       <td class="muted">${esc(r.note||'-')}</td>
       <td class="muted">${esc(r.recorder||'-')}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${voucherKinds.has(r.kind)?'':`<button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>`}
+        <button class="btn sm ghost" title="ویرایش سند" data-csp-click="${CSP.bind('click',function(event){editCashDoc(`${String((r.kind) ?? '')}`,(r.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePaymentOp(`${String((r.kind) ?? '')}`,(r.id))})}">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(8)}</tbody>
@@ -24023,8 +24022,8 @@ async function deletePaymentOp(kind,id){
 function cashDocBlockedReason(kind, row){
   if(!row) return 'سند پیدا نشد';
   if(row.status==='reversed') return 'این سند قبلاً ابطال شده است';
-  if(kind==='person'||kind==='account'||kind==='person_receipt'||kind==='account_receipt'){
-    return 'پرداخت/دریافت شخص یا حساب با ابطال سند و ثبت مجدد اصلاح می‌شود';
+  if(kind==='person_receipt'||kind==='account_receipt'){
+    return 'دریافت از شخص/حساب با ابطال سند و ثبت مجدد اصلاح می‌شود';
   }
   if(kind==='settlement'){
     const note=String(row.note||'');
@@ -24049,6 +24048,12 @@ async function editCashDoc(kind, id){
         const list=await api('GET','/accounting/incentive-payments')||[];
         row=(list||[]).find(r=>Number(r.id)===Number(id));
         if(row) row={...row, kind:'incentive', target:row.rep_name||'-'};
+      } else if(kind==='person'||kind==='account'){
+        const list=await api('GET','/accounting/cash-ops/outgoing')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id) && r.kind===kind);
+      } else if(kind==='person_receipt'||kind==='account_receipt'){
+        const list=await api('GET','/accounting/cash-ops/incoming-extra')||[];
+        row=(list||[]).find(r=>Number(r.id)===Number(id) && r.kind===kind);
       } else {
         const list=await api('GET','/expenses')||[];
         row=(list||[]).find(r=>Number(r.id)===Number(id));
@@ -24179,6 +24184,7 @@ async function openCashDocEdit(kind, row){
     </div>`);
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
+  if(kind==='person') initPartySearches(el('modalRoot'));
   if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
   if(kind!=='settlement' && row.fee_rial && el('cde-fee')) el('cde-fee').value=moneyInit(row.fee_rial);
   cdeToggleCheque();
@@ -24190,6 +24196,7 @@ async function openCashDocEdit(kind, row){
     if(row.account_code) moayanAcctPick('cde', row.account_code);
   }
   if(kind==='supplier' && row.account_code) moayanAcctPick('cde', row.account_code);
+  if(kind==='account' && row.account_code) coaAcctPick('cde', row.account_code);
   if(kind==='expense'){
     if(row.account_code) coaAcctPick('ex', row.account_code);
     if(row.is_overhead || !row.account_code) exCategoryChanged();
@@ -24253,6 +24260,16 @@ async function saveCashDocEdit(kind, id){
     if(!rep_id){ showToast('کارشناس را انتخاب کنید','error'); return; }
     path='/accounting/incentive-payments/'+id;
     payload.rep_id=rep_id;
+  } else if(kind==='person'){
+    const party_id=+el('cde-party')?.value||0;
+    if(!party_id){ showToast('شخص را انتخاب کنید','error'); return; }
+    path='/accounting/vouchers/'+id;
+    Object.assign(payload,{ party_id });
+  } else if(kind==='account'){
+    const account_code=String(el('cde-account-code')?.value||'').trim();
+    if(!account_code){ showToast('حساب مقصد را انتخاب کنید','error'); return; }
+    path='/accounting/vouchers/'+id;
+    Object.assign(payload,{ account_code });
   } else {
     const title=String(el('cde-title')?.value||'').trim();
     if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
@@ -29036,7 +29053,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. پرداخت/دریافت شخص یا حساب با <b>ابطال</b> (🗑️) و ثبت مجدد اصلاح می‌شود نه مداد. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>

@@ -53,7 +53,7 @@ function treasuryDebitExistsSql(alias = 'je') {
     )`;
 }
 
-function inferPayType(db, entryId, direction) {
+function treasuryLineCode(db, entryId, direction) {
   const row = db.prepare(`
     SELECT jl.account_code AS code
     FROM journal_lines jl
@@ -63,12 +63,57 @@ function inferPayType(db, entryId, direction) {
     ORDER BY jl.id
     LIMIT 1
   `).get(entryId);
-  if (!row?.code) return 'cash';
-  const code = String(row.code);
+  return row?.code ? String(row.code) : '';
+}
+
+function inferPayType(db, entryId, direction) {
+  const code = treasuryLineCode(db, entryId, direction);
+  if (!code) return 'cash';
   if (db.prepare('SELECT 1 FROM banks WHERE coa_code=? LIMIT 1').get(code)) return 'bank';
   if (code.startsWith('1118') || /کارتخوان|در راه/.test(code)) return 'bank';
   if (db.prepare('SELECT 1 FROM cash_boxes WHERE coa_code=? LIMIT 1').get(code)) return 'cash';
   return 'cash';
+}
+
+function resolveTreasuryIds(db, entryId, direction) {
+  const code = treasuryLineCode(db, entryId, direction);
+  if (!code) return { bank_id: null, cash_box_id: null };
+  const bank = db.prepare('SELECT id FROM banks WHERE coa_code=? LIMIT 1').get(code);
+  if (bank) return { bank_id: bank.id, cash_box_id: null };
+  const box = db.prepare('SELECT id FROM cash_boxes WHERE coa_code=? LIMIT 1').get(code);
+  if (box) return { bank_id: null, cash_box_id: box.id };
+  return { bank_id: null, cash_box_id: null };
+}
+
+function feeRialOnEntry(db, entryId) {
+  const row = db.prepare(`
+    SELECT ROUND(COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0)) AS fee
+    FROM journal_lines jl
+    WHERE jl.entry_id = ? AND ${FEE_CODE_SQL} AND ${SQL_JL_DEBIT_RIAL} > 0
+  `).get(entryId);
+  return Math.round(Number(row?.fee) || 0);
+}
+
+function personPartyOnPayment(db, jeId) {
+  return db.prepare(`
+    SELECT pl.person_id AS person_id, p.party_id AS party_id, p.name AS person_name
+    FROM person_ledger pl
+    JOIN persons p ON p.id = pl.person_id
+    WHERE pl.ref_type = 'manual_voucher' AND pl.ref_id = ? AND pl.debit > 0
+    ORDER BY pl.id LIMIT 1
+  `).get(jeId) || {};
+}
+
+function destAccountCode(db, entryId) {
+  const row = db.prepare(`
+    SELECT jl.account_code AS code
+    FROM journal_lines jl
+    WHERE jl.entry_id = ?
+      AND ${SQL_JL_DEBIT_RIAL} > 0
+      AND NOT ${FEE_CODE_SQL}
+    ORDER BY jl.id LIMIT 1
+  `).get(entryId);
+  return row?.code || '';
 }
 
 function listPersonVoucherPayments(db, limit) {
@@ -114,21 +159,30 @@ function listPersonVoucherPayments(db, limit) {
 
   return rows
     .filter((r) => Number(r.amount) > 0)
-    .map((r) => ({
-      id: r.id,
-      kind: 'person',
-      date: r.date || '',
-      amount: Math.round(Number(r.amount) || 0),
-      pay_type: inferPayType(db, r.id, 'payment'),
-      note: r.note || '',
-      target: r.target || 'شخص',
-      recorder: r.recorder || '-',
-      created_at: r.created_at || 0,
-      ref_type: 'manual_voucher',
-      ref_doc_no: r.voucher_number || String(r.id),
-      ref_doc_type: 'voucher',
-      amendable: false,
-    }));
+    .map((r) => {
+      const pp = personPartyOnPayment(db, r.id);
+      const treas = resolveTreasuryIds(db, r.id, 'payment');
+      return {
+        id: r.id,
+        kind: 'person',
+        date: r.date || '',
+        amount: Math.round(Number(r.amount) || 0),
+        pay_type: inferPayType(db, r.id, 'payment'),
+        note: r.note || '',
+        target: r.target || pp.person_name || 'شخص',
+        person_id: pp.person_id || null,
+        party_id: pp.party_id || null,
+        bank_id: treas.bank_id,
+        cash_box_id: treas.cash_box_id,
+        fee_rial: feeRialOnEntry(db, r.id),
+        recorder: r.recorder || '-',
+        created_at: r.created_at || 0,
+        ref_type: 'manual_voucher',
+        ref_doc_no: r.voucher_number || String(r.id),
+        ref_doc_type: 'voucher',
+        amendable: true,
+      };
+    });
 }
 
 function listAccountPayments(db, limit) {
@@ -163,21 +217,29 @@ function listAccountPayments(db, limit) {
 
   return rows
     .filter((r) => Number(r.amount) > 0)
-    .map((r) => ({
-      id: r.id,
-      kind: 'account',
-      date: r.date || '',
-      amount: Math.round(Number(r.amount) || 0),
-      pay_type: inferPayType(db, r.id, 'payment'),
-      note: r.note || '',
-      target: r.target || 'حساب',
-      recorder: r.recorder || '-',
-      created_at: r.created_at || 0,
-      ref_type: 'account_payment',
-      ref_doc_no: r.voucher_number || String(r.id),
-      ref_doc_type: 'voucher',
-      amendable: false,
-    }));
+    .map((r) => {
+      const treas = resolveTreasuryIds(db, r.id, 'payment');
+      const account_code = destAccountCode(db, r.id);
+      return {
+        id: r.id,
+        kind: 'account',
+        date: r.date || '',
+        amount: Math.round(Number(r.amount) || 0),
+        pay_type: inferPayType(db, r.id, 'payment'),
+        note: r.note || '',
+        target: r.target || 'حساب',
+        account_code,
+        bank_id: treas.bank_id,
+        cash_box_id: treas.cash_box_id,
+        fee_rial: feeRialOnEntry(db, r.id),
+        recorder: r.recorder || '-',
+        created_at: r.created_at || 0,
+        ref_type: 'account_payment',
+        ref_doc_no: r.voucher_number || String(r.id),
+        ref_doc_type: 'voucher',
+        amendable: true,
+      };
+    });
 }
 
 function listPersonVoucherReceipts(db, limit) {

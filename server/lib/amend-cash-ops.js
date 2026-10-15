@@ -683,9 +683,216 @@ function amendExpensePayment(db, id, body, userId) {
   };
 }
 
+/** Person COA leaf used on voucher lines (same as POST /vouchers person target). */
+function personDestAccount(db, personId) {
+  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
+  if (!person) throw httpErr(404, 'شخص یافت نشد', 'E_PERSON');
+  let personAccount = null;
+  if (person.coa_code) {
+    personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(person.coa_code);
+  }
+  if (!personAccount && person.party_id) {
+    const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(person.party_id);
+    if (party && party.coa_code) {
+      personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
+    }
+  }
+  if (!personAccount) personAccount = acct(db, 'coa_misc_persons');
+  return { person, dest: personAccount };
+}
+
+/**
+ * In-place amend of «پرداخت به شخص» voucher (JE ref_type=manual_voucher, self ref_id).
+ * Keeps same journal id + voucher_number; rewrites GL + person_ledger.
+ */
+function amendPersonVoucherPayment(db, jeId, body, userId) {
+  const id = Number(jeId);
+  const entry = db.prepare(`
+    SELECT * FROM journal_entries
+    WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+  `).get(id);
+  if (!entry || entry.ref_type !== 'manual_voucher') {
+    throw httpErr(404, 'پرداخت به شخص یافت نشد', 'E_NOT_FOUND');
+  }
+  // Self-stamped ref_id (create stamps ref_id=id)
+  requireLiveJe(db, ['manual_voucher'], id, 'پرداخت به شخص');
+
+  const { resolvePersonIdFromVoucherLine, ensurePersonForParty } = require('./party-turnover');
+  const { createPersonLedgerEntry } = require('../db');
+  const { retirePersonLedgerByRef } = require('./party-ledger-retire');
+
+  let personId = resolvePersonIdFromVoucherLine(db, {
+    person_id: body.person_id,
+    party_id: body.party_id,
+  });
+  if (!personId && body.party_id) personId = ensurePersonForParty(db, body.party_id);
+  if (!personId) {
+    // Fall back to existing person on this voucher
+    const prev = db.prepare(`
+      SELECT person_id FROM person_ledger
+      WHERE ref_type='manual_voucher' AND ref_id=? AND debit>0
+      ORDER BY id LIMIT 1
+    `).get(id);
+    personId = prev && prev.person_id;
+  }
+  if (!personId) throw httpErr(400, 'شخص را انتخاب کنید', 'E_PERSON');
+
+  const payType = normalizePay(body.pay_type || 'cash', PAY_PAY);
+  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
+  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
+  assertDest(payType, bankId, cashBoxId);
+  if (bankId) assertActiveBank(db, bankId);
+  if (cashBoxId) assertActiveCashBox(db, cashBoxId);
+
+  const amount = Math.round(Number(body.amount) || 0);
+  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
+  const fee = parseFeeRial(body.fee_rial, payType);
+  const date = String(body.date != null ? body.date : (entry.entry_date || ''));
+  assertDatesWritable(db, entry.entry_date, date);
+  const note = String(body.note != null ? body.note : (entry.description || 'پرداخت به شخص'));
+
+  const { person, dest } = personDestAccount(db, personId);
+  const cash = cashAccount(db, payType, bankId, cashBoxId, '');
+  if (payType === 'bank' || payType === 'bank_transfer') {
+    assertBankOverdraftOk(db, bankId, amount + fee);
+  }
+  const { lines } = outboundPaymentLines(db, {
+    amount, feeRial: fee, payType, dest, cash, destDescription: 'پرداخت به شخص',
+  });
+
+  const jeOut = rewriteOrThrow(db, {
+    sourceType: 'manual_voucher', sourceId: id,
+    date, description: note || 'پرداخت به شخص', lines,
+  });
+
+  retirePersonLedgerByRef(db, {
+    refTypes: ['manual_voucher', 'manual_voucher_reversal'],
+    refId: id,
+  });
+  createPersonLedgerEntry(db, {
+    person_id: person.id,
+    date,
+    entry_type: 'manual_voucher',
+    ref_type: 'manual_voucher',
+    ref_id: id,
+    description: note || 'پرداخت به شخص',
+    debit: amount,
+    credit: 0,
+    user_id: userId || null,
+  });
+
+  return {
+    id,
+    amount,
+    journal_id: jeOut,
+    summary: `اصلاح پرداخت به شخص #${id}: → ${amount} ریال (${person.name || ''})`,
+  };
+}
+
+/**
+ * In-place amend of «پرداخت به حساب» (JE ref_type=account_payment).
+ * Avoids requiring routes/accounting (circular); mirrors party books locally.
+ */
+function amendAccountPayment(db, jeId, body, userId) {
+  const id = Number(jeId);
+  const entry = db.prepare(`
+    SELECT * FROM journal_entries
+    WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+  `).get(id);
+  if (!entry || entry.ref_type !== 'account_payment') {
+    throw httpErr(404, 'پرداخت به حساب یافت نشد', 'E_NOT_FOUND');
+  }
+  requireLiveJe(db, ['account_payment'], id, 'پرداخت به حساب');
+
+  const code = String(body.account_code || '').trim();
+  if (!code) throw httpErr(400, 'حساب مقصد الزامی است', 'E_COA');
+  const dest = db.prepare('SELECT code,name,is_active FROM chart_of_accounts WHERE code=?').get(code);
+  if (!dest || dest.is_active === 0) throw httpErr(400, 'حساب مقصد معتبر نیست', 'E_COA');
+
+  const payType = normalizePay(body.pay_type || 'cash', PAY_PAY);
+  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
+  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
+  assertDest(payType, bankId, cashBoxId);
+  if (bankId) assertActiveBank(db, bankId);
+  if (cashBoxId) assertActiveCashBox(db, cashBoxId);
+
+  const amount = Math.round(Number(body.amount) || 0);
+  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
+  const fee = parseFeeRial(body.fee_rial, payType);
+  const date = String(body.date != null ? body.date : (entry.entry_date || ''));
+  assertDatesWritable(db, entry.entry_date, date);
+  const note = String(body.note != null ? body.note : (entry.description || `پرداخت به حساب ${dest.code}`));
+
+  const cash = cashAccount(db, payType, bankId, cashBoxId, '');
+  if (payType === 'bank' || payType === 'bank_transfer') {
+    assertBankOverdraftOk(db, bankId, amount + fee);
+  }
+  const { lines } = outboundPaymentLines(db, {
+    amount, feeRial: fee, payType, dest, cash,
+    destDescription: note || `پرداخت به حساب ${dest.code}`,
+  });
+
+  const jeOut = rewriteOrThrow(db, {
+    sourceType: 'account_payment', sourceId: id,
+    date, description: note || `پرداخت به حساب ${dest.code} — ${dest.name}`, lines,
+  });
+
+  const {
+    retirePersonLedgerByRef, retireCustomerLedgerByRef,
+  } = require('./party-ledger-retire');
+  const { createPersonLedgerEntry, createLedgerEntry } = require('../db');
+  retirePersonLedgerByRef(db, {
+    refTypes: ['account_payment', 'account_payment_reversal'],
+    refId: id,
+  });
+  retireCustomerLedgerByRef(db, {
+    refTypes: ['account_payment', 'account_payment_reversal'],
+    refId: id,
+  });
+
+  const cust = db.prepare('SELECT id FROM customers WHERE coa_code=? ORDER BY id LIMIT 1').get(dest.code);
+  if (cust) {
+    createLedgerEntry(db, {
+      customer_id: cust.id, date, entry_type: 'journal',
+      ref_type: 'account_payment', ref_id: id,
+      description: note || 'پرداخت به حساب مشتری',
+      debit: amount, credit: 0, user_id: userId || null,
+    });
+  } else {
+    let person = db.prepare('SELECT id FROM persons WHERE coa_code=? ORDER BY id LIMIT 1').get(dest.code);
+    if (!person) {
+      const party = db.prepare('SELECT id FROM parties WHERE coa_code=? LIMIT 1').get(dest.code);
+      if (party) {
+        try {
+          const { ensurePersonForParty } = require('./party-turnover');
+          const pid = ensurePersonForParty(db, party.id);
+          if (pid) person = { id: pid };
+        } catch (_) { /* optional */ }
+      }
+    }
+    if (person) {
+      createPersonLedgerEntry(db, {
+        person_id: person.id, date,
+        entry_type: 'account_payment', ref_type: 'account_payment', ref_id: id,
+        description: note || 'پرداخت به شخص',
+        debit: amount, credit: 0, user_id: userId || null,
+      });
+    }
+  }
+
+  return {
+    id,
+    amount,
+    journal_id: jeOut,
+    summary: `اصلاح پرداخت به حساب #${id}: → ${amount} ریال (${dest.code})`,
+  };
+}
+
 module.exports = {
   amendSettlement,
   amendSupplierPayment,
   amendIncentivePayment,
   amendExpensePayment,
+  amendPersonVoucherPayment,
+  amendAccountPayment,
 };
