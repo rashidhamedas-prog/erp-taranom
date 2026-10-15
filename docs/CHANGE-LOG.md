@@ -12,8 +12,8 @@
 - **فایل‌ها:** `lib/inventory/{fabric-rolls,batch-serial}.js`, `routes/{inventory,production-cutting}.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-material-attr-{receipt,static}-v417.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ADR-007 «پارچه و مشابه»؛ ERPNext Material Receipt + Batch attrs؛ tap-erp-architecture.
 - **Non-goals:** Lot روی FG؛ باز کردن برش برای kind=attr؛ تغییر مسیر خرید طاقه‌ای فاکتور.
-- **تست:** static v417 محلی؛ live `test-material-attr-receipt-v417` روی ایران (local better-sqlite3 ABI skip)؛ `test-sms`؛ parse app.js.
-- **Deploy:** ⏳
+- **تست:** static v417 محلی ۱۵/۰؛ ایران `test-material-attr-receipt-v417` ۲۰/۰ + `test-sms` ۲۲/۰؛ ready=200 + sharp؛ parse app.js OK.
+- **Deploy:** ✅ `a4d500d` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v417`؛ `app.js?v=417`.
 
 ### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی + رفع UNIQUE + سربار لینک‌شده به مراکز (SW v416)
 - **مشکل:** ذخیره سرفصل / فعال‌سازی با `UNIQUE constraint failed: bom_headers.product_id, version, revision` (ایندکس یکتا روی ردیف‌های soft-delete هم اعمال می‌شد — مثل heal v407)؛ در قیمت‌گذاری با روش تسهیم فقط یک محصول عملی بود؛ سربار roll-up وقتی فقط بودجه مرکز پر بود و `total_rate_rial=0` صفر می‌ماند.
