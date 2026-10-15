@@ -14,6 +14,15 @@ function publicStaffUser(db, user) {
       sales_warehouse_name = (w && w.name) ? String(w.name) : '';
     } catch (_) {}
   }
+  const rawCb = user.sales_cash_box_id;
+  const cashBoxId = rawCb == null || rawCb === '' ? null : (Number(rawCb) || null);
+  let sales_cash_box_name = '';
+  if (cashBoxId) {
+    try {
+      const b = db.prepare('SELECT name FROM cash_boxes WHERE id=?').get(cashBoxId);
+      sales_cash_box_name = (b && b.name) ? String(b.name) : '';
+    } catch (_) {}
+  }
   return {
     id: user.id,
     name: user.name,
@@ -22,6 +31,8 @@ function publicStaffUser(db, user) {
     phone: user.phone || '',
     sales_warehouse_id: whId,
     sales_warehouse_name,
+    sales_cash_box_id: cashBoxId,
+    sales_cash_box_name,
   };
 }
 

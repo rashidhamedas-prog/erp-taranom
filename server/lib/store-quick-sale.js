@@ -1,10 +1,11 @@
 'use strict';
 /**
  * فروش سریع فروشگاهی (Quick Store Sale) — thin shell over firm invoices.
- * Walk-in customer + retail defaults + settlement rules; no parallel ledger.
+ * Walk-in customer + retail defaults + warehouse/cash locks + exchange.
  */
 const { resolveInvoicePayments } = require('./invoice-payments');
 const { moneyRial } = require('./cash-on-document');
+const { todayJalali } = require('../jalali');
 
 const WALKIN_BIZ = 'مشتری نقدی فروشگاه';
 const STORE_CHANNEL = 'store_quick';
@@ -16,6 +17,10 @@ function isStoreRetailRole(role) {
 }
 
 function locksStoreWarehouse(role) {
+  return isStoreRetailRole(role);
+}
+
+function locksStoreCashBox(role) {
   return isStoreRetailRole(role);
 }
 
@@ -105,11 +110,16 @@ function applyRetailRowDefaults(db, rows) {
   });
 }
 
+function loadUserStorePrefs(db, userId) {
+  if (!(userId > 0)) return null;
+  return db.prepare(
+    'SELECT id, name, role, sales_warehouse_id, sales_cash_box_id FROM users WHERE id=?'
+  ).get(userId);
+}
+
 function resolveStoreWarehouseId(db, user, body) {
   const uid = user && user.id;
-  const self = uid
-    ? db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(uid)
-    : null;
+  const self = loadUserStorePrefs(db, uid);
   if (locksStoreWarehouse(user && user.role)) {
     if (!self || !self.sales_warehouse_id) {
       const e = new Error('انبار فروش برای کاربر فروشگاهی تعریف نشده — از مدیر بخواهید در تعریف کاربر انبار فروش را تنظیم کند');
@@ -128,18 +138,51 @@ function resolveStoreWarehouseId(db, user, body) {
   throw e;
 }
 
-function assertWalkinSettlement(db, custId, body, finalAmt) {
+function resolveStoreCashBoxId(db, user, body, opts) {
+  const required = !(opts && opts.optional);
+  const uid = user && user.id;
+  const self = loadUserStorePrefs(db, uid);
+  if (locksStoreCashBox(user && user.role)) {
+    if (!self || !self.sales_cash_box_id) {
+      const e = new Error('صندوق فروش برای کاربر فروشگاهی تعریف نشده — از مدیر بخواهید در تعریف کاربر صندوق فروش را تنظیم کند');
+      e.status = 400;
+      e.code = 'E_STORE_CASHBOX_REQUIRED';
+      throw e;
+    }
+    return Number(self.sales_cash_box_id);
+  }
+  const fromBody = body && body.cash_box_id ? parseInt(body.cash_box_id, 10) : 0;
+  if (fromBody > 0) return fromBody;
+  if (self && self.sales_cash_box_id) return Number(self.sales_cash_box_id);
+  if (!required) return null;
+  const e = new Error('صندوق فروشگاهی را انتخاب کنید');
+  e.status = 400;
+  e.code = 'E_STORE_CASHBOX_REQUIRED';
+  throw e;
+}
+
+/**
+ * Walk-in must settle fully with cash/card.
+ * exchangeCreditRial: credit from same-ticket sales return that offsets the invoice.
+ */
+function assertWalkinSettlement(db, custId, body, finalAmt, opts) {
   if (!isWalkinCustomer(db, custId)) return;
+  const exchangeCredit = moneyRial((opts && opts.exchangeCreditRial) || 0);
   const plan = resolveInvoicePayments(body || {}, finalAmt);
   const paid = (plan.splits || []).reduce((a, s) => a + Number(s.amount || 0), 0);
   const final = moneyRial(finalAmt);
-  if (!(plan.splits && plan.splits.length) || Math.abs(paid - final) > 0.5) {
-    const e = new Error('فروش به «مشتری نقدی فروشگاه» باید کاملاً با نقد یا کارت تسویه شود — برای نسیه مشتری واقعی انتخاب کنید');
+  const covered = moneyRial(paid) + Math.min(exchangeCredit, final);
+  if (Math.abs(covered - final) > 0.5) {
+    const e = new Error(
+      exchangeCredit > 0
+        ? 'فروش به «مشتری نقدی فروشگاه» باید با نقد/کارت به‌علاوه اعتبار برگشت همین تعویض کاملاً تسویه شود'
+        : 'فروش به «مشتری نقدی فروشگاه» باید کاملاً با نقد یا کارت تسویه شود — برای نسیه مشتری واقعی انتخاب کنید'
+    );
     e.status = 400;
     e.code = 'E_WALKIN_MUST_SETTLE';
     throw e;
   }
-  for (const s of plan.splits) {
+  for (const s of plan.splits || []) {
     if (CREDITISH.has(s.pay_type)) {
       const e = new Error('برای چک یا نسیه باید مشتری واقعی (غیر از مشتری نقدی فروشگاه) انتخاب شود');
       e.status = 400;
@@ -148,7 +191,7 @@ function assertWalkinSettlement(db, custId, body, finalAmt) {
     }
   }
   const headerPt = String((body && body.pay_type) || '').toLowerCase();
-  if (CREDITISH.has(headerPt) && !(body.pay_splits && body.pay_splits.length)) {
+  if (CREDITISH.has(headerPt) && !(body.pay_splits && body.pay_splits.length) && !(exchangeCredit >= final - 0.5)) {
     const e = new Error('برای چک یا نسیه باید مشتری واقعی انتخاب شود');
     e.status = 400;
     e.code = 'E_WALKIN_NO_CREDIT';
@@ -182,6 +225,25 @@ function prepareStoreQuickSaleBody(db, user, body) {
   for (const r of b.rows) {
     if (r && r.row_type !== 'income') r.warehouse_id = whId;
   }
+  // Cash box default when tender needs cash and body omitted it
+  const needsCash = String(b.pay_type || '').toLowerCase() === 'cash'
+    || (Array.isArray(b.pay_splits) && b.pay_splits.some((s) => s && s.pay_type === 'cash'));
+  if (needsCash && !(parseInt(b.cash_box_id, 10) > 0)) {
+    try {
+      b.cash_box_id = resolveStoreCashBoxId(db, user, b, { optional: !locksStoreCashBox(user && user.role) });
+    } catch (_) { /* leave for assert downstream */ }
+  }
+  if (Array.isArray(b.pay_splits)) {
+    let lockedCash = null;
+    if (locksStoreCashBox(user && user.role)) {
+      lockedCash = resolveStoreCashBoxId(db, user, b);
+    }
+    b.pay_splits = b.pay_splits.map((s) => {
+      if (!s || s.pay_type !== 'cash') return s;
+      const id = lockedCash || parseInt(s.cash_box_id, 10) || parseInt(b.cash_box_id, 10) || null;
+      return { ...s, cash_box_id: id };
+    });
+  }
   return b;
 }
 
@@ -198,7 +260,100 @@ function assertStoreQuickSaleRules(db, user, body, ctx) {
   if (locksStoreWarehouse(user && user.role)) {
     resolveStoreWarehouseId(db, user, b);
   }
-  assertWalkinSettlement(db, custId, b, ctx && ctx.final);
+  assertWalkinSettlement(db, custId, b, ctx && ctx.final, {
+    exchangeCreditRial: ctx && ctx.exchangeCreditRial,
+  });
+}
+
+/**
+ * Scale pay_splits so they sum to targetRial (preserve ratios). Empty if target <= 0.
+ */
+function scalePaySplitsToNet(splits, targetRial) {
+  const target = moneyRial(targetRial);
+  if (!(target > 0)) return [];
+  const list = Array.isArray(splits) ? splits.filter((s) => s && Number(s.amount) > 0) : [];
+  if (!list.length) return [];
+  const sum = list.reduce((a, s) => a + moneyRial(s.amount), 0);
+  if (!(sum > 0)) return [];
+  let allocated = 0;
+  const out = list.map((s, i) => {
+    if (i === list.length - 1) {
+      return { ...s, amount: Math.max(0, target - allocated) };
+    }
+    const amt = Math.round((moneyRial(s.amount) / sum) * target);
+    allocated += amt;
+    return { ...s, amount: amt };
+  });
+  return out.filter((s) => moneyRial(s.amount) > 0);
+}
+
+/**
+ * Refund excess return credit to customer from cash box (AR debit + cash credit).
+ */
+function postStoreExchangeRefund(db, {
+  custId, amountRial, cashBoxId, userId, date, note, exchangeKey,
+}) {
+  const amt = moneyRial(amountRial);
+  if (!(amt > 0)) return null;
+  if (!(parseInt(cashBoxId, 10) > 0)) {
+    const e = new Error('برای استرداد وجه، صندوق الزامی است');
+    e.status = 400;
+    e.code = 'E_STORE_REFUND_CASHBOX';
+    throw e;
+  }
+  const { createLedgerEntry } = require('../db');
+  const { postToLedger } = require('./ledger');
+  const { settlementAssetAccount } = require('./invoice-payments');
+  const { acct } = require('./coa-map');
+  const cash = settlementAssetAccount(db, { pay_type: 'cash', cash_box_id: cashBoxId });
+  const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
+  let ar = null;
+  if (c && c.coa_code) {
+    ar = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
+  }
+  if (!ar) ar = acct(db, 'coa_receivable');
+
+  const sourceId = String(exchangeKey || `${custId}-${Date.now()}`).slice(0, 64);
+  createLedgerEntry(db, {
+    customer_id: custId,
+    date: date || todayJalali(),
+    entry_type: 'store_exchange_refund',
+    ref_type: 'store_exchange_refund',
+    ref_id: sourceId,
+    description: note || 'استرداد تعویض فروشگاهی',
+    debit: amt,
+    credit: 0,
+    user_id: userId,
+  });
+  const jeId = postToLedger(db, {
+    sourceType: 'store_exchange_refund',
+    sourceId,
+    date: date || todayJalali(),
+    description: note || 'استرداد تعویض فروشگاهی',
+    createdBy: userId,
+    lines: [
+      { code: ar.code, name: ar.name, debit: amt, credit: 0 },
+      { code: cash.code, name: cash.name, debit: 0, credit: amt },
+    ],
+  });
+  return { journal_id: jeId, amount_rial: amt, cash_box_id: Number(cashBoxId) };
+}
+
+/** Rough final from rows (retail prices + header disc%) — for scaling tender before invoice create. */
+function estimateSaleFinalRial(rows, discPct) {
+  let sub = 0;
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || r.row_type === 'income') continue;
+    const qty = Number(r.qty) || 0;
+    const price = Math.round(Number(r.unit_price != null ? r.unit_price : r.price) || 0);
+    let line = Math.round(qty * price);
+    const dPct = Math.max(0, Math.min(100, Number(r.disc_pct != null ? r.disc_pct : r.disc) || 0));
+    const dAmt = Math.max(0, Math.round(Number(r.disc_amt != null ? r.disc_amt : r.disc_amount) || 0));
+    line = Math.max(0, Math.round(line * (1 - dPct / 100)) - dAmt);
+    sub += line;
+  }
+  const hdr = Math.max(0, Math.min(100, Number(discPct) || 0));
+  return Math.max(0, Math.round(sub * (1 - hdr / 100)));
 }
 
 function bootstrapStoreSale(db, user) {
@@ -206,20 +361,84 @@ function bootstrapStoreSale(db, user) {
   const walkin = db.prepare(
     'SELECT id, biz, owner, phone, party_id FROM customers WHERE id=?'
   ).get(walkinId);
-  const u = user && user.id
-    ? db.prepare('SELECT id, name, role, sales_warehouse_id FROM users WHERE id=?').get(user.id)
-    : null;
+  const u = loadUserStorePrefs(db, user && user.id);
   let warehouse = null;
   if (u && u.sales_warehouse_id) {
     warehouse = db.prepare('SELECT id, name, code FROM warehouses WHERE id=?').get(u.sales_warehouse_id);
   }
+  let cashBox = null;
+  if (u && u.sales_cash_box_id) {
+    cashBox = db.prepare('SELECT id, name FROM cash_boxes WHERE id=?').get(u.sales_cash_box_id);
+  }
+  let warehouses = [];
+  try {
+    warehouses = db.prepare(
+      "SELECT id, name, code FROM warehouses WHERE COALESCE(active,1)=1 ORDER BY name"
+    ).all();
+  } catch (_) { warehouses = []; }
+  let cashBoxes = [];
+  try {
+    cashBoxes = db.prepare(
+      "SELECT id, name FROM cash_boxes WHERE COALESCE(active,1)=1 ORDER BY name"
+    ).all();
+  } catch (_) { cashBoxes = []; }
   return {
     channel: STORE_CHANNEL,
     walkin_customer_id: walkinId,
     walkin_customer: walkin || null,
     warehouse_id: u ? u.sales_warehouse_id || null : null,
     warehouse,
+    warehouses,
     locks_warehouse: locksStoreWarehouse(user && user.role),
+    cash_box_id: u ? u.sales_cash_box_id || null : null,
+    cash_box: cashBox,
+    cash_boxes: cashBoxes,
+    locks_cash_box: locksStoreCashBox(user && user.role),
+  };
+}
+
+/**
+ * Build sale body for exchange: net tender after return credit.
+ * @returns {{ body, netCollect, refundRial, returnGross, exchangeCreditRial, saleFinal }}
+ */
+function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
+  const returnGross = moneyRial(returnGrossRial);
+  const prepared = prepareStoreQuickSaleBody(db, user, saleBody || {});
+  const saleFinal = estimateSaleFinalRial(prepared.rows, prepared.disc);
+  const netCollect = Math.max(0, saleFinal - returnGross);
+  const refundRial = Math.max(0, returnGross - saleFinal);
+  const exchangeCreditRial = Math.min(returnGross, saleFinal);
+
+  const origSplits = Array.isArray(prepared.pay_splits) ? prepared.pay_splits : [];
+  if (netCollect > 0) {
+    let scaled = scalePaySplitsToNet(origSplits, netCollect);
+    if (!scaled.length) {
+      const cashId = resolveStoreCashBoxId(db, user, prepared, { optional: false });
+      scaled = [{ pay_type: 'cash', amount: netCollect, cash_box_id: cashId }];
+      prepared.pay_type = 'cash';
+      prepared.cash_box_id = cashId;
+    }
+    prepared.pay_splits = scaled;
+    prepared.pay_type = scaled[0].pay_type || 'cash';
+  } else {
+    prepared.pay_splits = [];
+    prepared.pay_type = 'credit';
+  }
+
+  prepared._store_exchange = {
+    return_gross: returnGross,
+    sale_final: saleFinal,
+    net_collect: netCollect,
+    refund_rial: refundRial,
+    exchange_credit_rial: exchangeCreditRial,
+  };
+  return {
+    body: prepared,
+    netCollect,
+    refundRial,
+    returnGross,
+    exchangeCreditRial,
+    saleFinal,
   };
 }
 
@@ -229,6 +448,7 @@ module.exports = {
   SETTINGS_KEY,
   isStoreRetailRole,
   locksStoreWarehouse,
+  locksStoreCashBox,
   isStoreQuickRequest,
   ensureWalkinCustomer,
   getWalkinCustomerId,
@@ -236,8 +456,13 @@ module.exports = {
   retailUnitPriceRial,
   applyRetailRowDefaults,
   resolveStoreWarehouseId,
+  resolveStoreCashBoxId,
   prepareStoreQuickSaleBody,
   assertStoreQuickSaleRules,
   assertWalkinSettlement,
   bootstrapStoreSale,
+  scalePaySplitsToNet,
+  postStoreExchangeRefund,
+  prepareExchangeSaleBody,
+  estimateSaleFinalRial,
 };

@@ -594,7 +594,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
 
   if (isStoreQuickRequest(req.body, req.user.role)) {
     try {
-      assertStoreQuickSaleRules(db, req.user, req.body, { final, payPlan, invType });
+      const exMeta = req.body && req.body._store_exchange;
+      assertStoreQuickSaleRules(db, req.user, req.body, {
+        final, payPlan, invType,
+        exchangeCreditRial: exMeta ? exMeta.exchange_credit_rial : 0,
+      });
     } catch (e) {
       return res.status(e.status || 400).json({ error: e.message, code: e.code });
     }

@@ -5674,7 +5674,7 @@ function filterInvVariantColor(name){
 function openInvVariantSplitModal(p, pack, opts){
   opts=opts||{};
   const destRaw=opts.dest||'invoice';
-  const dest=(destRaw==='marketer'||destRaw==='sales_return'||destRaw==='purchase_return')?destRaw:'invoice';
+  const dest=(destRaw==='marketer'||destRaw==='sales_return'||destRaw==='purchase_return'||destRaw==='store_quick')?destRaw:'invoice';
   // Always show the full color×size matrix; stock numbers are already warehouse-scoped.
   const rows=(pack.matrix&&pack.matrix.length)?pack.matrix:(pack.live||[]);
   const whLabel=opts.warehouseName || warehouseNameById(opts.warehouseId);
@@ -5700,7 +5700,9 @@ function openInvVariantSplitModal(p, pack, opts){
     ? (replaceIndices?'اعمال روی سبد':'افزودن به سبد')
     : (dest==='sales_return'||dest==='purchase_return')
       ? 'افزودن به لیست برگشت'
-      : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور');
+      : (dest==='store_quick'
+        ? (replaceIndices?'اعمال روی سبد فروشگاهی':'افزودن به فروش سریع')
+        : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور'));
   const firstColor=colorMeta.length?colorMeta[0].name:'*';
   const hint=dest==='marketer'
     ? '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).'
@@ -5811,6 +5813,15 @@ function confirmInvVariantSplit(pid, opts){
       return;
     }
     MarketerUI.addVariantLines(p, next, { replaceIndices: replaceIndices, warehouse_id: pick.warehouse_id||opts.warehouse_id||null });
+    closeNestedModal();
+    return;
+  }
+  if(dest==='store_quick'){
+    if(typeof storeQsAddVariantLines!=='function'){
+      showToast('سبد فروشگاهی در دسترس نیست','error');
+      return;
+    }
+    storeQsAddVariantLines(p, next, { replaceIndices: replaceIndices, warehouse_id: pick.warehouse_id||opts.warehouse_id||null });
     closeNestedModal();
     return;
   }
@@ -6879,11 +6890,13 @@ async function printWarehouseSlip(source, id, paper){
 }
 
 /* ============================================================
-   فروش سریع فروشگاهی (Quick Store Sale)
+   فروش سریع فروشگاهی (Quick Store Sale) — v387
 ============================================================ */
 let _storeQs = {
-  boot: null, lines: [], payType: 'cash', cashBoxId: null, terminalId: null,
+  boot: null, lines: [], returnLines: [], payType: 'cash', cashBoxId: null, terminalId: null,
   custId: 0, discPct: 0, busy: false, scanQ: '',
+  mode: 'sale', warehouseId: null,
+  refInvoiceId: null, refInvoice: null, refInvoices: [],
 };
 
 function storeQsCanOpen(){
@@ -6892,7 +6905,17 @@ function storeQsCanOpen(){
     || ME.role==='sales_manager' || ME.role==='distribution_office') return true;
   return typeof canCreateInvoice==='function' && canCreateInvoice();
 }
-
+function storeQsCanChangeWh(){
+  return ME && (ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager');
+}
+function storeQsCanChangeCash(){
+  return storeQsCanChangeWh();
+}
+function storeQsWhId(){
+  const boot=_storeQs.boot||{};
+  if(boot.locks_warehouse) return Number(boot.warehouse_id||ME.sales_warehouse_id||0)||null;
+  return Number(_storeQs.warehouseId||boot.warehouse_id||ME.sales_warehouse_id||0)||null;
+}
 function storeQsLineTotal(ln){
   const qty = Number(ln.qty)||0;
   const price = Math.round(Number(ln.unit_price)||0);
@@ -6902,58 +6925,132 @@ function storeQsLineTotal(ln){
   const afterPct = Math.round(raw * (1 - dPct/100));
   return Math.max(0, afterPct - dAmt);
 }
-
 function storeQsSubtotal(){
   return (_storeQs.lines||[]).reduce((a,ln)=>a+storeQsLineTotal(ln),0);
 }
-
 function storeQsFinal(){
   const sub = storeQsSubtotal();
   const disc = Math.max(0, Math.min(100, Number(_storeQs.discPct)||0));
   return Math.max(0, Math.round(sub * (1 - disc/100)));
 }
-
+function storeQsReturnGross(){
+  return (_storeQs.returnLines||[]).reduce((a,ln)=>{
+    const qty=Number(ln.qty)||0;
+    const price=Math.round(Number(ln.unit_price!=null?ln.unit_price:ln.price)||0);
+    return a + Math.max(0, Math.round(qty*price));
+  },0);
+}
+function storeQsNetDue(){
+  return storeQsFinal() - storeQsReturnGross();
+}
 function storeQsRetailPrice(p){
   const retail = Math.round(Number(p.retail_price_rial || p.retail_price)||0);
   if(retail>0) return retail;
   return Math.round(Number(p.price_rial || p.price)||0);
 }
-
+function storeQsAddVariantLines(p, rows, opts){
+  opts=opts||{};
+  if(!p||!p.id) return;
+  const wh=opts.warehouse_id||storeQsWhId();
+  if(Array.isArray(opts.replaceIndices)&&opts.replaceIndices.length){
+    opts.replaceIndices.slice().sort((a,b)=>b-a).forEach(i=>{
+      if(i>=0&&i<_storeQs.lines.length) _storeQs.lines.splice(i,1);
+    });
+  }
+  (rows||[]).forEach(row=>{
+    const unit=storeQsRetailPrice(p);
+    const vid=Number(row.variant_id)||null;
+    const existing=_storeQs.lines.find(l=>
+      Number(l.product_id)===Number(p.id)
+      && Number(l.variant_id||0)===Number(vid||0)
+      && Number(l.warehouse_id||0)===Number(wh||0));
+    if(existing){
+      existing.qty=Number(existing.qty||0)+Number(row.qty||0);
+    } else {
+      _storeQs.lines.push({
+        product_id:p.id,
+        name:p.name||'',
+        code:p.code||p.barcode||'',
+        unit:p.unit||'عدد',
+        qty:Math.max(1, Number(row.qty)||1),
+        unit_price:unit,
+        disc_pct:0,
+        disc_amt:0,
+        variant_id:vid,
+        color_id:row.color_id||null,
+        size_id:row.size_id||null,
+        color_name:row.color_name||row.color||'',
+        size_name:row.size_name||'',
+        warehouse_id:wh,
+        stock:row.sku_stock!=null?row.sku_stock:p.stock,
+      });
+    }
+  });
+  storeQsRenderBody();
+  showToast((p.name||'کالا')+' به سبد اضافه شد');
+}
+async function storeQsPickVariantThenAdd(p){
+  const whId=storeQsWhId();
+  if(!whId){ showToast('ابتدا انبار فروش را انتخاب کنید','error'); return; }
+  let style=null;
+  try{
+    style=await api('GET','/product-variants/style/'+Number(p.id)+'?warehouse_id='+encodeURIComponent(whId));
+  }catch(_){ style=null; }
+  if(!style||!Array.isArray(style.variants)||!style.variants.length){
+    storeQsAddProduct(p,1);
+    return;
+  }
+  const pack=livePackFromStyle(style);
+  if(!pack.matrix.length&&!pack.pool.length){
+    storeQsAddProduct(p,1);
+    return;
+  }
+  openInvVariantSplitModal(p, pack, {
+    dest:'store_quick',
+    warehouseId:whId,
+    warehouseName:warehouseNameById(whId),
+  });
+}
 function storeQsAddProduct(p, qty){
-  if(!p || !p.id) return;
-  const q = Math.max(1, Number(qty)||1);
-  const unit = storeQsRetailPrice(p);
-  const existing = _storeQs.lines.find(l=>Number(l.product_id)===Number(p.id) && !l.variant_id);
+  if(!p||!p.id) return;
+  if(typeof productNeedsColorPick==='function' && productNeedsColorPick(p)){
+    storeQsPickVariantThenAdd(p);
+    return;
+  }
+  const q=Math.max(1, Number(qty)||1);
+  const unit=storeQsRetailPrice(p);
+  const wh=storeQsWhId();
+  const existing=_storeQs.lines.find(l=>Number(l.product_id)===Number(p.id)&&!l.variant_id&&Number(l.warehouse_id||0)===Number(wh||0));
   if(existing){
-    existing.qty = Number(existing.qty||0) + q;
+    existing.qty=Number(existing.qty||0)+q;
   } else {
     _storeQs.lines.push({
-      product_id: p.id,
-      name: p.name || '',
-      code: p.code || p.barcode || '',
-      unit: p.unit || 'عدد',
-      qty: q,
-      unit_price: unit,
-      disc_pct: 0,
-      disc_amt: 0,
-      stock: p.stock,
+      product_id:p.id,
+      name:p.name||'',
+      code:p.code||p.barcode||'',
+      unit:p.unit||'عدد',
+      qty:q,
+      unit_price:unit,
+      disc_pct:0,
+      disc_amt:0,
+      warehouse_id:wh,
+      stock:p.stock,
     });
   }
   storeQsRenderBody();
   showToast((p.name||'کالا')+' اضافه شد');
 }
-
 async function storeQsLookupScan(code){
-  const c = String(code||'').trim();
+  const c=String(code||'').trim();
   if(!c) return;
   try{
-    const p = await api('GET','/products/by-barcode/'+encodeURIComponent(c));
-    if(p && p.id){ storeQsAddProduct(p, 1); return; }
+    const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c));
+    if(p&&p.id){ storeQsAddProduct(p,1); return; }
   }catch(_){}
   try{
-    const list = listRows(await api('GET','/products?search='+encodeURIComponent(c)+'&limit=20'));
-    if(list && list.length===1){ storeQsAddProduct(list[0], 1); return; }
-    if(list && list.length>1){
+    const list=listRows(await api('GET','/products?search='+encodeURIComponent(c)+'&limit=20'));
+    if(list&&list.length===1){ storeQsAddProduct(list[0],1); return; }
+    if(list&&list.length>1){
       openModal(`<div class="modal-head"><h3>انتخاب کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
         <div class="modal-body">${list.slice(0,12).map(p=>`<button class="btn ghost" data-csp-style="${CSP.style(`display:block;width:100%;text-align:right;margin-bottom:6px`)}" data-csp-click="${CSP.bind('click',function(){closeModal();storeQsAddProduct(p,1)})}">${esc(p.name)} <span class="muted mono">${esc(p.code||p.barcode||'')}</span> — ${fmt(storeQsRetailPrice(p))}</button>`).join('')}</div>`);
       return;
@@ -6961,36 +7058,124 @@ async function storeQsLookupScan(code){
   }catch(_){}
   showToast('کالا یافت نشد: '+c,'error');
 }
-
 function storeQsRenderLines(){
   if(!_storeQs.lines.length){
     return `<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">بارکد را اسکن کنید یا نام/کد کالا را جستجو کنید</div>`;
   }
   return `<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>کالا</th><th>تعداد</th><th data-col-kind="money">فی</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
-  </tr></thead><tbody>${_storeQs.lines.map((ln,idx)=>`<tr>
-    <td data-label="کالا"><b>${esc(ln.name)}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(ln.code||'')}</div></td>
+    <th>کالا</th><th>تعداد</th><th data-col-kind="money">فی</th><th>تخفیف٪</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
+  </tr></thead><tbody>${_storeQs.lines.map((ln,idx)=>{
+    const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
+    return `<tr>
+    <td data-label="کالا"><b>${esc(ln.name)}</b>
+      <div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div></td>
     <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody();})}"></td>
-    <td data-label="فی" class="mono">${fmt(ln.unit_price)}</td>
+    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].unit_price=Math.max(0,fromInputAmount(parseInt(toEnDigits(String(this.value||'')).replace(/[^\\d]/g,''),10)||0));storeQsRenderBody();})}"></td>
+    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody();})}"></td>
     <td data-label="جمع" class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
     <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
-  </tr>`).join('')}</tbody></table></div>`;
+  </tr>`;
+  }).join('')}</tbody></table></div>`;
 }
-
+function storeQsRenderReturnLines(){
+  if(!_storeQs.returnLines.length){
+    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">از فاکتور مرجع، کالاهای برگشتی را انتخاب کنید</div>`;
+  }
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>کالا برگشتی</th><th>تعداد</th><th data-col-kind="money">فی</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
+  </tr></thead><tbody>${_storeQs.returnLines.map((ln,idx)=>{
+    const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
+    const tot=Math.round((Number(ln.qty)||0)*Math.round(Number(ln.unit_price!=null?ln.unit_price:ln.price)||0));
+    return `<tr>
+      <td><b>${esc(ln.name||'')}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${varLbl?esc(varLbl):''}</div></td>
+      <td><input type="number" min="0.001" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.returnLines[idx].qty=Math.max(0.001,Number(this.value)||0);storeQsRenderBody();})}"></td>
+      <td class="mono">${fmt(ln.unit_price!=null?ln.unit_price:ln.price)}</td>
+      <td class="mono"><b>${fmt(tot)}</b></td>
+      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.returnLines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+async function storeQsLoadRefInvoices(){
+  const custId=Number(_storeQs.custId||0);
+  _storeQs.refInvoices=[];
+  _storeQs.refInvoiceId=null;
+  _storeQs.refInvoice=null;
+  _storeQs.returnLines=[];
+  if(!(custId>0)) return;
+  try{
+    const rows=listRows(await api('GET','/invoices'));
+    _storeQs.refInvoices=(rows||[]).filter(i=>{
+      if(Number(i.cust_id)!==custId) return false;
+      if(i.deleted_at) return false;
+      const t=String(i.type||'');
+      return t==='normal'||t==='final';
+    }).slice(0,40);
+  }catch(_){ _storeQs.refInvoices=[]; }
+}
+async function storeQsSelectRefInvoice(id){
+  _storeQs.refInvoiceId=Number(id)||null;
+  _storeQs.returnLines=[];
+  if(!_storeQs.refInvoiceId){ _storeQs.refInvoice=null; storeQsRenderBody(); return; }
+  try{
+    const inv=await api('GET','/invoices/'+_storeQs.refInvoiceId);
+    _storeQs.refInvoice=inv;
+    const rows=Array.isArray(inv.rows)?inv.rows:JSON.parse(inv.rows||'[]');
+    _storeQs.returnLines=rows.filter(r=>r&&r.row_type!=='income'&&r.product_id).map(r=>({
+      product_id:r.product_id,
+      name:r.name||'',
+      qty:Number(r.qty)||1,
+      unit_price:Math.round(Number(r.unit_price!=null?r.unit_price:r.price)||0),
+      price:Math.round(Number(r.unit_price!=null?r.unit_price:r.price)||0),
+      variant_id:r.variant_id||null,
+      color_id:r.color_id||null,
+      size_id:r.size_id||null,
+      color_name:r.color_name||r.color||'',
+      size_name:r.size_name||'',
+      warehouse_id:r.warehouse_id||inv.warehouse_id||storeQsWhId(),
+    }));
+  }catch(e){
+    showToast((e&&e.message)||'خطا در بارگذاری فاکتور','error');
+    _storeQs.refInvoice=null;
+  }
+  storeQsRenderBody();
+}
 function storeQsRenderBody(){
-  const box = el('storeQsBody');
+  const box=el('storeQsBody');
   if(!box) return;
-  const boot = _storeQs.boot || {};
-  const walkinId = Number(boot.walkin_customer_id||0);
-  const custId = Number(_storeQs.custId||walkinId||0);
-  const isWalkin = custId === walkinId;
-  const finalAmt = storeQsFinal();
-  const whName = boot.warehouse ? (boot.warehouse.name||'') : (ME.sales_warehouse_name||'—');
-  const cashOpts = (CACHE.cashBoxes||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}" ${Number(_storeQs.cashBoxId)===Number(c.id)?'selected':''}>${esc(c.name)}</option>`).join('');
-  const termOpts = (CACHE.posTerminalChoices||[]).map(t=>`<option value="${t.id}" ${Number(_storeQs.terminalId)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||('#'+t.id))}</option>`).join('');
-  box.innerHTML = `
+  const boot=_storeQs.boot||{};
+  const walkinId=Number(boot.walkin_customer_id||0);
+  const custId=Number(_storeQs.custId||walkinId||0);
+  const isWalkin=custId===walkinId;
+  const finalAmt=storeQsFinal();
+  const returnGross=storeQsReturnGross();
+  const netDue=storeQsNetDue();
+  const mode=_storeQs.mode||'sale';
+  const locksWh=!!boot.locks_warehouse;
+  const locksCash=!!boot.locks_cash_box;
+  const whList=boot.warehouses||CACHE.warehouses||[];
+  const cashList=(CACHE.cashBoxes||[]).filter(c=>c.active!==0);
+  const cashOpts=cashList.map(c=>`<option value="${c.id}" ${Number(_storeQs.cashBoxId)===Number(c.id)?'selected':''}>${esc(c.name)}</option>`).join('');
+  const termOpts=(CACHE.posTerminalChoices||[]).map(t=>`<option value="${t.id}" ${Number(_storeQs.terminalId)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||('#'+t.id))}</option>`).join('');
+  const whId=storeQsWhId();
+  const whSelect=locksWh||!storeQsCanChangeWh()
+    ? `<input value="${esc((boot.warehouse&&boot.warehouse.name)||ME.sales_warehouse_name||warehouseNameById(whId)||'—')}" readonly>
+        ${locksWh?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی انبار فروش کاربر</div>`:''}`
+    : `<select id="storeQsWh" data-csp-change="${CSP.bind('change',function(){_storeQs.warehouseId=Number(this.value)||null;})}">
+        <option value="">— انتخاب انبار —</option>
+        ${whList.map(w=>`<option value="${w.id}" ${Number(whId)===Number(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+      </select>`;
+  const cashSelectLocked=locksCash&&!storeQsCanChangeCash();
+  const netLabel=netDue>=0
+    ? `<span class="muted">قابل پرداخت (خالص)</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(mode==='exchange'?Math.max(0,netDue):finalAmt)}</div>`
+    : `<span class="muted">قابل استرداد به مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(Math.abs(netDue))}</div>`;
+
+  box.innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:10px;gap:8px`)}">
+      <button class="btn sm ${mode==='sale'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){_storeQs.mode='sale';storeQsRenderBody();})}">فروش</button>
+      <button class="btn sm ${mode==='exchange'?'':'ghost'}" data-csp-click="${CSP.bind('click',async function(){_storeQs.mode='exchange';await storeQsLoadRefInvoices();storeQsRenderBody();})}">تعویض / برگشت+فروش</button>
+    </div>
     <div class="card" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <div class="fg full"><label>اسکن / جستجوی کالا</label>
+      <div class="fg full"><label>اسکن / جستجوی کالا ${mode==='exchange'?'(جایگزین)':''}</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
           <input id="storeQsScan" class="search" autofocus placeholder="بارکد یا نام کالا + Enter" value="${esc(_storeQs.scanQ||'')}" data-csp-style="${CSP.style(`flex:1;min-width:220px`)}"
             data-csp-keydown="${CSP.bind('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _storeQs.scanQ=this.value; storeQsLookupScan(this.value); this.value=''; _storeQs.scanQ=''; } })}">
@@ -6999,6 +7184,18 @@ function storeQsRenderBody(){
         </div>
       </div>
     </div>
+    ${mode==='exchange'?`<div class="card" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      <div class="fg"><label>فاکتور مرجع برگشت *</label>
+        <select id="storeQsRefInv" data-csp-change="${CSP.bind('change',function(){storeQsSelectRefInvoice(this.value);})}">
+          <option value="">— انتخاب فاکتور مشتری —</option>
+          ${(_storeQs.refInvoices||[]).map(i=>`<option value="${i.id}" ${Number(_storeQs.refInvoiceId)===Number(i.id)?'selected':''}>${esc(i.num||('#'+i.id))} — ${esc(i.date||'')} — ${fmt(i.final||i.final_rial||0)}</option>`).join('')}
+        </select>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برگشت فقط روی فاکتور قطعی همان مشتری؛ فی از فاکتور قفل است</div>
+      </div>
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}"><b>اقلام برگشتی</b> — جمع برگشت: <b class="mono">${fmt(returnGross)}</b></div>
+      ${storeQsRenderReturnLines()}
+    </div>`:''}
+    <div data-csp-style="${CSP.style(`margin-bottom:6px`)}"><b>${mode==='exchange'?'سبد فروش جایگزین':'سبد فروش'}</b></div>
     ${storeQsRenderLines()}
     <div class="card" data-csp-style="${CSP.style(`margin-top:12px`)}">
       <div class="grid2">
@@ -7006,12 +7203,9 @@ function storeQsRenderBody(){
           ${custSelect('storeQsCust', custId)}
           ${isWalkin?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">walk-in — تسویه کامل نقد/کارت الزامی است</div>`:''}
         </div>
-        <div class="fg"><label>انبار</label>
-          <input value="${esc(whName)}" readonly>
-          ${boot.locks_warehouse?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی انبار فروش کاربر</div>`:''}
-        </div>
+        <div class="fg"><label>انبار</label>${whSelect}</div>
         <div class="fg"><label>تخفیف کل ٪</label>
-          <input type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" data-csp-input="${CSP.bind('input',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); el('storeQsFinalLbl')&&(el('storeQsFinalLbl').textContent=fmt(storeQsFinal()));})}">
+          <input type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" data-csp-input="${CSP.bind('input',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody();})}">
         </div>
         <div class="fg"><label>نوع پرداخت</label>
           <select id="storeQsPay" data-csp-change="${CSP.bind('change',function(){_storeQs.payType=this.value; storeQsRenderBody();})}">
@@ -7021,99 +7215,184 @@ function storeQsRenderBody(){
             ${!isWalkin?`<option value="credit" ${_storeQs.payType==='credit'?'selected':''}>نسیه (مانده مشتری)</option>`:''}
           </select>
         </div>
-        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'?`<div class="fg"><label>صندوق *</label><select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;})}"><option value="">—</option>${cashOpts}</select></div>`:''}
+        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&netDue<0)?`<div class="fg"><label>صندوق *</label>
+          ${cashSelectLocked
+            ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
+               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر</div>`
+            : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;})}"><option value="">—</option>${cashOpts}</select>`}
+        </div>`:''}
         ${_storeQs.payType==='pos_card'||_storeQs.payType==='mixed'?`<div class="fg"><label>کارتخوان *</label><select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select></div>`:''}
       </div>
       <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px`)}">
-        <div><span class="muted">جمع قابل پرداخت</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(finalAmt)}</div></div>
+        <div>${netLabel}
+          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">فروش ${fmt(finalAmt)} − برگشت ${fmt(returnGross)}</div>`:''}
+        </div>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
-          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];storeQsRenderBody();})}">پاک کردن سبد</button>
-          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">ثبت فروش</button>
+          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
+          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${mode==='exchange'?'ثبت تعویض':'ثبت فروش'}</button>
         </div>
       </div>
     </div>`;
-  // Keep customer select wired
-  const cs = el('storeQsCust');
+  try{ initCustSearches(box); }catch(_){}
+  const cs=el('storeQsCust');
   if(cs){
-    cs.addEventListener('change', function(){ _storeQs.custId = Number(this.value)||0; storeQsRenderBody(); }, { once:true });
+    cs.addEventListener('change', async function(){
+      _storeQs.custId=Number(this.value)||0;
+      if((_storeQs.mode||'sale')==='exchange'){
+        await storeQsLoadRefInvoices();
+      }
+      storeQsRenderBody();
+    }, { once:true });
   }
   setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
 }
-
-async function storeQsCheckout(){
-  if(_storeQs.busy) return;
-  if(!_storeQs.lines.length){ showToast('سبد خالی است','error'); return; }
-  const boot = _storeQs.boot || {};
-  const walkinId = Number(boot.walkin_customer_id||0);
-  const custEl = el('storeQsCust');
-  const custId = Number((custEl && custEl.value) || _storeQs.custId || walkinId || 0);
-  if(!custId){ showToast('مشتری الزامی است','error'); return; }
-  const finalAmt = storeQsFinal();
-  if(!(finalAmt>0)){ showToast('مبلغ فاکتور نامعتبر است','error'); return; }
-  const payType = _storeQs.payType || 'cash';
-  const cashBoxId = Number((el('storeQsCash')&&el('storeQsCash').value) || _storeQs.cashBoxId || 0) || null;
-  const terminalId = Number((el('storeQsTerm')&&el('storeQsTerm').value) || _storeQs.terminalId || 0) || null;
-  let pay_splits = [];
+function storeQsBuildPaySplits(finalAmt){
+  const payType=_storeQs.payType||'cash';
+  const cashBoxId=Number((el('storeQsCash')&&el('storeQsCash').value)||_storeQs.cashBoxId||(_storeQs.boot&&_storeQs.boot.cash_box_id)||0)||null;
+  const terminalId=Number((el('storeQsTerm')&&el('storeQsTerm').value)||_storeQs.terminalId||0)||null;
+  let pay_splits=[];
   if(payType==='cash'){
-    if(!cashBoxId){ showToast('صندوق را انتخاب کنید','error'); return; }
-    pay_splits = [{ pay_type:'cash', amount: finalAmt, cash_box_id: cashBoxId }];
+    if(!(finalAmt>0)) return { pay_splits:[], cashBoxId, terminalId, payType };
+    if(!cashBoxId){ showToast('صندوق را انتخاب کنید','error'); return null; }
+    pay_splits=[{ pay_type:'cash', amount:finalAmt, cash_box_id:cashBoxId }];
   } else if(payType==='pos_card'){
-    if(!terminalId){ showToast('کارتخوان را انتخاب کنید','error'); return; }
-    pay_splits = [{ pay_type:'pos_card', amount: finalAmt, terminal_id: terminalId }];
+    if(!(finalAmt>0)) return { pay_splits:[], cashBoxId, terminalId, payType };
+    if(!terminalId){ showToast('کارتخوان را انتخاب کنید','error'); return null; }
+    pay_splits=[{ pay_type:'pos_card', amount:finalAmt, terminal_id:terminalId }];
   } else if(payType==='mixed'){
-    if(!cashBoxId || !terminalId){ showToast('صندوق و کارتخوان را انتخاب کنید','error'); return; }
-    const half = Math.floor(finalAmt/2);
-    const rest = finalAmt - half;
-    if(!(half>0 && rest>0)){ showToast('برای پرداخت ترکیبی مبلغ را بررسی کنید','error'); return; }
-    pay_splits = [
-      { pay_type:'cash', amount: half, cash_box_id: cashBoxId },
-      { pay_type:'pos_card', amount: rest, terminal_id: terminalId },
+    if(!(finalAmt>0)) return { pay_splits:[], cashBoxId, terminalId, payType };
+    if(!cashBoxId||!terminalId){ showToast('صندوق و کارتخوان را انتخاب کنید','error'); return null; }
+    const half=Math.floor(finalAmt/2);
+    const rest=finalAmt-half;
+    if(!(half>0&&rest>0)){ showToast('برای پرداخت ترکیبی مبلغ را بررسی کنید','error'); return null; }
+    pay_splits=[
+      { pay_type:'cash', amount:half, cash_box_id:cashBoxId },
+      { pay_type:'pos_card', amount:rest, terminal_id:terminalId },
     ];
   } else if(payType==='credit'){
-    if(custId===walkinId){ showToast('نسیه برای مشتری نقدی فروشگاه مجاز نیست','error'); return; }
-    pay_splits = [];
+    pay_splits=[];
   }
-  const rows = _storeQs.lines.map(ln=>({
-    product_id: ln.product_id,
-    name: ln.name,
-    code: ln.code,
-    unit: ln.unit,
-    qty: Number(ln.qty)||1,
-    unit_price: Math.round(Number(ln.unit_price)||0),
-    price: Math.round(Number(ln.unit_price)||0),
-    disc_pct: Number(ln.disc_pct)||0,
-    disc_amt: Math.round(Number(ln.disc_amt)||0),
-    warehouse_id: boot.warehouse_id || ME.sales_warehouse_id || null,
+  return { pay_splits, cashBoxId, terminalId, payType };
+}
+function storeQsSaleRows(){
+  const wh=storeQsWhId();
+  return _storeQs.lines.map(ln=>({
+    product_id:ln.product_id,
+    name:ln.name,
+    code:ln.code,
+    unit:ln.unit,
+    qty:Number(ln.qty)||1,
+    unit_price:Math.round(Number(ln.unit_price)||0),
+    price:Math.round(Number(ln.unit_price)||0),
+    disc_pct:Number(ln.disc_pct)||0,
+    disc_amt:Math.round(Number(ln.disc_amt)||0),
+    variant_id:ln.variant_id||null,
+    color_id:ln.color_id||null,
+    size_id:ln.size_id||null,
+    color_name:ln.color_name||'',
+    size_name:ln.size_name||'',
+    warehouse_id:ln.warehouse_id||wh,
   }));
-  const body = {
-    store_quick: true,
-    sales_channel: 'store_quick',
-    type: 'normal',
-    cust_id: custId,
-    date: (typeof todayJalali==='function'?todayJalali():undefined),
-    disc: Number(_storeQs.discPct)||0,
-    rows,
-    warehouse_id: boot.warehouse_id || ME.sales_warehouse_id || null,
-    pay_type: payType==='credit' ? 'credit' : (pay_splits[0] && pay_splits[0].pay_type) || 'cash',
-    cash_box_id: cashBoxId,
-    pay_splits: payType==='credit' ? undefined : pay_splits,
-  };
-  _storeQs.busy = true;
+}
+async function storeQsCheckout(){
+  if(_storeQs.busy) return;
+  const mode=_storeQs.mode||'sale';
+  if(!_storeQs.lines.length){ showToast('سبد فروش خالی است','error'); return; }
+  if(mode==='exchange'){
+    if(!_storeQs.refInvoiceId){ showToast('فاکتور مرجع برگشت را انتخاب کنید','error'); return; }
+    if(!_storeQs.returnLines.length){ showToast('اقلام برگشتی خالی است','error'); return; }
+  }
+  const boot=_storeQs.boot||{};
+  const walkinId=Number(boot.walkin_customer_id||0);
+  const custEl=el('storeQsCust');
+  const custId=Number((custEl&&custEl.value)||_storeQs.custId||walkinId||0);
+  if(!custId){ showToast('مشتری الزامی است','error'); return; }
+  const finalAmt=storeQsFinal();
+  if(!(finalAmt>0)){ showToast('مبلغ فاکتور نامعتبر است','error'); return; }
+  const netDue=mode==='exchange'?storeQsNetDue():finalAmt;
+  const collectAmt=Math.max(0, netDue);
+  const tender=storeQsBuildPaySplits(collectAmt);
+  if(!tender) return;
+  if(mode==='sale'&&tender.payType==='credit'&&custId===walkinId){
+    showToast('نسیه برای مشتری نقدی فروشگاه مجاز نیست','error'); return;
+  }
+  const whId=storeQsWhId();
+  if(!whId){ showToast('انبار فروش را انتخاب کنید','error'); return; }
+
+  _storeQs.busy=true;
   storeQsRenderBody();
   try{
-    const inv = await api('POST','/store/quick-sale', body);
-    showToast('فروش ثبت شد: '+(inv.num||''));
-    _storeQs.lines = [];
-    _storeQs.discPct = 0;
-    _storeQs.custId = walkinId;
-    storeQsRenderBody();
-    if(inv && inv.id && typeof printInvoice==='function'){
-      setTimeout(function(){ printInvoice(inv.id); }, 200);
+    if(mode==='exchange'){
+      const body={
+        cust_id:custId,
+        invoice_id:_storeQs.refInvoiceId,
+        return_rows:_storeQs.returnLines.map(ln=>({
+          product_id:ln.product_id,
+          qty:Number(ln.qty)||1,
+          variant_id:ln.variant_id||null,
+          color_id:ln.color_id||null,
+          size_id:ln.size_id||null,
+          warehouse_id:ln.warehouse_id||whId,
+        })),
+        reason_code:'exchange',
+        return_note:'تعویض فروشگاهی',
+        warehouse_id:whId,
+        refund_cash_box_id:tender.cashBoxId||_storeQs.cashBoxId||boot.cash_box_id||null,
+        sale:{
+          store_quick:true,
+          sales_channel:'store_quick',
+          type:'normal',
+          cust_id:custId,
+          date:(typeof todayJalali==='function'?todayJalali():undefined),
+          disc:Number(_storeQs.discPct)||0,
+          rows:storeQsSaleRows(),
+          warehouse_id:whId,
+          pay_type:collectAmt>0?(tender.payType==='credit'?'cash':tender.payType):'credit',
+          cash_box_id:tender.cashBoxId,
+          pay_splits:collectAmt>0?tender.pay_splits:undefined,
+        },
+      };
+      const out=await api('POST','/store/quick-exchange', body);
+      const inv=out&&out.invoice;
+      showToast('تعویض ثبت شد'+(inv&&inv.num?(': '+inv.num):'')+(out.refund_rial?(' — استرداد '+fmt(out.refund_rial)):''));
+      _storeQs.lines=[];
+      _storeQs.returnLines=[];
+      _storeQs.refInvoiceId=null;
+      _storeQs.refInvoice=null;
+      _storeQs.discPct=0;
+      _storeQs.custId=walkinId;
+      storeQsRenderBody();
+      if(inv&&inv.id&&typeof printInvoice==='function'){
+        setTimeout(function(){ printInvoice(inv.id); }, 200);
+      }
+    } else {
+      const body={
+        store_quick:true,
+        sales_channel:'store_quick',
+        type:'normal',
+        cust_id:custId,
+        date:(typeof todayJalali==='function'?todayJalali():undefined),
+        disc:Number(_storeQs.discPct)||0,
+        rows:storeQsSaleRows(),
+        warehouse_id:whId,
+        pay_type:tender.payType==='credit'?'credit':(tender.pay_splits[0]&&tender.pay_splits[0].pay_type)||'cash',
+        cash_box_id:tender.cashBoxId,
+        pay_splits:tender.payType==='credit'?undefined:tender.pay_splits,
+      };
+      const inv=await api('POST','/store/quick-sale', body);
+      showToast('فروش ثبت شد: '+(inv.num||''));
+      _storeQs.lines=[];
+      _storeQs.discPct=0;
+      _storeQs.custId=walkinId;
+      storeQsRenderBody();
+      if(inv&&inv.id&&typeof printInvoice==='function'){
+        setTimeout(function(){ printInvoice(inv.id); }, 200);
+      }
     }
   }catch(e){
-    showToast((e && (e.error||e.message)) || 'خطا در ثبت فروش','error');
+    showToast((e&&(e.error||e.message))||'خطا در ثبت','error');
   }finally{
-    _storeQs.busy = false;
+    _storeQs.busy=false;
     storeQsRenderBody();
   }
 }
@@ -7124,7 +7403,7 @@ ROUTES['store-quick-sale'] = async function(){
     return;
   }
   el('view').innerHTML = `<div class="page-head"><h2>🏪 فروش سریع فروشگاهی</h2>
-    <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.7`)}">فروش مستقیم تک‌فروشی — فاکتور قطعی با کسر موجودی و تسویه نقد/کارت</p></div>
+    <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.7`)}">فروش و تعویض تک‌فروشی — فاکتور قطعی با کسر/برگشت موجودی و سند حسابداری</p></div>
     <div id="storeQsBody"><div class="empty">در حال بارگذاری…</div></div>`;
   try{
     const [boot, boxes, pos] = await Promise.all([
@@ -7135,12 +7414,18 @@ ROUTES['store-quick-sale'] = async function(){
     if(!CACHE.customers || !CACHE.customers.length){
       try{ await reloadCustomers(); }catch(_){}
     }
+    if(!CACHE.warehouses||!CACHE.warehouses.length){
+      try{ await ensureWarehouses(); }catch(_){}
+    }
     CACHE.cashBoxes = boxes || [];
     CACHE.posTerminalChoices = (pos && (pos.terminals || pos)) || [];
     if(!Array.isArray(CACHE.posTerminalChoices)) CACHE.posTerminalChoices = [];
     _storeQs.boot = boot || {};
     _storeQs.custId = Number(boot && boot.walkin_customer_id) || 0;
-    if(!_storeQs.cashBoxId && CACHE.cashBoxes.length){
+    _storeQs.warehouseId = Number(boot && boot.warehouse_id) || Number(ME.sales_warehouse_id)||null;
+    if(boot && boot.cash_box_id){
+      _storeQs.cashBoxId = Number(boot.cash_box_id);
+    } else if(!_storeQs.cashBoxId && CACHE.cashBoxes.length){
       const def = CACHE.cashBoxes.find(c=>c.active!==0) || CACHE.cashBoxes[0];
       _storeQs.cashBoxId = def ? def.id : null;
     }
@@ -8654,6 +8939,9 @@ async function saveStaffSecurityPolicy(){
 async function userModal(id){
   await ensurePartyGroups(true);
   await loadLiveWarehousesForAccess();
+  if(!CACHE.cashBoxes||!CACHE.cashBoxes.length){
+    try{ CACHE.cashBoxes = await api('GET','/cash-boxes')||[]; }catch(_){ CACHE.cashBoxes=CACHE.cashBoxes||[]; }
+  }
   const u = id ? CACHE.users.find(x=>x.id===id) : {role:'field_sales',active:1};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کاربر':'کاربر جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -8708,9 +8996,12 @@ async function userModal(id){
       <div class="fg full"><label>آدرس</label><textarea id="u-person-address">${esc(u.person_address||'')}</textarea></div>
       <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
       <div class="fg full" data-csp-style="${CSP.style(`grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px`)}">
-        <b>انبار مبدأ فاکتور فروش</b>
-        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:4px 0 8px`)}">لیست زنده از «انبارها» — فاکتورهای این کاربر از انبار انتخاب‌شده کسر می‌شود.</div>
-        <select id="u-sales-warehouse">${warehouseOptionsHtml(u.sales_warehouse_id,'— بدون انبار —')}</select>
+        <b>انبار و صندوق فروش (فروش سریع فروشگاهی)</b>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:4px 0 8px`)}">پیش‌فرض انبار و صندوق در فروش سریع. برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد.</div>
+        <div class="grid2">
+          <div class="fg"><label>انبار فروش</label><select id="u-sales-warehouse">${warehouseOptionsHtml(u.sales_warehouse_id,'— بدون انبار —')}</select></div>
+          <div class="fg"><label>صندوق فروش</label><select id="u-sales-cashbox"><option value="">— بدون صندوق —</option>${(CACHE.cashBoxes||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}" ${Number(u.sales_cash_box_id)===Number(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+        </div>
       </div>
       <div class="fg full" data-csp-style="${CSP.style(`grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px`)}">
         <b>دسترسی گروه کالا در کاتالوگ</b>
@@ -9217,7 +9508,7 @@ async function saveUser(id){
   const origCheque=parseFloat(el('u-comm-cheque')?.dataset.orig||0);
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
-    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()};
+    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,sales_cash_box_id:+el('u-sales-cashbox')?.value||null,person:userPersonFieldsFromForm()};
     openModal(`
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body">
@@ -9231,7 +9522,7 @@ async function saveUser(id){
       </div>`);
     return;
   }
-  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()});
+  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,show_phone_on_invoice:(el('u-show-phone-inv')?.value==='0'?0:1),...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,sales_cash_box_id:+el('u-sales-cashbox')?.value||null,person:userPersonFieldsFromForm()});
 }
 async function confirmIncentiveChange(yes){
   closeModal();
@@ -9239,9 +9530,9 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,show_phone_on_invoice,person}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,sales_cash_box_id,show_phone_on_invoice,person}){
   try{
-    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,show_phone_on_invoice:show_phone_on_invoice==null?1:(show_phone_on_invoice?1:0)};
+    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,sales_cash_box_id,show_phone_on_invoice:show_phone_on_invoice==null?1:(show_phone_on_invoice?1:0)};
     if(id){
       await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
       const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
@@ -28615,13 +28906,15 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش).</p>
+      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). نسخهٔ v387: رنگ×سایز، فی/تخفیف سطر، صندوق پیش‌فرض، و حالت تعویض.</p>
       <ul>
-        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — برای نسیه یا چک باید مشتری واقعی انتخاب شود</li>
-        <li>قیمت پیش‌فرض از <b>قیمت خرده‌فروشی</b> کالا؛ ثبت = فاکتور معمولی قطعی با کسر موجودی و سند حسابداری</li>
-        <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال فروش <code>store_quick</code></li>
-        <li>برای نقش فروشگاهی انبار از <b>انبار فروش کاربر</b> قفل است — در تعریف کاربر تنظیم کنید</li>
-        <li>ابطال همان مسیر ابطال فاکتور (R13) است؛ حذف فیزیکی نیست</li>
+        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه یا چک مشتری واقعی انتخاب کنید</li>
+        <li>کالای ماتریسی قبل از افزودن به سبد، <b>رنگ و سایز</b> می‌پرسد (مثل فاکتورساز)</li>
+        <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
+        <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال <code>store_quick</code>؛ ثبت = فاکتور معمولی + موجودی + سند حسابداری</li>
+        <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد</li>
+        <li>حالت <b>تعویض</b>: فاکتور مرجع مشتری → اقلام برگشتی + سبد جایگزین؛ مانده خالص (قابل پرداخت یا استرداد) لحظه‌ای؛ یک تراکنش برگشت+فروش</li>
+        <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -29177,10 +29470,11 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی.</p>
+      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. v387: رنگ×سایز، ویرایش فی/تخفیف سطر، و حالت تعویض.</p>
       <ul>
-        <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ برای نسیه مشتری واقعی بگذارید</li>
-        <li>انبار فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
+        <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ جستجوی مشتری کار می‌کند؛ برای نسیه مشتری واقعی بگذارید</li>
+        <li>انبار و صندوق فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
+        <li>برای تعویض: حالت «تعویض» → فاکتور قبلی مشتری → اقلام برگشتی + کالای جایگزین → ثبت یکجا</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>

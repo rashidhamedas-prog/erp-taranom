@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — فروش سریع فروشگاهی v2: واریانت، فی/تخفیف، مشتری، انبار/صندوق، تعویض (SW v387)
+
+- **هدف:** صندوق فروشگاهی هم‌تراز قوانین فاکتور/برگشت/انبار/صندوق برنامه — بدون دفتر موازی.
+- **باگ‌ها:** جستجوی مشتری بدون `initCustSearches`؛ افزودن کالا بدون انتخاب رنگ×سایز؛ فی فقط متن؛ انبار «—» برای مدیر؛ بدون پیش‌فرض/قفل صندوق.
+- **بک‌اند:** ستون `users.sales_cash_box_id`؛ bootstrap با قفل انبار+صندوق برای `store_retail`؛ `POST /api/store/quick-exchange` (برگشت `createSalesReturn` + فاکتور جایگزین + تسویه خالص/استرداد)؛ walk-in با `exchangeCreditRial`؛ capture map.
+- **UI:** ماتریس رنگ×سایز (`dest=store_quick`)، فی و تخفیف٪ سطر، select انبار برای مدیر، صندوق پیش‌فرض، حالت تعویض با فاکتور مرجع؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/store-quick-sale.js`, `routes/{store,invoices,admin,auth}.js`, `lib/staff-public.js`, `db.js`, `sync/capture.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-store-quick-sale-v387.js`, CHANGE-LOG.
+- **تست:** `test-store-quick-sale-v387` ۳۰/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — معین اول هر کل در جستجوی پرداخت هزینه (SW v386)
 
 - **علائم:** در «ثبت پرداخت هزینه» جستجوی `610301` (سوشال مدیا) می‌گوید «حسابی با این عبارت نیست»، در حالی که همان کد در ستون معین کدینگ هست. `610302` تا `610307` می‌آیند.

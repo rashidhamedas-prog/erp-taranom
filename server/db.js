@@ -1970,6 +1970,7 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'users', 'party_id', 'INTEGER');
   ensureColumn(db, 'users', 'person_id', 'INTEGER');
   ensureColumn(db, 'users', 'sales_warehouse_id', 'INTEGER');
+  ensureColumn(db, 'users', 'sales_cash_box_id', 'INTEGER');
   if (tableExists(db, 'user_invitations')) {
     ensureColumn(db, 'user_invitations', 'person_id', 'INTEGER');
     ensureColumn(db, 'user_invitations', 'token_hash', 'TEXT');
