@@ -137,6 +137,13 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
       if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
       // voidReceiptInTx already marks settlement reversed; ensure flag if orphan link.
       markSettlementReversed(db, settlement.id, userId, null);
+      try {
+        const { softVoidArControlReclassForSettlement } = require('./customer-books');
+        softVoidArControlReclassForSettlement(db, settlement.id, `ابطال تسویه کارتخوان #${settlement.id}`);
+      } catch (e) {
+        if (e && e.status) throw e;
+        console.error('softVoidArControlReclassForSettlement(pos):', e && e.message);
+      }
       return null;
     }
   } catch (e) {
@@ -165,6 +172,18 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
         audit(userId, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
       }
     } catch (_) { /* optional */ }
+  }
+
+  // v390: soft-void companion ar_control_reclass (control→leaf) even if settlement JE
+  // was already soft-voided — otherwise leaf keeps orphan credits and dashboard AR drifts.
+  try {
+    const { softVoidArControlReclassForSettlement } = require('./customer-books');
+    softVoidArControlReclassForSettlement(
+      db, settlement.id, `ابطال تسویه #${settlement.id}`
+    );
+  } catch (e) {
+    console.error('softVoidArControlReclassForSettlement:', e && e.message);
+    throw e;
   }
 
   markSettlementReversed(db, settlement.id, userId, reversalId);

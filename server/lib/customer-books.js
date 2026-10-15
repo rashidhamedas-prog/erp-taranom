@@ -1672,6 +1672,115 @@ function repairReversedSettlementBooks(db) {
   return { reversed };
 }
 
+/**
+ * Soft-void alive ar_control_reclass vouchers whose source line sits on the
+ * given parent JE (ref_id of reclass = journal_lines.id of that parent).
+ * Used when the parent settlement/invoice JE is voided but the control→leaf
+ * move was left behind (Sadoughi T-0002 / dashboard Δ151.8M).
+ */
+function softVoidArControlReclassForParentJe(db, parentJeId, reason) {
+  if (!parentJeId) return 0;
+  const { reverseJournalEntry } = require('./void-journal');
+  const alive = db.prepare(`
+    SELECT re.id AS reclass_id
+    FROM journal_entries re
+    JOIN journal_lines src ON src.id = re.ref_id
+    WHERE re.ref_type = ?
+      AND COALESCE(re.deleted_at,0)=0
+      AND COALESCE(re.status,'posted') NOT IN ('reversed','void')
+      AND src.entry_id = ?
+  `).all(AR_CONTROL_RECLASS, parentJeId);
+  let n = 0;
+  for (const r of alive) {
+    reverseJournalEntry(db, r.reclass_id, {
+      reason: reason || 'یتیم کنترل→تفصیلی پس از ابطال مبدأ',
+      sourceType: AR_CONTROL_RECLASS,
+    });
+    n += 1;
+  }
+  return n;
+}
+
+/** Cascade: every settlement JE (alive or already void) for this settlement id. */
+function softVoidArControlReclassForSettlement(db, settlementId, reason) {
+  if (!settlementId) return 0;
+  const parents = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='settlement' AND ref_id=?
+  `).all(settlementId);
+  let n = 0;
+  for (const p of parents) {
+    n += softVoidArControlReclassForParentJe(
+      db, p.id, reason || `ابطال تسویه #${settlementId} — معکوس انتقال کنترل→تفصیلی`
+    );
+  }
+  return n;
+}
+
+/**
+ * Continuous heal (v390): soft-void ar_control_reclass whose economic parent is dead.
+ * Settlement void used to soft-void only the settlement JE; control→leaf moves stayed
+ * as orphan leaf credits → books AR > leaf GL (exact Δ for صدوقی = 151.8M).
+ * Invoice reclass for live invoices is kept.
+ */
+function repairOrphanArControlReclass(db) {
+  const { reverseJournalEntry } = require('./void-journal');
+  let voided = 0;
+  const run = db.transaction(() => {
+    const orphans = db.prepare(`
+      SELECT re.id AS reclass_id, src_je.id AS parent_je_id,
+             src_je.ref_type AS parent_ref_type, src_je.ref_id AS parent_ref_id,
+             src_je.status AS parent_status, src_je.deleted_at AS parent_deleted
+      FROM journal_entries re
+      JOIN journal_lines src ON src.id = re.ref_id
+      JOIN journal_entries src_je ON src_je.id = src.entry_id
+      WHERE re.ref_type = ?
+        AND COALESCE(re.deleted_at,0)=0
+        AND COALESCE(re.status,'posted') NOT IN ('reversed','void')
+        AND (
+          COALESCE(src_je.deleted_at,0)>0
+          OR COALESCE(src_je.status,'posted') IN ('reversed','void')
+          OR (
+            src_je.ref_type='settlement'
+            AND EXISTS (
+              SELECT 1 FROM settlements s
+              WHERE s.id=src_je.ref_id AND COALESCE(s.status,'posted')='reversed'
+            )
+          )
+          OR (
+            src_je.ref_type IN ('invoice','sales')
+            AND EXISTS (
+              SELECT 1 FROM invoices i
+              WHERE i.id=src_je.ref_id
+                AND (
+                  COALESCE(i.status,'') IN ('reversed','void','cancelled')
+                  OR COALESCE(i.deleted_at,0)>0
+                )
+            )
+          )
+          OR (
+            src_je.ref_type IN ('pos_receipt','pos')
+            AND EXISTS (
+              SELECT 1 FROM pos_receipts pr
+              WHERE pr.id=src_je.ref_id
+                AND COALESCE(pr.status,'open') IN ('reversed','void')
+            )
+          )
+        )
+    `).all(AR_CONTROL_RECLASS);
+    for (const row of orphans) {
+      reverseJournalEntry(db, row.reclass_id, {
+        reason: 'heal یتیم کنترل→تفصیلی (مبدأ ابطال‌شده)',
+        sourceType: AR_CONTROL_RECLASS,
+      });
+      voided += 1;
+    }
+  });
+  run();
+  if (voided) console.log(`✅ orphan ar_control_reclass soft-voided (${voided})`);
+  return { voided, continuous: true };
+}
+
 function ensureCustomerBooksRepaired(db) {
   let v1 = {};
   try {
@@ -1714,6 +1823,13 @@ function ensureCustomerBooksRepaired(db) {
     console.error('opening cheque ledger repair:', e.message);
     openingCheque = { error: e.message };
   }
+  let orphanReclass = {};
+  try {
+    orphanReclass = repairOrphanArControlReclass(db);
+  } catch (e) {
+    console.error('orphan ar_control_reclass heal:', e.message);
+    orphanReclass = { error: e.message };
+  }
   let settBooks = {};
   try {
     settBooks = repairSettlementsMissingBooks(db);
@@ -1744,7 +1860,7 @@ function ensureCustomerBooksRepaired(db) {
   }
   return {
     ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true },
-    openingCheque, settBooks, settRevBooks, settLeafJe, chequeMirror,
+    openingCheque, orphanReclass, settBooks, settRevBooks, settLeafJe, chequeMirror,
   };
 }
 
@@ -1778,6 +1894,9 @@ module.exports = {
   syncCustomerOpeningBooks,
   repairLedgerSignedToGl,
   repairOpeningChequeLedgerMirrors,
+  softVoidArControlReclassForParentJe,
+  softVoidArControlReclassForSettlement,
+  repairOrphanArControlReclass,
   repairSettlementsMissingBooks,
   repairReversedSettlementBooks,
   repairSettlementsMissingLeafJe,

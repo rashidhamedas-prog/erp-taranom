@@ -2658,6 +2658,17 @@ function initSyncSchema(db, opts) {
     console.warn('opening_cheque_ledger_mirror_v2:', e.message);
   }
 
+  // v390 — continuous: orphan ar_control_reclass after settlement/invoice void
+  try {
+    const { repairOrphanArControlReclass } = require('./lib/customer-books');
+    const orc = repairOrphanArControlReclass(db);
+    if (orc && orc.voided) {
+      console.log('✅ orphan_ar_control_reclass_v390:', JSON.stringify(orc));
+    }
+  } catch (e) {
+    console.warn('orphan_ar_control_reclass_v390:', e.message);
+  }
+
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {
