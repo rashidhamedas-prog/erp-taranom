@@ -4,7 +4,8 @@
 - **ریشه:** در v391 عمداً مداد برای voucherها مخفی شد چون `openCashDocEdit`/`PUT` برای شخص/حساب وجود نداشت؛ `voucherKinds` هم مداد را پنهان می‌کرد.
 - **رفع ریشه‌ای:** `amendPersonVoucherPayment` + `amendAccountPayment` با `rewriteJournalEntry` (همان id و شمارهٔ JV)؛ `PUT /accounting/vouchers/:id`؛ غنی‌سازی لیست cash-ops (`party_id`/`bank_id`/`fee_rial`/amendable)؛ UI مداد برای همهٔ پرداخت‌های خروجی + فرم اصلاح؛ Help. دریافت شخص/حساب هنوز ابطال+ثبت مجدد.
 - **فایل‌ها:** `lib/{amend-cash-ops,cash-ops-list}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cash-ops-person-amend-v394.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cash-ops-person-amend-v394` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `fcbcc9f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v394`؛ `app.js?v=394`.
 
 ### ۱۴۰۵/۰۷/۲۳ — لیست فاکتورها همیشه بر اساس تاریخ صدور (SW v393)
 
