@@ -1,11 +1,24 @@
+### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v414)
+
+- **هدف:** تکمیل Non-goals موج ۳ — وام با اقساط، UI بازخرید مرخصی، خروجی بیمه ساختاریافته‌تر (بدون دیسکت رسمی / بیومتریک / طبقه‌بندی مشاغل).
+- **وام:** `lib/payroll/loans.js` — جدول `payroll_loans` + `payroll_loan_installments`؛ JE صدور مثل مساعده Dr ۱۱۱۹؛ کسر قسط سررسید در `/process` و `/calculate` با `auto_recover_loan`؛ R13 ابطال فیش اقساط را برمی‌گرداند.
+- **مرخصی:** فرم بازخرید در صفحه ذخیره ماهانه → `POST /payroll/accruals/leave/cash-out`.
+- **خروجی:** لیست بیمه DRAFT با روز کارکرد، معافیت بیمه، تفکیک ۷٪/۲۰٪/۳٪.
+- **UI:** مساعده و وام در یک صفحه؛ فیلد قسط وام در پردازش؛ Help.
+- **سینک:** append loans/installments + PATH + `sync_seq_backfill_v24`.
+- **فایل‌ها:** `lib/payroll/{loans,export-legal,schema,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave4-v412.js`, CHANGE-LOG.
+- **Non-goals (بعدی):** دیسکت رسمی SSO، طبقه‌بندی مشاغل، حضور بیومتریک، بهره وام.
+- **تست:** `test-payroll-wave4-v412` ۹/۰ + wave3 ۱۷/۰ + sms ۲۲/۰؛ parse app.js OK. `test-sync` محلی better-sqlite3 ABI skip.
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: تخصیص اعتبار روی فاکتور جایگزین (SW v413)
 
 - **پیگیری audit:** گزارش‌های explore روی v412 — اعتبار تعویض فقط در assert walk-in بود و `balance_due` فاکتور جایگزین باز می‌ماند؛ سقف اعتبار مشتری مابه‌التفاوت را کم نمی‌کرد.
 - **رفع:** `applyStoreExchangeCreditAllocation` → `return_credit_allocations` روی فاکتور جدید (بدون JE اضافه)؛ تسویه/مانده بعد از `final` واقعی؛ `invoiceArDeltaRial` منهای `exchange_credit_rial`؛ انبار برگشت ترجیحاً از فاکتور مرجع.
 - **فایل‌ها:** `lib/store-quick-sale.js`, `routes/{store,invoices}.js`, `public/{sw.js,index.html}`, `scripts/test-store-quick-exchange-v411.js`, CHANGE-LOG.
 - **مراجع:** follow-up از [Audit sales-return exchange](012080cc-24a3-4485-8cf1-6a5c9be14b31) + [Audit store exchange UI](d4760a0b-b3bc-4c7b-a83e-a584a91e34aa).
-- **تست:** `test-store-quick-exchange-v411` + `test-sms`.
-- **Deploy:** ⏳ در حال انجام.
+- **تست:** ایران `test-store-quick-exchange-v411` ۳۰/۰ + `test-sms` ۲۲/۰؛ ready=200 + sharp.
+- **Deploy:** ✅ `dcc5022` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v413`؛ `app.js?v=413`.
 
 ### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: همهٔ سناریوهای مابه‌التفاوت (SW v412)
 
@@ -16,19 +29,6 @@
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ChannelDock/Shopify/Qvian exchange net settlement؛ tap-erp-architecture.
 - **Non-goals:** فقط-برگشت بدون فروش جایگزین (مسیر «برگشت از فروش»)؛ void یک‌کلیکی کل بستهٔ تعویض (همان R13 جدا روی فاکتور/برگشت).
 - **تست:** `test-store-quick-exchange-v411` + parse `app.js` + `test-sms` / `test-sync` (در صورت در دسترس بودن).
-- **Deploy:** ⏳ در حال انجام.
-
-### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v413)
-
-- **هدف:** تکمیل Non-goals موج ۳ — وام با اقساط، UI بازخرید مرخصی، خروجی بیمه ساختاریافته‌تر (بدون دیسکت رسمی / بیومتریک / طبقه‌بندی مشاغل).
-- **وام:** `lib/payroll/loans.js` — جدول `payroll_loans` + `payroll_loan_installments`؛ JE صدور مثل مساعده Dr ۱۱۱۹؛ کسر قسط سررسید در `/process` و `/calculate` با `auto_recover_loan`؛ R13 ابطال فیش اقساط را برمی‌گرداند.
-- **مرخصی:** فرم بازخرید در صفحه ذخیره ماهانه → `POST /payroll/accruals/leave/cash-out`.
-- **خروجی:** لیست بیمه DRAFT با روز کارکرد، معافیت بیمه، تفکیک ۷٪/۲۰٪/۳٪.
-- **UI:** مساعده و وام در یک صفحه؛ فیلد قسط وام در پردازش؛ Help.
-- **سینک:** append loans/installments + PATH + `sync_seq_backfill_v24`.
-- **فایل‌ها:** `lib/payroll/{loans,export-legal,schema,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave4-v412.js`, CHANGE-LOG.
-- **Non-goals (بعدی):** دیسکت رسمی SSO، طبقه‌بندی مشاغل، حضور بیومتریک، بهره وام.
-- **تست:** `test-payroll-wave4-v412` + wave3 + sms؛ parse app.js.
 - **Deploy:** ⏳ در حال انجام.
 
 ### ۱۴۰۵/۰۷/۲۳ — اتصال لایه‌چینی به مرحلهٔ برش مسیر BOM (SW v411)

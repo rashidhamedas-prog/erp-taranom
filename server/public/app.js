@@ -18980,14 +18980,17 @@ async function previewPayrollCalculation(){
     ];
     const rowsShown=rows.filter(([k,v])=>v!=null && (Number(v)!==0 || /ناخالص|خالص|مبنای بیمه|معاف از بیمه|جمع بیمه کارفرما/.test(k)));
     const advRec=r.advance_recovery_rial||0;
-    const otherRest=Math.max(0,(c.other_deductions_rial||0)-advRec);
+    const loanRec=r.loan_recovery_rial||0;
+    const recover1119=advRec+loanRec;
+    const otherRest=Math.max(0,(c.other_deductions_rial||0)-recover1119);
     const ssoCr=(c.sso_employee_rial||0)+empBase;
     el('pc-result').innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.9`)}"><b>پیش‌نمایش فیش</b>
       ${r.advance_balance_rial!=null?`<div class="muted">مانده مساعده: ${fmt(r.advance_balance_rial)} ریال${advRec?` — بازپرداخت در این فیش: ${fmt(advRec)}`:''}</div>`:''}
+      ${r.loan_due_rial!=null?`<div class="muted">قسط وام سررسید: ${fmt(r.loan_due_rial)} / مانده وام: ${fmt(r.loan_balance_rial||0)}${loanRec?` — کسر این فیش: ${fmt(loanRec)}`:''}</div>`:''}
       <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><tbody>
       ${rowsShown.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:${/ناخالص|خالص|هزینه/.test(k)?'700':'400'}`)}">${fmt(v)} ریال</td></tr>`).join('')}
       </tbody></table></div>
-      <div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">سند: Dr ۶۱۰۴ ${fmt(c.gross_earnings_rial)} + Dr ۶۱۰۶ ${fmt(c.sso_employer_rial)} / Cr شخص ${fmt(c.net_pay_rial)} + Cr ۲۱۰۵ ${fmt(ssoCr)} + Cr ۲۱۱۳ ${fmt(unemp)} + Cr ۲۱۰۶ ${fmt(c.income_tax_rial)}${advRec?` + Cr ۱۱۱۹ ${fmt(advRec)}`:''}${otherRest?` + Cr ۲۱۰۸ ${fmt(otherRest)}`:''}</div>
+      <div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">سند: Dr ۶۱۰۴ ${fmt(c.gross_earnings_rial)} + Dr ۶۱۰۶ ${fmt(c.sso_employer_rial)} / Cr شخص ${fmt(c.net_pay_rial)} + Cr ۲۱۰۵ ${fmt(ssoCr)} + Cr ۲۱۱۳ ${fmt(unemp)} + Cr ۲۱۰۶ ${fmt(c.income_tax_rial)}${recover1119?` + Cr ۱۱۱۹ ${fmt(recover1119)}`:''}${otherRest?` + Cr ۲۱۰۸ ${fmt(otherRest)}`:''}</div>
     </div>`+payrollWarnHtml(r.warnings);
   }catch(e){ payrollShowCalcError(e); }
 }

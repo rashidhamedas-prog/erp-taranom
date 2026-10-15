@@ -202,6 +202,9 @@ function voidPayrollAccrual(db, {
   try {
     require('./advances').reverseAdvanceRecoveries(db, row.id);
   } catch (_) { /* advances optional on older DBs */ }
+  try {
+    require('./loans').reverseLoanRecoveries(db, row.id);
+  } catch (_) { /* loans optional on older DBs */ }
   markRecordReversed(db, row, userId);
   reopenPeriodIfEmpty(db, row.period_id);
   return db.prepare('SELECT * FROM payroll_records WHERE id=?').get(row.id);

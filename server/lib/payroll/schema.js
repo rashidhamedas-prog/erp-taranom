@@ -412,6 +412,11 @@ function initPayrollSchema(db) {
   } catch (e) {
     console.warn('ensureLeaveAccrualSchema:', e.message);
   }
+  try {
+    require('./loans').ensureLoansSchema(db);
+  } catch (e) {
+    console.warn('ensureLoansSchema:', e.message);
+  }
 }
 
 /**

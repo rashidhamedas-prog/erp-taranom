@@ -48,6 +48,16 @@ const {
   allocateAdvanceRecovery,
   applyAdvanceRecoveries,
 } = require('../lib/payroll/advances');
+const {
+  listLoans,
+  listLoanInstallments,
+  issueLoan,
+  voidLoan,
+  personLoanBalance,
+  dueInstallmentRial,
+  allocateLoanRecovery,
+  applyLoanRecoveries,
+} = require('../lib/payroll/loans');
 const { postYearEndWithReserveRelease, sumUnreleased } = require('../lib/payroll/year-end-post');
 const {
   postMonthlyLeaveAccrual,
@@ -890,8 +900,13 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
     let advRequest = Math.round(Number(req.body.advance_recovery_rial) || 0);
     if (!advRequest && Number(req.body.auto_recover_advance) === 1) advRequest = advBalance;
     advRequest = Math.min(Math.max(0, advRequest), advBalance);
+    const loanDue = dueInstallmentRial(db, personId, context.period.label);
+    const loanBalance = personLoanBalance(db, personId);
+    let loanRequest = Math.round(Number(req.body.loan_recovery_rial) || 0);
+    if (!loanRequest && Number(req.body.auto_recover_loan) === 1) loanRequest = loanDue;
+    loanRequest = Math.min(Math.max(0, loanRequest), loanDue, loanBalance);
     const otherOnly = Math.round(Number(req.body.other_deductions_rial) || 0);
-    const inputForCalc = { ...req.body, other_deductions_rial: otherOnly + advRequest };
+    const inputForCalc = { ...req.body, other_deductions_rial: otherOnly + advRequest + loanRequest };
     if (manual) {
       const built = buildManualExemptCalc(inputForCalc);
       return res.json({
@@ -901,6 +916,9 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
         exempt: built.meta,
         advance_balance_rial: advBalance,
         advance_recovery_rial: advRequest,
+        loan_due_rial: loanDue,
+        loan_balance_rial: loanBalance,
+        loan_recovery_rial: loanRequest,
         warnings: [],
       });
     }
@@ -911,6 +929,9 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
       calculation,
       advance_balance_rial: advBalance,
       advance_recovery_rial: advRequest,
+      loan_due_rial: loanDue,
+      loan_balance_rial: loanBalance,
+      loan_recovery_rial: loanRequest,
       labor_settings: context.laborSettings || null,
       structure: context.structure ? {
         wage_basis: context.structure.wage_basis,
@@ -957,10 +978,17 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         advRequest = advBalance;
       }
       advRequest = Math.min(Math.max(0, advRequest), advBalance);
+      const loanDue = dueInstallmentRial(db, personId, context.period.label);
+      const loanBalance = personLoanBalance(db, personId);
+      let loanRequest = Math.round(Number(input.loan_recovery_rial) || 0);
+      if (!loanRequest && Number(input.auto_recover_loan) === 1) {
+        loanRequest = loanDue;
+      }
+      loanRequest = Math.min(Math.max(0, loanRequest), loanDue, loanBalance);
       const otherOnly = Math.round(Number(input.other_deductions_rial) || 0);
       const inputForCalc = {
         ...input,
-        other_deductions_rial: otherOnly + advRequest,
+        other_deductions_rial: otherOnly + advRequest + loanRequest,
       };
       let calc;
       let exemptMeta = null;
@@ -1063,7 +1091,11 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       const advAlloc = (!exemptMeta && advRequest > 0)
         ? allocateAdvanceRecovery(db, personId, advRequest)
         : { allocated_rial: 0, legs: [] };
-      const otherDedRest = Math.max(0, (calc.other_deductions_rial || 0) - advAlloc.allocated_rial);
+      const loanAlloc = (!exemptMeta && loanRequest > 0)
+        ? allocateLoanRecovery(db, personId, context.period.label, loanRequest)
+        : { allocated_rial: 0, legs: [] };
+      const recover1119 = (advAlloc.allocated_rial || 0) + (loanAlloc.allocated_rial || 0);
+      const otherDedRest = Math.max(0, (calc.other_deductions_rial || 0) - recover1119);
       const lines = [
         { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: ccId },
       ];
@@ -1086,8 +1118,8 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         }
         lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 });
       }
-      if (advAlloc.allocated_rial > 0) {
-        lines.push({ ...coaAcct(db, 'coa_employee_advance'), debit: 0, credit: advAlloc.allocated_rial / 10 });
+      if (recover1119 > 0) {
+        lines.push({ ...coaAcct(db, 'coa_employee_advance'), debit: 0, credit: recover1119 / 10 });
       }
       if (otherDedRest > 0) {
         lines.push({ ...coaAcct(db, 'coa_payroll_other_deductions'), debit: 0, credit: otherDedRest / 10 });
@@ -1097,7 +1129,8 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         description: exemptMeta
           ? `پرداخت بدون بیمه و مالیات (${exemptMeta.reason_label}) ${person.name} (${context.period.label})`
           : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`
-            + (advAlloc.allocated_rial ? ` + تسویه مساعده ${advAlloc.allocated_rial.toLocaleString('fa-IR')}` : ''),
+            + (advAlloc.allocated_rial ? ` + تسویه مساعده ${advAlloc.allocated_rial.toLocaleString('fa-IR')}` : '')
+            + (loanAlloc.allocated_rial ? ` + قسط وام ${loanAlloc.allocated_rial.toLocaleString('fa-IR')}` : ''),
         createdBy: req.user.id,
         costCenterId: ccId,
         lines, status: 'approved',
@@ -1105,6 +1138,9 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);
       if (advAlloc.legs && advAlloc.legs.length) {
         applyAdvanceRecoveries(db, recordId, personId, advAlloc.legs);
+      }
+      if (loanAlloc.legs && loanAlloc.legs.length) {
+        applyLoanRecoveries(db, recordId, loanAlloc.legs);
       }
       createPersonLedgerEntry(db, {
         person_id: personId, date: input.date || context.period.end_date, entry_type: 'payroll',
@@ -1676,6 +1712,76 @@ router.post('/advances/:id/void', auth, requirePermission('payroll', 'create'), 
     const db = getDB();
     const result = db.transaction(() => voidAdvance(db, Number(req.params.id), req.user.id, createPersonLedgerEntry))();
     audit(req.user.id, 'void', 'payroll_advance', result.id, 'ابطال مساعده');
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/loans', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(listLoans(getDB(), {
+      person_id: req.query.person_id,
+      limit: req.query.limit,
+    }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/loans/due/:personId', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const personId = Number(req.params.personId);
+    const periodLabel = String(req.query.period_label || '').trim();
+    res.json({
+      ok: true,
+      person_id: personId,
+      due_rial: dueInstallmentRial(db, personId, periodLabel),
+      balance_rial: personLoanBalance(db, personId),
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/loans/:id/installments', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(listLoanInstallments(getDB(), Number(req.params.id)));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/loans', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = issueLoan(db, {
+      person_id: req.body.person_id,
+      principal_rial: req.body.principal_rial,
+      installment_count: req.body.installment_count,
+      start_period_label: req.body.start_period_label,
+      pay_type: req.body.pay_type,
+      bank_id: req.body.bank_id,
+      cash_box_id: req.body.cash_box_id,
+      date: req.body.date,
+      note: req.body.note,
+      userId: req.user.id,
+      resolveCashAccount,
+      createPersonLedgerEntry,
+    });
+    audit(req.user.id, 'create', 'payroll_loan', result.id, `وام ${result.principal_rial}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/loans/:id/void', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => voidLoan(db, Number(req.params.id), req.user.id))();
+    audit(req.user.id, 'void', 'payroll_loan', result.id, 'ابطال وام');
     res.json(result);
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
