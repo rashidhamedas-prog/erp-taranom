@@ -2,7 +2,7 @@
 - **مشکل:** `ensureBomLiveUniqueIndexes` قبل از DROP ایندکس کامل `ux_bom_prod_ver` ردیف‌های مرده را bump می‌کرد → `UNIQUE constraint` در boot → production schema fail → PM2 crash loop.
 - **رفع:** اول DROP ایندکس‌های قدیمی، بعد tombstone امن (با `deleted_at`)، بعد CREATE ایندکس جزئی؛ خطای bump فقط warn.
 - **فایل‌ها:** `server/lib/production/schema.js`, CHANGE-LOG.
-- **Deploy:** ⏳ overlay ایران + `pm2 restart`.
+- **Deploy:** ✅ `da7185b` — overlay `schema.js` ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ تست v416 ۱۲/۱۲ + sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی + رفع UNIQUE + سربار لینک‌شده به مراکز (SW v416)
 - **مشکل:** ذخیره سرفصل / فعال‌سازی با `UNIQUE constraint failed: bom_headers.product_id, version, revision` (ایندکس یکتا روی ردیف‌های soft-delete هم اعمال می‌شد — مثل heal v407)؛ در قیمت‌گذاری با روش تسهیم فقط یک محصول عملی بود؛ سربار roll-up وقتی فقط بودجه مرکز پر بود و `total_rate_rial=0` صفر می‌ماند.
