@@ -628,9 +628,15 @@ function softDeleteBom(db, bomId, userId) {
     assertDraft(b);
     const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
-    db.prepare("UPDATE bom_headers SET deleted_at=?, status='obsolete' WHERE id=?").run(nowUnix(), bomId);
     try {
-      tombstoneBomUniqueKeys(db, bomId, b.code);
+      const tombVer = -(1_000_000 + Number(bomId));
+      const base = String(b.code || 'BOM');
+      const tombCode = base.includes('__del') ? `${base}_${bomId}` : `${base}__del${bomId}`;
+      db.prepare(`
+        UPDATE bom_headers
+        SET deleted_at=?, status='obsolete', version=?, revision='DEL', code=?
+        WHERE id=?
+      `).run(nowUnix(), tombVer, tombCode, bomId);
     } catch (e) {
       rethrowBomConstraint(e);
     }

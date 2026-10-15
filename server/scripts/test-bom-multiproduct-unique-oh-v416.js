@@ -54,8 +54,12 @@ const d1 = bom.createBom(db, {
 }, adminId);
 eq('T416-02 create v1', d1.version, 1);
 bom.softDeleteBom(db, d1.id, adminId);
-const gone = db.prepare('SELECT deleted_at, version, code FROM bom_headers WHERE id=?').get(d1.id);
-ok('T416-03 tombstone', gone.deleted_at && Number(gone.version) < 0 && String(gone.code).includes('__del'));
+const gone = db.prepare('SELECT deleted_at, version, revision, code, status FROM bom_headers WHERE id=?').get(d1.id);
+ok('T416-03 tombstone',
+  !!gone && !!gone.deleted_at && gone.status === 'obsolete'
+    && Number(gone.version) < 0 && String(gone.revision) === 'DEL'
+    && String(gone.code).includes('__del'),
+  gone ? JSON.stringify(gone) : 'missing');
 
 const d2 = bom.createBom(db, {
   product_id: pMain, name: 'BOM-B', revision: 'A',
@@ -96,7 +100,7 @@ ok('T416-08 multi output costs', (roll.outputs || []).filter(o => o.type === 'ma
 
 bom.activateBom(db, d2.id, '1405/07/01', adminId);
 const active = db.prepare("SELECT status FROM bom_headers WHERE id=?").get(d2.id);
-eq('T416-09 activate ok', active.status, 'active');
+ok('T416-09 activate ok', active && active.status === 'active', active && active.status);
 
 const coDefault = db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(pCo);
 ok('T416-10 co default_bom', Number(coDefault?.default_bom_id) === Number(d2.id));
@@ -105,7 +109,7 @@ ok('T416-10 co default_bom', Number(coDefault?.default_bom_id) === Number(d2.id)
 bom.deactivateBom(db, d2.id, adminId);
 const pCo2 = seedProduct('کاپشن بهمن', 0, 'finished', 1, 0);
 const added = adv.addOutput(db, d2.id, { product_id: pCo2, output_type: 'main', qty_per_base: 1, cost_share_percent: 0 });
-eq('T416-11 coerce main→co', added.output_type, 'co');
+ok('T416-11 coerce main→co', added && added.output_type === 'co', added && added.output_type);
 
 cleanup();
 summary();
