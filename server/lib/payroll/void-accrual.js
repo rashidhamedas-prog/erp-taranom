@@ -199,6 +199,9 @@ function voidPayrollAccrual(db, {
   }
 
   softVoidPayrollPersonLedger(db, row);
+  try {
+    require('./advances').reverseAdvanceRecoveries(db, row.id);
+  } catch (_) { /* advances optional on older DBs */ }
   markRecordReversed(db, row, userId);
   reopenPeriodIfEmpty(db, row.period_id);
   return db.prepare('SELECT * FROM payroll_records WHERE id=?').get(row.id);

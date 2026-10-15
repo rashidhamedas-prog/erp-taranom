@@ -34,6 +34,21 @@ const {
 } = require('../lib/payroll/manual-exempt');
 const { voidPayrollAccrual } = require('../lib/payroll/void-accrual');
 const { seedLegalPack, legalPackForYear, insuranceCapMonthly } = require('../lib/payroll/legal-pack');
+const {
+  remittanceBalances,
+  postRemittance,
+  voidRemittance,
+  listRemittances,
+} = require('../lib/payroll/remittance');
+const {
+  listAdvances,
+  issueAdvance,
+  voidAdvance,
+  personAdvanceBalance,
+  allocateAdvanceRecovery,
+  applyAdvanceRecoveries,
+} = require('../lib/payroll/advances');
+const { postYearEndWithReserveRelease, sumUnreleased } = require('../lib/payroll/year-end-post');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -852,27 +867,38 @@ function snapshotPeriodParams(db, period) {
 router.post('/calculate', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
+    const personId = Number(req.body.person_id);
     const manual = !!(req.body.manual_exempt || req.body.manual_mode);
-    const context = payrollContext(db, Number(req.body.period_id), Number(req.body.person_id), {
+    const context = payrollContext(db, Number(req.body.period_id), personId, {
       manual_mode: manual,
       manual_exempt: manual,
       manual_base_wage_rial: req.body.manual_base_wage_rial,
     });
+    const advBalance = personAdvanceBalance(db, personId);
+    let advRequest = Math.round(Number(req.body.advance_recovery_rial) || 0);
+    if (!advRequest && Number(req.body.auto_recover_advance) === 1) advRequest = advBalance;
+    advRequest = Math.min(Math.max(0, advRequest), advBalance);
+    const otherOnly = Math.round(Number(req.body.other_deductions_rial) || 0);
+    const inputForCalc = { ...req.body, other_deductions_rial: otherOnly + advRequest };
     if (manual) {
-      const built = buildManualExemptCalc(req.body);
+      const built = buildManualExemptCalc(inputForCalc);
       return res.json({
         ok: true,
         manual_exempt: true,
         calculation: built.calc,
         exempt: built.meta,
+        advance_balance_rial: advBalance,
+        advance_recovery_rial: advRequest,
         warnings: [],
       });
     }
-    const calculation = calculatePayroll({ ...context, input: req.body });
+    const calculation = calculatePayroll({ ...context, input: inputForCalc });
     const warning = minWageWarning(context.structure, context.period, context.laborSettings);
     res.json({
       ok: true,
       calculation,
+      advance_balance_rial: advBalance,
+      advance_recovery_rial: advRequest,
       labor_settings: context.laborSettings || null,
       structure: context.structure ? {
         wage_basis: context.structure.wage_basis,
@@ -913,14 +939,25 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         cost_center_id: input.cost_center_id,
         section: 'payroll',
       });
+      const advBalance = personAdvanceBalance(db, personId);
+      let advRequest = Math.round(Number(input.advance_recovery_rial) || 0);
+      if (!advRequest && Number(input.auto_recover_advance) === 1) {
+        advRequest = advBalance;
+      }
+      advRequest = Math.min(Math.max(0, advRequest), advBalance);
+      const otherOnly = Math.round(Number(input.other_deductions_rial) || 0);
+      const inputForCalc = {
+        ...input,
+        other_deductions_rial: otherOnly + advRequest,
+      };
       let calc;
       let exemptMeta = null;
       if (manual) {
-        const built = buildManualExemptCalc(input);
+        const built = buildManualExemptCalc(inputForCalc);
         calc = built.calc;
         exemptMeta = built.meta;
       } else {
-        calc = calculatePayroll({ ...context, input });
+        calc = calculatePayroll({ ...context, input: inputForCalc });
         const wageWarning = minWageWarning(context.structure, context.period, context.laborSettings);
         if (wageWarning) warnings.push(`${person.name}: ${wageWarning}`);
       }
@@ -991,6 +1028,10 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         recordId
       );
       const payable = resolvePersonPayableAccount(db, person);
+      const advAlloc = (!exemptMeta && advRequest > 0)
+        ? allocateAdvanceRecovery(db, personId, advRequest)
+        : { allocated_rial: 0, legs: [] };
+      const otherDedRest = Math.max(0, (calc.other_deductions_rial || 0) - advAlloc.allocated_rial);
       const lines = [
         { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: ccId },
       ];
@@ -1002,19 +1043,26 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         lines.push({ ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 });
         lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 });
       }
-      if (calc.other_deductions_rial) {
-        lines.push({ ...coaAcct(db, 'coa_payroll_other_deductions'), debit: 0, credit: calc.other_deductions_rial / 10 });
+      if (advAlloc.allocated_rial > 0) {
+        lines.push({ ...coaAcct(db, 'coa_employee_advance'), debit: 0, credit: advAlloc.allocated_rial / 10 });
+      }
+      if (otherDedRest > 0) {
+        lines.push({ ...coaAcct(db, 'coa_payroll_other_deductions'), debit: 0, credit: otherDedRest / 10 });
       }
       const journalId = postToLedger(db, {
         sourceType: 'payroll', sourceId: recordId, date: input.date || context.period.end_date,
         description: exemptMeta
           ? `پرداخت بدون بیمه و مالیات (${exemptMeta.reason_label}) ${person.name} (${context.period.label})`
-          : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`,
+          : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`
+            + (advAlloc.allocated_rial ? ` + تسویه مساعده ${advAlloc.allocated_rial.toLocaleString('fa-IR')}` : ''),
         createdBy: req.user.id,
         costCenterId: ccId,
         lines, status: 'approved',
       });
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);
+      if (advAlloc.legs && advAlloc.legs.length) {
+        applyAdvanceRecoveries(db, recordId, personId, advAlloc.legs);
+      }
       createPersonLedgerEntry(db, {
         person_id: personId, date: input.date || context.period.end_date, entry_type: 'payroll',
         ref_type: 'payroll', ref_id: recordId, description: `حقوق ${context.period.label}`,
@@ -1144,32 +1192,18 @@ router.post('/year-end/:id/post', auth, requirePermission('payroll', 'create'), 
     `).get(req.params.id);
     if (!row) return res.status(404).json({ error: 'رکورد یافت نشد' });
     if (row.status !== 'draft') throw new Error('فقط رکورد پیش‌نویس قابل ثبت است');
-    const journalId = db.transaction(() => {
+    const result = db.transaction(() => {
       const personRow = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
-      const payable = resolvePersonPayableAccount(db, personRow);
-      const lines = [
-        { ...coaAcct(db, 'coa_eidi_expense'), debit: row.eidi_rial / 10, credit: 0 },
-        { ...coaAcct(db, 'coa_severance_expense'), debit: row.severance_rial / 10, credit: 0 },
-        { code: payable.code, name: payable.name, debit: 0, credit: row.net_pay_rial / 10 },
-      ];
-      if (row.income_tax_rial) lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: row.income_tax_rial / 10 });
-      const id = postToLedger(db, {
-        sourceType: 'payroll_year_end', sourceId: row.id, date: req.body.date || todayJalali(),
-        description: `عیدی و سنوات ${row.person_name} سال ${row.fiscal_year}`,
-        createdBy: req.user.id, lines,
+      return postYearEndWithReserveRelease(db, {
+        row,
+        person: personRow,
+        date: req.body.date || todayJalali(),
+        userId: req.user.id,
+        createPersonLedgerEntry,
       });
-      db.prepare(`
-        UPDATE payroll_year_end_bonuses SET status='posted',journal_entry_id=?,posted_at=strftime('%s','now') WHERE id=?
-      `).run(id, row.id);
-      createPersonLedgerEntry(db, {
-        person_id: row.person_id, date: req.body.date || todayJalali(), entry_type: 'payroll_year_end',
-        ref_type: 'payroll_year_end', ref_id: row.id, description: `عیدی و سنوات ${row.fiscal_year}`,
-        debit: 0, credit: row.net_pay_rial / 10, user_id: req.user.id,
-      });
-      return id;
     })();
     audit(req.user.id, 'post', 'payroll_year_end', row.id, `ثبت عیدی و سنوات ${row.person_name}`);
-    res.json({ ok: true, journal_entry_id: journalId });
+    res.json({ ok: true, journal_entry_id: result.journal_id, ...result });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -1502,6 +1536,149 @@ function monthlyAccrualAmounts(db, personId, year, laborSettings) {
     eidi_rial: Math.round(annualEidi / 12),
   };
 }
+
+router.get('/remittances/balances', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json({ ok: true, ...remittanceBalances(getDB()) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/remittances', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(listRemittances(getDB(), { kind: req.query.kind, limit: req.query.limit }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/remittances', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => postRemittance(db, {
+      kind: req.body.kind,
+      amount_rial: req.body.amount_rial,
+      pay_type: req.body.pay_type,
+      bank_id: req.body.bank_id,
+      cash_box_id: req.body.cash_box_id,
+      date: req.body.date,
+      note: req.body.note,
+      period_label: req.body.period_label,
+      userId: req.user.id,
+      resolveCashAccount,
+    }))();
+    audit(req.user.id, 'create', 'payroll_remittance', result.id, `${result.kind} ${result.amount_rial}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/remittances/:id/void', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => voidRemittance(db, Number(req.params.id), req.user.id))();
+    audit(req.user.id, 'void', 'payroll_remittance', result.id, 'ابطال پرداخت بیمه/مالیات');
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/advances', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(listAdvances(getDB(), {
+      person_id: req.query.person_id,
+      limit: req.query.limit,
+    }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/advances/balance/:personId', auth, adminOrAccounting, (req, res) => {
+  try {
+    const personId = Number(req.params.personId);
+    res.json({ ok: true, person_id: personId, balance_rial: personAdvanceBalance(getDB(), personId) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/advances', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => issueAdvance(db, {
+      person_id: req.body.person_id,
+      amount_rial: req.body.amount_rial,
+      pay_type: req.body.pay_type,
+      bank_id: req.body.bank_id,
+      cash_box_id: req.body.cash_box_id,
+      date: req.body.date,
+      note: req.body.note,
+      userId: req.user.id,
+      resolveCashAccount,
+      createPersonLedgerEntry,
+    }))();
+    audit(req.user.id, 'create', 'payroll_advance', result.id, `مساعده ${result.amount_rial}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/advances/:id/void', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => voidAdvance(db, Number(req.params.id), req.user.id, createPersonLedgerEntry))();
+    audit(req.user.id, 'void', 'payroll_advance', result.id, 'ابطال مساعده');
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/accruals/monthly', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const period = req.query.period_label;
+    const lim = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    if (period) {
+      return res.json(db.prepare(`
+        SELECT a.*, p.name person_name FROM payroll_monthly_accruals a
+        JOIN persons p ON p.id=a.person_id
+        WHERE a.period_label=? ORDER BY a.id DESC LIMIT ?
+      `).all(period, lim));
+    }
+    res.json(db.prepare(`
+      SELECT a.*, p.name person_name FROM payroll_monthly_accruals a
+      JOIN persons p ON p.id=a.person_id
+      ORDER BY a.id DESC LIMIT ?
+    `).all(lim));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/accruals/unreleased', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const year = Number(req.query.fiscal_year) || Number(String(todayJalali()).slice(0, 4));
+    const personId = Number(req.query.person_id) || 0;
+    if (personId) {
+      return res.json({ ok: true, fiscal_year: year, ...sumUnreleased(db, personId, year) });
+    }
+    const persons = db.prepare(`
+      SELECT DISTINCT person_id FROM payroll_monthly_accruals
+      WHERE period_label LIKE ? AND released_year_end_id IS NULL
+    `).all(`${year}/%`);
+    const rows = persons.map(p => ({ person_id: p.person_id, ...sumUnreleased(db, p.person_id, year) }));
+    res.json({ ok: true, fiscal_year: year, rows });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 router.post('/accruals/monthly', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {

@@ -236,6 +236,10 @@ const SYNCABLE_TABLES = [
   { name: 'payroll_payments',                  upsertKey: 'id' },
   // Returns P2c — allocate unlinked return credit to open invoices (append-only)
   { name: 'return_credit_allocations',         upsertKey: 'id' },
+  // Payroll Wave2 — remittance + employee advances (append-only)
+  { name: 'payroll_remittances',               upsertKey: 'id' },
+  { name: 'payroll_advances',                  upsertKey: 'id' },
+  { name: 'payroll_advance_recoveries',        upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -551,6 +555,14 @@ const FK_COLUMNS = [
   ['cost_revaluations', 'je_id'],
   ['cost_revaluation_lines', 'revaluation_id'],
   ['cost_revaluation_lines', 'product_id'],
+  // Payroll Wave2 remittance/advances (append-only)
+  ['payroll_remittances', 'bank_id'],
+  ['payroll_remittances', 'cash_box_id'],
+  ['payroll_advances', 'person_id'],
+  ['payroll_advances', 'bank_id'],
+  ['payroll_advances', 'cash_box_id'],
+  ['payroll_advance_recoveries', 'advance_id'],
+  ['payroll_advance_recoveries', 'payroll_record_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

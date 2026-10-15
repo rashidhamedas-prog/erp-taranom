@@ -32,6 +32,7 @@ const LEGACY = {
   coa_fixed_assets:    { code: '1201',   name: 'دارایی‌های ثابت' },
   coa_accumulated_depreciation: { code: '1202', name: 'استهلاک انباشته دارایی' },
   coa_rep_advance:     { code: '1107',   name: 'مساعده نمایندگان فروش' },
+  coa_employee_advance:{ code: '1119',   name: 'مساعده و وام کارکنان' },
   coa_retained_earnings: { code: '3101', name: 'سود (زیان) انباشته' },
   coa_fiscal_opening:  { code: '3201',   name: 'افتتاحیه سال مالی' },
   // Production module (docs/Production Master §2.1)
@@ -230,6 +231,7 @@ function baseCoaTree() {
     ['1116', 'اسناد در جریان وصول', 'asset', '1100', 2],
     ['1117', 'ذخیره کاهش ارزش موجودی', 'asset', '1100', 2],
     ['1118', 'وجوه در راه کارتخوان', 'asset', '1100', 2],
+    ['1119', 'مساعده و وام کارکنان', 'asset', '1100', 2],
     ['1201', 'دارایی‌های ثابت', 'asset', '1000', 2],
     ['1202', 'استهلاک انباشته دارایی', 'asset', '1000', 2],
     ['2000', 'بدهی‌ها', 'liability', null, 1],

@@ -383,6 +383,21 @@ function initPayrollSchema(db) {
   } catch (e) {
     console.warn('ensureDefaultLegalPacks:', e.message);
   }
+  try {
+    require('./remittance').ensureRemittanceSchema(db);
+  } catch (e) {
+    console.warn('ensureRemittanceSchema:', e.message);
+  }
+  try {
+    require('./advances').ensureAdvancesSchema(db);
+  } catch (e) {
+    console.warn('ensureAdvancesSchema:', e.message);
+  }
+  try {
+    require('./year-end-post').ensureYearEndReleaseColumns(db);
+  } catch (e) {
+    console.warn('ensureYearEndReleaseColumns:', e.message);
+  }
 }
 
 /**
