@@ -119,15 +119,9 @@ const personId = db.prepare(`
   VALUES ('کارگر v419','09120000419',?,1,?)
 `).run(partyId, coa).lastInsertRowid;
 
-let productId;
-try {
-  productId = db.prepare(`
-    INSERT INTO products (name, code, item_type, is_manufactured, stock, price)
-    VALUES ('مانتو v419','P-V419','finished',1,0,0)
-  `).run().lastInsertRowid;
-} catch (_) {
-  productId = db.prepare(`INSERT INTO products (name, code) VALUES ('مانتو v419','P-V419')`).run().lastInsertRowid;
-}
+const productId = db.prepare(
+  "INSERT INTO products (user_id,name,code,price,stock,is_manufactured) VALUES (1,'مانتو v419','P-V419',0,0,1)"
+).run().lastInsertRowid;
 
 let ccId = db.prepare(`SELECT id FROM cost_centers WHERE is_stage=1 LIMIT 1`).get()?.id;
 if (!ccId) {
@@ -137,11 +131,20 @@ if (!ccId) {
 }
 
 const orderNo = 'PO-V419';
-const orderId = db.prepare(`
-  INSERT INTO production_orders
-    (order_no, product_id, qty_planned, status, analysis_type, cost_center_id, date)
-  VALUES (?,?,?,?,?,?,?)
-`).run(orderNo, productId, 10, 'in_progress', 'fixed', ccId, DATE).lastInsertRowid;
+let orderId;
+try {
+  orderId = db.prepare(`
+    INSERT INTO production_orders
+      (order_no, product_id, qty_planned, status, analysis_type, cost_center_id, date, created_by)
+    VALUES (?,?,?,?,?,?,?,1)
+  `).run(orderNo, productId, 10, 'in_progress', 'fixed', ccId, DATE).lastInsertRowid;
+} catch (_) {
+  orderId = db.prepare(`
+    INSERT INTO production_orders
+      (order_no, product_id, qty_planned, status, analysis_type, cost_center_id, date)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(orderNo, productId, 10, 'in_progress', 'fixed', ccId, DATE).lastInsertRowid;
+}
 
 const qty = 10;
 const rate = 180000;
