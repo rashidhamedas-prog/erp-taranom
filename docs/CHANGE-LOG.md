@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — پوشش لایه با رسید سفارش + heal یلدا/آبان (SW v404)
+
+- **علائم:** یلدا (PO-0008) لایه‌های LAY-0008…0011 بدون پیوند سفارش و با PACK ابطال‌شده (v399) هنوز «منتظر PACK» نشان می‌دادند در حالی که FG از `PR-0004` در انبار بود. آبان (PO-0009) FG فیزیکی بدون مسیر lay→PACK داشت (وضعیت completed از v403).
+- **Invariant:** مالکیت FG یک‌بار (F06). اگر رسید سفارش posted پوشش qty لایه را بدهد، UI/API لایه را done می‌داند و `postCuttingPack` با `E_LAY_FG_COVERED` قفل است. ابطال فیزیکی موجودی آبان ممنوع وقتی فروش نشده ولی کالا واقعی است — فقط مستندسازی legacy.
+- **رفع:** `layFgCoveredByOrder` روی list/get/post PACK؛ UI وضعیت «رسید انبار محصول از سفارش …»؛ Help؛ heal لینک LAY→PO-0008 + یادداشت legacy روی PO-0009.
+- **فایل‌ها:** `lib/production/cutting.js`, `public/{app.js,sw.js,index.html}`, `scripts/{test-prod-lay-fg-covered-v404.js,_heal-yalda-aban-v404.py}`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ tap-erp-architecture؛ پروب ایران crm.db یلدا/آبان.
+- **تست:** ایران `test-prod-lay-fg-covered-v404` + `test-sms`؛ heal یلدا/آبان.
+- **Deploy:** ⏳ Pending
+
 ### ۱۴۰۵/۰۷/۲۳ — گیت رسید FG برای سفارش طاقه‌دار: لایه‌چینی → PACK → رسید (SW v403)
 
 - **علائم:** PO-0009 (کاپشن مموری آبان) با دکمهٔ «رسید» لیست سفارش‌ها ۹۶ عدد وارد انبار محصول شد (`PR-0005` / INV-1199) در حالی که لایه‌چینی/PACK برای این سفارش صفر بود و وضعیت به‌خاطر `is_partial=1` روی «در جریان» ماند.

@@ -753,6 +753,51 @@ function planCutting(db, body = {}) {
   };
 }
 
+/**
+ * Lay pieces already entered sellable FG via production_receipt on a linked
+ * (or uniquely matching closed) order — PACK CTA must not re-offer FG.
+ */
+function layFgCoveredByOrder(db, lay) {
+  const out = {
+    fg_covered_by_order: 0,
+    covered_order_id: null,
+    covered_order_no: null,
+    covered_receipt_qty: 0,
+  };
+  if (!lay || String(lay.status || '') === 'reversed') return out;
+  let po = null;
+  if (lay.production_order_id) {
+    po = db.prepare(`
+      SELECT id, order_no, status, qty_produced, product_id
+      FROM production_orders WHERE id=?
+    `).get(Number(lay.production_order_id));
+  }
+  if (!po && lay.product_id) {
+    // Legacy unlinked lays: exactly one completed/closed order for this FG
+    // with posted receipt covering the lay qty.
+    const candidates = db.prepare(`
+      SELECT id, order_no, status, qty_produced, product_id
+      FROM production_orders
+      WHERE product_id=? AND status IN ('completed','closed')
+      ORDER BY id DESC
+    `).all(Number(lay.product_id));
+    if (candidates.length === 1) po = candidates[0];
+  }
+  if (!po || !['completed', 'closed', 'done'].includes(String(po.status || ''))) return out;
+  const rec = db.prepare(`
+    SELECT COALESCE(SUM(qty),0) AS s FROM production_receipts
+    WHERE order_id=? AND status='posted'
+  `).get(Number(po.id));
+  const receiptQty = Number(rec && rec.s) || 0;
+  const need = Number(lay.qty_pieces) || 0;
+  if (!(receiptQty + 1e-9 >= need) && !(Number(po.qty_produced) + 1e-9 >= need)) return out;
+  out.fg_covered_by_order = 1;
+  out.covered_order_id = Number(po.id);
+  out.covered_order_no = po.order_no || null;
+  out.covered_receipt_qty = receiptQty;
+  return out;
+}
+
 function listCuttingLays(db, query = {}) {
   const where = [];
   const params = [];
@@ -772,6 +817,12 @@ function listCuttingLays(db, query = {}) {
     const pack = postedPackForLay(db, row.id);
     row.pack_posted = pack ? 1 : 0;
     row.pack_no = pack ? pack.pack_no : null;
+    Object.assign(row, layFgCoveredByOrder(db, row));
+    // Covered-by-order counts as "done" for pending-pack queues (F06 already posted).
+    if (row.fg_covered_by_order && !row.pack_posted) {
+      row.pack_posted = 1;
+      row.pack_via_order_fg = 1;
+    }
     return row;
   });
 }
@@ -793,6 +844,12 @@ function getCuttingLay(db, id) {
     WHERE r.lay_id=?
     ORDER BY r.id
   `).all(row.id);
+  const covered = layFgCoveredByOrder(db, row);
+  Object.assign(row, covered);
+  if (covered.fg_covered_by_order) {
+    row.pack_posted = 1;
+    row.pack_via_order_fg = 1;
+  }
   return attachPacks(db, row);
 }
 
@@ -1197,6 +1254,15 @@ function postCuttingPack(db, layId, body, user) {
   const live = postedPackForLay(db, lay.id);
   if (live) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
 
+  const covered = layFgCoveredByOrder(db, lay);
+  if (covered.fg_covered_by_order) {
+    throw httpErr(
+      409,
+      `این لایه با رسید سفارش ${covered.covered_order_no || covered.covered_order_id} وارد انبار محصول شده — PACK دوباره مجاز نیست`,
+      'E_LAY_FG_COVERED',
+      covered
+    );
+  }
   const resolved = resolvePackProductionOrder(db, lay, body || {});
   const po = resolved.po;
   // F06: linked PO → cut-bundle (no WIP→FG JE); standalone cut-to-stock → FG receipt
@@ -1444,6 +1510,7 @@ module.exports = {
   fabricCuttingGateInfo,
   assertFabricCuttingPathForFgReceipt,
   relieveStagedPackQty,
+  layFgCoveredByOrder,
   fabricLineFromBom,
   isMeterUnit,
 };

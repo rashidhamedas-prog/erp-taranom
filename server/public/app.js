@@ -12307,7 +12307,7 @@ async function renderCuttingLaysTab(body){
   const allRows=lays.rows||[];
   const pendingRows=allRows.filter(r=>{
     if(r.status==='reversed') return false;
-    const packed=(r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1;
+    const packed=(r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1 || Number(r.fg_covered_by_order)===1;
     return !packed;
   });
   const showRows=view==='pending-pack'?pendingRows:allRows;
@@ -12332,7 +12332,8 @@ async function renderCuttingLaysTab(body){
     </tr></thead><tbody>
     ${showRows.map(r=>{
       const livePack=(r.packs||[]).find(p=>p.status==='posted');
-      const isPacked=!!livePack || Number(r.pack_posted)===1;
+      const viaOrderFg=Number(r.fg_covered_by_order)===1 || Number(r.pack_via_order_fg)===1;
+      const isPacked=!!livePack || Number(r.pack_posted)===1 || viaOrderFg;
       let acts='';
       if(r.status==='reversed') acts='ابطال‌شده';
       else {
@@ -12340,9 +12341,13 @@ async function renderCuttingLaysTab(body){
           if(!isPacked){
             acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش</button> ';
           }
-          acts+='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال لایه‌چینی</button>';
+          if(!viaOrderFg){
+            acts+='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال لایه‌چینی</button>';
+          }
         }
-        if(isPacked){
+        if(viaOrderFg){
+          acts+=' <span class="muted">پوشش‌شده با رسید '+(esc(r.covered_order_no||('#'+(r.covered_order_id||''))))+'</span>';
+        } else if(isPacked){
           acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackPrint(r.id)})+'">چاپ بارکد</button>';
           acts+=' <button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingPackRow(r.id)})+'">ابطال رسید محصول</button>';
         } else {
@@ -12350,9 +12355,11 @@ async function renderCuttingLaysTab(body){
           acts+=' <button class="btn green" data-csp-click="'+CSP.bind('click',function(){cuttingPackSave(r.id)})+'">'+packLbl+'</button>';
         }
       }
-      const packedLbl=isPacked
-        ?(r.production_order_id||(livePack&&livePack.production_order_id)?'✅ بسته‌بندی WIP (منتظر نهایی‌سازی)':'✅ در انبار محصول')
-        :(r.status==='reversed'?'—':'⏳ منتظر PACK');
+      const packedLbl=viaOrderFg
+        ?('✅ رسید انبار محصول از سفارش '+(esc(r.covered_order_no||'')))
+        :(isPacked
+          ?(r.production_order_id||(livePack&&livePack.production_order_id)?'✅ بسته‌بندی WIP (منتظر نهایی‌سازی)':'✅ در انبار محصول')
+          :(r.status==='reversed'?'—':'⏳ منتظر PACK'));
       return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+esc(r.product_name||('#'+r.product_id))+'</td>'
         +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
         +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
@@ -17055,6 +17062,7 @@ function prodOrderErrMsg(e){
         E_CUT_ROLL_PRODUCT:'طاقه باید همان پارچهٔ فرمول باشد',
         E_CUTTING_LAY_REQUIRED:'سفارش طاقه‌دار است — اول لایه‌چینی، بعد PACK، بعد رسید انبار محصول',
         E_CUTTING_PACK_REQUIRED:'بعد از لایه‌چینی باید PACK (بسته‌بندی WIP) ثبت شود؛ سپس رسید/نهایی‌سازی',
+        E_LAY_FG_COVERED:'این لایه با رسید سفارش وارد انبار محصول شده — PACK دوباره نزنید',
     E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید یکی نیست',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
     E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
@@ -29161,6 +29169,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>لایه‌چینی + PACK (دو رویداد جدا — v399/v403 مالکیت موجودی):</b> تولید → عملیات → لایه‌چینی / رسید محصول.
           تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP. تب PACK با <b>سفارش باز</b> = فقط بسته‌بندی در انبار WIP (<code>warehouseOnly</code>).
           <b>v403 سفارش طاقه‌دار:</b> اگر BOM پارچهٔ متری با طاقه داشته باشد، دکمهٔ «رسید» روی لیست سفارش تا قبل از لایه‌چینی+PACK قفل است (<code>E_CUTTING_LAY_REQUIRED</code> / <code>E_CUTTING_PACK_REQUIRED</code>). ورود فروش‌پذیر فقط با رسید/نهایی‌سازی بعد از PACK. وقتی تولید به برنامه برسد وضعیت خودکار <code>completed</code> می‌شود (حتی اگر تیک جزئی مانده باشد).
+          <b>v404 پوشش لایه با رسید سفارش:</b> اگر لایه‌چینی (با یا بدون PACK ابطال‌شده) با رسید FG همان سفارش هم‌پوشان باشد، وضعیت «رسید انبار محصول از سفارش …» نشان داده می‌شود و دکمهٔ PACK قفل است (<code>E_LAY_FG_COVERED</code>) تا «منتظر PACK» کاذب پیش نیاید.
           بدون سفارش باز = cut-to-stock مستقیم به FG. سرور اگر یک سفارش باز برای همان کالا باشد خودکار پیوند می‌زند؛ چند سفارش باز → <code>E_PACK_PO_REQUIRED</code>؛ اگر قبلاً PACK فروش‌پذیر زده باشید و بخواهید سفارش را نهایی کنید → <code>E_STANDALONE_PACK_FG</code> (اول ابطال PACK). هرگز PACK فروش‌پذیر و finalize را برای یک بچ با هم نزنید.
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = PACK / رسید (صف منتظرها).
@@ -29616,7 +29625,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v352</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v404</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
