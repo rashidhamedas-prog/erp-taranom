@@ -21,8 +21,11 @@ function finish() {
 const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(appSrc.includes('نمایش ابطال و هم‌ترازی'), 'UI checkbox renamed for kardex audit');
 ok(appSrc.includes('jdShowAudit') && appSrc.includes('include_audit'), 'journal docs audit toggle');
-ok(appSrc.includes('erp-taranom-v400') || fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('v400'),
-  'SW v400');
+{
+  const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
+  const m = swSrc.match(/erp-taranom-v(\d+)/);
+  ok(m && Number(m[1]) >= 400, `SW >= v400 (got ${m ? m[0] : 'none'})`);
+}
 
 const ledgersSrc = fs.readFileSync(path.join(__dirname, '../lib/ledgers.js'), 'utf8');
 ok(ledgersSrc.includes('isAuditOnlyStockRow'), 'isAuditOnlyStockRow helper');
