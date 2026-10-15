@@ -15,7 +15,11 @@ function isOperationalTafsili(account) {
   return false;
 }
 
-/** پوستهٔ خودکار: 2101 → 210101. حساب ۶رقمیٔ دیگری مثل 610204 پوسته نیست. */
+/**
+ * پوستهٔ خودکار ستون تفصیلی: 2101 → 210101.
+ * این الگو را برای «قابل انتخاب بودن حساب هزینه» به کار نبرید.
+ * suggestChildCode اولین معین واقعی زیر کل را همین parent+'01' می‌دهد (6103 → 610301).
+ */
 function isAutoShell(code, moinCode) {
   const c = String(code || '');
   const m = String(moinCode || '');

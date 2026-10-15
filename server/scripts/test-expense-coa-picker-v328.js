@@ -53,13 +53,18 @@ ok(app.includes("scope:'expense'"), 'expense combobox is scoped to expense codin
 ok(app.includes('data-coa-scope'), 'scope is passed into the search field');
 ok(route.includes('explicitExpenseAccount'), 'explicit expense code is validated on the server');
 ok(route.includes('E_COA_NOT_EXPENSE'), 'non-expense codes are rejected');
+ok(!/function expenseCodingAccount[\s\S]{0,500}coaIsAutoShell\(/.test(app), 'expense picker does not reuse the tafsili-shell predicate');
 
 ok(fns.isMoneyField(field('ex-account-search')) === false, 'expense account search is not a money field');
 ok(fns.expenseCodingAccount({ code: '6', name: 'هزینه', type: 'expense', is_active: 1 }), 'group is selectable');
 ok(fns.expenseCodingAccount({ code: '6000', name: 'کل', type: 'expense', parent_code: '6', is_active: 1 }), 'kol is selectable');
 ok(fns.expenseCodingAccount({ code: '6102', name: 'معین', type: 'expense', parent_code: '6000', is_active: 1 }), 'moein is selectable');
 ok(fns.expenseCodingAccount({ code: '610277', name: 'تفصیلی', type: 'expense', parent_code: '6102', is_active: 1 }), 'tafsili is selectable');
-ok(fns.expenseCodingAccount({ code: '610201', name: 'پوسته', type: 'expense', parent_code: '6102', is_active: 1 }) === false, 'technical shell is hidden');
+ok(fns.expenseCodingAccount({ code: '610201', name: 'هزینه پیک و پست', type: 'expense', parent_code: '6102', is_active: 1 }), 'first moein 610201 is a real expense account');
+ok(fns.expenseCodingAccount({ code: '610301', name: 'سوشال مدیا', type: 'expense', parent_code: '6103', is_active: 1 }), 'first moein 610301 is selectable');
+ok(fns.expenseCodingAccount({ code: '610302', name: 'تبلیغات', type: 'expense', parent_code: '6103', is_active: 1 }), 'later moein 610302 stays selectable');
+ok(fns.expenseCodingAccount({ code: '610307', name: 'بسته بندی', type: 'expense', parent_code: '6103', is_active: 1 }), 'later moein 610307 stays selectable');
+ok(fns.expenseCodingAccount({ code: '210101', name: 'حساب‌های پرداختنی', type: 'liability', parent_code: '2101', is_active: 1 }) === false, 'control bridge is not an expense account');
 ok(fns.expenseCodingAccount({ code: '1101', name: 'صندوق', type: 'asset', parent_code: '1100', is_active: 1 }) === false, 'asset account is hidden');
 ok(fns.expenseCodingAccount({ code: '6198', name: 'خاموش', type: 'expense', is_active: 0 }) === false, 'inactive expense is hidden');
 ok(fns.coaSearchKey('هزينه ۶۱۰۲') === fns.coaSearchKey('هزینه 6102'), 'arabic yeh and persian digits match');
