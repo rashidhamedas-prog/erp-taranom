@@ -82,8 +82,8 @@ postToLedger(db, {
 });
 
 const settId = db.prepare(`
-  INSERT INTO settlements (cust_id, invoice_id, date, amount, amount_rial, pay_type, status)
-  VALUES (?, ?, '1405/07/02', ?, ?, 'bank_transfer', 'posted')
+  INSERT INTO settlements (user_id, cust_id, invoice_id, date, amount, amount_rial, pay_type, status)
+  VALUES (1, ?, ?, '1405/07/02', ?, ?, 'bank_transfer', 'posted')
 `).run(custId, invId, SETT_AMT, SETT_AMT).lastInsertRowid;
 
 createLedgerEntry(db, {
@@ -163,8 +163,8 @@ ok(Math.round(Number(fold.display)) === INV_AMT, 'fold shows full invoice AR', f
 
 // --- Heal path: simulate pre-v390 orphan (reclass left after manual JE void) ---
 const sett2 = db.prepare(`
-  INSERT INTO settlements (cust_id, invoice_id, date, amount, amount_rial, pay_type, status)
-  VALUES (?, ?, '1405/07/04', 5000000, 5000000, 'cash', 'posted')
+  INSERT INTO settlements (user_id, cust_id, invoice_id, date, amount, amount_rial, pay_type, status)
+  VALUES (1, ?, ?, '1405/07/04', 5000000, 5000000, 'cash', 'posted')
 `).run(custId, invId).lastInsertRowid;
 
 createLedgerEntry(db, {

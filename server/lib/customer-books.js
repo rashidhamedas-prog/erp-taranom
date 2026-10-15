@@ -1726,6 +1726,21 @@ function softVoidArControlReclassForSettlement(db, settlementId, reason) {
 function repairOrphanArControlReclass(db) {
   const { reverseJournalEntry } = require('./void-journal');
   let voided = 0;
+  let hasPosReceipts = false;
+  try {
+    hasPosReceipts = !!db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pos_receipts' LIMIT 1"
+    ).get();
+  } catch (_) { hasPosReceipts = false; }
+  const posClause = hasPosReceipts ? `
+          OR (
+            src_je.ref_type IN ('pos_receipt','pos')
+            AND EXISTS (
+              SELECT 1 FROM pos_receipts pr
+              WHERE pr.id=src_je.ref_id
+                AND COALESCE(pr.status,'open') IN ('reversed','void')
+            )
+          )` : '';
   const run = db.transaction(() => {
     const orphans = db.prepare(`
       SELECT re.id AS reclass_id, src_je.id AS parent_je_id,
@@ -1758,14 +1773,7 @@ function repairOrphanArControlReclass(db) {
                 )
             )
           )
-          OR (
-            src_je.ref_type IN ('pos_receipt','pos')
-            AND EXISTS (
-              SELECT 1 FROM pos_receipts pr
-              WHERE pr.id=src_je.ref_id
-                AND COALESCE(pr.status,'open') IN ('reversed','void')
-            )
-          )
+          ${posClause}
         )
     `).all(AR_CONTROL_RECLASS);
     for (const row of orphans) {
