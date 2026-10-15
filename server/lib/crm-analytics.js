@@ -219,11 +219,19 @@ function buildTimeline(db, {
   }
   if (!custId) return { events: [], total: 0, applied_filters: { customer_id: null } };
 
+  let walkinRestrict = false;
+  try {
+    const { isWalkinCustomer } = require('./store-quick-sale');
+    // scopeUserId set ⇒ not admin/accounting → each cashier only sees own walk-in txs.
+    walkinRestrict = !!(scopeUserId && isWalkinCustomer(db, custId));
+  } catch (_) { walkinRestrict = false; }
+
   if (scopeUserId) {
     const own = db.prepare('SELECT user_id, assigned_to FROM customers WHERE id=?').get(custId);
     const ownerMatch = !!(own && Number(own.user_id) === Number(scopeUserId));
     const assignedMatch = !!(own && own.assigned_to != null && Number(own.assigned_to) === Number(scopeUserId));
-    const denied = !!(own && !ownerMatch && !assignedMatch);
+    const walkinOk = walkinRestrict; // shared cash desk — allow open, filter rows below
+    const denied = !!(own && !ownerMatch && !assignedMatch && !walkinOk);
     if (denied) {
       const err = new Error('دسترسی به این مشتری ندارید');
       err.status = 403;
@@ -232,11 +240,17 @@ function buildTimeline(db, {
   }
 
   const kindFilter = String(kinds || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const ownerUid = walkinRestrict ? Number(scopeUserId) : null;
 
-  const fus = db.prepare(`
-    SELECT id, date, type, subject, status, note, action, user_id, created_at, pipeline_stage
-    FROM followups WHERE cust_id=? ORDER BY created_at DESC LIMIT 200
-  `).all(custId);
+  const fus = walkinRestrict
+    ? db.prepare(`
+        SELECT id, date, type, subject, status, note, action, user_id, created_at, pipeline_stage
+        FROM followups WHERE cust_id=? AND user_id=? ORDER BY created_at DESC LIMIT 200
+      `).all(custId, ownerUid)
+    : db.prepare(`
+        SELECT id, date, type, subject, status, note, action, user_id, created_at, pipeline_stage
+        FROM followups WHERE cust_id=? ORDER BY created_at DESC LIMIT 200
+      `).all(custId);
   for (const f of fus) {
     events.push({
       kind: 'followup', id: f.id, date: f.date, title: f.subject || f.type,
@@ -244,10 +258,16 @@ function buildTimeline(db, {
       sourceType: 'followups', sourceId: f.id, user_id: f.user_id,
     });
   }
-  const invs = db.prepare(`
-    SELECT id, num, type, date, final, final_rial, created_at, status
-    FROM invoices WHERE cust_id=? AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 200
-  `).all(custId);
+  const invs = walkinRestrict
+    ? db.prepare(`
+        SELECT id, num, type, date, final, final_rial, created_at, status
+        FROM invoices WHERE cust_id=? AND user_id=? AND COALESCE(deleted_at,0)=0
+        ORDER BY created_at DESC LIMIT 200
+      `).all(custId, ownerUid)
+    : db.prepare(`
+        SELECT id, num, type, date, final, final_rial, created_at, status
+        FROM invoices WHERE cust_id=? AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 200
+      `).all(custId);
   for (const i of invs) {
     const reversed = i.status === 'reversed';
     events.push({
@@ -260,9 +280,18 @@ function buildTimeline(db, {
     });
   }
   try {
-    const settles = db.prepare(`
-      SELECT id, date, amount, amount_rial, pay_type, created_at FROM settlements WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
-    `).all(custId);
+    const settles = walkinRestrict
+      ? db.prepare(`
+          SELECT id, date, amount, amount_rial, pay_type, created_at FROM settlements
+          WHERE cust_id=? AND (
+            user_id=?
+            OR invoice_id IN (SELECT id FROM invoices WHERE cust_id=? AND user_id=?)
+          )
+          ORDER BY created_at DESC LIMIT 100
+        `).all(custId, ownerUid, custId, ownerUid)
+      : db.prepare(`
+          SELECT id, date, amount, amount_rial, pay_type, created_at FROM settlements WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
+        `).all(custId);
     for (const s of settles) {
       events.push({
         kind: 'settlement', id: s.id, date: s.date, title: `دریافت ${s.pay_type}`,
@@ -272,9 +301,14 @@ function buildTimeline(db, {
     }
   } catch (_) {}
   try {
-    const rets = db.prepare(`
-      SELECT id, date, amount, created_at, status FROM sales_returns WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
-    `).all(custId);
+    const rets = walkinRestrict
+      ? db.prepare(`
+          SELECT id, date, amount, created_at, status FROM sales_returns
+          WHERE cust_id=? AND user_id=? ORDER BY created_at DESC LIMIT 100
+        `).all(custId, ownerUid)
+      : db.prepare(`
+          SELECT id, date, amount, created_at, status FROM sales_returns WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
+        `).all(custId);
     for (const r of rets) {
       events.push({
         kind: 'sales_return', id: r.id, date: r.date, title: `برگشت از فروش #${r.id}`,
@@ -286,13 +320,16 @@ function buildTimeline(db, {
     }
   } catch (_) {}
   try {
-    for (const c of chequeRowsForCustomer(db, custId, { limit: 50 })) {
-      events.push({
-        kind: 'cheque', id: c.id, date: c.due_date, title: `چک ${c.cheque_number || c.id}`,
-        amount_rial: Math.round(c.amount || 0),
-        status: c.lifecycle_status || c.status, ts: c.created_at || 0,
-        sourceType: 'cheque_records', sourceId: c.id,
-      });
+    // Walk-in cash desk: no shared cheque visibility for other cashiers.
+    if (!walkinRestrict) {
+      for (const c of chequeRowsForCustomer(db, custId, { limit: 50 })) {
+        events.push({
+          kind: 'cheque', id: c.id, date: c.due_date, title: `چک ${c.cheque_number || c.id}`,
+          amount_rial: Math.round(c.amount || 0),
+          status: c.lifecycle_status || c.status, ts: c.created_at || 0,
+          sourceType: 'cheque_records', sourceId: c.id,
+        });
+      }
     }
   } catch (_) {}
   try {

@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — حریم تراکنش مشتری نقدی فروشگاه (فروش حضوری) (SW v395)
+
+- **هدف:** روی «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط تراکنش‌هایی را ببیند که خودش ثبت کرده (فاکتور / تسویه / برگشت / تاریخچه CRM).
+- **Invariant:** `invoices.user_id` (و `settlements`/`sales_returns.user_id`) مالک صندوق‌دار است؛ `customers.user_id` سیستمیِ walk-in معیار خواندن نیست. admin/accounting دید کامل؛ impersonation = کاربر مؤثر.
+- **رفع:** helpers در `store-quick-sale`؛ لیست/مانده مشتری با OR walk-in + مانده شخصی؛ `canViewInvoice` برای walk-in حتی sales_manager را محدود می‌کند؛ مالک ثبت walk-in/store_quick = کاربر نشست؛ `buildTimeline` فیلتر مالک؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/{store-quick-sale,customer-scope,crm-analytics}.js`, `routes/{customers,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-walkin-tx-privacy-v395.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ Slack بدون نتیجه مرتبط؛ explore API map؛ tap-erp-architecture.
+- **تست:** `test-walkin-tx-privacy-v395` + `test-sms` / `test-sync`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — ویرایش درجا برای پرداخت به شخص/حساب (SW v394)
 
 - **علائم:** در لیست پرداخت‌ها ردیف «شخص» (مثل JV-0389) فقط 🗑️ داشت و مداد نداشت؛ هزینه عمومی مداد داشت.

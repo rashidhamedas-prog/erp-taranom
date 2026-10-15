@@ -81,6 +81,72 @@ function isWalkinCustomer(db, custId) {
   return !!(row && String(row.biz || '').trim() === WALKIN_BIZ);
 }
 
+/**
+ * Invariant (v395): walk-in cash desk customer is shared, but non-admin/accounting
+ * users may only READ transactions they personally created (invoices.user_id /
+ * settlements.user_id / sales_returns.user_id). Impersonation uses effective req.user.
+ */
+function seesAllWalkinTransactions(role) {
+  return role === 'admin' || role === 'accounting';
+}
+
+function restrictWalkinTransactions(db, userOrRole, custId) {
+  const role = userOrRole && typeof userOrRole === 'object'
+    ? userOrRole.role
+    : userOrRole;
+  if (seesAllWalkinTransactions(role)) return false;
+  return isWalkinCustomer(db, custId);
+}
+
+/** null = not walk-in (caller keeps default RBAC); boolean = walk-in decision. */
+function canViewWalkinInvoice(db, req, inv) {
+  if (!inv || !isWalkinCustomer(db, inv.cust_id)) return null;
+  if (seesAllWalkinTransactions(req.user && req.user.role)) return true;
+  return Number(inv.user_id) === Number(req.user && req.user.id);
+}
+
+/** Visible to every scoped sales user even though customers.user_id is admin. */
+function walkinListVisibilityOrSql(db, alias) {
+  const a = alias || 'c';
+  const id = getWalkinCustomerId(db);
+  if (!(id > 0)) return { sql: '', params: [] };
+  return { sql: ` OR ${a}.id=?`, params: [id] };
+}
+
+/**
+ * Personal AR-ish balance for a cashier on the shared walk-in customer
+ * (ledger lines they posted + firm invoices they own that are not yet in ledger).
+ */
+function walkinPersonalBalanceRial(db, custId, userId) {
+  const cid = parseInt(custId, 10);
+  const uid = parseInt(userId, 10);
+  if (!(cid > 0) || !(uid > 0)) return 0;
+  let bal = 0;
+  try {
+    bal = Number(db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(debit,0) - COALESCE(credit,0)), 0) AS b
+      FROM customer_ledger WHERE customer_id=? AND user_id=?
+    `).get(cid, uid)?.b) || 0;
+  } catch (_) { bal = 0; }
+  try {
+    const { firmSaleTypeSql } = require('./sales-document');
+    const missing = db.prepare(`
+      SELECT COALESCE(SUM(i.final), 0) AS s
+      FROM invoices i
+      WHERE i.cust_id=? AND i.user_id=? AND ${firmSaleTypeSql('i')}
+        AND COALESCE(i.deleted_at,0)=0
+        AND COALESCE(i.status,'')<>'reversed'
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_ledger cl
+          WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
+            AND COALESCE(cl.entry_type,'')<>'reversal'
+        )
+    `).get(cid, uid);
+    bal += Number(missing && missing.s) || 0;
+  } catch (_) { /* optional */ }
+  return Math.round(bal);
+}
+
 function retailUnitPriceRial(prod) {
   if (!prod) return 0;
   const retail = Math.round(Number(prod.retail_price_rial || prod.retail_price) || 0);
@@ -453,6 +519,11 @@ module.exports = {
   ensureWalkinCustomer,
   getWalkinCustomerId,
   isWalkinCustomer,
+  seesAllWalkinTransactions,
+  restrictWalkinTransactions,
+  canViewWalkinInvoice,
+  walkinListVisibilityOrSql,
+  walkinPersonalBalanceRial,
   retailUnitPriceRial,
   applyRetailRowDefaults,
   resolveStoreWarehouseId,

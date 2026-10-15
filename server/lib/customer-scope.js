@@ -117,6 +117,11 @@ function alignCustomerOwners(db) {
 /** True if a non-null scope user can see this customer row. */
 function customerVisibleTo(db, customerId, userId) {
   if (userId == null) return true;
+  // Shared walk-in cash desk: visible to all sales users; txs filtered elsewhere.
+  try {
+    const { isWalkinCustomer } = require('./store-quick-sale');
+    if (isWalkinCustomer(db, customerId)) return true;
+  } catch (_) { /* optional */ }
   const row = db.prepare(
     `SELECT id FROM customers WHERE id=? AND ${customerVisibilitySql('customers')}`
   ).get(customerId, userId, userId);

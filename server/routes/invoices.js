@@ -89,6 +89,11 @@ function getScope(req) {
 
 function canViewInvoice(req, inv) {
   if (!inv) return false;
+  try {
+    const { canViewWalkinInvoice } = require('../lib/store-quick-sale');
+    const walkin = canViewWalkinInvoice(getDB(), req, inv);
+    if (walkin !== null) return walkin;
+  } catch (_) { /* fall through */ }
   const role = req.user && req.user.role;
   if (role === 'admin' || role === 'accounting' || role === 'sales_manager') return true;
   return Number(inv.user_id) === Number(req.user.id);
@@ -544,6 +549,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const skipInvoiceCash = payPlan.skipInvoiceCash;
 
   // کارشناس فاکتور: مدیر/حسابدار می‌تواند تعیین کند؛ در غیر این صورت مشتری→کاربر جاری
+  // Walk-in / فروش سریع: مالک همیشه کاربر مؤثر نشست است (نه owner سیستمی مشتری نقدی).
   let ownerUserId = req.user.id;
   const canAssignExpert = req.user.role === 'admin' || req.user.role === 'accounting';
   if (canAssignExpert && expert_user_id) {
@@ -551,8 +557,13 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     if (!eu) return res.status(400).json({ error: 'کارشناس انتخاب‌شده معتبر نیست' });
     ownerUserId = eu.id;
   } else if (canAssignExpert && !expert_user_id) {
-    const custOwner = db.prepare('SELECT user_id FROM customers WHERE id=?').get(cust_id);
-    if (custOwner?.user_id) ownerUserId = custOwner.user_id;
+    const { isWalkinCustomer: isWalkinCust, isStoreQuickRequest: isSq } = require('../lib/store-quick-sale');
+    if (isWalkinCust(db, cust_id) || isSq(req.body, req.user.role)) {
+      ownerUserId = req.user.id;
+    } else {
+      const custOwner = db.prepare('SELECT user_id FROM customers WHERE id=?').get(cust_id);
+      if (custOwner?.user_id) ownerUserId = custOwner.user_id;
+    }
   }
 
   const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(ownerUserId);

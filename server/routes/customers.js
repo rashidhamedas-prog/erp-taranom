@@ -94,10 +94,16 @@ router.get('/', auth, (req, res) => {
   const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
   // Hide CRM customers whose linked accounting party was soft-deleted
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
+  let walkinOr = { sql: '', params: [] };
+  if (scope != null) {
+    try {
+      walkinOr = require('../lib/store-quick-sale').walkinListVisibilityOrSql(db, 'c');
+    } catch (_) { walkinOr = { sql: '', params: [] }; }
+  }
   const whereSql = scope === null
     ? `WHERE 1=1${activeClause}`
-    : `WHERE ${customerVisibilitySql('c')}${activeClause}`;
-  const params = scope === null ? [] : [scope, scope];
+    : `WHERE (${customerVisibilitySql('c')}${walkinOr.sql})${activeClause}`;
+  const params = scope === null ? [] : [scope, scope, ...walkinOr.params];
   const total = pq.paginate
     ? (db.prepare(`SELECT COUNT(*) AS c FROM customers c ${whereSql}`).get(...params)?.c || 0)
     : 0;
@@ -105,6 +111,19 @@ router.get('/', auth, (req, res) => {
     `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC${pq.limitSql}`
   ).all(...params, ...pq.limitParams);
   applyCustomerBalances(db, rows);
+  // Walk-in: each cashier sees only their own contribution in the list balance.
+  if (scope != null && rows.length) {
+    try {
+      const { getWalkinCustomerId, walkinPersonalBalanceRial } = require('../lib/store-quick-sale');
+      const wid = getWalkinCustomerId(db);
+      for (const r of rows) {
+        if (Number(r.id) === Number(wid)) {
+          r.balance = walkinPersonalBalanceRial(db, wid, scope);
+          r.balance_source = 'walkin_personal';
+        }
+      }
+    } catch (_) { /* optional */ }
+  }
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
@@ -241,12 +260,25 @@ router.get('/balances', auth, (req, res) => {
     if (scope === null) {
       rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE 1=1${activeClause}`).all();
     } else {
-      rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${customerVisibilitySql('c')}${activeClause}`).all(scope, scope);
+      let walkinOr = { sql: '', params: [] };
+      try {
+        walkinOr = require('../lib/store-quick-sale').walkinListVisibilityOrSql(db, 'c');
+      } catch (_) { walkinOr = { sql: '', params: [] }; }
+      rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE (${customerVisibilitySql('c')}${walkinOr.sql})${activeClause}`).all(scope, scope, ...walkinOr.params);
     }
     try {
       applyCustomerBalances(db, rows);
     } catch (applyErr) {
       console.error('customers/balances apply fallback:', applyErr.message);
+    }
+    if (scope != null && rows.length) {
+      try {
+        const { getWalkinCustomerId, walkinPersonalBalanceRial } = require('../lib/store-quick-sale');
+        const wid = getWalkinCustomerId(db);
+        for (const r of rows) {
+          if (Number(r.id) === Number(wid)) r.balance = walkinPersonalBalanceRial(db, wid, scope);
+        }
+      } catch (_) { /* optional */ }
     }
     rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
       .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
