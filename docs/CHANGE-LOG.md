@@ -6,8 +6,9 @@
 - **رفع:** اتولینک وقتی دقیقاً یک سفارش باز برای کالا هست؛ چند سفارش → `E_PACK_PO_REQUIRED`؛ `cut_to_stock=true` برای رسید مستقیم آگاهانه؛ گارد finalize با `E_STANDALONE_PACK_FG`؛ بدون apparel فروش‌پذیر روی PACK پیوندی؛ UI/Help/journey هم‌تراز؛ تست `test-prod-pack-double-fg-v399`.
 - **فایل‌ها:** `lib/production/{cutting,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html,prod-journey-gate.js}`, `scripts/test-prod-pack-double-fg-v399.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ explore pack/finalize map؛ tap-erp-architecture؛ PROD-ACC F06/ADR-001.
-- **تست:** (پس از اجرا پر می‌شود)
-- **Deploy:** ⏳
+- **تست:** ایران `test-prod-pack-double-fg-v399` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Heal داده:** برای `7200 کاپشن مموری یلدا` چهار PACK فروش‌پذیر یتیم (PK-0001…4 = ۱۶۴ عدد) که روی رسید PO-0008 سوار شده بودند با `voidCuttingPack` ابطال شدند؛ `products.stock` از ۳۱۴ → ۱۵۰.
+- **Deploy:** ✅ `ba884cc` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v399`؛ `app.js?v=399`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حذف مرکز هزینه بدون خطای ۵۰۰ (SW v398)
 
