@@ -235,6 +235,12 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'bom_lines')) {
     ensureColumn(db, 'bom_lines', 'component_color_mode', "TEXT DEFAULT 'none'");
     ensureColumn(db, 'bom_lines', 'component_color_id', 'INTEGER');
+    ensureColumn(db, 'bom_lines', 'product_scope', "TEXT NOT NULL DEFAULT 'shared'");
+    ensureColumn(db, 'bom_lines', 'scoped_product_id', 'INTEGER');
+  }
+  if (tableExists(db, 'bom_operations')) {
+    ensureColumn(db, 'bom_operations', 'product_scope', "TEXT NOT NULL DEFAULT 'shared'");
+    ensureColumn(db, 'bom_operations', 'scoped_product_id', 'INTEGER');
   }
   if (tableExists(db, 'cutting_pack_bundles')) {
     ensureColumn(db, 'cutting_pack_bundles', 'variant_id', 'INTEGER');
@@ -417,12 +423,17 @@ function createTables(db) {
       size_matrix           TEXT DEFAULT '',
       component_color_mode  TEXT DEFAULT 'none',
       component_color_id    INTEGER,
+      /* v418: shared = همه محصولات BOM؛ exclusive = فقط scoped_product_id
+         (جدا از allocation_mode در bom_material_assignments که سهم بین عملیات است) */
+      product_scope         TEXT NOT NULL DEFAULT 'shared',
+      scoped_product_id     INTEGER,
       std_cost_rial         INTEGER DEFAULT 0,
       note                  TEXT DEFAULT '',
       created_at            INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(bom_id) REFERENCES bom_headers(id) ON DELETE CASCADE,
       FOREIGN KEY(component_product_id) REFERENCES products(id),
-      FOREIGN KEY(stage_cost_center_id) REFERENCES cost_centers(id)
+      FOREIGN KEY(stage_cost_center_id) REFERENCES cost_centers(id),
+      FOREIGN KEY(scoped_product_id) REFERENCES products(id)
     );
     CREATE INDEX IF NOT EXISTS ix_bomline_bom  ON bom_lines(bom_id, line_no);
     CREATE INDEX IF NOT EXISTS ix_bomline_comp ON bom_lines(component_product_id);
@@ -447,10 +458,13 @@ function createTables(db) {
       subcontract_fee_rial INTEGER DEFAULT 0,
       is_qc_gate           INTEGER DEFAULT 0,
       person_id            INTEGER,
+      product_scope        TEXT NOT NULL DEFAULT 'shared',
+      scoped_product_id    INTEGER,
       note                 TEXT DEFAULT '',
       created_at           INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(bom_id) REFERENCES bom_headers(id) ON DELETE CASCADE,
-      FOREIGN KEY(cost_center_id) REFERENCES cost_centers(id)
+      FOREIGN KEY(cost_center_id) REFERENCES cost_centers(id),
+      FOREIGN KEY(scoped_product_id) REFERENCES products(id)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS ux_bomop ON bom_operations(bom_id, seq);
 

@@ -321,6 +321,8 @@ const FK_COLUMNS = [
   ['rep_assignment_history', 'customer_id'], ['rep_assignment_history', 'from_rep_id'], ['rep_assignment_history', 'to_rep_id'],
   // Production FKs (append-only)
   ['bom_lines', 'bom_id'], ['bom_lines', 'component_product_id'],
+  ['bom_lines', 'scoped_product_id'],
+  ['bom_operations', 'scoped_product_id'],
   ['bom_operations', 'bom_id'], ['bom_operations', 'cost_center_id'],
   ['bom_outputs', 'bom_id'], ['bom_outputs', 'product_id'],
   ['production_orders', 'product_id'], ['production_orders', 'bom_id'], ['production_orders', 'cost_center_id'],

@@ -47,6 +47,9 @@ function bomFaError(e) {
     E_NO_MAIN_OUTPUT: 'برای فرمول چندمحصولی باید دقیقاً یک خروجی «اصلی» برابر محصول سرفصل باشد.',
     E_MAIN_MISMATCH: 'خروجی اصلی باید همان محصول سرفصل فرمول باشد؛ محصولات دیگر را به‌عنوان هم‌محصول (co) اضافه کنید.',
     E_OUTPUT_DUPLICATE: 'این کالا قبلاً در خروجی‌های فرمول ثبت شده است.',
+    E_PRODUCT_SCOPE: 'حالت تخصیص محصول باید «مشترک» یا «اختصاصی» باشد.',
+    E_SCOPED_PRODUCT_REQUIRED: 'برای تخصیص اختصاصی، محصول هدف را انتخاب کنید.',
+    E_SCOPED_PRODUCT_NOT_IN_BOM: 'محصول تخصیص‌یافته در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست.',
   };
   if (map[code]) return map[code];
   if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(String(e && e.message || ''))) {

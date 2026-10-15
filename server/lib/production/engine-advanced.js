@@ -191,6 +191,7 @@ function reserveMaterials(db, po, qtyStart) {
     color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
+    forProductId: po.product_id,
   });
   for (const L of ex.lines) {
     db.prepare(`
@@ -285,6 +286,7 @@ function explodedOrderLines(db, po) {
     color: po.color,
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
+    forProductId: po.product_id,
   });
   return ex.lines || [];
 }
@@ -1012,75 +1014,153 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     if (byCredit > wipFinal) throw err('E_NRV_EXCEEDS_WIP', 422);
 
     const wipNet = wipFinal - byCredit;
-    const mains = outs.filter(x => x.output_type === 'main');
     const qtyGood = num(body.qty_produced != null ? body.qty_produced : last.qty_out);
     if (qtyGood <= 0) throw err('E_QTY_INVALID', 422);
 
     // Matrix FG must name color×size. Prefer body; else production_order_lines
     // when plan qty matches output; else legacy color+size_breakdown.
     const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGood);
-    const unitCost = Math.round(wipNet / qtyGood);
     // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
     // for this product — that would double products.stock / WH-FG.
     require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
     // Roll-fabric apparel: lay + PACK must cover FG qty before sellable receipt.
     assertFabricCuttingPathForFgReceipt(db, po, qtyGood);
-    // F06: packs linked to this order staged qty in WH-WIP without touching
-    // sellable stock. Relieve that warehouse qty here (warehouse-only out) so
-    // finalize is the single products.stock / FG-warehouse increase.
-    const avg = updateMovingAverage(db, {
-      productId: po.product_id,
-      warehouseId: po.warehouse_fg_id,
-      qtyIn: qtyGood,
-      amountRial: wipNet,
-      userId,
-      note: `تولید ${po.order_no}`,
-      sourceType: 'production_receipt',
-      sourceId: po.id,
-      date,
-    });
 
-    let docNo = '';
-    try { docNo = allocateNumber(db, 'production_receipt', 'PR'); }
-    catch { docNo = `PR-${Date.now()}`; }
+    // v418: تسهیم WIP بین main+co (و exclusive در roll-up تحلیلی؛ JE روی سهم خروجی)
+    let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
+    if (!shareOuts.length) {
+      shareOuts = [{
+        output_type: 'main', product_id: po.product_id,
+        qty_per_base: 1, cost_share_percent: 100,
+      }];
+    }
+    const sumShare = shareOuts.reduce((s, o) => s + (Number(o.cost_share_percent) || 0), 0);
+    if (shareOuts.length > 1 && Math.abs(sumShare - 100) > 0.01) {
+      throw err('E_SHARE_NOT_100', 422, { sum: sumShare });
+    }
 
-    const receiptId = db.prepare(`
-      INSERT INTO production_receipts
-        (doc_no, order_id, product_id, output_type, qty, unit_cost_rial, amount_rial,
-         warehouse_id, is_partial, prev_avg_rial, prev_stock_qty, new_avg_rial,
-         date, period_label, status, created_by)
-      VALUES (?,?,?,'main',?,?,?,?,0,?,?,?,?,?,'posted',?)
-    `).run(
-      docNo, orderId, po.product_id, qtyGood, unitCost, wipNet, po.warehouse_fg_id,
-      avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
-    ).lastInsertRowid;
-    require('../inventory/apparel-lines').postApparelLines(db, {
-      productId: po.product_id, warehouseId: po.warehouse_fg_id,
-      lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
-      note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
-    });
-    require('../inventory/apparel-lines').saveDocVariantLines(
-      db, 'production_receipts', receiptId, fgLines
-    );
+    // Analytical exclusive pull (same as rollUp) so JE matches cost tab when possible
+    let exclusiveByProduct = {};
+    let exclusiveTotal = 0;
+    try {
+      const exAll = explodeBom(db, {
+        bomId: po.bom_id, qty: qtyStart, priceBasis: 'average',
+        yieldOverride: bom?.has_routing ? 100 : null,
+        sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
+      });
+      for (const L of exAll.lines || []) {
+        if (String(L.product_scope || 'shared') !== 'exclusive' || !L.scoped_product_id) continue;
+        const pid = Number(L.scoped_product_id);
+        const amt = Math.round(Number(L.amount_rial) || 0);
+        exclusiveByProduct[pid] = (exclusiveByProduct[pid] || 0) + amt;
+        exclusiveTotal += amt;
+      }
+    } catch (_) { exclusiveByProduct = {}; exclusiveTotal = 0; }
+    if (exclusiveTotal > wipNet) exclusiveTotal = wipNet;
+    const sharedPool = Math.max(0, wipNet - exclusiveTotal);
 
-    const je7 = postEvent(db, {
-      event: 'PRD-07',
-      sourceId: receiptId,
-      date,
-      description: `رسید تولید ${qtyGood} — ${po.order_no}`,
-      createdBy: userId,
-      lines: [
-        dr(db, 'coa_finished_goods', wipNet),
-        cr(db, 'coa_wip', wipNet, po.coa_wip_tafsili),
-      ],
+    const allocations = shareOuts.map(o => {
+      const isMain = o.output_type === 'main' || Number(o.product_id) === Number(po.product_id);
+      const q = isMain
+        ? qtyGood
+        : round6(num(o.qty_per_base) * qtyStart / (bom.base_qty || 1));
+      const excl = Math.round(exclusiveByProduct[Number(o.product_id)] || 0);
+      const pct = shareOuts.length === 1 ? 100 : (Number(o.cost_share_percent) || 0);
+      const sharedPart = Math.round(sharedPool * pct / 100);
+      return {
+        product_id: Number(o.product_id),
+        output_type: isMain ? 'main' : 'co',
+        qty: q,
+        exclusive_rial: excl,
+        shared_rial: sharedPart,
+        amount_rial: excl + sharedPart,
+        is_main: isMain,
+      };
     });
-    if (je7) {
-      jes.push(je7);
-      db.prepare('UPDATE production_receipts SET je_id=? WHERE id=?').run(je7.je_id, receiptId);
+    let assigned = allocations.reduce((s, a) => s + a.amount_rial, 0);
+    const mainAlloc = allocations.find(a => a.is_main) || allocations[0];
+    if (mainAlloc && assigned !== wipNet) {
+      mainAlloc.amount_rial += wipNet - assigned;
+      mainAlloc.shared_rial += wipNet - assigned;
+    }
+
+    const receipts = [];
+    let primaryReceiptId = null;
+    let unitCost = 0;
+
+    for (const a of allocations) {
+      if (!(a.qty > 0) || !(a.amount_rial > 0)) continue;
+      const uc = Math.round(a.amount_rial / a.qty);
+      if (a.is_main) unitCost = uc;
+
+      const avg = updateMovingAverage(db, {
+        productId: a.product_id,
+        warehouseId: po.warehouse_fg_id || fgWh,
+        qtyIn: a.qty,
+        amountRial: a.amount_rial,
+        userId,
+        note: `تولید ${po.order_no}${a.is_main ? '' : ' (هم‌محصول)'}`,
+        sourceType: 'production_receipt',
+        sourceId: po.id,
+        date,
+      });
+
+      let docNo = '';
+      try { docNo = allocateNumber(db, 'production_receipt', 'PR'); }
+      catch { docNo = `PR-${Date.now()}`; }
+
+      const receiptId = db.prepare(`
+        INSERT INTO production_receipts
+          (doc_no, order_id, product_id, output_type, qty, unit_cost_rial, amount_rial,
+           warehouse_id, is_partial, prev_avg_rial, prev_stock_qty, new_avg_rial,
+           date, period_label, status, created_by)
+        VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,'posted',?)
+      `).run(
+        docNo, orderId, a.product_id, a.output_type, a.qty, uc, a.amount_rial,
+        po.warehouse_fg_id || fgWh,
+        avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
+      ).lastInsertRowid;
+
+      if (a.is_main) {
+        primaryReceiptId = receiptId;
+        require('../inventory/apparel-lines').postApparelLines(db, {
+          productId: a.product_id, warehouseId: po.warehouse_fg_id || fgWh,
+          lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
+          note: `رسید تولید ${po.order_no}`, sign: 1, allowNegative: true,
+        });
+        require('../inventory/apparel-lines').saveDocVariantLines(
+          db, 'production_receipts', receiptId, fgLines
+        );
+      }
+
+      const je7 = postEvent(db, {
+        event: 'PRD-07',
+        sourceId: receiptId,
+        date,
+        description: `رسید تولید ${a.qty}${a.is_main ? '' : ' هم‌محصول'} — ${po.order_no}`,
+        createdBy: userId,
+        lines: [
+          dr(db, 'coa_finished_goods', a.amount_rial),
+          cr(db, 'coa_wip', a.amount_rial, po.coa_wip_tafsili),
+        ],
+      });
+      if (je7) {
+        jes.push(je7);
+        db.prepare('UPDATE production_receipts SET je_id=? WHERE id=?').run(je7.je_id, receiptId);
+      }
+      receipts.push({
+        receipt_id: receiptId, product_id: a.product_id, output_type: a.output_type,
+        qty: a.qty, amount_rial: a.amount_rial, unit_cost_rial: uc,
+      });
+    }
+
+    if (!primaryReceiptId && receipts.length) primaryReceiptId = receipts[0].receipt_id;
+    if (!unitCost && mainAlloc && mainAlloc.qty > 0) {
+      unitCost = Math.round(mainAlloc.amount_rial / mainAlloc.qty);
     }
 
     relieveStagedPackQty(db, {
-      orderId, productId: po.product_id, qtyGood, userId, date, receiptId,
+      orderId, productId: po.product_id, qtyGood, userId, date, receiptId: primaryReceiptId,
     });
 
     db.prepare(`
@@ -1102,16 +1182,21 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     `).run(orderId);
 
     const residual = wipResidual(db, orderId);
-    emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCost, wipNet });
+    emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCost, wipNet, receipts });
 
     try {
       const { applyPricingFromCost } = require('../../routes/pricing-rules');
       applyPricingFromCost(db, po.product_id, unitCost);
+      for (const r of receipts) {
+        if (Number(r.product_id) === Number(po.product_id)) continue;
+        if (r.unit_cost_rial > 0) applyPricingFromCost(db, r.product_id, r.unit_cost_rial);
+      }
     } catch (e) { console.warn('pricing_rules:', e.message); }
 
     return {
       ok: true,
-      receipt_id: receiptId,
+      receipt_id: primaryReceiptId,
+      receipts,
       qty_produced: qtyGood,
       byproduct_credit_rial: byCredit,
       wip_final_rial: wipFinal,

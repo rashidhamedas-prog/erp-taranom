@@ -415,6 +415,7 @@ function releaseOrder(db, orderId, userId) {
       sizeBreakdown: safeJson(po.size_breakdown),
       color: po.color,
       priceBasis: 'average',
+      forProductId: po.product_id,
     });
 
     for (const L of ex.lines) {

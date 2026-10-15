@@ -225,6 +225,9 @@ async function api(method, path, data, isFormData, silent){
         E_NO_MAIN_OUTPUT:'یک خروجی اصلی برابر محصول سرفصل لازم است',
         E_MAIN_MISMATCH:'خروجی اصلی باید همان محصول سرفصل باشد؛ بقیه را هم‌محصول بگذارید',
         E_OUTPUT_DUPLICATE:'این کالا قبلاً در خروجی‌ها ثبت شده',
+        E_PRODUCT_SCOPE:'تخصیص محصول باید مشترک یا اختصاصی باشد',
+        E_SCOPED_PRODUCT_REQUIRED:'برای تخصیص اختصاصی، محصول هدف را انتخاب کنید',
+        E_SCOPED_PRODUCT_NOT_IN_BOM:'محصول تخصیص در لیست محصولات این فرمول نیست',
         E_BOM_TOO_DEEP:'عمق درخت فرمول بیش از حد مجاز است',
         E_VARIANT:'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز الزامی است',
         E_VARIANT_REQUIRED:'برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید',
@@ -14511,6 +14514,75 @@ async function prodBomCreateSave(){
     await prodBomEditModal(r.id, has_multi?'outputs':'items');
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
+function prodBomFgProducts(bom){
+  if(Array.isArray(bom?.fg_products) && bom.fg_products.length) return bom.fg_products;
+  const list=[{id:bom.product_id, name:bom.product_name||('#'+bom.product_id), role:'main'}];
+  (bom.outputs||[]).filter(o=>o.output_type==='co').forEach(o=>{
+    if(!list.some(x=>Number(x.id)===Number(o.product_id))){
+      list.push({id:o.product_id, name:o.product_name||('#'+o.product_id), role:'co'});
+    }
+  });
+  return list;
+}
+function prodBomIsMulti(bom){
+  return !!(bom && (bom.is_multiproduct || prodBomFgProducts(bom).length>1 || Number(bom.has_coproducts)===1));
+}
+function prodBomScopeOptsHtml(selectedScope, selectedPid, fgProducts){
+  const scope=selectedScope||'shared';
+  const opts=(fgProducts||[]).map(p=>`<option value="${p.id}" ${Number(p.id)===Number(selectedPid)?'selected':''}>${esc(p.name||('#'+p.id))}${p.role==='main'?' (اصلی)':''}</option>`).join('');
+  return `<select class="pbe-scope" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(event){const tr=event.target.closest('tr'); const wrap=tr&&tr.querySelector('.pbe-scope-prod-wrap'); if(wrap) wrap.hidden=event.target.value!=='exclusive';})}">
+    <option value="shared" ${scope==='shared'?'selected':''}>مشترک</option>
+    <option value="exclusive" ${scope==='exclusive'?'selected':''}>اختصاصی</option>
+  </select>
+  <div class="pbe-scope-prod-wrap" ${scope==='exclusive'?'':'hidden'} data-csp-style="${CSP.style(`margin-top:4px`)}">
+    <select class="pbe-scoped-pid" data-csp-style="${CSP.style(`width:140px`)}"><option value="">— محصول —</option>${opts}</select>
+  </div>`;
+}
+function prodBomFgChipsHtml(bom, canEdit){
+  const fgs=prodBomFgProducts(bom);
+  const chips=fgs.map(p=>`<span data-csp-style="${CSP.style(`display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:${p.role==='main'?'var(--green-soft, #e8f5e9)':'var(--well)'};border:1px solid var(--border);font-size:12px`)}">
+    <b>${esc(p.role==='main'?'اصلی':'هم‌محصول')}</b> ${esc(p.name||('#'+p.id))}
+  </span>`).join(' ');
+  return `<div id="pbe-fg-bar" data-csp-style="${CSP.style(`margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--well);border:1px solid var(--border)`)}">
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px`)}">
+      <strong data-csp-style="${CSP.style(`font-size:13px`)}">محصولات این فرمول</strong>
+      ${chips||`<span class="muted">فقط محصول سرفصل</span>`}
+    </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0`)}">${fgs.length>1
+      ? 'در اقلام و عملیات برای هر ردیف مشخص کنید «مشترک» است یا «اختصاصی» یک محصول. هزینهٔ مشترک با درصد تب خروجی‌ها تسهیم می‌شود؛ اختصاصی فقط به همان محصول می‌نشیند.'
+      : 'فرمول تک‌محصولی — ستون تخصیص پنهان است. برای چندمحصولی از تب خروجی‌ها هم‌محصول اضافه کنید یا در ایجاد تیک چندمحصولی بزنید.'}</p>
+    ${canEdit&&fgs.length>1?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end`)}">
+      <div class="fg" data-csp-style="${CSP.style(`margin:0;min-width:200px`)}"><label>افزودن هم‌محصول</label>
+        <select id="pbe-add-co">${(CACHE.allProducts||[]).filter(p=>Number(p.is_manufactured)===1&&!fgs.some(f=>Number(f.id)===Number(p.id))).slice(0,80).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">—</option>'}</select>
+      </div>
+      <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddCoFromHeader((bom.id))})}">➕ به فرمول</button>
+      <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((bom.id),'outputs')})}">مدیریت خروجی‌ها / سهم٪</button>
+    </div>`:''}
+  </div>`;
+}
+async function prodBomAddCoFromHeader(bomId){
+  const pid=+el('pbe-add-co')?.value||0;
+  if(!pid){ showToast('هم‌محصول را انتخاب کنید','error'); return; }
+  try{
+    const bom=await api('GET','/production/boms/'+bomId);
+    const cos=(bom.outputs||[]).filter(o=>o.output_type==='co').map(o=>Number(o.product_id));
+    if(!cos.includes(pid)) cos.push(pid);
+    await api('PUT','/production/boms/'+bomId,{
+      name:el('pbe-name')?.value||bom.name||'',
+      base_qty:+el('pbe-base')?.value||bom.base_qty||1,
+      yield_percent:+el('pbe-yield')?.value||bom.yield_percent||100,
+      size_range:el('pbe-size-range')?.value||'',
+      color_variant:el('pbe-color-variant')?.value||'',
+      color_id:+el('pbe-color-id')?.value||null,
+      note:el('pbe-note')?.value||'',
+      has_coproducts:true,
+      co_product_ids:cos,
+      auto_share_method:'physical'
+    });
+    showToast('هم‌محصول اضافه شد');
+    await prodBomEditModal(bomId);
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
 async function prodBomEditModal(id, tab){
   await prodBomEnsureProducts();
   let bom;
@@ -14519,6 +14591,9 @@ async function prodBomEditModal(id, tab){
   const canBomEdit=!locked && typeof canPerm==='function' && canPerm('production_bom','edit');
   const lines=bom.lines||[];
   window._prodBomEditLines=lines;
+  window._prodBomEditBom=bom;
+  window._prodBomFgProducts=prodBomFgProducts(bom);
+  const multi=prodBomIsMulti(bom);
   const prodName=bom.product_name||(CACHE.allProducts||[]).find(p=>Number(p.id)===Number(bom.product_id))?.name||('#'+bom.product_id);
   const canSeeCost=!!(window.__canSeeCost || ME.role==='admin' || ME.role==='accounting' || (typeof canPerm==='function' && canPerm('production_cost','view')));
   let activeTab=tab||window._prodBomEditTab||'items';
@@ -14541,33 +14616,37 @@ async function prodBomEditModal(id, tab){
       if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
     }catch(e){ if(!CACHE.persons) CACHE.persons=[]; }
   }
-  if(activeTab==='outputs'){
+  if(activeTab==='outputs' || multi){
     try{ outs=(await api('GET','/production/boms/'+id+'/outputs'))?.rows||[]; }catch(e){ outs=[]; }
+    if(outs.length){ bom.outputs=outs; window._prodBomFgProducts=prodBomFgProducts(bom); }
   }
 
   const tabBtn=(k,label)=>`<button type="button" class="btn sm ${activeTab===k?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((id),`${String((k) ?? '')}`)})}">${label}</button>`;
   const tabBar=`<div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 10px`)}">
       ${tabBtn('items','اقلام')}
       ${tabBtn('ops','مسیر عملیات')}
-      ${tabBtn('outputs','خروجی‌ها')}
+      ${tabBtn('outputs', multi?'خروجی‌ها / سهم٪':'خروجی‌ها')}
       ${canSeeCost?tabBtn('cost','بهای تمام‌شده'):''}
     </div>`;
 
+  const colCount=multi?8:7;
   let panel='';
   if(activeTab==='items'){
     panel=`
     <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px`)}">
-      <strong>اقلام مواد / بسته‌بندی</strong>
+      <strong>اقلام مواد / بسته‌بندی${multi?' · تخصیص محصول':''}</strong>
       ${canBomEdit?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">ماتریس سایز هر قلم با دکمهٔ 📐 در همین جدول تعریف می‌شود (مصرف متفاوت هر سایز). سایزها از کارت کالا می‌آیند. بعد از ویرایش، «ذخیره اقلام» را بزنید.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">${multi
+      ? 'پارچه/مواد مشترک را «مشترک» بگذارید؛ خرج‌کار اختصاصی هر مدل را «اختصاصی» کنید. ماتریس سایز با 📐. پس از ویرایش «ذخیره اقلام» را بزنید.'
+      : 'ماتریس سایز هر قلم با دکمهٔ 📐 تعریف می‌شود. بعد از ویرایش، «ذخیره اقلام» را بزنید.'}</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
+      <th>نوع</th><th>جزء</th>${multi?'<th>تخصیص به محصول</th>':''}<th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
     </tr></thead><tbody id="pbe-lines">
-      ${lines.map(L=>prodBomLineRowHtml(L, !canBomEdit, bom.product_id)).join('')||(!canBomEdit?`<tr><td colspan="7" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`:'')}
+      ${lines.map(L=>prodBomLineRowHtml(L, !canBomEdit, bom.product_id, multi)).join('')||(!canBomEdit?`<tr><td colspan="${colCount}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`:'')}
     </tbody></table></div>`;
   } else if(activeTab==='ops'){
-    panel=prodBomOpsPanelHtml(id, ops, !canBomEdit, stageCCs);
+    panel=prodBomOpsPanelHtml(id, ops, !canBomEdit, stageCCs, multi);
   } else if(activeTab==='outputs'){
     panel=prodBomOutputsPanelHtml(id, outs, !canBomEdit, bom);
   } else if(activeTab==='cost'){
@@ -14577,16 +14656,17 @@ async function prodBomEditModal(id, tab){
   showModal((!canBomEdit?'مشاهده':'ویرایش')+' فرمول '+esc(bom.code||''),`
     ${locked?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر «نسخه جدید» بسازید.</div>`:''}
     ${!locked&&!canBomEdit?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">👁 فقط مشاهده — مجوز <code>production_bom/edit</code> ندارید.</div>`:''}
+    ${prodBomFgChipsHtml(bom, canBomEdit)}
     <div class="form-grid">
-      <div class="fg"><label>محصول</label><input value="${esc(prodName)}" disabled></div>
+      <div class="fg"><label>محصول سرفصل (اصلی)</label><input value="${esc(prodName)}" disabled></div>
       <div class="fg"><label>نام</label><input id="pbe-name" value="${esc(bom.name||'')}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
-      <div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>برچسب رنگ (یادداشت)</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز — فقط متن" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>رنگ نسخه / دامنه مجاز ${hlp('از v278 می‌توانید چند رنگ×سایز مجاز را با API allowed-variants ذخیره کنید. فیلد تک‌رنگ زیر برای سازگاری با نسخه‌های قبلی باقی است؛ ترجیح با دامنه ساختاریافته است.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select>
-        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.6`)}">ترکیب‌های مجاز رنگ×سایز را در تب مسیر یا از «دامنه مجاز» API تنظیم کنید. ماتریس تعداد سفارش جدا از دامنه فرمول است.</div>
-      </div>
+      ${multi?'':`<div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>برچسب رنگ (یادداشت)</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز — فقط متن" ${canBomEdit?'':'disabled'}></div>`}
+      <div class="fg"><label>رنگ نسخه / دامنه مجاز ${hlp('از v278 می‌توانید چند رنگ×سایز مجاز را با API allowed-variants ذخیره کنید.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select></div>
+      ${multi?`<div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>برچسب رنگ</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" ${canBomEdit?'':'disabled'}></div>`:''}
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${canBomEdit?'':'disabled'}>${esc(bom.note||'')}</textarea></div>
     </div>
     ${tabBar}
@@ -14635,18 +14715,21 @@ function prodBomPersonLabel(personId){
   const p=(CACHE.persons||[]).find(x=>Number(x.id)===Number(personId));
   return p?(p.name||p.full_name||('#'+personId)):'#'+personId;
 }
-function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
+function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi){
   if(stageCCs&&stageCCs.length) window._prodBomStageCCs=stageCCs;
   const canMut=!locked;
+  const isMulti=multi!=null?!!multi:!!(window._prodBomFgProducts&&window._prodBomFgProducts.length>1);
   window._prodBomEditOps=ops||[];
   const asgLineOpts=(window._prodBomEditLines||[]).map(L=>`<option value="${L.id}">${esc('#'+(L.line_no??L.id)+' — '+prodBomAsgProdLabel(L.component_product_id)+' ('+(L.qty_per_base??'')+')')}</option>`).join('');
   const asgOpOpts=(ops||[]).map(o=>`<option value="${o.id}">${esc((o.seq??'')+' — '+(o.operation_name||('#'+o.id)))}</option>`).join('');
   const nextSeq=((ops||[]).reduce((m,o)=>Math.max(m,Number(o.seq)||0),0)||0)+10;
+  const scopeCol=isMulti?'<th>تخصیص محصول</th>':'';
+  const colN=(canMut?10:9)+(isMulti?1:0);
   const html=`
     <div class="prod-scope">
     <div class="prod-step">
       <h4>۱) مسیر عملیات را بسازید</h4>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">بدون عملیات ذخیره‌شده، لیست «عملیات» برای وصل مواد خالی می‌ماند. اول «از الگوی ترنم» یا فرم پایین را بزنید.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">بدون عملیات ذخیره‌شده، لیست «عملیات» برای وصل مواد خالی می‌ماند. اول «از الگوی ترنم» یا فرم پایین را بزنید.${isMulti?' در چندمحصولی، عملیات مشترک (برش) یا اختصاصی (دوخت مدل خاص) را مشخص کنید.':''}</p>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
       ${canMut?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRoutingInEditor((id))})}">از الگوی ترنم</button>
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
@@ -14654,11 +14737,15 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
     </div>
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>. شخص اختیاری است و هزینهٔ عملیات را به همان فرد نسبت می‌دهد.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>شخص</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
+      <th>ترتیب</th><th>عملیات</th>${scopeCol}<th>مرکز هزینه</th><th>شخص</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
-      ${(ops||[]).map(o=>`<tr>
+      ${(ops||[]).map(o=>{
+        const sc=o.product_scope||'shared';
+        const scLabel=sc==='exclusive'?('اختصاصی: '+(o.scoped_product_name||('#'+(o.scoped_product_id||'')))):'مشترک';
+        return `<tr>
         <td class="num">${o.seq}</td>
         <td>${esc(o.operation_name||'—')}</td>
+        ${isMulti?`<td>${esc(scLabel)}</td>`:''}
         <td class="num">${o.cost_center_id||'—'}</td>
         <td>${esc(prodBomPersonLabel(o.person_id))}</td>
         <td>${esc({piece:'قطعه‌ای',hourly:'ساعتی',monthly:'ماهانه',contract:'پیمان'}[o.labor_method]||o.labor_method||'قطعه‌ای')}</td>
@@ -14670,7 +14757,8 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
           <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomFillOpForm((o))})}">ویرایش</button>
           <button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteOperation((id),(o.id))})}">حذف</button>
         </td>`:''}
-      </tr>`).join('')||`<tr><td colspan="${canMut?10:9}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
+      </tr>`;
+      }).join('')||`<tr><td colspan="${colN}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
     </div>
     <div class="prod-step">
@@ -14701,6 +14789,15 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <div class="fg"><label>بازده٪</label><input id="pbe-op-yield" type="number" min="0.1" max="100" step="any" value="100"></div>
       <div class="fg"><label>ضایعات٪</label><input id="pbe-op-waste" type="number" min="0" max="99.8" step="any" value="0"></div>
       <div class="fg"><label>دقیقه/واحد</label><input id="pbe-op-run" type="number" min="0" step="any" value="0"></div>
+      ${isMulti?`<div class="fg"><label>تخصیص به محصول</label>
+        <select id="pbe-op-scope" data-csp-change="${CSP.bind('change',function(event){const w=el('pbe-op-scoped-wrap'); if(w) w.hidden=event.target.value!=='exclusive';})}">
+          <option value="shared" selected>مشترک (همه محصولات)</option>
+          <option value="exclusive">اختصاصی یک محصول</option>
+        </select>
+        <div id="pbe-op-scoped-wrap" hidden data-csp-style="${CSP.style(`margin-top:6px`)}">
+          <select id="pbe-op-scoped-pid"><option value="">— محصول —</option>${(window._prodBomFgProducts||[]).map(p=>`<option value="${p.id}">${esc(p.name||('#'+p.id))}</option>`).join('')}</select>
+        </div>
+      </div>`:''}
     </div>
     <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
       <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOperation((id))})}">💾 ذخیره عملیات</button>
@@ -14802,6 +14899,12 @@ function prodBomFillOpForm(o){
   if(el('pbe-op-rate')) el('pbe-op-rate').value=o.labor_rate_rial||0;
   if(typeof pickGeneric==='function') pickGeneric('pbe-op-person', o.person_id||'');
   else if(el('pbe-op-person')) el('pbe-op-person').value=o.person_id||'';
+  if(el('pbe-op-scope')){
+    el('pbe-op-scope').value=o.product_scope||'shared';
+    const w=el('pbe-op-scoped-wrap');
+    if(w) w.hidden=(o.product_scope||'shared')!=='exclusive';
+    if(el('pbe-op-scoped-pid')) el('pbe-op-scoped-pid').value=o.scoped_product_id||'';
+  }
 }
 function prodBomResetOpForm(){
   if(el('pbe-op-id')) el('pbe-op-id').value='';
@@ -14813,6 +14916,9 @@ function prodBomResetOpForm(){
   if(el('pbe-op-rate')) el('pbe-op-rate').value=0;
   if(typeof pickGeneric==='function') pickGeneric('pbe-op-person','');
   else if(el('pbe-op-person')) el('pbe-op-person').value='';
+  if(el('pbe-op-scope')) el('pbe-op-scope').value='shared';
+  if(el('pbe-op-scoped-wrap')) el('pbe-op-scoped-wrap').hidden=true;
+  if(el('pbe-op-scoped-pid')) el('pbe-op-scoped-pid').value='';
 }
 window.adv = window.adv || {};
 if(typeof window.adv.updateOperation !== 'function'){
@@ -14828,6 +14934,7 @@ async function prodBomSaveOperation(id){
   if(!seq){ showToast('ترتیب (seq) الزامی است','error'); return; }
   if(!cost_center_id){ showToast('مرکز هزینه مرحله الزامی است','error'); return; }
   const personRaw=el('pbe-op-person')?.value;
+  const scope=el('pbe-op-scope')?.value||'shared';
   const body={
     seq,
     cost_center_id,
@@ -14837,8 +14944,13 @@ async function prodBomSaveOperation(id){
     run_minutes_per_unit:+el('pbe-op-run')?.value||0,
     labor_method:el('pbe-op-method')?.value||'piece',
     labor_rate_rial: typeof moneyVal==='function'?moneyVal('pbe-op-rate'):(+el('pbe-op-rate')?.value||0),
-    person_id: personRaw ? +personRaw : null
+    person_id: personRaw ? +personRaw : null,
+    product_scope: scope,
+    scoped_product_id: scope==='exclusive'?(+el('pbe-op-scoped-pid')?.value||null):null
   };
+  if(body.product_scope==='exclusive'&&!body.scoped_product_id){
+    showToast('برای عملیات اختصاصی، محصول هدف را انتخاب کنید','error'); return;
+  }
   try{
     if(opId) await api('PUT','/production/boms/'+id+'/operations/'+opId,body);
     else await api('POST','/production/boms/'+id+'/operations',body);
@@ -15058,12 +15170,14 @@ async function prodBomComputeFullCost(id){
         </tr>`).join('')||`<tr><td colspan="11" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
       </tbody></table></div>
       ${outs.length?`<h5 data-csp-style="${CSP.style(`margin:14px 0 6px`)}">تسهیم بها بین محصولات</h5>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 6px`)}">اختصاصی = مواد/عملیات exclusive؛ مشترک = سهم٪ خروجی از باقیمانده WIP.</p>
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>نوع</th><th>محصول</th><th>مقدار</th><th>سهم٪</th><th>مبلغ</th><th>بهای واحد</th>
+        <th>نوع</th><th>محصول</th><th>مقدار</th><th>سهم٪</th><th>اختصاصی</th><th>مشترک</th><th>مبلغ</th><th>بهای واحد</th>
       </tr></thead><tbody>
         ${outs.map(o=>`<tr>
           <td>${esc(o.type||'')}</td><td>${esc(o.name||('#'+o.product_id))}</td>
           <td class="num">${o.qty??''}</td><td class="num">${o.share_percent??''}</td>
+          <td class="num">${fmt(o.exclusive_rial||0)}</td><td class="num">${fmt(o.shared_rial!=null?o.shared_rial:(o.amount_rial||0))}</td>
           <td class="num">${fmt(o.amount_rial||0)}</td><td class="num">${fmt(o.unit_cost_rial||0)}</td>
         </tr>`).join('')}
       </tbody></table></div>`:''}`;
@@ -15076,10 +15190,11 @@ async function prodBomComputeFullCost(id){
     showToast(msg,'error');
   }
 }
-function prodBomLineRowHtml(L, locked, excludeProductId){
+function prodBomLineRowHtml(L, locked, excludeProductId, multi){
   L=L||{};
   const type=L.line_type||'material';
   const exclude=excludeProductId!=null?excludeProductId:(window._prodBomEditProductId||0);
+  const isMulti=multi!=null?!!multi:!!(window._prodBomFgProducts&&window._prodBomFgProducts.length>1);
   let matrixObj=null;
   try{ matrixObj=L.size_matrix?(typeof L.size_matrix==='string'?JSON.parse(L.size_matrix):L.size_matrix):null; }catch(_){ matrixObj=null; }
   const hasMatrix=matrixObj&&typeof matrixObj==='object'&&Object.keys(matrixObj).length>0;
@@ -15089,11 +15204,16 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
   const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude) && (isBomComponentEligible(p) || Number(p.id)===Number(L.component_product_id)));
   const matrixJson=hasMatrix?esc(JSON.stringify(matrixObj)):'';
   const colorModeLabel={none:'بدون (پیش‌فرض)',inherit_fg:'همرنگ محصول/سفارش',fixed:'رنگ ثابت کاتالوگ'};
+  const scope=L.product_scope||'shared';
+  const scopeLabel=scope==='exclusive'
+    ? ('اختصاصی: '+(L.scoped_product_name||('#'+(L.scoped_product_id||''))))
+    : 'مشترک';
   if(locked){
     const colorName=((window._prodBomColors||[]).find(c=>Number(c.id)===Number(L.component_color_id))||{}).name;
     return `<tr>
       <td>${type==='packaging'?'بسته‌بندی':'مواد'}</td>
       <td>${esc(L.product_name||('#'+L.component_product_id))}</td>
+      ${isMulti?`<td>${esc(scopeLabel)}</td>`:''}
       <td class="num">${L.qty_per_base??0}</td>
       <td class="num">${L.scrap_percent??0}</td>
       <td>${matrixBadge}</td>
@@ -15104,6 +15224,7 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
   return `<tr class="pbe-line" data-line-id="${L.id||''}">
     <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
     <td>${productSelect(cid, L.component_product_id, comps, {inputClass:'pbe-comp'})}</td>
+    ${isMulti?`<td>${prodBomScopeOptsHtml(scope, L.scoped_product_id, window._prodBomFgProducts||[])}</td>`:''}
     <td><input class="pbe-qty" type="number" step="any" min="0" value="${L.qty_per_base??1}" data-csp-style="${CSP.style(`width:90px`)}"></td>
     <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" data-csp-style="${CSP.style(`width:70px`)}"></td>
     <td>
@@ -15201,13 +15322,16 @@ async function prodBomOpenSizeMatrix(tr){
 }
 function prodBomAddLineRow(){
   const body=el('pbe-lines'); if(!body) return;
-  body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId));
+  const multi=!!(window._prodBomFgProducts&&window._prodBomFgProducts.length>1);
+  body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId, multi));
   initCustSearches(body);
   prodBomBindColorModeToggles(body);
 }
 async function prodBomSaveHeader(id){
   try{
-    await api('PUT','/production/boms/'+id,{
+    const bom=window._prodBomEditBom||{};
+    const cos=(bom.outputs||[]).filter(o=>o.output_type==='co').map(o=>Number(o.product_id));
+    const payload={
       name:el('pbe-name')?.value||'',
       base_qty:+el('pbe-base')?.value||1,
       yield_percent:+el('pbe-yield')?.value||100,
@@ -15215,7 +15339,12 @@ async function prodBomSaveHeader(id){
       color_variant:el('pbe-color-variant')?.value||'',
       color_id:+el('pbe-color-id')?.value||null,
       note:el('pbe-note')?.value||''
-    });
+    };
+    if(cos.length||Number(bom.has_coproducts)===1){
+      payload.has_coproducts=true;
+      payload.co_product_ids=cos;
+    }
+    await api('PUT','/production/boms/'+id, payload);
     showToast('سرفصل ذخیره شد');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
@@ -15228,6 +15357,8 @@ async function prodBomSaveLines(id){
       const raw=tr.querySelector('.pbe-size-matrix')?.value||'';
       if(raw){ try{ size_matrix=JSON.parse(raw); }catch(_){ size_matrix=null; } }
       const mode=tr.querySelector('.pbe-color-mode')?.value||'none';
+      const scope=tr.querySelector('.pbe-scope')?.value||'shared';
+      const scoped=+tr.querySelector('.pbe-scoped-pid')?.value||null;
       return {
         component_product_id:+tr.querySelector('.pbe-comp')?.value,
         qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
@@ -15235,10 +15366,14 @@ async function prodBomSaveLines(id){
         line_type:tr.querySelector('.pbe-type')?.value||'material',
         size_matrix: size_matrix||'',
         component_color_mode: mode,
-        component_color_id: mode==='fixed'?(+tr.querySelector('.pbe-color-id')?.value||null):null
+        component_color_id: mode==='fixed'?(+tr.querySelector('.pbe-color-id')?.value||null):null,
+        product_scope: scope,
+        scoped_product_id: scope==='exclusive'?scoped:null
       };
     }).filter(L=>L.component_product_id&&L.qty_per_base>0);
     if(!lines.length){ showToast('اقلام معتبر نیست','error'); return; }
+    const bad=lines.find(L=>L.product_scope==='exclusive'&&!L.scoped_product_id);
+    if(bad){ showToast('برای قلم اختصاصی، محصول هدف را انتخاب کنید','error'); return; }
     await api('POST','/production/boms/'+id+'/lines/bulk',{replace:true, lines});
     showToast(toFa(lines.length)+' قلم ذخیره شد');
     await prodBomEditModal(id);
@@ -29763,7 +29898,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
-        <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی) یا <code>POST .../outputs/ensure-share</code> و <code>.../auto-share</code>. اگر کالا را main بگذارید ولی با سرفصل فرق داشته باشد، سرور خودکار co می‌کند. فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌های بدون BOM فعال دیگر را هم به همین فرمول می‌چسباند.</li>
+        <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v418):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌ها را هم می‌چسباند.</li>
+        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). حوالهٔ سفارش فقط اقلام مشترک + اختصاصی همان محصول سفارش را برمی‌دارد. در بهای تمام‌شده و رسید نهایی، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم و برای هر هم‌محصول رسید FG + سند حسابداری (PRD-07) ثبت می‌شود.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>

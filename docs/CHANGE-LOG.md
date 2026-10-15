@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی: تخصیص اقلام/عملیات + JE هم‌محصول (SW v418)
+- **هدف:** وقتی بیش از یک محصول در BOM است، هر قلم مواد و هر عملیات مشخص کند «مشترک» است یا «اختصاصی» یک محصول؛ UI سرفصل/تب‌ها متناسب با N محصول تغییر کند؛ حواله فقط اقلام مرتبط با محصول سفارش را بردارد؛ بهای تمام‌شده و رسید نهایی WIP را با exclusive + درصد خروجی‌ها بین main/co تسهیم و برای هر هم‌محصول رسید FG + PRD-07 بزند.
+- **مدل:** `bom_lines` / `bom_operations`: `product_scope` (`shared`|`exclusive`) + `scoped_product_id` (جدا از `allocation_mode` سهم بین عملیات). `getBom` → `fg_products` / `is_multiproduct`. `explodeBom({forProductId})` فیلتر exclusive. `rollUpBom` و `finalizeAdvancedOrder` تسهیم اختصاصی+مشترک.
+- **UI:** نوار چیپ محصولات؛ ستون تخصیص در اقلام/مسیر؛ افزودن هم‌محصول از سرفصل؛ تب بها با ستون exclusive/shared؛ Help.
+- **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,engine,engine-advanced}.js`, `routes/production-boms.js`, `sync/tables.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bom-product-scope-v418.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ERPNext co-product %؛ Odoo cost share؛ tap-erp-architecture؛ 21st inspiration (metadata).
+- **Non-goals:** سفارش تولید چند-FG همزمان؛ حذف فیزیکی؛ بیلد APK/EXE.
+- **تست:** `test-bom-product-scope-v418` + sms/sync پس از deploy.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — hotfix: ترتیب migration UNIQUE BOM (crash loop PM2)
 - **مشکل:** `ensureBomLiveUniqueIndexes` قبل از DROP ایندکس کامل `ux_bom_prod_ver` ردیف‌های مرده را bump می‌کرد → `UNIQUE constraint` در boot → production schema fail → PM2 crash loop.
 - **رفع:** اول DROP ایندکس‌های قدیمی، بعد tombstone امن (با `deleted_at`)، بعد CREATE ایندکس جزئی؛ خطای bump فقط warn.

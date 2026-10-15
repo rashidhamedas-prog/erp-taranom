@@ -344,17 +344,46 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     throw err('E_SHARE_NOT_100', 422, { sum: sumShare });
   }
 
+  // v418: اقلام exclusive مستقیم به محصول؛ باقی (مواد shared + دستمزد/سربار) با درصد خروجی
+  const exclusiveByProduct = {};
+  let exclusiveTotal = 0;
+  for (const L of ex.lines) {
+    if (String(L.product_scope || 'shared') !== 'exclusive' || !L.scoped_product_id) continue;
+    const pid = Number(L.scoped_product_id);
+    const amt = Math.round(Number(L.amount_rial) || 0);
+    exclusiveByProduct[pid] = (exclusiveByProduct[pid] || 0) + amt;
+    exclusiveTotal += amt;
+  }
+  for (const op of ops) {
+    if (String(op.product_scope || 'shared') !== 'exclusive' || !op.scoped_product_id) continue;
+    const st = stages.find(s => Number(s.seq) === Number(op.seq));
+    if (!st) continue;
+    const amt = Math.round((Number(st.labor_rial) || 0) + (Number(st.overhead_rial) || 0) + (Number(st.subcontract_rial) || 0));
+    const pid = Number(op.scoped_product_id);
+    exclusiveByProduct[pid] = (exclusiveByProduct[pid] || 0) + amt;
+    exclusiveTotal += amt;
+  }
+  if (exclusiveTotal > wipAfterBy) {
+    warnings.push(`هزینه اختصاصی (${exclusiveTotal}) از WIP پس از فرعی بیشتر است — سقف به WIP محدود شد`);
+    exclusiveTotal = wipAfterBy;
+  }
+  const sharedPool = Math.max(0, wipAfterBy - exclusiveTotal);
+
   let assigned = 0;
   const shareRows = shares.map(o => {
     const q = o.output_type === 'main'
       ? qtyIn
       : round6(Number(o.qty_per_base) * qty_start / (bom.base_qty || 1));
-    const amt = Math.round(wipAfterBy * (Number(o.cost_share_percent) || 0) / 100);
+    const excl = Math.round(exclusiveByProduct[Number(o.product_id)] || 0);
+    const sharedPart = Math.round(sharedPool * (Number(o.cost_share_percent) || 0) / 100);
+    const amt = excl + sharedPart;
     assigned += amt;
     return {
       ...outMeta(db, o),
       qty: q,
       share_percent: o.cost_share_percent,
+      exclusive_rial: excl,
+      shared_rial: sharedPart,
       amount_rial: amt,
       unit_cost_rial: q ? Math.round(amt / q) : 0,
     };
@@ -362,6 +391,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
   const mainRow = shareRows.find(r => r.type === 'main');
   if (mainRow && assigned !== wipAfterBy) {
     mainRow.amount_rial += wipAfterBy - assigned;
+    mainRow.shared_rial = (mainRow.shared_rial || 0) + (wipAfterBy - assigned);
     mainRow.unit_cost_rial = mainRow.qty ? Math.round(mainRow.amount_rial / mainRow.qty) : 0;
   }
   result.push(...shareRows);
@@ -515,13 +545,17 @@ function addOperation(db, bomId, body, userId) {
     personId = null;
   }
 
+  const { normalizeProductScope } = require('./bom');
+  const scope = normalizeProductScope(db, bom, body);
+
   const id = db.prepare(`
     INSERT INTO bom_operations
       (bom_id, seq, cost_center_id, operation_name, setup_minutes, run_minutes_per_unit,
        machine_minutes_per_unit, labor_method, labor_rate_rial, crew_size,
        overhead_driver, yield_percent, normal_waste_percent, is_subcontract,
-       subcontract_supplier_id, subcontract_fee_rial, is_qc_gate, person_id, note)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       subcontract_supplier_id, subcontract_fee_rial, is_qc_gate, person_id,
+       product_scope, scoped_product_id, note)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     bomId, seq, body.cost_center_id, body.operation_name || body.name || '',
     Number(body.setup_minutes) || 0, Number(body.run_minutes_per_unit) || 0,
@@ -532,7 +566,8 @@ function addOperation(db, bomId, body, userId) {
     Number(body.normal_waste_percent) || 0,
     body.is_subcontract ? 1 : 0, body.subcontract_supplier_id || null,
     Math.round(Number(body.subcontract_fee_rial) || 0),
-    body.is_qc_gate ? 1 : 0, personId, body.note || ''
+    body.is_qc_gate ? 1 : 0, personId,
+    scope.product_scope, scope.scoped_product_id, body.note || ''
   ).lastInsertRowid;
 
   db.prepare('UPDATE bom_headers SET has_routing=1 WHERE id=?').run(bomId);
@@ -738,6 +773,21 @@ function validateAdvancedBom(db, bomId) {
     const shares = outs.filter(o => ['main', 'co'].includes(o.output_type));
     const sum = shares.reduce((s, o) => s + (Number(o.cost_share_percent) || 0), 0);
     if (Math.abs(sum - 100) > 0.01) throw err('E_SHARE_NOT_100', 422, { sum });
+
+    const fgIds = new Set(shares.map(o => Number(o.product_id)));
+    fgIds.add(Number(bom.product_id));
+    for (const L of lines) {
+      if (String(L.product_scope || 'shared') !== 'exclusive') continue;
+      if (!L.scoped_product_id || !fgIds.has(Number(L.scoped_product_id))) {
+        throw err('E_SCOPED_PRODUCT_NOT_IN_BOM', 422, { line: L.line_no, scoped_product_id: L.scoped_product_id });
+      }
+    }
+    for (const op of ops) {
+      if (String(op.product_scope || 'shared') !== 'exclusive') continue;
+      if (!op.scoped_product_id || !fgIds.has(Number(op.scoped_product_id))) {
+        throw err('E_SCOPED_PRODUCT_NOT_IN_BOM', 422, { seq: op.seq, scoped_product_id: op.scoped_product_id });
+      }
+    }
   }
 
   return { ok: true, warnings };
@@ -925,6 +975,14 @@ function updateOperation(db, bomId, opId, body = {}) {
   } else {
     fields.person_id = null;
   }
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+  const { normalizeProductScope } = require('./bom');
+  const scope = normalizeProductScope(db, bom, {
+    product_scope: body.product_scope != null ? body.product_scope : op.product_scope,
+    scoped_product_id: body.scoped_product_id !== undefined ? body.scoped_product_id : op.scoped_product_id,
+  });
+  fields.product_scope = scope.product_scope;
+  fields.scoped_product_id = scope.scoped_product_id;
   if (fields.seq !== op.seq) {
     const dup = db.prepare('SELECT id FROM bom_operations WHERE bom_id=? AND seq=? AND id<>?').get(bomId, fields.seq, opId);
     if (dup) throw err('E_SEQ_DUPLICATE', 422);
@@ -934,13 +992,15 @@ function updateOperation(db, bomId, opId, body = {}) {
       seq=?, cost_center_id=?, operation_name=?, setup_minutes=?, run_minutes_per_unit=?,
       machine_minutes_per_unit=?, labor_method=?, labor_rate_rial=?, crew_size=?,
       overhead_driver=?, yield_percent=?, normal_waste_percent=?, is_subcontract=?,
-      subcontract_supplier_id=?, subcontract_fee_rial=?, is_qc_gate=?, person_id=?
+      subcontract_supplier_id=?, subcontract_fee_rial=?, is_qc_gate=?, person_id=?,
+      product_scope=?, scoped_product_id=?
     WHERE id=?
   `).run(
     fields.seq, fields.cost_center_id, fields.operation_name, fields.setup_minutes, fields.run_minutes_per_unit,
     fields.machine_minutes_per_unit, fields.labor_method, fields.labor_rate_rial, fields.crew_size,
     fields.overhead_driver, fields.yield_percent, fields.normal_waste_percent, fields.is_subcontract,
-    fields.subcontract_supplier_id, fields.subcontract_fee_rial, fields.is_qc_gate, fields.person_id, opId
+    fields.subcontract_supplier_id, fields.subcontract_fee_rial, fields.is_qc_gate, fields.person_id,
+    fields.product_scope, fields.scoped_product_id, opId
   );
   return db.prepare('SELECT * FROM bom_operations WHERE id=?').get(opId);
 }

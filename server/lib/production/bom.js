@@ -286,7 +286,51 @@ function resolveSubstitutes(db, lines, factor, yieldF) {
   return [...plain, ...picked].sort((a, b) => a.line_no - b.line_no);
 }
 
-function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null, priceOverrides = null, color = null, colorId = null }) {
+/** محصولات FG این BOM (سرفصل + خروجی main/co) */
+function bomFgProductIds(db, bomOrId) {
+  const bom = typeof bomOrId === 'object' && bomOrId
+    ? bomOrId
+    : db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomOrId);
+  if (!bom) return new Set();
+  const ids = new Set([Number(bom.product_id)]);
+  const outs = db.prepare(`
+    SELECT product_id FROM bom_outputs
+    WHERE bom_id=? AND output_type IN ('main','co')
+  `).all(bom.id);
+  for (const o of outs) ids.add(Number(o.product_id));
+  return ids;
+}
+
+/**
+ * تخصیص قلم/عملیات به محصول: shared | exclusive(+scoped_product_id).
+ * در BOM تک‌محصولی همیشه shared برمی‌گردد.
+ */
+function normalizeProductScope(db, bom, body = {}) {
+  const fgIds = bomFgProductIds(db, bom);
+  const multi = fgIds.size > 1 || Number(bom.has_coproducts) === 1;
+  let mode = String(body.product_scope != null ? body.product_scope : 'shared').toLowerCase().trim();
+  if (mode !== 'shared' && mode !== 'exclusive') throw err('E_PRODUCT_SCOPE', 422, { product_scope: body.product_scope });
+  if (!multi) return { product_scope: 'shared', scoped_product_id: null };
+  let scoped = body.scoped_product_id != null && body.scoped_product_id !== ''
+    ? Number(body.scoped_product_id) : null;
+  if (mode === 'shared') return { product_scope: 'shared', scoped_product_id: null };
+  if (!scoped || !Number.isFinite(scoped)) throw err('E_SCOPED_PRODUCT_REQUIRED', 422);
+  if (!fgIds.has(scoped)) throw err('E_SCOPED_PRODUCT_NOT_IN_BOM', 422, { scoped_product_id: scoped });
+  return { product_scope: 'exclusive', scoped_product_id: scoped };
+}
+
+function lineAppliesToProduct(L, forProductId) {
+  if (forProductId == null) return true;
+  const scope = String(L.product_scope || 'shared').toLowerCase();
+  if (scope !== 'exclusive') return true;
+  return Number(L.scoped_product_id) === Number(forProductId);
+}
+
+function explodeBom(db, {
+  bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0,
+  yieldOverride = null, priceOverrides = null, color = null, colorId = null,
+  forProductId = null,
+}) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -303,6 +347,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
   const fgColor = resolveFgColorName(db, { color, colorId, bom });
 
   for (const L of chosen) {
+    if (!lineAppliesToProduct(L, forProductId)) continue;
     let qtyNet;
     const matrix = L.size_matrix ? safeJson(L.size_matrix) : null;
     if (matrix && breakdown) {
@@ -333,6 +378,8 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
       product_id: L.component_product_id,
       line_kind: L.line_type,
       stage_cost_center_id: L.stage_cost_center_id,
+      product_scope: L.product_scope || 'shared',
+      scoped_product_id: L.scoped_product_id || null,
       qty_net: round6(qtyNet),
       qty_gross: round6(qtyGross),
       qty_final: qtyFinal,
@@ -353,7 +400,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
         const childBom = resolveBom(db, { productId: L.component_product_id, date: todayJalali() });
         const child = explodeBom(db, {
           bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1, priceOverrides,
-          color: fgColor, sizeBreakdown: breakdown,
+          color: fgColor, sizeBreakdown: breakdown, forProductId,
         });
         out.push(...child.lines.map(x => ({ ...x, parent_line_no: L.line_no })));
       } catch { /* no child bom — leaf */ }
@@ -495,10 +542,7 @@ function createBom(db, body, userId) {
     } catch (e) {
       rethrowBomConstraint(e);
     }
-    if (Array.isArray(body.lines)) {
-      for (const L of body.lines) addLine(db, id, L, userId, { skipLock: true });
-    }
-    // Multi-product / share: seed main output (+ optional co products)
+    // Multi-product / share: seed outputs BEFORE lines so exclusive scoped_product_id validates
     const extraProducts = Array.isArray(body.co_product_ids)
       ? body.co_product_ids.map(Number).filter(n => n && n !== Number(productId))
       : [];
@@ -509,6 +553,9 @@ function createBom(db, body, userId) {
         coProductIds: extraProducts,
         autoShare: body.auto_share_method || 'sales_value',
       });
+    }
+    if (Array.isArray(body.lines)) {
+      for (const L of body.lines) addLine(db, id, L, userId, { skipLock: true });
     }
     logBomChange(db, id, 'create', { code }, userId);
     audit(userId, 'create', 'bom', id, `ایجاد فرمول ${code}`);
@@ -538,6 +585,24 @@ function updateBomHeader(db, bomId, body, userId) {
       body.unit_id != null ? body.unit_id : b.unit_id,
       bomId
     );
+    // Sync multi-product co list from editor (optional)
+    if (Array.isArray(body.co_product_ids) || body.has_coproducts != null) {
+      const coIds = Array.isArray(body.co_product_ids)
+        ? body.co_product_ids.map(Number).filter(n => n && n !== Number(b.product_id))
+        : [];
+      const wantMulti = body.has_coproducts != null
+        ? !!body.has_coproducts
+        : coIds.length > 0;
+      db.prepare('UPDATE bom_headers SET has_coproducts=? WHERE id=?').run(wantMulti ? 1 : 0, bomId);
+      if (wantMulti || coIds.length) {
+        const { ensureShareOutputs } = require('./bom-advanced');
+        ensureShareOutputs(db, bomId, {
+          mainProductId: b.product_id,
+          coProductIds: coIds,
+          autoShare: body.auto_share_method || null,
+        });
+      }
+    }
     logBomChange(db, bomId, 'header_edit', { after: body }, userId);
     audit(userId, 'edit', 'bom', bomId, `ویرایش سرفصل ${b.code}`);
     return getBom(db, bomId);
@@ -665,13 +730,15 @@ function addLine(db, bomId, body, userId, opts = {}) {
       const m = validateSizeMatrixKeys(db, b.product_id, body.size_matrix);
       sizeMatrixStr = JSON.stringify(m);
     }
+    const scope = normalizeProductScope(db, b, body);
     const maxLine = db.prepare('SELECT COALESCE(MAX(line_no),0) m FROM bom_lines WHERE bom_id=?').get(bomId).m;
     const info = db.prepare(`
       INSERT INTO bom_lines (
         bom_id, line_no, component_product_id, qty_per_base, unit_id, scrap_percent, fixed_qty,
         line_type, stage_cost_center_id, backflush, is_optional, substitute_group, substitute_priority,
-        size_matrix, component_color_mode, component_color_id, std_cost_rial, note
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        size_matrix, component_color_mode, component_color_id,
+        product_scope, scoped_product_id, std_cost_rial, note
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       bomId,
       body.line_no || maxLine + 1,
@@ -689,6 +756,8 @@ function addLine(db, bomId, body, userId, opts = {}) {
       sizeMatrixStr,
       colorMode,
       body.component_color_id || null,
+      scope.product_scope,
+      scope.scoped_product_id,
       body.std_cost_rial || 0,
       body.note || ''
     );
@@ -727,12 +796,20 @@ function updateLine(db, bomId, lineId, body, userId) {
         sizeMatrix = JSON.stringify(m);
       }
     }
+    const scopeBody = (body.product_scope != null || body.scoped_product_id !== undefined)
+      ? {
+        product_scope: body.product_scope != null ? body.product_scope : L.product_scope,
+        scoped_product_id: body.scoped_product_id !== undefined ? body.scoped_product_id : L.scoped_product_id,
+      }
+      : { product_scope: L.product_scope || 'shared', scoped_product_id: L.scoped_product_id };
+    const scope = normalizeProductScope(db, b, scopeBody);
     db.prepare(`
       UPDATE bom_lines SET
         component_product_id=?, qty_per_base=?, unit_id=?, scrap_percent=?, fixed_qty=?,
         line_type=?, stage_cost_center_id=?, backflush=?, is_optional=?,
         substitute_group=?, substitute_priority=?, size_matrix=?,
-        component_color_mode=?, component_color_id=?, std_cost_rial=?, note=?
+        component_color_mode=?, component_color_id=?,
+        product_scope=?, scoped_product_id=?, std_cost_rial=?, note=?
       WHERE id=?
     `).run(
       body.component_product_id != null ? body.component_product_id : L.component_product_id,
@@ -749,6 +826,8 @@ function updateLine(db, bomId, lineId, body, userId) {
       sizeMatrix,
       colorMode,
       colorId,
+      scope.product_scope,
+      scope.scoped_product_id,
       body.std_cost_rial != null ? body.std_cost_rial : L.std_cost_rial,
       body.note != null ? body.note : L.note,
       lineId
@@ -1017,13 +1096,38 @@ function getBom(db, bomId) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
   const lines = db.prepare(`
-    SELECT bl.*, p.name AS product_name, p.item_type
-    FROM bom_lines bl LEFT JOIN products p ON p.id=bl.component_product_id
+    SELECT bl.*, p.name AS product_name, p.item_type,
+           sp.name AS scoped_product_name
+    FROM bom_lines bl
+    LEFT JOIN products p ON p.id=bl.component_product_id
+    LEFT JOIN products sp ON sp.id=bl.scoped_product_id
     WHERE bl.bom_id=? ORDER BY bl.line_no
   `).all(bomId);
-  const operations = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(bomId);
-  const outputs = db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(bomId);
-  return { ...bom, lines, operations, outputs };
+  const operations = db.prepare(`
+    SELECT op.*, sp.name AS scoped_product_name
+    FROM bom_operations op
+    LEFT JOIN products sp ON sp.id=op.scoped_product_id
+    WHERE op.bom_id=? ORDER BY op.seq
+  `).all(bomId);
+  const outputs = db.prepare(`
+    SELECT o.*, p.name AS product_name
+    FROM bom_outputs o LEFT JOIN products p ON p.id=o.product_id
+    WHERE o.bom_id=?
+  `).all(bomId);
+  const fgIds = [...bomFgProductIds(db, bom)];
+  const fg_products = fgIds.map(id => {
+    const p = db.prepare('SELECT id, name, code FROM products WHERE id=?').get(id);
+    const role = Number(id) === Number(bom.product_id) ? 'main' : 'co';
+    return p ? { id: p.id, name: p.name, code: p.code || null, role } : { id, name: '#' + id, code: null, role };
+  });
+  return {
+    ...bom,
+    lines,
+    operations,
+    outputs,
+    fg_products,
+    is_multiproduct: fg_products.length > 1 || Number(bom.has_coproducts) === 1,
+  };
 }
 
 function listBoms(db, q = {}) {
@@ -1122,4 +1226,5 @@ module.exports = {
   assertProductNotInBom, round6,
   allowedSizeNamesForProduct, validateSizeMatrixKeys,
   buildComponentVariantHint, normalizeColorMode, resolveFgColorName,
+  bomFgProductIds, normalizeProductScope, lineAppliesToProduct,
 };
