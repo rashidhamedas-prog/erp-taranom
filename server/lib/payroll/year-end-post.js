@@ -11,6 +11,10 @@ const { resolvePersonPayableAccount } = require('./person-account');
 const { todayJalali } = require('../../jalali');
 
 function ensureYearEndReleaseColumns(db) {
+  const exists = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='payroll_monthly_accruals'"
+  ).get();
+  if (!exists) return;
   const cols = db.prepare('PRAGMA table_info(payroll_monthly_accruals)').all().map(c => c.name);
   if (!cols.includes('released_year_end_id')) {
     db.exec('ALTER TABLE payroll_monthly_accruals ADD COLUMN released_year_end_id INTEGER');
