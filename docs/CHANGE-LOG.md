@@ -4,8 +4,8 @@
 - **UI/Help:** فرم ایجاد/خروجی‌ها/برنامه سفارش/رسید نهایی — «محصول اصلی»؛ SW `erp-taranom-v423`.
 - **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,engine-advanced,product-completeness}.js`, `routes/production-boms.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-multiproduct-peer-mains-v423.js`, CHANGE-LOG.
 - **Non-goals:** حذف ستون `has_coproducts` (معنای چندمحصولی می‌ماند)؛ تغییر مدل by/scrap؛ بیلد APK.
-- **تست:** ایران پس از deploy: v423 + v422 + sms + health.
-- **Deploy:** ⏳
+- **تست:** ایران `test-multiproduct-peer-mains-v423` ۲۱/۰ + v422 ۱۵/۰ + v421 ۱۹/۰ + sms ۲۲/۰؛ ready=200 + sharp؛ SW `erp-taranom-v423`.
+- **Deploy:** ✅ `7034d5e8` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + image_engine sharp.
 
 ### ۱۴۰۵/۰۷/۲۳ — موج ۲ مشخصات ضروری: گیت release/issue/finalize + کد/بها (SW v422)
 - **هدف:** تکمیل معماری v421 — مشخصات ضروری در کل مسیر تولید اثر بگذارند؛ کد FG و بهای مواد در حواله/نهایی سخت شوند.
