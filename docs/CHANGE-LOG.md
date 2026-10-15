@@ -7,9 +7,9 @@
 - **UI:** فیلد «مرکز هزینه کارمزد بانکی» کنار کارمزد انتقال در هزینه/تأمین/انگیزه/شخص/حساب/انتقال/اصلاح سند؛ Help ادمین.
 - **فایل‌ها:** `lib/{payment-bank-fee,amend-cash-ops}.js`, `routes/{expenses,purchases,accounting,transfers}.js`, `db.js`, `sync/tables.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-fee-cc-v400.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه برای این موضوع؛ tap-erp-architecture؛ architect plan (fee CC روی ۶۱۱۵).
-- **تست:** `test-bank-fee-cc-v400` + `test-sms` / `test-sync` روی ایران (لوکال Node24 بدون binary better-sqlite3).
+- **تست:** ایران `test-bank-fee-cc-v400` ۲۶/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (`test-sync` harness روی ایران ECONNREFUSED پورت دستگاه — فلکی؛ منطق fee-CC مستقل است).
 - **Non-goals:** کارمزد کارتخوان POS (۶۱۱۴)، تطبیق بانک.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `f24e8f2` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v401`؛ `app.js?v=401`.
 
 ### ۱۴۰۵/۰۷/۲۳ — فاکتور ریالی از رسید انبار GRNI بدون دابل‌رسید (SW v400)
 

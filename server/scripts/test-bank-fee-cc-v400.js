@@ -106,6 +106,16 @@ function linesOf(refType, refId) {
     VALUES ('بانک کارمزد CC','8862','مرکزی',1, ?, 'IRR', 0)
   `).run(COA).lastInsertRowid;
 
+  const CASH_COA = '11018862';
+  db.prepare(`
+    INSERT INTO chart_of_accounts (code,name,type,parent_code,level,is_active)
+    VALUES (?, 'صندوق تست کارمزد CC', 'asset', '1101', 3, 1)
+  `).run(CASH_COA);
+  const cashBoxId = db.prepare(`
+    INSERT INTO cash_boxes (name, active, coa_code, currency, is_foreign)
+    VALUES ('صندوق کارمزد CC', 1, ?, 'IRR', 0)
+  `).run(CASH_COA).lastInsertRowid;
+
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use('/api/expenses', require('../routes/expenses'));
@@ -166,13 +176,13 @@ function linesOf(refType, refId) {
 
   const trBad = await api('POST', '/api/transfers', {
     date: '1405/07/23', from_type: 'bank', from_id: bankId,
-    to_type: 'cash', to_id: null, amount: 50_000, fee_rial: 1_000,
+    to_type: 'cash', to_id: cashBoxId, amount: 50_000, fee_rial: 1_000,
   });
   ok(trBad.status === 422 || trBad.status === 400, 'transfer fee without CC rejected when require ON', trBad);
 
   const trOk = await api('POST', '/api/transfers', {
     date: '1405/07/23', from_type: 'bank', from_id: bankId,
-    to_type: 'cash', to_id: null, amount: 50_000, fee_rial: 1_000,
+    to_type: 'cash', to_id: cashBoxId, amount: 50_000, fee_rial: 1_000,
     fee_cost_center_id: ccA,
   });
   ok(trOk.status === 200 && trOk.data.id, 'POST transfer with fee CC', trOk);
@@ -185,7 +195,7 @@ function linesOf(refType, refId) {
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('require_cc_on_expense','0')").run();
   const off = await api('POST', '/api/transfers', {
     date: '1405/07/23', from_type: 'bank', from_id: bankId,
-    to_type: 'cash', to_id: null, amount: 10_000, fee_rial: 500,
+    to_type: 'cash', to_id: cashBoxId, amount: 10_000, fee_rial: 500,
   });
   ok(off.status === 200, 'require OFF allows fee without fee CC', off);
 
