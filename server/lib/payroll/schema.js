@@ -349,6 +349,26 @@ function initPayrollSchema(db) {
       ON payroll_labor_settings_versions(year, effective_from);
   `);
 
+  // May also be created by gap-accounting-schema; IF NOT EXISTS keeps boot order safe.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payroll_labor_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      year INTEGER NOT NULL UNIQUE,
+      min_wage_daily_rial INTEGER NOT NULL DEFAULT 0,
+      housing_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      food_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      child_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      spouse_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      seniority_base_rial INTEGER NOT NULL DEFAULT 0,
+      insurance_cap_monthly_rial INTEGER NOT NULL DEFAULT 0,
+      overtime_factor REAL NOT NULL DEFAULT 1.4,
+      night_factor REAL NOT NULL DEFAULT 1.35,
+      friday_factor REAL NOT NULL DEFAULT 1.4,
+      shift_factor REAL NOT NULL DEFAULT 1.225,
+      tax_exemption_rial INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
   ensureColumn(db, 'payroll_labor_settings', 'spouse_allowance_rial', 'INTEGER NOT NULL DEFAULT 0');
 
   try {
