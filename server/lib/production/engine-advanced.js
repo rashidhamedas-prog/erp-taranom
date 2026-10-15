@@ -1312,6 +1312,11 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     }
 
     for (const i of issues) {
+      // cutting_lay: موجودی و JE مال لایه‌چینی است — فقط برچسب ابطال؛ voidCuttingLay موجودی را برمی‌گرداند
+      if (String(i.issue_type || '') === 'cutting_lay') {
+        db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
+        continue;
+      }
       restoreStock(db, {
         productId: i.product_id,
         warehouseId: i.warehouse_id || po.warehouse_raw_id,
@@ -1613,6 +1618,233 @@ function getStageIssueTemplate(db, orderId, stageId) {
   };
 }
 
+/**
+ * مرحلهٔ برش در مسیر سفارش پیشرفته: CC-10 / نام «برش» / اولین مرحلهٔ مالک پارچه / اولین seq.
+ */
+function resolveCuttingStage(db, orderId) {
+  const stages = stageList(db, orderId);
+  if (!stages.length) return null;
+  for (const s of stages) {
+    const cc = db.prepare('SELECT code, name FROM cost_centers WHERE id=?').get(s.cost_center_id);
+    const opName = String(s.operation_name || '');
+    if (
+      (cc && (String(cc.code) === 'CC-10' || /برش/.test(String(cc.name || ''))))
+      || /برش/.test(opName)
+    ) {
+      return s;
+    }
+  }
+  const po = getOrder(db, orderId);
+  for (const s of stages) {
+    const lines = stageMaterialLines(db, po, s);
+    for (const L of lines) {
+      const fab = db.prepare(`
+        SELECT 1 FROM inventory_batches
+        WHERE product_id=? AND COALESCE(kind,'generic')='fabric' LIMIT 1
+      `).get(L.product_id);
+      const prod = db.prepare('SELECT item_type FROM products WHERE id=?').get(L.product_id);
+      if (fab || ['fabric', 'raw_material', 'raw'].includes(String(prod?.item_type || ''))) {
+        return s;
+      }
+    }
+  }
+  return stages[0];
+}
+
+/**
+ * اتصال لایه‌چینی به مرحلهٔ برش: حوالهٔ منطقی (بدون JE دوباره) + تکمیل مرحله + دست‌به‌دست بعدی.
+ * Caller باید داخل تراکنش باشد. JE پارچه فقط از cutting_lay است.
+ */
+function applyCuttingLayToStage(db, {
+  orderId, layId, layNo, fabricProductId, amountRial, qtyPieces, meters, date, userId,
+}) {
+  const po = getOrder(db, orderId);
+  if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
+    return { ok: false, skipped: true, reason: 'not_advanced' };
+  }
+  const stage = resolveCuttingStage(db, orderId);
+  if (!stage) return { ok: false, skipped: true, reason: 'no_stages' };
+
+  const prev = prevStage(db, orderId, stage.seq);
+  if (prev && !['done', 'skipped'].includes(prev.status)) {
+    throw err('E_PREV_STAGE_OPEN', 409, { prev_seq: prev.seq, prev_status: prev.status });
+  }
+
+  const amount = Math.round(num(amountRial));
+  const qty = round6(num(qtyPieces));
+  const m = round6(num(meters));
+  const when = date || todayJalali();
+  const period = jalaliPeriod(when);
+
+  const already = db.prepare(`
+    SELECT id FROM production_material_issues
+    WHERE stage_id=? AND order_id=? AND issue_type='cutting_lay'
+      AND note LIKE ? AND status='posted'
+    LIMIT 1
+  `).get(stage.id, orderId, `%${layNo || ('#' + layId)}%`);
+  if (already) {
+    db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
+    return { ok: true, stage_id: stage.id, idempotent: true };
+  }
+
+  let docNo = String(layNo || '');
+  if (!docNo) {
+    try { docNo = allocateNumber(db, 'material_issue', 'MI'); }
+    catch { docNo = `MI-LAY-${layId}`; }
+  }
+
+  db.prepare(`
+    INSERT INTO production_material_issues
+      (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
+       qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
+       amount_rial, std_amount_rial, var_price_rial, var_qty_rial,
+       warehouse_id, date, period_label, status, variance_status, note, created_by, je_id)
+    VALUES (?,?,?,?,?,?, 'cutting_lay', ?,?,?,?,?,?,?,0,0,?,?,?,'posted','memo',?, ?, NULL)
+  `).run(
+    docNo, orderId, stage.id, stage.cost_center_id, fabricProductId || po.product_id, null,
+    m, m, 0,
+    m > 0 ? Math.round(amount / m) : 0,
+    m > 0 ? Math.round(amount / m) : 0,
+    amount, amount,
+    po.warehouse_raw_id, when, period,
+    `لایه‌چینی ${layNo || ('#' + layId)} — مصرف پارچه مرحله برش`,
+    userId
+  );
+
+  if (amount > 0) {
+    db.prepare(`
+      UPDATE production_orders SET
+        material_cost_rial = material_cost_rial + ?,
+        status = CASE WHEN status='released' THEN 'in_progress' ELSE status END,
+        updated_at = strftime('%s','now')
+      WHERE id=?
+    `).run(amount, orderId);
+  }
+
+  db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
+
+  if (stage.status === 'done') {
+    db.prepare(`
+      UPDATE production_order_stages SET
+        material_added_rial = COALESCE(material_added_rial,0) + ?,
+        cost_out_rial = COALESCE(cost_out_rial,0) + ?
+      WHERE id=?
+    `).run(amount, amount, stage.id);
+    const nxt = nextStage(db, orderId, stage.seq);
+    if (nxt) {
+      db.prepare(`
+        UPDATE production_order_stages SET
+          material_in_rial = COALESCE(material_in_rial,0) + ?
+        WHERE id=?
+      `).run(amount, nxt.id);
+    }
+    return { ok: true, stage_id: stage.id, status: 'done', accumulated: true };
+  }
+
+  if (stage.status === 'pending') {
+    db.prepare(`
+      UPDATE production_order_stages SET status='in_progress', started_at=? WHERE id=?
+    `).run(when, stage.id);
+  }
+
+  // qty_in را با تعداد برش‌خورده هم‌تراز کن تا بالانس مرحله برقرار شود
+  const qtyIn = num(stage.qty_in);
+  const qtyOut = qty > 0 ? qty : qtyIn;
+  if (qtyOut > 0 && Math.abs(qtyOut - qtyIn) > 0.01) {
+    db.prepare('UPDATE production_order_stages SET qty_in=? WHERE id=?').run(qtyOut, stage.id);
+  }
+  if (qtyOut <= 0) {
+    // فقط مواد ثبت شد؛ تکمیل بعداً از کانبان
+    db.prepare(`
+      UPDATE production_order_stages SET
+        material_added_rial = COALESCE(material_added_rial,0) + ?
+      WHERE id=?
+    `).run(amount, stage.id);
+    return { ok: true, stage_id: stage.id, status: 'in_progress', completed: false };
+  }
+
+  // تکمیل با مسیر variable تا مواد دوباره backflush نشود (حتی روی fixed_adv)
+  const result = postStageCore(db, {
+    orderId,
+    stageId: stage.id,
+    userId,
+    mode: 'variable',
+    body: {
+      qty_out: qtyOut,
+      waste_normal: 0,
+      waste_abnormal: 0,
+      rework: 0,
+      date: when,
+      qc_passed: 1,
+      note: `تکمیل خودکار از لایه‌چینی ${layNo || layId}`,
+    },
+  });
+
+  return {
+    ok: true,
+    stage_id: stage.id,
+    status: 'done',
+    completed: true,
+    next_stage: result.next_stage || null,
+  };
+}
+
+/**
+ * برگشت اتصال لایه از مرحله — قبل از reverse موجودی/JE لایه صدا زده شود.
+ */
+function unlinkCuttingLayFromStage(db, {
+  orderId, layId, layNo, amountRial, userId, date,
+}) {
+  if (!orderId) return { ok: false, skipped: true };
+  const po = getOrder(db, orderId);
+  if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
+    return { ok: false, skipped: true };
+  }
+
+  const lay = db.prepare('SELECT stage_id FROM cutting_lays WHERE id=?').get(layId);
+  const stageId = lay?.stage_id;
+  if (!stageId) return { ok: false, skipped: true, reason: 'no_stage_link' };
+
+  const stage = getStage(db, orderId, stageId);
+  const mi = db.prepare(`
+    SELECT * FROM production_material_issues
+    WHERE stage_id=? AND order_id=? AND issue_type='cutting_lay'
+      AND status='posted' AND note LIKE ?
+  `).all(stageId, orderId, `%${layNo || ('#' + layId)}%`);
+
+  if (stage.status === 'done') {
+    // ابطال مرحله (دستمزد/سربار + mi برچسبی؛ موجودی پارچه را دست نمی‌زند)
+    reverseStage(db, {
+      orderId,
+      stageId,
+      reason: `ابطال لایه‌چینی ${layNo || layId}`,
+      userId,
+      date: date || todayJalali(),
+    });
+  } else {
+    for (const i of mi) {
+      db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
+    }
+    const amt = Math.round(num(amountRial));
+    if (amt > 0) {
+      db.prepare(`
+        UPDATE production_order_stages SET
+          material_added_rial = MAX(0, COALESCE(material_added_rial,0) - ?)
+        WHERE id=?
+      `).run(amt, stageId);
+      db.prepare(`
+        UPDATE production_orders SET
+          material_cost_rial = MAX(0, material_cost_rial - ?),
+          updated_at = strftime('%s','now')
+        WHERE id=?
+      `).run(amt, orderId);
+    }
+  }
+
+  db.prepare('UPDATE cutting_lays SET stage_id=NULL WHERE id=?').run(layId);
+  return { ok: true, stage_id: stageId };
+}
+
 module.exports = {
   releaseAdvancedOrder,
   startStage,
@@ -1629,4 +1861,7 @@ module.exports = {
   resolveFinalizeApparelLines,
   variantLinesFromOrderPlan,
   relieveStagedPackQty,
+  resolveCuttingStage,
+  applyCuttingLayToStage,
+  unlinkCuttingLayFromStage,
 };

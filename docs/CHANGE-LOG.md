@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — اتصال لایه‌چینی به مرحلهٔ برش مسیر BOM (SW v411)
+
+- **هدف:** لایه‌چینی سفارش‌دار پیشرفته دیگر مسیر موازی جدا نیست — به مرحلهٔ برش (`CC-10` / نام برش / اولین مرحلهٔ پارچه) وصل می‌شود، مواد+تکمیل مرحله+باز شدن مرحلهٔ بعد را یکجا ثبت می‌کند.
+- **بک‌اند:** `cutting_lays.stage_id`؛ `resolveCuttingStage` / `applyCuttingLayToStage` / `unlinkCuttingLayFromStage`؛ `production_material_issues.issue_type=cutting_lay` بدون JE دوباره (JE مال لایه است)؛ تکمیل با `postStageCore(mode=variable)` تا backflush نشود؛ ابطال مرحله برای cutting_lay موجودی را دوبار برنمی‌گرداند.
+- **سیم‌کشی:** post / amend / void / link سفارش لایه → bind/unbind.
+- **UI/Help:** توضیح مسیر برش=تکمیل مرحله برش؛ SW v411.
+- **فایل‌ها:** `lib/production/{cutting,engine-advanced,schema}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-cut-stage-bind-v410.js`, CHANGE-LOG.
+- **تست:** `test-prod-cut-stage-bind-v410` + `test-prod-stage-gates-v409` + `test-sms`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — تولید مرحله‌محور BOM: گیت حسابداری + داشبورد (SW v409)
 
 - **مشکل:** ترتیب مراحل در BOM تعریف می‌شد ولی اجرا/داشبورد آن را درست اعمال نمی‌کرد — journey با `in_progress` آزادسازی مرحلهٔ ۴ را باز می‌کرد؛ سفارش ساده روی BOM مسیر‌دار بدون `production_order_stages` آزاد می‌شد؛ حواله مرحله بدون گیت prev/status/مالکیت/پارچه/JE ممکن بود.

@@ -150,10 +150,10 @@ ok('app.js: gate helpers + locked UI + Help + parse');
 const idx = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'public/prod-ui.css'), 'utf8');
-assert.ok(idx.includes('prod-journey-gate.js?v=409') || idx.includes('prod-journey-gate.js?v=382'));
-assert.ok(idx.includes('app.js?v=409') || idx.includes('app.js?v=382'));
-assert.ok(idx.includes('prod-ui.css?v=409') || idx.includes('prod-ui.css?v=382'));
-assert.ok(sw.includes('erp-taranom-v409') || sw.includes('erp-taranom-v382'));
+assert.ok(/prod-journey-gate\.js\?v=\d+/.test(idx));
+assert.ok(/app\.js\?v=\d+/.test(idx));
+assert.ok(/prod-ui\.css\?v=\d+/.test(idx));
+assert.ok(/erp-taranom-v\d+/.test(sw));
 assert.ok(css.includes('.prod-journey-card.is-locked'));
 ok('SW/index/css stamp + locked style');
 

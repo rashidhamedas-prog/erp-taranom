@@ -844,6 +844,16 @@ function getCuttingLay(db, id) {
     WHERE r.lay_id=?
     ORDER BY r.id
   `).all(row.id);
+  if (row.stage_id) {
+    const st = db.prepare(`
+      SELECT id, seq, status, operation_name, cost_center_id FROM production_order_stages WHERE id=?
+    `).get(row.stage_id);
+    if (st) {
+      row.stage_seq = st.seq;
+      row.stage_status = st.status;
+      row.stage_operation_name = st.operation_name || 'برش';
+    }
+  }
   const covered = layFgCoveredByOrder(db, row);
   Object.assign(row, covered);
   if (covered.fg_covered_by_order) {
@@ -916,6 +926,19 @@ function postCuttingLay(db, body, user) {
       postCuttingLayStockAndJe(db, {
         id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user,
       });
+      if (po) {
+        bindCuttingLayToOrderStage(db, {
+          orderId: po.id,
+          layId: id,
+          layNo,
+          fabricProductId: plan.fabric_product_id,
+          amountRial: amount,
+          qtyPieces: plan.qty_pieces,
+          meters: plan.actual_meters,
+          date,
+          userId: user.id,
+        });
+      }
       return id;
     })();
   } catch (e) {
@@ -926,6 +949,25 @@ function postCuttingLay(db, body, user) {
     throw e;
   }
   return getCuttingLay(db, layId);
+}
+
+/** v410 — اتصال لایه‌چینی به مرحلهٔ برش سفارش پیشرفته (lazy require ضد حلقه) */
+function bindCuttingLayToOrderStage(db, opts) {
+  const { applyCuttingLayToStage } = require('./engine-advanced');
+  return applyCuttingLayToStage(db, opts);
+}
+
+function unbindCuttingLayFromOrderStage(db, row, user, date) {
+  if (!row || !row.production_order_id) return { ok: false, skipped: true };
+  const { unlinkCuttingLayFromStage } = require('./engine-advanced');
+  return unlinkCuttingLayFromStage(db, {
+    orderId: row.production_order_id,
+    layId: row.id,
+    layNo: row.lay_no,
+    amountRial: row.amount_rial,
+    userId: user.id,
+    date: date || row.date,
+  });
 }
 
 /**
@@ -1119,10 +1161,11 @@ function voidCuttingLay(db, id, user, { reason } = {}) {
     throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
   }
   db.transaction(() => {
+    unbindCuttingLayFromOrderStage(db, row, user, row.date);
     const { revJe } = reverseCuttingLayEffects(db, row, user, reason || 'ابطال لایه‌چینی');
     db.prepare(`
       UPDATE cutting_lays
-      SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=?
+      SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=?, stage_id=NULL
       WHERE id=?
     `).run(user.id, revJe, row.id);
   })();
@@ -1149,6 +1192,7 @@ function updateCuttingLay(db, id, body, user) {
   assertCutPeriodOpen(db, date);
 
   db.transaction(() => {
+    unbindCuttingLayFromOrderStage(db, row, user, row.date);
     reverseCuttingLayEffects(db, row, user, body.reason || 'ویرایش لایه‌چینی');
     const { prepared, wh } = prepareCuttingLayRolls(db, bodyForPlan, plan);
     const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
@@ -1211,6 +1255,19 @@ function updateCuttingLay(db, id, body, user) {
       date,
       user,
     });
+    if (po) {
+      bindCuttingLayToOrderStage(db, {
+        orderId: po.id,
+        layId: row.id,
+        layNo: row.lay_no,
+        fabricProductId: plan.fabric_product_id,
+        amountRial: amount,
+        qtyPieces: plan.qty_pieces,
+        meters: plan.actual_meters,
+        date,
+        userId: user.id,
+      });
+    }
   })();
   return getCuttingLay(db, row.id);
 }
@@ -1221,7 +1278,25 @@ function linkCuttingLayOrder(db, id, productionOrderId, user) {
   if (row.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل پیوند نیست', 'E_CUT_REVERSED');
   const po = resolveOptionalOrder(db, productionOrderId, row.product_id);
   if (!po) throw httpErr(400, 'شناسه سفارش الزامی است', 'E_PACK_ORDER');
-  db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, row.id);
+  db.transaction(() => {
+    if (row.production_order_id && Number(row.production_order_id) !== Number(po.id)) {
+      unbindCuttingLayFromOrderStage(db, row, user, row.date);
+    }
+    db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, row.id);
+    if (row.status === 'posted') {
+      bindCuttingLayToOrderStage(db, {
+        orderId: po.id,
+        layId: row.id,
+        layNo: row.lay_no,
+        fabricProductId: row.fabric_product_id,
+        amountRial: row.amount_rial,
+        qtyPieces: row.qty_pieces,
+        meters: row.actual_meters,
+        date: row.date,
+        userId: user.id,
+      });
+    }
+  })();
   return getCuttingLay(db, row.id);
 }
 
