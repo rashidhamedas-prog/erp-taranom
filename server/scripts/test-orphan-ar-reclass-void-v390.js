@@ -98,7 +98,7 @@ createLedgerEntry(db, {
   user_id: 1,
 });
 
-const bank = acct(db, 'coa_bank');
+const bank = acct(db, 'coa_bank_default');
 postToLedger(db, {
   sourceType: 'settlement', sourceId: settId, date: '1405/07/02',
   description: 'تسویه تست v390', createdBy: 1,
