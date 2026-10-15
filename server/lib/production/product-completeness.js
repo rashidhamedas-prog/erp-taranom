@@ -1,7 +1,8 @@
 'use strict';
 /**
- * v421 — Product essentials + BOM production readiness (computed, no new tables).
- * Hard gates on activate / createOrder; soft warnings for legacy polish fields.
+ * v421/v422 — Product essentials + BOM production readiness (computed, no new tables).
+ * Hard gates: activate / createOrder / release / issue / finalize.
+ * Soft: warehouse, category, polish fields; waive can relax code/cost only.
  */
 const { CONTINUOUS_UNIT_RE, hasActiveMatrixVariants } = require('../inventory/qty-policy');
 
@@ -62,13 +63,23 @@ function pushMissing(list, code, field, message_fa, severity = 'hard') {
   list.push({ code, field, message_fa, severity });
 }
 
+function isStrictMode(mode) {
+  return ['activate', 'order', 'issue', 'finalize', 'release'].includes(mode);
+}
+
+function isIssueLike(mode) {
+  return ['issue', 'finalize', 'release'].includes(mode);
+}
+
 /**
  * Assess a single product for production use.
- * @param {'product'|'activate'|'order'|'issue'|'finalize'} mode
+ * @param {'product'|'activate'|'order'|'release'|'issue'|'finalize'} mode
+ * @param {{ waive?: boolean|string, role?: string }} opts
  */
-function assessProduct(db, productId, mode = 'product') {
+function assessProduct(db, productId, mode = 'product', opts = {}) {
   const hard = [];
   const soft = [];
+  const waive = !!(opts.waive && String(opts.waive).trim());
   const p = db.prepare(`
     SELECT id, name, code, unit, item_type, is_manufactured, warehouse_id,
            category_id, category, average_cost_rial, std_cost_rial, costing_method,
@@ -90,18 +101,39 @@ function assessProduct(db, productId, mode = 'product') {
   const itemType = String(p.item_type || '').trim();
   if (!itemType) pushMissing(hard, 'E_SPEC_ITEM_TYPE', 'item_type', 'طبقه‌بندی تولید (نوع کالا) الزامی است');
 
-  if (!String(p.code || '').trim()) {
-    pushMissing(soft, 'E_SPEC_CODE', 'code', 'کد کالا خالی است — برای جستجو و برچسب توصیه می‌شود', 'soft');
+  const codeEmpty = !String(p.code || '').trim();
+  if (codeEmpty) {
+    const codeHard = isStrictMode(mode) && (kind === 'fg' || kind === 'semi') && !waive;
+    pushMissing(
+      codeHard ? hard : soft,
+      'E_SPEC_CODE',
+      'code',
+      codeHard
+        ? 'کد کالا برای محصول ساختنی الزامی است'
+        : 'کد کالا خالی است — برای جستجو و برچسب توصیه می‌شود',
+      codeHard ? 'hard' : 'soft'
+    );
   }
+
   if (!p.warehouse_id) {
     pushMissing(soft, 'E_SPEC_WAREHOUSE', 'warehouse_id', 'انبار اصلی کالا خالی است', 'soft');
   }
   if (!(p.category_id || String(p.category || '').trim())) {
     pushMissing(soft, 'E_SPEC_CATEGORY', 'category', 'دسته‌بندی کالا خالی است', 'soft');
   }
+
   const cost = Number(p.average_cost_rial) || Number(p.std_cost_rial) || 0;
   if (cost <= 0 && (kind === 'raw' || kind === 'fabric' || kind === 'packaging')) {
-    pushMissing(soft, 'E_SPEC_COST', 'average_cost_rial', 'بهای مواد صفر است — roll-up بها ناقص می‌شود', 'soft');
+    const costHard = isIssueLike(mode) && !waive;
+    pushMissing(
+      costHard ? hard : soft,
+      'E_SPEC_COST',
+      'average_cost_rial',
+      costHard
+        ? 'بهای مواد صفر است — حواله/نهایی‌سازی بدون بها مجاز نیست (یا با دلیل waive)'
+        : 'بهای مواد صفر است — roll-up بها ناقص می‌شود',
+      costHard ? 'hard' : 'soft'
+    );
   }
 
   if (kind === 'fg' || kind === 'semi') {
@@ -120,7 +152,7 @@ function assessProduct(db, productId, mode = 'product') {
       pushMissing(soft, 'E_SPEC_SIZES', 'sizes',
         'سایز/ماتریس برای محصول نهایی ثبت نشده — ماتریس سایز BOM محدود می‌شود', 'soft');
     }
-    if (mode === 'order' || mode === 'finalize') {
+    if (['order', 'finalize', 'release', 'issue'].includes(mode)) {
       if (hasActiveMatrixVariants(db, productId) && nVar === 0) {
         pushMissing(hard, 'E_SPEC_VARIANTS', 'variants',
           'کالای ماتریسی بدون واریانت فعال است');
@@ -146,6 +178,7 @@ function assessProduct(db, productId, mode = 'product') {
     hard,
     soft,
     missing,
+    waived: waive,
     meta: {
       variant_count: countActiveVariants(db, productId),
       style_color_count: countStyleColors(db, productId),
@@ -166,17 +199,19 @@ function normalizeColorMode(v) {
 /**
  * Full BOM + product readiness for activate / UI dry-run.
  */
-function assessBom(db, bomId, mode = 'activate') {
+function assessBom(db, bomId, mode = 'activate', opts = {}) {
   const hard = [];
   const soft = [];
+  const waive = !!(opts.waive && String(opts.waive).trim());
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(bomId);
   if (!bom) {
     pushMissing(hard, 'E_NOT_FOUND', 'bom_id', 'فرمول یافت نشد');
     return { ok: false, bom_id: bomId, hard, soft, missing: hard, products: [] };
   }
 
+  const productMode = mode === 'activate' ? 'activate' : mode;
   const products = [];
-  const headerAssess = assessProduct(db, bom.product_id, mode === 'activate' ? 'activate' : mode);
+  const headerAssess = assessProduct(db, bom.product_id, productMode, { waive, role: 'main' });
   products.push({ role: 'main', ...headerAssess });
   for (const m of headerAssess.hard) hard.push({ ...m, product_id: bom.product_id, role: 'main' });
   for (const m of headerAssess.soft) soft.push({ ...m, product_id: bom.product_id, role: 'main' });
@@ -187,7 +222,7 @@ function assessBom(db, bomId, mode = 'activate') {
   `).all(bomId);
   for (const o of outs) {
     if (Number(o.product_id) === Number(bom.product_id)) continue;
-    const a = assessProduct(db, o.product_id, mode === 'activate' ? 'activate' : mode);
+    const a = assessProduct(db, o.product_id, productMode, { waive, role: o.output_type });
     products.push({ role: o.output_type, ...a });
     for (const m of a.hard) hard.push({ ...m, product_id: o.product_id, role: o.output_type });
     for (const m of a.soft) soft.push({ ...m, product_id: o.product_id, role: o.output_type });
@@ -202,12 +237,12 @@ function assessBom(db, bomId, mode = 'activate') {
     pushMissing(hard, 'E_BOM_EMPTY', 'lines', 'حداقل یک قلم مواد الزامی است');
   }
 
+  const compMode = isIssueLike(mode) ? mode : 'product';
   let needsFgColors = false;
   let needsFgSizes = false;
   for (const L of lines) {
-    const ca = assessProduct(db, L.component_product_id, 'product');
+    const ca = assessProduct(db, L.component_product_id, compMode, { waive, role: 'component' });
     products.push({ role: 'component', line_no: L.line_no, ...ca });
-    // Trade FG as component is hard via assessProduct.kind=trade
     for (const m of ca.hard) {
       hard.push({ ...m, product_id: L.component_product_id, role: 'component', line_no: L.line_no });
     }
@@ -234,7 +269,6 @@ function assessBom(db, bomId, mode = 'activate') {
     const nSz = countStyleSizes(db, bom.product_id);
     const hasMatrix = hasActiveMatrixVariants(db, bom.product_id);
     if (nSz === 0 && !hasMatrix) {
-      // validateSizeMatrixKeys falls back to global sizes — soft if global exists
       const globalSz = tableExists(db, 'product_sizes')
         ? Number(db.prepare('SELECT COUNT(*) c FROM product_sizes WHERE COALESCE(active,1)=1').get()?.c || 0)
         : 0;
@@ -248,7 +282,7 @@ function assessBom(db, bomId, mode = 'activate') {
     }
   }
 
-  if (bom.has_routing) {
+  if (bom.has_routing && (mode === 'activate' || mode === 'product')) {
     const ops = Number(db.prepare('SELECT COUNT(*) c FROM bom_operations WHERE bom_id=?').get(bomId)?.c || 0);
     if (!ops) pushMissing(hard, 'E_ROUTING_EMPTY', 'operations', 'مسیر عملیات خالی است');
     if (Math.abs((Number(bom.yield_percent) || 100) - 100) > 0.001) {
@@ -257,12 +291,15 @@ function assessBom(db, bomId, mode = 'activate') {
     }
   }
 
-  if (bom.has_coproducts || outs.length > 1) {
+  if ((bom.has_coproducts || outs.length > 1) && mode === 'activate') {
     const shares = outs.filter(o => ['main', 'co'].includes(o.output_type));
-    // share % checked in validateAdvancedBom; here ensure co list non-empty when flagged
     if (Number(bom.has_coproducts) === 1 && shares.filter(o => o.output_type === 'co').length === 0) {
       pushMissing(hard, 'E_NO_COPRODUCT', 'outputs', 'حالت چندمحصولی بدون هم‌محصول است');
     }
+  }
+
+  if (isIssueLike(mode) && bom.status !== 'active') {
+    pushMissing(hard, 'E_BOM_NOT_ACTIVE', 'status', 'فرمول سفارش باید فعال باشد');
   }
 
   const missing = [...hard, ...soft];
@@ -275,11 +312,12 @@ function assessBom(db, bomId, mode = 'activate') {
     soft,
     missing,
     products,
+    waived: waive,
   };
 }
 
-function assertProductReady(db, productId, mode = 'order') {
-  const a = assessProduct(db, productId, mode);
+function assertProductReady(db, productId, mode = 'order', opts = {}) {
+  const a = assessProduct(db, productId, mode, opts);
   if (!a.ok) {
     const first = a.hard[0];
     throw err(first?.code || 'E_PRODUCT_INCOMPLETE', 422, {
@@ -294,8 +332,8 @@ function assertProductReady(db, productId, mode = 'order') {
   return a;
 }
 
-function assertBomReady(db, bomId, mode = 'activate') {
-  const a = assessBom(db, bomId, mode);
+function assertBomReady(db, bomId, mode = 'activate', opts = {}) {
+  const a = assessBom(db, bomId, mode, opts);
   if (!a.ok) {
     const first = a.hard[0];
     throw err(first?.code || 'E_BOM_INCOMPLETE', 422, {
@@ -308,10 +346,29 @@ function assertBomReady(db, bomId, mode = 'activate') {
   return a;
 }
 
+/**
+ * Gate for release / issue / finalize on an existing production order.
+ */
+function assertOrderReady(db, orderId, mode = 'issue') {
+  const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(orderId);
+  if (!po) throw err('E_NOT_FOUND', 404);
+  const waive = String(po.completeness_waive_reason || '').trim();
+  assertProductReady(db, po.product_id, mode, { waive, role: 'main' });
+  if (po.bom_id) {
+    assertBomReady(db, po.bom_id, mode, { waive });
+  } else if (mode !== 'product') {
+    throw err('E_NO_ACTIVE_BOM', 422);
+  }
+  return { order: po, waive: !!waive };
+}
+
 module.exports = {
   classifyKind,
   assessProduct,
   assessBom,
   assertProductReady,
   assertBomReady,
+  assertOrderReady,
+  isStrictMode,
+  isIssueLike,
 };

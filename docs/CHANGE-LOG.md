@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — موج ۲ مشخصات ضروری: گیت release/issue/finalize + کد/بها (SW v422)
+- **هدف:** تکمیل معماری v421 — مشخصات ضروری در کل مسیر تولید اثر بگذارند؛ کد FG و بهای مواد در حواله/نهایی سخت شوند.
+- **بک‌اند:** `product-completeness` — modeهای `release`/`issue`/`finalize`؛ کد کالا hard برای FG/semi؛ بهای صفر مواد hard در issue/finalize/release؛ `assertOrderReady`؛ ستون `completeness_waive_reason` روی سفارش (فقط شل کردن کد/بها + audit)؛ گیت در `releaseOrder` / `releaseAdvancedOrder` / `issueMaterialsVariable` / `issueStageMaterials` / `postReceiptFixed|Variable` / `finalizeAdvancedOrder`؛ پاسخ POST/PUT کالا با `production_readiness`.
+- **UI/Help:** فیلد دلیل استثنا در فرم سفارش (admin/accounting)؛ toast آمادگی بعد از ذخیره کالا؛ SW `erp-taranom-v422`.
+- **فایل‌ها:** `lib/production/{product-completeness,schema,engine,engine-advanced}.js`, `routes/{production-boms,products}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-product-bom-completeness-v422.js`, CHANGE-LOG.
+- **Non-goals:** اجباری کردن انبار/دسته؛ Lot روی FG؛ بیلد APK.
+- **تست:** ایران پس از deploy: v422 + sms + health.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — مشخصات ضروری کالا + آمادگی BOM در کل تولید (SW v421)
 - **هدف:** برای هر محصول مشخصات ضروری ثبت شود و در فعال‌سازی فرمول + سفارش تولید واقعاً اثر بگذارد (گیت سرور + چک‌لیست UI).
 - **بک‌اند:** `lib/production/product-completeness.js` — ارزیابی بر اساس `item_type`/ساختنی (FG، نیمه‌ساخته، پارچه متری، مواد، فروش‌محض)؛ hard/soft؛ `assertBomReady` در `activateBom`؛ `assertProductReady` در `createOrder`؛ API `GET /products/:id/completeness` و `GET /production/boms/:id/completeness`؛ validate BOM readiness را برمی‌گرداند.

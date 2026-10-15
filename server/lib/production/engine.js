@@ -221,7 +221,7 @@ function createOrder(db, body, userId) {
     throw err('E_NOT_MANUFACTURED', 422, { name: product.name });
   }
 
-  // v421 — essential product specs before production order
+  // v421/v422 — essential product specs before production order
   const { assertProductReady } = require('./product-completeness');
   assertProductReady(db, productId, 'order');
 
@@ -356,6 +356,15 @@ function createOrder(db, body, userId) {
           .run(Number(body.manual_driver_qty) || 0, orderId);
       } catch { /* column missing on very old DBs before ensureColumn */ }
     }
+    const waiveReason = String(body.completeness_waive_reason || '').trim();
+    if (waiveReason) {
+      try {
+        db.prepare('UPDATE production_orders SET completeness_waive_reason=? WHERE id=?')
+          .run(waiveReason.slice(0, 500), orderId);
+        audit(userId, 'update', 'production_order', orderId,
+          `waive مشخصات ضروری: ${waiveReason.slice(0, 120)}`);
+      } catch { /* column missing before v422 ensureColumn */ }
+    }
     if (!hasLineTable) return orderId;
 
     // PA-04: persist color×size order lines when provided (or derive from size_breakdown + color)
@@ -435,6 +444,7 @@ function releaseOrder(db, orderId, userId) {
   return db.transaction(() => {
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
     if (!po.bom_id) throw err('E_NO_ACTIVE_BOM', 422);
+    require('./product-completeness').assertOrderReady(db, orderId, 'release');
 
     const ex = explodeBom(db, {
       bomId: po.bom_id,
@@ -601,6 +611,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     if (!['released', 'in_progress'].includes(po.status)) {
       throw err('E_INVALID_STATUS', 409, { status: po.status });
     }
+    require('./product-completeness').assertOrderReady(db, orderId, 'finalize');
 
     const date = body.date || todayJalali();
     const period = jalaliPeriod(date);
@@ -1493,6 +1504,7 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
     if (po.analysis_type !== 'variable') throw err('E_WRONG_ANALYSIS', 409);
     if (['closed', 'cancelled'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
     if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    require('./product-completeness').assertOrderReady(db, orderId, 'issue');
 
     const hasReceipt = db.prepare(`
       SELECT 1 FROM production_receipts WHERE order_id=? AND status='posted' LIMIT 1
@@ -1728,6 +1740,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
     if (!['released', 'in_progress'].includes(po.status)) {
       throw err('E_INVALID_STATUS', 409, { status: po.status });
     }
+    require('./product-completeness').assertOrderReady(db, orderId, 'finalize');
 
     const issued = db.prepare(`
       SELECT COALESCE(SUM(amount_rial),0) s FROM production_material_issues

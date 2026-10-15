@@ -249,6 +249,9 @@ async function api(method, path, data, isFormData, silent){
         E_ROUTING_EMPTY:'مسیر عملیات خالی است',
         E_YIELD_DOUBLE_COUNT:'با مسیر عملیات، بازده سرفصل باید ۱۰۰٪ باشد',
         E_NO_COPRODUCT:'حالت چندمحصولی بدون هم‌محصول است',
+        E_SPEC_CODE:'کد کالا برای محصول ساختنی الزامی است',
+        E_SPEC_COST:'بهای مواد صفر است — حواله/نهایی‌سازی بدون بها مجاز نیست',
+        E_BOM_NOT_ACTIVE:'فرمول سفارش باید فعال باشد',
         E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
         E_BAD_DRIVER:'محرک سربار نامعتبر است',
         E_PERIOD_FORMAT:'دوره باید مثل ۱۴۰۵/۰۷ باشد',
@@ -8443,7 +8446,14 @@ async function saveProduct(id){
     }
   }
   closeModal();
-  showToast('ذخیره شد');
+  const ready=saved&&saved.production_readiness;
+  if(ready && Array.isArray(ready.hard) && ready.hard.length){
+    showToast('ذخیره شد — مشخصات ضروری تولید ناقص: '+(ready.hard[0].message_fa||ready.hard[0].code),'error');
+  }else if(ready && Array.isArray(ready.soft) && ready.soft.length){
+    showToast('ذخیره شد — هشدار تولید: '+(ready.soft[0].message_fa||ready.soft[0].code));
+  }else{
+    showToast('ذخیره شد');
+  }
   try{
     await _refreshProdWithCats(_prodCanEdit);
     if(window._accProdRefresh){ try{ window._accProdRefresh(); }catch(_){} window._accProdRefresh=null; }
@@ -17614,6 +17624,8 @@ async function prodOrderCreateModal(){
           <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
+        ${(ME.role==='admin'||ME.role==='accounting')?`<div class="fg full"><label>دلیل استثنای مشخصات (اختیاری — فقط کد/بهای صفر در حواله) ${hlp('اگر مواد بهای صفر دارند یا کد FG موقتاً خالی است، دلیل کوتاه بنویسید تا آزادسازی/حواله با audit عبور کند. نام/واحد/نوع همچنان اجباری‌اند.')}</label>
+          <input id="po-waive" placeholder="مثلاً: اصلاح بها بعد از رسید خرید — تأیید مدیر"></div>`:''}
         <div class="fg full" id="po-fg-plan" hidden></div>
         <div class="fg full" id="po-variant-panel" hidden></div>
       </div>
@@ -17825,6 +17837,8 @@ async function prodOrderCreateSave(){
   const whR=+el('po-wh-raw')?.value; if(whR) body.warehouse_raw_id=whR;
   const whF=+el('po-wh-fg')?.value; if(whF) body.warehouse_fg_id=whF;
   const cc=+el('po-cc')?.value; if(cc) body.cost_center_id=cc;
+  const waive=(el('po-waive')?.value||'').trim();
+  if(waive) body.completeness_waive_reason=waive;
   try{
     await api('POST','/production/orders',body);
     closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
@@ -30102,7 +30116,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v418):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌ها را هم می‌چسباند.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود.</li>
         <li><b>سفارش چندمحصولی — اجرای مشترک (v420):</b> اگر فرمول هم‌محصول دارد، سفارش روی هر یک از محصولات (سرفصل یا co) ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات و نسبت هم‌محصول دیده می‌شود. در نهایی‌سازی می‌توانید تعداد رسید اصلی و هر هم‌محصول را اصلاح کنید؛ برای هر محصول رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
-        <li><b>مشخصات ضروری کالا + آمادگی BOM (v421):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول نشان داده می‌شود (نام، واحد، طبقه‌بندی تولید، تیک ساختنی برای FG/نیمه‌ساخته؛ اقلام BOM؛ مسیر در صورت فعال؛ سهم چندمحصولی؛ رنگ inherit و ماتریس سایز). موارد قرمز <b>فعال‌سازی فرمول</b> و <b>ایجاد سفارش تولید</b> را بلاک می‌کنند؛ هشدار نارنجی (کد، انبار، دسته، بها) توصیه است. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>.</li>
+        <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>

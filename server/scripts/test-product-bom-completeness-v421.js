@@ -22,9 +22,9 @@ const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const idxSrc = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
 ok(appJs.includes('prodCompletenessBannerHtml') && appJs.includes('prodBomRefreshReadiness'), 'UI readiness helpers');
-ok(appJs.includes('مشخصات ضروری کالا + آمادگی BOM (v421)'), 'Help v421');
-ok(swSrc.includes('erp-taranom-v421'), 'SW v421');
-ok(idxSrc.includes('app.js?v=421'), 'index v421');
+ok(appJs.includes('مشخصات ضروری کالا + آمادگی BOM (v421') || appJs.includes('v421→v422'), 'Help v421+');
+ok(swSrc.includes('erp-taranom-v421') || swSrc.includes('erp-taranom-v422'), 'SW v421+');
+ok(idxSrc.includes('app.js?v=421') || idxSrc.includes('app.js?v=422'), 'index v421+');
 ok(fs.existsSync(path.join(__dirname, '../lib/production/product-completeness.js')), 'helper module');
 
 let Database;

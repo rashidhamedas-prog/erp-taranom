@@ -599,6 +599,11 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
   row.images = listProductImages(db, row.id);
+  try {
+    const completeness = require('../lib/production/product-completeness');
+    const ready = completeness.assessProduct(db, result.lastInsertRowid, 'activate');
+    row.production_readiness = { ok: ready.ok, hard: ready.hard, soft: ready.soft, kind: ready.kind };
+  } catch (_) {}
   res.json(jsonSafeProduct(row));
 });
 
@@ -780,6 +785,11 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   }
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   row.images = listProductImages(db, row.id);
+  try {
+    const completeness = require('../lib/production/product-completeness');
+    const ready = completeness.assessProduct(db, Number(req.params.id), 'activate');
+    row.production_readiness = { ok: ready.ok, hard: ready.hard, soft: ready.soft, kind: ready.kind };
+  } catch (_) {}
   res.json(jsonSafeProduct(row));
 });
 

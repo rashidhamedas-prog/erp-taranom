@@ -884,6 +884,7 @@ function releaseAdvancedOrder(db, orderId, userId) {
     }
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
     if (!po.bom_id) throw err('E_NO_ACTIVE_BOM', 422);
+    require('./product-completeness').assertOrderReady(db, orderId, 'release');
 
     const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
     if (!bom?.has_routing) throw err('E_NO_ROUTING', 422);
@@ -970,6 +971,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     }
     if (po.status === 'completed') throw err('E_ORDER_FINALIZED', 409);
     if (['closed', 'cancelled'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
+    require('./product-completeness').assertOrderReady(db, orderId, 'finalize');
 
     const stages = stageList(db, orderId);
     const last = stages[stages.length - 1];
@@ -1560,6 +1562,7 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
     const po = getOrder(db, orderId);
     if (po.analysis_type !== 'variable_adv') throw err('E_WRONG_ANALYSIS', 409);
     if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    require('./product-completeness').assertOrderReady(db, orderId, 'issue');
 
     const stage = getStage(db, orderId, stageId);
     if (stage.status !== 'in_progress') {

@@ -65,6 +65,9 @@ function bomFaError(e) {
     E_ROUTING_EMPTY: 'مسیر عملیات خالی است.',
     E_YIELD_DOUBLE_COUNT: 'با مسیر عملیات، بازده سرفصل باید ۱۰۰٪ باشد.',
     E_NO_COPRODUCT: 'حالت چندمحصولی بدون هم‌محصول است.',
+    E_SPEC_CODE: 'کد کالا برای محصول ساختنی الزامی است.',
+    E_SPEC_COST: 'بهای مواد صفر است — حواله/نهایی‌سازی بدون بها مجاز نیست.',
+    E_BOM_NOT_ACTIVE: 'فرمول سفارش باید فعال باشد.',
   };
   if (map[code]) return map[code];
   if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(String(e && e.message || ''))) {
