@@ -207,10 +207,38 @@ function sumTotals(lines) {
 }
 
 function nextBomVersion(db, productId) {
+  // Include soft-deleted positive versions so we never reuse a tombstoned slot
+  // under a legacy full unique index (before partial ux_bom_prod_ver_live).
   const row = db.prepare(
-    'SELECT COALESCE(MAX(version),0) m FROM bom_headers WHERE product_id=? AND deleted_at IS NULL'
+    'SELECT COALESCE(MAX(version),0) m FROM bom_headers WHERE product_id=? AND version > 0'
   ).get(productId);
   return (row?.m || 0) + 1;
+}
+
+function rethrowBomConstraint(e) {
+  const msg = String((e && e.message) || '');
+  if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(msg)
+    || /bom_headers\.product_id, bom_headers\.version/i.test(msg)) {
+    const err2 = err('E_BOM_VERSION_CLASH', 409);
+    err2.cause = e;
+    throw err2;
+  }
+  if (/UNIQUE constraint failed: bom_headers\.code/i.test(msg)) {
+    const err2 = err('E_BOM_CODE_CLASH', 409);
+    err2.cause = e;
+    throw err2;
+  }
+  throw e;
+}
+
+/** Free unique (product,version,revision)+code when soft-deleting (R13 / wipe-safe). */
+function tombstoneBomUniqueKeys(db, bomId, code) {
+  const tombVer = -(1_000_000 + Number(bomId));
+  const base = String(code || 'BOM');
+  const tombCode = base.includes('__del') ? base : `${base}__del${bomId}`;
+  db.prepare(`
+    UPDATE bom_headers SET version=?, revision='DEL', code=? WHERE id=?
+  `).run(tombVer, tombCode, bomId);
 }
 
 function resolveBom(db, { productId, date, preferredBomId = null, allowAlternative = false }) {
@@ -432,38 +460,55 @@ function createBom(db, body, userId) {
     if (!productId) throw err('E_VALIDATION', 400);
     const code = allocateNumber(db, 'bom', 'BOM');
     const ver = body.version != null ? Number(body.version) : nextBomVersion(db, productId);
-    const revision = body.revision || 'A';
-    // Avoid UNIQUE(product_id, version, revision) clash
+    const revision = (body.revision && String(body.revision).trim()) || 'A';
+    // Avoid UNIQUE(product_id, version, revision) — check ALL rows (incl. deleted under legacy index)
     let version = ver;
     let tries = 0;
-    while (tries < 20) {
+    while (tries < 50) {
       const clash = db.prepare(
-        'SELECT 1 FROM bom_headers WHERE product_id=? AND version=? AND revision=? AND deleted_at IS NULL'
+        'SELECT 1 FROM bom_headers WHERE product_id=? AND version=? AND revision=?'
       ).get(productId, version, revision);
       if (!clash) break;
       version += 1;
       tries += 1;
     }
-    const info = db.prepare(`
-      INSERT INTO bom_headers (
-        code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
-        base_qty, unit_id, status, valid_from, valid_to, is_default,
-        is_multilevel, has_routing, has_coproducts, yield_percent,
-        size_range, color_variant, color_id, note, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      code, productId, version, revision, body.name || '',
-      body.bom_type || 'standard', body.alt_of_bom_id || null, body.alt_reason || '',
-      body.base_qty != null ? body.base_qty : 1, body.unit_id || null,
-      body.valid_from || '', body.valid_to || '', body.is_default ? 1 : 0,
-      body.is_multilevel ? 1 : 0, body.has_routing ? 1 : 0, body.has_coproducts ? 1 : 0,
-      body.yield_percent != null ? body.yield_percent : 100,
-      body.size_range || '', body.color_variant || '', body.color_id || null,
-      body.note || '', userId || null
-    );
-    const id = info.lastInsertRowid;
+    let id;
+    try {
+      const info = db.prepare(`
+        INSERT INTO bom_headers (
+          code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
+          base_qty, unit_id, status, valid_from, valid_to, is_default,
+          is_multilevel, has_routing, has_coproducts, yield_percent,
+          size_range, color_variant, color_id, note, created_by
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        code, productId, version, revision, body.name || '',
+        body.bom_type || 'standard', body.alt_of_bom_id || null, body.alt_reason || '',
+        body.base_qty != null ? body.base_qty : 1, body.unit_id || null,
+        body.valid_from || '', body.valid_to || '', body.is_default ? 1 : 0,
+        body.is_multilevel ? 1 : 0, body.has_routing ? 1 : 0, body.has_coproducts ? 1 : 0,
+        body.yield_percent != null ? body.yield_percent : 100,
+        body.size_range || '', body.color_variant || '', body.color_id || null,
+        body.note || '', userId || null
+      );
+      id = info.lastInsertRowid;
+    } catch (e) {
+      rethrowBomConstraint(e);
+    }
     if (Array.isArray(body.lines)) {
       for (const L of body.lines) addLine(db, id, L, userId, { skipLock: true });
+    }
+    // Multi-product / share: seed main output (+ optional co products)
+    const extraProducts = Array.isArray(body.co_product_ids)
+      ? body.co_product_ids.map(Number).filter(n => n && n !== Number(productId))
+      : [];
+    if (body.has_coproducts || extraProducts.length) {
+      const { ensureShareOutputs } = require('./bom-advanced');
+      ensureShareOutputs(db, id, {
+        mainProductId: productId,
+        coProductIds: extraProducts,
+        autoShare: body.auto_share_method || 'sales_value',
+      });
     }
     logBomChange(db, id, 'create', { code }, userId);
     audit(userId, 'create', 'bom', id, `ایجاد فرمول ${code}`);
@@ -584,6 +629,11 @@ function softDeleteBom(db, bomId, userId) {
     const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET deleted_at=?, status='obsolete' WHERE id=?").run(nowUnix(), bomId);
+    try {
+      tombstoneBomUniqueKeys(db, bomId, b.code);
+    } catch (e) {
+      rethrowBomConstraint(e);
+    }
     if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
       db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
     }
@@ -733,52 +783,73 @@ function replaceLines(db, bomId, lines, userId) {
 
 function activateBom(db, bomId, validFrom, userId) {
   return db.transaction(() => {
-    const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
-    if (!b) throw err('E_NOT_FOUND', 404);
-    if (b.status !== 'draft') throw err('E_BOM_NOT_DRAFT', 409);
-    if (!validFrom) throw err('E_VALIDATION', 400);
-    validateBom(db, bomId);
+    try {
+      const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+      if (!b) throw err('E_NOT_FOUND', 404);
+      if (b.status !== 'draft') throw err('E_BOM_NOT_DRAFT', 409);
+      if (!validFrom) throw err('E_VALIDATION', 400);
+      validateBom(db, bomId);
 
-    // V4-21 / advanced gates: routing or ops/outputs must pass validateAdvancedBom
-    // (lazy require — bom-advanced already requires ./bom)
-    const hasOps = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(bomId);
-    const hasOuts = db.prepare('SELECT 1 FROM bom_outputs WHERE bom_id=? LIMIT 1').get(bomId);
-    if (b.has_routing || hasOps || hasOuts) {
-      const { validateAdvancedBom } = require('./bom-advanced');
-      validateAdvancedBom(db, bomId);
-    }
-
-    const prev = db.prepare(`
-      SELECT * FROM bom_headers
-      WHERE product_id=? AND bom_type=? AND status='active' AND id<>? AND deleted_at IS NULL
-    `).get(b.product_id, b.bom_type, bomId);
-
-    if (prev) {
-      if (prev.valid_from && prev.valid_from >= validFrom) {
-        throw err('E_BOM_OVERLAP', 409, { prev: prev.version });
+      // V4-21 / advanced gates: routing or ops/outputs must pass validateAdvancedBom
+      // (lazy require — bom-advanced already requires ./bom)
+      const hasOps = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(bomId);
+      const hasOuts = db.prepare('SELECT 1 FROM bom_outputs WHERE bom_id=? LIMIT 1').get(bomId);
+      if (b.has_routing || hasOps || hasOuts || b.has_coproducts) {
+        const { validateAdvancedBom, ensureMainOutputRow } = require('./bom-advanced');
+        if (b.has_coproducts || hasOuts) ensureMainOutputRow(db, bomId);
+        validateAdvancedBom(db, bomId);
       }
-      const validTo = addDaysToJalali(validFrom, -1);
-      db.prepare("UPDATE bom_headers SET valid_to=?, status='archived' WHERE id=?")
-        .run(validTo, prev.id);
-      logBomChange(db, prev.id, 'archive', { reason: `جایگزینی با نسخه ${b.version}` }, userId);
+
+      const prev = db.prepare(`
+        SELECT * FROM bom_headers
+        WHERE product_id=? AND bom_type=? AND status='active' AND id<>? AND deleted_at IS NULL
+      `).get(b.product_id, b.bom_type, bomId);
+
+      if (prev) {
+        if (prev.valid_from && prev.valid_from >= validFrom) {
+          throw err('E_BOM_OVERLAP', 409, { prev: prev.version });
+        }
+        const validTo = addDaysToJalali(validFrom, -1);
+        db.prepare("UPDATE bom_headers SET valid_to=?, status='archived' WHERE id=?")
+          .run(validTo, prev.id);
+        logBomChange(db, prev.id, 'archive', { reason: `جایگزینی با نسخه ${b.version}` }, userId);
+      }
+
+      const isDefault = prev ? prev.is_default : 1;
+      db.prepare(`
+        UPDATE bom_headers SET status='active', valid_from=?, is_default=?, approved_by=?, approved_at=?
+        WHERE id=?
+      `).run(validFrom, isDefault, userId, nowUnix(), bomId);
+
+      if (!prev || prev.is_default) {
+        db.prepare('UPDATE products SET default_bom_id=? WHERE id=?').run(bomId, b.product_id);
+      }
+
+      // Multi-output: also point co-products' default_bom when share BOM is the sole active for them
+      const outs = db.prepare(`
+        SELECT product_id FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+      `).all(bomId);
+      for (const o of outs) {
+        if (Number(o.product_id) === Number(b.product_id)) continue;
+        const hasOwn = db.prepare(`
+          SELECT 1 FROM bom_headers
+          WHERE product_id=? AND status='active' AND deleted_at IS NULL AND id<>?
+          LIMIT 1
+        `).get(o.product_id, bomId);
+        if (!hasOwn) {
+          db.prepare('UPDATE products SET default_bom_id=? WHERE id=?').run(bomId, o.product_id);
+        }
+      }
+
+      logBomChange(db, bomId, 'activate', { valid_from: validFrom }, userId);
+      audit(userId, 'approve', 'bom', bomId, `فعال‌سازی فرمول ${b.code} نسخه ${b.version}`);
+      emit(db, 'bom.activated', {
+        bomId, productId: b.product_id, version: b.version, validFrom, prevBomId: prev?.id,
+      });
+      return { ok: true, bomId, archivedPrev: prev?.id || null };
+    } catch (e) {
+      rethrowBomConstraint(e);
     }
-
-    const isDefault = prev ? prev.is_default : 1;
-    db.prepare(`
-      UPDATE bom_headers SET status='active', valid_from=?, is_default=?, approved_by=?, approved_at=?
-      WHERE id=?
-    `).run(validFrom, isDefault, userId, nowUnix(), bomId);
-
-    if (!prev || prev.is_default) {
-      db.prepare('UPDATE products SET default_bom_id=? WHERE id=?').run(bomId, b.product_id);
-    }
-
-    logBomChange(db, bomId, 'activate', { valid_from: validFrom }, userId);
-    audit(userId, 'approve', 'bom', bomId, `فعال‌سازی فرمول ${b.code} نسخه ${b.version}`);
-    emit(db, 'bom.activated', {
-      bomId, productId: b.product_id, version: b.version, validFrom, prevBomId: prev?.id,
-    });
-    return { ok: true, bomId, archivedPrev: prev?.id || null };
   })();
 }
 
@@ -846,20 +917,25 @@ function versionUpBom(db, bomId, reason, userId) {
     }
 
     const code = allocateNumber(db, 'bom', 'BOM');
-    const info = db.prepare(`
-      INSERT INTO bom_headers (
-        code, product_id, version, revision, name, bom_type, alt_of_bom_id,
-        base_qty, unit_id, status, is_default, is_multilevel, has_routing, has_coproducts,
-        yield_percent, size_range, color_variant, note, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,'draft',0,?,?,?,?,?,?,?,?)
-    `).run(
-      code, old.product_id, version, revision, old.name, old.bom_type,
-      old.alt_of_bom_id, old.base_qty, old.unit_id,
-      old.is_multilevel, old.has_routing, old.has_coproducts,
-      old.yield_percent, old.size_range, old.color_variant,
-      `نسخه‌برداری از v${old.version} — ${reason || ''}`, userId
-    );
-    const newId = info.lastInsertRowid;
+    let newId;
+    try {
+      const info = db.prepare(`
+        INSERT INTO bom_headers (
+          code, product_id, version, revision, name, bom_type, alt_of_bom_id,
+          base_qty, unit_id, status, is_default, is_multilevel, has_routing, has_coproducts,
+          yield_percent, size_range, color_variant, note, created_by
+        ) VALUES (?,?,?,?,?,?,?,?,?,'draft',0,?,?,?,?,?,?,?,?)
+      `).run(
+        code, old.product_id, version, revision, old.name, old.bom_type,
+        old.alt_of_bom_id, old.base_qty, old.unit_id,
+        old.is_multilevel, old.has_routing, old.has_coproducts,
+        old.yield_percent, old.size_range, old.color_variant,
+        `نسخه‌برداری از v${old.version} — ${reason || ''}`, userId
+      );
+      newId = info.lastInsertRowid;
+    } catch (e) {
+      rethrowBomConstraint(e);
+    }
     copyChildRows(db, 'bom_lines', bomId, newId);
     copyChildRows(db, 'bom_operations', bomId, newId);
     copyChildRows(db, 'bom_outputs', bomId, newId);
@@ -903,19 +979,31 @@ function createAlternative(db, bomId, reason, userId) {
     if (!old) throw err('E_NOT_FOUND', 404);
     if (old.bom_type !== 'standard') throw err('E_BOM_ALT_CHAIN', 422);
     const code = allocateNumber(db, 'bom', 'BOM');
-    const info = db.prepare(`
-      INSERT INTO bom_headers (
-        code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
-        base_qty, unit_id, status, yield_percent, size_range, color_variant, color_id, created_by
-      ) VALUES (?,?,1,'A',?,'alternative',?,?,?,?,'draft',?,?,?,?,?)
-    `).run(
-      code, old.product_id, (old.name || '') + ' (جایگزین)', bomId, reason || '',
-      old.base_qty, old.unit_id, old.yield_percent, old.size_range || '',
-      old.color_variant || '', old.color_id || null, userId
-    );
-    const newId = info.lastInsertRowid;
+    let version = nextBomVersion(db, old.product_id);
+    const revision = 'A';
+    while (db.prepare(
+      'SELECT 1 FROM bom_headers WHERE product_id=? AND version=? AND revision=?'
+    ).get(old.product_id, version, revision)) {
+      version += 1;
+    }
+    let newId;
+    try {
+      const info = db.prepare(`
+        INSERT INTO bom_headers (
+          code, product_id, version, revision, name, bom_type, alt_of_bom_id, alt_reason,
+          base_qty, unit_id, status, yield_percent, size_range, color_variant, color_id, created_by
+        ) VALUES (?,?,?,?,?,'alternative',?,?,?,?,'draft',?,?,?,?,?)
+      `).run(
+        code, old.product_id, version, revision, (old.name || '') + ' (جایگزین)', bomId, reason || '',
+        old.base_qty, old.unit_id, old.yield_percent, old.size_range || '',
+        old.color_variant || '', old.color_id || null, userId
+      );
+      newId = info.lastInsertRowid;
+    } catch (e) {
+      rethrowBomConstraint(e);
+    }
     copyChildRows(db, 'bom_lines', bomId, newId);
-    return { id: newId, code, status: 'draft' };
+    return { id: newId, code, version, status: 'draft' };
   })();
 }
 

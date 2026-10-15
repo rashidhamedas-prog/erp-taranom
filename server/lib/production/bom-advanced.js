@@ -253,10 +253,20 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       ? Math.round((Number(op.subcontract_fee_rial) || 0) * qtyIn)
       : 0;
 
-    const rate = getOverheadRate(db, op.cost_center_id, period) || { total_rate_rial: 0, is_estimated: 1 };
+    const rate = getOverheadRate(db, op.cost_center_id, period) || { total_rate_rial: 0, is_estimated: 1, driver: cc.driver };
     if (rate.is_estimated) warnings.push(`نرخ سربار «${cc.name}» برآوردی است`);
-    const driverQty = stageDriverQty(db, op, cc, { qty: qtyIn, labor, material });
+    if (rate.from_budget) warnings.push(`نرخ سربار «${cc.name}» از بودجه مرکز برای دوره ${period || '—'} محاسبه شد`);
+    const driverQty = stageDriverQty(db, op, cc, {
+      qty: qtyIn, labor, material, driver: rate.driver,
+    });
     const overhead = appliedOverheadRial(rate, driverQty);
+    if (!(overhead > 0) && (material > 0 || labor > 0)) {
+      if (!(Number(rate.total_rate_rial) > 0)) {
+        warnings.push(`سربار «${cc.name}» صفر است — در «نرخ سربار مراکز» برای دوره ${period || '—'} بودجه/نرخ ثبت کنید`);
+      } else if (!(driverQty > 0)) {
+        warnings.push(`محرک سربار «${cc.name}» (${rate.driver || op.overhead_driver || cc.driver || 'output_qty'}) صفر است`);
+      }
+    }
 
     const qtyOut = round6(
       qtyIn * ((Number(op.yield_percent) || 100) / 100)
@@ -543,24 +553,101 @@ function resequenceOperations(db, bomId) {
   return db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(bomId);
 }
 
+function ensureMainOutputRow(db, bomId) {
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+  if (!bom) throw err('E_NOT_FOUND', 404);
+  const mains = db.prepare(`SELECT * FROM bom_outputs WHERE bom_id=? AND output_type='main'`).all(bomId);
+  if (mains.length === 1 && Number(mains[0].product_id) === Number(bom.product_id)) return mains[0];
+  if (mains.length > 1) {
+    // Keep the row matching header product; demote others to co
+    for (const m of mains) {
+      if (Number(m.product_id) === Number(bom.product_id)) continue;
+      db.prepare(`UPDATE bom_outputs SET output_type='co' WHERE id=?`).run(m.id);
+    }
+  }
+  const main = db.prepare(`SELECT * FROM bom_outputs WHERE bom_id=? AND output_type='main'`).get(bomId);
+  if (main) {
+    if (Number(main.product_id) !== Number(bom.product_id)) {
+      db.prepare(`UPDATE bom_outputs SET product_id=? WHERE id=?`).run(bom.product_id, main.id);
+    }
+    return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(main.id);
+  }
+  const id = db.prepare(`
+    INSERT INTO bom_outputs
+      (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
+    VALUES (?,?, 'main', 1, 'share', 100, 0)
+  `).run(bomId, bom.product_id).lastInsertRowid;
+  return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(id);
+}
+
+/**
+ * Seed / extend share outputs for multi-product BOM (main + co).
+ * When co products exist, sets has_coproducts and optionally auto-shares.
+ */
+function ensureShareOutputs(db, bomId, { mainProductId, coProductIds = [], autoShare: method = null } = {}) {
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+  if (!bom) throw err('E_NOT_FOUND', 404);
+  const mainPid = Number(mainProductId || bom.product_id);
+  ensureMainOutputRow(db, bomId);
+
+  const existing = new Set(
+    db.prepare('SELECT product_id FROM bom_outputs WHERE bom_id=?').all(bomId).map(r => Number(r.product_id))
+  );
+  const cos = (coProductIds || []).map(Number).filter(n => n && n !== mainPid);
+  for (const pid of cos) {
+    if (existing.has(pid)) continue;
+    db.prepare(`
+      INSERT INTO bom_outputs
+        (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
+      VALUES (?,?, 'co', 1, 'share', 0, 0)
+    `).run(bomId, pid);
+    existing.add(pid);
+  }
+  if (cos.length) {
+    db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
+  }
+  if (method && (cos.length || db.prepare(`SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type='co'`).get(bomId).c)) {
+    try { autoShare(db, bomId, method); } catch (_) { /* shares may be filled later */ }
+  }
+  return db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(bomId);
+}
+
 function addOutput(db, bomId, body) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
   if (bom.status === 'active') throw err('E_BOM_LOCKED', 409);
+
+  let outputType = body.output_type || 'main';
+  const productId = Number(body.product_id);
+  if (!productId) throw err('E_VALIDATION', 400);
+
+  // Multi-product share: adding a product other than header as "main" → treat as co
+  if (outputType === 'main' && productId !== Number(bom.product_id)) {
+    ensureMainOutputRow(db, bomId);
+    outputType = 'co';
+  }
+  // Second main for same header product is update-in-place of the main row
+  if (outputType === 'main') {
+    const existingMain = db.prepare(`SELECT id FROM bom_outputs WHERE bom_id=? AND output_type='main'`).get(bomId);
+    if (existingMain) {
+      return updateOutput(db, bomId, existingMain.id, { ...body, output_type: 'main', product_id: bom.product_id });
+    }
+  }
 
   const id = db.prepare(`
     INSERT INTO bom_outputs
       (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial, stage_cost_center_id)
     VALUES (?,?,?,?,?,?,?,?)
   `).run(
-    bomId, body.product_id, body.output_type || 'main',
+    bomId, productId, outputType,
     Number(body.qty_per_base) || 1, body.cost_method || 'share',
     Number(body.cost_share_percent) || 0, Math.round(Number(body.nrv_rial) || 0),
     body.stage_cost_center_id || null
   ).lastInsertRowid;
 
-  if (['co', 'by', 'scrap'].includes(body.output_type)) {
+  if (['co', 'by', 'scrap'].includes(outputType)) {
     db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
+    if (outputType === 'co') ensureMainOutputRow(db, bomId);
   }
   return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(id);
 }
@@ -930,6 +1017,8 @@ module.exports = {
   addOperation,
   resequenceOperations,
   addOutput,
+  ensureMainOutputRow,
+  ensureShareOutputs,
   updateOperation,
   deleteOperation,
   updateOutput,

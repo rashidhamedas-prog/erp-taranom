@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی + رفع UNIQUE + سربار لینک‌شده به مراکز (SW v416)
+- **مشکل:** ذخیره سرفصل / فعال‌سازی با `UNIQUE constraint failed: bom_headers.product_id, version, revision` (ایندکس یکتا روی ردیف‌های soft-delete هم اعمال می‌شد — مثل heal v407)؛ در قیمت‌گذاری با روش تسهیم فقط یک محصول عملی بود؛ سربار roll-up وقتی فقط بودجه مرکز پر بود و `total_rate_rial=0` صفر می‌ماند.
+- **رفع UNIQUE:** ایندکس جزئی `ux_bom_prod_ver_live` / `ux_bom_code_live` (فقط `deleted_at IS NULL`)؛ tombstone کلید روی soft-delete؛ `nextBomVersion`/`createBom`/`createAlternative` بدون برخورد با ردیف حذف‌شده؛ پیام فارسی `E_BOM_VERSION_CLASH`.
+- **چندمحصولی + تسهیم:** ایجاد فرمول با تیک چندمحصولی + لیست هم‌محصول؛ تب خروجی پیش‌فرض `co`؛ `ensureShareOutputs` / `POST .../outputs/ensure-share`؛ coerce main→co برای کالای غیرسرفصل؛ فعال‌سازی `default_bom_id` هم‌محصول‌ها؛ نمایش تسهیم بها در تب هزینه.
+- **سربار:** `getOverheadRate` نرخ را از بودجه مرکز مشتق می‌کند؛ محرک از نرخ مرکز؛ هشدار و ستون محرک/نرخ در بهای تمام‌شده.
+- **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,overhead}.js`, `routes/production-boms.js`, `public/{app.js,sw.js}`, `scripts/test-bom-multiproduct-unique-oh-v416.js`, CHANGE-LOG.
+- **تست:** اسکریپت v416 (لوکال Node24 بدون binding sqlite — اجرا روی سرور پس از deploy)؛ `test-sms` + `test-sync` پس از بک‌اند.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۵: کسر خودکار وام/مساعده در مسیر بدون بیمه و مالیات (SW v415)
 
 - **مشکل:** در `manual_exempt` مبلغ قسط فقط داخل «سایر کسورات» می‌رفت؛ `allocateLoanRecovery` / `applyLoanRecoveries` با شرط `!exemptMeta` اجرا نمی‌شد → اقساط paid نمی‌شدند و JE به‌جای Cr ۱۱۱۹ به ۲۱۰۸ می‌رفت.

@@ -219,6 +219,12 @@ async function api(method, path, data, isFormData, silent){
         E_BOM_DUP_LINE:'قلم تکراری در فرمول',
         E_BOM_QTY_ZERO:'مقدار قلم باید بزرگ‌تر از صفر باشد',
         E_BOM_IN_USE:'فرمول در سفارش باز استفاده شده و قابل بایگانی/حذف نیست',
+        E_BOM_VERSION_CLASH:'نسخه فرمول با رکورد قبلی تداخل دارد — دوباره ذخیره/فعال‌سازی کنید',
+        E_BOM_CODE_CLASH:'کد فرمول تکراری است',
+        E_SHARE_NOT_100:'جمع سهم main+co باید ۱۰۰٪ باشد — تسهیم خودکار را بزنید',
+        E_NO_MAIN_OUTPUT:'یک خروجی اصلی برابر محصول سرفصل لازم است',
+        E_MAIN_MISMATCH:'خروجی اصلی باید همان محصول سرفصل باشد؛ بقیه را هم‌محصول بگذارید',
+        E_OUTPUT_DUPLICATE:'این کالا قبلاً در خروجی‌ها ثبت شده',
         E_BOM_TOO_DEEP:'عمق درخت فرمول بیش از حد مجاز است',
         E_VARIANT:'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز الزامی است',
         E_VARIANT_REQUIRED:'برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید',
@@ -14378,37 +14384,76 @@ function prodBomProductOpts(selected, filterFn){
 async function prodBomCreateModal(preProductId){
   await prodBomEnsureProducts();
   const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
+  window._pbCoProducts=[];
   showModal('فرمول تولید جدید',`
     <div class="form-grid">
-      <div class="fg"><label>محصول ساخته‌شده *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
+      <div class="fg"><label>محصول اصلی (سرفصل) *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
       <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
       <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
       <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
       <div class="fg"><label><input type="checkbox" id="pb-routing" data-csp-style="${CSP.style(`width:auto`)}"> مسیر عملیات (چندمرحله‌ای)</label></div>
+      <div class="fg"><label><input type="checkbox" id="pb-multi" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){const box=el('pb-multi-box'); if(box) box.style.display=el('pb-multi')?.checked?'':'none'})}"> چندمحصولی با روش تسهیم هزینه</label></div>
+      <div class="fg full" id="pb-multi-box" data-csp-style="${CSP.style(`display:none;border:1px dashed var(--border);padding:10px;border-radius:8px`)}">
+        <label>محصولات هم‌خروجی (co) — می‌توانید چند تا اضافه کنید</label>
+        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:6px`)}">
+          <div data-csp-style="${CSP.style(`flex:1;min-width:180px`)}">${productSelect('pb-co-pick','',(CACHE.allProducts||[]).filter(mfg))}</div>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodBomCreateAddCo()})}">➕ افزودن محصول</button>
+        </div>
+        <div id="pb-co-list" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">هنوز هم‌محصولی اضافه نشده</div>
+        <div class="fg" data-csp-style="${CSP.style(`margin-top:8px`)}"><label>تسهیم اولیه</label>
+          <select id="pb-share-method"><option value="sales_value">ارزش فروش</option><option value="physical">فیزیکی (مقدار)</option><option value="none">بعداً دستی</option></select>
+        </div>
+      </div>
       <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. اگر مسیر عملیات فعال باشد بازده سرفصل باید ۱۰۰٪ باشد (R6).</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. اگر مسیر عملیات فعال باشد بازده سرفصل باید ۱۰۰٪ باشد (R6). در حالت چندمحصولی، تب «خروجی‌ها» سهم هزینه را نگه می‌دارد.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateSave()})}">ایجاد پیش‌نویس</button>
     </div>`);
 }
+function prodBomCreateAddCo(){
+  const pid=+el('pb-co-pick')?.value;
+  const main=+el('pb-product')?.value;
+  if(!pid){ showToast('محصول را انتخاب کنید','error'); return; }
+  if(pid===main){ showToast('محصول هم‌خروجی نباید همان محصول اصلی باشد','error'); return; }
+  if(!window._pbCoProducts) window._pbCoProducts=[];
+  if(window._pbCoProducts.includes(pid)){ showToast('قبلاً اضافه شده','error'); return; }
+  window._pbCoProducts.push(pid);
+  prodBomCreateRenderCoList();
+}
+function prodBomCreateRenderCoList(){
+  const box=el('pb-co-list');
+  if(!box) return;
+  const ids=window._pbCoProducts||[];
+  if(!ids.length){ box.textContent='هنوز هم‌محصولی اضافه نشده'; return; }
+  box.innerHTML=ids.map(id=>{
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(id));
+    return `<span class="chip" data-csp-style="${CSP.style(`display:inline-flex;gap:6px;align-items:center;margin:2px 4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px`)}">${esc(p?.name||('#'+id))}
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){window._pbCoProducts=(window._pbCoProducts||[]).filter(x=>x!==(id));prodBomCreateRenderCoList()})}">×</button></span>`;
+  }).join('');
+}
 async function prodBomCreateSave(){
   const product_id=+el('pb-product')?.value;
   if(!product_id){ showToast('محصول الزامی است','error'); return; }
   const has_routing=!!el('pb-routing')?.checked;
+  const has_multi=!!el('pb-multi')?.checked;
   let yield_percent=+el('pb-yield')?.value||100;
   if(has_routing) yield_percent=100;
+  const co_product_ids=has_multi?(window._pbCoProducts||[]).filter(id=>Number(id)!==product_id):[];
   try{
     const r=await api('POST','/production/boms',{
       product_id, name:el('pb-name')?.value||'',
       base_qty:+el('pb-base')?.value||1,
       yield_percent, has_routing:has_routing?1:0,
+      has_coproducts:has_multi||co_product_ids.length?1:0,
+      co_product_ids,
+      auto_share_method:has_multi?(el('pb-share-method')?.value||'sales_value'):undefined,
       note:el('pb-note')?.value||'', is_default:1
     });
     showToast('پیش‌نویس '+esc(r.code||'')+' ساخته شد');
     closeModal();
-    await prodBomEditModal(r.id);
+    await prodBomEditModal(r.id, has_multi?'outputs':'items');
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomEditModal(id, tab){
@@ -14772,16 +14817,21 @@ async function prodBomResequenceOps(id){
 function prodBomOutputsPanelHtml(id, outs, locked, bom){
   const typeLabel={main:'اصلی',co:'هم‌محصول',by:'فرعی',scrap:'ضایعات'};
   const canMut=!locked;
+  const mfg=(CACHE.allProducts||[]).filter(p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi');
   const nameOf=pid=>{
     const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid));
     return p?p.name:('#'+pid);
   };
+  const shareSum=(outs||[]).filter(o=>o.output_type==='main'||o.output_type==='co')
+    .reduce((s,o)=>s+(Number(o.cost_share_percent)||0),0);
+  const shareOk=Math.abs(shareSum-100)<0.05 || !(outs||[]).length;
   return `
     <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
       ${canMut?`<button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAutoShare((id),'sales_value')})}">تسهیم خودکار (ارزش فروش)</button>
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAutoShare((id),'physical')})}">تسهیم خودکار (فیزیکی)</button>`:''}
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">جمع سهم main+co باید ۱۰۰٪ باشد</span>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px;color:${shareOk?'inherit':'var(--red)'}`)}">جمع سهم main+co: ${shareSum.toFixed(1)}٪ ${shareOk?'':'— باید ۱۰۰٪ باشد'}</span>
     </div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">برای قیمت‌گذاری چندمحصولی با روش تسهیم: محصول سرفصل = <b>اصلی</b>؛ هر محصول دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید. اگر کالا را «اصلی» بگذارید ولی با سرفصل فرق داشته باشد، سرور خودکار آن را هم‌محصول می‌کند.</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>نوع</th><th>کالا</th><th>مقدار/پایه</th><th>روش</th><th>سهم٪</th><th>NRV</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
@@ -14796,38 +14846,39 @@ function prodBomOutputsPanelHtml(id, outs, locked, bom){
           <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomFillOutputForm((o))})}">ویرایش</button>
           <button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteOutput((id),(o.id))})}">حذف</button>
         </td>`:''}
-      </tr>`).join('')||`<tr><td colspan="${canMut?7:6}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">خروجی ثبت نشده — محصول اصلی به‌صورت پیش‌فرض در محاسبه استفاده می‌شود</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="${canMut?7:6}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">خروجی ثبت نشده — محصول اصلی به‌صورت پیش‌فرض ۱۰۰٪ است؛ برای چندمحصولی از فرم زیر اضافه کنید</td></tr>`}
     </tbody></table></div>
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-out-form">
       <input type="hidden" id="pbe-out-id" value="">
-      <div class="fg"><label>کالا</label>${productSelect('pbe-out-prod',bom.product_id||'',CACHE.allProducts||[])}</div>
+      <div class="fg"><label>افزودن / ویرایش کالا</label>${productSelect('pbe-out-prod','',mfg.length?mfg:(CACHE.allProducts||[]))}</div>
       <div class="fg"><label>نوع</label><select id="pbe-out-type">
-        <option value="main">اصلی (main)</option>
-        <option value="co">هم‌محصول (co)</option>
+        <option value="co" selected>هم‌محصول (co) — توصیه برای محصول اضافه</option>
+        <option value="main">اصلی (main) — فقط محصول سرفصل</option>
         <option value="by">فرعی (by)</option>
         <option value="scrap">ضایعات (scrap)</option>
       </select></div>
       <div class="fg"><label>مقدار/پایه</label><input id="pbe-out-qty" type="number" step="any" min="0" value="1"></div>
-      <div class="fg"><label>سهم هزینه٪</label><input id="pbe-out-share" type="number" step="any" value="100"></div>
+      <div class="fg"><label>سهم هزینه٪</label><input id="pbe-out-share" type="number" step="any" value="0"></div>
       <div class="fg"><label>روش هزینه</label><select id="pbe-out-method">
-        <option value="share">سهمی (share)</option>
+        <option value="share" selected>سهمی / تسهیم (share)</option>
         <option value="nrv">NRV</option>
         <option value="zero">صفر</option>
       </select></div>
       <div class="fg"><label>NRV (ریال)</label><input id="pbe-out-nrv" type="number" min="0" value="0"></div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOutput((id))})}">💾 ذخیره خروجی</button>
+      <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOutput((id))})}">💾 ذخیره / افزودن محصول</button>
+      <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomQuickAddCoProducts((id))})}">➕ چند محصول یکجا</button>
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOutputForm((bom.product_id))})}">پاک کردن فرم</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">خروجی‌های co/by برای تخصیص هزینه هم‌محصول و فرعی؛ تسهیم خودکار از POST <code>.../outputs/auto-share</code>.</p>`:''}`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">بعد از افزودن چند محصول، «تسهیم خودکار» را بزنید تا سهم‌ها ۱۰۰٪ شود.</p>`:''}`;
 }
 function prodBomFillOutputForm(o){
   if(!o) return;
   if(el('pbe-out-id')) el('pbe-out-id').value=o.id||'';
   if(el('pbe-out-prod')) el('pbe-out-prod').value=o.product_id||'';
-  if(el('pbe-out-type')) el('pbe-out-type').value=o.output_type||'main';
+  if(el('pbe-out-type')) el('pbe-out-type').value=o.output_type||'co';
   if(el('pbe-out-qty')) el('pbe-out-qty').value=o.qty_per_base??1;
   if(el('pbe-out-share')) el('pbe-out-share').value=o.cost_share_percent??0;
   if(el('pbe-out-method')) el('pbe-out-method').value=o.cost_method||'share';
@@ -14835,12 +14886,33 @@ function prodBomFillOutputForm(o){
 }
 function prodBomResetOutputForm(productId){
   if(el('pbe-out-id')) el('pbe-out-id').value='';
-  if(el('pbe-out-prod')&&productId) el('pbe-out-prod').value=productId;
-  if(el('pbe-out-type')) el('pbe-out-type').value='main';
+  if(el('pbe-out-prod')) el('pbe-out-prod').value='';
+  if(el('pbe-out-type')) el('pbe-out-type').value='co';
   if(el('pbe-out-qty')) el('pbe-out-qty').value=1;
-  if(el('pbe-out-share')) el('pbe-out-share').value=100;
+  if(el('pbe-out-share')) el('pbe-out-share').value=0;
   if(el('pbe-out-method')) el('pbe-out-method').value='share';
   if(el('pbe-out-nrv')) el('pbe-out-nrv').value=0;
+}
+async function prodBomQuickAddCoProducts(id){
+  const raw=prompt('شناسه یا نام چند محصول (با ویرگول). یا فقط از فرم تک‌به‌تک اضافه کنید. برای انتخاب سریع، شناسه‌های عددی را وارد کنید:');
+  if(raw==null) return;
+  const parts=String(raw).split(/[,،\s]+/).map(s=>s.trim()).filter(Boolean);
+  const ids=[];
+  for(const part of parts){
+    if(/^\d+$/.test(part)) ids.push(+part);
+    else {
+      const p=(CACHE.allProducts||[]).find(x=>String(x.name).includes(part));
+      if(p) ids.push(+p.id);
+    }
+  }
+  if(!ids.length){ showToast('محصولی شناسایی نشد — از فرم «هم‌محصول» استفاده کنید','error'); return; }
+  try{
+    await api('POST','/production/boms/'+id+'/outputs/ensure-share',{
+      co_product_ids:ids, auto_share_method:'sales_value'
+    });
+    showToast(toFa(ids.length)+' محصول به خروجی‌ها اضافه و تسهیم شد');
+    await prodBomEditModal(id,'outputs');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomSaveOutput(id){
   const outId=+el('pbe-out-id')?.value||0;
@@ -14901,15 +14973,20 @@ async function prodBomComputeFullCost(id){
     const unit=r.breakdown?.unit_cost_rial ?? r.unit_cost_rial;
     const stages=r.stages||[];
     if(!box) return;
+    const warns=r.warnings||[];
+    const outs=r.outputs||[];
     box.innerHTML=`
       <div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">
-        <b>بهای واحد:</b> <span class="mono">${fmt(unit||0)}</span> ریال
+        <b>بهای واحد (اصلی):</b> <span class="mono">${fmt(unit||0)}</span> ریال
         ${r.qty_start!=null?` · شروع: ${toFa(r.qty_start)}`:''}
         ${r.total_yield_percent!=null?` · بازده کل: ${r.total_yield_percent}%`:''}
         ${r.breakdown?.net_rial!=null?` · خالص: ${fmt(r.breakdown.net_rial)} ریال`:''}
+        ${r.breakdown?.overhead_rial!=null?` · سربار کل: ${fmt(r.breakdown.overhead_rial)} ریال`:''}
       </div>
+      ${warns.length?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fff8e6;border:1px solid #e6c35c;font-size:12px;line-height:1.8`)}"><b>هشدار سربار/نرخ:</b><ul data-csp-style="${CSP.style(`margin:4px 0 0 18px`)}">${warns.map(w=>`<li>${esc(typeof w==='string'?w:(w.detail||w.code||JSON.stringify(w)))}</li>`).join('')}</ul>
+        <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">رفتن به نرخ سربار مراکز</button></div>`:''}
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>مرحله</th><th>مرکز</th><th>ورود</th><th>خروج</th><th>مواد</th><th>دستمزد</th><th>سربار</th><th>بهای خروجی</th><th>واحد</th>
+        <th>مرحله</th><th>مرکز</th><th>ورود</th><th>خروج</th><th>مواد</th><th>دستمزد</th><th>سربار</th><th>محرک</th><th>نرخ</th><th>بهای خروجی</th><th>واحد</th>
       </tr></thead><tbody>
         ${stages.map(s=>`<tr>
           <td class="num">${s.seq??''}</td>
@@ -14918,11 +14995,23 @@ async function prodBomComputeFullCost(id){
           <td class="num">${s.qty_out??''}</td>
           <td class="num">${fmt(s.material_rial||0)}</td>
           <td class="num">${fmt(s.labor_rial||0)}</td>
-          <td class="num">${fmt(s.overhead_rial||0)}</td>
+          <td class="num" data-csp-style="${CSP.style(!(s.overhead_rial>0)&&((s.material_rial>0)||(s.labor_rial>0))?'color:var(--red)':'')}">${fmt(s.overhead_rial||0)}</td>
+          <td class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(s.overhead_driver||'—')} × ${s.overhead_driver_qty??'—'}</td>
+          <td class="num">${fmt(s.overhead_rate_rial||0)}</td>
           <td class="num">${fmt(s.cost_out_rial||0)}</td>
           <td class="num">${fmt(s.unit_cost_out_rial||0)}</td>
-        </tr>`).join('')||`<tr><td colspan="9" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
-      </tbody></table></div>`;
+        </tr>`).join('')||`<tr><td colspan="11" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
+      </tbody></table></div>
+      ${outs.length?`<h5 data-csp-style="${CSP.style(`margin:14px 0 6px`)}">تسهیم بها بین محصولات</h5>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+        <th>نوع</th><th>محصول</th><th>مقدار</th><th>سهم٪</th><th>مبلغ</th><th>بهای واحد</th>
+      </tr></thead><tbody>
+        ${outs.map(o=>`<tr>
+          <td>${esc(o.type||'')}</td><td>${esc(o.name||('#'+o.product_id))}</td>
+          <td class="num">${o.qty??''}</td><td class="num">${o.share_percent??''}</td>
+          <td class="num">${fmt(o.amount_rial||0)}</td><td class="num">${fmt(o.unit_cost_rial||0)}</td>
+        </tr>`).join('')}
+      </tbody></table></div>`:''}`;
   }catch(e){
     const msg=e.message||e.error||e.code||'خطا در محاسبه';
     const labor=/نرخ دستمزد|E_LABOR_RATE_ZERO|LABOR_RATE/.test(String(msg)+String(e.code||''));
@@ -29619,8 +29708,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات می‌توانید <b>شخص</b> اختیاری انتخاب کنید تا هزینهٔ دستمزد به همان فرد نسبت داده شود. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
-        <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪. دکمه‌های «تسهیم خودکار (ارزش فروش)» و «تسهیم خودکار (فیزیکی)» سهم‌ها را از <code>POST .../outputs/auto-share</code> پر می‌کنند؛ ویرایش و حذف خروجی هم پشتیبانی می‌شود.</li>
-        <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
+        <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی) یا <code>POST .../outputs/ensure-share</code> و <code>.../auto-share</code>. اگر کالا را main بگذارید ولی با سرفصل فرق داشته باشد، سرور خودکار co می‌کند. فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌های بدون BOM فعال دیگر را هم به همین فرمول می‌چسباند.</li>
+        <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
+        <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li><b>ویرایش و حذف حرفه‌ای فهرست BOM (v385):</b> در ستون عملیات برای هر فرمول دکمهٔ <b>ویرایش</b> / <b>ویرایش…</b> و <b>حذف</b> (پیش‌نویس) یا <b>بایگانی</b> (فعال) هست. قبل از حذف/بایگانی، سرور وابستگی‌ها را از <code>GET /api/production/boms/:id/dependencies</code> می‌خواند و سفارش‌های باز را نشان می‌دهد؛ اگر سفارش <code>draft/released/in_progress</code> به فرمول وصل باشد عملیات مسدود است (<code>E_BOM_IN_USE</code>). حذف فیزیکی نیست: پیش‌نویس → soft-delete (<code>obsolete</code>)، فعال → بایگانی. ویرایش فرمول فعال فقط از مسیر «نسخه جدید برای ویرایش» (با پیش‌نمایش وابستگی). «غیرفعال» فعال را به پیش‌نویس برمی‌گرداند اگر سفارش باز نباشد. بایگانی/حذف، اشاره‌گر <code>default_bom_id</code> کالا را هم پاک می‌کند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>

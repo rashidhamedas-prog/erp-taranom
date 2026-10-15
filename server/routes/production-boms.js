@@ -41,8 +41,17 @@ function bomFaError(e) {
     E_BOM_IN_USE: (e && e.extra && e.extra.n)
       ? (`این فرمول در ${e.extra.n} سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.`)
       : 'فرمول در سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.',
+    E_BOM_VERSION_CLASH: 'نسخه/بازبینی این فرمول با رکورد قبلی (حتی حذف‌شده) تداخل دارد — سرور کلید یکتا را آزاد کرد؛ دوباره ذخیره/فعال‌سازی را بزنید.',
+    E_BOM_CODE_CLASH: 'کد فرمول تکراری است — صفحه را تازه کنید و دوباره بسازید.',
+    E_SHARE_NOT_100: 'جمع سهم هزینه محصولات اصلی و هم‌محصول باید دقیقاً ۱۰۰٪ باشد — از «تسهیم خودکار» استفاده کنید.',
+    E_NO_MAIN_OUTPUT: 'برای فرمول چندمحصولی باید دقیقاً یک خروجی «اصلی» برابر محصول سرفصل باشد.',
+    E_MAIN_MISMATCH: 'خروجی اصلی باید همان محصول سرفصل فرمول باشد؛ محصولات دیگر را به‌عنوان هم‌محصول (co) اضافه کنید.',
+    E_OUTPUT_DUPLICATE: 'این کالا قبلاً در خروجی‌های فرمول ثبت شده است.',
   };
   if (map[code]) return map[code];
+  if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(String(e && e.message || ''))) {
+    return map.E_BOM_VERSION_CLASH;
+  }
   if (/updateOperation is not a function/i.test(code)) {
     return 'ذخیره مسیر عملیات در این نسخه درست نشد؛ صفحه را یک‌بار رفرش کنید.';
   }
@@ -386,6 +395,21 @@ router.post('/:id/outputs/auto-share', auth, requirePermission('production_bom',
       throw e;
     }
     return applyCostPolicy(getDB(), req.user, adv.autoShare(getDB(), Number(req.params.id), method));
+  });
+});
+
+/** Multi-product share: ensure main + add co products, optional auto-share */
+router.post('/:id/outputs/ensure-share', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const bomId = Number(req.params.id);
+    const method = req.body?.auto_share_method || req.body?.method || 'sales_value';
+    const rows = adv.ensureShareOutputs(db, bomId, {
+      mainProductId: req.body?.main_product_id,
+      coProductIds: req.body?.co_product_ids || req.body?.product_ids || [],
+      autoShare: method === 'none' ? null : method,
+    });
+    return applyCostPolicy(db, req.user, { rows });
   });
 });
 

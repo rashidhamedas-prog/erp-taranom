@@ -119,6 +119,55 @@ const PRODUCTION_ACCOUNTS = [
   { code: '5230', name: 'کارمزد ساخت پیمانکاری', type: 'expense', parent_code: '5200' },
 ];
 
+/**
+ * Soft-delete must free (product_id, version, revision) and code.
+ * Legacy full unique indexes blocked create/activate after archive/wipe (heal v407).
+ * Swap to partial unique indexes; tombstone any deleted row still colliding with live keys.
+ */
+function ensureBomLiveUniqueIndexes(db) {
+  // Free keys held by soft-deleted / obsolete rows under the old full unique index.
+  const dead = db.prepare(`
+    SELECT id, code, version, revision FROM bom_headers
+    WHERE deleted_at IS NOT NULL OR status = 'obsolete'
+  `).all();
+  const bump = db.prepare(`
+    UPDATE bom_headers
+    SET version = ?, revision = 'DEL', code = ?
+    WHERE id = ? AND (deleted_at IS NOT NULL OR status = 'obsolete')
+  `);
+  for (const b of dead) {
+    const tombVer = -(1_000_000 + Number(b.id));
+    const tombCode = String(b.code || 'BOM').includes('__del')
+      ? String(b.code)
+      : `${b.code || 'BOM'}__del${b.id}`;
+    if (Number(b.version) === tombVer && String(b.revision) === 'DEL' && String(b.code) === tombCode) continue;
+    try {
+      bump.run(tombVer, tombCode, b.id);
+    } catch (_) {
+      bump.run(tombVer - Number(b.id), `${tombCode}_${b.id}`, b.id);
+    }
+  }
+
+  try { db.exec('DROP INDEX IF EXISTS ux_bom_prod_ver'); } catch (_) { /* ignore */ }
+  try { db.exec('DROP INDEX IF EXISTS ux_bom_code'); } catch (_) { /* ignore */ }
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_prod_ver_live
+      ON bom_headers(product_id, version, revision) WHERE deleted_at IS NULL
+    `);
+  } catch (e) {
+    console.warn('[prod-schema] ux_bom_prod_ver_live:', e.message);
+  }
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_code_live
+      ON bom_headers(code) WHERE deleted_at IS NULL
+    `);
+  } catch (e) {
+    console.warn('[prod-schema] ux_bom_code_live:', e.message);
+  }
+}
+
 function ensureExistingColumns(db) {
   ensureColumn(db, 'products', 'item_type', "TEXT DEFAULT 'finished'");
   ensureColumn(db, 'products', 'is_manufactured', 'INTEGER DEFAULT 0');
@@ -172,6 +221,7 @@ function ensureExistingColumns(db) {
   }
   if (tableExists(db, 'bom_headers')) {
     ensureColumn(db, 'bom_headers', 'color_id', 'INTEGER');
+    ensureBomLiveUniqueIndexes(db);
   }
   if (tableExists(db, 'bom_lines')) {
     ensureColumn(db, 'bom_lines', 'component_color_mode', "TEXT DEFAULT 'none'");
@@ -335,8 +385,9 @@ function createTables(db) {
       FOREIGN KEY(product_id) REFERENCES products(id),
       FOREIGN KEY(alt_of_bom_id) REFERENCES bom_headers(id)
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_code ON bom_headers(code);
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_prod_ver ON bom_headers(product_id, version, revision);
+    /* Live-only unique: soft-deleted rows must not block new drafts (v416). */
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_code_live ON bom_headers(code) WHERE deleted_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_prod_ver_live ON bom_headers(product_id, version, revision) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS ix_bom_product_status ON bom_headers(product_id, status, valid_from, valid_to);
 
     CREATE TABLE IF NOT EXISTS bom_lines (

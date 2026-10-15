@@ -213,21 +213,49 @@ function periodStartDate(period) {
  * getOverheadRate — prefer active/approved then draft/estimated for period;
  * else latest usable rate; else bootstrap estimated rate for the period.
  */
+/** Derive total/fixed/var from budget when total_rate_rial was left 0 in the rate form. */
+function enrichOverheadRate(row) {
+  if (!row) return null;
+  let computed;
+  try {
+    computed = computePredeterminedRates(row);
+  } catch {
+    computed = null;
+  }
+  const out = { ...row };
+  out.driver = coerceDriver(row.driver);
+  if (computed) {
+    out.fixed_rate_rial = computed.fixed_rate_rial;
+    out.var_rate_rial = computed.var_rate_rial;
+    out.total_rate_rial = computed.total_rate_rial;
+    out.from_budget = !!computed.from_budget;
+    if (row.absorb_pct == null || row.absorb_pct === '') out.absorb_pct = 100;
+    else {
+      try { out.absorb_pct = clampAbsorbPct(row.absorb_pct); } catch { out.absorb_pct = 100; }
+    }
+  } else if (out.absorb_pct == null || out.absorb_pct === '') {
+    out.absorb_pct = 100;
+  }
+  return out;
+}
+
 function getOverheadRate(db, ccId, period) {
   if (!ccId) return null;
 
+  let periodNorm = '';
   if (period) {
+    try { periodNorm = validatePeriodLabel(period); } catch { periodNorm = String(period).trim(); }
+  }
+
+  if (periodNorm) {
     const forPeriod = db.prepare(`
       SELECT * FROM cost_center_rates
       WHERE cost_center_id=? AND period_label=?
         AND status IN ('active','approved','draft','estimated')
       ORDER BY ${RATE_STATUS_ORDER}
       LIMIT 1
-    `).get(ccId, period);
-    if (forPeriod) {
-      forPeriod.driver = coerceDriver(forPeriod.driver);
-      return forPeriod;
-    }
+    `).get(ccId, periodNorm);
+    if (forPeriod) return enrichOverheadRate(forPeriod);
   }
 
   const latest = db.prepare(`
@@ -237,12 +265,9 @@ function getOverheadRate(db, ccId, period) {
     ORDER BY period_label DESC, ${RATE_STATUS_ORDER}
     LIMIT 1
   `).get(ccId);
-  if (latest) {
-    latest.driver = coerceDriver(latest.driver);
-    return latest;
-  }
+  if (latest) return enrichOverheadRate(latest);
 
-  return bootstrapRate(db, ccId, period || '');
+  return enrichOverheadRate(bootstrapRate(db, ccId, periodNorm || period || ''));
 }
 
 /**
