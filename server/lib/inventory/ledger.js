@@ -374,6 +374,8 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) 
   if (!row) throw invErr('E_LEDGER_NOT_FOUND', 404);
   if (row.status === 'reversed') throw invErr('E_ALREADY_REVERSED', 409);
 
+  const valueOnly = (Number(row.qty_in) || 0) === 0 && (Number(row.qty_out) || 0) === 0
+    && Math.round(Number(row.amount_rial) || 0) !== 0;
   const rev = postInventoryMovement(db, {
     eventType: 'reversal',
     productId: row.product_id,
@@ -381,7 +383,8 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) 
     qtyIn: row.qty_out,
     qtyOut: row.qty_in,
     unitCostRial: row.unit_cost_rial,
-    amountRial: row.amount_rial,
+    // Opposite value for value-only revals (landed cost / GRNI variance)
+    amountRial: valueOnly ? -Math.round(Number(row.amount_rial) || 0) : row.amount_rial,
     sourceType: row.source_type,
     sourceId: row.source_id,
     batchId: row.batch_id,
@@ -390,8 +393,10 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) 
     date: date || row.date,
     note: note || `معکوس ${row.tx_no}`,
     createdBy,
-    updateAvg: true,
+    updateAvg: !valueOnly,
     warehouseOnly: isWarehouseOnlyRow(row),
+    skipStock: valueOnly,
+    valueOnly,
   });
 
   db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(row.id);
