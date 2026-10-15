@@ -2,10 +2,11 @@
  * Opening / beginning-balance journal helpers.
  * Used by parties, products, warehouse receipts, cheques — including Excel import.
  */
-const { postToLedger } = require('./ledger');
+const { postToLedger, rewriteJournalEntry } = require('./ledger');
 const { acct } = require('./coa-map');
-const { rialToLedger } = require('./money');
+const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { todayJalali } = require('../jalali');
+const { getActiveFiscalYear } = require('./fiscal-period');
 
 function parseRoles(partyRoles, partyType) {
   let roles = [];
@@ -29,20 +30,12 @@ function controlAccountForParty(db, party) {
   return acct(db, 'coa_misc_persons');
 }
 
-/**
- * Post opening-balance JE for a party (مانده اول دوره).
- * amountRial > 0 → party owes us (debit receivable / credit opening)
- * amountRial < 0 → we owe party (debit opening / credit payable)
- * @returns {number|null} journal entry id
- */
-function postPartyOpeningBalance(db, {
-  partyId, amountRial, date, userId, description, srcSystem,
-}) {
-  const amt = Math.round(Number(amountRial) || 0);
-  if (!amt) return null;
-  const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
-  if (!party) throw new Error('شخص برای سند افتتاحیه یافت نشد');
+function fiscalOpeningDate(db) {
+  const fy = getActiveFiscalYear(db);
+  return (fy && fy.start_date) || todayJalali();
+}
 
+function resolvePartyControlAccount(db, party) {
   let control = controlAccountForParty(db, party);
   if (party.legacy_table === 'customers' && party.legacy_id) {
     const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(party.legacy_id);
@@ -54,9 +47,15 @@ function postPartyOpeningBalance(db, {
     const tafsili = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
     if (tafsili) control = tafsili;
   }
+  return control;
+}
+
+function partyOpeningLines(db, party, amtRial) {
+  const amt = Math.round(Number(amtRial) || 0);
+  const control = resolvePartyControlAccount(db, party);
   const opening = acct(db, 'coa_opening_balance');
   const absToman = rialToLedger(Math.abs(amt));
-  const lines = amt > 0
+  return amt > 0
     ? [
       { code: control.code, name: control.name, debit: absToman, credit: 0 },
       { code: opening.code, name: opening.name, debit: 0, credit: absToman },
@@ -65,101 +64,288 @@ function postPartyOpeningBalance(db, {
       { code: opening.code, name: opening.name, debit: absToman, credit: 0 },
       { code: control.code, name: control.name, debit: 0, credit: absToman },
     ];
+}
 
-  const entryId = postToLedger(db, {
-    sourceType: 'opening_balance',
-    sourceId: partyId,
-    date: date || party.opening_balance_date || todayJalali(),
-    description: description || `مانده اول دوره — ${party.full_name || party.biz || partyId}`,
-    createdBy: userId,
-    voucherType: 'opening',
-    srcSystem: srcSystem || null,
-    lines,
-  });
+function livePartyOpeningJeId(db, partyId) {
+  const existing = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='opening_balance' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC
+    LIMIT 1
+  `).get(partyId);
+  return existing ? existing.id : null;
+}
 
-  // Sub-ledgers (rial). Always mirror onto every linked role row — not only legacy_table.
-  // Missing this is the root of «مانده زنده ≠ تفصیلی» when opening JE hits GL only.
+function partyOpeningSideMatches(db, jeId, amtRial) {
+  const amt = Math.round(Number(amtRial) || 0);
+  if (!amt) return false;
+  const opening = acct(db, 'coa_opening_balance');
+  const line = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d,
+           COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS c
+    FROM journal_lines jl
+    WHERE jl.entry_id=? AND jl.account_code=?
+  `).get(jeId, opening.code);
+  const openDebit = Math.round(Number(line && line.d) || 0);
+  const openCredit = Math.round(Number(line && line.c) || 0);
+  // amt>0 → party owes us → opening is credit; amt<0 → we owe → opening is debit
+  if (amt > 0) return openCredit > 0 && openDebit === 0;
+  return openDebit > 0 && openCredit === 0;
+}
+
+function clearPartyOpeningSubledgers(db, partyId) {
+  const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+  if (!party) return;
+
+  const custIds = new Set();
+  if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
   try {
-    const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
-    const debit = amt > 0 ? Math.abs(amt) : 0;
-    const credit = amt < 0 ? Math.abs(amt) : 0;
-    const openDate = date || party.opening_balance_date || todayJalali();
-
-    const custIds = new Set();
-    if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
+    for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
+      custIds.add(Number(r.id));
+    }
+  } catch (_) { /* */ }
+  for (const cid of custIds) {
+    if (!Number.isFinite(cid)) continue;
     try {
-      for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
-        custIds.add(Number(r.id));
-      }
-    } catch (_) { /* */ }
-    for (const cid of custIds) {
-      if (!Number.isFinite(cid)) continue;
       db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(cid);
-      createLedgerEntry(db, {
-        customer_id: cid, date: openDate, entry_type: 'opening',
-        ref_type: 'opening', ref_id: entryId,
-        description: 'مانده اولیه حساب', debit, credit, user_id: userId,
-      });
-      db.prepare('UPDATE customers SET balance=? WHERE id=?').run(amt, cid);
-    }
-
-    const personIds = new Set();
-    if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
-    try {
-      for (const r of db.prepare('SELECT id FROM persons WHERE party_id=?').all(partyId)) {
-        personIds.add(Number(r.id));
-      }
     } catch (_) { /* */ }
-    for (const peid of personIds) {
-      if (!Number.isFinite(peid)) continue;
-      try {
-        db.prepare(`
-          DELETE FROM person_ledger
-          WHERE person_id=? AND (
-            LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
-            OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
-          )
-        `).run(peid);
-      } catch (_) { /* */ }
-      createPersonLedgerEntry(db, {
-        person_id: peid, date: openDate, entry_type: 'opening',
-        ref_type: 'opening_balance', ref_id: entryId,
-        description: description || 'مانده اول دوره', debit, credit, user_id: userId,
+    try { db.prepare('UPDATE customers SET balance=0 WHERE id=?').run(cid); } catch (_) { /* */ }
+  }
+
+  const personIds = new Set();
+  if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
+  try {
+    for (const r of db.prepare('SELECT id FROM persons WHERE party_id=?').all(partyId)) {
+      personIds.add(Number(r.id));
+    }
+  } catch (_) { /* */ }
+  for (const peid of personIds) {
+    if (!Number.isFinite(peid)) continue;
+    try {
+      db.prepare(`
+        DELETE FROM person_ledger
+        WHERE person_id=? AND (
+          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+        )
+      `).run(peid);
+    } catch (_) { /* */ }
+  }
+
+  try {
+    for (const s of db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId)) {
+      const sid = Number(s.id);
+      if (!Number.isFinite(sid)) continue;
+      db.prepare(`
+        DELETE FROM supplier_ledger
+        WHERE supplier_id=? AND (
+          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+        )
+      `).run(sid);
+      db.prepare('UPDATE suppliers SET balance=0 WHERE id=?').run(sid);
+    }
+  } catch (_) { /* */ }
+}
+
+function mirrorPartyOpeningSubledgers(db, {
+  partyId, entryId, amtRial, openDate, userId, description,
+}) {
+  const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+  if (!party || !entryId) return;
+  const amt = Math.round(Number(amtRial) || 0);
+  if (!amt) {
+    clearPartyOpeningSubledgers(db, partyId);
+    return;
+  }
+
+  const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
+  const debit = amt > 0 ? Math.abs(amt) : 0;
+  const credit = amt < 0 ? Math.abs(amt) : 0;
+  const desc = description || 'مانده اول دوره';
+
+  const custIds = new Set();
+  if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
+  try {
+    for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
+      custIds.add(Number(r.id));
+    }
+  } catch (_) { /* */ }
+  for (const cid of custIds) {
+    if (!Number.isFinite(cid)) continue;
+    db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(cid);
+    createLedgerEntry(db, {
+      customer_id: cid, date: openDate, entry_type: 'opening',
+      ref_type: 'opening', ref_id: entryId,
+      description: 'مانده اولیه حساب', debit, credit, user_id: userId,
+    });
+    db.prepare('UPDATE customers SET balance=? WHERE id=?').run(amt, cid);
+  }
+
+  const personIds = new Set();
+  if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
+  try {
+    for (const r of db.prepare('SELECT id FROM persons WHERE party_id=?').all(partyId)) {
+      personIds.add(Number(r.id));
+    }
+  } catch (_) { /* */ }
+  for (const peid of personIds) {
+    if (!Number.isFinite(peid)) continue;
+    try {
+      db.prepare(`
+        DELETE FROM person_ledger
+        WHERE person_id=? AND (
+          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+        )
+      `).run(peid);
+    } catch (_) { /* */ }
+    createPersonLedgerEntry(db, {
+      person_id: peid, date: openDate, entry_type: 'opening',
+      ref_type: 'opening_balance', ref_id: entryId,
+      description: desc, debit, credit, user_id: userId,
+    });
+  }
+
+  try {
+    const supRows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId);
+    for (const s of supRows) {
+      const sid = Number(s.id);
+      if (!Number.isFinite(sid)) continue;
+      db.prepare(`
+        DELETE FROM supplier_ledger
+        WHERE supplier_id=? AND (
+          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
+        )
+      `).run(sid);
+      const sDebit = amt > 0 ? Math.abs(amt) : 0;
+      const sCredit = amt < 0 ? Math.abs(amt) : 0;
+      db.prepare(`
+        INSERT INTO supplier_ledger
+          (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(
+        sid, openDate, 'opening', 'opening_balance', entryId,
+        desc, sDebit, sCredit, userId || 1
+      );
+      db.prepare('UPDATE suppliers SET balance=? WHERE id=?').run(amt < 0 ? Math.abs(amt) : 0, sid);
+    }
+  } catch (_) { /* supplier_ledger optional */ }
+}
+
+/**
+ * Upsert party opening JE (mirror bank upsertBankOpening):
+ * - date = active FY start_date (unless dateOverride)
+ * - amount/sign change → rewriteJournalEntry (same id + voucher_number)
+ * - amt=0 → soft-void + clear sub-ledgers
+ * @returns {number|null} journal entry id
+ */
+function upsertPartyOpening(db, partyId, openingRial, userId, {
+  dateOverride, description, srcSystem,
+} = {}) {
+  const pid = Number(partyId);
+  if (!Number.isFinite(pid) || pid <= 0) throw new Error('شخص برای سند افتتاحیه یافت نشد');
+  const party = db.prepare('SELECT * FROM parties WHERE id=?').get(pid);
+  if (!party) throw new Error('شخص برای سند افتتاحیه یافت نشد');
+
+  const amt = Math.round(Number(openingRial) || 0);
+  const date = dateOverride || fiscalOpeningDate(db);
+  const desc = description || `مانده اول دوره — ${party.full_name || party.biz || pid}`;
+  let jeId = livePartyOpeningJeId(db, pid);
+
+  if (!amt) {
+    if (jeId) {
+      const { reverseJournalEntry } = require('./void-journal');
+      reverseJournalEntry(db, jeId, {
+        userId: userId || 1,
+        reason: `ابطال مانده اول دوره — ${party.full_name || party.biz || pid}`,
+        sourceType: 'opening_balance_reversal',
       });
     }
+    clearPartyOpeningSubledgers(db, pid);
+    db.prepare(`
+      UPDATE parties SET opening_balance=0, opening_balance_date=?, updated_at=strftime('%s','now')
+      WHERE id=?
+    `).run(date, pid);
+    return null;
+  }
 
-    // Supplier AP opening: credit nature on leaf (we owe them when amt < 0)
-    try {
-      const supRows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId);
-      for (const s of supRows) {
-        const sid = Number(s.id);
-        if (!Number.isFinite(sid)) continue;
-        db.prepare(`
-          DELETE FROM supplier_ledger
-          WHERE supplier_id=? AND (
-            LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
-            OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
-          )
-        `).run(sid);
-        // supplier_ledger: credit increases payable; amt<0 (we owe) → credit = |amt|
-        const sDebit = amt > 0 ? Math.abs(amt) : 0;
-        const sCredit = amt < 0 ? Math.abs(amt) : 0;
-        db.prepare(`
-          INSERT INTO supplier_ledger
-            (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
-          VALUES (?,?,?,?,?,?,?,?,?)
-        `).run(
-          sid, openDate, 'opening', 'opening_balance', entryId,
-          description || 'مانده اول دوره', sDebit, sCredit, userId || 1
-        );
-        // suppliers.balance stores payable (>0 = we owe)
-        db.prepare('UPDATE suppliers SET balance=? WHERE id=?').run(amt < 0 ? Math.abs(amt) : 0, sid);
+  const lines = partyOpeningLines(db, party, amt);
+
+  if (jeId) {
+    const je = db.prepare('SELECT entry_date, total_debit_rial, ref_type FROM journal_entries WHERE id=?').get(jeId);
+    const isOpening = String(je && je.ref_type || '') === 'opening_balance';
+    if (!isOpening) {
+      jeId = null;
+    } else {
+      const currentAbs = Math.round(Number(je && je.total_debit_rial) || 0);
+      const wantAbs = Math.abs(amt);
+      const dateMismatch = String(je && je.entry_date || '') !== String(date);
+      const sideMismatch = !partyOpeningSideMatches(db, jeId, amt);
+      if (currentAbs !== wantAbs || dateMismatch || sideMismatch) {
+        const rewritten = rewriteJournalEntry(db, {
+          sourceType: 'opening_balance',
+          sourceId: pid,
+          date,
+          description: desc,
+          lines,
+        });
+        if (!rewritten) {
+          jeId = null;
+        } else {
+          jeId = rewritten;
+        }
       }
-    } catch (_) { /* supplier_ledger optional */ }
+    }
+  }
+
+  if (!jeId) {
+    jeId = postToLedger(db, {
+      sourceType: 'opening_balance',
+      sourceId: pid,
+      date,
+      description: desc,
+      createdBy: userId,
+      voucherType: 'opening',
+      srcSystem: srcSystem || null,
+      lines,
+    });
+  }
+
+  try {
+    mirrorPartyOpeningSubledgers(db, {
+      partyId: pid, entryId: jeId, amtRial: amt, openDate: date, userId, description: desc,
+    });
   } catch (e) {
     if (db.inTransaction) throw e;
   }
-  return entryId;
+
+  db.prepare(`
+    UPDATE parties SET opening_balance=?, opening_balance_date=?, updated_at=strftime('%s','now')
+    WHERE id=?
+  `).run(amt, date, pid);
+
+  return jeId;
+}
+
+/**
+ * Post opening-balance JE for a party (مانده اول دوره).
+ * amountRial > 0 → party owes us (debit receivable / credit opening)
+ * amountRial < 0 → we owe party (debit opening / credit payable)
+ * Prefer upsertPartyOpening for create/update paths (FY start + rewrite).
+ * @returns {number|null} journal entry id
+ */
+function postPartyOpeningBalance(db, {
+  partyId, amountRial, date, userId, description, srcSystem,
+}) {
+  return upsertPartyOpening(db, partyId, amountRial, userId, {
+    dateOverride: date || null,
+    description,
+    srcSystem,
+  });
 }
 
 /**
@@ -447,6 +633,11 @@ function reconcileInventoryLedgerGaps(db, {
 
 module.exports = {
   postPartyOpeningBalance,
+  upsertPartyOpening,
+  fiscalOpeningDate,
+  livePartyOpeningJeId,
+  clearPartyOpeningSubledgers,
+  partyOpeningLines,
   postProductOpeningInventory,
   backfillOpeningInventoryLedger,
   reconcileInventoryLedgerGaps,

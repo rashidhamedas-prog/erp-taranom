@@ -312,12 +312,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         }
       }
       if (openRial) {
-        const { postPartyOpeningBalance } = require('../lib/opening-post');
-        postPartyOpeningBalance(db, {
-          partyId,
-          amountRial: openRial,
-          date: b.opening_balance_date || null,
-          userId: req.user.id,
+        const { upsertPartyOpening } = require('../lib/opening-post');
+        // JE date = active FY start (not today / not free-form UI date)
+        upsertPartyOpening(db, partyId, openRial, req.user.id, {
           srcSystem: b.from_excel || b.src_system === 'excel' ? 'excel' : null,
         });
       }
@@ -419,28 +416,14 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
           } catch (_) {}
         }
       }
-      if (req.user.role === 'admin' && openRial !== (row.opening_balance || 0)) {
-        const oldJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='opening_balance' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1").get(req.params.id);
-        if (oldJe) {
-          try {
-            const { reverseJournalEntry } = require('../lib/void-journal');
-            reverseJournalEntry(db, oldJe.id, {
-              userId: req.user.id,
-              reason: 'تغییر مانده اول دوره',
-              sourceType: 'opening_balance_reversal',
-            });
-          } catch (_) {}
-        }
-        if (openRial) {
-          const { postPartyOpeningBalance } = require('../lib/opening-post');
-          postPartyOpeningBalance(db, {
-            partyId: Number(req.params.id),
-            amountRial: openRial,
-            date: b.opening_balance_date || row.opening_balance_date || null,
-            userId: req.user.id,
-            srcSystem: b.from_excel || b.src_system === 'excel' ? 'excel' : null,
-          });
-        }
+      // Admin: any explicit opening field → upsert (rewrite amt/sign, snap date to FY start).
+      // Matches bank/cash: same amount still repairs a wrong entry_date.
+      const openingFieldSent = b.opening_balance_rial != null || b.opening_balance != null;
+      if (req.user.role === 'admin' && openingFieldSent) {
+        const { upsertPartyOpening } = require('../lib/opening-post');
+        upsertPartyOpening(db, Number(req.params.id), openRial, req.user.id, {
+          srcSystem: b.from_excel || b.src_system === 'excel' ? 'excel' : null,
+        });
       }
     })();
   } catch (e) {

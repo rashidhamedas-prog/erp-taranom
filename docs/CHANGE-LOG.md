@@ -8,6 +8,17 @@
 - **تست:** ایران `test-prod-lay-fg-covered-v404` ۱۰/۰ + `test-sms` ۲۲/۰ + `test-prod-fabric-receipt-gate-v403` ۹/۰؛ health=200 + sharp. Heal: LAY-0008…0011 → PO-0008؛ یادداشت legacy روی PO-0009 (FG ۹۶ حفظ).
 - **Deploy:** ✅ `c0c9026` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v404`؛ `app.js?v=404`.
 
+### ۱۴۰۵/۰۷/۲۳ — مانده اول دوره اشخاص: تاریخ = شروع سال مالی + بازنویسی همان سند (SW v405)
+
+- **علائم / درخواست:** با تغییر مانده اول دوره در دفتر اشخاص، سند افتتاحیه باید تاریخ شروع سال مالی داشته باشد و فقط مبلغ همان سند عوض شود (نه سند جدید با تاریخ امروز و نه reverse+create).
+- **ریشه:** `PUT /api/parties/:id` با `reverseJournalEntry` + `postPartyOpeningBalance` سند جدید می‌ساخت؛ تاریخ JE از `opening_balance_date || todayJalali()` می‌آمد نه `getActiveFiscalYear().start_date`.
+- **Invariant (TAP ERP):** افتتاحیه شخص idempotent است — یک JE زنده `ref_type=opening_balance`؛ ویرایش مبلغ/طرف = `rewriteJournalEntry` (همان id/شماره)؛ تاریخ = شروع FY فعال؛ صفر = soft-void + پاک‌سازی زیردفتر (R13). الگوی مرجع: `upsertBankOpening`.
+- **رفع:** `upsertPartyOpening` در `lib/opening-post.js`؛ مسیر create/update اشخاص؛ deactivate با upsert(0)؛ Help + SW v405.
+- **فایل‌ها:** `lib/{opening-post,parties-sync}.js`, `routes/parties.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-party-opening-edit-v405.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ explore handoff party vs bank opening.
+- **تست:** `test-party-opening-edit-v405` + `test-sms` + `test-sync` (پس از اجرا).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — گیت رسید FG برای سفارش طاقه‌دار: لایه‌چینی → PACK → رسید (SW v403)
 
 - **علائم:** PO-0009 (کاپشن مموری آبان) با دکمهٔ «رسید» لیست سفارش‌ها ۹۶ عدد وارد انبار محصول شد (`PR-0005` / INV-1199) در حالی که لایه‌چینی/PACK برای این سفارش صفر بود و وضعیت به‌خاطر `is_partial=1` روی «در جریان» ماند.
