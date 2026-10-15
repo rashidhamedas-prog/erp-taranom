@@ -4,8 +4,8 @@
 - **UI/Help:** فرم سفارش — BOM با `for_product_id`، جدول برنامه FG، قفل آنالیز پیشرفته؛ نهایی‌سازی — ورودی تعداد main/co؛ راهنمای داخل برنامه؛ SW `erp-taranom-v420`.
 - **فایل‌ها:** `lib/production/{bom,engine,engine-advanced,variance}.js`, `routes/production-boms.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bom-order-multiproduct-v420.js`, CHANGE-LOG.
 - **Non-goals:** چند سفارش جدا per FG؛ حذف فیزیکی؛ بیلد APK/EXE.
-- **تست:** ایران `test-bom-order-multiproduct-v420` + `test-sms` / `test-sync`؛ parse `app.js` OK.
-- **Deploy:** ⏳
+- **تست:** ایران `test-bom-order-multiproduct-v420` ۲۰/۰ + `test-sms` ۲۲/۰؛ `test-sync` روی VPS به‌خاطر توکن pairing محیطی fail (غیرمرتبط با این تسک)؛ parse `app.js` OK؛ ready=200 + sharp.
+- **Deploy:** ✅ overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v420`؛ `app.js?v=420`؛ commit `8a24f9f2`.
 
 ### ۱۴۰۵/۰۷/۲۳ — BOM دستمزد عملیات → حساب شخص + شرح سند (SW v419)
 - **مشکل:** در مسیر BOM فیلد شخص و نرخ دستمزد ذخیره می‌شد و `production_labor_entries.person_id` پر می‌شد، ولی سند PRD-03 همیشه `Dr WIP / Cr 5201` می‌زد؛ حساب شخص بستانکار نمی‌شد و شرح سند فقط «جذب دستمزد — شماره سفارش» بود.
