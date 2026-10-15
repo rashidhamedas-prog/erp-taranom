@@ -57,7 +57,7 @@ bom.softDeleteBom(db, d1.id, adminId);
 const gone = db.prepare('SELECT deleted_at, version, revision, code, status FROM bom_headers WHERE id=?').get(d1.id);
 ok('T416-03 tombstone',
   !!gone && !!gone.deleted_at && gone.status === 'obsolete'
-    && Number(gone.version) < 0 && String(gone.revision) === 'DEL'
+    && Number(gone.version) >= 1000000 && String(gone.revision) === 'DEL'
     && String(gone.code).includes('__del'),
   gone ? JSON.stringify(gone) : 'missing');
 

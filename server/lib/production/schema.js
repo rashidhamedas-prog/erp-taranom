@@ -136,15 +136,15 @@ function ensureBomLiveUniqueIndexes(db) {
     WHERE id = ? AND (deleted_at IS NOT NULL OR status = 'obsolete')
   `);
   for (const b of dead) {
-    const tombVer = -(1_000_000 + Number(b.id));
+    const tombVer = 1_000_000 + Number(b.id);
     const tombCode = String(b.code || 'BOM').includes('__del')
       ? String(b.code)
       : `${b.code || 'BOM'}__del${b.id}`;
-    if (Number(b.version) === tombVer && String(b.revision) === 'DEL' && String(b.code) === tombCode) continue;
+    if (Number(b.version) >= 1000000 && String(b.revision) === 'DEL' && String(b.code).includes('__del')) continue;
     try {
       bump.run(tombVer, tombCode, b.id);
     } catch (_) {
-      bump.run(tombVer - Number(b.id), `${tombCode}_${b.id}`, b.id);
+      bump.run(tombVer + Number(b.id), `${tombCode}_${b.id}`, b.id);
     }
   }
 

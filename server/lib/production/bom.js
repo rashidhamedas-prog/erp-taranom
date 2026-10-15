@@ -207,11 +207,11 @@ function sumTotals(lines) {
 }
 
 function nextBomVersion(db, productId) {
-  // Include soft-deleted positive versions so we never reuse a tombstoned slot
-  // under a legacy full unique index (before partial ux_bom_prod_ver_live).
-  const row = db.prepare(
-    'SELECT COALESCE(MAX(version),0) m FROM bom_headers WHERE product_id=? AND version > 0'
-  ).get(productId);
+  // Live drafts/active only; soft-delete tombstones use version >= 1_000_000.
+  const row = db.prepare(`
+    SELECT COALESCE(MAX(version),0) m FROM bom_headers
+    WHERE product_id=? AND deleted_at IS NULL AND version > 0 AND version < 1000000
+  `).get(productId);
   return (row?.m || 0) + 1;
 }
 
@@ -233,9 +233,9 @@ function rethrowBomConstraint(e) {
 
 /** Free unique (product,version,revision)+code when soft-deleting (R13 / wipe-safe). */
 function tombstoneBomUniqueKeys(db, bomId, code) {
-  const tombVer = -(1_000_000 + Number(bomId));
+  const tombVer = 1_000_000 + Number(bomId);
   const base = String(code || 'BOM');
-  const tombCode = base.includes('__del') ? base : `${base}__del${bomId}`;
+  const tombCode = base.includes('__del') ? `${base}_${bomId}` : `${base}__del${bomId}`;
   db.prepare(`
     UPDATE bom_headers SET version=?, revision='DEL', code=? WHERE id=?
   `).run(tombVer, tombCode, bomId);
@@ -629,7 +629,7 @@ function softDeleteBom(db, bomId, userId) {
     const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     try {
-      const tombVer = -(1_000_000 + Number(bomId));
+      const tombVer = 1_000_000 + Number(bomId);
       const base = String(b.code || 'BOM');
       const tombCode = base.includes('__del') ? `${base}_${bomId}` : `${base}__del${bomId}`;
       db.prepare(`
