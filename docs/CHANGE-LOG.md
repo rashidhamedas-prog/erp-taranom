@@ -4,8 +4,8 @@
 - **ریشه:** مسیر سایر اشخاص سند دستی `POST /accounting/vouchers` می‌سازد و خط کارمزد را با `code:'6115'` هاردکد می‌کند. `assertPostableAccount` اگر زیر ۶۱۱۵ معین فعال باشد والد را رد می‌کند. `bankFeeAccount`/`acct(coa_bank_fee)` هم بدون resolve به برگ بودند. Seed خودش فرزند نمی‌سازد؛ فرزند از کدینگ دستی می‌آید.
 - **رفع معماری:** `resolvePostableLeaf` + `ensureLogicalPostable` + boot `ensureSystemFeeAccountsPostable` (۶۱۱۵/۶۱۱۴/۴۱۱۵)؛ `bankFeeAccount` و bank-recon به برگ؛ `coerceSystemPostableCode` در voucher؛ UI با `resolveBankFeeCodeForUi`؛ settings allowlist `coa_bank_fee`/`coa_bank_interest`؛ Help.
 - **فایل‌ها:** `lib/{coa-map,payment-bank-fee,bank-recon}.js`, `routes/{accounting,settings}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-fee-leaf-v388.js`, CHANGE-LOG.
-- **تست:** `test-bank-fee-leaf-v388`؛ `test-sms` / `test-sync` پس از deploy ایران.
-- **Deploy:** ⏳
+- **تست:** ایران `test-bank-fee-leaf-v388` ۲۳/۰؛ `test-sms` ۲۲/۰. پروب زنده: زیر `6115` معین‌های `611501`/`611502`؛ heal → `settings.coa_bank_fee=611501`.
+- **Deploy:** ✅ `37bf2c3` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v388`؛ `app.js?v=388`.
 
 ### ۱۴۰۵/۰۷/۲۳ — فروش سریع فروشگاهی v2: واریانت، فی/تخفیف، مشتری، انبار/صندوق، تعویض (SW v387)
 
