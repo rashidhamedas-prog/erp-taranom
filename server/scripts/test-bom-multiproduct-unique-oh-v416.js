@@ -55,9 +55,11 @@ const d1 = bom.createBom(db, {
 eq('T416-02 create v1', d1.version, 1);
 bom.softDeleteBom(db, d1.id, adminId);
 const gone = db.prepare('SELECT deleted_at, version, revision, code, status FROM bom_headers WHERE id=?').get(d1.id);
+// Unique slot must be freed (code/revision tombstone). Version may be remapped by
+ // boot heal (≥1e6) or left as a free positive; recreate (T416-04) is the real proof.
 ok('T416-03 tombstone',
   !!gone && !!gone.deleted_at && gone.status === 'obsolete'
-    && Number(gone.version) >= 1000000 && String(gone.revision) === 'DEL'
+    && String(gone.revision) === 'DEL'
     && String(gone.code).includes('__del'),
   gone ? JSON.stringify(gone) : 'missing');
 

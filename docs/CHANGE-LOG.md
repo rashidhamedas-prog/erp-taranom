@@ -5,7 +5,7 @@
 - **سربار:** `getOverheadRate` نرخ را از بودجه مرکز مشتق می‌کند؛ محرک از نرخ مرکز؛ هشدار و ستون محرک/نرخ در بهای تمام‌شده.
 - **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,overhead}.js`, `routes/production-boms.js`, `public/{app.js,sw.js}`, `scripts/test-bom-multiproduct-unique-oh-v416.js`, CHANGE-LOG.
 - **تست:** اسکریپت v416 (لوکال Node24 بدون binding sqlite — اجرا روی سرور پس از deploy)؛ `test-sms` + `test-sync` پس از بک‌اند.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `2efb350` — overlay ایران (درخت VPS روی alias قدیمی کثیف) + `pm2 restart` بدون `--update-env`؛ تست v416 روی سرور ۱۱/۱۲ سپس ۱۲/۱۲؛ `test-sms` سبز؛ ready=200؛ SW `erp-taranom-v416`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۵: کسر خودکار وام/مساعده در مسیر بدون بیمه و مالیات (SW v415)
 
