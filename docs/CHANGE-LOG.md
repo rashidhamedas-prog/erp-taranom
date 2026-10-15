@@ -5,8 +5,8 @@
 - **رفع:** `layFgCoveredByOrder` روی list/get/post PACK؛ UI وضعیت «رسید انبار محصول از سفارش …»؛ Help؛ heal لینک LAY→PO-0008 + یادداشت legacy روی PO-0009.
 - **فایل‌ها:** `lib/production/cutting.js`, `public/{app.js,sw.js,index.html}`, `scripts/{test-prod-lay-fg-covered-v404.js,_heal-yalda-aban-v404.py}`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ tap-erp-architecture؛ پروب ایران crm.db یلدا/آبان.
-- **تست:** ایران `test-prod-lay-fg-covered-v404` + `test-sms`؛ heal یلدا/آبان.
-- **Deploy:** ⏳ Pending
+- **تست:** ایران `test-prod-lay-fg-covered-v404` ۱۰/۰ + `test-sms` ۲۲/۰ + `test-prod-fabric-receipt-gate-v403` ۹/۰؛ health=200 + sharp. Heal: LAY-0008…0011 → PO-0008؛ یادداشت legacy روی PO-0009 (FG ۹۶ حفظ).
+- **Deploy:** ✅ `c0c9026` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v404`؛ `app.js?v=404`.
 
 ### ۱۴۰۵/۰۷/۲۳ — گیت رسید FG برای سفارش طاقه‌دار: لایه‌چینی → PACK → رسید (SW v403)
 
