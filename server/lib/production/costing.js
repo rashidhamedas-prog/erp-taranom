@@ -176,30 +176,96 @@ function receiveScrap(db, {
 }
 
 /**
+ * Find the posted FG production_receipt ledger row for an order/receipt.
+ * Finalize stamps source_id=orderId + note «تولید PO-…».
+ */
+function findProductionReceiptLedger(db, {
+  productId, orderId, orderNo, warehouseId, qty,
+}) {
+  if (!productId) return null;
+  if (orderId != null) {
+    const byOrder = db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND status='posted' AND event_type='production_receipt'
+        AND COALESCE(source_type,'') IN ('production_receipt','')
+        AND source_id=?
+      ORDER BY id DESC LIMIT 1
+    `).get(productId, orderId);
+    if (byOrder) return byOrder;
+  }
+  if (orderNo) {
+    const byNote = db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND status='posted' AND event_type='production_receipt'
+        AND note LIKE ?
+      ORDER BY id DESC LIMIT 1
+    `).get(productId, `%${orderNo}%`);
+    if (byNote) return byNote;
+  }
+  const q = Number(qty) || 0;
+  if (q > 0 && warehouseId) {
+    return db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=? AND status='posted'
+        AND event_type='production_receipt' AND ABS(qty_in - ?) < 0.0001
+      ORDER BY id DESC LIMIT 1
+    `).get(productId, warehouseId, q) || null;
+  }
+  return null;
+}
+
+/**
  * Pull a posted receipt back out of stock through the ledger (R12 reverse).
+ * Prefer reverseInventoryMovement so the original row becomes status=reversed
+ * (operational kardex can hide the pair). Fallback posts a legacy outbound
+ * only when the original ledger row cannot be found.
  * prevAvgRial restores the pre-receipt moving average snapshot.
  */
 function reverseReceiptStock(db, {
   productId, warehouseId, qty, unitCostRial, amountRial, prevAvgRial,
   userId, note, sourceType, sourceId, date, eventType,
+  orderId, orderNo,
 }) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
-  const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
-  const led = postInventoryMovement(db, {
-    eventType: eventType || 'production_receipt_reversal',
+  const { reverseInventoryMovement } = require('../inventory/ledger');
+  const voidNote = note || (orderNo ? `ابطال رسید ${orderNo}` : 'ابطال رسید تولید');
+
+  // sourceId from reverseOrder used to be production_receipts.id; finalize uses orderId.
+  const orig = findProductionReceiptLedger(db, {
     productId,
-    warehouseId: warehouseId || null,
-    qtyOut: q,
-    unitCostRial: unit,
-    amountRial: amountRial != null ? Math.round(Number(amountRial) || 0) : Math.round(unit * q),
-    sourceType: sourceType || 'production_receipt_reversal',
-    sourceId: sourceId || null,
-    date: date || '',
-    note: note || 'ابطال رسید تولید',
-    createdBy: userId || null,
-    updateAvg: false,
-  });
+    orderId: orderId != null ? orderId : sourceId,
+    orderNo,
+    warehouseId,
+    qty: q,
+  }) || (orderId == null && sourceId != null
+    ? findProductionReceiptLedger(db, { productId, orderId: sourceId, orderNo, warehouseId, qty: q })
+    : null);
+
+  let led;
+  if (orig) {
+    led = reverseInventoryMovement(db, orig.id, {
+      createdBy: userId || null,
+      date: date || '',
+      note: voidNote,
+    });
+  } else {
+    const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
+    led = postInventoryMovement(db, {
+      eventType: eventType || 'production_receipt_reversal',
+      productId,
+      warehouseId: warehouseId || null,
+      qtyOut: q,
+      unitCostRial: unit,
+      amountRial: amountRial != null ? Math.round(Number(amountRial) || 0) : Math.round(unit * q),
+      sourceType: sourceType || 'production_receipt_reversal',
+      sourceId: sourceId || orderId || null,
+      date: date || '',
+      note: voidNote,
+      createdBy: userId || null,
+      updateAvg: false,
+    });
+  }
   if (prevAvgRial != null) {
     const prev = Math.round(Number(prevAvgRial) || 0);
     const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
@@ -248,6 +314,7 @@ module.exports = {
   updateMovingAverage,
   receiveScrap,
   restoreStock,
+  findProductionReceiptLedger,
   reverseReceiptStock,
   recalcAvgOnReturn,
   setting,

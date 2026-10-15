@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — ابطال تولید: مخفی‌سازی جفت رسید+ابطال در کاردکس (SW v402)
+
+- **علائم:** برای کاپشن مموری یلدا با تیک «نمایش ابطال و هم‌ترازی» خاموش، ردیف‌های «تولید PO-0006/0007» (INV-0440/0450) هنوز دیده می‌شدند؛ مانده روی ۱۶۳ می‌ماند چون «ابطال رسید…» مخفی بود ولی اصل رسید posted مانده بود.
+- **ریشه:** `reverseOrder` → `reverseReceiptStock` فقط خروج جدا با `event_type=production_receipt_reversal` می‌زد و اصل `production_receipt` را `status=reversed` نمی‌کرد و `reversed_of` نمی‌گذاشت.
+- **Invariant:** ابطال = reverse کامل (R13)؛ حذف فیزیکی ممنوع. کاردکس عملیاتی جفت ابطال را نشان نمی‌دهد؛ PO-0008 (closed، رسید زنده) می‌ماند. مانده اقتصادی از هر دو طرف جفت.
+- **رفع:** `reverseReceiptStock` با `reverseInventoryMovement` روی ledger اصل؛ فیلتر `collectLegacyVoidedReceiptIds` برای دادهٔ قدیمی؛ heal یلدا INV-0440/0450؛ Help/SW v402؛ تست `test-prod-void-kardex-v402`.
+- **فایل‌ها:** `lib/production/{costing,engine}.js`, `lib/ledgers.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-void-kardex-v402.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ پروب ایران crm.db.
+- **تست:** (پس از اجرا)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه جدا برای کارمزد بانکی (SW v401)
 
 - **هدف:** در همهٔ پرداخت‌های خروجی/انتقال که کارمزد بانکی دارند، فیلد جداگانهٔ `fee_cost_center_id` برای سطر کارمزد (۶۱۱۵) — مستقل از مرکز هزینهٔ اصل سند.

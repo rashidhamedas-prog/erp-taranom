@@ -1156,7 +1156,8 @@ function reverseOrder(db, orderId, userId, reason = '') {
       db.prepare(`UPDATE production_material_issues SET reversed_je_id=?, status='reversed' WHERE je_id=?`).run(revId, jeId);
     }
 
-    // Restore FG stock (undo receipt avg) — use snapshot rows from before JE reverse
+    // Restore FG stock (undo receipt avg) — reverse the original ledger row (R12/R13)
+    // so operational kardex can hide both sides; do not leave a posted orphan receipt.
     for (const r of receipts) {
       reverseReceiptStock(db, {
         productId: r.product_id,
@@ -1169,6 +1170,8 @@ function reverseOrder(db, orderId, userId, reason = '') {
         note: `ابطال رسید ${po.order_no}`,
         sourceType: 'production_receipt_reversal',
         sourceId: r.id,
+        orderId: po.id,
+        orderNo: po.order_no,
         date,
       });
       db.prepare(`UPDATE production_receipts SET status='reversed' WHERE id=?`).run(r.id);

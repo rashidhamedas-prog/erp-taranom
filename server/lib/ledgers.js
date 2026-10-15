@@ -352,18 +352,47 @@ function isAuditOnlyJournalDescription(desc) {
 /**
  * Inventory ledger rows that stay in the economic stream (balances) but are
  * hidden from the operational kardex table unless audit toggle is on.
- * — event_type=reversal (posted reverse of a void)
+ * — event_type=reversal / *_reversal (posted reverse of a void)
  * — status=reversed (original that was voided)
- * — source_type=stock_reconcile or note containing هم‌ترازی
+ * — source_type=stock_reconcile or note containing هم‌ترازی / ابطال…
+ * — legacy void pairs: original production_receipt still posted while twin
+ *   «ابطال رسید PO-…» outbound exists (pre-v402 reverseOrder bug)
  */
-function isAuditOnlyStockRow(r) {
+function isAuditOnlyStockRow(r, extraHideIds) {
   if (!r) return false;
+  if (extraHideIds && extraHideIds.has(r.id)) return true;
   if (String(r.status || '') === 'reversed') return true;
-  if (String(r.event_type || '') === 'reversal') return true;
+  const et = String(r.event_type || '');
+  if (et === 'reversal' || et.endsWith('_reversal')) return true;
   if (String(r.source_type || '') === 'stock_reconcile') return true;
+  if (String(r.source_type || '').endsWith('_reversal')) return true;
   const note = String(r.note || r.description || '');
   if (isAuditOnlyJournalDescription(note)) return true;
   return false;
+}
+
+/** Hide both sides of legacy production void pairs that lack reversed_of. */
+function collectLegacyVoidedReceiptIds(rows) {
+  const hide = new Set();
+  const posted = (rows || []).filter((r) => String(r.status || '') === 'posted');
+  for (const rev of posted) {
+    const et = String(rev.event_type || '');
+    const note = String(rev.note || '').trim();
+    const isProdVoid = et === 'production_receipt_reversal'
+      || (et.endsWith('_reversal') && /ابطال/.test(note))
+      || /^ابطال\s*رسید/.test(note);
+    if (!isProdVoid) continue;
+    hide.add(rev.id);
+    if (rev.reversed_of) hide.add(rev.reversed_of);
+    const token = (note.match(/PO-\d+/i) || note.match(/PR-\d+/i) || [])[0];
+    if (!token) continue;
+    for (const o of posted) {
+      if (o.id === rev.id) continue;
+      if (String(o.event_type || '') !== 'production_receipt') continue;
+      if (String(o.note || '').includes(token)) hide.add(o.id);
+    }
+  }
+  return hide;
 }
 
 function buildStockLedger(db, {
@@ -420,6 +449,8 @@ function buildStockLedger(db, {
     }
   } catch (_) { /* optional */ }
 
+  const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows);
+
   // Economic stream = every posted non-ghost row (incl. reversal + هم‌ترازی).
   // Balances are always computed from this; the table can hide audit-only rows.
   const economic = rows.filter((r) => (
@@ -471,15 +502,18 @@ function buildStockLedger(db, {
       }
       runningWh += qIn - qOut;
     }
-    if (!showAudit && isAuditOnlyStockRow(r)) continue;
+    if (!showAudit && isAuditOnlyStockRow(r, legacyVoidHideIds)) continue;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
       ref_id: r.source_id,
       journal_id: r.je_id,
     });
-    const cancelled = r.status === 'reversed' || r.event_type === 'reversal';
-    const auditOnly = isAuditOnlyStockRow(r);
+    const cancelled = r.status === 'reversed'
+      || String(r.event_type || '') === 'reversal'
+      || String(r.event_type || '').endsWith('_reversal')
+      || legacyVoidHideIds.has(r.id);
+    const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
     lines.push({
       id: r.id,
       tx_no: r.tx_no || null,
