@@ -8,8 +8,8 @@
 - **فایل‌ها:** `lib/payroll/{legal-pack,engine,schema}.js`, `routes/payroll.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-payroll-{legal-pack,engine-floors}-v406.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ tap-erp-architecture؛ مصوبه شورای عالی کار ۱۴۰۵؛ بخشنامه بیمه؛ بودجه ماده ۸۴؛ الگوی ERPNext Payroll Entry (accrual vs payment).
 - **Non-goals (موج ۲):** مرخصی ذخیره‌شده، وام/مساعده پرسنلی با اقساط، فایل بانک پرداخت حقوق، طبقه‌بندی مشاغل کامل.
-- **تست:** محلی `test-payroll-engine-floors-v406` + parse `app.js`؛ ایران `test-payroll-legal-pack-v406` + `test-sms` + `test-payroll-accounting`.
-- **Deploy:** ⏳
+- **تست:** محلی `test-payroll-engine-floors-v406` ۱۴/۰؛ ایران `test-payroll-legal-pack-v406` ۳۲/۰ + `test-payroll-accounting` + `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `97fa367` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v406`؛ `app.js?v=406`.
 
 ### ۱۴۰۵/۰۷/۲۳ — پوشش لایه با رسید سفارش + heal یلدا/آبان (SW v404)
 
