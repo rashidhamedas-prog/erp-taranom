@@ -280,6 +280,9 @@ async function api(method, path, data, isFormData, silent){
         E_VARIANCE_NEEDS_REASON: pname
           ? ('انحراف «'+pname+'» زیاد است — دلیل الزامی است')
           : 'انحراف زیاد است — دلیل الزامی است',
+        E_SUBSTITUTE_INVALID: pname
+          ? ('کالای جایگزین‌شده «'+pname+'» در فرمول نیست')
+          : (j.detail || 'کالای جایگزین‌شده در فرمول نیست یا نامعتبر است'),
         E_ISSUE_EMPTY:'حواله باید حداقل یک قلم داشته باشد',
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
@@ -17444,11 +17447,83 @@ async function seedIssueAvgFrom(prefix, reload){
     if(typeof reload==='function') reload();
   }catch(e){ /* toast از api */ }
 }
+let _pimAltSearchTimer=null;
+function prodIssueAltSearch(i, whId, q){
+  clearTimeout(_pimAltSearchTimer);
+  _pimAltSearchTimer=setTimeout(async function(){
+    const box=el('pim-alt-dd-'+i);
+    if(!box) return;
+    const qs=new URLSearchParams({q:String(q||'').trim(),page:'1',pageSize:'20',include_zero:'0'});
+    if(whId) qs.set('warehouse_id',String(whId));
+    try{
+      const resp=await api('GET','/warehouses/products/search?'+qs.toString());
+      const rows=listRows(resp);
+      const row=document.querySelector('#pim-rows tr[data-idx="'+i+'"]');
+      const primPid=row?Number(row.dataset.pid):0;
+      const filtered=rows.filter(p=>Number(p.id)!==primPid);
+      if(!filtered.length){
+        box.hidden=false;
+        box.innerHTML='<div class="muted" data-csp-style="'+CSP.style('padding:8px')+'">کالایی با موجودی یافت نشد</div>';
+        return;
+      }
+      box.hidden=false;
+      box.innerHTML=filtered.map(p=>{
+        const avail=p.available!=null?p.available:(p.wh_qty!=null?p.wh_qty:0);
+        const label=(p.name||'')+' ('+(p.code||p.sku||'-')+')';
+        return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){prodIssueAltPick((i),(p.id),label,avail)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
+      }).join('');
+    }catch(_){ box.hidden=true; }
+  },250);
+}
+function prodIssueAltPick(i, id, label, available){
+  const hid=el('pim-alt-id-'+i);
+  const q=el('pim-alt-q-'+i);
+  const dd=el('pim-alt-dd-'+i);
+  if(hid) hid.value=String(id||'');
+  if(q){
+    q.value=label||'';
+    q.dataset.altName=String(label||'').replace(/\s*\(.*$/,'');
+    q.dataset.altAvail=available!=null?String(available):'';
+  }
+  if(dd) dd.hidden=true;
+  prodIssueAltReason(i);
+  prodIssueUpdateSubmitState();
+}
+function prodIssueAltReason(i){
+  const row=document.querySelector('#pim-rows tr[data-idx="'+i+'"]');
+  if(!row) return;
+  const altId=Number(el('pim-alt-id-'+i)?.value)||0;
+  const altQty=Number(row.querySelector('.pim-alt-qty')?.value)||0;
+  const reasonEl=el('pim-reason-'+i);
+  if(!reasonEl) return;
+  if(!(altId>0 && altQty>0)){
+    if(reasonEl.dataset.auto==='1'){ reasonEl.value=''; reasonEl.dataset.auto=''; }
+    prodIssueRecalc(i);
+    return;
+  }
+  const primName=row.dataset.pname||('#'+row.dataset.pid);
+  const stock=row.dataset.stock!=null && row.dataset.stock!==''?row.dataset.stock:'—';
+  const AQ=+row.querySelector('.pim-qty-actual')?.value||0;
+  const altName=(el('pim-alt-q-'+i)?.dataset.altName)||(el('pim-alt-q-'+i)?.value)||('#'+altId);
+  const auto='تأمین کسری از کالای جایگزین «'+altName+'» به‌مقدار '+altQty+
+    ' (موجودی «'+primName+'»: '+stock+'، نیاز: '+AQ+')';
+  if(!reasonEl.value.trim() || reasonEl.dataset.auto==='1'){
+    reasonEl.value=auto;
+    reasonEl.dataset.auto='1';
+  }
+  prodIssueRecalc(i);
+}
+function prodIssueReasonManual(i){
+  const reasonEl=el('pim-reason-'+i);
+  if(reasonEl) reasonEl.dataset.auto='';
+  prodIssueUpdateSubmitState();
+}
 async function prodOrderIssueModal(id){
   let tpl=null;
   try{ tpl=await api('GET','/production/orders/'+id+'/issue-template'); }
   catch(e){ showToast(e.message||'خطا در دریافت الگو','error'); return; }
   const lines=tpl.lines||[];
+  const whId=Number(tpl.warehouse_raw_id)||0;
   const seeCost=!(window.ProdUI) || window.ProdUI.canSeeCost();
   const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
   const zeroCost=lines.filter(L=>!lineAvgOk(L));
@@ -17464,34 +17539,71 @@ async function prodOrderIssueModal(id){
     : '';
   const shortLines=lines.filter(L=>Number(L.stock_short)===1 && Number(L.fabric_cut_locked)!==1);
   const shortHint=shortLines.length
-    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">موجودی انبار مواد برای این اقلام کمتر از مقدار حواله است: ${esc(shortLines.map(L=>(L.name||('#'+L.product_id))+' (موجود '+(L.stock_available??'—')+' / نیاز '+(L.qty_actual??L.qty_standard)+')').join('؛ '))} — ابتدا رسید/خرید ثبت کنید یا مقدار واقعی را کم کنید.</div>`
+    ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">موجودی انبار مواد برای این اقلام کمتر از مقدار حواله است: ${esc(shortLines.map(L=>(L.name||('#'+L.product_id))+' (موجود '+(L.stock_available??'—')+' / نیاز '+(L.qty_actual??L.qty_standard)+')').join('؛ '))} — کسری را از <b>کالای جایگزین</b> تأمین کنید، یا رسید/خرید ثبت کنید، یا مقدار واقعی را کم کنید.</div>`
     : '';
+  const pimRowsHtml=lines.map((L,i)=>{
+    const locked=Number(L.fabric_cut_locked)===1;
+    const lockNote=locked
+      ? (' <span class="muted">(مصرف‌شده در لایه‌چینی همین سفارش/کالا'+(L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':'')+')</span>')
+      : (L.fabric_qty_allowed!=null && Number(L.fabric_cut_meters)>0
+        ? (' <span class="muted">(مانده مجاز '+L.fabric_qty_allowed+' متر)</span>') : '');
+    const short=Number(L.stock_short)===1 && !locked;
+    const shortNote=short
+      ? (' <span style="color:#C0392B">(کسری انبار: موجود '+(L.stock_available??'—')+')</span>') : '';
+    const needQty=Number(L.qty_actual!=null?L.qty_actual:L.qty_standard)||0;
+    const stockAvail=L.stock_available!=null?Number(L.stock_available):null;
+    const shortfall=short && stockAvail!=null?Math.max(0, Math.round((needQty-stockAvail)*1000)/1000):0;
+    let altBlock='';
+    if(short){
+      const stAlt=CSP.style('margin-top:6px;padding:6px;border:1px dashed #C0392B;border-radius:6px;background:#FFF8F7');
+      const stMuted=CSP.style('font-size:11px;margin-bottom:4px');
+      const stRel=CSP.style('position:relative');
+      const stQ=CSP.style('width:100%;min-width:160px');
+      const stDd=CSP.style('position:absolute;z-index:40;right:0;left:0;max-height:200px;overflow:auto;background:#fff;border:1px solid var(--border);border-radius:8px');
+      const stLab=CSP.style('display:flex;gap:6px;align-items:center;margin-top:4px;font-size:11px');
+      const stQty=CSP.style('width:90px');
+      altBlock=
+        '<div class="pim-alt" data-csp-style="'+stAlt+'">'+
+          '<div class="muted" data-csp-style="'+stMuted+'">تأمین کسری از کالای دیگر (پیش‌فرض '+shortfall+'):</div>'+
+          '<div data-csp-style="'+stRel+'">'+
+            '<input type="hidden" class="pim-alt-id" id="pim-alt-id-'+i+'" value="">'+
+            '<input type="search" class="pim-alt-q" id="pim-alt-q-'+i+'" autocomplete="off" placeholder="جستجوی کالای جایگزین در انبار مواد…"'+
+              ' data-csp-input="'+CSP.bind('input',function(){prodIssueAltSearch(i,whId,this.value)})+'"'+
+              ' data-csp-focus="'+CSP.bind('focus',function(){prodIssueAltSearch(i,whId,this.value)})+'"'+
+              ' data-csp-style="'+stQ+'">'+
+            '<div id="pim-alt-dd-'+i+'" hidden data-csp-style="'+stDd+'"></div>'+
+          '</div>'+
+          '<label data-csp-style="'+stLab+'">مقدار پوشش'+
+            '<input class="pim-alt-qty" type="number" step="0.001" value="'+shortfall+'" data-csp-style="'+stQty+'"'+
+              ' data-csp-input="'+CSP.bind('input',function(){prodIssueAltReason(i);prodIssueUpdateSubmitState()})+'">'+
+          '</label>'+
+        '</div>';
+    }
+    const costCells=seeCost
+      ? ('<td class="num" id="pim-vp-'+i+'">۰</td><td class="num" id="pim-vq-'+i+'">۰</td><td class="num" id="pim-vt-'+i+'">۰</td>')
+      : '';
+    return '<tr data-idx="'+i+'" data-pid="'+L.product_id+'" data-pname="'+esc(L.name||'')+'" data-sq="'+L.qty_standard+
+      '" data-sp="'+(L.std_cost_rial||0)+'" data-ap="'+(L.average_cost_rial||0)+'" data-avg-ok="'+(lineAvgOk(L)?1:0)+
+      '" data-fabric-locked="'+(locked?1:0)+'" data-stock="'+(stockAvail!=null?stockAvail:'')+'" data-stock-short="'+(short?1:0)+'">'+
+      '<td>'+esc(L.name||('#'+L.product_id))+(lineAvgOk(L)?'':' <span class="muted">(بدون بها)</span>')+lockNote+shortNote+altBlock+'</td>'+
+      '<td class="num">'+L.qty_standard+'</td>'+
+      '<td><input class="pim-qty-actual" type="number" step="0.001" value="'+L.qty_actual+'" '+(locked?'readonly disabled':'')+
+        ' data-csp-style="'+CSP.style('width:90px')+'" data-csp-input="'+CSP.bind('input',function(){prodIssueRecalc(i);prodIssueAltReason(i)})+'"></td>'+
+      '<td class="num pim-pct" id="pim-pct-'+i+'">۰٪</td>'+costCells+
+      '<td><input class="pim-reason" id="pim-reason-'+i+'" placeholder="دلیل انحراف" '+(locked?'disabled':'')+
+        ' data-csp-style="'+CSP.style('width:140px')+'" data-csp-input="'+CSP.bind('input',function(){prodIssueReasonManual(i)})+'"></td>'+
+      '</tr>';
+  }).join('')||('<tr><td colspan="'+(seeCost?8:5)+'" data-csp-style="'+CSP.style('text-align:center')+'">فرمولی برای این سفارش نیست</td></tr>');
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
     ${zeroHint}${cutHint}${shortHint}
     <div id="pim-summary" class="prod-issue-summary" data-csp-style="${CSP.style(`display:${seeCost?'flex':'none'};gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px`)}"></div>
-    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}" data-wh="${whId}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th>
       ${seeCost?'<th>انحراف نرخ</th><th>انحراف مقدار</th><th>جمع انحراف</th>':''}
       <th>دلیل (در صورت انحراف زیاد)</th>
-    </tr></thead><tbody id="pim-rows">
-      ${lines.map((L,i)=>{
-        const locked=Number(L.fabric_cut_locked)===1;
-        const lockNote=locked?` <span class="muted">(مصرف‌شده در لایه‌چینی همین سفارش/کالا${L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':''})</span>`
-          :(L.fabric_qty_allowed!=null && Number(L.fabric_cut_meters)>0?` <span class="muted">(مانده مجاز ${L.fabric_qty_allowed} متر)</span>`:'');
-        const shortNote=Number(L.stock_short)===1 && !locked
-          ? ` <span style="color:#C0392B">(کسری انبار: موجود ${L.stock_available??'—'})</span>` : '';
-        return `<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial||0}" data-ap="${L.average_cost_rial||0}" data-avg-ok="${lineAvgOk(L)?1:0}" data-fabric-locked="${locked?1:0}">
-        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}${lockNote}${shortNote}</td>
-        <td class="num">${L.qty_standard}</td>
-        <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" ${locked?'readonly disabled':''} data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
-        <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
-        ${seeCost?`<td class="num" id="pim-vp-${i}">۰</td><td class="num" id="pim-vq-${i}">۰</td><td class="num" id="pim-vt-${i}">۰</td>`:''}
-        <td><input class="pim-reason" id="pim-reason-${i}" placeholder="دلیل انحراف" ${locked?'disabled':''} data-csp-style="${CSP.style(`width:140px`)}"></td>
-      </tr>`;
-      }).join('')||`<tr><td colspan="${seeCost?8:5}" data-csp-style="${CSP.style(`text-align:center`)}">فرمولی برای این سفارش نیست</td></tr>`}
-    </tbody></table></div>
-    <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011). متر پارچهٔ بریده‌شده از مسیر لایه‌چینی مصرف شده و دوباره حواله نمی‌شود.</p>
+    </tr></thead><tbody id="pim-rows">${pimRowsHtml}</tbody></table></div>
+    <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011). متر پارچهٔ بریده‌شده از مسیر لایه‌چینی مصرف شده و دوباره حواله نمی‌شود. در کسری موجودی، الباقی از کالای جایگزین حواله می‌شود و دلیل انحراف خودکار توضیح داده می‌شود.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}" ${zeroCost.length?'disabled title="بهای میانگین صفر"':''}>ثبت حواله</button>
@@ -17506,6 +17618,7 @@ async function prodOrderIssueModal(id){
       row.insertAdjacentHTML('beforeend', '<div><select class="pim-variant"><option value="">رنگ/سایز</option>'+active.map(v=>'<option value="'+v.id+'">'+esc(v.color_name||'')+' / '+esc(displaySizeName(v.size_name)||'')+'</option>').join('')+'</select></div>');
     }).catch(()=>{});
   });
+  prodIssueUpdateSubmitState();
 }
 function prodIssueRecalc(i){
   const row=document.querySelector(`#pim-rows tr[data-idx="${i}"]`);
@@ -17562,6 +17675,15 @@ function prodIssueUpdateSubmitState(){
     const AQ=+row.querySelector('.pim-qty-actual')?.value||0;
     const avgOk=row.dataset.avgOk!=null?Number(row.dataset.avgOk)>0:Number(row.dataset.ap)>0;
     if(AQ>0 && !avgOk) blocked=true;
+    const stockRaw=row.dataset.stock;
+    if(stockRaw!=='' && stockRaw!=null && AQ>0){
+      const stock=+stockRaw;
+      if(Number.isFinite(stock) && AQ>stock+1e-9){
+        const altId=Number(row.querySelector('.pim-alt-id')?.value)||0;
+        const altQty=+row.querySelector('.pim-alt-qty')?.value||0;
+        if(!(altId>0 && altQty+stock+1e-9>=AQ)) blocked=true;
+      }
+    }
   });
   const btn=el('pim-btn-submit'); if(btn) btn.disabled=blocked;
 }
@@ -17571,12 +17693,19 @@ async function prodOrderIssueSave(id){
   rows.forEach(row=>{
     // Omit fully cut fabric so server does not 409 the whole multi-line issue.
     if(Number(row.dataset.fabricLocked)===1) return;
-    materials.push({
+    const altId=Number(row.querySelector('.pim-alt-id')?.value)||0;
+    const altQty=+row.querySelector('.pim-alt-qty')?.value||0;
+    const line={
       product_id:+row.dataset.pid,
       variant_id:+row.querySelector('.pim-variant')?.value||undefined,
       qty_actual:+row.querySelector('.pim-qty-actual').value||0,
       reason:row.querySelector('.pim-reason')?.value||'',
-    });
+    };
+    if(altId>0 && altQty>0){
+      line.alternate_product_id=altId;
+      line.alternate_qty=altQty;
+    }
+    materials.push(line);
   });
   if(!materials.length){ showToast('قلمی برای حواله نمانده — پارچه در لایه‌چینی مصرف شده','error'); return; }
   try{
@@ -28862,7 +28991,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>
         <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
         <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>
-        <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
+        <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود. اگر موجودی قلم BOM کمتر از مقدار حواله باشد، می‌توانید <b>کالای جایگزین</b> برای الباقی کسری انتخاب کنید؛ سیستم موجودی اصل را تا سقف انبار و الباقی را از جایگزین حواله می‌کند و دلیل انحراف را با توضیح تأمین از کالای دیگر پر می‌کند (قابل ویرایش).</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
         <li>در هر فرم، نقد فقط صندوق، واریز فقط <b>بانک مقصد</b>، <b>چک دریافتی</b> بدون بانک/صندوق مقصد (اسناد دریافتنی)، چک <b>پرداختی</b> بانک+دسته‌چک، کارتخوان فقط ترمینال — هم‌زمان انتخاب نمی‌شوند.</li>

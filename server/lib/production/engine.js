@@ -1301,6 +1301,112 @@ function issueTemplate(db, { orderId, qtyStarted }) {
 }
 
 /**
+ * Cover stock shortage with an alternate SKU on the same issue document.
+ * Input line may carry alternate_product_id + alternate_qty (UI helper fields).
+ * Expands into primary (up to on-hand) + substitute leg (issue_type=substitute).
+ */
+function expandShortageAlternates(db, materials, whId) {
+  const out = [];
+  for (const L of materials || []) {
+    const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
+    const altId = Number(L.alternate_product_id) || 0;
+    const altQtyReq = num(L.alternate_qty);
+    if (!(altId > 0 && altQtyReq > 0 && AQ > 0) || L.substitute_of_product_id) {
+      out.push(L);
+      continue;
+    }
+    if (altId === Number(L.product_id)) {
+      throw err('E_SUBSTITUTE_INVALID', 422, {
+        detail: 'کالای جایگزین نمی‌تواند همان قلم اصلی باشد',
+      });
+    }
+    const prim = db.prepare('SELECT id, name, stock FROM products WHERE id=?').get(L.product_id);
+    if (!prim) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
+    const alt = db.prepare('SELECT id, name FROM products WHERE id=?').get(altId);
+    if (!alt) throw err('E_NOT_FOUND', 404, { productId: altId });
+
+    let avail = 0;
+    try {
+      avail = whId
+        ? Number(getWhQty(db, L.product_id, whId)) || 0
+        : Number(prim.stock) || 0;
+    } catch (_) {
+      avail = Number(prim.stock) || 0;
+    }
+    const primaryIssue = Math.min(AQ, Math.max(0, avail));
+    const shortfall = round6(AQ - primaryIssue);
+    if (shortfall <= 1e-9) {
+      const { alternate_product_id: _a, alternate_qty: _q, ...rest } = L;
+      out.push(rest);
+      continue;
+    }
+    const cover = Math.min(altQtyReq, shortfall);
+    if (primaryIssue + cover + 1e-9 < AQ) {
+      throw err('E_NEGATIVE_STOCK', 409, {
+        product_id: L.product_id,
+        warehouse_id: whId || null,
+        name: prim.name,
+        available: avail,
+        needed: AQ,
+        shortfall,
+        alternate_cover: cover,
+        detail: 'کسری با کالای جایگزین کامل پوشش داده نشد',
+      });
+    }
+    const reason = String(L.reason || '').trim() ||
+      `تأمین کسری از کالای جایگزین «${alt.name}» به‌مقدار ${cover}` +
+      ` (موجودی «${prim.name}»: ${avail}، نیاز: ${AQ})`;
+
+    if (primaryIssue > 1e-9) {
+      out.push({
+        ...L,
+        qty_actual: primaryIssue,
+        reason,
+        alternate_product_id: undefined,
+        alternate_qty: undefined,
+      });
+    }
+    out.push({
+      product_id: altId,
+      qty_actual: cover,
+      variant_id: L.alternate_variant_id || undefined,
+      variant_lines: L.alternate_variant_lines || undefined,
+      substitute_of_product_id: L.product_id,
+      reason,
+    });
+  }
+  return out;
+}
+
+/**
+ * Resolve BOM standard for an issue line.
+ * Full substitute (no primary leg): SQ/SP from substitute_of (A-24 / T3-21).
+ * Partial cover (primary also issued): SQ=0 on substitute so standards are not double-counted.
+ */
+function resolveIssueStd(std, L, materialsExpanded) {
+  const subOf = Number(L.substitute_of_product_id) || 0;
+  if (subOf) {
+    const s = std[subOf];
+    if (!s) {
+      throw err('E_SUBSTITUTE_INVALID', 422, {
+        product_id: subOf,
+        detail: 'کالای جایگزین‌شده در فرمول نیست',
+      });
+    }
+    const primaryAlso = (materialsExpanded || []).some((m) => {
+      const q = num(m.qty_actual != null ? m.qty_actual : m.qty);
+      return Number(m.product_id) === subOf && q > 0;
+    });
+    if (primaryAlso) {
+      return { s: { ...s, qty: 0 }, SQ: 0, SP: s.price || 0, partialSubstitute: true };
+    }
+    return { s, SQ: s.qty ?? 0, SP: s.price || 0, partialSubstitute: false };
+  }
+  const s = std[L.product_id] || null;
+  return { s, SQ: s?.qty ?? 0, SP: s?.price ?? 0, partialSubstitute: false };
+}
+
+/**
  * Variable analysis — issue actual materials (ADR-011: variances memo only).
  */
 function issueMaterialsVariable(db, { orderId, body, userId }) {
@@ -1323,7 +1429,10 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
 
     const qtyStarted = num(body.qty_started) || num(po.qty_planned);
     const threshold = varianceReasonThreshold(db);
-    const materials = body.materials || body.lines || [];
+    const whId = po.warehouse_raw_id;
+    const materialsRaw = body.materials || body.lines || [];
+    if (!materialsRaw.length) throw err('E_QTY_INVALID', 422);
+    const materials = expandShortageAlternates(db, materialsRaw, whId);
     if (!materials.length) throw err('E_QTY_INVALID', 422);
 
     // Standard map from BOM explode
@@ -1336,7 +1445,6 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
     let matRial = 0, pkgRial = 0, varP = 0, varQ = 0;
     const warnings = [];
     const out = [];
-    const whId = po.warehouse_raw_id;
 
     for (const L of materials) {
       const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
@@ -1351,9 +1459,10 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
         });
       }
 
-      const s = std[L.product_id] || (L.substitute_of_product_id ? std[L.substitute_of_product_id] : null);
-      const SQ = s?.qty ?? 0;
-      let SP = s?.price ?? 0;
+      const resolved = resolveIssueStd(std, L, materials);
+      const s = resolved.s;
+      const SQ = resolved.SQ;
+      let SP = resolved.SP;
       const AP = Math.round(Number(prod.average_cost_rial) || 0);
 
       if (AQ > 0 && !AP) throw err('E_ZERO_AVG_COST', 422, { name: prod.name });
@@ -1907,8 +2016,9 @@ function previewMaterialIssue(db, { orderId, body }) {
   if (po.analysis_type !== 'variable') throw err('E_WRONG_ANALYSIS', 409);
   const qtyStarted = num(body?.qty_started) || num(po.qty_planned);
   const threshold = varianceReasonThreshold(db);
-  const materials = body?.materials || body?.lines || [];
-  if (!materials.length) throw err('E_QTY_INVALID', 422);
+  const materialsRaw = body?.materials || body?.lines || [];
+  if (!materialsRaw.length) throw err('E_QTY_INVALID', 422);
+  const materials = expandShortageAlternates(db, materialsRaw, po.warehouse_raw_id);
   const { std } = standardMapFromBom(db, po, qtyStarted);
   const warnings = [];
   const out = [];
@@ -1918,9 +2028,10 @@ function previewMaterialIssue(db, { orderId, body }) {
     const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
     if (!prod) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
-    const s = std[L.product_id] || (L.substitute_of_product_id ? std[L.substitute_of_product_id] : null);
-    const SQ = s?.qty ?? 0;
-    let SP = s?.price ?? 0;
+    const resolved = resolveIssueStd(std, L, materials);
+    const s = resolved.s;
+    const SQ = resolved.SQ;
+    let SP = resolved.SP;
     const AP = Math.round(Number(prod.average_cost_rial) || 0);
     if (!SP) {
       SP = AP;
@@ -2109,6 +2220,8 @@ module.exports = {
   issueTemplate,
   previewMaterialIssue,
   postMaterialReturn,
+  expandShortageAlternates,
+  resolveIssueStd,
   updateOrder,
   listIssues,
   reverseOrder,

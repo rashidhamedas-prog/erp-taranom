@@ -4,6 +4,16 @@
 - **فایل:** `docs/Production/آموزش-کامل-بخش-تولید.html` — خودکفا، قابل چاپ/PDF، فهرست چسبان.
 - **Deploy:** ✅ `98c132e` — overlay فایل HTML + CHANGE-LOG روی ایران (git pull سرور به‌خاطر HTTPS بدون credential شکست؛ بدون pm2 چون docs-only)
 
+### ۱۴۰۵/۰۷/۲۳ — تأمین کسری حواله مواد از کالای جایگزین (SW v397)
+
+- **علائم:** در «حواله مواد — آنالیز متغیر» اگر موجودی قلم BOM کمتر از مقدار واقعی بود (مثل زیپ کلاه ۷۰/۹۶)، ثبت با `E_NEGATIVE_STOCK` بلاک می‌شد و فقط گزینهٔ کم‌کردن مقدار یا رسید/خرید پیشنهاد می‌شد.
+- **Invariant:** مصرف واقعی می‌تواند از چند SKU باشد؛ استاندارد BOM روی قلم اصلی می‌ماند. جایگزین با `substitute_of_product_id` و `issue_type=substitute` ثبت می‌شود (A-24/T3-21). در پوشش جزئی، SQ جایگزین = ۰ تا استاندارد دوبار شمارش نشود؛ دلیل انحراف توضیح تأمین از کالای دیگر را می‌نویسد (ADR-011 بدون JE انحراف).
+- **رفع:** `expandShortageAlternates` + `resolveIssueStd` + `E_SUBSTITUTE_INVALID` در `issueMaterialsVariable`/`preview`؛ UI جستجوی جایگزین در انبار مواد + مقدار پوشش + دلیل خودکار؛ Help؛ تست `test-material-issue-alt-v397`.
+- **فایل‌ها:** `lib/production/engine.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-material-issue-alt-v397.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ docs/Production/03-variable-analysis V-07؛ Dynamics/Sage substitute variance؛ tap-erp-architecture.
+- **تست:** ایران `test-material-issue-alt-v397` + `test-sms`؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه اجباری در محاسبه و پردازش حقوق (SW v396)
 
 - **علائم:** در صفحه «محاسبه و پردازش حقوق» فیلد مرکز هزینه نبود؛ با اجباری بودن CC برای هزینهٔ دوره، کاربر جایی برای تعیین نداشت.
