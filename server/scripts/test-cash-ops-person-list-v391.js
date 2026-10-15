@@ -41,9 +41,9 @@ function ok(cond, label, extra) {
   ok(cashOpsChunk.includes('cash-ops/outgoing'), 'renderCashOpsTab loads outgoing vouchers');
   ok(cashOpsChunk.includes('softGet(\'/expenses\')'), 'still loads expenses');
 
-  const access = require('../lib/accounting-access');
-  const hit = access.matchAccResources('/api/accounting/cash-ops/outgoing');
-  ok(hit.some((h) => h.resource === 'acc_settlements'), 'cash-ops API maps to acc_settlements');
+  const { matchAccResources } = require('../lib/accounting-access');
+  ok(matchAccResources('/api/accounting/cash-ops/outgoing').includes('acc_settlements'),
+    'cash-ops API maps to acc_settlements');
 
   const cashCode = '11019991';
   db.prepare(`
