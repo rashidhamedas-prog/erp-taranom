@@ -1996,6 +1996,22 @@ function validateAndBuildVoucherLines(db, lines) {
   return { cleanLines, personPostings };
 }
 
+/** لیست پرداخت‌های خروجی مبتنی بر سند (شخص / حساب) — مکمل supplier/incentive/expense */
+router.get('/cash-ops/outgoing', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { listCashOpsOutgoing } = require('../lib/cash-ops-list');
+  const limit = parseInt(req.query.limit, 10);
+  res.json(listCashOpsOutgoing(db, { limit: Number.isFinite(limit) ? limit : 300 }));
+});
+
+/** دریافت از شخص/حساب (سند) — مکمل settlements مشتری */
+router.get('/cash-ops/incoming-extra', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { listCashOpsIncomingExtra } = require('../lib/cash-ops-list');
+  const limit = parseInt(req.query.limit, 10);
+  res.json(listCashOpsIncomingExtra(db, { limit: Number.isFinite(limit) ? limit : 300 }));
+});
+
 router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   const { date, description, doc_type, cost_center_id, lines, from_excel, src_system, voucher_type } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {

@@ -47,6 +47,7 @@ ok('expense categories beat expenses', matchAccResources('/api/expenses/categori
   && !matchAccResources('/api/expenses/categories').includes('acc_expenses'));
 ok('cash-ops incentive maps to settlements', matchAccResources('/api/accounting/incentive-payments').includes('acc_settlements'));
 ok('cash-ops vouchers maps to settlements', matchAccResources('/api/accounting/vouchers').includes('acc_settlements'));
+ok('cash-ops outgoing list maps to settlements', matchAccResources('/api/accounting/cash-ops/outgoing').includes('acc_settlements'));
 ok('cash-ops COA read maps to settlements', matchAccResources('/api/accounting/chart-of-accounts').includes('acc_settlements'));
 ok('purchases payments still maps to purchases', matchAccResources('/api/purchases/payments/list').includes('acc_purchases'));
 ok('unknown accounting path stays closed', matchAccResources('/api/accounting/not-a-real-path').length === 0);
