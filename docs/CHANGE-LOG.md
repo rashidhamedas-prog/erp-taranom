@@ -4,6 +4,17 @@
 - **فایل‌ها:** `server/lib/production/schema.js`, CHANGE-LOG.
 - **Deploy:** ✅ `da7185b` — overlay `schema.js` ایران + `pm2 restart` بدون `--update-env`؛ ready=200؛ تست v416 ۱۲/۱۲ + sms ۲۲/۰.
 
+### ۱۴۰۵/۰۷/۲۳ — دریافت مواد عمومی (طاقه + ویژگی) روی WH-RAW (SW v417)
+
+- **هدف:** فرم «دریافت طاقه» دیگر فقط پارچه نیست — ورودی مواد با ویژگی (رنگ/طرح/درجه/هر بنا) برای هر کالای انبار مواد، با حفظ تخصص طاقه متری برای برش/فروش طاقه.
+- **بک‌اند:** `receiveFabricRoll` با `profile=fabric|attr|auto`؛ `kind=attr` برای مواد ویژگی‌دار؛ list/circulation با `kind=all|fabric|attr` (پیش‌فرض `fabric` برای ایمنی برش)؛ cutting `/rolls` اجباری `kind=fabric`؛ `listBatches` طاقه+attr را مخلوط نمی‌کند؛ void/update روی هر دو kind.
+- **UI:** منو «دریافت مواد»؛ مودال با سگمنت پارچه/مواد با ویژگی؛ لیست و گردش هر دو؛ Help.
+- **فایل‌ها:** `lib/inventory/{fabric-rolls,batch-serial}.js`, `routes/{inventory,production-cutting}.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-material-attr-{receipt,static}-v417.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ADR-007 «پارچه و مشابه»؛ ERPNext Material Receipt + Batch attrs؛ tap-erp-architecture.
+- **Non-goals:** Lot روی FG؛ باز کردن برش برای kind=attr؛ تغییر مسیر خرید طاقه‌ای فاکتور.
+- **تست:** static v417 محلی؛ live `test-material-attr-receipt-v417` روی ایران (local better-sqlite3 ABI skip)؛ `test-sms`؛ parse app.js.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی + رفع UNIQUE + سربار لینک‌شده به مراکز (SW v416)
 - **مشکل:** ذخیره سرفصل / فعال‌سازی با `UNIQUE constraint failed: bom_headers.product_id, version, revision` (ایندکس یکتا روی ردیف‌های soft-delete هم اعمال می‌شد — مثل heal v407)؛ در قیمت‌گذاری با روش تسهیم فقط یک محصول عملی بود؛ سربار roll-up وقتی فقط بودجه مرکز پر بود و `total_rate_rial=0` صفر می‌ماند.
 - **رفع UNIQUE:** ایندکس جزئی `ux_bom_prod_ver_live` / `ux_bom_code_live` (فقط `deleted_at IS NULL`)؛ tombstone کلید روی soft-delete؛ `nextBomVersion`/`createBom`/`createAlternative` بدون برخورد با ردیف حذف‌شده؛ پیام فارسی `E_BOM_VERSION_CLASH`.

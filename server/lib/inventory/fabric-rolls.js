@@ -65,7 +65,7 @@ function syncFabricProductWarehouse(db, productId, warehouseId) {
   const batches = db.prepare(`
     SELECT id FROM inventory_batches
     WHERE product_id=? AND warehouse_id=?
-      AND COALESCE(kind,'generic')='fabric'
+      AND COALESCE(kind,'generic') IN ('fabric','attr')
       AND COALESCE(status,'') <> 'reversed'
   `).all(pid, wid);
   let expected = 0;
@@ -92,7 +92,7 @@ function healAllFabricWarehouseStock(db) {
   const pairs = db.prepare(`
     SELECT DISTINCT product_id, warehouse_id
     FROM inventory_batches
-    WHERE COALESCE(kind,'generic')='fabric'
+    WHERE COALESCE(kind,'generic') IN ('fabric','attr')
       AND COALESCE(status,'') <> 'reversed'
       AND product_id IS NOT NULL AND warehouse_id IS NOT NULL
   `).all();
@@ -193,8 +193,9 @@ function applyLiveRollQty(db, r) {
 function listFabricCirculation(db, query = {}) {
   // Include reversed originals + reversal children so running meters net correctly
   // (see liveBatchMeters). UI can style status=reversed rows.
-  const where = ["COALESCE(b.kind,'generic')='fabric'"];
+  // Default kind=fabric keeps cutting/legacy callers safe; UI passes kind=all.
   const params = [];
+  const where = [trackedKindSql(parseTrackedKinds(query), params)];
   if (query.batch_id) { where.push('l.batch_id=?'); params.push(Number(query.batch_id)); }
   if (query.product_id) { where.push('b.product_id=?'); params.push(Number(query.product_id)); }
   if (query.q) {
@@ -243,15 +244,77 @@ function requireRawWarehouse(db, warehouseId) {
   const type = String(wh.warehouse_type || wh.kind || '');
   const isRaw = code === 'WH-RAW' || type === 'raw_material' || type === 'raw';
   if (!isRaw) {
-    throw httpErr(400, 'طاقه پارچه فقط در انبار مواد اولیه (WH-RAW) ثبت می‌شود', 'E_FABRIC_WH_RAW');
+    throw httpErr(400, 'دریافت مواد با ویژگی فقط در انبار مواد اولیه (WH-RAW) ثبت می‌شود', 'E_FABRIC_WH_RAW');
   }
   return wh;
 }
 
-function normUnit(v) {
+function isMeterProductUnit(unit) {
+  const s = String(unit == null ? '' : unit).trim().toLowerCase();
+  return /متر|meter|metre|\bm\b/.test(s) || s === 'm';
+}
+
+/** Tracked receipt kinds on WH-RAW (ADR-007: fabric + similar attributed materials). */
+const TRACKED_KINDS = new Set(['fabric', 'attr']);
+
+function parseTrackedKinds(query = {}) {
+  const raw = String(query.kind || query.kinds || 'fabric').trim().toLowerCase();
+  if (!raw || raw === 'fabric') return ['fabric'];
+  if (raw === 'attr' || raw === 'attributed') return ['attr'];
+  if (raw === 'all' || raw === 'tracked' || raw === 'material') return ['fabric', 'attr'];
+  const parts = raw.split(/[,|]+/).map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    if (p === 'fabric' || p === 'attr') out.push(p);
+    else if (p === 'attributed') out.push('attr');
+  }
+  return out.length ? [...new Set(out)] : ['fabric'];
+}
+
+function trackedKindSql(kinds, params) {
+  const list = (kinds || []).filter((k) => TRACKED_KINDS.has(k));
+  if (!list.length) {
+    params.push('fabric');
+    return "COALESCE(b.kind,'generic')=?";
+  }
+  if (list.length === 1) {
+    params.push(list[0]);
+    return "COALESCE(b.kind,'generic')=?";
+  }
+  params.push(...list);
+  return `COALESCE(b.kind,'generic') IN (${list.map(() => '?').join(',')})`;
+}
+
+/**
+ * profile: fabric | attr | auto
+ * fabric = طاقه متری (برش/فروش طاقه) — رنگ اجباری، واحد متر
+ * attr = مواد با ویژگی (رنگ/طرح/درجه اختیاری) — هر واحد کالا، خارج از لایه‌چینی
+ */
+function resolveReceiptProfile(prod, body = {}) {
+  const explicit = String(body.profile || body.kind || body.receipt_kind || '').trim().toLowerCase();
+  if (explicit === 'fabric' || explicit === 'roll' || explicit === 'طاقه') return 'fabric';
+  if (explicit === 'attr' || explicit === 'attributed' || explicit === 'generic_attr' || explicit === 'مواد') {
+    return 'attr';
+  }
+  if (isMeterProductUnit(prod && prod.unit)) return 'fabric';
+  return 'attr';
+}
+
+function normUnit(v, { allowAny = false } = {}) {
   const s = String(v == null ? 'm' : v).trim().toLowerCase();
   if (s === '' || s === 'm' || s === 'meter' || s === 'metre' || s === 'متر') return 'm';
+  if (allowAny) {
+    const raw = String(v == null ? '' : v).trim();
+    return raw || 'pcs';
+  }
   throw httpErr(400, 'واحد طاقه باید متر باشد', 'E_FABRIC_UNIT');
+}
+
+function assertTrackedBatch(row, { forUpdate = false } = {}) {
+  if (!row || !TRACKED_KINDS.has(String(row.kind || ''))) {
+    throw httpErr(404, forUpdate ? 'ردیف دریافت مواد یافت نشد' : 'طاقه/بچ ویژگی یافت نشد', 'E_FABRIC_ROLL');
+  }
+  return row;
 }
 
 function payableAcct(db, supplierId) {
@@ -288,8 +351,9 @@ function postSupplierLedger(db, { supplier_id, date, entry_type, ref_id, descrip
 }
 
 function listFabricRolls(db, query = {}) {
-  const where = ["COALESCE(b.kind,'generic')='fabric'"];
+  // Default kind=fabric — production cutting / invoice roll pickers must not see attr lots.
   const params = [];
+  const where = [trackedKindSql(parseTrackedKinds(query), params)];
   if (query.product_id) { where.push('b.product_id=?'); params.push(Number(query.product_id)); }
   if (query.warehouse_id) { where.push('b.warehouse_id=?'); params.push(Number(query.warehouse_id)); }
   if (query.status) { where.push('b.status=?'); params.push(String(query.status)); }
@@ -486,22 +550,43 @@ function receiveFabricRoll(db, body, user) {
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!prod) throw httpErr(404, 'کالا یافت نشد', 'E_FABRIC_PRODUCT');
 
+  const profile = resolveReceiptProfile(prod, body);
   const wh = requireRawWarehouse(db, body.warehouse_id);
-  const color = String(body.color || '').trim();
-  if (!color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
+  let color = String(body.color || '').trim();
   const pattern = String(body.pattern || body.design || '').trim();
+  const qualityGrade = String(body.quality_grade || body.grade || '').trim();
   const widthCm = Math.round(Number(body.width_cm) || 0);
   if (widthCm < 0) throw httpErr(400, 'عرض نامعتبر است', 'E_FABRIC_WIDTH');
-  const meters = Number(body.meters != null ? body.meters : body.qty);
-  if (!(meters > 0) || !Number.isFinite(meters)) throw httpErr(400, 'متراژ باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
-  const unit = normUnit(body.unit);
+
+  let qty;
+  let unit;
+  if (profile === 'fabric') {
+    if (!color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
+    qty = Number(body.meters != null ? body.meters : body.qty);
+    if (!(qty > 0) || !Number.isFinite(qty)) {
+      throw httpErr(400, 'متراژ باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
+    }
+    unit = normUnit(body.unit);
+  } else {
+    // attr: color optional (empty → «—» for display); any product unit on WH-RAW
+    if (!color) color = '—';
+    qty = Number(body.qty != null ? body.qty : body.meters);
+    if (!(qty > 0) || !Number.isFinite(qty)) {
+      throw httpErr(400, 'مقدار باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
+    }
+    const fromBody = body.unit != null && String(body.unit).trim() !== ''
+      ? body.unit
+      : (prod.unit || 'pcs');
+    unit = normUnit(fromBody, { allowAny: true });
+  }
+
   let unitCost = Math.round(Number(body.unit_cost_rial) || 0);
   if (unitCost < 0) throw httpErr(400, 'بهای واحد نامعتبر است', 'E_FABRIC_COST');
   if (!unitCost) unitCost = productUnitCostRial(prod);
-  const amount = assertSafeRial(Math.round(unitCost * meters), 'fabric amount');
+  const amount = assertSafeRial(Math.round(unitCost * qty), 'fabric amount');
   const supplierId = body.supplier_id ? Number(body.supplier_id) : 0;
   if (amount > 0 && !supplierId) {
-    throw httpErr(400, 'برای طاقه با بها، تأمین‌کننده الزامی است', 'E_FABRIC_SUPPLIER');
+    throw httpErr(400, 'برای دریافت با بها، تأمین‌کننده الزامی است', 'E_FABRIC_SUPPLIER');
   }
   if (supplierId) {
     const sup = db.prepare('SELECT id FROM suppliers WHERE id=?').get(supplierId);
@@ -509,6 +594,11 @@ function receiveFabricRoll(db, body, user) {
   }
   const date = String(body.date || todayJalali()).trim();
   const rollNo = String(body.roll_no || body.batch_no || '').trim();
+  const kind = profile === 'fabric' ? 'fabric' : 'attr';
+  const label = kind === 'fabric' ? 'طاقه' : 'بچ مواد';
+  const qtyLabel = kind === 'fabric' ? `${qty} متر` : `${qty} ${unit}`;
+  const noteExtra = qualityGrade ? ` · درجه ${qualityGrade}` : '';
+  const userNote = String(body.note || '').trim();
 
   const { postToLedger } = require('../ledger');
   const invAcct = acct(db, 'coa_raw_materials');
@@ -521,35 +611,37 @@ function receiveFabricRoll(db, body, user) {
     if (raced) return { existing: raced };
     let batch;
     try {
-      // createBatch forbids inventing qty — meters enter via ledger + qty_on_hand below.
+      // createBatch forbids inventing qty — qty enters via ledger + qty_on_hand below.
       batch = createBatch(db, {
         productId,
         warehouseId: wh.id,
         batchNo: rollNo || undefined,
         supplierBatch: String(body.supplier_batch || '').trim(),
         qty: 0,
-        note: String(body.note || '').trim(),
+        note: userNote || (qualityGrade ? `درجه: ${qualityGrade}` : ''),
         createdBy: user.id,
       });
     } catch (e) {
       if (/UNIQUE/i.test(String(e && e.message))) {
-        throw httpErr(409, 'شماره طاقه تکراری است', 'E_FABRIC_DUP_ROLL');
+        throw httpErr(409, `شماره ${label} تکراری است`, 'E_FABRIC_DUP_ROLL');
       }
       throw e;
     }
     try {
       db.prepare(`
         UPDATE inventory_batches
-        SET kind='fabric', color=?, pattern=?, width_cm=?, unit=?, unit_cost_rial=?,
-            supplier_id=?, qty_received=?, qty_on_hand=?, idempotency_key=?
+        SET kind=?, color=?, pattern=?, width_cm=?, unit=?, unit_cost_rial=?,
+            supplier_id=?, qty_received=?, qty_on_hand=?, idempotency_key=?,
+            quality_grade=COALESCE(?, quality_grade)
         WHERE id=?
       `).run(
-        color, pattern, widthCm, unit, unitCost,
-        supplierId || null, meters, meters, key, batch.id
+        kind, color, pattern, widthCm, unit, unitCost,
+        supplierId || null, qty, qty, key,
+        qualityGrade || null, batch.id
       );
     } catch (e) {
       if (/UNIQUE/i.test(String(e && e.message))) {
-        throw httpErr(409, 'این طاقه قبلاً ثبت شده است', 'E_FABRIC_IDEMPOTENT');
+        throw httpErr(409, 'این دریافت قبلاً ثبت شده است', 'E_FABRIC_IDEMPOTENT');
       }
       throw e;
     }
@@ -558,14 +650,14 @@ function receiveFabricRoll(db, body, user) {
       eventType: 'receipt',
       productId,
       warehouseId: wh.id,
-      qtyIn: meters,
+      qtyIn: qty,
       unitCostRial: unitCost,
       amountRial: amount,
       sourceType: 'fabric_roll',
       sourceId: batch.id,
       batchId: batch.id,
       date,
-      note: `دریافت طاقه ${batch.batch_no} — ${color}`,
+      note: `دریافت ${label} ${batch.batch_no} — ${color}${noteExtra}`,
       createdBy: user.id,
     });
 
@@ -576,7 +668,7 @@ function receiveFabricRoll(db, body, user) {
         sourceType: 'fabric_roll',
         sourceId: batch.id,
         date,
-        description: `دریافت طاقه ${batch.batch_no} — ${meters} متر`,
+        description: `دریافت ${label} ${batch.batch_no} — ${qtyLabel}`,
         createdBy: user.id,
         lines: [
           { code: invAcct.code, name: invAcct.name, debit: rialToLedger(amount), credit: 0 },
@@ -595,7 +687,7 @@ function receiveFabricRoll(db, body, user) {
           date,
           entry_type: 'purchase',
           ref_id: batch.id,
-          description: `دریافت طاقه ${batch.batch_no} — ${meters} متر`,
+          description: `دریافت ${label} ${batch.batch_no} — ${qtyLabel}`,
           debit: 0,
           credit: amount,
           user_id: user.id,
@@ -620,11 +712,11 @@ function receiveFabricRoll(db, body, user) {
 
 function voidFabricRoll(db, id, user, { reason } = {}) {
   let row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
-  if (!row || row.kind !== 'fabric') throw httpErr(404, 'طاقه یافت نشد', 'E_FABRIC_ROLL');
-  if (row.status === 'reversed') throw httpErr(409, 'این طاقه قبلاً ابطال شده است', 'E_FABRIC_REVERSED');
+  assertTrackedBatch(row);
+  if (row.status === 'reversed') throw httpErr(409, 'این دریافت قبلاً ابطال شده است', 'E_FABRIC_REVERSED');
   row = applyLiveRollQty(db, row);
   if (!rollUnused(row)) {
-    throw httpErr(409, 'طاقه مصرف شده است؛ ابتدا مصرف را برگردانید', 'E_FABRIC_CONSUMED');
+    throw httpErr(409, 'این ردیف مصرف شده است؛ ابتدا مصرف را برگردانید', 'E_FABRIC_CONSUMED');
   }
   const onHand = Number(row.qty_on_hand) || 0;
 
@@ -676,19 +768,23 @@ function rollUnused(row) {
 
 function updateFabricRoll(db, id, body, user) {
   let row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
-  if (!row || row.kind !== 'fabric') throw httpErr(404, 'طاقه یافت نشد', 'E_FABRIC_ROLL');
-  if (row.status === 'reversed') throw httpErr(409, 'طاقه ابطال‌شده قابل ویرایش نیست', 'E_FABRIC_REVERSED');
+  assertTrackedBatch(row, { forUpdate: true });
+  if (row.status === 'reversed') throw httpErr(409, 'ردیف ابطال‌شده قابل ویرایش نیست', 'E_FABRIC_REVERSED');
   row = applyLiveRollQty(db, row);
 
-  const color = String(body.color != null ? body.color : row.color || '').trim();
-  if (!color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
+  const isFabric = String(row.kind) === 'fabric';
+  let color = String(body.color != null ? body.color : row.color || '').trim();
+  if (isFabric && !color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
+  if (!isFabric && !color) color = '—';
   const pattern = String(body.pattern != null ? body.pattern : row.pattern || '').trim();
   const widthCm = body.width_cm != null ? Math.round(Number(body.width_cm) || 0) : (Number(row.width_cm) || 0);
   const oldMeters = Number(row.qty_received != null ? row.qty_received : row.qty_on_hand) || 0;
   const meters = body.meters != null || body.qty != null
     ? Number(body.meters != null ? body.meters : body.qty)
     : oldMeters;
-  if (!(meters > 0) || !Number.isFinite(meters)) throw httpErr(400, 'متراژ باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
+  if (!(meters > 0) || !Number.isFinite(meters)) {
+    throw httpErr(400, isFabric ? 'متراژ باید بزرگ‌تر از صفر باشد' : 'مقدار باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
+  }
   let unitCost = body.unit_cost_rial != null
     ? Math.round(Number(body.unit_cost_rial) || 0)
     : Math.round(Number(row.unit_cost_rial) || 0);
@@ -702,7 +798,7 @@ function updateFabricRoll(db, id, body, user) {
     : (row.supplier_id || 0);
   const amount = assertSafeRial(Math.round(unitCost * meters), 'fabric update amount');
   if (amount > 0 && !supplierId) {
-    throw httpErr(400, 'برای طاقه با بها، تأمین‌کننده الزامی است', 'E_FABRIC_SUPPLIER');
+    throw httpErr(400, 'برای دریافت با بها، تأمین‌کننده الزامی است', 'E_FABRIC_SUPPLIER');
   }
   const date = String(body.date || todayJalali()).trim();
   const rollNo = String(body.roll_no != null ? body.roll_no : row.batch_no || '').trim();
@@ -865,6 +961,10 @@ module.exports = {
   updateFabricRoll,
   rollUnused,
   requireRawWarehouse,
+  resolveReceiptProfile,
+  isMeterProductUnit,
+  parseTrackedKinds,
+  TRACKED_KINDS,
   fabricLineFields,
   isFabricPurchaseLine,
   attachFabricIdentityOnPurchase,

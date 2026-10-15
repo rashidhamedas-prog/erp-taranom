@@ -174,7 +174,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-warehouse-ops', icon: '📦', label: 'رسید، حواله و انتقال' },
       { id: 'acc-stocktaking', icon: '📋', label: 'انبارگردانی' },
       { id: 'acc-inv-batches', icon: '🏷️', label: 'بچ / سریال' },
-      { id: 'acc-fabric-rolls', icon: '🧵', label: 'دریافت طاقه' },
+      { id: 'acc-fabric-rolls', icon: '🧵', label: 'دریافت مواد' },
       { id: 'acc-inv-reservations', icon: '🔒', label: 'رزرو موجودی' },
       { id: 'acc-inv-landed', icon: '🚢', label: 'هزینه حمل (Landed Cost)' },
       { id: 'acc-consignments', icon: '🔄', label: 'کالای امانی' },
@@ -183,7 +183,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-warehouse-report', icon: '📊', label: 'گزارش جامع انبار' },
       { id: 'acc-variant-stock-report', icon: '🎨', label: 'گزارش رنگ و سایز' },
       { id: 'acc-item-kardex', icon: '🗃️', label: 'کاردکس کالا' },
-      { id: 'acc-fabric-roll-kardex', icon: '🧵', label: 'گردش طاقه' },
+      { id: 'acc-fabric-roll-kardex', icon: '🧵', label: 'گردش مواد/طاقه' },
     ]},
   ]},
   { title: 'بانک و صندوق', subgroups: [

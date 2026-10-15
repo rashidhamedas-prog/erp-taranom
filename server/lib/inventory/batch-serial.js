@@ -111,9 +111,9 @@ function listBatches(db, { productId, warehouseId, status = 'active', kind } = {
   if (productId) { where.push('product_id=?'); params.push(productId); }
   if (warehouseId) { where.push('warehouse_id=?'); params.push(warehouseId); }
   if (status) { where.push('status=?'); params.push(status); }
-  // Generic UI must not mix fabric rolls (kind=fabric lives on طاقه tabs).
+  // Generic Lot UI must not mix tracked WH-RAW receipts (fabric + attr).
   if (kind) { where.push("COALESCE(kind,'generic')=?"); params.push(kind); }
-  else { where.push("COALESCE(kind,'generic')!='fabric'"); }
+  else { where.push("COALESCE(kind,'generic') NOT IN ('fabric','attr')"); }
   const sql = `SELECT * FROM inventory_batches ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY expiry_date, id DESC LIMIT 500`;
   return db.prepare(sql).all(...params);
 }

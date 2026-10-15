@@ -88,7 +88,8 @@ router.post('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     const row = receiveFabricRoll(db, req.body || {}, req.user);
-    audit(req.user.id, 'create', 'fabric_roll', row.id, `طاقه ${row.batch_no}`);
+    const label = String(row.kind) === 'attr' ? 'مواد' : 'طاقه';
+    audit(req.user.id, 'create', 'fabric_roll', row.id, `${label} ${row.batch_no}`);
     res.json(row);
   } catch (e) { sendErr(res, e); }
 });

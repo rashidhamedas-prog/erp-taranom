@@ -41,7 +41,8 @@ router.get('/preview', auth, requirePermission('production', 'view'), (req, res)
 
 router.get('/rolls', auth, requirePermission('production', 'view'), (req, res) => {
   try {
-    const rows = listFabricRolls(getDB(), req.query).map((b) => ({
+    // Cutting must only see fabric rolls — never attributed (attr) material lots.
+    const rows = listFabricRolls(getDB(), Object.assign({}, req.query, { kind: 'fabric' })).map((b) => ({
       id: b.id,
       batch_no: b.batch_no,
       color: b.color,
