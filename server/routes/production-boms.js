@@ -44,13 +44,13 @@ function bomFaError(e) {
       : 'فرمول در سفارش تولید باز استفاده شده و قابل بایگانی/حذف نیست.',
     E_BOM_VERSION_CLASH: 'نسخه/بازبینی این فرمول با رکورد قبلی (حتی حذف‌شده) تداخل دارد — سرور کلید یکتا را آزاد کرد؛ دوباره ذخیره/فعال‌سازی را بزنید.',
     E_BOM_CODE_CLASH: 'کد فرمول تکراری است — صفحه را تازه کنید و دوباره بسازید.',
-    E_SHARE_NOT_100: 'جمع سهم هزینه محصولات اصلی و هم‌محصول باید دقیقاً ۱۰۰٪ باشد — از «تسهیم خودکار» استفاده کنید.',
-    E_NO_MAIN_OUTPUT: 'برای فرمول چندمحصولی باید دقیقاً یک خروجی «اصلی» برابر محصول سرفصل باشد.',
-    E_MAIN_MISMATCH: 'خروجی اصلی باید همان محصول سرفصل فرمول باشد؛ محصولات دیگر را به‌عنوان هم‌محصول (co) اضافه کنید.',
+    E_SHARE_NOT_100: 'جمع سهم هزینه همهٔ محصولات اصلی باید دقیقاً ۱۰۰٪ باشد — از «تسهیم خودکار» استفاده کنید.',
+    E_NO_MAIN_OUTPUT: 'حداقل یک محصول اصلی در خروجی‌های فرمول لازم است.',
+    E_MAIN_MISMATCH: 'محصول لنگر فرمول باید در لیست محصولات اصلی خروجی باشد.',
     E_OUTPUT_DUPLICATE: 'این کالا قبلاً در خروجی‌های فرمول ثبت شده است.',
     E_PRODUCT_SCOPE: 'حالت تخصیص محصول باید «مشترک» یا «اختصاصی» باشد.',
     E_SCOPED_PRODUCT_REQUIRED: 'برای تخصیص اختصاصی، محصول هدف را انتخاب کنید.',
-    E_SCOPED_PRODUCT_NOT_IN_BOM: 'محصول تخصیص‌یافته در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست.',
+    E_SCOPED_PRODUCT_NOT_IN_BOM: 'محصول تخصیص‌یافته در لیست محصولات اصلی این فرمول نیست.',
     E_PRODUCT_INCOMPLETE: (e && e.extra && e.extra.detail)
       || 'مشخصات ضروری کالا ناقص است — کارت کالا را تکمیل کنید.',
     E_BOM_INCOMPLETE: (e && e.extra && e.extra.detail)
@@ -58,13 +58,13 @@ function bomFaError(e) {
     E_SPEC_NAME: 'نام کالا الزامی است.',
     E_SPEC_UNIT: 'واحد کالا الزامی است.',
     E_SPEC_ITEM_TYPE: 'طبقه‌بندی تولید (نوع کالا) الزامی است.',
-    E_SPEC_MANUFACTURED: 'کالای سرفصل/هم‌محصول باید تیک ساختنی داشته باشد.',
+    E_SPEC_MANUFACTURED: 'هر محصول اصلی باید تیک ساختنی داشته باشد.',
     E_SPEC_TRADE_FG: 'کالای فروش‌محض در تولید/BOM مجاز نیست.',
     E_SPEC_FG_COLOR: 'برای رنگ inherit، رنگ محصول نهایی را در کارت کالا ثبت کنید.',
     E_SPEC_FG_SIZE: 'برای ماتریس سایز، سایز را در سیستم تعریف کنید.',
     E_ROUTING_EMPTY: 'مسیر عملیات خالی است.',
-    E_YIELD_DOUBLE_COUNT: 'با مسیر عملیات، بازده سرفصل باید ۱۰۰٪ باشد.',
-    E_NO_COPRODUCT: 'حالت چندمحصولی بدون هم‌محصول است.',
+    E_YIELD_DOUBLE_COUNT: 'با مسیر عملیات، بازده فرمول باید ۱۰۰٪ باشد.',
+    E_NO_COPRODUCT: 'حالت چندمحصولی نیاز به حداقل دو محصول اصلی دارد.',
     E_SPEC_CODE: 'کد کالا برای محصول ساختنی الزامی است.',
     E_SPEC_COST: 'بهای مواد صفر است — حواله/نهایی‌سازی بدون بها مجاز نیست.',
     E_BOM_NOT_ACTIVE: 'فرمول سفارش باید فعال باشد.',
@@ -431,15 +431,17 @@ router.post('/:id/outputs/auto-share', auth, requirePermission('production_bom',
   });
 });
 
-/** Multi-product share: ensure main + add co products, optional auto-share */
+/** Multi-product share: ensure peer main products, optional auto-share */
 router.post('/:id/outputs/ensure-share', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   handle(res, () => {
     const db = getDB();
     const bomId = Number(req.params.id);
     const method = req.body?.auto_share_method || req.body?.method || 'sales_value';
+    const peers = req.body?.main_product_ids || req.body?.peer_product_ids
+      || req.body?.co_product_ids || req.body?.product_ids || [];
     const rows = adv.ensureShareOutputs(db, bomId, {
       mainProductId: req.body?.main_product_id,
-      coProductIds: req.body?.co_product_ids || req.body?.product_ids || [],
+      peerProductIds: peers,
       autoShare: method === 'none' ? null : method,
     });
     return applyCostPolicy(db, req.user, { rows });

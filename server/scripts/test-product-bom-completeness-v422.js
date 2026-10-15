@@ -23,8 +23,8 @@ const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const idxSrc = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
 ok(appJs.includes('v421→v422') || appJs.includes('completeness_waive_reason'), 'Help/UI waive v422');
 ok(appJs.includes('po-waive'), 'UI po-waive field');
-ok(swSrc.includes('erp-taranom-v422'), 'SW v422');
-ok(idxSrc.includes('app.js?v=422'), 'index v422');
+ok(/erp-taranom-v42[23]/.test(swSrc), 'SW v422+');
+ok(/app\.js\?v=42[23]/.test(idxSrc), 'index v422+');
 ok(fs.readFileSync(path.join(__dirname, '../lib/production/schema.js'), 'utf8')
   .includes('completeness_waive_reason'), 'schema waive column');
 

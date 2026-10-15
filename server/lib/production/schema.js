@@ -242,6 +242,25 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'bom_operations', 'product_scope', "TEXT NOT NULL DEFAULT 'shared'");
     ensureColumn(db, 'bom_operations', 'scoped_product_id', 'INTEGER');
   }
+  // v423 — peer main products: promote legacy co → main (no secondary «هم‌محصول»)
+  if (tableExists(db, 'bom_outputs')) {
+    try {
+      const n = db.prepare(`SELECT COUNT(*) c FROM bom_outputs WHERE output_type='co'`).get()?.c || 0;
+      if (n > 0) {
+        db.prepare(`UPDATE bom_outputs SET output_type='main' WHERE output_type='co'`).run();
+      }
+      // Ensure multiproduct flag when ≥2 valued FG rows
+      db.prepare(`
+        UPDATE bom_headers
+        SET has_coproducts=1
+        WHERE id IN (
+          SELECT bom_id FROM bom_outputs
+          WHERE output_type='main'
+          GROUP BY bom_id HAVING COUNT(*) >= 2
+        )
+      `).run();
+    } catch (_) { /* migrate best-effort */ }
+  }
   if (tableExists(db, 'cutting_pack_bundles')) {
     ensureColumn(db, 'cutting_pack_bundles', 'variant_id', 'INTEGER');
   }

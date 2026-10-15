@@ -304,8 +304,8 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
 
   const wipFinal = costIn;
   const outs = db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(bomId);
-  const mains = outs.filter(o => o.output_type === 'main');
-  if (bom.has_coproducts && mains.length !== 1) throw err('E_NO_MAIN_OUTPUT', 422);
+  const mains = outs.filter(o => o.output_type === 'main' || o.output_type === 'co');
+  if (bom.has_coproducts && mains.length < 1) throw err('E_NO_MAIN_OUTPUT', 422);
 
   // If no outputs defined, synthesize main = product with 100% share
   let effectiveOuts = outs;
@@ -338,6 +338,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
   if (byCredit > wipFinal) throw err('E_NRV_EXCEEDS_WIP', 422);
 
   const wipAfterBy = wipFinal - byCredit;
+  // v423: all valued FGs are peer mains (legacy co still counted until migrate)
   const shares = effectiveOuts.filter(o => ['main', 'co'].includes(o.output_type));
   const sumShare = shares.reduce((s, o) => s + (Number(o.cost_share_percent) || 0), 0);
   if (shares.length && Math.abs(sumShare - 100) > 0.01) {
@@ -368,18 +369,21 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     exclusiveTotal = wipAfterBy;
   }
   const sharedPool = Math.max(0, wipAfterBy - exclusiveTotal);
+  const baseQty = Number(bom.base_qty) || 1;
 
   let assigned = 0;
   const shareRows = shares.map(o => {
-    const q = o.output_type === 'main'
+    // Peer mains: each scales by qty_per_base; single-FG keeps routing qtyOut
+    const q = shares.length === 1 && Number(o.product_id) === Number(bom.product_id)
       ? qtyIn
-      : round6(Number(o.qty_per_base) * qty_start / (bom.base_qty || 1));
+      : round6(Number(o.qty_per_base || 1) * qty_start / baseQty);
     const excl = Math.round(exclusiveByProduct[Number(o.product_id)] || 0);
     const sharedPart = Math.round(sharedPool * (Number(o.cost_share_percent) || 0) / 100);
     const amt = excl + sharedPart;
     assigned += amt;
     return {
       ...outMeta(db, o),
+      type: 'main',
       qty: q,
       share_percent: o.cost_share_percent,
       exclusive_rial: excl,
@@ -388,15 +392,16 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       unit_cost_rial: q ? Math.round(amt / q) : 0,
     };
   });
-  const mainRow = shareRows.find(r => r.type === 'main');
-  if (mainRow && assigned !== wipAfterBy) {
-    mainRow.amount_rial += wipAfterBy - assigned;
-    mainRow.shared_rial = (mainRow.shared_rial || 0) + (wipAfterBy - assigned);
-    mainRow.unit_cost_rial = mainRow.qty ? Math.round(mainRow.amount_rial / mainRow.qty) : 0;
+  // Rounding remainder → anchor product (bom.product_id) then first row
+  const anchorRow = shareRows.find(r => Number(r.product_id) === Number(bom.product_id)) || shareRows[0];
+  if (anchorRow && assigned !== wipAfterBy) {
+    anchorRow.amount_rial += wipAfterBy - assigned;
+    anchorRow.shared_rial = (anchorRow.shared_rial || 0) + (wipAfterBy - assigned);
+    anchorRow.unit_cost_rial = anchorRow.qty ? Math.round(anchorRow.amount_rial / anchorRow.qty) : 0;
   }
   result.push(...shareRows);
 
-  const unitCost = mainRow?.unit_cost_rial || 0;
+  const unitCost = anchorRow?.unit_cost_rial || 0;
   const margin = parseFloat(setting(db, 'pricing_margin_percent', '35')) || 35;
 
   const prod = db.prepare('SELECT id, name, code, price, average_cost_rial FROM products WHERE id=?').get(bom.product_id);
@@ -591,35 +596,40 @@ function resequenceOperations(db, bomId) {
 function ensureMainOutputRow(db, bomId) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
-  const mains = db.prepare(`SELECT * FROM bom_outputs WHERE bom_id=? AND output_type='main'`).all(bomId);
-  if (mains.length === 1 && Number(mains[0].product_id) === Number(bom.product_id)) return mains[0];
-  if (mains.length > 1) {
-    // Keep the row matching header product; demote others to co
-    for (const m of mains) {
-      if (Number(m.product_id) === Number(bom.product_id)) continue;
-      db.prepare(`UPDATE bom_outputs SET output_type='co' WHERE id=?`).run(m.id);
+  // v423: peer mains — never demote extra mains to co; only ensure anchor row exists
+  const anchor = db.prepare(`
+    SELECT * FROM bom_outputs WHERE bom_id=? AND product_id=? AND output_type IN ('main','co')
+  `).get(bomId, bom.product_id);
+  if (anchor) {
+    if (anchor.output_type !== 'main') {
+      db.prepare(`UPDATE bom_outputs SET output_type='main' WHERE id=?`).run(anchor.id);
     }
+    return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(anchor.id);
   }
-  const main = db.prepare(`SELECT * FROM bom_outputs WHERE bom_id=? AND output_type='main'`).get(bomId);
-  if (main) {
-    if (Number(main.product_id) !== Number(bom.product_id)) {
-      db.prepare(`UPDATE bom_outputs SET product_id=? WHERE id=?`).run(bom.product_id, main.id);
-    }
-    return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(main.id);
-  }
+  const anyMain = db.prepare(`SELECT * FROM bom_outputs WHERE bom_id=? AND output_type='main'`).get(bomId);
+  if (anyMain && Number(anyMain.product_id) === Number(bom.product_id)) return anyMain;
+  const shareCount = db.prepare(`
+    SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+  `).get(bomId)?.c || 0;
   const id = db.prepare(`
     INSERT INTO bom_outputs
       (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
-    VALUES (?,?, 'main', 1, 'share', 100, 0)
-  `).run(bomId, bom.product_id).lastInsertRowid;
+    VALUES (?,?, 'main', 1, 'share', ?, 0)
+  `).run(bomId, bom.product_id, shareCount ? 0 : 100).lastInsertRowid;
   return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(id);
 }
 
 /**
- * Seed / extend share outputs for multi-product BOM (main + co).
- * When co products exist, sets has_coproducts and optionally auto-shares.
+ * Seed / extend peer main outputs for multi-product BOM.
+ * Accepts legacy `coProductIds` / new `peerProductIds` / `mainProductIds`.
  */
-function ensureShareOutputs(db, bomId, { mainProductId, coProductIds = [], autoShare: method = null } = {}) {
+function ensureShareOutputs(db, bomId, {
+  mainProductId,
+  coProductIds = [],
+  peerProductIds = null,
+  mainProductIds = null,
+  autoShare: method = null,
+} = {}) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
   const mainPid = Number(mainProductId || bom.product_id);
@@ -628,20 +638,31 @@ function ensureShareOutputs(db, bomId, { mainProductId, coProductIds = [], autoS
   const existing = new Set(
     db.prepare('SELECT product_id FROM bom_outputs WHERE bom_id=?').all(bomId).map(r => Number(r.product_id))
   );
-  const cos = (coProductIds || []).map(Number).filter(n => n && n !== mainPid);
-  for (const pid of cos) {
-    if (existing.has(pid)) continue;
+  const peers = (peerProductIds || mainProductIds || coProductIds || [])
+    .map(Number).filter(n => n && n !== mainPid);
+  for (const pid of peers) {
+    if (existing.has(pid)) {
+      // Promote legacy co row if still present
+      db.prepare(`
+        UPDATE bom_outputs SET output_type='main'
+        WHERE bom_id=? AND product_id=? AND output_type='co'
+      `).run(bomId, pid);
+      continue;
+    }
     db.prepare(`
       INSERT INTO bom_outputs
         (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
-      VALUES (?,?, 'co', 1, 'share', 0, 0)
+      VALUES (?,?, 'main', 1, 'share', 0, 0)
     `).run(bomId, pid);
     existing.add(pid);
   }
-  if (cos.length) {
+  if (peers.length) {
     db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
   }
-  if (method && (cos.length || db.prepare(`SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type='co'`).get(bomId).c)) {
+  const fgCount = db.prepare(`
+    SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+  `).get(bomId)?.c || 0;
+  if (method && (peers.length || fgCount > 1)) {
     try { autoShare(db, bomId, method); } catch (_) { /* shares may be filled later */ }
   }
   return db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(bomId);
@@ -653,19 +674,28 @@ function addOutput(db, bomId, body) {
   if (bom.status === 'active') throw err('E_BOM_LOCKED', 409);
 
   let outputType = body.output_type || 'main';
+  // Legacy clients still send co — normalize valued FG to main (by/scrap stay)
+  if (outputType === 'co') outputType = 'main';
   const productId = Number(body.product_id);
   if (!productId) throw err('E_VALIDATION', 400);
 
-  // Multi-product share: adding a product other than header as "main" → treat as co
-  if (outputType === 'main' && productId !== Number(bom.product_id)) {
-    ensureMainOutputRow(db, bomId);
-    outputType = 'co';
-  }
-  // Second main for same header product is update-in-place of the main row
+  // Peer main: another product as main is allowed; ensure anchor exists
   if (outputType === 'main') {
-    const existingMain = db.prepare(`SELECT id FROM bom_outputs WHERE bom_id=? AND output_type='main'`).get(bomId);
-    if (existingMain) {
-      return updateOutput(db, bomId, existingMain.id, { ...body, output_type: 'main', product_id: bom.product_id });
+    ensureMainOutputRow(db, bomId);
+    const dup = db.prepare(`
+      SELECT id FROM bom_outputs WHERE bom_id=? AND product_id=? AND output_type IN ('main','co')
+    `).get(bomId, productId);
+    if (dup) {
+      return updateOutput(db, bomId, dup.id, { ...body, output_type: 'main', product_id: productId });
+    }
+    // First valued FG for header product only — update-in-place if single empty-ish row
+    if (productId === Number(bom.product_id)) {
+      const only = db.prepare(`
+        SELECT id FROM bom_outputs WHERE bom_id=? AND product_id=? AND output_type='main'
+      `).get(bomId, bom.product_id);
+      if (only) {
+        return updateOutput(db, bomId, only.id, { ...body, output_type: 'main', product_id: bom.product_id });
+      }
     }
   }
 
@@ -680,9 +710,13 @@ function addOutput(db, bomId, body) {
     body.stage_cost_center_id || null
   ).lastInsertRowid;
 
-  if (['co', 'by', 'scrap'].includes(outputType)) {
+  if (['by', 'scrap'].includes(outputType)) {
     db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
-    if (outputType === 'co') ensureMainOutputRow(db, bomId);
+  } else if (outputType === 'main') {
+    const fgN = db.prepare(`
+      SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+    `).get(bomId)?.c || 0;
+    if (fgN >= 2) db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
   }
   return db.prepare('SELECT * FROM bom_outputs WHERE id=?').get(id);
 }
@@ -759,9 +793,16 @@ function validateAdvancedBom(db, bomId) {
   }
 
   if (bom.has_coproducts || outs.length) {
-    const mains = outs.filter(o => o.output_type === 'main');
-    if (mains.length !== 1) throw err('E_NO_MAIN_OUTPUT', 422);
-    if (mains[0].product_id !== bom.product_id) throw err('E_MAIN_MISMATCH', 422);
+    const shares = outs.filter(o => ['main', 'co'].includes(o.output_type));
+    if (!shares.length) throw err('E_NO_MAIN_OUTPUT', 422);
+    // Anchor product must be among peer mains
+    if (!shares.some(o => Number(o.product_id) === Number(bom.product_id))) {
+      throw err('E_MAIN_MISMATCH', 422);
+    }
+    // Multiproduct flag requires ≥2 peer main products
+    if (Number(bom.has_coproducts) === 1 && shares.length < 2) {
+      throw err('E_NO_COPRODUCT', 422);
+    }
     const seen = new Set();
     for (const o of outs) {
       if (seen.has(o.product_id)) throw err('E_OUTPUT_DUPLICATE', 422, { name: productName(db, o.product_id) });
@@ -770,7 +811,6 @@ function validateAdvancedBom(db, bomId) {
         throw err('E_NRV_ZERO', 422, { name: productName(db, o.product_id) });
       }
     }
-    const shares = outs.filter(o => ['main', 'co'].includes(o.output_type));
     const sum = shares.reduce((s, o) => s + (Number(o.cost_share_percent) || 0), 0);
     if (Math.abs(sum - 100) > 0.01) throw err('E_SHARE_NOT_100', 422, { sum });
 

@@ -1036,7 +1036,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const qtyGood = num(body.qty_produced != null ? body.qty_produced : last.qty_out);
     if (qtyGood <= 0) throw err('E_QTY_INVALID', 422);
 
-    // v420: override تعداد main/co از body.outputs[{product_id,qty}]
+    // v420/v423: override تعداد هر محصول اصلی از body.outputs[{product_id,qty}]
     const qtyByProduct = {};
     if (Array.isArray(body.outputs)) {
       for (const row of body.outputs) {
@@ -1046,8 +1046,8 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         qtyByProduct[pid] = num(row.qty != null ? row.qty : row.qty_produced);
       }
     }
-    const mainOverride = qtyByProduct[Number(po.product_id)];
-    const qtyGoodFinal = mainOverride != null ? mainOverride : qtyGood;
+    const orderOverride = qtyByProduct[Number(po.product_id)];
+    const qtyGoodFinal = orderOverride != null ? orderOverride : qtyGood;
     if (qtyGoodFinal <= 0) throw err('E_QTY_INVALID', 422);
 
     // Matrix FG must name color×size. Prefer body; else production_order_lines
@@ -1059,7 +1059,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     // Roll-fabric apparel: lay + PACK must cover FG qty before sellable receipt.
     assertFabricCuttingPathForFgReceipt(db, po, qtyGoodFinal);
 
-    // v418: تسهیم WIP بین main+co (و exclusive در roll-up تحلیلی؛ JE روی سهم خروجی)
+    // v423: تسهیم WIP بین محصولات اصلی مستقل (peer mains)
     let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
     if (!shareOuts.length) {
       shareOuts = [{
@@ -1093,22 +1093,23 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     } catch (_) { exclusiveByProduct = {}; exclusiveTotal = 0; }
     if (exclusiveTotal > wipNet) exclusiveTotal = wipNet;
     const sharedPool = Math.max(0, wipNet - exclusiveTotal);
+    const baseQty = Number(bom?.base_qty) || 1;
 
     const allocations = shareOuts.map(o => {
-      const isMain = o.output_type === 'main' || Number(o.product_id) === Number(po.product_id);
       const pid = Number(o.product_id);
+      const isOrderProduct = pid === Number(po.product_id);
       let q;
       if (qtyByProduct[pid] != null) {
         q = qtyByProduct[pid];
-      } else if (isMain) {
+      } else if (isOrderProduct || shareOuts.length === 1) {
         q = qtyGoodFinal;
       } else {
-        q = round6(num(o.qty_per_base) * qtyStart / (bom.base_qty || 1));
+        q = round6(num(o.qty_per_base) * qtyStart / baseQty);
       }
       if (!(q > 0) && shareOuts.length > 1) {
         throw err('E_QTY_INVALID', 422, {
           product_id: pid,
-          detail: 'تعداد رسید هم‌محصول باید مثبت باشد',
+          detail: 'تعداد رسید هر محصول اصلی باید مثبت باشد',
         });
       }
       const excl = Math.round(exclusiveByProduct[pid] || 0);
@@ -1116,19 +1117,22 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       const sharedPart = Math.round(sharedPool * pct / 100);
       return {
         product_id: pid,
-        output_type: isMain ? 'main' : 'co',
+        output_type: 'main',
         qty: q,
         exclusive_rial: excl,
         shared_rial: sharedPart,
         amount_rial: excl + sharedPart,
-        is_main: isMain,
+        is_order_product: isOrderProduct,
+        is_main: true,
       };
     });
     let assigned = allocations.reduce((s, a) => s + a.amount_rial, 0);
-    const mainAlloc = allocations.find(a => a.is_main) || allocations[0];
-    if (mainAlloc && assigned !== wipNet) {
-      mainAlloc.amount_rial += wipNet - assigned;
-      mainAlloc.shared_rial += wipNet - assigned;
+    const remAlloc = allocations.find(a => a.is_order_product)
+      || allocations.find(a => Number(a.product_id) === Number(bom?.product_id))
+      || allocations[0];
+    if (remAlloc && assigned !== wipNet) {
+      remAlloc.amount_rial += wipNet - assigned;
+      remAlloc.shared_rial += wipNet - assigned;
     }
 
     const receipts = [];
@@ -1138,7 +1142,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     for (const a of allocations) {
       if (!(a.qty > 0) || !(a.amount_rial > 0)) continue;
       const uc = Math.round(a.amount_rial / a.qty);
-      if (a.is_main) unitCost = uc;
+      if (a.is_order_product) unitCost = uc;
 
       const avg = updateMovingAverage(db, {
         productId: a.product_id,
@@ -1146,7 +1150,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         qtyIn: a.qty,
         amountRial: a.amount_rial,
         userId,
-        note: `تولید ${po.order_no}${a.is_main ? '' : ' (هم‌محصول)'}`,
+        note: `تولید ${po.order_no}`,
         sourceType: 'production_receipt',
         sourceId: po.id,
         date,
@@ -1168,7 +1172,8 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
       ).lastInsertRowid;
 
-      if (a.is_main) {
+      // Apparel matrix only on the order product (size/color breakdown belongs to it)
+      if (a.is_order_product) {
         primaryReceiptId = receiptId;
         require('../inventory/apparel-lines').postApparelLines(db, {
           productId: a.product_id, warehouseId: po.warehouse_fg_id || fgWh,
@@ -1184,7 +1189,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         event: 'PRD-07',
         sourceId: receiptId,
         date,
-        description: `رسید تولید ${a.qty}${a.is_main ? '' : ' هم‌محصول'} — ${po.order_no}`,
+        description: `رسید تولید ${a.qty} — ${po.order_no}`,
         createdBy: userId,
         lines: [
           dr(db, 'coa_finished_goods', a.amount_rial),

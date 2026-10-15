@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — محصولات اصلی مستقل در BOM چندمحصولی؛ حذف هم‌محصول (SW v423)
+- **هدف:** همهٔ FGهای یک فرمول هم‌رتبه «محصول اصلی» باشند؛ مفهوم هم‌محصول/co حذف شود؛ حواله/رسید/سفارش/تسهیم با peer mains سازگار شود.
+- **بک‌اند:** migrate `bom_outputs.co → main`؛ `ensureShareOutputs`/`addOutput` دیگر demote نمی‌کنند؛ اعتبارسنجی ≥۲ main برای چندمحصولی؛ `planBomFgOutputs`/`finalize` بدون نقش co؛ API `main_product_ids`/`peer_product_ids` (+ سازگاری `co_product_ids`)؛ رساله‌های خطا و completeness به‌روز.
+- **UI/Help:** فرم ایجاد/خروجی‌ها/برنامه سفارش/رسید نهایی — «محصول اصلی»؛ SW `erp-taranom-v423`.
+- **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,engine-advanced,product-completeness}.js`, `routes/production-boms.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-multiproduct-peer-mains-v423.js`, CHANGE-LOG.
+- **Non-goals:** حذف ستون `has_coproducts` (معنای چندمحصولی می‌ماند)؛ تغییر مدل by/scrap؛ بیلد APK.
+- **تست:** ایران پس از deploy: v423 + v422 + sms + health.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — موج ۲ مشخصات ضروری: گیت release/issue/finalize + کد/بها (SW v422)
 - **هدف:** تکمیل معماری v421 — مشخصات ضروری در کل مسیر تولید اثر بگذارند؛ کد FG و بهای مواد در حواله/نهایی سخت شوند.
 - **بک‌اند:** `product-completeness` — modeهای `release`/`issue`/`finalize`؛ کد کالا hard برای FG/semi؛ بهای صفر مواد hard در issue/finalize/release؛ `assertOrderReady`؛ ستون `completeness_waive_reason` روی سفارش (فقط شل کردن کد/بها + audit)؛ گیت در `releaseOrder` / `releaseAdvancedOrder` / `issueMaterialsVariable` / `issueStageMaterials` / `postReceiptFixed|Variable` / `finalizeAdvancedOrder`؛ پاسخ POST/PUT کالا با `production_readiness`.

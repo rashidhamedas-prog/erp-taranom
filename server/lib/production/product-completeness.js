@@ -293,8 +293,9 @@ function assessBom(db, bomId, mode = 'activate', opts = {}) {
 
   if ((bom.has_coproducts || outs.length > 1) && mode === 'activate') {
     const shares = outs.filter(o => ['main', 'co'].includes(o.output_type));
-    if (Number(bom.has_coproducts) === 1 && shares.filter(o => o.output_type === 'co').length === 0) {
-      pushMissing(hard, 'E_NO_COPRODUCT', 'outputs', 'حالت چندمحصولی بدون هم‌محصول است');
+    if (Number(bom.has_coproducts) === 1 && shares.length < 2) {
+      pushMissing(hard, 'E_NO_COPRODUCT', 'outputs',
+        'حالت چندمحصولی نیاز به حداقل دو محصول اصلی دارد');
     }
   }
 

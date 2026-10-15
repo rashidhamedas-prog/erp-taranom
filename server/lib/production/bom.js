@@ -247,7 +247,7 @@ function assertProductInBomFg(db, bom, productId) {
     throw err('E_BOM_PRODUCT_MISMATCH', 422, {
       product_id: productId,
       bom_id: bom.id,
-      detail: 'محصول سفارش در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست',
+      detail: 'محصول سفارش در لیست محصولات اصلی این فرمول نیست',
     });
   }
 }
@@ -259,9 +259,9 @@ function isMultiproductBom(db, bomOrId) {
   if (!bom) return false;
   if (Number(bom.has_coproducts) === 1) return true;
   const n = db.prepare(`
-    SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type='co'
+    SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
   `).get(bom.id)?.c || 0;
-  return n > 0;
+  return n > 1;
 }
 
 /**
@@ -275,7 +275,7 @@ function explodeProductScopeForOrder(db, po) {
   return po.product_id != null ? Number(po.product_id) : null;
 }
 
-/** qty برای explode/رزرو از روی سفارش (با تبدیل هم‌محصول→معادل سرفصل) */
+/** qty برای explode/رزرو از روی سفارش (تبدیل محصول سفارش → مقیاس لنگر فنی) */
 function explodeQtyForOrder(db, po, qtyOverride = null) {
   const q = qtyOverride != null ? Number(qtyOverride) : Number(po?.qty_planned) || 0;
   if (!po?.bom_id) return q;
@@ -283,8 +283,8 @@ function explodeQtyForOrder(db, po, qtyOverride = null) {
 }
 
 /**
- * مقدار معادل سرفصل (main) برای مقیاس explode/مراحل از روی qty سفارش.
- * اگر سفارش روی هم‌محصول باشد: qty_main = qty_order × base / qty_per_base(co)
+ * مقدار معادل مقیاس لنگر (bom.product_id / base_qty) برای explode/مراحل.
+ * اگر سفارش روی محصول اصلی دیگری باشد: qty_anchor = qty_order × base / qty_per_base
  */
 function orderQtyAsMainBase(db, bomId, qtyOrder, orderProductId) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -294,16 +294,16 @@ function orderQtyAsMainBase(db, bomId, qtyOrder, orderProductId) {
   const orderPid = orderProductId != null ? Number(orderProductId) : Number(bom.product_id);
   if (!orderPid || orderPid === Number(bom.product_id)) return qty;
   const out = db.prepare(`
-    SELECT qty_per_base, output_type FROM bom_outputs
+    SELECT qty_per_base FROM bom_outputs
     WHERE bom_id=? AND product_id=? AND output_type IN ('main','co')
   `).get(bomId, orderPid);
-  if (!out || out.output_type === 'main') return qty;
+  if (!out) return qty;
   const qpb = Number(out.qty_per_base) || 1;
   if (!(qpb > 0)) return qty;
   return round6(qty * base / qpb);
 }
 
-/** برنامه مقدار main/co برای سفارش (qtyOrder = مقدار همان محصول سفارش) */
+/** برنامه مقدار محصولات اصلی برای سفارش (qtyOrder = مقدار همان محصول سفارش) */
 function planBomFgOutputs(db, bomId, qtyOrder, orderProductId = null) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) return [];
@@ -315,8 +315,8 @@ function planBomFgOutputs(db, bomId, qtyOrder, orderProductId = null) {
     FROM bom_outputs o
     LEFT JOIN products p ON p.id=o.product_id
     WHERE o.bom_id=? AND o.output_type IN ('main','co')
-    ORDER BY CASE o.output_type WHEN 'main' THEN 0 ELSE 1 END, o.id
-  `).all(bomId);
+    ORDER BY CASE WHEN o.product_id=? THEN 0 ELSE 1 END, o.id
+  `).all(bomId, bom.product_id);
   if (!outs.length) {
     const p = db.prepare('SELECT name, code FROM products WHERE id=?').get(bom.product_id);
     return [{
@@ -330,23 +330,22 @@ function planBomFgOutputs(db, bomId, qtyOrder, orderProductId = null) {
       cost_share_percent: 100,
     }];
   }
-  const qtyMain = orderQtyAsMainBase(db, bomId, qty, orderPid);
+  const qtyAnchor = orderQtyAsMainBase(db, bomId, qty, orderPid);
   return outs.map(o => {
-    const isMain = o.output_type === 'main' || Number(o.product_id) === Number(bom.product_id);
-    let q = isMain
-      ? qtyMain
-      : round6((Number(o.qty_per_base) || 1) * qtyMain / base);
+    let q = round6((Number(o.qty_per_base) || 1) * qtyAnchor / base);
     // محصول خود سفارش: دقیقاً همان qty واردشده
     if (Number(o.product_id) === orderPid) q = qty;
     return {
       product_id: o.product_id,
       product_name: o.product_name || ('#' + o.product_id),
       product_code: o.product_code || null,
-      role: isMain ? 'main' : 'co',
-      output_type: o.output_type,
+      role: 'main',
+      output_type: 'main',
       qty_per_base: Number(o.qty_per_base) || 1,
       qty_planned: q,
       cost_share_percent: Number(o.cost_share_percent) || 0,
+      is_anchor: Number(o.product_id) === Number(bom.product_id),
+      is_order_product: Number(o.product_id) === orderPid,
     };
   });
 }
@@ -372,7 +371,7 @@ function resolveBom(db, { productId, date, preferredBomId = null, allowAlternati
   `).all(productId, date, date);
   if (rows.length) return rows[0];
 
-  // v420: هم‌محصول — default_bom_id یا BOM فعال که این کالا را در خروجی main/co دارد
+  // v420/v423: محصول اصلی peer — default_bom_id یا BOM فعال با خروجی main
   const def = db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(productId);
   if (def?.default_bom_id) {
     const b = db.prepare(`
@@ -424,7 +423,7 @@ function resolveSubstitutes(db, lines, factor, yieldF) {
   return [...plain, ...picked].sort((a, b) => a.line_no - b.line_no);
 }
 
-/** محصولات FG این BOM (سرفصل + خروجی main/co) */
+/** محصولات FG این BOM (همهٔ محصولات اصلی / خروجی main) */
 function bomFgProductIds(db, bomOrId) {
   const bom = typeof bomOrId === 'object' && bomOrId
     ? bomOrId
@@ -680,15 +679,16 @@ function createBom(db, body, userId) {
     } catch (e) {
       rethrowBomConstraint(e);
     }
-    // Multi-product / share: seed outputs BEFORE lines so exclusive scoped_product_id validates
-    const extraProducts = Array.isArray(body.co_product_ids)
-      ? body.co_product_ids.map(Number).filter(n => n && n !== Number(productId))
+    // Multi-product / share: seed peer mains BEFORE lines so exclusive scoped_product_id validates
+    const peerSrc = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
+    const extraProducts = Array.isArray(peerSrc)
+      ? peerSrc.map(Number).filter(n => n && n !== Number(productId))
       : [];
     if (body.has_coproducts || extraProducts.length) {
       const { ensureShareOutputs } = require('./bom-advanced');
       ensureShareOutputs(db, id, {
         mainProductId: productId,
-        coProductIds: extraProducts,
+        peerProductIds: extraProducts,
         autoShare: body.auto_share_method || 'sales_value',
       });
     }
@@ -723,26 +723,27 @@ function updateBomHeader(db, bomId, body, userId) {
       body.unit_id != null ? body.unit_id : b.unit_id,
       bomId
     );
-    // Sync multi-product co list from editor (optional)
-    if (Array.isArray(body.co_product_ids) || body.has_coproducts != null) {
-      const coIds = Array.isArray(body.co_product_ids)
-        ? body.co_product_ids.map(Number).filter(n => n && n !== Number(b.product_id))
+    // Sync multi-product peer main list from editor (optional; accepts legacy co_product_ids)
+    const peerBody = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
+    if (Array.isArray(peerBody) || body.has_coproducts != null) {
+      const peerIds = Array.isArray(peerBody)
+        ? peerBody.map(Number).filter(n => n && n !== Number(b.product_id))
         : [];
       const wantMulti = body.has_coproducts != null
         ? !!body.has_coproducts
-        : coIds.length > 0;
+        : peerIds.length > 0;
       db.prepare('UPDATE bom_headers SET has_coproducts=? WHERE id=?').run(wantMulti ? 1 : 0, bomId);
-      if (wantMulti || coIds.length) {
+      if (wantMulti || peerIds.length) {
         const { ensureShareOutputs } = require('./bom-advanced');
         ensureShareOutputs(db, bomId, {
           mainProductId: b.product_id,
-          coProductIds: coIds,
+          peerProductIds: peerIds,
           autoShare: body.auto_share_method || null,
         });
       }
     }
     logBomChange(db, bomId, 'header_edit', { after: body }, userId);
-    audit(userId, 'edit', 'bom', bomId, `ویرایش سرفصل ${b.code}`);
+    audit(userId, 'edit', 'bom', bomId, `ویرایش فرمول ${b.code}`);
     return getBom(db, bomId);
   })();
 }
@@ -1259,8 +1260,11 @@ function getBom(db, bomId) {
   const fgIds = [...bomFgProductIds(db, bom)];
   const fg_products = fgIds.map(id => {
     const p = db.prepare('SELECT id, name, code FROM products WHERE id=?').get(id);
-    const role = Number(id) === Number(bom.product_id) ? 'main' : 'co';
-    return p ? { id: p.id, name: p.name, code: p.code || null, role } : { id, name: '#' + id, code: null, role };
+    // v423: all FGs are peer mains; is_anchor marks technical scale product only
+    const isAnchor = Number(id) === Number(bom.product_id);
+    return p
+      ? { id: p.id, name: p.name, code: p.code || null, role: 'main', is_anchor: isAnchor }
+      : { id, name: '#' + id, code: null, role: 'main', is_anchor: isAnchor };
   });
   return {
     ...bom,
