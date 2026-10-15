@@ -8,7 +8,7 @@
 - **فایل‌ها:** `lib/payroll/{remittance,advances,year-end-post,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `accounting-access.js`, `scripts/test-payroll-wave2-v408.js`, CHANGE-LOG.
 - **مراجع:** skill-top Wave2؛ tap-erp-architecture؛ R13 Edit⇒Cancel؛ الگوی ERPNext Payroll Entry remittance.
 - **تست:** `test-payroll-wave2-v408` + `test-payroll-accounting` + `test-sms` / `test-sync` (ایران؛ local better-sqlite3 ABI skip).
-- **Deploy:** ⏳ pending — SW `erp-taranom-v408`؛ `app.js?v=408`.
+- **Deploy:** ✅ `5919b20` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v408`؛ `app.js?v=408`؛ تست ایران wave2 ۳۲/۰ + accounting + sms ۲۲/۰؛ health=200 + sharp.
 
 ### ۱۴۰۵/۰۷/۲۳ — پاک‌سازی کامل تولید: BOM + سفارش + لایه‌چینی (heal v407)
 
