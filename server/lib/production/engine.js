@@ -13,7 +13,14 @@ const {
   recalcAvgOnReturn, setting, getWhQty,
 } = require('./costing');
 const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
-const { sumLabor, autoPostLabor } = require('./labor');
+const {
+  sumLabor,
+  autoPostLabor,
+  absorbLaborJournal,
+  retirePersonLaborForEntries,
+  formatLaborJeDescription,
+  productLabelForOrder,
+} = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
 const {
   assertFabricIssueAllowed,
@@ -708,49 +715,47 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       laborRial = laborPostedNow;
     }
     if (laborRial && laborPostedNow) {
-      const je2 = postEvent(db, {
-        event: 'PRD-03',
-        sourceId: orderId,
+      const freshLabs = db.prepare(`
+        SELECT * FROM production_labor_entries
+        WHERE order_id=? AND status='posted' AND je_id IS NULL
+      `).all(orderId);
+      const { productCode, productName } = productLabelForOrder(db, po);
+      const laborJes = absorbLaborJournal(db, {
+        orderId,
         date,
-        description: `جذب دستمزد — ${po.order_no}`,
-        createdBy: userId,
-        lines: [
-          dr(db, 'coa_wip', laborRial, po.coa_wip_tafsili),
-          cr(db, 'coa_labor_control', laborRial),
-        ],
+        userId,
+        costCenterId: po.cost_center_id || null,
+        wipTafsili: po.coa_wip_tafsili,
+        entries: freshLabs,
+        descriptionFallback: formatLaborJeDescription({
+          orderNo: po.order_no, productCode, productName, qty: qtyStarted, amountRial: laborRial,
+        }),
+        postEvent, dr, cr,
       });
-      if (je2) {
-        jes.push(je2);
-        db.prepare(`
-          UPDATE production_labor_entries SET je_id=? WHERE order_id=? AND je_id IS NULL
-        `).run(je2.je_id, orderId);
-      }
+      for (const j of laborJes) jes.push(j);
     } else if (laborRial && !laborPostedNow) {
       // Already recorded earlier — include in WIP totals but don't re-post JE
       // Detect if any labor without je → post once
-      const unposted = db.prepare(`
-        SELECT COALESCE(SUM(amount_rial),0) s FROM production_labor_entries
+      const freshLabs = db.prepare(`
+        SELECT * FROM production_labor_entries
         WHERE order_id=? AND status='posted' AND je_id IS NULL
-      `).get(orderId);
-      const unpaid = Math.round(Number(unposted?.s) || 0);
+      `).all(orderId);
+      const unpaid = freshLabs.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
       if (unpaid > 0) {
-        const je2 = postEvent(db, {
-          event: 'PRD-03',
-          sourceId: orderId,
+        const { productCode, productName } = productLabelForOrder(db, po);
+        const laborJes = absorbLaborJournal(db, {
+          orderId,
           date,
-          description: `جذب دستمزد — ${po.order_no}`,
-          createdBy: userId,
-          lines: [
-            dr(db, 'coa_wip', unpaid, po.coa_wip_tafsili),
-            cr(db, 'coa_labor_control', unpaid),
-          ],
+          userId,
+          costCenterId: po.cost_center_id || null,
+          wipTafsili: po.coa_wip_tafsili,
+          entries: freshLabs,
+          descriptionFallback: formatLaborJeDescription({
+            orderNo: po.order_no, productCode, productName, qty: qtyStarted, amountRial: unpaid,
+          }),
+          postEvent, dr, cr,
         });
-        if (je2) {
-          jes.push(je2);
-          db.prepare(`
-            UPDATE production_labor_entries SET je_id=? WHERE order_id=? AND je_id IS NULL
-          `).run(je2.je_id, orderId);
-        }
+        for (const j of laborJes) jes.push(j);
         laborRial = unpaid; // only new portion for this receipt's WIP increment
       } else {
         laborRial = 0; // already in order totals from prior receipt
@@ -1272,6 +1277,7 @@ function reverseOrder(db, orderId, userId, reason = '') {
     for (const l of labs) {
       db.prepare(`UPDATE production_labor_entries SET status='reversed' WHERE id=?`).run(l.id);
     }
+    retirePersonLaborForEntries(db, labs);
 
     db.prepare(`
       UPDATE production_orders SET
@@ -1737,19 +1743,24 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       });
     }
     if (laborRial) {
-      const je2 = postEvent(db, {
-        event: 'PRD-03', sourceId: orderId, date,
-        description: `جذب دستمزد — ${po.order_no}`, createdBy: userId,
-        lines: [
-          dr(db, 'coa_wip', laborRial, po.coa_wip_tafsili),
-          cr(db, 'coa_labor_control', laborRial),
-        ],
+      const freshLabs = db.prepare(`
+        SELECT * FROM production_labor_entries
+        WHERE order_id=? AND status='posted' AND je_id IS NULL
+      `).all(orderId);
+      const { productCode, productName } = productLabelForOrder(db, po);
+      const laborJes = absorbLaborJournal(db, {
+        orderId,
+        date,
+        userId,
+        costCenterId: po.cost_center_id || null,
+        wipTafsili: po.coa_wip_tafsili,
+        entries: freshLabs,
+        descriptionFallback: formatLaborJeDescription({
+          orderNo: po.order_no, productCode, productName, qty: qtyStarted, amountRial: laborRial,
+        }),
+        postEvent, dr, cr,
       });
-      if (je2) {
-        jes.push(je2);
-        db.prepare(`UPDATE production_labor_entries SET je_id=? WHERE order_id=? AND je_id IS NULL`)
-          .run(je2.je_id, orderId);
-      }
+      for (const j of laborJes) jes.push(j);
     }
 
     // R7: variable OH uses actual material (material + packaging)

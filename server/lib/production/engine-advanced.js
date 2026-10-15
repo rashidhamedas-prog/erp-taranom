@@ -15,7 +15,14 @@ const {
   getOverheadRate, coerceDriver, appliedOverheadRial,
   bumpRateApplied, reverseAppliedOverheadCounters,
 } = require('./overhead');
-const { postLabor } = require('./labor');
+const {
+  postLabor,
+  absorbLaborJournal,
+  formatLaborJeDescription,
+  loadPersonForLabor,
+  productLabelForOrder,
+  retirePersonLaborForEntries,
+} = require('./labor');
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
 const {
   assertFabricIssueAllowed,
@@ -594,7 +601,21 @@ function postStageCore(db, {
   const laborRial = stageLabor(db, op || {}, qtyIn, period);
   let laborMethod = op?.labor_method || 'piece';
   if (laborRial) {
-    postLabor(db, {
+    const person = loadPersonForLabor(db, op?.person_id);
+    const { productCode, productName } = productLabelForOrder(db, po);
+    const opName = op?.operation_name || op?.name || `مرحله ${stage.seq}`;
+    const laborNote = formatLaborJeDescription({
+      orderNo: po.order_no,
+      productCode,
+      productName,
+      opName,
+      stageSeq: stage.seq,
+      qty: qtyIn,
+      method: laborMethod,
+      personName: person?.name,
+      amountRial: laborRial,
+    });
+    const laborRow = postLabor(db, {
       orderId: po.id,
       stageId: stage.id,
       costCenterId: stage.cost_center_id,
@@ -610,27 +631,22 @@ function postStageCore(db, {
           `).get(stage.cost_center_id, period)?.monthly_labor_rate_rial))
         : Math.round(num(op?.labor_rate_rial)),
       date, period, userId,
-      note: `دستمزد مرحله ${stage.seq}`,
+      note: laborNote,
     });
-    const je2 = postEvent(db, {
-      event: 'PRD-03',
-      sourceId: orderId,
+    const laborEntry = db.prepare('SELECT * FROM production_labor_entries WHERE id=?').get(laborRow.id);
+    const laborJes = absorbLaborJournal(db, {
+      orderId,
       date,
-      description: `جذب دستمزد مرحله ${stage.seq} — ${po.order_no}`,
-      createdBy: userId,
+      userId,
       costCenterId: stage.cost_center_id || po.cost_center_id || null,
-      lines: [
-        dr(db, 'coa_wip', laborRial, po.coa_wip_tafsili),
-        cr(db, 'coa_labor_control', laborRial),
-      ],
+      wipTafsili: po.coa_wip_tafsili,
+      entries: [laborEntry],
+      descriptionFallback: laborNote,
+      postEvent,
+      dr,
+      cr,
     });
-    if (je2) {
-      jes.push(je2);
-      db.prepare(`
-        UPDATE production_labor_entries SET je_id=?
-        WHERE order_id=? AND stage_id=? AND je_id IS NULL
-      `).run(je2.je_id, orderId, stageId);
-    }
+    for (const j of laborJes) jes.push(j);
   }
 
   const ohDriverMat = mode === 'variable' ? matRial + pkgRial : matRial + pkgRial;
@@ -1442,6 +1458,7 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
         db.prepare(`UPDATE production_labor_entries SET status='reversed' WHERE id=?`).run(l.id);
       }
     }
+    retirePersonLaborForEntries(db, labs);
 
     const issued = sumStageIssued(db, stageId);
     const matAdded = Math.round(num(stage.material_added_rial));

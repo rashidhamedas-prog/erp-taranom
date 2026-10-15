@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — BOM دستمزد عملیات → حساب شخص + شرح سند (SW v419)
+- **مشکل:** در مسیر BOM فیلد شخص و نرخ دستمزد ذخیره می‌شد و `production_labor_entries.person_id` پر می‌شد، ولی سند PRD-03 همیشه `Dr WIP / Cr 5201` می‌زد؛ حساب شخص بستانکار نمی‌شد و شرح سند فقط «جذب دستمزد — شماره سفارش» بود.
+- **رفع:** `absorbLaborJournal` — اگر `person_id` باشد: `Cr` برگ حساب شخص (`resolvePersonPayableAccount`) + ردیف `person_ledger` با `ref_type=production_labor`؛ بدون شخص همان `5201`. شرح کوتاه: عملیات — محصول — تعداد — روش — شخص — سفارش — مبلغ. ابطال مرحله/سفارش `person_ledger` را retire می‌کند (R13).
+- **UI/Help:** برچسب «شخص (بستانکار دستمزد)» + راهنمای مسیر/سفارش پیشرفته؛ SW `erp-taranom-v419`.
+- **فایل‌ها:** `lib/production/{labor,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html}`, `docs/Production/accounting-events.md`, `scripts/test-bom-labor-person-je-v419.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ ERPNext Piecework/Job Card (qty×rate → payable)؛ Odoo MO labor cost vs payroll جدا؛ tap-erp-architecture؛ ultra-debug.
+- **Non-goals:** اتصال به فیش حقوق ماهانه (PRD-04)؛ تغییر سرفصل‌های COA پایه؛ اجباری کردن شخص روی همهٔ عملیات.
+- **تست:** محلی static v419 ۱۵/۰ + parse `app.js`؛ DB روی ایران (sqlite ABI محلی Node24 ندارد)؛ `test-sms` + در صورت امکان `test-sync`.
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی: تخصیص اقلام/عملیات + JE هم‌محصول (SW v418)
 - **هدف:** وقتی بیش از یک محصول در BOM است، هر قلم مواد و هر عملیات مشخص کند «مشترک» است یا «اختصاصی» یک محصول؛ UI سرفصل/تب‌ها متناسب با N محصول تغییر کند؛ حواله فقط اقلام مرتبط با محصول سفارش را بردارد؛ بهای تمام‌شده و رسید نهایی WIP را با exclusive + درصد خروجی‌ها بین main/co تسهیم و برای هر هم‌محصول رسید FG + PRD-07 بزند.
 - **مدل:** `bom_lines` / `bom_operations`: `product_scope` (`shared`|`exclusive`) + `scoped_product_id` (جدا از `allocation_mode` سهم بین عملیات). `getBom` → `fg_products` / `is_multiproduct`. `explodeBom({forProductId})` فیلتر exclusive. `rollUpBom` و `finalizeAdvancedOrder` تسهیم اختصاصی+مشترک.
