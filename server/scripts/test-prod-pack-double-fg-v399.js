@@ -199,14 +199,14 @@ try {
   console.log('v399 — matrix: linked pack leaves variant.stock untouched');
   const fg4 = makeFg('ماتریس V399');
   const colorId = db.prepare(`
-    INSERT INTO product_colors (product_id,name,code,active) VALUES (?,'مشکی','BLK',1)
-  `).run(fg4).lastInsertRowid;
+    INSERT INTO product_colors (code, name) VALUES ('V399-BLK','مشکی')
+  `).run().lastInsertRowid;
   const sizeId = db.prepare(`
-    INSERT INTO product_sizes (product_id,name,code,active) VALUES (?,'38','38',1)
-  `).run(fg4).lastInsertRowid;
+    INSERT INTO product_sizes (code, name) VALUES ('V399-38','38')
+  `).run().lastInsertRowid;
   const vid = db.prepare(`
-    INSERT INTO product_variants (product_id,color_id,size_id,sku,barcode,stock,active)
-    VALUES (?,?,?,'V399-38','V399-38',0,1)
+    INSERT INTO product_variants (product_id,color_id,size_id,sku,stock,active)
+    VALUES (?,?,?,'V399-38',0,1)
   `).run(fg4, colorId, sizeId).lastInsertRowid;
   const bom4 = makeBom(fg4, 'V399-BOM-4');
   const po4 = makeOrder(fg4, bom4.bomId, 'PD-V399-4');
