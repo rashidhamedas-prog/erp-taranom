@@ -125,31 +125,40 @@ const PRODUCTION_ACCOUNTS = [
  * Swap to partial unique indexes; tombstone any deleted row still colliding with live keys.
  */
 function ensureBomLiveUniqueIndexes(db) {
-  // Free keys held by soft-deleted / obsolete rows under the old full unique index.
+  // 1) Drop legacy FULL unique indexes first — otherwise tombstone UPDATEs crash boot.
+  try { db.exec('DROP INDEX IF EXISTS ux_bom_prod_ver'); } catch (_) { /* ignore */ }
+  try { db.exec('DROP INDEX IF EXISTS ux_bom_code'); } catch (_) { /* ignore */ }
+
+  // 2) Free keys held by soft-deleted / obsolete rows (safe without full unique index).
   const dead = db.prepare(`
-    SELECT id, code, version, revision FROM bom_headers
+    SELECT id, code, version, revision, deleted_at FROM bom_headers
     WHERE deleted_at IS NOT NULL OR status = 'obsolete'
   `).all();
   const bump = db.prepare(`
     UPDATE bom_headers
-    SET version = ?, revision = 'DEL', code = ?
-    WHERE id = ? AND (deleted_at IS NOT NULL OR status = 'obsolete')
+    SET version = ?, revision = 'DEL', code = ?,
+        deleted_at = COALESCE(deleted_at, strftime('%s','now'))
+    WHERE id = ?
   `);
   for (const b of dead) {
     const tombVer = 1_000_000 + Number(b.id);
-    const tombCode = String(b.code || 'BOM').includes('__del')
-      ? String(b.code)
-      : `${b.code || 'BOM'}__del${b.id}`;
-    if (Number(b.version) >= 1000000 && String(b.revision) === 'DEL' && String(b.code).includes('__del')) continue;
+    const base = String(b.code || 'BOM');
+    const tombCode = base.includes('__del') ? `${base}` : `${base}__del${b.id}`;
+    if (Number(b.version) >= 1000000 && String(b.revision) === 'DEL' && String(b.code).includes('__del') && b.deleted_at) {
+      continue;
+    }
     try {
       bump.run(tombVer, tombCode, b.id);
-    } catch (_) {
-      bump.run(tombVer + Number(b.id), `${tombCode}_${b.id}`, b.id);
+    } catch (e1) {
+      try {
+        bump.run(tombVer + 900000 + Number(b.id), `${tombCode}_x${b.id}`, b.id);
+      } catch (e2) {
+        console.warn('[prod-schema] bom tombstone skip id=', b.id, e2.message);
+      }
     }
   }
 
-  try { db.exec('DROP INDEX IF EXISTS ux_bom_prod_ver'); } catch (_) { /* ignore */ }
-  try { db.exec('DROP INDEX IF EXISTS ux_bom_code'); } catch (_) { /* ignore */ }
+  // 3) Live-only unique indexes
   try {
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS ux_bom_prod_ver_live
