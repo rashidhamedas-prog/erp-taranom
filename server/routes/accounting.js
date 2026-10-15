@@ -2633,8 +2633,101 @@ router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
     .run(name, code || '', active ? 1 : 0, entity ?? '', parentId, req.params.id);
   res.json({ ok: true });
 });
+/** Whitelisted FK probes for cost-center delete (table, column, Persian label). */
+const COST_CENTER_REF_SPECS = [
+  ['warehouses', 'cost_center_id', 'انبار'],
+  ['journal_lines', 'cost_center_id', 'سطر دفترکل'],
+  ['journal_entries', 'cost_center_id', 'سند حسابداری'],
+  ['invoices', 'cost_center_id', 'فاکتور فروش'],
+  ['purchase_invoices', 'cost_center_id', 'فاکتور خرید'],
+  ['settlements', 'cost_center_id', 'تسویه'],
+  ['cheque_records', 'cost_center_id', 'چک'],
+  ['payroll_records', 'cost_center_id', 'حقوق'],
+  ['bom_operations', 'cost_center_id', 'عملیات BOM'],
+  ['bom_lines', 'stage_cost_center_id', 'مواد BOM'],
+  ['bom_outputs', 'stage_cost_center_id', 'خروجی BOM'],
+  ['cost_center_rates', 'cost_center_id', 'نرخ سربار'],
+  ['cost_center_account_maps', 'cost_center_id', 'نگاشت معین'],
+  ['user_cost_centers', 'cost_center_id', 'دسترسی کاربر'],
+  ['production_orders', 'cost_center_id', 'سفارش تولید'],
+  ['production_order_stages', 'cost_center_id', 'مرحله تولید'],
+  ['production_material_issues', 'cost_center_id', 'حواله مواد'],
+  ['production_waste', 'cost_center_id', 'ضایعات'],
+];
+
+const COST_CENTER_SEED_CODES = new Set(['CC-WORKSHOP', 'CC-DISTRIBUTION']);
+
+function costCenterHasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch (_) {
+    return false;
+  }
+}
+
+function costCenterRefReasons(db, id) {
+  const reasons = [];
+  for (const [table, col, label] of COST_CENTER_REF_SPECS) {
+    if (!costCenterHasColumn(db, table, col)) continue;
+    try {
+      const n = db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE ${col}=?`).get(id).c || 0;
+      if (n > 0) reasons.push(label);
+    } catch (_) { /* table missing / migration mid-flight */ }
+  }
+  return reasons;
+}
+
+function deactivateCostCenter(db, req, row, reasons) {
+  db.prepare('UPDATE cost_centers SET active=0 WHERE id=?').run(row.id);
+  const why = reasons.length ? reasons.join('، ') : 'سیستمی';
+  audit(req.user.id, 'update', 'cost_center', row.id,
+    `غیرفعال‌سازی مرکز هزینه ${row.name} (${why})`);
+  return {
+    ok: true,
+    deactivated: true,
+    reason: reasons[0] || 'سیستمی',
+    message: 'مرکز هزینه ارجاع دارد و غیرفعال شد (حذف فیزیکی نشد)',
+  };
+}
+
 router.delete('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
-  getDB().prepare('DELETE FROM cost_centers WHERE id=?').run(req.params.id);
+  const db = getDB();
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'شناسه نامعتبر است' });
+  const row = db.prepare('SELECT * FROM cost_centers WHERE id=?').get(id);
+  if (!row) return res.status(404).json({ error: 'مرکز هزینه یافت نشد' });
+
+  const childCount = db.prepare('SELECT COUNT(*) c FROM cost_centers WHERE parent_id=?').get(id).c || 0;
+  if (childCount > 0) {
+    return res.status(400).json({
+      error: `این مرکز هزینه ${childCount} زیرمجموعه دارد — ابتدا زیرمجموعه‌ها را حذف یا به والد دیگر منتقل کنید`,
+    });
+  }
+
+  const reasons = costCenterRefReasons(db, id);
+  const isSeed = COST_CENTER_SEED_CODES.has(String(row.code || '').toUpperCase());
+
+  if (reasons.length || isSeed) {
+    if (Number(row.active) === 0) {
+      return res.status(400).json({
+        error: isSeed
+          ? 'مراکز سیستمی کارگاه/توزیع قابل حذف نیستند — از قبل غیرفعال‌اند'
+          : `این مرکز هزینه در ${reasons.slice(0, 3).join('، ')} استفاده شده و از قبل غیرفعال است`,
+      });
+    }
+    return res.json(deactivateCostCenter(db, req, row, reasons.length ? reasons : ['سیستمی']));
+  }
+
+  try {
+    db.prepare('DELETE FROM cost_centers WHERE id=?').run(id);
+  } catch (e) {
+    const msg = String(e && e.message || '');
+    if (msg.includes('FOREIGN KEY') || e.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+      return res.json(deactivateCostCenter(db, req, row, ['ارجاع پایگاه‌داده']));
+    }
+    throw e;
+  }
+  audit(req.user.id, 'delete', 'cost_center', id, `حذف مرکز هزینه ${row.name}`);
   res.json({ ok: true });
 });
 

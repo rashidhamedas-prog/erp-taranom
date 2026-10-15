@@ -1,4 +1,16 @@
+### ۱۴۰۵/۰۷/۲۳ — حذف مرکز هزینه بدون خطای ۵۰۰ (SW v398)
+
+- **علائم:** در «حسابداری → مراکز هزینه» کلیک 🗑️ پیام «خطای داخلی سرور» می‌داد (HTTP 500).
+- **ریشه:** `DELETE /accounting/cost-centers/:id` حذف فیزیکی خام بود؛ FK تولید/انبار/`user_cost_centers` و غیره → `SQLITE_CONSTRAINT` بدون catch → ۵۰۰.
+- **Invariant (TAP MDM):** مرکز هزینه‌ای که ارجاع دارد hard-delete نمی‌شود؛ یا بلاک با پیام فارسی (زیرمجموعه) یا `active=0`. مراکز سیستمی `CC-WORKSHOP` / `CC-DISTRIBUTION` هرگز حذف فیزیکی نمی‌شوند.
+- **رفع:** بررسی فرزند + ارجاعات whitelisted؛ ارجاع‌دار → غیرفعال؛ آزاد → DELETE؛ safety-net FK → deactivate. UI toast تمایز حذف/غیرفعال؛ Help.
+- **فایل‌ها:** `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cost-center-delete-v398.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی انبار/بانک.
+- **تست:** (در حال اجرا)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — آموزش کامل RTL بخش تولید (فایل ورود HTML)
+
 
 - **هدف:** یک فایل ورود راست‌چین با زبان خیلی ساده برای آموزش کامل ماژول تولید (فرمول، سفارش، لایه‌چینی، PACK، کانبان، بها، بستن دوره، نقش‌ها، اشتباهات رایج).
 - **فایل:** `docs/Production/آموزش-کامل-بخش-تولید.html` — خودکفا، قابل چاپ/PDF، فهرست چسبان.
