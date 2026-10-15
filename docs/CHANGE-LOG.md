@@ -18,7 +18,7 @@
 - **تست:** `test-store-quick-exchange-v411` + parse `app.js` + `test-sms` / `test-sync` (در صورت در دسترس بودن).
 - **Deploy:** ⏳ در حال انجام.
 
-### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v412)
+### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v413)
 
 - **هدف:** تکمیل Non-goals موج ۳ — وام با اقساط، UI بازخرید مرخصی، خروجی بیمه ساختاریافته‌تر (بدون دیسکت رسمی / بیومتریک / طبقه‌بندی مشاغل).
 - **وام:** `lib/payroll/loans.js` — جدول `payroll_loans` + `payroll_loan_installments`؛ JE صدور مثل مساعده Dr ۱۱۱۹؛ کسر قسط سررسید در `/process` و `/calculate` با `auto_recover_loan`؛ R13 ابطال فیش اقساط را برمی‌گرداند.
@@ -26,7 +26,7 @@
 - **خروجی:** لیست بیمه DRAFT با روز کارکرد، معافیت بیمه، تفکیک ۷٪/۲۰٪/۳٪.
 - **UI:** مساعده و وام در یک صفحه؛ فیلد قسط وام در پردازش؛ Help.
 - **سینک:** append loans/installments + PATH + `sync_seq_backfill_v24`.
-- **فایل‌ها:** `lib/payroll/{loans,export-legal,schema,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-payroll-wave4-v412.js`, CHANGE-LOG.
+- **فایل‌ها:** `lib/payroll/{loans,export-legal,schema,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave4-v412.js`, CHANGE-LOG.
 - **Non-goals (بعدی):** دیسکت رسمی SSO، طبقه‌بندی مشاغل، حضور بیومتریک، بهره وام.
 - **تست:** `test-payroll-wave4-v412` + wave3 + sms؛ parse app.js.
 - **Deploy:** ⏳ در حال انجام.
