@@ -6,8 +6,8 @@
 - **UI:** نوار پیشرفت مراحل BOM روی داشبورد؛ مرحله ۴ = `stagesProgressed` (حداقل یک `done`)؛ کپی مسیر برش vs مراحل؛ Help + پیام‌های خطای فارسی.
 - **فایل‌ها:** `lib/production/{engine,engine-advanced}.js`, `public/{app.js,prod-journey-gate.js,prod-ui.css,sw.js,index.html}`, `scripts/test-prod-{journey-gate-v382,stage-gates-v409}.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ tap-erp-architecture؛ ERPNext Job Card / Manufacture SE؛ ultra-debug diagnosis.
-- **تست:** `test-prod-stage-gates-v409` + `test-prod-journey-gate-v382` + `test-sms` / `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-prod-stage-gates-v409` ۶/۰ + `test-prod-journey-gate-v382` ۱۰/۰ + `test-sms` ۲۲/۰؛ `test-sync` روی ایران harness pairing flake (توکن) — خارج از دامنه این تسک؛ local better-sqlite3 ABI skip.
+- **Deploy:** ✅ `fd1af87` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v409`؛ `app.js?v=409`؛ `prod-journey-gate.js?v=409`؛ ready=200 + sharp.
 
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۲: پرداخت بیمه/مالیات + مساعده + آزادسازی ذخیره (SW v408)
 
