@@ -8,8 +8,8 @@
 - **سینک:** append loans/installments + PATH + `sync_seq_backfill_v24`.
 - **فایل‌ها:** `lib/payroll/{loans,export-legal,schema,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave4-v412.js`, CHANGE-LOG.
 - **Non-goals (بعدی):** دیسکت رسمی SSO، طبقه‌بندی مشاغل، حضور بیومتریک، بهره وام.
-- **تست:** `test-payroll-wave4-v412` ۹/۰ + wave3 ۱۷/۰ + sms ۲۲/۰؛ parse app.js OK. `test-sync` محلی better-sqlite3 ABI skip.
-- **Deploy:** ⏳ در حال انجام.
+- **تست:** ایران `test-payroll-wave4-v412` ۹/۰ + wave3 ۱۷/۰ + sms ۲۲/۰؛ ready=200 + sharp؛ parse app.js OK. `test-sync` محلی better-sqlite3 ABI skip.
+- **Deploy:** ✅ `68601bb` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v414`؛ `app.js?v=414`.
 
 ### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: تخصیص اعتبار روی فاکتور جایگزین (SW v413)
 
