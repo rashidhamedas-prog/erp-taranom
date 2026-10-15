@@ -898,14 +898,29 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
     });
     const advBalance = personAdvanceBalance(db, personId);
     let advRequest = Math.round(Number(req.body.advance_recovery_rial) || 0);
-    if (!advRequest && Number(req.body.auto_recover_advance) === 1) advRequest = advBalance;
+    const autoAdv = req.body.auto_recover_advance == null
+      ? false
+      : Number(req.body.auto_recover_advance) === 1;
+    if (!advRequest && autoAdv) advRequest = advBalance;
     advRequest = Math.min(Math.max(0, advRequest), advBalance);
     const loanDue = dueInstallmentRial(db, personId, context.period.label);
     const loanBalance = personLoanBalance(db, personId);
     let loanRequest = Math.round(Number(req.body.loan_recovery_rial) || 0);
-    if (!loanRequest && Number(req.body.auto_recover_loan) === 1) loanRequest = loanDue;
+    // Default ON: installment loans auto-recover unless explicitly disabled
+    const autoLoan = req.body.auto_recover_loan == null
+      ? true
+      : Number(req.body.auto_recover_loan) === 1;
+    if (!loanRequest && autoLoan) loanRequest = loanDue;
     loanRequest = Math.min(Math.max(0, loanRequest), loanDue, loanBalance);
     const otherOnly = Math.round(Number(req.body.other_deductions_rial) || 0);
+    // Cap recoveries so net does not go negative (esp. manual_exempt)
+    if (manual) {
+      const grossCap = Math.max(0, Math.round(Number(req.body.gross_earnings_rial) || 0) - otherOnly);
+      let room = grossCap;
+      advRequest = Math.min(advRequest, room);
+      room -= advRequest;
+      loanRequest = Math.min(loanRequest, room);
+    }
     const inputForCalc = { ...req.body, other_deductions_rial: otherOnly + advRequest + loanRequest };
     if (manual) {
       const built = buildManualExemptCalc(inputForCalc);
@@ -974,18 +989,31 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       });
       const advBalance = personAdvanceBalance(db, personId);
       let advRequest = Math.round(Number(input.advance_recovery_rial) || 0);
-      if (!advRequest && Number(input.auto_recover_advance) === 1) {
+      const autoAdv = input.auto_recover_advance == null
+        ? false
+        : Number(input.auto_recover_advance) === 1;
+      if (!advRequest && autoAdv) {
         advRequest = advBalance;
       }
       advRequest = Math.min(Math.max(0, advRequest), advBalance);
       const loanDue = dueInstallmentRial(db, personId, context.period.label);
       const loanBalance = personLoanBalance(db, personId);
       let loanRequest = Math.round(Number(input.loan_recovery_rial) || 0);
-      if (!loanRequest && Number(input.auto_recover_loan) === 1) {
+      const autoLoan = input.auto_recover_loan == null
+        ? true
+        : Number(input.auto_recover_loan) === 1;
+      if (!loanRequest && autoLoan) {
         loanRequest = loanDue;
       }
       loanRequest = Math.min(Math.max(0, loanRequest), loanDue, loanBalance);
       const otherOnly = Math.round(Number(input.other_deductions_rial) || 0);
+      if (manual) {
+        const grossCap = Math.max(0, Math.round(Number(input.gross_earnings_rial) || 0) - otherOnly);
+        let room = grossCap;
+        advRequest = Math.min(advRequest, room);
+        room -= advRequest;
+        loanRequest = Math.min(loanRequest, room);
+      }
       const inputForCalc = {
         ...input,
         other_deductions_rial: otherOnly + advRequest + loanRequest,
@@ -1088,10 +1116,11 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         );
       } catch (_) { /* columns may be mid-migrate */ }
       const payable = resolvePersonPayableAccount(db, person);
-      const advAlloc = (!exemptMeta && advRequest > 0)
+      // Loan/advance recovery applies to BOTH labor and manual_exempt (SSO/tax stay zero on exempt)
+      const advAlloc = advRequest > 0
         ? allocateAdvanceRecovery(db, personId, advRequest)
         : { allocated_rial: 0, legs: [] };
-      const loanAlloc = (!exemptMeta && loanRequest > 0)
+      const loanAlloc = loanRequest > 0
         ? allocateLoanRecovery(db, personId, context.period.label, loanRequest)
         : { allocated_rial: 0, legs: [] };
       const recover1119 = (advAlloc.allocated_rial || 0) + (loanAlloc.allocated_rial || 0);
@@ -1126,9 +1155,9 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       }
       const journalId = postToLedger(db, {
         sourceType: 'payroll', sourceId: recordId, date: input.date || context.period.end_date,
-        description: exemptMeta
+        description: (exemptMeta
           ? `پرداخت بدون بیمه و مالیات (${exemptMeta.reason_label}) ${person.name} (${context.period.label})`
-          : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`
+          : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`)
             + (advAlloc.allocated_rial ? ` + تسویه مساعده ${advAlloc.allocated_rial.toLocaleString('fa-IR')}` : '')
             + (loanAlloc.allocated_rial ? ` + قسط وام ${loanAlloc.allocated_rial.toLocaleString('fa-IR')}` : ''),
         createdBy: req.user.id,

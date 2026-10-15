@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۵: کسر خودکار وام/مساعده در مسیر بدون بیمه و مالیات (SW v415)
+
+- **مشکل:** در `manual_exempt` مبلغ قسط فقط داخل «سایر کسورات» می‌رفت؛ `allocateLoanRecovery` / `applyLoanRecoveries` با شرط `!exemptMeta` اجرا نمی‌شد → اقساط paid نمی‌شدند و JE به‌جای Cr ۱۱۱۹ به ۲۱۰۸ می‌رفت.
+- **رفع:** کسر وام و مساعده برای هر دو مسیر labor و exempt؛ پیش‌فرض `auto_recover_loan=on`؛ سقف کسر تا خالص صفر؛ UI دستی با فیلد قسط/مساعده + پیش‌نمایش.
+- **الگو:** ERPNext/Frappe HR «Repay from Salary» روی salary slip مستقل از نوع بیمه.
+- **فایل‌ها:** `routes/payroll.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave5-exempt-loan-v415.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ Frappe HR Loan repay-from-salary.
+- **Non-goals:** بهره وام؛ دیسکت SSO؛ تغییر فرمول بیمه قانون‌کار.
+- **تست:** `test-payroll-wave5-exempt-loan-v415` + wave4 + sms؛ parse app.js.
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v414)
 
 - **هدف:** تکمیل Non-goals موج ۳ — وام با اقساط، UI بازخرید مرخصی، خروجی بیمه ساختاریافته‌تر (بدون دیسکت رسمی / بیومتریک / طبقه‌بندی مشاغل).
