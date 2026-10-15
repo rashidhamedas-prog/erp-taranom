@@ -4865,6 +4865,14 @@ function invBadgeHtml(type, approved){
   if(type === 'final') return `<span class="inv-badge final">📄 رسمی${approved?' <span class="inv-badge moadian-approved">✓ مودیان</span>':' <span class="inv-badge moadian-pending">⏳ صف ارسال</span>'}</span>`;
   return `<span class="inv-badge">${esc(type||'')}</span>`;
 }
+/** Newest invoice date first (relative to today); same date → higher id. Jalali YYYY/MM/DD lexicographic. */
+function sortInvoicesByIssueDateDesc(rows){
+  return (rows||[]).slice().sort((a,b)=>{
+    const d=String(b.date||'').localeCompare(String(a.date||''));
+    if(d) return d;
+    return (Number(b.id)||0)-(Number(a.id)||0);
+  });
+}
 
 function setInvChipActive(targetEl){
   document.querySelectorAll('.inv-chip-tabs .inv-chip').forEach(c=>c.classList.remove('active'));
@@ -4941,6 +4949,7 @@ function renderInvTable(){
   const q=invFilter.q.toLowerCase();
   if(q)rows=rows.filter(i=>textMatchesQuery((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||'')+' '+(i.seller_name||''), q));
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
+  rows=sortInvoicesByIssueDateDesc(rows);
   const isAdmin=ME.role==='admin';
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی',bank:'واریز بانکی',pos_card:'کارتخوان',mixed:'چندمرحله‌ای'};
@@ -4951,7 +4960,7 @@ function renderInvTable(){
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
     <td><b>${esc(i.cust_biz||'-')}</b>${i.cust_owner?`<br><span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">👤 ${esc(i.cust_owner)}</span>`:''}</td>
     <td>${invBadgeHtml(i.type, i.approved)}</td>
-    <td class="mono">${escDate(i.date)}</td>
+    <td class="mono" data-sort="${esc(i.date||'')}">${escDate(i.date)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
     <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
@@ -11430,7 +11439,7 @@ async function renderSalesInvoicesTab(body, typeLock){
   CACHE.invoices=await api('GET','/invoices'+qType)||[];
   _invoicesFetched=true;
   const filterType = lock || (el('accInvTypeFilter')?.value || '');
-  const rows=CACHE.invoices.filter(i=>{
+  const rows=sortInvoicesByIssueDateDesc(CACHE.invoices.filter(i=>{
     if(i.deleted_at) return false;
     if(String(i.status||'')==='reversed') return false;
     if(lock && i.type!==lock) return false;
@@ -11438,7 +11447,7 @@ async function renderSalesInvoicesTab(body, typeLock){
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
-  }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  }));
   const typeLabel={proforma:'پیش‌فاکتور',normal:'فاکتور معمولی',final:'فاکتور رسمی'};
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی',bank:'واریز بانکی',pos_card:'کارتخوان',mixed:'چندمرحله‌ای'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
@@ -11461,7 +11470,7 @@ async function renderSalesInvoicesTab(body, typeLock){
       <td>${refDocCell(i.ref_doc_no,i.ref_doc_type)}</td>
       <td><b>${esc(i.cust_biz||'-')}</b></td>
       <td>${invBadgeHtml(i.type, i.approved)}</td>
-      <td class="mono">${escDate(i.date)}</td>
+      <td class="mono" data-sort="${esc(i.date||'')}">${escDate(i.date)}</td>
       <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
       <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
@@ -23214,7 +23223,8 @@ async function renderCashOpsTab(body, dq){
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی',person:'👤 شخص',account:'📒 حساب'};
   const recvKindLabel={settlement:'👤 مشتری',person_receipt:'🧑 شخص',account_receipt:'📒 حساب'};
   const payLabel=p=>p==='cheque'?'🧾 چک':(p==='bank'||p==='bank_transfer')?'🏦 بانکی':'💵 نقد';
-  const voucherKinds=new Set(['person','account','person_receipt','account_receipt']);
+  // دریافت شخص/حساب هنوز amend درجا ندارند — فقط ابطال. پرداخت شخص/حساب ویرایش دارند.
+  const recvNoEdit=new Set(['person_receipt','account_receipt']);
   body.innerHTML=`
     ${(pendingRepPay||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px;border-color:#fde68a`)}">
       <div class="panel-head"><h4>⏳ دریافت‌های میدانی در انتظار تأیید (${pendingRepPay.length})</h4></div>
@@ -24103,7 +24113,13 @@ async function openCashDocEdit(kind, row){
     if(!CACHE.expenseCategories) CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
     if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   }
-  const titles={settlement:'اصلاح دریافت',supplier:'اصلاح پرداخت به تأمین‌کننده',incentive:'اصلاح پرداخت انگیزه',expense:'اصلاح پرداخت هزینه'};
+  if(kind==='person'){
+    await ensurePartiesCache();
+  }
+  const titles={
+    settlement:'اصلاح دریافت',supplier:'اصلاح پرداخت به تأمین‌کننده',incentive:'اصلاح پرداخت انگیزه',
+    expense:'اصلاح پرداخت هزینه',person:'اصلاح پرداخت به شخص',account:'اصلاح پرداخت به حساب'
+  };
   const pt=row.pay_type||'cash';
   openModal(`
     <div class="modal-head"><h3>✏️ ${titles[kind]||'اصلاح سند'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -24120,6 +24136,8 @@ async function openCashDocEdit(kind, row){
       ${kind==='incentive'?`<div class="fg full"><label>کارشناس *</label>${searchSelect('cde-rep', (reps||[]).map(r=>({
         id:r.id, label:r.name||'', meta:'', hay:r.name||''
       })), row.rep_id, {kind:'generic', placeholder:'جستجو: نام کارشناس...'})}</div>`:''}
+      ${kind==='person'?`<div class="fg full"><label>شخص *</label>${partySelect('cde-party', row.party_id||'')}</div>`:''}
+      ${kind==='account'?`${coaAcctHtml('cde','حساب مقصد (هر سطح فعال کدینگ). مبلغ روی خود همان کد می‌نشیند.',{any:true})}`:''}
       ${kind==='expense'?`<div class="fg"><label>دسته هزینه</label><select id="cde-category" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}">
           ${expenseCategoryOptionsHtml(row.category)}
         </select></div>
@@ -28816,6 +28834,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
         <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
         <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
+        <li><b>ترتیب لیست (v393):</b> صفحهٔ فاکتور و «فاکتورهای فروش» همیشه بر اساس <b>تاریخ صدور</b> نزولی نسبت به امروز مرتب می‌شوند (جدیدترین بالا). شماره فاکتور معیار سورت پیش‌فرض نیست؛ با تاریخ یکسان، شناسهٔ بالاتر بالاتر می‌آید.</li>
       </ul>
       <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
         <li>کادر جستجوی بالای تنظیمات فیلتر دسته‌هاست (فرم HTML نیست تا Enter صفحه را نشکند) و نباید با نام کاربری مرورگر پر شود. با تعویض تب، خودکار پاک می‌شود.</li>

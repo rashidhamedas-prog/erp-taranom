@@ -423,9 +423,10 @@ router.get('/', auth, (req, res) => {
     : 0;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(...typeArgs, ...pq.limitParams);
+    // Document date DESC (not created_at) — backdated nums must not float above today's issues.
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ${baseWhere} ORDER BY i.date DESC, i.id DESC${pq.limitSql}`).all(...typeArgs, ...pq.limitParams);
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(scope, ...typeArgs, ...pq.limitParams);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id ${baseWhere} ORDER BY i.date DESC, i.id DESC${pq.limitSql}`).all(scope, ...typeArgs, ...pq.limitParams);
   }
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
@@ -436,9 +437,9 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC').all();
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.date DESC, i.id DESC').all();
   } else {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC').all(scope);
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.date DESC, i.id DESC').all(scope);
   }
   const data = rows.map(r => ({
     'شماره': r.num || '',

@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — لیست فاکتورها همیشه بر اساس تاریخ صدور (SW v393)
+
+- **علائم:** در صفحهٔ فاکتور، T-0022 با تاریخ `1405/07/02` بالای لیست بود در حالی که فاکتورهای `07/20` و `07/21` پایین‌تر بودند (سورت ظاهراً بر اساس شماره/`created_at`).
+- **ریشه:** `GET /invoices` و لیست حسابداری با `ORDER BY created_at DESC` / `.sort(created_at)` کار می‌کردند؛ شمارهٔ بالاتر ≠ تاریخ نزدیک‌تر به امروز.
+- **رفع:** API و اکسل `ORDER BY i.date DESC, i.id DESC`؛ UI با `sortInvoicesByIssueDateDesc` در CRM و فاکتورهای فروش؛ `data-sort` روی ستون تاریخ؛ Help ادمین/فروش؛ SW v393.
+- **فایل‌ها:** `routes/invoices.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-invoice-list-date-sort-v393.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ERP.net/metasfresh Document Date DESC؛ explore call-site map؛ tap-erp-architecture.
+- **تست:** `test-invoice-list-date-sort-v393` + `test-sms` (پس از deploy).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — الزام مرکز هزینه فقط با مبلغ هزینهٔ پر (SW v392)
 
 - **علائم:** ویرایش فاکتور فروش با خطای «مرکز هزینه برای حساب هزینه ۵۱۰۱ الزامی است» در حالی که کاربر فیلد هزینه پر نکرده بود.
