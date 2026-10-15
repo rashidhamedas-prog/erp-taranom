@@ -272,6 +272,12 @@ function ensureExistingColumns(db) {
     replaces_doc_id INTEGER,
     replaced_by_doc_id INTEGER
   )`);
+  ensureColumn(db, 'warehouse_docs', 'receipt_class', "TEXT DEFAULT 'adjustment'");
+  ensureColumn(db, 'warehouse_docs', 'supplier_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_docs', 'purchase_invoice_id', 'INTEGER');
+  if (tableExists(db, 'purchase_invoices')) {
+    ensureColumn(db, 'purchase_invoices', 'warehouse_doc_id', 'INTEGER');
+  }
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
   catch (_) { /* ignore */ }
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_docs_status ON warehouse_docs(status)'); }

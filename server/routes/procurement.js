@@ -252,6 +252,32 @@ function qtyMap(rows) {
   return m;
 }
 
+/** Open warehouse_docs GRNI receipts awaiting purchase invoice (value-only). */
+router.get('/open-warehouse-grni', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const { listOpenWarehouseGrni } = require('../lib/warehouse-grni-invoice');
+    res.json(listOpenWarehouseGrni(db, {
+      warehouseId: req.query.warehouse_id,
+      supplierId: req.query.supplier_id,
+      limit: req.query.limit,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+
+/**
+ * Invoice from warehouse GRNI docs — clears 2112 → AP, stock_added=0 (no double receipt).
+ * Body: { warehouse_doc_ids:[], supplier_id, date, rows:[{move_id,price}], … }
+ */
+router.post('/warehouse-grni-invoices', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const { invoiceWarehouseGrni } = require('../lib/warehouse-grni-invoice');
+    const created = invoiceWarehouseGrni(db, req.body || {}, req.user);
+    res.json(created);
+  } catch (e) { sendErr(res, e); }
+});
+
 router.post('/three-way-match', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();

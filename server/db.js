@@ -1076,6 +1076,11 @@ function initDB(database, opts) {
   ensureColumn(db, 'supplier_payments', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'incentive_payments', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'account_transfers', 'fee_rial', 'INTEGER NOT NULL DEFAULT 0');
+  // Separate cost center for bank-fee (6115) line — may differ from document CC
+  ensureColumn(db, 'expense_payments', 'fee_cost_center_id', 'INTEGER');
+  ensureColumn(db, 'supplier_payments', 'fee_cost_center_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'fee_cost_center_id', 'INTEGER');
+  ensureColumn(db, 'account_transfers', 'fee_cost_center_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
@@ -3076,10 +3081,28 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'warehouse_moves', 'doc_id', 'INTEGER');
   ensureColumn(db, 'warehouse_moves', 'line_no', 'INTEGER DEFAULT 1');
   ensureColumn(db, 'warehouse_moves', 'variant_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_docs', 'receipt_class', "TEXT DEFAULT 'adjustment'");
+  ensureColumn(db, 'warehouse_docs', 'supplier_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_docs', 'purchase_invoice_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'warehouse_doc_id', 'INTEGER');
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_moves_doc_id ON warehouse_moves(doc_id)'); }
   catch (e) { console.warn('⚠️ idx_warehouse_moves_doc_id:', e.message); }
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouse_docs_num_unique ON warehouse_docs(num)'); }
   catch (e) { console.warn('⚠️ ایندکس یکتای شماره سند انبار ایجاد نشد:', e.message); }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_docs_grni_open ON warehouse_docs(receipt_class, purchase_invoice_id, status)'); }
+  catch (e) { console.warn('⚠️ idx_warehouse_docs_grni_open:', e.message); }
+  // Backfill receipt_class=grni from existing GRNI JEs (source_type warehouse_receipt_grni)
+  try {
+    const bf = db.prepare("SELECT value FROM settings WHERE key='warehouse_docs_grni_class_v1'").get();
+    if (!bf) {
+      db.prepare(`
+        UPDATE warehouse_docs SET receipt_class='grni'
+        WHERE type='receipt' AND COALESCE(receipt_class,'adjustment')='adjustment'
+          AND je_id IN (SELECT id FROM journal_entries WHERE ref_type='warehouse_receipt_grni')
+      `).run();
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('warehouse_docs_grni_class_v1','1')").run();
+    }
+  } catch (e) { console.warn('warehouse_docs_grni_class_v1:', e.message); }
   try {
     const { backfillWarehouseDocs } = require('./lib/warehouse-docs');
     const summary = backfillWarehouseDocs(db);

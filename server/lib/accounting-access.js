@@ -47,7 +47,8 @@ const ACC_ITEMS = {
   'acc-product-sizes': { apis: ['/api/product-variants'] },
   'acc-units': { apis: ['/api/units'] },
   'acc-warehouses': { apis: ['/api/warehouses'] },
-  'acc-warehouse-ops': { apis: ['/api/inventory'] },
+  // moves prefix is longer than /api/warehouses — ops delegates can receipt/issue without full WH admin
+  'acc-warehouse-ops': { apis: ['/api/warehouses/moves', '/api/inventory'] },
   'acc-stocktaking': { apis: ['/api/stocktaking'] },
   'acc-inv-batches': { apis: ['/api/inventory'] },
   'acc-fabric-rolls': { apis: ['/api/inventory'] },

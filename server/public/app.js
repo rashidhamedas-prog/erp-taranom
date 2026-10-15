@@ -13397,26 +13397,30 @@ function renderWhDocLines(){
 }
 function warehouseReceiptModal(){
   whDocLines=[{product_id:'',qty:1}];
+  if(!CACHE.suppliers) CACHE.suppliers=[];
   openModal(`
     <div class="modal-head"><h3>⬇️ رسید انبار (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>انبار مقصد *</label><select id="wr-warehouse">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="wr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>نوع رسید / طرف حساب ${hlp('خرید با فاکتور را از «فاکتور خرید» یا «رسید کالا GR» ثبت کنید تا موجودی دوبار بدهکار نشود. این فرم برای تعدیل/افتتاحیه یا رسید تأمین‌کننده بدون فاکتور (GRNI) است.')}</label>
-        <select id="wr-class">
+      <div class="fg full"><label>نوع رسید / طرف حساب ${hlp('خرید با فاکتور را از «فاکتور خرید» ثبت کنید تا موجودی دوبار بدهکار نشود. GRNI فقط تعداد را وارد می‌کند؛ مدیر/حسابدار بعداً فاکتور ریالی می‌زند.')}</label>
+        <select id="wr-class" data-csp-change="${CSP.bind('change',function(){const w=el('wr-sup-wrap');if(w)w.style.display=this.value==='grni'?'':'none'})}">
           <option value="adjustment">تعدیل عملیاتی (طرف ۹۹۹۹)</option>
           <option value="opening">موجودی اول دوره (۳۱۰۲)</option>
           <option value="grni">رسید تأمین‌کننده بدون فاکتور — GRNI (۲۱۱۲)</option>
         </select>
       </div>
+      <div class="fg full" id="wr-sup-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>تأمین‌کننده (اختیاری)</label>${supplierSelect('wr-supplier',0)}
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر خالی بماند، هنگام فاکتور ریالی انتخاب می‌شود.</div></div>
       <div class="fg full"><label>یادداشت</label><input id="wr-note"></div>
       <div class="fg full" id="whDocLines">${whDocLinesHtml()}</div>
-      <div class="muted full" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">حساب موجودی از نوع/تنظیم همان انبار مقصد گرفته می‌شود.</div>
+      <div class="muted full" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">حساب موجودی از نوع/تنظیم همان انبار مقصد گرفته می‌شود. برای GRNI فی لازم نیست — فقط تعداد.</div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveWarehouseReceipt()})}">💾 ثبت رسید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+  attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   try{ bindNumFit(el('whDocLines')); }catch(_){}
+  (async()=>{ try{ if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=await api('GET','/suppliers')||[]; }catch(_){ } })();
 }
 async function saveWarehouseReceipt(){
   const warehouse_id=+el('wr-warehouse').value;
@@ -13424,8 +13428,9 @@ async function saveWarehouseReceipt(){
   if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   const receipt_class=el('wr-class')?.value||'adjustment';
+  const supplier_id=receipt_class==='grni'?(+el('wr-supplier')?.value||null):null;
   try{
-    const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value,receipt_class,opening:receipt_class==='opening'?1:0});
+    const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value,receipt_class,supplier_id,opening:receipt_class==='opening'?1:0});
     closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
@@ -19263,8 +19268,25 @@ function payInstAmounts(prefix){
   return (_payInstRows[prefix]||[]).map(r=>parseInt(String(r.amount||'').replace(/[^\d]/g,''),10)||0).filter(n=>n>0);
 }
 // XOR: نقد→صندوق، بانک/چک→بانک، کارتخوان→ترمینال؛ کارمزد انتقال فقط برای واریز بانکی
-function payBankFeeHtml(prefix){
-  return `<div class="fg" id="${prefix}-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط هنگام واریز بانکی — از حساب بانک کسر و در سند به حساب کارمزد خدمات بانکی (برگ معین؛ اگر زیر ۶۱۱۵ معین ساخته شده باشد روی همان برگ می‌نشیند). مبلغ پرداخت به طرف‌حساب بدون کارمزد است.')}</label><input id="${prefix}-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>`;
+function payFeeCcOptionsHtml(selectedId){
+  const opts=(CACHE.costCenters||[]).filter(c=>c.active!==0);
+  const req=typeof isExpenseCcRequired==='function' && isExpenseCcRequired();
+  return `<option value="">${req?'— مرکز هزینه کارمزد —':'— بدون مرکز (یا همان مرکز سند) —'}</option>`+
+    opts.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId||0)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
+}
+function payBankFeeHtml(prefix, selectedFeeCcId){
+  return `<div class="fg" id="${prefix}-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط هنگام واریز بانکی — از حساب بانک کسر و در سند به حساب کارمزد خدمات بانکی (برگ معین؛ اگر زیر ۶۱۱۵ معین ساخته شده باشد روی همان برگ می‌نشیند). مبلغ پرداخت به طرف‌حساب بدون کارمزد است.')}</label><input id="${prefix}-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
+    <div class="fg" id="${prefix}-fee-cc-fg" data-csp-style="${CSP.style(`display:none`)}"><label>مرکز هزینه کارمزد بانکی ${hlp('مرکز جدا برای سطر کارمزد (۶۱۱۵). اگر خالی بماند و مرکز سند پر باشد همان مرکز استفاده می‌شود. با روشن بودن «الزام مرکز هزینه» وقتی کارمزد > ۰ اجباری است.')}</label>
+      <select id="${prefix}-fee-cc">${payFeeCcOptionsHtml(selectedFeeCcId)}</select></div>`;
+}
+function payFeeCcVal(prefix){
+  return +el(prefix+'-fee-cc')?.value||null;
+}
+function syncPayFeeCcDefault(prefix, docCcId){
+  const sel=el(prefix+'-fee-cc');
+  if(!sel || sel.value) return;
+  const doc=+docCcId||0;
+  if(doc) sel.value=String(doc);
 }
 /** Leaf under coa_bank_fee (6115) for party-voucher fee lines — never post to a parent group. */
 function resolveBankFeeCodeForUi(){
@@ -19297,6 +19319,7 @@ function toggleBankFields(prefix){
   const posFg=el(prefix+'-pos-fg');
   const ccWrap=el(prefix+'-cc-wrap');
   const feeFg=el(prefix+'-fee-fg');
+  const feeCcFg=el(prefix+'-fee-cc-fg');
   if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
   if(cashFg) cashFg.style.display=isCash?'flex':'none';
   if(posFg) posFg.style.display=isPos?'flex':'none';
@@ -19304,6 +19327,10 @@ function toggleBankFields(prefix){
   if(feeFg){
     feeFg.style.display=isBank?'flex':'none';
     if(!isBank && el(prefix+'-fee')) el(prefix+'-fee').value='';
+  }
+  if(feeCcFg){
+    feeCcFg.style.display=isBank?'flex':'none';
+    if(!isBank && el(prefix+'-fee-cc')) el(prefix+'-fee-cc').value='';
   }
   if(!(isBank||isCheque) && el(prefix+'-bank')) el(prefix+'-bank').value='';
   if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
@@ -19320,6 +19347,9 @@ function updateCheckCategoryOptions(prefix){
 async function saveSupplierPayment(id){
   const amount=moneyVal('sp-amount');
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const fee=payFeeVal('sp');
+  const feeCc=payFeeCcVal('sp');
+  if(fee>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   try{
     await api('POST','/purchases/payments',{
       supplier_id:id, amount:amount, pay_type:el('sp-paytype').value,
@@ -19327,7 +19357,8 @@ async function saveSupplierPayment(id){
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
       check_category_id:+el('sp-checkcat')?.value||null,
-      fee_rial:payFeeVal('sp')
+      fee_rial:fee,
+      fee_cost_center_id:feeCc
     });
     closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('suppliers');
   }catch(e){}
@@ -19362,6 +19393,7 @@ async function renderPurchasesTab(body){
 }
 async function purchaseInvoiceModal(){
   genCart=[]; genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
+  window._poFromWhGrni=null;
   if(!CACHE.allProducts || !CACHE.allProducts.length){ CACHE.allProducts=await api('GET','/products')||[]; if(!CACHE.products||!CACHE.products.length) CACHE.products=CACHE.allProducts; }
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
@@ -19394,6 +19426,10 @@ async function purchaseInvoiceModal(){
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
+        <div class="fg full">
+          <button type="button" class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){openWhGrniPickerForPurchase()})}">📦 از رسید انبار بدون فاکتور (GRNI)</button>
+          <span id="po-grni-banner" class="muted" data-csp-style="${CSP.style(`margin-right:8px;font-size:12px`)}"></span>
+        </div>
       </div>
 
       <details class="inv-doc-sec" id="po-sec-pay">
@@ -19542,10 +19578,99 @@ function togglePoBankFields(){
   if(pt==='cash') defaultPoCashBoxIfNeeded();
   syncPoCashPayAmount();
 }
+async function openWhGrniPickerForPurchase(){
+  let docs=[];
+  try{
+    const qs=el('po-warehouse')?.value?('?warehouse_id='+encodeURIComponent(el('po-warehouse').value)):'';
+    docs=await api('GET','/purchases/open-warehouse-grni'+qs)||[];
+  }catch(e){ return; }
+  if(!docs.length){ showToast('رسید GRNI باز (بدون فاکتور) یافت نشد','info'); return; }
+  const rows=docs.map(d=>`
+    <tr>
+      <td><input type="checkbox" class="po-grni-ck" value="${d.id}" data-wh="${d.to_warehouse_id||''}" data-sup="${d.supplier_id||''}"></td>
+      <td class="mono">${esc(d.num||('#'+d.id))}</td>
+      <td>${esc(d.date||'')}</td>
+      <td>${esc(d.warehouse_name||'')}</td>
+      <td>${esc(d.supplier_name||'—')}</td>
+      <td class="mono">${fmt(d.qty_total||0)}</td>
+      <td class="mono">${(d.lines||[]).length} ردیف</td>
+      <td class="muted">${esc(d.created_by_name||'')}</td>
+    </tr>`).join('');
+  openNestedModal(`
+    <div class="modal-head"><h3>رسیدهای انبار بدون فاکتور (GRNI)</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">انتخاب یک یا چند رسید هم‌انبار. موجودی قبلاً وارد شده — فقط فی/مبلغ را در فاکتور بزنید (بدون دابل‌رسید).</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>
+        <th></th><th>شماره</th><th>تاریخ</th><th>انبار</th><th>تأمین‌کننده</th><th>تعداد</th><th>اقلام</th><th>ثبت‌کننده</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(){applyWhGrniDocsToPurchase(docs)})}">اعمال به فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`);
+}
+function applyWhGrniDocsToPurchase(allDocs){
+  const cks=[...document.querySelectorAll('.po-grni-ck:checked')];
+  if(!cks.length){ showToast('حداقل یک رسید را انتخاب کنید','error'); return; }
+  const ids=cks.map(c=>+c.value);
+  const selected=allDocs.filter(d=>ids.includes(+d.id));
+  const whSet=new Set(selected.map(d=>String(d.to_warehouse_id||'')));
+  if(whSet.size>1){ showToast('همهٔ رسیدها باید همان انبار مقصد باشند','error'); return; }
+  const whId=selected[0].to_warehouse_id;
+  if(el('po-warehouse')&&whId) el('po-warehouse').value=String(whId);
+  const supId=selected.map(d=>d.supplier_id).find(Boolean);
+  if(supId){ try{ pickSupplier('po-supplier',supId); }catch(_){ if(el('po-supplier')) el('po-supplier').value=String(supId); } }
+  genCart=[];
+  const moveMeta=[];
+  for(const d of selected){
+    for(const ln of (d.lines||[])){
+      const unitProv=Number(ln.unit_cost_rial)||(Number(ln.qty)?Math.round((Number(ln.amount_rial)||0)/Number(ln.qty)):0);
+      genCart.push({
+        product_id:ln.product_id, name:ln.product_name||('#'+ln.product_id),
+        qty:Number(ln.qty)||0, price:unitProv||0, disc:0, disc_amount:0,
+        description:'از رسید '+(d.num||('#'+d.id)),
+        warehouse_id:d.to_warehouse_id||null,
+        variant_id:ln.variant_id||null,
+        warehouse_move_id:ln.move_id, warehouse_doc_id:d.id,
+        _grniLockedQty:true
+      });
+      moveMeta.push({move_id:ln.move_id, doc_id:d.id});
+    }
+  }
+  window._poFromWhGrni={ docIds:ids, moves:moveMeta };
+  const ban=el('po-grni-banner');
+  if(ban) ban.innerHTML='<b style="color:var(--blue,#2563eb)">حالت ریالی از GRNI:</b> '+ids.length+' رسید — موجودی دوباره وارد نمی‌شود';
+  closeNestedModal();
+  renderGenCart();
+  showToast(ids.length+' رسید به فاکتور اضافه شد — فی را بررسی/اصلاح کنید');
+}
 async function savePurchaseInvoice(){
   const supplier_id=+el('po-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
+  const fromGrni=window._poFromWhGrni;
+  if(fromGrni&&fromGrni.docIds&&fromGrni.docIds.length){
+    try{
+      await api('POST','/purchases/warehouse-grni-invoices',{
+        warehouse_doc_ids:fromGrni.docIds,
+        supplier_id,
+        date:el('po-date').value,
+        note:el('po-note').value,
+        disc:+el('po-disc').value||0,
+        disc_amt:+el('po-disc-amt').value||0,
+        warehouse_id:+el('po-warehouse')?.value||null,
+        cost_center_id:+el('po-cc')?.value||null,
+        vat_exempt:el('po-vat-exempt')?.checked?1:0,
+        rows:genCart.map(r=>({
+          move_id:r.warehouse_move_id, product_id:r.product_id, qty:r.qty, price:r.price,
+          description:r.description||'', variant_id:r.variant_id||null
+        }))
+      });
+      window._poFromWhGrni=null;
+      closeModal(); showToast('فاکتور ریالی از رسید GRNI ثبت شد (بدون ورود دوباره موجودی)'); loadAccTab('purchases');
+    }catch(e){}
+    return;
+  }
   const pay_type=el('po-paytype').value;
   if(pay_type==='cash' && !(+el('po-cashbox')?.value)){
     showToast('صندوق را انتخاب کنید','error'); return;
@@ -29402,6 +29527,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>دکمهٔ «تأیید بسته» پسوند zip/.enc آپلود را نگه می‌دارد تا بررسی واقعاً اجرا شود (جایگزینی دیتابیس نمی‌کند)</li>
         <li><b>استعلام بها (RFQ):</b> <code dir="ltr">POST /api/rfq</code> با <code>kind=sales|purchase</code>. تأیید سند را سازنده نمی‌تواند بزند (maker-checker). ابطال نرم است نه حذف فیزیکی.</li>
         <li><b>سفارش/رسید خرید و GRNI:</b> سفارش <code dir="ltr">/api/purchases/orders</code>، رسید <code dir="ltr">/goods-receipts</code> سند بدهکار موجودی / بستانکار <code>2112</code>، فاکتور از رسید <code dir="ltr">/gr-invoices</code> GRNI را می‌بندد. تطبیق سه‌طرفه: <code dir="ltr">POST /api/purchases/three-way-match</code>.</li>
+        <li><b>رسید انبار بدون فاکتور → فاکتور ریالی (v400):</b> انباردار در «رسید انبار» نوع <b>GRNI (۲۱۱۲)</b> را می‌زند (فقط تعداد؛ فی لازم نیست). موجودی همان‌جا وارد می‌شود. مدیر/حسابدار در «فاکتور خرید جدید» دکمه <b>از رسید انبار بدون فاکتور</b> را می‌زند، رسیدهای باز را انتخاب می‌کند، فی می‌گذارد و ثبت می‌کند — <b>موجودی دوباره وارد نمی‌شود</b> (فقط تسویه GRNI→بدهی تأمین‌کننده). ابطال فاکتور رسید را دوباره باز می‌کند. سازندهٔ رسید نمی‌تواند همان سند را فاکتور کند (SOD؛ admin مستثنی).</li>
         <li><b>شعبه:</b> کاربر غیرمدیر فقط اسناد <code>branch_id</code> خودش را می‌بیند. سفارش فروش روی موجودی رزرو می‌گذارد و با حذف سفارش آزاد می‌شود.</li>
         <li><b>رمزنگاری</b>: <code dir="ltr">BACKUP_ENCRYPTION_KEY</code> / رمز تنظیمات؛ بدون رمز، پشتیبان قابل بازیابی نیست</li>
         <li>آپلود تصویر: ترجیح با موتور <code dir="ltr">sharp</code> (فشرده‌سازی WebP). اگر sharp روی سرور/دستگاه لود نشود، مسیر امن <code dir="ltr">passthrough</code> فعال می‌شود (بررسی magic/EOF + ابعاد از هدر، بدون re-encode). وضعیت در <code dir="ltr">/api/system/health</code> فیلد <code dir="ltr">image_engine</code> دیده می‌شود</li>

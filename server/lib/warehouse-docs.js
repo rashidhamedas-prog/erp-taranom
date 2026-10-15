@@ -230,17 +230,33 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     ? ('موقت-WH-' + Date.now().toString(36).toUpperCase())
     : allocateNumber(db, 'warehouse_doc', 'WH');
 
+  let receiptClass = 'adjustment';
+  let supplierId = null;
+  if (type === 'receipt') {
+    const rawClass = String(body.receipt_class || body.counterpart || '').toLowerCase().trim();
+    const isOpening = !!(body.opening || rawClass === 'opening'
+      || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+    const isGrni = !isOpening && (rawClass === 'grni' || rawClass === 'supplier'
+      || rawClass === 'supplier_receipt');
+    receiptClass = isOpening ? 'opening' : (isGrni ? 'grni' : 'adjustment');
+    const sid = parseInt(body.supplier_id, 10);
+    if (sid) supplierId = sid;
+  }
+
   const docIns = db.prepare(`
     INSERT INTO warehouse_docs (
       num, type, from_warehouse_id, to_warehouse_id, date, note, status,
-      line_count, qty_total, amount_rial_total, created_by, replaces_doc_id
-    ) VALUES (?,?,?,?,?,?,'posted',0,0,0,?,?)
+      line_count, qty_total, amount_rial_total, created_by, replaces_doc_id,
+      receipt_class, supplier_id
+    ) VALUES (?,?,?,?,?,?,'posted',0,0,0,?,?,?,?)
   `).run(
     num, type,
     type === 'receipt' ? null : fromWh,
     type === 'issue' ? null : toWh,
     date, note, user.id,
-    opts.replacesDocId || body.replaces_doc_id || null
+    opts.replacesDocId || body.replaces_doc_id || null,
+    type === 'receipt' ? receiptClass : null,
+    supplierId
   );
   const docId = docIns.lastInsertRowid;
   const ids = [];
@@ -487,6 +503,12 @@ function voidWarehouseDocInTx(db, docId, user, { reason } = {}) {
   if (doc.status === 'reversed') {
     const err = new Error('این سند قبلاً ابطال شده است');
     err.status = 400;
+    throw err;
+  }
+  if (doc.purchase_invoice_id) {
+    const err = new Error(`رسید ${doc.num || docId} به فاکتور خرید وصل است — ابتدا فاکتور را ابطال کنید`);
+    err.status = 400;
+    err.code = 'E_WH_GRNI_LINKED';
     throw err;
   }
   const moves = db.prepare(`

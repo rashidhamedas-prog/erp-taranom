@@ -298,7 +298,11 @@ const FK_COLUMNS = [
   ['consignments', 'product_id'],
   ['production_runs', 'product_id'],
   ['expense_payments', 'bank_id'], ['expense_payments', 'cash_box_id'], ['expense_payments', 'cost_center_id'],
+  ['expense_payments', 'fee_cost_center_id'],
+  ['supplier_payments', 'fee_cost_center_id'],
+  ['incentive_payments', 'fee_cost_center_id'],
   ['account_transfers', 'from_id'], ['account_transfers', 'to_id'],
+  ['account_transfers', 'fee_cost_center_id'],
   ['journal_entries', 'cost_center_id'],
   ['journal_lines', 'entry_id'],
   ['check_categories', 'bank_id'],
@@ -516,6 +520,10 @@ const FK_COLUMNS = [
   ['warehouse_docs', 'to_warehouse_id'],
   ['warehouse_moves', 'doc_id'],
   ['warehouse_moves', 'variant_id'],
+  // WH GRNI → purchase invoice link (append-only)
+  ['warehouse_docs', 'supplier_id'],
+  ['warehouse_docs', 'purchase_invoice_id'],
+  ['purchase_invoices', 'warehouse_doc_id'],
   // PROD-ACC PA-04 matrix (append-only)
   ['bom_material_assignments', 'bom_id'],
   ['bom_material_assignments', 'bom_line_id'],

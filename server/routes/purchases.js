@@ -28,7 +28,10 @@ const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
-const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
+const {
+  parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
+  outboundPaymentLines, outboundPaymentReversalLines,
+} = require('../lib/payment-bank-fee');
 const {
   postPurchaseStockMovements, reverseStockBySource,
   perpetualDocsEnabled, assertJournalIdempotent,
@@ -524,6 +527,15 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 
     db.prepare("UPDATE purchase_invoices SET status='reversed',stock_added=0,reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
+    try {
+      const { unlinkWarehouseGrniOnPurchaseVoid } = require('../lib/warehouse-grni-invoice');
+      unlinkWarehouseGrniOnPurchaseVoid(db, row.id, {
+        userId: req.user.id,
+        reason: `ابطال فاکتور خرید ${row.num}`,
+      });
+    } catch (unlinkErr) {
+      console.warn('unlinkWarehouseGrniOnPurchaseVoid:', unlinkErr && unlinkErr.message);
+    }
   })();
   audit(req.user.id, 'reverse', 'purchase', req.params.id, `ابطال فاکتور خرید ${row.num}`);
   res.json({ ok: true });
@@ -1002,14 +1014,27 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/payments', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id, account_code, fee_rial, bank_fee_rial } = req.body;
+  const {
+    supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id,
+    check_category_id, cash_box_id, account_code, fee_rial, bank_fee_rial,
+    fee_cost_center_id, bank_fee_cost_center_id,
+  } = req.body;
   if (!supplier_id || !amount) return res.status(400).json({ error: 'تأمین‌کننده و مبلغ الزامی است' });
   const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
+  let feeCcId = null;
+  try {
+    feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: fee, payType: pay_type || 'cash',
+      feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const payId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32));
+      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32), feeCcId);
     const payId = result.lastInsertRowid;
 
     createSupplierLedgerEntry(db, {
@@ -1025,7 +1050,7 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
     const payable = payableAcct(db, supplier_id);
     const { lines } = outboundPaymentLines(db, {
       amount: parseFloat(amount), feeRial: fee, payType: pay_type || 'cash',
-      dest: payable, cash,
+      dest: payable, cash, feeCostCenterId: feeCcId,
     });
     postToLedger(db, {
       sourceType: 'supplier_payment', sourceId: payId,
@@ -1076,6 +1101,7 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
     const payable = payableAcct(db, row.supplier_id);
     const { lines } = outboundPaymentReversalLines(db, {
       amount: row.amount, feeRial: row.fee_rial || 0, dest: payable, cash,
+      feeCostCenterId: row.fee_cost_center_id || null,
     });
     const reversalId = postToLedger(db, {
       sourceType: 'supplier_payment_reversal', sourceId: row.id,

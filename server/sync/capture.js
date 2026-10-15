@@ -66,6 +66,8 @@ const PATH_TABLE_MAP = [
   ['/api/purchases/orders', 'purchase_orders'],
   ['/api/purchases/three-way-match', 'three_way_matches'],
   ['/api/purchases/gr-invoices', 'purchase_invoices'],
+  ['/api/purchases/warehouse-grni-invoices', 'purchase_invoices'],
+  ['/api/purchases/open-warehouse-grni', 'warehouse_docs'],
   ['/api/purchases', 'purchase_invoices'],
   ['/api/rfq', 'rfqs'],
   ['/api/branches', 'branches'],

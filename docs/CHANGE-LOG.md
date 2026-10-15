@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۷/۲۳ — فاکتور ریالی از رسید انبار GRNI بدون دابل‌رسید (SW v400)
+
+- **هدف:** انباردار/نقش عملیاتی رسید انبار با کلاس GRNI (۲۱۱۲) بزند (فقط تعداد)؛ مدیر/حسابدار در فاکتور خرید لیست رسیدهای باز را ببیند و فقط سند ریالی بزند بدون ورود دوبارهٔ موجودی.
+- **Invariant:** مالکیت qty یک‌بار روی `warehouse_docs` است؛ فاکتور فقط Dr `2112` / Cr AP (+ مابه‌التفاوت بهای value-only مثل landed-cost). `stock_added=0`.
+- **اسکیما:** `warehouse_docs.receipt_class|supplier_id|purchase_invoice_id`، `purchase_invoices.warehouse_doc_id`؛ بک‌فیل `receipt_class=grni` از JEهای `warehouse_receipt_grni`.
+- **API:** `GET /api/purchases/open-warehouse-grni`، `POST /api/purchases/warehouse-grni-invoices`؛ ابطال خرید لینک را باز می‌کند؛ ابطال رسید billed مسدود.
+- **RBAC:** `acc-warehouse-ops` → `/api/warehouses/moves`؛ SOD maker-checker (admin مستثنی).
+- **UI:** دکمه «از رسید انبار بدون فاکتور (GRNI)» در فاکتور خرید؛ تأمین‌کننده اختیاری روی رسید GRNI؛ Help.
+- **فایل‌ها:** `lib/warehouse-grni-invoice.js`, `lib/warehouse-docs.js`, `routes/{procurement,purchases}.js`, `db.js`, `lib/{qa-gaps-schema,inventory/schema,accounting-access}.js`, `sync/{tables,capture}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-warehouse-grni-invoice-v400.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ ERPNext Purchase Receipt→Invoice (Update Stock OFF)؛ Odoo GRNI; tap-erp-architecture؛ explore schema/JE map.
+- **تست:** (پس از deploy ایران)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حذف ورود دوبل موجودی PACK + نهایی‌سازی تولید (SW v399)
 
 - **علائم:** در کاردکس کالا (مثل کاپشن مموری یلدا) هم «رسید برش / PACK» و هم «تولید PD-…» واردهٔ انبار محصول می‌زدند و موجودی دوبار بالا می‌رفت.
@@ -8,7 +21,7 @@
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ explore pack/finalize map؛ tap-erp-architecture؛ PROD-ACC F06/ADR-001.
 - **تست:** ایران `test-prod-pack-double-fg-v399` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
 - **Heal داده:** برای `7200 کاپشن مموری یلدا` چهار PACK فروش‌پذیر یتیم (PK-0001…4 = ۱۶۴ عدد) که روی رسید PO-0008 سوار شده بودند با `voidCuttingPack` ابطال شدند؛ `products.stock` از ۳۱۴ → ۱۵۰.
-- **Deploy:** ✅ `ba884cc` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v399`؛ `app.js?v=399`.
+- **Deploy:** ✅ `ba884cc` (+ stamp `48c7024`) — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v399`؛ `app.js?v=399`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حذف مرکز هزینه بدون خطای ۵۰۰ (SW v398)
 

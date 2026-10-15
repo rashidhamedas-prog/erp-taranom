@@ -94,6 +94,10 @@ function ensureQaGapsSchema(db) {
   ensureColumn(db, 'orders', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'goods_receipt_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'purchase_order_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'warehouse_doc_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_docs', 'receipt_class', "TEXT DEFAULT 'adjustment'");
+  ensureColumn(db, 'warehouse_docs', 'supplier_id', 'INTEGER');
+  ensureColumn(db, 'warehouse_docs', 'purchase_invoice_id', 'INTEGER');
 
   db.prepare("INSERT OR IGNORE INTO branches (id, code, name) VALUES (1, 'HQ', 'دفتر مرکزی')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2112','کالای دریافت‌شده فاکتورنشده (GRNI)','liability','2100')").run();
