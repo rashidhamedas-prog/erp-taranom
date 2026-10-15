@@ -7,8 +7,8 @@
 - **پیگیری research:** پروب ارجاع به ستون‌های بدون FK هم گسترش یافت (`expense_payments`, `journal_templates`, `voucher_drafts`, `persons`, `budget_lines`, `rep_expenses`, labor/OH/variance/estimate) تا حذف فیزیکی orphan نسازد.
 - **فایل‌ها:** `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cost-center-delete-v398.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی انبار/بانک؛ explore FK map.
-- **تست:** ایران `test-cost-center-delete-v398` ۱۲/۰ (+۲ assertion استاتیک در پیگیری) + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
-- **Deploy:** ✅ `63b0b4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v398`؛ `app.js?v=398`. پیگیری پروب: ⏳
+- **تست:** ایران `test-cost-center-delete-v398` ۱۴/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی better-sqlite3 ویندوز)
+- **Deploy:** ✅ `63b0b4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v398`؛ `app.js?v=398`. پیگیری پروب: ✅ `1162e95`.
 
 ### ۱۴۰۵/۰۷/۲۳ — آموزش کامل RTL بخش تولید (فایل ورود HTML)
 
