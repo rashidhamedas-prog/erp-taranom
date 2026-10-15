@@ -623,7 +623,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       assertWarehouseLines(db, built.rows, whId, { requirePositive: true, allowNegativeProduct: true });
     } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
     try {
-      const arDelta = invoiceArDeltaRial(final, payPlan, storedPayType);
+      let arDelta = invoiceArDeltaRial(final, payPlan, storedPayType);
+      const exMeta = req.body && req.body._store_exchange;
+      if (exMeta && Number(exMeta.exchange_credit_rial) > 0) {
+        arDelta = Math.max(0, arDelta - Math.round(Number(exMeta.exchange_credit_rial) || 0));
+      }
       assertPartyCreditLimitOk(db, cust_id, arDelta);
     } catch (e) {
       return res.status(e.status || 409).json({

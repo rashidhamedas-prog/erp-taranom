@@ -14,6 +14,7 @@ const {
   resolveStoreCashBoxId,
   computeExchangeSettlement,
   estimateSaleFinalRial,
+  applyStoreExchangeCreditAllocation,
 } = require('../lib/store-quick-sale');
 const { moneyRial } = require('../lib/cash-on-document');
 const {
@@ -264,7 +265,8 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
       note: body.return_note || body.note || 'تعویض فروشگاهی',
       reason_code: body.reason_code || 'exchange',
       rows: returnRows,
-      warehouse_id: body.warehouse_id || saleIn.warehouse_id,
+      // Prefer original invoice/line WH inside createSalesReturn; do not force store WH.
+      warehouse_id: body.warehouse_id || null,
     }, req.user);
 
     const retRow = db.prepare(
@@ -292,10 +294,51 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
     req.body = prepared.body;
     inv = await captureInvoiceCreate(req);
 
-    if (prepared.refundRial > 0) {
+    // Re-settle against actual invoice final (estimate can drift with VAT/rounding).
+    const actualFinal = moneyRial(
+      inv && (inv.final_rial != null ? inv.final_rial : inv.final)
+    );
+    const actualSettle = computeExchangeSettlement(actualFinal, returnGross);
+    prepared.netCollect = actualSettle.netCollect;
+    prepared.refundRial = actualSettle.refundRial;
+    prepared.exchangeCreditRial = actualSettle.exchangeCreditRial;
+    prepared.saleFinal = actualSettle.saleFinal;
+    prepared.settlementCase = actualSettle.settlementCase;
+    if (prepared.body && prepared.body._store_exchange) {
+      prepared.body._store_exchange = {
+        ...prepared.body._store_exchange,
+        sale_final: actualSettle.saleFinal,
+        net_collect: actualSettle.netCollect,
+        refund_rial: actualSettle.refundRial,
+        exchange_credit_rial: actualSettle.exchangeCreditRial,
+        settlement_case: actualSettle.settlementCase,
+      };
+    }
+
+    let creditAlloc = null;
+    if (actualSettle.exchangeCreditRial > 0 && inv && inv.id) {
+      creditAlloc = applyStoreExchangeCreditAllocation(db, {
+        returnId: retOut.id,
+        invoiceId: inv.id,
+        amountRial: actualSettle.exchangeCreditRial,
+        userId: req.user.id,
+        note: `اعتبار تعویض — برگشت #${retOut.id} → فاکتور ${inv.num || inv.id}`,
+      });
+      if (creditAlloc && inv) {
+        inv.balance_due = creditAlloc.balance_due;
+        inv.settled_amount = creditAlloc.settled_amount;
+      }
+    }
+
+    if (actualSettle.refundRial > 0) {
+      if (!(refundCashBoxId > 0)) {
+        refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
+          cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || prepared.body.cash_box_id,
+        });
+      }
       refund = postStoreExchangeRefund(db, {
         custId,
-        amountRial: prepared.refundRial,
+        amountRial: actualSettle.refundRial,
         cashBoxId: refundCashBoxId || prepared.body.cash_box_id,
         userId: req.user.id,
         date: body.date || todayJalali(),
@@ -303,6 +346,9 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
         exchangeKey: `ex-${retOut.id}-${inv.id}`,
       });
     }
+
+    // Stash for response
+    prepared._creditAlloc = creditAlloc;
   } catch (e) {
     const rb = rollbackExchange(db, req.user, {
       returnId: retOut && retOut.id,
@@ -325,6 +371,8 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
     net_collect: prepared.netCollect,
     refund_rial: prepared.refundRial,
     settlement_case: prepared.settlementCase,
+    exchange_credit_rial: prepared.exchangeCreditRial,
+    credit_allocation: prepared._creditAlloc || null,
     refund,
     exchange: prepared.body._store_exchange || null,
   });

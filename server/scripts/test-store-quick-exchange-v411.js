@@ -23,6 +23,7 @@ const {
   estimateReturnGrossFromLines,
   ensureWalkinCustomer,
   isWalkinCustomer,
+  applyStoreExchangeCreditAllocation,
 } = require('../lib/store-quick-sale');
 const { getInvoiceReturnablePack } = require('../lib/sales-return-doc');
 
@@ -217,9 +218,16 @@ const storeSrc = fs.readFileSync(path.join(root, 'routes/store.js'), 'utf8');
 ok(storeSrc.includes('/exchange-available/') && storeSrc.includes('rollbackExchange'), 'store routes exchange-available+rollback');
 ok(storeSrc.includes('/customer-firm-invoices/'), 'store firm invoices');
 ok(storeSrc.includes('voidSalesReturn') && storeSrc.includes('voidInvoiceFully'), 'compensate void');
+ok(storeSrc.includes('applyStoreExchangeCreditAllocation'), 'store applies exchange credit alloc');
 
 const srSrc = fs.readFileSync(path.join(root, 'lib/sales-return-doc.js'), 'utf8');
 ok(srSrc.includes('getInvoiceReturnablePack'), 'getInvoiceReturnablePack exported');
+
+const libSrc = fs.readFileSync(path.join(root, 'lib/store-quick-sale.js'), 'utf8');
+ok(libSrc.includes('function applyStoreExchangeCreditAllocation'), 'alloc helper defined');
+
+const invSrc = fs.readFileSync(path.join(root, 'routes/invoices.js'), 'utf8');
+ok(invSrc.includes('exchange_credit_rial') && invSrc.includes('arDelta'), 'credit-limit nets exchange credit');
 
 const appSrc = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 ok(appSrc.includes('storeQsSetAllReturnMax') && appSrc.includes('max_returnable'), 'UI max returnable');
@@ -231,10 +239,12 @@ const captureSrc = fs.readFileSync(path.join(root, 'sync/capture.js'), 'utf8');
 ok(captureSrc.includes("'/api/store/quick-exchange', 'invoices'"), 'capture map');
 
 const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v412'), 'SW v412');
+ok(swSrc.includes('erp-taranom-v413'), 'SW v413');
 
 const idxSrc = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-ok(idxSrc.includes('app.js?v=412'), 'index app.js?v=412');
+ok(idxSrc.includes('app.js?v=413'), 'index app.js?v=413');
+
+ok(typeof applyStoreExchangeCreditAllocation === 'function', 'alloc export');
 
 try {
   // eslint-disable-next-line no-new-func

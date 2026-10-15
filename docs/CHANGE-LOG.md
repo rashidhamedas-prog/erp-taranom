@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: تخصیص اعتبار روی فاکتور جایگزین (SW v413)
+
+- **پیگیری audit:** گزارش‌های explore روی v412 — اعتبار تعویض فقط در assert walk-in بود و `balance_due` فاکتور جایگزین باز می‌ماند؛ سقف اعتبار مشتری مابه‌التفاوت را کم نمی‌کرد.
+- **رفع:** `applyStoreExchangeCreditAllocation` → `return_credit_allocations` روی فاکتور جدید (بدون JE اضافه)؛ تسویه/مانده بعد از `final` واقعی؛ `invoiceArDeltaRial` منهای `exchange_credit_rial`؛ انبار برگشت ترجیحاً از فاکتور مرجع.
+- **فایل‌ها:** `lib/store-quick-sale.js`, `routes/{store,invoices}.js`, `public/{sw.js,index.html}`, `scripts/test-store-quick-exchange-v411.js`, CHANGE-LOG.
+- **مراجع:** follow-up از [Audit sales-return exchange](012080cc-24a3-4485-8cf1-6a5c9be14b31) + [Audit store exchange UI](d4760a0b-b3bc-4c7b-a83e-a584a91e34aa).
+- **تست:** `test-store-quick-exchange-v411` + `test-sms`.
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — تعویض فروشگاهی: همهٔ سناریوهای مابه‌التفاوت (SW v412)
 
 - **هدف:** در «فروش سریع → تعویض / برگشت+فروش» همهٔ حالت‌های واقعی پوشش داده شود: فروش گران‌تر (دریافت)، برگشت گران‌تر (استرداد صندوق)، برابر، چندقلم، برگشت جزئی با سقف qty، فی قفل از فاکتور، نسیهٔ خالص برای مشتری واقعی، جبران اگر فروش بعد از برگشت شکست بخورد.

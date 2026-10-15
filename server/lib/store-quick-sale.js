@@ -563,6 +563,77 @@ function estimateReturnGrossFromLines(lines) {
   return moneyRial(sum);
 }
 
+/**
+ * Apply exchange return credit onto the *replacement* invoice settled balance
+ * (no JE — return JE + sale JE already net AR). Works even when the return is
+ * linked to the original invoice (allocateReturnCredit rejects that path).
+ */
+function applyStoreExchangeCreditAllocation(db, {
+  returnId, invoiceId, amountRial, userId, note,
+}) {
+  const amt = moneyRial(amountRial);
+  const retId = parseInt(returnId, 10);
+  const invId = parseInt(invoiceId, 10);
+  if (!(amt > 0) || !(retId > 0) || !(invId > 0)) return null;
+
+  const { SIDE_SALES, sumAllocationsFromReturn } = require('./return-credit-allocate');
+  const { recomputeInvoiceSettledBalances } = require('./invoice-payments');
+
+  const ret = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(retId);
+  if (!ret || String(ret.status || 'posted') === 'reversed') {
+    const e = new Error('برگشت تعویض برای تخصیص اعتبار یافت نشد');
+    e.status = 400;
+    e.code = 'E_STORE_EXCHANGE_ALLOC_RETURN';
+    throw e;
+  }
+  const retGross = moneyRial(Number(ret.amount) || 0) + moneyRial(Number(ret.vat_amount) || 0);
+  const already = sumAllocationsFromReturn(db, SIDE_SALES, retId);
+  const remaining = Math.max(0, retGross - already);
+  const applyAmt = Math.min(amt, remaining);
+  if (!(applyAmt > 0)) return { amount_rial: 0, skipped: true };
+
+  const inv = db.prepare(
+    'SELECT id, cust_id, final, final_rial, status, deleted_at FROM invoices WHERE id=?'
+  ).get(invId);
+  if (!inv || inv.deleted_at || String(inv.status || '') === 'reversed') {
+    const e = new Error('فاکتور جایگزین برای تخصیص اعتبار یافت نشد');
+    e.status = 400;
+    e.code = 'E_STORE_EXCHANGE_ALLOC_INV';
+    throw e;
+  }
+  if (Number(inv.cust_id) !== Number(ret.cust_id)) {
+    const e = new Error('مشتری فاکتور جایگزین با برگشت یکی نیست');
+    e.status = 400;
+    e.code = 'E_STORE_EXCHANGE_ALLOC_PARTY';
+    throw e;
+  }
+
+  const before = recomputeInvoiceSettledBalances(db, invId);
+  const due = before ? moneyRial(before.balance_due) : moneyRial(inv.final_rial || inv.final);
+  const capped = Math.min(applyAmt, due);
+  if (!(capped > 0)) return { amount_rial: 0, skipped: true, balance_due: due };
+
+  const ins = db.prepare(`
+    INSERT INTO return_credit_allocations
+      (side, return_id, invoice_id, amount_rial, status, note, user_id)
+    VALUES (?,?,?,?, 'posted', ?, ?)
+  `).run(
+    SIDE_SALES,
+    retId,
+    invId,
+    capped,
+    note || `اعتبار تعویض فروشگاهی ← برگشت #${retId}`,
+    userId || null
+  );
+  const after = recomputeInvoiceSettledBalances(db, invId);
+  return {
+    id: Number(ins.lastInsertRowid),
+    amount_rial: capped,
+    balance_due: after ? after.balance_due : null,
+    settled_amount: after ? after.paid : null,
+  };
+}
+
 module.exports = {
   WALKIN_BIZ,
   STORE_CHANNEL,
@@ -593,4 +664,5 @@ module.exports = {
   computeExchangeSettlement,
   estimateSaleFinalRial,
   estimateReturnGrossFromLines,
+  applyStoreExchangeCreditAllocation,
 };
