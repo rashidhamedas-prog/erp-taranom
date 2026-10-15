@@ -4,8 +4,8 @@
 - **UI/Help:** فیلد دلیل استثنا در فرم سفارش (admin/accounting)؛ toast آمادگی بعد از ذخیره کالا؛ SW `erp-taranom-v422`.
 - **فایل‌ها:** `lib/production/{product-completeness,schema,engine,engine-advanced}.js`, `routes/{production-boms,products}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-product-bom-completeness-v422.js`, CHANGE-LOG.
 - **Non-goals:** اجباری کردن انبار/دسته؛ Lot روی FG؛ بیلد APK.
-- **تست:** ایران پس از deploy: v422 + sms + health.
-- **Deploy:** ⏳
+- **تست:** ایران `test-product-bom-completeness-v422` ۱۵/۰ + v421 ۱۹/۰ + `test-sms` ۲۲/۰؛ ready=200 + sharp؛ SW `erp-taranom-v422`؛ `app.js?v=422`.
+- **Deploy:** ✅ `690407f8` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + image_engine sharp.
 
 ### ۱۴۰۵/۰۷/۲۳ — مشخصات ضروری کالا + آمادگی BOM در کل تولید (SW v421)
 - **هدف:** برای هر محصول مشخصات ضروری ثبت شود و در فعال‌سازی فرمول + سفارش تولید واقعاً اثر بگذارد (گیت سرور + چک‌لیست UI).
