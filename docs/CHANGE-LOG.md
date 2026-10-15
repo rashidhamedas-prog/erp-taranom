@@ -4,7 +4,8 @@
 - **ریشه:** از v295 مسیر سایر اشخاص از `/expenses` به `POST /accounting/vouchers` + `person_ledger` منتقل شد، اما `renderCashOpsTab` / `renderPaymentOpsTab` فقط supplier + incentive + expense را merge می‌کردند — شکاف لیست، نه ثبت دفتر.
 - **رفع سراسری:** `GET /accounting/cash-ops/outgoing` و `incoming-extra` (`lib/cash-ops-list.js`)؛ ادغام در هر دو تب UI؛ ابطال از `DELETE /vouchers/:id`؛ RBAC `acc-settlements`؛ Help؛ تست `test-cash-ops-person-list-v391`.
 - **فایل‌ها:** `lib/{cash-ops-list,accounting-access}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-{cash-ops-person-list-v391,accounting-access}.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cash-ops-person-list-v391` ۱۸/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `2bf5541` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v391`؛ `app.js?v=391`.
 
 ### ۱۴۰۵/۰۷/۲۳ — رفع layout فضای کاری فاکتور: اکاردئون/زوم ۱۰۰٪/موبایل (SW v389)
 
