@@ -5,8 +5,19 @@
 - **رفع:** بازگرداندن `display:grid` به `.form-grid`؛ override تمام‌عرض برای `.inv-doc`؛ سبک‌کردن گرید سه‌ستونه + `min-width:0`؛ `overflow:hidden` روی `.modal.full`؛ اکاردئون با summary خوانا؛ موبایل تک‌ستونه + جدول اسکرول افقی + یک CTA ذخیره؛ Help + SW `v389`.
 - **فایل‌ها:** `public/{app.css,app.js,sw.js,index.html}`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ایجنت‌های موازی (اکاردئون / body / موبایل / form-grid)； 21st accordion patterns؛ ultra-debug.
-- **تست:** parse `app.js`؛ `test-sms`؛ بررسی دستی زوم ۱۰۰٪ + باز کردن اکاردئون‌ها.
-- **Deploy:** ⏳
+- **تست:** parse `app.js`؛ ایران `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `d2ae86a` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + sharp؛ SW `erp-taranom-v389`؛ `app.css?v=389`؛ `app.js?v=389`.
+
+### ۱۴۰۵/۰۷/۲۳ — ریشهٔ هشدار مطالبات دفتر مشتری ≠ تفصیلی (SW v390)
+
+- **علائم:** داشبورد مالی: مطالبات دفتر مشتری ۱۶٬۲۵۲٬۳۷۳٬۴۲۰ با تفصیلی ۱۶٬۱۰۰٬۵۷۳٬۴۲۰ (Δ دقیقاً ۱۵۱٬۸۰۰٬۰۰۰)؛ بستانکار هم‌تراز (v376 سالم)؛ تراز آزمایشی متوازن؛ دکمهٔ هم‌ترازی کنترل→تفصیلی.
+- **ریشه (پروب ایران):** ۱۰۰٪ روی مشتری «صدوقی» (id=25، `110301000002`) / فاکتور T-0002. تسویه‌های #2/#4/#5/#6 ابطال شده‌اند و از دفتر مشتری درست حذف شده‌اند، ولی سندهای `ar_control_reclass` (JE 113–116) که اعتبار تسویه را از کنترل ۱۱۰۳ به برگ تفصیلی برده بودند زنده مانده‌اند → اعتبار یتیم ۱۵۱٫۸M روی تفصیلی. ابطال تسویه فقط JE تسویه + دفتر را می‌زد؛ cascade به انتقال کنترل→تفصیلی نداشت. healهای قبلی (v352 leaf JE، v376 چک اول‌دوره) این کلاس باگ را نمی‌پوشاندند → هشدار بعد از هر مدل «ریشه‌ای» دوباره برمی‌گشت.
+- **رفع بنیادی:**
+  - `softVoidArControlReclassForSettlement` در مسیر `reverseSettlementInTx` (و POS shadow).
+  - heal پیوستهٔ `repairOrphanArControlReclass` در boot (`db.js`) و `ensureCustomerBooksRepaired` — soft-void انتقال‌هایی که مبدأشان ابطال/حذف شده (تسویه/فاکتور/POS)؛ انتقال فاکتور زنده دست‌نخورده می‌ماند.
+  - Help + متن هشدار داشبورد؛ تست `test-orphan-ar-reclass-void-v389`.
+- **فایل‌ها:** `lib/{customer-books,void-settlement}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-orphan-ar-reclass-void-v389.js`, CHANGE-LOG.
+- **Deploy:** ⏳ در حال اعمال.
 
 ### ۱۴۰۵/۰۷/۲۳ — کارمزد بانکی فقط روی برگ معین (رفع «۶۱۱۵ سطح پست نیست») (SW v388)
 
