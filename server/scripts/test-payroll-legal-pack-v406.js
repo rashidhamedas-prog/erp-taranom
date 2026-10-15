@@ -107,7 +107,8 @@ const jeId = db.transaction(() => postToLedger(db, {
 }))();
 const bal = db.prepare('SELECT SUM(debit_rial) d, SUM(credit_rial) c FROM journal_lines WHERE entry_id=?').get(jeId);
 ok(bal.d === bal.c, 'legacy JE balanced');
-ok(bal.d === rialToLedger(gross), 'debit = gross');
+// postToLedger stores debit (toman) and debit_rial (= ×10); lines used rialToLedger(gross)
+ok(Number(bal.d) === Number(gross), 'debit_rial equals gross rial');
 
 // UI / nav presence
 const nav = fs.readFileSync(path.join(__dirname, '../public/acc-nav.js'), 'utf8');
