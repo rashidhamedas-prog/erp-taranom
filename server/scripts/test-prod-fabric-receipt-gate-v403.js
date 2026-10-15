@@ -189,12 +189,13 @@ try {
   `).run(adminId).lastInsertRowid;
   const bom2 = db.prepare(`
     INSERT INTO bom_headers (code,product_id,version,status,base_qty,has_routing,yield_percent)
-    VALUES ('V403-BOM2',?,1,'active',1,0,100)
+    VALUES ('V403-BOM2',?,1,'draft',1,0,100)
   `).run(fg2).lastInsertRowid;
   db.prepare(`
     INSERT INTO bom_lines (bom_id,line_no,${compCol},qty_per_base,stage_cost_center_id${typeCol ? ',' + typeCol : ''})
     VALUES (?,1,?,1,?${typeCol ? ",'material'" : ''})
   `).run(bom2, fabric2, cc.id);
+  db.prepare("UPDATE bom_headers SET status='active' WHERE id=?").run(bom2);
   const po2 = {
     id: 0, product_id: fg2, bom_id: bom2, size_breakdown: null, date: '1405/07/23',
   };
