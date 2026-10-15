@@ -19,8 +19,8 @@
 - **فایل‌ها:** `lib/payroll/{engine,leave-accrual,remittance,schema}.js`, `lib/coa-map.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-payroll-wave3-v410.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ بخشنامه ۴۱۹۵؛ مصوبه شورای عالی کار ۱۴۰۵؛ ماده ۹۱ ق.م.م؛ الگوی ERPNext/Odoo accrual؛ tap-erp-architecture.
 - **Non-goals (موج ۴):** وام اقساطی کامل، فایل دیسکت بیمه رسمی، طبقه‌بندی مشاغل، حضور بیومتریک.
-- **تست:** `test-payroll-wave3-v410` ۱۷/۰ + `test-payroll-engine-floors-v406` ۱۴/۰؛ parse `app.js` OK.
-- **Deploy:** ⏳ در حال انجام.
+- **تست:** ایران `test-payroll-wave3-v410` ۱۷/۰ + `test-payroll-engine-floors-v406` ۱۴/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp؛ parse `app.js` OK.
+- **Deploy:** ✅ `9ad84fc` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v410`؛ `app.js?v=410`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۲: پرداخت بیمه/مالیات + مساعده + آزادسازی ذخیره (SW v408)
 
