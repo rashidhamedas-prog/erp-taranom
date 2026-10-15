@@ -6,8 +6,8 @@
 - **رفع:** `orderRequiresFabricCutting` / `assertFabricCuttingPathForFgReceipt` / `fabricCuttingGateInfo`؛ گیت روی رسید ثابت/متغیر و finalize پیشرفته؛ `relieveStagedPackQty` مشترک؛ تکمیل خودکار وقتی تولید ≥ برنامه؛ UI قفل دکمهٔ رسید + لینک لایه‌چینی/PACK؛ Help؛ heal وضعیت PO-0009 → `completed`.
 - **فایل‌ها:** `lib/production/{cutting,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-fabric-receipt-gate-v403.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ پروب ایران `crm.db` PO-0009.
-- **تست:** `test-prod-fabric-receipt-gate-v403` + `test-sms` + `test-sync` (ایران؛ local better-sqlite3 ABI skip).
-- **Deploy:** ⏳
+- **تست:** ایران `test-prod-fabric-receipt-gate-v403` + `test-sms` + `test-prod-pack-double-fg-v399`؛ local better-sqlite3 ABI skip. Heal PO-0009 → `completed`.
+- **Deploy:** ✅ `a19de62` — overlay ایران + heal PO-0009 + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v403`؛ `app.js?v=403`.
 
 ### ۱۴۰۵/۰۷/۲۳ — ابطال تولید: مخفی‌سازی جفت رسید+ابطال در کاردکس (SW v402)
 
