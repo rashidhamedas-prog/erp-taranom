@@ -5,8 +5,8 @@
 - **رفع (سراسری در choke-point):** `assertExpenseLinesHaveCostCenter` فقط برای هزینهٔ دوره (`type=expense` یا ۶xxx) با `debit>0` خطا می‌دهد؛ COGS soft-stamp از انبار/هدر بدون بلاک؛ مبلغ صفر هرگز CC نمی‌خواهد. `assertExpenseDocumentCostCenter` با `amount<=0` رد می‌کند. amend COGS/انگیزه `warehouseId` می‌گیرد. UI سند دستی/تنظیمات/Help هم‌تراز.
 - **فایل‌ها:** `lib/{cost-center-policy,amend-invoice,amend-cash-ops}.js`, `routes/{expenses,cheque-records}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-require-cc-amount-v392.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ SAP-style amount precondition؛ explore call-site map؛ tap-erp-architecture.
-- **تست:** `test-require-cc-amount-v392` + `test-require-cc-expense-v375` + `test-sms` (ایران).
-- **Deploy:** ⏳
+- **تست:** ایران `test-require-cc-amount-v392` ۱۳/۰ + `test-require-cc-expense-v375` ۱۱/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp.
+- **Deploy:** ✅ `6267c55` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v392`؛ `app.js?v=392`.
 
 ### ۱۴۰۵/۰۷/۲۳ — لیست پرداخت‌ها: پرداخت به شخص/حساب (SW v391)
 
