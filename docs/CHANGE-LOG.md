@@ -12,6 +12,17 @@
 - **پیگیری:** `reverseInventoryMovement` برای ردیف‌های value-only (qty=۰) دیگر `E_INV_QTY_ZERO` نمی‌دهد — لازم برای ابطال تعدیل بهای GRNI/landed-cost.
 - **Deploy:** ✅ `8682e4f` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v400`؛ `app.js?v=400`.
 
+### ۱۴۰۵/۰۷/۲۳ — مخفی‌سازی ابطال و هم‌ترازی از گزارش‌های عملیاتی (SW v400)
+
+- **علائم:** در کاردکس (مثل کاپشن مموری پاندا) ردیف‌های «ابطال…» و «هم‌ترازی کاردکس با موجودی انبار» دیده می‌شدند؛ کاربر فقط اسناد حقیقی دارای ارزش را می‌خواست.
+- **ریشه:** `buildStockLedger` فقط `status=reversed` را از پیش‌فرض حذف می‌کرد؛ ردیف معکوس با `event_type=reversal` و `status=posted` و ردیف‌های هم‌ترازی (`stock_reconcile` / شرح هم‌ترازی) هنوز در لیست می‌آمدند. فهرست اسناد حسابداری هم‌ترازی‌های posted را نشان می‌داد.
+- **Invariant:** حذف فیزیکی ممنوع (R13). مانده اول/پایان دوره از جریان اقتصادی کامل حساب می‌شود؛ جدول/فهرست عملیاتی فقط اسناد حقیقی. ممیزی با تیک جدا.
+- **رفع:** `isAuditOnlyStockRow` + فیلتر نمایش در `buildStockLedger`؛ `include_audit` در `GET /accounting/journal` و اکسل journal-docs؛ UI کاردکس/اسناد «نمایش ابطال و هم‌ترازی»؛ Help؛ تست `test-hide-audit-rows-v400`.
+- **فایل‌ها:** `lib/ledgers.js`, `routes/{accounting,excel,ledgers}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-hide-audit-rows-v400.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC tdd-workflow؛ Slack بدون نتیجه؛ explore kardex/journal map؛ tap-erp-architecture.
+- **تست:** (پس از اجرا)
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حذف ورود دوبل موجودی PACK + نهایی‌سازی تولید (SW v399)
 
 - **علائم:** در کاردکس کالا (مثل کاپشن مموری یلدا) هم «رسید برش / PACK» و هم «تولید PD-…» واردهٔ انبار محصول می‌زدند و موجودی دوبار بالا می‌رفت.

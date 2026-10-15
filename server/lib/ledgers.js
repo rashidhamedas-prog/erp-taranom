@@ -354,10 +354,15 @@ function buildStockLedger(db, {
     throw LedgerError(404, 'دفتر موجودی یافت نشد');
   }
 
-  const showCancelled = show_cancelled === true
+  const showAudit = show_cancelled === true
     || show_cancelled === 1
     || String(show_cancelled || '') === '1'
-    || String(show_cancelled || '').toLowerCase() === 'true';
+    || String(show_cancelled || '').toLowerCase() === 'true'
+    || show_audit === true
+    || show_audit === 1
+    || String(show_audit || '') === '1'
+    || String(show_audit || '').toLowerCase() === 'true';
+  const showCancelled = showAudit; // API alias kept for older clients
   const eventFilter = event_type != null && String(event_type).trim() !== ''
     ? String(event_type).trim()
     : null;
@@ -385,7 +390,9 @@ function buildStockLedger(db, {
     }
   } catch (_) { /* optional */ }
 
-  const active = rows.filter((r) => (
+  // Economic stream = every posted non-ghost row (incl. reversal + هم‌ترازی).
+  // Balances are always computed from this; the table can hide audit-only rows.
+  const economic = rows.filter((r) => (
     r.status === 'posted'
     && !isZeroQtyValueGhost(r)
     && (!eventFilter || r.event_type === eventFilter)
@@ -394,7 +401,7 @@ function buildStockLedger(db, {
   let opening_qty = 0;
   let opening_wh_qty = 0;
   if (from) {
-    for (const r of active) {
+    for (const r of economic) {
       if ((r.date || '') < from) {
         const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
         opening_wh_qty += delta;
@@ -403,20 +410,23 @@ function buildStockLedger(db, {
     }
   }
 
-  const display = showCancelled
-    ? rows.filter((r) => {
-      if (isZeroQtyValueGhost(r) && r.status === 'posted') return false;
-      if (eventFilter && r.event_type !== eventFilter && r.event_type !== 'reversal') return false;
-      return true;
-    })
-    : active;
-
   let period_qty_in = 0;
   let period_qty_out = 0;
   let running = opening_qty;
   let runningWh = opening_wh_qty;
   const lines = [];
-  for (const r of display) {
+
+  // Walk full history for correct running balance; emit only operational rows
+  // unless audit toggle is on (then also emit reversed + audit-only).
+  const walk = showAudit
+    ? rows.filter((r) => {
+      if (isZeroQtyValueGhost(r) && r.status === 'posted') return false;
+      if (eventFilter && r.event_type !== eventFilter && r.event_type !== 'reversal') return false;
+      return true;
+    })
+    : economic;
+
+  for (const r of walk) {
     if (from && (r.date || '') < from) continue;
     if (to && (r.date || '') > to) continue;
     const qIn = Number(r.qty_in) || 0;
@@ -431,6 +441,7 @@ function buildStockLedger(db, {
       }
       runningWh += qIn - qOut;
     }
+    if (!showAudit && isAuditOnlyStockRow(r)) continue;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
@@ -438,6 +449,7 @@ function buildStockLedger(db, {
       journal_id: r.je_id,
     });
     const cancelled = r.status === 'reversed' || r.event_type === 'reversal';
+    const auditOnly = isAuditOnlyStockRow(r);
     lines.push({
       id: r.id,
       tx_no: r.tx_no || null,
@@ -451,10 +463,11 @@ function buildStockLedger(db, {
       running_qty: running,
       warehouse_running_qty: runningWh,
       warehouse_only: !!wipOnly,
-      unit_cost_rial: (contributes || showCancelled) ? r.unit_cost_rial : null,
+      unit_cost_rial: (contributes || showAudit) ? r.unit_cost_rial : null,
       amount_rial: r.amount_rial,
       status: r.status || 'posted',
       cancelled: !!cancelled,
+      audit_only: !!auditOnly,
       reversed_of: r.reversed_of || null,
       user_name: r.user_name || '',
       source_type: r.source_type || null,
@@ -495,6 +508,7 @@ function buildStockLedger(db, {
     closing_qty,
     closing_warehouse_qty,
     show_cancelled: showCancelled,
+    show_audit: showAudit,
     event_type: eventFilter,
     lines,
     source: 'inventory_ledger',
@@ -575,6 +589,8 @@ module.exports = {
   assertJalaliQuery,
   signMove,
   safeSourceLink,
+  isAuditOnlyStockRow,
+  isAuditOnlyJournalDescription,
   buildAccountLedger,
   buildFinancialLedger,
   buildStockLedger,

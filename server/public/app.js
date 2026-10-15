@@ -11564,8 +11564,8 @@ async function voidInvoiceDoc(id,num){
 }
 
 /* ============================================================
-   ITEM KARDEX (کاردکس کالا) — professional stock ledger (v364)
-   Active posted rows only by default; amend ghosts retired; optional history.
+   ITEM KARDEX (کاردکس کالا) — professional stock ledger (v364/v400)
+   Operational value rows only by default; void+align hidden; optional audit.
 ============================================================ */
 let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'', show_cancelled:false };
 
@@ -11601,8 +11601,8 @@ async function renderItemKardexTab(body){
             `<option value="${e}" ${String(_kardexState.event_type)===e?'selected':''}>${e}</option>`).join('')}
         </select>
       </div>
-      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px;padding-bottom:8px`)}">
-        <input type="checkbox" id="kardexShowCanc" ${_kardexState.show_cancelled?'checked':''}> نمایش ابطال‌شده‌ها
+      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px;padding-bottom:8px`)}" title="فقط برای ممیزی؛ پیش‌فرض مخفی است">
+        <input type="checkbox" id="kardexShowCanc" ${_kardexState.show_cancelled?'checked':''}> نمایش ابطال و هم‌ترازی
       </label>
       <button type="button" class="btn" id="kardexReload" data-csp-style="${CSP.style(`margin-bottom:2px`)}">نمایش</button>
       <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}">CSV</a>
@@ -11692,7 +11692,7 @@ async function loadItemKardex(productId){
         <h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
         <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmt(d.product.stock||0)} ${unit}
           ${d.source==='inventory_ledger'?' · دفتر کل انبار (فعال)':''}
-          ${_kardexState.show_cancelled?' · شامل تاریخچه ابطال':''}
+          ${_kardexState.show_cancelled?' · شامل ابطال و هم‌ترازی (ممیزی)':''}
           ${d.warehouse_qty!=null?' · موجودی انبار فیلتر: '+fmt(d.warehouse_qty):''}
         </span>
       </div>
@@ -11714,13 +11714,15 @@ async function loadItemKardex(productId){
           const qIn=Number(l.qty_in)||0;
           const qOut=Number(l.qty_out)||0;
           const cancelled=l.cancelled||l.status==='reversed';
+          const auditOnly=!!l.audit_only;
           const canDrill=l.ref_type && l.ref_id;
           const noteHtml=canDrill
             ? `<a href="#" data-kardex-ref="${esc(l.ref_type)}" data-kardex-id="${esc(String(l.ref_id))}" data-csp-style="${CSP.style(`color:var(--accent,var(--purple));text-decoration:underline`)}">${esc(l.note||'-')}</a>`
             : esc(l.note||'-');
-          const badge=cancelled?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">${l.event_type==='reversal'?'معکوس':'ابطال'}</span>`:'';
+          const badge=cancelled?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">${l.event_type==='reversal'?'معکوس':'ابطال'}</span>`
+            :(auditOnly?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">هم‌ترازی</span>`:'');
           const wip=l.warehouse_only?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">WIP</span>`:'';
-          return `<tr data-csp-style="${CSP.style(`${cancelled?'opacity:.55':''}`)}">
+          return `<tr data-csp-style="${CSP.style(`${(cancelled||auditOnly)?'opacity:.55':''}`)}">
           <td class="mono">${esc(dt)}</td>
           <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.tx_no||l.event_type||'-')}${badge}${wip}</td>
           <td>${noteHtml}</td>
@@ -22280,20 +22282,25 @@ async function fetchAllJournalDocs(extra){
 }
 let _jdSearchTimer=null;
 let _jdSearchQ='';
+let _jdShowAudit=false;
 async function renderJournalDocsTab(body){
   const qs=new URLSearchParams();
   if(accDateFrom) qs.set('from', accDateFrom);
   if(accDateTo) qs.set('to', accDateTo);
   if(_jdSearchQ) qs.set('q', _jdSearchQ);
+  if(_jdShowAudit) qs.set('include_audit','1');
   const d=await fetchAllJournalDocs(qs.toString());
   const entries=d.entries||[];
   const total=d.total!=null?d.total:entries.length;
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">لیست تمامی اسناد حسابداری — برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b>؛ ورود اکسل با برچسب سبز «اکسل». جستجو روی <b>شماره سند</b> (مثلاً ۳۲۹ یا #۳۲۹) در کل دیتابیس است.</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">اسناد حسابداری <b>حقیقی</b> — پیش‌فرض بدون ابطال و هم‌ترازی. برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b>؛ اکسل با برچسب سبز. جستجو روی <b>شماره سند</b>.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){voucherModal()})}">➕ سند دستی</button>
       <input id="jdSearch" type="search" inputmode="search" class="mono" placeholder="جستجو شماره سند…" value="${esc(_jdSearchQ)}" autocomplete="off" data-csp-style="${CSP.style(`min-width:200px;max-width:280px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}" data-csp-input="${CSP.bind('input',function(event){onJournalDocsSearch(this.value)})}">
-      <span class="tag">${fmt(total)} سند${_jdSearchQ?' (نتیجه جستجو)':''}</span>
+      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}" title="فقط ممیزی">
+        <input type="checkbox" id="jdShowAudit" ${_jdShowAudit?'checked':''} data-csp-change="${CSP.bind('change',function(){_jdShowAudit=!!el('jdShowAudit')?.checked;loadAccTab('journal-docs')})}"> نمایش ابطال و هم‌ترازی
+      </label>
+      <span class="tag">${fmt(total)} سند${_jdSearchQ?' (نتیجه جستجو)':''}${_jdShowAudit?' · ممیزی':''}</span>
     </div>
     ${entries.map(e=>`
       <div class="erp-fold">
@@ -23314,7 +23321,8 @@ function transferSideOptions(type,selectedId){
   return `<option value="">-- عمومی (بدون انتخاب مشخص) --</option>` +
     list.map(x=>`<option value="${x.id}" ${selectedId==x.id?'selected':''}>${esc(x.name)}</option>`).join('');
 }
-function transferModal(preferTo){
+async function transferModal(preferTo){
+  await ensurePayCaches();
   openModal(`
     <div class="modal-head"><h3>انتقال بین بانک و صندوق</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -23324,7 +23332,9 @@ function transferModal(preferTo){
       <div class="fg"><label>حساب مبدأ</label><select id="tr-from-id">${transferSideOptions('cash')}</select></div>
       <div class="fg"><label>به (مقصد) *</label><select id="tr-to-type" data-csp-change="${CSP.bind('change',function(event){updateTransferSideOptions('to')})}"><option value="cash">صندوق نقدی</option><option value="bank" selected>بانک</option></select></div>
       <div class="fg"><label>حساب مقصد</label><select id="tr-to-id">${transferSideOptions('bank')}</select></div>
-      <div class="fg" id="tr-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط وقتی مبدأ بانک است — از بانک مبدأ کسر و در سند به حساب ۶۱۱۵ ثبت می‌شود.')}</label><input id="tr-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
+      <div class="fg" id="tr-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط وقتی مبدأ بانک است — از بانک مبدأ کسر و در سند به حساب کارمزد بانکی (برگ معین) ثبت می‌شود.')}</label><input id="tr-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
+      <div class="fg" id="tr-fee-cc-fg" data-csp-style="${CSP.style(`display:none`)}"><label>مرکز هزینه کارمزد بانکی ${hlp('سطر کارمزد (۶۱۱۵) با این مرکز ثبت می‌شود. با الزام مرکز هزینه وقتی کارمزد > ۰ اجباری است.')}</label>
+        <select id="tr-fee-cc">${payFeeCcOptionsHtml()}</select></div>
       <div class="fg full"><label>شرح</label><input id="tr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTransfer()})}">💾 ثبت انتقال</button>
@@ -23336,8 +23346,11 @@ function transferModal(preferTo){
 function toggleTransferFee(){
   const fromBank=el('tr-from-type')?.value==='bank';
   const fg=el('tr-fee-fg');
+  const ccFg=el('tr-fee-cc-fg');
   if(fg) fg.style.display=fromBank?'flex':'none';
+  if(ccFg) ccFg.style.display=fromBank?'flex':'none';
   if(!fromBank && el('tr-fee')) el('tr-fee').value='';
+  if(!fromBank && el('tr-fee-cc')) el('tr-fee-cc').value='';
 }
 function updateTransferSideOptions(side){
   const type=el('tr-'+side+'-type').value;
@@ -23346,12 +23359,18 @@ function updateTransferSideOptions(side){
 async function saveTransfer(){
   const amount=moneyVal('tr-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  const feeRial=moneyVal('tr-fee')||0;
+  const feeCc=+el('tr-fee-cc')?.value||null;
+  if(el('tr-from-type')?.value==='bank' && feeRial>0 && isExpenseCcRequired() && !feeCc){
+    showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return;
+  }
   const data={
     date:el('tr-date').value, amount,
     from_type:el('tr-from-type').value, from_id:el('tr-from-id').value||null,
     to_type:el('tr-to-type').value, to_id:el('tr-to-id').value||null,
     note:el('tr-note').value,
-    fee_rial: moneyVal('tr-fee')||0
+    fee_rial: feeRial,
+    fee_cost_center_id: feeCc
   };
   try{
     await api('POST','/transfers',data);
@@ -23981,13 +24000,17 @@ async function saveAccountPayment(){
   const parts=payInstAmounts('apay');
   const amounts=parts && parts.length ? parts : [moneyVal('apay-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const feeRial=payFeeVal('apay');
+  const feeCc=payFeeCcVal('apay');
+  if(feeRial>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   try{
     let first=true;
     for(const amount of amounts){
       await api('POST','/accounting/account-payments',{
         account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
         pay_type, bank_id, cash_box_id, check_category_id:+el('apay-checkcat')?.value||null,
-        fee_rial: first ? payFeeVal('apay') : 0
+        fee_rial: first ? feeRial : 0,
+        fee_cost_center_id: first ? feeCc : null
       });
       first=false;
     }
@@ -24008,9 +24031,7 @@ function paymentOpChooser(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function personPaymentModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
-  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   const [partiesResp, reps]=await Promise.all([
     api('GET','/parties?limit=200')||{},
@@ -24090,17 +24111,21 @@ async function savePersonPayment(){
   const parts=payInstAmounts('pp');
   const amounts=parts && parts.length ? parts : [moneyVal('pp-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const feeRial=payFeeVal('pp');
+  const feeCc=payFeeCcVal('pp');
+  if(feeRial>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   const base={
     pay_type, date:el('pp-date').value, note:el('pp-note').value,
     bank_id, cash_box_id,
     check_category_id:+el('pp-checkcat')?.value||null,
     account_code:el('pp-account-code')?.value||'',
-    fee_rial:payFeeVal('pp')
+    fee_rial:feeRial,
+    fee_cost_center_id:feeCc
   };
   try{
     let first=true;
     for(const amount of amounts){
-      const payload={...base, amount, fee_rial: first ? base.fee_rial : 0};
+      const payload={...base, amount, fee_rial: first ? base.fee_rial : 0, fee_cost_center_id: first ? feeCc : null};
       first=false;
       if(kind==='supplier'){
         await api('POST','/purchases/payments',{...payload, supplier_id:target});
@@ -24120,11 +24145,14 @@ async function savePersonPayment(){
         ];
         if(fee>0 && (pay_type==='bank'||pay_type==='bank_transfer')){
           const feeCode=resolveBankFeeCodeForUi();
-          lines.splice(1,0,{ target_type:'account', code:feeCode, debit:fee, credit:0, description:'کارمزد انتقال' });
+          const feeLine={ target_type:'account', code:feeCode, debit:fee, credit:0, description:'کارمزد انتقال' };
+          if(payload.fee_cost_center_id) feeLine.cost_center_id=payload.fee_cost_center_id;
+          lines.splice(1,0,feeLine);
         }
         await api('POST','/accounting/vouchers',{
           date:payload.date||todayJalali(),
           description:payload.note||'پرداخت به شخص',
+          cost_center_id:payload.fee_cost_center_id||null,
           lines
         });
       }
@@ -24286,6 +24314,10 @@ async function saveExpensePayment(){
   const costCenterId=+el('ex-cc')?.value||null;
   if(overhead && !costCenterId){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
   if(isExpenseCcRequired() && !costCenterId){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
+  const feeRial=payFeeVal('ex');
+  syncPayFeeCcDefault('ex', costCenterId);
+  const feeCc=payFeeCcVal('ex')||costCenterId||null;
+  if(feeRial>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   try{
     let first=true;
     for(const amount of amounts){
@@ -24298,7 +24330,8 @@ async function saveExpensePayment(){
         purchase_invoice_id:+el('ex-purchase')?.value||null,
         cost_center_id:costCenterId,
         is_overhead:overhead,
-        fee_rial: first ? payFeeVal('ex') : 0
+        fee_rial: first ? feeRial : 0,
+        fee_cost_center_id: first ? feeCc : null
       });
       first=false;
     }
@@ -26033,6 +26066,9 @@ async function incentivePayModal(repId, repName, payable){
 async function saveIncentivePayment(repId){
   const amount=+el('ip-amount').value;
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const feeRial=payFeeVal('ip');
+  const feeCc=payFeeCcVal('ip');
+  if(feeRial>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   try{
     await api('POST','/accounting/incentive-payments',{
       rep_id:repId, amount,
@@ -26042,7 +26078,8 @@ async function saveIncentivePayment(repId){
       bank_id:+el('ip-bank').value||null,
       cash_box_id:+el('ip-cashbox')?.value||null,
       check_category_id:+el('ip-checkcat')?.value||null,
-      fee_rial:payFeeVal('ip')
+      fee_rial:feeRial,
+      fee_cost_center_id:feeCc
     });
     closeModal(); showToast('پرداخت انگیزه ثبت شد');
     loadAccTab('commissions');
@@ -29351,7 +29388,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> ظاهر می‌شود: اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
@@ -29359,14 +29396,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
         <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
-        <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ). اگر مبدأ بانک باشد می‌توانید کارمزد انتقال ثبت کنید (برگ حساب کارمزد بانکی). در حذف، سند به‌طور کامل ابطال می‌شود</li>
+        <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ). اگر مبدأ بانک باشد می‌توانید کارمزد انتقال و مرکز هزینه جداگانهٔ آن را ثبت کنید (برگ حساب کارمزد بانکی / ۶۱۱۵). در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>داشبورد فروش و خرید</b>: زیرگزارشات همین ماژول — KPI، سود ناخالص/خالص و حاشیه، پل سود، مقایسه دوره، نمودار، Topها، هشدار؛ drill به اسناد و باز کردن فاکتور</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
-        <li><b>کاردکس کالا</b>: دفتر حرکت موجودی فعال (فقط ردیف‌های <code>posted</code> با مقدار واقعی). اصلاح فاکتور دیگر ردیف صفرqty شبح نمی‌سازد — ردیف‌های بلااستفاده نرم‌باطل می‌شوند. فیلتر انبار/بازه/نوع رویداد، نوار اول‌دوره/ورود/خروج/پایان، drill به سند مبدأ، و «نمایش ابطال‌شده‌ها» برای ممیزی. حرکت WIP فقط در مانده فیزیکی دیده می‌شود. اگر موجودی انبار باشد ولی جدول خالی باشد، سرور مرکزی با راه‌اندازی دوباره ردیف هم‌ترازی می‌نویسد</li>
+        <li><b>کاردکس کالا (v400)</b>: پیش‌فرض فقط اسناد حقیقی دارای ارزش — ردیف‌های <b>ابطال/معکوس</b> و <b>هم‌ترازی کاردکس</b> مخفی‌اند (مانده اول/پایان دوره از همهٔ ردیف‌های اقتصادی حساب می‌شود). تیک «نمایش ابطال و هم‌ترازی» فقط برای ممیزی. اصلاح فاکتور ردیف صفر شبح نمی‌سازد. فیلتر انبار/بازه/رویداد، نوار KPI، drill به سند مبدأ. فهرست اسناد حسابداری و خروجی اکسل همان فیلتر را دارد (سوییچ ممیزی جدا).</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار. حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. «اجازه موجودی منفی» روی حواله اعمال می‌شود. فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار (v333)</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). میانگین بها و ارزش ریالی از <code>average_cost_rial</code> یا بهای تمام‌شدهٔ کالا — هر دو ریال؛ دیگر بهای کاتالوگ را ×۱۰ (تومان قدیمی) نمی‌کند. فیلتر و خروجی CSV/اکسل</li>

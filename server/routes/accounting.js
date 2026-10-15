@@ -1540,9 +1540,14 @@ router.get('/payables/by-invoice', auth, adminOrAccounting, (req, res) => {
 });
 
 // Journal entries with lines (paginated, date-filtered, search by doc#)
+// Default: hide soft-voided + technical هم‌ترازی / [ابطال] leftovers (v400).
+// Audit: include_audit=1 (admin/accounting) shows those descriptions too.
 router.get('/journal', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to, page = '1', ref_type, q } = req.query;
+  const includeAudit = req.query.include_audit === '1'
+    || req.query.include_audit === 'true'
+    || req.query.show_audit === '1';
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   // Default 200; cap 500 — UI pages through until total is reached (no hard 50 ceiling).
   const limitRaw = parseInt(req.query.limit, 10);
@@ -1580,6 +1585,15 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
   }
   where.push('COALESCE(je.deleted_at,0)=0');
   where.push("COALESCE(je.status,'posted')<>'reversed'");
+  if (!includeAudit) {
+    // Hide technical alignment vouchers and leftover void titles from operational list.
+    // char(8204)=ZWNJ so «هم‌ترازی» / «هم ترازی» / «همترازی» all match.
+    where.push(
+      "REPLACE(REPLACE(IFNULL(je.description,''), char(8204), ''), ' ', '') NOT LIKE '%همترازی%'"
+    );
+    where.push("TRIM(IFNULL(je.description,'')) NOT LIKE 'ابطال%'");
+    where.push("TRIM(IFNULL(je.description,'')) NOT LIKE '[ابطال%'");
+  }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = db.prepare(`SELECT COUNT(*) c FROM journal_entries je ${whereSql}`).get(...params).c;
   const entries = db.prepare(`
@@ -1592,7 +1606,7 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
     ? db.prepare(`SELECT * FROM journal_lines WHERE entry_id IN (${ids.join(',')}) ORDER BY entry_id,id`).all()
     : [];
   entries.forEach(e => { e.lines = lines.filter(l => l.entry_id === e.id); });
-  res.json({ entries, total, page: pageNum, limit });
+  res.json({ entries, total, page: pageNum, limit, include_audit: !!includeAudit });
 });
 
 // Customer account statement (JSON) — filters: from, to, type
