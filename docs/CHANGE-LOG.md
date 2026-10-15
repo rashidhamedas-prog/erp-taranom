@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه جدا برای کارمزد بانکی (SW v401)
+
+- **هدف:** در همهٔ پرداخت‌های خروجی/انتقال که کارمزد بانکی دارند، فیلد جداگانهٔ `fee_cost_center_id` برای سطر کارمزد (۶۱۱۵) — مستقل از مرکز هزینهٔ اصل سند.
+- **Invariant:** Dr مقصد(اصل) + Dr ۶۱۱۵(کارمزد با CC کارمزد) / Cr بانک(اصل+کارمزد)؛ دفتر طرف‌حساب فقط اصل. با `require_cc_on_expense=1` و `fee>0` مرکز کارمزد اجباری است؛ اگر خالی باشد از مرکز سند هزینه پیش‌فرض می‌گیرد.
+- **اسکیما:** `fee_cost_center_id` روی `expense_payments` / `supplier_payments` / `incentive_payments` / `account_transfers`؛ FK در `sync/tables.js`.
+- **بک‌اند:** `payment-bank-fee.resolveFeeCostCenterId` + stamp روی خط ۶۱۱۵؛ مسیرهای expenses/purchases/incentive/account-payments/transfers + amend-cash-ops؛ ابطال همان CC را روی reverse می‌گذارد.
+- **UI:** فیلد «مرکز هزینه کارمزد بانکی» کنار کارمزد انتقال در هزینه/تأمین/انگیزه/شخص/حساب/انتقال/اصلاح سند؛ Help ادمین.
+- **فایل‌ها:** `lib/{payment-bank-fee,amend-cash-ops}.js`, `routes/{expenses,purchases,accounting,transfers}.js`, `db.js`, `sync/tables.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bank-fee-cc-v400.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه برای این موضوع؛ tap-erp-architecture؛ architect plan (fee CC روی ۶۱۱۵).
+- **تست:** `test-bank-fee-cc-v400` + `test-sms` / `test-sync` روی ایران (لوکال Node24 بدون binary better-sqlite3).
+- **Non-goals:** کارمزد کارتخوان POS (۶۱۱۴)، تطبیق بانک.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — فاکتور ریالی از رسید انبار GRNI بدون دابل‌رسید (SW v400)
 
 - **هدف:** انباردار/نقش عملیاتی رسید انبار با کلاس GRNI (۲۱۱۲) بزند (فقط تعداد)؛ مدیر/حسابدار در فاکتور خرید لیست رسیدهای باز را ببیند و فقط سند ریالی بزند بدون ورود دوبارهٔ موجودی.

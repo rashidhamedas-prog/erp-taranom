@@ -16,7 +16,9 @@ const { rialToLedger } = require('./money');
 const { acct } = require('./coa-map');
 const { assertFiscalYearWritable } = require('./fiscal-period');
 const { createLedgerEntry, resolveCashAccount } = require('../db');
-const { parseFeeRial, outboundPaymentLines } = require('./payment-bank-fee');
+const {
+  parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId, outboundPaymentLines,
+} = require('./payment-bank-fee');
 const { recvAcct } = require('./void-settlement');
 const { digitsOnly, normalizeSheba, recomputeInvoiceSettledBalances } = require('./invoice-payments');
 const {
@@ -470,22 +472,29 @@ function amendSupplierPayment(db, id, body, userId) {
   const purchaseId = body.purchase_invoice_id ? parseInt(body.purchase_invoice_id, 10) : null;
   assertPurchaseRoom(db, purchaseId, row.id, supplierId, amount, 'supplier');
 
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: fee, payType,
+    feeCostCenterId: body.fee_cost_center_id != null || body.bank_fee_cost_center_id != null
+      ? parseFeeCostCenterInput(body)
+      : (row.fee_cost_center_id || null),
+  });
+
   const note = String(body.note != null ? body.note : (row.note || ''));
   const accountCode = String(body.account_code != null ? body.account_code : (row.account_code || '')).trim().slice(0, 32);
   const cash = cashAccount(db, payType, bankId, cashBoxId, accountCode);
   const payable = payableAcct(db, supplierId);
   const { lines } = outboundPaymentLines(db, {
-    amount, feeRial: fee, payType, dest: payable, cash,
+    amount, feeRial: fee, payType, dest: payable, cash, feeCostCenterId: feeCcId,
   });
 
   db.prepare(`
     UPDATE supplier_payments SET
       supplier_id=?, purchase_invoice_id=?, amount=?, fee_rial=?, pay_type=?, date=?, note=?,
-      bank_id=?, check_category_id=?, cash_box_id=?, account_code=?
+      bank_id=?, check_category_id=?, cash_box_id=?, account_code=?, fee_cost_center_id=?
     WHERE id=?
   `).run(
     supplierId, purchaseId, amount, fee, payType, date, note,
-    bankId, body.check_category_id || null, cashBoxId, accountCode, row.id
+    bankId, body.check_category_id || null, cashBoxId, accountCode, feeCcId, row.id
   );
 
   const description = `پرداخت به تأمین‌کننده — ${amount.toLocaleString('fa-IR')} ریال`;
@@ -561,17 +570,25 @@ function amendIncentivePayment(db, id, body, userId) {
   const date = String(body.date != null ? body.date : (row.date || ''));
   assertDatesWritable(db, row.date, date);
   const note = String(body.note != null ? body.note : (row.note || ''));
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: fee, payType,
+    feeCostCenterId: body.fee_cost_center_id != null || body.bank_fee_cost_center_id != null
+      ? parseFeeCostCenterInput(body)
+      : (row.fee_cost_center_id || null),
+  });
 
   const cash = cashAccount(db, payType, bankId, cashBoxId, '');
   const payable = acct(db, 'coa_rep_commission_payable');
-  const { lines } = outboundPaymentLines(db, { amount, feeRial: fee, payType, dest: payable, cash });
+  const { lines } = outboundPaymentLines(db, {
+    amount, feeRial: fee, payType, dest: payable, cash, feeCostCenterId: feeCcId,
+  });
 
   db.prepare(`
     UPDATE incentive_payments SET
       rep_id=?, amount=?, fee_rial=?, pay_type=?, date=?, note=?,
-      bank_id=?, check_category_id=?, cash_box_id=?
+      bank_id=?, check_category_id=?, cash_box_id=?, fee_cost_center_id=?
     WHERE id=?
-  `).run(repId, amount, fee, payType, date, note, bankId, body.check_category_id || null, cashBoxId, row.id);
+  `).run(repId, amount, fee, payType, date, note, bankId, body.check_category_id || null, cashBoxId, feeCcId, row.id);
 
   unwindIncentiveSubledger(db, row.id);
   const { recordIncentivePaymentLedger, settleAdvancesAgainstPayment } = require('./rep-ledger');
@@ -646,21 +663,29 @@ function amendExpensePayment(db, id, body, userId) {
   }
 
   const note = String(body.note != null ? body.note : (row.note || ''));
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: fee, payType,
+    feeCostCenterId: body.fee_cost_center_id != null || body.bank_fee_cost_center_id != null
+      ? parseFeeCostCenterInput(body)
+      : (row.fee_cost_center_id || null),
+    documentCostCenterId: posting.costCenterId,
+  });
   const cash = cashAccount(db, payType, bankId, cashBoxId, '');
   const { lines } = outboundPaymentLines(db, {
     amount, feeRial: fee, payType, dest: posting.account, cash, destDescription: title,
+    feeCostCenterId: feeCcId,
   });
 
   db.prepare(`
     UPDATE expense_payments SET
       category=?, title=?, amount=?, fee_rial=?, pay_type=?, bank_id=?, cash_box_id=?,
-      check_category_id=?, cost_center_id=?, date=?, note=?, account_code=?,
+      check_category_id=?, cost_center_id=?, fee_cost_center_id=?, date=?, note=?, account_code=?,
       purchase_invoice_id=?, is_overhead=?
     WHERE id=?
   `).run(
     body.category != null ? body.category : (row.category || 'admin'),
     title, amount, fee, payType, bankId, cashBoxId,
-    body.check_category_id || null, posting.costCenterId, date, note, posting.account.code,
+    body.check_category_id || null, posting.costCenterId, feeCcId, date, note, posting.account.code,
     purchaseId, posting.isOverhead, row.id
   );
 
@@ -756,13 +781,21 @@ function amendPersonVoucherPayment(db, jeId, body, userId) {
   if (payType === 'bank' || payType === 'bank_transfer') {
     assertBankOverdraftOk(db, bankId, amount + fee);
   }
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: fee, payType,
+    feeCostCenterId: parseFeeCostCenterInput(body),
+    documentCostCenterId: body.cost_center_id,
+  });
   const { lines } = outboundPaymentLines(db, {
     amount, feeRial: fee, payType, dest, cash, destDescription: 'پرداخت به شخص',
+    feeCostCenterId: feeCcId,
   });
 
   const jeOut = rewriteOrThrow(db, {
     sourceType: 'manual_voucher', sourceId: id,
-    date, description: note || 'پرداخت به شخص', lines,
+    date, description: note || 'پرداخت به شخص',
+    costCenterId: feeCcId || body.cost_center_id || null,
+    lines,
   });
 
   retirePersonLedgerByRef(db, {
@@ -827,14 +860,22 @@ function amendAccountPayment(db, jeId, body, userId) {
   if (payType === 'bank' || payType === 'bank_transfer') {
     assertBankOverdraftOk(db, bankId, amount + fee);
   }
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: fee, payType,
+    feeCostCenterId: parseFeeCostCenterInput(body),
+    documentCostCenterId: body.cost_center_id,
+  });
   const { lines } = outboundPaymentLines(db, {
     amount, feeRial: fee, payType, dest, cash,
     destDescription: note || `پرداخت به حساب ${dest.code}`,
+    feeCostCenterId: feeCcId,
   });
 
   const jeOut = rewriteOrThrow(db, {
     sourceType: 'account_payment', sourceId: id,
-    date, description: note || `پرداخت به حساب ${dest.code} — ${dest.name}`, lines,
+    date, description: note || `پرداخت به حساب ${dest.code} — ${dest.name}`,
+    costCenterId: feeCcId || body.cost_center_id || null,
+    lines,
   });
 
   const {

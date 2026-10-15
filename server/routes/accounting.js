@@ -4,7 +4,10 @@ const { acct: coaAcct, suggestChildCode, validateChildCode } = require('../lib/c
 const { syncLiveTafsili } = require('../lib/coa-live');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
-const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
+const {
+  parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
+  outboundPaymentLines, outboundPaymentReversalLines,
+} = require('../lib/payment-bank-fee');
 const { todayJalali } = require('../jalali');
 const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
@@ -932,16 +935,28 @@ router.get('/incentive-payments', auth, adminOrAccounting, (req, res) => {
 // Record an incentive payment to a sales representative
 router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   const { recordIncentivePaymentLedger, settleAdvancesAgainstPayment, notifyRep } = require('../lib/rep-ledger');
-  const { rep_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id, fee_rial, bank_fee_rial } = req.body;
+  const {
+    rep_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id,
+    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id,
+  } = req.body;
   if (!rep_id || !amount) return res.status(400).json({ error: 'کارشناس و مبلغ الزامی است' });
   const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
+  let feeCcId = null;
+  try {
+    feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: fee, payType: pay_type || 'cash',
+      feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const rep = db.prepare('SELECT id,name FROM users WHERE id=?').get(rep_id);
   if (!rep) return res.status(404).json({ error: 'کارشناس یافت نشد' });
   const paymentId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO incentive_payments (rep_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).run(rep_id, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
+      'INSERT INTO incentive_payments (rep_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(rep_id, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, feeCcId);
     recordIncentivePaymentLedger(db, {
       rep_id, amount: parseFloat(amount), date: date || todayJalali(), payment_id: result.lastInsertRowid, created_by: req.user.id
     });
@@ -952,7 +967,7 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
     const payable = coaAcct(db, 'coa_rep_commission_payable');
     const { lines } = outboundPaymentLines(db, {
       amount: parseFloat(amount), feeRial: fee, payType: pay_type || 'cash',
-      dest: payable, cash,
+      dest: payable, cash, feeCostCenterId: feeCcId,
     });
     postToLedger(db, {
       sourceType: 'incentive_payment', sourceId: result.lastInsertRowid,
@@ -980,6 +995,7 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
     const payable = coaAcct(db, 'coa_rep_commission_payable');
     const { lines } = outboundPaymentReversalLines(db, {
       amount: row.amount, feeRial: row.fee_rial || 0, dest: payable, cash,
+      feeCostCenterId: row.fee_cost_center_id || null,
     });
     const reversalId = postToLedger(db, {
       sourceType: 'incentive_payment_reversal', sourceId: row.id, date: todayJalali(),
@@ -2116,26 +2132,42 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
 
 /** پرداخت به حساب کدینگ (همه سطوح) — Dr حساب مقصد [+ کارمزد 6115] / Cr صندوق یا بانک */
 router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
-  const { date, amount, account_code, pay_type, bank_id, cash_box_id, note, fee_rial, bank_fee_rial } = req.body;
+  const {
+    date, amount, account_code, pay_type, bank_id, cash_box_id, note,
+    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id, cost_center_id,
+  } = req.body;
   const amt = Math.round(Number(amount) || 0);
   const code = String(account_code || '').trim();
   if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
   if (!code) return res.status(400).json({ error: 'حساب مقصد الزامی است' });
   const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
+  let feeCcId = null;
+  try {
+    feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: fee, payType: pay_type || 'cash',
+      feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
+      documentCostCenterId: cost_center_id,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const posted = assertActiveAccount(db, code);
   if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
   const dest = posted.acc;
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   const { lines } = outboundPaymentLines(db, {
     amount: amt, feeRial: fee, payType: pay_type || 'cash', dest, cash,
+    feeCostCenterId: feeCcId,
   });
   const when = date || todayJalali();
   const desc = note || `پرداخت به حساب ${dest.code} — ${dest.name}`;
   const entryId = db.transaction(() => {
     const id = postToLedger(db, {
       sourceType: 'account_payment', sourceId: null,
-      date: when, description: desc, createdBy: req.user.id, lines,
+      date: when, description: desc, createdBy: req.user.id,
+      costCenterId: cost_center_id || feeCcId || null,
+      lines,
     });
     try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(id, id); } catch (_) {}
     mirrorAccountVoucherToPartyBooks(db, {

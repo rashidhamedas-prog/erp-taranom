@@ -3,7 +3,10 @@ const { getDB, audit, resolveCashAccount } = require('../db');
 const { postToLedger } = require('../lib/ledger');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { transferLines, transferReversalLines } = require('../lib/payment-bank-fee');
+const {
+  parseFeeCostCenterInput, resolveFeeCostCenterId,
+  transferLines, transferReversalLines,
+} = require('../lib/payment-bank-fee');
 const {
   assertActiveBank, assertActiveCashBox, assertBankOverdraftOk, assertCashFloatCeilingOk,
 } = require('../lib/treasury-guards');
@@ -34,7 +37,10 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { date, from_type, from_id, to_type, to_id, amount, note, fee_rial, bank_fee_rial } = req.body;
+  const {
+    date, from_type, from_id, to_type, to_id, amount, note,
+    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id,
+  } = req.body;
   if (!TYPES.includes(from_type) || !TYPES.includes(to_type)) return res.status(400).json({ error: 'نوع حساب مبدأ/مقصد نامعتبر است' });
   const amt = parseFloat(amount) || 0;
   if (amt <= 0) return res.status(400).json({ error: 'مبلغ باید بزرگ‌تر از صفر باشد' });
@@ -44,7 +50,12 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const feeRaw = Math.max(0, Math.round(Number(fee_rial ?? bank_fee_rial) || 0));
   const fee = from_type === 'bank' ? feeRaw : 0;
   const db = getDB();
+  let feeCcId = null;
   try {
+    feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: fee, fromType: from_type,
+      feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
+    });
     if (from_type === 'bank') assertActiveBank(db, from_id);
     else assertActiveCashBox(db, from_id);
     if (to_type === 'bank') assertActiveBank(db, to_id);
@@ -56,22 +67,25 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   }
   const transferId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,note,user_id) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, fee, note || '', req.user.id);
+      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,fee_cost_center_id,note,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, fee, feeCcId, note || '', req.user.id);
     const transferId = result.lastInsertRowid;
     const src = resolveSide(db, from_type, from_id);
     const dst = resolveSide(db, to_type, to_id);
-    const { lines } = transferLines(db, { amount: amt, feeRial: fee, fromType: from_type, src, dst });
+    const { lines } = transferLines(db, {
+      amount: amt, feeRial: fee, fromType: from_type, src, dst, feeCostCenterId: feeCcId,
+    });
     postToLedger(db, {
       sourceType: 'transfer', sourceId: transferId,
       date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
       createdBy: req.user.id,
+      costCenterId: feeCcId,
       lines,
     });
     return transferId;
   })();
   audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} ریال بین حساب‌های داخلی`);
-  res.json({ id: transferId, ok: true, fee_rial: fee });
+  res.json({ id: transferId, ok: true, fee_rial: fee, fee_cost_center_id: feeCcId });
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
@@ -82,10 +96,14 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   db.transaction(() => {
     const src = resolveSide(db, row.from_type, row.from_id);
     const dst = resolveSide(db, row.to_type, row.to_id);
-    const { lines } = transferReversalLines(db, { amount: row.amount, feeRial: row.fee_rial || 0, src, dst });
+    const { lines } = transferReversalLines(db, {
+      amount: row.amount, feeRial: row.fee_rial || 0, src, dst,
+      feeCostCenterId: row.fee_cost_center_id || null,
+    });
     const reversalId = postToLedger(db, {
       sourceType: 'transfer_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال انتقال وجه #${row.id}`, createdBy: req.user.id,
+      costCenterId: row.fee_cost_center_id || null,
       lines,
     });
     db.prepare("UPDATE account_transfers SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")

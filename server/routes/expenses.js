@@ -4,7 +4,10 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
-const { parseFeeRial, outboundPaymentLines, outboundPaymentReversalLines } = require('../lib/payment-bank-fee');
+const {
+  parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
+  outboundPaymentLines, outboundPaymentReversalLines,
+} = require('../lib/payment-bank-fee');
 const {
   assertActiveBank, assertActiveCashBox, assertBankOverdraftOk,
 } = require('../lib/treasury-guards');
@@ -231,7 +234,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     category, title, amount, pay_type, date, note, bank_id, cash_box_id,
     check_category_id, cost_center_id, account_code, purchase_invoice_id, is_overhead,
-    fee_rial, bank_fee_rial
+    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id
   } = req.body;
   const amt = parseFloat(amount) || 0;
   if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
@@ -253,13 +256,23 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
+  let feeCcId = null;
+  try {
+    feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: fee, payType: payTypeNorm,
+      feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
+      documentCostCenterId: posting.costCenterId,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const acc = posting.account;
   const expId = db.transaction(() => {
     const result = db.prepare(
-      `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,fee_cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(category || 'admin', title || '', amt, fee, payTypeNorm, bank_id || null, cash_box_id || null,
-          check_category_id || null, posting.costCenterId, date || todayJalali(), note || '',
+          check_category_id || null, posting.costCenterId, feeCcId, date || todayJalali(), note || '',
           req.user.id, acc.code, purchase_invoice_id || null, posting.isOverhead);
     const expId = result.lastInsertRowid;
 
@@ -267,6 +280,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const { lines } = outboundPaymentLines(db, {
       amount: amt, feeRial: fee, payType: payTypeNorm,
       dest: acc, cash, destDescription: title || '',
+      feeCostCenterId: feeCcId,
     });
     // ADR-003 / PRD-06: production overhead JE tagged for period-close precheck
     const expSourceType = posting.isOverhead || posting.section === 'production_overhead'
@@ -341,6 +355,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
     const { lines } = outboundPaymentReversalLines(db, {
       amount: row.amount, feeRial: row.fee_rial || 0, dest: acc, cash,
+      feeCostCenterId: row.fee_cost_center_id || row.cost_center_id || null,
     });
     const revSrc = Number(row.is_overhead) === 1
       ? 'production_overhead_actual_reversal'

@@ -26032,9 +26032,7 @@ async function deleteSettlement(id){
 }
 
 async function incentivePayModal(repId, repName, payable){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
-  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  await ensurePayCaches();
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت انگیزه فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
