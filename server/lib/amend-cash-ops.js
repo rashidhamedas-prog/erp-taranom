@@ -639,6 +639,7 @@ function amendExpensePayment(db, id, body, userId) {
       account_code: body.account_code != null ? body.account_code : row.account_code,
       is_overhead: body.is_overhead != null ? body.is_overhead : row.is_overhead,
       cost_center_id: body.cost_center_id != null ? body.cost_center_id : row.cost_center_id,
+      amount,
     });
   } catch (e) {
     throw httpErr(e.status || 400, e.message || 'حساب هزینه نامعتبر است', 'E_EXPENSE');

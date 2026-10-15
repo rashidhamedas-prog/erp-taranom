@@ -1,8 +1,12 @@
 'use strict';
 
 /**
- * Policy: require cost center on P&L expense/COGS journal lines.
+ * Policy: require cost center on period-expense journal lines (when amount > 0).
  * Setting key: require_cc_on_expense = '1' | '0' (default OFF when missing).
+ *
+ * Scope (hard require): type=expense or code 6xxx with debit > 0.
+ * Out of hard scope: inventory COGS (type=cogs / 5xxx COGS) — soft-stamp from
+ * warehouse/header when available, never block sales/inventory docs for missing CC.
  * Soft-void / *_reversal never creates new expense lines — gate skips those.
  * Production overhead stays required even when the flag is OFF.
  */
@@ -22,12 +26,26 @@ function isRequireExpenseCostCenter(db) {
   return readSetting(db, SETTING_KEY) === '1';
 }
 
+/** Broad coding helper (expense + COGS + 5/6) — used by expense pickers, not the hard CC gate. */
 function isExpenseCodingAccount(row) {
   if (!row) return false;
   const type = String(row.type || '').toLowerCase();
   if (type === 'expense' || type === 'cogs') return true;
   const code = String(row.code || '');
   return code.startsWith('5') || code.startsWith('6');
+}
+
+/**
+ * Period P&L expense that must carry a cost center when the setting is ON and debit > 0.
+ * Inventory COGS (type=cogs) is excluded — it is automatic costing, not a filled expense field.
+ */
+function isPeriodExpenseForCcPolicy(row) {
+  if (!row) return false;
+  const type = String(row.type || '').toLowerCase();
+  if (type === 'cogs') return false;
+  if (type === 'expense') return true;
+  const code = String(row.code || '');
+  return code.startsWith('6');
 }
 
 function accountByCode(db, code) {
@@ -60,9 +78,18 @@ function warehouseCostCenterId(db, warehouseId) {
   }
 }
 
+function lineAmountFilled(line) {
+  const debit = Number(line?.debit) || 0;
+  const credit = Number(line?.credit) || 0;
+  // Primary cost charge is normally debit; skip pure credit (liability/income) sides.
+  if (debit <= 0 && credit > 0) return false;
+  return debit > 0;
+}
+
 /**
- * After stampCostCenter: ensure every in-scope P&L charge line has an active CC.
+ * After stampCostCenter: ensure every in-scope period-expense charge line has an active CC.
  * Mutates lines in place when deriving from opts.costCenterId / warehouseId.
+ * Zero/empty amounts never require CC. COGS lines may soft-stamp but never throw.
  */
 function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
   if (!isRequireExpenseCostCenter(db)) return lines || [];
@@ -76,20 +103,20 @@ function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
 
   const out = lines || [];
   for (const line of out) {
-    const debit = Number(line.debit) || 0;
-    const credit = Number(line.credit) || 0;
-    // Primary cost charge is normally debit; skip pure credit (liability/income) sides.
-    if (debit <= 0 && credit > 0) continue;
-    if (debit <= 0) continue;
+    if (!lineAmountFilled(line)) continue;
 
     const acct = accountByCode(db, line.code);
-    if (!isExpenseCodingAccount(acct)) continue;
+    if (!acct) continue;
 
     let cc = parseInt(line.cost_center_id, 10) || null;
     if (!cc && deriveCc) {
       cc = deriveCc;
       line.cost_center_id = cc;
     }
+
+    // Inventory COGS: enrich when possible, never block the document.
+    if (!isPeriodExpenseForCcPolicy(acct)) continue;
+
     if (!cc || !isActiveCostCenter(db, cc)) {
       const err = new Error(
         `مرکز هزینه برای حساب هزینه ${line.code || ''} الزامی است (تنظیمات → الزام مرکز هزینه روی هزینه‌ها)`
@@ -106,9 +133,9 @@ function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
 
 /**
  * Used by expense payment / cheque expense before ledger post.
- * OH always requires CC; when policy ON, all sections require CC.
+ * OH always requires CC; when policy ON, require CC only if amount is filled (>0).
  */
-function assertExpenseDocumentCostCenter(db, { cost_center_id, is_overhead, section }) {
+function assertExpenseDocumentCostCenter(db, { cost_center_id, is_overhead, section, amount }) {
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
   if (ccId) {
     if (!isActiveCostCenter(db, ccId)) {
@@ -126,6 +153,8 @@ function assertExpenseDocumentCostCenter(db, { cost_center_id, is_overhead, sect
     err.code = 'E_CC_REQUIRED_OH';
     throw err;
   }
+  const amt = amount == null ? null : Number(amount);
+  if (amt != null && !(amt > 0)) return null;
   if (isRequireExpenseCostCenter(db)) {
     const err = new Error('مرکز هزینه برای ثبت هزینه الزامی است');
     err.status = 422;
@@ -139,8 +168,10 @@ module.exports = {
   SETTING_KEY,
   isRequireExpenseCostCenter,
   isExpenseCodingAccount,
+  isPeriodExpenseForCcPolicy,
   warehouseCostCenterId,
   assertExpenseLinesHaveCostCenter,
   assertExpenseDocumentCostCenter,
   isActiveCostCenter,
+  lineAmountFilled,
 };

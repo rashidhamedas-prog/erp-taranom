@@ -355,12 +355,28 @@ function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial }) {
   const lines = perpetual
     ? buildPerpetualCogsLines(db, cogsRial)
     : buildLegacyCogsLines(db, rows);
+  let ccId = parseInt(row.cost_center_id, 10) || null;
+  const whId = parseInt(row.warehouse_id, 10) || null;
+  if (!ccId && whId) {
+    try {
+      const { warehouseCostCenterId } = require('./cost-center-policy');
+      ccId = warehouseCostCenterId(db, whId);
+    } catch (_) { ccId = null; }
+  }
+  if (ccId) {
+    for (const line of lines) {
+      if ((Number(line.debit) || 0) > 0 && !line.cost_center_id) {
+        line.cost_center_id = ccId;
+      }
+    }
+  }
   const rewritten = rewriteJournalEntry(db, {
     sourceType: 'invoice_cogs', sourceId: row.id,
     date: date || '',
     description: `بهای تمام‌شده فاکتور ${num}`,
     createdBy: userId,
-    costCenterId: row.cost_center_id || null,
+    costCenterId: ccId || null,
+    warehouseId: whId || null,
     lines,
   });
   return rewritten;
@@ -659,12 +675,22 @@ function rewriteCommissionInPlace(db, { row, invLike, userId, date }) {
       { code: payable.code, name: payable.name, debit: 0, credit: L },
     ]
     : [];
+  let ccId = parseInt(row.cost_center_id, 10) || null;
+  const whId = parseInt(row.warehouse_id, 10) || null;
+  if (!ccId && whId) {
+    try {
+      const { warehouseCostCenterId } = require('./cost-center-policy');
+      ccId = warehouseCostCenterId(db, whId);
+    } catch (_) { ccId = null; }
+  }
+  if (ccId && amount > 0 && lines[0]) lines[0].cost_center_id = ccId;
   rewriteJournalEntry(db, {
     sourceType: 'commission_accrual_invoice', sourceId: row.id,
     date: date || '',
     description: `تعهد انگیزه فروش — فاکتور ${invLike.num}`,
     createdBy: userId,
-    costCenterId: row.cost_center_id || null,
+    costCenterId: ccId || null,
+    warehouseId: whId || null,
     lines,
   });
   db.prepare(`

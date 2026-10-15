@@ -270,7 +270,7 @@ function postChequeAction(db, {
   return id;
 }
 
-function chequeExpensePosting(db, body) {
+function chequeExpensePosting(db, body, amount) {
   const { resolveExpensePosting } = require('./expenses');
   const b = body || {};
   const section = String(b.cost_section || '');
@@ -279,6 +279,7 @@ function chequeExpensePosting(db, body) {
     account_code: b.account_code,
     is_overhead: !!(b.is_overhead || section === 'production_overhead'),
     cost_center_id: b.cost_center_id,
+    amount: amount != null ? amount : b.amount,
   });
 }
 
@@ -298,7 +299,7 @@ function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey, useEx
     let costCenterId = null;
     let expenseCode = null;
     if (useExpensePosting && (bodyChoosesExpenseSection(body) || !body.account_key)) {
-      const posting = chequeExpensePosting(db, body);
+      const posting = chequeExpensePosting(db, body, row.amount);
       debitAcct = posting.account;
       costCenterId = posting.costCenterId;
       expenseCode = posting.account.code;

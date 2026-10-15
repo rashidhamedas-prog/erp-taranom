@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — الزام مرکز هزینه فقط با مبلغ هزینهٔ پر (SW v392)
+
+- **علائم:** ویرایش فاکتور فروش با خطای «مرکز هزینه برای حساب هزینه ۵۱۰۱ الزامی است» در حالی که کاربر فیلد هزینه پر نکرده بود.
+- **ریشه:** سوییچ `require_cc_on_expense` (v375) بدهکار COGS/۵۱۰۱ را مثل هزینهٔ دوره سخت‌اجباری می‌کرد؛ amend فاکتور هم `warehouseId` را به `rewriteCogsInPlace` نمی‌داد تا مرکز انبار soft-stamp شود.
+- **رفع (سراسری در choke-point):** `assertExpenseLinesHaveCostCenter` فقط برای هزینهٔ دوره (`type=expense` یا ۶xxx) با `debit>0` خطا می‌دهد؛ COGS soft-stamp از انبار/هدر بدون بلاک؛ مبلغ صفر هرگز CC نمی‌خواهد. `assertExpenseDocumentCostCenter` با `amount<=0` رد می‌کند. amend COGS/انگیزه `warehouseId` می‌گیرد. UI سند دستی/تنظیمات/Help هم‌تراز.
+- **فایل‌ها:** `lib/{cost-center-policy,amend-invoice,amend-cash-ops}.js`, `routes/{expenses,cheque-records}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-require-cc-amount-v392.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ SAP-style amount precondition؛ explore call-site map؛ tap-erp-architecture.
+- **تست:** `test-require-cc-amount-v392` + `test-require-cc-expense-v375` + `test-sms` (ایران).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — لیست پرداخت‌ها: پرداخت به شخص/حساب (SW v391)
 
 - **علائم:** «پرداخت به شخص» در گردش شخص دیده می‌شد (مثلاً ۱۰۰M به حامد رشید) ولی در «عملیات دریافت و پرداخت → پرداخت‌ها (خروجی)» نبود؛ فقط هزینه عمومی می‌آمد.

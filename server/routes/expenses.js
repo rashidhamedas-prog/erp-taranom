@@ -89,7 +89,7 @@ function sectionDefaultAccount(db, section, category) {
  * admin / selling → period expense (category moein, else 6102 / 6103)
  * production_overhead → control account 5202 and a live cost center
  */
-function resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id }) {
+function resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id, amount }) {
   const chain = resolveCategoryChain(db, category);
   let section = chain.section || (category === 'sales' ? 'selling' : 'admin');
   if (is_overhead || section === 'production_overhead') section = 'production_overhead';
@@ -101,6 +101,7 @@ function resolveExpensePosting(db, { category, account_code, is_overhead, cost_c
       cost_center_id,
       is_overhead: !!(is_overhead || section === 'production_overhead'),
       section,
+      amount,
     });
   } catch (e) {
     throw sectionError(e.status || 400, e.message);
@@ -248,7 +249,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   }
   let posting;
   try {
-    posting = resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id });
+    posting = resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id, amount: amt });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
