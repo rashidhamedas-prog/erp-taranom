@@ -7,8 +7,8 @@
 - **فایل‌ها:** `lib/production/{product-completeness,bom,engine}.js`, `routes/{production-boms,products}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-product-bom-completeness-v421.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ ERPNext BOM/Item validate؛ Odoo BoM variants؛ tap-erp-architecture؛ ultra-debug/architecture.
 - **Non-goals:** جدول جدید completeness؛ Lot روی FG؛ بیلد APK/EXE؛ اجباری کردن ماتریس رنگ×سایز برای همهٔ FGها.
-- **تست:** استاتیک محلی ۵/۰ (sqlite ABI skip)؛ ایران پس از deploy: v421 + `test-sms` + health.
-- **Deploy:** ⏳
+- **تست:** ایران `test-product-bom-completeness-v421` ۱۹/۰ + `test-sms` ۲۲/۰؛ ready=200 + sharp؛ parse `app.js` OK.
+- **Deploy:** ✅ overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v421`؛ `app.js?v=421`؛ commit `7c87da67`.
 
 ### ۱۴۰۵/۰۷/۲۳ — سفارش تولید چندمحصولی: اجرای مشترک + برنامه FG (SW v420)
 - **هدف:** همان مدل چندمحصولی BOM (v418) روی سفارش تولید دقیق اعمال شود: انتخاب فرمول از سرفصل یا هم‌محصول، مسیر پیشرفته اجباری، مواد/رزرو/انحراف = اجرای مشترک (همه shared+exclusive)، برنامه main/co، نهایی‌سازی با اصلاح تعداد هر FG.
