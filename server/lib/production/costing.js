@@ -228,7 +228,7 @@ function reverseReceiptStock(db, {
 }) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
-  const { reverseInventoryMovement } = require('../inventory/ledger');
+  const { reverseInventoryMovement, softRetireLedgerRow } = require('../inventory/ledger');
   const voidNote = note || (orderNo ? `ابطال رسید ${orderNo}` : 'ابطال رسید تولید');
 
   // sourceId from reverseOrder used to be production_receipts.id; finalize uses orderId.
@@ -249,6 +249,12 @@ function reverseReceiptStock(db, {
       date: date || '',
       note: voidNote,
     });
+    // Stock already undone by the reversal movement. Soft-retire the reverse
+    // row too so kardex economic stream drops the pair once (not twice).
+    if (led && led.id) {
+      softRetireLedgerRow(db, led.id, { note: voidNote });
+      led = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(led.id) || led;
+    }
   } else {
     const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
     led = postInventoryMovement(db, {
