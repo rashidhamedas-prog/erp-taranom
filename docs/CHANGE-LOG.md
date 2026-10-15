@@ -5,8 +5,8 @@
 - **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,engine,engine-advanced}.js`, `routes/production-boms.js`, `sync/tables.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-bom-product-scope-v418.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ ERPNext co-product %؛ Odoo cost share؛ tap-erp-architecture؛ 21st inspiration (metadata).
 - **Non-goals:** سفارش تولید چند-FG همزمان؛ حذف فیزیکی؛ بیلد APK/EXE.
-- **تست:** `test-bom-product-scope-v418` + sms/sync پس از deploy.
-- **Deploy:** ⏳
+- **تست:** `test-bom-product-scope-v418` + sms پس از deploy روی ایران.
+- **Deploy:** ✅ `1be928b` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v418`؛ `app.js?v=418`.
 
 ### ۱۴۰۵/۰۷/۲۳ — hotfix: ترتیب migration UNIQUE BOM (crash loop PM2)
 - **مشکل:** `ensureBomLiveUniqueIndexes` قبل از DROP ایندکس کامل `ux_bom_prod_ver` ردیف‌های مرده را bump می‌کرد → `UNIQUE constraint` در boot → production schema fail → PM2 crash loop.
