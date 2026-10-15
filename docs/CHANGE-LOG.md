@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۷/۲۳ — گیت رسید FG برای سفارش طاقه‌دار: لایه‌چینی → PACK → رسید (SW v403)
+
+- **علائم:** PO-0009 (کاپشن مموری آبان) با دکمهٔ «رسید» لیست سفارش‌ها ۹۶ عدد وارد انبار محصول شد (`PR-0005` / INV-1199) در حالی که لایه‌چینی/PACK برای این سفارش صفر بود و وضعیت به‌خاطر `is_partial=1` روی «در جریان» ماند.
+- **ریشه:** `POST /production/orders/:id/receipt` (`postReceiptFixed`/`postReceiptVariable`) مسیر مستقیم PRD-07 بدون پیش‌نیاز `cutting_lays`/`cutting_packs` بود؛ journey gate فقط UI ناوبری است. وضعیت هم فقط از پرچم جزئی می‌آمد نه از برابری برنامه/تولید.
+- **Invariant (TAP ERP):** سفارش با پارچهٔ متری طاقه‌دار → ورود فروش‌پذیر فقط بعد از لایه‌چینی + PACK (WIP) + رسید/نهایی‌سازی. cut-to-stock بدون سفارش باز همچنان مجاز. مالکیت FG یک‌بار (هم‌راستا با F06/v399).
+- **رفع:** `orderRequiresFabricCutting` / `assertFabricCuttingPathForFgReceipt` / `fabricCuttingGateInfo`؛ گیت روی رسید ثابت/متغیر و finalize پیشرفته؛ `relieveStagedPackQty` مشترک؛ تکمیل خودکار وقتی تولید ≥ برنامه؛ UI قفل دکمهٔ رسید + لینک لایه‌چینی/PACK؛ Help؛ heal وضعیت PO-0009 → `completed`.
+- **فایل‌ها:** `lib/production/{cutting,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-fabric-receipt-gate-v403.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ پروب ایران `crm.db` PO-0009.
+- **تست:** `test-prod-fabric-receipt-gate-v403` + `test-sms` + `test-sync` (ایران؛ local better-sqlite3 ABI skip).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — ابطال تولید: مخفی‌سازی جفت رسید+ابطال در کاردکس (SW v402)
 
 - **علائم:** برای کاپشن مموری یلدا با تیک «نمایش ابطال و هم‌ترازی» خاموش، ردیف‌های «تولید PO-0006/0007» (INV-0440/0450) هنوز دیده می‌شدند؛ مانده روی ۱۶۳ می‌ماند چون «ابطال رسید…» مخفی بود ولی اصل رسید posted مانده بود.

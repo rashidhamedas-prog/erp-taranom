@@ -19,6 +19,9 @@ const {
   assertFabricIssueAllowed,
   fabricIssueAllowance,
   assertNoOrphanSellablePack,
+  assertFabricCuttingPathForFgReceipt,
+  fabricCuttingGateInfo,
+  relieveStagedPackQty,
 } = require('./cutting');
 const variance = require('./variance');
 const {
@@ -27,6 +30,15 @@ const {
 } = variance;
 
 function num(v) { return Number(v) || 0; }
+
+/** When cumulative produced reaches plan, complete even if UI left is_partial on. */
+function resolveReceiptOrderStatus(po, body, qtyGood) {
+  const nextProduced = num(po.qty_produced) + num(qtyGood);
+  const planned = num(po.qty_planned);
+  if (planned > 0 && nextProduced + 1e-9 >= planned) return 'completed';
+  if (body && body.is_partial) return 'in_progress';
+  return 'completed';
+}
 
 function jalaliPeriod(date) {
   if (!date || typeof date !== 'string') return '';
@@ -865,6 +877,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         color: body.color || po.color,
       });
       unitCost = Math.round(wipNet / qtyGood);
+      assertFabricCuttingPathForFgReceipt(db, po, qtyGood);
       assertNoOrphanSellablePack(db, po.product_id, orderId);
       const avg = updateMovingAverage(db, {
         productId: po.product_id,
@@ -921,6 +934,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         jes.push(je6);
         db.prepare('UPDATE production_receipts SET je_id=? WHERE id=?').run(je6.je_id, receiptId);
       }
+      relieveStagedPackQty(db, {
+        orderId, productId: po.product_id, qtyGood, userId, date, receiptId,
+      });
     } else if (wipNet > 0) {
       // All wasted — dump remaining WIP to abnormal (T2-22)
       const jeDump = postEvent(db, {
@@ -939,7 +955,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     }
 
     // ═══ ۸. Update order ═══
-    const newStatus = body.is_partial ? 'in_progress' : (qtyGood > 0 ? 'completed' : 'completed');
+    const newStatus = resolveReceiptOrderStatus(po, body, qtyGood);
     db.prepare(`
       UPDATE production_orders SET
         qty_produced = qty_produced + ?,
@@ -1826,6 +1842,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         color: body.color || po.color,
       });
       unitCost = Math.round(wipNet / qtyGood);
+      assertFabricCuttingPathForFgReceipt(db, po, qtyGood);
       assertNoOrphanSellablePack(db, po.product_id, orderId);
       const avg = updateMovingAverage(db, {
         productId: po.product_id, warehouseId: po.warehouse_fg_id,
@@ -1866,6 +1883,9 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         jes.push(je6);
         db.prepare('UPDATE production_receipts SET je_id=? WHERE id=?').run(je6.je_id, receiptId);
       }
+      relieveStagedPackQty(db, {
+        orderId, productId: po.product_id, qtyGood, userId, date, receiptId,
+      });
     }
 
     db.prepare(`
@@ -1887,7 +1907,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
     `).run(
       qtyGood, wN, wA, laborRial, oh.amount_rial || 0,
       abnormalRial, scrapCredit, wipNet, unitCost,
-      body.is_partial ? 'in_progress' : 'completed', date, period, orderId
+      resolveReceiptOrderStatus(po, body, qtyGood), date, period, orderId
     );
 
     if (qtyGood > 0 && unitCost > 0) {
@@ -1987,6 +2007,9 @@ function listOrders(db, { status, productId, period, page = 1, limit = 50, inclu
     ORDER BY po.id DESC
     LIMIT ? OFFSET ?
   `).all(...params, lim, off);
+  for (const row of rows) {
+    Object.assign(row, fabricCuttingGateInfo(db, row));
+  }
   const total = db.prepare(`
     SELECT COUNT(*) c FROM production_orders WHERE ${where.join(' AND ')}
   `).get(...params).c;
@@ -1997,6 +2020,7 @@ function getOrderDetail(db, orderId) {
   const po = getOrder(db, orderId);
   return {
     ...po,
+    ...fabricCuttingGateInfo(db, po),
     issues: db.prepare('SELECT * FROM production_material_issues WHERE order_id=?').all(orderId),
     labor: db.prepare('SELECT * FROM production_labor_entries WHERE order_id=?').all(orderId),
     overhead: db.prepare('SELECT * FROM production_overhead_applications WHERE order_id=?').all(orderId),

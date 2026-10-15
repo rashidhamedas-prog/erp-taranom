@@ -311,6 +311,154 @@ function assertNoOrphanSellablePack(db, productId, orderId) {
   );
 }
 
+/**
+ * Apparel fabric path: meter fabric in BOM that is roll-tracked (طاقه) must go
+ * lay → PACK (WIP) → order receipt/finalize (FG). Never short-circuit via
+ * POST /production/orders/:id/receipt alone.
+ */
+function orderRequiresFabricCutting(db, po) {
+  if (!po || !po.bom_id || !po.product_id) return false;
+  const { fabricLine } = fabricLineFromBom(db, {
+    productId: po.product_id,
+    bomId: po.bom_id,
+    date: po.date || todayJalali(),
+    sizeBreakdown: parseJson(po.size_breakdown, {}) || {},
+  });
+  if (!fabricLine || !fabricLine.product_id) return false;
+  const fabId = Number(fabricLine.product_id);
+  const prod = db.prepare('SELECT unit FROM products WHERE id=?').get(fabId);
+  if (!isMeterUnit(prod && prod.unit)) return false;
+  const hasRoll = db.prepare(`
+    SELECT 1 AS ok FROM inventory_batches
+    WHERE product_id=? AND COALESCE(kind,'generic')='fabric'
+    LIMIT 1
+  `).get(fabId);
+  if (hasRoll) return true;
+  // Already on cutting path for this order (even if rolls were voided later).
+  if (po.id) {
+    const lay = db.prepare(`
+      SELECT 1 AS ok FROM cutting_lays
+      WHERE production_order_id=? AND COALESCE(status,'posted')<>'reversed'
+      LIMIT 1
+    `).get(Number(po.id));
+    if (lay) return true;
+  }
+  return false;
+}
+
+function cuttingQtyForOrder(db, orderId) {
+  const oid = Number(orderId) || 0;
+  if (!oid) return { lay_qty: 0, pack_qty: 0 };
+  const hasLay = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_lays'"
+  ).get();
+  const hasPack = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  const lay_qty = hasLay
+    ? Number(db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(qty_pieces,0)),0) AS s
+        FROM cutting_lays
+        WHERE production_order_id=? AND COALESCE(status,'posted')<>'reversed'
+      `).get(oid)?.s) || 0
+    : 0;
+  const pack_qty = hasPack
+    ? Number(db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(qty,0)),0) AS s
+        FROM cutting_packs
+        WHERE production_order_id=? AND status='posted'
+      `).get(oid)?.s) || 0
+    : 0;
+  return { lay_qty, pack_qty };
+}
+
+function fabricCuttingGateInfo(db, po) {
+  const qty = cuttingQtyForOrder(db, po && po.id);
+  const required = orderRequiresFabricCutting(db, po);
+  const produced = Number(po && po.qty_produced) || 0;
+  const receipt_ready = !required
+    || (qty.lay_qty > produced + 1e-9 && qty.pack_qty > produced + 1e-9);
+  return {
+    requires_fabric_cutting: !!required,
+    cutting_lay_qty: qty.lay_qty,
+    cutting_pack_qty: qty.pack_qty,
+    cutting_receipt_ready: !!receipt_ready,
+  };
+}
+
+/**
+ * Gate simple FG receipt (fixed/variable) when the order is roll-fabric apparel.
+ * Advanced finalize keeps its own stage checks; still call this before FG there
+ * if rolls are required (finalizeAdvancedOrder already assumes routing done).
+ */
+function assertFabricCuttingPathForFgReceipt(db, po, qtyGood) {
+  if (!orderRequiresFabricCutting(db, po)) return { required: false };
+  const need = (Number(po.qty_produced) || 0) + (Number(qtyGood) || 0);
+  const { lay_qty, pack_qty } = cuttingQtyForOrder(db, po.id);
+  if (lay_qty + 1e-9 < need) {
+    throw httpErr(
+      409,
+      `این سفارش طاقه‌دار است — قبل از رسید انبار محصول، لایه‌چینی برای حداقل ${need} عدد ثبت کنید (فعلی: ${lay_qty}). مسیر: لایه‌چینی → PACK → سپس رسید/نهایی‌سازی سفارش`,
+      'E_CUTTING_LAY_REQUIRED',
+      { need, lay_qty, pack_qty, order_id: po.id, order_no: po.order_no }
+    );
+  }
+  if (pack_qty + 1e-9 < need) {
+    throw httpErr(
+      409,
+      `بعد از لایه‌چینی، بسته‌بندی/ورود WIP (PACK) برای حداقل ${need} عدد لازم است (فعلی: ${pack_qty}). سپس از سفارش «رسید» یا نهایی‌سازی بزنید تا وارد انبار محصول شود`,
+      'E_CUTTING_PACK_REQUIRED',
+      { need, lay_qty, pack_qty, order_id: po.id, order_no: po.order_no }
+    );
+  }
+  return { required: true, need, lay_qty, pack_qty };
+}
+
+/**
+ * Linked cutting packs stage bundle qty in a WIP warehouse (warehouseOnly).
+ * Order receipt / finalize must take that qty out of WIP without a second
+ * products.stock hit.
+ */
+function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
+  const has = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  if (!has) return;
+  const packs = db.prepare(`
+    SELECT id, warehouse_id, qty FROM cutting_packs
+    WHERE production_order_id=? AND product_id=? AND status='posted' AND COALESCE(qty,0)>0
+    ORDER BY id
+  `).all(orderId, productId);
+  let left = Number(qtyGood) || 0;
+  for (const p of packs) {
+    if (!(left > 0)) break;
+    const wh = Number(p.warehouse_id) || 0;
+    if (!wh) continue;
+    const take = Math.min(left, Number(p.qty) || 0);
+    if (!(take > 0)) continue;
+    postInventoryMovement(db, {
+      eventType: 'cutting_pack',
+      productId,
+      warehouseId: wh,
+      qtyOut: take,
+      sourceType: 'cutting_pack',
+      sourceId: p.id,
+      date: date || '',
+      note: `تخلیه WIP بسته برش هنگام رسید ${receiptId || ''}`,
+      createdBy: userId || null,
+      updateAvg: false,
+      warehouseOnly: true,
+    });
+    try {
+      require('../inventory/apparel-lines').reverseApparelDoc(db, {
+        docType: 'cutting_pack', docId: p.id, userId: userId || null,
+        note: `تخلیه apparel WIP بسته ${p.id}`,
+      });
+    } catch (_) { /* no apparel layer */ }
+    left -= take;
+  }
+}
+
 function attachPacks(db, row) {
   if (!row) return row;
   row.packs = db.prepare(`
@@ -1291,4 +1439,11 @@ module.exports = {
   findOpenProductionOrdersForProduct,
   resolvePackProductionOrder,
   assertNoOrphanSellablePack,
+  orderRequiresFabricCutting,
+  cuttingQtyForOrder,
+  fabricCuttingGateInfo,
+  assertFabricCuttingPathForFgReceipt,
+  relieveStagedPackQty,
+  fabricLineFromBom,
+  isMeterUnit,
 };

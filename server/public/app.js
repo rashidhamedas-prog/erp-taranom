@@ -12317,7 +12317,8 @@ async function renderCuttingLaysTab(body){
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
       <b>دو رویداد جدا:</b>
       ۱) <b>لایه‌چینی</b> = مصرف طاقه از انبار مواد و بدهکار WIP.
-      ۲) <b>PACK</b> با سفارش تولید = فقط بسته‌بندی در انبار WIP (بدون ورود فروش‌پذیر)؛ ورود انبار محصول <b>فقط با نهایی‌سازی سفارش</b>.
+      ۲) <b>PACK</b> با سفارش تولید = فقط بسته‌بندی در انبار WIP (بدون ورود فروش‌پذیر).
+      ۳) ورود انبار محصول فروش‌پذیر برای سفارش <b>طاقه‌دار</b> فقط بعد از لایه‌چینی+PACK و سپس «رسید/نهایی‌سازی سفارش» (دکمهٔ رسید لیست سفارش تا قبل از PACK قفل است — v403).
       بدون سفارش باز = رسید مستقیم به انبار محصول (cut-to-stock). هرگز هر دو مسیر را برای یک بچ نزنید.
     </div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
@@ -16997,13 +16998,20 @@ async function renderProductionOrdersTab(body){
       <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrdersPurgeSelected()})}">حذف کامل انتخاب‌شده‌ها</button>
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){window._prodOrdersShowVoided=!window._prodOrdersShowVoided;loadAccTab('production-orders')})}">${showVoid?'پنهان کردن حذف‌شده‌ها':'نمایش حذف‌شده‌ها'}</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:-4px 0 10px;line-height:1.7`)}">حذف کامل سند و موجودی را برمی‌گرداند و ردیف را از لیست برمی‌دارد. ردیف در دفتر می‌ماند.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:-4px 0 10px;line-height:1.7`)}">حذف کامل سند و موجودی را برمی‌گرداند و ردیف را از لیست برمی‌دارد. ردیف در دفتر می‌ماند. سفارش طاقه‌دار: رسید انبار محصول فقط بعد از لایه‌چینی + PACK.</p>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th></th><th>شماره</th><th>محصول</th><th>نوع آنالیز</th><th>برنامه</th><th>تولید</th><th>بهای واحد</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>
-      ${rows.map(o=>`<tr>
+      ${rows.map(o=>{
+        const cutNeed=!!o.requires_fabric_cutting;
+        const cutReady=!!o.cutting_receipt_ready;
+        const canSimpleReceipt=!cutNeed||cutReady;
+        const cutHint=cutNeed&&!cutReady
+          ?(` <button class="btn sm" title="لایه ${o.cutting_lay_qty||0} / PACK ${o.cutting_pack_qty||0}" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('lays')})}">لایه‌چینی/PACK</button>`)
+          :'';
+        return `<tr>
         <td data-label="انتخاب">${o.status==='voided'?'':`<input type="checkbox" class="po-pick" data-id="${o.id}">`}</td>
-        <td data-label="شماره">${esc(o.order_no)}</td>
+        <td data-label="شماره">${esc(o.order_no)}${cutNeed?' <span class="muted" title="طاقه‌دار — مسیر لایه‌چینی" data-csp-style="'+CSP.style('font-size:10px')+'">🧵</span>':''}</td>
         <td data-label="محصول">${esc(o.product_name||('#'+o.product_id))}</td>
         <td data-label="نوع آنالیز" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(PROD_ANALYSIS_LABEL[o.analysis_type]||o.analysis_type)}</td>
         <td data-label="برنامه" class="num">${o.qty_planned||0}</td>
@@ -17016,15 +17024,20 @@ async function renderProductionOrdersTab(body){
           <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrderCancel((o.id))})}">لغو</button>`:''}
           ${o.status==='released'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrderCancel((o.id))})}">لغو</button>`:''}
           ${['fixed_adv','variable_adv'].includes(o.analysis_type)&&['released','in_progress'].includes(o.status)?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderStagesModal((o.id))})}">مراحل</button>`:''}
-          ${o.analysis_type==='fixed'&&['released','in_progress'].includes(o.status)?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderReceiptModal((o.id))})}">رسید</button>`:''}
+          ${o.analysis_type==='fixed'&&['released','in_progress'].includes(o.status)
+            ?(canSimpleReceipt?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderReceiptModal((o.id))})}">رسید</button>`:cutHint)
+            :''}
           ${o.analysis_type==='variable'&&['released','in_progress'].includes(o.status)?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueModal((o.id))})}">حواله مواد</button>`:''}
-          ${o.analysis_type==='variable'&&o.status==='in_progress'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderReceiptModal((o.id))})}">رسید</button>`:''}
+          ${o.analysis_type==='variable'&&o.status==='in_progress'
+            ?(canSimpleReceipt?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderReceiptModal((o.id))})}">رسید</button>`:cutHint)
+            :''}
           ${o.status==='completed'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderClose((o.id))})}">بستن</button>
           ${(canPerm('production','delete')||isAdmin())?`<button class="btn sm ghost" data-csp-style="${CSP.style(`color:var(--red)`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderReverse((o.id))})}">ابطال</button>`:''}`:''}
           ${o.status==='closed'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodOrderReopen((o.id))})}">بازگشایی</button>`:''}
           ${o.status!=='voided'&&o.status!=='closed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrderPurge((o.id))})}">حذف کامل</button>`:''}
         </td>
-      </tr>`).join('')||`<tr><td colspan="9" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">سفارشی نیست</td></tr>`}
+      </tr>`;
+      }).join('')||`<tr><td colspan="9" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">سفارشی نیست</td></tr>`}
     </tbody></table></div>
     </div>`;
 }
@@ -17040,6 +17053,8 @@ function prodOrderErrMsg(e){
         E_CUT_COLOR_REQUIRED:'رنگ برش الزامی است',
         E_CUT_PO_COLOR:'رنگ برش با رنگ سفارش تولید یکی نیست',
         E_CUT_ROLL_PRODUCT:'طاقه باید همان پارچهٔ فرمول باشد',
+        E_CUTTING_LAY_REQUIRED:'سفارش طاقه‌دار است — اول لایه‌چینی، بعد PACK، بعد رسید انبار محصول',
+        E_CUTTING_PACK_REQUIRED:'بعد از لایه‌چینی باید PACK (بسته‌بندی WIP) ثبت شود؛ سپس رسید/نهایی‌سازی',
     E_VARIANT_QTY:'جمع رنگ و سایز با تعداد رسید یکی نیست',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
     E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
@@ -29143,8 +29158,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویرایش و حذف حرفه‌ای فهرست BOM (v385):</b> در ستون عملیات برای هر فرمول دکمهٔ <b>ویرایش</b> / <b>ویرایش…</b> و <b>حذف</b> (پیش‌نویس) یا <b>بایگانی</b> (فعال) هست. قبل از حذف/بایگانی، سرور وابستگی‌ها را از <code>GET /api/production/boms/:id/dependencies</code> می‌خواند و سفارش‌های باز را نشان می‌دهد؛ اگر سفارش <code>draft/released/in_progress</code> به فرمول وصل باشد عملیات مسدود است (<code>E_BOM_IN_USE</code>). حذف فیزیکی نیست: پیش‌نویس → soft-delete (<code>obsolete</code>)، فعال → بایگانی. ویرایش فرمول فعال فقط از مسیر «نسخه جدید برای ویرایش» (با پیش‌نمایش وابستگی). «غیرفعال» فعال را به پیش‌نویس برمی‌گرداند اگر سفارش باز نباشد. بایگانی/حذف، اشاره‌گر <code>default_bom_id</code> کالا را هم پاک می‌کند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد. دکمهٔ <b>بستن</b> فقط وقتی مانده WIP تقریباً صفر است کار می‌کند؛ در سفارش متغیر پیشرفته، بهای مواد فقط هنگام <b>حوالهٔ مرحله</b> روی سفارش می‌نشیند (نه دوباره هنگام تکمیل خروجی). <b>دستمزد تولید ≠ فیش حقوق:</b> جذب دستمزد مرحله (قطعه‌ای/ساعتی/ماهانه از نرخ مرکز) فقط بهای WIP و کنترل دستمزد را می‌سازد و در ماژول «حقوق و دستمزد» ظاهر نمی‌شود. حقوق ماهانهٔ برشکار از مسیر حقوق (حکم + محاسبهٔ دوره) ثبت می‌شود؛ برای جذب ماهانه در تولید باید در «نرخ مرکز هزینه» فیلد <code>monthly_labor_rate_rial</code> = بودجه حقوق مرکز ÷ برنامه تولید ماه پر شود (مثلاً ریال به ازای هر عدد برش‌خورده). اگر روش عملیات برش «ماهانه» باشد ولی نرخ مرکز صفر باشد، برای آن مرحله دستمزدی جذب نمی‌شود.</li>
-        <li><b>لایه‌چینی + PACK (دو رویداد جدا — v399 مالکیت موجودی):</b> تولید → عملیات → لایه‌چینی / رسید محصول.
-          تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP. تب PACK با <b>سفارش باز</b> = فقط بسته‌بندی در انبار WIP (<code>warehouseOnly</code>)؛ <b>ورود فروش‌پذیر انبار محصول فقط با نهایی‌سازی سفارش</b> است. بدون سفارش باز = cut-to-stock مستقیم به FG. سرور اگر یک سفارش باز برای همان کالا باشد خودکار پیوند می‌زند؛ چند سفارش باز → <code>E_PACK_PO_REQUIRED</code>؛ اگر قبلاً PACK فروش‌پذیر زده باشید و بخواهید سفارش را نهایی کنید → <code>E_STANDALONE_PACK_FG</code> (اول ابطال PACK). هرگز PACK فروش‌پذیر و finalize را برای یک بچ با هم نزنید.
+        <li><b>لایه‌چینی + PACK (دو رویداد جدا — v399/v403 مالکیت موجودی):</b> تولید → عملیات → لایه‌چینی / رسید محصول.
+          تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP. تب PACK با <b>سفارش باز</b> = فقط بسته‌بندی در انبار WIP (<code>warehouseOnly</code>).
+          <b>v403 سفارش طاقه‌دار:</b> اگر BOM پارچهٔ متری با طاقه داشته باشد، دکمهٔ «رسید» روی لیست سفارش تا قبل از لایه‌چینی+PACK قفل است (<code>E_CUTTING_LAY_REQUIRED</code> / <code>E_CUTTING_PACK_REQUIRED</code>). ورود فروش‌پذیر فقط با رسید/نهایی‌سازی بعد از PACK. وقتی تولید به برنامه برسد وضعیت خودکار <code>completed</code> می‌شود (حتی اگر تیک جزئی مانده باشد).
+          بدون سفارش باز = cut-to-stock مستقیم به FG. سرور اگر یک سفارش باز برای همان کالا باشد خودکار پیوند می‌زند؛ چند سفارش باز → <code>E_PACK_PO_REQUIRED</code>؛ اگر قبلاً PACK فروش‌پذیر زده باشید و بخواهید سفارش را نهایی کنید → <code>E_STANDALONE_PACK_FG</code> (اول ابطال PACK). هرگز PACK فروش‌پذیر و finalize را برای یک بچ با هم نزنید.
           <br><b>ویرایش لایه‌چینی (R13):</b> روی هر ردیف posted بدون رسید محصول، «ویرایش» همان شماره لایه را نگه می‌دارد؛ اول همهٔ اثرات (طاقه + سند) برمی‌گردد، بعد با دادهٔ جدید ثبت می‌شود. کالا قفل است. اگر رسید محصول دارد اول ابطالش کنید، بعد ویرایش/ابطال لایه.
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = PACK / رسید (صف منتظرها).
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» PACK است. تابلوی خط لایه‌های منتظر PACK را در «برش / WIP» می‌آورد. پارچهٔ لایه‌چینی در حواله با E_FABRIC_ALREADY_CUT قفل است.
@@ -29171,7 +29188,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>
         <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
         <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>
-        <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود. اگر موجودی قلم BOM کمتر از مقدار حواله باشد، می‌توانید <b>کالای جایگزین</b> برای الباقی کسری انتخاب کنید؛ سیستم موجودی اصل را تا سقف انبار و الباقی را از جایگزین حواله می‌کند و دلیل انحراف را با توضیح تأمین از کالای دیگر پر می‌کند (قابل ویرایش).</li>
+        <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». برای سفارش طاقه‌دار (v403) پارچه از لایه‌چینی می‌آید و «رسید» فقط پس از PACK مجاز است؛ بقیهٔ اقلام BOM (آستر/زیپ/…) همچنان با حواله. انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود. اگر موجودی قلم BOM کمتر از مقدار حواله باشد، می‌توانید <b>کالای جایگزین</b> برای الباقی کسری انتخاب کنید؛ سیستم موجودی اصل را تا سقف انبار و الباقی را از جایگزین حواله می‌کند و دلیل انحراف را با توضیح تأمین از کالای دیگر پر می‌کند (قابل ویرایش).</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
         <li>در هر فرم، نقد فقط صندوق، واریز فقط <b>بانک مقصد</b>، <b>چک دریافتی</b> بدون بانک/صندوق مقصد (اسناد دریافتنی)، چک <b>پرداختی</b> بانک+دسته‌چک، کارتخوان فقط ترمینال — هم‌زمان انتخاب نمی‌شوند.</li>

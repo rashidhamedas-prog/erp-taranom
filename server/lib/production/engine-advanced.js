@@ -17,7 +17,11 @@ const {
 } = require('./overhead');
 const { postLabor } = require('./labor');
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
-const { assertFabricIssueAllowed } = require('./cutting');
+const {
+  assertFabricIssueAllowed,
+  assertFabricCuttingPathForFgReceipt,
+  relieveStagedPackQty,
+} = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
@@ -939,52 +943,6 @@ function postStageOutputVariable(db, opts) {
   return db.transaction(() => postStageCore(db, { ...opts, mode: 'variable' }))();
 }
 
-/**
- * Linked cutting packs stage bundle qty in a WIP warehouse (warehouseOnly).
- * Finalize must take that qty back out of WIP without a second hit on products.stock.
- */
-function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
-  const has = db.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
-  ).get();
-  if (!has) return;
-  const { postInventoryMovement } = require('../inventory/ledger');
-  const packs = db.prepare(`
-    SELECT id, warehouse_id, qty FROM cutting_packs
-    WHERE production_order_id=? AND product_id=? AND status='posted' AND COALESCE(qty,0)>0
-    ORDER BY id
-  `).all(orderId, productId);
-  let left = Number(qtyGood) || 0;
-  for (const p of packs) {
-    if (!(left > 0)) break;
-    const wh = Number(p.warehouse_id) || 0;
-    if (!wh) continue;
-    const take = Math.min(left, Number(p.qty) || 0);
-    if (!(take > 0)) continue;
-    postInventoryMovement(db, {
-      eventType: 'cutting_pack',
-      productId,
-      warehouseId: wh,
-      qtyOut: take,
-      sourceType: 'cutting_pack',
-      sourceId: p.id,
-      date: date || '',
-      note: `تخلیه WIP بسته برش هنگام رسید ${receiptId || ''}`,
-      createdBy: userId || null,
-      updateAvg: false,
-      warehouseOnly: true,
-    });
-    // Historical linked packs may have posted apparel before v399 — reverse once.
-    try {
-      require('../inventory/apparel-lines').reverseApparelDoc(db, {
-        docType: 'cutting_pack', docId: p.id, userId: userId || null,
-        note: `تخلیه apparel WIP بسته ${p.id}`,
-      });
-    } catch (_) { /* no apparel layer */ }
-    left -= take;
-  }
-}
-
 function finalizeAdvancedOrder(db, { orderId, body, userId }) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
@@ -1065,6 +1023,8 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
     // for this product — that would double products.stock / WH-FG.
     require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
+    // Roll-fabric apparel: lay + PACK must cover FG qty before sellable receipt.
+    assertFabricCuttingPathForFgReceipt(db, po, qtyGood);
     // F06: packs linked to this order staged qty in WH-WIP without touching
     // sellable stock. Relieve that warehouse qty here (warehouse-only out) so
     // finalize is the single products.stock / FG-warehouse increase.
@@ -1606,4 +1566,5 @@ module.exports = {
   getStageIssueTemplate,
   resolveFinalizeApparelLines,
   variantLinesFromOrderPlan,
+  relieveStagedPackQty,
 };
