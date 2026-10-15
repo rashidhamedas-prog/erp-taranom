@@ -6,8 +6,8 @@
 - **رفع:** `reverseReceiptStock` با `reverseInventoryMovement` روی ledger اصل؛ فیلتر `collectLegacyVoidedReceiptIds` برای دادهٔ قدیمی؛ heal یلدا INV-0440/0450؛ Help/SW v402؛ تست `test-prod-void-kardex-v402`.
 - **فایل‌ها:** `lib/production/{costing,engine}.js`, `lib/ledgers.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-void-kardex-v402.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ tap-erp-architecture؛ پروب ایران crm.db.
-- **تست:** (پس از اجرا)
-- **Deploy:** ⏳
+- **تست:** ایران `test-prod-void-kardex-v402` ۱۴/۰ + `test-hide-audit-rows-v400` ۱۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. Heal یلدا INV-0440/0450 (+ twins) → `reversed`؛ stock=150.
+- **Deploy:** ✅ `17d6442` — overlay ایران + heal + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v402`؛ `app.js?v=402`.
 
 ### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه جدا برای کارمزد بانکی (SW v401)
 
