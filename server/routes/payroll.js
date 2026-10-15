@@ -26,6 +26,7 @@ const {
   sumPaidRial,
 } = require('../lib/payroll/payments');
 const { resolvePersonPayableAccount } = require('../lib/payroll/person-account');
+const { assertExpenseDocumentCostCenter } = require('../lib/cost-center-policy');
 const {
   buildManualExemptCalc,
   assertLaborPathAllowed,
@@ -60,11 +61,15 @@ function coercePersonTaxExemption(b, current) {
 function createPayrollRecord(db, userId, data) {
   const {
     person_id, period_label, regular_hours, overtime_hours, hourly_rate, overtime_rate,
-    bonuses, deductions, insurance_deduction, tax_deduction, date, note
+    bonuses, deductions, insurance_deduction, tax_deduction, date, note, cost_center_id
   } = data;
 
   const person = db.prepare('SELECT * FROM persons WHERE id=?').get(person_id);
   if (!person) throw new Error('شخص یافت نشد');
+  const ccId = assertExpenseDocumentCostCenter(db, {
+    cost_center_id,
+    section: 'payroll',
+  });
 
   const regH = parseFloat(regular_hours) || 0;
   const otH = parseFloat(overtime_hours) || 0;
@@ -85,14 +90,14 @@ function createPayrollRecord(db, userId, data) {
 
   return db.transaction(() => {
     const result = db.prepare(
-      `INSERT INTO payroll_records (person_id,period_label,regular_hours,overtime_hours,hourly_rate,overtime_rate,bonuses,deductions,insurance_deduction,tax_deduction,gross_pay,net_pay,date,note,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(person_id, period_label || '', regH, otH, hRate, otRate, bon, ded, ins, tax, grossPay, netPay, date || todayJalali(), note || '', userId);
+      `INSERT INTO payroll_records (person_id,period_label,regular_hours,overtime_hours,hourly_rate,overtime_rate,bonuses,deductions,insurance_deduction,tax_deduction,gross_pay,net_pay,date,note,created_by,cost_center_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(person_id, period_label || '', regH, otH, hRate, otRate, bon, ded, ins, tax, grossPay, netPay, date || todayJalali(), note || '', userId, ccId);
     const recId = result.lastInsertRowid;
 
     const payable = resolvePersonPayableAccount(db, person);
     const lines = [
-      { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay - ded), credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
+      { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay - ded), credit: 0, cost_center_id: ccId, description: `حقوق ${person.name} - ${period_label || ''}` },
       { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(netPay) }
     ];
     if (ins + tax > 0) {
@@ -101,7 +106,7 @@ function createPayrollRecord(db, userId, data) {
     const journalId = postToLedger(db, {
       sourceType: 'payroll', sourceId: recId, date: date || todayJalali(),
       description: `حقوق ${person.name} (${period_label || ''})`,
-      createdBy: userId, lines
+      createdBy: userId, costCenterId: ccId, lines
     });
     db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recId);
     createPersonLedgerEntry(db, {
@@ -891,6 +896,10 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         SELECT id FROM payroll_records WHERE person_id=? AND period_id=? AND status<>'reversed'
       `).get(personId, periodId);
       if (duplicate) throw new Error(`حقوق ${person.name} در این دوره قبلاً پردازش شده است`);
+      const ccId = assertExpenseDocumentCostCenter(db, {
+        cost_center_id: input.cost_center_id,
+        section: 'payroll',
+      });
       let calc;
       let exemptMeta = null;
       if (manual) {
@@ -911,8 +920,8 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
            spouse_allowance_rial,hardship_allowance_rial,other_allowance_rial,overtime_pay_rial,
            night_shift_pay_rial,gross_earnings_rial,insurance_base_rial,taxable_income_rial,
            income_tax_rial,sso_employee_rial,sso_employer_rial,other_deductions_rial,
-           net_pay_rial,employer_cost_rial,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted')
+           net_pay_rial,employer_cost_rial,cost_center_id,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted')
       `).run(
         personId, periodId, context.period.label, calc.regular_hours_x100 / 100,
         calc.overtime_hours_x100 / 100, calc.gross_earnings_rial / 10, calc.net_pay_rial / 10,
@@ -927,7 +936,7 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         calc.night_shift_pay_rial, calc.gross_earnings_rial, calc.insurance_base_rial,
         calc.taxable_income_rial, calc.income_tax_rial, calc.sso_employee_rial,
         calc.sso_employer_rial, calc.other_deductions_rial, calc.net_pay_rial,
-        calc.employer_cost_rial
+        calc.employer_cost_rial, ccId
       );
       const recordId = result.lastInsertRowid;
       const arrearsMonths = context.arrearsMonths || [];
@@ -966,10 +975,10 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       );
       const payable = resolvePersonPayableAccount(db, person);
       const lines = [
-        { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: input.cost_center_id || null },
+        { ...coaAcct(db, input.is_direct_labor ? 'coa_labor_control' : 'coa_payroll_expense'), debit: (calc.gross_earnings_rial + arrearsRial) / 10, credit: 0, cost_center_id: ccId },
       ];
       if (!exemptMeta) {
-        lines.push({ ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: input.cost_center_id || null });
+        lines.push({ ...coaAcct(db, 'coa_employer_insurance_expense'), debit: calc.sso_employer_rial / 10, credit: 0, cost_center_id: ccId });
       }
       lines.push({ code: payable.code, name: payable.name, debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 });
       if (!exemptMeta) {
@@ -985,6 +994,7 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
           ? `پرداخت بدون بیمه و مالیات (${exemptMeta.reason_label}) ${person.name} (${context.period.label})`
           : `حقوق ${person.name} (${context.period.label})${arrearsRial ? ` + معوقه ${arrearsMonths.length} ماه` : ''}`,
         createdBy: req.user.id,
+        costCenterId: ccId,
         lines, status: 'approved',
       });
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);

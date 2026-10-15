@@ -91,11 +91,19 @@ function lineAmountFilled(line) {
  * Mutates lines in place when deriving from opts.costCenterId / warehouseId.
  * Zero/empty amounts never require CC. COGS lines may soft-stamp but never throw.
  */
-function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
-  if (!isRequireExpenseCostCenter(db)) return lines || [];
+function isPayrollSourceType(sourceType) {
+  // Monthly payroll accrual only. Year-end (عیدی/سنوات) stays on the global
+  // require_cc_on_expense flag until that form is wired with a CC field.
+  return String(sourceType || '') === 'payroll';
+}
 
+function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
   const sourceType = String(opts.sourceType || '');
   if (sourceType.endsWith('_reversal') || opts.skipCcPolicy) return lines || [];
+
+  // Payroll accrual always needs CC on period-expense debits (like production OH).
+  const alwaysRequire = isPayrollSourceType(sourceType);
+  if (!alwaysRequire && !isRequireExpenseCostCenter(db)) return lines || [];
 
   const headerCc = parseInt(opts.costCenterId, 10) || null;
   const whCc = warehouseCostCenterId(db, opts.warehouseId);
@@ -119,10 +127,12 @@ function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
 
     if (!cc || !isActiveCostCenter(db, cc)) {
       const err = new Error(
-        `مرکز هزینه برای حساب هزینه ${line.code || ''} الزامی است (تنظیمات → الزام مرکز هزینه روی هزینه‌ها)`
+        alwaysRequire
+          ? `مرکز هزینه برای ثبت حقوق (حساب ${line.code || ''}) الزامی است`
+          : `مرکز هزینه برای حساب هزینه ${line.code || ''} الزامی است (تنظیمات → الزام مرکز هزینه روی هزینه‌ها)`
       );
       err.status = 422;
-      err.code = 'CC_REQUIRED_ON_EXPENSE';
+      err.code = alwaysRequire ? 'E_CC_REQUIRED_PAYROLL' : 'CC_REQUIRED_ON_EXPENSE';
       err.account = line.code || null;
       err.sourceType = sourceType || null;
       throw err;
@@ -133,7 +143,7 @@ function assertExpenseLinesHaveCostCenter(db, lines, opts = {}) {
 
 /**
  * Used by expense payment / cheque expense before ledger post.
- * OH always requires CC; when policy ON, require CC only if amount is filled (>0).
+ * OH and payroll always require CC; when policy ON, require CC only if amount is filled (>0).
  */
 function assertExpenseDocumentCostCenter(db, { cost_center_id, is_overhead, section, amount }) {
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
@@ -153,6 +163,12 @@ function assertExpenseDocumentCostCenter(db, { cost_center_id, is_overhead, sect
     err.code = 'E_CC_REQUIRED_OH';
     throw err;
   }
+  if (section === 'payroll') {
+    const err = new Error('مرکز هزینه برای پردازش حقوق الزامی است');
+    err.status = 400;
+    err.code = 'E_CC_REQUIRED_PAYROLL';
+    throw err;
+  }
   const amt = amount == null ? null : Number(amount);
   if (amt != null && !(amt > 0)) return null;
   if (isRequireExpenseCostCenter(db)) {
@@ -169,6 +185,7 @@ module.exports = {
   isRequireExpenseCostCenter,
   isExpenseCodingAccount,
   isPeriodExpenseForCcPolicy,
+  isPayrollSourceType,
   warehouseCostCenterId,
   assertExpenseLinesHaveCostCenter,
   assertExpenseDocumentCostCenter,

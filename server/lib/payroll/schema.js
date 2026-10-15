@@ -184,6 +184,7 @@ function initPayrollSchema(db) {
     ['settlement_mode', "TEXT DEFAULT 'labor'"],
     ['exempt_reason', 'TEXT'],
     ['exempt_note', 'TEXT'],
+    ['cost_center_id', 'INTEGER'],
   ];
   for (const [name, definition] of payrollColumns) ensureColumn(db, 'payroll_records', name, definition);
 

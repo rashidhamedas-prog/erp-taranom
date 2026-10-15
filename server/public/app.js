@@ -18452,13 +18452,21 @@ async function savePayrollTax(year){
 
 const PAYROLL_EXEMPT_LABELS={contractor:'پیمانکار، خارج از رابطه کارگری',marketer:'بازاریاب غیروابسته، بدون رابطه استخدامی',owner:'صاحب کار یا شریک',other:'سایر'};
 async function renderPayrollProcessing(body){
-  const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
+  const [periods,employees,costCenters]=await Promise.all([
+    api('GET','/payroll/periods'),
+    api('GET','/payroll/employees'),
+    CACHE.costCenters?Promise.resolve(CACHE.costCenters):api('GET','/accounting/cost-centers').catch(()=>[])
+  ]);
   CACHE.payrollPeriods=periods||[];
   CACHE.payrollEmployees=employees||[];
+  CACHE.costCenters=costCenters||CACHE.costCenters||[];
+  const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
     <div class="fg"><label>شخص *</label>${personSelect('pc-person','',(employees||[]).filter(p=>p.active))}</div>
+    <div class="fg"><label>مرکز هزینه * ${hlp('هزینه حقوق و سهم بیمه کارفرما روی همین مرکز در دفتر کل ثبت می‌شود — مثل سربار تولید همیشه الزامی است.')}</label>
+      <select id="pc-cc"><option value="">— انتخاب مرکز —</option>${ccOpts}</select></div>
     <div class="fg full"><label>روش ثبت</label>
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:14px;align-items:center`)}">
         <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="radio" name="pc-mode" value="labor" checked data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){togglePayrollEntryMode()})}"> محاسبه طبق قانون کار</label>
@@ -18521,13 +18529,15 @@ function refreshManualExemptNet(){
 function payrollCalcPayload(){
   if(!el('pc-period')?.value) throw new Error('دوره حقوق را انتخاب کنید');
   if(!el('pc-person')?.value) throw new Error('شخص را از فهرست جستجو انتخاب کنید');
+  const cost_center_id=+el('pc-cc')?.value||null;
+  if(!cost_center_id) throw new Error('مرکز هزینه را انتخاب کنید');
   if(payrollEntryMode()==='manual_exempt'){
-    return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,manual_mode:true,manual_exempt:true,
+    return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,cost_center_id,manual_mode:true,manual_exempt:true,
       settlement_mode:'manual_exempt',exempt_reason:el('pc-m-reason')?.value||'',exempt_note:(el('pc-m-note')?.value||'').trim(),
       gross_earnings_rial:moneyVal('pc-m-gross'),other_deductions_rial:moneyVal('pc-m-ded'),
       sso_employee_rial:0,sso_employer_rial:0,income_tax_rial:0};
   }
-  return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
+  return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,cost_center_id,working_days_x100:Math.round((+el('pc-days').value||0)*100),
     regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
     night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),hardship_allowance_rial:moneyVal('pc-hard'),
     other_allowance_rial:moneyVal('pc-other'),tax_exemption_rial:moneyVal('pc-tax-ex'),other_deductions_rial:moneyVal('pc-ded'),insurance_exempt_rial:0};
@@ -18596,6 +18606,7 @@ async function payrollProcessingPersonChanged(){
 }
 async function processPayrollCalculation(){
   if(!el('pc-person')?.value){ payrollShowCalcError(new Error('شخص را از فهرست جستجو انتخاب کنید')); return; }
+  if(!el('pc-cc')?.value){ payrollShowCalcError(new Error('مرکز هزینه را انتخاب کنید')); return; }
   const manual=payrollEntryMode()==='manual_exempt';
   const ask=manual
     ? 'این پرداخت بدون بیمه و مالیات ثبت شود؟ در فهرست بیمه و مالیات حقوق نمی‌آید و سند فقط هزینه و بدهی همین شخص است.'
@@ -18661,11 +18672,15 @@ async function renderPayrollLegalReports(body){
   <tbody>${exempt.map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${esc(PAYROLL_EXEMPT_LABELS[r.exempt_reason]||r.exempt_reason||'')}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.net_pay_rial)}</td><td>${esc(r.exempt_note||'')}</td></tr>`).join('')}</tbody></table></div>`:''}`;
 }
 
-function payrollModal(){
+async function payrollModal(){
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+  const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>🧑‍🏭 ثبت حقوق ساعتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label>${personSelect('pr-person')}</div>
+      <div class="fg"><label>مرکز هزینه * ${hlp('هزینه حقوق روی همین مرکز در دفتر کل ثبت می‌شود.')}</label>
+        <select id="pr-cc"><option value="">— انتخاب مرکز —</option>${ccOpts}</select></div>
       <div class="fg"><label>دوره (مثال: 1403/04)</label><input id="pr-period" placeholder="1403/04"></div>
       <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){updatePayrollPreview()})}"></div>
@@ -18697,9 +18712,11 @@ function updatePayrollPreview(){
 async function savePayrollRecord(){
   const person_id=+el('pr-person').value;
   if(!person_id){ showToast('کارمند را انتخاب کنید','error'); return; }
+  const cost_center_id=+el('pr-cc')?.value||null;
+  if(!cost_center_id){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
   try{
     await api('POST','/payroll',{
-      person_id, period_label:el('pr-period').value,
+      person_id, period_label:el('pr-period').value, cost_center_id,
       regular_hours:+el('pr-reg-hours').value||0, overtime_hours:+el('pr-ot-hours').value||0,
       hourly_rate:moneyVal('pr-hourly-rate'), overtime_rate:moneyVal('pr-ot-rate'),
       bonuses:moneyVal('pr-bonus'), deductions:moneyVal('pr-deduct'),
@@ -18869,13 +18886,17 @@ async function voidPayrollPaymentLeg(paymentId,recordId,personName){
 
 let FARANKENOU_PREVIEW = null;
 
-function farankenouImportModal(){
+async function farankenouImportModal(){
   FARANKENOU_PREVIEW = null;
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+  const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>📥 ورود کارکرد از فراننکو</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>دوره حقوق *</label><select id="fk-period"><option value="">— انتخاب دوره —</option>
         ${(CACHE.payrollPeriods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>مرکز هزینه * ${hlp('برای همهٔ ردیف‌های انتخاب‌شده یک مرکز هزینه روی سند حقوق می‌نشیند.')}</label>
+        <select id="fk-cc"><option value="">— انتخاب مرکز —</option>${ccOpts}</select></div>
       <div class="fg full"><label>فایل کارکرد (.lwte) * ${hlp('خروجی نرم‌افزار فراننکو — TAB جدا، UTF-8')}</label>
         <input type="file" id="fk-file" accept=".lwte,.txt,.csv" data-csp-change="${CSP.bind('change',function(event){previewFarankenou()})}"></div>
       <div class="fg"><label>تاریخ ثبت</label><input id="fk-date" data-jdate value="${todayJalali()}"></div>
@@ -18938,6 +18959,8 @@ function toggleFarankenouAll(checked){
 
 async function commitFarankenou(){
   if(!FARANKENOU_PREVIEW?.rows?.length){ showToast('ابتدا فایل را بارگذاری کنید','error'); return; }
+  const cost_center_id=+el('fk-cc')?.value||null;
+  if(!cost_center_id){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
   const selected=[];
   document.querySelectorAll('.fk-row-chk').forEach(chk=>{
     if(!chk.checked) return;
@@ -18950,7 +18973,7 @@ async function commitFarankenou(){
   try{
     const res=await api('POST','/payroll/process',{
       period_id: FARANKENOU_PREVIEW.period_id,
-      rows: selected.map(r=>({...r,date:el('fk-date')?.value||todayJalali()}))
+      rows: selected.map(r=>({...r,date:el('fk-date')?.value||todayJalali(),cost_center_id}))
     });
     closeModal();
     const msg=res.errors?.length
@@ -29104,7 +29127,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود: بستانکار <b>تفصیلی همان شخص</b> (خالص حقوق، ریال) نه فقط حساب کنترل ۲۱۰۴؛ بیمه/مالیات روی ۲۱۰۵/۲۱۰۶ می‌ماند. <b>پرداخت چندمرحله‌ای:</b> روی دکمه پرداخت می‌توانید بخشی از مانده را الان و بقیه را بعداً تسویه کنید، یا در یک ثبت چند قسط با منبع متفاوت (بانک/صندوق/چک) بزنید؛ هر قسط سند جدا (بدهکار تفصیلی شخص / بستانکار بانک یا صندوق) می‌سازد و بیش‌پرداخت رد می‌شود. گردش شخص و دفتر کل تفصیلی همان مبالغ ریالی را نشان می‌دهند. وضعیت‌ها: پرداخت‌نشده / نیمه‌پرداخت / پرداخت‌شده؛ ابطال تک‌قسط یا ابطال همهٔ اقساط فعال ممکن است. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). <b>ابطال سند حقوق</b> همان اثر ایجاد را در یک تراکنش برمی‌گرداند: سند تعهد دفتر کل soft-void می‌شود، اقساط پرداخت فعال ابطال می‌شوند، دفتر شخص (اصل + افست قدیمی) با <code>deleted_at</code> خارج می‌شود، و ردیف با وضعیت «ابطال‌شده» و مانده صفر برای سابقه می‌ماند — حذف فیزیکی نیست. جمع پایین جدول فقط اسناد فعال است. بعد از ابطال می‌توان همان دوره را دوباره پردازش کرد. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. <b>ثبت دستی بدون بیمه و مالیات</b> فقط برای پیمانکار، بازاریاب غیروابسته یا صاحب کار است: بیمه و مالیات صفر می‌ماند، در فهرست بیمه و مالیات و CSV DRAFT نمی‌آید، و سند فقط هزینه و بدهی همان شخص است. کارگر با بیمه «بدون بیمه» از محاسبه قانون کار رد می‌شود تا وقتی مبنا را در همین مسیر انتخاب کند. اگر مزد پایه حکم از حداقل مزد ثبت‌شده در تنظیمات قانون کار کمتر باشد، سند قانون کار ثبت می‌شود و هشدار می‌ماند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق (دکمه «ویرایش» روی ساختار کارمند و گروه)، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. در <b>محاسبه و پردازش حقوق</b> و ورود فراننکو، <b>مرکز هزینه همیشه الزامی</b> است (مستقل از تنظیم «الزام مرکز هزینه روی هزینه‌ها») و روی بدهکار هزینه حقوق / سهم بیمه کارفرما در دفتر کل می‌نشیند. <b>پلکان ماده ۸۴ اختیاری است</b>؛ بدون پله مالیات صفر است. در پرونده کارمند گزینه <b>معاف از مالیات</b> هست. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود: بستانکار <b>تفصیلی همان شخص</b> (خالص حقوق، ریال) نه فقط حساب کنترل ۲۱۰۴؛ بیمه/مالیات روی ۲۱۰۵/۲۱۰۶ می‌ماند. <b>پرداخت چندمرحله‌ای:</b> روی دکمه پرداخت می‌توانید بخشی از مانده را الان و بقیه را بعداً تسویه کنید، یا در یک ثبت چند قسط با منبع متفاوت (بانک/صندوق/چک) بزنید؛ هر قسط سند جدا (بدهکار تفصیلی شخص / بستانکار بانک یا صندوق) می‌سازد و بیش‌پرداخت رد می‌شود. گردش شخص و دفتر کل تفصیلی همان مبالغ ریالی را نشان می‌دهند. وضعیت‌ها: پرداخت‌نشده / نیمه‌پرداخت / پرداخت‌شده؛ ابطال تک‌قسط یا ابطال همهٔ اقساط فعال ممکن است. هر شخص چند <b>حکم</b> با تاریخ صدور و اجرا دارد؛ مبنای محاسبه آخرین حکم فعال در بازه دوره است و معوقه با همان حکم می‌آید. ماه دارای سند حقوق قفل است (تغییر حکم، محاسبه جدید یا حکم با اثر در همان ماه ممنوع). <b>ابطال سند حقوق</b> همان اثر ایجاد را در یک تراکنش برمی‌گرداند: سند تعهد دفتر کل soft-void می‌شود، اقساط پرداخت فعال ابطال می‌شوند، دفتر شخص (اصل + افست قدیمی) با <code>deleted_at</code> خارج می‌شود، و ردیف با وضعیت «ابطال‌شده» و مانده صفر برای سابقه می‌ماند — حذف فیزیکی نیست. جمع پایین جدول فقط اسناد فعال است. بعد از ابطال می‌توان همان دوره را دوباره پردازش کرد. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. <b>ثبت دستی بدون بیمه و مالیات</b> فقط برای پیمانکار، بازاریاب غیروابسته یا صاحب کار است: بیمه و مالیات صفر می‌ماند، در فهرست بیمه و مالیات و CSV DRAFT نمی‌آید، و سند فقط هزینه و بدهی همان شخص است. کارگر با بیمه «بدون بیمه» از محاسبه قانون کار رد می‌شود تا وقتی مبنا را در همین مسیر انتخاب کند. اگر مزد پایه حکم از حداقل مزد ثبت‌شده در تنظیمات قانون کار کمتر باشد، سند قانون کار ثبت می‌شود و هشدار می‌ماند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

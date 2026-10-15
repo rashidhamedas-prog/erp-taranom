@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۷/۲۳ — مرکز هزینه اجباری در محاسبه و پردازش حقوق (SW v396)
+
+- **علائم:** در صفحه «محاسبه و پردازش حقوق» فیلد مرکز هزینه نبود؛ با اجباری بودن CC برای هزینهٔ دوره، کاربر جایی برای تعیین نداشت.
+- **Invariant:** تعهد حقوق ماهانه (`sourceType=payroll`) همیشه بدهکار هزینه می‌زند؛ مثل سربار تولید، CC همیشه الزامی است — مستقل از سوییچ `require_cc_on_expense`. عیدی/سنوات فعلاً همان سوییچ سراسری را رعایت می‌کند (تا فرم جداگانه CC بگیرد).
+- **رفع:** UI فیلد `pc-cc` + فراننکو `fk-cc` + حقوق ساعتی `pr-cc`؛ payload/`POST /process` و `POST /` با `cost_center_id`؛ `assertExpenseDocumentCostCenter(section:'payroll')` + choke-point ledger برای `sourceType=payroll`؛ ستون `payroll_records.cost_center_id`؛ `postToLedger({costCenterId})`؛ Help.
+- **فایل‌ها:** `lib/{cost-center-policy,payroll/schema}.js`, `routes/payroll.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-cc-required-v396.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC planner + verify؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی OH/v375.
+- **تست:** (پس از deploy روی ایران) `test-payroll-cc-required-v396` + `test-sms`؛ محلی better-sqlite3 ویندوز در دسترس نبود.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — حریم تراکنش مشتری نقدی فروشگاه (فروش حضوری) (SW v395)
 
 - **هدف:** روی «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط تراکنش‌هایی را ببیند که خودش ثبت کرده (فاکتور / تسویه / برگشت / تاریخچه CRM).
