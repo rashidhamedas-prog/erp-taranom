@@ -1,11 +1,3 @@
-### ۱۴۰۵/۰۷/۲۳ — ویرایش درجا برای پرداخت به شخص/حساب (SW v394)
-
-- **علائم:** در لیست پرداخت‌ها ردیف «شخص» (مثل JV-0389) فقط 🗑️ داشت و مداد نداشت؛ هزینه عمومی مداد داشت.
-- **ریشه:** در v391 عمداً مداد برای voucherها مخفی شد چون `openCashDocEdit`/`PUT` برای شخص/حساب وجود نداشت.
-- **رفع ریشه‌ای:** `amendPersonVoucherPayment` + `amendAccountPayment` با `rewriteJournalEntry` (همان id و شمارهٔ JV)؛ `PUT /accounting/vouchers/:id`؛ غنی‌سازی لیست cash-ops (`party_id`/`bank_id`/`fee_rial`/…); UI مداد + فرم اصلاح؛ Help. دریافت شخص/حساب هنوز ابطال+ثبت مجدد.
-- **فایل‌ها:** `lib/{amend-cash-ops,cash-ops-list}.js`, `routes/accounting.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cash-ops-person-amend-v394.js`, CHANGE-LOG.
-- **Deploy:** ⏳
-
 ### ۱۴۰۵/۰۷/۲۳ — لیست فاکتورها همیشه بر اساس تاریخ صدور (SW v393)
 
 - **علائم:** در صفحهٔ فاکتور، T-0022 با تاریخ `1405/07/02` بالای لیست بود در حالی که فاکتورهای `07/20` و `07/21` پایین‌تر بودند (سورت ظاهراً بر اساس شماره/`created_at`).
