@@ -18766,15 +18766,22 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>اضافه‌کاری (ساعت)</label><input id="pc-ot" type="number" step=".01" value="0"></div>
     <div class="fg"><label>شب‌کاری (ساعت)</label><input id="pc-night" type="number" step=".01" value="0"></div>
     <div class="fg"><label>جمعه‌کاری (ساعت)</label><input id="pc-friday" type="number" step=".01" value="0"></div>
+    <div class="fg"><label>نوبت‌کاری (ساعت) ${hlp('فوق‌العاده نوبت بر اساس ضریب پارامتر قانونی (پیش‌فرض ۱٫۲۲۵ = ۲۲٫۵٪) فقط روی همین ساعات محاسبه می‌شود.')}</label><input id="pc-shift" type="number" step=".01" value="0"></div>
     <div class="fg"><label>روز پایه سنوات ${hlp('اگر سابقه کامل ماه را دارد ۳۰ وارد کنید؛ مبلغ از پارامتر قانونی روزانه محاسبه می‌شود.')}</label><input id="pc-seniority-days" type="number" step=".01" value="0"></div>
+    <div class="fg"><label>غیبت (روز)</label><input id="pc-absence" type="number" step=".01" value="0"></div>
+    <div class="fg"><label>مرخصی بدون حقوق (روز)</label><input id="pc-unpaid" type="number" step=".01" value="0"></div>
+    <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pc-apply-absence" data-csp-style="${CSP.style(`width:auto`)}"> کسر غیبت/مرخصی از روز کارکرد</label></div>
     <div class="fg"><label>سختی کار (ریال)</label><input id="pc-hard" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>ماموریت (ریال) ${hlp('غیرمشمول بیمه و مالیات — بخشنامه ۴۱۹۵ / ماده ۹۱')}</label><input id="pc-mission" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>پاداش تولید (ریال) ${hlp('با مجوز اداره کار از بیمه معاف است؛ مشمول مالیات می‌ماند.')}</label><input id="pc-prod-bonus" class="money" inputmode="numeric" value="0"></div>
     <div class="fg"><label>سایر مزایا (ریال)</label><input id="pc-other" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>معافیت بیمه اضافی (ریال) ${hlp('حق اولاد و ماموریت خودکار از مبنای بیمه کم می‌شوند؛ این فیلد برای سایر معافیت‌های دستی است.')}</label><input id="pc-ins-ex" class="money" inputmode="numeric" value="0"></div>
     <div class="fg"><label>معافیت مالیاتی ماه (ریال)</label><input id="pc-tax-ex" class="money" inputmode="numeric" value="0"> <span class="muted">خالی/۰ = از پارامتر قانونی</span></div>
     <div class="fg"><label>سایر کسورات (ریال)</label><input id="pc-ded" class="money" inputmode="numeric" value="0"> <span class="muted">غیر از بازپرداخت مساعده و بیمه/مالیات</span></div>
     <div class="fg"><label>بازپرداخت مساعده (ریال)</label><input id="pc-adv-rec" class="money" inputmode="numeric" value="0"> <span class="muted" id="pc-adv-bal">مانده مساعده پس از انتخاب کارمند</span></div>
     <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pc-adv-auto" data-csp-style="${CSP.style(`width:auto`)}"> تسویه خودکار تمام مانده مساعده</label></div>
   </div>
-  <div class="muted" data-csp-style="${CSP.style(`margin-top:8px;line-height:1.7`)}">کف مزد، مسکن، بن، اولاد، تأهل، سقف بیمه و ضرایب از <a href="#" data-csp-click="${CSP.bind('click',function(e){e.preventDefault();go('acc-payroll-labor')})}">پارامترهای قانونی سال</a> خوانده می‌شود. سند حسابداری: بدهکار ۶۱۰۴+۶۱۰۶ / بستانکار تفصیلی شخص + ۲۱۰۵ + ۲۱۰۶ + ۲۱۰۸؛ بازپرداخت مساعده بستانکار ۱۱۱۹.</div>
+  <div class="muted" data-csp-style="${CSP.style(`margin-top:8px;line-height:1.7`)}">کف مزد، مسکن، بن، اولاد، تأهل، سقف بیمه و ضرایب از <a href="#" data-csp-click="${CSP.bind('click',function(e){e.preventDefault();go('acc-payroll-labor')})}">پارامترهای قانونی سال</a> خوانده می‌شود. سند: Dr ۶۱۰۴+۶۱۰۶ / Cr شخص + ۲۱۰۵ (کارگر۷٪+کارفرما۲۰٪) + ۲۱۱۳ (بیکاری۳٪) + ۲۱۰۶ + ۲۱۰۸؛ مساعده ۱۱۱۹. حق اولاد خودکار از مبنای بیمه خارج است.</div>
   <div id="pc-manual-fields" data-csp-style="${CSP.style(`display:none;margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px`)}">
     <div class="muted" data-csp-style="${CSP.style(`line-height:1.8;margin-bottom:10px`)}">فقط برای پرداختی که رابطه کارگری ندارد: پیمانکار، بازاریاب غیروابسته، یا صاحب کار. بیمه تأمین اجتماعی و مالیات حقوق صفر است و در فهرست بیمه و مالیات نمی‌آید. سند فقط هزینه و بدهی همان شخص است. کارگر مشمول باید با روش قانون کار ثبت شود.</div>
     <div class="form-grid">
@@ -18832,11 +18839,18 @@ function payrollCalcPayload(){
     regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
     night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),
     friday_hours_x100:Math.round((+el('pc-friday')?.value||0)*100),
+    shift_hours_x100:Math.round((+el('pc-shift')?.value||0)*100),
+    absence_days_x100:Math.round((+el('pc-absence')?.value||0)*100),
+    unpaid_leave_days_x100:Math.round((+el('pc-unpaid')?.value||0)*100),
+    apply_absence_to_days:el('pc-apply-absence')?.checked?1:0,
     seniority_days_x100:Math.round((+el('pc-seniority-days')?.value||0)*100),
     hardship_allowance_rial:moneyVal('pc-hard'),
+    mission_allowance_rial:moneyVal('pc-mission'),
+    production_bonus_rial:moneyVal('pc-prod-bonus'),
+    production_bonus_sso_exempt:1,
     other_allowance_rial:moneyVal('pc-other'),tax_exemption_rial:moneyVal('pc-tax-ex'),other_deductions_rial:moneyVal('pc-ded'),
     advance_recovery_rial:moneyVal('pc-adv-rec'),auto_recover_advance:el('pc-adv-auto')?.checked?1:0,
-    insurance_exempt_rial:0};
+    insurance_exempt_rial:moneyVal('pc-ins-ex')};
 }
 function payrollWarnHtml(warnings){
   return (warnings||[]).map(w=>`<div data-csp-style="${CSP.style(`margin-top:8px;line-height:1.8;color:var(--orange,#B86E00)`)}">${esc(w)}</div>`).join('');
@@ -18853,25 +18867,31 @@ async function previewPayrollCalculation(){
       el('pc-tax-ex').value=moneyInit(c.tax_exemption_applied_rial);
       ensureMoneyField(el('pc-tax-ex'));
     }
+    const empBase=c.sso_employer_base_rial!=null?c.sso_employer_base_rial:Math.round((c.sso_employer_rial||0)*2000/2300);
+    const unemp=c.sso_unemployment_rial!=null?c.sso_unemployment_rial:Math.max(0,(c.sso_employer_rial||0)-empBase);
     const rows=[
       ['مزد پایه',c.base_pay_rial],['حق مسکن',c.housing_allowance_rial],['بن کارگری',c.grocery_allowance_rial],
       ['حق تأهل',c.spouse_allowance_rial],['حق اولاد',c.child_allowance_rial],['اضافه‌کاری',c.overtime_pay_rial],
-      ['شب‌کاری',c.night_shift_pay_rial],['جمعه‌کاری',c.friday_pay_rial],['پایه سنوات',c.seniority_rial],
+      ['شب‌کاری',c.night_shift_pay_rial],['جمعه‌کاری',c.friday_pay_rial],['نوبت‌کاری',c.shift_pay_rial],
+      ['پایه سنوات',c.seniority_rial],['ماموریت',c.mission_allowance_rial],['پاداش تولید',c.production_bonus_rial],
       ['سختی/سایر', (c.hardship_allowance_rial||0)+(c.other_allowance_rial||0)],
-      ['ناخالص',c.gross_earnings_rial],['مبنای بیمه',c.insurance_base_rial],
-      ['بیمه کارگر ۷٪',c.sso_employee_rial],['بیمه کارفرما ۲۳٪',c.sso_employer_rial],
+      ['ناخالص',c.gross_earnings_rial],['معاف از بیمه',c.insurance_exempt_rial],['مبنای بیمه',c.insurance_base_rial],
+      ['بیمه کارگر ۷٪',c.sso_employee_rial],['بیمه کارفرما ۲۰٪',empBase],['بیمه بیکاری ۳٪',unemp],
+      ['جمع بیمه کارفرما ۲۳٪',c.sso_employer_rial],
       ['معافیت مالیاتی اعمال‌شده',c.tax_exemption_applied_rial],['مشمول مالیات',c.taxable_income_rial],
       ['مالیات',c.income_tax_rial],['سایر کسورات',c.other_deductions_rial],['خالص',c.net_pay_rial],
       ['هزینه کارفرما (ناخالص+بیمه کارفرما)',c.employer_cost_rial]
-    ].filter(([,v])=>v!=null);
+    ];
+    const rowsShown=rows.filter(([k,v])=>v!=null && (Number(v)!==0 || /ناخالص|خالص|مبنای بیمه|معاف از بیمه|جمع بیمه کارفرما/.test(k)));
     const advRec=r.advance_recovery_rial||0;
     const otherRest=Math.max(0,(c.other_deductions_rial||0)-advRec);
+    const ssoCr=(c.sso_employee_rial||0)+empBase;
     el('pc-result').innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.9`)}"><b>پیش‌نمایش فیش</b>
       ${r.advance_balance_rial!=null?`<div class="muted">مانده مساعده: ${fmt(r.advance_balance_rial)} ریال${advRec?` — بازپرداخت در این فیش: ${fmt(advRec)}`:''}</div>`:''}
       <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><tbody>
-      ${rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:${/ناخالص|خالص|هزینه/.test(k)?'700':'400'}`)}">${fmt(v)} ریال</td></tr>`).join('')}
+      ${rowsShown.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:${/ناخالص|خالص|هزینه/.test(k)?'700':'400'}`)}">${fmt(v)} ریال</td></tr>`).join('')}
       </tbody></table></div>
-      <div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">سند: Dr ۶۱۰۴ ${fmt(c.gross_earnings_rial)} + Dr ۶۱۰۶ ${fmt(c.sso_employer_rial)} / Cr شخص ${fmt(c.net_pay_rial)} + Cr ۲۱۰۵ ${fmt((c.sso_employee_rial||0)+(c.sso_employer_rial||0))} + Cr ۲۱۰۶ ${fmt(c.income_tax_rial)}${advRec?` + Cr ۱۱۱۹ ${fmt(advRec)}`:''}${otherRest?` + Cr ۲۱۰۸ ${fmt(otherRest)}`:''}</div>
+      <div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">سند: Dr ۶۱۰۴ ${fmt(c.gross_earnings_rial)} + Dr ۶۱۰۶ ${fmt(c.sso_employer_rial)} / Cr شخص ${fmt(c.net_pay_rial)} + Cr ۲۱۰۵ ${fmt(ssoCr)} + Cr ۲۱۱۳ ${fmt(unemp)} + Cr ۲۱۰۶ ${fmt(c.income_tax_rial)}${advRec?` + Cr ۱۱۱۹ ${fmt(advRec)}`:''}${otherRest?` + Cr ۲۱۰۸ ${fmt(otherRest)}`:''}</div>
     </div>`+payrollWarnHtml(r.warnings);
   }catch(e){ payrollShowCalcError(e); }
 }
@@ -18983,25 +19003,49 @@ async function postPayrollYearEnd(id){
 
 async function renderPayrollMonthlyAccruals(body){
   const period=todayJalali().slice(0,7);
-  const rows=await api('GET','/payroll/accruals/monthly?period_label='+encodeURIComponent(period)).catch(()=>[]);
+  const [rows,leaveRows]=await Promise.all([
+    api('GET','/payroll/accruals/monthly?period_label='+encodeURIComponent(period)).catch(()=>[]),
+    api('GET','/payroll/accruals/leave?period_label='+encodeURIComponent(period)).catch(()=>[])
+  ]);
   const totE=(rows||[]).reduce((s,r)=>s+(r.eidi_rial||0),0);
   const totS=(rows||[]).reduce((s,r)=>s+(r.severance_rial||0),0);
+  const totL=(leaveRows||[]).filter(r=>r.status==='posted').reduce((s,r)=>s+(r.amount_rial||0),0);
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end`)}">
     <div class="fg"><label>دوره (YYYY/MM)</label><input id="acc-period" value="${esc(period)}" data-csp-style="${CSP.style(`width:120px`)}"></div>
-    ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(){postPayrollMonthlyAccrual()})}">${lucide('check')} ثبت تعهد ماهانه</button>`:''}
+    ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(){postPayrollMonthlyAccrual()})}">${lucide('check')} ذخیره عیدی/سنوات</button>
+    <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){postPayrollLeaveAccrual()})}">${lucide('calendar')} ذخیره مرخصی (۲٫۵ روز)</button>`:''}
     <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){reloadPayrollMonthlyAccruals()})}">${lucide('refresh')} بارگذاری</button>
   </div>
-  <div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">هر ماه ۱/۱۲ عیدی و سنوات کارکنان را به هزینه می‌برد و بدهی ذخیره‌ای (۲۱۱۰/۲۱۱۱) می‌سازد. هنگام ثبت عیدی/سنوات سالانه این ذخیره آزاد می‌شود تا هزینه دوباره شمارش نشود.</div>
+  <div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">عیدی/سنوات: Dr ۶۱۱۰/۶۱۱۱ → Cr ۲۱۱۰/۲۱۱۱. مرخصی استحقاقی: Dr ۶۱۱۶ → Cr ۲۱۱۴ (۲٫۵ روز × مزد روزانه). بازخرید مرخصی از API <code>/payroll/accruals/leave/cash-out</code>.</div>
   <div class="stats" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="stat"><div class="stat-l">عیدی دوره</div><div class="stat-v mono">${fmt(totE)}</div></div>
-    <div class="stat"><div class="stat-l">سنوات دوره</div><div class="stat-v mono">${fmt(totS)}</div></div></div>
+    <div class="stat"><div class="stat-l">سنوات دوره</div><div class="stat-v mono">${fmt(totS)}</div></div>
+    <div class="stat"><div class="stat-l">مرخصی دوره</div><div class="stat-v mono">${fmt(totL)}</div></div></div>
+  <h4 data-csp-style="${CSP.style(`margin:8px 0`)}">عیدی و سنوات</h4>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>کارمند</th><th>عیدی</th><th>سنوات</th><th>سند</th><th>آزادشده</th></tr></thead>
-  <tbody id="acc-accrual-tbody">${(rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td class="mono">${fmt(r.eidi_rial)}</td><td class="mono">${fmt(r.severance_rial)}</td><td>${r.je_id||'—'}</td><td>${r.released_year_end_id?('YE#'+r.released_year_end_id):'—'}</td></tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+  <tbody id="acc-accrual-tbody">${(rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td class="mono">${fmt(r.eidi_rial)}</td><td class="mono">${fmt(r.severance_rial)}</td><td>${r.je_id||'—'}</td><td>${r.released_year_end_id?('YE#'+r.released_year_end_id):'—'}</td></tr>`).join('')||emptyRow(6)}</tbody></table></div>
+  <h4 data-csp-style="${CSP.style(`margin:16px 0 8px`)}">ذخیره مرخصی</h4>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>کارمند</th><th>روز</th><th>مبلغ</th><th>وضعیت</th><th>سند</th></tr></thead>
+  <tbody id="acc-leave-tbody">${(leaveRows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td class="mono">${((r.days_x100||0)/100).toFixed(1)}</td><td class="mono">${fmt(r.amount_rial)}</td><td>${esc(r.status)}</td><td>${r.je_id||'—'}</td></tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+}
+async function postPayrollLeaveAccrual(){
+  const period_label=el('acc-period')?.value||todayJalali().slice(0,7);
+  if(!confirm('ذخیره ماهانه مرخصی (۲٫۵ روز) برای '+period_label+' ثبت شود؟')) return;
+  try{
+    const r=await api('POST','/payroll/accruals/leave',{period_label,date:todayJalali()});
+    showToast('ذخیره مرخصی ثبت شد — سند '+ (r.je_id||''));
+    renderPayrollMonthlyAccruals(el('accBody')||document.getElementById('accBody'));
+  }catch(e){}
 }
 async function reloadPayrollMonthlyAccruals(){
   const period=el('acc-period')?.value||todayJalali().slice(0,7);
-  const rows=await api('GET','/payroll/accruals/monthly?period_label='+encodeURIComponent(period)).catch(()=>[]);
+  const [rows,leaveRows]=await Promise.all([
+    api('GET','/payroll/accruals/monthly?period_label='+encodeURIComponent(period)).catch(()=>[]),
+    api('GET','/payroll/accruals/leave?period_label='+encodeURIComponent(period)).catch(()=>[])
+  ]);
   const tb=el('acc-accrual-tbody');
   if(tb) tb.innerHTML=(rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td class="mono">${fmt(r.eidi_rial)}</td><td class="mono">${fmt(r.severance_rial)}</td><td>${r.je_id||'—'}</td><td>${r.released_year_end_id?('YE#'+r.released_year_end_id):'—'}</td></tr>`).join('')||emptyRow(6);
+  const lb=el('acc-leave-tbody');
+  if(lb) lb.innerHTML=(leaveRows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td class="mono">${((r.days_x100||0)/100).toFixed(1)}</td><td class="mono">${fmt(r.amount_rial)}</td><td>${esc(r.status)}</td><td>${r.je_id||'—'}</td></tr>`).join('')||emptyRow(6);
 }
 async function postPayrollMonthlyAccrual(){
   const period_label=el('acc-period')?.value||todayJalali().slice(0,7);
@@ -19021,11 +19065,12 @@ async function renderPayrollRemittances(body){
     api('GET','/payroll/remittances').catch(()=>[])
   ]);
   body.innerHTML=`<div class="stats" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-    <div class="stat"><div class="stat-l">مانده بیمه پرداختنی (۲۱۰۵)</div><div class="stat-v mono">${fmt(bal.sso_payable_rial||0)}</div></div>
+    <div class="stat"><div class="stat-l">مانده بیمه (۲۱۰۵)</div><div class="stat-v mono">${fmt(bal.sso_payable_rial||0)}</div></div>
+    <div class="stat"><div class="stat-l">مانده بیکاری (۲۱۱۳)</div><div class="stat-v mono">${fmt(bal.unemployment_payable_rial||0)}</div></div>
     <div class="stat"><div class="stat-l">مانده مالیات حقوق (۲۱۰۶)</div><div class="stat-v mono">${fmt(bal.tax_payable_rial||0)}</div></div>
   </div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
-    <div class="fg"><label>نوع *</label><select id="rm-kind"><option value="sso">بیمه تأمین اجتماعی</option><option value="tax">مالیات حقوق</option></select></div>
+    <div class="fg"><label>نوع *</label><select id="rm-kind"><option value="sso">بیمه تأمین اجتماعی (۲۰٪+۷٪)</option><option value="unemployment">بیمه بیکاری (۳٪)</option><option value="tax">مالیات حقوق</option></select></div>
     <div class="fg"><label>مبلغ (ریال) *</label><input id="rm-amt" class="money" inputmode="numeric" value="0"></div>
     <div class="fg"><label>از</label><select id="rm-paytype"><option value="bank">بانک</option><option value="cash">صندوق</option></select></div>
     <div class="fg"><label>بانک</label><select id="rm-bank">${payrollPayBankOptions()}</select></div>
@@ -19037,7 +19082,7 @@ async function renderPayrollRemittances(body){
   ${canPerm('payroll','create')?`<div class="toolbar" data-csp-style="${CSP.style(`margin-top:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){savePayrollRemittance()})}">${lucide('check')} ثبت پرداخت</button></div>`:''}
   </div></div>
   <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:16px`)}"><table class="tbl"><thead><tr><th>#</th><th>نوع</th><th>مبلغ</th><th>تاریخ</th><th>دوره</th><th>وضعیت</th><th></th></tr></thead>
-  <tbody>${(rows||[]).map(r=>`<tr><td>${r.id}</td><td>${r.kind==='sso'?'بیمه':'مالیات'}</td><td class="mono">${fmt(r.amount_rial)}</td><td>${esc(r.date||'')}</td><td>${esc(r.period_label||'')}</td>
+  <tbody>${(rows||[]).map(r=>`<tr><td>${r.id}</td><td>${r.kind==='sso'?'بیمه':(r.kind==='unemployment'?'بیکاری':'مالیات')}</td><td class="mono">${fmt(r.amount_rial)}</td><td>${esc(r.date||'')}</td><td>${esc(r.period_label||'')}</td>
     <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال</span>':'<span class="tag t-done">ثبت</span>'}</td>
     <td>${r.status!=='reversed'&&canPerm('payroll','create')?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(){voidPayrollRemittance((r.id))})}">ابطال</button>`:''}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
@@ -29740,7 +29785,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی از فهرست «سمت و جایگاه» روی فرم شخص است. ثبت/ویرایش پرونده، ساختار/حکم، <b>پارامترهای قانونی سال</b>، دوره، پلکان مالیات، پردازش، فراننکو، عیدی/سنوات، پرداخت و ابطال فقط با <code>payroll.create</code> است. در <b>پارامترهای قانونی سال</b> حداقل مزد روزانه، حق مسکن، بن کارگری، حق اولاد، حق تأهل، پایه سنوات روزانه، سقف مشمول بیمه (۷×حداقل×۳۰)، معافیت ماهانه ماده ۸۴ و ضرایب اضافه‌کاری/شب/جمعه ذخیره می‌شود؛ دکمه «بارگذاری مصوبه قانونی» بستهٔ سال (مثلاً ۱۴۰۵) را می‌نشاند. این مقادیر به‌عنوان <b>کف</b> روی حکم اعمال می‌شوند (اگر حکم بالاتر باشد همان بالاتر می‌ماند). در <b>محاسبه و پردازش</b> جمعه‌کاری، روز پایه سنوات، بازپرداخت مساعده (۱۱۱۹)، پیش‌نمایش فیش کامل و شرح سند حسابداری دیده می‌شود؛ مرکز هزینه همیشه الزامی است. معافیت مالیاتی اگر در فرم صفر باشد از پارامتر قانونی می‌آید. <b>سند تعهد:</b> بدهکار ۶۱۰۴ (ناخالص) + ۶۱۰۶ (بیمه کارفرما) / بستانکار تفصیلی شخص (خالص) + ۲۱۰۵ (بیمه کارگر+کارفرما) + ۲۱۰۶ (مالیات) + در صورت نیاز ۲۱۰۸ (سایر کسورات) و ۱۱۱۹ (بازپرداخت مساعده). <b>ذخیره ماهانه عیدی/سنوات</b> هزینه ۱/۱۲ را به ۲۱۱۰/۲۱۱۱ می‌برد؛ هنگام ثبت عیدی/سنوات سالانه همان ذخیره آزاد می‌شود تا دوباره‌شماری نشود. <b>پرداخت بیمه و مالیات</b> مانده ۲۱۰۵/۲۱۰۶ را از بانک/صندوق تسویه می‌کند. <b>مساعده کارکنان</b> بدهکار ۱۱۱۹ است و از فیش حقوق کسر می‌شود. پرداخت چندمرحله‌ای، حکم چندتایی با قفل ماه دارای سند، ابطال R13، فراننکو، و مسیر «ثبت دستی بدون بیمه و مالیات» برای پیمانکار/بازاریاب/صاحب کار مثل قبل است. پلکان ماده ۸۴ اختیاری است؛ بدون پله مالیات صفر می‌ماند.</li>
+        <li><b>حقوق و دستمزد</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی از فهرست «سمت و جایگاه» روی فرم شخص است. ثبت/ویرایش پرونده، ساختار/حکم، <b>پارامترهای قانونی سال</b>، دوره، پلکان مالیات، پردازش، فراننکو، عیدی/سنوات، پرداخت و ابطال فقط با <code>payroll.create</code> است. در <b>پارامترهای قانونی سال</b> حداقل مزد روزانه، حق مسکن، بن کارگری، حق اولاد، حق تأهل، پایه سنوات روزانه، سقف مشمول بیمه (۷×حداقل×۳۰)، معافیت ماهانه ماده ۸۴ و ضرایب اضافه‌کاری/شب/جمعه ذخیره می‌شود؛ دکمه «بارگذاری مصوبه قانونی» بستهٔ سال (مثلاً ۱۴۰۵) را می‌نشاند. این مقادیر به‌عنوان <b>کف</b> روی حکم اعمال می‌شوند (اگر حکم بالاتر باشد همان بالاتر می‌ماند). در <b>محاسبه و پردازش</b> نوبت‌کاری، غیبت/مرخصی بدون حقوق، ماموریت (غیرمشمول بیمه و مالیات)، پاداش تولید، جمعه‌کاری، پایه سنوات، معافیت بیمه اضافی، بازپرداخت مساعده و پیش‌نمایش فیش دیده می‌شود؛ <b>حق اولاد خودکار از مبنای بیمه خارج</b> است. مرکز هزینه همیشه الزامی است. <b>سند تعهد:</b> بدهکار ۶۱۰۴ + ۶۱۰۶ / بستانکار تفصیلی شخص + ۲۱۰۵ (کارگر۷٪+کارفرما۲۰٪) + ۲۱۱۳ (بیکاری۳٪) + ۲۱۰۶ + در صورت نیاز ۲۱۰۸ و ۱۱۱۹. <b>ذخیره ماهانه عیدی/سنوات</b> به ۲۱۱۰/۲۱۱۱؛ <b>ذخیره مرخصی</b> ۲٫۵ روز/ماه به ۶۱۱۶/۲۱۱۴. <b>پرداخت بیمه/بیکاری/مالیات</b> مانده ۲۱۰۵/۲۱۱۳/۲۱۰۶ را تسویه می‌کند. خروجی CSV بانک از دوره برای شبا+خالص باقی‌مانده. <b>مساعده</b> بدهکار ۱۱۱۹ و کسر از فیش است. پرداخت چندمرحله‌ای، حکم چندتایی با قفل ماه دارای سند، ابطال R13، فراننکو، و مسیر «ثبت دستی بدون بیمه و مالیات» برای پیمانکار/بازاریاب/صاحب کار مثل قبل است. پلکان ماده ۸۴ اختیاری است؛ بدون پله مالیات صفر می‌ماند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

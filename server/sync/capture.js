@@ -148,6 +148,7 @@ const PATH_TABLE_MAP = [
   ['/api/payroll/payments', 'payroll_payments'],
   ['/api/payroll/remittances', 'payroll_remittances'],
   ['/api/payroll/advances', 'payroll_advances'],
+  ['/api/payroll/accruals/leave', 'payroll_leave_accruals'],
   ['/api/payroll/accruals', 'payroll_monthly_accruals'],
   ['/api/payroll/labor-settings', 'payroll_labor_settings'],
   ['/api/payroll/legal-pack', 'payroll_labor_settings'],

@@ -56,7 +56,7 @@ function factorToBp(factor, fallbackBp) {
  *   - min_wage_daily_rial → base_wage_rial
  *   - housing / food(grocery) / child / spouse allowances
  * Factors (prefer labor settings when set):
- *   - overtime_factor, night_factor → *_factor_bp
+ *   - overtime_factor, night_factor, friday_factor, shift_factor → *_factor_bp
  * Cap helper used later:
  *   - insurance_cap_monthly_rial (or 7×min×days)
  */
@@ -96,6 +96,7 @@ function applyLaborSettingsFloor(structure, period, laborSettings) {
   next.overtime_factor_bp = otBp;
   next.night_shift_factor_bp = nightBp;
   next._friday_factor_bp = factorToBp(laborSettings.friday_factor, 14000);
+  next._shift_factor_bp = factorToBp(laborSettings.shift_factor, 12250);
   next._seniority_daily_rial = Math.max(0, Math.round(Number(laborSettings.seniority_base_rial) || 0));
 
   return next;
@@ -118,36 +119,95 @@ function resolveInsuranceCap(laborSettings, period) {
   );
 }
 
+/**
+ * Split employer SSO (default 23%) into base 20% + unemployment 3%.
+ * When period.employer_insurance_bp != 2300, scale proportionally (20/23 and 3/23).
+ */
+function splitEmployerInsurance(insuranceBase, employerInsuranceBp) {
+  const totalBp = int(employerInsuranceBp || 0, 'نرخ بیمه کارفرما');
+  const employerTotal = Math.round(insuranceBase * totalBp / 10000);
+  if (employerTotal <= 0) {
+    return { sso_employer_rial: 0, sso_employer_base_rial: 0, sso_unemployment_rial: 0 };
+  }
+  if (totalBp === 2300) {
+    const base = Math.round(insuranceBase * 2000 / 10000);
+    const unemployment = employerTotal - base;
+    return {
+      sso_employer_rial: employerTotal,
+      sso_employer_base_rial: base,
+      sso_unemployment_rial: Math.max(0, unemployment),
+    };
+  }
+  const base = Math.round(employerTotal * 2000 / 2300);
+  const unemployment = employerTotal - base;
+  return {
+    sso_employer_rial: employerTotal,
+    sso_employer_base_rial: base,
+    sso_unemployment_rial: Math.max(0, unemployment),
+  };
+}
+
 function calculatePayroll({ structure, period, brackets, input, laborSettings }) {
   if (!structure || !period) throw new Error('ساختار حقوق و دوره الزامی است');
 
   const eff = applyLaborSettingsFloor(structure, period, laborSettings);
 
-  const basePay = basePayRial(eff, period, input);
+  const unpaidLeaveDaysX100 = int(input.unpaid_leave_days_x100 || 0, 'مرخصی بدون حقوق');
+  const absenceDaysX100 = int(input.absence_days_x100 || 0, 'غیبت');
+  const rawWorkingDaysX100 = int(input.working_days_x100, 'روز کارکرد');
+  // If caller already reduced working days, unpaid/absence are informational;
+  // otherwise subtract them from effective attendance for monthly proration.
+  let workingDaysX100 = rawWorkingDaysX100;
+  if (Number(input.apply_absence_to_days) === 1) {
+    workingDaysX100 = Math.max(0, rawWorkingDaysX100 - unpaidLeaveDaysX100 - absenceDaysX100);
+  }
+  const inputAdj = { ...input, working_days_x100: workingDaysX100 };
+
+  const basePay = basePayRial(eff, period, inputAdj);
   const hourly = hourlyBaseRial(eff, period);
   const overtimeHoursX100 = int(input.overtime_hours_x100, 'اضافه‌کاری');
   const nightHoursX100 = int(input.night_shift_hours_x100, 'شب‌کاری');
   const fridayHoursX100 = int(input.friday_hours_x100 || 0, 'جمعه‌کاری');
+  const shiftHoursX100 = int(input.shift_hours_x100 || 0, 'نوبت‌کاری');
   const overtimeFactorBp = int(eff.overtime_factor_bp || 14000, 'ضریب اضافه‌کاری');
   const nightFactorBp = int(eff.night_shift_factor_bp || 13500, 'ضریب شب‌کاری');
   const fridayFactorBp = int(eff._friday_factor_bp || 14000, 'ضریب جمعه‌کاری');
+  const shiftFactorBp = int(
+    eff._shift_factor_bp
+      || factorToBp(laborSettings?.shift_factor, 12250),
+    'ضریب نوبت‌کاری'
+  );
   const overtimePay = Math.round(hourly * overtimeHoursX100 * overtimeFactorBp / 100 / 10000);
   const nightPremiumBp = Math.max(0, nightFactorBp - 10000);
   const nightPay = Math.round(hourly * nightHoursX100 * nightPremiumBp / 100 / 10000);
   const fridayPay = Math.round(hourly * fridayHoursX100 * fridayFactorBp / 100 / 10000);
+  // نوبت‌کاری: فقط فوق‌العاده (ضریب − ۱) روی ساعات نوبت — الگوی شب‌کاری
+  const shiftPremiumBp = Math.max(0, shiftFactorBp - 10000);
+  const shiftPay = Math.round(hourly * shiftHoursX100 * shiftPremiumBp / 100 / 10000);
 
   const fixedAllowanceFactor = eff.wage_basis === 'monthly'
-    ? int(input.working_days_x100, 'روز کارکرد') / (int(period.standard_days || 30, 'روز موظفی', { min: 1 }) * 100)
+    ? workingDaysX100 / (int(period.standard_days || 30, 'روز موظفی', { min: 1 }) * 100)
     : 1;
   const housing = Math.round(int(eff.housing_allowance_rial, 'حق مسکن') * fixedAllowanceFactor);
   const grocery = Math.round(int(eff.grocery_allowance_rial, 'بن کارگری') * fixedAllowanceFactor);
   const spouse = eff.marital_status
     ? Math.round(int(eff.spouse_allowance_rial, 'حق تاهل') * fixedAllowanceFactor)
     : 0;
-  const child = int(eff.child_allowance_rial, 'حق اولاد') * int(eff.child_count, 'تعداد فرزند');
+  // حق اولاد معمولاً ماهانه کامل است مگر صریحاً تناسب خواسته شود
+  const childFull = int(eff.child_allowance_rial, 'حق اولاد') * int(eff.child_count, 'تعداد فرزند');
+  const child = Number(input.prorate_child_allowance) === 1
+    ? Math.round(childFull * fixedAllowanceFactor)
+    : childFull;
   const otherFixed = Math.round(int(eff.other_fixed_allowance_rial, 'مزایای ثابت') * fixedAllowanceFactor);
   const hardship = int(input.hardship_allowance_rial, 'فوق‌العاده سختی کار');
   const otherAllowance = int(input.other_allowance_rial, 'سایر مزایا');
+  // ماموریت: غیرمشمول بیمه و مالیات (ماده ۹۱ / بخشنامه ۴۱۹۵)
+  const mission = int(input.mission_allowance_rial || 0, 'فوق‌العاده ماموریت');
+  // پاداش افزایش تولید با مجوز اداره کار: غیرمشمول بیمه؛ مشمول مالیات
+  const productionBonus = int(input.production_bonus_rial || 0, 'پاداش تولید');
+  const productionBonusSsoExempt = input.production_bonus_sso_exempt == null
+    ? 1
+    : (Number(input.production_bonus_sso_exempt) ? 1 : 0);
 
   const seniorityDaysX100 = int(input.seniority_days_x100 || 0, 'روز پایه سنوات');
   const seniorityDaily = Math.max(0, Math.round(Number(eff._seniority_daily_rial) || 0));
@@ -156,15 +216,22 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     : int(input.seniority_rial || 0, 'پایه سنوات');
 
   const gross = basePay + housing + grocery + spouse + child + otherFixed +
-    hardship + otherAllowance + overtimePay + nightPay + fridayPay + seniorityPay;
-  const insuranceExempt = Math.min(gross, int(input.insurance_exempt_rial, 'معاف از بیمه'));
-  let insuranceBase = eff.insurance_type === 'sso' ? gross - insuranceExempt : 0;
+    hardship + otherAllowance + overtimePay + nightPay + fridayPay + shiftPay +
+    seniorityPay + mission + productionBonus;
+
+  // معافیت‌های بیمه خودکار: حق اولاد + ماموریت + (پاداش تولید در صورت مجوز)
+  const autoInsuranceExempt = child + mission
+    + (productionBonusSsoExempt ? productionBonus : 0);
+  const manualInsuranceExempt = int(input.insurance_exempt_rial || 0, 'معاف از بیمه');
+  const insuranceExempt = Math.min(gross, autoInsuranceExempt + manualInsuranceExempt);
+
+  let insuranceBase = eff.insurance_type === 'sso' ? Math.max(0, gross - insuranceExempt) : 0;
   const insuranceCap = resolveInsuranceCap(laborSettings, period);
   if (insuranceCap > 0 && insuranceBase > insuranceCap) insuranceBase = insuranceCap;
   const employeeInsuranceBp = int(period.employee_insurance_bp || 0, 'نرخ بیمه کارگر');
   const employerInsuranceBp = int(period.employer_insurance_bp || 0, 'نرخ بیمه کارفرما');
   const employeeInsurance = Math.round(insuranceBase * employeeInsuranceBp / 10000);
-  const employerInsurance = Math.round(insuranceBase * employerInsuranceBp / 10000);
+  const employerSplit = splitEmployerInsurance(insuranceBase, employerInsuranceBp);
 
   const settingsTaxEx = laborSettings
     ? Math.max(0, Math.round(Number(laborSettings.tax_exemption_rial) || 0))
@@ -174,7 +241,11 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
   const fullyExempt = Number(eff.is_tax_exempt) === 1
     || String(eff.tax_exemption_type || '') === 'tax_exempt'
     || int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی') >= 10000;
-  const taxableIncome = fullyExempt ? 0 : Math.max(0, gross - employeeInsurance - periodTaxExemption);
+  // ماموریت از درآمد مشمول مالیات کسر می‌شود (ماده ۹۱)
+  const taxExemptItems = mission;
+  const taxableIncome = fullyExempt
+    ? 0
+    : Math.max(0, gross - taxExemptItems - employeeInsurance - periodTaxExemption);
   const rawTax = fullyExempt ? 0 : calculateProgressiveTax(taxableIncome, brackets || []);
   const exemptionBp = fullyExempt ? 10000 : Math.min(10000, int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی'));
   const incomeTax = fullyExempt ? 0 : Math.round(rawTax * (10000 - exemptionBp) / 10000);
@@ -183,11 +254,14 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
   if (netPay < 0) throw new Error('کسورات از حقوق ناخالص بیشتر است');
 
   return {
-    working_days_x100: int(input.working_days_x100, 'روز کارکرد'),
+    working_days_x100: workingDaysX100,
     regular_hours_x100: int(input.regular_hours_x100, 'ساعت کارکرد'),
     overtime_hours_x100: overtimeHoursX100,
     night_shift_hours_x100: nightHoursX100,
     friday_hours_x100: fridayHoursX100,
+    shift_hours_x100: shiftHoursX100,
+    unpaid_leave_days_x100: unpaidLeaveDaysX100,
+    absence_days_x100: absenceDaysX100,
     seniority_days_x100: seniorityDaysX100,
     base_pay_rial: basePay,
     housing_allowance_rial: housing,
@@ -196,21 +270,27 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     spouse_allowance_rial: spouse,
     hardship_allowance_rial: hardship,
     other_allowance_rial: otherFixed + otherAllowance,
+    mission_allowance_rial: mission,
+    production_bonus_rial: productionBonus,
     overtime_pay_rial: overtimePay,
     night_shift_pay_rial: nightPay,
     friday_pay_rial: fridayPay,
+    shift_pay_rial: shiftPay,
     seniority_rial: seniorityPay,
     gross_earnings_rial: gross,
+    insurance_exempt_rial: insuranceExempt,
     insurance_base_rial: insuranceBase,
     insurance_cap_rial: insuranceCap,
     tax_exemption_applied_rial: fullyExempt ? 0 : periodTaxExemption,
     taxable_income_rial: taxableIncome,
     income_tax_rial: incomeTax,
     sso_employee_rial: employeeInsurance,
-    sso_employer_rial: employerInsurance,
+    sso_employer_rial: employerSplit.sso_employer_rial,
+    sso_employer_base_rial: employerSplit.sso_employer_base_rial,
+    sso_unemployment_rial: employerSplit.sso_unemployment_rial,
     other_deductions_rial: otherDeductions,
     net_pay_rial: netPay,
-    employer_cost_rial: gross + employerInsurance,
+    employer_cost_rial: gross + employerSplit.sso_employer_rial,
   };
 }
 
@@ -219,4 +299,5 @@ module.exports = {
   calculateProgressiveTax,
   applyLaborSettingsFloor,
   resolveInsuranceCap,
+  splitEmployerInsurance,
 };

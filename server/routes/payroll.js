@@ -49,6 +49,13 @@ const {
   applyAdvanceRecoveries,
 } = require('../lib/payroll/advances');
 const { postYearEndWithReserveRelease, sumUnreleased } = require('../lib/payroll/year-end-post');
+const {
+  postMonthlyLeaveAccrual,
+  leaveBalanceRial,
+  cashOutLeave,
+  voidLeaveAccrual,
+  ensureLeaveAccrualSchema,
+} = require('../lib/payroll/leave-accrual');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -200,8 +207,13 @@ router.post('/farankenou/preview', auth, adminOrAccounting, lwteUpload.single('f
               working_days_x100: Math.round((Number(row.monthPresentDays) || 0) * 100),
               regular_hours_x100: Math.round((Number(attendance.regular_hours) || 0) * 100),
               overtime_hours_x100: Math.round((Number(attendance.overtime_hours) || 0) * 100),
-              night_shift_hours_x100: 0,
+              night_shift_hours_x100: Math.round((Number(row.nightHours) || Number(attendance.night_hours) || 0) * 100),
+              friday_hours_x100: Math.round((Number(row.fridayHours) || Number(attendance.friday_hours) || 0) * 100),
+              shift_hours_x100: Math.round((Number(row.shiftHours) || 0) * 100),
+              absence_days_x100: Math.round((Number(row.absenceDays) || 0) * 100),
+              unpaid_leave_days_x100: Math.round((Number(row.unpaidLeaveDays) || 0) * 100),
               hardship_allowance_rial: 0, other_allowance_rial: 0,
+              mission_allowance_rial: 0, production_bonus_rial: 0,
               insurance_exempt_rial: 0, tax_exemption_rial: 0, other_deductions_rial: 0,
             },
           }),
@@ -1027,6 +1039,26 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         exemptMeta ? exemptMeta.exempt_note : null,
         recordId
       );
+      try {
+        db.prepare(`
+          UPDATE payroll_records SET
+            shift_hours_x100=?, unpaid_leave_days_x100=?, absence_days_x100=?,
+            mission_allowance_rial=?, production_bonus_rial=?, shift_pay_rial=?,
+            insurance_exempt_rial=?, sso_employer_base_rial=?, sso_unemployment_rial=?
+          WHERE id=?
+        `).run(
+          calc.shift_hours_x100 || 0,
+          calc.unpaid_leave_days_x100 || 0,
+          calc.absence_days_x100 || 0,
+          calc.mission_allowance_rial || 0,
+          calc.production_bonus_rial || 0,
+          calc.shift_pay_rial || 0,
+          calc.insurance_exempt_rial || 0,
+          calc.sso_employer_base_rial || 0,
+          calc.sso_unemployment_rial || 0,
+          recordId
+        );
+      } catch (_) { /* columns may be mid-migrate */ }
       const payable = resolvePersonPayableAccount(db, person);
       const advAlloc = (!exemptMeta && advRequest > 0)
         ? allocateAdvanceRecovery(db, personId, advRequest)
@@ -1040,7 +1072,18 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
       }
       lines.push({ code: payable.code, name: payable.name, debit: 0, credit: (calc.net_pay_rial + arrearsRial) / 10 });
       if (!exemptMeta) {
-        lines.push({ ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (calc.sso_employee_rial + calc.sso_employer_rial) / 10 });
+        // کارگر ۷٪ + کارفرما ۲۰٪ → ۲۱۰۵؛ بیکاری ۳٪ → ۲۱۱۳ (تفکیک تحلیلی ۱۴۰۵)
+        const empSso = calc.sso_employee_rial || 0;
+        const empBase = calc.sso_employer_base_rial != null
+          ? calc.sso_employer_base_rial
+          : Math.round((calc.sso_employer_rial || 0) * 2000 / 2300);
+        const unemployment = calc.sso_unemployment_rial != null
+          ? calc.sso_unemployment_rial
+          : Math.max(0, (calc.sso_employer_rial || 0) - empBase);
+        lines.push({ ...coaAcct(db, 'coa_sso_payable'), debit: 0, credit: (empSso + empBase) / 10 });
+        if (unemployment > 0) {
+          lines.push({ ...coaAcct(db, 'coa_unemployment_payable'), debit: 0, credit: unemployment / 10 });
+        }
         lines.push({ ...coaAcct(db, 'coa_payroll_tax_payable'), debit: 0, credit: calc.income_tax_rial / 10 });
       }
       if (advAlloc.allocated_rial > 0) {
@@ -1745,6 +1788,122 @@ router.post('/accruals/monthly', auth, requirePermission('payroll', 'create'), (
 
     audit(req.user.id, 'create', 'payroll_monthly_accrual', records.je_id, periodLabel);
     res.json({ ok: true, period_label: periodLabel, ...records });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// ——— Wave3: leave reserve + bank salary file ———
+
+router.post('/accruals/leave', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const periodLabel = req.body.period_label || todayJalali().slice(0, 7);
+    const year = parseInt(req.body.year, 10) || parseInt(String(periodLabel).slice(0, 4), 10);
+    const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(year);
+    const result = postMonthlyLeaveAccrual(db, {
+      period_label: periodLabel,
+      year,
+      date: req.body.date || todayJalali(),
+      userId: req.user.id,
+      laborSettings,
+    });
+    audit(req.user.id, 'create', 'payroll_leave_accrual', result.je_id, periodLabel);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.get('/accruals/leave', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    ensureLeaveAccrualSchema(db);
+    const lim = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const period = String(req.query.period_label || '').trim();
+    if (period) {
+      return res.json(db.prepare(`
+        SELECT a.*, p.name person_name FROM payroll_leave_accruals a
+        JOIN persons p ON p.id=a.person_id
+        WHERE a.period_label=? ORDER BY a.id DESC LIMIT ?
+      `).all(period, lim));
+    }
+    res.json(db.prepare(`
+      SELECT a.*, p.name person_name FROM payroll_leave_accruals a
+      JOIN persons p ON p.id=a.person_id
+      ORDER BY a.id DESC LIMIT ?
+    `).all(lim));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/accruals/leave/balance/:personId', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const personId = Number(req.params.personId);
+    res.json({ ok: true, person_id: personId, balance_rial: leaveBalanceRial(db, personId) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/accruals/leave/cash-out', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const result = cashOutLeave(db, {
+      person_id: req.body.person_id,
+      amount_rial: req.body.amount_rial,
+      date: req.body.date,
+      userId: req.user.id,
+      resolvePersonPayable: resolvePersonPayableAccount,
+    });
+    audit(req.user.id, 'create', 'payroll_leave_cashout', result.journal_id, `بازخرید مرخصی ${result.amount_rial}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+router.post('/accruals/leave/:id/void', auth, requirePermission('payroll', 'create'), (req, res) => {
+  try {
+    const result = voidLeaveAccrual(getDB(), Number(req.params.id), req.user.id);
+    audit(req.user.id, 'void', 'payroll_leave_accrual', result.id, 'ابطال ذخیره مرخصی');
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+/** Bank salary payment file (CSV) for a processed period — IBAN + net pay. */
+router.get('/periods/:id/export/bank-csv', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const periodId = Number(req.params.id);
+    const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(periodId);
+    if (!period) return res.status(404).json({ error: 'دوره یافت نشد' });
+    const rows = db.prepare(`
+      SELECT r.id, r.net_pay_rial, r.paid_rial, p.name, p.personnel_code, p.bank_iban
+      FROM payroll_records r
+      JOIN persons p ON p.id=r.person_id
+      WHERE r.period_id=? AND COALESCE(r.status,'posted')<>'reversed'
+      ORDER BY p.name
+    `).all(periodId);
+    const lines = ['personnel_code,name,iban,net_rial,remaining_rial,note'];
+    for (const r of rows) {
+      const net = Math.round(Number(r.net_pay_rial) || 0);
+      const paid = Math.round(Number(r.paid_rial) || 0);
+      const remain = Math.max(0, net - paid);
+      if (remain <= 0) continue;
+      const iban = String(r.bank_iban || '').replace(/,/g, '');
+      const name = String(r.name || '').replace(/,/g, ' ');
+      const code = String(r.personnel_code || '').replace(/,/g, '');
+      lines.push(`${code},${name},${iban},${remain},${remain},salary ${period.label || periodId}`);
+    }
+    const csv = '\uFEFF' + lines.join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll-bank-${periodId}.csv"`);
+    res.send(csv);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

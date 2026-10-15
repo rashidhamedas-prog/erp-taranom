@@ -317,7 +317,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-payroll-periods', icon: '📅', label: 'دوره‌های حقوق' },
       { id: 'acc-payroll-processing', icon: '🧮', label: 'محاسبه و پردازش حقوق' },
       { id: 'acc-payroll', icon: '💳', label: 'سوابق و پرداخت حقوق' },
-      { id: 'acc-payroll-accruals', icon: '📌', label: 'ذخیره ماهانه عیدی/سنوات' },
+      { id: 'acc-payroll-accruals', icon: '📌', label: 'ذخیره ماهانه عیدی/سنوات/مرخصی' },
       { id: 'acc-payroll-remittances', icon: '🏦', label: 'پرداخت بیمه و مالیات' },
       { id: 'acc-payroll-advances', icon: '💸', label: 'مساعده کارکنان' },
       { id: 'acc-payroll-year-end', icon: '🎁', label: 'عیدی و سنوات' },

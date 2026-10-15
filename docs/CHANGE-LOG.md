@@ -9,6 +9,19 @@
 - **تست:** ایران `test-prod-stage-gates-v409` ۶/۰ + `test-prod-journey-gate-v382` ۱۰/۰ + `test-sms` ۲۲/۰؛ `test-sync` روی ایران harness pairing flake (توکن) — خارج از دامنه این تسک؛ local better-sqlite3 ABI skip.
 - **Deploy:** ✅ `fd1af87` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v409`؛ `app.js?v=409`؛ `prod-journey-gate.js?v=409`؛ ready=200 + sharp.
 
+### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۳: تکمیل محاسبه دستی ۱۴۰۵ + اسناد (SW v410)
+
+- **هدف:** بستن شکاف‌های حرفه‌ای محاسبه دستی حقوق مطابق مصوبات/بیمه/مالیات ۱۴۰۵ و هم‌ترازی JE؛ ادامهٔ v406/v408.
+- **موتور:** خروج خودکار حق اولاد (+ ماموریت + پاداش تولید با مجوز) از مبنای بیمه؛ نوبت‌کاری (`shift_hours` × ضریب)؛ ماموریت غیرمشمول بیمه/مالیات؛ پاداش تولید غیرمشمول بیمه؛ تفکیک کارفرما ۲۰٪ + بیکاری ۳٪؛ غیبت/مرخصی بدون حقوق با گزینهٔ کسر از روز کارکرد.
+- **اسناد:** تعهد ماهانه — Cr ۲۱۰۵ = کارگر۷٪+کارفرما۲۰٪ و Cr ۲۱۱۳ = بیکاری۳٪؛ ذخیره مرخصی Dr ۶۱۱۶ / Cr ۲۱۱۴؛ بازخرید مرخصی؛ remittance برای بیکاری؛ خروجی CSV بانک (شبا+مانده خالص).
+- **UI:** فیلدهای نوبت/غیبت/ماموریت/پاداش/معافیت بیمه در پردازش؛ پیش‌نمایش فیش با تفکیک ۲۰٪/۳٪؛ ذخیره مرخصی در صفحهٔ تعهد ماهانه؛ پرداخت بیکاری در remittance؛ Help.
+- **سینک:** append `payroll_leave_accruals` + PATH + `sync_seq_backfill_v23`.
+- **فایل‌ها:** `lib/payroll/{engine,leave-accrual,remittance,schema}.js`, `lib/coa-map.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `scripts/test-payroll-wave3-v410.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ بخشنامه ۴۱۹۵؛ مصوبه شورای عالی کار ۱۴۰۵؛ ماده ۹۱ ق.م.م؛ الگوی ERPNext/Odoo accrual؛ tap-erp-architecture.
+- **Non-goals (موج ۴):** وام اقساطی کامل، فایل دیسکت بیمه رسمی، طبقه‌بندی مشاغل، حضور بیومتریک.
+- **تست:** `test-payroll-wave3-v410` ۱۷/۰ + `test-payroll-engine-floors-v406` ۱۴/۰؛ parse `app.js` OK.
+- **Deploy:** ⏳ در حال انجام.
+
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۲: پرداخت بیمه/مالیات + مساعده + آزادسازی ذخیره (SW v408)
 
 - **هدف:** بستن شکاف‌های حسابداری حقوق پس از v406 — تسویه بدهی بیمه/مالیات، مساعده پرسنلی با کسر از فیش، و جلوگیری از دوباره‌شماری عیدی/سنوات هنگام ذخیره ماهانه.

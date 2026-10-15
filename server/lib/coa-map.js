@@ -79,6 +79,10 @@ const LEGACY = {
   coa_bank_interest:          { code: '4115', name: 'سود سپرده بانکی' },
   // GRNI — goods received not invoiced (append-only)
   coa_grni:                   { code: '2112', name: 'کالای دریافت‌شده فاکتورنشده (GRNI)' },
+  // Payroll wave3 — leave reserve + unemployment analytic (optional liability)
+  coa_leave_payable:          { code: '2114', name: 'ذخیره مرخصی استحقاقی کارکنان' },
+  coa_leave_expense:          { code: '6116', name: 'هزینه مرخصی استحقاقی' },
+  coa_unemployment_payable:   { code: '2113', name: 'بیمه بیکاری پرداختنی' },
   // Periodic inventory — temporary purchases account until period close
   coa_purchases_temp:         { code: '5102', name: 'خرید کالا (ادواری)' },
 };
@@ -247,6 +251,9 @@ function baseCoaTree() {
     ['2109', 'اسناد پرداختنی', 'liability', '2100', 2],
     ['2110', 'ذخیره مزایای پایان خدمت', 'liability', '2100', 2],
     ['2111', 'ذخیره عیدی کارکنان', 'liability', '2100', 2],
+    ['2112', 'کالای دریافت‌شده فاکتورنشده (GRNI)', 'liability', '2100', 2],
+    ['2113', 'بیمه بیکاری پرداختنی', 'liability', '2100', 2],
+    ['2114', 'ذخیره مرخصی استحقاقی کارکنان', 'liability', '2100', 2],
     ['3000', 'حقوق صاحبان سرمایه', 'equity', null, 1],
     ['3101', 'سود (زیان) انباشته', 'equity', '3000', 2],
     ['3102', 'تراز افتتاحیه', 'equity', '3000', 2],
@@ -291,6 +298,7 @@ function baseCoaTree() {
     ['6113', 'هزینه کاهش ارزش موجودی', 'expense', '6000', 2],
     ['6114', 'کارمزد کارتخوان', 'expense', '6000', 2],
     ['6115', 'کارمزد خدمات بانکی', 'expense', '6000', 2],
+    ['6116', 'هزینه مرخصی استحقاقی', 'expense', '6000', 2],
     ['4115', 'سود سپرده بانکی', 'revenue', '4000', 2],
     ['9999', 'اصلاحات و تعدیلات', 'equity', null, 1],
   ];

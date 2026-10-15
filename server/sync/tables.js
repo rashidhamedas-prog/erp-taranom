@@ -240,6 +240,8 @@ const SYNCABLE_TABLES = [
   { name: 'payroll_remittances',               upsertKey: 'id' },
   { name: 'payroll_advances',                  upsertKey: 'id' },
   { name: 'payroll_advance_recoveries',        upsertKey: 'id' },
+  // Payroll Wave3 — leave reserve (append-only)
+  { name: 'payroll_leave_accruals',            upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -563,6 +565,7 @@ const FK_COLUMNS = [
   ['payroll_advances', 'cash_box_id'],
   ['payroll_advance_recoveries', 'advance_id'],
   ['payroll_advance_recoveries', 'payroll_record_id'],
+  ['payroll_leave_accruals', 'person_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

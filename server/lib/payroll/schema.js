@@ -78,7 +78,7 @@ function initPayrollSchema(db) {
         CHECK(tax_exemption_type IN ('none','tax_exempt','veteran','petroleum_zones')),
       tax_exemption_percent_bp INTEGER NOT NULL DEFAULT 0,
       overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
-      night_shift_factor_bp INTEGER NOT NULL DEFAULT 11500,
+      night_shift_factor_bp INTEGER NOT NULL DEFAULT 13500,
       active INTEGER NOT NULL DEFAULT 1,
       effective_from TEXT,
       effective_to TEXT,
@@ -156,6 +156,9 @@ function initPayrollSchema(db) {
     ['overtime_hours_x100', 'INTEGER DEFAULT 0'],
     ['night_shift_hours_x100', 'INTEGER DEFAULT 0'],
     ['friday_hours_x100', 'INTEGER DEFAULT 0'],
+    ['shift_hours_x100', 'INTEGER DEFAULT 0'],
+    ['unpaid_leave_days_x100', 'INTEGER DEFAULT 0'],
+    ['absence_days_x100', 'INTEGER DEFAULT 0'],
     ['seniority_days_x100', 'INTEGER DEFAULT 0'],
     ['base_pay_rial', 'INTEGER DEFAULT 0'],
     ['housing_allowance_rial', 'INTEGER DEFAULT 0'],
@@ -164,16 +167,22 @@ function initPayrollSchema(db) {
     ['spouse_allowance_rial', 'INTEGER DEFAULT 0'],
     ['hardship_allowance_rial', 'INTEGER DEFAULT 0'],
     ['other_allowance_rial', 'INTEGER DEFAULT 0'],
+    ['mission_allowance_rial', 'INTEGER DEFAULT 0'],
+    ['production_bonus_rial', 'INTEGER DEFAULT 0'],
     ['overtime_pay_rial', 'INTEGER DEFAULT 0'],
     ['night_shift_pay_rial', 'INTEGER DEFAULT 0'],
     ['friday_pay_rial', 'INTEGER DEFAULT 0'],
+    ['shift_pay_rial', 'INTEGER DEFAULT 0'],
     ['seniority_rial', 'INTEGER DEFAULT 0'],
     ['gross_earnings_rial', 'INTEGER DEFAULT 0'],
+    ['insurance_exempt_rial', 'INTEGER DEFAULT 0'],
     ['insurance_base_rial', 'INTEGER DEFAULT 0'],
     ['taxable_income_rial', 'INTEGER DEFAULT 0'],
     ['income_tax_rial', 'INTEGER DEFAULT 0'],
     ['sso_employee_rial', 'INTEGER DEFAULT 0'],
     ['sso_employer_rial', 'INTEGER DEFAULT 0'],
+    ['sso_employer_base_rial', 'INTEGER DEFAULT 0'],
+    ['sso_unemployment_rial', 'INTEGER DEFAULT 0'],
     ['other_deductions_rial', 'INTEGER DEFAULT 0'],
     ['net_pay_rial', 'INTEGER DEFAULT 0'],
     ['employer_cost_rial', 'INTEGER DEFAULT 0'],
@@ -305,7 +314,7 @@ function initPayrollSchema(db) {
         CHECK(tax_exemption_type IN ('none','tax_exempt','veteran','petroleum_zones')),
       tax_exemption_percent_bp INTEGER NOT NULL DEFAULT 0,
       overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
-      night_shift_factor_bp INTEGER NOT NULL DEFAULT 11500,
+      night_shift_factor_bp INTEGER NOT NULL DEFAULT 13500,
       active INTEGER NOT NULL DEFAULT 1,
       effective_from TEXT,
       effective_to TEXT,
@@ -397,6 +406,11 @@ function initPayrollSchema(db) {
     require('./year-end-post').ensureYearEndReleaseColumns(db);
   } catch (e) {
     console.warn('ensureYearEndReleaseColumns:', e.message);
+  }
+  try {
+    require('./leave-accrual').ensureLeaveAccrualSchema(db);
+  } catch (e) {
+    console.warn('ensureLeaveAccrualSchema:', e.message);
   }
 }
 
