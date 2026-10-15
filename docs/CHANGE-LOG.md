@@ -5,8 +5,8 @@
 - **رفع:** UI فیلد `pc-cc` + فراننکو `fk-cc` + حقوق ساعتی `pr-cc`؛ payload/`POST /process` و `POST /` با `cost_center_id`؛ `assertExpenseDocumentCostCenter(section:'payroll')` + choke-point ledger برای `sourceType=payroll`؛ ستون `payroll_records.cost_center_id`؛ `postToLedger({costCenterId})`؛ Help.
 - **فایل‌ها:** `lib/{cost-center-policy,payroll/schema}.js`, `routes/payroll.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-cc-required-v396.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC planner + verify؛ Slack بدون نتیجه؛ tap-erp-architecture؛ الگوی OH/v375.
-- **تست:** (پس از deploy روی ایران) `test-payroll-cc-required-v396` + `test-sms`؛ محلی better-sqlite3 ویندوز در دسترس نبود.
-- **Deploy:** ⏳
+- **تست:** ایران `test-payroll-cc-required-v396` ۹/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی به‌خاطر better-sqlite3 ویندوز اجرا نشد)
+- **Deploy:** ✅ `06fd177` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v396`؛ `app.js?v=396`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حریم تراکنش مشتری نقدی فروشگاه (فروش حضوری) (SW v395)
 
