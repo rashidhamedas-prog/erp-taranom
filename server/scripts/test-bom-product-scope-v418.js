@@ -25,23 +25,35 @@ const pFab = seedProduct('پارچه مشترک', 1_000_000, 'raw', 0);
 const pZipY = seedProduct('زیپ یلدا', 100_000, 'raw', 0);
 const pZipA = seedProduct('زیپ آبان', 80_000, 'raw', 0);
 
+const cc10 = db.prepare("SELECT id FROM cost_centers WHERE code='CC-10'").get()?.id;
+ok('T418-00 seed CC', !!cc10);
+
 const draft = bom.createBom(db, {
   product_id: pMain,
   name: 'BOM-MP',
+  has_routing: 1,
   has_coproducts: 1,
   co_product_ids: [pCo],
   auto_share_method: 'physical',
   lines: [
-    { component_product_id: pFab, qty_per_base: 2, line_type: 'material', product_scope: 'shared' },
+    {
+      component_product_id: pFab, qty_per_base: 2, line_type: 'material',
+      product_scope: 'shared', stage_cost_center_id: cc10,
+    },
     {
       component_product_id: pZipY, qty_per_base: 1, line_type: 'material',
-      product_scope: 'exclusive', scoped_product_id: pMain,
+      product_scope: 'exclusive', scoped_product_id: pMain, stage_cost_center_id: cc10,
     },
     {
       component_product_id: pZipA, qty_per_base: 1, line_type: 'material',
-      product_scope: 'exclusive', scoped_product_id: pCo,
+      product_scope: 'exclusive', scoped_product_id: pCo, stage_cost_center_id: cc10,
     },
   ],
+}, adminId);
+adv.addOperation(db, draft.id, {
+  seq: 10, cost_center_id: cc10, operation_name: 'برش',
+  labor_method: 'piece', labor_rate_rial: 1000, yield_percent: 100,
+  product_scope: 'shared',
 }, adminId);
 
 ok('T418-01 create multi', !!draft.id);
@@ -83,7 +95,7 @@ const updated = bom.updateBomHeader(db, draft.id, {
   has_coproducts: true,
   co_product_ids: [pCo],
 }, adminId);
-ok('T418-10 header sync', updated.has_coproducts === 1 || updated.is_multiproduct);
+ok('T418-10 header sync', Number(updated.has_coproducts) === 1 || updated.is_multiproduct);
 
 // Single-product BOM: exclusive coerced to shared
 const single = bom.createBom(db, {
@@ -96,7 +108,7 @@ const single = bom.createBom(db, {
   }],
 }, adminId);
 const sLines = bom.getBom(db, single.id).lines;
-eq('T418-11 single forces shared', sLines[0].product_scope, 'shared');
+ok('T418-11 single forces shared', String(sLines[0].product_scope || '') === 'shared');
 ok('T418-12 single scoped null', sLines[0].scoped_product_id == null);
 
 cleanup();
