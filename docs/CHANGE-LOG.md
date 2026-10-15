@@ -6,7 +6,7 @@
 - **UI/Help:** توضیح مسیر برش=تکمیل مرحله برش؛ SW v411.
 - **فایل‌ها:** `lib/production/{cutting,engine-advanced,schema}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-cut-stage-bind-v410.js`, CHANGE-LOG.
 - **تست:** `test-prod-cut-stage-bind-v410` + `test-prod-stage-gates-v409` + `test-sms`.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `ec5e7fd` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v411`؛ `app.js?v=411`؛ ready=200 + sharp؛ تست ایران cut-bind ۴/۰ + stage-gates ۶/۰ + sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۷/۲۳ — تولید مرحله‌محور BOM: گیت حسابداری + داشبورد (SW v409)
 
