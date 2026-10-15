@@ -279,6 +279,16 @@ router.post('/:id/images', auth, adminOrAccounting, uploadProductMedia, async (r
   res.json(jsonSafeProduct(row));
 });
 
+router.get('/:id/completeness', auth, (req, res) => {
+  try {
+    const completeness = require('../lib/production/product-completeness');
+    const mode = String(req.query.mode || 'product');
+    res.json(completeness.assessProduct(getDB(), Number(req.params.id), mode));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message, ...(e.extra || {}) });
+  }
+});
+
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
   const where = ['p.id=?'];

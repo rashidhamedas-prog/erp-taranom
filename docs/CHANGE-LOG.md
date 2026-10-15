@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۷/۲۳ — مشخصات ضروری کالا + آمادگی BOM در کل تولید (SW v421)
+- **هدف:** برای هر محصول مشخصات ضروری ثبت شود و در فعال‌سازی فرمول + سفارش تولید واقعاً اثر بگذارد (گیت سرور + چک‌لیست UI).
+- **بک‌اند:** `lib/production/product-completeness.js` — ارزیابی بر اساس `item_type`/ساختنی (FG، نیمه‌ساخته، پارچه متری، مواد، فروش‌محض)؛ hard/soft؛ `assertBomReady` در `activateBom`؛ `assertProductReady` در `createOrder`؛ API `GET /products/:id/completeness` و `GET /production/boms/:id/completeness`؛ validate BOM readiness را برمی‌گرداند.
+- **قواعد hard:** نام، واحد، نوع کالا؛ FG/semi ساختنی؛ جزء فروش‌محض ممنوع؛ رنگ inherit بدون رنگ FG؛ مسیر خالی؛ بازده≠۱۰۰ با routing؛ چندمحصولی بدون co.
+- **soft:** کد، انبار، دسته، بها، نبود ماتریس رنگ/سایز (هشدار UI).
+- **UI/Help:** بنر آمادگی در ایجاد/ویرایش BOM و کارت کالا؛ بلاک فعال‌سازی وقتی قرمز؛ SW `erp-taranom-v421`.
+- **فایل‌ها:** `lib/production/{product-completeness,bom,engine}.js`, `routes/{production-boms,products}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-product-bom-completeness-v421.js`, CHANGE-LOG.
+- **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ ERPNext BOM/Item validate؛ Odoo BoM variants؛ tap-erp-architecture؛ ultra-debug/architecture.
+- **Non-goals:** جدول جدید completeness؛ Lot روی FG؛ بیلد APK/EXE؛ اجباری کردن ماتریس رنگ×سایز برای همهٔ FGها.
+- **تست:** استاتیک محلی ۵/۰ (sqlite ABI skip)؛ ایران پس از deploy: v421 + `test-sms` + health.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۳ — سفارش تولید چندمحصولی: اجرای مشترک + برنامه FG (SW v420)
 - **هدف:** همان مدل چندمحصولی BOM (v418) روی سفارش تولید دقیق اعمال شود: انتخاب فرمول از سرفصل یا هم‌محصول، مسیر پیشرفته اجباری، مواد/رزرو/انحراف = اجرای مشترک (همه shared+exclusive)، برنامه main/co، نهایی‌سازی با اصلاح تعداد هر FG.
 - **بک‌اند:** `resolveBom` از `default_bom_id` / `bom_outputs`؛ `assertProductInBomFg`؛ `isMultiproductBom`؛ `explodeProductScopeForOrder` (multi→null)؛ `explodeQtyForOrder` / `orderQtyAsMainBase` (سفارش روی co → مقیاس سرفصل)؛ `planBomFgOutputs`؛ `listBoms(for_product_id)`؛ `createOrder` force `*_adv`؛ `getOrderDetail.fg_plan`؛ `finalizeAdvancedOrder` بدنهٔ `outputs[{product_id,qty}]`.

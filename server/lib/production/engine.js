@@ -221,6 +221,10 @@ function createOrder(db, body, userId) {
     throw err('E_NOT_MANUFACTURED', 422, { name: product.name });
   }
 
+  // v421 — essential product specs before production order
+  const { assertProductReady } = require('./product-completeness');
+  assertProductReady(db, productId, 'order');
+
   const fy = assertFiscalYearWritable(db, date);
   if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
   assertPeriodOpen(db, period);

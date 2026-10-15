@@ -1013,6 +1013,10 @@ function activateBom(db, bomId, validFrom, userId) {
       if (!validFrom) throw err('E_VALIDATION', 400);
       validateBom(db, bomId);
 
+      // v421 — essential product specs + BOM readiness (FG/co/components)
+      const { assertBomReady } = require('./product-completeness');
+      assertBomReady(db, bomId, 'activate');
+
       // V4-21 / advanced gates: routing or ops/outputs must pass validateAdvancedBom
       // (lazy require — bom-advanced already requires ./bom)
       const hasOps = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(bomId);

@@ -237,6 +237,18 @@ async function api(method, path, data, isFormData, silent){
         E_VALIDATION:'اطلاعات ناقص است (مثلاً تاریخ اعتبار برای فعال‌سازی)',
         E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
         E_NOT_MANUFACTURED:'این کالا به‌عنوان کالای ساختنی تعریف نشده است',
+        E_PRODUCT_INCOMPLETE:'مشخصات ضروری کالا ناقص است — کارت کالا را تکمیل کنید',
+        E_BOM_INCOMPLETE:'فرمول یا مشخصات محصولات آن ناقص است',
+        E_SPEC_NAME:'نام کالا الزامی است',
+        E_SPEC_UNIT:'واحد کالا الزامی است',
+        E_SPEC_ITEM_TYPE:'طبقه‌بندی تولید (نوع کالا) الزامی است',
+        E_SPEC_MANUFACTURED:'کالای سرفصل/هم‌محصول باید تیک ساختنی داشته باشد',
+        E_SPEC_TRADE_FG:'کالای فروش‌محض در تولید/BOM مجاز نیست',
+        E_SPEC_FG_COLOR:'برای رنگ inherit، رنگ محصول نهایی را ثبت کنید',
+        E_SPEC_FG_SIZE:'برای ماتریس سایز، سایز را تعریف کنید',
+        E_ROUTING_EMPTY:'مسیر عملیات خالی است',
+        E_YIELD_DOUBLE_COUNT:'با مسیر عملیات، بازده سرفصل باید ۱۰۰٪ باشد',
+        E_NO_COPRODUCT:'حالت چندمحصولی بدون هم‌محصول است',
         E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
         E_BAD_DRIVER:'محرک سربار نامعتبر است',
         E_PERIOD_FORMAT:'دوره باید مثل ۱۴۰۵/۰۷ باشد',
@@ -7866,12 +7878,22 @@ async function prodModal(id){
       </div>
       ${coaCodeFieldHtml('product', id, p.coa_code)}
       ${productExtraFieldsHtml(p)}
+      ${id?`<div class="fg full" id="p-prod-ready"><span class="muted">بررسی مشخصات ضروری تولید…</span></div>`:''}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   bindProductImageInstantUpload(id||0);
   setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
+  if(id) setTimeout(()=>{ try{ refreshProductProductionReady(id); }catch(_){} }, 0);
+}
+async function refreshProductProductionReady(productId){
+  const box=el('p-prod-ready');
+  if(!box||!productId) return;
+  try{
+    const r=await api('GET','/products/'+productId+'/completeness?mode=activate');
+    box.innerHTML=prodCompletenessBannerHtml(r,'مشخصات ضروری برای تولید / BOM');
+  }catch(e){ box.innerHTML=`<span class="muted">${esc(e.message||'')}</span>`; }
 }
 function prodVariantGlobalQty(v){
   if(!v) return 0;
@@ -14465,11 +14487,38 @@ async function prodBomCreateModal(preProductId){
       </div>
       <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. اگر مسیر عملیات فعال باشد بازده سرفصل باید ۱۰۰٪ باشد (R6). در حالت چندمحصولی، تب «خروجی‌ها» سهم هزینه را نگه می‌دارد.</p>
+    <div id="pb-create-ready" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}"></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. فعال‌سازی فقط وقتی مشخصات ضروری محصول سرفصل/هم‌محصول و اقلام کامل باشد مجاز است (v421). اگر مسیر عملیات فعال باشد بازده سرفصل باید ۱۰۰٪ باشد (R6). در حالت چندمحصولی، تب «خروجی‌ها» سهم هزینه را نگه می‌دارد.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateSave()})}">ایجاد پیش‌نویس</button>
     </div>`);
+  setTimeout(()=>{ try{ prodBomCreateRefreshReady(); const sel=el('pb-product'); if(sel) sel.addEventListener('change',()=>prodBomCreateRefreshReady()); }catch(_){} }, 0);
+}
+async function prodBomCreateRefreshReady(){
+  const box=el('pb-create-ready');
+  const pid=+el('pb-product')?.value;
+  if(!box) return;
+  if(!pid){ box.innerHTML=''; return; }
+  try{
+    const r=await api('GET','/products/'+pid+'/completeness?mode=activate');
+    box.innerHTML=prodCompletenessBannerHtml(r, 'آمادگی محصول سرفصل برای فرمول');
+  }catch(e){ box.innerHTML=`<span class="muted">${esc(e.message||'خطا در بررسی مشخصات')}</span>`; }
+}
+function prodCompletenessBannerHtml(report, title){
+  if(!report) return '';
+  const hard=report.hard||[];
+  const soft=report.soft||[];
+  const titleText=title||'آمادگی مشخصات ضروری';
+  if(!hard.length && !soft.length){
+    return `<div data-csp-style="${CSP.style(`padding:8px 12px;border-radius:8px;background:#e8f5e9;border:1px solid #a5d6a7;font-size:12px`)}">✅ ${esc(titleText)} — کامل</div>`;
+  }
+  const hardLis=hard.map(m=>`<li data-csp-style="${CSP.style(`color:#b71c1c`)}">${esc(m.message_fa||m.code)}</li>`).join('');
+  const softLis=soft.map(m=>`<li data-csp-style="${CSP.style(`color:#e65100`)}">${esc(m.message_fa||m.code)}</li>`).join('');
+  return `<div data-csp-style="${CSP.style(`padding:8px 12px;border-radius:8px;background:${hard.length?'#ffebee':'#fff8e1'};border:1px solid ${hard.length?'#ef9a9a':'#ffe082'};font-size:12px;line-height:1.7`)}">
+    <strong>${hard.length?'⛔':'⚠️'} ${esc(titleText)}</strong>
+    <ul data-csp-style="${CSP.style(`margin:6px 0 0;padding-right:18px`)}">${hardLis}${softLis}</ul>
+  </div>`;
 }
 function prodBomCreateAddCo(){
   const pid=+el('pb-co-pick')?.value;
@@ -14654,9 +14703,11 @@ async function prodBomEditModal(id, tab){
     panel=prodBomCostPanelHtml(id);
   }
 
+  let readyHtml='<div id="pbe-ready" class="muted" data-csp-style="'+CSP.style('margin-bottom:10px;font-size:12px')+'">در حال بررسی مشخصات ضروری…</div>';
   showModal((!canBomEdit?'مشاهده':'ویرایش')+' فرمول '+esc(bom.code||''),`
     ${locked?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر «نسخه جدید» بسازید.</div>`:''}
     ${!locked&&!canBomEdit?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">👁 فقط مشاهده — مجوز <code>production_bom/edit</code> ندارید.</div>`:''}
+    ${readyHtml}
     ${prodBomFgChipsHtml(bom, canBomEdit)}
     <div class="form-grid">
       <div class="fg"><label>محصول سرفصل (اصلی)</label><input value="${esc(prodName)}" disabled></div>
@@ -14682,6 +14733,19 @@ async function prodBomEditModal(id, tab){
   prodBomFillColorSelect(bom.color_id, bom.product_id);
   if(canBomEdit && activeTab==='items' && !lines.length) prodBomAddLineRow();
   prodBomBindColorModeToggles();
+  setTimeout(()=>{ try{ prodBomRefreshReadiness(id); }catch(_){} }, 0);
+}
+async function prodBomRefreshReadiness(bomId){
+  const box=el('pbe-ready');
+  if(!box) return;
+  try{
+    const r=await api('GET','/production/boms/'+bomId+'/completeness?mode=activate');
+    box.innerHTML=prodCompletenessBannerHtml(r, 'آمادگی فعال‌سازی فرمول (مشخصات کالا + BOM)');
+    window._prodBomReadyOk=!!r.ok;
+  }catch(e){
+    box.innerHTML=`<span class="muted">${esc(e.message||'خطا در بررسی آمادگی')}</span>`;
+    window._prodBomReadyOk=false;
+  }
 }
 function isBomComponentEligible(p){
   if(!p) return false;
@@ -15387,13 +15451,26 @@ async function prodBomDeleteLine(bomId, lineId){
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodBomActivate(id){
+  try{
+    const ready=await api('GET','/production/boms/'+id+'/completeness?mode=activate');
+    if(!ready.ok){
+      const msgs=(ready.hard||[]).map(m=>m.message_fa||m.code).slice(0,6).join('\n• ');
+      showToast('فعال‌سازی ممکن نیست — مشخصات ضروری ناقص است'+(msgs?('\n• '+msgs):''),'error');
+      if(el('pbe-ready')) el('pbe-ready').innerHTML=prodCompletenessBannerHtml(ready,'آمادگی فعال‌سازی فرمول');
+      return;
+    }
+  }catch(_){}
   const valid_from=prompt('تاریخ شروع اعتبار (جلالی):', todayJalali());
   if(!valid_from) return;
   if(!confirm('فعال‌سازی این فرمول؟ پس از فعال شدن قفل می‌شود.')) return;
   try{
     await api('POST','/production/boms/'+id+'/activate',{valid_from});
     showToast('فرمول فعال شد'); closeModal(); loadAccTab('production-boms');
-  }catch(e){ showToast(e.message||e.error||'خطا در فعال‌سازی','error'); }
+  }catch(e){
+    const extra=(e.payload&&e.payload.missing)||(e.missing)||[];
+    const tip=Array.isArray(extra)&&extra.length?('\n• '+extra.slice(0,5).map(m=>m.message_fa||m.code).join('\n• ')):'';
+    showToast((e.message||e.error||'خطا در فعال‌سازی')+tip,'error');
+  }
 }
 async function prodBomApplyRouting(id){
   try{
@@ -30025,6 +30102,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v418):</b> محصول سرفصل = خروجی <b>اصلی</b>؛ هر محصول ساخته‌شدهٔ دیگر را به‌عنوان <b>هم‌محصول (co)</b> اضافه کنید (فرم پیش‌فرض روی co است؛ «چند محصول یکجا» یا در «فرمول جدید» تیک چندمحصولی). جمع سهم main+co باید ۱۰۰٪ باشد — دکمه‌های تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> هم‌محصول‌ها را هم می‌چسباند.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود.</li>
         <li><b>سفارش چندمحصولی — اجرای مشترک (v420):</b> اگر فرمول هم‌محصول دارد، سفارش روی هر یک از محصولات (سرفصل یا co) ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات و نسبت هم‌محصول دیده می‌شود. در نهایی‌سازی می‌توانید تعداد رسید اصلی و هر هم‌محصول را اصلاح کنید؛ برای هر محصول رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
+        <li><b>مشخصات ضروری کالا + آمادگی BOM (v421):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول نشان داده می‌شود (نام، واحد، طبقه‌بندی تولید، تیک ساختنی برای FG/نیمه‌ساخته؛ اقلام BOM؛ مسیر در صورت فعال؛ سهم چندمحصولی؛ رنگ inherit و ماتریس سایز). موارد قرمز <b>فعال‌سازی فرمول</b> و <b>ایجاد سفارش تولید</b> را بلاک می‌کنند؛ هشدار نارنجی (کد، انبار، دسته، بها) توصیه است. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>

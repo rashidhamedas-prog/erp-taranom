@@ -4,6 +4,7 @@ const { getDB } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const bom = require('../lib/production/bom');
 const adv = require('../lib/production/bom-advanced');
+const completeness = require('../lib/production/product-completeness');
 const { applyCostPolicy } = require('../lib/production/access');
 
 function handle(res, fn) {
@@ -50,6 +51,20 @@ function bomFaError(e) {
     E_PRODUCT_SCOPE: 'حالت تخصیص محصول باید «مشترک» یا «اختصاصی» باشد.',
     E_SCOPED_PRODUCT_REQUIRED: 'برای تخصیص اختصاصی، محصول هدف را انتخاب کنید.',
     E_SCOPED_PRODUCT_NOT_IN_BOM: 'محصول تخصیص‌یافته در لیست محصولات این فرمول (سرفصل/هم‌محصول) نیست.',
+    E_PRODUCT_INCOMPLETE: (e && e.extra && e.extra.detail)
+      || 'مشخصات ضروری کالا ناقص است — کارت کالا را تکمیل کنید.',
+    E_BOM_INCOMPLETE: (e && e.extra && e.extra.detail)
+      || 'فرمول یا مشخصات محصولات آن ناقص است — چک‌لیست آمادگی را ببینید.',
+    E_SPEC_NAME: 'نام کالا الزامی است.',
+    E_SPEC_UNIT: 'واحد کالا الزامی است.',
+    E_SPEC_ITEM_TYPE: 'طبقه‌بندی تولید (نوع کالا) الزامی است.',
+    E_SPEC_MANUFACTURED: 'کالای سرفصل/هم‌محصول باید تیک ساختنی داشته باشد.',
+    E_SPEC_TRADE_FG: 'کالای فروش‌محض در تولید/BOM مجاز نیست.',
+    E_SPEC_FG_COLOR: 'برای رنگ inherit، رنگ محصول نهایی را در کارت کالا ثبت کنید.',
+    E_SPEC_FG_SIZE: 'برای ماتریس سایز، سایز را در سیستم تعریف کنید.',
+    E_ROUTING_EMPTY: 'مسیر عملیات خالی است.',
+    E_YIELD_DOUBLE_COUNT: 'با مسیر عملیات، بازده سرفصل باید ۱۰۰٪ باشد.',
+    E_NO_COPRODUCT: 'حالت چندمحصولی بدون هم‌محصول است.',
   };
   if (map[code]) return map[code];
   if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(String(e && e.message || ''))) {
@@ -147,17 +162,27 @@ router.post('/validate', auth, requirePermission('production_bom', 'view'), (req
     const db = getDB();
     if (req.body?.id) {
       bom.validateBom(db, Number(req.body.id));
-      return { ok: true };
+      const readiness = completeness.assessBom(db, Number(req.body.id), 'activate');
+      return { ok: readiness.ok, readiness };
     }
     // ephemeral: create draft in transaction then rollback — use dry validate via temp insert
     const created = bom.createBom(db, req.body || {}, req.user.id);
     try {
       bom.validateBom(db, created.id);
-      return { ok: true, id: created.id };
+      const readiness = completeness.assessBom(db, created.id, 'activate');
+      return { ok: readiness.ok, id: created.id, readiness };
     } finally {
       // leave as draft for inspection or soft-delete
     }
   });
+});
+
+router.get('/:id/completeness', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  handle(res, () => completeness.assessBom(
+    getDB(),
+    Number(req.params.id),
+    String(req.query.mode || 'activate')
+  ));
 });
 
 router.get('/:id/dependencies', auth, requirePermission('production_bom', 'view'), (req, res) => {
