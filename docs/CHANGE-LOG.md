@@ -6,8 +6,8 @@
 - **فایل‌ها:** `routes/payroll.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-payroll-wave5-exempt-loan-v415.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC AGENTS؛ Slack بدون نتیجه؛ Frappe HR Loan repay-from-salary.
 - **Non-goals:** بهره وام؛ دیسکت SSO؛ تغییر فرمول بیمه قانون‌کار.
-- **تست:** `test-payroll-wave5-exempt-loan-v415` + wave4 + sms؛ parse app.js.
-- **Deploy:** ⏳ در حال انجام.
+- **تست:** ایران `test-payroll-wave5-exempt-loan-v415` ۸/۰ + wave4 ۹/۰ + sms ۲۲/۰؛ ready=200 + sharp؛ parse app.js OK. (تست قدیمی `manual-exempt-v329` JE بدون CC روی ایران flake — خارج از دامنه).
+- **Deploy:** ✅ `b3635f8` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v415`؛ `app.js?v=415`.
 
 ### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۴: وام اقساطی + بازخرید مرخصی UI + لیست بیمه غنی (SW v414)
 
