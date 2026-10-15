@@ -1,9 +1,9 @@
 ### ۱۴۰۵/۰۷/۲۳ — محصولات اصلی مستقل در BOM چندمحصولی؛ حذف هم‌محصول (SW v423)
 - **هدف:** همهٔ FGهای یک فرمول هم‌رتبه «محصول اصلی» باشند؛ مفهوم هم‌محصول/co حذف شود؛ حواله/رسید/سفارش/تسهیم با peer mains سازگار شود.
-- **بک‌اند:** migrate `bom_outputs.co → main`؛ `ensureShareOutputs`/`addOutput` دیگر demote نمی‌کنند؛ اعتبارسنجی ≥۲ main برای چندمحصولی؛ `planBomFgOutputs`/`finalize` بدون نقش co؛ API `main_product_ids`/`peer_product_ids` (+ سازگاری `co_product_ids`)؛ رساله‌های خطا و completeness به‌روز.
+- **بک‌اند:** migrate `bom_outputs.co → main`؛ `ensureShareOutputs`/`addOutput` دیگر demote نمی‌کنند؛ اعتبارسنجی ≥۲ main برای چندمحصولی؛ `planBomFgOutputs`/`finalize` بدون نقش co؛ API `main_product_ids`/`peer_product_ids` (+ سازگاری `co_product_ids`)؛ رساله‌های خطا و completeness به‌روز؛ `clearDefaultBomPointers` روی deactivate/archive/soft-delete برای همهٔ FGهای فرمول (رفع orphan pointer).
 - **UI/Help:** فرم ایجاد/خروجی‌ها/برنامه سفارش/رسید نهایی — «محصول اصلی»؛ SW `erp-taranom-v423`.
 - **فایل‌ها:** `lib/production/{schema,bom,bom-advanced,engine-advanced,product-completeness}.js`, `routes/production-boms.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-multiproduct-peer-mains-v423.js`, CHANGE-LOG.
-- **Non-goals:** حذف ستون `has_coproducts` (معنای چندمحصولی می‌ماند)؛ تغییر مدل by/scrap؛ بیلد APK.
+- **Non-goals:** جدا کردن به N فرمول تک‌محصولی؛ حذف ستون `has_coproducts`؛ تغییر مدل by/scrap؛ بیلد APK.
 - **تست:** ایران `test-multiproduct-peer-mains-v423` ۲۱/۰ + v422 ۱۵/۰ + v421 ۱۹/۰ + sms ۲۲/۰؛ ready=200 + sharp؛ SW `erp-taranom-v423`.
 - **Deploy:** ✅ `7034d5e8` — overlay ایران + `pm2 restart` بدون `--update-env`؛ health=200 + image_engine sharp.
 

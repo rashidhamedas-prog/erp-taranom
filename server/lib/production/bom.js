@@ -844,9 +844,7 @@ function softDeleteBom(db, bomId, userId) {
     } catch (e) {
       rethrowBomConstraint(e);
     }
-    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
-      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
-    }
+    clearDefaultBomPointers(db, bomId, b.product_id);
     audit(userId, 'delete', 'bom', bomId, `حذف پیش‌نویس ${b.code}`);
     return { ok: true };
   })();
@@ -1053,7 +1051,7 @@ function activateBom(db, bomId, validFrom, userId) {
         db.prepare('UPDATE products SET default_bom_id=? WHERE id=?').run(bomId, b.product_id);
       }
 
-      // Multi-output: also point co-products' default_bom when share BOM is the sole active for them
+      // Multi-output: point peer mains' default_bom when this share BOM is their sole active
       const outs = db.prepare(`
         SELECT product_id FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
       `).all(bomId);
@@ -1081,6 +1079,17 @@ function activateBom(db, bomId, validFrom, userId) {
   })();
 }
 
+/** Clear products.default_bom_id for every FG (anchor + peer mains) pointing at this BOM. */
+function clearDefaultBomPointers(db, bomId, headerProductId) {
+  const ids = new Set([Number(headerProductId)]);
+  const outs = db.prepare(`
+    SELECT product_id FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+  `).all(bomId);
+  for (const o of outs) ids.add(Number(o.product_id));
+  const clear = db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=? AND default_bom_id=?');
+  for (const pid of ids) clear.run(pid, bomId);
+}
+
 function deactivateBom(db, bomId, userId) {
   return db.transaction(() => {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -1088,9 +1097,7 @@ function deactivateBom(db, bomId, userId) {
     const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET status='draft' WHERE id=?").run(bomId);
-    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
-      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
-    }
+    clearDefaultBomPointers(db, bomId, b.product_id);
     audit(userId, 'edit', 'bom', bomId, `غیرفعال‌سازی ${b.code}`);
     return { ok: true };
   })();
@@ -1108,9 +1115,7 @@ function archiveBom(db, bomId, reason, userId) {
     const open = countOpenOrdersForBom(db, bomId);
     if (open) throw err('E_BOM_IN_USE', 409, { n: open });
     db.prepare("UPDATE bom_headers SET status='archived' WHERE id=?").run(bomId);
-    if (Number(db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(b.product_id)?.default_bom_id) === Number(bomId)) {
-      db.prepare('UPDATE products SET default_bom_id=NULL WHERE id=?').run(b.product_id);
-    }
+    clearDefaultBomPointers(db, bomId, b.product_id);
     logBomChange(db, bomId, 'archive', { reason: reason || '' }, userId);
     audit(userId, 'edit', 'bom', bomId, `بایگانی ${b.code}`);
     return { ok: true };
