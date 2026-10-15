@@ -9,6 +9,23 @@
 - **مراجع:** skill-top full؛ tap-erp-architecture؛ R13 purge/void رسمی.
 - **Deploy:** ✅ فقط heal روی DB ایران (بدون تغییر SW/کد اپ)؛ کد اسکریپت‌ها در ریپو.
 
+### ۱۴۰۵/۰۷/۲۳ — حقوق موج ۲: پرداخت بیمه/مالیات + مساعده + آزادسازی ذخیره (SW v408)
+
+- **هدف:** بستن شکاف‌های حسابداری حقوق پس از v406 — تسویه بدهی بیمه/مالیات، مساعده پرسنلی با کسر از فیش، و جلوگیری از دوباره‌شماری عیدی/سنوات هنگام ذخیره ماهانه.
+- **پرداخت بیمه/مالیات:** `lib/payroll/remittance.js` — Dr ۲۱۰۵ یا ۲۱۰۶ / Cr بانک|صندوق؛ API `GET/POST /payroll/remittances` + void؛ UI «پرداخت بیمه و مالیات».
+- **مساعده:** `lib/payroll/advances.js` — Dr ۱۱۱۹ / Cr نقد؛ بازپرداخت در `/process` با Cr ۱۱۱۹ + جدول `payroll_advance_recoveries`؛ ابطال R13 روی فیش، recoveries را برمی‌گرداند.
+- **ذخیره ماهانه:** UI «ذخیره ماهانه عیدی/سنوات»؛ هنگام `year-end/:id/post` با `postYearEndWithReserveRelease` ابتدا ۲۱۱۰/۲۱۱۱ آزاد و فقط کسری به هزینه می‌رود.
+- **سینک:** append `payroll_remittances` / `payroll_advances` / `payroll_advance_recoveries` + PATH_TABLE_MAP + `sync_seq_backfill_v22`.
+- **فایل‌ها:** `lib/payroll/{remittance,advances,year-end-post,void-accrual}.js`, `routes/payroll.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,acc-nav.js,sw.js,index.html}`, `accounting-access.js`, `scripts/test-payroll-wave2-v408.js`, CHANGE-LOG.
+- **مراجع:** skill-top Wave2؛ tap-erp-architecture؛ R13 Edit⇒Cancel؛ الگوی ERPNext Payroll Entry remittance.
+- **تست:** `test-payroll-wave2-v408` + `test-payroll-accounting` + `test-sms` / `test-sync` (ایران؛ local better-sqlite3 ABI skip).
+- **Deploy:** ⏳ pending — SW `erp-taranom-v408`؛ `app.js?v=408`.
+
+### ۱۴۰۵/۰۷/۲۳ — پاک‌سازی کامل تولید: BOM + سفارش + لایه‌چینی (heal v407)
+
+- **درخواست:** حذف همهٔ BOMها، سفارش‌های تولید، لایه‌چینی‌ها و سندهای وابسته برای شروع مجدد ورود.
+- **Deploy:** ✅ فقط heal روی DB ایران (بدون تغییر SW/کد اپ)؛ جزئیات در کامیت `e124f1d`.
+
 ### ۱۴۰۵/۰۷/۲۳ — حقوق حرفه‌ای ۱۴۰۵: بسته قانونی + موتور + اسناد (SW v406)
 
 - **هدف:** تکمیل شکاف‌های ماژول حقوق مطابق مصوبات شورای عالی کار / بیمه / ماده ۸۴ سال ۱۴۰۵ و هم‌ترازی اسناد حسابداری.
