@@ -5,8 +5,8 @@
 - **فایل‌ها:** `lib/production/{labor,engine,engine-advanced}.js`, `public/{app.js,sw.js,index.html}`, `docs/Production/accounting-events.md`, `scripts/test-bom-labor-person-je-v419.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ ECC؛ Slack بدون نتیجه؛ ERPNext Piecework/Job Card (qty×rate → payable)؛ Odoo MO labor cost vs payroll جدا؛ tap-erp-architecture؛ ultra-debug.
 - **Non-goals:** اتصال به فیش حقوق ماهانه (PRD-04)؛ تغییر سرفصل‌های COA پایه؛ اجباری کردن شخص روی همهٔ عملیات.
-- **تست:** محلی static v419 ۱۵/۰ + parse `app.js`؛ DB روی ایران (sqlite ABI محلی Node24 ندارد)؛ `test-sms` + در صورت امکان `test-sync`.
-- **Deploy:** ⏳ در حال انجام.
+- **تست:** ایران `test-bom-labor-person-je-v419` ۲۷/۰ + `test-sms` ۲۲/۰؛ ready=200 + sharp؛ parse `app.js` OK.
+- **Deploy:** ✅ `e7c982b` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v419`؛ `app.js?v=419`.
 
 ### ۱۴۰۵/۰۷/۲۳ — BOM چندمحصولی: تخصیص اقلام/عملیات + JE هم‌محصول (SW v418)
 - **هدف:** وقتی بیش از یک محصول در BOM است، هر قلم مواد و هر عملیات مشخص کند «مشترک» است یا «اختصاصی» یک محصول؛ UI سرفصل/تب‌ها متناسب با N محصول تغییر کند؛ حواله فقط اقلام مرتبط با محصول سفارش را بردارد؛ بهای تمام‌شده و رسید نهایی WIP را با exclusive + درصد خروجی‌ها بین main/co تسهیم و برای هر هم‌محصول رسید FG + PRD-07 بزند.
