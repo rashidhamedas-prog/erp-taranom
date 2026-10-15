@@ -5,8 +5,8 @@
 - **رفع:** helpers در `store-quick-sale`؛ لیست/مانده مشتری با OR walk-in + مانده شخصی؛ `canViewInvoice` برای walk-in حتی sales_manager را محدود می‌کند؛ مالک ثبت walk-in/store_quick = کاربر نشست؛ `buildTimeline` فیلتر مالک؛ Help ادمین/فروش.
 - **فایل‌ها:** `lib/{store-quick-sale,customer-scope,crm-analytics}.js`, `routes/{customers,invoices}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-walkin-tx-privacy-v395.js`, CHANGE-LOG.
 - **مراجع:** skill-top full؛ Slack بدون نتیجه مرتبط؛ explore API map؛ tap-erp-architecture.
-- **تست:** `test-walkin-tx-privacy-v395` + `test-sms` / `test-sync`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-walkin-tx-privacy-v395` ۲۷/۰ + `test-sms` ۲۲/۰؛ health=200 + sharp. (sync محلی به‌خاطر better-sqlite3 ویندوز اجرا نشد)
+- **Deploy:** ✅ `da525cb` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v395`؛ `app.js?v=395`.
 
 ### ۱۴۰۵/۰۷/۲۳ — ویرایش درجا برای پرداخت به شخص/حساب (SW v394)
 
