@@ -5,8 +5,8 @@
 - **بک‌اند:** ستون `users.sales_cash_box_id`؛ bootstrap با قفل انبار+صندوق برای `store_retail`؛ `POST /api/store/quick-exchange` (برگشت `createSalesReturn` + فاکتور جایگزین + تسویه خالص/استرداد)؛ walk-in با `exchangeCreditRial`؛ capture map.
 - **UI:** ماتریس رنگ×سایز (`dest=store_quick`)، فی و تخفیف٪ سطر، select انبار برای مدیر، صندوق پیش‌فرض، حالت تعویض با فاکتور مرجع؛ Help ادمین/فروش.
 - **فایل‌ها:** `lib/store-quick-sale.js`, `routes/{store,invoices,admin,auth}.js`, `lib/staff-public.js`, `db.js`, `sync/capture.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-store-quick-sale-v387.js`, CHANGE-LOG.
-- **تست:** `test-store-quick-sale-v387` ۳۰/۰؛ `test-sms` ۲۲/۰.
-- **Deploy:** ⏳
+- **تست:** `test-store-quick-sale-v387` ۳۰/۰؛ `test-sms` ۲۲/۰؛ ایران هم ۳۰/۰ + health=200 + sharp.
+- **Deploy:** ✅ `938f5fc` — overlay ایران + `pm2 restart` بدون `--update-env`؛ SW `erp-taranom-v387`؛ `app.js?v=387`.
 
 ### ۱۴۰۵/۰۷/۲۳ — معین اول هر کل در جستجوی پرداخت هزینه (SW v386)
 
