@@ -1653,6 +1653,7 @@ function ensureSharedCutSchema(db) {
     ensureColumn(db, 'cutting_lay_rolls', 'adjustment_m', 'REAL DEFAULT 0');
     ensureColumn(db, 'cutting_lay_rolls', 'destination', "TEXT DEFAULT ''");
     ensureColumn(db, 'cutting_lay_rolls', 'remnant_batch_id', 'INTEGER');
+    ensureColumn(db, 'cutting_lay_rolls', 'remnant_ledger_id', 'INTEGER');
   }
   for (const name of ['cutting_batches', 'cutting_batch_outputs', 'cutting_batch_allocations', 'cutting_remnant_rules']) {
     if (!tableExists(db, name)) continue;

@@ -127,6 +127,41 @@ try {
   ok('ابطال', voided.status === 'reversed', voided.status);
   const leftAfter = db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(ids[0]).q;
   eq('برگشت متر پس از ابطال', Number(leftAfter), 79, 0.05);
+
+  if (!db.prepare("SELECT id FROM warehouses WHERE code='WH-SCRAP'").get()) {
+    db.prepare("INSERT INTO warehouses (code,name,kind,warehouse_type,active) VALUES ('WH-SCRAP','ضایعات','scrap','scrap',1)").run();
+  }
+  const lossId = db.prepare(`
+    INSERT INTO inventory_batches (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, unit, unit_cost_rial)
+    VALUES (?,?,?,?,?,'active','fabric','متر', 1000)
+  `).run('R-LOSS', fab, raw.id, 7.5, 7.5).lastInsertRowid;
+  const lossPosted = postSharedCut(db, {
+    marker_length_m: marker,
+    fabric_product_id: fab,
+    warehouse_id: raw.id,
+    width_cm: 150,
+    date: '1405/07/26',
+    idempotency_key: 'shared-loss-1',
+    outputs: [{ product_id: a, size_code: 'ALL', pieces_per_ply: 1, weight: 100 }],
+    rolls: [{ batch_id: lossId, opening_m: 7.5, ply_count: 1, length_loss_m: 0.5 }],
+  }, { id: admin.id });
+  ok('ته‌طاقه ثبت شد', lossPosted.rolls.some((r) => Number(r.remnant_m) > 0 && Number(r.remnant_ledger_id) > 0));
+  const creditRaw = db.prepare(`
+    SELECT COUNT(*) c FROM journal_lines
+    WHERE entry_id=? AND account_code='1110' AND COALESCE(credit_rial,0) > 0
+  `).get(lossPosted.waste_journal_id).c;
+  eq('اتلاف بستانکار مواد', creditRaw, 1);
+  const creditWip = db.prepare(`
+    SELECT COUNT(*) c FROM journal_lines
+    WHERE entry_id=? AND account_code='1111' AND COALESCE(credit_rial,0) > 0
+  `).get(lossPosted.waste_journal_id).c;
+  eq('اتلاف بستانکار WIP نیست', creditWip, 0);
+  voidSharedCut(db, lossPosted.id, { id: admin.id }, 'آزمون اتلاف');
+  const remLeft = db.prepare(`
+    SELECT COALESCE(SUM(qty_on_hand),0) q FROM inventory_batches
+    WHERE source_type='cutting_remnant' AND source_id=?
+  `).get(lossPosted.id).q;
+  eq('ته‌طاقه بعد از ابطال صفر', Number(remLeft), 0, 0.001);
 } catch (e) {
   ok('مسیر دیتابیس', false, e.stack || e.message);
 } finally {

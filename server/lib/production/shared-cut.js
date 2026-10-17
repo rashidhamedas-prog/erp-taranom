@@ -340,6 +340,7 @@ function postSharedCut(db, body, user) {
         adjustBatchQty(db, batch.id, -issueM);
       }
       let remnantBatchId = null;
+      let remnantLedgerId = null;
       if (roll.remnant_m > 0) {
         if (!whRem) throw httpErr(400, 'انبار ته‌طاقه تنظیم نشده', 'E_REMNANT_WH');
         const ins = db.prepare(`
@@ -351,7 +352,7 @@ function postSharedCut(db, body, user) {
           batch.color || '', Math.round(Number(batch.width_cm) || 0), unit, batchId, 'ته‌طاقه'
         );
         remnantBatchId = ins.lastInsertRowid;
-        postInventoryMovement(db, {
+        const remLed = postInventoryMovement(db, {
           eventType: 'production_receipt',
           productId: batch.product_id,
           warehouseId: whRem.id,
@@ -365,16 +366,17 @@ function postSharedCut(db, body, user) {
           note: `ته‌طاقه ${batchNo}`,
           createdBy: user && user.id,
         });
+        remnantLedgerId = remLed && remLed.id;
       }
       db.prepare(`
         INSERT INTO cutting_lay_rolls
           (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status,
-           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id)
-        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)
+           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id)
+        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?)
       `).run(
         layId, batch.id, issueM, unit, laidRial + lossPart, ledgerId,
         roll.opening_m, roll.ply_count, roll.laid_m, roll.returned_m, roll.remnant_m,
-        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId
+        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId
       );
     }
     common = assertSafeRial(common, 'common');
@@ -387,6 +389,7 @@ function postSharedCut(db, body, user) {
         date,
         description: `مصرف خالص برش مشترک ${batchNo}`,
         createdBy: user && user.id,
+        costCenterId: Number(body.cost_center_id) || null,
         lines: [dr(db, 'coa_wip', common), cr(db, 'coa_raw_materials', common)],
       });
       journalId = je ? je.je_id : null;
@@ -400,7 +403,8 @@ function postSharedCut(db, body, user) {
         date,
         description: `اتلاف طولی برش ${batchNo}`,
         createdBy: user && user.id,
-        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_wip', lossRial)],
+        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_raw_materials', lossRial)],
+        costCenterId: Number(body.cost_center_id) || null,
       });
       wasteJe = wje ? wje.je_id : null;
     }
@@ -476,6 +480,14 @@ function voidSharedCut(db, id, user, reason) {
       const issueM = Number(roll.meters) || 0;
       if (issueM) adjustBatchQty(db, roll.batch_id, issueM);
       if (roll.remnant_batch_id) {
+        const remLedger = Number(roll.remnant_ledger_id) || (db.prepare(`
+          SELECT id FROM inventory_ledger
+          WHERE source_type='cutting_remnant' AND batch_id=? AND COALESCE(status,'posted')='posted'
+          ORDER BY id DESC LIMIT 1
+        `).get(roll.remnant_batch_id) || {}).id;
+        if (remLedger) {
+          reverseInventoryMovement(db, remLedger, { createdBy: user && user.id, note: reason || 'ابطال ته‌طاقه' });
+        }
         adjustBatchQty(db, roll.remnant_batch_id, -(Number(roll.remnant_m) || 0));
         db.prepare("UPDATE inventory_batches SET status='reversed' WHERE id=?").run(roll.remnant_batch_id);
       }
