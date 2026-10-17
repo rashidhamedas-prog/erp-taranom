@@ -2298,6 +2298,28 @@ router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+/** دریافت از شخص غیرمشتری — نقد/واریز/کارتخوان/چک دریافتنی. مشتری به تسویه برمی‌گردد. */
+router.post('/person-receipts', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const { postPersonReceipt } = require('../lib/person-receipt');
+    const out = withPaymentIdempotency(db, {
+      key: req.body && req.body.idempotency_key,
+      userId: req.user.id,
+      path: '/api/accounting/person-receipts',
+      body: req.body,
+    }, () => postPersonReceipt(db, req.user, req.body || {}));
+    if (!out.replayed) {
+      audit(req.user.id, 'create', 'person_receipt', out.id, `دریافت از شخص #${out.id}`);
+    }
+    res.json(out);
+  } catch (e) {
+    const status = e.status || 400;
+    if (status >= 500) console.error('person-receipt', e);
+    res.status(status).json({ error: e.message || 'ثبت دریافت ناموفق بود', code: e.code, cust_id: e.cust_id || null });
+  }
+});
+
 /** دریافت به حساب کدینگ — Dr صندوق/بانک / Cr حساب مبدأ */
 router.post('/account-receipts', auth, adminOrAccounting, (req, res) => {
   const { date, amount, account_code, pay_type, bank_id, cash_box_id, note } = req.body;

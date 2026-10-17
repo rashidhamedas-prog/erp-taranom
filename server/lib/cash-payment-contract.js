@@ -138,7 +138,7 @@ function exclusivePaySource(body) {
     return { payType: 'cash', bankId: null, cashBoxId };
   }
   if (!bankId) throw httpErr(400, 'بانک را انتخاب کنید', 'E_BANK');
-  if (cashBoxId) throw httpErr(400, 'برای واریز بانکی شناسه صندوق پذیرفته نمی‌شود', 'E_PAY_SOURCE');
+  if (cashBoxId) throw httpErr(400, 'برای برداشت از حساب بانکی شناسه صندوق پذیرفته نمی‌شود', 'E_PAY_SOURCE');
   return { payType: 'bank', bankId, cashBoxId: null };
 }
 
@@ -178,7 +178,7 @@ function assertOutboundPayment(db, body) {
   const date = assertPaymentDate(db, body && body.date);
   const fee = parseOptionalRial(body && (body.fee_rial != null ? body.fee_rial : body.bank_fee_rial), 'کارمزد');
   if (fee > 0 && src.payType !== 'bank') {
-    throw httpErr(400, 'کارمزد فقط برای واریز بانکی مجاز است و نادیده گرفته نمی‌شود', 'E_FEE');
+    throw httpErr(400, 'کارمزد فقط برای برداشت از حساب بانکی مجاز است و نادیده گرفته نمی‌شود', 'E_FEE');
   }
   if (src.payType === 'cash') assertActiveCashBox(db, src.cashBoxId);
   else {
@@ -334,6 +334,7 @@ const EXPENSE_NOT_AP = 'تسویه بدهی فاکتور خرید از «پرد�
 
 module.exports = {
   httpErr,
+  strictPositiveId,
   parseStrictRial,
   parseOptionalRial,
   installmentAmounts,

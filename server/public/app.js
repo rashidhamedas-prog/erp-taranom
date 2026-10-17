@@ -1034,8 +1034,18 @@ function presetSelect(id,current,handler){
 }
 
 /* ---- Searchable Customer Select ---- */
+async function ensureCustomerCatalog(){
+  if(Array.isArray(CACHE.customers)&&CACHE.customers.length) return CACHE.customers;
+  try{
+    CACHE.customers=listRows(await api('GET','/customers'))||[];
+  }catch(_){
+    CACHE.customers=Array.isArray(CACHE.customers)?CACHE.customers:[];
+  }
+  return CACHE.customers;
+}
 function custSelect(id, selectedId, optional=false){
-  const sel=selectedId?CACHE.customers.find(c=>c.id===+selectedId):null;
+  const list=Array.isArray(CACHE.customers)?CACHE.customers:[];
+  const sel=selectedId?list.find(c=>c.id===+selectedId):null;
   const ph=optional?'مشتری مرتبط (اختیاری)...':'جستجو: نام، موبایل، کد...';
   return `<div class="cust-sw" data-cs-id="${esc(id)}">
     <input type="hidden" id="${esc(id)}" value="${selectedId||''}" data-optional="${optional?1:0}">
@@ -1062,7 +1072,7 @@ function initCustSearches(scope){
       else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') hideGenericDrop(id);
       else hideCustDrop(id);
     };
-    inp.addEventListener('focus',()=>{ if(!(inp.value||'').trim()) show(); });
+    inp.addEventListener('focus',()=>show());
     inp.addEventListener('input',()=>show());
     inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hide(); });
   });
@@ -1080,9 +1090,9 @@ function supplierSelect(id, selectedId){
 }
 function showSupplierDrop(id, q){
   const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
-  const term=(q||'').trim().toLowerCase();
-  let list=CACHE.suppliers||[];
-  if(term){ const words=term.split(/\s+/); list=list.filter(s=>{const hay=((s.name||'')+' '+(s.phone||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const term=(q||'').trim();
+  let list=Array.isArray(CACHE.suppliers)?CACHE.suppliers:[];
+  if(term) list=list.filter(s=>textMatchesQuery(((s.name||'')+' '+(s.phone||'')), term));
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
   drop.innerHTML = list.slice(0,40).map(s=>`
@@ -1165,15 +1175,18 @@ function showCustDrop(id, q){
   const drop=el(id+'-drop'); if(!drop) return;
   const inp=el(id+'-input'); if(!inp) return;
   const optional=el(id)?.dataset?.optional==='1';
-  const term=(q||'').trim().toLowerCase();
+  const term=(q||'').trim();
   let list=Array.isArray(CACHE.customers)?CACHE.customers:[];
-  if(term){
-    const words=term.split(/\s+/);
-    list=list.filter(c=>{
-      const hay=((c.biz||'')+' '+(c.phone||'')+' '+(c.owner||'')).toLowerCase();
-      return words.every(w=>hay.includes(w));
-    });
+  if(!list.length){
+    drop.innerHTML='<div class="cust-si-empty">فهرست مشتریان هنوز بارگذاری نشده</div>';
+    const rect0=inp.getBoundingClientRect();
+    drop.style.top=(rect0.bottom+2)+'px';
+    drop.style.left=rect0.left+'px';
+    drop.style.width=rect0.width+'px';
+    drop.style.display='block';
+    return;
   }
+  if(term) list=list.filter(c=>textMatchesQuery(((c.biz||'')+' '+(c.phone||'')+' '+(c.owner||'')+' '+(c.mobile||'')), term));
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px';
   drop.style.left=rect.left+'px';
@@ -1186,7 +1199,7 @@ function showCustDrop(id, q){
       <span>${esc(c.biz)}${c.owner?` <span class="muted">(${esc(c.owner)})</span>`:''}</span>
       <span class="cust-si-meta">${esc(c.phone||'')}</span>
     </div>`).join('');
-  if(!html) html='<div class="cust-si-empty">مشتری یافت نشد</div>';
+  if(!html) html='<div class="cust-si-empty">مشتری با این عبارت در فهرست نیست</div>';
   drop.innerHTML=html;
 }
 function pickCust(id, custId){
@@ -1194,7 +1207,8 @@ function pickCust(id, custId){
   const inp=el(id+'-input');
   if(inp){
     if(custId){
-      const c=CACHE.customers.find(x=>x.id===+custId);
+      const list=Array.isArray(CACHE.customers)?CACHE.customers:[];
+      const c=list.find(x=>x.id===+custId);
       inp.value=c?(c.biz+(c.owner?' — '+c.owner:'')):'';
     } else { inp.value=''; }
   }
@@ -20236,11 +20250,12 @@ async function supplierPaymentModal(id,name){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:false})}</select></div>
-      <div class="fg" id="sp-bank-fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
+      <div class="fg"><label>روش پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg" id="sp-bank-fg"><label>برداشت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت خارج می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
+      ${payBankRefHtml('sp')}
       ${payBankFeeHtml('sp')}
       <div class="fg" id="sp-cashbox-fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
@@ -20257,9 +20272,14 @@ async function supplierPaymentModal(id,name){
 }
 function payTypeOptionsHtml(opts){
   opts=opts||{};
-  let h='<option value="cash">نقد / صندوق</option><option value="bank">واریز بانکی</option>';
-  if(opts.cheque!==false) h+='<option value="cheque">چک</option>';
-  if(opts.pos) h+='<option value="pos_card">کارتخوان</option>';
+  const out=opts.flow==='out';
+  const cash=out?'پرداخت نقد از صندوق':'دریافت نقد در صندوق';
+  const bank=out?'برداشت از حساب بانکی':'واریز به حساب بانکی';
+  let h=`<option value="cash">${cash}</option><option value="bank">${bank}</option>`;
+  if(opts.cheque!==false) h+=out
+    ? '<option value="cheque">صدور چک پرداختنی</option>'
+    : '<option value="cheque">چک دریافتنی</option>';
+  if(opts.pos) h+='<option value="pos_card">کارتخوان (وجوه در راه)</option>';
   return h;
 }
 function activePosTerminals(){
@@ -20304,7 +20324,7 @@ function payMultiToggleHtml(prefix){
     <input type="checkbox" id="${prefix}-multi" data-csp-change="${CSP.bind('change',function(){payToggleMulti(`${String((prefix) ?? '')}`)})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
   </label></div>
   <div id="${prefix}-multi-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}">
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر قسط یک سند جدا با همان نوع پرداخت و مقصد بالاست.</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر قسط یک سند جدا با همان روش و همان صندوق یا بانک سربرگ است.</div>
     <div id="${prefix}-dest-summary" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8;color:var(--brand-mid,#2D7A5F);font-weight:600`)}"></div>
     <div id="${prefix}-multi-rows"></div>
     <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){payAddInstRow(`${String((prefix) ?? '')}`)})}">➕ قسط دیگر</button>
@@ -20318,16 +20338,42 @@ function payDestSummary(prefix){
   const bank=(CACHE.banks||[]).find(b=>Number(b.id)===bankId);
   const cash=(CACHE.cashBoxes||[]).find(b=>Number(b.id)===cashId);
   const pos=(CACHE.posTerminals||[]).find(t=>Number(t.id)===posId);
-  const typeLbl={cash:'نقد / صندوق',bank:'واریز بانکی',bank_transfer:'واریز بانکی',cheque:'چک',pos_card:'کارتخوان'}[pt]||pt;
+  const out=payFlow(prefix)==='out';
+  const typeLbl=(out
+    ? {cash:'پرداخت نقد از صندوق',bank:'برداشت از حساب بانکی',bank_transfer:'برداشت از حساب بانکی',cheque:'صدور چک',pos_card:'کارتخوان'}
+    : {cash:'دریافت نقد در صندوق',bank:'واریز به حساب بانکی',bank_transfer:'واریز به حساب بانکی',cheque:'چک دریافتنی',pos_card:'کارتخوان (وجوه در راه)'}
+  )[pt]||pt;
   let dest='';
-  if(pt==='cash' && cash) dest=' → '+cash.name;
-  else if((pt==='bank'||pt==='bank_transfer'||pt==='cheque') && bank) dest=' → '+bank.name;
-  else if(pt==='pos_card' && pos) dest=' → '+(pos.name||pos.terminal_id||'کارتخوان');
+  if(pt==='cash' && cash) dest=' — '+cash.name;
+  else if((pt==='bank'||pt==='bank_transfer') && bank) dest=' — '+bank.name;
+  else if(pt==='cheque' && out && bank) dest=' — '+bank.name;
+  else if(pt==='cheque' && !out) dest=' — اسناد دریافتنی نزد صندوق';
+  else if(pt==='pos_card' && pos) dest=' — '+(pos.name||pos.terminal_id||'کارتخوان');
   else if(pt==='cash') dest=' (صندوق را انتخاب کنید)';
-  else if(pt==='bank'||pt==='bank_transfer'||pt==='cheque') dest=' (بانک را انتخاب کنید)';
+  else if(pt==='bank'||pt==='bank_transfer') dest=' (بانک را انتخاب کنید)';
+  else if(pt==='cheque' && out) dest=' (بانک صادرکننده را انتخاب کنید)';
   else if(pt==='pos_card') dest=' (کارتخوان را انتخاب کنید)';
   const box=el(prefix+'-dest-summary');
-  if(box) box.textContent='مقصد همه اقساط: '+typeLbl+dest;
+  if(box) box.textContent=(out?'مبدأ وجه همه اقساط: ':'مقصد همه اقساط: ')+typeLbl+dest;
+}
+function payFlow(prefix){
+  if(prefix==='cde'){
+    const k=el('cde-kind')?.value||'';
+    if(k==='settlement'||k==='person_receipt'||k==='account_receipt') return 'in';
+    return 'out';
+  }
+  return (prefix==='pp'||prefix==='apay'||prefix==='ex'||prefix==='sp')?'out':'in';
+}
+function payNoteWithRef(prefix, note){
+  const ref=String(el(prefix+'-bankref')?.value||'').trim();
+  const base=String(note||'').trim();
+  if(!ref) return base;
+  return (base?base+' | ':'')+'پیگیری: '+ref;
+}
+function payBankRefHtml(prefix){
+  const out=payFlow(prefix)==='out';
+  const label=out?'شماره پیگیری حواله':'شماره پیگیری واریز';
+  return `<div class="fg" id="${prefix}-bankref-fg" data-csp-style="${CSP.style(`display:none`)}"><label>${label}</label><input id="${prefix}-bankref" dir="ltr" placeholder="کد رهگیری بانک"></div>`;
 }
 let _payInstRows={};
 function payToggleMulti(prefix){
@@ -20392,7 +20438,7 @@ function payFeeCcOptionsHtml(selectedId){
     opts.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(selectedId||0)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
 }
 function payBankFeeHtml(prefix, selectedFeeCcId){
-  return `<div class="fg" id="${prefix}-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد انتقال (ریال) ${hlp('فقط هنگام واریز بانکی — از حساب بانک کسر و در سند به حساب کارمزد خدمات بانکی (برگ معین؛ اگر زیر ۶۱۱۵ معین ساخته شده باشد روی همان برگ می‌نشیند). مبلغ پرداخت به طرف‌حساب بدون کارمزد است.')}</label><input id="${prefix}-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
+  return `<div class="fg" id="${prefix}-fee-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارمزد خدمات بانکی (ریال) ${hlp('فقط وقتی وجه از حساب بانکی شرکت خارج می‌شود. از همان بانک کسر و روی برگ کارمزد (معین زیر ۶۱۱۵) می‌نشیند. مبلغ طرف‌حساب شامل کارمزد نیست.')}</label><input id="${prefix}-fee" type="text" inputmode="numeric" class="money" placeholder="۰"></div>
     <div class="fg" id="${prefix}-fee-cc-fg" data-csp-style="${CSP.style(`display:none`)}"><label>مرکز هزینه کارمزد بانکی ${hlp('مرکز جدا برای سطر کارمزد (۶۱۱۵). اگر خالی بماند و مرکز سند پر باشد همان مرکز استفاده می‌شود. با روشن بودن «الزام مرکز هزینه» وقتی کارمزد > ۰ اجباری است.')}</label>
       <select id="${prefix}-fee-cc">${payFeeCcOptionsHtml(selectedFeeCcId)}</select></div>`;
 }
@@ -20431,16 +20477,30 @@ function toggleBankFields(prefix){
   const isBank = pt==='bank' || pt==='bank_transfer';
   const isCash = pt==='cash';
   const isPos = pt==='pos_card';
+  const inbound=payFlow(prefix)==='in';
   const bankFg=payFg(prefix,'bank');
   const cashFg=payFg(prefix,'cashbox');
   const posFg=el(prefix+'-pos-fg');
   const ccWrap=el(prefix+'-cc-wrap');
   const feeFg=el(prefix+'-fee-fg');
   const feeCcFg=el(prefix+'-fee-cc-fg');
-  if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
+  const refFg=el(prefix+'-bankref-fg');
+  const chequeBlock=el(prefix+'-cheque-block');
+  if(bankFg) bankFg.style.display=(isBank||(isCheque && !inbound))?'flex':'none';
   if(cashFg) cashFg.style.display=isCash?'flex':'none';
   if(posFg) posFg.style.display=isPos?'flex':'none';
-  if(ccWrap){ ccWrap.style.display=isCheque?'flex':'none'; if(isCheque) updateCheckCategoryOptions(prefix); }
+  if(refFg) refFg.style.display=isBank?'flex':'none';
+  if(chequeBlock) chequeBlock.style.display=(isCheque && inbound)?'block':'none';
+  const amtFg=el(prefix+'-amount')?.closest('.fg');
+  if(amtFg && chequeBlock){
+    const multiOn=!!el(prefix+'-multi')?.checked && !(isCheque && inbound);
+    amtFg.style.display=((isCheque && inbound) || multiOn)?'none':'flex';
+  }
+  if(isCheque && inbound && el(prefix+'-multi')?.checked){
+    el(prefix+'-multi').checked=false;
+    const box=el(prefix+'-multi-block'); if(box) box.style.display='none';
+  }
+  if(ccWrap){ ccWrap.style.display=(isCheque && !inbound)?'flex':'none'; if(isCheque && !inbound) updateCheckCategoryOptions(prefix); }
   if(feeFg){
     feeFg.style.display=isBank?'flex':'none';
     if(!isBank && el(prefix+'-fee')) el(prefix+'-fee').value='';
@@ -20449,7 +20509,7 @@ function toggleBankFields(prefix){
     feeCcFg.style.display=isBank?'flex':'none';
     if(!isBank && el(prefix+'-fee-cc')) el(prefix+'-fee-cc').value='';
   }
-  if(!(isBank||isCheque) && el(prefix+'-bank')) el(prefix+'-bank').value='';
+  if(!(isBank || (isCheque && !inbound)) && el(prefix+'-bank')) el(prefix+'-bank').value='';
   if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
   if(!isPos && el(prefix+'-pos')) el(prefix+'-pos').value='';
   payDestSummary(prefix);
@@ -20470,7 +20530,7 @@ async function saveSupplierPayment(id){
   try{
     await api('POST','/purchases/payments',{
       supplier_id:id, amount:amount, pay_type:el('sp-paytype').value,
-      date:el('sp-date').value, note:el('sp-note').value,
+      date:el('sp-date').value, note:payNoteWithRef('sp', el('sp-note').value),
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
       check_category_id:+el('sp-checkcat')?.value||null,
@@ -25002,23 +25062,83 @@ function receiptOpChooser(){
     </div>
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
+let prrCheques=[];
+function prrNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:todayJalali(),owner:'',note:''}; }
+function receivedChequeProblems(c){
+  const say=toEnDigits(String(c.sayadi||'')).replace(/\D/g,'');
+  const missing=[];
+  if(!String(c.bank||'').trim()) missing.push('نام بانک صادرکننده');
+  if(!String(c.branch||'').trim()) missing.push('شعبه');
+  if(!String(c.account||'').trim()) missing.push('شماره حساب');
+  if(!String(c.number||'').trim()) missing.push('شماره چک');
+  if(!/^\d{16}$/.test(say)) missing.push('شناسه صیاد ۱۶ رقمی');
+  if(!/^\d{4}\/\d{2}\/\d{2}$/.test(String(c.due||'').trim())) missing.push('تاریخ سررسید');
+  if(!String(c.owner||'').trim()) missing.push('نام صادرکننده');
+  const amount=parseInt(String(c.amount||'').replace(/[^\d]/g,''),10)||0;
+  if(!amount) missing.push('مبلغ چک');
+  const sheba=String(c.sheba||'').replace(/\s/g,'').toUpperCase();
+  if(sheba && !/^IR\d{24}$/.test(sheba)) missing.push('شبا (IR و ۲۴ رقم)');
+  return {missing, sayadi:say, sheba, amount};
+}
+function renderPrrCheques(){
+  const body=el('prr-cheque-body'); if(!body) return;
+  body.innerHTML=prrCheques.map((c,i)=>{
+    const removeBtn=prrCheques.length>1
+      ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){prrCheques.splice(i,1);if(!prrCheques.length)prrCheques=[prrNewCheque()];renderPrrCheques()})}">حذف</button>`
+      : '';
+    return `
+    <div class="chq-card" data-chq-i="${i}" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--well)`)}">
+      <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-bottom:8px`)}"><b>چک دریافتنی — ردیف ${toFa(i+1)}</b>
+        ${removeBtn}
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label>بانک صادرکننده *</label><input data-k="bank" value="${esc(c.bank)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].bank=this.value})}" placeholder="مثلاً ملی"></div>
+        <div class="fg"><label>شعبه *</label><input data-k="branch" value="${esc(c.branch)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].branch=this.value})}"></div>
+        <div class="fg"><label>شماره حساب *</label><input data-k="account" dir="ltr" value="${esc(c.account)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].account=this.value})}"></div>
+        <div class="fg"><label>شماره چک *</label><input data-k="number" dir="ltr" value="${esc(c.number)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].number=this.value})}"></div>
+        <div class="fg"><label>شناسه صیاد ۱۶ رقمی *</label><input data-k="sayadi" dir="ltr" value="${esc(c.sayadi)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].sayadi=this.value})}"></div>
+        <div class="fg"><label>شبا</label><input data-k="sheba" dir="ltr" value="${esc(c.sheba)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].sheba=this.value})}" placeholder="IR"></div>
+        <div class="fg"><label>مبلغ چک (ریال) *</label><input data-k="amount" class="money" inputmode="numeric" value="${esc(c.amount)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].amount=this.value})}"></div>
+        <div class="fg"><label>سررسید *</label><input data-k="due" data-jdate value="${esc(c.due)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].due=this.value})}" data-csp-change="${CSP.bind('change',function(){prrCheques[i].due=this.value})}"></div>
+        <div class="fg full"><label>صادرکننده *</label><input data-k="owner" value="${esc(c.owner)}" data-csp-input="${CSP.bind('input',function(){prrCheques[i].owner=this.value})}"></div>
+      </div>
+    </div>`;
+  }).join('');
+  attachDatepickers(body);
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(body);
+}
+function syncPrrChequesFromDom(){
+  const body=el('prr-cheque-body'); if(!body) return;
+  body.querySelectorAll('.chq-card').forEach(card=>{
+    const i=+card.dataset.chqI; if(!prrCheques[i]) return;
+    card.querySelectorAll('[data-k]').forEach(inp=>{ prrCheques[i][inp.dataset.k]=inp.value; });
+  });
+}
 async function personReceiptModal(){
   await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   const partiesResp=await api('GET','/parties?limit=300')||{};
   const parties=(partiesResp.data||partiesResp||[]);
+  prrCheques=[prrNewCheque()];
   openModal(`
     <div class="modal-head"><h3>🧑 دریافت از شخص</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>شخص *</label>${(()=>{ CACHE.parties=parties; return partySelect('prr-person'); })()}</div>
-      <div class="fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
-      ${payMultiToggleHtml('prr')}
-      <div class="fg"><label>تاریخ</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}">${payTypeOptionsHtml({pos:true})}</select></div>
-      <div class="fg" id="prr-bank-fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg" id="prr-cashbox-fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تاریخ سند *</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>پرداخت‌کننده (شخص) *</label>${(()=>{ CACHE.parties=parties; return partySelect('prr-person'); })()}</div>
+      <div class="fg"><label>روش دریافت *</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr');if(el('prr-paytype').value==='cheque')renderPrrCheques()})}">${payTypeOptionsHtml({pos:true,flow:'in'})}</select>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.7;margin-top:4px`)}">نقد در صندوق شرکت. واریز به بانک شرکت. چک به اسناد دریافتنی نزد صندوق (نه بانک). کارتخوان به وجوه در راه.</div></div>
+      <div class="fg" id="prr-cashbox-fg"><label>صندوق مقصد *</label><select id="prr-cashbox"><option value="">— انتخاب صندوق —</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="prr-bank-fg"><label>بانک مقصد شرکت *</label><select id="prr-bank"><option value="">— انتخاب بانک —</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payBankRefHtml('prr')}
       ${payPosFieldHtml('prr')}
-      <div class="fg full"><label>یادداشت</label><input id="prr-note"></div>
+      <div class="fg" id="prr-amount-fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('prr')}
+      <div class="fg full" id="prr-cheque-block" data-csp-style="${CSP.style(`display:none`)}">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">هر برگ یک ردیف دفتر چک است و تا واگذاری نزد صندوق می‌ماند. بانک شرکت اینجا انتخاب نمی‌شود.</div>
+        <div id="prr-cheque-body"></div>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){syncPrrChequesFromDom();prrCheques.push(prrNewCheque());renderPrrCheques()})}">➕ ثبت چک بعدی</button>
+      </div>
+      <div class="fg full"><label>شرح</label><input id="prr-note" placeholder="بابت دریافت"></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePersonReceipt()})}">💾 ثبت دریافت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -25029,18 +25149,29 @@ async function personReceiptModal(){
 }
 async function savePersonReceipt(){
   const party_id=+el('prr-person')?.value||0;
-  if(!party_id){ showToast('شخص را انتخاب کنید','error'); return; }
+  if(!party_id){ showToast('پرداخت‌کننده را انتخاب کنید','error'); return; }
   const pay_type=el('prr-paytype').value;
-  const bank_id=+el('prr-bank')?.value||null;
-  const cash_box_id=+el('prr-cashbox')?.value||null;
-  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
-  if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
-  if(pay_type==='pos_card' && !el('prr-pos')?.value){ showToast('کارتخوان را انتخاب کنید','error'); return; }
-  const parts=payInstAmounts('prr');
-  const amounts=parts && parts.length ? parts : [moneyVal('prr-amount')];
+  const bank_id=pay_type==='bank'?(+el('prr-bank')?.value||null):null;
+  const cash_box_id=pay_type==='cash'?(+el('prr-cashbox')?.value||null):null;
+  const terminal_id=pay_type==='pos_card'?(+el('prr-pos')?.value||null):null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق مقصد را انتخاب کنید','error'); return; }
+  if(pay_type==='bank' && !bank_id){ showToast('بانک مقصد شرکت را انتخاب کنید','error'); return; }
+  if(pay_type==='pos_card' && !terminal_id){ showToast('کارتخوان را انتخاب کنید','error'); return; }
+  const note=payNoteWithRef('prr', el('prr-note').value||'');
+  const date=el('prr-date').value||todayJalali();
+  let cheques=[];
+  if(pay_type==='cheque'){
+    syncPrrChequesFromDom();
+    for(let i=0;i<prrCheques.length;i++){
+      const chk=receivedChequeProblems(prrCheques[i]);
+      if(chk.missing.length){ showToast('چک ردیف '+toFa(i+1)+': '+chk.missing.join('، '),'error'); return; }
+      cheques.push(Object.assign({}, prrCheques[i], {sayadi:chk.sayadi, sheba:chk.sheba, amount:chk.amount}));
+    }
+  }
+  const parts=pay_type==='cheque'?null:payInstAmounts('prr');
+  const amounts=pay_type==='cheque'?cheques.map(c=>c.amount):(parts && parts.length ? parts : [moneyVal('prr-amount')]);
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    // If this party is a customer, post as settlement so گردش مشتری updates.
     let custId=null;
     try{
       const pr=await api('GET','/parties/'+party_id);
@@ -25052,28 +25183,45 @@ async function savePersonReceipt(){
         if(hit) custId=+hit.id;
       }
     }catch(_){}
-    for(const amount of amounts){
-      if(custId){
+    if(custId && pay_type==='pos_card'){
+      for(const amount of amounts){
+        await postStlPosReceipt({cust_id:custId, amount, terminal_id, date, note, ref:el('prr-bankref')?.value||''});
+      }
+    } else if(custId && pay_type==='cheque'){
+      await api('POST','/accounting/settlements/batch',{cust_id:custId, note, payments:cheques.map((c,i)=>({
+        amount:c.amount, pay_type:'cheque', date, note:c.note||note,
+        cheque_bank:c.bank, cheque_branch:c.branch, cheque_account:c.account, cheque_number:c.number,
+        cheque_sayadi:c.sayadi, cheque_sheba:c.sheba, cheque_due:c.due, cheque_owner:c.owner,
+        cheque_amount:c.amount, cheque_status:'pending', cheque_row:i+1,
+        bank_id:null, cash_box_id:null
+      }))});
+    } else if(custId){
+      for(const amount of amounts){
         await api('POST','/accounting/settlements',{
-          cust_id:custId, amount, pay_type, bank_id, cash_box_id,
-          date:el('prr-date').value||todayJalali(),
-          note:el('prr-note').value||'دریافت از مشتری'
-        });
-      } else {
-        const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
-        await api('POST','/accounting/vouchers',{
-          date:el('prr-date').value||todayJalali(),
-          description:el('prr-note').value||'دریافت از شخص',
-          lines:[
-            { target_type:'account', code, debit:amount, credit:0, description:'دریافت' },
-            { target_type:'person', party_id, debit:0, credit:amount, description:'بستانکار شخص' }
-          ]
+          cust_id:custId, amount, pay_type: pay_type==='bank'?'bank_transfer':pay_type,
+          bank_id, cash_box_id, date, note: note||'دریافت از مشتری'
         });
       }
+    } else {
+      const body={
+        party_id, pay_type, date, note: note||'دریافت از شخص',
+        bank_id, cash_box_id, terminal_id, idempotency_key: payIdemKey()
+      };
+      if(pay_type==='cheque') body.cheques=cheques.map(c=>({
+        bank:c.bank, branch:c.branch, account:c.account, number:c.number,
+        sayadi:c.sayadi, sheba:c.sheba, due:c.due, owner:c.owner, amount:c.amount, note:c.note||''
+      }));
+      else if(amounts.length>1) body.installments=amounts;
+      else body.amount=amounts[0];
+      await api('POST','/accounting/person-receipts', body);
+      payIdemDone();
     }
-    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
+    closeModal();
+    showToast(amounts.length>1?(amounts.length+' فقره ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
-  }catch(e){}
+  }catch(e){
+    if(e && e.code==='E_USE_SETTLEMENT') showToast('این شخص مشتری است؛ از «دریافت از مشتری» ثبت کنید تا دفتر مشتری به‌روز شود','error');
+  }
 }
 async function resolveCashCodeForUi(pay_type, bank_id, cash_box_id){
   try{
@@ -25107,8 +25255,9 @@ async function accountReceiptModal(){
       <div class="fg"><label>مبلغ (ریال) *</label><input id="arr-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('arr')}
       <div class="fg"><label>تاریخ</label><input id="arr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="arr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('arr')})}">${payTypeOptionsHtml({cheque:false,pos:false})}</select></div>
-      <div class="fg" id="arr-bank-fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>روش دریافت</label><select id="arr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('arr')})}">${payTypeOptionsHtml({cheque:false,pos:false,flow:'in'})}</select></div>
+      <div class="fg" id="arr-bank-fg"><label>بانک مقصد شرکت</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payBankRefHtml('arr')}
       <div class="fg" id="arr-cashbox-fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg full"><label>یادداشت</label><input id="arr-note"></div>
     </div></div>
@@ -25131,7 +25280,7 @@ async function saveAccountReceipt(){
   try{
     for(const amount of amounts){
       await api('POST','/accounting/account-receipts',{
-        account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
+        account_code, amount, date:el('arr-date').value, note:payNoteWithRef('arr', el('arr-note').value),
         pay_type, bank_id, cash_box_id
       });
     }
@@ -25149,8 +25298,9 @@ async function accountPaymentModal(){
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('apay')}
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>پرداخت از</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:false})}</select></div>
-      <div class="fg" id="apay-bank-fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>روش پرداخت</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg" id="apay-bank-fg"><label>برداشت از بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payBankRefHtml('apay')}
       ${payBankFeeHtml('apay')}
       <div class="fg" id="apay-cashbox-fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg" id="apay-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="apay-checkcat"><option value="">—</option></select></div>
@@ -25179,7 +25329,7 @@ async function saveAccountPayment(){
   await paySubmitLocked(async ()=>{
     try{
       const res=await api('POST','/accounting/account-payments', payInstallmentBody(amounts, {
-        account_code, date:el('apay-date').value, note:el('apay-note').value,
+        account_code, date:el('apay-date').value, note:payNoteWithRef('apay', el('apay-note').value),
         pay_type, bank_id, cash_box_id, fee_rial:feeRial, fee_cost_center_id:feeCc
       }));
       payIdemDone();
@@ -25204,35 +25354,38 @@ function paymentOpChooser(){
 async function personPaymentModal(){
   await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-  const [partiesResp, reps]=await Promise.all([
+  const [partiesResp, reps, supplierRows]=await Promise.all([
     api('GET','/parties?limit=200')||{},
-    api('GET','/accounting/commissions').catch(()=>[])||[]
+    api('GET','/accounting/commissions').catch(()=>[])||[],
+    api('GET','/suppliers').catch(()=>[])||[]
   ]);
   const parties=(partiesResp.data||partiesResp||[]);
+  CACHE.suppliers=listRows(supplierRows);
   const suppliers=parties.filter(p=>(p.party_roles||[]).includes('supplier')||p.party_type==='supplier'||p.party_type==='both');
   openModal(`
     <div class="modal-head"><h3>👤 پرداخت به شخص</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نوع طرف حساب</label><select id="pp-kind" data-csp-change="${CSP.bind('change',function(event){ppKindChanged()})}">
+      <div class="fg"><label>تاریخ سند *</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>نوع دریافت‌کننده</label><select id="pp-kind" data-csp-change="${CSP.bind('change',function(event){ppKindChanged()})}">
         <option value="supplier">تأمین‌کننده</option>
-        <option value="incentive">کارشناس / انگیزه فروش</option>
+        <option value="incentive">کارشناس فروش</option>
         <option value="party">سایر اشخاص</option>
       </select></div>
       <div class="fg full" id="pp-target-wrap"></div>
-      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">حساب نقد یا بانک از صندوق/بانک انتخاب‌شده می‌آید. حساب معین جداگانه در این فرم اثر ندارد و حذف شده است.</div></div>
+      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">مبدأ وجه همان صندوق یا بانک انتخاب‌شده است. «واریز» برای ورود وجه است و در پرداخت به کار نمی‌رود. صدور چک تا اتصال دفتر چک پرداختنی در این فرم نیست، چون بانک با صرف صدور چک بستانکار نمی‌شود.</div></div>
+      <div class="fg"><label>روش پرداخت *</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg" id="pp-bank-fg"><label>برداشت از بانک *</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
+        <option value="">— انتخاب بانک —</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      ${payBankRefHtml('pp')}
+      ${payBankFeeHtml('pp')}
+      <div class="fg" id="pp-cashbox-fg"><label>پرداخت از صندوق *</label><select id="pp-cashbox">
+        <option value="">— انتخاب صندوق —</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته‌چک</label><select id="pp-checkcat"><option value="">—</option></select></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('pp')}
-      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:false})}</select></div>
-      <div class="fg" id="pp-bank-fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
-        <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      ${payBankFeeHtml('pp')}
-      <div class="fg" id="pp-cashbox-fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
-        <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="pp-checkcat"><option value="">—</option></select></div>
-      <div class="fg"><label>تاریخ</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>یادداشت</label><textarea id="pp-note"></textarea></div>
+      <div class="fg full"><label>شرح / بابت</label><textarea id="pp-note" placeholder="بابت پرداخت"></textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePersonPayment()})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -25245,13 +25398,7 @@ function ppKindChanged(){
   const kind=el('pp-kind')?.value||'supplier';
   const wrap=el('pp-target-wrap'); if(!wrap) return;
   if(kind==='supplier'){
-    wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target','')}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
-    api('GET','/suppliers').then(list=>{
-      CACHE.suppliers=list||[];
-      const cur=el('pp-target')?.value||'';
-      wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target',cur)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
-      initCustSearches(wrap);
-    }).catch(()=>{});
+    wrap.innerHTML=`<label>نام تأمین‌کننده *</label>${supplierSelect('pp-target','')}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در فهرست نبود، اول در اطلاعات اشخاص به‌عنوان تأمین‌کننده ثبتش کنید.</div>`;
   } else if(kind==='incentive'){
     const reps=window._ppReps||[];
     wrap.innerHTML=`<label>کارشناس *</label>${searchSelect('pp-target', reps.map(r=>({
@@ -25286,7 +25433,7 @@ async function savePersonPayment(){
   const feeCc=payFeeCcVal('pp');
   if(feeRial>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   const base={
-    pay_type, date:el('pp-date').value, note:el('pp-note').value,
+    pay_type, date:el('pp-date').value, note:payNoteWithRef('pp', el('pp-note').value),
     bank_id, cash_box_id,
     check_category_id:+el('pp-checkcat')?.value||null,
     account_code:el('pp-account-code')?.value||'',
@@ -25332,11 +25479,12 @@ async function expensePaymentModal(){
       ${payMultiToggleHtml('ex')}
       <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">این فرم فقط هزینهٔ مستقیم است. تسویهٔ بدهی فاکتور خرید از «پرداخت به شخص → تأمین‌کننده» ثبت می‌شود تا هزینه و بدهی دوبار شمرده نشود.</div></div>
       <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}"> این هزینه سربار تولید است (حساب کنترل ۵۲۰۲، نه هزینه اداری)</label></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:false})}</select></div>
-      <div class="fg" id="ex-bank-fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
+      <div class="fg"><label>روش پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg" id="ex-bank-fg"><label>برداشت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
+      ${payBankRefHtml('ex')}
       ${payBankFeeHtml('ex')}
       <div class="fg" id="ex-cashbox-fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
@@ -25474,7 +25622,7 @@ async function saveExpensePayment(){
     try{
       const res=await api('POST','/expenses', payInstallmentBody(amounts, {
         category:el('ex-category').value, title,
-        pay_type, date:el('ex-date').value, note:el('ex-note').value,
+        pay_type, date:el('ex-date').value, note:payNoteWithRef('ex', el('ex-note').value),
         bank_id: pay_type==='bank'?bank_id:null,
         cash_box_id: pay_type==='cash'?cash_box_id:null,
         account_code:el('ex-account-code')?.value||null,
@@ -25554,7 +25702,8 @@ function cdePayOptions(kind, current){
       <option value="cheque" ${cur==='cheque'?'selected':''}>چک</option>`;
   }
   const cur=current==='bank_transfer'?'bank':(current||'cash');
-  return payTypeOptionsHtml({cheque:cur==='cheque'}).replace('value="'+cur+'"','value="'+cur+'" selected');
+  const outbound=kind!=='person_receipt' && kind!=='account_receipt';
+  return payTypeOptionsHtml({cheque:cur==='cheque', flow:outbound?'out':'in', pos:kind==='person_receipt'}).replace('value="'+cur+'"','value="'+cur+'" selected');
 }
 function cdeToggleCheque(){
   toggleBankFields('cde');
@@ -25930,6 +26079,7 @@ async function settlementModal(custId){
   if(typeof isRepRole==='function' && isRepRole(ME?.role)){
     return repPaymentModal(custId);
   }
+  await ensureCustomerCatalog();
   await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:'',bank_id:'',cash_box_id:''}];
@@ -25943,7 +26093,8 @@ async function settlementModal(custId){
       <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این دریافت بابت یک فاکتور خاص است، آن را انتخاب کنید — فاکتورهای قطعی با مانده باز (معمولی و رسمی).')}</label>
         <select id="st-invoice" data-csp-change="${CSP.bind('change',function(event){stlApplyInvoiceAmt()})}"><option value="">— بدون تخصیص به فاکتور —</option>
         ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}" data-face="${invoiceFaceRial(i)}">${formatInvoiceAllocOption(i,{showOutstanding:true})}</option>`).join('')}
-        </select></div>
+        </select>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.7;margin-top:4px`)}">این فهرست فاکتور است، نه شخص. تا مشتری از جستجوی بالا انتخاب نشود فاکتور بازی نشان داده نمی‌شود.</div></div>
       <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
         <input type="checkbox" id="st-multi" data-csp-change="${CSP.bind('change',function(event){stlToggleMulti()})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
       </label></div>
@@ -26161,7 +26312,9 @@ async function saveSettlement(){
     for(let i=0;i<stlCheques.length;i++){
       const c=stlCheques[i];
       const amount=parseInt(String(c.amount).replace(/[^\d]/g,''))||0;
-      if(!amount||!String(c.bank||'').trim()||!String(c.sayadi||'').trim()||!String(c.due||'').trim()){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
+      const chk=receivedChequeProblems(c);
+      if(chk.missing.length){ showToast('چک ردیف '+toFa(i+1)+': '+chk.missing.join('، '),'error'); return; }
+      c.sayadi=chk.sayadi; c.sheba=chk.sheba; c.amount=chk.amount;
       payments.push({
         amount:amount, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
         cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
@@ -30342,7 +30495,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». برای سفارش طاقه‌دار (v403) پارچه از لایه‌چینی می‌آید و «رسید» فقط پس از PACK مجاز است؛ بقیهٔ اقلام BOM (آستر/زیپ/…) همچنان با حواله. انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود. اگر موجودی قلم BOM کمتر از مقدار حواله باشد، می‌توانید <b>کالای جایگزین</b> برای الباقی کسری انتخاب کنید؛ سیستم موجودی اصل را تا سقف انبار و الباقی را از جایگزین حواله می‌کند و دلیل انحراف را با توضیح تأمین از کالای دیگر پر می‌کند (قابل ویرایش).</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
-        <li>در هر فرم، نقد فقط صندوق، واریز فقط <b>بانک مقصد</b>، <b>چک دریافتی</b> بدون بانک/صندوق مقصد (اسناد دریافتنی)، چک <b>پرداختی</b> بانک+دسته‌چک، کارتخوان فقط ترمینال — هم‌زمان انتخاب نمی‌شوند.</li>
+        <li>در دریافت: نقد فقط <b>صندوق مقصد</b>، واریز فقط <b>بانک مقصد شرکت</b>، <b>چک دریافتنی</b> بدون بانک شرکت (اسناد دریافتنی نزد صندوق، با بانک صادرکننده، شعبه، حساب، شماره، صیاد ۱۶ رقمی، سررسید و صادرکننده)، کارتخوان فقط ترمینال و وجوه در راه. در پرداخت عنوان بانک <b>برداشت از حساب بانکی</b> است نه واریز. صدور چک پرداختنی تا دفتر چک پرداختنی در فرم پرداخت شخص/حساب/هزینه بسته است.</li>
         <li>دریافت مشتری با کارتخوان از مسیر <b>وجوه در راه (۱۱۱۸)</b> ثبت می‌شود نه بدهکار بانک؛ تسویه دسته‌ای بعداً به بانک می‌رود.</li>
         <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
         <li><b>تخصیص فاکتور (v372):</b> در دریافت، اصلاح سند، تخصیص اعتبار برگشت و برگشت روی فاکتور، مبلغ نمایش‌داده‌شده <b>خالص پس از تخفیف</b> فاکتور است (همان وجه AR/AP)؛ مانده زنده از همین خالص منهای دریافت/برگشت/تخصیص محاسبه می‌شود.</li>
@@ -30362,7 +30515,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>کافی است بخشی از نام صفحه/بخش را تایپ کنید و با Enter مستقیماً به آن بروید — اگر بخش داخل ماژول حسابداری باشد، خودکار وارد پوستهٔ حسابداری می‌شود.</li>
       </ul>
       <h5>🧾 ثبت چک در دریافت‌ها — «ثبت چک بعدی»</h5><ul>
-        <li>فرم <b>ثبت دریافت از مشتری</b> و «عملیات دریافت» فیلد <b>حساب معین</b> ندارند؛ برای <b>چک دریافتی</b> انتخاب <b>بانک/صندوق مقصد</b> مخفی است (چک به اسناد دریافتنی می‌رود — واگذاری بعداً از دفتر چک).</li>
+        <li>فرم <b>ثبت دریافت از مشتری</b> جستجوی مشتری را از فهرست کامل مشتریان باز می‌کند (ی/ي و ک/ك یکی‌اند). فهرست زیر آن فاکتور است و تا انتخاب مشتری خالی می‌ماند. چک دریافتی بانک شرکت نمی‌خواهد.</li>
+        <li>فرم <b>دریافت از شخص</b> تاریخ، پرداخت‌کننده، روش دریافت، سپس صندوق یا بانک مقصد یا کارتخوان یا برگ چک را می‌چیند. اگر شخص مشتری باشد همان دریافت در دفتر مشتری می‌نشیند. شخص غیرمشتری از مسیر دریافت شخص به اسناد دریافتنی/صندوق/بانک/وجوه در راه می‌رود.</li>
         <li>در «عملیات دریافت و پرداخت» هنگام انتخاب نوع پرداخت <b>چک</b>، برای هر چک یک کارت با همهٔ مشخصات باز می‌شود: نام بانک، شماره حساب، شعبه، شماره شبا، شماره چک، شناسه صیاد، مبلغ، تاریخ سررسید، نام صادرکننده و توضیحات.</li>
         <li>با دکمهٔ <b>«➕ ثبت چک بعدی»</b> می‌توانید چند چک را در یک سند دریافت ثبت کنید؛ شمارهٔ ردیف هر چک خودکار تولید می‌شود و مبلغ کل دریافت = جمع مبلغ چک‌ها.</li>
         <li>در <b>فاکتور فروش</b> هم «<b>مبلغ این فقره چک (ریال)</b>» و «➕ ثبت چک بعدی» برای چند برگ روی یک فاکتور است.</li>

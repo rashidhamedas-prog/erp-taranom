@@ -52,6 +52,7 @@ const PATH_TABLE_MAP = [
   ['/api/accounting/incentive-payments', 'incentive_payments'],
   ['/api/accounting/account-payments', 'journal_entries'],
   ['/api/accounting/account-receipts', 'journal_entries'],
+  ['/api/accounting/person-receipts', 'journal_entries'],
   ['/api/accounting/sales-returns', 'sales_returns'],
   ['/api/accounting/invoices', 'invoices'],
   ['/api/accounting/repair-ar-tafsili', 'journal_entries'],
