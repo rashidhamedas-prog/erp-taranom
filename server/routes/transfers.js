@@ -10,8 +10,9 @@ const {
 const {
   assertActiveBank, assertActiveCashBox, assertBankOverdraftOk, assertCashFloatCeilingOk,
 } = require('../lib/treasury-guards');
-
-const TYPES = ['cash', 'bank'];
+const {
+  assertTransferPair, assertPaymentDate, withPaymentIdempotency,
+} = require('../lib/cash-payment-contract');
 
 function resolveSide(db, type, id) {
   if (type === 'bank') return resolveCashAccount(db, 'bank', id, null);
@@ -37,55 +38,52 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const {
-    date, from_type, from_id, to_type, to_id, amount, note,
-    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id,
-  } = req.body;
-  if (!TYPES.includes(from_type) || !TYPES.includes(to_type)) return res.status(400).json({ error: 'نوع حساب مبدأ/مقصد نامعتبر است' });
-  const amt = parseFloat(amount) || 0;
-  if (amt <= 0) return res.status(400).json({ error: 'مبلغ باید بزرگ‌تر از صفر باشد' });
-  if (from_type === to_type && (from_id || null) === (to_id || null)) {
-    return res.status(400).json({ error: 'حساب مبدأ و مقصد نمی‌تواند یکسان باشد' });
-  }
-  const feeRaw = Math.max(0, Math.round(Number(fee_rial ?? bank_fee_rial) || 0));
-  const fee = from_type === 'bank' ? feeRaw : 0;
+  const { note, fee_cost_center_id, bank_fee_cost_center_id } = req.body;
   const db = getDB();
-  let feeCcId = null;
   try {
-    feeCcId = resolveFeeCostCenterId(db, {
-      feeRial: fee, fromType: from_type,
+    const pair = assertTransferPair(req.body);
+    const when = assertPaymentDate(db, req.body.date);
+    const feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: pair.fee, fromType: pair.fromType,
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
     });
-    if (from_type === 'bank') assertActiveBank(db, from_id);
-    else assertActiveCashBox(db, from_id);
-    if (to_type === 'bank') assertActiveBank(db, to_id);
-    else assertActiveCashBox(db, to_id);
-    if (from_type === 'bank') assertBankOverdraftOk(db, from_id, amt + fee);
-    if (to_type === 'cash') assertCashFloatCeilingOk(db, to_id, amt);
+    if (pair.fromType === 'bank') assertActiveBank(db, pair.fromId);
+    else assertActiveCashBox(db, pair.fromId);
+    if (pair.toType === 'bank') assertActiveBank(db, pair.toId);
+    else assertActiveCashBox(db, pair.toId);
+    if (pair.fromType === 'bank') assertBankOverdraftOk(db, pair.fromId, pair.amount + pair.fee);
+    if (pair.toType === 'cash') assertCashFloatCeilingOk(db, pair.toId, pair.amount);
+    const out = withPaymentIdempotency(db, {
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/transfers',
+    }, () => {
+      if (pair.fromType === 'bank') assertBankOverdraftOk(db, pair.fromId, pair.amount + pair.fee);
+      const result = db.prepare(
+        'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,fee_cost_center_id,note,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
+      ).run(when, pair.fromType, pair.fromId, pair.toType, pair.toId, pair.amount, pair.fee, feeCcId, note || '', req.user.id);
+      const transferId = result.lastInsertRowid;
+      const src = resolveSide(db, pair.fromType, pair.fromId);
+      const dst = resolveSide(db, pair.toType, pair.toId);
+      const { lines } = transferLines(db, {
+        amount: pair.amount, feeRial: pair.fee, fromType: pair.fromType, src, dst, feeCostCenterId: feeCcId,
+      });
+      const entryId = postToLedger(db, {
+        sourceType: 'transfer', sourceId: transferId,
+        date: when, description: `انتقال داخلی: ${sideName(db, pair.fromType, pair.fromId)} ← ${sideName(db, pair.toType, pair.toId)}`,
+        createdBy: req.user.id,
+        costCenterId: feeCcId,
+        lines,
+      });
+      return {
+        id: transferId, ok: true, fee_rial: pair.fee, fee_cost_center_id: feeCcId, journal_id: entryId,
+      };
+    });
+    if (!out.replayed) audit(req.user.id, 'create', 'transfer', out.id, `انتقال داخلی ${pair.amount} ریال`);
+    res.json(out);
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    const status = e.status || 500;
+    if (status >= 500) console.error('transfer', e);
+    res.status(status).json({ error: e.message || 'ثبت انتقال ناموفق بود', code: e.code });
   }
-  const transferId = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,fee_rial,fee_cost_center_id,note,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, fee, feeCcId, note || '', req.user.id);
-    const transferId = result.lastInsertRowid;
-    const src = resolveSide(db, from_type, from_id);
-    const dst = resolveSide(db, to_type, to_id);
-    const { lines } = transferLines(db, {
-      amount: amt, feeRial: fee, fromType: from_type, src, dst, feeCostCenterId: feeCcId,
-    });
-    postToLedger(db, {
-      sourceType: 'transfer', sourceId: transferId,
-      date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
-      createdBy: req.user.id,
-      costCenterId: feeCcId,
-      lines,
-    });
-    return transferId;
-  })();
-  audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} ریال بین حساب‌های داخلی`);
-  res.json({ id: transferId, ok: true, fee_rial: fee, fee_cost_center_id: feeCcId });
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {

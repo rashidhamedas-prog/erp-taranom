@@ -5,12 +5,12 @@ const { todayJalali } = require('../jalali');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const {
-  parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
+  parseFeeCostCenterInput, resolveFeeCostCenterId,
   outboundPaymentLines, outboundPaymentReversalLines,
 } = require('../lib/payment-bank-fee');
 const {
-  assertActiveBank, assertActiveCashBox, assertBankOverdraftOk,
-} = require('../lib/treasury-guards');
+  assertOutboundPayment, cashAccountForSource, withPaymentIdempotency, EXPENSE_NOT_AP,
+} = require('../lib/cash-payment-contract');
 
 const COST_SECTIONS = new Set(['admin', 'selling', 'production_overhead']);
 
@@ -232,88 +232,79 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
-    category, title, amount, pay_type, date, note, bank_id, cash_box_id,
-    check_category_id, cost_center_id, account_code, purchase_invoice_id, is_overhead,
-    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id
+    category, title, note, check_category_id, cost_center_id, account_code, purchase_invoice_id, is_overhead,
+    fee_cost_center_id, bank_fee_cost_center_id
   } = req.body;
-  const amt = parseFloat(amount) || 0;
-  if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
-  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
+  if (purchase_invoice_id) {
+    return res.status(400).json({ error: EXPENSE_NOT_AP, code: 'E_EXPENSE_NOT_AP' });
+  }
   const db = getDB();
-  const payTypeNorm = pay_type || 'cash';
   try {
-    if (payTypeNorm === 'cash' && cash_box_id) assertActiveCashBox(db, cash_box_id);
-    if (payTypeNorm === 'bank' || payTypeNorm === 'bank_transfer') {
-      assertActiveBank(db, bank_id);
-      assertBankOverdraftOk(db, bank_id, amt + fee);
-    }
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
-  let posting;
-  try {
-    posting = resolveExpensePosting(db, { category, account_code, is_overhead, cost_center_id, amount: amt });
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
-  let feeCcId = null;
-  try {
-    feeCcId = resolveFeeCostCenterId(db, {
-      feeRial: fee, payType: payTypeNorm,
+    const spec = assertOutboundPayment(db, req.body);
+    const posting = resolveExpensePosting(db, {
+      category, account_code, is_overhead, cost_center_id, amount: spec.amounts[0],
+    });
+    const feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: spec.fee, payType: spec.payType,
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
       documentCostCenterId: posting.costCenterId,
     });
+    const acc = posting.account;
+    const out = withPaymentIdempotency(db, {
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/expenses',
+    }, () => {
+      assertOutboundPayment(db, req.body);
+      const ids = [];
+      const cash = cashAccountForSource(db, spec);
+      const expSourceType = posting.isOverhead || posting.section === 'production_overhead'
+        ? 'production_overhead_actual'
+        : 'expense_payment';
+      spec.amounts.forEach((amount, i) => {
+        const fee = i === 0 ? spec.fee : 0;
+        const result = db.prepare(
+          `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,fee_cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ).run(category || 'admin', title || '', amount, fee, spec.payType, spec.bankId, spec.cashBoxId,
+          check_category_id || null, posting.costCenterId, i === 0 ? feeCcId : null, spec.date, note || '',
+          req.user.id, acc.code, null, posting.isOverhead);
+        const expId = result.lastInsertRowid;
+        const { lines } = outboundPaymentLines(db, {
+          amount, feeRial: fee, payType: spec.payType,
+          dest: acc, cash, destDescription: title || '',
+          feeCostCenterId: i === 0 ? feeCcId : null,
+        });
+        const entryId = postToLedger(db, {
+          sourceType: expSourceType, sourceId: expId,
+          date: spec.date, description: `پرداخت هزینه: ${title || acc.name}`,
+          createdBy: req.user.id, costCenterId: posting.costCenterId,
+          lines,
+        });
+        db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
+        ids.push(expId);
+      });
+      return { id: ids[0], ids, ok: true, fee_rial: spec.fee };
+    });
+    if (!out.replayed) {
+      audit(req.user.id, 'create', 'expense_payment', out.id, `پرداخت هزینه ${spec.amounts.join('+')} ریال (${title || acc.name})`);
+      try {
+        const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+        setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+          phone: '',
+          name: title || acc.name,
+          amount: spec.amounts.reduce((a, b) => a + b, 0),
+          date: spec.date,
+          note: note || '',
+          created_by: req.user.id,
+          user: req.user.name,
+        }));
+      } catch (_) {}
+    }
+    res.json(out);
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    const status = e.status || 500;
+    if (status >= 500) console.error('expense-payment', e);
+    res.status(status).json({ error: e.message || 'ثبت پرداخت هزینه ناموفق بود', code: e.code });
   }
-  const acc = posting.account;
-  const expId = db.transaction(() => {
-    const result = db.prepare(
-      `INSERT INTO expense_payments (category,title,amount,fee_rial,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,fee_cost_center_id,date,note,created_by,account_code,purchase_invoice_id,is_overhead)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(category || 'admin', title || '', amt, fee, payTypeNorm, bank_id || null, cash_box_id || null,
-          check_category_id || null, posting.costCenterId, feeCcId, date || todayJalali(), note || '',
-          req.user.id, acc.code, purchase_invoice_id || null, posting.isOverhead);
-    const expId = result.lastInsertRowid;
-
-    const cash = resolveCashAccount(db, payTypeNorm, bank_id, cash_box_id);
-    const { lines } = outboundPaymentLines(db, {
-      amount: amt, feeRial: fee, payType: payTypeNorm,
-      dest: acc, cash, destDescription: title || '',
-      feeCostCenterId: feeCcId,
-    });
-    // ADR-003 / PRD-06: production overhead JE tagged for period-close precheck
-    const expSourceType = posting.isOverhead || posting.section === 'production_overhead'
-      ? 'production_overhead_actual'
-      : 'expense_payment';
-    const entryId = postToLedger(db, {
-      sourceType: expSourceType, sourceId: expId,
-      date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
-      createdBy: req.user.id, costCenterId: posting.costCenterId,
-      lines,
-    });
-    db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
-    return expId;
-  })();
-
-  audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} ریال (${title || acc.name})`);
-  try {
-    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
-    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
-      phone: '',
-      name: title || acc.name,
-      amount: amt,
-      date: date || '',
-      note: note || '',
-      created_by: req.user.id,
-      user: req.user.name,
-    }));
-  } catch (_) {}
-  if (purchase_invoice_id) {
-    const { recomputePurchaseInvoiceSettledBalances } = require('../lib/purchase-payments');
-    recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
-  }
-  res.json({ id: expId, ok: true });
 });
 
 router.get('/overhead-pool', auth, adminOrAccounting, (req, res) => {

@@ -25,6 +25,13 @@
 - Reviewer/Security: not a separate identity. Do not treat as Done.
 - Next: independent review, sqlite suite on Iran runtime, then decide deploy. Notify PROD-ACC owner.
 
+## 2026-10-18 — Cash-ops payment contract (SW v427, no prod deploy)
+
+- Owner: skill-top full on `Desktop/pardakht.md`. Stale PROD-ACC-PA02 still lists `app.js`, `index.html`, `sw.js`, `db.js`, CHANGE-LOG. This session reclaims public UI + CHANGE-LOG + new `lib/cash-payment-contract.js` and the payment routes only. Did not edit `capture.js`, production libs, or `db.js`.
+- Locked: parent COA allowed on account payment; expense is not AP settlement; cheque closed on these five forms.
+- No Iran deploy and no live heal, per the task text.
+- Next: payable-cheque book, historical expense-to-invoice heal, DB integration test where better-sqlite3 loads.
+
 ## 2026-10-10 — ADR-003 production accounting P0–P3 implement (SW v336)
 
 - Owner: skill-top full — user asked to execute all open decisions in priority order.

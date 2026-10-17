@@ -11,6 +11,9 @@
  */
 'use strict';
 
+const {
+  parseStrictRial, parseOptionalRial, exclusivePaySource, assertPaymentDate,
+} = require('./cash-payment-contract');
 const { rewriteJournalEntry } = require('./ledger');
 const { rialToLedger } = require('./money');
 const { acct } = require('./coa-map');
@@ -99,6 +102,27 @@ function payLabel(payType) {
   if (payType === 'cheque') return 'چک';
   if (payType === 'bank' || payType === 'bank_transfer') return 'واریز بانکی';
   return 'نقد';
+}
+
+function prepareOutboundAmend(db, body, opts) {
+  const src = exclusivePaySource({
+    pay_type: (body && body.pay_type) || (opts && opts.fallbackPay) || 'cash',
+    bank_id: body && body.bank_id,
+    cash_box_id: body && body.cash_box_id,
+  });
+  const amount = parseStrictRial(body && body.amount, 'مبلغ');
+  const date = assertPaymentDate(db, body && body.date != null && body.date !== '' ? body.date : (opts && opts.fallbackDate));
+  const feeRaw = body && body.fee_rial != null ? body.fee_rial : (opts && opts.fallbackFee);
+  const fee = parseOptionalRial(feeRaw, 'کارمزد');
+  if (fee > 0 && src.payType !== 'bank') {
+    throw httpErr(400, 'کارمزد فقط برای واریز بانکی مجاز است', 'E_FEE');
+  }
+  if (src.payType === 'cash') assertActiveCashBox(db, src.cashBoxId);
+  else {
+    assertActiveBank(db, src.bankId);
+    assertBankOverdraftOk(db, src.bankId, amount + fee);
+  }
+  return { ...src, amount, date, fee };
 }
 
 function assertDest(payType, bankId, cashBoxId) {
@@ -460,14 +484,13 @@ function amendSupplierPayment(db, id, body, userId) {
   const sup = db.prepare('SELECT id, name FROM suppliers WHERE id=?').get(supplierId);
   if (!sup) throw httpErr(400, 'تأمین‌کننده یافت نشد', 'E_SUPPLIER');
 
-  const payType = normalizePay(body.pay_type || row.pay_type, PAY_PAY);
-  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
-  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
-  assertDest(payType, bankId, cashBoxId);
-  const amount = Math.round(Number(body.amount) || 0);
-  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
-  const fee = parseFeeRial(body.fee_rial != null ? body.fee_rial : row.fee_rial, payType);
-  const date = String(body.date != null ? body.date : (row.date || ''));
+  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const payType = src.payType;
+  const bankId = src.bankId;
+  const cashBoxId = src.cashBoxId;
+  const amount = src.amount;
+  const fee = src.fee;
+  const date = src.date;
   assertDatesWritable(db, row.date, date);
   const purchaseId = body.purchase_invoice_id ? parseInt(body.purchase_invoice_id, 10) : null;
   assertPurchaseRoom(db, purchaseId, row.id, supplierId, amount, 'supplier');
@@ -560,14 +583,13 @@ function amendIncentivePayment(db, id, body, userId) {
   const rep = db.prepare('SELECT id, name FROM users WHERE id=?').get(repId);
   if (!rep) throw httpErr(400, 'کارشناس یافت نشد', 'E_REP');
 
-  const payType = normalizePay(body.pay_type || row.pay_type, PAY_PAY);
-  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
-  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
-  assertDest(payType, bankId, cashBoxId);
-  const amount = Math.round(Number(body.amount) || 0);
-  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
-  const fee = parseFeeRial(body.fee_rial != null ? body.fee_rial : row.fee_rial, payType);
-  const date = String(body.date != null ? body.date : (row.date || ''));
+  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const payType = src.payType;
+  const bankId = src.bankId;
+  const cashBoxId = src.cashBoxId;
+  const amount = src.amount;
+  const fee = src.fee;
+  const date = src.date;
   assertDatesWritable(db, row.date, date);
   const note = String(body.note != null ? body.note : (row.note || ''));
   const feeCcId = resolveFeeCostCenterId(db, {
@@ -632,21 +654,25 @@ function amendExpensePayment(db, id, body, userId) {
   const row = db.prepare('SELECT * FROM expense_payments WHERE id=?').get(id);
   if (!row) throw httpErr(404, 'پرداخت هزینه یافت نشد', 'E_NOT_FOUND');
   if (row.status === 'reversed') throw httpErr(400, 'این هزینه قبلاً ابطال شده است', 'E_REVERSED');
-  requireLiveJe(db, ['expense_payment'], row.id, 'پرداخت هزینه');
+  requireLiveJe(db, ['expense_payment', 'production_overhead_actual'], row.id, 'پرداخت هزینه');
 
   const { resolveExpensePosting } = require('../routes/expenses');
   const title = String(body.title != null ? body.title : (row.title || '')).trim();
   if (!title) throw httpErr(400, 'عنوان هزینه الزامی است', 'E_TITLE');
-  const payType = normalizePay(body.pay_type || row.pay_type, PAY_PAY);
-  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
-  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
-  assertDest(payType, bankId, cashBoxId);
-  const amount = Math.round(Number(body.amount) || 0);
-  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
-  const fee = parseFeeRial(body.fee_rial != null ? body.fee_rial : row.fee_rial, payType);
-  const date = String(body.date != null ? body.date : (row.date || ''));
+  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const payType = src.payType;
+  const bankId = src.bankId;
+  const cashBoxId = src.cashBoxId;
+  const amount = src.amount;
+  const fee = src.fee;
+  const date = src.date;
   assertDatesWritable(db, row.date, date);
-  const purchaseId = body.purchase_invoice_id ? parseInt(body.purchase_invoice_id, 10) : null;
+  const incomingPo = body.purchase_invoice_id != null && body.purchase_invoice_id !== ''
+    ? parseInt(body.purchase_invoice_id, 10) : null;
+  if (incomingPo && Number(incomingPo) !== Number(row.purchase_invoice_id || 0)) {
+    throw httpErr(400, 'تسویه فاکتور خرید از پرداخت هزینه انجام نمی‌شود. از پرداخت به تأمین‌کننده استفاده کنید.', 'E_EXPENSE_NOT_AP');
+  }
+  const purchaseId = row.purchase_invoice_id || null;
   assertPurchaseRoom(db, purchaseId, row.id, null, amount, 'expense');
 
   let posting;
@@ -762,17 +788,13 @@ function amendPersonVoucherPayment(db, jeId, body, userId) {
   }
   if (!personId) throw httpErr(400, 'شخص را انتخاب کنید', 'E_PERSON');
 
-  const payType = normalizePay(body.pay_type || 'cash', PAY_PAY);
-  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
-  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
-  assertDest(payType, bankId, cashBoxId);
-  if (bankId) assertActiveBank(db, bankId);
-  if (cashBoxId) assertActiveCashBox(db, cashBoxId);
-
-  const amount = Math.round(Number(body.amount) || 0);
-  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
-  const fee = parseFeeRial(body.fee_rial, payType);
-  const date = String(body.date != null ? body.date : (entry.entry_date || ''));
+  const src = prepareOutboundAmend(db, body, { fallbackPay: 'cash', fallbackDate: entry.entry_date, fallbackFee: 0 });
+  const payType = src.payType;
+  const bankId = src.bankId;
+  const cashBoxId = src.cashBoxId;
+  const amount = src.amount;
+  const fee = src.fee;
+  const date = src.date;
   assertDatesWritable(db, entry.entry_date, date);
   const note = String(body.note != null ? body.note : (entry.description || 'پرداخت به شخص'));
 
@@ -842,17 +864,13 @@ function amendAccountPayment(db, jeId, body, userId) {
   const dest = db.prepare('SELECT code,name,is_active FROM chart_of_accounts WHERE code=?').get(code);
   if (!dest || dest.is_active === 0) throw httpErr(400, 'حساب مقصد معتبر نیست', 'E_COA');
 
-  const payType = normalizePay(body.pay_type || 'cash', PAY_PAY);
-  const bankId = body.bank_id ? parseInt(body.bank_id, 10) : null;
-  const cashBoxId = body.cash_box_id ? parseInt(body.cash_box_id, 10) : null;
-  assertDest(payType, bankId, cashBoxId);
-  if (bankId) assertActiveBank(db, bankId);
-  if (cashBoxId) assertActiveCashBox(db, cashBoxId);
-
-  const amount = Math.round(Number(body.amount) || 0);
-  if (amount <= 0) throw httpErr(400, 'مبلغ معتبر وارد کنید', 'E_AMOUNT');
-  const fee = parseFeeRial(body.fee_rial, payType);
-  const date = String(body.date != null ? body.date : (entry.entry_date || ''));
+  const src = prepareOutboundAmend(db, body, { fallbackPay: 'cash', fallbackDate: entry.entry_date, fallbackFee: 0 });
+  const payType = src.payType;
+  const bankId = src.bankId;
+  const cashBoxId = src.cashBoxId;
+  const amount = src.amount;
+  const fee = src.fee;
+  const date = src.date;
   assertDatesWritable(db, entry.entry_date, date);
   const note = String(body.note != null ? body.note : (entry.description || `پرداخت به حساب ${dest.code}`));
 
@@ -936,4 +954,5 @@ module.exports = {
   amendExpensePayment,
   amendPersonVoucherPayment,
   amendAccountPayment,
+  assertPurchaseRoom,
 };
