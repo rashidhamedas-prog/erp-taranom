@@ -58,6 +58,9 @@ try {
   db.prepare("INSERT INTO settings (key,value) VALUES ('production_shared_cut','1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
   const admin = db.prepare("SELECT id FROM users WHERE username='admin'").get();
   const raw = db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW'").get();
+  if (!db.prepare("SELECT id FROM warehouses WHERE code='WH-WIP'").get()) {
+    db.prepare("INSERT INTO warehouses (code,name,kind,warehouse_type,active) VALUES ('WH-WIP','انبار کار در جریان','wip','wip',1)").run();
+  }
   const fab = db.prepare(`
     INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, cost, item_type)
     VALUES (?, 'پارچه مشترک', 'FAB-SH', 0, 100000, 'متر', 1000, 1000, 'raw')
