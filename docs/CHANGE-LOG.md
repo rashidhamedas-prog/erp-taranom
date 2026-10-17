@@ -1,4 +1,13 @@
-### ۱۴۰۵/۰۷/۲۳ — محصولات اصلی مستقل در BOM چندمحصولی؛ حذف هم‌محصول (SW v423)
+### ۱۴۰۵/۰۷/۲۵ — ریشهٔ هشدار مطالبات دفتر مشتری ≠ تفصیلی (SW v424)
+- **علائم:** داشبورد مالی، فیلتر همه/آخرین سند: دفتر مشتری ۱۶٬۴۷۹٬۵۲۳٬۴۲۰ در برابر تفصیلی ۱۴٬۴۳۰٬۹۱۳٬۴۲۰ (Δ دقیقاً ۲٬۰۴۸٬۶۱۰٬۰۰۰). بستانکار هم‌تراز. تراز آزمایشی این اختلاف را نشان نمی‌دهد. یتیم `ar_control_reclass` صفر است (v390 سالم). پلاگ فاکتور ابطال‌شده صفر است.
+- **ریشه:** ۱۰۰٪ مشتری «معزز - فروشگاه پروما» (id=67، `party_id=15`، تفصیلی `110601000015`). سند زندهٔ افتتاحیه JE 11 / `JV-0011` مبلغ ۱٬۳۳۲٬۸۳۰٬۰۰۰ است و `parties.opening_balance` همان است. ردیف دفتر `customer_ledger` #71 (`opening_balance` / `ref_id=15` / بدهکار ۲٬۰۴۸٬۶۱۰٬۰۰۰ / شرح «مانده اول دوره — معزز - فروشگاه پروما») هیچ سطر سند زنده‌ای با این مبلغ ندارد. بازنویسی مبلغ افتتاحیه فقط `ref_type='opening'` را از دفتر مشتری پاک می‌کرد؛ کپی قبلی که از سند با `ref_type=opening_balance` آمده بود می‌ماند. دفتر شخص و تأمین‌کننده هر دو نوع را پاک می‌کردند.
+- **رفع:** `deleteCustomerOpeningMirrors` هر دو `opening` و `opening_balance` را در ثبت/صفر کردن افتتاحیه برمی‌دارد. heal `repairStaleCustomerOpeningMirrors` فقط ردیف دفترِ ناهماهنگ با سند زنده را حذف می‌کند و سند را بازنویسی نمی‌کند؛ اجرای دوباره صفر است. کپی `opening_balance` که مبلغش با سند زنده یکی است می‌ماند.
+- **فایل‌ها:** `lib/{opening-post,customer-books}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-opening-mirror-stale-v424.js`, CHANGE-LOG.
+- **تست:** ایران (کپی موقت، نه `crm.db`) قرمز با حذف فقط `opening` → `FAIL one customer opening row` (ردیف ۲٬۰۴۸٬۶۱۰٬۰۰۰ + آینهٔ ۱٬۳۳۲٬۸۳۰٬۰۰۰). سبز `test-opening-mirror-stale-v424` ۱۹/۰ + `test-sms` ۲۲/۰. میزبان ویندوز better-sqlite3 ABI ندارد.
+- **اثر داده:** در صورت استقرار، اولین GET overview یک ردیف را حذف می‌کند: `customer_ledger.id=71`. سند JE 11 و بقیهٔ مشتریان عوض نمی‌شوند. بازگشت = درج دوبارهٔ همان ردیف. استقرار انجام نشد.
+- **Deploy:** ⏳ بدون تعمیر production — منتظر مجوز. SW محلی `erp-taranom-v424`.
+
+
 - **هدف:** همهٔ FGهای یک فرمول هم‌رتبه «محصول اصلی» باشند؛ مفهوم هم‌محصول/co حذف شود؛ حواله/رسید/سفارش/تسهیم با peer mains سازگار شود.
 - **بک‌اند:** migrate `bom_outputs.co → main`؛ `ensureShareOutputs`/`addOutput` دیگر demote نمی‌کنند؛ اعتبارسنجی ≥۲ main برای چندمحصولی؛ `planBomFgOutputs`/`finalize` بدون نقش co؛ API `main_product_ids`/`peer_product_ids` (+ سازگاری `co_product_ids`)؛ رساله‌های خطا و completeness به‌روز؛ `clearDefaultBomPointers` روی deactivate/archive/soft-delete برای همهٔ FGهای فرمول (رفع orphan pointer).
 - **UI/Help:** فرم ایجاد/خروجی‌ها/برنامه سفارش/رسید نهایی — «محصول اصلی»؛ SW `erp-taranom-v423`.

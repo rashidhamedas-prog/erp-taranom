@@ -779,7 +779,10 @@ function reclassifyControlArToCustomerLeaf(db) {
 function syncCustomerOpeningBooks(db, customerId, balRial, createdAt, userId) {
   const { createLedgerEntry } = require('../db');
   const bal = Math.round(Number(balRial) || 0);
-  db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(customerId);
+    db.prepare(`
+      DELETE FROM customer_ledger
+      WHERE customer_id=? AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+    `).run(customerId);
   if (bal) {
     createLedgerEntry(db, {
       customer_id: customerId,
@@ -1838,6 +1841,13 @@ function ensureCustomerBooksRepaired(db) {
     console.error('orphan ar_control_reclass heal:', e.message);
     orphanReclass = { error: e.message };
   }
+  let openingMirror = {};
+  try {
+    openingMirror = require('./opening-post').repairStaleCustomerOpeningMirrors(db);
+  } catch (e) {
+    console.error('stale customer opening mirror:', e.message);
+    openingMirror = { error: e.message };
+  }
   let settBooks = {};
   try {
     settBooks = repairSettlementsMissingBooks(db);
@@ -1868,7 +1878,7 @@ function ensureCustomerBooksRepaired(db) {
   }
   return {
     ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true },
-    openingCheque, orphanReclass, settBooks, settRevBooks, settLeafJe, chequeMirror,
+    openingCheque, orphanReclass, openingMirror, settBooks, settRevBooks, settLeafJe, chequeMirror,
   };
 }
 

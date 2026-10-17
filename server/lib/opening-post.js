@@ -95,22 +95,34 @@ function partyOpeningSideMatches(db, jeId, amtRial) {
   return openDebit > 0 && openCredit === 0;
 }
 
+function partyCustomerIds(db, party) {
+  const custIds = new Set();
+  if (party && party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
+  if (party && party.id) {
+    try {
+      for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(party.id)) {
+        custIds.add(Number(r.id));
+      }
+    } catch (_) { /* */ }
+  }
+  return [...custIds].filter((id) => Number.isFinite(id));
+}
+
+/** Party opening mirror on the customer book. Both ref types: repair copies the JE as opening_balance. */
+function deleteCustomerOpeningMirrors(db, customerId) {
+  return db.prepare(`
+    DELETE FROM customer_ledger
+    WHERE customer_id=?
+      AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+  `).run(customerId).changes;
+}
+
 function clearPartyOpeningSubledgers(db, partyId) {
   const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!party) return;
 
-  const custIds = new Set();
-  if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
-  try {
-    for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
-      custIds.add(Number(r.id));
-    }
-  } catch (_) { /* */ }
-  for (const cid of custIds) {
-    if (!Number.isFinite(cid)) continue;
-    try {
-      db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(cid);
-    } catch (_) { /* */ }
+  for (const cid of partyCustomerIds(db, party)) {
+    try { deleteCustomerOpeningMirrors(db, cid); } catch (_) { /* */ }
     try { db.prepare('UPDATE customers SET balance=0 WHERE id=?').run(cid); } catch (_) { /* */ }
   }
 
@@ -166,16 +178,8 @@ function mirrorPartyOpeningSubledgers(db, {
   const credit = amt < 0 ? Math.abs(amt) : 0;
   const desc = description || 'مانده اول دوره';
 
-  const custIds = new Set();
-  if (party.legacy_table === 'customers' && party.legacy_id) custIds.add(Number(party.legacy_id));
-  try {
-    for (const r of db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId)) {
-      custIds.add(Number(r.id));
-    }
-  } catch (_) { /* */ }
-  for (const cid of custIds) {
-    if (!Number.isFinite(cid)) continue;
-    db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(cid);
+  for (const cid of partyCustomerIds(db, party)) {
+    deleteCustomerOpeningMirrors(db, cid);
     createLedgerEntry(db, {
       customer_id: cid, date: openDate, entry_type: 'opening',
       ref_type: 'opening', ref_id: entryId,
@@ -329,6 +333,75 @@ function upsertPartyOpening(db, partyId, openingRial, userId, {
   `).run(amt, date, pid);
 
   return jeId;
+}
+
+function openingMirrorSigned(row) {
+  return Math.round(Number(row.debit) || 0) - Math.round(Number(row.credit) || 0);
+}
+
+/**
+ * Drop customer-book opening rows that are not the live party opening.
+ * A GL→books copy (ref_type=opening_balance, old amount) survives amount rewrite
+ * because the mirror used to delete only ref_type='opening'.
+ * Does not post or rewrite the live opening journal.
+ */
+function repairStaleCustomerOpeningMirrors(db) {
+  let removed = 0;
+  const parties = db.prepare(`
+    SELECT p.*
+    FROM parties p
+    WHERE EXISTS (
+      SELECT 1 FROM journal_entries je
+      WHERE je.ref_type='opening_balance' AND je.ref_id=p.id
+        AND COALESCE(je.deleted_at,0)=0
+        AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+    )
+  `).all();
+  const run = db.transaction(() => {
+    const list = db.prepare(`
+      SELECT id, debit, credit, ref_type, ref_id
+      FROM customer_ledger
+      WHERE customer_id=?
+        AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+    `);
+    const del = db.prepare('DELETE FROM customer_ledger WHERE id=?');
+    for (const party of parties) {
+      const amt = Math.round(Number(party.opening_balance) || 0);
+      const jeId = livePartyOpeningJeId(db, party.id);
+      if (!amt || !jeId) continue;
+      const je = db.prepare('SELECT total_debit_rial FROM journal_entries WHERE id=?').get(jeId);
+      const jeAbs = Math.round(Number(je && je.total_debit_rial) || 0);
+      if (!jeAbs || Math.abs(amt) !== jeAbs) continue;
+      for (const cid of partyCustomerIds(db, party)) {
+        const rows = list.all(cid);
+        if (!rows.length) continue;
+        const matches = rows.filter((r) => openingMirrorSigned(r) === amt);
+        const stale = rows.filter((r) => openingMirrorSigned(r) !== amt);
+        if (!matches.length) {
+          mirrorPartyOpeningSubledgers(db, {
+            partyId: party.id,
+            entryId: jeId,
+            amtRial: amt,
+            openDate: party.opening_balance_date || fiscalOpeningDate(db),
+            userId: null,
+          });
+          removed += rows.length;
+          continue;
+        }
+        const preferred = matches.find((r) => (
+          String(r.ref_type) === 'opening' && Number(r.ref_id) === Number(jeId)
+        )) || matches[0];
+        for (const r of rows) {
+          if (r.id === preferred.id) continue;
+          del.run(r.id);
+          removed += 1;
+        }
+      }
+    }
+  });
+  run();
+  if (removed) console.log(`✅ stale customer opening mirrors removed (${removed})`);
+  return { removed, continuous: true };
 }
 
 /**
@@ -637,6 +710,8 @@ module.exports = {
   fiscalOpeningDate,
   livePartyOpeningJeId,
   clearPartyOpeningSubledgers,
+  deleteCustomerOpeningMirrors,
+  repairStaleCustomerOpeningMirrors,
   partyOpeningLines,
   postProductOpeningInventory,
   backfillOpeningInventoryLedger,

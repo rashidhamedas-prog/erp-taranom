@@ -1,4 +1,13 @@
-﻿## 2026-10-10 — ADR-003 production accounting P0–P3 implement (SW v336)
+﻿## 2026-10-17 — AR dashboard books vs tafsili (SW v424, not deployed)
+
+- Owner: skill-top full on Desktop `error.md` (مطالبات دفتر مشتری ≠ تفصیلی، حدود ۲٬۰۴۸٬۶۱۰٬۰۰۰).
+- Stale claim: PROD-ACC-PA02 still lists `server/public/{app.js,index.html,sw.js}` and `docs/CHANGE-LOG.md`. This session edits those only for the v424 help line, cache query, and changelog. Did not edit production close/posting, `db.js`, or `capture.js`.
+- Invariant: a party opening rewrite keeps one live `opening_balance` journal and one customer-book mirror of that amount. A prior `customer_ledger` copy (`ref_type=opening_balance`) must not stay after the amount changes.
+- Evidence (read-only backup `/tmp/ar-gap-v424.db` of company پوشاک ترنم): fold display 16,479,523,420 − leaf GL 14,430,913,420 = 2,048,610,000. creditor delta 0. orphan reclass 0. The whole delta is customer 67 ledger row 71. JE 11 remains 1,332,830,000. No journal line equals 2,048,610,000.
+- Iran temp tree: red FAIL on old delete; green 19/0; sms 22/0. Production crm.db and the running process were not modified. GET `/accounting/overview` was not called (it runs repairs).
+- Next: owner authorizes deploy. Dry-run already counted 1 ledger row (id 71). Rollback is reinsert of that row. Do not post a balancing journal.
+
+## 2026-10-10 — ADR-003 production accounting P0–P3 implement (SW v336)
 
 - Owner: skill-top full — user asked to execute all open decisions in priority order.
 - Stale claim: PROD-ACC-PA02 lists production libs + public + CHANGE-LOG. Reclaimed for ADR-003 implementation; notify PROD-ACC owner.

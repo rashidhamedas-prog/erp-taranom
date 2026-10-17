@@ -1,5 +1,38 @@
 schema_version: 1
 tasks:
+  - id: "AR-OPENING-MIRROR-V424"
+    title: "Customer-book opening copy left behind after party opening rewrite"
+    status: "in_progress"
+    claimed_at: "2026-10-17T20:50:00+03:30"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:ar-opening-mirror-v424"
+    roles:
+      orchestrator: "cursor:ar-opening-mirror-v424"
+      implementer: "cursor:ar-opening-mirror-v424"
+      reviewer: "cursor:independent-reviewer-ar-v424"
+      security: "cursor:independent-security-ar-v424"
+    branch: "fix/AR-OPENING-MIRROR-V424"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/opening-post.js"
+      - "server/lib/customer-books.js"
+      - "server/scripts/test-opening-mirror-stale-v424.js"
+    notes: >-
+      Reclaimed shared app.js, index.html, sw.js, and CHANGE-LOG from PROD-ACC-PA02
+      only for the v424 help sentence, cache query, and changelog. Production DB
+      not repaired. Notify PROD-ACC owner.
+    acceptance_criteria:
+      - "Rewriting a party opening leaves one customer_ledger mirror equal to the live JE"
+      - "Heal removes a stale opening_balance copy and is a no-op on the second run"
+      - "A matching opening_balance row and the live JE are kept"
+      - "Dashboard books vs leaf tafsili within 1 rial on the regression fixture"
+    non_goals:
+      - "Deploy or heal Iran crm.db before owner permission"
+      - "Posting an unsource balancing journal"
+      - "Editing production close/posting or capture.js"
+
   - id: "PROD-ACC-PA02"
     title: "Production accounting core: F02/F03 posting + PA-03/04 inventory & BOM matrix"
     status: "in_progress"
