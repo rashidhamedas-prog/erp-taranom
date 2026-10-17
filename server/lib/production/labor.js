@@ -438,9 +438,9 @@ function autoPostLabor(db, { po, qtyStarted, date, period, userId, laborSpecs = 
 
 /**
  * Post PRD-03 for one or more labor entries already inserted.
- * When person_id is set on an entry, credits that person's payable leaf and
- * writes person_ledger; otherwise credits coa_labor_control (5201).
- * If entries have mixed persons, posts one JE per credit bucket.
+ * ADR-005: new absorption credits coa_labor_control (5201) only.
+ * Payroll owns the employee payable. person_id stays on the labor row for attribution.
+ * Historical person_ledger rows are not rewritten here.
  */
 function absorbLaborJournal(db, {
   orderId, date, userId, costCenterId, wipTafsili,
@@ -450,62 +450,34 @@ function absorbLaborJournal(db, {
   const list = (entries || []).filter((e) => e && Math.round(Number(e.amount_rial) || 0) > 0);
   if (!list.length) return [];
 
-  const buckets = new Map();
-  for (const e of list) {
-    const key = e.person_id ? `p:${e.person_id}` : 'control';
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(e);
+  const amountRial = list.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
+  if (!(amountRial > 0)) return [];
+  const creditLine = cr(db, 'coa_labor_control', amountRial);
+  const person = list[0].person_id ? loadPersonForLabor(db, list[0].person_id) : null;
+  const desc = list[0].note
+    || descriptionFallback
+    || formatLaborJeDescription({ amountRial, personName: person && person.name });
+  const je = postEvent(db, {
+    event: 'PRD-03',
+    sourceId: orderId,
+    date,
+    description: desc,
+    createdBy: userId,
+    costCenterId: costCenterId || null,
+    lines: [
+      dr(db, 'coa_wip', amountRial, wipTafsili || null),
+      creditLine,
+    ],
+  });
+  if (!je) return [];
+  const ids = list.map((e) => e.id).filter(Boolean);
+  if (ids.length) {
+    db.prepare(`
+      UPDATE production_labor_entries SET je_id=?
+      WHERE id IN (${ids.map(() => '?').join(',')}) AND je_id IS NULL
+    `).run(je.je_id, ...ids);
   }
-
-  const jes = [];
-  for (const group of buckets.values()) {
-    const amountRial = group.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
-    if (!(amountRial > 0)) continue;
-    const personId = group[0].person_id || null;
-    const credit = resolveLaborCreditSide(db, {
-      personId,
-      amountRial,
-      crControl: (amt) => cr(db, 'coa_labor_control', amt),
-    });
-    const desc = group[0].note
-      || descriptionFallback
-      || formatLaborJeDescription({ amountRial, personName: credit.person?.name });
-
-    const je = postEvent(db, {
-      event: 'PRD-03',
-      sourceId: orderId,
-      date,
-      description: desc,
-      createdBy: userId,
-      costCenterId: costCenterId || null,
-      lines: [
-        dr(db, 'coa_wip', amountRial, wipTafsili || null),
-        credit.line,
-      ],
-    });
-    if (!je) continue;
-    jes.push(je);
-    const ids = group.map((e) => e.id).filter(Boolean);
-    if (ids.length) {
-      db.prepare(`
-        UPDATE production_labor_entries SET je_id=?
-        WHERE id IN (${ids.map(() => '?').join(',')}) AND je_id IS NULL
-      `).run(je.je_id, ...ids);
-    }
-    if (credit.mode === 'person' && credit.person) {
-      for (const e of group) {
-        writePersonLaborLedger(db, {
-          personId: credit.person.id,
-          laborEntryId: e.id,
-          date,
-          description: e.note || desc,
-          amountRial: Math.round(Number(e.amount_rial) || 0),
-          userId,
-        });
-      }
-    }
-  }
-  return jes;
+  return [je];
 }
 
 module.exports = {

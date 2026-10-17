@@ -32,6 +32,7 @@ const PROD_TABLES = [
   'mrp_runs', 'mrp_requirements', 'production_reservations',
   'cutting_lays', 'cutting_lay_rolls',
   'cutting_packs', 'cutting_pack_bundles',
+  'cutting_batches', 'cutting_batch_outputs', 'cutting_batch_allocations', 'cutting_remnant_rules',
 ];
 
 const PROD_SEQUENCES = [
@@ -48,6 +49,7 @@ const PROD_SEQUENCES = [
   { key: 'mrp_run', prefix: 'MRP' },
   { key: 'cutting_lay', prefix: 'LAY' },
   { key: 'cutting_pack', prefix: 'PK' },
+  { key: 'cutting_batch', prefix: 'CB' },
   { key: 'cost_revaluation', prefix: 'CRV' },
 ];
 
@@ -78,6 +80,12 @@ const PRODUCTION_SETTINGS = {
   pricing_margin_percent: '35',
   production_module_enabled: '1',
   production_wh_dist_id: '',
+  production_shared_cut: '0',
+  production_roll_balance_tolerance_m: '0.01',
+  production_remnant_mode: 'formula',
+  production_remnant_min_m: '1.20',
+  production_remnant_ratio: '0.20',
+  production_wh_remnant_id: '',
 };
 
 const TARANOM_COST_CENTERS = [
@@ -292,10 +300,12 @@ function ensureExistingColumns(db) {
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_packs_idem ON cutting_packs(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }
+    try { db.exec('DROP INDEX IF EXISTS ux_cutting_packs_live_lay'); } catch (_) { /* ignore */ }
     try {
-      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay ON cutting_packs(lay_id) WHERE status='posted'");
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay_product ON cutting_packs(lay_id, product_id) WHERE status='posted'");
     } catch (_) { /* ignore */ }
   }
+  ensureSharedCutSchema(db);
   ensureCuttingPackSyncColumns(db);
 }
 
@@ -1205,7 +1215,7 @@ function createTables(db) {
       FOREIGN KEY(lay_id) REFERENCES cutting_lays(id)
     );
     CREATE INDEX IF NOT EXISTS ix_cutting_packs_lay ON cutting_packs(lay_id, status);
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay ON cutting_packs(lay_id) WHERE status='posted';
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay_product ON cutting_packs(lay_id, product_id) WHERE status='posted';
     CREATE INDEX IF NOT EXISTS ix_cutting_packs_prod ON cutting_packs(product_id, date);
 
     CREATE TABLE IF NOT EXISTS cutting_pack_bundles (
@@ -1563,6 +1573,92 @@ function seedAccounts(db) {
   for (const a of PRODUCTION_ACCOUNTS) {
     if (a.code === '5200') continue;
     ins.run(a.code, a.name, a.type, a.parent_code);
+  }
+}
+
+function ensureSharedCutSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cutting_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_no TEXT NOT NULL UNIQUE,
+      marker_length_m REAL NOT NULL DEFAULT 0,
+      width_cm INTEGER DEFAULT 0,
+      bom_id INTEGER,
+      fabric_product_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft',
+      policy_json TEXT NOT NULL DEFAULT '{}',
+      idempotency_key TEXT,
+      date TEXT NOT NULL DEFAULT '',
+      note TEXT DEFAULT '',
+      journal_id INTEGER,
+      waste_journal_id INTEGER,
+      lay_id INTEGER,
+      common_rial INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at INTEGER,
+      reversed_by INTEGER,
+      reversal_journal_id INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_batches_idem
+      ON cutting_batches(idempotency_key)
+      WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
+    CREATE TABLE IF NOT EXISTS cutting_batch_outputs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      size_code TEXT NOT NULL DEFAULT '',
+      pieces_per_ply REAL NOT NULL DEFAULT 0,
+      weight_pct REAL NOT NULL DEFAULT 0,
+      planned_pieces REAL NOT NULL DEFAULT 0,
+      accepted_plies INTEGER NOT NULL DEFAULT 0,
+      good_pieces REAL NOT NULL DEFAULT 0,
+      allocated_rial INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(batch_id) REFERENCES cutting_batches(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_cutting_batch_outputs ON cutting_batch_outputs(batch_id, product_id);
+    CREATE TABLE IF NOT EXISTS cutting_batch_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      weight REAL NOT NULL DEFAULT 0,
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      basis TEXT NOT NULL DEFAULT 'marker_share',
+      FOREIGN KEY(batch_id) REFERENCES cutting_batches(id)
+    );
+    CREATE TABLE IF NOT EXISTS cutting_remnant_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fabric_product_id INTEGER,
+      width_cm INTEGER,
+      warehouse_id INTEGER,
+      mode TEXT NOT NULL DEFAULT 'formula',
+      min_remnant_m REAL NOT NULL DEFAULT 1.2,
+      remnant_ratio REAL NOT NULL DEFAULT 0.2,
+      active INTEGER NOT NULL DEFAULT 1,
+      reason TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
+  if (tableExists(db, 'cutting_lays')) {
+    ensureColumn(db, 'cutting_lays', 'batch_id', 'INTEGER');
+  }
+  if (tableExists(db, 'cutting_lay_rolls')) {
+    ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'ply_count', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'laid_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'returned_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'remnant_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'length_loss_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'adjustment_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'destination', "TEXT DEFAULT ''");
+    ensureColumn(db, 'cutting_lay_rolls', 'remnant_batch_id', 'INTEGER');
+  }
+  for (const name of ['cutting_batches', 'cutting_batch_outputs', 'cutting_batch_allocations', 'cutting_remnant_rules']) {
+    if (!tableExists(db, name)) continue;
+    ensureColumn(db, name, 'sync_seq', 'INTEGER');
+    ensureColumn(db, name, 'version', 'INTEGER DEFAULT 0');
+    try { db.prepare(`UPDATE ${name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run(); } catch (_) { /* ignore */ }
   }
 }
 

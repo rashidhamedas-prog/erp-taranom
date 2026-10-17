@@ -236,8 +236,8 @@ function gl(code) {
   }, opTok);
   ok(packed.status === 200 && packed.data && packed.data.id, 'PACK 200', packed.data && packed.data.error);
   ok(packed.data && packed.data.status === 'posted', 'pack posted');
-  ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='ux_cutting_packs_live_lay'").get(),
-    'partial unique posted pack per lay');
+  ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='ux_cutting_packs_live_lay_product'").get(),
+    'partial unique posted pack per lay and product');
   ok(!(packed.data && (packed.data.amount_rial != null || packed.data.unit_cost_rial != null || packed.data.wip_net_rial != null)),
     'operator pack JSON has no *_rial', packed.data);
   ok(!JSON.stringify(packed.data || {}).includes('_rial'), 'operator pack nested JSON has no *_rial');

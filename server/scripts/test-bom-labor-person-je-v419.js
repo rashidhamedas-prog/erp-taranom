@@ -37,9 +37,10 @@ ok(engAdvSrc.includes('retirePersonLaborForEntries'), 'engine-advanced retires p
 ok(engSrc.includes('absorbLaborJournal'), 'engine uses absorbLaborJournal');
 ok(engSrc.includes('retirePersonLaborForEntries'), 'engine retires person ledger');
 ok(appJs.includes('شخص (بستانکار دستمزد)'), 'UI label person creditor');
-ok(appJs.includes('بستانکار حساب شخص'), 'Help mentions person credit');
-ok(swSrc.includes('erp-taranom-v419'), 'SW v419');
-ok(idxSrc.includes('app.js?v=419'), 'index cache bust v419');
+ok(appJs.includes('کنترل دستمزد ۵۲۰۱'), 'Help says labor control 5201');
+ok(swSrc.includes('erp-taranom-v426'), 'SW v426');
+ok(idxSrc.includes('app.js?v=426'), 'index cache bust v426');
+ok(laborSrc.includes('ADR-005'), 'ADR-005 labor control credit');
 ok(accSrc.includes('با `person_id`'), 'accounting-events PRD-03 person variant');
 
 const desc = (() => {
@@ -201,22 +202,17 @@ const lines = db.prepare(`
 const crLine = lines.find((l) => Number(l.credit) > 0);
 const drLine = lines.find((l) => Number(l.debit) > 0);
 ok(drLine && Number(drLine.debit) > 0, 'Dr WIP line');
-ok(crLine && String(crLine.account_code) === coa, 'Cr person COA', crLine?.account_code);
-ok(!(lines.some((l) => String(l.account_code) === '5201' && Number(l.credit) > 0)), 'no Cr 5201 when person set');
-
-const pl = db.prepare(`
-  SELECT * FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
-`).get(personId, laborRow.id);
-ok(pl && Math.round(Number(pl.credit) || 0) === amount, 'person_ledger credit = amount', pl?.credit);
+ok(crLine && String(crLine.account_code) === '5201', 'Cr 5201 not person payable', crLine?.account_code);
+ok(!db.prepare(`
+  SELECT id FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
+`).get(personId, laborRow.id), 'no person_ledger on new absorption');
 
 const linked = db.prepare('SELECT je_id FROM production_labor_entries WHERE id=?').get(laborRow.id);
 ok(Number(linked.je_id) === Number(jeId), 'labor entry linked to JE');
 
-retirePersonLaborForEntries(db, [entry]);
-const plAfter = db.prepare(`
-  SELECT * FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
-`).get(personId, laborRow.id);
-ok(!plAfter, 'retire removes person_ledger');
+ok(!db.prepare(`
+  SELECT id FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
+`).get(personId, laborRow.id), 'still no person_ledger after retire');
 
 // Control path (no person)
 const labor2 = postLabor(db, {

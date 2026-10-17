@@ -29,6 +29,7 @@ const SCRIPTS = [
   'test-production-health.js',
   'test-production-access-api.js',
   'test-production-ui-smoke.js',
+  'test-prod-cut-shared.js',
 ];
 
 function ensureDir(d) {

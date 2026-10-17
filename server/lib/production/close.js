@@ -439,7 +439,15 @@ function precheck(db, { period }) {
     `).get(period, row.start_date || `${period}/01`, endDate)?.c) || 0;
   } catch (_) { payrollRecCount = 0; }
   const payrollSetting = setting(db, 'production_close_payroll_posted', '');
-  const payrollOk = payrollCount > 0 || payrollOnControl > 0 || payrollRecCount > 0 || payrollSetting === '1';
+  let laborInPeriod = 0;
+  try {
+    laborInPeriod = Number(db.prepare(`
+      SELECT COUNT(*) c FROM production_labor_entries
+      WHERE period_label=? AND COALESCE(status,'')<>'reversed'
+    `).get(period)?.c) || 0;
+  } catch (_) { laborInPeriod = 0; }
+  const payrollProof = payrollCount > 0 || payrollOnControl > 0 || payrollSetting === '1';
+  const payrollOk = laborInPeriod > 0 ? payrollProof : (payrollProof || payrollRecCount > 0);
   checks.push({
     code: 'PAYROLL_POSTED',
     status: payrollOk ? 'pass' : 'fail',
@@ -511,8 +519,12 @@ function precheck(db, { period }) {
     message: fy.ok ? 'سال مالی باز است ✅' : (fy.error || 'سال مالی بسته است'),
   });
 
-  const canClose = checks.every(c => c.status !== 'fail');
-  return { period, can_close: canClose, checks };
+  const canCloseBase = checks.every(c => c.status !== 'fail');
+  let extra = [];
+  try { extra = require('./shared-cut').periodChecks(db, period); } catch (_) { extra = []; }
+  const all = checks.concat(extra);
+  const canClose = canCloseBase && all.every(c => c.status !== 'fail');
+  return { period, can_close: canClose, checks: all };
 }
 
 function calculate(db, { period, method: methodOverride }) {

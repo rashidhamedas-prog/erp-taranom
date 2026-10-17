@@ -172,12 +172,40 @@ function postRevaluation(db, opts = {}, user) {
   if (!previewed.lines.length) {
     throw revErr('E_NO_LINES', 400, 'کالایی برای تعدیل بها یافت نشد');
   }
+  const prior = db.prepare(`
+    SELECT id FROM cost_revaluations
+    WHERE status='posted' AND mode=? AND period_label=?
+      AND COALESCE(product_id,0)=COALESCE(?,0)
+      AND COALESCE(date_from,'')=? AND COALESCE(date_to,'')=?
+    ORDER BY id DESC LIMIT 1
+  `).get(
+    previewed.mode,
+    previewed.period_label,
+    previewed.mode === 'manual' ? Number(opts.product_id) || null : null,
+    previewed.date_from || '',
+    previewed.date_to || ''
+  );
+  if (prior) return getRevaluation(db, prior.id);
   const date = String(opts.entry_date || opts.date_to || todayJalaliFallback()).trim();
   const note = String(opts.note || '').slice(0, 400);
   const userId = user?.id || null;
 
   const invGain = acct(db, 'coa_var_oh_budget');
   const result = db.transaction(() => {
+    const again = db.prepare(`
+      SELECT id FROM cost_revaluations
+      WHERE status='posted' AND mode=? AND period_label=?
+        AND COALESCE(product_id,0)=COALESCE(?,0)
+        AND COALESCE(date_from,'')=? AND COALESCE(date_to,'')=?
+      ORDER BY id DESC LIMIT 1
+    `).get(
+      previewed.mode,
+      previewed.period_label,
+      previewed.mode === 'manual' ? Number(opts.product_id) || null : null,
+      previewed.date_from || '',
+      previewed.date_to || ''
+    );
+    if (again) return db.prepare('SELECT * FROM cost_revaluations WHERE id=?').get(again.id);
     const head = db.prepare(`
       INSERT INTO cost_revaluations
         (mode, date_from, date_to, period_label, product_id, status, note,

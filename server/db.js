@@ -2201,6 +2201,28 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'journal_entries', 'total_debit_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'total_credit_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'doc_type', 'TEXT');
+  ensureColumn(db, 'journal_entries', 'client_request_id', 'TEXT');
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_client_request
+      ON journal_entries(client_request_id)
+      WHERE client_request_id IS NOT NULL AND length(trim(client_request_id))>0`);
+  } catch (e) { console.error('journal client_request index:', e.message); }
+  try {
+    const dupCodes = db.prepare(`
+      SELECT code FROM cost_centers
+      WHERE code IS NOT NULL AND length(trim(code))>0
+      GROUP BY code HAVING COUNT(*)>1
+    `).all();
+    for (const dup of dupCodes) {
+      const rows = db.prepare('SELECT id FROM cost_centers WHERE code=? ORDER BY id').all(dup.code);
+      for (const extra of rows.slice(1)) {
+        db.prepare('UPDATE cost_centers SET code=? WHERE id=?').run(`${dup.code}-D${extra.id}`, extra.id);
+      }
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_centers_code_unique
+      ON cost_centers(code)
+      WHERE code IS NOT NULL AND length(trim(code))>0`);
+  } catch (e) { console.error('cost center code index:', e.message); }
   ensureColumn(db, 'journal_lines', 'line_no', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_lines', 'detail_account_id', 'INTEGER');
   ensureColumn(db, 'journal_lines', 'debit_rial', 'INTEGER DEFAULT 0');
@@ -3099,6 +3121,19 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v24','1')").run();
+    }
+    const backfillV25 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v25'").get();
+    if (!backfillV25 || backfillV25.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v25 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v25','1')").run();
     }
   }
 

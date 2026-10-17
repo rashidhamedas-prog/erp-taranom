@@ -1,0 +1,133 @@
+'use strict';
+/**
+ * Shared cut golden cases: four rolls, remnant threshold, A/B pieces, rial split.
+ * Run: node server/scripts/test-prod-cut-shared.js
+ */
+const { ok, eq, freshDb, summary } = require('./lib/test-harness');
+const {
+  remnantThreshold, classifyUsableRemaining, rollEquation, plannedPieces, allocateRial, previewSharedCut,
+  postSharedCut, voidSharedCut,
+} = require('../lib/production/shared-cut');
+
+const marker = 5.9;
+const openings = [79, 80, 90, 110];
+const plies = [11, 11, 11, 15];
+const expectReturn = [14.1, 15.1, 25.1, 21.5];
+
+const policy = remnantThreshold({ mode: 'formula', min_remnant_m: 1.2, remnant_ratio: 0.2 }, marker);
+eq('T پیش‌فرض', policy.threshold_m, 1.2, 0.001);
+ok('۱٫۲۰ ته‌طاقه', classifyUsableRemaining(1.2, 1.2).destination === 'remnant');
+ok('۱٫۲۱ برگشت طاقه', classifyUsableRemaining(1.21, 1.2).destination === 'return_roll');
+ok('صفر بدون رسید', classifyUsableRemaining(0, 1.2).destination === 'none');
+ok('عیب ضایعات', classifyUsableRemaining(0.4, 1.2, { defective: true }).destination === 'scrap');
+
+const fixed = remnantThreshold({ mode: 'fixed_m', min_remnant_m: 2, remnant_ratio: 0.2 }, marker);
+eq('حالت متر ثابت', fixed.threshold_m, 2, 0.001);
+
+let returnedSum = 0;
+openings.forEach((opening, i) => {
+  const laid = Math.round(plies[i] * marker * 1000) / 1000;
+  const row = rollEquation({
+    opening_m: opening, laid_m: laid, returned_m: expectReturn[i], remnant_m: 0, length_loss_m: 0, adjustment_m: 0,
+  }, 0.01);
+  ok(`تراز طاقه ${opening}`, row.ok, row.diff_m);
+  returnedSum += expectReturn[i];
+});
+eq('جمع برگشت ۷۵٫۸۰', Math.round(returnedSum * 100) / 100, 75.8, 0.001);
+eq('قطعات A', plannedPieces(48, 1), 48);
+eq('قطعات B', plannedPieces(48, 2), 96);
+
+const split = allocateRial(100, [
+  { product_id: 2, weight: 33.333 },
+  { product_id: 1, weight: 66.667 },
+]);
+eq('جمع ریال سهم', split.reduce((s, r) => s + r.amount_rial, 0), 100);
+
+let ctx;
+try {
+  ctx = freshDb();
+} catch (e) {
+  if (/bindings|better_sqlite3|NODE_MODULE_VERSION/i.test(String(e.message) + (e.tries || ''))) {
+    console.log('  SKIP مسیر دیتابیس: better-sqlite3 روی این Node لود نشد');
+    summary('shared-cut');
+  }
+  throw e;
+}
+const { db, cleanup } = ctx;
+try {
+  db.prepare("INSERT INTO settings (key,value) VALUES ('production_shared_cut','1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
+  const admin = db.prepare("SELECT id FROM users WHERE username='admin'").get();
+  const raw = db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW'").get();
+  const fab = db.prepare(`
+    INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, cost, item_type)
+    VALUES (?, 'پارچه مشترک', 'FAB-SH', 0, 100000, 'متر', 1000, 1000, 'raw')
+  `).run(admin.id).lastInsertRowid;
+  db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,100000)').run(fab, raw.id);
+  const a = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'A','FG-A','عدد','finished',1)`).run(admin.id).lastInsertRowid;
+  const b = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'B','FG-B','عدد','finished',1)`).run(admin.id).lastInsertRowid;
+  const ids = openings.map((m, i) => db.prepare(`
+    INSERT INTO inventory_batches (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, unit, unit_cost_rial)
+    VALUES (?,?,?,?,?,'active','fabric','متر', 9999)
+  `).run('R' + m, fab, raw.id, m, m).lastInsertRowid);
+
+  const body = {
+    marker_length_m: marker,
+    fabric_product_id: fab,
+    warehouse_id: raw.id,
+    width_cm: 150,
+    date: '1405/07/26',
+    idempotency_key: 'shared-gold-1',
+    outputs: [
+      { product_id: a, size_code: 'ALL', pieces_per_ply: 1, weight: 40 },
+      { product_id: b, size_code: 'ALL', pieces_per_ply: 2, weight: 60 },
+    ],
+    rolls: openings.map((opening, i) => ({ batch_id: ids[i], opening_m: opening, ply_count: plies[i] })),
+  };
+  const preview = previewSharedCut(db, body);
+  ok('پیش‌نمایش متوازن', preview.balanced, JSON.stringify(preview.errors));
+  eq('برگشت پیش‌نمایش', preview.returned_m, 75.8, 0.02);
+  eq('ته‌طاقه پیش‌نمایش صفر', preview.remnant_m, 0, 0.001);
+  eq('A برنامه', preview.outputs.find((o) => o.product_id === a).planned_pieces, 48);
+  eq('B برنامه', preview.outputs.find((o) => o.product_id === b).planned_pieces, 96);
+
+  const posted = postSharedCut(db, body, { id: admin.id });
+  ok('ثبت شد', posted.status === 'posted', posted.status);
+  eq('بهای مشترک', posted.common_rial, Math.round(preview.laid_m * 1000));
+  const allocSum = posted.allocations.reduce((s, r) => s + r.amount_rial, 0);
+  eq('جمع تخصیص', allocSum, posted.common_rial);
+  ok('یک سند PRD-01', Number(posted.journal_id) > 0);
+  const jeCount = db.prepare(`
+    SELECT COUNT(*) c FROM journal_entries
+    WHERE ref_type='production_material_issue' AND ref_id=? AND COALESCE(deleted_at,0)=0
+  `).get(posted.lay_id).c;
+  eq('یک مسیر PRD-01', jeCount, 1);
+  openings.forEach((m, i) => {
+    const left = db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(ids[i]).q;
+    eq(`باقی طاقه ${m}`, Number(left), expectReturn[i], 0.02);
+  });
+  const again = postSharedCut(db, body, { id: admin.id });
+  eq('تکرار همان شناسه', again.id, posted.id);
+  const packs = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
+  eq('دو بسته محصول', packs, 2);
+
+  db.prepare("UPDATE settings SET value='2' WHERE key='production_remnant_min_m'").run();
+  const snap = posted.policy;
+  eq('اسنپ‌شات کف قبلی', Number(snap.min_remnant_m), 1.2, 0.001);
+  const newer = previewSharedCut(db, {
+    ...body,
+    idempotency_key: 'shared-gold-2',
+    rolls: [{ batch_id: ids[0], opening_m: 79, ply_count: 11, returned_m: 1.5, remnant_m: 0, laid_m: 77.5 }],
+  });
+  ok('سیاست جدید بارگذاری می‌شود', Number(newer.policy.min_remnant_m) === 2 || newer.policy.threshold_m === 2);
+
+  const voided = voidSharedCut(db, posted.id, { id: admin.id }, 'آزمون');
+  ok('ابطال', voided.status === 'reversed', voided.status);
+  const leftAfter = db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(ids[0]).q;
+  eq('برگشت متر پس از ابطال', Number(leftAfter), 79, 0.05);
+} catch (e) {
+  ok('مسیر دیتابیس', false, e.stack || e.message);
+} finally {
+  cleanup();
+}
+
+summary('shared-cut');

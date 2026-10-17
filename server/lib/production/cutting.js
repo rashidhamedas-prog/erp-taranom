@@ -1326,7 +1326,10 @@ function postCuttingPack(db, layId, body, user) {
   const lay = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(layId));
   if (!lay) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (lay.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل بسته‌بندی نیست', 'E_CUT_REVERSED');
-  const live = postedPackForLay(db, lay.id);
+  const live = lay.batch_id
+    ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND product_id=? AND status='posted'")
+      .get(lay.id, Number((body && body.product_id) || lay.product_id))
+    : postedPackForLay(db, lay.id);
   if (live) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
 
   const covered = layFgCoveredByOrder(db, lay);
@@ -1357,7 +1360,12 @@ function postCuttingPack(db, layId, body, user) {
     packId = db.transaction(() => {
       const raced = db.prepare('SELECT id FROM cutting_packs WHERE idempotency_key=?').get(key);
       if (raced) return raced.id;
-      const liveNow = postedPackForLay(db, lay.id);
+      const packProductId = lay.batch_id
+        ? Number((body && body.product_id) || lay.product_id)
+        : Number(lay.product_id);
+      const liveNow = lay.batch_id
+        ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND product_id=? AND status='posted'").get(lay.id, packProductId)
+        : postedPackForLay(db, lay.id);
       if (liveNow) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
       if (po && Number(lay.production_order_id) !== Number(po.id)) {
         db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, lay.id);
@@ -1375,7 +1383,7 @@ function postCuttingPack(db, layId, body, user) {
           amount_rial, unit_cost_rial, size_breakdown, status, idempotency_key, date, note, created_by
         ) VALUES (?,?,?,?,?,?,?,?,?,'posted',?,?,?,?)
       `).run(
-        packNo, lay.id, po ? po.id : null, lay.product_id, wh.id, qty,
+        packNo, lay.id, po ? po.id : null, lay.batch_id ? packProductId : lay.product_id, wh.id, qty,
         wipNet, unitCost, JSON.stringify(breakdown), key, date,
         String(body.note || '').trim(), user.id
       );
