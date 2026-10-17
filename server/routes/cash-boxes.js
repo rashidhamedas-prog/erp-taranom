@@ -4,7 +4,7 @@ const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
-const { todayJalali } = require('../jalali');
+const { todayJalali, addDaysToJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
@@ -13,6 +13,13 @@ const { getActiveFiscalYear } = require('../lib/fiscal-period');
 function fiscalOpeningDate(db) {
   const fy = getActiveFiscalYear(db);
   return (fy && fy.start_date) || todayJalali();
+}
+
+/** صندوق کیمیا: تاریخ مانده = روز قبل از شروع سال مالی (برای سال از ۱ مهر = ۳۱ شهریور). */
+function cashOpeningDate(db, box) {
+  const start = fiscalOpeningDate(db);
+  if (box && /کیمیا/.test(String(box.name || ''))) return addDaysToJalali(start, -1);
+  return start;
 }
 
 function liveCashOpeningJeId(db, box) {
@@ -51,7 +58,7 @@ function cashOpeningLines(db, box, amt) {
 /** Upsert opening JE: create / rewrite amount+FY-start date / void when amt≤0. */
 function upsertCashOpening(db, box, openingRial, userId, { dateOverride } = {}) {
   const amt = Math.round(Number(openingRial) || 0);
-  const date = dateOverride || fiscalOpeningDate(db);
+  const date = dateOverride || cashOpeningDate(db, box);
   let jeId = liveCashOpeningJeId(db, box);
 
   if (amt <= 0) {

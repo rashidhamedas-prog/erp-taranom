@@ -2097,8 +2097,14 @@ function postManualVoucher(db, user, body, opts) {
   }
   const requestKey = String(body.client_request_id || '').trim().slice(0, 80);
   if (requestKey) {
-    const prev = db.prepare('SELECT id FROM journal_entries WHERE client_request_id=?').get(requestKey);
-    if (prev) return { id: prev.id, ok: true, replayed: true };
+    const prev = db.prepare(`
+      SELECT id, voucher_number, status, deleted_at FROM journal_entries WHERE client_request_id=?
+    `).get(requestKey);
+    const alive = prev
+      && !Number(prev.deleted_at)
+      && !['reversed', 'void'].includes(String(prev.status || 'posted'));
+    if (alive) return { id: prev.id, voucher_number: prev.voucher_number || null, ok: true, replayed: true };
+    if (prev) db.prepare('UPDATE journal_entries SET client_request_id=NULL WHERE id=?').run(prev.id);
   }
 
   const rawType = typed.value;
@@ -2141,9 +2147,47 @@ function postManualVoucher(db, user, body, opts) {
         description: p.description || description || 'سند', debit: p.debit, credit: p.credit, user_id: user.id
       });
     }
+    mirrorManualVoucherToCustomers(db, user, {
+      entryId, date: date || '', description, sourceType, lines: built.cleanLines, personPostings: built.personPostings,
+    });
     return entryId;
   })();
-  return { id: entryId, ok: true, replayed: false };
+  const posted = db.prepare('SELECT voucher_number FROM journal_entries WHERE id=?').get(entryId);
+  return { id: entryId, voucher_number: posted && posted.voucher_number, ok: true, replayed: false };
+}
+
+function mirrorManualVoucherToCustomers(db, user, opts) {
+  if (opts.sourceType !== 'manual_voucher') return;
+  const { createLedgerEntry } = require('../db');
+  const { refreshCustomerBalanceFromLedger } = require('../lib/opening-post');
+  const seen = new Set();
+  const post = (customerId, debit, credit, lineDesc) => {
+    const key = customerId + ':' + debit + ':' + credit + ':' + (lineDesc || '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    createLedgerEntry(db, {
+      customer_id: customerId,
+      date: opts.date,
+      entry_type: 'journal',
+      ref_type: 'manual_voucher',
+      ref_id: opts.entryId,
+      description: lineDesc || opts.description || 'سند دستی',
+      debit, credit,
+      user_id: user.id,
+    });
+    refreshCustomerBalanceFromLedger(db, customerId);
+  };
+  for (const p of opts.personPostings || []) {
+    const person = db.prepare('SELECT party_id, name FROM persons WHERE id=?').get(p.person_id);
+    if (!person || !person.party_id) continue;
+    const custs = db.prepare('SELECT id FROM customers WHERE party_id=?').all(person.party_id);
+    for (const c of custs) post(c.id, p.debit, p.credit, p.description || person.name);
+  }
+  for (const line of opts.lines || []) {
+    if (!line.code) continue;
+    const custs = db.prepare('SELECT id FROM customers WHERE coa_code=?').all(line.code);
+    for (const c of custs) post(c.id, line.debit, line.credit, line.description || line.name);
+  }
 }
 
 function postPartyPersonPayments(db, user, body) {
@@ -2227,8 +2271,13 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   } catch (e) {
     if (String(e.message || '').includes('idx_journal_client_request') || String(e.message || '').includes('client_request_id')) {
       const key = String((req.body || {}).client_request_id || '').trim();
-      const prev = key ? db.prepare('SELECT id FROM journal_entries WHERE client_request_id=?').get(key) : null;
-      if (prev) return res.json({ id: prev.id, ok: true, replayed: true });
+      const prev = key ? db.prepare(`
+        SELECT id, voucher_number, status, deleted_at FROM journal_entries WHERE client_request_id=?
+      `).get(key) : null;
+      const alive = prev
+        && !Number(prev.deleted_at)
+        && !['reversed', 'void'].includes(String(prev.status || 'posted'));
+      if (alive) return res.json({ id: prev.id, voucher_number: prev.voucher_number || null, ok: true, replayed: true });
     }
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
@@ -2532,6 +2581,16 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
         refTypes: ['manual_voucher', 'manual_voucher_reversal'],
         refId: Number(req.params.id),
       });
+      const touched = db.prepare(`
+        SELECT DISTINCT customer_id FROM customer_ledger
+        WHERE ref_type='manual_voucher' AND ref_id=?
+      `).all(Number(req.params.id));
+      retireCustomerLedgerByRef(db, {
+        refTypes: ['manual_voucher', 'manual_voucher_reversal'],
+        refId: Number(req.params.id),
+      });
+      const { refreshCustomerBalanceFromLedger } = require('../lib/opening-post');
+      for (const row of touched) refreshCustomerBalanceFromLedger(db, row.customer_id);
     }
     if (entry.ref_type === 'account_receipt' || entry.ref_type === 'account_payment') {
       const revType = entry.ref_type + '_reversal';

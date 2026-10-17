@@ -20490,7 +20490,11 @@ function toggleBankFields(prefix){
   if(cashFg) cashFg.style.display=isCash?'flex':'none';
   if(posFg) posFg.style.display=isPos?'flex':'none';
   if(refFg) refFg.style.display=isBank?'flex':'none';
-  if(chequeBlock) chequeBlock.style.display=(isCheque && inbound)?'block':'none';
+  if(chequeBlock){
+    chequeBlock.style.display=(isCheque && inbound)?'block':'none';
+    if(isCheque && inbound && prefix==='prr' && typeof renderPrrCheques==='function') renderPrrCheques();
+    if(isCheque && inbound && typeof chequeBlock.scrollIntoView==='function') chequeBlock.scrollIntoView({block:'nearest'});
+  }
   const amtFg=el(prefix+'-amount')?.closest('.fg');
   if(amtFg && chequeBlock){
     const multiOn=!!el(prefix+'-multi')?.checked && !(isCheque && inbound);
@@ -21970,8 +21974,11 @@ async function saveVoucher(){
     showToast('مرکز هزینه برای سطر هزینه الزامی است','error'); return;
   }
   try{
-    await api('POST','/accounting/vouchers',{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines,client_request_id:_voucherIdem});
-    closeModal(); showToast('سند ثبت شد'); loadAccTab('vouchers');
+    const saved=await api('POST','/accounting/vouchers',{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines,client_request_id:_voucherIdem});
+    closeModal();
+    const num=saved&&(saved.voucher_number||saved.id);
+    showToast(saved&&saved.replayed?('این سند قبلاً ثبت شده بود'+(num?' — '+num:'')):('سند ثبت شد'+(num?' — '+num:'')));
+    loadAccTab('vouchers');
   }catch(e){}
 }
 async function saveVoucherAsDraft(){
@@ -24316,7 +24323,7 @@ function cashBoxModal(id){
         ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
       </select></div>
       <div class="fg"><label><input type="checkbox" id="cb-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> صندوق ارزی</label></div>
-      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('قابل ویرایش است. با ذخیره، مبلغ سند افتتاحیه بازنویسی می‌شود و تاریخ سند روی شروع سال مالی فعال می‌نشیند. صفر = ابطال افتتاحیه.')}</label>
+      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('قابل ویرایش است. با ذخیره، مبلغ سند افتتاحیه بازنویسی می‌شود. تاریخ روی شروع سال مالی می‌نشیند؛ برای صندوق کیمیا تاریخ مانده روز قبل از شروع سال است (اگر سال از ۱ مهر شروع شود، ۳۱ شهریور). صفر = ابطال افتتاحیه.')}</label>
         <input id="cb-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}">
         ${b?.opening_balance_je_id?`<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">سند #${b.opening_balance_je_id} JE${b.opening_balance_date?` — ${esc(b.opening_balance_date)}`:''}</span>`:''}
       </div>
@@ -25707,9 +25714,13 @@ function cdePayOptions(kind, current){
 }
 function cdeToggleCheque(){
   toggleBankFields('cde');
-  const show=el('cde-paytype')?.value==='cheque' && el('cde-kind')?.value==='settlement';
+  const kind=el('cde-kind')?.value||'';
+  const show=el('cde-paytype')?.value==='cheque' && (kind==='settlement'||kind==='person_receipt');
   const box=el('cde-cheque-block');
-  if(box) box.style.display=show?'block':'none';
+  if(box){
+    box.style.display=show?'block':'none';
+    if(show) box.scrollIntoView({block:'nearest'});
+  }
 }
 async function cdeLoadInvoices(custId, selectedId, selectedLabel){
   const open=custId?await api('GET','/accounting/customers/'+custId+'/open-invoices').catch(()=>[])||[]:[];
@@ -25840,14 +25851,15 @@ async function openCashDocEdit(kind, row){
 }
 async function saveCashDocEdit(kind, id){
   const pay_type=el('cde-paytype')?.value||'cash';
-  const bankish=pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque';
+  const inboundCheque=pay_type==='cheque' && (kind==='settlement'||kind==='person_receipt');
+  const bankish=pay_type==='bank'||pay_type==='bank_transfer'||(pay_type==='cheque' && !inboundCheque);
   const bank_id=bankish?(+el('cde-bank')?.value||null):null;
   const cash_box_id=pay_type==='cash'?(+el('cde-cashbox')?.value||null):null;
   if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
-  if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(bankish && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
   const amount=moneyVal('cde-amount');
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
-  if(kind==='settlement' && pay_type==='cheque'){
+  if((kind==='settlement'||kind==='person_receipt') && pay_type==='cheque'){
     if(!String(el('cde-chq-bank')?.value||'').trim()||!String(el('cde-chq-sayadi')?.value||'').trim()||!String(el('cde-chq-due')?.value||'').trim()){
       showToast('نام بانک چک، شناسه صیاد و سررسید الزامی است','error'); return;
     }
@@ -26220,7 +26232,7 @@ function renderStlRows(){
   const body=el('stlRowsBody'); if(!body) return;
   body.innerHTML=stlRows.map((r,i)=>`<tr>
     <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].amount=this.value})}" data-csp-style="${CSP.style(`width:110px`)}"></td>
-    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';stlRows[(i)].terminal_id='';}else if(this.value==='pos_card'){stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id='';}else{stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option><option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option></select></td>
+    <td><select data-csp-change="${CSP.bind('change',function(event){if(this.value==='cheque'){const multi=el('st-multi'); if(multi) multi.checked=false; const pt=el('st-paytype'); if(pt) pt.value='cheque'; stlToggleMulti(); showToast('مشخصات چک را در کارت پایین وارد کنید'); return;} stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';stlRows[(i)].terminal_id='';}else if(this.value==='pos_card'){stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id='';}else{stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option><option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option></select></td>
     <td>${stlDestCell(r,i)}</td>
     <td><input data-jdate value="${esc(r.date)}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].date=this.value})}" data-csp-style="${CSP.style(`width:100px`)}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].invoice_id=this.value})}">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''} data-face="${invoiceFaceRial(inv)}">${esc(inv.num)} (مانده ${fmt(inv.outstanding)} · خالص ${fmt(invoiceFaceRial(inv))})</option>`).join('')}</select></td>
@@ -26239,7 +26251,10 @@ function toggleStlCheque(){
   const isBank = pt.value==='bank_transfer' && !el('st-multi')?.checked;
   const isCash = pt.value==='cash' && !el('st-multi')?.checked;
   const isPos = pt.value==='pos_card' && !el('st-multi')?.checked;
-  const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
+  const cc=el('stlChequeCards'); if(cc){
+    cc.style.display=isCheque?'block':'none';
+    if(isCheque) cc.scrollIntoView({block:'nearest'});
+  }
   const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
   const bankRef=el('st-bankref-fg'); if(bankRef) bankRef.style.display=isBank?'block':'none';
   // چک دریافتی → اسناد دریافتنی نزد صندوق؛ بانک شرکت فقط برای واریز بانکی.
@@ -30714,7 +30729,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
-        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد و کارت مشخصات (بانک، صیاد، سررسید، مبلغ) زیر روش دریافت باز می‌شود؛ در حالت چندقسطی انتخاب «چک» همان کارت را نشان می‌دهد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. چک در پرداخت به شخص، حساب و هزینه تا اتصال دفتر چک پرداختنی بسته است. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
@@ -30745,7 +30760,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>
         <li><b>انبارگردانی</b>: هنگام اعمال اصلاحات، موجودی سیستم دوباره از دفتر زنده خوانده می‌شود (نه فقط عدد شروع جلسه) تا اختلاف واقعی ثبت شود</li>
-        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
+        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b>. اگر ردیف به شخصِ مشتری یا به کد تفصیلی مشتری بخورد، همان مبلغ در گردش مشتری هم می‌نشیند و با ابطال برداشته می‌شود. پیام ثبت، شماره سند را نشان می‌دهد. تکرار همان درخواست، سند ابطال‌شده را به‌جای سند جدید برنمی‌گرداند. <b>قالب سند</b> و <b>پیوست</b> مثل قبل است و دکمهٔ <b>ابطال</b> سند را معکوس می‌کند</li>
         <li><b>ابطال کامل (R13 / v373–v374)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا و ردیف «ابطال/اصلاح» پوچ در گزارش‌ها ساخته نمی‌شود</b>. سند حسابداری اصلی soft-void می‌شود؛ ردیف‌های زیردفتر طرف‌حساب (از جمله ابطال پرداخت حقوق) بازنشسته می‌شوند تا در گردش مشتری/تأمین‌کننده/شخص فقط وضعیت نهایی دیده شود. ابطال رکورد حقوق ردیف را حذف فیزیکی نمی‌کند.</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
@@ -30853,7 +30868,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>دریافت: ابتدا انتخاب مشتری / شخص / حساب (کل تا تفصیلی)</li>
         <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> هر حساب فعال کدینگ است. نام یا کد را بنویسید؛ گروه و کل هم انتخاب می‌شوند و مبلغ روی خود همان کد می‌نشیند. <b>پرداخت هزینه</b> هم هر سطح کدینگ هزینه را با همان جستجو نشان می‌دهد. دریافت از حساب فقط حساب برگ است</li>
         <li>مداد کنار دریافت مشتری و پرداخت تأمین‌کننده، انگیزه و هزینه، همان سند را اصلاح می‌کند و دفتر را با همان شماره به‌روز می‌کند. حذف، سند را ابطال می‌کند</li>
-        <li><b>مانده اول دوره اشخاص</b>: مبلغ + بدهکار/بستانکار (فقط مدیر). با ذخیره، همان سند افتتاحیه (<code>opening_balance</code>) بازنویسی می‌شود — شماره سند ثابت می‌ماند؛ تاریخ همیشه روی <b>شروع سال مالی فعال</b> می‌نشیند؛ صفر کردن مبلغ = ابطال نرم افتتاحیه (R13). تغییر مبلغ، کپی قبلی همان افتتاحیه را از دفتر مشتری برمی‌دارد (v424) و سند جدید نمی‌سازد</li>
+        <li><b>مانده اول دوره اشخاص</b>: مبلغ + بدهکار/بستانکار (فقط مدیر). با ذخیره، همان سند افتتاحیه بازنویسی می‌شود و سند تکراری قبلی (حتی اگر با شناسهٔ مشتری ثبت شده باشد) ابطال نرم می‌شود. تاریخ روی شروع سال مالی می‌ماند. دفتر مشتری و ماندهٔ مشتری از جمع گردش دوباره حساب می‌شود، نه فقط از عدد افتتاحیه. صفر کردن مبلغ = ابطال نرم (R13)</li>
       </ul>
       <h5>پیامک خوش‌آمدگویی</h5><ul>
         <li>هنگام ثبت مشتری جدیدِ دارای موبایل، پیامک خوش‌آمد با لینک کانال‌ها (روبیکا، تلگرام، بله) خودکار ارسال می‌شود</li>
@@ -30871,6 +30886,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مانده اول دوره اشخاص</b> (تاریخ = شروع سال مالی؛ ویرایش مبلغ = بازنویسی همان سند) و <b>موجودی اول دوره کالا</b> (با بهای تمام‌شده/قیمت اول دوره) سند افتتاحیه می‌سازند.</li>
         <li>در «فهرست اسناد» همهٔ اسناد (نه فقط ۵۰تای اول) بارگذاری می‌شوند؛ شمارنده تعداد کل است. کادر <b>جستجو شماره سند</b> روی کل دیتابیس با شمارهٔ داخلی (#۳۲۹) یا <code>voucher_number</code> جستجو می‌کند. هر سند برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> دارد؛ ورودی اکسل برچسب سبز «اکسل» هم می‌گیرد.</li>
         <li>نوع سند در قالب اکسل فهرست اسناد: <code>opening</code> / افتتاحیه / موجودی اول دوره → افتتاحیه. مبالغ اکسل اسناد حسابداری <b>ریال</b> هستند.</li>
+        <li><b>اکسل کالا</b>: خروجی و قالب ستون <b>قیمت تک (ریال)</b> دارند. اگر همان فایل دوباره وارد شود، قیمت تک کالای موجود هم به‌روز می‌شود و ستون خالی قیمت قبلی را پاک نمی‌کند.</li>
       </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>صفحه ورود (کارکنان و پورتال)</h5><ul>

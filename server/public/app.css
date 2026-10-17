@@ -888,6 +888,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .fg.fg-code{max-width:180px}
 .fg.fg-phone{max-width:200px}
 .fg.full{max-width:560px}
+#stlChequeCards.fg.full,#prr-cheque-block.fg.full,#cde-cheque-block.fg.full{max-width:none;width:100%}
 .fg.full:has(.tbl-wrap),.fg.full:has(table.tbl){max-width:none;width:100%}
 .fg.full textarea{max-width:100%}
 .toolbar input,.toolbar select{border-color:var(--input-border,var(--border));max-width:220px}

@@ -87,6 +87,11 @@ function createQuickProduct(db, user, body) {
       sms_code || '', String(body.tax_stuff_id || '').trim() || null
     );
     const productId = result.lastInsertRowid;
+    if (body.retail_price != null && body.retail_price !== '') {
+      const retail = Math.round(parseFloat(body.retail_price) || 0);
+      db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?')
+        .run(retail, retail, productId);
+    }
     if (defaultWarehouse) {
       db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
         .run(productId, defaultWarehouse, openingStock);
@@ -160,6 +165,11 @@ function updateProductFromExcel(db, user, productId, body) {
       src.sms_code != null ? (src.sms_code || '') : (prod.sms_code || ''),
       productId
     );
+  if (src.retail_price != null && src.retail_price !== '') {
+    const retail = Math.round(parseFloat(src.retail_price) || 0);
+    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?')
+      .run(retail, retail, productId);
+  }
   if (whId && !hasMoves) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
       .run(productId, whId);

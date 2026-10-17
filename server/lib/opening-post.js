@@ -105,7 +105,78 @@ function partyCustomerIds(db, party) {
       }
     } catch (_) { /* */ }
   }
+  const phone = String(party && party.phone || '').trim();
+  if (phone && party && party.id) {
+    try {
+      const loose = db.prepare(`
+        SELECT id FROM customers
+        WHERE phone=? AND (party_id IS NULL OR party_id=0 OR party_id=?)
+      `).all(phone, party.id);
+      for (const r of loose) {
+        db.prepare(`
+          UPDATE customers SET party_id=?
+          WHERE id=? AND (party_id IS NULL OR party_id=0 OR party_id=?)
+        `).run(party.id, r.id, party.id);
+        custIds.add(Number(r.id));
+      }
+    } catch (_) { /* */ }
+  }
   return [...custIds].filter((id) => Number.isFinite(id));
+}
+
+function refreshCustomerBalanceFromLedger(db, customerId) {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(debit,0) - COALESCE(credit,0)),0) AS b
+    FROM customer_ledger WHERE customer_id=?
+  `).get(customerId);
+  db.prepare('UPDATE customers SET balance=? WHERE id=?')
+    .run(Math.round(Number(row && row.b) || 0), customerId);
+}
+
+function collectPartyOpeningJournalIds(db, party) {
+  const refIds = [Number(party.id), ...partyCustomerIds(db, party)]
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!refIds.length) return [];
+  const marks = refIds.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type IN ('opening_balance','opening')
+      AND ref_id IN (${marks})
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC
+  `).all(...refIds).map((r) => r.id);
+}
+
+function retireOtherPartyOpenings(db, party, keepId, userId) {
+  const { reverseJournalEntry } = require('./void-journal');
+  const keep = Number(keepId) || 0;
+  for (const id of collectPartyOpeningJournalIds(db, party)) {
+    if (Number(id) === keep) continue;
+    reverseJournalEntry(db, id, {
+      userId: userId || 1,
+      reason: `جمع شدن سند تکراری مانده اول دوره — ${party.full_name || party.biz || party.id}`,
+      sourceType: 'opening_balance_reversal',
+    });
+  }
+  if (!keep || !party.coa_code) return;
+  const onTafsili = db.prepare(
+    'SELECT 1 FROM journal_lines WHERE entry_id=? AND account_code=?'
+  ).get(keep, party.coa_code);
+  if (!onTafsili) return;
+  const reclasses = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='opening_reclass' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+  `).all(keep);
+  for (const row of reclasses) {
+    reverseJournalEntry(db, row.id, {
+      userId: userId || 1,
+      reason: 'انتقال افتتاحیه داخل همان سند مانده اول دوره نشست',
+      sourceType: 'opening_balance_reversal',
+    });
+  }
 }
 
 /** Party opening mirror on the customer book. Both ref types: repair copies the JE as opening_balance. */
@@ -123,7 +194,7 @@ function clearPartyOpeningSubledgers(db, partyId) {
 
   for (const cid of partyCustomerIds(db, party)) {
     try { deleteCustomerOpeningMirrors(db, cid); } catch (_) { /* */ }
-    try { db.prepare('UPDATE customers SET balance=0 WHERE id=?').run(cid); } catch (_) { /* */ }
+    try { refreshCustomerBalanceFromLedger(db, cid); } catch (_) { /* */ }
   }
 
   const personIds = new Set();
@@ -185,7 +256,7 @@ function mirrorPartyOpeningSubledgers(db, {
       ref_type: 'opening', ref_id: entryId,
       description: 'مانده اولیه حساب', debit, credit, user_id: userId,
     });
-    db.prepare('UPDATE customers SET balance=? WHERE id=?').run(amt, cid);
+    refreshCustomerBalanceFromLedger(db, cid);
   }
 
   const personIds = new Set();
@@ -259,6 +330,16 @@ function upsertPartyOpening(db, partyId, openingRial, userId, {
   const date = dateOverride || fiscalOpeningDate(db);
   const desc = description || `مانده اول دوره — ${party.full_name || party.biz || pid}`;
   let jeId = livePartyOpeningJeId(db, pid);
+  if (!jeId) {
+    const siblings = collectPartyOpeningJournalIds(db, party);
+    if (siblings.length) {
+      jeId = siblings[0];
+      db.prepare(`
+        UPDATE journal_entries SET ref_type='opening_balance', ref_id=?
+        WHERE id=?
+      `).run(pid, jeId);
+    }
+  }
 
   if (!amt) {
     if (jeId) {
@@ -270,6 +351,7 @@ function upsertPartyOpening(db, partyId, openingRial, userId, {
       });
     }
     clearPartyOpeningSubledgers(db, pid);
+    retireOtherPartyOpenings(db, party, null, userId);
     db.prepare(`
       UPDATE parties SET opening_balance=0, opening_balance_date=?, updated_at=strftime('%s','now')
       WHERE id=?
@@ -326,6 +408,8 @@ function upsertPartyOpening(db, partyId, openingRial, userId, {
   } catch (e) {
     if (db.inTransaction) throw e;
   }
+
+  retireOtherPartyOpenings(db, party, jeId, userId);
 
   db.prepare(`
     UPDATE parties SET opening_balance=?, opening_balance_date=?, updated_at=strftime('%s','now')
@@ -711,6 +795,7 @@ module.exports = {
   livePartyOpeningJeId,
   clearPartyOpeningSubledgers,
   deleteCustomerOpeningMirrors,
+  refreshCustomerBalanceFromLedger,
   repairStaleCustomerOpeningMirrors,
   partyOpeningLines,
   postProductOpeningInventory,

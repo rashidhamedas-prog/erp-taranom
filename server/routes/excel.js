@@ -152,13 +152,13 @@ const DEFINITIONS = {
     sample: {
       'نام کالا*': 'کالای نمونه', 'نام کامل کالا': '', 'کد کالا': 'PR-001', بارکد: '',
       دسته: 'عمومی', واحد: 'عدد', 'انبار اصلی': 'WH-01', موجودی: 0, 'هشدار موجودی': 5,
-      'قیمت فروش (ریال)': 1000000, 'بهای تمام‌شده (ریال)': 700000,
+      'قیمت فروش (ریال)': 1000000, 'قیمت تک (ریال)': 1200000, 'بهای تمام‌شده (ریال)': 700000,
       'قیمت مصرف‌کننده (ریال)': 0, 'قیمت اول دوره (ریال)': 0, 'تعداد رنگ': 1,
       'تعداد در پک': 1, 'نوع کالا': '', 'شاخص کالا': '', 'شناسه مالیاتی': '',
       'محل نگهداری': '', 'کد پیامک': '', یادداشت: '',
     },
     guide: [
-      'مبالغ فقط ریال هستند.',
+      'مبالغ فقط ریال هستند. «قیمت تک (ریال)» قیمت فروش تک است و هنگام ورود، کالای موجود را هم به‌روز می‌کند.',
       'ستون نام: «نام کالا*» یا «نام کالا» یا «نام محصول». ردیف بدون نام یا انبار نامعتبر جدا گزارش می‌شود و بقیه ثبت می‌شوند.',
       'اگر ستون «موجودی» > 0 باشد و بهای تمام‌شده یا قیمت اول دوره پر باشد، سند «موجودی اول دوره» (اتومات/افتتاحیه) ثبت می‌شود.',
       'برای رسید انبار جداگانه از قالب warehouse-receipt با شرح «موجودی اول دوره» استفاده کنید.',
@@ -300,7 +300,9 @@ function exportRows(db, entity) {
   if (entity === 'products') return db.prepare('SELECT p.*,w.name warehouse_name,w.code warehouse_code FROM products p LEFT JOIN warehouses w ON w.id=p.warehouse_id ORDER BY p.id').all().map((r) => ({
     'نام کالا': r.name, 'نام کامل کالا': r.full_name, 'کد کالا': r.code, بارکد: r.barcode,
     دسته: r.category, واحد: r.unit, 'انبار اصلی': r.warehouse_code || r.warehouse_name, موجودی: r.stock,
-    'هشدار موجودی': r.stock_alert, 'قیمت فروش (ریال)': Math.round(Number(r.price) || 0), 'بهای تمام‌شده (ریال)': Math.round(Number(r.cost) || 0),
+    'هشدار موجودی': r.stock_alert, 'قیمت فروش (ریال)': Math.round(Number(r.price) || 0),
+    'قیمت تک (ریال)': Math.round(Number(r.retail_price_rial || r.retail_price) || 0),
+    'بهای تمام‌شده (ریال)': Math.round(Number(r.cost) || 0),
     'قیمت مصرف‌کننده (ریال)': Math.round(Number(r.consumer_price) || 0), 'قیمت اول دوره (ریال)': Math.round(Number(r.opening_price) || 0),
     'تعداد رنگ': r.colors, 'تعداد در پک': r.pack_size, 'نوع کالا': r.product_type, 'شاخص کالا': r.product_index,
     'شناسه مالیاتی': r.tax_id, 'محل نگهداری': r.location, 'کد پیامک': r.sms_code, یادداشت: r.note,
@@ -539,6 +541,9 @@ function buildActions(db, entity, rows, hooks) {
         stock_alert: Math.max(0, Math.trunc(num(field(r, 'هشدار موجودی')))) || 5,
         // UI stores product money as rial identity — do not /10
         price: Math.round(num(field(r, 'قیمت فروش (ریال)'))),
+        ...(text(field(r, 'قیمت تک (ریال)', 'قیمت فروش تک (ریال)', 'قیمت تک')) !== ''
+          ? { retail_price: Math.round(num(field(r, 'قیمت تک (ریال)', 'قیمت فروش تک (ریال)', 'قیمت تک'))) }
+          : {}),
         cost: Math.round(num(field(r, 'بهای تمام‌شده (ریال)', 'بهای خرید (ریال)'))),
         consumer_price: Math.round(num(field(r, 'قیمت مصرف‌کننده (ریال)'))),
         opening_price: Math.round(num(field(r, 'قیمت اول دوره (ریال)'))),
