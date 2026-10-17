@@ -3,7 +3,7 @@
 - **UI/Help:** رنگ، متر، لایه، پهن، ضایعات، برگشت و ته‌طاقه در جدول پیش‌نمایش. راهنمای تولید به‌روز. SW `erp-taranom-v429`.
 - **فایل‌ها:** `public/{app.js,sw.js,index.html}`, `docs/architecture/PROD-CUT-OPERATOR-PROMPT.md`, CHANGE-LOG.
 - **تست:** `node --check` روی `app.js`. منطق سهم در کلاینت است؛ موتور سرور همان `weight` را می‌گیرد.
-- **Deploy:** در حال انجام.
+- **Deploy:** ✅ `8592dffe` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. پرچم `production_shared_cut` عوض نشد. SW `erp-taranom-v429`.
 
 ### ۱۴۰۵/۰۷/۲۶ — بستن دور زدن خزانه در اصلاح پرداخت تأمین‌کننده (SW v428)
 - **هدف:** حکم بازبینی قرارداد پرداخت. اصلاح پرداخت تأمین‌کننده دیگر با `account_code` حساب صندوق/بانک را عوض نمی‌کند و اضافه‌برداشت را دور نمی‌زند.
