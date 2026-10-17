@@ -6,7 +6,7 @@
 - **UI/Help:** کارت چک دریافت زیر روش دریافت باز می‌شود؛ در چندقسطی انتخاب چک همان کارت را می‌آورد. راهنما به‌روز. SW `erp-taranom-v433`.
 - **فایل‌ها:** `lib/{opening-post,product-quick}.js`, `routes/{accounting,cash-boxes,excel}.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-books-receipt-excel-v433.js`, CHANGE-LOG.
 - **تست:** محلی `test-books-receipt-excel-v433` ۱۰/۰ (بدون sqlite). `node --check` روی فایل‌های دست‌خورده. better-sqlite3 روی ویندوز ABI ندارد.
-- **Deploy:** در حال انجام.
+- **Deploy:** ✅ `0792a3a4` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. آزمون ایران `test-books-receipt-excel-v433` ۱۰/۰ و `test-sms` ۲۲/۰. SW `erp-taranom-v433`.
 
 ### ۱۴۰۵/۰۷/۲۶ — عنوان و مشخصات دریافت/پرداخت نقد و چک (SW v432)
 - **ریشه:** دریافت از شخص، چک را مثل واریز به بانک شرکت می‌خواست و مشخصات صیاد نداشت. ثبت دریافت از مشتری فهرست را از کش خالی مشتری می‌ساخت و پنل خالی روی فهرست فاکتور می‌افتاد. پرداخت به شخص کلمهٔ «واریز بانکی» را برای خروج وجه نشان می‌داد.
