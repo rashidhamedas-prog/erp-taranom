@@ -4,7 +4,7 @@
 - **UI/Help:** فرم اصلاح تأمین‌کننده معین آزاد ندارد و فقط شناسهٔ همان نوع پرداخت را می‌فرستد. فرم اصلاح هزینه دیگر فاکتور خرید را وصل نمی‌کند. راهنما به‌روز. SW `erp-taranom-v428`.
 - **فایل‌ها:** `lib/cash-payment-contract.js`, `lib/amend-cash-ops.js`, `routes/{accounting,expenses,purchases,transfers}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cash-payment-contract-v427.js`, `scripts/test-cash-payment-integ-v428.js`, `scripts/test-cheque-payable-issue-v428.js`, `scripts/report-cash-ops-legacy-v428.js`.
 - **تست:** قرارداد خالص بعد از این اصلاح. sqlite روی Node 24 همچنان `SKIP_SQLITE`. گزارش مانده فقط با `--dry-run` و مسیر صریح است و چیزی نمی‌نویسد.
-- **Deploy:** ⏳ استقرار ایران در این دستور ممنوع ماند.
+- **Deploy:** ✅ `616708d8` — overlay ایران (درخت git کثیف بود، pull نشد)؛ `pm2 restart` بدون `--update-env`؛ ready=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v428`. آزمون ایران: قرارداد ۳۸/۰، یکپارچه ۴۷/۰، چک پرداختنی ۶۳/۰، پیامک ۲۲/۰. دادهٔ زنده دست نخورد.
 
 
 - **هدف:** پنج مسیر پرداخت شخص/حساب/انتقال بانک/هزینه/انتقال صندوق از فرم تا سند، بدون استقرار تولیدی و بدون heal دادهٔ زنده.
