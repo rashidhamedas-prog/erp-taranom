@@ -12502,42 +12502,84 @@ function colorsMatch(a,b){
   const key=s=>s.replace(/\u0648/g,'').replace(/\s+/g,'');
   return key(na)===key(nb);
 }
+function sharedCutSharePct(pieces){
+  const rows=(pieces||[]).map(n=>Math.max(0,Number(n)||0));
+  const sum=rows.reduce((s,n)=>s+n,0);
+  if(!(sum>0)) return [];
+  const bps=rows.map(n=>Math.floor((n/sum)*10000));
+  let left=10000-bps.reduce((s,n)=>s+n,0);
+  const order=bps.map((n,i)=>i).sort((a,b)=>bps[b]-bps[a]||a-b);
+  for(const i of order){ if(left<=0) break; bps[i]+=1; left-=1; }
+  return bps.map(n=>n/100);
+}
+function sharedCutDraft(){
+  const marker=parseFloat(el('sc-marker').value);
+  const a=parseInt(el('sc-a').value,10);
+  const b=parseInt(el('sc-b').value,10);
+  const ap=parseFloat(el('sc-ap').value)||0;
+  const bp=parseFloat(el('sc-bp').value)||0;
+  const pieces=b?[ap,bp]:[ap];
+  const weights=sharedCutSharePct(pieces);
+  const outputs=[{product_id:a,size_code:'ALL',pieces_per_ply:ap,weight:weights[0]||100}];
+  if(b) outputs.push({product_id:b,size_code:'ALL',pieces_per_ply:bp,weight:weights[1]});
+  const rolls=String(el('sc-rolls').value||'').split(/\n/).map(s=>s.trim()).filter(Boolean).map(line=>{
+    const p=line.split(/[, \t]+/);
+    return {batch_id:parseInt(p[0],10),opening_m:parseFloat(p[1]),ply_count:parseInt(p[2],10),color:p[3]||''};
+  });
+  return {marker_length_m:marker,outputs,rolls,fabric_product_id:parseInt(el('sc-fabric').value,10)||null,width_cm:parseInt(el('sc-width').value,10)||null};
+}
 function sharedCutToggle(){
   const box=el('shared-cut-box');
   if(!box) return;
   box.innerHTML=`<div class="panel" style="margin:8px 0;padding:10px">
-    <b>پیش‌نمایش برنامه</b> <span class="muted">این عدد سند مالی نیست</span>
+    <b>برنامهٔ برش مشترک</b> <span class="muted">سهم پارچه از قطعه در هر لایه است، نه عدد ثابت</span>
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-top:8px">
       <label>قد الگو <input id="sc-marker" type="number" step="0.01" value="5.90" style="width:90px"></label>
+      <label>عرض سم <input id="sc-width" type="number" value="150" style="width:70px"></label>
+      <label>پارچه <input id="sc-fabric" type="number" style="width:80px" placeholder="شناسه"></label>
       <label>محصول A <input id="sc-a" type="number" style="width:70px"></label>
       <label>محصول B <input id="sc-b" type="number" style="width:70px" placeholder="خالی=تک"></label>
-      <label>قطعه A/لایه <input id="sc-ap" type="number" value="1" style="width:60px"></label>
-      <label>قطعه B/لایه <input id="sc-bp" type="number" value="2" style="width:60px"></label>
+      <label>قطعه A/لایه <input id="sc-ap" type="number" value="1" min="0" step="1" style="width:60px"></label>
+      <label>قطعه B/لایه <input id="sc-bp" type="number" value="2" min="0" step="1" style="width:60px"></label>
       <button class="btn sm" type="button" id="sc-prev">پیش‌نمایش</button>
+      <button class="btn sm" type="button" id="sc-post">ثبت</button>
     </div>
-    <div class="muted" style="margin-top:6px">هر خط طاقه: شناسه، متر، لایه</div>
+    <div class="muted" style="margin-top:6px">هر خط: شناسه طاقه، متر ورودی، تعداد لایه، رنگ</div>
     <textarea id="sc-rolls" style="width:100%;min-height:70px;direction:ltr">1,79,11
 2,80,11
 3,90,11
 4,110,15</textarea>
     <div id="sc-out"></div>
   </div>`;
+  async function runPreview(){
+    const body=sharedCutDraft();
+    const data=await api('POST','/production/cutting-batches/preview',body);
+    window._scLast=body;
+    window._scPreview=data;
+    const rows=(data.rolls||[]).map(r=>`<tr><td>${esc(r.color||'')}</td><td>${r.batch_id||''}</td><td class="num">${r.opening_m}</td><td class="num">${r.ply_count}</td><td class="num">${r.laid_m}</td><td class="num">${r.length_loss_m||0}</td><td class="num">${r.returned_m}</td><td class="num">${r.remnant_m}</td><td>${esc(r.destination||'')}</td><td>${r.equation&&r.equation.ok?'بله':'خیر'}</td></tr>`).join('');
+    const outs=(data.outputs||[]).map(o=>{
+      const share=Number(o.weight)||0;
+      const meters=Math.round((Number(data.laid_m)||0)*(share/100)*1000)/1000;
+      return `<li>کالا ${o.product_id}: ${o.pieces_per_ply} قطعه در لایه × برنامه = <b>${o.planned_pieces}</b> قطعه؛ سهم پارچه <b>${share}٪</b> ≈ <b>${meters}</b> متر پهن‌شده</li>`;
+    }).join('');
+    el('sc-out').innerHTML=`<p>آستانهٔ ته‌طاقه: <b>${data.policy&&data.policy.threshold_m}</b> متر. پهن <b>${data.laid_m}</b>، برگشت <b>${data.returned_m}</b>، ته‌طاقه <b>${data.remnant_m}</b>. ${data.balanced?'تراز برقرار است.':'تراز طاقه برقرار نیست.'}</p>
+      <ul>${outs}</ul>
+      <table class="tbl"><thead><tr><th>رنگ</th><th>طاقه</th><th>ورودی</th><th>لایه</th><th>مفید پهن</th><th>ضایعات طولی</th><th>برگشت طاقه</th><th>ته‌طاقه</th><th>مقصد</th><th>تراز</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return data;
+  }
   el('sc-prev').onclick=async function(){
-    const marker=parseFloat(el('sc-marker').value);
-    const a=parseInt(el('sc-a').value,10);
-    const b=parseInt(el('sc-b').value,10);
-    const outputs=[{product_id:a,size_code:'ALL',pieces_per_ply:parseFloat(el('sc-ap').value)||1,weight:b?40:100}];
-    if(b) outputs.push({product_id:b,size_code:'ALL',pieces_per_ply:parseFloat(el('sc-bp').value)||1,weight:60});
-    const rolls=String(el('sc-rolls').value||'').split(/\n/).map(s=>s.trim()).filter(Boolean).map(line=>{
-      const p=line.split(/[, \t]+/);
-      return {batch_id:parseInt(p[0],10),opening_m:parseFloat(p[1]),ply_count:parseInt(p[2],10)};
-    });
+    try{ await runPreview(); }
+    catch(e){ el('sc-out').textContent=e.message||'خطا'; }
+  };
+  el('sc-post').onclick=async function(){
     try{
-      const data=await api('POST','/production/cutting-batches/preview',{marker_length_m:marker,outputs,rolls});
-      const rows=(data.rolls||[]).map(r=>`<tr><td>${r.batch_id||''}</td><td>${r.opening_m}</td><td>${r.ply_count}</td><td>${r.laid_m}</td><td>${r.returned_m}</td><td>${r.remnant_m}</td><td>${r.destination}</td><td>${r.equation&&r.equation.ok?'بله':'خیر'}</td></tr>`).join('');
-      el('sc-out').innerHTML=`<p>آستانهٔ مؤثر: <b>${data.policy&&data.policy.threshold_m}</b> متر — پیش‌نمایش</p>
-        <table class="tbl"><thead><tr><th>طاقه</th><th>ورودی</th><th>لایه</th><th>پهن</th><th>برگشت</th><th>ته‌طاقه</th><th>مقصد</th><th>تراز</th></tr></thead><tbody>${rows}</tbody></table>`;
-    }catch(e){ el('sc-out').textContent=e.message||'خطا'; }
+      const data=await runPreview();
+      if(!data.balanced){ showToast('تراز طاقه برقرار نیست','error'); return; }
+      if(!confirm('ثبت برش مشترک؟ حواله فقط متر پهن‌شده و اتلاف است. برگشت روی همان طاقه می‌ماند.')) return;
+      const posted=await api('POST','/production/cutting-batches',Object.assign({},window._scLast,{idempotency_key:newCutIdemKey()}));
+      showToast('برش '+((posted&&posted.batch_no)||'')+' ثبت شد');
+      loadAccTab('cutting-lays');
+    }catch(e){ showToast(e.message||'خطا','error'); }
   };
 }
 async function renderCuttingLaysTab(body){
@@ -30266,6 +30308,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v382 دروازهٔ ترتیبی مسیر ۶مرحله‌ای:</b> ورود به مراحل ۲…۶ فقط با تکمیل پیش‌نیازها.
           <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v411 اتصال لایه‌چینی → مرحلهٔ برش:</b> وقتی لایه‌چینی به سفارش پیشرفته پیوند دارد، سرور مرحلهٔ برش مسیر (CC-10 / نام «برش» / اولین مرحلهٔ پارچه) را پیدا می‌کند، مصرف پارچه را روی همان مرحله ثبت می‌کند، مرحله را تکمیل می‌کند و مرحلهٔ بعد را باز می‌کند (دستمزد/سربار مرحله از نرخ مسیر). ابطال/ویرایش لایه همان اتصال را با R13 برمی‌گرداند. پارچه دوباره در حوالهٔ مرحله حواله نمی‌شود.
+          <br><b>برش مشترک (پرچم production_shared_cut):</b> یک یا چند محصول روی یک قد الگو. سهم ریال و متر هر مدل از «قطعه در هر لایه» است. باقیمانده تا آستانه (پیش‌فرض بیشترینِ ۱٫۲۰ متر و ۲۰٪ قد الگو، قابل تنظیم) ته‌طاقه است؛ بیشتر از آستانه به همان طاقه برمی‌گردد. مراحل بعد از برش برای هر محصول جداست.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>
