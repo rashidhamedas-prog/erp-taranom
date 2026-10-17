@@ -1,3 +1,12 @@
+## 2026-10-18 — PROD-CUT-MP01 shared cut (flag off, SW v426)
+
+- Stale claim: PROD-ACC-PA02 (2026-10-01) still listed cutting/schema/posting/public. Released those claims for this task. Notify PROD-ACC owner. Did not edit `capture.js` or `android-native/**` (ANDROID-NATIVE-SALES).
+- Did not deploy: parent commit on this checkout is AR-OPENING-MIRROR, whose own note forbids production deploy.
+- ADR: `docs/architecture/PROD-CUT-ADR-005-shared-cut.md`.
+- Invariant: legacy lays keep `batch_id` null. Shared post issues header-average rial for laid meters only. New labor absorption credits 5201 and does not write person_ledger. Historical person rows are listed by `dry-run-labor-person-payable.js` and are not rewritten.
+- Local gate: `test-prod-cut-shared.js` 14/0 pure; sqlite DB path skipped (Node 24 ABI).
+- Reviewer and Security are not signed. Flag stays off until that review and the Iran DB test.
+
 ﻿## 2026-10-17 — AR dashboard books vs tafsili (SW v424, not deployed)
 
 - Owner: skill-top full on Desktop `error.md` (مطالبات دفتر مشتری ≠ تفصیلی، حدود ۲٬۰۴۸٬۶۱۰٬۰۰۰).
@@ -6,6 +15,15 @@
 - Evidence (read-only backup `/tmp/ar-gap-v424.db` of company پوشاک ترنم): fold display 16,479,523,420 − leaf GL 14,430,913,420 = 2,048,610,000. creditor delta 0. orphan reclass 0. The whole delta is customer 67 ledger row 71. JE 11 remains 1,332,830,000. No journal line equals 2,048,610,000.
 - Iran temp tree: red FAIL on old delete; green 19/0; sms 22/0. Production crm.db and the running process were not modified. GET `/accounting/overview` was not called (it runs repairs).
 - Next: owner authorizes deploy. Dry-run already counted 1 ledger row (id 71). Rollback is reinsert of that row. Do not post a balancing journal.
+
+## 2026-10-18 — Accounting base ops invariants (SW v425)
+
+- Owner: skill-top full on Desktop `asnad.md`. No production deploy and no live data repair.
+- Stale claim: PROD-ACC-PA02 still lists `server/db.js` and `server/public/{app.js,index.html,sw.js}`. Reclaimed only for fiscal/COA/voucher/detail/cost-center guards, help, SW v425. Did not edit `server/sync/capture.js` (ANDROID-NATIVE-SALES).
+- Proven fixes: locked-year activate, single open year, no NULL fiscal_year_id on delete, inactive COA/detail edit, movement lock on type/parent, unique cost-center codes, voucher amount/doc_type/idempotency, template line whitelist, audit list includes reversed, settlements vouchers read-only, excel journal commit is server-trusted.
+- Tests: `node server/scripts/test-acc-base-ops-v425.js` 26/0. Host sqlite ABI not exercised. `check-audit-waivers` still fails on pre-existing deps.
+- Reviewer/Security: not a separate identity. Do not treat as Done.
+- Next: independent review, sqlite suite on Iran runtime, then decide deploy. Notify PROD-ACC owner.
 
 ## 2026-10-10 — ADR-003 production accounting P0–P3 implement (SW v336)
 

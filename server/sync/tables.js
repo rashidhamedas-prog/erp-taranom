@@ -245,6 +245,11 @@ const SYNCABLE_TABLES = [
   // Payroll Wave4 — installment loans (append-only)
   { name: 'payroll_loans',                     upsertKey: 'id' },
   { name: 'payroll_loan_installments',         upsertKey: 'id' },
+  // Shared cut batch (append-only)
+  { name: 'cutting_batches',                   upsertKey: 'id' },
+  { name: 'cutting_batch_outputs',             upsertKey: 'id' },
+  { name: 'cutting_batch_allocations',         upsertKey: 'id' },
+  { name: 'cutting_remnant_rules',             upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -577,6 +582,17 @@ const FK_COLUMNS = [
   ['payroll_loans', 'cash_box_id'],
   ['payroll_loan_installments', 'loan_id'],
   ['payroll_loan_installments', 'payroll_record_id'],
+  ['cutting_batches', 'bom_id'],
+  ['cutting_batches', 'fabric_product_id'],
+  ['cutting_batches', 'journal_id'],
+  ['cutting_batches', 'lay_id'],
+  ['cutting_batch_outputs', 'batch_id'],
+  ['cutting_batch_outputs', 'product_id'],
+  ['cutting_batch_allocations', 'batch_id'],
+  ['cutting_batch_allocations', 'product_id'],
+  ['cutting_remnant_rules', 'fabric_product_id'],
+  ['cutting_remnant_rules', 'warehouse_id'],
+  ['cutting_lays', 'batch_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

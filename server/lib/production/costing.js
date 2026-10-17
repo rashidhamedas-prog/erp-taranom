@@ -324,6 +324,7 @@ module.exports = {
   reverseReceiptStock,
   recalcAvgOnReturn,
   setting,
+  avgUnitRial,
   getWhQty,
   ensureWhRow,
   allowNegative,

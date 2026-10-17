@@ -123,11 +123,13 @@ const isOn = v => v === '1' || v === 1 || v === true;
 const WH_KEYS = new Set([
   'production_wh_raw_id', 'production_wh_fg_id', 'production_wh_wip_id',
   'production_wh_sub_id', 'production_wh_scrap_id', 'production_wh_dist_id',
+  'production_wh_remnant_id',
 ]);
 const BOOL_KEYS = new Set([
   'production_auto_post_je', 'production_backflush_on_receipt',
   'production_allow_negative_stock', 'production_module_enabled',
   'production_period_auto_open', 'overhead_auto_suggest',
+  'production_shared_cut',
 ]);
 const NUM_KEYS = new Set([
   'overhead_fixed_rate', 'overhead_period_production_qty',
@@ -136,6 +138,7 @@ const NUM_KEYS = new Set([
   'production_oh_bootstrap_months', 'production_mrp_horizon_days',
   'production_variance_reason_threshold_pct', 'production_margin_percent',
   'pricing_margin_percent',
+  'production_roll_balance_tolerance_m', 'production_remnant_min_m', 'production_remnant_ratio',
 ]);
 
 router.put('/config', auth, adminOrAccounting, (req, res) => {
