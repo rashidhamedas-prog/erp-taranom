@@ -9,6 +9,12 @@ const {
   outboundPaymentLines, outboundPaymentReversalLines,
 } = require('../lib/payment-bank-fee');
 const { todayJalali } = require('../jalali');
+const {
+  assertOutboundPayment, cashAccountForSource, withPaymentIdempotency, isPersonPaymentVoucher,
+} = require('../lib/cash-payment-contract');
+const {
+  parseVoucherAmount, normalizeDocType, sanitizeTemplateLine, nextNumericCode, coaStructureLocked,
+} = require('../lib/voucher-guards');
 const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
@@ -936,49 +942,60 @@ router.get('/incentive-payments', auth, adminOrAccounting, (req, res) => {
 router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   const { recordIncentivePaymentLedger, settleAdvancesAgainstPayment, notifyRep } = require('../lib/rep-ledger');
   const {
-    rep_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id,
-    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id,
+    rep_id, note, check_category_id, fee_cost_center_id, bank_fee_cost_center_id,
   } = req.body;
-  if (!rep_id || !amount) return res.status(400).json({ error: 'کارشناس و مبلغ الزامی است' });
-  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
+  if (!rep_id) return res.status(400).json({ error: 'کارشناس الزامی است' });
   const db = getDB();
-  let feeCcId = null;
   try {
-    feeCcId = resolveFeeCostCenterId(db, {
-      feeRial: fee, payType: pay_type || 'cash',
+    const spec = assertOutboundPayment(db, req.body);
+    const rep = db.prepare('SELECT id,name FROM users WHERE id=?').get(rep_id);
+    if (!rep) return res.status(404).json({ error: 'کارشناس یافت نشد' });
+    const feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: spec.fee, payType: spec.payType,
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
     });
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
-  const rep = db.prepare('SELECT id,name FROM users WHERE id=?').get(rep_id);
-  if (!rep) return res.status(404).json({ error: 'کارشناس یافت نشد' });
-  const paymentId = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO incentive_payments (rep_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(rep_id, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, feeCcId);
-    recordIncentivePaymentLedger(db, {
-      rep_id, amount: parseFloat(amount), date: date || todayJalali(), payment_id: result.lastInsertRowid, created_by: req.user.id
+    const out = withPaymentIdempotency(db, {
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/incentive-payments',
+    }, () => {
+      assertOutboundPayment(db, req.body);
+      const ids = [];
+      const cash = cashAccountForSource(db, spec);
+      const payable = coaAcct(db, 'coa_rep_commission_payable');
+      spec.amounts.forEach((amount, i) => {
+        const fee = i === 0 ? spec.fee : 0;
+        const result = db.prepare(
+          'INSERT INTO incentive_payments (rep_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        ).run(rep_id, amount, fee, spec.payType, spec.date, note || '', req.user.id, spec.bankId, check_category_id || null, spec.cashBoxId, i === 0 ? feeCcId : null);
+        const paymentId = result.lastInsertRowid;
+        recordIncentivePaymentLedger(db, {
+          rep_id, amount, date: spec.date, payment_id: paymentId, created_by: req.user.id,
+        });
+        if (req.body.settle_advances !== false) {
+          settleAdvancesAgainstPayment(db, rep_id, amount, paymentId, req.user.id);
+        }
+        const { lines } = outboundPaymentLines(db, {
+          amount, feeRial: fee, payType: spec.payType,
+          dest: payable, cash, feeCostCenterId: i === 0 ? feeCcId : null,
+        });
+        postToLedger(db, {
+          sourceType: 'incentive_payment', sourceId: paymentId,
+          date: spec.date, description: `پرداخت انگیزه فروش به ${rep.name}`, createdBy: req.user.id,
+          lines,
+        });
+        ids.push(paymentId);
+      });
+      return { id: ids[0], ids, ok: true, fee_rial: spec.fee };
     });
-    if (req.body.settle_advances !== false) {
-      settleAdvancesAgainstPayment(db, rep_id, parseFloat(amount), result.lastInsertRowid, req.user.id);
+    if (!out.replayed) {
+      audit(req.user.id, 'create', 'incentive_payment', out.id, `پرداخت انگیزه ${spec.amounts.join('+')} ریال به ${rep.name}`);
+      notifyRep(db, rep_id, `💵 انگیزه ${spec.amounts.reduce((a, b) => a + b, 0)} ریال به حساب شما پرداخت شد.`, req.user.id);
     }
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const payable = coaAcct(db, 'coa_rep_commission_payable');
-    const { lines } = outboundPaymentLines(db, {
-      amount: parseFloat(amount), feeRial: fee, payType: pay_type || 'cash',
-      dest: payable, cash, feeCostCenterId: feeCcId,
-    });
-    postToLedger(db, {
-      sourceType: 'incentive_payment', sourceId: result.lastInsertRowid,
-      date: date || todayJalali(), description: `پرداخت انگیزه فروش به ${rep.name}`, createdBy: req.user.id,
-      lines,
-    });
-    return result.lastInsertRowid;
-  })();
-  audit(req.user.id, 'create', 'incentive_payment', paymentId, `پرداخت انگیزه ${amount} ریال به ${rep.name}`);
-  notifyRep(db, rep_id, `💵 انگیزه ${amount} ریال به حساب شما پرداخت شد.`, req.user.id);
-  res.json({ id: paymentId, ok: true });
+    res.json(out);
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('incentive-payment', e);
+    res.status(status).json({ error: e.message || 'ثبت پرداخت انگیزه ناموفق بود', code: e.code });
+  }
 });
 
 // Delete an incentive payment
@@ -1271,18 +1288,20 @@ router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
       console.error('coa live sync:', e.message);
     }
   }
+  const includeInactive = req.query.include_inactive === '1' || req.query.include_inactive === 'true';
+  const activeSql = includeInactive ? '' : ' AND is_active=1';
   if (Object.prototype.hasOwnProperty.call(req.query, 'parent')) {
     const parent = String(req.query.parent ?? '');
     if (parent === '' || parent === '__root__') {
       return res.json(db.prepare(
-        'SELECT * FROM chart_of_accounts WHERE is_active=1 AND parent_code IS NULL ORDER BY code'
+        `SELECT * FROM chart_of_accounts WHERE parent_code IS NULL${activeSql} ORDER BY code`
       ).all());
     }
     return res.json(db.prepare(
-      'SELECT * FROM chart_of_accounts WHERE is_active=1 AND parent_code=? ORDER BY code'
+      `SELECT * FROM chart_of_accounts WHERE parent_code=?${activeSql} ORDER BY code`
     ).all(parent));
   }
-  const accounts = db.prepare('SELECT * FROM chart_of_accounts WHERE is_active=1 ORDER BY code').all();
+  const accounts = db.prepare(`SELECT * FROM chart_of_accounts WHERE 1=1${activeSql} ORDER BY code`).all();
   res.json(accounts);
 });
 
@@ -1341,6 +1360,9 @@ router.put('/chart-of-accounts/:code', auth, adminOrAccounting, (req, res) => {
       return res.status(400).json({ error: 'کد فرزند باید با پیشوند کد والد شروع شود' });
     }
   }
+  const movement = db.prepare('SELECT COUNT(*) c FROM journal_lines WHERE account_code=?').get(code)?.c || 0;
+  const locked = coaStructureLocked(row, req.body || {}, movement);
+  if (locked) return res.status(409).json(locked);
   db.prepare(`UPDATE chart_of_accounts SET name=?,type=?,parent_code=?,is_active=?,
     nature=COALESCE(?,nature), level=COALESCE(?,level), balance_type=COALESCE(?,balance_type),
     tafsili_type=COALESCE(?,tafsili_type) WHERE code=?`)
@@ -1600,8 +1622,8 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
     }
   }
   where.push('COALESCE(je.deleted_at,0)=0');
-  where.push("COALESCE(je.status,'posted')<>'reversed'");
   if (!includeAudit) {
+    where.push("COALESCE(je.status,'posted')<>'reversed'");
     // Hide technical alignment vouchers and leftover void titles from operational list.
     // char(8204)=ZWNJ so «هم‌ترازی» / «هم ترازی» / «همترازی» all match.
     where.push(
@@ -1933,7 +1955,12 @@ function validateAndBuildVoucherLines(db, lines) {
   const personPostings = [];
   const { resolvePersonIdFromVoucherLine } = require('../lib/party-turnover');
   for (const l of (lines || [])) {
-    const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
+    const debitParsed = parseVoucherAmount(l.debit);
+    const creditParsed = parseVoucherAmount(l.credit);
+    if (debitParsed.error) return debitParsed;
+    if (creditParsed.error) return creditParsed;
+    const debit = debitParsed.value;
+    const credit = creditParsed.value;
     if (debit && credit) return { error: 'هر ردیف فقط باید بدهکار یا بستانکار باشد، نه هر دو' };
     if (!debit && !credit) continue;
     const wantsPerson = !!(l.person_id || l.party_id || l.target_type === 'person');
@@ -2012,7 +2039,7 @@ router.put('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const id = +req.params.id;
   const entry = db.prepare(`
-    SELECT id, ref_type FROM journal_entries
+    SELECT id, ref_type, doc_type, description FROM journal_entries
     WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
   `).get(id);
   if (!entry) return res.status(404).json({ error: 'سند یافت نشد' });
@@ -2022,6 +2049,12 @@ router.put('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
     } = require('../lib/amend-cash-ops');
     let out;
     if (entry.ref_type === 'manual_voucher') {
+      if (!isPersonPaymentVoucher(db, entry)) {
+        return res.status(400).json({
+          error: 'این سند دستی پرداخت به شخص نیست. سندهای مبهم خودکار به پرداخت تبدیل نمی‌شوند.',
+          code: 'E_NOT_PERSON_PAYMENT',
+        });
+      }
       out = db.transaction(() => amendPersonVoucherPayment(db, id, req.body || {}, req.user.id))();
     } else if (entry.ref_type === 'account_payment') {
       out = db.transaction(() => amendAccountPayment(db, id, req.body || {}, req.user.id))();
@@ -2040,19 +2073,38 @@ router.put('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
-  const { date, description, doc_type, cost_center_id, lines, from_excel, src_system, voucher_type } = req.body;
+function postManualVoucher(db, user, body, opts) {
+  const options = opts || {};
+  const { date, description, doc_type, cost_center_id, lines, voucher_type } = body || {};
   if (!Array.isArray(lines) || lines.length < 2) {
-    return res.status(400).json({ error: 'سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد' });
+    const err = new Error('سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد');
+    err.status = 400;
+    throw err;
   }
-  const db = getDB();
+  const typed = normalizeDocType(doc_type || voucher_type || 'manual');
+  if (typed.error) {
+    const err = new Error(typed.error);
+    err.status = 400;
+    err.code = typed.code;
+    throw err;
+  }
   const built = validateAndBuildVoucherLines(db, lines);
-  if (built.error) return res.status(400).json({ error: built.error, code: built.code });
+  if (built.error) {
+    const err = new Error(built.error);
+    err.status = 400;
+    err.code = built.code;
+    throw err;
+  }
+  const requestKey = String(body.client_request_id || '').trim().slice(0, 80);
+  if (requestKey) {
+    const prev = db.prepare('SELECT id FROM journal_entries WHERE client_request_id=?').get(requestKey);
+    if (prev) return { id: prev.id, ok: true, replayed: true };
+  }
 
-  const rawType = String(doc_type || voucher_type || 'manual').toLowerCase().trim();
+  const rawType = typed.value;
   const OPENING_TYPES = new Set(['opening', 'افتتاحیه', 'opening_balance', 'مانده اول دوره', 'beginning_inventory', 'موجودی اول دوره', 'fiscal_opening']);
   const isOpening = OPENING_TYPES.has(rawType);
-  const fromExcel = !!(from_excel || src_system === 'excel');
+  const fromExcel = !!options.excelTrusted;
   // Excel-imported opening docs → opening+auto; pure manual form → manual; excel non-opening → auto
   let voucherType = 'manual';
   let sourceType = 'manual_voucher';
@@ -2068,7 +2120,7 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
     const entryId = postToLedger(db, {
       sourceType, sourceId: null, date: date || todayJalali(),
       description: description || (isOpening ? 'سند افتتاحیه' : (fromExcel ? 'سند وارداتی اکسل' : 'سند دستی')),
-      createdBy: req.user.id,
+      createdBy: user.id,
       voucherType,
       srcSystem: fromExcel ? 'excel' : null,
       docType: rawType || null,
@@ -2079,74 +2131,171 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
     });
     // Stamp self ref_id so party-turnover can XOR-dedup person_ledger against GL (same as account-payments)
     try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=? AND (ref_id IS NULL OR ref_id=0)').run(entryId, entryId); } catch (_) {}
-    if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
+    db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(rawType, entryId);
+    if (requestKey) {
+      db.prepare('UPDATE journal_entries SET client_request_id=? WHERE id=?').run(requestKey, entryId);
+    }
     for (const p of built.personPostings) {
       createPersonLedgerEntry(db, {
         person_id: p.person_id, date: date || '', entry_type: sourceType, ref_type: sourceType, ref_id: entryId,
-        description: p.description || description || 'سند', debit: p.debit, credit: p.credit, user_id: req.user.id
+        description: p.description || description || 'سند', debit: p.debit, credit: p.credit, user_id: user.id
       });
     }
     return entryId;
   })();
-  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند: ${description || ''}`);
-  res.json({ id: entryId, ok: true });
+  return { id: entryId, ok: true, replayed: false };
+}
+
+function postPartyPersonPayments(db, user, body) {
+  const spec = assertOutboundPayment(db, body || {});
+  const partyId = parseInt(body && body.party_id, 10);
+  if (!partyId) {
+    const err = new Error('شخص را انتخاب کنید');
+    err.status = 400;
+    err.code = 'E_PERSON';
+    throw err;
+  }
+  const { resolvePersonIdFromVoucherLine } = require('../lib/party-turnover');
+  const personId = resolvePersonIdFromVoucherLine(db, { party_id: partyId, target_type: 'person' });
+  const person = personId ? db.prepare('SELECT * FROM persons WHERE id=?').get(personId) : null;
+  if (!person) {
+    const err = new Error('شخص در فهرست اشخاص یافت نشد');
+    err.status = 400;
+    err.code = 'E_PERSON';
+    throw err;
+  }
+  let personAccount = null;
+  if (person.coa_code) {
+    personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(person.coa_code);
+  }
+  if (!personAccount && person.party_id) {
+    const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(person.party_id);
+    if (party && party.coa_code) {
+      personAccount = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
+    }
+  }
+  if (!personAccount) personAccount = coaAcct(db, 'coa_misc_persons');
+  const feeCcId = resolveFeeCostCenterId(db, {
+    feeRial: spec.fee, payType: spec.payType,
+    feeCostCenterId: parseFeeCostCenterInput(body),
+    documentCostCenterId: body.cost_center_id,
+  });
+  return withPaymentIdempotency(db, {
+    key: body.idempotency_key, userId: user.id, path: '/api/accounting/vouchers#person_payment',
+  }, () => {
+    assertOutboundPayment(db, body || {});
+    const ids = [];
+    const cash = cashAccountForSource(db, spec);
+    const note = body.note || body.description || 'پرداخت به شخص';
+    spec.amounts.forEach((amount, i) => {
+      const fee = i === 0 ? spec.fee : 0;
+      const { lines } = outboundPaymentLines(db, {
+        amount, feeRial: fee, payType: spec.payType,
+        dest: personAccount, cash, destDescription: 'پرداخت به شخص',
+        feeCostCenterId: i === 0 ? feeCcId : null,
+      });
+      const entryId = postToLedger(db, {
+        sourceType: 'manual_voucher', sourceId: null,
+        date: spec.date, description: note, createdBy: user.id,
+        voucherType: 'manual', docType: 'person_payment',
+        costCenterId: feeCcId || body.cost_center_id || null,
+        lines,
+      });
+      db.prepare('UPDATE journal_entries SET ref_id=?, doc_type=? WHERE id=?').run(entryId, 'person_payment', entryId);
+      createPersonLedgerEntry(db, {
+        person_id: person.id, date: spec.date, entry_type: 'manual_voucher',
+        ref_type: 'manual_voucher', ref_id: entryId,
+        description: 'پرداخت به شخص', debit: amount, credit: 0, user_id: user.id,
+      });
+      ids.push(entryId);
+    });
+    return { id: ids[0], ids, ok: true, fee_rial: spec.fee, doc_type: 'person_payment' };
+  });
+}
+
+router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    if (String((req.body || {}).doc_type || '').trim() === 'person_payment') {
+      const out = postPartyPersonPayments(db, req.user, req.body || {});
+      if (!out.replayed) audit(req.user.id, 'create', 'person_payment', out.id, `پرداخت به شخص #${out.id}`);
+      return res.json(out);
+    }
+    const out = postManualVoucher(db, req.user, req.body || {}, { excelTrusted: false });
+    if (!out.replayed) audit(req.user.id, 'create', 'journal_voucher', out.id, `ثبت سند: ${(req.body && req.body.description) || ''}`);
+    res.json(out);
+  } catch (e) {
+    if (String(e.message || '').includes('idx_journal_client_request') || String(e.message || '').includes('client_request_id')) {
+      const key = String((req.body || {}).client_request_id || '').trim();
+      const prev = key ? db.prepare('SELECT id FROM journal_entries WHERE client_request_id=?').get(key) : null;
+      if (prev) return res.json({ id: prev.id, ok: true, replayed: true });
+    }
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 /** پرداخت به حساب کدینگ (همه سطوح) — Dr حساب مقصد [+ کارمزد 6115] / Cr صندوق یا بانک */
 router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
   const {
-    date, amount, account_code, pay_type, bank_id, cash_box_id, note,
-    fee_rial, bank_fee_rial, fee_cost_center_id, bank_fee_cost_center_id, cost_center_id,
+    account_code, note, fee_cost_center_id, bank_fee_cost_center_id, cost_center_id,
   } = req.body;
-  const amt = Math.round(Number(amount) || 0);
   const code = String(account_code || '').trim();
-  if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
   if (!code) return res.status(400).json({ error: 'حساب مقصد الزامی است' });
-  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
   const db = getDB();
-  let feeCcId = null;
   try {
-    feeCcId = resolveFeeCostCenterId(db, {
-      feeRial: fee, payType: pay_type || 'cash',
+    const spec = assertOutboundPayment(db, req.body);
+    const feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: spec.fee, payType: spec.payType,
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
       documentCostCenterId: cost_center_id,
     });
+    const posted = assertActiveAccount(db, code);
+    if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
+    const dest = posted.acc;
+    const out = withPaymentIdempotency(db, {
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/account-payments',
+    }, () => {
+      assertOutboundPayment(db, req.body);
+      const ids = [];
+      const cash = cashAccountForSource(db, spec);
+      const desc = note || `پرداخت به حساب ${dest.code} — ${dest.name}`;
+      spec.amounts.forEach((amount, i) => {
+        const fee = i === 0 ? spec.fee : 0;
+        const { lines } = outboundPaymentLines(db, {
+          amount, feeRial: fee, payType: spec.payType, dest, cash,
+          feeCostCenterId: i === 0 ? feeCcId : null,
+        });
+        const id = postToLedger(db, {
+          sourceType: 'account_payment', sourceId: null,
+          date: spec.date, description: desc, createdBy: req.user.id,
+          costCenterId: cost_center_id || feeCcId || null,
+          lines,
+        });
+        try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(id, id); } catch (_) {}
+        mirrorAccountVoucherToPartyBooks(db, {
+          entryId: id, accountCode: dest.code, date: spec.date, amountRial: amount,
+          userId: req.user.id, note: desc, direction: 'payment',
+        });
+        ids.push(id);
+      });
+      return { id: ids[0], ids, ok: true, fee_rial: spec.fee };
+    });
+    if (!out.replayed) {
+      audit(req.user.id, 'create', 'account_payment', out.id, `پرداخت ${spec.amounts.join('+')} به حساب ${code}`);
+      try {
+        const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+        setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+          name: dest.name, amount: spec.amounts.reduce((a, b) => a + b, 0), date: spec.date, note: note || '', num: dest.code,
+          created_by: req.user.id, user: req.user.name,
+        }));
+      } catch (_) {}
+    }
+    res.json(out);
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    const status = e.status || 500;
+    if (status >= 500) console.error('account-payment', e);
+    res.status(status).json({ error: e.message || 'ثبت پرداخت به حساب ناموفق بود', code: e.code });
   }
-  const posted = assertActiveAccount(db, code);
-  if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
-  const dest = posted.acc;
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-  const { lines } = outboundPaymentLines(db, {
-    amount: amt, feeRial: fee, payType: pay_type || 'cash', dest, cash,
-    feeCostCenterId: feeCcId,
-  });
-  const when = date || todayJalali();
-  const desc = note || `پرداخت به حساب ${dest.code} — ${dest.name}`;
-  const entryId = db.transaction(() => {
-    const id = postToLedger(db, {
-      sourceType: 'account_payment', sourceId: null,
-      date: when, description: desc, createdBy: req.user.id,
-      costCenterId: cost_center_id || feeCcId || null,
-      lines,
-    });
-    try { db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(id, id); } catch (_) {}
-    mirrorAccountVoucherToPartyBooks(db, {
-      entryId: id, accountCode: dest.code, date: when, amountRial: amt,
-      userId: req.user.id, note: desc, direction: 'payment',
-    });
-    return id;
-  })();
-  audit(req.user.id, 'create', 'account_payment', entryId, `پرداخت ${amt} به حساب ${code}`);
-  try {
-    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
-    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
-      name: dest.name, amount: amt, date: date || '', note: note || '', num: dest.code,
-      created_by: req.user.id, user: req.user.name,
-    }));
-  } catch (_) {}
-  res.json({ id: entryId, ok: true, fee_rial: fee });
 });
 
 /** دریافت به حساب کدینگ — Dr صندوق/بانک / Cr حساب مبدأ */
@@ -2267,8 +2416,9 @@ router.post('/vouchers/templates', auth, adminOrAccounting, (req, res) => {
   if (!name) return res.status(400).json({ error: 'نام قالب الزامی است' });
   if (!Array.isArray(lines) || lines.length < 2) return res.status(400).json({ error: 'قالب باید حداقل دو ردیف داشته باشد' });
   const db = getDB();
+  const cleanLines = lines.map(sanitizeTemplateLine);
   const result = db.prepare('INSERT INTO journal_templates (name,description,lines_json,cost_center_id,created_by) VALUES (?,?,?,?,?)')
-    .run(name, description || '', JSON.stringify(lines), cost_center_id || null, req.user.id);
+    .run(name, description || '', JSON.stringify(cleanLines), cost_center_id || null, req.user.id);
   audit(req.user.id, 'create', 'journal_template', result.lastInsertRowid, `ساخت قالب سند: ${name}`);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
@@ -2610,10 +2760,16 @@ router.post('/cost-centers', auth, adminOrAccounting, (req, res) => {
   const { name, code, entity, parent_id } = req.body;
   if (!name) return res.status(400).json({ error: 'نام مرکز هزینه الزامی است' });
   const db = getDB();
-  let cc = code || '';
+  let cc = String(code || '').trim();
   if (!cc) {
-    const n = (db.prepare('SELECT COUNT(*) c FROM cost_centers').get().c || 0) + 1;
-    cc = 'CC-' + String(n).padStart(3, '0');
+    const existing = db.prepare("SELECT code FROM cost_centers WHERE code LIKE 'CC-%'").all().map((r) => r.code);
+    cc = nextNumericCode(existing, 'CC-');
+    while (db.prepare('SELECT 1 FROM cost_centers WHERE code=?').get(cc)) {
+      existing.push(cc);
+      cc = nextNumericCode(existing, 'CC-');
+    }
+  } else if (db.prepare('SELECT 1 FROM cost_centers WHERE code=?').get(cc)) {
+    return res.status(409).json({ error: 'کد مرکز هزینه تکراری است', code: 'E_CC_CODE' });
   }
   let parentId = null;
   try { parentId = costCenterParentId(db, parent_id, null); }
@@ -2637,8 +2793,13 @@ router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
     try { parentId = costCenterParentId(db, parent_id, req.params.id); }
     catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
   }
+  const nextCode = code != null ? String(code).trim() : String(row.code || '');
+  if (nextCode) {
+    const dup = db.prepare('SELECT id FROM cost_centers WHERE code=? AND id<>?').get(nextCode, row.id);
+    if (dup) return res.status(409).json({ error: 'کد مرکز هزینه تکراری است', code: 'E_CC_CODE' });
+  }
   db.prepare('UPDATE cost_centers SET name=?,code=?,active=?,entity=?,parent_id=? WHERE id=?')
-    .run(name, code || '', active ? 1 : 0, entity ?? '', parentId, req.params.id);
+    .run(name, nextCode, active ? 1 : 0, entity ?? '', parentId, req.params.id);
   res.json({ ok: true });
 });
 /** Whitelisted probes for cost-center delete (table, column, Persian label).
@@ -2782,6 +2943,7 @@ router.delete('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+module.exports.postManualVoucher = postManualVoucher;
 // Shared with the B2B portal (routes/b2b.js) so customers see the exact same
 // statement the accounting module produces.
 module.exports.buildStatement = buildStatement;

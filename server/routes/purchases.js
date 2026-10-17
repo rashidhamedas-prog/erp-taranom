@@ -1015,69 +1015,86 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
 
 router.post('/payments', auth, adminOrAccounting, (req, res) => {
   const {
-    supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id,
-    check_category_id, cash_box_id, account_code, fee_rial, bank_fee_rial,
+    supplier_id, purchase_invoice_id, note, check_category_id, account_code,
     fee_cost_center_id, bank_fee_cost_center_id,
   } = req.body;
-  if (!supplier_id || !amount) return res.status(400).json({ error: 'تأمین‌کننده و مبلغ الزامی است' });
-  const fee = parseFeeRial(fee_rial ?? bank_fee_rial, pay_type || 'cash');
+  if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
-  let feeCcId = null;
   try {
-    feeCcId = resolveFeeCostCenterId(db, {
-      feeRial: fee, payType: pay_type || 'cash',
+    const {
+      assertOutboundPayment, cashAccountForSource, withPaymentIdempotency,
+    } = require('../lib/cash-payment-contract');
+    const { assertPurchaseRoom } = require('../lib/amend-cash-ops');
+    const spec = assertOutboundPayment(db, req.body);
+    const feeCcId = resolveFeeCostCenterId(db, {
+      feeRial: spec.fee, payType: spec.payType,
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
     });
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
-  const payId = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), fee, pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32), feeCcId);
-    const payId = result.lastInsertRowid;
-
-    createSupplierLedgerEntry(db, {
-      supplier_id, date: date || todayJalali(), entry_type: 'payment', ref_type: 'supplier_payment', ref_id: payId,
-      description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} ریال`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
-    });
-    let cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const cash = cashAccountForSource(db, spec);
     const overrideCode = String(account_code || '').trim();
-    if (overrideCode) {
-      const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
-      if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+    if (overrideCode && overrideCode !== cash.code) {
+      return res.status(400).json({
+        error: 'حساب معین با صندوق یا بانک انتخاب‌شده یکی نیست و نادیده گرفته نمی‌شود',
+        code: 'E_PAY_SOURCE',
+      });
     }
-    const payable = payableAcct(db, supplier_id);
-    const { lines } = outboundPaymentLines(db, {
-      amount: parseFloat(amount), feeRial: fee, payType: pay_type || 'cash',
-      dest: payable, cash, feeCostCenterId: feeCcId,
+    const out = withPaymentIdempotency(db, {
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/purchases/payments',
+    }, () => {
+      assertOutboundPayment(db, req.body);
+      const ids = [];
+      const payable = payableAcct(db, supplier_id);
+      spec.amounts.forEach((amount, i) => {
+        const fee = i === 0 ? spec.fee : 0;
+        if (purchase_invoice_id) {
+          assertPurchaseRoom(db, purchase_invoice_id, 0, supplier_id, amount, 'supplier');
+        }
+        const result = db.prepare(
+          'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,fee_rial,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code,fee_cost_center_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).run(supplier_id, purchase_invoice_id || null, amount, fee, spec.payType, spec.date, note || '', req.user.id, spec.bankId, check_category_id || null, spec.cashBoxId, cash.code, i === 0 ? feeCcId : null);
+        const payId = result.lastInsertRowid;
+        createSupplierLedgerEntry(db, {
+          supplier_id, date: spec.date, entry_type: 'payment', ref_type: 'supplier_payment', ref_id: payId,
+          description: `پرداخت به تأمین‌کننده — ${amount.toLocaleString('fa-IR')} ریال`, debit: amount, credit: 0, user_id: req.user.id,
+        });
+        const { lines } = outboundPaymentLines(db, {
+          amount, feeRial: fee, payType: spec.payType,
+          dest: payable, cash, feeCostCenterId: i === 0 ? feeCcId : null,
+        });
+        postToLedger(db, {
+          sourceType: 'supplier_payment', sourceId: payId,
+          date: spec.date, description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
+          lines,
+        });
+        ids.push(payId);
+      });
+      return { id: ids[0], ids, ok: true, fee_rial: spec.fee };
     });
-    postToLedger(db, {
-      sourceType: 'supplier_payment', sourceId: payId,
-      date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
-      lines,
-    });
-    return payId;
-  })();
-
-  if (purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
-  audit(req.user.id, 'create', 'supplier_payment', payId, `پرداخت ${amount} ریال به تأمین‌کننده`);
-  try {
-    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
-    const sup = db.prepare('SELECT name,phone,party_group_id FROM suppliers WHERE id=?').get(supplier_id)
-      || db.prepare('SELECT full_name as name, phone, party_group_id FROM parties WHERE id=?').get(supplier_id);
-    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
-      phone: sup?.phone,
-      name: sup?.name,
-      amount,
-      date: date || '',
-      note: note || '',
-      party_group_id: sup?.party_group_id,
-      created_by: req.user.id,
-      user: req.user.name,
-    }));
-  } catch (_) {}
-  res.json({ id: payId, ok: true });
+    if (purchase_invoice_id) recomputePurchaseInvoiceSettledBalances(db, purchase_invoice_id);
+    if (!out.replayed) {
+      audit(req.user.id, 'create', 'supplier_payment', out.id, `پرداخت ${spec.amounts.join('+')} ریال به تأمین‌کننده`);
+      try {
+        const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+        const sup = db.prepare('SELECT name,phone,party_group_id FROM suppliers WHERE id=?').get(supplier_id)
+          || db.prepare('SELECT full_name as name, phone, party_group_id FROM parties WHERE id=?').get(supplier_id);
+        setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+          phone: sup?.phone,
+          name: sup?.name,
+          amount: spec.amounts.reduce((a, b) => a + b, 0),
+          date: spec.date,
+          note: note || '',
+          party_group_id: sup?.party_group_id,
+          created_by: req.user.id,
+          user: req.user.name,
+        }));
+      } catch (_) {}
+    }
+    res.json(out);
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('supplier-payment', e);
+    res.status(status).json({ error: e.message || 'ثبت پرداخت تأمین‌کننده ناموفق بود', code: e.code });
+  }
 });
 
 router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
