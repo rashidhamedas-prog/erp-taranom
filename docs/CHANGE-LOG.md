@@ -12,8 +12,8 @@
 - **مدل:** `cutting_batches` / outputs / allocations / remnant rules؛ `cutting_lays.batch_id` خالی برای لایه‌های قدیمی. ایندکس بستهٔ زنده `(lay_id, product_id)`. پرچم `production_shared_cut` پیش‌فرض خاموش.
 - **حساب:** PRD-01 فقط متر پهن‌شده با میانگین سرآیند. PRD-09 اتلاف طولی. PACK این مسیر WIP است. سند جدید دستمزد `person_ledger` نمی‌نویسد. بستن دوره طاقهٔ نامتوازن، نرخ مرکزِ استفاده‌شده، و معین مشترک بالای ۱۰۰٪ را رد می‌کند. تعدیل بهای تکراری با همان دوره سند تازه نمی‌سازد.
 - **فایل‌ها:** `lib/production/{shared-cut,schema,cutting,labor,close,costing,cost-revaluation}.js`, `routes/production-shared-cut.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-prod-cut-shared.js`, `scripts/dry-run-labor-person-payable.js`, `docs/architecture/PROD-CUT-ADR-005-shared-cut.md`, CHANGE-LOG.
-- **تست:** محلی بدون sqlite ۱۴/۰ روی اعداد طلایی (۷۵٫۸۰، آستانه ۱٫۲۰/۱٫۲۱، قطعات ۴۸/۹۶، جمع ریال). مسیر دیتابیس روی Node 24 به‌خاطر ABI بهتر-sqlite رد شد و باید روی ایران اجرا شود.
-- **Deploy:** ✅ `2a1d7885` — همراه همین overlay. پرچم `production_shared_cut` پیش‌فرض خاموش ماند. SW `erp-taranom-v427`.
+- **تست:** محلی بدون sqlite ۱۴/۰ روی اعداد طلایی. روی ایران `test-prod-cut-shared` ۳۴/۰ (۷۵٫۸۰، آستانه ۱٫۲۰/۱٫۲۱، قطعات ۴۸/۹۶، یک PRD-01، دو بسته، ابطال و برگشت ۷۹ متر).
+- **Deploy:** ✅ `47a4ace9` — overlay ایران (درخت git سرور کثیف بود، pull نشد)؛ `pm2 restart` بدون `--update-env`؛ ready=200 و `image_engine` sharp 0.33.5. پرچم `production_shared_cut` پیش‌فرض خاموش ماند. SW `erp-taranom-v427`.
 
 ### ۱۴۰۵/۰۷/۲۶ — سخت‌کردن اطلاعات پایه و سند دستی حسابداری (SW v425)
 - **هدف:** ایرادهای اثبات‌شدهٔ دوره مالی، کدینگ، تفصیلی، مرکز هزینه، سند دستی، قالب، فهرست ابطال و دسترسی دریافت‌وپرداخت. موتور بستن/تسعیر خودکار اضافه نشد.
