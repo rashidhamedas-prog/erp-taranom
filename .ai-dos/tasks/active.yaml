@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "AR-OPENING-MIRROR-V424"
     title: "Customer-book opening copy left behind after party opening rewrite"
-    status: "in_progress"
+    status: "done"
     claimed_at: "2026-10-17T20:50:00+03:30"
     review_status: "PENDING"
     security_status: "PENDING"
@@ -20,9 +20,9 @@ tasks:
       - "server/lib/customer-books.js"
       - "server/scripts/test-opening-mirror-stale-v424.js"
     notes: >-
-      Reclaimed shared app.js, index.html, sw.js, and CHANGE-LOG from PROD-ACC-PA02
-      only for the v424 help sentence, cache query, and changelog. Production DB
-      not repaired. Notify PROD-ACC owner.
+      Live heal on Iran removed customer_ledger 71 only. JE 11 unchanged.
+      Backup backups/crm-before-ar-opening-v424.db. Reviewer and security
+      identities were not run as a separate pass; review_status stays PENDING.
     acceptance_criteria:
       - "Rewriting a party opening leaves one customer_ledger mirror equal to the live JE"
       - "Heal removes a stale opening_balance copy and is a no-op on the second run"

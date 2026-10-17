@@ -4,8 +4,8 @@
 - **رفع:** `deleteCustomerOpeningMirrors` هر دو `opening` و `opening_balance` را در ثبت/صفر کردن افتتاحیه برمی‌دارد. heal `repairStaleCustomerOpeningMirrors` فقط ردیف دفترِ ناهماهنگ با سند زنده را حذف می‌کند و سند را بازنویسی نمی‌کند؛ اجرای دوباره صفر است. کپی `opening_balance` که مبلغش با سند زنده یکی است می‌ماند.
 - **فایل‌ها:** `lib/{opening-post,customer-books}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-opening-mirror-stale-v424.js`, CHANGE-LOG.
 - **تست:** ایران (کپی موقت، نه `crm.db`) قرمز با حذف فقط `opening` → `FAIL one customer opening row` (ردیف ۲٬۰۴۸٬۶۱۰٬۰۰۰ + آینهٔ ۱٬۳۳۲٬۸۳۰٬۰۰۰). سبز `test-opening-mirror-stale-v424` ۱۹/۰ + `test-sms` ۲۲/۰. میزبان ویندوز better-sqlite3 ABI ندارد.
-- **اثر داده:** در صورت استقرار، اولین GET overview یک ردیف را حذف می‌کند: `customer_ledger.id=71`. سند JE 11 و بقیهٔ مشتریان عوض نمی‌شوند. بازگشت = درج دوبارهٔ همان ردیف. استقرار انجام نشد.
-- **Deploy:** ⏳ بدون تعمیر production — منتظر مجوز. SW محلی `erp-taranom-v424`.
+- **اثر داده:** heal زنده فقط `customer_ledger.id=71` را حذف کرد. سند JE 11 و بقیهٔ مشتریان عوض نشدند. بازگشت = درج دوبارهٔ همان ردیف از پشتیبان.
+- **Deploy:** ✅ `21c5354d` — overlay ایران `opening-post.js` + `customer-books.js`؛ پشتیبان `backups/crm-before-ar-opening-v424.db`؛ dry-run و اعمال زنده فقط حذف `customer_ledger` #71؛ JE 11 همان ۱٬۳۳۲٬۸۳۰٬۰۰۰ ماند. بعد از heal اختلاف دفتر/تفصیلی = ۰. `pm2 restart` بدون `--update-env`؛ ready=200 + sharp. راهنما و SW روی سرور `erp-taranom-v424`. آزمون دوباره ۱۹/۰.
 
 
 - **هدف:** همهٔ FGهای یک فرمول هم‌رتبه «محصول اصلی» باشند؛ مفهوم هم‌محصول/co حذف شود؛ حواله/رسید/سفارش/تسهیم با peer mains سازگار شود.
