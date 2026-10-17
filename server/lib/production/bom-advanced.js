@@ -629,6 +629,7 @@ function ensureShareOutputs(db, bomId, {
   peerProductIds = null,
   mainProductIds = null,
   autoShare: method = null,
+  outputQtys = null,
 } = {}) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -638,9 +639,18 @@ function ensureShareOutputs(db, bomId, {
   const existing = new Set(
     db.prepare('SELECT product_id FROM bom_outputs WHERE bom_id=?').all(bomId).map(r => Number(r.product_id))
   );
+  const qtyByProduct = new Map();
+  for (const row of outputQtys || []) {
+    const pid = Number(row?.product_id ?? row?.id);
+    if (!pid) continue;
+    const q = Number(row.qty_per_base);
+    if (!(q > 0)) throw err('E_VALIDATION', 400, { field: 'qty_per_base', product_id: pid });
+    qtyByProduct.set(pid, q);
+  }
   const peers = (peerProductIds || mainProductIds || coProductIds || [])
     .map(Number).filter(n => n && n !== mainPid);
   for (const pid of peers) {
+    const q = qtyByProduct.get(pid) || 1;
     if (existing.has(pid)) {
       // Promote legacy co row if still present
       db.prepare(`
@@ -652,9 +662,15 @@ function ensureShareOutputs(db, bomId, {
     db.prepare(`
       INSERT INTO bom_outputs
         (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
-      VALUES (?,?, 'main', 1, 'share', 0, 0)
-    `).run(bomId, pid);
+      VALUES (?,?, 'main', ?, 'share', 0, 0)
+    `).run(bomId, pid, q);
     existing.add(pid);
+  }
+  for (const [pid, q] of qtyByProduct) {
+    db.prepare(`
+      UPDATE bom_outputs SET qty_per_base=?
+      WHERE bom_id=? AND product_id=? AND output_type IN ('main','co')
+    `).run(q, bomId, pid);
   }
   if (peers.length) {
     db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);

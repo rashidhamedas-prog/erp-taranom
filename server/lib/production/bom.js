@@ -671,7 +671,7 @@ function createBom(db, body, userId) {
         body.base_qty != null ? body.base_qty : 1, body.unit_id || null,
         body.valid_from || '', body.valid_to || '', body.is_default ? 1 : 0,
         body.is_multilevel ? 1 : 0, body.has_routing ? 1 : 0, body.has_coproducts ? 1 : 0,
-        body.yield_percent != null ? body.yield_percent : 100,
+        body.has_routing ? 100 : (body.yield_percent != null ? body.yield_percent : 100),
         body.size_range || '', body.color_variant || '', body.color_id || null,
         body.note || '', userId || null
       );
@@ -684,12 +684,14 @@ function createBom(db, body, userId) {
     const extraProducts = Array.isArray(peerSrc)
       ? peerSrc.map(Number).filter(n => n && n !== Number(productId))
       : [];
-    if (body.has_coproducts || extraProducts.length) {
+    const outputQtys = body.main_outputs || body.output_qtys || null;
+    if (body.has_coproducts || extraProducts.length || (Array.isArray(outputQtys) && outputQtys.length)) {
       const { ensureShareOutputs } = require('./bom-advanced');
       ensureShareOutputs(db, id, {
         mainProductId: productId,
         peerProductIds: extraProducts,
         autoShare: body.auto_share_method || 'sales_value',
+        outputQtys,
       });
     }
     if (Array.isArray(body.lines)) {

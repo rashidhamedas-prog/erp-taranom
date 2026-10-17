@@ -14582,25 +14582,33 @@ function prodBomProductOpts(selected, filterFn){
 async function prodBomCreateModal(preProductId){
   await prodBomEnsureProducts();
   const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
-  window._pbCoProducts=[];
+  window._pbPeers=[];
   showModal('فرمول تولید جدید',`
     <ol class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:0 0 12px;padding-right:18px`)}">
-      <li>این فرم فقط استاندارد است: محصولات، مواد، مسیر و سهم هزینه.</li>
-      <li>قد الگو، لایه، ته‌طاقه و سهم متر هر مدل بعداً در لایه‌چینی ثبت می‌شود.</li>
+      <li>نام، مقدار پایه و بازده مال کل دستور است؛ برای هر محصول جدا تکرار نمی‌شود.</li>
+      <li>تعداد هر محصول اصلی نسبت به همان مقدار پایه است. قد الگو و قطعه در لایه مال لایه‌چینی است.</li>
       <li>بعد از پیش‌نویس، اقلام و مسیر را کامل کنید و سپس فعال کنید.</li>
     </ol>
+    <h4 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:14px`)}">شناسنامهٔ فرمول</h4>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">این بخش مقیاس کل دستور است. مواد و خروجی‌ها همه بر همین مخرج تقسیم می‌شوند.</p>
     <div class="form-grid">
-      <div class="fg"><label>محصول اصلی اول (لنگر مقیاس) *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
-      <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
-      <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
-      <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
-      <div class="fg"><label><input type="checkbox" id="pb-routing" data-csp-style="${CSP.style(`width:auto`)}"> مسیر عملیات (چندمرحله‌ای)</label></div>
-      <div class="fg"><label><input type="checkbox" id="pb-multi" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){const box=el('pb-multi-box'); if(box) box.hidden=!el('pb-multi')?.checked})}"> چند محصول با یک برش مشترک</label></div>
+      <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً برش مشترک بلوز و دامن"></div>
+      <div class="fg"><label>مقدار پایهٔ فرمول</label><input id="pb-base" type="number" min="0.001" step="any" value="1" title="مخرج مشترک. معمولاً ۱."></div>
+      <div class="fg"><label>بازده فرآیند٪</label><input id="pb-yield" type="number" min="1" max="100" value="100" title="ضایعات کل دستور، فقط وقتی مسیر عملیات خاموش است."></div>
+      <div class="fg"><label><input type="checkbox" id="pb-routing" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodBomCreateRoutingToggle()})}"> مسیر عملیات (چندمرحله‌ای)</label></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
+    </div>
+    <h4 data-csp-style="${CSP.style(`margin:14px 0 6px;font-size:14px`)}">محصولات اصلی</h4>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">لنگر فقط می‌گوید سفارش روی کدام محصول، بقیه را با نسبت تعداد مقیاس کند. تعداد هر ردیف، خروجی همان محصول در هر مقدار پایه است.</p>
+    <div class="form-grid">
+      <div class="fg"><label>محصول لنگر مقیاس *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
+      <div class="fg"><label>تعداد لنگر نسبت به پایه</label><input id="pb-anchor-qty" type="number" min="0.001" step="any" value="1"></div>
+      <div class="fg full"><label><input type="checkbox" id="pb-multi" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){const box=el('pb-multi-box'); if(box) box.hidden=!el('pb-multi')?.checked})}"> چند محصول با یک برش مشترک</label></div>
       <div class="fg full" id="pb-multi-box" hidden data-csp-style="${CSP.style(`border:1px solid var(--border);padding:10px;border-radius:8px;background:var(--well)`)}">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">محصول دوم هم‌رتبه است. پارچهٔ مشترک را در اقلام «مشترک» بگذارید. درصد این‌جا سهم هزینه است؛ تعداد قطعه در هر لایه مال لایه‌چینی است.</p>
-        <label>محصولات اصلی دیگر</label>
-        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:6px`)}">
-          <div data-csp-style="${CSP.style(`flex:1;min-width:180px`)}">${productSelect('pb-co-pick','',(CACHE.allProducts||[]).filter(mfg))}</div>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">هر محصول اصلی تعداد خودش را دارد. پارچهٔ مشترک را بعداً در اقلام «مشترک» بگذارید. درصد این‌جا سهم هزینه است.</p>
+        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:end`)}">
+          <div data-csp-style="${CSP.style(`flex:1;min-width:180px`)}"><label>محصول اصلی دیگر</label>${productSelect('pb-co-pick','',(CACHE.allProducts||[]).filter(mfg))}</div>
+          <div><label>تعداد / پایه</label><input id="pb-co-qty" type="number" min="0.001" step="any" value="1" data-csp-style="${CSP.style(`width:110px`)}"></div>
           <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodBomCreateAddCo()})}">افزودن محصول اصلی</button>
         </div>
         <div id="pb-co-list" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">هنوز محصول اصلی دیگری اضافه نشده</div>
@@ -14608,10 +14616,9 @@ async function prodBomCreateModal(preProductId){
           <select id="pb-share-method"><option value="sales_value">ارزش فروش</option><option value="physical">فیزیکی (مقدار)</option><option value="none">بعداً دستی در تب خروجی‌ها</option></select>
         </div>
       </div>
-      <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
     </div>
     <div id="pb-create-ready" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}"></div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}">فعال‌سازی فقط با مشخصات ضروری همهٔ محصولات و اقلام مجاز است. اگر مسیر عملیات روشن باشد بازده باید ۱۰۰٪ بماند.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}">فعال‌سازی فقط با مشخصات ضروری همهٔ محصولات و اقلام مجاز است. با مسیر عملیات، بازده فرآیند روی ۱۰۰ می‌ماند و بازده هر مرحله جداگانه است.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateSave()})}">ایجاد پیش‌نویس</button>
@@ -14643,42 +14650,71 @@ function prodCompletenessBannerHtml(report, title){
     <ul data-csp-style="${CSP.style(`margin:6px 0 0;padding-right:18px`)}">${hardLis}${softLis}</ul>
   </div>`;
 }
+function prodBomCreateRoutingToggle(){
+  const on=!!el('pb-routing')?.checked;
+  const y=el('pb-yield');
+  if(!y) return;
+  if(on){ y.value='100'; y.disabled=true; }
+  else y.disabled=false;
+}
+function prodBomCreateSyncPeers(){
+  const next=(window._pbPeers||[]).map(row=>{
+    const inp=el('pb-peer-qty-'+row.id);
+    const q=inp?+inp.value:row.qty;
+    return {id:row.id, qty:(q>0?q:row.qty)||1};
+  });
+  window._pbPeers=next;
+  return next;
+}
 function prodBomCreateAddCo(){
+  prodBomCreateSyncPeers();
   const pid=+el('pb-co-pick')?.value;
   const main=+el('pb-product')?.value;
+  const qty=+el('pb-co-qty')?.value;
   if(!pid){ showToast('محصول را انتخاب کنید','error'); return; }
-  if(pid===main){ showToast('محصول اصلی تکراری است','error'); return; }
-  if(!window._pbCoProducts) window._pbCoProducts=[];
-  if(window._pbCoProducts.includes(pid)){ showToast('قبلاً اضافه شده','error'); return; }
-  window._pbCoProducts.push(pid);
+  if(!(qty>0)){ showToast('تعداد نسبت به پایه باید بزرگ‌تر از صفر باشد','error'); return; }
+  if(pid===main){ showToast('محصول لنگر را دوباره اضافه نکنید','error'); return; }
+  if(!window._pbPeers) window._pbPeers=[];
+  if(window._pbPeers.some(x=>Number(x.id)===pid)){ showToast('قبلاً اضافه شده','error'); return; }
+  window._pbPeers.push({id:pid, qty});
   prodBomCreateRenderCoList();
 }
 function prodBomCreateRenderCoList(){
   const box=el('pb-co-list');
   if(!box) return;
-  const ids=window._pbCoProducts||[];
-  if(!ids.length){ box.textContent='هنوز محصول اصلی دیگری اضافه نشده'; return; }
-  box.innerHTML=ids.map(id=>{
-    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(id));
-    return `<span class="chip" data-csp-style="${CSP.style(`display:inline-flex;gap:6px;align-items:center;margin:2px 4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px`)}">${esc(p?.name||('#'+id))}
-      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){window._pbCoProducts=(window._pbCoProducts||[]).filter(x=>x!==(id));prodBomCreateRenderCoList()})}">×</button></span>`;
+  const rows=window._pbPeers||[];
+  if(!rows.length){ box.textContent='هنوز محصول اصلی دیگری اضافه نشده'; return; }
+  box.innerHTML=rows.map(row=>{
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(row.id));
+    return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:4px 0`)}">
+      <span data-csp-style="${CSP.style(`flex:1`)}">${esc(p?.name||('#'+row.id))}</span>
+      <label class="muted">تعداد / پایه</label>
+      <input id="pb-peer-qty-${row.id}" type="number" min="0.001" step="any" value="${row.qty}" data-csp-style="${CSP.style(`width:90px`)}">
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodBomCreateSyncPeers();window._pbPeers=(window._pbPeers||[]).filter(x=>Number(x.id)!==(row.id));prodBomCreateRenderCoList()})}">×</button>
+    </div>`;
   }).join('');
 }
 async function prodBomCreateSave(){
   const product_id=+el('pb-product')?.value;
   if(!product_id){ showToast('محصول الزامی است','error'); return; }
+  const anchorQty=+el('pb-anchor-qty')?.value;
+  if(!(anchorQty>0)){ showToast('تعداد لنگر نسبت به پایه باید بزرگ‌تر از صفر باشد','error'); return; }
+  const baseQty=+el('pb-base')?.value;
+  if(!(baseQty>0)){ showToast('مقدار پایهٔ فرمول باید بزرگ‌تر از صفر باشد','error'); return; }
   const has_routing=!!el('pb-routing')?.checked;
   const has_multi=!!el('pb-multi')?.checked;
   let yield_percent=+el('pb-yield')?.value||100;
   if(has_routing) yield_percent=100;
-  const co_product_ids=has_multi?(window._pbCoProducts||[]).filter(id=>Number(id)!==product_id):[];
+  const peers=has_multi?prodBomCreateSyncPeers().filter(x=>Number(x.id)!==product_id):[];
+  const co_product_ids=peers.map(x=>x.id);
+  const main_outputs=[{product_id, qty_per_base:anchorQty}].concat(peers.map(x=>({product_id:x.id, qty_per_base:x.qty})));
   try{
     const r=await api('POST','/production/boms',{
       product_id, name:el('pb-name')?.value||'',
-      base_qty:+el('pb-base')?.value||1,
+      base_qty:baseQty,
       yield_percent, has_routing:has_routing?1:0,
       has_coproducts:has_multi||co_product_ids.length?1:0,
-      co_product_ids,
+      co_product_ids, main_outputs,
       auto_share_method:has_multi?(el('pb-share-method')?.value||'sales_value'):undefined,
       note:el('pb-note')?.value||'', is_default:1
     });
@@ -14837,12 +14873,12 @@ async function prodBomEditModal(id, tab){
     ${tabBar}
     ${panel}
     <details data-csp-style="${CSP.style(`margin-top:12px`)}">
-      <summary data-csp-style="${CSP.style(`cursor:pointer;font-size:13px`)}">شناسنامهٔ فرمول (نام، مقدار، بازده، رنگ)</summary>
+      <summary data-csp-style="${CSP.style(`cursor:pointer;font-size:13px`)}">شناسنامهٔ فرمول — نام، مقدار پایه و بازده مال کل دستور است</summary>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:8px`)}">
       <div class="fg"><label>محصول لنگر (مقیاس)</label><input value="${esc(prodName)}" disabled></div>
       <div class="fg"><label>نام</label><input id="pbe-name" value="${esc(bom.name||'')}" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
-      <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
+      <div class="fg"><label>مقدار پایهٔ فرمول</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
+      <div class="fg"><label>بازده فرآیند٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${!canBomEdit||bom.has_routing?'disabled':''}></div>
       ${multi?'':`<div class="fg"><label>محدوده سایز</label><input id="pbe-size-range" value="${esc(bom.size_range||'')}" placeholder="مثلاً 38-48" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>برچسب رنگ (یادداشت)</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" placeholder="مثلاً سبز — فقط متن" ${canBomEdit?'':'disabled'}></div>`}
       <div class="fg"><label>رنگ نسخه / دامنه مجاز ${hlp('از v278 می‌توانید چند رنگ×سایز مجاز را با API allowed-variants ذخیره کنید.')}</label><select id="pbe-color-id" ${canBomEdit?'':'disabled'}><option value="">— همه رنگ‌ها (سطح مدل) —</option></select></div>
@@ -30463,6 +30499,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد (یا فرمول ساعتی/ماهانه)، سند PRD-03 بدهکار WIP و بستانکار کنترل دستمزد ۵۲۰۱ است؛ بدهی شخص را فقط حقوق ثبت می‌کند، و شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. بدون شخص، بستانکار همان کنترل دستمزد ۵۲۰۱ می‌ماند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
+        <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. درصد خروجی سهم هزینه است؛ قطعه در هر لایه و قد الگو در لایه‌چینی است. تب بها فقط برآورد است و سند نمی‌زند.</li>
         <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات اصلی دیده می‌شود. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
