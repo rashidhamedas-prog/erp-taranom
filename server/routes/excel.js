@@ -837,6 +837,21 @@ function applyPlannedActions(db, user, entity, actions) {
   const created = [];
   const updated = [];
   const failed = [];
+  if (entity === 'journal-docs') {
+    const { postManualVoucher } = require('./accounting');
+    for (const a of actions) {
+      try {
+        const body = { ...(a.body || {}) };
+        delete body.from_excel;
+        delete body.src_system;
+        const r = postManualVoucher(db, user, body, { excelTrusted: true });
+        created.push({ id: r.id, label: a.label, replayed: !!r.replayed });
+      } catch (e) {
+        failed.push({ label: a.label || 'سند', error: e.message || 'خطای ثبت' });
+      }
+    }
+    return { created, updated, failed, server_applied: true };
+  }
   if (entity === 'products') {
     for (const a of actions) {
       try {
@@ -884,7 +899,7 @@ router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition
       duplicates: duplicates.slice(0, 50),
       updates: (updates || []).slice(0, 50),
       actions_count: actions.length, actions,
-      commit_supported: req.params.entity === 'products',
+      commit_supported: req.params.entity === 'products' || req.params.entity === 'journal-docs',
     });
   } catch (e) {
     res.status(400).json({ error: `خطا در اعتبارسنجی فایل: ${e.message}` });

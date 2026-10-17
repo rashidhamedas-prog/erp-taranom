@@ -86,7 +86,6 @@ const ACC_ITEMS = {
       '/api/accounting/account-receipts',
       '/api/accounting/incentive-payments',
       '/api/accounting/cash-ops',
-      '/api/accounting/vouchers',
       '/api/accounting/customers',
       '/api/accounting/suppliers',
       '/api/reps/payments',
@@ -96,6 +95,7 @@ const ACC_ITEMS = {
       '/api/expenses',
     ],
     readApis: [
+      '/api/accounting/vouchers',
       '/api/accounting/chart-of-accounts',
       '/api/accounting/coa',
       '/api/accounting/commissions',

@@ -6,7 +6,11 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 
 router.get('/categories', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  res.json(db.prepare('SELECT * FROM detail_categories WHERE is_active=1 ORDER BY code').all());
+  const includeInactive = req.query.include_inactive === '1';
+  const sql = includeInactive
+    ? 'SELECT * FROM detail_categories ORDER BY code'
+    : 'SELECT * FROM detail_categories WHERE is_active=1 ORDER BY code';
+  res.json(db.prepare(sql).all());
 });
 
 router.post('/categories', auth, adminOrAccounting, (req, res) => {
@@ -26,11 +30,12 @@ router.post('/categories', auth, adminOrAccounting, (req, res) => {
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { category, search } = req.query;
+  const includeInactive = req.query.include_inactive === '1';
   let sql = `
     SELECT d.*, dc.name AS category_name
     FROM detail_accounts d
     LEFT JOIN detail_categories dc ON dc.id=d.detail_category_id
-    WHERE d.is_active=1
+    WHERE ${includeInactive ? '1=1' : 'd.is_active=1'}
   `;
   const params = [];
   if (category) { sql += ' AND dc.code=?'; params.push(category); }
@@ -53,6 +58,31 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     res.json(db.prepare('SELECT * FROM detail_accounts WHERE id=?').get(r.lastInsertRowid));
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'کد تفضیلی تکراری است' });
+    throw e;
+  }
+});
+
+router.put('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM detail_accounts WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'تفصیلی یافت نشد' });
+  const { code, name, detail_category_id, linked_table, linked_id, is_active } = req.body || {};
+  if (!code || !name) return res.status(400).json({ error: 'کد و نام الزامی است' });
+  try {
+    db.prepare(`
+      UPDATE detail_accounts
+      SET code=?, name=?, detail_category_id=?, linked_table=?, linked_id=?, is_active=?
+      WHERE id=?
+    `).run(
+      String(code).trim(), String(name).trim(),
+      detail_category_id || null, linked_table || null, linked_id || null,
+      is_active === false || is_active === 0 ? 0 : 1,
+      row.id
+    );
+    audit(req.user.id, 'update', 'detail_account', row.id, code);
+    res.json(db.prepare('SELECT * FROM detail_accounts WHERE id=?').get(row.id));
+  } catch (e) {
+    if (String(e.message || '').includes('UNIQUE')) return res.status(409).json({ error: 'کد تفضیلی تکراری است' });
     throw e;
   }
 });

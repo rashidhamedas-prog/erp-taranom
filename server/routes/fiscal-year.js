@@ -7,6 +7,7 @@ const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { purgeTransactionalData, isWorkspaceClean } = require('../lib/clean-slate');
 const { requireUserPassword, pickConfirmPassword } = require('../lib/password-verify');
+const { activateDecision, deleteDecision } = require('../lib/fiscal-year-policy');
 
 function currentFiscalYear(db) {
   const activeId = db.prepare("SELECT value FROM settings WHERE key='active_fiscal_year_id'").get()?.value;
@@ -237,19 +238,22 @@ router.post('/open-clean', auth, adminOnly, centralOnly, async (req, res) => {
 router.post('/:id/activate', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const fy = db.prepare('SELECT * FROM fiscal_years WHERE id=?').get(req.params.id);
-  if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
+  const decision = activateDecision(fy, req.body);
+  if (!decision.ok) {
+    return res.status(decision.status).json({
+      error: decision.error,
+      code: decision.code,
+      data: decision.data,
+    });
+  }
   db.transaction(() => {
-    // Keep historical rows as closed/locked; only unlock if it was locked and user wants writable.
-    // Activating a closed year for *viewing/posting* sets it open and demotes other opens to closed.
     db.prepare("UPDATE fiscal_years SET status='closed' WHERE status='open' AND id<>?").run(fy.id);
-    const nextStatus = fy.status === 'locked' && !req.body?.unlock ? 'locked' : 'open';
-    if (nextStatus === 'open') {
-      db.prepare("UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL WHERE id=?").run(fy.id);
-    }
+    db.prepare("UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL WHERE id=?").run(fy.id);
     db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fy.id));
   })();
+  const saved = db.prepare('SELECT status FROM fiscal_years WHERE id=?').get(fy.id);
   audit(req.user.id, 'fiscal_activate', 'fiscal_year', fy.id, `فعال‌سازی سال ${fy.label}`);
-  res.json({ success: true, data: { id: fy.id, status: 'open', reload: true } });
+  res.json({ success: true, data: { id: fy.id, status: saved.status, reload: true } });
 });
 
 router.post('/:id/lock', auth, adminOnly, centralOnly, (req, res) => {
@@ -266,10 +270,14 @@ router.post('/:id/unlock', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const fy = db.prepare('SELECT * FROM fiscal_years WHERE id=?').get(req.params.id);
   if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
-  db.prepare("UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL WHERE id=?").run(fy.id);
-  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fy.id));
+  db.transaction(() => {
+    db.prepare("UPDATE fiscal_years SET status='closed' WHERE status='open' AND id<>?").run(fy.id);
+    db.prepare("UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL WHERE id=?").run(fy.id);
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fy.id));
+  })();
+  const saved = db.prepare('SELECT status FROM fiscal_years WHERE id=?').get(fy.id);
   audit(req.user.id, 'fiscal_unlock', 'fiscal_year', fy.id, `بازگشایی سال مالی ${fy.label}`);
-  res.json({ success: true, data: { id: fy.id, status: 'open' } });
+  res.json({ success: true, data: { id: fy.id, status: saved.status } });
 });
 
 router.delete('/:id', auth, adminOnly, centralOnly, async (req, res) => {
@@ -278,38 +286,23 @@ router.delete('/:id', auth, adminOnly, centralOnly, async (req, res) => {
   if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
 
   const current = currentFiscalYear(db);
-  if (current && current.id === fy.id) {
-    return res.status(400).json({ error: 'سال فعال قابل حذف نیست — ابتدا سال دیگری را فعال کنید' });
-  }
-
   const counts = fyTxnCount(db, fy.id);
-  const { confirm_password, confirm_text, force } = req.body || {};
-  if (counts.journal_entries > 0) {
-    if (confirm_text !== 'DELETE-FISCAL-YEAR' || !force) {
-      return res.status(400).json({
-        error: `این سال ${counts.journal_entries} سند دارد. برای حذف اجباری confirm_text=DELETE-FISCAL-YEAR و force=true بفرستید`,
-        txn_count: counts.journal_entries,
-      });
-    }
-    try {
-      await requireAdminPassword(db, req.user.id, pickConfirmPassword(req.body) || confirm_password);
-    } catch (e) {
-      return res.status(e.status || 403).json({ error: e.message, code: e.code });
-    }
-  }
-
   const total = db.prepare('SELECT COUNT(*) c FROM fiscal_years').get().c;
-  if (total <= 1) {
-    return res.status(400).json({ error: 'حداقل یک سال مالی باید باقی بماند' });
+  const decision = deleteDecision({
+    fy,
+    isCurrent: !!(current && current.id === fy.id),
+    journalCount: counts.journal_entries,
+    yearCount: total,
+  });
+  if (!decision.ok) {
+    return res.status(decision.status).json({
+      error: decision.error,
+      code: decision.code,
+      txn_count: decision.txn_count,
+    });
   }
 
-  db.transaction(() => {
-    // Soft-safety: null out fiscal_year_id on journals rather than cascade-delete docs
-    try {
-      db.prepare('UPDATE journal_entries SET fiscal_year_id=NULL WHERE fiscal_year_id=?').run(fy.id);
-    } catch { /* ignore */ }
-    db.prepare('DELETE FROM fiscal_years WHERE id=?').run(fy.id);
-  })();
+  db.prepare('DELETE FROM fiscal_years WHERE id=?').run(fy.id);
 
   audit(req.user.id, 'fiscal_delete', 'fiscal_year', fy.id, `حذف سال مالی ${fy.label}`);
   res.json({ ok: true, id: fy.id });
