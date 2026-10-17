@@ -3,7 +3,7 @@
 - **حساب:** دریافت غیرمشتری مسیر جدا دارد: نقد به صندوق، واریز به بانک شرکت، کارتخوان به ۱۱۱۸، چک دریافتنی به ۱۱۰۹ نزد صندوق با شناسهٔ ۱۶ رقمی. اگر شخص مشتری باشد همان دریافت به دفتر مشتری می‌رود. پرداخت همچنان چک صادر نمی‌کند.
 - **UI/Help:** چیدمان تاریخ/طرف/روش/مبدأ یا مقصد. جستجوی مشتری با ی/ي. راهنما به‌روز. SW `erp-taranom-v432`.
 - **فایل‌ها:** `lib/person-receipt.js`, `lib/cash-payment-contract.js`, `routes/accounting.js`, `sync/capture.js`, `public/{app.js,app.css,sw.js,index.html}`, `scripts/test-cash-form-terms-v432.js`, CHANGE-LOG.
-- **Deploy:** در حال ثبت.
+- **Deploy:** ✅ `05a507b2` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و sharp 0.33.5. آزمون محلی `test-sms` ۲۲/۰ و `test-cash-form-terms-v432` سبز. `test-sync` روی ویندوز به‌خاطر ABI بهتر-sqlite3 اجرا نشد. SW `erp-taranom-v432`.
 
 ### ۱۴۰۵/۰۷/۲۶ — چیدمان فرمول چندمحصولی (SW v431)
 - **هدف:** فرم فرمول جدید و ویرایشگر چهارتب، استاندارد را از برش واقعی جدا نشان بدهد. قد الگو و قطعه در لایه داخل فرمول نیست.
