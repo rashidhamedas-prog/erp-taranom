@@ -14570,28 +14570,34 @@ async function prodBomCreateModal(preProductId){
   const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
   window._pbCoProducts=[];
   showModal('فرمول تولید جدید',`
+    <ol class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:0 0 12px;padding-right:18px`)}">
+      <li>این فرم فقط استاندارد است: محصولات، مواد، مسیر و سهم هزینه.</li>
+      <li>قد الگو، لایه، ته‌طاقه و سهم متر هر مدل بعداً در لایه‌چینی ثبت می‌شود.</li>
+      <li>بعد از پیش‌نویس، اقلام و مسیر را کامل کنید و سپس فعال کنید.</li>
+    </ol>
     <div class="form-grid">
       <div class="fg"><label>محصول اصلی اول (لنگر مقیاس) *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
       <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
       <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
       <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
       <div class="fg"><label><input type="checkbox" id="pb-routing" data-csp-style="${CSP.style(`width:auto`)}"> مسیر عملیات (چندمرحله‌ای)</label></div>
-      <div class="fg"><label><input type="checkbox" id="pb-multi" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){const box=el('pb-multi-box'); if(box) box.style.display=el('pb-multi')?.checked?'':'none'})}"> چندمحصولی — چند محصول اصلی مستقل + تسهیم هزینه</label></div>
-      <div class="fg full" id="pb-multi-box" data-csp-style="${CSP.style(`display:none;border:1px dashed var(--border);padding:10px;border-radius:8px`)}">
-        <label>محصولات اصلی دیگر (هم‌رتبه با محصول اول)</label>
+      <div class="fg"><label><input type="checkbox" id="pb-multi" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){const box=el('pb-multi-box'); if(box) box.hidden=!el('pb-multi')?.checked})}"> چند محصول با یک برش مشترک</label></div>
+      <div class="fg full" id="pb-multi-box" hidden data-csp-style="${CSP.style(`border:1px solid var(--border);padding:10px;border-radius:8px;background:var(--well)`)}">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">محصول دوم هم‌رتبه است. پارچهٔ مشترک را در اقلام «مشترک» بگذارید. درصد این‌جا سهم هزینه است؛ تعداد قطعه در هر لایه مال لایه‌چینی است.</p>
+        <label>محصولات اصلی دیگر</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:6px`)}">
           <div data-csp-style="${CSP.style(`flex:1;min-width:180px`)}">${productSelect('pb-co-pick','',(CACHE.allProducts||[]).filter(mfg))}</div>
-          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodBomCreateAddCo()})}">➕ افزودن محصول اصلی</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodBomCreateAddCo()})}">افزودن محصول اصلی</button>
         </div>
         <div id="pb-co-list" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">هنوز محصول اصلی دیگری اضافه نشده</div>
-        <div class="fg" data-csp-style="${CSP.style(`margin-top:8px`)}"><label>تسهیم اولیه</label>
-          <select id="pb-share-method"><option value="sales_value">ارزش فروش</option><option value="physical">فیزیکی (مقدار)</option><option value="none">بعداً دستی</option></select>
+        <div class="fg" data-csp-style="${CSP.style(`margin-top:8px`)}"><label>تسهیم اولیه هزینه</label>
+          <select id="pb-share-method"><option value="sales_value">ارزش فروش</option><option value="physical">فیزیکی (مقدار)</option><option value="none">بعداً دستی در تب خروجی‌ها</option></select>
         </div>
       </div>
       <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
     </div>
     <div id="pb-create-ready" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}"></div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. فعال‌سازی فقط وقتی مشخصات ضروری همهٔ محصولات اصلی و اقلام کامل باشد مجاز است (v421/v423). اگر مسیر عملیات فعال باشد بازده فرمول باید ۱۰۰٪ باشد (R6). در حالت چندمحصولی، همه محصولات اصلی هم‌رتبه‌اند و تب «خروجی‌ها» سهم هزینه را نگه می‌دارد.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px;line-height:1.7`)}">فعال‌سازی فقط با مشخصات ضروری همهٔ محصولات و اقلام مجاز است. اگر مسیر عملیات روشن باشد بازده باید ۱۰۰٪ بماند.</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateSave()})}">ایجاد پیش‌نویس</button>
@@ -14704,8 +14710,8 @@ function prodBomFgChipsHtml(bom, canEdit){
       ${chips||`<span class="muted">یک محصول اصلی</span>`}
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0`)}">${fgs.length>1
-      ? 'همهٔ محصولات اصلی هم‌رتبه‌اند. در اقلام و عملیات برای هر ردیف مشخص کنید «مشترک» است یا «اختصاصی» یک محصول. هزینهٔ مشترک با درصد تب خروجی‌ها تسهیم می‌شود؛ اختصاصی فقط به همان محصول می‌نشیند.'
-      : 'فرمول تک‌محصولی — ستون تخصیص پنهان است. برای چندمحصولی از تب خروجی‌ها محصول اصلی اضافه کنید یا در ایجاد تیک چندمحصولی بزنید.'}</p>
+      ? 'اقلام و عملیات را مشترک یا اختصاصی کنید. درصد خروجی سهم هزینه است. متر واقعی هر مدل در لایه‌چینی، از قطعه در هر لایه، روی یک قد الگو حساب می‌شود.'
+      : 'یک محصول. برای برش مشترک، محصول اصلی دوم را همین‌جا اضافه کنید.'}</p>
     ${canEdit&&fgs.length>=1?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end`)}">
       <div class="fg" data-csp-style="${CSP.style(`margin:0;min-width:200px`)}"><label>افزودن محصول اصلی</label>
         <select id="pbe-add-co">${(CACHE.allProducts||[]).filter(p=>Number(p.is_manufactured)===1&&!fgs.some(f=>Number(f.id)===Number(p.id))).slice(0,80).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">—</option>'}</select>
@@ -14793,8 +14799,8 @@ async function prodBomEditModal(id, tab){
       ${canBomEdit?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">${multi
-      ? 'پارچه/مواد مشترک را «مشترک» بگذارید؛ خرج‌کار اختصاصی هر مدل را «اختصاصی» کنید. ماتریس سایز با 📐. پس از ویرایش «ذخیره اقلام» را بزنید.'
-      : 'ماتریس سایز هر قلم با دکمهٔ 📐 تعریف می‌شود. بعد از ویرایش، «ذخیره اقلام» را بزنید.'}</p>
+      ? 'پارچه‌ای که در یک قد الگو با مدل دیگر پهن می‌شود «مشترک» است. آستر، زیپ و دوخت مخصوص یک مدل «اختصاصی» است. ماتریس سایز با 📐. ذخیره با «ذخیره اقلام».'
+      : 'مواد همین یک محصول. ماتریس سایز با 📐. بعد از ویرایش «ذخیره اقلام» را بزنید.'}</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>نوع</th><th>جزء</th>${multi?'<th>تخصیص به محصول</th>':''}<th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
     </tr></thead><tbody id="pbe-lines">
@@ -14814,7 +14820,11 @@ async function prodBomEditModal(id, tab){
     ${!locked&&!canBomEdit?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">👁 فقط مشاهده — مجوز <code>production_bom/edit</code> ندارید.</div>`:''}
     ${readyHtml}
     ${prodBomFgChipsHtml(bom, canBomEdit)}
-    <div class="form-grid">
+    ${tabBar}
+    ${panel}
+    <details data-csp-style="${CSP.style(`margin-top:12px`)}">
+      <summary data-csp-style="${CSP.style(`cursor:pointer;font-size:13px`)}">شناسنامهٔ فرمول (نام، مقدار، بازده، رنگ)</summary>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:8px`)}">
       <div class="fg"><label>محصول لنگر (مقیاس)</label><input value="${esc(prodName)}" disabled></div>
       <div class="fg"><label>نام</label><input id="pbe-name" value="${esc(bom.name||'')}" ${canBomEdit?'':'disabled'}></div>
       <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${canBomEdit?'':'disabled'}></div>
@@ -14826,8 +14836,7 @@ async function prodBomEditModal(id, tab){
       <div class="fg"><label>برچسب رنگ</label><input id="pbe-color-variant" value="${esc(bom.color_variant||'')}" ${canBomEdit?'':'disabled'}></div>`:''}
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${canBomEdit?'':'disabled'}>${esc(bom.note||'')}</textarea></div>
     </div>
-    ${tabBar}
-    ${panel}
+    </details>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
       ${canBomEdit?`<button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodBomSaveHeader((id))})}">ذخیره فرمول</button>
@@ -14899,7 +14908,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi){
     <div class="prod-scope">
     <div class="prod-step">
       <h4>۱) مسیر عملیات را بسازید</h4>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">بدون عملیات ذخیره‌شده، لیست «عملیات» برای وصل مواد خالی می‌ماند. اول «از الگوی ترنم» یا فرم پایین را بزنید.${isMulti?' در چندمحصولی، عملیات مشترک (برش) یا اختصاصی (دوخت مدل خاص) را مشخص کنید.':''}</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">اول الگو یا فرم پایین. برش پارچهٔ مشترک را «مشترک» بگذارید. دوخت و شست هر مدل را «اختصاصی» کنید تا دستمزد و سربار بعد از برش قاطی نشود.${isMulti?'':' برای یک محصول همهٔ ردیف‌ها مال همان کالا هستند.'}</p>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
       ${canMut?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRoutingInEditor((id))})}">از الگوی ترنم</button>
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
@@ -15168,7 +15177,7 @@ function prodBomOutputsPanelHtml(id, outs, locked, bom){
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAutoShare((id),'physical')})}">تسهیم خودکار (فیزیکی)</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px;color:${shareOk?'inherit':'var(--red)'}`)}">جمع سهم محصولات اصلی: ${shareSum.toFixed(1)}٪ ${shareOk?'':'— باید ۱۰۰٪ باشد'}</span>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">چندمحصولی با تسهیم: همهٔ خروجی‌های ارزشمند <b>محصول اصلی مستقل</b> هستند (هم‌رتبه). نوع «فرعی/ضایعات» فقط برای خروجی‌های NRV. جمع سهم محصولات اصلی باید ۱۰۰٪ باشد.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin:0 0 8px`)}">سهم٪ هزینهٔ استاندارد مشترک است و باید برای محصولات اصلی به ۱۰۰ برسد. این درصد تعداد قطعه در لایه نیست. اگر در برش از یک مدل ۱ و از دیگری ۲ قطعه درمی‌آید، آن نسبت را در لایه‌چینی می‌نویسید؛ برنامه سهم متر و ریال پارچه را همان‌جا حساب می‌کند.</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>نوع</th><th>کالا</th><th>مقدار/پایه</th><th>روش</th><th>سهم٪</th><th>NRV</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
@@ -15289,7 +15298,7 @@ async function prodBomAutoShare(id, method){
 function prodBomCostPanelHtml(id){
   const period=todayJalali().slice(0,7);
   return `
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">محاسبه بهای تمام‌شده فرمول — فقط تحلیلی؛ سند حسابداری (JE) ثبت نمی‌شود.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin-bottom:8px`)}">برآورد استاندارد برای این مقدار و دوره. سند حسابداری نمی‌سازد. بهای واقعی از حواله، لایه‌چینی، دستمزد ۵۲۰۱ و نرخ مرکز همان دوره می‌آید. اگر نرخ مرکز خالی باشد هشدار پایین می‌آید.</p>
     <div class="form-grid">
       <div class="fg"><label>مقدار هدف</label><input id="pbe-cost-qty" type="number" min="1" step="any" value="300"></div>
       <div class="fg"><label>دوره (سال/ماه)</label><input id="pbe-cost-period" value="${esc(period)}" placeholder="1405/05"></div>
@@ -30287,7 +30296,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد (یا فرمول ساعتی/ماهانه)، سند PRD-03 بدهکار WIP و بستانکار کنترل دستمزد ۵۲۰۱ است؛ بدهی شخص را فقط حقوق ثبت می‌کند، و شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. بدون شخص، بستانکار همان کنترل دستمزد ۵۲۰۱ می‌ماند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
-        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود.</li>
+        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. درصد خروجی سهم هزینه است؛ قطعه در هر لایه و قد الگو در لایه‌چینی است. تب بها فقط برآورد است و سند نمی‌زند.</li>
         <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات اصلی دیده می‌شود. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
