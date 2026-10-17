@@ -251,7 +251,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     });
     const acc = posting.account;
     const out = withPaymentIdempotency(db, {
-      key: req.body.idempotency_key, userId: req.user.id, path: '/api/expenses',
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/expenses', body: req.body,
     }, () => {
       assertOutboundPayment(db, req.body);
       const ids = [];

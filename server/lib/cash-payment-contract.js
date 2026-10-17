@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * Shared contract for the five outbound cash-ops paths:
  * person, chart account, internal bank transfer, expense, internal cash transfer.
@@ -40,10 +42,35 @@ function assertRialRoundTrip(n) {
   return n;
 }
 
+/** Positive integer id. Blank is absent. "3abc", false, and arrays are errors, not truncated. */
+function strictPositiveId(raw, code) {
+  const errCode = code || 'E_PAY_SOURCE';
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'boolean' || Array.isArray(raw) || (typeof raw === 'object')) {
+    throw httpErr(400, 'شناسه حساب باید عدد صحیح باشد و بخش اضافی نادیده گرفته نمی‌شود', errCode);
+  }
+  if (typeof raw === 'number') {
+    if (!Number.isSafeInteger(raw) || raw <= 0) {
+      throw httpErr(400, 'شناسه حساب باید عدد صحیح مثبت باشد', errCode);
+    }
+    return raw;
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (!/^\d+$/.test(s)) {
+    throw httpErr(400, 'شناسه حساب باید عدد صحیح باشد و بخش اضافی نادیده گرفته نمی‌شود', errCode);
+  }
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw httpErr(400, 'شناسه حساب خارج از محدوده امن است', errCode);
+  }
+  return n;
+}
+
 /** Positive integer rial. Rejects text, decimals, scientific notation, and unsafe magnitude. */
 function parseStrictRial(raw, label) {
   const name = label || 'مبلغ';
-  if (typeof raw === 'boolean' || raw == null || raw === '') {
+  if (typeof raw === 'boolean' || raw == null || raw === '' || Array.isArray(raw) || (typeof raw === 'object')) {
     throw httpErr(400, `${name} باید عدد صحیح ریال و بزرگ‌تر از صفر باشد`, 'E_AMOUNT');
   }
   if (typeof raw === 'number') {
@@ -92,7 +119,7 @@ function installmentAmounts(body) {
  */
 function exclusivePaySource(body) {
   const raw = String((body && body.pay_type) || 'cash').trim().toLowerCase();
-  if (raw === 'cheque' || raw === 'check') {
+  if (raw === 'cheque' || raw === 'check' || raw === 'چک') {
     throw httpErr(
       400,
       'ثبت چک در پرداخت به شخص، حساب و هزینه تا اتصال کامل دفتر چک پرداختنی بسته است. بانک با صرف صدور چک بستانکار نمی‌شود.',
@@ -103,10 +130,8 @@ function exclusivePaySource(body) {
   if (payType !== 'cash' && payType !== 'bank') {
     throw httpErr(400, 'نوع پرداخت مجاز نیست', 'E_PAY_TYPE');
   }
-  const bankRaw = body && body.bank_id;
-  const cashRaw = body && body.cash_box_id;
-  const bankId = bankRaw != null && bankRaw !== '' ? parseInt(bankRaw, 10) : null;
-  const cashBoxId = cashRaw != null && cashRaw !== '' ? parseInt(cashRaw, 10) : null;
+  const bankId = strictPositiveId(body && body.bank_id, 'E_PAY_SOURCE');
+  const cashBoxId = strictPositiveId(body && body.cash_box_id, 'E_PAY_SOURCE');
   if (payType === 'cash') {
     if (!cashBoxId) throw httpErr(400, 'صندوق را انتخاب کنید', 'E_CASH_BOX');
     if (bankId) throw httpErr(400, 'برای پرداخت نقدی شناسه بانک پذیرفته نمی‌شود', 'E_PAY_SOURCE');
@@ -173,8 +198,8 @@ function assertTransferPair(body) {
   if (toType !== 'cash' && toType !== 'bank') {
     throw httpErr(400, 'نوع حساب مقصد نامعتبر است', 'E_TRANSFER_SIDE');
   }
-  const fromId = parseInt(body.from_id, 10);
-  const toId = parseInt(body.to_id, 10);
+  const fromId = strictPositiveId(body.from_id, 'E_TRANSFER_SIDE');
+  const toId = strictPositiveId(body.to_id, 'E_TRANSFER_SIDE');
   if (!fromId || !toId) {
     throw httpErr(400, 'مبدأ و مقصد باید حساب مشخص باشند. گزینه عمومی پذیرفته نمی‌شود', 'E_TRANSFER_SIDE');
   }
@@ -191,6 +216,29 @@ function assertTransferPair(body) {
   return { fromType, toType, fromId, toId, amount, fee };
 }
 
+function paymentBodyHash(body) {
+  if (!body || typeof body !== 'object') return '';
+  const pick = {
+    amount: body.amount ?? null,
+    installments: body.installments ?? null,
+    pay_type: body.pay_type ?? null,
+    bank_id: body.bank_id ?? null,
+    cash_box_id: body.cash_box_id ?? null,
+    date: body.date ?? null,
+    fee_rial: body.fee_rial ?? body.bank_fee_rial ?? null,
+    from_type: body.from_type ?? null,
+    from_id: body.from_id ?? null,
+    to_type: body.to_type ?? null,
+    to_id: body.to_id ?? null,
+    supplier_id: body.supplier_id ?? null,
+    party_id: body.party_id ?? null,
+    rep_id: body.rep_id ?? null,
+    account_code: body.account_code ?? null,
+    purchase_invoice_id: body.purchase_invoice_id ?? null,
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(pick)).digest('hex');
+}
+
 function ensureIdempotencyTable(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cash_payment_idempotency (
@@ -201,6 +249,10 @@ function ensureIdempotencyTable(db) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     )
   `);
+  const cols = db.prepare('PRAGMA table_info(cash_payment_idempotency)').all();
+  if (!cols.some((c) => c.name === 'body_hash')) {
+    db.exec('ALTER TABLE cash_payment_idempotency ADD COLUMN body_hash TEXT');
+  }
 }
 
 function withPaymentIdempotency(db, meta, work) {
@@ -212,9 +264,17 @@ function withPaymentIdempotency(db, meta, work) {
   const run = () => {
     if (key) {
       const prev = db.prepare(
-        'SELECT result_json FROM cash_payment_idempotency WHERE idempotency_key=?'
+        'SELECT path, result_json, body_hash FROM cash_payment_idempotency WHERE idempotency_key=?'
       ).get(key);
       if (prev) {
+        const path = String(meta.path || '');
+        if (String(prev.path || '') !== path) {
+          throw httpErr(409, 'این کلید تکرار برای مسیر دیگری ثبت شده است', 'E_IDEMPOTENCY');
+        }
+        const hash = paymentBodyHash(meta.body);
+        if (prev.body_hash && hash && prev.body_hash !== hash) {
+          throw httpErr(409, 'این کلید تکرار با بدنهٔ دیگری ثبت شده است', 'E_IDEMPOTENCY');
+        }
         const parsed = JSON.parse(prev.result_json);
         parsed.replayed = true;
         return parsed;
@@ -223,8 +283,8 @@ function withPaymentIdempotency(db, meta, work) {
     const result = work();
     if (key) {
       db.prepare(
-        'INSERT INTO cash_payment_idempotency (idempotency_key, path, user_id, result_json) VALUES (?,?,?,?)'
-      ).run(key, String(meta.path || ''), meta.userId || null, JSON.stringify(result));
+        'INSERT INTO cash_payment_idempotency (idempotency_key, path, user_id, result_json, body_hash) VALUES (?,?,?,?,?)'
+      ).run(key, String(meta.path || ''), meta.userId || null, JSON.stringify(result), paymentBodyHash(meta.body) || null);
     }
     return result;
   };
@@ -233,9 +293,16 @@ function withPaymentIdempotency(db, meta, work) {
   } catch (e) {
     if (key && /UNIQUE/i.test(String(e && e.message))) {
       const prev = db.prepare(
-        'SELECT result_json FROM cash_payment_idempotency WHERE idempotency_key=?'
+        'SELECT path, result_json, body_hash FROM cash_payment_idempotency WHERE idempotency_key=?'
       ).get(key);
       if (prev) {
+        if (String(prev.path || '') !== String(meta.path || '')) {
+          throw httpErr(409, 'این کلید تکرار برای مسیر دیگری ثبت شده است', 'E_IDEMPOTENCY');
+        }
+        const hash = paymentBodyHash(meta.body);
+        if (prev.body_hash && hash && prev.body_hash !== hash) {
+          throw httpErr(409, 'این کلید تکرار با بدنهٔ دیگری ثبت شده است', 'E_IDEMPOTENCY');
+        }
         const parsed = JSON.parse(prev.result_json);
         parsed.replayed = true;
         return parsed;

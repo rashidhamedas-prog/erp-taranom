@@ -1,4 +1,11 @@
-## 2026-10-18 — PROD-CUT-MP01 shared cut (flag off, SW v426)
+## 2026-10-18 — cash-ops review block closed (SW v428)
+
+- Reviewer [بازبینی قرارداد پرداخت](3b583739-47d8-453e-a9fe-df9323b9dac9) blocked supplier amend: `account_code` could replace the cash/bank credit. That path now resolves the instrument and rejects a different code (`E_PAY_SOURCE`).
+- Non-numeric instrument ids are rejected. Idempotency key rejects a different path or body. Linked expense amount cannot change. Same-bank amend overdraft ignores the document's own outstanding credit.
+- Payable cheque clear/bounce for direction=out was not invented. Five forms stay cheque-closed. Legacy report is select-only.
+- No Iran deploy. sqlite ABI still skips DB tests on this Node.
+
+
 
 - Stale claim: PROD-ACC-PA02 (2026-10-01) still listed cutting/schema/posting/public. Released those claims for this task. Notify PROD-ACC owner. Did not edit `capture.js` or `android-native/**` (ANDROID-NATIVE-SALES).
 - Did not deploy: parent commit on this checkout is AR-OPENING-MIRROR, whose own note forbids production deploy.

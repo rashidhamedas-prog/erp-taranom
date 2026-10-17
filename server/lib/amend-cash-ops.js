@@ -120,7 +120,12 @@ function prepareOutboundAmend(db, body, opts) {
   if (src.payType === 'cash') assertActiveCashBox(db, src.cashBoxId);
   else {
     assertActiveBank(db, src.bankId);
-    assertBankOverdraftOk(db, src.bankId, amount + fee);
+    let need = amount + fee;
+    const priorBank = opts && opts.priorBankId ? Number(opts.priorBankId) : 0;
+    if (priorBank && priorBank === Number(src.bankId)) {
+      need = Math.max(0, need - (Number(opts.priorOutRial) || 0));
+    }
+    assertBankOverdraftOk(db, src.bankId, need);
   }
   return { ...src, amount, date, fee };
 }
@@ -484,7 +489,13 @@ function amendSupplierPayment(db, id, body, userId) {
   const sup = db.prepare('SELECT id, name FROM suppliers WHERE id=?').get(supplierId);
   if (!sup) throw httpErr(400, 'تأمین‌کننده یافت نشد', 'E_SUPPLIER');
 
-  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const src = prepareOutboundAmend(db, body, {
+    fallbackPay: row.pay_type,
+    fallbackDate: row.date,
+    fallbackFee: row.fee_rial,
+    priorBankId: (row.pay_type === 'bank' || row.pay_type === 'bank_transfer') ? row.bank_id : null,
+    priorOutRial: (Number(row.amount) || 0) + (Number(row.fee_rial) || 0),
+  });
   const payType = src.payType;
   const bankId = src.bankId;
   const cashBoxId = src.cashBoxId;
@@ -503,8 +514,12 @@ function amendSupplierPayment(db, id, body, userId) {
   });
 
   const note = String(body.note != null ? body.note : (row.note || ''));
-  const accountCode = String(body.account_code != null ? body.account_code : (row.account_code || '')).trim().slice(0, 32);
-  const cash = cashAccount(db, payType, bankId, cashBoxId, accountCode);
+  const cash = cashAccount(db, payType, bankId, cashBoxId, '');
+  const requestedCode = body.account_code != null ? String(body.account_code).trim().slice(0, 32) : '';
+  if (requestedCode && requestedCode !== cash.code) {
+    throw httpErr(400, 'حساب معین با صندوق یا بانک انتخاب‌شده یکی نیست و نادیده گرفته نمی‌شود', 'E_PAY_SOURCE');
+  }
+  const accountCode = cash.code;
   const payable = payableAcct(db, supplierId);
   const { lines } = outboundPaymentLines(db, {
     amount, feeRial: fee, payType, dest: payable, cash, feeCostCenterId: feeCcId,
@@ -583,7 +598,13 @@ function amendIncentivePayment(db, id, body, userId) {
   const rep = db.prepare('SELECT id, name FROM users WHERE id=?').get(repId);
   if (!rep) throw httpErr(400, 'کارشناس یافت نشد', 'E_REP');
 
-  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const src = prepareOutboundAmend(db, body, {
+    fallbackPay: row.pay_type,
+    fallbackDate: row.date,
+    fallbackFee: row.fee_rial,
+    priorBankId: (row.pay_type === 'bank' || row.pay_type === 'bank_transfer') ? row.bank_id : null,
+    priorOutRial: (Number(row.amount) || 0) + (Number(row.fee_rial) || 0),
+  });
   const payType = src.payType;
   const bankId = src.bankId;
   const cashBoxId = src.cashBoxId;
@@ -659,7 +680,13 @@ function amendExpensePayment(db, id, body, userId) {
   const { resolveExpensePosting } = require('../routes/expenses');
   const title = String(body.title != null ? body.title : (row.title || '')).trim();
   if (!title) throw httpErr(400, 'عنوان هزینه الزامی است', 'E_TITLE');
-  const src = prepareOutboundAmend(db, body, { fallbackPay: row.pay_type, fallbackDate: row.date, fallbackFee: row.fee_rial });
+  const src = prepareOutboundAmend(db, body, {
+    fallbackPay: row.pay_type,
+    fallbackDate: row.date,
+    fallbackFee: row.fee_rial,
+    priorBankId: (row.pay_type === 'bank' || row.pay_type === 'bank_transfer') ? row.bank_id : null,
+    priorOutRial: (Number(row.amount) || 0) + (Number(row.fee_rial) || 0),
+  });
   const payType = src.payType;
   const bankId = src.bankId;
   const cashBoxId = src.cashBoxId;
@@ -667,6 +694,9 @@ function amendExpensePayment(db, id, body, userId) {
   const fee = src.fee;
   const date = src.date;
   assertDatesWritable(db, row.date, date);
+  if (row.purchase_invoice_id && Number(amount) !== Number(row.amount)) {
+    throw httpErr(400, 'مبلغ هزینه‌ای که به فاکتور خرید وصل است تا اصلاح جداگانهٔ مانده عوض نمی‌شود', 'E_EXPENSE_NOT_AP');
+  }
   const incomingPo = body.purchase_invoice_id != null && body.purchase_invoice_id !== ''
     ? parseInt(body.purchase_invoice_id, 10) : null;
   if (incomingPo && Number(incomingPo) !== Number(row.purchase_invoice_id || 0)) {

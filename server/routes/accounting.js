@@ -955,7 +955,7 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
       feeCostCenterId: parseFeeCostCenterInput({ fee_cost_center_id, bank_fee_cost_center_id }),
     });
     const out = withPaymentIdempotency(db, {
-      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/incentive-payments',
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/incentive-payments', body: req.body,
     }, () => {
       assertOutboundPayment(db, req.body);
       const ids = [];
@@ -2181,7 +2181,7 @@ function postPartyPersonPayments(db, user, body) {
     documentCostCenterId: body.cost_center_id,
   });
   return withPaymentIdempotency(db, {
-    key: body.idempotency_key, userId: user.id, path: '/api/accounting/vouchers#person_payment',
+    key: body.idempotency_key, userId: user.id, path: '/api/accounting/vouchers#person_payment', body,
   }, () => {
     assertOutboundPayment(db, body || {});
     const ids = [];
@@ -2253,7 +2253,7 @@ router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
     if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
     const dest = posted.acc;
     const out = withPaymentIdempotency(db, {
-      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/account-payments',
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/accounting/account-payments', body: req.body,
     }, () => {
       assertOutboundPayment(db, req.body);
       const ids = [];

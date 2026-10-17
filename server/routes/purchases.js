@@ -1039,7 +1039,7 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
       });
     }
     const out = withPaymentIdempotency(db, {
-      key: req.body.idempotency_key, userId: req.user.id, path: '/api/purchases/payments',
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/purchases/payments', body: req.body,
     }, () => {
       assertOutboundPayment(db, req.body);
       const ids = [];

@@ -54,7 +54,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     if (pair.fromType === 'bank') assertBankOverdraftOk(db, pair.fromId, pair.amount + pair.fee);
     if (pair.toType === 'cash') assertCashFloatCeilingOk(db, pair.toId, pair.amount);
     const out = withPaymentIdempotency(db, {
-      key: req.body.idempotency_key, userId: req.user.id, path: '/api/transfers',
+      key: req.body.idempotency_key, userId: req.user.id, path: '/api/transfers', body: req.body,
     }, () => {
       if (pair.fromType === 'bank') assertBankOverdraftOk(db, pair.fromId, pair.amount + pair.fee);
       const result = db.prepare(
