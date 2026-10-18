@@ -429,7 +429,21 @@ function websiteStockPushEnabled(db) {
  * When it is pushing, leave the SKU active at qty 0 so the next matrix push
  * sends 0; drain retires the color after that push is accepted.
  */
+const colorRetireHolds = new WeakMap();
+
+/** A multi-line receipt must finish every color before zero-stock colors are retired. */
+function holdColorRetire(db) {
+  colorRetireHolds.set(db, (colorRetireHolds.get(db) || 0) + 1);
+}
+
+function releaseColorRetire(db) {
+  const next = (colorRetireHolds.get(db) || 1) - 1;
+  if (next <= 0) colorRetireHolds.delete(db);
+  else colorRetireHolds.set(db, next);
+}
+
 function afterVariantStockWrite(db, productId) {
+  if (colorRetireHolds.get(db) > 0) return { deferred: true, retired: [] };
   if (websiteStockPushEnabled(db)) return { deferred: true, retired: [] };
   return retireZeroStockColors(db, productId);
 }
@@ -797,6 +811,8 @@ module.exports = {
   deactivateUnselectedVariants,
   retireZeroStockColors,
   afterVariantStockWrite,
+  holdColorRetire,
+  releaseColorRetire,
   styleMetadata,
   variantLineSummary,
   attachVariantFlags,

@@ -143,21 +143,28 @@ function postApparelLines(db, opts) {
   if (!lines.length) return [];
   const sign = opts.sign < 0 ? -1 : 1;
   const start = opts.docLineStart != null ? parseInt(opts.docLineStart, 10) : 0;
+  const variants = require('../product-variants');
   const out = [];
-  lines.forEach((line, index) => {
-    out.push(postVariantLayer(db, {
-      productId: opts.productId,
-      variantId: line.variantId,
-      warehouseId: opts.warehouseId,
-      qtyDelta: round3(sign * line.qty),
-      docType: opts.docType,
-      docId: opts.docId,
-      docLine: start + index,
-      userId: opts.userId,
-      note: opts.note,
-      allowNegative: opts.allowNegative === true,
-    }));
-  });
+  variants.holdColorRetire(db);
+  try {
+    lines.forEach((line, index) => {
+      out.push(postVariantLayer(db, {
+        productId: opts.productId,
+        variantId: line.variantId,
+        warehouseId: opts.warehouseId,
+        qtyDelta: round3(sign * line.qty),
+        docType: opts.docType,
+        docId: opts.docId,
+        docLine: start + index,
+        userId: opts.userId,
+        note: opts.note,
+        allowNegative: opts.allowNegative === true,
+      }));
+    });
+  } finally {
+    variants.releaseColorRetire(db);
+  }
+  variants.afterVariantStockWrite(db, opts.productId);
   return out;
 }
 
