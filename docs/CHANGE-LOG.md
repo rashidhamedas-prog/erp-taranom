@@ -2,7 +2,8 @@
 - **ریشه:** بعد از هم‌ترازی SoT (v442/v443)، `buildSupplierTurnover` از `supplier_ledger` ستون ناموجود `balance` می‌خواند → کل query در catch خالی می‌شد → فقط ردیف مصنوعی افتتاحیه می‌ماند و پرداخت/خرید واقعی در گردش دیده نمی‌شد (مانده درست، اسناد غایب). تست v440 هم به‌خاطر `supplier_payments.user_id` روی ایران می‌ترکید.
 - **رفع:** SELECT فقط ستون‌های واقعی جدول + fallback بدون `entry_type`؛ تست با `created_by`. SW `erp-taranom-v444`.
 - **فایل‌ها:** `lib/party-turnover.js`, `public/sw.js`, `scripts/test-party-turnover-align-v440.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست:** ایران `test-party-turnover-align-v440` ۱۷/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `1d159b5f` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v444`.
 
 ### ۱۴۰۵/۰۷/۲۶ — پک زندهٔ سرورمحور: فقط رنگ×سایز واقعی در فاکتور (SW v443)
 - **علائم:** افزودن کالا به فاکتور/سبد گاهی رنگ یا سایز غایب/لغوشده را نشان می‌داد یا `pack_size_auto` دکارتی (رنگ×سایز) بیشتر از SKUهای واقعی بود؛ UI از `/style` پک می‌ساخت و API `/live-pack` بلااستفاده بود.
@@ -16,8 +17,8 @@
 - **ریشه:** `partySignedBalanceDetailMap` افتتاحیهٔ هدر/`suppliers.balance` را روی برگه جمع می‌کند؛ `buildPartyTurnover` فقط خطوط `supplier_ledger` (یا فرمول اسناد) را بدون همان fold می‌ساخت، فقط `Math.min(supplier_id)` را می‌خواند، و نقش دوگانه را به یک دفتر تقلیل می‌داد — دو SoT جدا.
 - **رفع اصولی:** گردش از همان SoT می‌بندد (`closing` = leaf یا net از party-books). ردیف مصنوعی «مانده اول دوره / تطبیق» وقتی زیردفتر افتتاحیه ندارد؛ همهٔ شناسه‌های لینک‌شده؛ ادغام نقش دوگانه؛ `?role=` برای برگهٔ تکی؛ اسناد خرید/پرداخت فقط وقتی دفتر و ماندهٔ books خالی‌اند (نه برای بستن مانده). فوتر جدول جمع ماندهٔ صفحه. ADR-PARTY-001 بند ۱۲. راهنما + SW `erp-taranom-v443` (همراه پک زنده).
 - **فایل‌ها:** `lib/party-turnover.js`, `routes/parties.js`, `public/{app.js,portal-ui.js,sw.js}`, `scripts/test-party-turnover-align-v440.js`, `PARTY-ACC-ADR-001.md`, CHANGE-LOG.
-- **تست:** محلی `node --check`؛ sqlite ویندوز SKIP. ایران: `test-party-turnover-align-v440` + `test-sms` + `test-party-books-turnover-v362`.
-- **Deploy:** ⏳
+- **تست:** محلی `node --check`؛ sqlite ویندوز SKIP. ایران: `test-party-turnover-align-v440` ۱۷/۰ + `test-sms` ۲۲/۰.
+- **Deploy:** ✅ با `1d159b5f` / SW v444.
 
 ### ۱۴۰۵/۰۷/۲۶ — ترتیب تاریخی گزارش‌ها و ماندهٔ گردش (SW v439)
 - **ریشه:** گردش مشتری و صورت‌حساب با `created_at` چیده می‌شدند، نه تاریخ سند؛ برای همین ۱۴۰۵/۰۷/۰۲ بعد از ۱۴۰۵/۰۷/۲۱ می‌آمد و ماندهٔ جاری هم به ترتیب ثبت حساب می‌شد. فهرست‌های تاریخ‌دار (خرید، هزینه، دریافت، انبار، اکسل) همین اشکال را با `id` یا `created_at` داشتند. مودال گردش جمع بدهکار/بستانکار و ماندهٔ نهایی نداشت.
