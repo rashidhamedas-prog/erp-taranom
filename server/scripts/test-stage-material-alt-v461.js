@@ -23,9 +23,9 @@ function seedProduct(name, avg, stock, type) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
   db.prepare(`
-    UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?
+    UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=?
     WHERE id=?
-  `).run(avg, type, type === 'finished' ? 1 : 0, avg, id);
+  `).run(avg, type, type === 'finished' ? 1 : 0, avg, 'ALT-' + id, id);
   return id;
 }
 
