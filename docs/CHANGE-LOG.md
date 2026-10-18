@@ -3,8 +3,8 @@
 - **ریشه:** `DELETE /incentive-payments` سند معکوس JE + ردیف `entry_type=reversal` در `rep_ledger` می‌ساخت (برخلاف v373 retire)؛ `buildMergedPersonTurnover` و `buildRepStatement` فیلتر void نداشتند.
 - **رفع:** soft-void JE (`reverseJournalEntry`) + `retireRepLedgerByRef`؛ `hideVoidedRepLedgerRows` در صورت‌حساب/گردش؛ `paid` فقط non-reversed؛ `reverseCommissionAccrual` هم retire؛ heal boot `purge_hollow_rep_incentive_v446`. راهنما + SW `erp-taranom-v446`.
 - **فایل‌ها:** `lib/{party-ledger-retire,rep-ledger,party-turnover,void-journal}.js`, `routes/accounting.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-incentive-hollow-void-v446.js`, CHANGE-LOG.
-- **تست:** محلی/ایران `test-incentive-hollow-void-v446` + `test-sms`.
-- **Deploy:** ⏳ pending.
+- **تست:** ایران `test-incentive-hollow-void-v446` ۲۲/۰؛ `test-sms` ۲۲/۰؛ heal boot `repDeleted=8`.
+- **Deploy:** ✅ `d77f80ab` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v446`.
 
 ### ۱۴۰۵/۰۷/۲۶ — مودال ویرایش/فروش‌سریع/برگشت هم از live-pack سرور (SW v445)
 - **ریشه:** افزودن پک در v443 سرورمحور شد، ولی ویرایش سبد، فروش سریع فروشگاه، برگشت و ویرایش بازاریاب هنوز /style + ماتریس کامل را باز می‌کردند.
