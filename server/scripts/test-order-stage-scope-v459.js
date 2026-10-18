@@ -27,8 +27,8 @@ ok(appJs.includes('prodOrderPreviewStages') && appJs.includes('po-stage-plan'), 
 ok(appJs.includes('برنامه محصولات این اجرای مشترک'), 'UI fg plan kept');
 ok(appJs.includes('مرحلهٔ مشترک جمع تعداد'), 'UI explains shared qty');
 ok(appJs.includes('سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461)'), 'Help v461');
-ok(swSrc.includes('erp-taranom-v461'), 'SW v461');
-ok(idxSrc.includes('app.js?v=461') && idxSrc.includes('prod-ui.css?v=461'), 'index v461');
+ok(swSrc.includes('erp-taranom-v462'), 'SW v462');
+ok(idxSrc.includes('app.js?v=462') && idxSrc.includes('prod-ui.css?v=462'), 'index v462');
 ok(advSrc.includes('planScopedStageQtys') && advSrc.includes('handoffNextStage'), 'release uses scoped plan');
 ok(advSrc.includes('qtyByProduct: orderFgQtyMap'), 'issue/reserve uses per-product qty');
 

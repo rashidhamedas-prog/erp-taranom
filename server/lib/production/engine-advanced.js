@@ -9,7 +9,7 @@ const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiprod
 const { backwardQty, planScopedStageQtys, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
-  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting,
+  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting, getWhQty,
 } = require('./costing');
 const {
   getOverheadRate, coerceDriver, appliedOverheadRial,
@@ -421,33 +421,72 @@ function stageMaterialEmptyHint(db, po, stage) {
 }
 
 function backflushStageMaterials(db, {
-  po, stage, date, period, userId, issueType = 'backflush',
+  po, stage, date, period, userId, issueType = 'backflush', substitutes,
 }) {
   const lines = stageMaterialLines(db, po, stage);
   let matRial = 0, pkgRial = 0;
   const out = [];
   const whId = po.warehouse_raw_id;
-
+  const { expandShortageAlternates, resolveIssueStd } = require('./engine');
+  const altByPid = new Map();
+  for (const a of substitutes || []) {
+    const pid = Number(a?.product_id);
+    if (pid) altByPid.set(pid, a);
+  }
+  const std = {};
   for (const L of lines) {
+    std[L.product_id] = {
+      qty: L.qty_final,
+      price: L.unit_cost_rial,
+      bom_line_id: L.bom_line_id,
+      kind: L.line_kind,
+    };
+  }
+  const raw = lines.map(L => {
+    const alt = altByPid.get(Number(L.product_id));
+    const row = {
+      product_id: L.product_id,
+      qty_actual: L.qty_final,
+      bom_line_id: L.bom_line_id,
+      line_kind: L.line_kind,
+    };
+    if (alt && Number(alt.alternate_product_id) > 0 && num(alt.alternate_qty) > 0) {
+      row.alternate_product_id = Number(alt.alternate_product_id);
+      row.alternate_qty = num(alt.alternate_qty);
+      row.reason = alt.reason || '';
+    }
+    return row;
+  });
+  const materials = expandShortageAlternates(db, raw, whId);
+
+  for (const L of materials) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
     if (!prod) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
+    const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
+    const resolved = resolveIssueStd(std, L, materials);
+    const s = resolved.s;
+    const SQ = resolved.SQ;
     const unitCost = Math.round(num(prod.average_cost_rial));
-    if (!unitCost && L.qty_final > 0) {
+    if (!unitCost && AQ > 0) {
       throw err('E_ZERO_AVG_COST', 422, { name: prod.name, product_id: prod.id });
     }
-    const amount = Math.round(L.qty_final * unitCost);
+    const amount = Math.round(AQ * unitCost);
+    const isSub = !!Number(L.substitute_of_product_id);
+    const kind = isSub
+      ? (prod.item_type === 'packaging' ? 'packaging' : 'material')
+      : (L.line_kind || s?.kind || (prod.item_type === 'packaging' ? 'packaging' : 'material'));
 
     let issued = null;
-    if (L.qty_final > 0) {
+    if (AQ > 0) {
       assertFabricIssueAllowed(db, {
         productId: L.product_id,
-        qty: L.qty_final,
+        qty: AQ,
         orderId: po.id,
       });
       issued = issueFromStock(db, {
         productId: L.product_id,
         warehouseId: whId,
-        qty: L.qty_final,
+        qty: AQ,
         userId,
         note: `مرحله ${stage.seq} — ${po.order_no}`,
         variantId: L.variant_id,
@@ -462,18 +501,20 @@ function backflushStageMaterials(db, {
     try { docNo = allocateNumber(db, 'material_issue', 'MI'); }
     catch { docNo = `MI-${Date.now()}`; }
 
+    const stdUnit = Math.round(num(s?.price) || unitCost);
+    const varQty = round6(AQ - SQ);
     const stageIssue = db.prepare(`
       INSERT INTO production_material_issues
         (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
          qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
          amount_rial, std_amount_rial, var_price_rial, var_qty_rial,
-         warehouse_id, date, period_label, status, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?,?,'posted',?)
+         warehouse_id, substitute_of_product_id, date, period_label, status, variance_status, note, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,'posted','memo',?,?)
     `).run(
-      docNo, po.id, stage.id, stage.cost_center_id, L.product_id, L.bom_line_id || null,
-      issueType, L.qty_final, L.qty_final, 0, unitCost, L.unit_cost_rial || unitCost,
-      amount, Math.round(L.qty_final * (L.unit_cost_rial || unitCost)),
-      whId, date, period, userId
+      docNo, po.id, stage.id, stage.cost_center_id, L.product_id, (s?.bom_line_id || L.bom_line_id) || null,
+      isSub ? 'substitute' : issueType, SQ, AQ, varQty, unitCost, stdUnit,
+      amount, Math.round(SQ * stdUnit),
+      0, whId, L.substitute_of_product_id || null, date, period, L.reason || '', userId
     );
     if (issued && issued.variantLines && issued.variantLines.length) {
       require('../inventory/apparel-lines').postApparelLines(db, {
@@ -483,14 +524,15 @@ function backflushStageMaterials(db, {
       });
     }
 
-    if (L.line_kind === 'packaging') pkgRial += amount;
+    if (kind === 'packaging') pkgRial += amount;
     else matRial += amount;
     out.push({
       product_id: L.product_id,
       name: prod.name,
-      qty: L.qty_final,
+      qty: AQ,
       unit_cost_rial: unitCost,
       amount_rial: amount,
+      substitute_of_product_id: L.substitute_of_product_id || null,
     });
   }
   return { matRial, pkgRial, total: matRial + pkgRial, lines: out };
@@ -597,6 +639,7 @@ function postStageCore(db, {
   if (mode === 'fixed') {
     const bf = backflushStageMaterials(db, {
       po, stage, date, period, userId,
+      substitutes: body.materials || body.substitutes || [],
     });
     matRial = bf.matRial;
     pkgRial = bf.pkgRial;
@@ -1652,7 +1695,10 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
     const date = body.date || todayJalali();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
-    const materials = body.materials || body.lines || [];
+    const materialsRaw = body.materials || body.lines || [];
+    if (!materialsRaw.length) throw err('E_QTY_INVALID', 422);
+    const { expandShortageAlternates, resolveIssueStd } = require('./engine');
+    const materials = expandShortageAlternates(db, materialsRaw, po.warehouse_raw_id);
     if (!materials.length) throw err('E_QTY_INVALID', 422);
 
     const stdLines = stageMaterialLines(db, po, stage);
@@ -1671,7 +1717,8 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
       if (!prod) throw err('E_NOT_FOUND', 404);
-      const s = std[L.product_id];
+      const resolved = resolveIssueStd(std, L, materials);
+      const s = resolved.s;
       if (!s && AQ > 0) {
         throw err('E_STAGE_MATERIAL_OWNER', 409, {
           product_id: L.product_id,
@@ -1679,8 +1726,8 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
           detail: 'این قلم به این مرحله از مسیر BOM تعلق ندارد',
         });
       }
-      const SQ = s?.qty ?? 0;
-      const SP = s?.price ?? Math.round(num(prod.average_cost_rial));
+      const SQ = resolved.SQ;
+      const SP = resolved.SP || Math.round(num(prod.average_cost_rial));
       const AP = Math.round(num(prod.average_cost_rial));
       if (AQ > 0 && !AP) throw err('E_ZERO_AVG_COST', 422, { name: prod.name, product_id: prod.id });
 
@@ -1710,12 +1757,13 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
           (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
            qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
            amount_rial, std_amount_rial, var_price_rial, var_qty_rial,
-           warehouse_id, date, period_label, status, variance_status, note, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted','memo',?,?)
+           warehouse_id, substitute_of_product_id, date, period_label, status, variance_status, note, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted','memo',?,?)
       `).run(
         issueNo, orderId, stageId, stage.cost_center_id, L.product_id, s?.bom_line_id || null,
-        'issue', SQ, AQ, varQty, AP, SP, amount, Math.round(SQ * SP),
-        varPRial, varQRial, po.warehouse_raw_id, date, period, L.reason || '', userId
+        L.substitute_of_product_id ? 'substitute' : 'issue', SQ, AQ, varQty, AP, SP, amount, Math.round(SQ * SP),
+        varPRial, varQRial, po.warehouse_raw_id, L.substitute_of_product_id || null,
+        date, period, L.reason || '', userId
       );
       if (issued && issued.variantLines && issued.variantLines.length) {
         require('../inventory/apparel-lines').postApparelLines(db, {
@@ -1810,11 +1858,21 @@ function getStageIssueTemplate(db, orderId, stageId) {
   const lines = stageMaterialLines(db, po, stage).map(L => {
     const prod = db.prepare('SELECT id, name, average_cost_rial, std_cost_rial FROM products WHERE id=?').get(L.product_id);
     const avg = Math.round(Number(prod?.average_cost_rial) || 0);
+    const whId = po.warehouse_raw_id;
+    let stockAvail = 0;
+    try {
+      stockAvail = whId
+        ? Number(getWhQty(db, L.product_id, whId)) || 0
+        : Number(db.prepare('SELECT stock FROM products WHERE id=?').get(L.product_id)?.stock) || 0;
+    } catch (_) { stockAvail = 0; }
+    const needQty = Number(L.qty_final) || 0;
     return {
       product_id: L.product_id,
       name: prod?.name || ('#' + L.product_id),
       qty_standard: L.qty_final,
       qty_actual: L.qty_final,
+      stock_available: stockAvail,
+      stock_short: needQty > 0 && stockAvail + 1e-9 < needQty ? 1 : 0,
       std_cost_rial: Math.round(Number(L.unit_cost_rial) || Number(prod?.std_cost_rial) || 0),
       average_cost_rial: avg,
       // R11-safe gate (not stripped): operators without cost view still see zero-avg block
@@ -1830,6 +1888,7 @@ function getStageIssueTemplate(db, orderId, stageId) {
   return {
     order_id: orderId,
     stage_id: stageId,
+    warehouse_raw_id: po.warehouse_raw_id || null,
     qty_in: stage.qty_in,
     operation_name: stage.operation_name || '',
     lines,
