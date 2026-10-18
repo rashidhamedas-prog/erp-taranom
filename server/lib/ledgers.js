@@ -10,6 +10,7 @@ const { DELETED_FILTER } = require('./ledger');
 const { jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { stripCostFields } = require('./production/access');
 const { personLedgerLineRial } = require('./person-ledger-money');
+const { sortReportRows } = require('./report-order');
 
 const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
 
@@ -124,6 +125,7 @@ function buildAccountLedger(db, account, { from, to } = {}) {
     WHERE ${where.join(' AND ')}
     ORDER BY je.entry_date ASC, je.id ASC, jl.id ASC
   `).all(...params);
+  sortReportRows(periodLines, { date: 'entry_date', dir: 'asc', ties: ['journal_id', 'id'] });
 
   let period_debit_rial = 0;
   let period_credit_rial = 0;
@@ -173,6 +175,7 @@ function buildPersonSubLedger(db, personId, { from, to } = {}) {
     WHERE pl.person_id=?
     ORDER BY pl.date ASC, pl.id ASC
   `).all(personId);
+  sortReportRows(all, { date: 'date', dir: 'asc' });
 
   let running = 0;
   const tagged = all.map((e) => {
@@ -438,6 +441,7 @@ function buildStockLedger(db, {
     WHERE ${where.join(' AND ')}
     ORDER BY l.date ASC, l.id ASC
   `).all(...params);
+  sortReportRows(rows, { date: 'date', dir: 'asc' });
 
   let isWarehouseOnlyRow = () => false;
   let isZeroQtyValueGhost = isStockLedgerGhost;

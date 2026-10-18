@@ -348,7 +348,7 @@ function listConsignmentDocs(db, { direction, status } = {}) {
     LEFT JOIN persons pe ON pe.id = d.person_id
     LEFT JOIN warehouses w ON w.id = d.warehouse_id
     ${whereSql}
-    ORDER BY d.created_at DESC, d.id DESC
+    ORDER BY d.date DESC, d.id DESC
   `).all(...params);
 }
 

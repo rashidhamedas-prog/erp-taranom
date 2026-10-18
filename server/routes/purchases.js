@@ -138,7 +138,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     SELECT p.*, s.name as supplier_name, u.name as recorder
     FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id LEFT JOIN users u ON p.user_id=u.id
     WHERE COALESCE(p.status,'posted')<>'reversed'
-    ORDER BY p.created_at DESC
+    ORDER BY p.date DESC, p.id DESC
   `).all();
   res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
 });
@@ -548,7 +548,7 @@ router.get('/returns/list', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT pr.*, s.name as supplier_name FROM purchase_returns pr
     LEFT JOIN suppliers s ON pr.supplier_id=s.id
-    WHERE COALESCE(pr.status,'posted')<>'reversed' ORDER BY pr.created_at DESC
+    WHERE COALESCE(pr.status,'posted')<>'reversed' ORDER BY pr.date DESC, pr.id DESC
   `).all();
   res.json(rows.map(r => {
     let parsed = [];
@@ -1008,7 +1008,7 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT sp.*, s.name as supplier_name FROM supplier_payments sp
     LEFT JOIN suppliers s ON sp.supplier_id=s.id
-    WHERE COALESCE(sp.status,'posted')<>'reversed' ORDER BY sp.created_at DESC LIMIT 300
+    WHERE COALESCE(sp.status,'posted')<>'reversed' ORDER BY sp.date DESC, sp.id DESC LIMIT 300
   `).all();
   res.json(rows);
 });
@@ -1159,8 +1159,9 @@ router.get('/ledger/:supplierId', auth, adminOrAccounting, (req, res) => {
   if (!supplier) return res.status(404).json({ error: 'تأمین‌کننده یافت نشد' });
   const entries = db.prepare(`
     SELECT sl.*, u.name as user_name FROM supplier_ledger sl LEFT JOIN users u ON sl.user_id=u.id
-    WHERE sl.supplier_id=? ORDER BY sl.created_at ASC, sl.id ASC
+    WHERE sl.supplier_id=? ORDER BY sl.date ASC, sl.created_at ASC, sl.id ASC
   `).all(req.params.supplierId);
+  require('../lib/report-order').sortReportRows(entries, { date: 'date', dir: 'asc' });
   let balance = 0;
   entries.forEach(e => { balance += (e.credit || 0) - (e.debit || 0); e.running_balance = balance; });
   res.json({ supplier, entries, balance });

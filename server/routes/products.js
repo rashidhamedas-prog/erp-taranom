@@ -341,7 +341,7 @@ router.get('/:id/kardex', auth, (req, res) => {
       LEFT JOIN users u ON l.created_by=u.id
       LEFT JOIN warehouses w ON l.warehouse_id=w.id
       WHERE l.product_id=? AND l.status IN ('posted','reversed')
-      ORDER BY l.id ASC
+      ORDER BY l.date ASC, l.id ASC
     `).all(req.params.id);
     if (rows.length) {
       const logs = rows.map(l => ({
@@ -363,6 +363,12 @@ router.get('/:id/kardex', auth, (req, res) => {
         status: l.status,
         source: 'inventory_ledger',
       }));
+      require('../lib/report-order').sortReportRows(logs, { date: 'date', dir: 'asc' });
+      let runQty = 0;
+      for (const l of logs) {
+        runQty += Number(l.change) || 0;
+        l.running_balance = runQty;
+      }
       return res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'inventory_ledger' }));
     }
   }

@@ -225,7 +225,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN cost_centers cc ON e.cost_center_id=cc.id
     LEFT JOIN purchase_invoices pi ON e.purchase_invoice_id=pi.id
     WHERE COALESCE(e.status,'posted')<>'reversed'
-    ORDER BY e.created_at DESC LIMIT 300
+    ORDER BY e.date DESC, e.id DESC LIMIT 300
   `).all();
   res.json(rows);
 });

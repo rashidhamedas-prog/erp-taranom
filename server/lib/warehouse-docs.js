@@ -111,7 +111,7 @@ function listWarehouseDocs(db, { limit = 300, includeReversed = false } = {}) {
     LEFT JOIN warehouses tw ON tw.id=d.to_warehouse_id
     LEFT JOIN users u ON u.id=d.created_by
     ${statusClause}
-    ORDER BY d.created_at DESC, d.id DESC
+    ORDER BY d.date DESC, d.id DESC
     LIMIT ?
   `).all(lim);
 }

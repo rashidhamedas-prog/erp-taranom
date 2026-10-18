@@ -153,7 +153,7 @@ function listPersonVoucherPayments(db, limit) {
         )
         OR IFNULL(je.description,'') LIKE '%پرداخت به شخص%'
       )
-    ORDER BY je.created_at DESC
+    ORDER BY je.entry_date DESC, je.id DESC
     LIMIT ?
   `).all(limit);
 
@@ -211,7 +211,7 @@ function listAccountPayments(db, limit) {
     WHERE ${DELETED_FILTER}
       AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
       AND je.ref_type = 'account_payment'
-    ORDER BY je.created_at DESC
+    ORDER BY je.entry_date DESC, je.id DESC
     LIMIT ?
   `).all(limit);
 
@@ -279,7 +279,7 @@ function listPersonVoucherReceipts(db, limit) {
         )
         OR IFNULL(je.description,'') LIKE '%دریافت از شخص%'
       )
-    ORDER BY je.created_at DESC
+    ORDER BY je.entry_date DESC, je.id DESC
     LIMIT ?
   `).all(limit);
 
@@ -330,7 +330,7 @@ function listAccountReceipts(db, limit) {
     WHERE ${DELETED_FILTER}
       AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
       AND je.ref_type = 'account_receipt'
-    ORDER BY je.created_at DESC
+    ORDER BY je.entry_date DESC, je.id DESC
     LIMIT ?
   `).all(limit);
 

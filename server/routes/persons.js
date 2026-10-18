@@ -198,8 +198,9 @@ router.get('/:id/ledger', auth, adminOrAccounting, (req, res) => {
   const alive = personLedgerAliveSql(db);
   const entries = db.prepare(`
     SELECT pl.*, u.name as user_name FROM person_ledger pl LEFT JOIN users u ON pl.user_id=u.id
-    WHERE pl.person_id=? AND ${alive} ORDER BY pl.created_at ASC, pl.id ASC
+    WHERE pl.person_id=? AND ${alive} ORDER BY pl.date ASC, pl.created_at ASC, pl.id ASC
   `).all(req.params.id);
+  require('../lib/report-order').sortReportRows(entries, { date: 'date', dir: 'asc' });
   let balance = 0;
   entries.forEach((e) => {
     const amt = personLedgerLineRial(db, e);

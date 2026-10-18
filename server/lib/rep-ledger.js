@@ -255,7 +255,7 @@ function buildRepLedgerView(db, repId, { from, to } = {}) {
   const manParams = [repId];
   if (from) { manSql += ' AND date>=?'; manParams.push(from); }
   if (to) { manSql += ' AND date<=?'; manParams.push(to); }
-  manSql += ' ORDER BY created_at DESC LIMIT 500';
+  manSql += ' ORDER BY date DESC, id DESC LIMIT 500';
   const manual = db.prepare(manSql).all(...manParams);
 
   return {
@@ -299,8 +299,12 @@ function buildRepStatement(db, repId, { from, to } = {}) {
   }
 
   for (const m of view.manualEntries) {
-    entries.push({ date: m.date, type: m.entry_type, type_label: m.entry_type, description: m.description || '', debit: m.debit, credit: m.credit, reference: `#${m.id}` });
+    entries.push({ date: m.date, id: m.id, type: m.entry_type, type_label: m.entry_type, description: m.description || '', debit: m.debit, credit: m.credit, reference: `#${m.id}` });
   }
+
+  const summary = entries.shift();
+  require('./report-order').sortReportRows(entries, { date: 'date', dir: 'asc', ties: ['id'] });
+  if (summary) entries.unshift(summary);
 
   return {
     rep: view.rep,

@@ -29,7 +29,7 @@ function sideName(db, type, id) {
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const rows = db.prepare("SELECT t.*, u.name as recorder FROM account_transfers t LEFT JOIN users u ON t.user_id=u.id WHERE COALESCE(t.status,'posted')<>'reversed' ORDER BY t.created_at DESC LIMIT 300").all();
+  const rows = db.prepare("SELECT t.*, u.name as recorder FROM account_transfers t LEFT JOIN users u ON t.user_id=u.id WHERE COALESCE(t.status,'posted')<>'reversed' ORDER BY t.date DESC, t.id DESC LIMIT 300").all();
   rows.forEach(r => {
     r.from_name = sideName(db, r.from_type, r.from_id);
     r.to_name = sideName(db, r.to_type, r.to_id);

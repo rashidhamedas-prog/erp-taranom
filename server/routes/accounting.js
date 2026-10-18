@@ -248,12 +248,13 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     SELECT cl.*, u.name as user_name
     FROM customer_ledger cl LEFT JOIN users u ON cl.user_id=u.id
     WHERE cl.customer_id=?
-    ORDER BY cl.created_at ASC, cl.id ASC
+    ORDER BY cl.date ASC, cl.created_at ASC, cl.id ASC
   `).all(customerId));
 
   const ledgerTagged = [];
   for (const e of all) ledgerTagged.push(e);
   attachMissingInvoiceRows(db, customerId, ledgerTagged);
+  require('../lib/report-order').sortReportRows(ledgerTagged, { date: 'date', dir: 'asc' });
   let ledgerRun = 0;
   for (const e of ledgerTagged) {
     ledgerRun += (e.debit || 0) - (e.credit || 0);
@@ -634,7 +635,7 @@ router.get('/settlements', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN users u ON s.user_id=u.id
     LEFT JOIN invoices i ON s.invoice_id=i.id
     ${whereSql}
-    ORDER BY s.created_at DESC
+    ORDER BY s.date DESC, s.id DESC
     LIMIT 300
   `).all(...params);
   res.json(rows);
@@ -1790,7 +1791,7 @@ router.get('/sales-returns', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT sr.*, c.biz as cust_biz FROM sales_returns sr
     LEFT JOIN customers c ON sr.cust_id=c.id
-    WHERE COALESCE(sr.status,'posted')<>'reversed' ORDER BY sr.created_at DESC
+    WHERE COALESCE(sr.status,'posted')<>'reversed' ORDER BY sr.date DESC, sr.id DESC
   `).all();
   res.json(rows.map(r => {
     let parsed = [];

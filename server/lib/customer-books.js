@@ -948,12 +948,7 @@ function attachMissingInvoiceRows(db, customerId, tagged) {
     added++;
   }
   if (added) {
-    tagged.sort((a, b) => {
-      const da = String(a.date || '');
-      const db_ = String(b.date || '');
-      if (da !== db_) return da.localeCompare(db_);
-      return (Number(a.created_at) || 0) - (Number(b.created_at) || 0) || (Number(a.id) || 0) - (Number(b.id) || 0);
-    });
+    require('./report-order').sortReportRows(tagged, { date: 'date', dir: 'asc' });
   }
   return added;
 }
