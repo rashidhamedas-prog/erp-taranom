@@ -4,7 +4,7 @@
 esolveServerModalPack → همیشه mode=defined (فقط SKU فعال واقعی). فروش سریع ماتریسی بدون واریانت fail-closed است. راهنما + قرارداد تست. SW erp-taranom-v445.
 - **فایل‌ها:** public/{app.js,marketer-ui.js,sw.js,index.html}, scripts/test-live-pack-sot-v439.js, CHANGE-LOG.
 - **تست:** محلی/ایران 	est-live-pack-sot-v439 + 	est-sms.
-- **Deploy:** ⏳
+- **Deploy:** ✅ 5ed9997b — overlay ایران؛ pm2 restart بدون --update-env؛ ready=200 و sharp 0.33.5. آزمون ایران 	est-live-pack-sot-v439 ۱۶/۰ و 	est-sms ۲۲/۰. SW erp-taranom-v445.
 
 ### ۱۴۰۵/۰۷/۲۶ — گردش تأمین: SELECT اشتباه ستون balance دفتر را خالی می‌کرد (SW v444)
 - **ریشه:** بعد از هم‌ترازی SoT (v442/v443)، `buildSupplierTurnover` از `supplier_ledger` ستون ناموجود `balance` می‌خواند → کل query در catch خالی می‌شد → فقط ردیف مصنوعی افتتاحیه می‌ماند و پرداخت/خرید واقعی در گردش دیده نمی‌شد (مانده درست، اسناد غایب). تست v440 هم به‌خاطر `supplier_payments.user_id` روی ایران می‌ترکید.
