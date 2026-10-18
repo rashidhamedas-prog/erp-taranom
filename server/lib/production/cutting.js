@@ -1183,8 +1183,186 @@ function voidCuttingLay(db, id, user, { reason } = {}) {
 }
 
 /**
+ * After the order FG receipt, a lay edit must not reopen the stage chain.
+ * Fabric and the lay JE still reverse-and-repost. The net WIP delta moves
+ * onto the posted receipt (remaining stock → FG value, sold portion → COGS)
+ * so the order stays completed and WIP residual does not grow.
+ */
+function absorbCoveredLayDelta(db, {
+  lay, po, oldAmount, oldWaste, newAmount, newWaste, newMeters, newUnit, date, user,
+}) {
+  const deltaGross = Math.round(Number(newAmount) - Number(oldAmount));
+  const deltaWaste = Math.round(Number(newWaste) - Number(oldWaste));
+  const oldNet = Math.max(0, Math.round(Number(oldAmount)) - Math.round(Number(oldWaste)));
+  const newNet = Math.max(0, Math.round(Number(newAmount)) - Math.round(Number(newWaste)));
+  const deltaNet = newNet - oldNet;
+  const layTag = lay.lay_no || ('#' + lay.id);
+
+  const mi = db.prepare(`
+    SELECT id FROM production_material_issues
+    WHERE order_id=? AND issue_type='cutting_lay' AND status='posted'
+      AND note LIKE ?
+    ORDER BY id DESC LIMIT 1
+  `).get(po.id, `%${layTag}%`);
+  if (mi) {
+    db.prepare(`
+      UPDATE production_material_issues SET
+        qty_standard=?, qty_actual=?, unit_cost_rial=?, std_cost_rial=?,
+        amount_rial=?, std_amount_rial=?
+      WHERE id=?
+    `).run(newMeters, newMeters, newUnit, newUnit, newAmount, newAmount, mi.id);
+  }
+
+  if (deltaGross || deltaWaste) {
+    db.prepare(`
+      UPDATE production_orders SET
+        material_cost_rial = COALESCE(material_cost_rial,0) + ?,
+        abnormal_waste_rial = COALESCE(abnormal_waste_rial,0) + ?,
+        updated_at = strftime('%s','now')
+      WHERE id=?
+    `).run(deltaGross, deltaWaste, po.id);
+  }
+
+  if (lay.stage_id && (deltaGross || deltaWaste || deltaNet)) {
+    db.prepare(`
+      UPDATE production_order_stages SET
+        material_added_rial = COALESCE(material_added_rial,0) + ?,
+        waste_abnormal_rial = COALESCE(waste_abnormal_rial,0) + ?,
+        cost_out_rial = COALESCE(cost_out_rial,0) + ?
+      WHERE id=?
+    `).run(deltaGross, deltaWaste, deltaNet, lay.stage_id);
+    const stage = db.prepare('SELECT seq, order_id FROM production_order_stages WHERE id=?').get(lay.stage_id);
+    if (stage && deltaNet) {
+      const later = db.prepare(`
+        SELECT id FROM production_order_stages WHERE order_id=? AND seq>? ORDER BY seq
+      `).all(stage.order_id, stage.seq);
+      for (const s of later) {
+        db.prepare(`
+          UPDATE production_order_stages SET
+            material_in_rial = COALESCE(material_in_rial,0) + ?,
+            cost_out_rial = COALESCE(cost_out_rial,0) + ?
+          WHERE id=?
+        `).run(deltaNet, deltaNet, s.id);
+      }
+    }
+  }
+
+  if (!deltaNet) return { delta_net_rial: 0 };
+
+  const receipts = db.prepare(`
+    SELECT * FROM production_receipts
+    WHERE order_id=? AND status='posted' AND COALESCE(amount_rial,0) > 0
+    ORDER BY id
+  `).all(po.id);
+  if (!receipts.length) {
+    throw httpErr(409, 'رسید سفارش برای انتقال اختلاف بهای لایه‌چینی پیدا نشد', 'E_CUT_NO_RECEIPT');
+  }
+  const totalAmt = receipts.reduce((s, r) => s + Math.round(Number(r.amount_rial) || 0), 0);
+  if (!(totalAmt > 0)) {
+    throw httpErr(409, 'مبلغ رسید سفارش صفر است', 'E_CUT_NO_RECEIPT');
+  }
+
+  let assigned = 0;
+  const shares = receipts.map((receipt, i) => {
+    const part = i === receipts.length - 1
+      ? deltaNet - assigned
+      : Math.round(deltaNet * (Math.round(Number(receipt.amount_rial) || 0) / totalAmt));
+    assigned += part;
+    return { receipt, share: part };
+  });
+  for (const { receipt, share } of shares) {
+    const nextAmt = Math.round(Number(receipt.amount_rial) || 0) + share;
+    if (nextAmt < 0) {
+      throw httpErr(409, 'اختلاف بها از مبلغ رسید سفارش بیشتر است', 'E_CUT_DELTA_EXCEEDS_RECEIPT');
+    }
+  }
+
+  const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
+  const { postToLedger } = require('../ledger');
+  const lines = [];
+  for (const { receipt, share } of shares) {
+    if (!share) continue;
+    const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(receipt.product_id);
+    const onHand = Math.max(0, Number(prod && prod.stock) || 0);
+    const receiptQty = Number(receipt.qty) || 0;
+    const unsold = receiptQty > 0 ? Math.min(1, onHand / receiptQty) : (onHand > 0 ? 1 : 0);
+    const invShare = Math.round(share * unsold);
+    const cogsShare = share - invShare;
+    const pushSide = (key, amount) => {
+      if (!amount) return;
+      const abs = Math.abs(amount);
+      lines.push(amount > 0 ? dr(db, key, abs) : cr(db, key, abs));
+    };
+    pushSide('coa_finished_goods', invShare);
+    pushSide('coa_cogs', cogsShare);
+    const nextAmt = Math.round(Number(receipt.amount_rial) || 0) + share;
+    const qty = Number(receipt.qty) || 0;
+    const nextUnit = qty > 0 ? Math.round(nextAmt / qty) : Math.round(Number(receipt.unit_cost_rial) || 0);
+    db.prepare('UPDATE production_receipts SET amount_rial=?, unit_cost_rial=? WHERE id=?')
+      .run(nextAmt, nextUnit, receipt.id);
+    if (invShare && onHand > 0) {
+      const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
+      const newAvg = Math.max(0, Math.round((onHand * prevAvg + invShare) / onHand));
+      db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
+        .run(newAvg, catalogCostFromAvgRial(newAvg), receipt.product_id);
+      postInventoryMovement(db, {
+        eventType: 'production_receipt',
+        productId: receipt.product_id,
+        warehouseId: receipt.warehouse_id,
+        qtyIn: 0,
+        qtyOut: 0,
+        unitCostRial: Math.abs(invShare),
+        amountRial: invShare,
+        sourceType: 'cutting_lay_fg_delta',
+        sourceId: lay.id,
+        date,
+        note: `تعدیل بهای لایه‌چینی ${layTag}`,
+        createdBy: user.id,
+        updateAvg: false,
+        skipStock: true,
+        valueOnly: true,
+      });
+    }
+  }
+  if (deltaNet > 0) lines.push(cr(db, 'coa_wip', deltaNet, po.coa_wip_tafsili || null));
+  else lines.push(dr(db, 'coa_wip', -deltaNet, po.coa_wip_tafsili || null));
+
+  postToLedger(db, {
+    sourceType: 'cutting_lay_fg_delta',
+    sourceId: lay.id,
+    date,
+    description: `تعدیل بهای محصول پس از ویرایش ${layTag}`,
+    createdBy: user.id,
+    costCenterId: lay.cost_center_id || null,
+    lines,
+  });
+
+  const sum = db.prepare(`
+    SELECT COALESCE(SUM(amount_rial),0) AS s FROM production_receipts
+    WHERE order_id=? AND status='posted'
+  `).get(po.id);
+  const header = db.prepare(`
+    SELECT amount_rial, qty FROM production_receipts
+    WHERE order_id=? AND product_id=? AND status='posted'
+    ORDER BY id DESC LIMIT 1
+  `).get(po.id, po.product_id) || db.prepare(`
+    SELECT amount_rial, qty FROM production_receipts
+    WHERE order_id=? AND status='posted' ORDER BY id DESC LIMIT 1
+  `).get(po.id);
+  const unit = header && Number(header.qty) > 0
+    ? Math.round(Number(header.amount_rial) / Number(header.qty))
+    : 0;
+  db.prepare('UPDATE production_orders SET total_cost_rial=?, unit_cost_rial=? WHERE id=?')
+    .run(Math.round(Number(sum && sum.s) || 0), unit, po.id);
+  return { delta_net_rial: deltaNet };
+}
+
+/**
  * R13 Edit ⇒ reverse all create effects, then re-post on the same lay_no/id.
- * Product is immutable. Pack must be voided first.
+ * Product is immutable. A posted PACK must be voided first.
+ * A lay already covered by the order FG receipt stays editable: meters, rolls,
+ * color, width and waste center. Piece count and the order link stay locked,
+ * and the cost delta is absorbed into that receipt without reopening stages.
  */
 function updateCuttingLay(db, id, body, user) {
   const row = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(id));
@@ -1196,13 +1374,28 @@ function updateCuttingLay(db, id, body, user) {
   if (body.product_id != null && Number(body.product_id) !== Number(row.product_id)) {
     throw httpErr(400, 'کالای لایه‌چینی قابل تغییر نیست — ابطال و ثبت جدید کنید', 'E_CUT_PRODUCT_LOCKED');
   }
+  const covered = layFgCoveredByOrder(db, row);
   const bodyForPlan = Object.assign({}, body, { product_id: row.product_id });
   const plan = planCutting(db, bodyForPlan);
   const date = String(body.date || row.date || todayJalali()).trim();
   assertCutPeriodOpen(db, date);
+  if (covered.fg_covered_by_order) {
+    const lockedPo = Number(row.production_order_id || covered.covered_order_id || 0);
+    const incoming = body.production_order_id !== undefined && body.production_order_id !== '' && Number(body.production_order_id) !== 0
+      ? Number(body.production_order_id)
+      : lockedPo;
+    if (lockedPo && incoming !== lockedPo) {
+      throw httpErr(409, 'بعد از رسید سفارش، سفارش این لایه‌چینی قابل تغییر نیست', 'E_CUT_ORDER_LOCKED');
+    }
+    if (Math.round(Number(plan.qty_pieces) || 0) !== Math.round(Number(row.qty_pieces) || 0)) {
+      throw httpErr(409, 'بعد از رسید سفارش، تعداد قطعه قابل تغییر نیست — متر، طاقه، رنگ و مرکز هزینه را اصلاح کنید', 'E_CUT_QTY_LOCKED');
+    }
+  }
 
   db.transaction(() => {
-    unbindCuttingLayFromOrderStage(db, row, user, row.date);
+    if (!covered.fg_covered_by_order) {
+      unbindCuttingLayFromOrderStage(db, row, user, row.date);
+    }
     reverseCuttingLayEffects(db, row, user, body.reason || 'ویرایش لایه‌چینی');
     const { prepared, wh } = prepareCuttingLayRolls(db, bodyForPlan, plan);
     const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
@@ -1211,11 +1404,21 @@ function updateCuttingLay(db, id, body, user) {
     if (wasteAmt > amount) wasteAmt = amount;
     let color = String(body.color != null ? body.color : row.color || '').trim();
     const widthCm = body.width_cm != null ? Math.round(Number(body.width_cm) || 0) : (Number(row.width_cm) || 0);
-    const po = resolveOptionalOrder(
-      db,
-      body.production_order_id !== undefined ? body.production_order_id : row.production_order_id,
-      plan.product.id
-    );
+    let po;
+    if (covered.fg_covered_by_order) {
+      const oid = Number(row.production_order_id || covered.covered_order_id || 0);
+      po = oid ? db.prepare('SELECT * FROM production_orders WHERE id=?').get(oid) : null;
+      if (!po) throw httpErr(409, 'سفارش پوشش‌دهندهٔ این لایه پیدا نشد', 'E_CUT_NO_RECEIPT');
+      if (['cancelled', 'voided'].includes(String(po.status || ''))) {
+        throw httpErr(409, 'سفارش تولید لغو شده است', 'E_PACK_ORDER_STATUS');
+      }
+    } else {
+      po = resolveOptionalOrder(
+        db,
+        body.production_order_id !== undefined ? body.production_order_id : row.production_order_id,
+        plan.product.id
+      );
+    }
     if (po && po.color) {
       const { colorsMatch } = require('../inventory/fabric-rolls');
       if (!color) color = String(po.color).trim();
@@ -1272,7 +1475,20 @@ function updateCuttingLay(db, id, body, user) {
       user,
       costCenterId,
     });
-    if (po) {
+    if (po && covered.fg_covered_by_order) {
+      absorbCoveredLayDelta(db, {
+        lay: Object.assign({}, row, { cost_center_id: costCenterId }),
+        po,
+        oldAmount: Math.round(Number(row.amount_rial) || 0),
+        oldWaste: Math.round(Number(row.waste_amount_rial) || 0),
+        newAmount: amount,
+        newWaste: wasteAmt,
+        newMeters: plan.actual_meters,
+        newUnit: unitCost,
+        date,
+        user,
+      });
+    } else if (po) {
       bindCuttingLayToOrderStage(db, {
         orderId: po.id,
         layId: row.id,
