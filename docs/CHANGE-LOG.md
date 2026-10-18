@@ -11,8 +11,8 @@
 - **ریشه معماری:** ادغام `rep_ledger` در `buildMergedPersonTurnover` با SoT جدا (`party-books`) — یا تطبیق مصنوعی (قبل از v447) یا ردیف بدون اثر (v447).
 - **رفع ریشه‌ای (ADR-PARTY-001 §13):** گردش شخص فقط کنترل‌حساب شخص؛ انگیزه فقط صورت‌حساب نماینده؛ `linked_rep_id` برای لینک UI. هر ردیف نمایشی باید در جمع و مانده همان دفتر اثر داشته باشد.
 - **فایل‌ها:** `lib/party-turnover.js`, `public/{app.js,sw.js,index.html}`, `docs/architecture/PARTY-ACC-ADR-001.md`, تست‌های v295/v448، CHANGE-LOG.
-- **تست:** ایران `test-party-rep-separation-v448` + `test-sms`.
-- **Deploy:** ⏳ pending.
+- **تست:** ایران `test-party-rep-separation-v448` ۱۷/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `b94f3956` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v448`.
 
 ### ۱۴۰۵/۰۷/۲۶ — گردش شخص: بدون تطبیق مصنوعی برای انگیزه (SW v447)
 - **علائم:** بعد از v446، گردش عارف قاسمی ردیف «مانده اول دوره / تطبیق با دفتر زنده» با بستانکار ۱۳۲M داشت (دقیقاً جمع پرداخت‌های زندهٔ انگیزه).
