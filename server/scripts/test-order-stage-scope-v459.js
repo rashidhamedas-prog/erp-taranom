@@ -26,9 +26,9 @@ const advSrc = fs.readFileSync(path.join(__dirname, '../lib/production/engine-ad
 ok(appJs.includes('prodOrderPreviewStages') && appJs.includes('po-stage-plan'), 'UI stage plan');
 ok(appJs.includes('برنامه محصولات این اجرای مشترک'), 'UI fg plan kept');
 ok(appJs.includes('مرحلهٔ مشترک جمع تعداد'), 'UI explains shared qty');
-ok(appJs.includes('سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461)'), 'Help v461');
-ok(swSrc.includes('erp-taranom-v462'), 'SW v462');
-ok(idxSrc.includes('app.js?v=462') && idxSrc.includes('prod-ui.css?v=462'), 'index v462');
+ok(appJs.includes('سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461/v463)'), 'Help v463');
+ok(swSrc.includes('erp-taranom-v463'), 'SW v463');
+ok(idxSrc.includes('app.js?v=463') && idxSrc.includes('prod-ui.css?v=463'), 'index v463');
 ok(advSrc.includes('planScopedStageQtys') && advSrc.includes('handoffNextStage'), 'release uses scoped plan');
 ok(advSrc.includes('qtyByProduct: orderFgQtyMap'), 'issue/reserve uses per-product qty');
 

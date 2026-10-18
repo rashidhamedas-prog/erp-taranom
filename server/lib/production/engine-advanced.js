@@ -57,9 +57,15 @@ function variantLinesFromOrderPlan(db, orderId, productId) {
       AND COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
     ORDER BY id LIMIT 1
   `);
+  const ownerOf = db.prepare('SELECT product_id FROM product_variants WHERE id=?');
   const out = [];
   for (const row of rows) {
+    if (row.product_id != null && Number(row.product_id) !== Number(productId)) continue;
     let vid = row.variant_id != null ? Number(row.variant_id) : null;
+    if (vid) {
+      const owner = ownerOf.get(vid);
+      if (!owner || Number(owner.product_id) !== Number(productId)) vid = null;
+    }
     if (!vid && row.color_id && row.size_id) {
       vid = byCell.get(productId, row.color_id, row.size_id)?.id || null;
     }
@@ -70,66 +76,91 @@ function variantLinesFromOrderPlan(db, orderId, productId) {
 }
 
 /**
- * Resolve FG apparel lines for advanced finalize.
- * Body wins; else order-plan lines if sum === qtyGood; else legacy breakdown.
+ * Untagged variant_lines belong to the order header (single-product modal).
+ * Tagged lines ({product_id}) belong only to that finished product.
  */
-function resolveFinalizeApparelLines(db, po, body, qtyGood) {
+function linesForFinalizeProduct(body, productId, isOrderProduct) {
+  const raw = Array.isArray(body && body.variant_lines) ? body.variant_lines : [];
+  const normalized = raw.map(l => ({
+    product_id: l && l.product_id != null && l.product_id !== '' ? Number(l.product_id) : null,
+    variant_id: l && (l.variant_id || l.variantId),
+    qty: num(l && (l.qty != null ? l.qty : l.qty_planned)),
+  })).filter(l => l.variant_id && l.qty > 0);
+  const tagged = normalized.some(l => l.product_id);
+  if (!tagged) return isOrderProduct ? normalized : [];
+  return normalized.filter(l => l.product_id === Number(productId));
+}
+
+function variantQtyMismatch(productId, sum, qty) {
+  const fail = err('E_VARIANT_QTY', 400, { sum, qty, product_id: Number(productId) });
+  fail.message = `جمع برنامه رنگ×سایز (${sum}) با رسید این محصول (${qty}) یکی نیست — تعداد واقعی هر ترکیب را وارد کنید`;
+  return fail;
+}
+
+/**
+ * Color×size for one finished product.
+ * Its own receipt qty is the target — never the shared last-stage total.
+ * Body lines for this product win; else the order plan when the sums match;
+ * else the legacy color/size fields, and only on the order header.
+ */
+function resolveProductApparelLines(db, po, body, productId, qty, { isOrderProduct } = {}) {
   const apparel = require('../inventory/apparel-lines');
   const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
-  if (!hasActiveMatrixVariants(db, po.product_id)) return [];
+  if (!hasActiveMatrixVariants(db, productId)) return [];
 
-  const bodyLines = Array.isArray(body.variant_lines)
-    ? body.variant_lines.map(l => ({
-      variant_id: l.variant_id || l.variantId,
-      qty: num(l.qty != null ? l.qty : l.qty_planned),
-    })).filter(l => l.variant_id && l.qty > 0)
-    : [];
-
-  if (bodyLines.length || body.variant_id) {
+  const mine = linesForFinalizeProduct(body, productId, !!isOrderProduct);
+  const tagged = Array.isArray(body && body.variant_lines)
+    && body.variant_lines.some(l => l && l.product_id != null && l.product_id !== '');
+  const useBody = mine.length > 0 || (!tagged && isOrderProduct && body && body.variant_id && !Array.isArray(body.variant_lines));
+  if (useBody) {
     return apparel.resolveApparelLines(db, {
-      productId: po.product_id,
-      qty: qtyGood,
-      variantId: body.variant_id,
-      variantLines: bodyLines.length ? bodyLines : body.variant_lines,
+      productId,
+      qty,
+      variantId: (!tagged && isOrderProduct) ? body.variant_id : null,
+      variantLines: mine,
     });
   }
 
-  const fromPlan = variantLinesFromOrderPlan(db, po.id, po.product_id);
+  const fromPlan = variantLinesFromOrderPlan(db, po.id, productId);
   if (fromPlan.length) {
     const sum = round6(fromPlan.reduce((a, l) => a + l.qty, 0));
-    if (Math.abs(sum - qtyGood) <= 0.001) {
-      return apparel.resolveApparelLines(db, {
-        productId: po.product_id,
-        qty: qtyGood,
-        variantLines: fromPlan,
-      });
+    if (Math.abs(sum - Number(qty)) <= 0.001) {
+      return apparel.resolveApparelLines(db, { productId, qty, variantLines: fromPlan });
     }
-    // Plan exists but output ≠ plan — try legacy fields, else ask for explicit matrix
-    try {
-      return apparel.resolveApparelLines(db, {
-        productId: po.product_id,
-        qty: qtyGood,
-        sizeBreakdown: body.size_breakdown || po.size_breakdown,
-        color: body.color || po.color,
-      });
-    } catch (e) {
-      if (e && (e.code === 'E_VARIANT_REQUIRED' || e.code === 'E_VARIANT_QTY')) {
-        const fail = err('E_VARIANT_QTY', 400, { sum, qty: qtyGood });
-        fail.message = `جمع برنامه رنگ×سایز (${sum}) با خروجی نهایی (${qtyGood}) یکی نیست — تعداد واقعی هر ترکیب را وارد کنید`;
-        throw fail;
+    if (isOrderProduct && !tagged) {
+      try {
+        return apparel.resolveApparelLines(db, {
+          productId,
+          qty,
+          sizeBreakdown: (body && body.size_breakdown) || po.size_breakdown,
+          color: (body && body.color) || po.color,
+        });
+      } catch (e) {
+        if (e && (e.code === 'E_VARIANT_REQUIRED' || e.code === 'E_VARIANT_QTY')) {
+          throw variantQtyMismatch(productId, sum, qty);
+        }
+        throw e;
       }
-      throw e;
     }
+    throw variantQtyMismatch(productId, sum, qty);
   }
 
   return apparel.resolveApparelLines(db, {
-    productId: po.product_id,
-    qty: qtyGood,
-    variantId: body.variant_id,
-    variantLines: body.variant_lines,
-    sizeBreakdown: body.size_breakdown || po.size_breakdown,
-    color: body.color || po.color,
+    productId,
+    qty,
+    variantId: isOrderProduct && !tagged ? body.variant_id : null,
+    variantLines: isOrderProduct && !tagged ? body.variant_lines : null,
+    sizeBreakdown: isOrderProduct && !tagged ? ((body && body.size_breakdown) || po.size_breakdown) : null,
+    color: isOrderProduct && !tagged ? ((body && body.color) || po.color) : null,
   });
+}
+
+/**
+ * Resolve FG apparel lines for the order header.
+ * Multiproduct finalize calls resolveProductApparelLines once per main product.
+ */
+function resolveFinalizeApparelLines(db, po, body, qtyGood) {
+  return resolveProductApparelLines(db, po, body, po.product_id, qtyGood, { isOrderProduct: true });
 }
 
 function emit(db, eventType, payload) {
@@ -1150,9 +1181,6 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const qtyGoodFinal = orderOverride != null ? orderOverride : qtyGood;
     if (qtyGoodFinal <= 0) throw err('E_QTY_INVALID', 422);
 
-    // Matrix FG must name color×size. Prefer body; else production_order_lines
-    // when plan qty matches output; else legacy color+size_breakdown.
-    const fgLines = resolveFinalizeApparelLines(db, po, body, qtyGoodFinal);
     // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
     // for this product — that would double products.stock / WH-FG.
     require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
@@ -1235,6 +1263,16 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       remAlloc.shared_rial += wipNet - assigned;
     }
 
+    // Each main product keeps its own color×size. A shared last stage outputs
+    // the sum; that sum is not the target of any one product's matrix.
+    const fgLinesByProduct = new Map();
+    for (const a of allocations) {
+      if (!(a.qty > 0)) continue;
+      fgLinesByProduct.set(Number(a.product_id), resolveProductApparelLines(
+        db, po, body, a.product_id, a.qty, { isOrderProduct: !!a.is_order_product }
+      ));
+    }
+
     const receipts = [];
     let primaryReceiptId = null;
     let unitCost = 0;
@@ -1272,9 +1310,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         avg.prev_avg, avg.prev_qty, avg.new_avg, date, period, userId
       ).lastInsertRowid;
 
-      // Apparel matrix only on the order product (size/color breakdown belongs to it)
-      if (a.is_order_product) {
-        primaryReceiptId = receiptId;
+      if (a.is_order_product) primaryReceiptId = receiptId;
+      const fgLines = fgLinesByProduct.get(Number(a.product_id)) || [];
+      if (fgLines.length) {
         require('../inventory/apparel-lines').postApparelLines(db, {
           productId: a.product_id, warehouseId: po.warehouse_fg_id || fgWh,
           lines: fgLines, docType: 'production_fg', docId: receiptId, userId,
@@ -2137,6 +2175,7 @@ module.exports = {
   stageList,
   getStageIssueTemplate,
   resolveFinalizeApparelLines,
+  resolveProductApparelLines,
   variantLinesFromOrderPlan,
   relieveStagedPackQty,
   resolveCuttingStage,

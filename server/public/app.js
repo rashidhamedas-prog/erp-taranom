@@ -12765,7 +12765,7 @@ async function renderCuttingLaysTab(body){
     <div class="prod-scope">
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
       <b>دو رویداد جدا:</b>
-      ۱) <b>لایه‌چینی</b> = مصرف طاقه از انبار مواد و بدهکار WIP.
+      ۱) <b>لایه‌چینی</b> = مصرف طاقه از انبار مواد و بدهکار WIP. مازاد بر سقف ضایعات عادی به حساب ۵۲۲۱ و مرکز «برش» می‌رود.
       ۲) <b>PACK</b> با سفارش تولید = فقط بسته‌بندی در انبار WIP (بدون ورود فروش‌پذیر).
       ۳) ورود انبار محصول فروش‌پذیر برای سفارش <b>طاقه‌دار</b> فقط بعد از لایه‌چینی+PACK و سپس «رسید/نهایی‌سازی سفارش» (دکمهٔ رسید لیست سفارش تا قبل از PACK قفل است — v403).
       بدون سفارش باز = رسید مستقیم به انبار محصول (cut-to-stock). هرگز هر دو مسیر را برای یک بچ نزنید.
@@ -12852,6 +12852,11 @@ async function cuttingLayModal(editId){
   const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
   const list=prods.length?prods:(CACHE.allProducts||[]);
   const prodVal=lay?String(lay.product_id||''):'';
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+  const ccRows=(CACHE.costCenters||[]).filter(c=>c.active!==0);
+  const cutDefault=ccRows.find(c=>String(c.code||'')==='CC-10')||ccRows.find(c=>String(c.name||'')==='برش');
+  const ccSelected=lay&&lay.cost_center_id?String(lay.cost_center_id):(cutDefault?String(cutDefault.id):'');
+  const ccOpts=ccRows.map(c=>'<option value="'+c.id+'"'+(String(c.id)===ccSelected?' selected':'')+'>'+esc((c.code?c.code+' — ':'')+c.name)+'</option>').join('');
   const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):'لایه‌چینی و برش';
   showModal(title,`
     <div class="form-grid">
@@ -12865,7 +12870,11 @@ async function cuttingLayModal(editId){
         <input id="cl-color-extra" placeholder="یا رنگ دستی" value="${lay?esc(String(lay.color||'')):''}" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
       </div>
       <div class="fg"><label>سفارش تولید</label><input id="cl-po" type="number" min="1" step="1" placeholder="پیشنهادی: شناسه سفارش باز (خالی = cut-to-stock)" value="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
+      <div class="fg"><label>مرکز هزینه ضایعات</label>
+        <select id="cl-cc"><option value="">— خودکار: برش —</option>${ccOpts}</select>
+      </div>
     </div>
+    <p class="muted" data-csp-style="${CSP.style(`margin:6px 0 0;font-size:12px;line-height:1.7`)}">اگر متر مصرف از سقف ضایعات عادی (پیش‌فرض ۳٪ مصرف) بیشتر شود، مازاد به حساب ۵۲۲۱ روی همین مرکز می‌رود. خالی = مرکز برش فرمول، وگرنه CC-10.</p>
     <div id="cl-joint" hidden></div>
     ${window._cutEditId?'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">ویرایش = ابطال کامل اثرات قبلی همین شماره لایه و ثبت مجدد (موجودی طاقه و سند حسابداری). کالا قابل تغییر نیست. اگر رسید محصول دارد اول ابطالش کنید.</p>':''}
     <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
@@ -13116,6 +13125,7 @@ async function cuttingLaySave(){
     marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
     actual_meters:actual, width_cm:+el('cl-w').value||0,
     production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
+    cost_center_id: el('cl-cc') && el('cl-cc').value ? +el('cl-cc').value : undefined,
     size_breakdown:cuttingLayBreakdown(), rolls,
     reason: window._cutEditId ? 'ویرایش از گزارش' : undefined,
   };
@@ -19565,6 +19575,69 @@ function prodOrderFinalizeFgBlock(order, qtyGood){
     }).join('')}</tbody></table>
     <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">پیش‌فرض هر ردیف تعداد برنامهٔ همان محصول است. اگر مرحلهٔ آخر مشترک باشد خروجی‌اش جمع همه است و رسید هر محصول جدا می‌ماند. سهم٪ از فرمول است.</p></div>`;
 }
+async function prodOrderFinalizeVariants(productId){
+  try{
+    const raw=await api('GET','/product-variants?product_id='+productId+'&include_default=0');
+    return (Array.isArray(raw)?raw:(raw&&Array.isArray(raw.rows)?raw.rows:[])).filter(v=>!v.is_default);
+  }catch(e){ return []; }
+}
+function prodOrderFinalizePrefFor(order, productId, variants){
+  const pref={};
+  const byCell=new Map();
+  const known=new Set();
+  (variants||[]).forEach(v=>{
+    known.add(Number(v.id));
+    if(v.color_id!=null && v.size_id!=null) byCell.set(Number(v.color_id)+':'+Number(v.size_id), Number(v.id));
+  });
+  (order.matrix_lines||[]).forEach(l=>{
+    if(l.product_id!=null && Number(l.product_id)!==Number(productId)) return;
+    let vid=l.variant_id!=null?Number(l.variant_id):null;
+    if(vid && !known.has(vid)) vid=null;
+    if(!vid && l.color_id!=null && l.size_id!=null) vid=byCell.get(Number(l.color_id)+':'+Number(l.size_id))||null;
+    const q=Number(l.qty_planned)||0;
+    if(vid && q>0) pref[vid]=(pref[vid]||0)+q;
+  });
+  return pref;
+}
+function prodOrderFinalizeBindMatrix(){
+  document.querySelectorAll('.pf-vqty[data-pid]').forEach(inp=>{
+    inp.addEventListener('input', function(){
+      const pid=this.getAttribute('data-pid');
+      const sum=[...document.querySelectorAll('.pf-vqty[data-pid="'+pid+'"]')].reduce((s,i)=>s+(+i.value||0),0);
+      const q=document.querySelector('.pf-out-qty[data-pid="'+pid+'"]');
+      if(q) q.value=sum;
+    });
+  });
+}
+async function prodOrderFinalizeMulti(order, orderId, qtyGood){
+  const plan=order.fg_plan||[];
+  const blocks=[];
+  for(const p of plan){
+    const variants=await prodOrderFinalizeVariants(p.product_id);
+    blocks.push({p, variants, pref:prodOrderFinalizePrefFor(order, p.product_id, variants)});
+  }
+  const sections=blocks.map(b=>{
+    const p=b.p;
+    const isOrder=Number(p.product_id)===Number(order.product_id);
+    const name=p.product_name||('#'+p.product_id);
+    const matrix=b.variants.length?`<table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}"><thead><tr><th>رنگ</th><th>سایز</th><th>تعداد رسید</th></tr></thead><tbody>${b.variants.map(v=>`<tr><td>${esc(v.color_name||'')}</td><td>${esc(displaySizeName(v.size_name)||'')}</td><td><input class="pf-vqty num-fit" data-vid="${v.id}" data-pid="${p.product_id}" type="number" min="0" step="any" value="${b.pref[Number(v.id)]||0}"></td></tr>`).join('')}</tbody></table>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">جمع رنگ×سایز همین محصول باید با تعداد رسید خودش برابر باشد.</p>`
+      :`<p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">این محصول رنگ×سایز فعال ندارد — فقط تعداد رسید ثبت می‌شود.</p>`;
+    return `<section class="pf-fg" data-pid="${p.product_id}" data-name="${esc(name)}" data-csp-style="${CSP.style(`margin-top:12px`)}">
+      <label>${esc(name)}${isOrder?' ★':''} <span class="muted">سهم ${toFa(Number(p.cost_share_percent)||0)}٪</span></label>
+      <div class="fg"><label>تعداد رسید</label><input class="pf-out-qty num-fit" data-pid="${p.product_id}" ${isOrder?'data-order="1"':''} type="number" min="0" step="any" value="${Number(p.qty_planned)||0}"></div>
+      ${matrix}
+    </section>`;
+  }).join('');
+  showModal('نهایی‌سازی — '+esc(order.order_no||''),`
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">خروجی آخرین مرحله: <b>${toFa(qtyGood)}</b>. اگر مرحلهٔ آخر مشترک باشد این عدد جمع همهٔ محصولات است. رسید هر محصول جدا می‌ماند و جدول رنگ×سایز هر کدام مال همان محصول است.</p>
+    ${sections}
+    <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal();prodOrderStagesModal((orderId))})}">بازگشت</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderFinalizeSave((orderId),(qtyGood))})}">✅ ثبت رسید و نهایی‌سازی</button>
+    </div>`);
+  prodOrderFinalizeBindMatrix();
+}
 async function prodOrderFinalize(orderId){
   let order=null, stages=[];
   try{
@@ -19576,8 +19649,12 @@ async function prodOrderFinalize(orderId){
   const qtyGood=+last?.qty_out||0;
   if(!(qtyGood>0)){ showToast('خروجی آخرین مرحله صفر است','error'); return; }
 
-  const fgBlock=prodOrderFinalizeFgBlock(order, qtyGood);
   const multi=!!(order.is_multiproduct||(order.fg_plan||[]).length>1);
+  if(multi){
+    await prodOrderFinalizeMulti(order, orderId, qtyGood);
+    return;
+  }
+  const fgBlock=prodOrderFinalizeFgBlock(order, qtyGood);
 
   let variants=[];
   try{
@@ -19661,7 +19738,7 @@ async function prodOrderFinalizeSave(orderId, qtyGood){
   if(outputs&&outputs.length){
     // qty_produced = مقدار محصول اصلی اگر در outputs باشد، وگرنه qtyGood
     // تشخیص اصلی: معمولاً اولین ردیف یا همان مقدار پیش‌فرض؛ سرور با product_id سفارش sync می‌کند
-    const mainInp=outInputs.find(inp=>{
+    const mainInp=document.querySelector('.pf-out-qty[data-order="1"]')||outInputs.find(inp=>{
       const tr=inp.closest('tr');
       return tr&&/اصلی/.test(tr.textContent||'');
     })||outInputs[0];
@@ -19669,13 +19746,34 @@ async function prodOrderFinalizeSave(orderId, qtyGood){
     if(!(qty>0)){ showToast('تعداد محصول اصلی باید مثبت باشد','error'); return; }
     if(outputs.some(o=>!(o.qty>0))){ showToast('تعداد همهٔ محصولات رسید باید مثبت باشد','error'); return; }
   }
-  const variant_lines=[...document.querySelectorAll('.pf-vqty')].map(inp=>({
-    variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
-  })).filter(l=>l.qty>0);
-  if(document.querySelector('.pf-vqty')){
-    if(!variant_lines.length){ showToast('برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید','error'); return; }
-    const sum=variant_lines.reduce((a,l)=>a+l.qty,0);
-    if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با تعداد محصول اصلی برابر باشد','error'); return; }
+  const tagged=[...document.querySelectorAll('.pf-vqty[data-pid]')];
+  let variant_lines;
+  if(tagged.length){
+    variant_lines=[];
+    const pids=[...new Set(tagged.map(inp=>inp.getAttribute('data-pid')))];
+    for(const pid of pids){
+      const lines=[...document.querySelectorAll('.pf-vqty[data-pid="'+pid+'"]')].map(inp=>({
+        product_id:+pid, variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
+      })).filter(l=>l.variant_id&&l.qty>0);
+      const want=+document.querySelector('.pf-out-qty[data-pid="'+pid+'"]')?.value||0;
+      const name=document.querySelector('.pf-fg[data-pid="'+pid+'"]')?.getAttribute('data-name')||'';
+      if(!lines.length){ showToast('رنگ×سایز '+(name||'محصول')+' را وارد کنید','error'); return; }
+      const sum=lines.reduce((a,l)=>a+l.qty,0);
+      if(Math.abs(sum-want)>0.001){
+        showToast('جمع رنگ×سایز '+(name||'محصول')+' باید با تعداد رسید همان محصول برابر باشد','error');
+        return;
+      }
+      variant_lines.push(...lines);
+    }
+  }else{
+    variant_lines=[...document.querySelectorAll('.pf-vqty')].map(inp=>({
+      variant_id:+inp.getAttribute('data-vid'), qty:+inp.value||0
+    })).filter(l=>l.qty>0);
+    if(document.querySelector('.pf-vqty')){
+      if(!variant_lines.length){ showToast('برای کالای رنگ و سایز، تعداد هر ترکیب را مشخص کنید','error'); return; }
+      const sum=variant_lines.reduce((a,l)=>a+l.qty,0);
+      if(Math.abs(sum-qty)>0.001){ showToast('جمع رنگ و سایز باید با تعداد محصول اصلی برابر باشد','error'); return; }
+    }
   }
   if(!confirm('نهایی‌سازی سفارش و ثبت رسید تولید — ادامه؟')) return;
   try{ await prodOrderFinalizePost(orderId, qty, variant_lines.length?variant_lines:null, outputs); }
@@ -31427,6 +31525,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('✂️','مرکز هزینه ضایعات لایه‌چینی',`
+      <p>اگر هنگام «ثبت لایه‌چینی» مصرف از سقف ضایعات عادی بیشتر باشد، مازاد به حساب <b>۵۲۲۱ هزینه ضایعات غیرعادی</b> می‌رود. با روشن بودن «الزام مرکز هزینه روی هزینه‌ها» این حساب بدون مرکز هزینه ثبت نمی‌شود.</p>
+      <ul>
+        <li>فرم لایه‌چینی فیلد <b>مرکز هزینه ضایعات</b> دارد. پیش‌فرض مرکز <b>برش (CC-10)</b> است.</li>
+        <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
+        <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
+      </ul>`),
     helpSec('✂️','برش مشترک',`
       <p>در تنظیمات تولید، <b>برش مشترک</b> پیش‌فرض خاموش است. دکمهٔ برنامه فقط پیش‌نمایش است و سند مالی نمی‌سازد.</p>
       <ul>
@@ -31664,14 +31769,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418 / v458):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (جزء با مصرف یکسان برای هر مدل، مثل کشباف) یا <b>اختصاصی</b> یک محصول. پارچهٔ مشترک با <b>مصرف متفاوت</b> دو ردیف اختصاصی از همان کالا است (یلدا ۱٫۳ متر، آبان ۱٫۶۵۵ متر) — فعال‌سازی دیگر این را «قلم تکراری» نمی‌داند. دو ردیف مشترک از یک جزء، یا دو اختصاصی برای <b>همان</b> محصول، یا یک جزء هم مشترک و هم اختصاصی رد می‌شود. دوخت با اجرت متفاوت = دو عملیات اختصاصی. در بها، اختصاصی مستقیم به همان محصول می‌رود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. تب بها فقط برآورد است و سند نمی‌زند.</li>
-        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. تعداد هر محصول جداست: نسبت <code>qty_per_base</code> فقط پیشنهاد اول است و بعد از دست‌کاری یک ردیف، ردیف دیگر را عوض نمی‌کند. رنگ×سایز هم برای هر محصول جدول خودش را دارد و جمع همان جدول تعداد همان محصول است. از v461 همین تفکیک در فهرست سفارش، نوار مراحل داشبورد، کانبان، لایه‌چینی، حوالهٔ مرحله، نهایی‌سازی و برگهٔ بها دیده می‌شود: مرحله و مادهٔ مشترک با جمع، اختصاصی با تعداد همان محصول، و بهای سهم = جمع سفارش × درصد فرمول. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. سهم٪ از فرمول است و با این تعدادها دوباره حساب نمی‌شود. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. در نهایی‌سازی پیش‌فرض هر محصول تعداد برنامهٔ خودش است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
+        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461/v463):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. تعداد هر محصول جداست: نسبت <code>qty_per_base</code> فقط پیشنهاد اول است و بعد از دست‌کاری یک ردیف، ردیف دیگر را عوض نمی‌کند. رنگ×سایز هم برای هر محصول جدول خودش را دارد و جمع همان جدول تعداد همان محصول است. از v461 همین تفکیک در فهرست سفارش، نوار مراحل داشبورد، کانبان، لایه‌چینی، حوالهٔ مرحله، نهایی‌سازی و برگهٔ بها دیده می‌شود: مرحله و مادهٔ مشترک با جمع، اختصاصی با تعداد همان محصول، و بهای سهم = جمع سفارش × درصد فرمول. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. سهم٪ از فرمول است و با این تعدادها دوباره حساب نمی‌شود. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. در نهایی‌سازی پیش‌فرض هر محصول تعداد برنامهٔ خودش است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود. از v463 جدول رنگ×سایز نهایی‌سازی برای هر محصول اصلی جداست: جمع هر جدول با تعداد رسید همان محصول برابر است، نه با خروجی مرحلهٔ آخر مشترک، و موجودی رنگ×سایز هر محصول جدا به انبار می‌رود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416 / v458):</b> محاسبه تحلیلی — <b>بدون JE</b>. در فرمول چندمحصولی برای <b>هر محصول یک تعداد</b> وارد می‌شود و با تایپ، بها زنده تازه می‌شود. قلم و دوخت اختصاصی × تعداد همان محصول؛ قلم و اتو/بسته‌بندی مشترک × جمع تعدادها و تقسیم به نسبت همان تعدادها. سربار هر مرحله از <b>نرخ ذخیره‌شدهٔ همان مرکز</b> در دوره است (<code>نرخ × محرک × جذب٪</code>). اگر عدد نرخ را دستی عوض کنید، حتی با بودجهٔ پر، همان عدد می‌ماند و در جدول و در تب بها دیده می‌شود. جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li><b>ویرایش و حذف حرفه‌ای فهرست BOM (v385):</b> در ستون عملیات برای هر فرمول دکمهٔ <b>ویرایش</b> / <b>ویرایش…</b> و <b>حذف</b> (پیش‌نویس) یا <b>بایگانی</b> (فعال) هست. قبل از حذف/بایگانی، سرور وابستگی‌ها را از <code>GET /api/production/boms/:id/dependencies</code> می‌خواند و سفارش‌های باز را نشان می‌دهد؛ اگر سفارش <code>draft/released/in_progress</code> به فرمول وصل باشد عملیات مسدود است (<code>E_BOM_IN_USE</code>). حذف فیزیکی نیست: پیش‌نویس → soft-delete (<code>obsolete</code>)، فعال → بایگانی. ویرایش فرمول فعال فقط از مسیر «نسخه جدید برای ویرایش» (با پیش‌نمایش وابستگی). «غیرفعال» فعال را به پیش‌نویس برمی‌گرداند اگر سفارش باز نباشد. بایگانی/حذف، اشاره‌گر <code>default_bom_id</code> کالا را هم پاک می‌کند.</li>
         <li>سفارش تولید: فقط برای کالای <b>ساختنی</b> (<code>is_manufactured=1</code>)؛ انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
-        <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد. دکمهٔ <b>بستن</b> فقط وقتی مانده WIP تقریباً صفر است کار می‌کند؛ در سفارش متغیر پیشرفته، بهای مواد فقط هنگام <b>حوالهٔ مرحله</b> روی سفارش می‌نشیند (نه دوباره هنگام تکمیل خروجی). <b>دستمزد تولید ≠ فیش حقوق:</b> جذب دستمزد مرحله از نرخ BOM/مرکز، بهای WIP را می‌سازد و فیش ماهانه حقوق نیست. اگر روی عملیات <b>شخص</b> باشد، بستانکار به حساب همان شخص می‌رود و در دفتر شخص دیده می‌شود (ابطال مرحله آن را هم پاک می‌کند)؛ بدون شخص → کنترل ۵۲۰۱. حقوق ماهانهٔ برشکار از مسیر حقوق (حکم + محاسبهٔ دوره) ثبت می‌شود؛ برای جذب ماهانه در تولید باید در «نرخ مرکز هزینه» فیلد <code>monthly_labor_rate_rial</code> پر شود. اگر روش «ماهانه» باشد ولی نرخ مرکز صفر باشد، برای آن مرحله دستمزدی جذب نمی‌شود.</li>
+        <li><b>سفارش پیشرفته (مرحله‌ای):</b> پس از آزادسازی پیشرفته، خروجی هر مرحله باید با <code>qty_in</code> همان مرحله بالانس باشد (خروجی + ضایعات = ورودی). مرحلهٔ پیمانکاری (مثل شستشو) بدون تأمین‌کننده ثبت نمی‌شود — در فرمول مسیر، تأمین‌کننده را ست کنید یا هنگام خروجی مرحله بفرستید. نهایی‌سازی سفارش فقط وقتی آخرین مرحله done/skipped است. اگر کالا رنگ×سایز دارد و جمع برنامهٔ ماتریس سفارش با خروجی نهایی یکی باشد، نهایی‌سازی همان برنامه را برای رسید موجودی می‌پذیرد (بدون پر کردن دوبارهٔ ماتریس). فقط وقتی برنامه خالی است یا با خروجی فرق دارد، جدول رنگ×سایز باز می‌شود و جمع باید دقیقاً برابر خروجی باشد. در سفارش چندمحصولی (v463) هر محصول جدول رنگ×سایز خودش را دارد و جمع همان جدول با تعداد رسید همان محصول برابر است، نه با خروجی مرحلهٔ مشترک. دکمهٔ <b>بستن</b> فقط وقتی مانده WIP تقریباً صفر است کار می‌کند؛ در سفارش متغیر پیشرفته، بهای مواد فقط هنگام <b>حوالهٔ مرحله</b> روی سفارش می‌نشیند (نه دوباره هنگام تکمیل خروجی). <b>دستمزد تولید ≠ فیش حقوق:</b> جذب دستمزد مرحله از نرخ BOM/مرکز، بهای WIP را می‌سازد و فیش ماهانه حقوق نیست. اگر روی عملیات <b>شخص</b> باشد، بستانکار به حساب همان شخص می‌رود و در دفتر شخص دیده می‌شود (ابطال مرحله آن را هم پاک می‌کند)؛ بدون شخص → کنترل ۵۲۰۱. حقوق ماهانهٔ برشکار از مسیر حقوق (حکم + محاسبهٔ دوره) ثبت می‌شود؛ برای جذب ماهانه در تولید باید در «نرخ مرکز هزینه» فیلد <code>monthly_labor_rate_rial</code> پر شود. اگر روش «ماهانه» باشد ولی نرخ مرکز صفر باشد، برای آن مرحله دستمزدی جذب نمی‌شود.</li>
         <li><b>لایه‌چینی + PACK (دو رویداد جدا — v399/v403 مالکیت موجودی):</b> تولید → عملیات → لایه‌چینی / رسید محصول.
           تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP. تب PACK با <b>سفارش باز</b> = فقط بسته‌بندی در انبار WIP (<code>warehouseOnly</code>).
           <b>v403 سفارش طاقه‌دار:</b> اگر BOM پارچهٔ متری با طاقه داشته باشد، دکمهٔ «رسید» روی لیست سفارش تا قبل از لایه‌چینی+PACK قفل است (<code>E_CUTTING_LAY_REQUIRED</code> / <code>E_CUTTING_PACK_REQUIRED</code>). ورود فروش‌پذیر فقط با رسید/نهایی‌سازی بعد از PACK. وقتی تولید به برنامه برسد وضعیت خودکار <code>completed</code> می‌شود (حتی اگر تیک جزئی مانده باشد).
@@ -31684,6 +31789,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v382 دروازهٔ ترتیبی مسیر ۶مرحله‌ای:</b> ورود به مراحل ۲…۶ فقط با تکمیل پیش‌نیازها.
           <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v411 اتصال لایه‌چینی → مرحلهٔ برش:</b> وقتی لایه‌چینی به سفارش پیشرفته پیوند دارد، سرور مرحلهٔ برش مسیر (CC-10 / نام «برش» / اولین مرحلهٔ پارچه) را پیدا می‌کند، مصرف پارچه را روی همان مرحله ثبت می‌کند، مرحله را تکمیل می‌کند و مرحلهٔ بعد را باز می‌کند (دستمزد/سربار مرحله از نرخ مسیر). ابطال/ویرایش لایه همان اتصال را با R13 برمی‌گرداند. پارچه دوباره در حوالهٔ مرحله حواله نمی‌شود.
+          <br><b>v463 مرکز هزینه ضایعات:</b> مازاد بر سقف ضایعات عادی به ۵۲۲۱ و مرکز برش (فیلد فرم، یا CC-10) می‌رود تا الزام مرکز هزینه ثبت را نبندد.
           <br><b>برش مشترک (پرچم production_shared_cut):</b> یک یا چند محصول روی یک قد الگو. سهم ریال و متر هر مدل از «قطعه در هر لایه» است. باقیمانده تا آستانه (پیش‌فرض بیشترینِ ۱٫۲۰ متر و ۲۰٪ قد الگو، قابل تنظیم) ته‌طاقه است؛ بیشتر از آستانه به همان طاقه برمی‌گردد. اتلاف طولی بستانکار مواد است، چون کالای درجریان فقط متر پهن‌شده را بدهکار شده. ابطال، رسید انبار ته‌طاقه را هم برمی‌گرداند. مراحل بعد از برش برای هر محصول جداست و از همین فرم سفارش جدا ساخته نمی‌شود.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
@@ -32341,6 +32447,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('✂️','ضایعات لایه‌چینی',`
+      <p>ثبت لایه‌چینی کار تولید است. اگر مصرف از سقف ضایعات عادی بیشتر شود، مازاد روی حساب ۵۲۲۱ و مرکز هزینهٔ برش می‌نشیند و فرم همان مرکز را پیشنهاد می‌کند.</p>`),
     helpSec('🎯','نسخه نمایشی',`
       <p>دو سطح نمایش جدا از هم وجود دارد — با هم وصل نمی‌شوند:</p>
       <ul>
@@ -32359,8 +32467,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v462</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
-      <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. جزئیات در راهنمای مدیر است.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v463</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
