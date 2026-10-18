@@ -3,7 +3,7 @@
 - **اصلاح:** `expandLivePack` منبع حقیقت شد (`mode=live|defined`)؛ `pack_size_auto` = تعداد خطوط واقعی؛ برداشتن تیک رنگ/سایز حتی با موجودی صفر SKU را غیرفعال می‌کند؛ حرکت موجودی واریانت غیرفعال را رد می‌کند؛ فاکتور/بازاریاب/خرید/انبار/امانی از `resolveServerAutoPack` می‌خوانند؛ meta استایل با انبار هم‌تراز شد؛ راهنما به‌روز.
 - **فایل‌ها:** `lib/inventory/movement.js`, `lib/product-variants/service.js`, `routes/product-variants.js`, `public/{app.js,marketer-ui.js,sw.js,index.html}`, `scripts/test-live-pack-sot-v439.js`, تست‌های v183/v201/variant-stock، CHANGE-LOG.
 - **تست:** محلی `test-live-pack-sot-v439` قرارداد کلاینت سبز (sqlite روی ویندوز SKIP)؛ `test-sms` ۲۲/۰؛ `node --check` روی فایل‌های دست‌خورده. ایران: `test-live-pack-sot-v439` کامل.
-- **Deploy:** ⏳
+- **Deploy:** ✅ 5bcf225 / tip 95321aa6 — overlay ایران؛ pm2 restart بدون --update-env؛ ready=200 و sharp 0.33.5. آزمون ایران 	est-live-pack-sot-v439 ۱۱/۰ و 	est-sms ۲۲/۰. SW erp-taranom-v443.
 
 ### ۱۴۰۵/۰۷/۲۶ — گردش شخص = ماندهٔ کنترل حساب (party-books SoT — SW v442)
 - **علائم:** داشبورد کنترل حساب اشخاص برای تأمین‌کننده (مثلاً کاظم صادقی) ماندهٔ ~۱٫۴۸B− نشان می‌داد؛ مودال «گردش» فقط یک پرداخت ۳۳۰M با ماندهٔ ۳۳۰M می‌آورد. جمع صفحه ستون مانده را خالی می‌گذاشت.
