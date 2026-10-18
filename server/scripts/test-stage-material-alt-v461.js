@@ -165,15 +165,15 @@ const prim = rows.find(r => Number(r.product_id) === pZip);
 const sub = rows.find(r => Number(r.product_id) === pAlt);
 eq('primary actual', Number(prim?.qty_actual), 70);
 eq('primary standard stays on BOM item', Number(prim?.qty_standard), 96);
-eq('substitute type', sub?.issue_type, 'substitute');
-eq('substitute points at zip', Number(sub?.substitute_of_product_id), pZip);
-eq('partial substitute standard is 0', Number(sub?.qty_standard), 0);
-eq('substitute actual', Number(sub?.qty_actual), 26);
+ok(sub && sub.issue_type === 'substitute', 'substitute type', sub && sub.issue_type);
+ok(Number(sub?.substitute_of_product_id) === pZip, 'substitute points at zip');
+ok(Number(sub?.qty_standard) === 0, 'partial substitute standard is 0');
+ok(Number(sub?.qty_actual) === 26, 'substitute actual');
 
 const varJe = db.prepare(`
-  SELECT COUNT(*) c FROM journal_lines jl
-  JOIN chart_of_accounts a ON a.id=jl.account_id
-  WHERE a.code IN ('5210','5211') AND COALESCE(jl.debit,0)+COALESCE(jl.credit,0) <> 0
+  SELECT COUNT(*) c FROM journal_lines
+  WHERE account_code IN ('5210','5211')
+    AND ABS(COALESCE(debit,0))+ABS(COALESCE(credit,0)) <> 0
 `).get().c;
 eq('ADR-011 variance accounts stay 0', varJe, 0);
 
