@@ -2696,6 +2696,18 @@ function initSyncSchema(db, opts) {
     console.warn('orphan_ar_control_reclass_v390:', e.message);
   }
 
+  // v436 — continuous: opening JE wrongly voided by party/customer id collision
+  // (collectPartyOpeningJournalIds mixed namespaces) → restore JE + clean orphan books
+  try {
+    const { repairStaleCustomerOpeningMirrors } = require('./lib/opening-post');
+    const om = repairStaleCustomerOpeningMirrors(db);
+    if (om && (om.removed || om.restored)) {
+      console.log('✅ stale_customer_opening_mirror_v436:', JSON.stringify(om));
+    }
+  } catch (e) {
+    console.warn('stale_customer_opening_mirror_v436:', e.message);
+  }
+
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {

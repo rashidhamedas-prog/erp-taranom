@@ -133,19 +133,44 @@ function refreshCustomerBalanceFromLedger(db, customerId) {
     .run(Math.round(Number(row && row.b) || 0), customerId);
 }
 
+/**
+ * Live opening journals for one party.
+ * CRITICAL: never mix party.id and customer.id in one IN() on ref_id —
+ * those namespaces collide (e.g. party 26 تجری vs customer 26 افروز).
+ * opening_balance / opening_reclass → party.id only;
+ * opening / opening_ledger → customer ids only (legacy CRM path).
+ */
 function collectPartyOpeningJournalIds(db, party) {
-  const refIds = [Number(party.id), ...partyCustomerIds(db, party)]
+  const ids = new Set();
+  const pid = Number(party && party.id);
+  if (Number.isFinite(pid) && pid > 0) {
+    for (const r of db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type IN ('opening_balance','opening_reclass')
+        AND ref_id=?
+        AND COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      ORDER BY id ASC
+    `).all(pid)) {
+      ids.add(Number(r.id));
+    }
+  }
+  const custIds = partyCustomerIds(db, party)
     .filter((id) => Number.isFinite(id) && id > 0);
-  if (!refIds.length) return [];
-  const marks = refIds.map(() => '?').join(',');
-  return db.prepare(`
-    SELECT id FROM journal_entries
-    WHERE ref_type IN ('opening_balance','opening')
-      AND ref_id IN (${marks})
-      AND COALESCE(deleted_at,0)=0
-      AND COALESCE(status,'posted') NOT IN ('reversed','void')
-    ORDER BY id ASC
-  `).all(...refIds).map((r) => r.id);
+  if (custIds.length) {
+    const marks = custIds.map(() => '?').join(',');
+    for (const r of db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type IN ('opening','opening_ledger')
+        AND ref_id IN (${marks})
+        AND COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      ORDER BY id ASC
+    `).all(...custIds)) {
+      ids.add(Number(r.id));
+    }
+  }
+  return [...ids].sort((a, b) => a - b);
 }
 
 function retireOtherPartyOpenings(db, party, keepId, userId) {
@@ -424,31 +449,58 @@ function openingMirrorSigned(row) {
 }
 
 /**
- * Drop customer-book opening rows that are not the live party opening.
- * A GL→books copy (ref_type=opening_balance, old amount) survives amount rewrite
- * because the mirror used to delete only ref_type='opening'.
- * Does not post or rewrite the live opening journal.
+ * Drop / restore customer-book opening rows so books ↔ live party opening JE.
+ * Cases:
+ * 1) Live JE + stale GL→books copy (ref_type=opening_balance, wrong amt) — v424
+ * 2) Party.opening_balance ≠ 0 but JE soft-voided by ID collision — restore JE (v436)
+ * 3) Books opening rows with no live JE and party amt=0 — delete mirrors
+ * Does not invent openings when party.opening_balance is already 0.
  */
 function repairStaleCustomerOpeningMirrors(db) {
   let removed = 0;
-  const parties = db.prepare(`
-    SELECT p.*
-    FROM parties p
-    WHERE EXISTS (
-      SELECT 1 FROM journal_entries je
-      WHERE je.ref_type='opening_balance' AND je.ref_id=p.id
-        AND COALESCE(je.deleted_at,0)=0
-        AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
-    )
-  `).all();
+  let restored = 0;
+  const list = db.prepare(`
+    SELECT id, debit, credit, ref_type, ref_id
+    FROM customer_ledger
+    WHERE customer_id=?
+      AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+  `);
+  const del = db.prepare('DELETE FROM customer_ledger WHERE id=?');
+
   const run = db.transaction(() => {
-    const list = db.prepare(`
-      SELECT id, debit, credit, ref_type, ref_id
-      FROM customer_ledger
-      WHERE customer_id=?
-        AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
-    `);
-    const del = db.prepare('DELETE FROM customer_ledger WHERE id=?');
+    // Pass A — party still claims an opening but the JE was wrongly voided
+    const needRestore = db.prepare(`
+      SELECT p.*
+      FROM parties p
+      WHERE ABS(COALESCE(p.opening_balance,0)) > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM journal_entries je
+          WHERE je.ref_type='opening_balance' AND je.ref_id=p.id
+            AND COALESCE(je.deleted_at,0)=0
+            AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        )
+    `).all();
+    for (const party of needRestore) {
+      const amt = Math.round(Number(party.opening_balance) || 0);
+      if (!amt) continue;
+      upsertPartyOpening(db, party.id, amt, null, {
+        dateOverride: party.opening_balance_date || fiscalOpeningDate(db),
+        description: `مانده اول دوره — ${party.full_name || party.biz || party.id}`,
+      });
+      restored += 1;
+    }
+
+    // Pass B — parties with a live opening JE: keep one matching books row
+    const parties = db.prepare(`
+      SELECT p.*
+      FROM parties p
+      WHERE EXISTS (
+        SELECT 1 FROM journal_entries je
+        WHERE je.ref_type='opening_balance' AND je.ref_id=p.id
+          AND COALESCE(je.deleted_at,0)=0
+          AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+      )
+    `).all();
     for (const party of parties) {
       const amt = Math.round(Number(party.opening_balance) || 0);
       const jeId = livePartyOpeningJeId(db, party.id);
@@ -460,7 +512,6 @@ function repairStaleCustomerOpeningMirrors(db) {
         const rows = list.all(cid);
         if (!rows.length) continue;
         const matches = rows.filter((r) => openingMirrorSigned(r) === amt);
-        const stale = rows.filter((r) => openingMirrorSigned(r) !== amt);
         if (!matches.length) {
           mirrorPartyOpeningSubledgers(db, {
             partyId: party.id,
@@ -482,10 +533,41 @@ function repairStaleCustomerOpeningMirrors(db) {
         }
       }
     }
+
+    // Pass C — books opening with no live party JE and zero party opening
+    const orphanBooks = db.prepare(`
+      SELECT cl.id, cl.customer_id, c.party_id
+      FROM customer_ledger cl
+      JOIN customers c ON c.id=cl.customer_id
+      WHERE LOWER(COALESCE(cl.ref_type,'')) IN ('opening','opening_balance')
+        AND ABS(COALESCE((
+          SELECT p.opening_balance FROM parties p WHERE p.id=c.party_id
+        ),0)) = 0
+        AND NOT EXISTS (
+          SELECT 1 FROM journal_entries je
+          WHERE je.ref_type='opening_balance'
+            AND je.ref_id=c.party_id
+            AND COALESCE(je.deleted_at,0)=0
+            AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM journal_entries je
+          WHERE je.id=cl.ref_id
+            AND COALESCE(je.deleted_at,0)=0
+            AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        )
+    `).all();
+    for (const row of orphanBooks) {
+      del.run(row.id);
+      removed += 1;
+      try { refreshCustomerBalanceFromLedger(db, row.customer_id); } catch (_) { /* */ }
+    }
   });
   run();
-  if (removed) console.log(`✅ stale customer opening mirrors removed (${removed})`);
-  return { removed, continuous: true };
+  if (removed || restored) {
+    console.log(`✅ stale customer opening mirrors removed=${removed} restored=${restored}`);
+  }
+  return { removed, restored, continuous: true };
 }
 
 /**
@@ -793,6 +875,7 @@ module.exports = {
   upsertPartyOpening,
   fiscalOpeningDate,
   livePartyOpeningJeId,
+  collectPartyOpeningJournalIds,
   clearPartyOpeningSubledgers,
   deleteCustomerOpeningMirrors,
   refreshCustomerBalanceFromLedger,
