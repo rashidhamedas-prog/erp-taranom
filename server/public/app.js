@@ -17982,9 +17982,9 @@ async function prodOrderCreateModal(){
         </div>
       </section>
       <section class="po-sec">
-        <header class="po-sec-h"><span>۲</span><div><b>مقدار، انبار و تاریخ</b><small>اگر ماتریس رنگ×سایز باشد، تعداد برنامه از جمع خانه‌ها می‌آید و این فیلد فقط‌خواندنی می‌شود.</small></div></header>
+        <header class="po-sec-h"><span>۲</span><div><b>مقدار، انبار و تاریخ</b><small>در اجرای مشترک این عدد فقط محصول انتخاب‌شده است. اگر همان محصول ماتریس رنگ×سایز داشته باشد، جمع خانه‌های خودش این فیلد را پر می‌کند.</small></div></header>
         <div class="form-grid">
-          <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="1"></div>
+          <div class="fg"><label id="po-qty-label">تعداد برنامه</label><input id="po-qty" type="number" min="1" value="1"></div>
           <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
           <div class="fg"><label>انبار مواد</label>
             <select id="po-wh-raw"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
@@ -18006,14 +18006,25 @@ async function prodOrderCreateModal(){
       </div>
       </div>`);
     el('po-product')?.addEventListener('change', prodOrderFilterBoms);
-    el('po-bom')?.addEventListener('change', ()=>{ window._poBom=null; prodOrderRefreshFgPlan(); prodOrderLoadVariantPanel(+el('po-product')?.value||0); });
-    el('po-qty')?.addEventListener('input', ()=>{ if(window._poMatrix) return; prodOrderRefreshFgPlan(); });
+    el('po-bom')?.addEventListener('change', ()=>{ window._poBom=null; window._poFg=null; prodOrderRefreshFgPlan().then(()=>prodOrderLoadVariantPanel(+el('po-product')?.value||0)); });
+    el('po-qty')?.addEventListener('input', ()=>{
+      if(window._poFg && window._poFg.rows.length>1){
+        if(el('po-qty')?.readOnly) return;
+        prodOrderApplyHeaderToUntouched(window._poBom);
+        if(window._poBom) prodOrderPaintStages(window._poBom);
+        return;
+      }
+      if(window._poMatrix) return;
+      prodOrderRefreshFgPlan();
+    });
     prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
   }
 }
 async function prodOrderFilterBoms(){
+  window._poFg=null;
+  window._poBom=null;
   const pid=+el('po-product')?.value;
   const sel=el('po-bom'); if(!sel) return;
   let boms=[];
@@ -18110,6 +18121,7 @@ function prodOrderFgQtyMap(bom, qty, orderPid){
       product_id:Number(o.product_id),
       name:o.product_name||o.name||('#'+o.product_id),
       qty:q, share:Number(o.cost_share_percent)||0,
+      qpb:Number(o.qty_per_base)||1,
       isOrder, isAnchor
     };
   });
@@ -18131,38 +18143,54 @@ function prodOrderSyncAnalysisLock(bom){
       :(routing?'این فرمول مسیر عملیات دارد. سفارش مرحله‌ای می‌شود تا همان مراحل ساخته شوند.':'');
   }
 }
-function prodOrderRenderPlans(bom){
-  const fgBox=el('po-fg-plan');
-  const stBox=el('po-stage-plan');
+function prodOrderIsMulti(bom){
+  return !!(bom&&(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1));
+}
+function prodOrderSyncQtyLabel(multi){
+  const lab=el('po-qty-label');
+  if(lab) lab.textContent=multi?'تعداد محصول انتخاب‌شده':'تعداد برنامه';
+}
+function prodOrderSeedFg(bom){
+  const orderPid=+el('po-product')?.value||0;
+  const qty=+el('po-qty')?.value||0;
+  const plan=prodOrderFgQtyMap(bom, qty>0?qty:1, orderPid);
+  window._poFg={
+    bomId:Number(bom.id),
+    rows:plan.map(r=>({...r, touched:false, matrixOwned:false}))
+  };
+}
+function prodOrderFgMapFromState(bom){
+  if(window._poFg && window._poFg.rows && window._poFg.rows.length){
+    const map={};
+    window._poFg.rows.forEach(r=>{ if(Number(r.qty)>0) map[r.product_id]=Number(r.qty); });
+    if(Object.keys(map).length) return {map, plan:window._poFg.rows};
+  }
   const qty=+el('po-qty')?.value||0;
   const orderPid=+el('po-product')?.value||0;
-  if(!bom||!fgBox||!stBox) return;
-  prodOrderSyncAnalysisLock(bom);
-  const multi=!!(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1);
-  const plan=prodOrderFgQtyMap(bom, qty, orderPid);
-  const qtyMap={};
-  plan.forEach(p=>{ if(p.qty>0) qtyMap[p.product_id]=p.qty; });
-  if(!multi){ fgBox.innerHTML=''; fgBox.hidden=true; }
-  else{
-    fgBox.hidden=false;
-    fgBox.innerHTML=`<header class="po-sec-h"><span>۳</span><div><b>برنامه محصولات این اجرای مشترک</b><small>تعداد برنامه = مقدار محصول انتخاب‌شده. بقیه از نسبت فرمول می‌آیند. سهم٪ از فرمول است و با این تعداد عوض نمی‌شود.</small></div></header>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نقش</th><th>محصول</th><th class="num">تعداد برنامه‌ای</th><th class="num">سهم٪</th></tr></thead>
-      <tbody>${plan.map(o=>`<tr class="${o.isOrder?'is-order':''}"><td>محصول اصلی${o.isAnchor?' (لنگر)':''}${o.isOrder?' ★':''}</td><td>${esc(o.name)}</td><td class="num">${toFa(o.qty)}</td><td class="num">${toFa(o.share)}</td></tr>`).join('')}</tbody></table></div>`;
-  }
+  const plan=bom?prodOrderFgQtyMap(bom, qty, orderPid):[];
+  const map={};
+  plan.forEach(p=>{ if(p.qty>0) map[p.product_id]=p.qty; });
+  return {map, plan};
+}
+function prodOrderCcName(id){
+  const c=(window._prodCreateCcs||[]).find(x=>Number(x.id)===Number(id));
+  return c?((c.code?c.code+' ':'')+(c.name||'')):'';
+}
+function prodOrderPaintStages(bom){
+  const stBox=el('po-stage-plan');
+  if(!stBox||!bom) return;
+  const multi=prodOrderIsMulti(bom);
+  const {map, plan}=prodOrderFgMapFromState(bom);
   const ops=bom.operations||[];
-  const stages=prodOrderPreviewStages(ops, qtyMap);
-  const ccName=id=>{
-    const c=(window._prodCreateCcs||[]).find(x=>Number(x.id)===Number(id));
-    return c?((c.code?c.code+' ':'')+(c.name||'')):('');
-  };
+  const stages=prodOrderPreviewStages(ops, map);
   if(!ops.length){
     stBox.hidden=false;
     stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>این فرمول مسیر عملیات ندارد. با آزادسازی، مرحله‌ای ساخته نمی‌شود.</small></div></header>`;
     return;
   }
-  if(!(qty>0)){
+  if(!Object.keys(map).length){
     stBox.hidden=false;
-    stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>تعداد برنامه را وارد کنید تا ورودی هر مرحله حساب شود.</small></div></header>`;
+    stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>تعداد هر محصول را وارد کنید تا ورودی هر مرحله حساب شود.</small></div></header>`;
     return;
   }
   stBox.hidden=false;
@@ -18173,10 +18201,108 @@ function prodOrderRenderPlans(bom){
       const who=ex?(s.scoped_product_name||plan.find(p=>p.product_id===Number(s.scoped_product_id))?.name||('#'+s.scoped_product_id)):'';
       return `<tr><td class="num">${toFa(s.seq)}</td><td>${esc(s.operation_name||'')}</td>
         <td>${ex?`<span class="po-chip is-ex">اختصاصی · ${esc(who)}</span>`:`<span class="po-chip">مشترک</span>`}</td>
-        <td>${esc(ccName(s.cost_center_id)||'—')}</td>
+        <td>${esc(prodOrderCcName(s.cost_center_id)||'—')}</td>
         <td class="num">${toFa(s.qty_in)}</td></tr>`;
     }).join('')||`<tr><td colspan="5" class="muted">مرحله‌ای با تعداد مثبت نماند.</td></tr>`}</tbody></table></div>
     <p class="po-dep">مواد مشترک با جمع تعدادها و مواد اختصاصی با تعداد همان محصول حواله می‌شوند. انبار و تاریخ، این جدول را عوض نمی‌کنند.</p>`;
+}
+function prodOrderPaintHints(bom){
+  const st=window._poFg;
+  if(!st||!bom) return;
+  const order=st.rows.find(r=>r.isOrder);
+  const formula=prodOrderFgQtyMap(bom, Number(order?.qty)||0, order?.product_id||0);
+  st.rows.forEach(r=>{
+    const td=document.querySelector(`#po-fg-plan .po-fg-hint[data-pid="${r.product_id}"]`);
+    if(!td) return;
+    if(r.isOrder){ td.textContent='مبنای این سفارش'; return; }
+    const f=formula.find(x=>x.product_id===r.product_id);
+    td.textContent='پیشنهاد نسبت فرمول: '+(f?toFa(f.qty):'—');
+  });
+}
+function prodOrderApplyHeaderToUntouched(bom){
+  const st=window._poFg;
+  if(!st||!bom) return;
+  const header=+el('po-qty')?.value||0;
+  const order=st.rows.find(r=>r.isOrder);
+  if(!order||order.matrixOwned) return;
+  order.qty=header;
+  const formula=prodOrderFgQtyMap(bom, header, order.product_id);
+  st.rows.forEach(r=>{
+    if(r.isOrder||r.touched||r.matrixOwned) return;
+    const f=formula.find(x=>x.product_id===r.product_id);
+    if(f) r.qty=f.qty;
+  });
+  document.querySelectorAll('#po-fg-plan .po-fg-qty').forEach(inp=>{
+    if(document.activeElement===inp) return;
+    const row=st.rows.find(r=>r.product_id===+inp.dataset.pid);
+    if(row) inp.value=row.qty||'';
+  });
+  prodOrderPaintHints(bom);
+}
+function prodOrderApplyMatrixQty(pid, total, fromUser){
+  const st=window._poFg;
+  const bom=window._poBom;
+  if(!st) return;
+  const row=st.rows.find(r=>r.product_id===Number(pid));
+  if(!row) return;
+  if(!fromUser && !(total>0)) return;
+  row.qty=total;
+  row.matrixOwned=true;
+  if(fromUser) row.touched=true;
+  const inp=document.querySelector(`#po-fg-plan .po-fg-qty[data-pid="${pid}"]`);
+  if(inp){ inp.value=total||''; inp.readOnly=true; }
+  if(row.isOrder && el('po-qty')) el('po-qty').value=total||'';
+  if(fromUser && row.isOrder && bom){
+    const formula=prodOrderFgQtyMap(bom, total, row.product_id);
+    st.rows.forEach(r=>{
+      if(r.product_id===Number(pid)||r.touched||r.matrixOwned) return;
+      const f=formula.find(x=>x.product_id===r.product_id);
+      if(!f) return;
+      r.qty=f.qty;
+      const i=document.querySelector(`#po-fg-plan .po-fg-qty[data-pid="${r.product_id}"]`);
+      if(i && document.activeElement!==i) i.value=r.qty||'';
+    });
+  }
+  if(bom){ prodOrderPaintHints(bom); prodOrderPaintStages(bom); }
+}
+function prodOrderPaintFg(bom){
+  const fgBox=el('po-fg-plan');
+  if(!fgBox) return;
+  const rows=window._poFg?.rows||[];
+  fgBox.hidden=false;
+  fgBox.innerHTML=`<header class="po-sec-h"><span>۳</span><div><b>برنامه محصولات این اجرای مشترک</b><small>تعداد، رنگ و سایز هر محصول جداست. نسبت فرمول فقط پیشنهاد اولیه است و با دست‌کاری یک محصول، محصولی که خودتان عوض کرده‌اید تکان نمی‌خورد. سهم٪ از فرمول است.</small></div></header>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نقش</th><th>محصول</th><th class="num">تعداد</th><th class="num">سهم٪</th><th>نسبت فرمول</th></tr></thead>
+    <tbody>${rows.map(o=>`<tr class="${o.isOrder?'is-order':''}"><td>محصول اصلی${o.isAnchor?' (لنگر)':''}${o.isOrder?' ★':''}</td><td>${esc(o.name)}</td><td class="num"><input class="po-fg-qty num-fit" data-pid="${o.product_id}" type="number" min="0" step="any" value="${o.qty||''}"></td><td class="num">${toFa(o.share)}</td><td class="po-fg-hint" data-pid="${o.product_id}"></td></tr>`).join('')}</tbody></table></div>`;
+  fgBox.querySelectorAll('.po-fg-qty').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const row=(window._poFg?.rows||[]).find(r=>r.product_id===+inp.dataset.pid);
+      if(!row||row.matrixOwned) return;
+      row.qty=+inp.value||0;
+      row.touched=true;
+      if(row.isOrder && el('po-qty') && !el('po-qty').readOnly) el('po-qty').value=row.qty||'';
+      prodOrderPaintHints(bom);
+      prodOrderPaintStages(bom);
+    });
+  });
+  prodOrderPaintHints(bom);
+}
+function prodOrderRenderPlans(bom){
+  const fgBox=el('po-fg-plan');
+  const stBox=el('po-stage-plan');
+  if(!bom||!fgBox||!stBox) return;
+  prodOrderSyncAnalysisLock(bom);
+  const multi=prodOrderIsMulti(bom);
+  prodOrderSyncQtyLabel(multi);
+  if(!multi){
+    window._poFg=null;
+    fgBox.innerHTML='';
+    fgBox.hidden=true;
+    prodOrderPaintStages(bom);
+    return;
+  }
+  if(!window._poFg || Number(window._poFg.bomId)!==Number(bom.id)) prodOrderSeedFg(bom);
+  prodOrderPaintFg(bom);
+  prodOrderPaintStages(bom);
 }
 async function prodOrderRefreshFgPlan(){
   const fgBox=el('po-fg-plan');
@@ -18185,15 +18311,27 @@ async function prodOrderRefreshFgPlan(){
   const bomId=+el('po-bom')?.value||prodOrderEffectiveBomId();
   if(!bomId){
     window._poBom=null;
+    window._poFg=null;
     if(fgBox){ fgBox.innerHTML=''; fgBox.hidden=true; }
     if(stBox){ stBox.innerHTML=''; stBox.hidden=true; }
     prodOrderSyncAnalysisLock(null);
+    prodOrderSyncQtyLabel(false);
     return;
   }
   let bom=window._poBom;
   if(!bom || Number(bom.id)!==bomId){
     try{ bom=await api('GET','/production/boms/'+bomId); window._poBom=bom; }
     catch(_){ if(fgBox) fgBox.hidden=true; if(stBox) stBox.hidden=true; return; }
+  }
+  if(prodOrderIsMulti(bom)){
+    prodOrderSyncAnalysisLock(bom);
+    prodOrderSyncQtyLabel(true);
+    if(!window._poFg || Number(window._poFg.bomId)!==Number(bom.id)){
+      prodOrderSeedFg(bom);
+      prodOrderPaintFg(bom);
+    }else prodOrderApplyHeaderToUntouched(bom);
+    prodOrderPaintStages(bom);
+    return;
   }
   prodOrderRenderPlans(bom);
 }
@@ -18254,6 +18392,12 @@ function prodOrderMatrixRecalc(box, qtyInputId){
   });
   box.querySelectorAll('.po-mx-colsum').forEach(td=>{ td.textContent=fmt(colSums[td.dataset.sid]||0); });
   box.querySelectorAll('.po-mx-total').forEach(td=>{ td.textContent=fmt(total); });
+  const fgPid=box.dataset?.fgPid?+box.dataset.fgPid:0;
+  const joint=!!(fgPid && window._poFg && window._poFg.rows.length>1);
+  if(joint){
+    if(box.dataset.userEdit==='1') prodOrderApplyMatrixQty(fgPid, total, true);
+    return total;
+  }
   if(qtyInputId && el(qtyInputId)) el(qtyInputId).value=total||'';
   if(qtyInputId==='po-qty') prodOrderRefreshFgPlan();
   return total;
@@ -18261,7 +18405,10 @@ function prodOrderMatrixRecalc(box, qtyInputId){
 function prodOrderBindMatrix(box, qtyInputId){
   if(!box) return;
   box.querySelectorAll('.po-mx-cell').forEach(inp=>{
-    inp.addEventListener('input', ()=>prodOrderMatrixRecalc(box, qtyInputId));
+    inp.addEventListener('input', ()=>{
+      if(box.dataset.fgPid && window._poFg && window._poFg.rows.length>1) box.dataset.userEdit='1';
+      prodOrderMatrixRecalc(box, qtyInputId);
+    });
   });
   prodOrderMatrixRecalc(box, qtyInputId);
 }
@@ -18298,21 +18445,43 @@ function prodOrderEffectiveBomId(){
 }
 async function prodOrderLoadVariantPanel(pid){
   const box=el('po-variant-panel'); if(!box) return;
-  window._poMatrix=false;
   const qtyInput=el('po-qty');
-  if(!pid){ box.innerHTML=''; box.hidden=true; if(qtyInput) qtyInput.readOnly=false; return; }
+  const bom=window._poBom;
+  const multi=prodOrderIsMulti(bom) && window._poFg && window._poFg.rows.length>1;
+  const products=multi
+    ? window._poFg.rows.map(r=>({id:r.product_id, name:r.name, isOrder:r.isOrder}))
+    : [{id:pid, name:'', isOrder:true}];
+  window._poMatrix=false;
+  if(!products.some(p=>p.id)){ box.innerHTML=''; box.hidden=true; if(qtyInput) qtyInput.readOnly=false; return; }
   box.hidden=false;
   box.innerHTML='<div class="po-dep">در حال بارگذاری ماتریس رنگ×سایز…</div>';
-  const variants=await prodOrderActiveVariants(pid);
-  const mx=prodOrderBuildMatrix(variants);
-  if(!mx.colors.length||!mx.sizes.length){ box.innerHTML=''; box.hidden=true; if(qtyInput) qtyInput.readOnly=false; return; }
-  const allowed=await prodOrderAllowedForBom(prodOrderEffectiveBomId());
-  window._poMatrix=true;
-  if(qtyInput) qtyInput.readOnly=true;
-  const step=el('po-fg-plan')&&!el('po-fg-plan').hidden?'۵':'۴';
-  box.innerHTML=`<header class="po-sec-h"><span>${step}</span><div><b>رنگ × سایز همین محصول</b><small>جمع خانه‌ها تعداد محصول انتخاب‌شده را می‌سازد و تعداد بقیهٔ محصولات و ورودی مراحل را دوباره حساب می‌کند. «—» SKU فعال ندارد. «⛔» خارج از دامنهٔ مجاز فرمول است.</small></div></header>
-    ${prodOrderMatrixGridHtml(mx, null, false, allowed)}`;
-  prodOrderBindMatrix(box, 'po-qty');
+  const allowed=await prodOrderAllowedForBom(prodOrderEffectiveBomId()||bom?.id||0);
+  const blocks=[];
+  for(const p of products){
+    if(!p.id) continue;
+    const variants=await prodOrderActiveVariants(p.id);
+    const mx=prodOrderBuildMatrix(variants);
+    if(!mx.colors.length||!mx.sizes.length) continue;
+    blocks.push({p, mx});
+  }
+  if(!blocks.length){
+    box.innerHTML=''; box.hidden=true;
+    if(qtyInput) qtyInput.readOnly=false;
+    return;
+  }
+  const orderHas=blocks.some(b=>b.p.isOrder);
+  window._poMatrix=orderHas;
+  if(qtyInput) qtyInput.readOnly=orderHas;
+  box.innerHTML=`<header class="po-sec-h"><span>${multi?'۵':'۴'}</span><div><b>${multi?'رنگ × سایز هر محصول':'رنگ × سایز همین محصول'}</b><small>${multi?'جمع خانه‌های هر جدول فقط تعداد همان محصول را می‌سازد. جدول محصول دیگر و تعدادی که خودتان عوض کرده‌اید ثابت می‌ماند.':'جمع خانه‌ها تعداد برنامه را می‌سازد.'} «—» SKU فعال ندارد. «⛔» خارج از دامنهٔ مجاز فرمول است.</small></div></header>
+    ${blocks.map(b=>`<div class="po-fg-matrix" data-fg-pid="${b.p.id}">
+      ${multi?`<p class="po-dep"><b>${esc(b.p.name)}</b>${b.p.isOrder?' <span class="po-chip">محصول انتخاب‌شده</span>':''}</p>`:''}
+      ${prodOrderMatrixGridHtml(b.mx, null, false, allowed)}
+    </div>`).join('')}`;
+  box.querySelectorAll('.po-fg-matrix').forEach(wrap=>{
+    const fgPid=+wrap.dataset.fgPid;
+    const isOrder=!!blocks.find(b=>b.p.id===fgPid && b.p.isOrder);
+    prodOrderBindMatrix(wrap, (!multi && isOrder)?'po-qty':null);
+  });
 }
 async function prodOrderCreateSave(){
   const pid=+el('po-product')?.value;
@@ -18323,7 +18492,34 @@ async function prodOrderCreateSave(){
     analysis_type:el('po-analysis').value, date:el('po-date').value,
     note:el('po-note')?.value||''
   };
-  if(window._poMatrix){
+  const joint=window._poFg && window._poFg.rows.length>1;
+  if(joint){
+    const rows=window._poFg.rows;
+    const missing=[];
+    document.querySelectorAll('#po-variant-panel .po-fg-matrix').forEach(box=>{
+      const fpid=+box.dataset.fgPid;
+      const cells=prodOrderMatrixCells(box);
+      const sum=cells.reduce((a,c)=>a+c.qty_planned,0);
+      const row=rows.find(r=>r.product_id===fpid);
+      if(!(sum>0)) missing.push(row?.name||('#'+fpid));
+    });
+    if(missing.length){ showToast('رنگ و سایز را برای این محصولات پر کنید: '+missing.join('، '),'error'); return; }
+    if(rows.some(r=>!(Number(r.qty)>0))){ showToast('تعداد هر محصول باید بزرگ‌تر از صفر باشد','error'); return; }
+    const order=rows.find(r=>r.isOrder)||rows[0];
+    body.qty_planned=Number(order.qty);
+    body.fg_plan=rows.map(r=>({product_id:r.product_id, qty:Number(r.qty)}));
+    const cells=[];
+    document.querySelectorAll('#po-variant-panel .po-fg-matrix').forEach(box=>{
+      const fpid=+box.dataset.fgPid;
+      prodOrderMatrixCells(box).forEach(c=>cells.push({...c, product_id:fpid}));
+    });
+    if(cells.length){
+      body.matrix_lines=cells;
+      const orderCells=cells.filter(c=>Number(c.product_id)===Number(order.product_id));
+      const orderBox=document.querySelector(`#po-variant-panel .po-fg-matrix[data-fg-pid="${order.product_id}"]`);
+      if(orderCells.length) Object.assign(body, prodOrderLegacyBreakdown(orderCells, orderBox));
+    }
+  }else if(window._poMatrix){
     const cells=prodOrderMatrixCells(el('po-variant-panel'));
     const sum=cells.reduce((a,c)=>a+c.qty_planned,0);
     if(!sum){ showToast('حداقل یک خانهٔ رنگ×سایز را پر کنید','error'); return; }
@@ -18365,12 +18561,84 @@ function prodOrderLegacyBreakdown(cells, box){
   if(!colorName||!Object.keys(size_breakdown).length) return {};
   return {color:colorName, size_breakdown};
 }
+async function prodOrderEditJointModal(order, canEdit){
+  const allowed=await prodOrderAllowedForBom(order.bom_id);
+  const blocks=[];
+  for(const p of (order.fg_plan||[])){
+    const variants=await prodOrderActiveVariants(p.product_id);
+    const mx=prodOrderBuildMatrix(variants);
+    const preset={};
+    (order.matrix_lines||[]).filter(l=>Number(l.product_id)===Number(p.product_id)).forEach(l=>{
+      if(l.color_id&&l.size_id) preset[Number(l.color_id)+':'+Number(l.size_id)]=Number(l.qty_planned)||0;
+    });
+    blocks.push({p, mx, preset, has:!!(mx.colors.length&&mx.sizes.length)});
+  }
+  showModal('ویرایش سفارش '+esc(order.order_no||''),`
+    <div class="prod-scope po-create">
+      ${canEdit?'':`<div class="muted">👁 فقط مشاهده — مجوز <code>production/edit</code> ندارید.</div>`}
+      <p class="po-dep">تعداد، رنگ و سایز هر محصول جداست. سهم٪ از فرمول می‌ماند.</p>
+      ${blocks.map(b=>`<section class="po-sec po-edit-fg" data-pid="${b.p.product_id}">
+        <header class="po-sec-h"><div><b>${esc(b.p.product_name||('#'+b.p.product_id))}</b><small>${b.p.is_order_product?'محصول این سفارش · ':''}سهم ${toFa(b.p.cost_share_percent||0)}٪</small></div></header>
+        <div class="fg"><label>تعداد</label><input class="po-edit-qty" data-pid="${b.p.product_id}" type="number" min="0" step="any" value="${Number(b.p.qty_planned)||0}" ${canEdit&&!b.has?'':'readonly'}></div>
+        ${b.has?`<div class="po-fg-matrix" data-fg-pid="${b.p.product_id}">${prodOrderMatrixGridHtml(b.mx, b.preset, !canEdit, allowed)}</div>`:''}
+      </section>`).join('')}
+      <div class="fg"><label>یادداشت</label><input id="po-edit-note" value="${esc(order.note||'')}" ${canEdit?'':'disabled'}></div>
+      <div class="po-foot">
+        <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
+        ${canEdit?`<button class="btn" id="po-edit-save" data-csp-click="${CSP.bind('click',function(event){prodOrderEditJointSave((order.id),(order.product_id))})}">ذخیره</button>`:''}
+      </div>
+    </div>`, true);
+  document.querySelectorAll('.po-edit-fg .po-fg-matrix').forEach(wrap=>{
+    prodOrderBindMatrix(wrap, null);
+    const sync=()=>{
+      const total=[...wrap.querySelectorAll('.po-mx-cell')].reduce((s,i)=>s+(+i.value||0),0);
+      const q=document.querySelector(`.po-edit-qty[data-pid="${wrap.dataset.fgPid}"]`);
+      if(q && total>0) q.value=total;
+    };
+    wrap.querySelectorAll('.po-mx-cell').forEach(inp=>inp.addEventListener('input', sync));
+    sync();
+  });
+}
+async function prodOrderEditJointSave(id, orderProductId){
+  const btn=el('po-edit-save');
+  if(btn&&btn.disabled) return;
+  const body={note:el('po-edit-note')?.value||'', fg_plan:[], matrix_lines:[]};
+  let bad=false;
+  document.querySelectorAll('.po-edit-fg').forEach(sec=>{
+    const pid=+sec.dataset.pid;
+    const box=sec.querySelector('.po-fg-matrix');
+    let qty=+sec.querySelector('.po-edit-qty')?.value||0;
+    if(box){
+      const cells=prodOrderMatrixCells(box);
+      const sum=cells.reduce((a,c)=>a+c.qty_planned,0);
+      if(!(sum>0)) bad=true;
+      qty=sum||qty;
+      cells.forEach(c=>body.matrix_lines.push({...c, product_id:pid}));
+    }
+    if(!(qty>0)) bad=true;
+    body.fg_plan.push({product_id:pid, qty});
+    if(pid===Number(orderProductId)) body.qty_planned=qty;
+  });
+  if(!body.matrix_lines.length) delete body.matrix_lines;
+  if(bad||!(body.qty_planned>0)){ showToast('تعداد و رنگ هر محصول را کامل کنید','error'); return; }
+  if(btn) btn.disabled=true;
+  try{
+    await api('PUT','/production/orders/'+id, body);
+    closeModal(); showToast('سفارش به‌روز شد'); loadAccTab('production-orders');
+  }catch(e){
+    showToast(prodOrderErrMsg(e),'error');
+    if(btn) btn.disabled=false;
+  }
+}
 async function prodOrderEditModal(id){
   let order=null;
   try{ order=await api('GET','/production/orders/'+id); }
   catch(e){ showToast(e.message||e.error||'خطا','error'); return; }
   if(order.status!=='draft'){ showToast('فقط پیش‌نویس قابل ویرایش است','error'); return; }
   const canEdit=typeof canPerm==='function'&&canPerm('production','edit');
+  if(order.is_multiproduct && (order.fg_plan||[]).length>1){
+    return prodOrderEditJointModal(order, canEdit);
+  }
   const variants=await prodOrderActiveVariants(order.product_id);
   const mx=prodOrderBuildMatrix(variants);
   const hasMatrix=!!(mx.colors.length&&mx.sizes.length);
@@ -31170,7 +31438,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418 / v458):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (جزء با مصرف یکسان برای هر مدل، مثل کشباف) یا <b>اختصاصی</b> یک محصول. پارچهٔ مشترک با <b>مصرف متفاوت</b> دو ردیف اختصاصی از همان کالا است (یلدا ۱٫۳ متر، آبان ۱٫۶۵۵ متر) — فعال‌سازی دیگر این را «قلم تکراری» نمی‌داند. دو ردیف مشترک از یک جزء، یا دو اختصاصی برای <b>همان</b> محصول، یا یک جزء هم مشترک و هم اختصاصی رد می‌شود. دوخت با اجرت متفاوت = دو عملیات اختصاصی. در بها، اختصاصی مستقیم به همان محصول می‌رود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. تب بها فقط برآورد است و سند نمی‌زند.</li>
-        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. در فرم ایجاد، برنامهٔ محصولات و <b>مراحل مسیر</b> با هم دیده می‌شوند: مرحلهٔ مشترک ورودی‌اش جمع تعدادهاست، مرحلهٔ اختصاصی فقط تعداد همان محصول است و با تمام شدن مرحلهٔ قبل عوض نمی‌شود. سهم٪ از فرمول است. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. ماتریس رنگ×سایز فقط محصول انتخاب‌شده است و جمعش تعداد برنامه را می‌سازد. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
+        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. تعداد هر محصول جداست: نسبت <code>qty_per_base</code> فقط پیشنهاد اول است و بعد از دست‌کاری یک ردیف، ردیف دیگر را عوض نمی‌کند. رنگ×سایز هم برای هر محصول جدول خودش را دارد و جمع همان جدول تعداد همان محصول است. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. مرحلهٔ مشترک ورودی‌اش جمع تعدادهاست، مرحلهٔ اختصاصی فقط تعداد همان محصول است و با تمام شدن مرحلهٔ قبل عوض نمی‌شود. سهم٪ از فرمول است و با این تعدادها دوباره حساب نمی‌شود. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416 / v458):</b> محاسبه تحلیلی — <b>بدون JE</b>. در فرمول چندمحصولی برای <b>هر محصول یک تعداد</b> وارد می‌شود و با تایپ، بها زنده تازه می‌شود. قلم و دوخت اختصاصی × تعداد همان محصول؛ قلم و اتو/بسته‌بندی مشترک × جمع تعدادها و تقسیم به نسبت همان تعدادها. سربار هر مرحله از <b>نرخ ذخیره‌شدهٔ همان مرکز</b> در دوره است (<code>نرخ × محرک × جذب٪</code>). اگر عدد نرخ را دستی عوض کنید، حتی با بودجهٔ پر، همان عدد می‌ماند و در جدول و در تب بها دیده می‌شود. جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
@@ -31864,7 +32132,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v459</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v460</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>

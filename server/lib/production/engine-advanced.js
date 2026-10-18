@@ -5,7 +5,7 @@
 const { allocateNumber, audit } = require('../../db');
 const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
-const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiproductBom, planBomFgOutputs, orderFgQtyMap } = require('./bom');
+const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiproductBom, orderFgQtyMap } = require('./bom');
 const { backwardQty, planScopedStageQtys, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
@@ -926,12 +926,7 @@ function releaseAdvancedOrder(db, orderId, userId) {
     const multi = isMultiproductBom(db, po.bom_id);
     let plannedByOp = new Map();
     if (multi) {
-      const fg = planBomFgOutputs(db, po.bom_id, po.qty_planned, po.product_id);
-      const map = {};
-      for (const p of fg) {
-        const q = Number(p.qty_planned) || 0;
-        if (q > 0) map[p.product_id] = q;
-      }
+      const map = orderFgQtyMap(db, po) || {};
       for (const row of planScopedStageQtys(ops, map)) {
         plannedByOp.set(Number(row.operation_id), row);
       }

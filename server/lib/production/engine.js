@@ -9,7 +9,7 @@ const { acct } = require('../coa-map');
 const {
   explodeBom, resolveBom, isMultiproductBom, assertProductInBomFg,
   explodeProductScopeForOrder, planBomFgOutputs, orderQtyAsMainBase,
-  explodeQtyForOrder,
+  explodeQtyForOrder, orderFgPlanRows, parseFgPlanJson,
 } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
@@ -169,7 +169,7 @@ function resolveMatrixLines(db, { productId, bomId, lines }) {
 function assertMatrixCellsUnique(lines) {
   const seen = new Set();
   for (const ln of lines) {
-    const k = `${ln.variant_id ?? ''}|${ln.color_id ?? ''}|${ln.size_id ?? ''}`;
+    const k = `${ln.product_id ?? ''}|${ln.variant_id ?? ''}|${ln.color_id ?? ''}|${ln.size_id ?? ''}`;
     if (seen.has(k)) throw err('E_MATRIX_DUPLICATE', 422, { cell: k });
     seen.add(k);
   }
@@ -180,11 +180,36 @@ function normalizeMatrixPayload(body) {
     : (Array.isArray(body.lines) ? body.lines : null);
   if (!raw) return null;
   return raw.map(ln => ({
+    product_id: ln.product_id != null ? Number(ln.product_id) : null,
     variant_id: ln.variant_id != null ? Number(ln.variant_id) : null,
     color_id: ln.color_id != null ? Number(ln.color_id) : null,
     size_id: ln.size_id != null ? Number(ln.size_id) : null,
     qty: num(ln.qty_planned != null ? ln.qty_planned : ln.qty),
   })).filter(ln => ln.qty > 0);
+}
+
+/** Each product's color×size grid is resolved against that product, not the order header. */
+function resolveMatrixGroups(db, { fallbackProductId, bomId, lines }) {
+  const groups = new Map();
+  for (const ln of lines) {
+    const pid = Number(ln.product_id) || Number(fallbackProductId);
+    if (!groups.has(pid)) groups.set(pid, []);
+    groups.get(pid).push(ln);
+  }
+  const out = [];
+  for (const [pid, part] of groups) {
+    for (const ln of resolveMatrixLines(db, { productId: pid, bomId, lines: part })) {
+      out.push({ ...ln, product_id: pid });
+    }
+  }
+  return out;
+}
+
+function fgPlanJson(map) {
+  return JSON.stringify(Object.keys(map || {}).map(pid => ({
+    product_id: Number(pid),
+    qty: map[pid],
+  })));
 }
 
 /** Order color×size rows with display names, for the order matrix grid. */
@@ -263,20 +288,22 @@ function createOrder(db, body, userId) {
   const sizeBd = sizeBdObj ? JSON.stringify(sizeBdObj) : '';
   const color = String(body.color || '').trim();
 
-  // PA-04 — explicit color×size order matrix (independent of the BOM variant scope)
+  // PA-04 — explicit color×size order matrix. On a joint run each product has its own grid.
   let matrixLines = normalizeMatrixPayload(body);
   if (matrixLines && matrixLines.length) {
-    // Resolve ids first: a variant_id cell and its color×size twin are the same
-    // cell, and only the resolved form can be checked against the BOM domain.
-    matrixLines = resolveMatrixLines(db, { productId, bomId: bom.id, lines: matrixLines });
+    matrixLines = resolveMatrixGroups(db, {
+      fallbackProductId: productId, bomId: bom.id, lines: matrixLines,
+    });
     assertMatrixCellsUnique(matrixLines);
   }
-  const matrixQty = matrixLines ? matrixLines.reduce((s, ln) => s + ln.qty, 0) : 0;
+  const linesFor = (pid) => (matrixLines || []).filter(ln => Number(ln.product_id || productId) === Number(pid));
+  const sumOf = (rows) => rows.reduce((s, ln) => s + ln.qty, 0);
 
   const { hasActiveMatrixVariants } = require('../inventory/qty-policy');
   if (hasActiveMatrixVariants(db, productId)) {
-    const matrixCovers = matrixLines && matrixLines.length
-      && matrixLines.every(ln => ln.variant_id || (ln.color_id && ln.size_id));
+    const mine = linesFor(productId);
+    const matrixCovers = mine.length
+      && mine.every(ln => ln.variant_id || (ln.color_id && ln.size_id));
     if (!matrixCovers && (!color || !sizeBdObj || typeof sizeBdObj !== 'object')) {
       throw err('E_VARIANT_REQUIRED', 400, {
         detail: 'برای کالای ماتریسی رنگ و تفکیک تعداد per سایز (یا سطرهای ماتریس) الزامی است',
@@ -291,17 +318,51 @@ function createOrder(db, body, userId) {
       qtyPlanned = sum;
     }
   }
-  // Matrix quantity drives the order qty — reconcile before the std cost explode,
-  // otherwise std_total/std_unit are computed against a different quantity.
-  if (matrixLines && matrixLines.length) {
-    if (qtyPlanned > 0 && Math.abs(matrixQty - qtyPlanned) > 0.001) {
-      throw err('E_VARIANT_QTY', 400, { sum: matrixQty, qty_planned: qtyPlanned });
+  // The header quantity is the selected product only. Other products do not add into it.
+  const orderMatrixQty = sumOf(linesFor(productId));
+  if (linesFor(productId).length) {
+    if (qtyPlanned > 0 && Math.abs(orderMatrixQty - qtyPlanned) > 0.001) {
+      throw err('E_VARIANT_QTY', 400, { sum: orderMatrixQty, qty_planned: qtyPlanned });
     }
-    qtyPlanned = matrixQty;
+    qtyPlanned = orderMatrixQty;
   }
   if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
 
-  // مقیاس مواد: برای سفارش روی هم‌محصول، qty را به معادل سرفصل تبدیل کن
+  let fgMap = null;
+  if (multiBom) {
+    const formula = planBomFgOutputs(db, bom.id, qtyPlanned, productId);
+    fgMap = {};
+    for (const p of formula) fgMap[p.product_id] = Number(p.qty_planned) || 0;
+    const sent = parseFgPlanJson(body.fg_plan);
+    if (sent) {
+      for (const p of formula) {
+        if (sent[p.product_id] != null && Number(p.product_id) !== productId) {
+          fgMap[p.product_id] = sent[p.product_id];
+        }
+      }
+    }
+    fgMap[productId] = qtyPlanned;
+    for (const p of formula) {
+      const mine = linesFor(p.product_id);
+      if (mine.length) fgMap[p.product_id] = sumOf(mine);
+    }
+    fgMap[productId] = linesFor(productId).length ? orderMatrixQty : qtyPlanned;
+    for (const p of formula) {
+      if (!(Number(fgMap[p.product_id]) > 0)) {
+        throw err('E_QTY_INVALID', 422, {
+          product_id: p.product_id,
+          detail: 'تعداد هر محصول اصلی باید بزرگ‌تر از صفر باشد',
+        });
+      }
+      if (hasActiveMatrixVariants(db, p.product_id) && !linesFor(p.product_id).length) {
+        throw err('E_VARIANT_REQUIRED', 400, {
+          product_id: p.product_id,
+          detail: 'برای هر محصول ماتریسی این اجرای مشترک، رنگ و سایز جدا لازم است',
+        });
+      }
+    }
+  }
+
   const qtyExplode = multiBom
     ? orderQtyAsMainBase(db, bom.id, qtyPlanned, productId)
     : qtyPlanned;
@@ -311,8 +372,8 @@ function createOrder(db, body, userId) {
     const ex = explodeBom(db, {
       bomId: bom.id, qty: qtyExplode, priceBasis: 'std',
       sizeBreakdown: sizeBdObj, color,
-      // چندمحصولی = بهای استاندارد کل اجرای مشترک؛ تک = فقط قلم‌های همان محصول
       forProductId: multiBom ? null : productId,
+      qtyByProduct: fgMap,
     });
     stdMat = ex.totals.total_rial;
   } catch { /* ignore */ }
@@ -350,6 +411,12 @@ function createOrder(db, body, userId) {
       qtyPlanned > 0 ? Math.round((stdMat + stdLab + stdOh) / qtyPlanned) : 0,
       body.note || '', userId
     ).lastInsertRowid;
+    if (fgMap) {
+      try {
+        db.prepare('UPDATE production_orders SET fg_plan_json=? WHERE id=?')
+          .run(fgPlanJson(fgMap), orderId);
+      } catch { /* column missing before v460 ensureColumn */ }
+    }
     if (body.manual_driver_qty != null && body.manual_driver_qty !== '') {
       try {
         db.prepare('UPDATE production_orders SET manual_driver_qty=? WHERE id=?')
@@ -376,7 +443,7 @@ function createOrder(db, body, userId) {
     let lineCount = 0;
     if (matrixLines && matrixLines.length) {
       for (const ln of matrixLines) {
-        insLine.run(orderId, productId, ln.variant_id, ln.color_id, ln.size_id, ln.qty, String(bom.id));
+        insLine.run(orderId, ln.product_id || productId, ln.variant_id, ln.color_id, ln.size_id, ln.qty, String(bom.id));
         lineCount++;
       }
     } else if (sizeBdObj && color) {
@@ -2092,7 +2159,7 @@ function getOrderDetail(db, orderId) {
   const po = getOrder(db, orderId);
   const multi = !!(po.bom_id && isMultiproductBom(db, po.bom_id));
   const fg_plan = po.bom_id
-    ? planBomFgOutputs(db, po.bom_id, po.qty_planned, po.product_id)
+    ? orderFgPlanRows(db, po)
     : [];
   return {
     ...po,
@@ -2236,15 +2303,19 @@ function updateOrder(db, orderId, body = {}) {
   // once released the reservations and WIP already follow the old quantities.
   let matrixLines = normalizeMatrixPayload(body);
   let qtyPlanned = null;
+  let fgMap = null;
   if (matrixLines) {
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
     if (!matrixLines.length) throw err('E_QTY_INVALID', 422);
     if (!tableExists(db, 'production_order_lines')) throw err('E_NO_MATRIX_TABLE', 409);
-    matrixLines = resolveMatrixLines(db, {
-      productId: po.product_id, bomId: po.bom_id, lines: matrixLines,
+    matrixLines = resolveMatrixGroups(db, {
+      fallbackProductId: po.product_id, bomId: po.bom_id, lines: matrixLines,
     });
     assertMatrixCellsUnique(matrixLines);
-    qtyPlanned = matrixLines.reduce((s, ln) => s + ln.qty, 0);
+    const orderSum = matrixLines
+      .filter(ln => Number(ln.product_id) === Number(po.product_id))
+      .reduce((s, ln) => s + ln.qty, 0);
+    qtyPlanned = orderSum > 0 ? orderSum : matrixLines.reduce((s, ln) => s + ln.qty, 0);
     if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
   } else if (body.qty_planned !== undefined) {
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
@@ -2270,6 +2341,38 @@ function updateOrder(db, orderId, body = {}) {
     }
   }
 
+  if (po.bom_id && isMultiproductBom(db, po.bom_id) && (matrixLines || body.fg_plan || qtyPlanned != null)) {
+    if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
+    const qOrder = qtyPlanned != null ? qtyPlanned : num(po.qty_planned);
+    const formula = planBomFgOutputs(db, po.bom_id, qOrder, po.product_id);
+    fgMap = {};
+    for (const p of formula) fgMap[p.product_id] = Number(p.qty_planned) || 0;
+    const prev = parseFgPlanJson(po.fg_plan_json);
+    if (prev) {
+      for (const p of formula) {
+        if (prev[p.product_id] != null && Number(p.product_id) !== Number(po.product_id)) {
+          fgMap[p.product_id] = prev[p.product_id];
+        }
+      }
+    }
+    const sent = parseFgPlanJson(body.fg_plan);
+    if (sent) {
+      for (const p of formula) {
+        if (sent[p.product_id] != null && Number(p.product_id) !== Number(po.product_id)) {
+          fgMap[p.product_id] = sent[p.product_id];
+        }
+      }
+    }
+    fgMap[po.product_id] = qOrder;
+    if (matrixLines) {
+      const sums = {};
+      for (const ln of matrixLines) sums[ln.product_id] = (sums[ln.product_id] || 0) + ln.qty;
+      for (const pid of Object.keys(sums)) {
+        if (Number(pid) !== Number(po.product_id)) fgMap[pid] = sums[pid];
+      }
+    }
+  }
+
   if (qtyPlanned != null) {
     // The standard cost is quantity-driven, so a re-plan that left std_* alone
     // would publish a unit cost belonging to the previous quantity.
@@ -2279,6 +2382,7 @@ function updateOrder(db, orderId, body = {}) {
         bomId: po.bom_id, qty: qtyPlanned, priceBasis: 'std',
         sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
         forProductId: explodeProductScopeForOrder(db, po),
+        qtyByProduct: fgMap,
       }).totals.total_rial;
     } catch { /* keep 0 — same best-effort contract as createOrder */ }
     fields.push('qty_planned=?', 'std_material_rial=?', 'std_total_rial=?', 'std_unit_rial=?');
@@ -2287,6 +2391,10 @@ function updateOrder(db, orderId, body = {}) {
       stdMat + num(po.std_labor_rial) + num(po.std_overhead_rial),
       Math.round((stdMat + num(po.std_labor_rial) + num(po.std_overhead_rial)) / qtyPlanned)
     );
+  }
+  if (fgMap) {
+    fields.push('fg_plan_json=?');
+    params.push(fgPlanJson(fgMap));
   }
 
   if (!fields.length && !matrixLines) return getOrderDetail(db, orderId);
@@ -2306,7 +2414,7 @@ function updateOrder(db, orderId, body = {}) {
       `);
       for (const ln of matrixLines) {
         insLine.run(
-          orderId, po.product_id, ln.variant_id, ln.color_id, ln.size_id,
+          orderId, ln.product_id || po.product_id, ln.variant_id, ln.color_id, ln.size_id,
           ln.qty, String(po.bom_id || '')
         );
       }

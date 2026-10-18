@@ -287,6 +287,8 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'production_orders', 'manual_driver_qty', 'REAL DEFAULT 0');
     // v422 — optional admin waive for soft→hard code/cost on issue/finalize (audit text only)
     ensureColumn(db, 'production_orders', 'completeness_waive_reason', "TEXT DEFAULT ''");
+    // v460 — independent planned qty per main product on a joint run
+    ensureColumn(db, 'production_orders', 'fg_plan_json', "TEXT DEFAULT ''");
   }
   ensureProdAccMatrixTables(db);
   if (tableExists(db, 'cutting_lays')) {

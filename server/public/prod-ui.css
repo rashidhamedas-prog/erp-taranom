@@ -387,7 +387,7 @@
   .prod-journey-card { min-height: 124px; }
 }
 
-/* سفارش تولید — فرم ایجاد (v459) */
+/* سفارش تولید — فرم ایجاد (v459/v460) */
 .po-create { display: flex; flex-direction: column; gap: 12px; }
 .po-sec {
   border: 1px solid var(--prod-border);
@@ -422,6 +422,9 @@
 .po-chip.is-ex { background: #f8f1df; }
 .po-foot { display: flex; gap: 8px; justify-content: flex-end; }
 .po-create tr.is-order td { background: rgba(45, 122, 95, .06); }
+.po-fg-qty { width: 7.5rem; max-width: 100%; }
+.po-fg-matrix { margin-top: 12px; }
+.po-fg-matrix > .po-dep { margin-top: 0; }
 .po-create .form-grid { margin: 0; }
 #po-qty[readonly] { background: var(--prod-bg-locked); }
 @media (max-width: 720px) {

@@ -280,8 +280,26 @@ function explodeProductScopeForOrder(db, po) {
  * فقط BOM چندمحصولی؛ وگرنه null تا explode تک‌محصولی دست نخورد.
  * با این نقشه، قلم مشترک × جمع تعدادها و قلم اختصاصی × تعداد همان محصول است.
  */
+function parseFgPlanJson(raw) {
+  if (!raw) return null;
+  let rows = raw;
+  if (typeof raw === 'string') {
+    try { rows = JSON.parse(raw); } catch { return null; }
+  }
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const map = {};
+  for (const row of rows) {
+    const id = Number(row?.product_id);
+    const q = Number(row?.qty != null ? row.qty : row?.qty_planned);
+    if (id && q > 0) map[id] = q;
+  }
+  return Object.keys(map).length ? map : null;
+}
+
 function orderFgQtyMap(db, po) {
   if (!po?.bom_id || !isMultiproductBom(db, po.bom_id)) return null;
+  const stored = parseFgPlanJson(po.fg_plan_json);
+  if (stored) return stored;
   const plan = planBomFgOutputs(db, po.bom_id, Number(po.qty_planned) || 0, po.product_id);
   const map = {};
   for (const p of plan) {
@@ -289,6 +307,18 @@ function orderFgQtyMap(db, po) {
     if (q > 0) map[p.product_id] = q;
   }
   return Object.keys(map).length ? map : null;
+}
+
+/** برنامهٔ نمایشی: اگر تعداد هر محصول جدا ذخیره شده باشد، همان جایگزین نسبت فرمول می‌شود. */
+function orderFgPlanRows(db, po) {
+  const formula = planBomFgOutputs(db, po.bom_id, Number(po.qty_planned) || 0, po.product_id);
+  const stored = parseFgPlanJson(po.fg_plan_json);
+  if (!stored) return formula;
+  return formula.map(p => (
+    stored[p.product_id] != null
+      ? { ...p, qty_planned: stored[p.product_id] }
+      : p
+  ));
 }
 
 /** qty برای explode/رزرو از روی سفارش (تبدیل محصول سفارش → مقیاس لنگر فنی) */
@@ -1477,5 +1507,5 @@ module.exports = {
   bomFgProductIds, normalizeProductScope, lineAppliesToProduct,
   assertBomLineUniqueness, lineConsumptionFactor,
   assertProductInBomFg, isMultiproductBom, explodeProductScopeForOrder, planBomFgOutputs,
-  orderQtyAsMainBase, explodeQtyForOrder, orderFgQtyMap,
+  orderQtyAsMainBase, explodeQtyForOrder, orderFgQtyMap, orderFgPlanRows, parseFgPlanJson,
 };
