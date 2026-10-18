@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — گردش شخص: بدون تطبیق مصنوعی برای انگیزه (SW v447)
+- **علائم:** بعد از v446، گردش عارف قاسمی ردیف «مانده اول دوره / تطبیق با دفتر زنده» با بستانکار ۱۳۲M داشت (دقیقاً جمع پرداخت‌های زندهٔ انگیزه).
+- **ریشه:** `alignEntriesToTarget` ماندهٔ party-books را با جمع همه‌ٔ ردیف‌ها (شامل `rep_ledger`) مقایسه می‌کرد → شکاف = −انگیزه → ردیف مصنوعی.
+- **رفع:** `rep_ledger` در align / running / جمع دوره نادیده گرفته می‌شود ولی ردیف‌ها برای شفافیت می‌مانند؛ مانده = party-books. راهنما + SW `erp-taranom-v447`.
+- **فایل‌ها:** `lib/party-turnover.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-rep-align-ignore-v447.js`, CHANGE-LOG.
+- **تست:** ایران `test-rep-align-ignore-v447` + `test-sms`.
+- **Deploy:** ⏳ pending.
+
 ### ۱۴۰۵/۰۷/۲۶ — hollow-void انگیزه/بازاریاب/نماینده (SW v446)
 - **علائم:** گردش شخص بازاریاب (مثل عارف قاسمی) جفت‌های تکراری «پرداخت انگیزه فروش» + «ابطال پرداخت انگیزه» را نشان می‌داد و مانده را شلوغ می‌کرد؛ صورت‌حساب نماینده و KPI پرداخت‌شده هم پرداخت‌های `reversed` را می‌شمرد.
 - **ریشه:** `DELETE /incentive-payments` سند معکوس JE + ردیف `entry_type=reversal` در `rep_ledger` می‌ساخت (برخلاف v373 retire)؛ `buildMergedPersonTurnover` و `buildRepStatement` فیلتر void نداشتند.
