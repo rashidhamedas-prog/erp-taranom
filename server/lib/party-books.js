@@ -10,6 +10,8 @@
  *   Supplier uses supplier_ledger (debit−credit), NEVER purchase/payment formula
  *   (toman/rial drift + skips opening JE).
  *   Dual-role AR/AP keep separate leaves; net = Σ leaves; mismatch is per-leaf.
+ *   v456: two role books on ONE leaf that disagree — keep the one closest to that
+ *   leaf's live GL, not the larger absolute (a stale opening must not hide a payment).
  */
 'use strict';
 
@@ -87,13 +89,20 @@ function partySignedBalanceDetailMap(db) {
     const m = leafAcc.get(pid);
     const prev = m.get(code);
     if (!prev) {
-      m.set(code, { balance: Math.round(Number(balance) || 0), source });
+      const bal0 = Math.round(Number(balance) || 0);
+      m.set(code, { balance: bal0, source, alts: [{ balance: bal0, source }] });
       return;
     }
-    // Same leaf, two roles: keep the larger-|balance| view (opening already folded in).
-    // Do not sum — same GL leaf must not be double-counted (cheque XOR / dual link).
-    if (Math.abs(Number(balance) || 0) >= Math.abs(prev.balance)) {
-      m.set(code, { balance: Math.round(Number(balance) || 0), source });
+    // Same leaf, two roles: do not sum (cheque XOR / dual link).
+    // Keep every candidate; the GL pass picks the one closest to this leaf
+    // when they disagree (v456). Provisional display stays the larger |balance|
+    // only until that pass runs.
+    const bal = Math.round(Number(balance) || 0);
+    if (!prev.alts) prev.alts = [{ balance: prev.balance, source: prev.source }];
+    prev.alts.push({ balance: bal, source });
+    if (Math.abs(bal) >= Math.abs(prev.balance)) {
+      prev.balance = bal;
+      prev.source = source;
     }
   }
 
@@ -250,7 +259,12 @@ function partySignedBalanceDetailMap(db) {
     });
     for (const [code, info] of sorted) {
       const coa = code === '__none__' ? null : code;
-      leafList.push({ coa_code: coa, balance: info.balance, source: info.source });
+      leafList.push({
+        coa_code: coa,
+        balance: info.balance,
+        source: info.source,
+        alts: info.alts || [{ balance: info.balance, source: info.source }],
+      });
       net += info.balance;
       if (!primary) primary = { coa_code: coa, source: info.source, balance: info.balance };
     }
@@ -274,7 +288,15 @@ function partySignedBalanceDetailMap(db) {
       meta.openingUsed = true;
       if (attach) {
         const existing = leafList.find((l) => l.coa_code === attach);
-        if (existing) existing.balance += meta.opening;
+        if (existing) {
+          existing.balance += meta.opening;
+          if (Array.isArray(existing.alts)) {
+            existing.alts = existing.alts.map((a) => ({
+              balance: a.balance + meta.opening,
+              source: a.source,
+            }));
+          }
+        }
         else leafList.unshift({ coa_code: attach, balance: meta.opening, source: 'opening' });
       }
     }
@@ -323,20 +345,44 @@ function partySignedBalanceDetailMap(db) {
       if (!leaves.length) continue;
       let changed = false;
       const nextLeaves = leaves.map((lf) => {
-        if (!lf.coa_code || !glByCode.has(String(lf.coa_code))) return lf;
+        if (!lf.coa_code || !glByCode.has(String(lf.coa_code))) {
+          return { coa_code: lf.coa_code, balance: lf.balance, source: lf.source };
+        }
         const glSigned = glByCode.get(String(lf.coa_code));
-        const fromSub = lf.source && lf.source !== 'opening';
-        if (!fromSub || Math.abs(lf.balance - glSigned) <= 2) {
+        let balance = lf.balance;
+        let source = lf.source;
+        const alts = Array.isArray(lf.alts) ? lf.alts : [];
+        if (alts.length > 1 && alts.some((a) => Math.abs(a.balance - alts[0].balance) > 2)) {
+          let best = alts[0];
+          let bestDist = Math.abs(best.balance - glSigned);
+          for (const a of alts.slice(1)) {
+            const dist = Math.abs(a.balance - glSigned);
+            if (dist < bestDist) {
+              best = a;
+              bestDist = dist;
+            }
+          }
+          balance = best.balance;
+          source = best.source;
+          changed = true;
+        }
+        const fromSub = source && source !== 'opening';
+        if (!fromSub || Math.abs(balance - glSigned) <= 2) {
           changed = true;
           return {
             coa_code: lf.coa_code,
             balance: glSigned,
-            source: fromSub ? lf.source : 'gl',
+            source: fromSub ? source : 'gl',
           };
         }
-        return lf;
+        return { coa_code: lf.coa_code, balance, source };
       });
-      if (!changed) continue;
+      if (!changed) {
+        if (leaves.some((lf) => lf.alts)) {
+          map.set(pid, { ...cur, leaves: nextLeaves });
+        }
+        continue;
+      }
       const net = nextLeaves.reduce((s, l) => s + l.balance, 0);
       const primary = nextLeaves[0];
       map.set(pid, {

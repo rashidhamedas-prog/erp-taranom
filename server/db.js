@@ -2776,6 +2776,14 @@ function initSyncSchema(db, opts) {
     } catch (eHealCust) {
       console.warn('customer_role_projection_v455:', eHealCust.message);
     }
+    try {
+      const leafAlign = require('./lib/party-leaf-sync').alignPartyLeafBooksV456(db);
+      if (leafAlign && !leafAlign.skipped && leafAlign.inserted) {
+        console.log('✅ party_leaf_books_align_v456:', JSON.stringify(leafAlign));
+      }
+    } catch (eLeaf) {
+      console.warn('party_leaf_books_align_v456:', eLeaf.message);
+    }
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {
@@ -3590,6 +3598,9 @@ function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id
       db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
     }
+    require('./lib/party-leaf-sync').afterPartyBookInsert(db, {
+      kind: 'customer', entityId: customer_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id,
+    });
   } catch (e) {
     // Inside a transaction the error must propagate so the whole operation
     // rolls back atomically; standalone (legacy) calls stay tolerant.
@@ -3605,6 +3616,9 @@ function createPersonLedgerEntry(db, { person_id, date, entry_type, ref_type, re
   try {
     db.prepare('INSERT INTO person_ledger (person_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(person_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+    require('./lib/party-leaf-sync').afterPartyBookInsert(db, {
+      kind: 'person', entityId: person_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id,
+    });
   } catch (e) {
     if (db.inTransaction) throw e;
     console.error('person ledger entry error:', e.message);

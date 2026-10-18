@@ -179,6 +179,12 @@ function postToLedger(db, opts) {
   if (headerCc) {
     db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(headerCc, entryId);
   }
+  try {
+    require('./party-leaf-sync').syncJournalEntryToPartyBooks(db, entryId);
+  } catch (e) {
+    if (db.inTransaction) throw e;
+    console.error('party leaf sync:', e.message);
+  }
   return entryId;
 }
 
@@ -271,6 +277,12 @@ function rewriteJournalEntry(db, opts) {
     WHERE id=?
   `).run(date || '', description || '', bal.totalDebit, bal.totalCredit, fiscalYearId, headerCc, existing.id);
 
+  try {
+    require('./party-leaf-sync').syncJournalEntryToPartyBooks(db, existing.id);
+  } catch (e) {
+    if (db.inTransaction) throw e;
+    console.error('party leaf sync:', e.message);
+  }
   return existing.id;
 }
 

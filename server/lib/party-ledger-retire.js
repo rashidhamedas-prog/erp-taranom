@@ -17,6 +17,67 @@ function asIdList(refTypes) {
   return [String(refTypes)];
 }
 
+let siblingDepth = 0;
+
+function partyIdsFromRole(db, table, ids) {
+  const clean = [...new Set((ids || []).map(Number).filter(Boolean))];
+  if (!clean.length) return [];
+  const ph = clean.map(() => '?').join(',');
+  try {
+    return db.prepare(
+      `SELECT DISTINCT party_id AS pid FROM ${table} WHERE id IN (${ph}) AND party_id IS NOT NULL`
+    ).all(...clean).map((r) => Number(r.pid)).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function roleIdsForRef(db, table, idCol, types, refId) {
+  const ph = types.map(() => '?').join(',');
+  try {
+    return db.prepare(
+      `SELECT DISTINCT ${idCol} AS id FROM ${table} WHERE ref_type IN (${ph}) AND ref_id=?`
+    ).all(...types, refId).map((r) => Number(r.id)).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+/** Void of one role book must drop the mirrored row on sibling books of the same party. */
+function retireSiblings(db, partyIds, types, refId, skip) {
+  if (siblingDepth || !partyIds.length) return 0;
+  siblingDepth += 1;
+  let n = 0;
+  try {
+    for (const pid of partyIds) {
+      if (skip !== 'supplier') {
+        let rows = [];
+        try { rows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(pid); } catch (_) {}
+        for (const s of rows) {
+          n += retireSupplierLedgerByRef(db, { refTypes: types, refId, supplierId: s.id });
+        }
+      }
+      if (skip !== 'person') {
+        let rows = [];
+        try { rows = db.prepare('SELECT id FROM persons WHERE party_id=?').all(pid); } catch (_) {}
+        for (const s of rows) {
+          n += retirePersonLedgerByRef(db, { refTypes: types, refId, personId: s.id });
+        }
+      }
+      if (skip !== 'customer') {
+        let rows = [];
+        try { rows = db.prepare('SELECT id FROM customers WHERE party_id=?').all(pid); } catch (_) {}
+        for (const s of rows) {
+          n += retireCustomerLedgerByRef(db, { refTypes: types, refId, customerId: s.id });
+        }
+      }
+    }
+  } finally {
+    siblingDepth -= 1;
+  }
+  return n;
+}
+
 function retireRepLedgerByRef(db, { refTypes, refId, repId } = {}) {
   const types = asIdList(refTypes);
   const id = Number(refId);
@@ -73,12 +134,17 @@ function retireCustomerLedgerByRef(db, { refTypes, refId, customerId } = {}) {
   if (!types.length || !id) return 0;
   const ph = types.map(() => '?').join(',');
   const params = [...types, id];
+  const custIds = !siblingDepth
+    ? (customerId != null ? [Number(customerId)] : roleIdsForRef(db, 'customer_ledger', 'customer_id', types, id))
+    : [];
+  const partyIds = partyIdsFromRole(db, 'customers', custIds);
   let sql = `DELETE FROM customer_ledger WHERE ref_type IN (${ph}) AND ref_id=?`;
   if (customerId != null) {
     sql += ' AND customer_id=?';
     params.push(Number(customerId));
   }
-  return Number(db.prepare(sql).run(...params).changes || 0);
+  const n = Number(db.prepare(sql).run(...params).changes || 0);
+  return n + retireSiblings(db, partyIds, types, id, 'customer');
 }
 
 function retirePersonLedgerByRef(db, { refTypes, refId, personId } = {}) {
@@ -88,12 +154,17 @@ function retirePersonLedgerByRef(db, { refTypes, refId, personId } = {}) {
   try {
     const ph = types.map(() => '?').join(',');
     const params = [...types, id];
+    const personIds = !siblingDepth
+      ? (personId != null ? [Number(personId)] : roleIdsForRef(db, 'person_ledger', 'person_id', types, id))
+      : [];
+    const partyIds = partyIdsFromRole(db, 'persons', personIds);
     let sql = `DELETE FROM person_ledger WHERE ref_type IN (${ph}) AND ref_id=?`;
     if (personId != null) {
       sql += ' AND person_id=?';
       params.push(Number(personId));
     }
-    return Number(db.prepare(sql).run(...params).changes || 0);
+    const n = Number(db.prepare(sql).run(...params).changes || 0);
+    return n + retireSiblings(db, partyIds, types, id, 'person');
   } catch (_) {
     return 0;
   }
@@ -106,12 +177,17 @@ function retireSupplierLedgerByRef(db, { refTypes, refId, supplierId } = {}) {
   try {
     const ph = types.map(() => '?').join(',');
     const params = [...types, id];
+    const supplierIds = !siblingDepth
+      ? (supplierId != null ? [Number(supplierId)] : roleIdsForRef(db, 'supplier_ledger', 'supplier_id', types, id))
+      : [];
+    const partyIds = partyIdsFromRole(db, 'suppliers', supplierIds);
     let sql = `DELETE FROM supplier_ledger WHERE ref_type IN (${ph}) AND ref_id=?`;
     if (supplierId != null) {
       sql += ' AND supplier_id=?';
       params.push(Number(supplierId));
     }
-    return Number(db.prepare(sql).run(...params).changes || 0);
+    const n = Number(db.prepare(sql).run(...params).changes || 0);
+    return n + retireSiblings(db, partyIds, types, id, 'supplier');
   } catch (_) {
     return 0;
   }

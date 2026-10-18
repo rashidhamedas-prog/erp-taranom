@@ -39,6 +39,10 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 
 15. **Roles drive commercial projections, not party group:** If `party_roles` includes `customer` (or `party_type` is `customer`/`both`), `syncPartyToLegacy` **must** maintain an active `customers` row regardless of `party_groups.entity_type` (including پرسنل / `person`). Group is classification UX only. Invoice create selects from `customers`; suppressing the projection makes sellable parties invisible. Dual-role must not copy an AP leaf onto `customers.coa_code` — allocate/keep a receivable leaf (`ensureCustomerTafsili` / `ensureDualRoleSeparateLeaves`). Boot heal: `customer_role_projection_v455`.
 
+### Amendment v456 (one leaf, one balance)
+
+16. **Sibling books on one leaf follow that leaf's GL:** When person and supplier (or customer) share a party's COA and their signed balances disagree by more than 2 rial, `partySignedBalanceDetailMap` keeps the candidate closest to the live GL of that code. The larger absolute balance must not win — a stale opening-only book was hiding a real payment and forcing a synthetic «تطبیق» row that cancelled it. Do not sum the siblings. A single subledger that is merely incomplete still wins over GL until its missing lines are copied (existing `|Δ|≤2` snap stays). Boot heal `party_leaf_books_align_v456` inserts each live GL line into every linked book of that unique leaf that lacks a matching row (ref, or opening, or same date and amount including ×10 payroll). It does not rewrite payroll toman rows and does not move bank lines. Live posts (`postToLedger` / role-ledger insert) copy a new line onto siblings that share the leaf, except openings (opening-post already writes every book). Void retires the mirrored sibling rows for the same party and ref.
+
 ## Also in scope (P0)
 
 - Server guards + regression test `test-party-acc-adr001-v337.js`

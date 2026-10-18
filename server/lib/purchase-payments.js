@@ -214,6 +214,9 @@ function payableAcct(db, supplierId) {
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
   db.prepare('INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
     .run(supplier_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+  require('./party-leaf-sync').afterPartyBookInsert(db, {
+    kind: 'supplier', entityId: supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id,
+  });
 }
 
 function applyPurchasePaySplits(db, {
