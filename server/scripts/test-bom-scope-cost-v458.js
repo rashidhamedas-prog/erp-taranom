@@ -16,8 +16,9 @@ const PERIOD = '1405/07';
 
 function seedProduct(name, code, avg, type, mfg) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,0,0)').run(name).lastInsertRowid;
-  db.prepare('UPDATE products SET code=?, average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(code, avg, type, mfg, avg, id);
+  const unit = type === 'raw' ? 'متر' : 'عدد';
+  db.prepare('UPDATE products SET code=?, unit=?, average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
+    .run(code, unit, avg, type, mfg, avg, id);
   return id;
 }
 
@@ -71,7 +72,7 @@ ok('T458-09 derive flag', stillBudget.from_budget === true);
 const draft = bom.createBom(db, {
   product_id: pY,
   name: 'یلدا+آبان',
-  has_routing: 1,
+  yield_percent: 100,
   has_coproducts: 1,
   co_product_ids: [pA],
   auto_share_method: 'physical',
