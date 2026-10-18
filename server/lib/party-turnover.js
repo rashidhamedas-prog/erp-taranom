@@ -2,7 +2,7 @@
 /**
  * Unified party turnover for UI «گردش» button.
  *
- * SoT (ADR-PARTY-001 + v439): ending balance MUST match partySignedBalanceDetailMap.
+ * SoT (ADR-PARTY-001 + v444): ending balance MUST match partySignedBalanceDetailMap.
  * - Include header/suppliers opening fold as a synthetic line when missing from subledger.
  * - Union ALL linked customer/supplier ids (never Math.min-only).
  * - Default = merge all role books so net closing = dashboard مانده.
@@ -320,14 +320,28 @@ function buildSupplierTurnover(db, partyId, softIds, detail) {
   let rows = [];
   try {
     for (const sid of supIds) {
+      // Note: supplier_ledger has no running `balance` column (unlike some UI caches).
+      // Selecting nonexistent columns emptied the whole book via catch — root of «گردش ناقص».
       const part = db.prepare(`
-        SELECT id, date, created_at, description, debit, credit, balance, ref_type, ref_id, entry_type
+        SELECT id, date, created_at, description, debit, credit, ref_type, ref_id, entry_type
         FROM supplier_ledger WHERE supplier_id=? ORDER BY date ASC, created_at ASC, id ASC
       `).all(sid);
       rows = rows.concat(part.map((r) => ({ ...r, _supplier_id: sid })));
     }
   } catch (_) {
-    rows = [];
+    // Older DBs without entry_type/created_at: fall back to minimal columns
+    try {
+      rows = [];
+      for (const sid of supIds) {
+        const part = db.prepare(`
+          SELECT id, date, description, debit, credit, ref_type, ref_id
+          FROM supplier_ledger WHERE supplier_id=? ORDER BY date ASC, id ASC
+        `).all(sid);
+        rows = rows.concat(part.map((r) => ({ ...r, entry_type: r.ref_type || '', created_at: 0, _supplier_id: sid })));
+      }
+    } catch (_) {
+      rows = [];
+    }
   }
 
   const target = leafSignedFromDetail(detail, 'supplier');

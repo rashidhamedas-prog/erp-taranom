@@ -78,10 +78,17 @@ const sup2 = db.prepare(`
   INSERT INTO suppliers (name, phone, coa_code, party_id, balance)
   VALUES ('تأمین تست۲','09120000002',?, ?, 0)
 `).run(supLeaf2, party2).lastInsertRowid;
-db.prepare(`
-  INSERT INTO supplier_payments (supplier_id, date, amount, note, user_id)
-  VALUES (?, '1405/07/01', 100000000, 'پرداخت بدون دفتر', 1)
-`).run(sup2);
+try {
+  db.prepare(`
+    INSERT INTO supplier_payments (supplier_id, date, amount, note, created_by)
+    VALUES (?, '1405/07/01', 100000000, 'پرداخت بدون دفتر', 1)
+  `).run(sup2);
+} catch (_) {
+  db.prepare(`
+    INSERT INTO supplier_payments (supplier_id, date, amount, note)
+    VALUES (?, '1405/07/01', 100000000, 'پرداخت بدون دفتر')
+  `).run(sup2);
+}
 
 const books2 = partySignedBalanceDetailMap(db).get(Number(party2));
 // books: opening only (payments not in supplier_ledger) → open2
@@ -143,7 +150,7 @@ const portalSrc = fs.readFileSync(path.join(__dirname, '../public/portal-ui.js')
 ok(portalSrc.includes('footBal'), 'page footer sums balance_rial');
 
 const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v(44[2-9]|4[5-9]\d|[5-9]\d{2})/.test(swSrc), 'SW >= v442', swSrc.slice(0, 80));
+ok(/erp-taranom-v(44[4-9]|4[5-9]\d|[5-9]\d{2})/.test(swSrc), 'SW >= v444', swSrc.slice(0, 80));
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
