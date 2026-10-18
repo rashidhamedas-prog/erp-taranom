@@ -216,7 +216,8 @@ async function api(method, path, data, isFormData, silent){
         E_BOM_EMPTY:'فرمول بدون قلم مواد است',
         E_BOM_CIRCULAR:'حلقه در درخت فرمول ساخت — وابستگی دایره‌ای',
         E_BOM_YIELD_RANGE:'بازده فرمول باید بین ۰ تا ۱۰۰ باشد',
-        E_BOM_DUP_LINE:'قلم تکراری در فرمول',
+        E_BOM_DUP_LINE:'این جزء برای همین تخصیص تکراری است. پارچه با مصرف متفاوت را دو ردیف اختصاصی (هر مدل جدا) بگذارید',
+        E_BOM_SCOPE_MIX:'این جزء هم مشترک و هم اختصاصی است. برای مصرف متفاوت هر مدل هر دو ردیف را اختصاصی کنید',
         E_BOM_QTY_ZERO:'مقدار قلم باید بزرگ‌تر از صفر باشد',
         E_BOM_IN_USE:'فرمول در سفارش باز استفاده شده و قابل بایگانی/حذف نیست',
         E_BOM_VERSION_CLASH:'نسخه فرمول با رکورد قبلی تداخل دارد — دوباره ذخیره/فعال‌سازی کنید',
@@ -14995,7 +14996,7 @@ async function prodBomEditModal(id, tab){
       ${canBomEdit?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">${multi
-      ? 'پارچه‌ای که در یک قد الگو با مدل دیگر پهن می‌شود «مشترک» است. آستر، زیپ و دوخت مخصوص یک مدل «اختصاصی» است. ماتریس سایز با 📐. ذخیره با «ذخیره اقلام».'
+      ? 'پارچه با مصرف متفاوت هر مدل: دو ردیف «اختصاصی» از همان پارچه (محصول و مقدار جدا). جزئی که برای هر دو مدل یکی است «مشترک» است. همان جزء را هم مشترک و هم اختصاصی نگذارید. دوخت با اجرت متفاوت = دو عملیات اختصاصی در تب مسیر. ماتریس سایز با 📐.'
       : 'مواد همین یک محصول. ماتریس سایز با 📐. بعد از ویرایش «ذخیره اقلام» را بزنید.'}</p>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>نوع</th><th>جزء</th>${multi?'<th>تخصیص به محصول</th>':''}<th>مقدار/پایه</th><th>ضایعات٪</th><th>ماتریس سایز</th><th>رنگ جزء</th><th>${canBomEdit?'حذف':''}</th>
@@ -15007,7 +15008,7 @@ async function prodBomEditModal(id, tab){
   } else if(activeTab==='outputs'){
     panel=prodBomOutputsPanelHtml(id, outs, !canBomEdit, bom);
   } else if(activeTab==='cost'){
-    panel=prodBomCostPanelHtml(id);
+    panel=prodBomCostPanelHtml(id, bom);
   }
 
   let readyHtml='<div id="pbe-ready" class="muted" data-csp-style="'+CSP.style('margin-bottom:10px;font-size:12px')+'">در حال بررسی مشخصات ضروری…</div>';
@@ -15044,6 +15045,7 @@ async function prodBomEditModal(id, tab){
   if(canBomEdit && activeTab==='items' && !lines.length) prodBomAddLineRow();
   prodBomBindColorModeToggles();
   setTimeout(()=>{ try{ prodBomRefreshReadiness(id); }catch(_){} }, 0);
+  if(activeTab==='cost') setTimeout(()=>{ try{ prodBomComputeFullCost(id); }catch(_){} }, 30);
 }
 async function prodBomRefreshReadiness(bomId){
   const box=el('pbe-ready');
@@ -15491,24 +15493,41 @@ async function prodBomAutoShare(id, method){
     await prodBomEditModal(id,'outputs');
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
-function prodBomCostPanelHtml(id){
+function prodBomCostPanelHtml(id, bom){
+  window._prodBomCostId=id;
+  const fgs=prodBomFgProducts(bom||{});
+  const multi=fgs.length>1;
   const period=todayJalali().slice(0,7);
+  const qtyFields=multi
+    ? fgs.map(p=>`<div class="fg"><label>تعداد ${esc(p.name||('#'+p.id))}</label><input class="pbe-cost-qty-p" data-pid="${p.id}" type="number" min="0" step="any" value="1" data-csp-input="${CSP.bind('input',function(){prodBomScheduleCost((id))})}"></div>`).join('')
+    : `<div class="fg"><label>مقدار هدف</label><input id="pbe-cost-qty" type="number" min="1" step="any" value="300" data-csp-input="${CSP.bind('input',function(){prodBomScheduleCost((id))})}"></div>`;
   return `
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin-bottom:8px`)}">برآورد استاندارد برای این مقدار و دوره. سند حسابداری نمی‌سازد. بهای واقعی از حواله، لایه‌چینی، دستمزد ۵۲۰۱ و نرخ مرکز همان دوره می‌آید. اگر نرخ مرکز خالی باشد هشدار پایین می‌آید.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin-bottom:8px`)}">${multi
+      ? 'برای هر محصول تعداد جدا وارد کنید. قلم و دوخت اختصاصی در همان تعداد ضرب می‌شود؛ قلم و عملیات مشترک در جمع تعدادها. بها با تغییر تعداد یا دوره همان‌جا تازه می‌شود و سند حسابداری نمی‌سازد.'
+      : 'برآورد استاندارد برای این مقدار و دوره. سند حسابداری نمی‌سازد. بهای واقعی از حواله، لایه‌چینی، دستمزد ۵۲۰۱ و نرخ مرکز همان دوره می‌آید. اگر نرخ مرکز خالی باشد هشدار پایین می‌آید.'}</p>
     <div class="form-grid">
-      <div class="fg"><label>مقدار هدف</label><input id="pbe-cost-qty" type="number" min="1" step="any" value="300"></div>
-      <div class="fg"><label>دوره (سال/ماه)</label><input id="pbe-cost-period" value="${esc(period)}" placeholder="1405/05"></div>
+      ${qtyFields}
+      <div class="fg"><label>دوره (سال/ماه)</label><input id="pbe-cost-period" value="${esc(period)}" placeholder="1405/05" data-csp-input="${CSP.bind('input',function(){prodBomScheduleCost((id))})}"></div>
     </div>
     <button class="btn" type="button" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){prodBomComputeFullCost((id))})}">محاسبه بها</button>
     <div id="pbe-cost-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>`;
 }
+function prodBomScheduleCost(id){
+  clearTimeout(window._pbeCostTimer);
+  window._pbeCostTimer=setTimeout(function(){ prodBomComputeFullCost(id); }, 400);
+}
 async function prodBomComputeFullCost(id){
-  const qty=+el('pbe-cost-qty')?.value||300;
+  const per=[...document.querySelectorAll('.pbe-cost-qty-p')];
+  const qtyMap={};
+  per.forEach(n=>{ const pid=n.getAttribute('data-pid'); if(pid) qtyMap[pid]=n.value===''?0:(+n.value||0); });
+  const qtySum=per.length?Object.values(qtyMap).reduce((s,n)=>s+(+n||0),0):(+el('pbe-cost-qty')?.value||300);
+  const qty=per.length?qtySum:(+el('pbe-cost-qty')?.value||300);
   const period=(el('pbe-cost-period')?.value||'').trim();
   const box=el('pbe-cost-result');
   if(box) box.innerHTML=`<div class="muted">در حال محاسبه…</div>`;
   try{
     let path='/production/boms/'+id+'/full-cost?qty='+encodeURIComponent(qty);
+    if(per.length) path+='&output_qtys='+encodeURIComponent(JSON.stringify(qtyMap));
     if(period) path+='&period='+encodeURIComponent(period);
     const r=await api('GET',path)||{};
     const unit=r.breakdown?.unit_cost_rial ?? r.unit_cost_rial;
@@ -15516,9 +15535,13 @@ async function prodBomComputeFullCost(id){
     if(!box) return;
     const warns=r.warnings||[];
     const outs=r.outputs||[];
+    const mains=outs.filter(o=>o.type==='main'||o.type==='co');
+    const headBits=mains.length>1
+      ? mains.map(o=>`<b>${esc(o.name||('#'+o.product_id))}</b> ${fmt(o.unit_cost_rial||0)} ریال <span class="muted">(تعداد ${toFa(o.qty||0)})</span>`).join(' · ')
+      : `<b>بهای واحد:</b> <span class="mono">${fmt(unit||0)}</span> ریال`;
     box.innerHTML=`
-      <div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">
-        <b>بهای واحد (اصلی):</b> <span class="mono">${fmt(unit||0)}</span> ریال
+      <div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px;line-height:1.8`)}">
+        ${headBits}
         ${r.qty_start!=null?` · شروع: ${toFa(r.qty_start)}`:''}
         ${r.total_yield_percent!=null?` · بازده کل: ${r.total_yield_percent}%`:''}
         ${r.breakdown?.net_rial!=null?` · خالص: ${fmt(r.breakdown.net_rial)} ریال`:''}
@@ -15544,7 +15567,7 @@ async function prodBomComputeFullCost(id){
         </tr>`).join('')||`<tr><td colspan="11" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
       </tbody></table></div>
       ${outs.length?`<h5 data-csp-style="${CSP.style(`margin:14px 0 6px`)}">تسهیم بها بین محصولات</h5>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 6px`)}">اختصاصی = مواد/عملیات exclusive؛ مشترک = سهم٪ خروجی از باقیمانده WIP.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 6px`)}">${per.length?'اختصاصی = مواد و دوخت همان محصول × تعداد خودش. مشترک = جمع تعدادها، بعد تقسیم به نسبت همین تعدادها.':'اختصاصی = مواد/عملیات exclusive؛ مشترک = سهم٪ خروجی از باقیمانده WIP.'}</p>
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
         <th>نوع</th><th>محصول</th><th>مقدار</th><th>سهم٪</th><th>اختصاصی</th><th>مشترک</th><th>مبلغ</th><th>بهای واحد</th>
       </tr></thead><tbody>
@@ -17339,6 +17362,18 @@ function prodRateNum(id){
   const n=parseFloat(raw);
   return Number.isFinite(n)?n:0;
 }
+function prodRateOnRateInput(which){
+  const form=document.querySelector('.oh-form');
+  if(form) form.dataset.rateTouch=which||'';
+  if(which==='total'){
+    const total=moneyVal('prm-total');
+    if(!(moneyVal('prm-var')>0) && el('prm-fixed')) el('prm-fixed').value=moneyInit(total);
+  }else if(which==='parts'){
+    const sum=(moneyVal('prm-fixed')||0)+(moneyVal('prm-var')||0);
+    if(el('prm-total')) el('prm-total').value=moneyInit(sum);
+  }
+  prodRatePreviewSync();
+}
 function prodRatePreviewSync(){
   const box=el('prm-preview'); if(!box) return;
   const driver=el('prm-driver')?.value||'output_qty';
@@ -17352,18 +17387,22 @@ function prodRatePreviewSync(){
   const budgetFixed=moneyVal('prm-bfix');
   const budgetVar=moneyVal('prm-bvar');
   const budgetQty=prodRateNum('prm-bqty');
+  const touch=document.querySelector('.oh-form')?.dataset.rateTouch||'';
   let fixed=moneyVal('prm-fixed');
   let variable=moneyVal('prm-var');
   let total=moneyVal('prm-total');
   const fromBudget=budgetQty>0 && (budgetFixed>0 || budgetVar>0);
-  if(fromBudget){
-    fixed=Math.round(budgetFixed/budgetQty);
-    variable=Math.round(budgetVar/budgetQty);
-    total=fixed+variable;
+  const dFixed=fromBudget?Math.round(budgetFixed/budgetQty):0;
+  const dVar=fromBudget?Math.round(budgetVar/budgetQty):0;
+  const dTotal=dFixed+dVar;
+  if(fromBudget && touch!=='total' && touch!=='parts' && touch!=='labor' && (!total || total===dTotal || touch==='budget')){
+    fixed=dFixed;
+    variable=dVar;
+    total=dTotal;
     if(el('prm-fixed')) el('prm-fixed').value=moneyInit(fixed);
     if(el('prm-var')) el('prm-var').value=moneyInit(variable);
     if(el('prm-total')) el('prm-total').value=moneyInit(total);
-  }else if(total<=0 && (fixed>0||variable>0)){
+  }else if(!fromBudget && touch!=='total' && touch!=='parts' && total<=0 && (fixed>0||variable>0)){
     total=fixed+variable;
     if(el('prm-total')) el('prm-total').value=moneyInit(total);
   }else if(fixed<=0 && variable<=0 && total>0){
@@ -17386,7 +17425,7 @@ async function prodRateEditModal(ccId){
   const driverOpts=['output_qty','direct_labor_rial','direct_labor_hours','machine_hours','material_rial','manual']
     .map(k=>`<option value="${k}" ${k===d||(d==='labor_rial'&&k==='direct_labor_rial')?'selected':''}>${esc(ohDriverMeta(k).label)}</option>`).join('');
   showModal(existing?'ویرایش نرخ سربار':'ثبت نرخ سربار',`
-    <div class="oh-form">
+    <div class="oh-form" data-rate-touch="">
       <div class="oh-section">
         <h5>۱) شناسه و محرک</h5>
         <div class="form-grid">
@@ -17418,18 +17457,18 @@ async function prodRateEditModal(ccId){
         <h5>۲) بودجه سربار غیرمستقیم (اجاره / برق / استهلاک)</h5>
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">فقط هزینه‌های غیرمستقیم تولید. اگر فقط حقوق دارید خالی بگذارید. نرخ = بودجه ÷ محرک نرمال.</p>
         <div class="form-grid">
-          <div class="fg"><label>بودجه سربار ثابت ${moneyColLabel()}</label><input id="prm-bfix" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_fixed_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg"><label>بودجه سربار متغیر ${moneyColLabel()}</label><input id="prm-bvar" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_var_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg full"><label id="prm-bqty-label">مقدار محرک نرمال / برنامه</label><input id="prm-bqty" type="text" inputmode="decimal" value="${existing&&existing.budget_driver_qty?esc(String(existing.budget_driver_qty)):''}" placeholder="واحد محرک مطابق انتخاب بالا" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg"><label>بودجه سربار ثابت ${moneyColLabel()}</label><input id="prm-bfix" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_fixed_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('budget')})}"></div>
+          <div class="fg"><label>بودجه سربار متغیر ${moneyColLabel()}</label><input id="prm-bvar" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.budget_var_oh_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('budget')})}"></div>
+          <div class="fg full"><label id="prm-bqty-label">مقدار محرک نرمال / برنامه</label><input id="prm-bqty" type="text" inputmode="decimal" value="${existing&&existing.budget_driver_qty?esc(String(existing.budget_driver_qty)):''}" placeholder="واحد محرک مطابق انتخاب بالا" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('budget')})}"></div>
         </div>
       </div>
       <div class="oh-section">
         <h5>۳) نرخ جذب ازپیش‌تعیین‌شده</h5>
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">اگر بودجه پر باشد این فیلدها خودکار محاسبه می‌شوند. ورود مستقیم هم مجاز است.</p>
         <div class="form-grid">
-          <div class="fg"><label>نرخ ثابت سربار</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg"><label>نرخ متغیر سربار</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
-          <div class="fg full"><label>نرخ کل سربار (نه حقوق ماه)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}"></div>
+          <div class="fg"><label>نرخ ثابت سربار</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
+          <div class="fg"><label>نرخ متغیر سربار</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
+          <div class="fg full"><label>نرخ کل سربار (نه حقوق ماه)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('total')})}"></div>
         </div>
       </div>
       <div class="oh-section">
@@ -17445,7 +17484,7 @@ async function prodRateEditModal(ccId){
         <h5>۵) دستمزد مستقیم ماهانه (مسیر جدا — حساب ۵۲۰۱)</h5>
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 8px;line-height:1.7`)}">این مبلغ سربار نیست و در بودجه/نرخ کل تکرار نشود. فقط جذب دستمزد مستقیم به WIP.</p>
         <div class="form-grid">
-          <div class="fg full"><label>دستمزد مستقیم / هر عدد خروجی ${moneyColLabel()}</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
+          <div class="fg full"><label>دستمزد مستقیم / هر عدد خروجی ${moneyColLabel()}</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('labor')})}"></div>
         </div>
       </div>
       <div class="fg full"><label>یادداشت</label><input id="prm-note" value="${esc(existing?.note||'')}" placeholder="اختیاری"></div>
@@ -17512,10 +17551,14 @@ async function prodRateSave(){
       note:el('prm-note')?.value||'',
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
+      rate_touch:document.querySelector('.oh-form')?.dataset.rateTouch||'',
     });
     closeModal();
-    showToast(saved?.warning||'نرخ ذخیره شد', saved?.warning?'error':'success');
+    const shown=saved&&saved.total_rate_rial!=null?('نرخ ذخیره شد: '+fmt(saved.total_rate_rial)+' ریال'):'نرخ ذخیره شد';
+    showToast(saved?.warning||shown, saved?.warning?'error':'success');
+    const costId=window._prodBomCostId;
     loadAccTab('production-rates');
+    if(costId && el('pbe-cost-result')) prodBomComputeFullCost(costId);
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
@@ -30970,7 +31013,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
-        <li><b>نرخ سربار مراکز (v334):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
+        <li><b>نرخ سربار مراکز (v334 / v458):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. ویرایش «نرخ کل» یا «دستمزد / عدد» (مثلاً اتو و بسته‌بندی CC-60) بعد از ذخیره در همان ردیف جدول می‌ماند؛ قبلاً اگر ثابت برابر نرخ کل کپی شده بود، تغییر نرخ کل دور ریخته می‌شد. بودجه فقط وقتی نرخ را عوض می‌کند که خود بودجه را ویرایش کنید یا نرخ ذخیره‌شده با بودجه یکی باشد. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
         <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> تب «جذب معین» (یا از ویرایش مرکز هزینه → «جذب از معین») — انتخاب معین با جستجوی کدینگ؛ درصد جذب و مبنا: گردش بدهکار / مانده پایان / بودجه. پیش‌نمایش و «اعمال به بودجه نرخ» همان‌جا.</li>
         <li><b>تعدیل بها (v358):</b> تب «تعدیل بها» — اتومات یا دستی؛ بازمحاسبه بها/قیمت و سند Δ موجودی به ۵۲۱۴؛ ابطال کامل R13.</li>
@@ -30980,10 +31023,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد (یا فرمول ساعتی/ماهانه)، سند PRD-03 بدهکار WIP و بستانکار کنترل دستمزد ۵۲۰۱ است؛ بدهی شخص را فقط حقوق ثبت می‌کند، و شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. بدون شخص، بستانکار همان کنترل دستمزد ۵۲۰۱ می‌ماند. <b>جستجوی شخص (v451):</b> اگر چند ردیف <code>persons</code> با یک تلفن ساخته شده باشد (همگام قدیمی party→person فقط با <code>party_id</code>)، سلکتور و API <code>?for_picker=1</code> یک ردیف به‌ازای هر تلفن نشان می‌دهند؛ ساخت/ویرایش شخص با تلفن تکراری ۴۰۹ می‌دهد و heal بوت تکراری‌ها را غیرفعال می‌کند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
-        <li><b>تخصیص اقلام/عملیات به محصول (v418):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (پارچه/برش مشترک) یا <b>اختصاصی</b> یک محصول (خرج‌کار/دوخت مدل خاص). در بهای تمام‌شده، هزینهٔ اختصاصی مستقیم به محصول می‌رود و باقیمانده با درصد خروجی‌ها تسهیم می‌شود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. درصد خروجی سهم هزینه است؛ قطعه در هر لایه و قد الگو در لایه‌چینی است. تب بها فقط برآورد است و سند نمی‌زند.</li>
+        <li><b>تخصیص اقلام/عملیات به محصول (v418 / v458):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (جزء با مصرف یکسان برای هر مدل، مثل کشباف) یا <b>اختصاصی</b> یک محصول. پارچهٔ مشترک با <b>مصرف متفاوت</b> دو ردیف اختصاصی از همان کالا است (یلدا ۱٫۳ متر، آبان ۱٫۶۵۵ متر) — فعال‌سازی دیگر این را «قلم تکراری» نمی‌داند. دو ردیف مشترک از یک جزء، یا دو اختصاصی برای <b>همان</b> محصول، یا یک جزء هم مشترک و هم اختصاصی رد می‌شود. دوخت با اجرت متفاوت = دو عملیات اختصاصی. در بها، اختصاصی مستقیم به همان محصول می‌رود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. تب بها فقط برآورد است و سند نمی‌زند.</li>
         <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات اصلی دیده می‌شود. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
-        <li><b>بهای تمام‌شده + سربار لینک‌شده (v416):</b> محاسبه تحلیلی با مقدار هدف — <b>بدون JE</b>. سربار هر مرحله از <b>نرخ/بودجه همان مرکز</b> در دوره انتخابی می‌آید (<code>نرخ × محرک × جذب٪</code>؛ اگر فقط بودجه پر باشد نرخ از بودجه مشتق می‌شود). جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید. تسهیم بها بین محصولات خروجی زیر جدول مراحل دیده می‌شود.</li>
+        <li><b>بهای تمام‌شده + سربار لینک‌شده (v416 / v458):</b> محاسبه تحلیلی — <b>بدون JE</b>. در فرمول چندمحصولی برای <b>هر محصول یک تعداد</b> وارد می‌شود و با تایپ، بها زنده تازه می‌شود. قلم و دوخت اختصاصی × تعداد همان محصول؛ قلم و اتو/بسته‌بندی مشترک × جمع تعدادها و تقسیم به نسبت همان تعدادها. سربار هر مرحله از <b>نرخ ذخیره‌شدهٔ همان مرکز</b> در دوره است (<code>نرخ × محرک × جذب٪</code>). اگر عدد نرخ را دستی عوض کنید، حتی با بودجهٔ پر، همان عدد می‌ماند و در جدول و در تب بها دیده می‌شود. جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li><b>ویرایش و حذف حرفه‌ای فهرست BOM (v385):</b> در ستون عملیات برای هر فرمول دکمهٔ <b>ویرایش</b> / <b>ویرایش…</b> و <b>حذف</b> (پیش‌نویس) یا <b>بایگانی</b> (فعال) هست. قبل از حذف/بایگانی، سرور وابستگی‌ها را از <code>GET /api/production/boms/:id/dependencies</code> می‌خواند و سفارش‌های باز را نشان می‌دهد؛ اگر سفارش <code>draft/released/in_progress</code> به فرمول وصل باشد عملیات مسدود است (<code>E_BOM_IN_USE</code>). حذف فیزیکی نیست: پیش‌نویس → soft-delete (<code>obsolete</code>)، فعال → بایگانی. ویرایش فرمول فعال فقط از مسیر «نسخه جدید برای ویرایش» (با پیش‌نمایش وابستگی). «غیرفعال» فعال را به پیش‌نویس برمی‌گرداند اگر سفارش باز نباشد. بایگانی/حذف، اشاره‌گر <code>default_bom_id</code> کالا را هم پاک می‌کند.</li>

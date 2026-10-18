@@ -452,14 +452,27 @@ router.get('/:id/backward-qty', auth, requirePermission('production_bom', 'view'
   handle(res, () => adv.backwardQty(getDB(), Number(req.params.id), Number(req.query.target) || 1));
 });
 
+function readOutputQtys(query) {
+  const q = query || {};
+  if (q.output_qtys) return q.output_qtys;
+  const map = {};
+  for (const [k, v] of Object.entries(q)) {
+    const m = /^qty_(\d+)$/.exec(k);
+    if (m) map[m[1]] = v;
+  }
+  return Object.keys(map).length ? map : null;
+}
+
 router.get('/:id/full-cost', auth, requirePermission('production_cost', 'view'), (req, res) => {
   handle(res, () => {
     adv.clearRollUpMemo();
+    const outputQtys = readOutputQtys(req.query);
     const data = adv.rollUpBom(getDB(), {
       bomId: Number(req.params.id),
       qtyTarget: Number(req.query.qty) || 1,
       period: req.query.period || '',
       priceBasis: req.query.price_basis || 'average',
+      outputQtys,
     });
     return applyCostPolicy(getDB(), req.user, data);
   });
@@ -473,6 +486,7 @@ router.get('/:id/roll-up', auth, requirePermission('production_cost', 'view'), (
       qtyTarget: Number(req.query.qty) || 1,
       period: req.query.period || '',
       priceBasis: req.query.price_basis || 'average',
+      outputQtys: readOutputQtys(req.query),
     });
     return applyCostPolicy(getDB(), req.user, data);
   });

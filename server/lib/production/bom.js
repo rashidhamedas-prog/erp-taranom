@@ -465,8 +465,8 @@ function lineAppliesToProduct(L, forProductId) {
 
 function explodeBom(db, {
   bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0,
-  yieldOverride = null, priceOverrides = null, color = null, colorId = null,
-  forProductId = null,
+  yieldOverride = null, priceOverrides = null,   color = null, colorId = null,
+  forProductId = null, qtyByProduct = null,
 }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -496,7 +496,8 @@ function explodeBom(db, {
     } else if (Number(L.fixed_qty) > 0) {
       qtyNet = Number(L.fixed_qty);
     } else {
-      qtyNet = Number(L.qty_per_base) * factor;
+      const lineFactor = lineConsumptionFactor(bom, L, qty, qtyByProduct);
+      qtyNet = Number(L.qty_per_base) * lineFactor;
     }
 
     const scrapF = 1 - (Number(L.scrap_percent) || 0) / 100;
@@ -567,6 +568,62 @@ function detectCircular(db, rootProductId, bomId, depth = 0, path = []) {
   }
 }
 
+/** Identity of a BOM line for duplicate detection.
+ *  Same component may appear once per exclusive product (different consumption).
+ *  Two shared rows, or two exclusive rows for the same product, are duplicates. */
+function bomLineDupKey(L) {
+  const comp = Number(L.component_product_id) || 0;
+  const sub = String(L.substitute_group || '');
+  const scope = String(L.product_scope || 'shared').toLowerCase() === 'exclusive' ? 'exclusive' : 'shared';
+  const scoped = scope === 'exclusive' ? (Number(L.scoped_product_id) || 0) : 0;
+  const colorMode = normalizeColorMode(L.component_color_mode);
+  const colorId = colorMode === 'fixed' ? (Number(L.component_color_id) || 0) : 0;
+  return `${comp}|${sub}|${scope}|${scoped}|${colorMode}|${colorId}`;
+}
+
+function assertBomLineUniqueness(lines) {
+  const seen = new Map();
+  const plainByComp = new Map();
+  for (const L of lines || []) {
+    const key = bomLineDupKey(L);
+    if (seen.has(key)) {
+      throw err('E_BOM_DUP_LINE', 422, {
+        component_product_id: Number(L.component_product_id) || null,
+        product_scope: L.product_scope || 'shared',
+        scoped_product_id: L.scoped_product_id || null,
+      });
+    }
+    seen.set(key, true);
+    if (L.substitute_group) continue;
+    const comp = Number(L.component_product_id) || 0;
+    const bucket = plainByComp.get(comp) || [];
+    bucket.push(L);
+    plainByComp.set(comp, bucket);
+  }
+  for (const [comp, bucket] of plainByComp) {
+    const hasShared = bucket.some((L) => String(L.product_scope || 'shared').toLowerCase() !== 'exclusive');
+    const hasExclusive = bucket.some((L) => String(L.product_scope || 'shared').toLowerCase() === 'exclusive');
+    if (hasShared && hasExclusive) {
+      throw err('E_BOM_SCOPE_MIX', 422, { component_product_id: comp });
+    }
+  }
+}
+
+/** Scale factor for one line. With per-product qtys, exclusive uses that product
+ *  and shared uses the sum (one piece of trim per garment, whichever model). */
+function lineConsumptionFactor(bom, L, qty, qtyByProduct) {
+  const base = Number(bom.base_qty) || 1;
+  if (!qtyByProduct) return Number(qty) / base;
+  const scope = String(L.product_scope || 'shared').toLowerCase();
+  if (scope === 'exclusive' && L.scoped_product_id != null && L.scoped_product_id !== '') {
+    const q = Number(qtyByProduct[L.scoped_product_id] ?? qtyByProduct[String(L.scoped_product_id)]) || 0;
+    return q / base;
+  }
+  let sum = 0;
+  for (const v of Object.values(qtyByProduct)) sum += Number(v) || 0;
+  return sum / base;
+}
+
 function validateBom(db, bomId) {
   const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!b) throw err('E_NOT_FOUND', 404);
@@ -590,7 +647,6 @@ function validateBom(db, bomId) {
   // V-10
   if (b.valid_from && b.valid_to && b.valid_to < b.valid_from) throw err('E_BOM_DATE_ORDER', 422);
 
-  const seen = new Map();
   const subGroups = {};
   for (const L of lines) {
     // V-02
@@ -600,10 +656,7 @@ function validateBom(db, bomId) {
     if (scrap < 0 || scrap >= 100) throw err('E_BOM_SCRAP_RANGE', 422);
     // V-05
     if (L.component_product_id === b.product_id) throw err('E_BOM_SELF_REF', 422);
-    // V-07
-    const key = L.component_product_id + '|' + (L.substitute_group || '');
-    if (seen.has(L.component_product_id) && !L.substitute_group) throw err('E_BOM_DUP_LINE', 422);
-    seen.set(L.component_product_id, true);
+    // V-07 — uniqueness is per allocation, not per component id
     if (L.substitute_group) {
       (subGroups[L.substitute_group] ||= []).push(L);
     }
@@ -623,6 +676,7 @@ function validateBom(db, bomId) {
       if (cc && !cc.is_stage) throw err('E_BOM_STAGE_INVALID', 422);
     }
   }
+  assertBomLineUniqueness(lines);
   // V-17
   for (const [g, members] of Object.entries(subGroups)) {
     if (members.length < 2) throw err('E_BOM_SUB_SINGLE', 422, { group: g });
@@ -999,6 +1053,7 @@ function replaceLines(db, bomId, lines, userId) {
     for (const L of lines) {
       out.push(addLine(db, bomId, L, userId, { skipLock: true }));
     }
+    assertBomLineUniqueness(db.prepare('SELECT * FROM bom_lines WHERE bom_id=?').all(bomId));
     logBomChange(db, bomId, 'lines_replace', { count: out.length }, userId);
     audit(userId, 'edit', 'bom', bomId, `جایگزینی ${out.length} قلم فرمول`);
     return { ok: true, count: out.length, ids: out.map(x => x.id) };
@@ -1404,6 +1459,7 @@ module.exports = {
   allowedSizeNamesForProduct, validateSizeMatrixKeys,
   buildComponentVariantHint, normalizeColorMode, resolveFgColorName,
   bomFgProductIds, normalizeProductScope, lineAppliesToProduct,
+  assertBomLineUniqueness, lineConsumptionFactor,
   assertProductInBomFg, isMultiproductBom, explodeProductScopeForOrder, planBomFgOutputs,
   orderQtyAsMainBase, explodeQtyForOrder,
 };

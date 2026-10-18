@@ -38,6 +38,45 @@ function supplierName(db, id) {
   }
 }
 
+function normalizeOutputQtys(raw) {
+  if (raw == null || raw === '') return null;
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch { return null; }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const id = Number(k);
+    const n = Number(v);
+    if (!id || !Number.isFinite(n) || n < 0) continue;
+    out[id] = n;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function qtyFromMap(map, productId) {
+  if (!map || productId == null) return null;
+  if (map[productId] != null) return Number(map[productId]);
+  if (map[String(productId)] != null) return Number(map[String(productId)]);
+  return null;
+}
+
+function sumQtyMap(map) {
+  let s = 0;
+  for (const v of Object.values(map || {})) s += Number(v) || 0;
+  return s;
+}
+
+function stageRunQty(op, flowingQty, qtyByProduct) {
+  if (!qtyByProduct) return flowingQty;
+  const scope = String(op.product_scope || 'shared').toLowerCase();
+  if (scope === 'exclusive' && op.scoped_product_id) {
+    return qtyFromMap(qtyByProduct, op.scoped_product_id) || 0;
+  }
+  return sumQtyMap(qtyByProduct);
+}
+
 function outMeta(db, o) {
   return {
     type: o.output_type,
@@ -125,7 +164,7 @@ function stageDriverQty(db, op, cc, ctx) {
 /**
  * Full stage roll-up. No ledger.
  */
-function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level = 0, priceOverrides = null }) {
+function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level = 0, priceOverrides = null, outputQtys = null }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
 
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -138,9 +177,11 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     throw err('E_YIELD_DOUBLE_COUNT', 422, { yield: bom.yield_percent });
   }
 
+  const qtyByProduct = normalizeOutputQtys(outputQtys);
+  const batchQty = qtyByProduct ? sumQtyMap(qtyByProduct) : Number(qtyTarget);
   const { qty_start, total_yield_percent } = ops.length
-    ? backwardQty(db, bomId, qtyTarget)
-    : { qty_start: Number(qtyTarget), total_yield_percent: 100 };
+    ? backwardQty(db, bomId, batchQty)
+    : { qty_start: batchQty, total_yield_percent: 100 };
 
   // V4-21: force header yield 100 when routing present
   const ex = explodeBom(db, {
@@ -150,6 +191,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     level,
     yieldOverride: bom.has_routing ? 100 : null,
     priceOverrides,
+    qtyByProduct,
   });
 
   const matByStage = {};
@@ -248,16 +290,17 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       material = matByStage[op.cost_center_id]?.rial || 0;
       pkg = matByStage[op.cost_center_id]?.kind?.packaging || 0;
     }
-    const labor = stageLabor(db, op, qtyIn, period);
+    const runQty = stageRunQty(op, qtyIn, qtyByProduct);
+    const labor = stageLabor(db, op, runQty, period);
     const subcon = op.is_subcontract
-      ? Math.round((Number(op.subcontract_fee_rial) || 0) * qtyIn)
+      ? Math.round((Number(op.subcontract_fee_rial) || 0) * runQty)
       : 0;
 
     const rate = getOverheadRate(db, op.cost_center_id, period) || { total_rate_rial: 0, is_estimated: 1, driver: cc.driver };
     if (rate.is_estimated) warnings.push(`نرخ سربار «${cc.name}» برآوردی است`);
     if (rate.from_budget) warnings.push(`نرخ سربار «${cc.name}» از بودجه مرکز برای دوره ${period || '—'} محاسبه شد`);
     const driverQty = stageDriverQty(db, op, cc, {
-      qty: qtyIn, labor, material, driver: rate.driver,
+      qty: runQty, labor, material, driver: rate.driver,
     });
     const overhead = appliedOverheadRial(rate, driverQty);
     if (!(overhead > 0) && (material > 0 || labor > 0)) {
@@ -268,17 +311,20 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       }
     }
 
-    const qtyOut = round6(
-      qtyIn * ((Number(op.yield_percent) || 100) / 100)
-        * (1 - (Number(op.normal_waste_percent) || 0) / 100)
-    );
-    const costOut = costIn + material + labor + subcon + overhead;
+    const qtyOut = qtyByProduct
+      ? runQty
+      : round6(
+        qtyIn * ((Number(op.yield_percent) || 100) / 100)
+          * (1 - (Number(op.normal_waste_percent) || 0) / 100)
+      );
+    const stageCost = material + labor + subcon + overhead;
+    const costOut = costIn + stageCost;
 
     stages.push({
       seq: op.seq,
       cost_center_id: op.cost_center_id,
       cost_center: `${cc.code} ${cc.name}`,
-      qty_in: qtyIn,
+      qty_in: runQty,
       qty_out: qtyOut,
       cost_in_rial: costIn,
       material_rial: material,
@@ -289,7 +335,9 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       overhead_driver_qty: round6(driverQty),
       overhead_rate_rial: Math.round(Number(rate.total_rate_rial) || 0),
       cost_out_rial: costOut,
-      unit_cost_out_rial: qtyOut ? Math.round(costOut / qtyOut) : 0,
+      unit_cost_out_rial: qtyByProduct
+        ? (runQty ? Math.round(stageCost / runQty) : 0)
+        : (qtyOut ? Math.round(costOut / qtyOut) : 0),
       supplier: op.is_subcontract ? supplierName(db, op.subcontract_supplier_id) : null,
     });
 
@@ -298,7 +346,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     totLab += labor;
     totSub += subcon;
     totOh += overhead;
-    qtyIn = qtyOut;
+    if (!qtyByProduct) qtyIn = qtyOut;
     costIn = costOut;
   }
 
@@ -372,20 +420,33 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
   const baseQty = Number(bom.base_qty) || 1;
 
   let assigned = 0;
+  const qtyWeightSum = qtyByProduct
+    ? shares.reduce((s, row) => s + (qtyFromMap(qtyByProduct, row.product_id) || 0), 0)
+    : 0;
   const shareRows = shares.map(o => {
-    // Peer mains: each scales by qty_per_base; single-FG keeps routing qtyOut
-    const q = shares.length === 1 && Number(o.product_id) === Number(bom.product_id)
-      ? qtyIn
-      : round6(Number(o.qty_per_base || 1) * qty_start / baseQty);
+    const mapped = qtyByProduct ? qtyFromMap(qtyByProduct, o.product_id) : null;
+    // Peer mains: each scales by qty_per_base; single-FG keeps routing qtyOut.
+    // Per-product qtys (cost screen) use the entered count for that FG.
+    const q = mapped != null
+      ? mapped
+      : (shares.length === 1 && Number(o.product_id) === Number(bom.product_id)
+        ? qtyIn
+        : round6(Number(o.qty_per_base || 1) * qty_start / baseQty));
     const excl = Math.round(exclusiveByProduct[Number(o.product_id)] || 0);
-    const sharedPart = Math.round(sharedPool * (Number(o.cost_share_percent) || 0) / 100);
+    let weight = (Number(o.cost_share_percent) || 0) / 100;
+    let shareShown = o.cost_share_percent;
+    if (qtyByProduct && qtyWeightSum > 0) {
+      weight = (mapped || 0) / qtyWeightSum;
+      shareShown = Math.round(weight * 1000) / 10;
+    }
+    const sharedPart = Math.round(sharedPool * weight);
     const amt = excl + sharedPart;
     assigned += amt;
     return {
       ...outMeta(db, o),
       type: 'main',
       qty: q,
-      share_percent: o.cost_share_percent,
+      share_percent: shareShown,
       exclusive_rial: excl,
       shared_rial: sharedPart,
       amount_rial: amt,
@@ -417,7 +478,8 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
       current_price_rial: Math.round(Number(prod.price) || 0) * 10,
     } : null,
     header_yield_ignored: !!bom.has_routing,
-    qty_target: qtyTarget,
+    qty_target: qtyByProduct ? batchQty : qtyTarget,
+    output_qtys: qtyByProduct,
     qty_start,
     total_yield_percent,
     period,

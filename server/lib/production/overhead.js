@@ -62,12 +62,42 @@ function validatePeriodLabel(period) {
 }
 
 /**
+ * Direct-entry reconcile.
+ * rate_touch=total → نرخ کل (ستونی که جدول نشان می‌دهد) منبع است.
+ * rate_touch=parts → ثابت+متغیر منبع است.
+ * بدون touch: اگر فقط ثابت پر باشد و با نرخ کل فرق کند، نرخ کل می‌ماند
+ * (ذخیرهٔ قبلی ثابت را برابر کل کپی می‌کرد و ویرایش کل را دور می‌ریخت).
+ */
+function reconcileDirectRates(fixed, variable, total, touch) {
+  const f = fixed > 0 ? fixed : 0;
+  const v = variable > 0 ? variable : 0;
+  const t = total > 0 ? total : 0;
+  const sum = f + v;
+  if (touch === 'parts') return { fixed: f, variable: v, total: sum };
+  if (touch === 'total') {
+    if (v > 0 && f > 0 && sum > 0 && t > 0) {
+      const nf = Math.round(f * (t / sum));
+      return { fixed: nf, variable: t - nf, total: t };
+    }
+    if (v > 0 && f <= 0) return { fixed: 0, variable: t, total: t };
+    return { fixed: t, variable: 0, total: t };
+  }
+  if (t > 0 && v <= 0 && f > 0 && t !== f) return { fixed: t, variable: 0, total: t };
+  if (t <= 0 && sum > 0) return { fixed: f, variable: v, total: sum };
+  if (f <= 0 && v <= 0 && t > 0) return { fixed: t, variable: 0, total: t };
+  if (sum > 0 && t > 0 && sum !== t) return { fixed: f, variable: v, total: sum };
+  return { fixed: f, variable: v, total: t > 0 ? t : sum };
+}
+
+/**
  * Predetermined OAR (IAS 2 / absorption):
  *   fixed_rate = budget_fixed ÷ normal/budgeted driver qty
  *   var_rate   = budget_variable ÷ budgeted driver qty
  *   total_rate = fixed_rate + var_rate
  * Applied OH later = total_rate × actual driver qty.
  * Direct-rate entry: if only total is given, treat it as a single combined rate.
+ * A stored total that differs from the budget-derived rate is a manual override
+ * and must survive the next read (enrich) and the next save.
  */
 function computePredeterminedRates(input = {}) {
   const budgetFixed = roundRial(input.budget_fixed_oh_rial);
@@ -78,20 +108,35 @@ function computePredeterminedRates(input = {}) {
   let variable = roundRial(input.var_rate_rial);
   let total = roundRial(input.total_rate_rial);
   const monthlyLabor = roundRial(input.monthly_labor_rate_rial);
+  const touch = String(input.rate_touch || '');
 
   if (budgetFixed < 0 || budgetVar < 0 || budgetQty < 0 || fixed < 0 || variable < 0 || total < 0 || monthlyLabor < 0) {
     throw rateErr('E_NEGATIVE_RATE', 400, 'مبالغ و مقدار محرک نمی‌تواند منفی باشد');
   }
 
   const fromBudget = budgetQty > 0 && (budgetFixed > 0 || budgetVar > 0);
-  if (fromBudget) {
-    fixed = Math.round(budgetFixed / budgetQty);
-    variable = Math.round(budgetVar / budgetQty);
-    total = fixed + variable;
+  let usedBudget = false;
+  if (fromBudget && touch !== 'total' && touch !== 'parts') {
+    const dFixed = Math.round(budgetFixed / budgetQty);
+    const dVar = Math.round(budgetVar / budgetQty);
+    const dTotal = dFixed + dVar;
+    const manual = touch !== 'budget' && total > 0 && total !== dTotal;
+    if (!manual) {
+      fixed = dFixed;
+      variable = dVar;
+      total = dTotal;
+      usedBudget = true;
+    } else {
+      const kept = reconcileDirectRates(fixed, variable, total, 'total');
+      fixed = kept.fixed;
+      variable = kept.variable;
+      total = kept.total;
+    }
   } else {
-    if (total <= 0 && (fixed > 0 || variable > 0)) total = fixed + variable;
-    if (fixed <= 0 && variable <= 0 && total > 0) fixed = total;
-    else if (fixed > 0 || variable > 0) total = fixed + variable;
+    const kept = reconcileDirectRates(fixed, variable, total, touch);
+    fixed = kept.fixed;
+    variable = kept.variable;
+    total = kept.total;
   }
 
   return {
@@ -103,7 +148,7 @@ function computePredeterminedRates(input = {}) {
     total_rate_rial: total,
     monthly_labor_rate_rial: monthlyLabor,
     absorb_pct: bodyAbsorbPct(input),
-    from_budget: fromBudget,
+    from_budget: usedBudget,
   };
 }
 
