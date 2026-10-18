@@ -179,16 +179,15 @@ try {
         { product_id: pB, qty: 2 },
       ],
       variant_lines: [
-        { product_id: pA, variant_id: va.v1, qty: 3 },
-        { product_id: pA, variant_id: va.v2, qty: 1 },
-        { product_id: pB, variant_id: vb.v2, qty: 2 },
+        { product_id: pA, variant_id: va.v1, qty: 4 },
+        { product_id: pB, variant_id: vb.v1, qty: 2 },
       ],
     },
     userId: adminId,
   });
-  eq('tagged body keeps header colors', vqty(va.v1), 6);
-  eq('tagged body puts the peer qty on the color the user sent', vqty(vb.v2), 2);
-  eq('untagged peer color did not absorb the header qty', vqty(vb.v1), 2);
+  eq('tagged body can put the whole header qty on one of its colors', vqty(va.v1), 7);
+  eq('the header color omitted from the body is not posted again', vqty(va.v2), 1);
+  eq('tagged peer lines stay on the peer variant', vqty(vb.v1), 4);
 } catch (e) {
   ok(false, 'sqlite scenario', e && (e.stack || e.message || e));
 } finally {
