@@ -3,8 +3,8 @@
 - **ریشه:** `syncPartyToLegacy` فقط وقتی `party_groups.entity_type` یکی از `null|customer|all` بود ردیف `customers` می‌ساخت؛ گروه «پرسنل» (`entity_type=person`) حتی با نقش مشتری projection را سرکوب می‌کرد. فاکتور فقط از `customers` انتخاب می‌شود → شخص فروش‌پذیر نامرئی. علاوه بر آن، کپی `coa_code` پرداختنی تأمین روی مشتری، AR را روی برگ AP می‌نشاند.
 - **رفع:** نقش تجاری ⇒ projection (گروه فقط طبقه‌بندی است)؛ `safeCustomerCoaMirror` فقط برگ دریافتنی را روی مشتری می‌گذارد؛ `ensureCustomerTafsili` کد AP اشتباه را عوض می‌کند؛ heal بوت `customer_role_projection_v455` برای یتیم‌های تاریخی. ADR-PARTY-001 بند ۱۵. راهنما + SW `erp-taranom-v455`.
 - **فایل‌ها:** `lib/{parties-sync,party-tafsili}.js`, `db.js`, `public/{app.js,sw.js}`, `docs/architecture/PARTY-ACC-ADR-001.md`, `scripts/test-customer-role-projection-v455.js`, CHANGE-LOG.
-- **تست:** ایران `test-customer-role-projection-v455` + `test-sms`؛ پروب زنده: party ۱۳۶ باید `customers` لینک داشته باشد و در GET `/customers` دیده شود.
-- **Deploy:** ⏳
+- **تست:** ایران `test-customer-role-projection-v455` ۱۴/۰؛ `test-sms` ۲۲/۰؛ پروب زنده: party ۱۳۶ → customer ۸۸، برگ AR `110301000015`، `selectable=true`. heal بوت `synced=3`.
+- **Deploy:** ✅ `9d68d437` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v455`.
 
 ### ۱۴۰۵/۰۷/۲۶ — ابطال تسویهٔ چک وصول‌شده: JE بانک یتیم نمی‌ماند (SW v454)
 - **علائم (خانم صدوقی / چک ۶۵۵۰۹۹):** چک ثبت و پاس شده؛ در گردش بانک (ملت ۹۹۵۵ / JE ۲۵۳) دیده می‌شد، ولی در دفتر چک و گردش مشتری نبود.
