@@ -256,10 +256,13 @@ function postStockMovement(db, opts) {
   }
 
   if (variantId) {
-    const v = db.prepare('SELECT id, product_id, stock FROM product_variants WHERE id=?').get(variantId);
+    const v = db.prepare('SELECT id, product_id, stock, active FROM product_variants WHERE id=?').get(variantId);
     if (!v) throw movErr('E_VARIANT_NOT_FOUND', 404, 'واریانت یافت نشد');
     if (Number(v.product_id) !== productId) {
       throw movErr('E_VARIANT_MISMATCH', 400, 'واریانت متعلق به این کالا نیست');
+    }
+    if (!Number(v.active)) {
+      throw movErr('E_VARIANT_INACTIVE', 400, 'واریانت غیرفعال است و در پک/حرکت موجودی مجاز نیست');
     }
     const nextVar = round3((Number(v.stock) || 0) + qtyDelta);
     if (nextVar < -1e-9 && !allowNegative) {
@@ -418,18 +421,31 @@ function reverseStockDocument(db, { docType, docId, userId, note, applyHeaderSto
 }
 
 /**
- * Live pack lines for sales: active non-default variants with stock > 0.
+ * Live pack lines for sales: active non-default variants (optionally stock > 0).
  * When warehouseId is set, ALWAYS read variant_warehouse_stock (missing row = 0).
  * Never fall back to global product_variants.stock for a scoped warehouse.
+ *
+ * opts.mode:
+ *   'live'    — only SKUs with stock > 0 (default; invoice/auto-pack)
+ *   'defined' — every active matrix SKU (purchase inbound / allow-negative empty pack)
+ *
+ * pack_size_auto = number of returned lines (actual SKUs), never a cartesian fill
+ * of missing color×size cells.
  */
-function expandLivePack(db, productId, warehouseId) {
+function expandLivePack(db, productId, warehouseId, opts) {
+  const mode = opts && String(opts.mode || '').toLowerCase() === 'defined' ? 'defined' : 'live';
   const pid = parseInt(productId, 10);
-  if (!pid) {
-    return { lines: [], pack_size_auto: 1, live_colors: 0, live_sizes: 0 };
-  }
-  if (!tableExists(db, 'product_variants')) {
-    return { lines: [], pack_size_auto: 1, live_colors: 0, live_sizes: 0 };
-  }
+  const empty = () => ({
+    lines: [],
+    pack_size_auto: 1,
+    live_colors: 0,
+    live_sizes: 0,
+    has_matrix: 0,
+    matrix_sku_count: 0,
+    mode,
+  });
+  if (!pid) return empty();
+  if (!tableExists(db, 'product_variants')) return empty();
 
   const variants = db.prepare(`
     SELECT pv.id AS variant_id, pv.color_id, pv.size_id, pv.stock,
@@ -438,6 +454,8 @@ function expandLivePack(db, productId, warehouseId) {
     LEFT JOIN product_colors pc ON pc.id = pv.color_id
     LEFT JOIN product_sizes ps ON ps.id = pv.size_id
     WHERE pv.product_id=? AND pv.active=1 AND COALESCE(pv.is_default,0)=0
+      AND (pv.color_id IS NULL OR COALESCE(pc.active,1)=1)
+      AND (pv.size_id IS NULL OR COALESCE(ps.active,1)=1)
     ORDER BY pv.id
   `).all(pid);
 
@@ -455,7 +473,7 @@ function expandLivePack(db, productId, warehouseId) {
       const row = vwsGet.get(v.variant_id, whId);
       skuStock = row ? round3(Number(row.qty) || 0) : 0;
     }
-    if (skuStock <= 0) continue;
+    if (mode === 'live' && skuStock <= 0) continue;
     lines.push({
       variant_id: v.variant_id,
       color_id: v.color_id,
@@ -474,7 +492,7 @@ function expandLivePack(db, productId, warehouseId) {
     const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(pid);
     packSizeAuto = Math.max(1, Number(product && product.pack_size) || 1);
   } else {
-    packSizeAuto = Math.max(1, colors.size * sizes.size);
+    packSizeAuto = lines.length;
   }
 
   return {
@@ -482,6 +500,9 @@ function expandLivePack(db, productId, warehouseId) {
     pack_size_auto: packSizeAuto,
     live_colors: colors.size,
     live_sizes: sizes.size,
+    has_matrix: variants.length > 0 ? 1 : 0,
+    matrix_sku_count: variants.length,
+    mode,
   };
 }
 

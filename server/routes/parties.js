@@ -231,7 +231,9 @@ router.get('/:id/turnover', auth, adminOrAccounting, (req, res) => {
   }
   try {
     const { buildPartyTurnover } = require('../lib/party-turnover');
-    const data = buildPartyTurnover(db, partyId);
+    const roleRaw = String(req.query.role || req.query.preferRole || '').toLowerCase().trim();
+    const role = ['customer', 'supplier', 'person'].includes(roleRaw) ? roleRaw : undefined;
+    const data = buildPartyTurnover(db, partyId, role ? { role } : {});
     if (!data) return res.status(404).json({ error: 'یافت نشد' });
     res.json(data);
   } catch (e) {

@@ -239,6 +239,14 @@ router.get('/style/:productId', auth, (req, res) => {
         }
         return { ...v, stock, stock_global: stockGlobal, warehouse_id: warehouseId };
       });
+      // Pack meta must match warehouse-scoped live pack (not global packSizeFor).
+      try {
+        const { expandLivePack } = require('../lib/inventory/movement');
+        const live = expandLivePack(db, productId, warehouseId, { mode: 'live' });
+        meta.pack_size_auto = live.pack_size_auto;
+        meta.live_colors = live.live_colors;
+        meta.live_sizes = live.live_sizes;
+      } catch (_) { /* keep global meta */ }
     } else {
       variants = variants.map((v) => ({ ...v, stock_global: Number(v.stock) || 0 }));
     }
@@ -288,6 +296,7 @@ router.get('/summaries', auth, (req, res) => {
 });
 
 // Live pack (in-stock SKUs) — must be before /:id
+// mode=live (default): stock>0 only | mode=defined: all active matrix SKUs
 router.get('/live-pack/:productId', auth, (req, res) => {
   try {
     const db = getDB();
@@ -298,7 +307,8 @@ router.get('/live-pack/:productId', auth, (req, res) => {
     const warehouseId = req.query.warehouse_id != null && req.query.warehouse_id !== ''
       ? parseInt(req.query.warehouse_id, 10)
       : null;
-    res.json(expandLivePack(db, productId, warehouseId));
+    const mode = String(req.query.mode || 'live').toLowerCase() === 'defined' ? 'defined' : 'live';
+    res.json(expandLivePack(db, productId, warehouseId, { mode }));
   } catch (e) { sendErr(res, e); }
 });
 

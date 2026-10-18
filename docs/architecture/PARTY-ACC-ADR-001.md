@@ -23,6 +23,10 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 10. **Opening post:** `postPartyOpeningBalance` mirrors JE onto every linked `customers` / `persons` / `suppliers` row by `party_id` (not only `legacy_table`).
 11. **Mismatch:** per-leaf compare via `partyBooksMismatch` (dual-role AR≠AP).
 
+### Amendment v442 (turnover = books)
+
+12. **گردش SoT:** `buildPartyTurnover` ending `closing` must equal `partySignedBalanceDetailMap` (net by default; leaf when `?role=`). Synthetic opening fold when subledger lacks opening row; union all linked customer/supplier ids; never use purchase/payment docs formula for closing when books leaf exists.
+
 ## Also in scope (P0)
 
 - Server guards + regression test `test-party-acc-adr001-v337.js`

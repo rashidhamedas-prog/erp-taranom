@@ -444,7 +444,7 @@ function softDeleteVariant(db, id) {
   return { ok: true, id: Number(id) };
 }
 
-/** Live pack = distinct in-stock colors × sizes. Zero-stock colors (e.g. مشکی) leave the pack. */
+/** Live pack = count of in-stock SKU cells (not a cartesian fill of missing cells). */
 function packSizeFor(db, productId) {
   const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(productId);
   const fallback = Math.max(1, Number(product && product.pack_size) || 1);
@@ -466,7 +466,7 @@ function packSizeFor(db, productId) {
   const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
   const colors = new Set(live.map((v) => v.color_id || v.color_name).filter(Boolean));
   const sizes = new Set(live.map((v) => v.size_id || v.size_name).filter(Boolean));
-  const auto = live.length ? Math.max(1, colors.size * sizes.size) : fallback;
+  const auto = live.length ? live.length : fallback;
   return {
     pack_size: fallback,
     pack_size_auto: auto,
@@ -510,10 +510,8 @@ function deactivateUnselectedVariants(db, productId, colorIds, sizeIds, opts = {
   const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive', stock=0 WHERE id=?");
   for (const row of rows) {
     if (colors.has(Number(row.color_id)) && sizes.has(Number(row.size_id))) continue;
-    // Already-zero colors stay active until retireZeroStockColors so a website
-    // push can still send qty 0. Unchecking a color that still has stock removes it now.
-    const qty = Number(row.stock) || 0;
-    if (qty <= 1e-9 && qty >= -1e-9) continue;
+    // Unchecked color×size must leave the live pack immediately — even at qty 0 —
+    // so invoice auto-pack never invents SKUs the user removed from the matrix.
     // This save only edits one warehouse. Zero here, with pieces elsewhere, stays on the product.
     if (variantStockLivesInAnotherWarehouse(db, row.id, opts.warehouse_id)) {
       keptColors.add(Number(row.color_id));

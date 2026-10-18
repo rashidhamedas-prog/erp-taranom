@@ -228,7 +228,7 @@ ok(
 const live = expandLivePack(db, matrixId, whId);
 ok(Array.isArray(live.lines) && live.lines.length === 4, 'live-pack ۴ SKU زنده', live.lines && live.lines.length);
 ok(live.pack_size_auto === 4 && live.live_colors === 2 && live.live_sizes === 2,
-  'pack_size_auto = colors×sizes',
+  'pack_size_auto = lines.length (stocked SKUs)',
   `auto=${live.pack_size_auto} c=${live.live_colors} s=${live.live_sizes}`);
 
 // Sell one SKU to zero → live pack shrinks

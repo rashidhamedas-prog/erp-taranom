@@ -2705,7 +2705,7 @@
         <td>${pcRiskChip(w.risk_level)}${w.aging_days != null ? ` <span class="muted mono">${fmt(w.aging_days)} روز</span>` : ''}</td>
         <td data-csp-style="${CSP.style(`font-size:12px`)}">${esc(w.next_action || '')}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(w.id, w.name); })}">گردش</button>
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(w.id, w.name, (document.getElementById('pcRole') || {}).value || undefined); })}">گردش</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">کارت</button>
         </td>
       </tr>`).join('') || emptyRow(5);
@@ -2733,7 +2733,7 @@
         </td>
         <td>${pcRiskChip(p.risk_level)}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(p.id, p.name); })}">گردش</button>
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(p.id, p.name, (document.getElementById('pcRole') || {}).value || undefined); })}">گردش</button>
           ${p.linked_customer_id
             ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () {
                 if (typeof stmtCustId !== 'undefined') { try { stmtCustId = p.linked_customer_id; } catch (_) {} }
@@ -2747,6 +2747,7 @@
     const fCred = Number(k.total_credit_rial) || 0;
     const footDeb = (d.parties || []).reduce((s, r) => s + (Number(r.debit_rial) || 0), 0);
     const footCred = (d.parties || []).reduce((s, r) => s + (Number(r.credit_rial) || 0), 0);
+    const footBal = (d.parties || []).reduce((s, r) => s + (Number(r.balance_rial) || 0), 0);
 
     box.innerHTML = `
       <div class="trsy-meta">
@@ -2833,7 +2834,8 @@
           </tr></thead>
           <tbody>${partyRows}</tbody>
           <tfoot><tr>
-            <td colspan="3"><b>جمع صفحه</b></td>
+            <td colspan="2"><b>جمع صفحه</b></td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:${pcMoneyTone(footBal)}`)}"><b>${fmt(footBal)}</b></td>
             <td class="mono"><b>${fmt(footDeb)}</b></td>
             <td class="mono"><b>${fmt(footCred)}</b></td>
             <td colspan="4"></td>

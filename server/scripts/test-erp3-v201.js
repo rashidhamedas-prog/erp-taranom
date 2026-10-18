@@ -181,14 +181,15 @@ try {
     { color_id: black.id, size_id: s2.id, qty: 0 },
   ], { warehouse_id: 1 });
   ok(applied.stock === 23, 'جمع ماتریس موجودی کالا', applied.stock);
-  ok(applied.pack.pack_size_auto === 4 || applied.pack.live_colors === 2, 'پک زنده از رنگ/سایز موجود', applied.pack);
+  // pack_size_auto = count of stocked SKUs (3; black×s2 is zero — not invented)
+  ok(applied.pack.pack_size_auto === 3 || applied.pack.live_colors === 2, 'پک زنده از SKUهای موجود', applied.pack);
   const liveBefore = packSizeFor(db, productId);
-  ok(liveBefore.live_colors === 2 && liveBefore.live_sizes === 2 && liveBefore.pack_size_auto === 4, 'پک زنده ۲×۲', liveBefore);
+  ok(liveBefore.live_colors === 2 && liveBefore.live_sizes === 2 && liveBefore.pack_size_auto === 3, 'پک زنده ۳ SKU', liveBefore);
 
   const blackS1 = db.prepare('SELECT * FROM product_variants WHERE product_id=? AND color_id=? AND size_id=?').get(productId, black.id, s1.id);
   adjustVariantStock(db, blackS1.id, 0, 'set');
   const liveAfter = packSizeFor(db, productId);
-  ok(liveAfter.live_colors === 1 && liveAfter.live_sizes === 2 && liveAfter.pack_size_auto === 2, 'اتمام مشکی پک را به ۱×۲ می‌کند', liveAfter);
+  ok(liveAfter.live_colors === 1 && liveAfter.live_sizes === 2 && liveAfter.pack_size_auto === 2, 'اتمام مشکی پک را به ۲ SKU می‌کند', liveAfter);
 
   const afterUncheck = applyStockMatrix(db, productId, [
     { color_id: pink.id, size_id: s1.id, qty: 10 },
@@ -199,14 +200,14 @@ try {
     WHERE product_id=? AND color_id=? AND active=1 AND is_default=0
   `).get(productId, black.id).c;
   ok(blackLeft === 0, 'برداشتن تیک مشکی SKU را غیرفعال می‌کند', blackLeft);
-  ok(afterUncheck.pack.live_colors === 1 && afterUncheck.pack.pack_size_auto === 2, 'پک زنده بعد از حذف مشکی ۱×۲ است', afterUncheck.pack);
+  ok(afterUncheck.pack.live_colors === 1 && afterUncheck.pack.pack_size_auto === 2, 'پک زنده بعد از حذف مشکی ۲ SKU است', afterUncheck.pack);
   const readd = applyStockMatrix(db, productId, [
     { color_id: pink.id, size_id: s1.id, qty: 10 },
     { color_id: pink.id, size_id: s2.id, qty: 8 },
     { color_id: black.id, size_id: s1.id, qty: 4 },
     { color_id: black.id, size_id: s2.id, qty: 0 },
   ], { warehouse_id: 1 });
-  ok(readd.pack.live_colors === 2 && readd.pack.pack_size_auto === 2, 'برگشت تیک مشکی همان SKU را زنده می‌کند', readd.pack);
+  ok(readd.pack.live_colors === 2 && readd.pack.pack_size_auto === 3, 'برگشت تیک مشکی همان SKU را زنده می‌کند', readd.pack);
 
   db.prepare('INSERT INTO invoices (id) VALUES (1)').run();
   persistInvoicePayPlan(db, 1, {

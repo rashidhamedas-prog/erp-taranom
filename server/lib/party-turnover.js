@@ -341,6 +341,7 @@ function buildSupplierTurnover(db, partyId, softIds, detail) {
   }
 
   let raw = [];
+  let fromDocs = false;
   if (rows.length) {
     sortReportRows(rows, { date: 'date', dir: 'asc' });
     for (const r of rows) {
@@ -355,10 +356,14 @@ function buildSupplierTurnover(db, partyId, softIds, detail) {
         ref_id: r.ref_id != null ? r.ref_id : null,
       });
     }
-  } else {
-    // Incomplete books: show docs for transparency, then align to party-books leaf
+  } else if (Math.abs(closingTarget) <= 1) {
+    // No ledger and no books leaf — last-resort document formula (legacy)
     raw = buildSupplierTurnoverFromDocs(db, supIds);
+    fromDocs = raw.length > 0;
+    if (fromDocs) closingTarget = signedSum(raw);
   }
+  // else: ledger empty but books has opening/leaf → synthetic opening only (SoT);
+  // orphan purchase/payment docs are NOT mixed into the running balance.
 
   if (!raw.length && Math.abs(closingTarget) <= 1) return null;
   if (!closingTarget && raw.length) closingTarget = signedSum(raw);
@@ -369,7 +374,7 @@ function buildSupplierTurnover(db, partyId, softIds, detail) {
     primarySup,
     raw,
     closingTarget,
-    { supplier_ids: supIds, from_docs: !rows.length && raw.length > 0 }
+    { supplier_ids: supIds, from_docs: fromDocs }
   );
 }
 
