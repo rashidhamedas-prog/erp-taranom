@@ -3,8 +3,9 @@
 - **ریشه (پروب ایران):** ۱۰۰٪ مشتری «تجری - فروشگاه شانلی» (id=51، party=26، تفصیلی `110601000026`). سند افتتاحیه JE 17 با مبلغ ۵٬۸۹۵٬۰۰۰ هنگام upsert افتتاحیهٔ «افروز» soft-void شده با دلیل «جمع شدن سند تکراری…». علت: `collectPartyOpeningJournalIds` شناسهٔ `party.id` و `customer.id` را در یک `IN(ref_id)` مخلوط می‌کرد؛ مشتری افروز id=26 با party.id تجری=۲۶ برخورد کرد → سند تجری به‌اشتباه ابطال شد، ولی `parties.opening_balance` و ردیف دفتر `opening_balance` ماندند → دفتر > تفصیلی.
 - **رفع بنیادی:** جدا کردن namespace: `opening_balance`/`opening_reclass` فقط با `party.id`؛ `opening`/`opening_ledger` فقط با شناسهٔ مشتری. heal پیوسته `repairStaleCustomerOpeningMirrors` اگر ماندهٔ شخص ≠۰ و JE زنده نباشد سند را دوباره می‌سازد؛ ردیف دفتر یتیم با ماندهٔ صفر را پاک می‌کند؛ boot در `db.js` مثل v390.
 - **فایل‌ها:** `lib/opening-post.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-opening-id-collision-v436.js`, CHANGE-LOG.
-- **تست:** ایران `test-opening-id-collision-v436` + `test-sms`؛ پروب: `delta_ar=0`، JE زنده برای party 26، SW `erp-taranom-v436`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-opening-id-collision-v436` ۲۱/۰ + `test-sms` ۲۲/۰؛ پروب زنده بعد از boot: `delta_ar=0`، JE زنده #619 برای party 26 با ۵٬۸۹۵٬۰۰۰، SW `erp-taranom-v436`.
+- **اثر داده:** heal boot سند افتتاحیهٔ تجری را دوباره ساخت (JE 619)؛ دفتر/تفصیلی هم‌تراز. برگشت = ابطال JE 619 (توصیه نمی‌شود).
+- **Deploy:** ✅ `bf02a56d` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v436`.
 
 ### ۱۴۰۵/۰۷/۲۶ — موجودی منفی انبار + هم‌ترازی روش ثبت دائمی/ادواری (SW v435)
 - **ریشه:** تیک «اجازه موجودی منفی» در ATP و لایهٔ اپلیکیشن رعایت می‌شد، ولی تریگر SQLite `trg_ws_no_negative` هر `warehouse_stock.qty < 0` را بدون خواندن فلگ انبار abort می‌کرد → فاکتور با کمبود موجودی شکست می‌خورد. روش ثبت ادواری روی create/convert درست بود، اما amend فاکتور، مرجوعی فروش و تسویه امانی هنوز `invoice_cogs` / معکوس بهای تمام‌شده می‌زدند.

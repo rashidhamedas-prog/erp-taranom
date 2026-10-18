@@ -60,14 +60,14 @@ const { canonicalCustomerFold, glCustomersTafsiliBalance } = require('../lib/cus
 
   // Customer for تجری (party 26) — any id ≠ 26
   db.prepare(`
-    INSERT INTO customers (id, biz, phone, status, party_id, balance)
-    VALUES (51, 'تجری تست v436', '09120000026', 'active', 26, 0)
-  `).run();
+    INSERT INTO customers (id, user_id, biz, phone, status, party_id, balance)
+    VALUES (51, ?, 'تجری تست v436', '09120000026', 'active', 26, 0)
+  `).run(admin.id);
   // Customer id = 26 linked to افروز (party 69) — the collision key
   db.prepare(`
-    INSERT INTO customers (id, biz, phone, status, party_id, balance)
-    VALUES (26, 'افروز تست v436', '09120000069', 'active', 69, 0)
-  `).run();
+    INSERT INTO customers (id, user_id, biz, phone, status, party_id, balance)
+    VALUES (26, ?, 'افروز تست v436', '09120000069', 'active', 69, 0)
+  `).run(admin.id);
 
   try {
     const { ensureCustomerTafsili } = require('../lib/party-tafsili');
@@ -116,10 +116,14 @@ const { canonicalCustomerFold, glCustomersTafsiliBalance } = require('../lib/cus
   `).run(51, '1405/06/31', 'opening', 'opening_balance', 26, 'مانده اول دوره — تجری تست v436', AMT_A, 0, admin.id);
 
   ok(!livePartyOpeningJeId(db, 26), 'JE voided before heal');
-  const foldBefore = canonicalCustomerFold(db);
-  const glBefore = glCustomersTafsiliBalance(db);
-  ok(Number(foldBefore.display) - Number(glBefore.display) >= AMT_A - 1,
-    'books > leaf by ~AMT before heal', { foldBefore, glBefore });
+  const partyClaim = db.prepare('SELECT opening_balance FROM parties WHERE id=26').get();
+  ok(Number(partyClaim.opening_balance) === AMT_A, 'party still claims opening amt', partyClaim);
+  const orphanBooks = db.prepare(`
+    SELECT id, debit FROM customer_ledger
+    WHERE customer_id=51 AND LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
+  `).all();
+  ok(orphanBooks.length >= 1 && Number(orphanBooks[0].debit) === AMT_A,
+    'orphan books opening row present', orphanBooks);
 
   const heal1 = repairStaleCustomerOpeningMirrors(db);
   ok(Number(heal1.restored) >= 1, 'heal restores voided opening', heal1);
