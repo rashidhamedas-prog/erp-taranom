@@ -113,6 +113,8 @@ function gl(code) {
     component_product_id: fabId, qty_per_base: 1.5, scrap_percent: 0,
     line_type: 'material', size_matrix: JSON.stringify({ '38': 1.5, '40': 1.5 }),
   }, admin.id);
+  db.prepare("INSERT INTO product_sizes (name, code, active, sort_order) VALUES ('38','38',1,1)").run();
+  db.prepare("INSERT INTO product_sizes (name, code, active, sort_order) VALUES ('40','40',1,2)").run();
   bomLib.activateBom(db, bom.id, '1405/01/01', admin.id);
 
   const breakdown = { '38': 2, '40': 2 };
