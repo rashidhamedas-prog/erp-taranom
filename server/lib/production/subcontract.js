@@ -172,6 +172,7 @@ function receiveFromSubcontractor(db, { orderId, stageId, body, userId }) {
         date,
         description: `کسری نزد پیمانکار — ${stage.order_no}`,
         createdBy: userId,
+        costCenterId: stage.cost_center_id || null,
         lines: [
           dr(db, 'coa_abnormal_waste', amountLost),
           cr(db, 'coa_subcontract_inventory', amountLost),

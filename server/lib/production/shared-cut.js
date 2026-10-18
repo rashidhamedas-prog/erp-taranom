@@ -12,7 +12,7 @@ const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement } = require('../inventory/ledger');
 const { adjustBatchQty } = require('../inventory/batch-serial');
 const { availableBatchMeters, applyLiveRollQty } = require('../inventory/fabric-rolls');
-const { dr, cr, postEvent } = require('./posting');
+const { dr, cr, postEvent, resolveCuttingCostCenterId } = require('./posting');
 const { setting, avgUnitRial } = require('./costing');
 
 function httpErr(status, message, code, extra) {
@@ -380,6 +380,12 @@ function postSharedCut(db, body, user) {
       );
     }
     common = assertSafeRial(common, 'common');
+    const cutCc = resolveCuttingCostCenterId(db, {
+      explicitId: body.cost_center_id,
+      bomId: body.bom_id,
+      warehouseId: whRaw && whRaw.id,
+    });
+    db.prepare('UPDATE cutting_lays SET cost_center_id=? WHERE id=?').run(cutCc, layId);
     assertJournalIdempotent(db, 'production_material_issue', layId);
     let journalId = null;
     if (common > 0) {
@@ -389,7 +395,8 @@ function postSharedCut(db, body, user) {
         date,
         description: `مصرف خالص برش مشترک ${batchNo}`,
         createdBy: user && user.id,
-        costCenterId: Number(body.cost_center_id) || null,
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
         lines: [dr(db, 'coa_wip', common), cr(db, 'coa_raw_materials', common)],
       });
       journalId = je ? je.je_id : null;
@@ -404,7 +411,8 @@ function postSharedCut(db, body, user) {
         description: `اتلاف طولی برش ${batchNo}`,
         createdBy: user && user.id,
         lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_raw_materials', lossRial)],
-        costCenterId: Number(body.cost_center_id) || null,
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
       });
       wasteJe = wje ? wje.je_id : null;
     }

@@ -294,6 +294,7 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'cutting_lays')) {
     ensureColumn(db, 'cutting_lays', 'production_order_id', 'INTEGER');
     ensureColumn(db, 'cutting_lays', 'stage_id', 'INTEGER');
+    ensureColumn(db, 'cutting_lays', 'cost_center_id', 'INTEGER');
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_lays_idem ON cutting_lays(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }

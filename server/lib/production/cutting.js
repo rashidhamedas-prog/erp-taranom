@@ -16,7 +16,7 @@ const {
   colorsMatch,
 } = require('../inventory/fabric-rolls');
 const { explodeBom, resolveBom, round6 } = require('./bom');
-const { dr, cr, postEvent } = require('./posting');
+const { dr, cr, postEvent, resolveCuttingCostCenterId } = require('./posting');
 const { setting } = require('./costing');
 
 function httpErr(status, message, code, extra) {
@@ -893,6 +893,11 @@ function postCuttingLay(db, body, user) {
     throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
   }
   assertCuttingLayColorWidth(db, prepared, color, widthCm);
+  const costCenterId = resolveCuttingCostCenterId(db, {
+    explicitId: body.cost_center_id,
+    bomId: plan.bom_id,
+    warehouseId: wh.id,
+  });
 
   let layId;
   try {
@@ -912,19 +917,20 @@ function postCuttingLay(db, body, user) {
           marker_length_m, ply_count, width_cm, planned_meters, actual_meters, matrix_meters,
           size_breakdown, size_matrix, qty_pieces, waste_normal_m, waste_abnormal_m, waste_allowed_m,
           unit_cost_rial, amount_rial, waste_amount_rial, status, idempotency_key, date, note, created_by,
-          production_order_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?)
+          production_order_id, cost_center_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?,?)
       `).run(
         layNo, plan.product.id, plan.bom_id, wh.id, plan.fabric_product_id, color,
         plan.marker_length_m, plan.ply_count, widthCm, plan.planned_meters, plan.actual_meters, plan.matrix_meters,
         JSON.stringify(plan.size_breakdown), JSON.stringify(plan.size_matrix), plan.qty_pieces,
         plan.waste_normal_m, plan.waste_abnormal_m, plan.waste_allowed_m,
         unitCost, amount, wasteAmt, key, date, String(body.note || '').trim(), user.id,
-        po ? po.id : null
+        po ? po.id : null, costCenterId
       );
       const id = ins.lastInsertRowid;
       postCuttingLayStockAndJe(db, {
         id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user,
+        costCenterId,
       });
       if (po) {
         bindCuttingLayToOrderStage(db, {
@@ -1094,7 +1100,7 @@ function assertCuttingLayColorWidth(db, prepared, color, widthCm) {
 }
 
 function postCuttingLayStockAndJe(db, {
-  id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user,
+  id, layNo, prepared, wh, plan, amount, wasteAmt, unitCost, date, user, costCenterId,
 }) {
   assertJournalIdempotent(db, 'production_material_issue', id);
   for (const r of prepared) {
@@ -1126,6 +1132,8 @@ function postCuttingLayStockAndJe(db, {
       date,
       description: `مصرف پارچه لایه‌چینی ${layNo}`,
       createdBy: user.id,
+      costCenterId: costCenterId || null,
+      warehouseId: wh && wh.id,
       lines: [
         dr(db, 'coa_wip', amount),
         cr(db, 'coa_raw_materials', amount),
@@ -1142,6 +1150,8 @@ function postCuttingLayStockAndJe(db, {
       date,
       description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} متر`,
       createdBy: user.id,
+      costCenterId: costCenterId || null,
+      warehouseId: wh && wh.id,
       lines: [
         dr(db, 'coa_abnormal_waste', wasteAmt),
         cr(db, 'coa_wip', wasteAmt),
@@ -1219,6 +1229,11 @@ function updateCuttingLay(db, id, body, user) {
       throw httpErr(400, 'رنگ برش الزامی است — از رنگ طاقه/سفارش انتخاب کنید', 'E_CUT_COLOR_REQUIRED');
     }
     assertCuttingLayColorWidth(db, prepared, color, widthCm);
+    const costCenterId = resolveCuttingCostCenterId(db, {
+      explicitId: body.cost_center_id != null ? body.cost_center_id : row.cost_center_id,
+      bomId: plan.bom_id,
+      warehouseId: wh.id,
+    });
 
     db.prepare(`
       UPDATE cutting_lays SET
@@ -1228,7 +1243,7 @@ function updateCuttingLay(db, id, body, user) {
         size_breakdown=?, size_matrix=?, qty_pieces=?,
         waste_normal_m=?, waste_abnormal_m=?, waste_allowed_m=?,
         unit_cost_rial=?, amount_rial=?, waste_amount_rial=?,
-        date=?, note=?, production_order_id=?,
+        date=?, note=?, production_order_id=?, cost_center_id=?,
         status='posted', reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL
       WHERE id=?
     `).run(
@@ -1240,6 +1255,7 @@ function updateCuttingLay(db, id, body, user) {
       unitCost, amount, wasteAmt,
       date, String(body.note != null ? body.note : row.note || '').trim(),
       po ? po.id : null,
+      costCenterId,
       row.id
     );
 
@@ -1254,6 +1270,7 @@ function updateCuttingLay(db, id, body, user) {
       unitCost,
       date,
       user,
+      costCenterId,
     });
     if (po) {
       bindCuttingLayToOrderStage(db, {

@@ -76,12 +76,84 @@ const PRD = {
 
 const ORDER_CC_EVENTS = new Set(['PRD-01', 'PRD-02', 'PRD-03', 'PRD-05', 'PRD-07', 'PRD-11', 'PRD-12', 'PRD-16']);
 
+function activeCostCenterId(db, id) {
+  const cc = parseInt(id, 10);
+  if (!cc) return null;
+  try {
+    const row = db.prepare(
+      'SELECT id FROM cost_centers WHERE id=? AND COALESCE(active,1)=1'
+    ).get(cc);
+    return row ? row.id : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Cost center for cutting-lay abnormal waste (5221).
+ * Explicit id wins. Otherwise the cutting stage on the BOM, then CC-10 «برش»,
+ * then the raw warehouse. The production-order header is not used: it is often
+ * the sewing center and must not absorb cutting waste.
+ * A filled but unknown/inactive explicit id throws E_CC_NOT_FOUND.
+ */
+function resolveCuttingCostCenterId(db, opts = {}) {
+  const explicitRaw = parseInt(opts.explicitId, 10) || 0;
+  if (explicitRaw) {
+    const hit = activeCostCenterId(db, explicitRaw);
+    if (!hit) {
+      const e = new Error('مرکز هزینه یافت نشد یا غیرفعال است');
+      e.status = 400;
+      e.code = 'E_CC_NOT_FOUND';
+      throw e;
+    }
+    return hit;
+  }
+
+  const bomId = parseInt(opts.bomId, 10) || 0;
+  if (bomId) {
+    try {
+      const op = db.prepare(`
+        SELECT o.cost_center_id AS id
+        FROM bom_operations o
+        JOIN cost_centers cc ON cc.id = o.cost_center_id
+        WHERE o.bom_id=? AND COALESCE(cc.active,1)=1
+          AND (cc.code='CC-10' OR cc.name='برش')
+        ORDER BY o.seq
+        LIMIT 1
+      `).get(bomId);
+      if (op && op.id) return op.id;
+    } catch (_) { /* bom_operations may be absent */ }
+  }
+
+  try {
+    const cut = db.prepare(
+      "SELECT id FROM cost_centers WHERE code='CC-10' AND COALESCE(active,1)=1"
+    ).get();
+    if (cut && cut.id) return cut.id;
+  } catch (_) { /* ignore */ }
+
+  const whId = parseInt(opts.warehouseId, 10) || 0;
+  if (whId) {
+    try {
+      const wh = db.prepare('SELECT cost_center_id FROM warehouses WHERE id=?').get(whId);
+      const fromWh = activeCostCenterId(db, wh && wh.cost_center_id);
+      if (fromWh) return fromWh;
+    } catch (_) { /* ignore */ }
+  }
+  return null;
+}
+
 function inferCostCenterId(db, event, sourceId) {
   const id = parseInt(sourceId, 10);
   if (!id) return null;
   try {
     if (event === 'PRD-09') {
-      return db.prepare('SELECT cost_center_id FROM production_waste WHERE id=?').get(id)?.cost_center_id || null;
+      const waste = db.prepare('SELECT cost_center_id FROM production_waste WHERE id=?').get(id);
+      if (waste && waste.cost_center_id) return waste.cost_center_id;
+      // Cutting lays post PRD-09 with the lay id, not a production_waste id.
+      const lay = db.prepare('SELECT cost_center_id FROM cutting_lays WHERE id=?').get(id);
+      if (lay && lay.cost_center_id) return lay.cost_center_id;
+      return null;
     }
     if (ORDER_CC_EVENTS.has(event) || event === 'PRD-10') {
       return db.prepare('SELECT cost_center_id FROM production_orders WHERE id=?').get(id)?.cost_center_id || null;
@@ -90,7 +162,7 @@ function inferCostCenterId(db, event, sourceId) {
   return null;
 }
 
-function postEvent(db, { event, sourceId, date, description, createdBy, lines, costCenterId }) {
+function postEvent(db, { event, sourceId, date, description, createdBy, lines, costCenterId, warehouseId }) {
   const spec = PRD[event];
   if (!spec) throw err('E_UNKNOWN_PRD', 500, { event });
   // ADR-003 / P1: honor production_auto_post_je (close events always post)
@@ -113,6 +185,7 @@ function postEvent(db, { event, sourceId, date, description, createdBy, lines, c
     description: description || spec.name,
     createdBy,
     costCenterId: cc || null,
+    warehouseId: warehouseId || null,
     lines: clean,
     voucherType: 'auto',
     status: 'approved',
@@ -276,5 +349,5 @@ function reverseEvent(db, { jeId, reason, userId, date }) {
 
 module.exports = {
   dr, cr, plug, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation,
-  buildAllocationLines, PRD, err,
+  buildAllocationLines, resolveCuttingCostCenterId, PRD, err,
 };

@@ -593,6 +593,7 @@ const FK_COLUMNS = [
   ['cutting_remnant_rules', 'fabric_product_id'],
   ['cutting_remnant_rules', 'warehouse_id'],
   ['cutting_lays', 'batch_id'],
+  ['cutting_lays', 'cost_center_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
