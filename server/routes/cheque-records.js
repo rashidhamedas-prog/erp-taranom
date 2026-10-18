@@ -96,6 +96,18 @@ function findCustomerIdForEndorse(db, { party, debitCode, partyId }) {
 }
 
 function resolveEndorseDebit(db, body) {
+  // Explicit chart leaf (e.g. expense account when paying cost with a received cheque).
+  const accountCode = String((body && body.account_code) || '').trim();
+  if (accountCode && !parseInt(body && body.supplier_id, 10) && !parseInt(body && body.party_id, 10)) {
+    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(accountCode);
+    if (!a) {
+      const err = new Error('حساب مقصد ظهرنویسی یافت نشد');
+      err.status = 400;
+      err.code = 'E_CHEQUE_ENDORSE_ACCOUNT';
+      throw err;
+    }
+    return { debitAcct: a, supplierId: null, partyId: null, customerId: null };
+  }
   const supplierId = parseInt(body && body.supplier_id, 10);
   if (Number.isFinite(supplierId) && supplierId > 0) {
     const s = db.prepare('SELECT id, name, coa_code FROM suppliers WHERE id=?').get(supplierId);

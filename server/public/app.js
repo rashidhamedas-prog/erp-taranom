@@ -20424,6 +20424,7 @@ async function commitFarankenou(){
 }
 
 async function supplierPaymentModal(id,name){
+  await ensurePartiesCache().catch(()=>{});
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
@@ -20432,7 +20433,7 @@ async function supplierPaymentModal(id,name){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
-      <div class="fg"><label>روش پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg"><label>روش پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:true,flow:'out'})}</select></div>
       <div class="fg" id="sp-bank-fg"><label>برداشت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت خارج می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -20444,6 +20445,7 @@ async function supplierPaymentModal(id,name){
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="sp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک ${hlp('چک از کدام دسته‌چک (دفترچه) ما صادر می‌شود.')}</label><select id="sp-checkcat"><option value="">— انتخاب نشده —</option></select></div>
+      ${payOutboundChequeFieldsHtml('sp')}
       <div class="fg"><label>تاریخ</label><input id="sp-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="sp-note"></textarea></div>
     </div></div>
@@ -20458,11 +20460,114 @@ function payTypeOptionsHtml(opts){
   const cash=out?'پرداخت نقد از صندوق':'دریافت نقد در صندوق';
   const bank=out?'برداشت از حساب بانکی':'واریز به حساب بانکی';
   let h=`<option value="cash">${cash}</option><option value="bank">${bank}</option>`;
-  if(opts.cheque!==false) h+=out
-    ? '<option value="cheque">صدور چک پرداختنی</option>'
-    : '<option value="cheque">چک دریافتنی</option>';
+  if(opts.cheque!==false){
+    if(out){
+      h+='<option value="cheque_book">پرداخت از دسته‌چک</option>';
+      h+='<option value="cheque_recv">پرداخت از چک‌های دریافتی موجود</option>';
+    }else{
+      h+='<option value="cheque">چک دریافتنی</option>';
+    }
+  }
   if(opts.pos) h+='<option value="pos_card">کارتخوان (وجوه در راه)</option>';
   return h;
+}
+function isOutboundChequePay(pt){
+  return pt==='cheque_book'||pt==='cheque_recv'||pt==='cheque';
+}
+function payOutboundChequeFieldsHtml(prefix){
+  return `<div id="${prefix}-cheque-out-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}">
+    <div id="${prefix}-cheque-book-fields" data-csp-style="${CSP.style(`display:none`)}">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">صدور از دسته‌چک: بدهکار طرف‌حساب/هزینه و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور بستانکار نمی‌شود.</div>
+      <div class="form-grid">
+        <div class="fg"><label>شماره چک *</label><input id="${prefix}-chq-num" class="mono"></div>
+        <div class="fg"><label>صیاد</label><input id="${prefix}-chq-sayadi" class="mono" maxlength="16"></div>
+        <div class="fg"><label>سررسید</label><input id="${prefix}-chq-due" data-jdate></div>
+        <div class="fg"><label>شعبه</label><input id="${prefix}-chq-branch"></div>
+        <div class="fg"><label>شماره حساب</label><input id="${prefix}-chq-acct" class="mono"></div>
+        <div class="fg"><label>شبا</label><input id="${prefix}-chq-sheba" class="mono"></div>
+        <div class="fg full"><label>ذینفع روی برگه چک *</label>${partySelect(prefix+'ChqParty')}</div>
+      </div>
+    </div>
+    <div id="${prefix}-cheque-recv-fields" data-csp-style="${CSP.style(`display:none`)}">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">خرج/ظهرنویسی چک دریافتی نزد صندوق به نفع همین طرف‌حساب. مبلغ از برگه چک می‌آید.</div>
+      <div class="fg full"><label>چک دریافتی موجود *</label>
+        <select id="${prefix}-recv-chq"><option value="">— در حال بارگذاری —</option></select>
+      </div>
+    </div>
+  </div>`;
+}
+async function loadRecvChequesForPay(prefix){
+  const sel=el(prefix+'-recv-chq'); if(!sel) return;
+  try{
+    const rows=await api('GET','/cheque-records?direction=in')||[];
+    const list=(Array.isArray(rows)?rows:[]).filter(r=>{
+      if(r.record_status==='reversed') return false;
+      const lc=String(r.lifecycle_status||'').trim();
+      return !lc || lc==='registered' || lc==='in_hand' || lc==='pending';
+    });
+    sel.innerHTML='<option value="">— انتخاب چک —</option>'+list.map(r=>{
+      const label=`${esc(r.cheque_number||('#'+r.id))} — ${fmt(r.amount)} ریال — ${esc(r.party_name||'-')} — سررسید ${escDate(r.due_date||'-')}`;
+      return `<option value="${r.id}" data-amt="${Number(r.amount)||0}">${label}</option>`;
+    }).join('');
+    if(!list.length) sel.innerHTML='<option value="">— چک دریافتی قابل‌خرج نیست —</option>';
+  }catch(e){
+    sel.innerHTML='<option value="">— خطا در بارگذاری —</option>';
+  }
+}
+async function saveOutboundChequePayment(prefix, ctx){
+  const pt=el(prefix+'-paytype')?.value||'';
+  const date=el(prefix+'-date')?.value||todayJalali();
+  const note=typeof payNoteWithRef==='function'?payNoteWithRef(prefix, ctx.note||''):(ctx.note||'');
+  if(pt==='cheque_recv'||(pt==='cheque' && el(prefix+'-cheque-recv-fields')?.style.display!=='none')){
+    const chequeId=+el(prefix+'-recv-chq')?.value||0;
+    if(!chequeId){ showToast('چک دریافتی را انتخاب کنید','error'); return false; }
+    const body={ date, note };
+    if(ctx.supplier_id) body.supplier_id=ctx.supplier_id;
+    if(ctx.party_id) body.party_id=ctx.party_id;
+    if(ctx.account_code) body.account_code=ctx.account_code;
+    await api('POST','/cheque-records/'+chequeId+'/endorse', body);
+    return true;
+  }
+  // cheque_book (or legacy cheque)
+  const amount=ctx.amount!=null?ctx.amount:moneyVal(prefix+'-amount');
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return false; }
+  let party_id=+ctx.party_id||0;
+  if(!party_id) party_id=+el(prefix+'ChqParty')?.value||0;
+  if(!party_id){ showToast('ذینفع روی برگه چک را انتخاب کنید','error'); return false; }
+  const cheque_number=String(el(prefix+'-chq-num')?.value||'').trim();
+  if(!cheque_number){ showToast('شماره چک الزامی است','error'); return false; }
+  const bankId=+el(prefix+'-bank')?.value||0;
+  if(!bankId){ showToast('بانک دسته‌چک را انتخاب کنید','error'); return false; }
+  const bank=(CACHE.banks||[]).find(b=>Number(b.id)===bankId);
+  const created=await api('POST','/cheque-records',{
+    direction:'out', amount, party_id, cheque_number,
+    bank_name:bank?.name||'', branch:el(prefix+'-chq-branch')?.value||'',
+    account_number:el(prefix+'-chq-acct')?.value||'', sheba:el(prefix+'-chq-sheba')?.value||'',
+    sayadi:el(prefix+'-chq-sayadi')?.value||'', due_date:el(prefix+'-chq-due')?.value||'',
+    issue_date:date, note:note||'پرداخت از دسته‌چک',
+    check_category_id:+el(prefix+'-checkcat')?.value||null
+  });
+  const id=created&&created.id;
+  if(!id){ showToast('ثبت چک ناموفق بود','error'); return false; }
+  if(ctx.expense){
+    await api('POST','/cheque-records/'+id+'/expense',{
+      date,
+      cost_section:ctx.cost_section||'admin',
+      cost_center_id:ctx.cost_center_id||null,
+      account_code:ctx.account_code||null,
+      category:ctx.category||null,
+      is_overhead:!!ctx.is_overhead
+    });
+  }else{
+    const payBody={ date };
+    if(ctx.account_key) payBody.account_key=ctx.account_key;
+    if(ctx.account_code && !ctx.party_settle){
+      // account payment: debit the chosen COA leaf via account_key fallback path — pass as named settings only if mapped;
+      // otherwise party-aware pay uses party_id on the cheque leaf (already set).
+    }
+    await api('POST','/cheque-records/'+id+'/pay', payBody);
+  }
+  return true;
 }
 function activePosTerminals(){
   return (CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false);
@@ -20522,7 +20627,7 @@ function payDestSummary(prefix){
   const pos=(CACHE.posTerminals||[]).find(t=>Number(t.id)===posId);
   const out=payFlow(prefix)==='out';
   const typeLbl=(out
-    ? {cash:'پرداخت نقد از صندوق',bank:'برداشت از حساب بانکی',bank_transfer:'برداشت از حساب بانکی',cheque:'صدور چک',pos_card:'کارتخوان'}
+    ? {cash:'پرداخت نقد از صندوق',bank:'برداشت از حساب بانکی',bank_transfer:'برداشت از حساب بانکی',cheque:'صدور چک',cheque_book:'پرداخت از دسته‌چک',cheque_recv:'پرداخت از چک دریافتی',pos_card:'کارتخوان'}
     : {cash:'دریافت نقد در صندوق',bank:'واریز به حساب بانکی',bank_transfer:'واریز به حساب بانکی',cheque:'چک دریافتنی',pos_card:'کارتخوان (وجوه در راه)'}
   )[pt]||pt;
   let dest='';
@@ -20655,7 +20760,10 @@ function payFeeVal(prefix){
 }
 function toggleBankFields(prefix){
   const pt=el(prefix+'-paytype')?.value||'cash';
-  const isCheque = pt==='cheque';
+  const isChequeIn = pt==='cheque' && payFlow(prefix)==='in';
+  const isChequeBook = pt==='cheque_book' || (pt==='cheque' && payFlow(prefix)==='out');
+  const isChequeRecv = pt==='cheque_recv';
+  const isChequeOut = isChequeBook || isChequeRecv;
   const isBank = pt==='bank' || pt==='bank_transfer';
   const isCash = pt==='cash';
   const isPos = pt==='pos_card';
@@ -20668,25 +20776,35 @@ function toggleBankFields(prefix){
   const feeCcFg=el(prefix+'-fee-cc-fg');
   const refFg=el(prefix+'-bankref-fg');
   const chequeBlock=el(prefix+'-cheque-block');
-  if(bankFg) bankFg.style.display=(isBank||(isCheque && !inbound))?'flex':'none';
+  const outBlock=el(prefix+'-cheque-out-block');
+  const bookFields=el(prefix+'-cheque-book-fields');
+  const recvFields=el(prefix+'-cheque-recv-fields');
+  if(bankFg) bankFg.style.display=(isBank||isChequeBook)?'flex':'none';
   if(cashFg) cashFg.style.display=isCash?'flex':'none';
   if(posFg) posFg.style.display=isPos?'flex':'none';
   if(refFg) refFg.style.display=isBank?'flex':'none';
   if(chequeBlock){
-    chequeBlock.style.display=(isCheque && inbound)?'block':'none';
-    if(isCheque && inbound && prefix==='prr' && typeof renderPrrCheques==='function') renderPrrCheques();
-    if(isCheque && inbound && typeof chequeBlock.scrollIntoView==='function') chequeBlock.scrollIntoView({block:'nearest'});
+    chequeBlock.style.display=isChequeIn?'block':'none';
+    if(isChequeIn && prefix==='prr' && typeof renderPrrCheques==='function') renderPrrCheques();
+    if(isChequeIn && typeof chequeBlock.scrollIntoView==='function') chequeBlock.scrollIntoView({block:'nearest'});
+  }
+  if(outBlock) outBlock.style.display=isChequeOut?'block':'none';
+  if(bookFields) bookFields.style.display=isChequeBook?'block':'none';
+  if(recvFields){
+    recvFields.style.display=isChequeRecv?'block':'none';
+    if(isChequeRecv) loadRecvChequesForPay(prefix);
   }
   const amtFg=el(prefix+'-amount')?.closest('.fg');
-  if(amtFg && chequeBlock){
-    const multiOn=!!el(prefix+'-multi')?.checked && !(isCheque && inbound);
-    amtFg.style.display=((isCheque && inbound) || multiOn)?'none':'flex';
+  if(amtFg){
+    const multiOn=!!el(prefix+'-multi')?.checked && !isChequeIn && !isChequeRecv;
+    if(isChequeIn || isChequeRecv) amtFg.style.display='none';
+    else if(chequeBlock || outBlock) amtFg.style.display=multiOn?'none':'flex';
   }
-  if(isCheque && inbound && el(prefix+'-multi')?.checked){
+  if((isChequeIn||isChequeRecv||isChequeBook) && el(prefix+'-multi')?.checked){
     el(prefix+'-multi').checked=false;
     const box=el(prefix+'-multi-block'); if(box) box.style.display='none';
   }
-  if(ccWrap){ ccWrap.style.display=(isCheque && !inbound)?'flex':'none'; if(isCheque && !inbound) updateCheckCategoryOptions(prefix); }
+  if(ccWrap){ ccWrap.style.display=isChequeBook?'flex':'none'; if(isChequeBook) updateCheckCategoryOptions(prefix); }
   if(feeFg){
     feeFg.style.display=isBank?'flex':'none';
     if(!isBank && el(prefix+'-fee')) el(prefix+'-fee').value='';
@@ -20695,7 +20813,7 @@ function toggleBankFields(prefix){
     feeCcFg.style.display=isBank?'flex':'none';
     if(!isBank && el(prefix+'-fee-cc')) el(prefix+'-fee-cc').value='';
   }
-  if(!(isBank || (isCheque && !inbound)) && el(prefix+'-bank')) el(prefix+'-bank').value='';
+  if(!(isBank || isChequeBook) && el(prefix+'-bank')) el(prefix+'-bank').value='';
   if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
   if(!isPos && el(prefix+'-pos')) el(prefix+'-pos').value='';
   payDestSummary(prefix);
@@ -20710,12 +20828,29 @@ function updateCheckCategoryOptions(prefix){
 async function saveSupplierPayment(id){
   const amount=moneyVal('sp-amount');
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('sp-paytype')?.value||'cash';
+  if(isOutboundChequePay(pay_type)){
+    let party_id=0;
+    const sup=(CACHE.suppliers||[]).find(x=>Number(x.id)===Number(id));
+    party_id=sup&&sup.party_id?Number(sup.party_id):0;
+    if(!party_id) party_id=+el('spChqParty')?.value||0;
+    try{
+      if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
+      const ok=await saveOutboundChequePayment('sp',{
+        party_id, supplier_id:id, amount,
+        note:el('sp-note')?.value||'', party_settle:true
+      });
+      if(!ok) return;
+      closeModal(); showToast('پرداخت چک ثبت شد'); loadAccTab('suppliers');
+    }catch(e){ showToast((e&&e.message)||'ثبت پرداخت چک ناموفق بود','error'); }
+    return;
+  }
   const fee=payFeeVal('sp');
   const feeCc=payFeeCcVal('sp');
   if(fee>0 && isExpenseCcRequired() && !feeCc){ showToast('مرکز هزینه کارمزد بانکی الزامی است','error'); return; }
   try{
     await api('POST','/purchases/payments',{
-      supplier_id:id, amount:amount, pay_type:el('sp-paytype').value,
+      supplier_id:id, amount:amount, pay_type,
       date:el('sp-date').value, note:payNoteWithRef('sp', el('sp-note').value),
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
@@ -25494,6 +25629,7 @@ async function saveAccountReceipt(){
 }
 async function accountPaymentModal(){
   await ensurePayCaches();
+  await ensurePartiesCache().catch(()=>{});
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -25502,24 +25638,41 @@ async function accountPaymentModal(){
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('apay')}
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>روش پرداخت</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg"><label>روش پرداخت</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:true,flow:'out'})}</select></div>
       <div class="fg" id="apay-bank-fg"><label>برداشت از بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       ${payBankRefHtml('apay')}
       ${payBankFeeHtml('apay')}
       <div class="fg" id="apay-cashbox-fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg" id="apay-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="apay-checkcat"><option value="">—</option></select></div>
+      ${payOutboundChequeFieldsHtml('apay')}
       <div class="fg full"><label>یادداشت</label><input id="apay-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveAccountPayment()})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
   toggleBankFields('apay');
 }
 async function saveAccountPayment(){
   const account_code=el('apay-account-code')?.value;
   if(!account_code){ payFormFail('حساب را انتخاب کنید'); return; }
   const pay_type=el('apay-paytype').value;
-  if(pay_type==='cheque'){ payFormFail('ثبت چک در این فرم بسته است'); return; }
+  if(isOutboundChequePay(pay_type)){
+    const amount=moneyVal('apay-amount');
+    await paySubmitLocked(async ()=>{
+      try{
+        if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
+        const ok=await saveOutboundChequePayment('apay',{
+          account_code,
+          amount, note:el('apay-note')?.value||''
+        });
+        if(!ok) return;
+        payIdemDone(); closeModal(); showToast('پرداخت چک ثبت شد');
+        if(typeof loadAccTab==='function') loadAccTab(accTab||'payments');
+      }catch(e){ payFormFail((e&&e.message)||'ثبت پرداخت چک ناموفق بود'); }
+    });
+    return;
+  }
   const bank_id=pay_type==='bank'?(+el('apay-bank').value||null):null;
   const cash_box_id=pay_type==='cash'?(+el('apay-cashbox').value||null):null;
   if(pay_type==='cash' && !cash_box_id){ payFormFail('صندوق را انتخاب کنید'); return; }
@@ -25551,7 +25704,6 @@ function paymentOpChooser(){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(accountPaymentModal,50)})}">📒 پرداخت به حساب</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(()=>transferModal('bank'),50)})}">🏦 انتقال داخلی به بانک</button>
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(expensePaymentModal,50)})}">🧾 پرداخت هزینه</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(chequePaymentModal,50)})}">📑 پرداخت چک</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(()=>transferModal('cash'),50)})}">💰 انتقال داخلی به صندوق</button>
     </div>
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -25668,8 +25820,8 @@ async function personPaymentModal(){
         <option value="party">سایر اشخاص</option>
       </select></div>
       <div class="fg full" id="pp-target-wrap"></div>
-      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">مبدأ وجه همان صندوق یا بانک انتخاب‌شده است. «واریز» برای ورود وجه است و در پرداخت به کار نمی‌رود. برای صدور چک از «پرداخت چک» در منوی نوع پرداخت استفاده کنید — بانک با صرف صدور چک بستانکار نمی‌شود.</div></div>
-      <div class="fg"><label>روش پرداخت *</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">مبدأ وجه همان صندوق یا بانک انتخاب‌شده است. «واریز» برای ورود وجه است و در پرداخت به کار نمی‌رود. برای چک، در «روش پرداخت» گزینهٔ «پرداخت از دسته‌چک» یا «پرداخت از چک‌های دریافتی موجود» را بزنید — بانک با صرف صدور بستانکار نمی‌شود.</div></div>
+      <div class="fg"><label>روش پرداخت *</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:true,flow:'out'})}</select></div>
       <div class="fg" id="pp-bank-fg"><label>برداشت از بانک *</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
         <option value="">— انتخاب بانک —</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -25679,6 +25831,7 @@ async function personPaymentModal(){
         <option value="">— انتخاب صندوق —</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته‌چک</label><select id="pp-checkcat"><option value="">—</option></select></div>
+      ${payOutboundChequeFieldsHtml('pp')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
       ${payMultiToggleHtml('pp')}
       <div class="fg full"><label>شرح / بابت</label><textarea id="pp-note" placeholder="بابت پرداخت"></textarea></div>
@@ -25687,6 +25840,7 @@ async function personPaymentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   window._ppSuppliers=suppliers; window._ppParties=parties; window._ppReps=reps||[];
   attachDatepickers(el('modalRoot'));
+  if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
   ppKindChanged();
   toggleBankFields('pp');
 }
@@ -25720,8 +25874,42 @@ async function savePersonPayment(){
   const pay_type=el('pp-paytype').value;
   const bank_id=+el('pp-bank').value||null;
   const cash_box_id=+el('pp-cashbox')?.value||null;
+  if(isOutboundChequePay(pay_type)){
+    if(kind==='incentive'){ showToast('پرداخت انگیزه با چک از همین فرم نیست؛ از صورت‌حساب نماینده استفاده کنید','error'); return; }
+    let party_id=null, supplier_id=null;
+    if(kind==='supplier'){
+      supplier_id=target;
+      const sup=(CACHE.suppliers||[]).find(x=>Number(x.id)===target);
+      party_id=sup&&sup.party_id?Number(sup.party_id):0;
+      if(!party_id){
+        try{
+          const p=await api('GET','/parties?legacy_table=suppliers&legacy_id='+target);
+          const row=Array.isArray(p)?p[0]:(p&&p.data&&p.data[0]);
+          party_id=row&&row.id?Number(row.id):0;
+        }catch(_){}
+      }
+      if(!party_id){ showToast('برای چک باید تأمین‌کننده به شخص لینک باشد','error'); return; }
+    }else{
+      party_id=target;
+    }
+    const amount=moneyVal('pp-amount');
+    await paySubmitLocked(async ()=>{
+      try{
+        const ok=await saveOutboundChequePayment('pp',{
+          party_id, supplier_id, amount,
+          note:el('pp-note')?.value||'', party_settle:true
+        });
+        if(!ok) return;
+        payIdemDone();
+        closeModal();
+        showToast('پرداخت چک ثبت شد');
+        loadAccTab('settlements');
+      }catch(e){ payFormFail((e&&e.message)||'ثبت پرداخت چک ناموفق بود'); }
+    });
+    return;
+  }
   if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
-  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(pay_type==='bank' && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
   const parts=payInstAmounts('pp');
   const amounts=parts && parts.length ? parts : [moneyVal('pp-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
@@ -25756,6 +25944,7 @@ async function savePersonPayment(){
   });
 }
 async function expensePaymentModal(){
+  await ensurePartiesCache().catch(()=>{});
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   if(!CACHE.expenseCategories) CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
@@ -25775,7 +25964,7 @@ async function expensePaymentModal(){
       ${payMultiToggleHtml('ex')}
       <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">این فرم فقط هزینهٔ مستقیم است. تسویهٔ بدهی فاکتور خرید از «پرداخت به شخص → تأمین‌کننده» ثبت می‌شود تا هزینه و بدهی دوبار شمرده نشود.</div></div>
       <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}" data-csp-change="${CSP.bind('change',function(event){exCategoryChanged()})}"> این هزینه سربار تولید است (حساب کنترل ۵۲۰۲، نه هزینه اداری)</label></div>
-      <div class="fg"><label>روش پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
+      <div class="fg"><label>روش پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:true,flow:'out'})}</select></div>
       <div class="fg" id="ex-bank-fg"><label>برداشت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -25787,12 +25976,14 @@ async function expensePaymentModal(){
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="ex-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="ex-checkcat"><option value="">— انتخاب نشده —</option></select></div>
+      ${payOutboundChequeFieldsHtml('ex')}
       <div class="fg"><label>تاریخ</label><input id="ex-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="ex-note"></textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveExpensePayment()})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
   loadExpenseModalData();
   toggleBankFields('ex');
   exCategoryChanged();
@@ -25899,8 +26090,39 @@ async function saveExpensePayment(){
   const pay_type=el('ex-paytype').value;
   const bank_id=+el('ex-bank').value||null;
   const cash_box_id=+el('ex-cashbox')?.value||null;
+  if(isOutboundChequePay(pay_type)){
+    const catOpt=el('ex-category')?.selectedOptions?.[0];
+    const section=catOpt?.getAttribute('data-section')||'';
+    const overhead=!!el('ex-overhead')?.checked || section==='production_overhead';
+    const costCenterId=+el('ex-cc')?.value||null;
+    if(overhead && !costCenterId){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
+    if(isExpenseCcRequired() && !costCenterId){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
+    await paySubmitLocked(async ()=>{
+      try{
+        if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
+        const ok=await saveOutboundChequePayment('ex',{
+          amount:moneyVal('ex-amount'),
+          note:title+(el('ex-note')?.value?(' — '+el('ex-note').value):''),
+          expense: pay_type!=='cheque_recv',
+          cost_section: overhead?'production_overhead':(section==='selling'?'selling':'admin'),
+          cost_center_id:costCenterId,
+          account_code:el('ex-account-code')?.value||null,
+          category:el('ex-category')?.value||null,
+          is_overhead:overhead
+        });
+        if(!ok) return;
+        // cheque_recv for expense: endorse with account_code
+        if(pay_type==='cheque_recv'){
+          /* already handled in saveOutboundChequePayment via account_code */
+        }
+        payIdemDone(); closeModal(); showToast('پرداخت هزینه با چک ثبت شد');
+        loadAccTab('settlements');
+      }catch(e){ payFormFail((e&&e.message)||'ثبت هزینه چکی ناموفق بود'); }
+    });
+    return;
+  }
   if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
-  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(pay_type==='bank' && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
   const parts=payInstAmounts('ex');
   const amounts=parts && parts.length ? parts : [moneyVal('ex-amount')];
   if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
@@ -31025,7 +31247,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد و کارت مشخصات (بانک، صیاد، سررسید، مبلغ) زیر روش دریافت باز می‌شود؛ در حالت چندقسطی انتخاب «چک» همان کارت را نشان می‌دهد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. برای چک پرداختنی از «پرداخت چک» در همین منو یا «چک‌های پرداختی» استفاده کنید (ثبت+تحویل: بدهکار طرف‌حساب / بستانکار اسناد پرداختنی؛ بانک با صدور بستانکار نمی‌شود). فرم شخص/حساب/هزینه همچنان چک را رد می‌کند. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. در فرم‌های پرداخت (شخص/حساب/هزینه/تأمین‌کننده) روش پرداخت دو حالت چکی دارد: «پرداخت از دسته‌چک» و «پرداخت از چک‌های دریافتی موجود». دسته‌چک → اسناد پرداختنی؛ چک دریافتی → ظهرنویسی. بانک با صرف صدور بستانکار نمی‌شود. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد. ردیف‌های گردش، صورت‌حساب و دفترها بر اساس <b>تاریخ سند</b> (قدیم به جدید) چیده می‌شوند. پایین گردش، جمع بدهکار، جمع بستانکار و ماندهٔ نهایی — مثل صورت‌حساب — دیده می‌شود</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
@@ -31239,7 +31461,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v455</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v457</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
