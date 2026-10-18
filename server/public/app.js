@@ -12866,6 +12866,7 @@ async function cuttingLayModal(editId){
       </div>
       <div class="fg"><label>سفارش تولید</label><input id="cl-po" type="number" min="1" step="1" placeholder="پیشنهادی: شناسه سفارش باز (خالی = cut-to-stock)" value="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
     </div>
+    <div id="cl-joint" hidden></div>
     ${window._cutEditId?'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">ویرایش = ابطال کامل اثرات قبلی همین شماره لایه و ثبت مجدد (موجودی طاقه و سند حسابداری). کالا قابل تغییر نیست. اگر رسید محصول دارد اول ابطالش کنید.</p>':''}
     <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
@@ -13046,6 +13047,24 @@ async function cuttingApplyPo(){
         const opt=[...el('cl-color').options].find(o=>o.value===po.color);
         if(opt) el('cl-color').value=po.color;
       }
+    }
+    const joint=el('cl-joint');
+    const plan=prodFgLines(po);
+    if(joint){
+      if(plan.length){
+        const byPid={};
+        (po.matrix_lines||[]).forEach(l=>{
+          const pid=Number(l.product_id)||Number(po.product_id);
+          if(!byPid[pid]) byPid[pid]=[];
+          if(Number(l.qty_planned)>0) byPid[pid].push((l.color_name||l.color_id||'')+'/'+(l.size_name||l.size_id||'')+': '+toFa(l.qty_planned));
+        });
+        joint.hidden=false;
+        joint.innerHTML=`<div class="po-sec" data-csp-style="${CSP.style(`margin-top:8px`)}"><b>محصولات این سفارش</b>
+          <p class="po-dep">لایه‌چینی پارچهٔ مشترک را برای جمع قطعه‌ها مصرف می‌کند. تعداد و رنگ هر محصول جدا می‌ماند.</p>
+          <table class="tbl"><thead><tr><th>محصول</th><th class="num">تعداد</th><th>رنگ × سایز</th></tr></thead><tbody>
+          ${plan.map(p=>`<tr><td>${esc(p.product_name||('#'+p.product_id))}</td><td class="num">${toFa(p.qty_planned||0)}</td><td>${esc((byPid[p.product_id]||[]).join('، ')||'—')}</td></tr>`).join('')}
+          </tbody></table></div>`;
+      }else{ joint.hidden=true; joint.innerHTML=''; }
     }
     if(po && po.size_breakdown){
       let bd=po.size_breakdown;
@@ -16160,11 +16179,12 @@ function buildProdStageStrip(orderRows, allStages){
     const total=stages.length;
     const chips=stages.map(s=>{
       const cls=s.status==='done'?'is-done':(s.status==='in_progress'?'is-next':(s.status==='blocked'?'is-locked':''));
-      const label=(s.operation_name||s.name||('مرحله '+s.seq))+' · '+(stFa[s.status]||s.status||'—');
-      return `<span class="prod-stage-chip ${cls}" title="${esc(label)}">${esc(String(s.seq||''))} ${esc(stFa[s.status]||s.status||'')}</span>`;
+      const label=(s.operation_name||s.name||('مرحله '+s.seq))+' · '+prodStageScopeHtml(s)+' · '+(stFa[s.status]||s.status||'—')+' · '+toFa(s.qty_in||0);
+      return `<span class="prod-stage-chip ${cls}" title="${esc(label)}">${esc(String(s.seq||''))} ${esc(prodStageScopeHtml(s))}</span>`;
     }).join('');
     return `<div class="prod-stage-order">
       <div class="prod-stage-order-head"><b>${esc(o.order_no||('#'+o.id))}</b>
+        <span class="muted">${prodFgNamesHtml(o)}</span>
         <span class="muted">${fmt(done)}/${fmt(total)} مرحله</span>
         <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodJourneyGoRoute('acc-production-kanban')})}">کانبان</button>
       </div>
@@ -16498,7 +16518,8 @@ async function renderProductionDashboardTab(body){
   catch(e){ dash=null; dashErr=e.message||e.code||'خطا در داشبورد'; }
   try{ catalog=(await api('GET','/production/reports'))?.reports||[]; }catch(e){ catalog=[]; }
   const k=dash?.data?.kpis||{};
-  const openOrders=dash?.data?.open_orders||[];
+  const openFromList=(journeyState?.orderRows||[]).filter(o=>!['closed','cancelled','voided','completed'].includes(String(o.status||'')));
+  const openOrders=openFromList.length?openFromList:(dash?.data?.open_orders||[]);
   const journeyHtml=journeyState?prodJourneyHtml(journeyState):'';
   const quickBtns=PROD_QUICK_REPORTS.map(rep=>{
     const bind=CSP.bind('click',function(){prodOpenReport(rep.code)});
@@ -16528,7 +16549,7 @@ async function renderProductionDashboardTab(body){
         <button type="button" class="btn sm" data-csp-click="${hubBind}">📊 مرکز گزارشات</button></div></div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
-        ${openOrders.map(o=>`<tr data-csp-style="${CSP.style(`cursor:pointer`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((o.id))})}"><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
+        ${openOrders.map(o=>`<tr data-csp-style="${CSP.style(`cursor:pointer`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((o.id))})}"><td>${esc(o.order_no)}</td><td>${prodFgNamesHtml(o)}</td><td class="num">${prodFgQtyHtml(o,'qty_planned')}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
       </tbody></table></div></div>
     <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فهرست کامل گزارشات (${fmt(catalog.length)})</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
@@ -16656,7 +16677,7 @@ async function renderProductionCostSheetTab(body){
       <label>سفارش:
         <select id="pcs-order-id" data-csp-style="${CSP.style(`min-width:220px`)}">
           <option value="">— انتخاب سفارش —</option>
-          ${orders.map(o=>`<option value="${o.id}" ${String(o.id)===String(presetId)?'selected':''}>${esc(o.order_no)} — ${esc(o.product_name||('#'+o.product_id))} (${esc(o.status)})</option>`).join('')}
+          ${orders.map(o=>`<option value="${o.id}" ${String(o.id)===String(presetId)?'selected':''}>${esc(o.order_no)} — ${prodFgLines(o).length?prodFgLines(o).map(p=>(p.product_name||('#'+p.product_id))+' '+toFa(p.qty_planned||0)).join(' / '):esc(o.product_name||('#'+o.product_id))} (${esc(o.status)})</option>`).join('')}
         </select>
       </label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodCostSheetLoad()})}">📄 بارگذاری</button>
@@ -16688,9 +16709,10 @@ async function prodCostSheetLoad(){
   area.innerHTML=`
     <div id="pcs-print-sheet">
       <h2>برگه بهای تمام‌شده — ${esc(s.order_no||'')}</h2>
-      <div class="pcs-meta">${esc(s.product_name||'')} · دوره ${esc(s.period_label||'')} · ${esc(s.status||'')}</div>
+      <div class="pcs-meta">${(s.products||[]).length>1?(s.products||[]).map(p=>esc(p.product_name||('#'+p.product_id))+' '+toFa(p.qty_planned||0)).join(' · '):esc(s.product_name||'')} · دوره ${esc(s.period_label||'')} · ${esc(s.status||'')}</div>
+      ${(s.products||[]).length>1?`<div class="tbl-wrap" data-csp-style="${CSP.style(`margin:8px 0`)}"><table class="tbl"><thead><tr><th>محصول</th><th class="num">تعداد برنامه</th><th class="num">سهم٪</th><th class="num">بهای سهم</th><th class="num">بهای واحد</th></tr></thead><tbody>${s.products.map(p=>`<tr><td>${esc(p.product_name||('#'+p.product_id))}</td><td class="num">${toFa(p.qty_planned||0)}</td><td class="num">${toFa(p.cost_share_percent||0)}</td><td class="num">${prodFmtToman(p.cost_rial)} ریال</td><td class="num">${prodFmtToman(p.unit_cost_rial)} ریال</td></tr>`).join('')}</tbody></table><p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">بهای سهم از جمع سفارش × درصد فرمول است. تعداد هر محصول جداست و درصد را عوض نمی‌کند.</p></div>`:''}
       <div class="pcs-grid">
-        <div><span>تعداد برنامه</span><strong class="mono">${s.qty_planned??'—'}</strong></div>
+        <div><span>تعداد برنامه</span><strong class="mono">${(s.products||[]).length>1?(s.products||[]).map(p=>toFa(p.qty_planned||0)).join(' + '):(s.qty_planned??'—')}</strong></div>
         <div><span>تعداد تولید</span><strong class="mono">${s.qty_produced??'—'}</strong></div>
         <div><span>بهره‌وری</span><strong class="mono">${s.yield_pct??'—'}٪</strong></div>
         <div><span>بهای واحد</span><strong class="mono">${prodFmtToman(s.unit_cost_rial)} ریال</strong></div>
@@ -16702,11 +16724,12 @@ async function prodCostSheetLoad(){
         <div><span>جمع کل</span><strong class="mono">${prodFmtToman(s.total_cost_rial)} ریال</strong></div>
       </div>
       <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>مرحله</th><th>مرکز هزینه</th><th>ورودی</th><th>خروجی</th>
+        <th>مرحله</th><th>تخصیص</th><th>مرکز هزینه</th><th>ورودی</th><th>خروجی</th>
         <th>مواد (ت)</th><th>دستمزد (ت)</th><th>سربار (ت)</th><th>بهای مرحله (ت)</th>
       </tr></thead><tbody>
         ${stages.map(st=>`<tr>
           <td>${esc(st.seq)}</td>
+          <td>${esc(prodStageScopeHtml(st))}</td>
           <td>${esc(st.cc_code||'')} ${esc(st.cc_name||'')}</td>
           <td class="num">${st.qty_in??'—'}</td>
           <td class="num">${st.qty_out??'—'}</td>
@@ -16714,7 +16737,7 @@ async function prodCostSheetLoad(){
           <td class="num">${prodFmtToman(st.labor_rial)}</td>
           <td class="num">${prodFmtToman(st.overhead_rial)}</td>
           <td class="num">${prodFmtToman(st.cost_out_rial)}</td>
-        </tr>`).join('')||emptyRow(8)}
+        </tr>`).join('')||emptyRow(9)}
       </tbody></table></div>
       <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:12px`)}">کار در جریان باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ریال · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
     </div>`;
@@ -16883,7 +16906,8 @@ async function prodKanbanLoad(){
         <div class="prod-kanban-col-head"><span>${esc(c.cc_code||'')} ${esc(c.cc_name||'')}</span><span>(${c.cards.length})</span></div>
         ${c.cards.map(card=>`<div class="prod-kanban-card st-${esc(card.status)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((card.order_id))})}">
           <div data-csp-style="${CSP.style(`font-weight:700`)}">${esc(card.order_no)}</div>
-          <div>${esc(card.product_name||'')}</div>
+          <div>${prodFgNamesHtml(card)}</div>
+          <div>${esc(prodStageScopeHtml(card))} · ${toFa(card.qty_in||0)}</div>
           <div class="num">${card.qty_in??0} → ${card.qty_out??0}</div>
           <div>${stLabel[card.status]||''} ${esc(card.status)}</div>
         </div>`).join('')||`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">خالی</div>`}
@@ -17853,6 +17877,25 @@ async function prodAccessSave(userId){
 }
 
 const PROD_ANALYSIS_LABEL={fixed:'ثابت',variable:'متغیر',fixed_adv:'ثابت پیشرفته (مرحله‌ای)',variable_adv:'متغیر پیشرفته (مرحله‌ای)'};
+function prodFgLines(o){
+  const plan=Array.isArray(o?.fg_plan)?o.fg_plan:[];
+  return plan.length>1?plan:[];
+}
+function prodFgNamesHtml(o){
+  const plan=prodFgLines(o);
+  if(!plan.length) return esc(o?.product_name||(o?.product_id?('#'+o.product_id):''));
+  return plan.map(p=>`${esc(p.product_name||('#'+p.product_id))} <span class="muted">${toFa(p.qty_planned||0)}</span>`).join('<br>');
+}
+function prodFgQtyHtml(o, key){
+  const plan=prodFgLines(o);
+  if(!plan.length) return toFa(o?.[key]||0);
+  return plan.map(p=>toFa(p[key]||0)).join('<br>');
+}
+function prodStageScopeHtml(s){
+  const ex=String(s?.product_scope||'')==='exclusive';
+  if(!ex) return 'مشترک';
+  return 'اختصاصی'+(s.scoped_product_name?(' · '+s.scoped_product_name):'');
+}
 async function renderProductionOrdersTab(body){
   let data={rows:[]};
   const showVoid=!!window._prodOrdersShowVoided;
@@ -17883,10 +17926,10 @@ async function renderProductionOrdersTab(body){
         return `<tr>
         <td data-label="انتخاب">${o.status==='voided'?'':`<input type="checkbox" class="po-pick" data-id="${o.id}">`}</td>
         <td data-label="شماره">${esc(o.order_no)}${cutNeed?' <span class="muted" title="طاقه‌دار — مسیر لایه‌چینی" data-csp-style="'+CSP.style('font-size:10px')+'">🧵</span>':''}</td>
-        <td data-label="محصول">${esc(o.product_name||('#'+o.product_id))}</td>
+        <td data-label="محصول">${prodFgNamesHtml(o)}</td>
         <td data-label="نوع آنالیز" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(PROD_ANALYSIS_LABEL[o.analysis_type]||o.analysis_type)}</td>
-        <td data-label="برنامه" class="num">${o.qty_planned||0}</td>
-        <td data-label="تولید" class="num">${o.qty_produced||0}</td>
+        <td data-label="برنامه" class="num">${prodFgQtyHtml(o,'qty_planned')}</td>
+        <td data-label="تولید" class="num">${prodFgQtyHtml(o,'qty_produced')}</td>
         <td data-label="بهای واحد" class="num">${money(o.unit_cost_rial)}</td>
         <td data-label="وضعیت">${badgeHtml(o.status)}</td>
         <td data-label="عملیات" data-csp-style="${CSP.style(`white-space:nowrap`)}">
@@ -19126,7 +19169,7 @@ async function prodOrderStagesModal(orderId){
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           ${s.status==='pending'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageStart((orderId),(s.id))})}">شروع</button>`:''}
           ${s.status==='in_progress'&&order.analysis_type==='variable_adv'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageIssueModal((orderId),(s.id))})}">حواله مواد</button>`:''}
-          ${s.status==='in_progress'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageOutputModal((orderId),(s.id),(s.qty_in||0))})}">ثبت خروجی</button>`:''}
+          ${s.status==='in_progress'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageOutputModal((orderId),(s.id),(s.qty_in||0),(prodStageScopeHtml(s)))})}">ثبت خروجی</button>`:''}
           ${s.status==='pending'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageSkip((orderId),(s.id))})}">رد کردن</button>`:''}
           ${s.is_subcontract && s.status==='in_progress'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageSubSend((orderId),(s.id),(s.supplier_id||0),(s.qty_in||0))})}">📤 ارسال پیمانکار</button>`:''}
           ${s.is_subcontract && ['in_progress','done'].includes(s.status)?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageSubReceive((orderId),(s.id),(s.operation_id||0))})}">📥 دریافت پیمانکار</button>`:''}
@@ -19169,10 +19212,10 @@ async function prodStageSkip(orderId,stageId){
   try{ await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/skip',{reason}); showToast('مرحله رد شد'); prodOrderStagesModal(orderId); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
-function prodStageOutputModal(orderId,stageId,qtyIn){
+function prodStageOutputModal(orderId,stageId,qtyIn,scopeLabel){
   const qi=+qtyIn||0;
   showModal('ثبت خروجی مرحله',`
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">ورودی مرحله: ${toFa(qi)} — جمع خروجی+ضایعات+دوباره‌کاری باید برابر ورودی باشد.</p>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${scopeLabel?esc(scopeLabel)+' — ':''}ورودی مرحله: ${toFa(qi)} — جمع خروجی+ضایعات+دوباره‌کاری باید برابر ورودی باشد. این عدد فقط همین مرحله است.</p>
     <div class="form-grid">
       <div class="fg"><label>خروجی سالم</label><input id="pso-out" type="number" min="0" value="${qi}" data-csp-input="${CSP.bind('input',function(event){prodStageOutputBalance((qi))})}"></div>
       <div class="fg"><label>ضایعات عادی</label><input id="pso-wn" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){prodStageOutputBalance((qi))})}"></div>
@@ -19237,7 +19280,7 @@ async function prodStageIssueModal(orderId,stageId){
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>دلیل انحراف</th>
     </tr></thead><tbody id="psi-rows">
       ${lines.map((L,i)=>`<tr class="psi-row" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-avg-ok="${lineAvgOk(L)?1:0}">
-        <td>${esc(L.name||('#'+L.product_id))}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}</td>
+        <td>${esc(L.name||('#'+L.product_id))}${L.product_scope?` <span class="po-chip${L.product_scope==='exclusive'?' is-ex':''}">${esc(L.product_scope==='exclusive'?('اختصاصی'+(L.scoped_product_name?' · '+L.scoped_product_name:'')):'مشترک')}</span>`:''}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}</td>
         <td class="num">${L.qty_standard}</td>
         <td><input class="psi-qty" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}"></td>
         <td><input class="psi-reason" placeholder="در صورت انحراف" data-csp-style="${CSP.style(`width:140px`)}"></td>
@@ -19332,12 +19375,12 @@ function prodOrderFinalizeFgBlock(order, qtyGood){
     <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>نقش</th><th>محصول</th><th>تعداد رسید</th><th>سهم٪</th></tr></thead>
     <tbody>${plan.map(p=>{
       const isOrder=Number(p.product_id)===Number(order.product_id);
-      const defQ=isOrder?qtyGood:(Number(p.qty_planned)||0);
+      const defQ=Number(p.qty_planned)||0;
       return `<tr><td>محصول اصلی${isOrder?' ★':''}</td><td>${esc(p.product_name||('#'+p.product_id))}</td>
         <td><input class="pf-out-qty num-fit" data-pid="${p.product_id}" type="number" min="0" step="any" value="${defQ}"></td>
         <td class="num">${toFa(Number(p.cost_share_percent)||0)}</td></tr>`;
     }).join('')}</tbody></table>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">تعداد محصول سفارش ★ پیش‌فرض = خروجی آخرین مرحله؛ بقیه از نسبت فرمول. همه قابل اصلاح‌اند.</p></div>`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">پیش‌فرض هر ردیف تعداد برنامهٔ همان محصول است. اگر مرحلهٔ آخر مشترک باشد خروجی‌اش جمع همه است و رسید هر محصول جدا می‌ماند. سهم٪ از فرمول است.</p></div>`;
 }
 async function prodOrderFinalize(orderId){
   let order=null, stages=[];
@@ -31438,7 +31481,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418 / v458):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (جزء با مصرف یکسان برای هر مدل، مثل کشباف) یا <b>اختصاصی</b> یک محصول. پارچهٔ مشترک با <b>مصرف متفاوت</b> دو ردیف اختصاصی از همان کالا است (یلدا ۱٫۳ متر، آبان ۱٫۶۵۵ متر) — فعال‌سازی دیگر این را «قلم تکراری» نمی‌داند. دو ردیف مشترک از یک جزء، یا دو اختصاصی برای <b>همان</b> محصول، یا یک جزء هم مشترک و هم اختصاصی رد می‌شود. دوخت با اجرت متفاوت = دو عملیات اختصاصی. در بها، اختصاصی مستقیم به همان محصول می‌رود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. تب بها فقط برآورد است و سند نمی‌زند.</li>
-        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. تعداد هر محصول جداست: نسبت <code>qty_per_base</code> فقط پیشنهاد اول است و بعد از دست‌کاری یک ردیف، ردیف دیگر را عوض نمی‌کند. رنگ×سایز هم برای هر محصول جدول خودش را دارد و جمع همان جدول تعداد همان محصول است. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. مرحلهٔ مشترک ورودی‌اش جمع تعدادهاست، مرحلهٔ اختصاصی فقط تعداد همان محصول است و با تمام شدن مرحلهٔ قبل عوض نمی‌شود. سهم٪ از فرمول است و با این تعدادها دوباره حساب نمی‌شود. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
+        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. تعداد هر محصول جداست: نسبت <code>qty_per_base</code> فقط پیشنهاد اول است و بعد از دست‌کاری یک ردیف، ردیف دیگر را عوض نمی‌کند. رنگ×سایز هم برای هر محصول جدول خودش را دارد و جمع همان جدول تعداد همان محصول است. از v461 همین تفکیک در فهرست سفارش، نوار مراحل داشبورد، کانبان، لایه‌چینی، حوالهٔ مرحله، نهایی‌سازی و برگهٔ بها دیده می‌شود: مرحله و مادهٔ مشترک با جمع، اختصاصی با تعداد همان محصول، و بهای سهم = جمع سفارش × درصد فرمول. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. سهم٪ از فرمول است و با این تعدادها دوباره حساب نمی‌شود. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. در نهایی‌سازی پیش‌فرض هر محصول تعداد برنامهٔ خودش است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416 / v458):</b> محاسبه تحلیلی — <b>بدون JE</b>. در فرمول چندمحصولی برای <b>هر محصول یک تعداد</b> وارد می‌شود و با تایپ، بها زنده تازه می‌شود. قلم و دوخت اختصاصی × تعداد همان محصول؛ قلم و اتو/بسته‌بندی مشترک × جمع تعدادها و تقسیم به نسبت همان تعدادها. سربار هر مرحله از <b>نرخ ذخیره‌شدهٔ همان مرکز</b> در دوره است (<code>نرخ × محرک × جذب٪</code>). اگر عدد نرخ را دستی عوض کنید، حتی با بودجهٔ پر، همان عدد می‌ماند و در جدول و در تب بها دیده می‌شود. جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
@@ -32132,7 +32175,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v460</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v461</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>

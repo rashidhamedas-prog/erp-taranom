@@ -133,12 +133,7 @@ function costSheet(db, { orderId }) {
   if (!Number.isFinite(oid) || oid <= 0) throw err('E_ORDER_REQUIRED', 422);
 
   const order = db.prepare(`
-    SELECT id, order_no, status, product_id, period_label,
-           COALESCE(total_cost_rial, 0) AS total_cost_rial,
-           COALESCE(unit_cost_rial, 0) AS unit_cost_rial,
-           COALESCE(qty_produced, 0) AS qty_produced,
-           COALESCE(qty_waste_normal, 0) AS qty_waste_normal,
-           COALESCE(qty_waste_abnormal, 0) AS qty_waste_abnormal
+    SELECT *
     FROM production_orders WHERE id=?
   `).get(oid);
   if (!order) throw err('E_NOT_FOUND', 404, { orderId: oid });
@@ -165,10 +160,12 @@ function costSheet(db, { orderId }) {
   try {
     stages = db.prepare(`
       SELECT s.seq, cc.code AS cc_code, cc.name AS cc_name,
+             s.product_scope, s.scoped_product_id, sp.name AS scoped_product_name,
              s.qty_in, s.qty_out, s.material_in_rial, s.material_added_rial,
              s.labor_rial, s.subcontract_rial, s.overhead_rial, s.cost_out_rial
       FROM production_order_stages s
       JOIN cost_centers cc ON cc.id = s.cost_center_id
+      LEFT JOIN products sp ON sp.id = s.scoped_product_id
       WHERE s.order_id = ? AND s.status <> 'skipped'
       ORDER BY s.seq
     `).all(oid);
@@ -202,6 +199,33 @@ function costSheet(db, { orderId }) {
     `).all(oid);
   } catch { journals = []; }
 
+  let products = [];
+  try {
+    const { orderFgPlanRows } = require('./bom');
+    const plan = orderFgPlanRows(db, order);
+    if (plan.length > 1) {
+      const total = Math.round(Number(summary.total_cost_rial) || 0);
+      products = plan.map(p => {
+        const share = Number(p.cost_share_percent) || 0;
+        const cost = Math.round(total * share / 100);
+        const qty = Number(p.qty_planned) || 0;
+        return {
+          product_id: p.product_id,
+          product_name: p.product_name,
+          qty_planned: qty,
+          cost_share_percent: share,
+          cost_rial: cost,
+          unit_cost_rial: qty > 0 ? Math.round(cost / qty) : 0,
+        };
+      });
+    }
+  } catch { products = []; }
+  if (!summary.product_name) {
+    summary.product_name = db.prepare('SELECT name FROM products WHERE id=?').get(order.product_id)?.name || '';
+  }
+  if (summary.qty_planned == null) summary.qty_planned = order.qty_planned;
+  summary.products = products;
+
   const wipRial = Math.round(Number(wip?.wip_rial) || 0);
   return {
     data: {
@@ -224,17 +248,41 @@ function kanban(db, { ccFilter } = {}) {
   const cc = ccSqlFilter(ccFilter, 's.cost_center_id');
   const stages = db.prepare(`
     SELECT s.id AS stage_id, s.order_id, s.seq, s.status, s.qty_in, s.qty_out,
-           po.order_no, po.qty_planned, p.name AS product_name,
+           s.product_scope, s.scoped_product_id, sp.name AS scoped_product_name,
+           po.order_no, po.qty_planned, po.product_id, po.bom_id, po.fg_plan_json,
+           p.name AS product_name,
            cc.code AS cc_code, cc.name AS cc_name
     FROM production_order_stages s
     JOIN production_orders po ON po.id = s.order_id
     JOIN products p ON p.id = po.product_id
+    LEFT JOIN products sp ON sp.id = s.scoped_product_id
     JOIN cost_centers cc ON cc.id = s.cost_center_id
     WHERE po.status IN ('released', 'in_progress', 'completed')
       AND s.status IN ('pending', 'in_progress', 'done', 'blocked')
       ${cc.sql}
     ORDER BY cc.seq, s.seq, po.date
   `).all(...cc.params);
+
+  const planCache = new Map();
+  try {
+    const { orderFgPlanRows } = require('./bom');
+    for (const s of stages) {
+      if (!planCache.has(s.order_id)) {
+        let plan = [];
+        try {
+          if (s.bom_id) plan = orderFgPlanRows(db, s);
+        } catch { plan = []; }
+        planCache.set(s.order_id, plan.length > 1 ? plan.map(p => ({
+          product_id: p.product_id,
+          product_name: p.product_name,
+          qty_planned: p.qty_planned,
+        })) : []);
+      }
+      s.fg_plan = planCache.get(s.order_id);
+      s.is_multiproduct = s.fg_plan.length > 1;
+      delete s.fg_plan_json;
+    }
+  } catch { /* plan stays off the card; the stage qty is still there */ }
 
   const columns = {};
   for (const s of stages) {

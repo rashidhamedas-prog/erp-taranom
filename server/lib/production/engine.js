@@ -2129,6 +2129,37 @@ function purgeOrder(db, orderId, userId, reason = '') {
   })();
 }
 
+function attachListFgPlan(db, row) {
+  row.fg_plan = [];
+  row.is_multiproduct = false;
+  if (!row?.bom_id) return;
+  let plan = [];
+  try {
+    if (!parseFgPlanJson(row.fg_plan_json) && !isMultiproductBom(db, row.bom_id)) return;
+    plan = orderFgPlanRows(db, row);
+  } catch { return; }
+  if (!plan || plan.length < 2) return;
+  const produced = {};
+  try {
+    for (const rec of db.prepare(`
+      SELECT product_id, COALESCE(SUM(qty),0) AS q
+      FROM production_receipts
+      WHERE order_id=? AND IFNULL(status,'posted')='posted' AND output_type IN ('main','co')
+      GROUP BY product_id
+    `).all(row.id)) {
+      produced[rec.product_id] = rec.q;
+    }
+  } catch { /* receipts table missing on very old DBs */ }
+  row.fg_plan = plan.map(p => ({
+    product_id: p.product_id,
+    product_name: p.product_name,
+    qty_planned: p.qty_planned,
+    qty_produced: produced[p.product_id] || 0,
+    cost_share_percent: p.cost_share_percent,
+  }));
+  row.is_multiproduct = true;
+}
+
 function listOrders(db, { status, productId, period, page = 1, limit = 50, includeVoided = false } = {}) {
   const where = ['1=1'];
   const params = [];
@@ -2148,6 +2179,7 @@ function listOrders(db, { status, productId, period, page = 1, limit = 50, inclu
   `).all(...params, lim, off);
   for (const row of rows) {
     Object.assign(row, fabricCuttingGateInfo(db, row));
+    attachListFgPlan(db, row);
   }
   const total = db.prepare(`
     SELECT COUNT(*) c FROM production_orders WHERE ${where.join(' AND ')}

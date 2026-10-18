@@ -143,6 +143,16 @@ try {
     WHERE order_id=? AND product_id=? AND status='active'
   `).get(po.id, pFab)?.q;
   eq('shared fabric reserved for 7+3', reserved, 10);
+
+  const listed = engine.listOrders(db, {}).rows.find(r => r.id === po.id);
+  eq('list carries both products', (listed.fg_plan || []).length, 2);
+  eq('list peer qty stays 3', listed.fg_plan.find(p => p.product_id === pB)?.qty_planned, 3);
+
+  const reports = require('../lib/production/reports');
+  const sheet = reports.costSheet(db, { orderId: po.id });
+  eq('cost sheet splits both products', (sheet.data.summary.products || []).length, 2);
+  eq('cost sheet peer qty', sheet.data.summary.products.find(p => p.product_id === pB)?.qty_planned, 3);
+  eq('cost sheet keeps BOM share', sheet.data.summary.products.find(p => p.product_id === pB)?.cost_share_percent, 50);
 } catch (e) {
   ok(false, 'sqlite scenario', e && (e.stack || e.message || e));
 } finally {
