@@ -35,6 +35,10 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 
 14. **Counterparty is the person, not the pool:** When a sales rep is linked to a party that has its own COA leaf, incentive accrual, incentive payment, rep settlement, and rep advance debit/credit **that leaf** and write `person_ledger` for the same rial amount. Pooled `2107` / `1107` is only the fallback when no leaf exists. Bank and fee lines stay on the cash account. A historical heal (`reclass_rep_person_v449`) moves live pooled lines onto the leaf without changing amounts. Expense reimbursement keeps the P&L line and also books a net-zero person payable + payment pair so the cash document is on گردش. Void retires the person rows (no hollow reverse line).
 
+### Amendment v455 (customer role ⇒ CRM projection)
+
+15. **Roles drive commercial projections, not party group:** If `party_roles` includes `customer` (or `party_type` is `customer`/`both`), `syncPartyToLegacy` **must** maintain an active `customers` row regardless of `party_groups.entity_type` (including پرسنل / `person`). Group is classification UX only. Invoice create selects from `customers`; suppressing the projection makes sellable parties invisible. Dual-role must not copy an AP leaf onto `customers.coa_code` — allocate/keep a receivable leaf (`ensureCustomerTafsili` / `ensureDualRoleSeparateLeaves`). Boot heal: `customer_role_projection_v455`.
+
 ## Also in scope (P0)
 
 - Server guards + regression test `test-party-acc-adr001-v337.js`

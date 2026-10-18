@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — نقش مشتری ⇒ ردیف CRM حتی در گروه پرسنل (SW v455)
+- **علائم (خانم مهدیه ابراهیمی):** نقش `customer` روی party بود ولی در سلکتور فاکتور پیدا نمی‌شد / فاکتور ثبت نمی‌شد.
+- **ریشه:** `syncPartyToLegacy` فقط وقتی `party_groups.entity_type` یکی از `null|customer|all` بود ردیف `customers` می‌ساخت؛ گروه «پرسنل» (`entity_type=person`) حتی با نقش مشتری projection را سرکوب می‌کرد. فاکتور فقط از `customers` انتخاب می‌شود → شخص فروش‌پذیر نامرئی. علاوه بر آن، کپی `coa_code` پرداختنی تأمین روی مشتری، AR را روی برگ AP می‌نشاند.
+- **رفع:** نقش تجاری ⇒ projection (گروه فقط طبقه‌بندی است)؛ `safeCustomerCoaMirror` فقط برگ دریافتنی را روی مشتری می‌گذارد؛ `ensureCustomerTafsili` کد AP اشتباه را عوض می‌کند؛ heal بوت `customer_role_projection_v455` برای یتیم‌های تاریخی. ADR-PARTY-001 بند ۱۵. راهنما + SW `erp-taranom-v455`.
+- **فایل‌ها:** `lib/{parties-sync,party-tafsili}.js`, `db.js`, `public/{app.js,sw.js}`, `docs/architecture/PARTY-ACC-ADR-001.md`, `scripts/test-customer-role-projection-v455.js`, CHANGE-LOG.
+- **تست:** ایران `test-customer-role-projection-v455` + `test-sms`؛ پروب زنده: party ۱۳۶ باید `customers` لینک داشته باشد و در GET `/customers` دیده شود.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۶ — ابطال تسویهٔ چک وصول‌شده: JE بانک یتیم نمی‌ماند (SW v454)
 - **علائم (خانم صدوقی / چک ۶۵۵۰۹۹):** چک ثبت و پاس شده؛ در گردش بانک (ملت ۹۹۵۵ / JE ۲۵۳) دیده می‌شد، ولی در دفتر چک و گردش مشتری نبود.
 - **ریشه:** تسویه `#4` و برگهٔ `cheque_records#1` با amend/ابطال فقط `record_status=reversed` شده بودند (`reversed_at` خالی). `reverseChequeRecordsForSettlement` JEهای واگذاری (`collection_je_id=252`) و وصول (`cleared_je_id=253`) را soft-void نمی‌کرد → بانک زنده، دفتر چک مخفی، دفتر مشتری بازنشسته.

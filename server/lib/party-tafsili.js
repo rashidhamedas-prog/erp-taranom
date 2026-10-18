@@ -43,9 +43,23 @@ function bindCoa(db, { partyId, customerId, supplierId }, code) {
 function ensureCustomerTafsili(db, customerId) {
   const c = db.prepare('SELECT * FROM customers WHERE id=?').get(customerId);
   if (!c) return null;
-  if (c.coa_code && String(c.coa_code).trim()) {
-    if (c.party_id) bindCoa(db, { partyId: c.party_id }, c.coa_code);
-    return c.coa_code;
+  const existing = c.coa_code && String(c.coa_code).trim() ? String(c.coa_code).trim() : '';
+  if (existing) {
+    if (codeUnderKind(db, existing, 'customer')) {
+      if (c.party_id) bindCoa(db, { partyId: c.party_id }, existing);
+      return existing;
+    }
+    // Wrong kind on customer (e.g. AP leaf copied from supplier-first party).
+    // Keep AP on linked suppliers, then allocate a fresh AR leaf.
+    if (c.party_id && codeUnderKind(db, existing, 'supplier')) {
+      const suppliers = db.prepare('SELECT id, coa_code FROM suppliers WHERE party_id=?').all(c.party_id);
+      for (const s of suppliers) {
+        if (!s.coa_code || !String(s.coa_code).trim()) {
+          db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(existing, s.id);
+        }
+      }
+    }
+    db.prepare('UPDATE customers SET coa_code=NULL WHERE id=?').run(customerId);
   }
   const name = c.biz || c.owner || c.company_name || (`مشتری ${customerId}`);
   const code = allocTafsili(db, 'customer', name);
@@ -262,4 +276,5 @@ module.exports = {
   ensureDualRoleSeparateLeaves,
   backfillMissingPartyTafsili,
   coaKindForRoles,
+  codeUnderKind,
 };

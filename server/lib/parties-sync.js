@@ -49,22 +49,38 @@ function syncSupplierToParty(db, supplierId) {
   return r.lastInsertRowid;
 }
 
+/**
+ * Mirror only a receivable leaf onto customers.
+ * Dual-role / supplier-first parties often keep an AP code on parties.coa_code —
+ * copying that onto customers would make invoice AR post to a payable leaf.
+ */
+function safeCustomerCoaMirror(db, partyRow, roleSupplier) {
+  const code = partyRow && partyRow.coa_code ? String(partyRow.coa_code).trim() : '';
+  if (!code) return '';
+  try {
+    const { codeUnderKind } = require('./party-tafsili');
+    if (!codeUnderKind(db, code, 'customer')) return '';
+  } catch (_) {
+    if (roleSupplier) return '';
+  }
+  return code;
+}
+
 function syncPartyToLegacy(db, partyId) {
   const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!p) return;
   const roles = (() => {
     try { return p.party_roles ? JSON.parse(p.party_roles) : []; } catch (_) { return []; }
   })();
-  // Only sync to CRM customers panel when party group is customer-type (or no group + customer role).
-  let groupEntity = null;
-  if (p.party_group_id) {
-    const g = db.prepare('SELECT entity_type FROM party_groups WHERE id=?').get(p.party_group_id);
-    groupEntity = g?.entity_type || null;
-  }
+  // ADR-PARTY-001 / MDM: commercial roles drive projections. Party group
+  // (e.g. پرسنل / entity_type=person) is classification only — it must NOT
+  // suppress the customers row when the party has an explicit customer role,
+  // or invoice pickers (CACHE.customers) silently omit sellable parties.
   const roleCustomer = roles.includes('customer') || p.party_type === 'customer' || p.party_type === 'both';
   const roleSupplier = roles.includes('supplier') || p.party_type === 'supplier' || p.party_type === 'both';
-  const isCustomer = roleCustomer && (groupEntity == null || groupEntity === 'customer' || groupEntity === 'all');
+  const isCustomer = roleCustomer;
   const isSupplier = roleSupplier;
+  const customerCoa = safeCustomerCoaMirror(db, p, isSupplier);
 
   if (isCustomer) {
     let cust = p.legacy_table === 'customers' && p.legacy_id
@@ -80,32 +96,35 @@ function syncPartyToLegacy(db, partyId) {
         p.phone, p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
         p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
         p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-        p.account_nature || '', p.coa_code || '', ownerId, ownerId, p.opening_balance != null ? Number(p.opening_balance) : 0);
+        p.account_nature || '', customerCoa, ownerId, ownerId, p.opening_balance != null ? Number(p.opening_balance) : 0);
+      // Prefer customers as legacy pointer for invoice/CRM; suppliers stay linked via party_id.
       db.prepare('UPDATE parties SET legacy_table=?, legacy_id=? WHERE id=?').run('customers', r.lastInsertRowid, partyId);
     } else {
       if (p.user_id) {
         db.prepare(`
           UPDATE customers SET biz=?, owner=?, city=?, province=?, address=?, phone=?, insta=?, type=?, status=?, note=?,
             party_id=?, party_group_id=?, prefix=?, phone2=?, fax=?, mobile=?, email=?, economic_code=?, postal_code=?,
-            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?, coa_code=?,
+            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?,
+            coa_code=CASE WHEN ?<>'' THEN ? ELSE coa_code END,
             user_id=?, assigned_to=?
           WHERE id=?
         `).run(p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '', p.phone,
           p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
           p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
           p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-          p.account_nature || '', p.coa_code || '', p.user_id, p.user_id, cust.id);
+          p.account_nature || '', customerCoa, customerCoa, p.user_id, p.user_id, cust.id);
       } else {
         db.prepare(`
           UPDATE customers SET biz=?, owner=?, city=?, province=?, address=?, phone=?, insta=?, type=?, status=?, note=?,
             party_id=?, party_group_id=?, prefix=?, phone2=?, fax=?, mobile=?, email=?, economic_code=?, postal_code=?,
-            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?, coa_code=?
+            national_id=?, referrer=?, birth_date=?, company_name=?, account_nature=?,
+            coa_code=CASE WHEN ?<>'' THEN ? ELSE coa_code END
           WHERE id=?
         `).run(p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '', p.phone,
           p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
           p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
           p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-          p.account_nature || '', p.coa_code || '', cust.id);
+          p.account_nature || '', customerCoa, customerCoa, cust.id);
       }
     }
   }
@@ -293,10 +312,59 @@ function deactivatePartyFromSupplier(db, supplierId) {
 /** SQL fragment: customer is visible in CRM (no party, or active party). */
 const CRM_CUSTOMER_ACTIVE_SQL = `(c.party_id IS NULL OR EXISTS (SELECT 1 FROM parties p WHERE p.id=c.party_id AND p.is_active=1))`;
 
+/**
+ * Boot heal: parties with customer role but no CRM customers row
+ * (historical bug: پرسنل group gated isCustomer). Idempotent via settings flag.
+ */
+function healCustomerRoleProjectionsV455(db) {
+  const flagKey = 'customer_role_projection_v455';
+  try {
+    const done = db.prepare('SELECT value FROM settings WHERE key=?').get(flagKey);
+    if (done && String(done.value) === '1') return { skipped: true };
+  } catch (_) { /* settings may be mid-boot */ }
+
+  const rows = db.prepare(`
+    SELECT id, party_roles, party_type, legacy_table, legacy_id
+    FROM parties
+    WHERE COALESCE(is_active, 1) = 1
+  `).all();
+  let synced = 0;
+  let dualFixed = 0;
+  for (const row of rows) {
+    let roles = [];
+    try { roles = row.party_roles ? JSON.parse(row.party_roles) : []; } catch (_) { roles = []; }
+    const roleCustomer = roles.includes('customer') || row.party_type === 'customer' || row.party_type === 'both';
+    if (!roleCustomer) continue;
+    const linked = linkedCustomerIds(db, row.id);
+    if (linked.length) {
+      // Still ensure dual-role AR≠AP for supplier-first parties that already have a customer.
+      if (roles.includes('supplier') || row.party_type === 'both' || row.party_type === 'supplier') {
+        try {
+          require('./party-tafsili').ensureDualRoleSeparateLeaves(db, row.id);
+          dualFixed++;
+        } catch (_) { /* optional */ }
+      }
+      continue;
+    }
+    try {
+      syncPartyToLegacy(db, row.id);
+      synced++;
+    } catch (e) {
+      console.warn('healCustomerRoleProjectionsV455 sync failed party', row.id, e.message);
+    }
+  }
+  try {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES (?, '1')").run(flagKey);
+  } catch (_) { /* ignore */ }
+  return { skipped: false, synced, dualFixed, scanned: rows.length };
+}
+
 module.exports = {
   syncCustomerToParty,
   syncSupplierToParty,
   syncPartyToLegacy,
+  healCustomerRoleProjectionsV455,
+  safeCustomerCoaMirror,
   deactivatePartyCascade,
   deactivatePartyFromCustomer,
   deactivatePartyFromSupplier,

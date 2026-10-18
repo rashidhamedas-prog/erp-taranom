@@ -2768,6 +2768,14 @@ function initSyncSchema(db, opts) {
     } catch (eHeal) {
       console.warn('person_phone_dedupe_v450:', eHeal.message);
     }
+    try {
+      const healCust = require('./lib/parties-sync').healCustomerRoleProjectionsV455(db);
+      if (healCust && !healCust.skipped) {
+        console.log('✅ customer_role_projection_v455:', JSON.stringify(healCust));
+      }
+    } catch (eHealCust) {
+      console.warn('customer_role_projection_v455:', eHealCust.message);
+    }
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {
