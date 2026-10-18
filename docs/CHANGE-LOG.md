@@ -4,7 +4,7 @@
 - **رفع:** دکمهٔ «پرداخت چک» در `paymentOpChooser` + مودال ثبت‌وتحویل (`chequePaymentModal`: تسویه طرف‌حساب یا خرج هزینه)؛ دکمه در تب چک‌های پرداختی؛ روی `POST …/pay` بدهکار از `party_id` (مثل endorse) + آینهٔ `supplier`/`customer`/`person` ledger با `ref_type=cheque_pay`؛ بستانکار همیشه اسناد پرداختنی؛ ابطال `cheque_pay` را retire می‌کند. راهنما + SW `erp-taranom-v453`.
 - **فایل‌ها:** `routes/cheque-records.js`, `lib/{void-cheque,cheque-party-books}.js`, `public/{app.js,sw.js}`, `scripts/test-cheque-payment-chooser-v453.js`, CHANGE-LOG.
 - **تست:** محلی static ۱۴/۰ (+ v428 static ۳۷/۰)؛ `test-sms` ۲۲/۰؛ `test-sync` روی ویندوز bindings ندارد. ایران: sqlite کامل.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `0abc6d7b` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. آزمون ایران `test-cheque-payment-chooser-v453` ۲۳/۰؛ `test-sms` ۲۲/۰. SW `erp-taranom-v453`.
 
 ### ۱۴۰۵/۰۷/۲۶ — سلکتور شخص BOM: ردیف تکراری هم‌تلفن (SW v452)
 - **علائم:** در ویرایش BOM → مسیر عملیات → «شخص (بستانکار دستمزد)» جستجوی «ابراه» دو ردیف یکسان «مهدیه ابراهیمی / 09360887707» می‌آورد.
