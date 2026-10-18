@@ -25,10 +25,29 @@ function ok(cond, msg, detail) {
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(appJs.includes('fetchProductLivePack') && appJs.includes('resolveServerAutoPack'),
   'app.js uses server live-pack helpers');
+ok(appJs.includes('resolveServerModalPack'),
+  'app.js has resolveServerModalPack for edit/modal SoT');
 ok(appJs.includes('/product-variants/live-pack/'),
   'app.js references /product-variants/live-pack/');
+// Edit / store-quick / returns must not load style for matrix pick
+function fnBody(src, name) {
+  const re = new RegExp('async function ' + name + '\\([\\s\\S]*?\\n(?=async function |function |$)');
+  const m = src.match(re);
+  return m ? m[0] : '';
+}
+const editBody = fnBody(appJs, 'editInvCartPack');
+const storeBody = fnBody(appJs, 'storeQsPickVariantThenAdd');
+const retBody = fnBody(appJs, 'openReturnProductPick');
+ok(editBody.includes('resolveServerModalPack') && !editBody.includes('/product-variants/style/'),
+  'editInvCartPack uses modal SoT not style');
+ok(storeBody.includes('resolveServerModalPack') && !storeBody.includes('/product-variants/style/'),
+  'storeQsPickVariantThenAdd uses modal SoT not style');
+ok(retBody.includes('resolveServerModalPack') && !retBody.includes('/product-variants/style/'),
+  'openReturnProductPick uses modal SoT not style');
 const mk = fs.readFileSync(path.join(__dirname, '../public/marketer-ui.js'), 'utf8');
 ok(mk.includes('resolveServerAutoPack'), 'marketer-ui uses resolveServerAutoPack');
+ok(mk.includes('resolveServerModalPack') && !/editCartProduct[\s\S]*?\/product-variants\/style\//.test(mk),
+  'marketer editCartProduct uses modal SoT not style');
 
 let Database;
 try {

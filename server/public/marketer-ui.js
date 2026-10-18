@@ -518,20 +518,14 @@
       showToast('انبار فروش شما تنظیم نشده — با مدیر تماس بگیرید', 'error');
       return;
     }
-    let style = null;
+    let pack = null;
     try {
-      style = await api('GET', '/product-variants/style/' + Number(p.id) + '?warehouse_id=' + encodeURIComponent(wh));
-    }
-    catch (_) { style = null; }
-    if (style && style.warehouse_id != null && Number(style.warehouse_id) !== Number(wh)) {
-      showToast('موجودی این انبار از سرور نیامد — صفحه را یک‌بار تازه کنید', 'error');
-      return;
-    }
-    const pack = (typeof livePackFromStyle === 'function')
-      ? livePackFromStyle(style)
-      : { matrix: [], live: [], pack: 1 };
-    if (!(pack.matrix && pack.matrix.length) && !(pack.pool && pack.pool.length)) {
-      showToast('ماتریس رنگ/سایز برای این کالا نیست', 'error');
+      if (typeof resolveServerModalPack === 'function') {
+        pack = await resolveServerModalPack(p.id, wh);
+      }
+    } catch (_) { pack = null; }
+    if (!pack || !pack.has_matrix || !(pack.matrix && pack.matrix.length)) {
+      showToast('ماتریس رنگ/سایز تعریف‌شده برای این کالا نیست', 'error');
       return;
     }
     if (typeof openInvVariantSplitModal !== 'function') {

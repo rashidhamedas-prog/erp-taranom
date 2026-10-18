@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — مودال ویرایش/فروش‌سریع/برگشت هم از live-pack سرور (SW v445)
+- **ریشه:** افزودن پک در v443 سرورمحور شد، ولی ویرایش سبد، فروش سریع فروشگاه، برگشت و ویرایش بازاریاب هنوز /style + ماتریس کامل را باز می‌کردند.
+- **اصلاح:** 
+esolveServerModalPack → همیشه mode=defined (فقط SKU فعال واقعی). فروش سریع ماتریسی بدون واریانت fail-closed است. راهنما + قرارداد تست. SW erp-taranom-v445.
+- **فایل‌ها:** public/{app.js,marketer-ui.js,sw.js,index.html}, scripts/test-live-pack-sot-v439.js, CHANGE-LOG.
+- **تست:** محلی/ایران 	est-live-pack-sot-v439 + 	est-sms.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۶ — گردش تأمین: SELECT اشتباه ستون balance دفتر را خالی می‌کرد (SW v444)
 - **ریشه:** بعد از هم‌ترازی SoT (v442/v443)، `buildSupplierTurnover` از `supplier_ledger` ستون ناموجود `balance` می‌خواند → کل query در catch خالی می‌شد → فقط ردیف مصنوعی افتتاحیه می‌ماند و پرداخت/خرید واقعی در گردش دیده نمی‌شد (مانده درست، اسناد غایب). تست v440 هم به‌خاطر `supplier_payments.user_id` روی ایران می‌ترکید.
 - **رفع:** SELECT فقط ستون‌های واقعی جدول + fallback بدون `entry_type`؛ تست با `created_by`. SW `erp-taranom-v444`.

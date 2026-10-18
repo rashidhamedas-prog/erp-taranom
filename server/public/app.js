@@ -5648,6 +5648,21 @@ async function resolveServerAutoPack(productId, warehouseId, opts){
   }
   return pack;
 }
+/**
+ * Modal edit/pick: always server mode=defined (active matrix SKUs only).
+ * Never invent missing color×size cells from style cartesian.
+ */
+async function resolveServerModalPack(productId, warehouseId){
+  let defined=null;
+  try{ defined=await fetchProductLivePack(productId, warehouseId, 'defined'); }
+  catch(_){ defined=null; }
+  if(!defined || !defined.has_matrix) return null;
+  const pack=livePackApiToClientPack(defined);
+  if(!pack.matrix.length && defined.matrix_sku_count>0){
+    // defined lines may be empty only if has_matrix false; keep pack as-is
+  }
+  return pack;
+}
 /** انبار ردیف فاکتور: select زندهٔ سبد → ردیف cart → هدر → انبار فروش کاربر */
 function resolveInvLineWarehouseId(indices){
   const ix=Array.isArray(indices)?indices:[];
@@ -6096,18 +6111,12 @@ async function editInvCartPack(indices){
   if(!p){ showToast('کالا یافت نشد','error'); return; }
   const whId=resolveInvLineWarehouseId(indices);
   if(!whId){ showToast('انبار این ردیف مشخص نیست — انبار مبدأ را انتخاب کنید','error'); return; }
-  let style=null;
-  try{
-    style=await api('GET','/product-variants/style/'+Number(p.id)+'?warehouse_id='+encodeURIComponent(whId));
-  }catch(_){ style=null; }
-  if(!style || !Array.isArray(style.variants)){
-    showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return;
+  let pack=null;
+  try{ pack=await resolveServerModalPack(p.id, whId); }
+  catch(_){ pack=null; }
+  if(!pack || !pack.has_matrix || !(pack.matrix&&pack.matrix.length)){
+    showToast('ماتریس رنگ/سایز تعریف‌شده برای این کالا نیست','error'); return;
   }
-  if(style.warehouse_id==null || Number(style.warehouse_id)!==Number(whId)){
-    showToast('موجودی این انبار از سرور نیامد — صفحه را یک‌بار تازه کنید','error'); return;
-  }
-  const pack=livePackFromStyle(style);
-  if(!pack.matrix.length && !pack.pool.length){ showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return; }
   openInvVariantSplitModal(p, pack, {
     existing: rows,
     replaceIndices: indices,
@@ -7189,24 +7198,26 @@ function storeQsAddVariantLines(p, rows, opts){
 async function storeQsPickVariantThenAdd(p){
   const whId=storeQsWhId();
   if(!whId){ showToast('ابتدا انبار فروش را انتخاب کنید','error'); return; }
-  let style=null;
-  try{
-    style=await api('GET','/product-variants/style/'+Number(p.id)+'?warehouse_id='+encodeURIComponent(whId));
-  }catch(_){ style=null; }
-  if(!style||!Array.isArray(style.variants)||!style.variants.length){
-    storeQsAddProduct(p,1);
+  let pack=null;
+  try{ pack=await resolveServerModalPack(p.id, whId); }
+  catch(_){ pack=null; }
+  if(pack && pack.has_matrix){
+    if(!(pack.matrix&&pack.matrix.length)){
+      showToast('ماتریس رنگ/سایز تعریف‌شده برای این کالا نیست','error');
+      return;
+    }
+    openInvVariantSplitModal(p, pack, {
+      dest:'store_quick',
+      warehouseId:whId,
+      warehouseName:warehouseNameById(whId),
+    });
     return;
   }
-  const pack=livePackFromStyle(style);
-  if(!pack.matrix.length&&!pack.pool.length){
-    storeQsAddProduct(p,1);
+  if(Number(p.has_variants) || (typeof productNeedsColorPick==='function' && productNeedsColorPick(p))){
+    showToast('ماتریس رنگ/سایز این کالا در دسترس نیست — صفحه را تازه کنید','error');
     return;
   }
-  openInvVariantSplitModal(p, pack, {
-    dest:'store_quick',
-    warehouseId:whId,
-    warehouseName:warehouseNameById(whId),
-  });
+  storeQsAddProduct(p,1);
 }
 function storeQsAddProduct(p, qty){
   if(!p||!p.id) return;
@@ -21317,18 +21328,19 @@ async function openReturnProductPick(kind){
   const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
   if(!p){ showToast('کالا یافت نشد','error'); return; }
   const whId=+(el(isSr?'sr-wh':'pr-wh')?.value)||null;
-  let style=null;
-  try{
-    const q=whId?('?warehouse_id='+encodeURIComponent(whId)):'';
-    style=await api('GET','/product-variants/style/'+pid+q);
-  }catch(_){ style=null; }
-  const pack=typeof livePackFromStyle==='function'?livePackFromStyle(style):{matrix:[]};
-  if(pack.matrix&&pack.matrix.length){
+  let pack=null;
+  try{ pack=await resolveServerModalPack(pid, whId); }
+  catch(_){ pack=null; }
+  if(pack && pack.has_matrix && pack.matrix && pack.matrix.length){
     openInvVariantSplitModal(p, pack, {
       dest: isSr?'sales_return':'purchase_return',
       warehouseId: whId,
       warehouseName: typeof warehouseNameById==='function'?warehouseNameById(whId):'',
     });
+    return;
+  }
+  if(Number(p.has_variants) || (typeof productNeedsColorPick==='function' && productNeedsColorPick(p))){
+    showToast('ماتریس رنگ/سایز تعریف‌شده برای این کالا نیست','error');
     return;
   }
   if(isSr) srOpenAddLineSimple(); else prOpenAddLineSimple();
@@ -30800,7 +30812,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه یا چک مشتری واقعی انتخاب کنید</li>
         <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند. در impersonation فیلتر روی کاربر مؤثر نشست است</li>
-        <li>کالای ماتریسی قبل از افزودن به سبد، <b>رنگ و سایز</b> می‌پرسد (مثل فاکتورساز)</li>
+        <li>کالای ماتریسی قبل از افزودن به سبد، فقط <b>رنگ و سایز تعریف‌شدهٔ فعال</b> را از سرور می‌پرسد (نه رنگ حذف‌شده)</li>
         <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
         <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال <code>store_quick</code>؛ ثبت = فاکتور معمولی + موجودی + سند حسابداری</li>
         <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد</li>
