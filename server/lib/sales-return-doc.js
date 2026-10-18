@@ -8,7 +8,8 @@ const { todayJalali } = require('../jalali');
 const { createLedgerEntry } = require('../db');
 const { postToLedger } = require('./ledger');
 const {
-  perpetualDocsEnabled, postSaleReturnStockMovements, reverseStockBySource,
+  perpetualDocsEnabled, warehouseUsesPerpetualValuation,
+  postSaleReturnStockMovements, reverseStockBySource,
   assertJournalIdempotent,
 } = require('./sales-document');
 const { recomputeInvoiceSettledBalances } = require('./invoice-payments');
@@ -260,6 +261,15 @@ function postSalesReturnEffects(db, {
   if (!costItems.length && cost > 0) {
     costItems = [{ warehouseId: parentWhId, amountRial: cost }];
   }
+  // Periodic WH: qty restore stays; reverse COGS/inventory value waits for period-close math.
+  costItems = (costItems || []).filter((c) => {
+    const wh = c.warehouseId != null ? c.warehouseId : parentWhId;
+    return warehouseUsesPerpetualValuation(db, wh);
+  });
+  if (!costItems.length) {
+    cost = 0;
+    db.prepare('UPDATE sales_returns SET cost_amount=0 WHERE id=?').run(retId);
+  }
   const journalLines = buildSalesReturnJournalLines(db, {
     custId,
     amountNet: amount,
@@ -294,6 +304,16 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
   if (!costItems.length && Number(row.cost_amount) > 0) {
     costItems = [{ warehouseId: null, amountRial: Math.round(Number(row.cost_amount) || 0) }];
   }
+  let parentWh = null;
+  try {
+    if (row.invoice_id) {
+      parentWh = db.prepare('SELECT warehouse_id FROM invoices WHERE id=?').get(row.invoice_id)?.warehouse_id || null;
+    }
+  } catch (_) { /* ignore */ }
+  costItems = (costItems || []).filter((c) => {
+    const wh = c.warehouseId != null ? c.warehouseId : parentWh;
+    return warehouseUsesPerpetualValuation(db, wh);
+  });
 
   if (perpetualDocsEnabled(db)) {
     const reversed = reverseStockBySource(db, 'sales_return', row.id, {

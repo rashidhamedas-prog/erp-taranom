@@ -374,19 +374,14 @@ async function dbCases() {
     ok(r.status === 200, 'legacy product sells from its home-warehouse quantity', r.data);
     ok(wsQty(P5, whPER) === 1 && prodStock(P5) === 1, 'legacy seed 2 − 1 = 1 (not a fresh 0 row driven to −1)', { ws: wsQty(P5, whPER), prod: prodStock(P5) });
 
-    // ── L. explicit allow_negative warehouse: the GATE steps aside (documented bypass) ──
-    // Physical negativity on warehouse_stock is still governed by the pre-existing
-    // trg_ws_no_negative trigger (lib/production/schema.js) — so the row-level write may be refused
-    // by SQLite, but never by the ATP gate.
+    // ── L. explicit allow_negative warehouse: ATP + physical write both allow (v435 trigger) ──
     console.log('\n— allow_negative warehouse (explicit admin switch) —');
     const evNeg = atp.evaluateAvailableToPromise(db, [line(P6, 1, { warehouse_id: whNEG })], whNEG, { custId: custA });
     ok(evNeg.shortages.length === 0 && evNeg.checked[0] && evNeg.checked[0].bypassed === true,
       'gate bypassed for a warehouse with allow_negative=1 (explicit configuration)', evNeg.checked[0]);
     r = await api('POST', '/api/invoices', sale(custA, [line(P6, 1, { warehouse_id: whNEG })], { warehouse_id: whNEG }));
-    ok(r.data?.code !== 'E_ATP_INSUFFICIENT', 'HTTP: not rejected by the ATP gate', r.data);
-    ok(r.status === 200 ? wsQty(P6, whNEG) === -1 : wsQty(P6, whNEG) === 0,
-      r.status === 200 ? 'allowed → warehouse row went negative only there' : 'row-level trigger refused the negative write (pre-existing guard), stock untouched',
-      { status: r.status, code: r.data?.code, ws: wsQty(P6, whNEG) });
+    ok(r.status === 200 && r.data?.code !== 'E_ATP_INSUFFICIENT', 'HTTP: sale accepted (not ATP-blocked)', r.data);
+    ok(wsQty(P6, whNEG) === -1, 'warehouse_stock may go negative when allow_negative=1', { ws: wsQty(P6, whNEG) });
   } finally {
     server.close();
     try { closeSessionStore(); } catch (_) {}

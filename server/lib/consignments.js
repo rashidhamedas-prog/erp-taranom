@@ -787,7 +787,9 @@ function applySettle(db, row, path, { date, note, user, body }) {
         user, customer: buyer, row, product: effects.product, date, note: note || `فروش قطعی امانی #${row.id}`,
       });
       invoiceId = inv.invId;
-      const { postSaleStockMovements, postCogsFromMovements } = require('./sales-document');
+      const {
+        postSaleStockMovements, postCogsFromMovements, warehouseUsesPerpetualValuation,
+      } = require('./sales-document');
       const stocked = postSaleStockMovements(db, {
         rows: [{
           product_id: row.product_id,
@@ -805,7 +807,8 @@ function applySettle(db, row, path, { date, note, user, body }) {
       });
       db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(inv.invId);
       const cogsAmt = stocked.cogsRial || purchaseAmt;
-      if (cogsAmt > 0) {
+      // Periodic warehouse: qty moved above; valuation JE only at period-close.
+      if (cogsAmt > 0 && warehouseUsesPerpetualValuation(db, row.warehouse_id)) {
         const invCoa = inventoryAccountForWarehouse(db, row.warehouse_id);
         const cogsJe = postCogsFromMovements(db, {
           invId: inv.invId, num: inv.num, date, userId: user.id, cogsRial: cogsAmt,

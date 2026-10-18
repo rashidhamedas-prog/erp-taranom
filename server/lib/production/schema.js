@@ -1390,11 +1390,38 @@ function createTriggers(db) {
   `);
 
   if (tableExists(db, 'warehouse_stock')) {
+    // v435: honor warehouses.allow_negative + settings.inventory_allow_negative.
+    // Old unconditional trigger must be DROPped — CREATE IF NOT EXISTS never replaces body.
     db.exec(`
-      CREATE TRIGGER IF NOT EXISTS trg_ws_no_negative
-      BEFORE UPDATE ON warehouse_stock WHEN NEW.qty < 0
+      DROP TRIGGER IF EXISTS trg_ws_no_negative;
+      DROP TRIGGER IF EXISTS trg_ws_no_negative_ins;
+      CREATE TRIGGER trg_ws_no_negative
+      BEFORE UPDATE ON warehouse_stock
+      WHEN NEW.qty < 0
       BEGIN
-        SELECT RAISE(ABORT, 'E_NEGATIVE_STOCK: موجودی انبار منفی می‌شود');
+        SELECT RAISE(ABORT, 'E_NEGATIVE_STOCK: موجودی انبار منفی می‌شود')
+        WHERE NOT EXISTS (
+          SELECT 1 FROM warehouses w
+          WHERE w.id = NEW.warehouse_id AND COALESCE(w.allow_negative, 0) = 1
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM settings s
+          WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+        );
+      END;
+      CREATE TRIGGER trg_ws_no_negative_ins
+      BEFORE INSERT ON warehouse_stock
+      WHEN NEW.qty < 0
+      BEGIN
+        SELECT RAISE(ABORT, 'E_NEGATIVE_STOCK: موجودی انبار منفی می‌شود')
+        WHERE NOT EXISTS (
+          SELECT 1 FROM warehouses w
+          WHERE w.id = NEW.warehouse_id AND COALESCE(w.allow_negative, 0) = 1
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM settings s
+          WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+        );
       END;
     `);
   }

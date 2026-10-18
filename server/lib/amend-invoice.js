@@ -12,6 +12,7 @@ const {
 } = require('./customer-books');
 const {
   isFirmSale, invoiceTypeLabel, isFabricRollLine, perpetualDocsEnabled,
+  warehouseUsesPerpetualValuation,
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse, assertWarehouseLines,
 } = require('./sales-document');
 const { applyStockDelta, postInventoryMovement } = require('./inventory/ledger');
@@ -755,19 +756,30 @@ function amendPostedInvoiceInPlace(db, {
     userId, date: entryDate, num: row.num,
   });
 
-  if (perpetualDocsEnabled(db)) {
-    rewriteCogsInPlace(db, {
-      row, num: row.num, date: entryDate, userId,
-      rows: built.rows, cogsRial: stocked.cogsRial,
-    });
-  } else {
-    const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
-    if (on && on.value === '1') {
+  // Same gate as invoice create: periodic WH defers COGS to period-close (no invoice_cogs).
+  if (warehouseUsesPerpetualValuation(db, firmWh)) {
+    if (perpetualDocsEnabled(db)) {
       rewriteCogsInPlace(db, {
         row, num: row.num, date: entryDate, userId,
         rows: built.rows, cogsRial: stocked.cogsRial,
       });
+    } else {
+      const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
+      if (on && on.value === '1') {
+        rewriteCogsInPlace(db, {
+          row, num: row.num, date: entryDate, userId,
+          rows: built.rows, cogsRial: stocked.cogsRial,
+        });
+      }
     }
+  } else {
+    try {
+      db.prepare(`
+        UPDATE journal_entries
+        SET deleted_at=strftime('%s','now'), status='void'
+        WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0
+      `).run(row.id);
+    } catch (_) { /* older DBs without status */ }
   }
 
   const jeId = rewriteJournalEntry(db, {
