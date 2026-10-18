@@ -17956,43 +17956,58 @@ async function prodOrderCreateModal(){
     const wh=(CACHE.warehouses||[]).filter(w=>w.active!==0);
     const warn=!activeBomProductIds.size?'⚠️ هنوز فرمول ساخت فعال ندارید — اول در «فرمول تولید» بسازید و فعال کنید.':'';
     window._prodCreateBoms=boms||[];
+    window._prodCreateCcs=ccs||[];
+    window._poBom=null;
     showModal('سفارش تولید جدید',`
-      ${warn?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;color:var(--state-warn,#E67E22)`)}">${warn}</div>`:''}
-      <div class="form-grid">
-        <div class="fg"><label>محصول</label>
-          ${productSelect('po-product', mfg[0]&&mfg[0].id, mfg)}
+      <div class="prod-scope po-create">
+      ${warn?`<div class="po-lock is-warn">${warn}</div>`:''}
+      <section class="po-sec">
+        <header class="po-sec-h"><span>۱</span><div><b>چه چیزی ساخته می‌شود</b><small>محصول، فرمول را محدود می‌کند. فرمول چندمحصولی یا مسیر‌دار، نوع آنالیز را روی مرحله‌ای قفل می‌کند.</small></div></header>
+        <div class="form-grid">
+          <div class="fg"><label>محصول</label>
+            ${productSelect('po-product', mfg[0]&&mfg[0].id, mfg)}
+          </div>
+          <div class="fg"><label>فرمول ساخت</label>
+            <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
+          </div>
+          <div class="fg"><label>نوع آنالیز</label>
+            <select id="po-analysis">
+              <option value="fixed">ثابت (ماژول ۲)</option>
+              <option value="variable">متغیر (ماژول ۳)</option>
+              <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (ماژول ۷)</option>
+              <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (ماژول ۸)</option>
+            </select>
+            <p id="po-analysis-note" class="po-dep"></p>
+          </div>
         </div>
-        <div class="fg"><label>فرمول ساخت</label>
-          <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
+      </section>
+      <section class="po-sec">
+        <header class="po-sec-h"><span>۲</span><div><b>مقدار، انبار و تاریخ</b><small>اگر ماتریس رنگ×سایز باشد، تعداد برنامه از جمع خانه‌ها می‌آید و این فیلد فقط‌خواندنی می‌شود.</small></div></header>
+        <div class="form-grid">
+          <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="1"></div>
+          <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
+          <div class="fg"><label>انبار مواد</label>
+            <select id="po-wh-raw"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+          <div class="fg"><label>انبار محصول</label>
+            <select id="po-wh-fg"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+          <div class="fg"><label>مرکز هزینه سفارش ${hlp('این مرکز، مرکز مراحل نیست. هر مرحله مرکز خودش را از مسیر فرمول می‌گیرد. اینجا فقط وقتی به کار می‌آید که مرحله مرکز نداشته باشد.')}</label>
+            <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
+          <div class="fg"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
+          ${(ME.role==='admin'||ME.role==='accounting')?`<div class="fg full"><label>دلیل استثنای مشخصات (اختیاری — فقط کد/بهای صفر در حواله) ${hlp('اگر مواد بهای صفر دارند یا کد FG موقتاً خالی است، دلیل کوتاه بنویسید تا آزادسازی/حواله با audit عبور کند. نام/واحد/نوع همچنان اجباری‌اند.')}</label>
+            <input id="po-waive" placeholder="مثلاً: اصلاح بها بعد از رسید خرید — تأیید مدیر"></div>`:''}
         </div>
-        <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
-        <div class="fg"><label>نوع آنالیز</label>
-          <select id="po-analysis">
-            <option value="fixed">ثابت (ماژول ۲)</option>
-            <option value="variable">متغیر (ماژول ۳)</option>
-            <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (ماژول ۷)</option>
-            <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (ماژول ۸)</option>
-          </select></div>
-        <div class="fg"><label>انبار مواد</label>
-          <select id="po-wh-raw"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>انبار محصول</label>
-          <select id="po-wh-fg"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>مرکز هزینه</label>
-          <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
-        <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
-        <div class="fg full"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
-        ${(ME.role==='admin'||ME.role==='accounting')?`<div class="fg full"><label>دلیل استثنای مشخصات (اختیاری — فقط کد/بهای صفر در حواله) ${hlp('اگر مواد بهای صفر دارند یا کد FG موقتاً خالی است، دلیل کوتاه بنویسید تا آزادسازی/حواله با audit عبور کند. نام/واحد/نوع همچنان اجباری‌اند.')}</label>
-          <input id="po-waive" placeholder="مثلاً: اصلاح بها بعد از رسید خرید — تأیید مدیر"></div>`:''}
-        <div class="fg full" id="po-fg-plan" hidden></div>
-        <div class="fg full" id="po-variant-panel" hidden></div>
-      </div>
-      <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
+      </section>
+      <section class="po-sec" id="po-fg-plan" hidden></section>
+      <section class="po-sec" id="po-stage-plan" hidden></section>
+      <section class="po-sec" id="po-variant-panel" hidden></section>
+      <div class="po-foot">
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
         <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateSave()})}" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
+      </div>
       </div>`);
     el('po-product')?.addEventListener('change', prodOrderFilterBoms);
-    el('po-bom')?.addEventListener('change', ()=>{ prodOrderRefreshFgPlan(); prodOrderLoadVariantPanel(+el('po-product')?.value||0); });
-    el('po-qty')?.addEventListener('input', prodOrderRefreshFgPlan);
+    el('po-bom')?.addEventListener('change', ()=>{ window._poBom=null; prodOrderRefreshFgPlan(); prodOrderLoadVariantPanel(+el('po-product')?.value||0); });
+    el('po-qty')?.addEventListener('input', ()=>{ if(window._poMatrix) return; prodOrderRefreshFgPlan(); });
     prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
@@ -18020,20 +18035,63 @@ async function prodOrderFilterBoms(){
   await prodOrderRefreshFgPlan();
   prodOrderLoadVariantPanel(pid);
 }
-async function prodOrderRefreshFgPlan(){
-  const box=el('po-fg-plan'); if(!box) return;
-  const bomId=+el('po-bom')?.value||prodOrderEffectiveBomId();
-  const qty=+el('po-qty')?.value||0;
-  const orderPid=+el('po-product')?.value||0;
-  if(!bomId){ box.innerHTML=''; box.hidden=true; return; }
-  let bom=null;
-  try{ bom=await api('GET','/production/boms/'+bomId); }catch(_){ box.hidden=true; return; }
-  const multi=!!(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1);
-  if(!multi){ box.innerHTML=''; box.hidden=true; return; }
-  const an=el('po-analysis');
-  if(an && !['fixed_adv','variable_adv'].includes(an.value)){
-    an.value=an.value==='variable'?'variable_adv':'fixed_adv';
+function prodOrderOpFactor(op){
+  const y=(Number(op.yield_percent)||100)/100;
+  const w=1-(Number(op.normal_waste_percent)||0)/100;
+  return y*w;
+}
+function prodOrderScopeKey(op){
+  const scope=String(op?.product_scope||'shared').toLowerCase();
+  if(scope==='exclusive' && op?.scoped_product_id) return 'ex:'+Number(op.scoped_product_id);
+  return 'shared';
+}
+/** Mirror of server planScopedStageQtys — preview only; release recomputes. */
+function prodOrderPreviewStages(ops, qtyByProduct){
+  const list=Array.isArray(ops)?ops:[];
+  const ids=Object.keys(qtyByProduct||{}).map(k=>Number(k)).filter(id=>id && (Number(qtyByProduct[id])||0)>0);
+  if(!list.length||!ids.length) return [];
+  const targetOf=id=>Number(qtyByProduct[id])||0;
+  const mixed=ids.length>1 || list.some(op=>prodOrderScopeKey(op)!=='shared');
+  const round6=n=>Math.round(Number(n)*1e6)/1e6;
+  if(!mixed){
+    const factor=list.reduce((f,op)=>f*prodOrderOpFactor(op),1);
+    if(!(factor>0)) return [];
+    let qty=Math.ceil(targetOf(ids[0])/factor-1e-9);
+    return list.map(op=>{
+      const row={...op, qty_in:qty, product_scope:'shared', scoped_product_id:null};
+      qty=round6(qty*prodOrderOpFactor(op));
+      return row;
+    });
   }
+  const need={};
+  ids.forEach(id=>{ need[id]=targetOf(id); });
+  for(let i=list.length-1;i>=0;i--){
+    const op=list[i], f=prodOrderOpFactor(op);
+    if(!(f>0)) return [];
+    if(prodOrderScopeKey(op)==='shared') ids.forEach(id=>{ need[id]=need[id]/f; });
+    else if(need[Number(op.scoped_product_id)]!=null) need[Number(op.scoped_product_id)]/=f;
+  }
+  ids.forEach(id=>{ need[id]=Math.ceil(need[id]-1e-9); });
+  const cur={...need};
+  const rows=[];
+  list.forEach(op=>{
+    const key=prodOrderScopeKey(op);
+    const f=prodOrderOpFactor(op);
+    let qty;
+    if(key==='shared'){
+      qty=ids.reduce((s,id)=>s+(cur[id]||0),0);
+      ids.forEach(id=>{ cur[id]=round6((cur[id]||0)*f); });
+    }else{
+      const pid=Number(op.scoped_product_id);
+      qty=cur[pid]||0;
+      if(cur[pid]!=null) cur[pid]=round6(cur[pid]*f);
+    }
+    qty=round6(qty);
+    if(qty>0) rows.push({...op, qty_in:qty, product_scope:key==='shared'?'shared':'exclusive', scoped_product_id:key==='shared'?null:Number(op.scoped_product_id)});
+  });
+  return rows;
+}
+function prodOrderFgQtyMap(bom, qty, orderPid){
   const base=Number(bom.base_qty)||1;
   const outs=(bom.outputs||[]).filter(o=>['main','co'].includes(o.output_type));
   const rows=outs.length?outs:[{product_id:bom.product_id,output_type:'main',qty_per_base:1,product_name:bom.product_name,cost_share_percent:100}];
@@ -18043,18 +18101,101 @@ async function prodOrderRefreshFgPlan(){
     const qpb=Number(orderOut.qty_per_base)||1;
     qtyAnchor=qpb>0?Math.round((qty*base/qpb)*1000)/1000:qty;
   }
-  box.hidden=false;
-  box.innerHTML=`<label>برنامه محصولات اصلی این اجرای مشترک ${hlp('سفارش چندمحصولی = یک اجرای کارگاه: مواد مشترک + اختصاصی همهٔ محصولات اصلی حواله می‌شود. تعداد برنامه = مقدار محصول انتخاب‌شده؛ بقیه از نسبت فرمول محاسبه می‌شوند و در نهایی‌سازی قابل اصلاح‌اند.')}</label>
-    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>نقش</th><th>محصول</th><th>تعداد برنامه‌ای</th><th>سهم٪</th></tr></thead>
-    <tbody>${rows.map(o=>{
-      const isOrder=Number(o.product_id)===orderPid;
-      const isAnchor=Number(o.product_id)===Number(bom.product_id);
-      let q=Math.round(((Number(o.qty_per_base)||1)*qtyAnchor/base)*1000)/1000;
-      if(isOrder) q=qty;
-      const nm=o.product_name||o.name||('#'+o.product_id);
-      return `<tr><td>محصول اصلی${isAnchor?' (لنگر)':''}${isOrder?' ★':''}</td><td>${esc(nm)}</td><td class="num">${toFa(q)}</td><td class="num">${toFa(Number(o.cost_share_percent)||0)}</td></tr>`;
-    }).join('')}</tbody></table></div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px`)}">آنالیز خودکار روی مسیر پیشرفته قفل می‌شود تا رسید همهٔ محصولات اصلی در نهایی‌سازی ثبت شود.</p>`;
+  return rows.map(o=>{
+    const isOrder=Number(o.product_id)===orderPid;
+    const isAnchor=Number(o.product_id)===Number(bom.product_id);
+    let q=Math.round(((Number(o.qty_per_base)||1)*qtyAnchor/base)*1000)/1000;
+    if(isOrder) q=qty;
+    return {
+      product_id:Number(o.product_id),
+      name:o.product_name||o.name||('#'+o.product_id),
+      qty:q, share:Number(o.cost_share_percent)||0,
+      isOrder, isAnchor
+    };
+  });
+}
+function prodOrderSyncAnalysisLock(bom){
+  const an=el('po-analysis');
+  const note=el('po-analysis-note');
+  if(!an) return;
+  const multi=!!(bom&&(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1));
+  const routing=!!(bom&&(Number(bom.has_routing)===1||(bom.operations||[]).length>0));
+  const lock=multi||routing;
+  an.disabled=lock;
+  if(lock && !['fixed_adv','variable_adv'].includes(an.value)){
+    an.value=an.value==='variable'?'variable_adv':'fixed_adv';
+  }
+  if(note){
+    note.textContent=multi
+      ?'فرمول چندمحصولی است. آنالیز روی مرحله‌ای قفل شد تا آزادسازی، مراحل مسیر را بسازد.'
+      :(routing?'این فرمول مسیر عملیات دارد. سفارش مرحله‌ای می‌شود تا همان مراحل ساخته شوند.':'');
+  }
+}
+function prodOrderRenderPlans(bom){
+  const fgBox=el('po-fg-plan');
+  const stBox=el('po-stage-plan');
+  const qty=+el('po-qty')?.value||0;
+  const orderPid=+el('po-product')?.value||0;
+  if(!bom||!fgBox||!stBox) return;
+  prodOrderSyncAnalysisLock(bom);
+  const multi=!!(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1);
+  const plan=prodOrderFgQtyMap(bom, qty, orderPid);
+  const qtyMap={};
+  plan.forEach(p=>{ if(p.qty>0) qtyMap[p.product_id]=p.qty; });
+  if(!multi){ fgBox.innerHTML=''; fgBox.hidden=true; }
+  else{
+    fgBox.hidden=false;
+    fgBox.innerHTML=`<header class="po-sec-h"><span>۳</span><div><b>برنامه محصولات این اجرای مشترک</b><small>تعداد برنامه = مقدار محصول انتخاب‌شده. بقیه از نسبت فرمول می‌آیند. سهم٪ از فرمول است و با این تعداد عوض نمی‌شود.</small></div></header>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نقش</th><th>محصول</th><th class="num">تعداد برنامه‌ای</th><th class="num">سهم٪</th></tr></thead>
+      <tbody>${plan.map(o=>`<tr class="${o.isOrder?'is-order':''}"><td>محصول اصلی${o.isAnchor?' (لنگر)':''}${o.isOrder?' ★':''}</td><td>${esc(o.name)}</td><td class="num">${toFa(o.qty)}</td><td class="num">${toFa(o.share)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  const ops=bom.operations||[];
+  const stages=prodOrderPreviewStages(ops, qtyMap);
+  const ccName=id=>{
+    const c=(window._prodCreateCcs||[]).find(x=>Number(x.id)===Number(id));
+    return c?((c.code?c.code+' ':'')+(c.name||'')):('');
+  };
+  if(!ops.length){
+    stBox.hidden=false;
+    stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>این فرمول مسیر عملیات ندارد. با آزادسازی، مرحله‌ای ساخته نمی‌شود.</small></div></header>`;
+    return;
+  }
+  if(!(qty>0)){
+    stBox.hidden=false;
+    stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>تعداد برنامه را وارد کنید تا ورودی هر مرحله حساب شود.</small></div></header>`;
+    return;
+  }
+  stBox.hidden=false;
+  stBox.innerHTML=`<header class="po-sec-h"><span>${multi?'۴':'۳'}</span><div><b>مراحل این سفارش</b><small>از مسیر همین فرمول. مرحلهٔ مشترک جمع تعداد همهٔ محصولات را می‌گیرد. مرحلهٔ اختصاصی فقط تعداد همان محصول را می‌گیرد و خروجی مرحلهٔ قبل جایگزینش نمی‌شود.</small></div></header>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>عملیات</th><th>تخصیص</th><th>مرکز</th><th class="num">ورودی برنامه‌ای</th></tr></thead>
+    <tbody>${stages.map(s=>{
+      const ex=s.product_scope==='exclusive';
+      const who=ex?(s.scoped_product_name||plan.find(p=>p.product_id===Number(s.scoped_product_id))?.name||('#'+s.scoped_product_id)):'';
+      return `<tr><td class="num">${toFa(s.seq)}</td><td>${esc(s.operation_name||'')}</td>
+        <td>${ex?`<span class="po-chip is-ex">اختصاصی · ${esc(who)}</span>`:`<span class="po-chip">مشترک</span>`}</td>
+        <td>${esc(ccName(s.cost_center_id)||'—')}</td>
+        <td class="num">${toFa(s.qty_in)}</td></tr>`;
+    }).join('')||`<tr><td colspan="5" class="muted">مرحله‌ای با تعداد مثبت نماند.</td></tr>`}</tbody></table></div>
+    <p class="po-dep">مواد مشترک با جمع تعدادها و مواد اختصاصی با تعداد همان محصول حواله می‌شوند. انبار و تاریخ، این جدول را عوض نمی‌کنند.</p>`;
+}
+async function prodOrderRefreshFgPlan(){
+  const fgBox=el('po-fg-plan');
+  const stBox=el('po-stage-plan');
+  if(!fgBox&&!stBox) return;
+  const bomId=+el('po-bom')?.value||prodOrderEffectiveBomId();
+  if(!bomId){
+    window._poBom=null;
+    if(fgBox){ fgBox.innerHTML=''; fgBox.hidden=true; }
+    if(stBox){ stBox.innerHTML=''; stBox.hidden=true; }
+    prodOrderSyncAnalysisLock(null);
+    return;
+  }
+  let bom=window._poBom;
+  if(!bom || Number(bom.id)!==bomId){
+    try{ bom=await api('GET','/production/boms/'+bomId); window._poBom=bom; }
+    catch(_){ if(fgBox) fgBox.hidden=true; if(stBox) stBox.hidden=true; return; }
+  }
+  prodOrderRenderPlans(bom);
 }
 /* ---- PA-11: color×size order matrix (production_order_lines) ------------- */
 /** Active SKUs only — a cell with no active variant is not orderable. */
@@ -18114,6 +18255,7 @@ function prodOrderMatrixRecalc(box, qtyInputId){
   box.querySelectorAll('.po-mx-colsum').forEach(td=>{ td.textContent=fmt(colSums[td.dataset.sid]||0); });
   box.querySelectorAll('.po-mx-total').forEach(td=>{ td.textContent=fmt(total); });
   if(qtyInputId && el(qtyInputId)) el(qtyInputId).value=total||'';
+  if(qtyInputId==='po-qty') prodOrderRefreshFgPlan();
   return total;
 }
 function prodOrderBindMatrix(box, qtyInputId){
@@ -18157,15 +18299,18 @@ function prodOrderEffectiveBomId(){
 async function prodOrderLoadVariantPanel(pid){
   const box=el('po-variant-panel'); if(!box) return;
   window._poMatrix=false;
-  if(!pid){ box.innerHTML=''; box.hidden=true; return; }
+  const qtyInput=el('po-qty');
+  if(!pid){ box.innerHTML=''; box.hidden=true; if(qtyInput) qtyInput.readOnly=false; return; }
   box.hidden=false;
-  box.innerHTML='<div class="muted">در حال بارگذاری ماتریس رنگ×سایز…</div>';
+  box.innerHTML='<div class="po-dep">در حال بارگذاری ماتریس رنگ×سایز…</div>';
   const variants=await prodOrderActiveVariants(pid);
   const mx=prodOrderBuildMatrix(variants);
-  if(!mx.colors.length||!mx.sizes.length){ box.innerHTML=''; box.hidden=true; return; }
+  if(!mx.colors.length||!mx.sizes.length){ box.innerHTML=''; box.hidden=true; if(qtyInput) qtyInput.readOnly=false; return; }
   const allowed=await prodOrderAllowedForBom(prodOrderEffectiveBomId());
   window._poMatrix=true;
-  box.innerHTML=`<label>ماتریس تعداد رنگ×سایز * ${hlp('این ماتریس تعداد سفارش است و با «دامنه مجاز رنگ×سایز» فرمول ساخت فرق دارد؛ دامنه فقط می‌گوید چه ترکیبی مجاز است، ماتریس می‌گوید چند عدد تولید شود.')}</label>
+  if(qtyInput) qtyInput.readOnly=true;
+  const step=el('po-fg-plan')&&!el('po-fg-plan').hidden?'۵':'۴';
+  box.innerHTML=`<header class="po-sec-h"><span>${step}</span><div><b>رنگ × سایز همین محصول</b><small>جمع خانه‌ها تعداد محصول انتخاب‌شده را می‌سازد و تعداد بقیهٔ محصولات و ورودی مراحل را دوباره حساب می‌کند. «—» SKU فعال ندارد. «⛔» خارج از دامنهٔ مجاز فرمول است.</small></div></header>
     ${prodOrderMatrixGridHtml(mx, null, false, allowed)}`;
   prodOrderBindMatrix(box, 'po-qty');
 }
@@ -18698,14 +18843,15 @@ async function prodOrderStagesModal(orderId){
   const STATUS_FA={done:'انجام شد',in_progress:'در جریان',pending:'منتظر',blocked:'متوقف',skipped:'رد شده'};
   showModal('مراحل سفارش '+esc(order.order_no||''),`
     <div class="prod-scope">
-    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد.</p>
+    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد. در سفارش چندمحصولی، مرحلهٔ مشترک جمع تعدادها را دارد و مرحلهٔ اختصاصی فقط تعداد همان محصول را؛ تمام شدن مرحلهٔ قبل، تعداد اختصاصی را عوض نمی‌کند.</p>
     ${PU?PU.stageFlow(stages):''}
     <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:12px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>#</th><th>عملیات / مرکز</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
+      <th>#</th><th>عملیات / مرکز</th><th>تخصیص</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
     </tr></thead><tbody>
-      ${(()=>{ const lastDone=(stages.filter(x=>x.status==='done').pop()); return stages.map(s=>{ const canRev=lastDone&&s.id===lastDone.id; return `<tr>
+      ${(()=>{ const lastDone=(stages.filter(x=>x.status==='done').pop()); return stages.map(s=>{ const canRev=lastDone&&s.id===lastDone.id; const ex=String(s.product_scope||'')==='exclusive'; return `<tr>
         <td>${esc(s.seq)}</td>
         <td><b>${esc(s.operation_name||s.cc_name||'')}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(s.cc_code||'')} ${esc(s.cc_name||'')}</div></td>
+        <td>${ex?('اختصاصی'+(s.scoped_product_name?' · '+esc(s.scoped_product_name):'')):'مشترک'}</td>
         <td>${PU?PU.badge(s.status):esc(STATUS_FA[s.status]||s.status)}</td>
         <td class="num">${s.qty_in??'—'}</td>
         <td class="num">${s.qty_out??'—'}</td>
@@ -18720,7 +18866,7 @@ async function prodOrderStagesModal(orderId){
           ${s.status==='blocked'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageUnblock((orderId),(s.id))})}">رفع توقف</button>`:''}
           ${canRev?`<button class="btn sm ghost" data-csp-style="${CSP.style(`color:var(--red)`)}" data-csp-click="${CSP.bind('click',function(event){prodStageReverse((orderId),(s.id))})}">ابطال مرحله</button>`:''}
         </td>
-      </tr>`; }).join('') || emptyRow(6); })()}
+      </tr>`; }).join('') || emptyRow(7); })()}
     </tbody></table></div>
     ${stages.length && stages[stages.length-1].status==='done'?`<div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderFinalize((orderId))})}">✅ نهایی‌سازی سفارش و رسید تولید</button>
@@ -31024,7 +31170,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>خروجی‌ها / چندمحصولی با تسهیم (v416→v423):</b> همهٔ محصولات ساخته‌شده <b>محصول اصلی مستقل</b> هستند (هم‌رتبه؛ مفهوم هم‌محصول حذف شد). محصول اول فقط لنگر مقیاس فنی است. «چند محصول یکجا» یا تیک چندمحصولی در ایجاد. جمع سهم همهٔ محصولات اصلی باید ۱۰۰٪ باشد — تسهیم خودکار (ارزش فروش / فیزیکی). فعال‌سازی، <code>default_bom_id</code> همهٔ محصولات اصلی را می‌چسباند. فرعی/ضایعات فقط برای NRV.</li>
         <li><b>تخصیص اقلام/عملیات به محصول (v418 / v458):</b> وقتی بیش از یک محصول در فرمول است، نوار «محصولات این فرمول» همهٔ FGها را نشان می‌دهد. در تب اقلام و مسیر عملیات ستون <b>تخصیص به محصول</b> ظاهر می‌شود: <b>مشترک</b> (جزء با مصرف یکسان برای هر مدل، مثل کشباف) یا <b>اختصاصی</b> یک محصول. پارچهٔ مشترک با <b>مصرف متفاوت</b> دو ردیف اختصاصی از همان کالا است (یلدا ۱٫۳ متر، آبان ۱٫۶۵۵ متر) — فعال‌سازی دیگر این را «قلم تکراری» نمی‌داند. دو ردیف مشترک از یک جزء، یا دو اختصاصی برای <b>همان</b> محصول، یا یک جزء هم مشترک و هم اختصاصی رد می‌شود. دوخت با اجرت متفاوت = دو عملیات اختصاصی. در بها، اختصاصی مستقیم به همان محصول می‌رود. شناسنامهٔ نام و بازده زیر تب‌ها جمع شده. تب بها فقط برآورد است و سند نمی‌زند.</li>
-        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو/انحراف = <b>همهٔ اقلام مشترک + اختصاصی همهٔ FGها</b> (یک بچ کارگاه). در فرم ایجاد، جدول برنامهٔ محصولات اصلی دیده می‌شود. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
+        <li><b>سفارش چندمحصولی — اجرای مشترک (v420/v423/v459):</b> اگر فرمول چند محصول اصلی دارد، سفارش روی هر یک ساخته می‌شود و سرور همیشه مسیر <b>پیشرفته</b> را اعمال می‌کند. مواد/رزرو = <b>قلم مشترک × جمع تعدادها</b> و <b>قلم اختصاصی × تعداد همان محصول</b>. در فرم ایجاد، برنامهٔ محصولات و <b>مراحل مسیر</b> با هم دیده می‌شوند: مرحلهٔ مشترک ورودی‌اش جمع تعدادهاست، مرحلهٔ اختصاصی فقط تعداد همان محصول است و با تمام شدن مرحلهٔ قبل عوض نمی‌شود. سهم٪ از فرمول است. مرکز هزینهٔ سربرگ، مرکز مراحل نیست. ماتریس رنگ×سایز فقط محصول انتخاب‌شده است و جمعش تعداد برنامه را می‌سازد. در نهایی‌سازی تعداد رسید هر محصول اصلی قابل اصلاح است؛ برای هر کدام رسید FG + سند PRD-07 جدا ثبت می‌شود.</li>
         <li><b>مشخصات ضروری کالا + آمادگی BOM (v421→v422):</b> چک‌لیست آمادگی در کارت کالا و ویرایشگر/ایجاد فرمول. موارد قرمز <b>فعال‌سازی فرمول</b>، <b>ایجاد سفارش</b>، <b>آزادسازی</b>، <b>حواله مواد</b> و <b>نهایی‌سازی/رسید</b> را بلاک می‌کنند. از v422 کد کالا برای FG/نیمه‌ساخته hard است و بهای صفر مواد در حواله/نهایی‌سازی hard است (مگر فیلد API <code>completeness_waive_reason</code> روی سفارش برای شل کردن فقط کد/بها با ثبت audit). انبار/دسته همچنان هشدار نارنجی‌اند. API: <code>GET /products/:id/completeness</code> و <code>GET /production/boms/:id/completeness</code>؛ پاسخ ذخیره کالا فیلد <code>production_readiness</code> دارد.</li>
         <li><b>بهای تمام‌شده + سربار لینک‌شده (v416 / v458):</b> محاسبه تحلیلی — <b>بدون JE</b>. در فرمول چندمحصولی برای <b>هر محصول یک تعداد</b> وارد می‌شود و با تایپ، بها زنده تازه می‌شود. قلم و دوخت اختصاصی × تعداد همان محصول؛ قلم و اتو/بسته‌بندی مشترک × جمع تعدادها و تقسیم به نسبت همان تعدادها. سربار هر مرحله از <b>نرخ ذخیره‌شدهٔ همان مرکز</b> در دوره است (<code>نرخ × محرک × جذب٪</code>). اگر عدد نرخ را دستی عوض کنید، حتی با بودجهٔ پر، همان عدد می‌ماند و در جدول و در تب بها دیده می‌شود. جدول مرحله محرک و نرخ را نشان می‌دهد؛ اگر سربار صفر باشد هشدار و میانبر به «نرخ سربار مراکز» می‌آید.</li>
         <li><b>ذخیره/فعال‌سازی بدون UNIQUE (v416):</b> ایندکس یکتای <code>(product_id, version, revision)</code> فقط روی ردیف‌های زنده است؛ حذف نرم کلید را آزاد می‌کند تا پیش‌نویس جدید همان محصول بدون خطای <code>UNIQUE constraint failed</code> ساخته/فعال شود.</li>
@@ -31718,7 +31864,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v352</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v459</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>

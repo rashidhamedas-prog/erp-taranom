@@ -275,6 +275,22 @@ function explodeProductScopeForOrder(db, po) {
   return po.product_id != null ? Number(po.product_id) : null;
 }
 
+/**
+ * نقشهٔ تعداد نهایی هر محصول اصلی.
+ * فقط BOM چندمحصولی؛ وگرنه null تا explode تک‌محصولی دست نخورد.
+ * با این نقشه، قلم مشترک × جمع تعدادها و قلم اختصاصی × تعداد همان محصول است.
+ */
+function orderFgQtyMap(db, po) {
+  if (!po?.bom_id || !isMultiproductBom(db, po.bom_id)) return null;
+  const plan = planBomFgOutputs(db, po.bom_id, Number(po.qty_planned) || 0, po.product_id);
+  const map = {};
+  for (const p of plan) {
+    const q = Number(p.qty_planned) || 0;
+    if (q > 0) map[p.product_id] = q;
+  }
+  return Object.keys(map).length ? map : null;
+}
+
 /** qty برای explode/رزرو از روی سفارش (تبدیل محصول سفارش → مقیاس لنگر فنی) */
 function explodeQtyForOrder(db, po, qtyOverride = null) {
   const q = qtyOverride != null ? Number(qtyOverride) : Number(po?.qty_planned) || 0;
@@ -1461,5 +1477,5 @@ module.exports = {
   bomFgProductIds, normalizeProductScope, lineAppliesToProduct,
   assertBomLineUniqueness, lineConsumptionFactor,
   assertProductInBomFg, isMultiproductBom, explodeProductScopeForOrder, planBomFgOutputs,
-  orderQtyAsMainBase, explodeQtyForOrder,
+  orderQtyAsMainBase, explodeQtyForOrder, orderFgQtyMap,
 };

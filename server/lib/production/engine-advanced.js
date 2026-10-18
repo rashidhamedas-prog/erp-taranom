@@ -5,8 +5,8 @@
 const { allocateNumber, audit } = require('../../db');
 const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
-const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder } = require('./bom');
-const { backwardQty, stageLabor, stageDriverQty } = require('./bom-advanced');
+const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiproductBom, planBomFgOutputs, orderFgQtyMap } = require('./bom');
+const { backwardQty, planScopedStageQtys, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting,
@@ -170,11 +170,43 @@ function whSetting(db, key) {
 
 function stageList(db, orderId) {
   return db.prepare(`
-    SELECT s.*, cc.code AS cc_code, cc.name AS cc_name
+    SELECT s.*, cc.code AS cc_code, cc.name AS cc_name,
+           sp.name AS scoped_product_name
     FROM production_order_stages s
     LEFT JOIN cost_centers cc ON cc.id = s.cost_center_id
+    LEFT JOIN products sp ON sp.id = s.scoped_product_id
     WHERE s.order_id=? ORDER BY s.seq
   `).all(orderId);
+}
+
+function stageScopeKey(stage) {
+  if (!stage) return 'shared';
+  const scope = String(stage.product_scope || 'shared').toLowerCase();
+  if (scope === 'exclusive' && stage.scoped_product_id) return 'ex:' + Number(stage.scoped_product_id);
+  return 'shared';
+}
+
+/**
+ * Same-scope stages keep one pipe: actual qty_out becomes the next qty_in.
+ * A different scope (shared ↔ exclusive, or two products) keeps the qty planned
+ * at release so one product's output cannot overwrite the other.
+ * WIP cost still moves forward on material_in_rial.
+ */
+function handoffNextStage(db, stage, { qtyOut, costOut, date }) {
+  const nxt = nextStage(db, stage.order_id, stage.seq);
+  if (!nxt) return null;
+  const same = stageScopeKey(stage) === stageScopeKey(nxt);
+  let qty = qtyOut;
+  if (!same) {
+    const kept = num(nxt.qty_in) > 0 ? num(nxt.qty_in) : num(nxt.qty_planned_in);
+    qty = kept > 0 ? kept : qtyOut;
+  }
+  db.prepare(`
+    UPDATE production_order_stages SET
+      qty_in=?, material_in_rial=?, status='in_progress', started_at=?
+    WHERE id=?
+  `).run(qty, costOut, date, nxt.id);
+  return Object.assign({}, nxt, { qty_in: qty, material_in_rial: costOut, status: 'in_progress' });
 }
 
 function prevStage(db, orderId, seq) {
@@ -199,6 +231,7 @@ function reserveMaterials(db, po, qtyStart) {
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
     forProductId: explodeProductScopeForOrder(db, po),
+    qtyByProduct: orderFgQtyMap(db, po),
   });
   for (const L of ex.lines) {
     db.prepare(`
@@ -295,6 +328,7 @@ function explodedOrderLines(db, po) {
     priceBasis: 'average',
     yieldOverride: bom?.has_routing ? 100 : null,
     forProductId: explodeProductScopeForOrder(db, po),
+    qtyByProduct: orderFgQtyMap(db, po),
   });
   return ex.lines || [];
 }
@@ -800,14 +834,7 @@ function postStageCore(db, {
     stageId
   );
 
-  const nxt = nextStage(db, orderId, stage.seq);
-  if (nxt) {
-    db.prepare(`
-      UPDATE production_order_stages SET
-        qty_in=?, material_in_rial=?, status='in_progress', started_at=?
-      WHERE id=?
-    `).run(qtyOut, costOut, date, nxt.id);
-  }
+  const nxt = handoffNextStage(db, stage, { qtyOut, costOut, date });
 
   // variable_adv: materials already added on the order in issueStageMaterials (PRD-01).
   // Re-adding here doubled material_cost_rial and blocked close (E_WIP_NOT_ZERO / PO-0006).
@@ -896,31 +923,66 @@ function releaseAdvancedOrder(db, orderId, userId) {
 
     const { qty_start: qtyStart } = backwardQty(db, po.bom_id, explodeQtyForOrder(db, po));
 
+    const multi = isMultiproductBom(db, po.bom_id);
+    let plannedByOp = new Map();
+    if (multi) {
+      const fg = planBomFgOutputs(db, po.bom_id, po.qty_planned, po.product_id);
+      const map = {};
+      for (const p of fg) {
+        const q = Number(p.qty_planned) || 0;
+        if (q > 0) map[p.product_id] = q;
+      }
+      for (const row of planScopedStageQtys(ops, map)) {
+        plannedByOp.set(Number(row.operation_id), row);
+      }
+    }
+    const opRows = multi
+      ? ops.filter(op => {
+        const row = plannedByOp.get(Number(op.id));
+        return row && Number(row.qty_in) > 0;
+      })
+      : ops;
+    if (!opRows.length) throw err('E_ROUTING_EMPTY', 422);
+
     let qtyIn = qtyStart;
     const ins = db.prepare(`
       INSERT INTO production_order_stages
         (order_id, seq, cost_center_id, operation_id, operation_name, status,
-         qty_in, driver, is_subcontract, supplier_id, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+         qty_in, qty_planned_in, driver, is_subcontract, supplier_id, created_by,
+         product_scope, scoped_product_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
 
-    for (let i = 0; i < ops.length; i++) {
-      const op = ops[i];
+    for (let i = 0; i < opRows.length; i++) {
+      const op = opRows[i];
+      const planned = plannedByOp.get(Number(op.id));
       const cc = db.prepare('SELECT driver FROM cost_centers WHERE id=?').get(op.cost_center_id);
       const isFirst = i === 0;
+      const scope = planned
+        ? planned.product_scope
+        : (String(op.product_scope || 'shared').toLowerCase() === 'exclusive' && op.scoped_product_id ? 'exclusive' : 'shared');
+      const scopedId = scope === 'exclusive'
+        ? (planned?.scoped_product_id || op.scoped_product_id || null)
+        : null;
+      const thisQty = planned ? planned.qty_in : (isFirst ? qtyIn : 0);
       ins.run(
         orderId, op.seq, op.cost_center_id, op.id, op.operation_name || '',
         isFirst ? 'in_progress' : 'pending',
-        isFirst ? qtyIn : 0,
+        thisQty,
+        thisQty,
         op.overhead_driver || cc?.driver || '',
         op.is_subcontract ? 1 : 0,
         op.subcontract_supplier_id || null,
-        userId
+        userId,
+        scope,
+        scopedId
       );
-      qtyIn = round6(
-        qtyIn * ((num(op.yield_percent) || 100) / 100)
-          * (1 - (num(op.normal_waste_percent) || 0) / 100)
-      );
+      if (!planned) {
+        qtyIn = round6(
+          qtyIn * ((num(op.yield_percent) || 100) / 100)
+            * (1 - (num(op.normal_waste_percent) || 0) / 100)
+        );
+      }
     }
 
     reserveMaterials(db, po, qtyStart);
@@ -1296,10 +1358,16 @@ function skipStage(db, orderId, stageId, userId, reason = '') {
       ORDER BY seq DESC LIMIT 1
     `).get(orderId, stage.seq);
     const nxt = nextStage(db, orderId, stage.seq);
-    if (nxt && num(nxt.qty_in) <= 0 && lastDone && num(lastDone.qty_out) > 0) {
-      db.prepare(`
-        UPDATE production_order_stages SET qty_in=?, material_in_rial=? WHERE id=?
-      `).run(lastDone.qty_out, lastDone.cost_out_rial || 0, nxt.id);
+    if (nxt && lastDone && num(lastDone.qty_out) > 0) {
+      if (stageScopeKey(stage) === stageScopeKey(nxt)) {
+        db.prepare(`
+          UPDATE production_order_stages SET qty_in=?, material_in_rial=? WHERE id=?
+        `).run(lastDone.qty_out, lastDone.cost_out_rial || 0, nxt.id);
+      } else if (!(num(nxt.material_in_rial) > 0)) {
+        db.prepare(`
+          UPDATE production_order_stages SET material_in_rial=? WHERE id=?
+        `).run(lastDone.cost_out_rial || 0, nxt.id);
+      }
     }
 
     emit(db, 'production.stage.skipped', { orderId, stageId, reason });
@@ -1336,21 +1404,26 @@ function lastDoneStage(db, orderId) {
 }
 
 function resetDownstreamStages(db, orderId, afterSeq) {
+  const origin = db.prepare(`
+    SELECT * FROM production_order_stages WHERE order_id=? AND seq=?
+  `).get(orderId, afterSeq);
   const rows = db.prepare(`
     SELECT * FROM production_order_stages
     WHERE order_id=? AND seq > ? ORDER BY seq
   `).all(orderId, afterSeq);
   for (const st of rows) {
     if (st.status === 'done') continue;
+    const cross = origin && stageScopeKey(st) !== stageScopeKey(origin);
+    const qty = cross && num(st.qty_planned_in) > 0 ? num(st.qty_planned_in) : 0;
     db.prepare(`
       UPDATE production_order_stages SET
-        qty_in=0, material_in_rial=0,
+        qty_in=?, material_in_rial=0,
         qty_out=0, qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
         material_added_rial=0, labor_rial=0, overhead_rial=0, subcontract_rial=0,
         waste_abnormal_rial=0, scrap_credit_rial=0, cost_out_rial=0, unit_cost_out_rial=0,
         driver_qty=0, status='pending', started_at=NULL, ended_at=NULL
       WHERE id=?
-    `).run(st.id);
+    `).run(qty, st.id);
   }
 }
 

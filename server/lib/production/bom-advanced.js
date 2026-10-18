@@ -77,6 +77,99 @@ function stageRunQty(op, flowingQty, qtyByProduct) {
   return sumQtyMap(qtyByProduct);
 }
 
+function opYieldFactor(op) {
+  const y = (Number(op.yield_percent) || 100) / 100;
+  const w = 1 - (Number(op.normal_waste_percent) || 0) / 100;
+  return y * w;
+}
+
+function stageScopeKeyFromOp(op) {
+  const scope = String(op?.product_scope || 'shared').toLowerCase();
+  if (scope === 'exclusive' && op?.scoped_product_id) return 'ex:' + Number(op.scoped_product_id);
+  return 'shared';
+}
+
+/**
+ * Planned qty_in for each routing operation.
+ * qtyByProduct = desired FINAL qty of each main product.
+ * One product and every op shared → same pipe as backwardQty (ceil once).
+ * Otherwise each product is inflated only by the yields that touch it
+ * (every shared op + its own exclusive ops), then walked forward.
+ * Shared stage qty = sum of products still in that stage.
+ * Exclusive stage qty = that product only.
+ * Stages with qty_in <= 0 are omitted so they cannot block the chain.
+ */
+function planScopedStageQtys(ops, qtyByProduct) {
+  const list = Array.isArray(ops) ? ops : [];
+  const ids = Object.keys(qtyByProduct || {})
+    .map(k => Number(k))
+    .filter(id => id && (Number(qtyByProduct[id] ?? qtyByProduct[String(id)]) || 0) > 0);
+  if (!list.length || !ids.length) return [];
+
+  const mixed = ids.length > 1 || list.some(op => stageScopeKeyFromOp(op) !== 'shared');
+  const targetOf = (id) => Number(qtyByProduct[id] ?? qtyByProduct[String(id)]) || 0;
+
+  if (!mixed) {
+    const target = targetOf(ids[0]);
+    const factor = list.reduce((f, op) => f * opYieldFactor(op), 1);
+    if (!(factor > 0)) throw err('E_OP_YIELD_RANGE', 422);
+    let qty = Math.ceil(target / factor - 1e-9);
+    return list.map(op => {
+      const row = {
+        operation_id: op.id,
+        seq: op.seq,
+        qty_in: qty,
+        product_scope: 'shared',
+        scoped_product_id: null,
+      };
+      qty = round6(qty * opYieldFactor(op));
+      return row;
+    });
+  }
+
+  const need = {};
+  ids.forEach(id => { need[id] = targetOf(id); });
+  for (let i = list.length - 1; i >= 0; i--) {
+    const op = list[i];
+    const f = opYieldFactor(op);
+    if (!(f > 0)) throw err('E_OP_YIELD_RANGE', 422);
+    if (stageScopeKeyFromOp(op) === 'shared') {
+      ids.forEach(id => { need[id] = need[id] / f; });
+    } else {
+      const pid = Number(op.scoped_product_id);
+      if (need[pid] != null) need[pid] = need[pid] / f;
+    }
+  }
+  ids.forEach(id => { need[id] = Math.ceil(need[id] - 1e-9); });
+
+  const cur = {};
+  ids.forEach(id => { cur[id] = need[id]; });
+  const rows = [];
+  for (const op of list) {
+    const key = stageScopeKeyFromOp(op);
+    const f = opYieldFactor(op);
+    let qty;
+    if (key === 'shared') {
+      qty = ids.reduce((s, id) => s + (cur[id] || 0), 0);
+      ids.forEach(id => { cur[id] = round6((cur[id] || 0) * f); });
+    } else {
+      const pid = Number(op.scoped_product_id);
+      qty = cur[pid] || 0;
+      if (cur[pid] != null) cur[pid] = round6(cur[pid] * f);
+    }
+    qty = round6(qty);
+    if (!(qty > 0)) continue;
+    rows.push({
+      operation_id: op.id,
+      seq: op.seq,
+      qty_in: qty,
+      product_scope: key === 'shared' ? 'shared' : 'exclusive',
+      scoped_product_id: key === 'shared' ? null : Number(op.scoped_product_id),
+    });
+  }
+  return rows;
+}
+
 function outMeta(db, o) {
   return {
     type: o.output_type,
@@ -1186,6 +1279,7 @@ function capacityLoad(db, bomId, qty) {
 
 module.exports = {
   backwardQty,
+  planScopedStageQtys,
   stageLabor,
   stageDriverQty,
   rollUpBom,

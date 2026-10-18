@@ -173,9 +173,10 @@ engine.releaseOrder(db, po.id, adminId);
 const stages = engAdv.stageList(db, po.id);
 ok(stages.length >= 1, 'T420-10 stages', stages.length);
 const st = stages[0];
+eq('T420-10b shared stage qty is both products', st.qty_in, 20);
 engAdv.postStageOutputFixed(db, {
   orderId: po.id, stageId: st.id,
-  body: { date: DATE, qty_out: 10, waste_normal: 0, waste_abnormal: 0 },
+  body: { date: DATE, qty_out: Number(st.qty_in), waste_normal: 0, waste_abnormal: 0 },
   userId: adminId,
 });
 

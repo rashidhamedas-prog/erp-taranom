@@ -250,6 +250,12 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'bom_operations', 'product_scope', "TEXT NOT NULL DEFAULT 'shared'");
     ensureColumn(db, 'bom_operations', 'scoped_product_id', 'INTEGER');
   }
+  // v459 — snapshot of BOM operation scope on the order stage (shared vs exclusive FG)
+  if (tableExists(db, 'production_order_stages')) {
+    ensureColumn(db, 'production_order_stages', 'product_scope', "TEXT NOT NULL DEFAULT 'shared'");
+    ensureColumn(db, 'production_order_stages', 'scoped_product_id', 'INTEGER');
+    ensureColumn(db, 'production_order_stages', 'qty_planned_in', 'REAL DEFAULT 0');
+  }
   // v423 — peer main products: promote legacy co → main (no secondary «هم‌محصول»)
   if (tableExists(db, 'bom_outputs')) {
     try {
