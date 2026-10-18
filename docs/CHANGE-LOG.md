@@ -1,10 +1,10 @@
 ### ۱۴۰۵/۰۷/۲۶ — فی برگشت بدون‌فاکتور: ویرگول هزارگان قطع می‌شد (SW v450)
 - **علائم:** در «برگشت از فروش» (بدون فاکتور / ماتریس) ورود `۱۷٬۰۰۰٬۰۰۰` در فی فروش → جدول و جمع پایین `۱۷`؛ مبلغ برگشت هم ۱۷ ریال.
 - **ریشه:** فیلد `#sr-open-price` (و فی خرید / تخفیف کلی مبلغ) با `isMoneyField` جداکننده می‌گرفت، ولی افزودن ساده/ماتریس و `returnExtraDiscInputs` با `parseFloat` می‌خواندند → قطع روی اولین ویرگول. بک‌اند open-mode هم `parseFloat(r.price)` داشت.
-- **رفع:** فرانت `moneyParseInput` / `parseMoneyAny`؛ ورودی‌های فی و تخفیف مبلغ با `class=money`؛ بک‌اند `parseMoneyInput` در `money.js` + `sales-return-doc` + `buildRows` خرید + `resolveExtraDiscount`/`rial`. راهنما + SW `erp-taranom-v450`.
+- **رفع:** فرانت `moneyParseInput` / `parseMoneyAny`؛ ورودی‌های فی و تخفیف مبلغ با `class=money`؛ بک‌اند `parseMoneyInput` در `money.js` + `sales-return-doc` + `buildRows` خرید + `resolveExtraDiscount`/`rial`. راهنما + SW `erp-taranom-v451`.
 - **فایل‌ها:** `public/{app.js,sw.js,index.html}`, `lib/{money,sales-return-doc,returns-discount}.js`, `routes/purchases.js`, `scripts/test-return-money-parse-v450.js`, CHANGE-LOG.
-- **تست:** `test-return-money-parse-v450` + `test-sms` + `test-sync` (پس از deploy).
-- **Deploy:** ⏳
+- **تست:** ایران `test-return-money-parse-v450` ۱۷/۰؛ `test-returns-discount-v369` ۲۲/۰؛ `test-sms` ۲۲/۰. `test-sync` روی ویندوز (bindings) بالا نمی‌آید و به این تغییر بی‌ربط است.
+- **Deploy:** ✅ `080dcc09` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v451`.
 
 ### ۱۴۰۵/۰۷/۲۶ — پرداخت انگیزه روی صورتحساب شخص (SW v449)
 - **علائم:** گزارش انگیزه عارف قاسمی پرداخت‌شده نشان می‌داد (چهار مرحله بانک: ۱۰۰ + ۲ + ۵ + ۲۵ میلیون = ۱۳۲ میلیون از بانک ۲۷) ولی گردش شخص فقط مانده اول دوره −۶۵٬۸۴۸٬۰۷۴ بود و هیچ سند پرداختی نداشت.
