@@ -41,8 +41,16 @@ assert.strictEqual(colorsMatch('قهوه‌ای', 'قهوه ای'), true);
 assert.strictEqual(colorsMatch('مشکی', 'شکلاتی'), false);
 assert.strictEqual(normalizeFabricColor('سرمه\u00a0ای'), 'سرمه ای');
 
-const { DatabaseSync } = require('node:sqlite');
-const mem = new DatabaseSync(':memory:');
+function openMemory() {
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    return new DatabaseSync(':memory:');
+  } catch (_) {
+    const Better = require('better-sqlite3');
+    return new Better(':memory:');
+  }
+}
+const mem = openMemory();
 mem.exec('CREATE TABLE t (color TEXT)');
 const ins = mem.prepare('INSERT INTO t (color) VALUES (?)');
 for (const c of [navyWawSpace, navySpace, navyZwnj, navyZwnjWaw, 'مشکی', 'قهوه ای']) ins.run(c);
