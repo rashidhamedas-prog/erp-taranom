@@ -3,8 +3,8 @@
 - **ریشه:** `alignEntriesToTarget` ماندهٔ party-books را با جمع همه‌ٔ ردیف‌ها (شامل `rep_ledger`) مقایسه می‌کرد → شکاف = −انگیزه → ردیف مصنوعی.
 - **رفع:** `rep_ledger` در align / running / جمع دوره نادیده گرفته می‌شود ولی ردیف‌ها برای شفافیت می‌مانند؛ مانده = party-books. راهنما + SW `erp-taranom-v447`.
 - **فایل‌ها:** `lib/party-turnover.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-rep-align-ignore-v447.js`, CHANGE-LOG.
-- **تست:** ایران `test-rep-align-ignore-v447` + `test-sms`.
-- **Deploy:** ⏳ pending.
+- **تست:** ایران `test-rep-align-ignore-v447` ۱۱/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `c01b0688` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v447`.
 
 ### ۱۴۰۵/۰۷/۲۶ — hollow-void انگیزه/بازاریاب/نماینده (SW v446)
 - **علائم:** گردش شخص بازاریاب (مثل عارف قاسمی) جفت‌های تکراری «پرداخت انگیزه فروش» + «ابطال پرداخت انگیزه» را نشان می‌داد و مانده را شلوغ می‌کرد؛ صورت‌حساب نماینده و KPI پرداخت‌شده هم پرداخت‌های `reversed` را می‌شمرد.
