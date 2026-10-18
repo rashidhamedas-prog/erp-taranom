@@ -3,8 +3,8 @@
 - **ریشه:** سند پرداخت بدهکار حساب تجمیعی ۲۱۰۷ بود، نه تفصیلی شخص `110601000120`، و `person_ledger` ردیف نداشت. گردش فقط کنترل‌حساب شخص را می‌خواند (ادغام `rep_ledger` ممنوع است). همین شکاف در تسویه نماینده، مساعده (۱۱۰۷) و تعهد انگیزه بود؛ بازپرداخت هزینه هم فقط هزینه/صندوق می‌زد.
 - **رفع:** اگر نماینده به شخصِ دارای تفصیلی لینک باشد، طرف حساب همان برگ است + آینهٔ `person_ledger`. بدون تفصیلی، حساب تجمیعی می‌ماند. heal بوت `reclass_rep_person_v449` خطوط زنده را بدون تغییر مبلغ جابه‌جا می‌کند. ابطال ردیف شخص را بازنشسته می‌کند. راهنما + SW `erp-taranom-v449`.
 - **فایل‌ها:** `lib/{person-counterparty,rep-ledger,amend-cash-ops,amend-invoice,party-turnover}.js`, `routes/{accounting,rep-management}.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `PARTY-ACC-ADR-001.md`, `scripts/test-person-counterparty-v449.js`, CHANGE-LOG.
-- **تست:** `test-person-counterparty-v449` + `test-party-rep-separation-v448` + `test-sms`.
-- **Deploy:** در حال انجام.
+- **تست:** ایران `test-person-counterparty-v449` ۲۰/۰؛ `test-party-rep-separation-v448` ۱۷/۰؛ `test-sms` ۲۲/۰. گردش زنده عارف: ۴ سند پرداخت (۱۳۲ میلیون) روی تفصیلی، مانده ۶۶٬۱۵۱٬۹۲۶ بدهکار. `test-sync` روی ایران به‌خاطر جفت‌شدن دستگاه (توکن) بالا نیامد و به این تغییر بی‌ربط است.
+- **Deploy:** ✅ `25bc9513` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v449`. حساب ۲۱۰۷ زنده صفر شد؛ بانک و کارمزد ۱۸٬۰۰۰ دست نخورد.
 
 ### ۱۴۰۵/۰۷/۲۶ — صندوق/بانک: افتتاحیه upsert + مانده بستانکار (SW v448)
 - **علائم:** تغییر مانده اول دوره بعضی صندوق‌ها سند تکراری می‌ساخت؛ مانده بستانکار (مثل کیمیا با موجودی زنده منفی) پذیرفته نمی‌شد (`amt<=0` = ابطال).
