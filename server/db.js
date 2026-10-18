@@ -2786,6 +2786,18 @@ function initSyncSchema(db, opts) {
     console.warn('cheque_lifecycle_alias_v303b:', e.message);
   }
 
+  // R13: settlement/amend used to mark cheque_records reversed without soft-voiding
+  // send-to-bank / clear JEs → bank showed وصول while دفتر چک / گردش طرف خالی بود.
+  try {
+    const { healOrphanReversedChequeLifecycleJes } = require('./lib/void-cheque');
+    const oc = healOrphanReversedChequeLifecycleJes(db);
+    if (oc && !oc.skipped && oc.fixed) {
+      console.log('✅ orphan_cheque_lifecycle_void_v453:', JSON.stringify(oc));
+    }
+  } catch (e) {
+    console.warn('orphan_cheque_lifecycle_void_v453:', e.message);
+  }
+
   // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
   try {
     require('./lib/product-variants').initProductVariantsSchema(db);

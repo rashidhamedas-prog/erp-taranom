@@ -523,10 +523,8 @@ function patchOneInvoiceTimeSettlement(db, {
         );
       }
     } else {
-      db.prepare(`
-        UPDATE cheque_records SET record_status='reversed'
-        WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
-      `).run(sett.id);
+      const { reverseChequeRecordsForSettlement } = require('./void-settlement');
+      reverseChequeRecordsForSettlement(db, sett.id, userId);
     }
   } catch (e) {
     if (e && e.status) throw e;
@@ -552,15 +550,11 @@ function reverseInvoiceTimePaymentsInTx(db, invoiceTime, invoiceId, userId, date
   } catch (e) {
     if (e && e.status) throw e;
   }
-  // Only reverse cheque leaves linked to invoice-time settlements (never later/manual ones).
+  // reverseSettlementInTx already full-voids linked cheque lifecycle JEs (R13 v454).
   try {
-    const ids = (invoiceTime || []).map((s) => s && s.id).filter(Boolean);
-    if (ids.length) {
-      db.prepare(`
-        UPDATE cheque_records SET record_status='reversed'
-        WHERE settlement_id IN (${ids.map(() => '?').join(',')})
-          AND COALESCE(record_status,'posted')<>'reversed'
-      `).run(...ids);
+    const { reverseChequeRecordsForSettlement } = require('./void-settlement');
+    for (const sett of invoiceTime || []) {
+      if (sett && sett.id) reverseChequeRecordsForSettlement(db, sett.id, userId);
     }
   } catch (_) { /* column arrives with boot migration */ }
 }

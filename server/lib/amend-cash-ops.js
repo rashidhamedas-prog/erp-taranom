@@ -211,10 +211,8 @@ function syncChequeRecords(db, settlementId, cust, fields) {
   const payType = fields.payType;
   try {
     if (payType !== 'cheque') {
-      db.prepare(`
-        UPDATE cheque_records SET record_status='reversed'
-        WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
-      `).run(settlementId);
+      const { reverseChequeRecordsForSettlement } = require('./void-settlement');
+      reverseChequeRecordsForSettlement(db, settlementId, fields && fields.userId);
       return;
     }
     const sayadi = digitsOnly(fields.cheque_sayadi);
@@ -458,7 +456,7 @@ function amendSettlement(db, id, body, userId) {
   });
 
   syncChequeRecords(db, row.id, cust, {
-    payType, date, note, amountRial, invoiceId,
+    payType, date, note, amountRial, invoiceId, userId,
     cheque_sayadi: chequeSayadi, cheque_number: body.cheque_number, cheque_due: chequeDue,
     cheque_bank: chequeBank, cheque_branch: body.cheque_branch,
     cheque_sheba: normalizeSheba(body.cheque_sheba || ''), cheque_account: body.cheque_account,

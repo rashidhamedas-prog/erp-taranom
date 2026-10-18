@@ -18,26 +18,50 @@ function recvAcct(db, custId) {
   return acct(db, 'coa_receivable');
 }
 
-function reverseChequeRecordsForSettlement(db, settlementId) {
-  if (!settlementId) return;
+/**
+ * R13: soft-void lifecycle JEs (واگذاری/وصول/برگشت) then mark leaf reversed.
+ * Must run *before* settlement GL reverse so 1109 is restored from bank/1116 first.
+ */
+function reverseChequeRecordsForSettlement(db, settlementId, userId) {
+  if (!settlementId) return { fixed: 0 };
+  let rows = [];
   try {
-    db.prepare(`
-      UPDATE cheque_records
-      SET record_status='reversed'
+    rows = db.prepare(`
+      SELECT * FROM cheque_records
       WHERE settlement_id=? AND COALESCE(record_status,'posted')<>'reversed'
-    `).run(settlementId);
-  } catch (_) { /* table/column may lag on very old DBs */ }
+    `).all(settlementId);
+  } catch (_) {
+    return { fixed: 0 };
+  }
+  if (!rows.length) return { fixed: 0 };
+  const { applyChequeLifecycleVoid } = require('./void-cheque');
+  let fixed = 0;
+  for (const row of rows) {
+    applyChequeLifecycleVoid(db, row, { id: userId || 0 }, { skipSettlement: true });
+    fixed += 1;
+  }
+  return { fixed };
 }
 
-function reverseChequeRecordsForInvoice(db, invoiceId) {
-  if (!invoiceId) return;
+function reverseChequeRecordsForInvoice(db, invoiceId, userId) {
+  if (!invoiceId) return { fixed: 0 };
+  let rows = [];
   try {
-    db.prepare(`
-      UPDATE cheque_records
-      SET record_status='reversed'
+    rows = db.prepare(`
+      SELECT * FROM cheque_records
       WHERE invoice_id=? AND COALESCE(record_status,'posted')<>'reversed'
-    `).run(invoiceId);
-  } catch (_) { /* optional */ }
+    `).all(invoiceId);
+  } catch (_) {
+    return { fixed: 0 };
+  }
+  if (!rows.length) return { fixed: 0 };
+  const { applyChequeLifecycleVoid } = require('./void-cheque');
+  let fixed = 0;
+  for (const row of rows) {
+    applyChequeLifecycleVoid(db, row, { id: userId || 0 }, { skipSettlement: true });
+    fixed += 1;
+  }
+  return { fixed };
 }
 
 function settlementHasLiveJe(db, settlementId) {
@@ -134,7 +158,7 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
         allowAlreadyReversed: true,
         date: when,
       });
-      if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
+      if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id, userId);
       // voidReceiptInTx already marks settlement reversed; ensure flag if orphan link.
       markSettlementReversed(db, settlement.id, userId, null);
       try {
@@ -149,6 +173,11 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
   } catch (e) {
     if (e && e.status) throw e;
     /* fall through to cash/bank/cheque reverse if POS module unavailable */
+  }
+
+  // Lifecycle JEs first (clear/collection) so 1109 is restored before settlement GL.
+  if (!options.skipChequeRecords) {
+    reverseChequeRecordsForSettlement(db, settlement.id, userId);
   }
 
   reverseSettlementBooks(db, settlement, userId, { date: when });
@@ -187,7 +216,6 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
   }
 
   markSettlementReversed(db, settlement.id, userId, reversalId);
-  if (!options.skipChequeRecords) reverseChequeRecordsForSettlement(db, settlement.id);
   return reversalId;
 }
 

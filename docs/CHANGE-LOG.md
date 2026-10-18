@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — ابطال تسویهٔ چک وصول‌شده: JE بانک یتیم نمی‌ماند (SW v454)
+- **علائم (خانم صدوقی / چک ۶۵۵۰۹۹):** چک ثبت و پاس شده؛ در گردش بانک (ملت ۹۹۵۵ / JE ۲۵۳) دیده می‌شد، ولی در دفتر چک و گردش مشتری نبود.
+- **ریشه:** تسویه `#4` و برگهٔ `cheque_records#1` با amend/ابطال فقط `record_status=reversed` شده بودند (`reversed_at` خالی). `reverseChequeRecordsForSettlement` JEهای واگذاری (`collection_je_id=252`) و وصول (`cleared_je_id=253`) را soft-void نمی‌کرد → بانک زنده، دفتر چک مخفی، دفتر مشتری بازنشسته.
+- **رفع:** `applyChequeLifecycleVoid` — ابطال چرخه قبل از سند تسویه؛ amend/void-invoice همان مسیر؛ heal بوت `orphan_cheque_lifecycle_void_v453` برای یتیم‌های تاریخی. راهنما + SW `erp-taranom-v454`.
+- **فایل‌ها:** `lib/{void-cheque,void-settlement,amend-invoice,amend-cash-ops,void-invoice}.js`, `db.js`, `public/{app.js,sw.js}`, `scripts/test-orphan-cheque-lifecycle-void-v453.js`, CHANGE-LOG.
+- **تست:** `test-orphan-cheque-lifecycle-void-v453`؛ `test-sms`؛ پروب ایران: JE ۲۵۲/۲۵۳ soft-void بعد از heal.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۶ — پرداخت چک در منوی پرداخت‌ها (SW v453)
 - **علائم:** در «نوع پرداخت را انتخاب کنید» فقط شخص/حساب/بانک/هزینه/صندوق بود؛ «پرداخت چک» نبود و کاربر مسیر دفتر چک را پیدا نمی‌کرد.
 - **تصمیم:** فرم‌های پنج‌گانه همچنان `E_CHEQUE_FORM_CLOSED` می‌مانند (بانک با صرف صدور بستانکار نمی‌شود). مسیر درست = دفتر چک پرداختنی.

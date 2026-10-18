@@ -120,7 +120,7 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
     // Belt-and-suspenders: any remaining cheque register rows for this invoice.
     try {
       const { reverseChequeRecordsForInvoice } = require('./void-settlement');
-      reverseChequeRecordsForInvoice(db, row.id);
+      reverseChequeRecordsForInvoice(db, row.id, user.id);
     } catch (_) { /* optional */ }
 
     if (row.stock_deducted) {
