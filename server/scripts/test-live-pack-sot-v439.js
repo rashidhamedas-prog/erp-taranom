@@ -53,9 +53,9 @@ try {
 }
 db.exec(`
   CREATE TABLE products (
-    id INTEGER PRIMARY KEY, code TEXT, name TEXT, price REAL DEFAULT 0,
-    stock REAL DEFAULT 0, pack_size INTEGER DEFAULT 1, unit TEXT DEFAULT 'عدد',
-    has_variants INTEGER DEFAULT 0, is_style INTEGER DEFAULT 0,
+    id INTEGER PRIMARY KEY, code TEXT, name TEXT, price REAL DEFAULT 0, price_rial INTEGER DEFAULT 0,
+    cost REAL DEFAULT 0, stock REAL DEFAULT 0, pack_size INTEGER DEFAULT 1, unit TEXT DEFAULT 'عدد',
+    has_variants INTEGER DEFAULT 0, is_style INTEGER DEFAULT 0, barcode TEXT,
     default_variant_id INTEGER, colors INTEGER DEFAULT 1, warehouse_id INTEGER
   );
   CREATE TABLE warehouses (
