@@ -2674,6 +2674,21 @@ function initSyncSchema(db, opts) {
     console.warn('purge_hollow_party_ledger_v374:', e.message);
   }
 
+  // v446 — hollow twin پرداخت/ابطال انگیزه روی rep_ledger + JE (بازاریاب / نماینده)
+  try {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='purge_hollow_rep_incentive_v446'").get();
+    if (!flag || flag.value !== '1') {
+      const { purgeHollowPartyLedgerReversals } = require('./lib/party-ledger-retire');
+      const result = purgeHollowPartyLedgerReversals(db);
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('purge_hollow_rep_incentive_v446','1')").run();
+      if (result.repDeleted) {
+        console.log('✅ purge_hollow_rep_incentive_v446:', JSON.stringify(result));
+      }
+    }
+  } catch (e) {
+    console.warn('purge_hollow_rep_incentive_v446:', e.message);
+  }
+
   // v376 — continuous: opening-cheque phantom credits must not inflate creditor KPI
   try {
     const { repairOpeningChequeLedgerMirrors } = require('./lib/customer-books');

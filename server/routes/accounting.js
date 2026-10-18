@@ -909,7 +909,11 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const users = db.prepare(
     "SELECT id,name,role,commission_cash,commission_cheque,commission_basis,monthly_target FROM users WHERE active=1 AND role IN ('field_sales','inside_sales')"
   ).all();
-  const paidRows = db.prepare('SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments GROUP BY rep_id').all();
+  const paidRows = db.prepare(`
+    SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments
+    WHERE COALESCE(status,'posted')<>'reversed'
+    GROUP BY rep_id
+  `).all();
   const paidMap = Object.fromEntries(paidRows.map(r => [r.rep_id, r.s]));
   const result = users.map(u => {
     const comm = computeRepCommission(db, u.id, { from, to });
@@ -999,27 +1003,36 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-// Delete an incentive payment
+// Delete an incentive payment — v446 hollow-void (soft-void JE + retire rep_ledger; no twin ابطال)
 router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM incentive_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این پرداخت قبلاً ابطال شده است' });
-  const rep = db.prepare('SELECT name FROM users WHERE id=?').get(row.rep_id);
-  // Reversal journal entry — was previously missing, leaving a dangling one-sided
-  // entry in the books whenever a payment was deleted
   db.transaction(() => {
-    const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-    const payable = coaAcct(db, 'coa_rep_commission_payable');
-    const { lines } = outboundPaymentReversalLines(db, {
-      amount: row.amount, feeRial: row.fee_rial || 0, dest: payable, cash,
-      feeCostCenterId: row.fee_cost_center_id || null,
-    });
-    const reversalId = postToLedger(db, {
-      sourceType: 'incentive_payment_reversal', sourceId: row.id, date: todayJalali(),
-      description: `ابطال پرداخت انگیزه فروش به ${rep ? rep.name : ''}`, createdBy: req.user.id,
-      lines,
-    });
+    const je = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type IN ('incentive_payment','rep_settlement') AND ref_id=?
+        AND COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      ORDER BY id ASC LIMIT 1
+    `).get(row.id);
+    if (je) {
+      reverseJournalEntry(db, je.id, {
+        userId: req.user.id,
+        reason: 'ابطال پرداخت انگیزه فروش',
+        sourceType: 'incentive_payment_reversal',
+      });
+    }
+    // Drop any legacy paired reverse vouchers still lingering
+    try {
+      const { hardDeleteJournalEntry } = require('../lib/void-journal');
+      const revs = db.prepare(`
+        SELECT id FROM journal_entries WHERE ref_type='incentive_payment_reversal' AND ref_id=?
+      `).all(row.id);
+      for (const r of revs) hardDeleteJournalEntry(db, r.id);
+    } catch (_) { /* optional */ }
+
     const ledgerRows = db.prepare("SELECT * FROM rep_ledger WHERE ref_type='incentive_payment' AND ref_id=?").all(row.id);
     for (const item of ledgerRows) {
       if (item.entry_type === 'advance_settle') {
@@ -1029,14 +1042,15 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
             .run(item.credit || 0, Number(match[1]));
         }
       }
-      db.prepare(`
-        INSERT INTO rep_ledger (rep_id,date,entry_type,ref_type,ref_id,description,debit,credit,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(item.rep_id, todayJalali(), 'reversal', 'incentive_payment_reversal', row.id,
-        `ابطال ${item.description || 'پرداخت انگیزه'}`, item.credit || 0, item.debit || 0, req.user.id);
     }
-    db.prepare("UPDATE incentive_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-      .run(reversalId, req.user.id, row.id);
+    const { retireRepLedgerByRef } = require('../lib/party-ledger-retire');
+    retireRepLedgerByRef(db, {
+      refTypes: ['incentive_payment', 'incentive_payment_reversal'],
+      refId: row.id,
+      repId: row.rep_id,
+    });
+    db.prepare("UPDATE incentive_payments SET status='reversed',reversal_journal_id=NULL,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(req.user.id, row.id);
   })();
   audit(req.user.id, 'reverse', 'incentive_payment', req.params.id, 'ابطال پرداخت انگیزه فروش');
   res.json({ ok: true });
@@ -1071,7 +1085,7 @@ router.get('/my-commission', auth, (req, res) => {
   if (to) range.to = to;
   const comm = computeRepCommission(db, u.id, range);
   const view = buildRepLedgerView(db, u.id, range);
-  const paid = view?.paid ?? db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
+  const paid = view?.paid ?? db.prepare("SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=? AND COALESCE(status,'posted')<>'reversed'").get(u.id).s;
   const pendingExp = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE rep_id=? AND status='pending'").get(u.id).c;
   res.json({
     ...comm,

@@ -481,10 +481,12 @@ function buildMergedPersonTurnover(db, party, partyId, detail) {
   const user = db.prepare('SELECT id, name, role FROM users WHERE party_id=?').get(partyId);
   if (user) {
     try {
-      const rl = db.prepare(`
+      const { hideVoidedRepLedgerRows } = require('./party-ledger-retire');
+      const rlRaw = db.prepare(`
         SELECT date, entry_type, ref_type, ref_id, description, debit, credit, created_at, id
         FROM rep_ledger WHERE rep_id=? ORDER BY date ASC, id ASC
       `).all(user.id);
+      const rl = hideVoidedRepLedgerRows(db, rlRaw);
       for (const r of rl) {
         merged.push({
           date: r.date || '',

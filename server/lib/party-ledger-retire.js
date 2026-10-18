@@ -7,6 +7,7 @@
  *   inserting entry_type='reversal' lines that pollute customer/supplier/person statements.
  * - Audit trail remains on journal_entries (soft-voided) + business status + audit_log.
  * - hideVoidedBookRows stays as a safety net for any legacy reverse rows.
+ * - v446: same for rep_ledger (انگیزه فروش / بازاریاب / نماینده) — no twin «پرداخت + ابطال».
  */
 'use strict';
 
@@ -14,6 +15,56 @@ function asIdList(refTypes) {
   if (Array.isArray(refTypes)) return refTypes.filter(Boolean).map(String);
   if (refTypes == null || refTypes === '') return [];
   return [String(refTypes)];
+}
+
+function retireRepLedgerByRef(db, { refTypes, refId, repId } = {}) {
+  const types = asIdList(refTypes);
+  const id = Number(refId);
+  if (!types.length || !id) return 0;
+  try {
+    const ph = types.map(() => '?').join(',');
+    const params = [...types, id];
+    let sql = `DELETE FROM rep_ledger WHERE ref_type IN (${ph}) AND ref_id=?`;
+    if (repId != null) {
+      sql += ' AND rep_id=?';
+      params.push(Number(repId));
+    }
+    return Number(db.prepare(sql).run(...params).changes || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+/**
+ * Safety net for marketer / rep / incentive statements (mirrors hideVoidedBookRows).
+ * Drops reversed incentive payments, hollow reverse rows, and commission_reversal twins.
+ */
+function hideVoidedRepLedgerRows(db, rows) {
+  let reversedIncentives = new Set();
+  try {
+    reversedIncentives = new Set(
+      db.prepare(`
+        SELECT id FROM incentive_payments
+        WHERE COALESCE(status,'posted')='reversed'
+      `).all().map((r) => Number(r.id))
+    );
+  } catch (_) { /* optional */ }
+  return (rows || []).filter((e) => {
+    const refId = Number(e.ref_id);
+    const rt = String(e.ref_type || '');
+    const et = String(e.entry_type || '');
+    if ((rt === 'incentive_payment' || rt === 'incentive_payment_reversal')
+      && reversedIncentives.has(refId)) {
+      return false;
+    }
+    if (et === 'reversal' || et === 'commission_reversal'
+      || rt.endsWith('_reversal') || rt.includes('reversal')) {
+      return false;
+    }
+    const desc = String(e.description || '');
+    if (/^ابطال[\s/]/.test(desc)) return false;
+    return true;
+  });
 }
 
 function retireCustomerLedgerByRef(db, { refTypes, refId, customerId } = {}) {
@@ -75,6 +126,7 @@ function purgeHollowPartyLedgerReversals(db) {
   let customerDeleted = 0;
   let personDeleted = 0;
   let supplierDeleted = 0;
+  let repDeleted = 0;
 
   const tx = db.transaction(() => {
     // Live sales returns were wrongly tagged entry_type='reversal' → label as sales_return
@@ -304,15 +356,118 @@ function purgeHollowPartyLedgerReversals(db) {
       `).run();
       supplierDeleted += Number(r.changes || 0);
     } catch (_) { /* ignore */ }
+
+    // v446 — reversed incentive payments: retire original + hollow reverse twins
+    try {
+      const ids = db.prepare(`
+        SELECT id FROM incentive_payments
+        WHERE COALESCE(status,'posted')='reversed'
+      `).all().map((r) => Number(r.id));
+      for (const id of ids) {
+        repDeleted += retireRepLedgerByRef(db, {
+          refTypes: ['incentive_payment', 'incentive_payment_reversal'],
+          refId: id,
+        });
+      }
+    } catch (_) { /* optional */ }
+
+    // Soft-void live incentive_payment JEs whose payment is already reversed
+    try {
+      const { reverseJournalEntry } = require('./void-journal');
+      const live = db.prepare(`
+        SELECT je.id
+        FROM journal_entries je
+        JOIN incentive_payments ip ON ip.id = je.ref_id
+        WHERE je.ref_type='incentive_payment'
+          AND COALESCE(ip.status,'posted')='reversed'
+          AND COALESCE(je.deleted_at,0)=0
+          AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+      `).all();
+      for (const row of live) {
+        reverseJournalEntry(db, row.id, {
+          reason: 'ابطال پرداخت انگیزه فروش (heal)',
+          sourceType: 'incentive_payment_reversal',
+        });
+      }
+    } catch (_) { /* optional */ }
+
+    // Drop leftover standalone incentive_payment_reversal vouchers
+    try {
+      const { hardDeleteJournalEntry } = require('./void-journal');
+      const revs = db.prepare(`
+        SELECT id FROM journal_entries
+        WHERE ref_type='incentive_payment_reversal'
+          AND COALESCE(deleted_at,0)=0
+      `).all();
+      for (const row of revs) hardDeleteJournalEntry(db, row.id);
+    } catch (_) { /* optional */ }
+
+    // Soft-void commission accrual JEs that already have a hollow reverse twin in rep_ledger
+    try {
+      const { reverseJournalEntry } = require('./void-journal');
+      const twins = db.prepare(`
+        SELECT DISTINCT ref_type, ref_id FROM rep_ledger
+        WHERE entry_type='commission_reversal'
+      `).all();
+      for (const t of twins) {
+        const src = t.ref_type === 'invoice'
+          ? 'commission_accrual_invoice'
+          : t.ref_type === 'settlement'
+            ? 'commission_accrual_settlement'
+            : null;
+        if (!src) continue;
+        const je = db.prepare(`
+          SELECT id FROM journal_entries
+          WHERE ref_type=? AND ref_id=?
+            AND COALESCE(deleted_at,0)=0
+            AND COALESCE(status,'posted') NOT IN ('reversed','void')
+          ORDER BY id ASC LIMIT 1
+        `).get(src, t.ref_id);
+        if (je) {
+          reverseJournalEntry(db, je.id, {
+            reason: 'ابطال تعهد انگیزه فروش (heal)',
+            sourceType: `${src}_reversal`,
+          });
+        }
+        repDeleted += retireRepLedgerByRef(db, {
+          refTypes: [t.ref_type],
+          refId: t.ref_id,
+        });
+        try {
+          const { hardDeleteJournalEntry } = require('./void-journal');
+          const revJe = db.prepare(`
+            SELECT id FROM journal_entries
+            WHERE ref_type=? AND ref_id=?
+          `).all(`${src}_reversal`, t.ref_id);
+          for (const r of revJe) hardDeleteJournalEntry(db, r.id);
+        } catch (__) { /* ignore */ }
+      }
+    } catch (_) { /* optional */ }
+
+    // Orphan hollow reverse lines on rep_ledger
+    try {
+      const r = db.prepare(`
+        DELETE FROM rep_ledger
+        WHERE entry_type='reversal'
+           OR entry_type='commission_reversal'
+           OR entry_type LIKE '%\\_reversal' ESCAPE '\\'
+           OR ref_type LIKE '%\\_reversal' ESCAPE '\\'
+           OR description LIKE 'ابطال %'
+           OR description LIKE 'ابطال/%'
+      `).run();
+      repDeleted += Number(r.changes || 0);
+    } catch (_) { /* ignore */ }
   });
   tx();
 
-  return { relabeled, customerDeleted, personDeleted, supplierDeleted };
+  return { relabeled, customerDeleted, personDeleted, supplierDeleted, repDeleted };
 }
 
 module.exports = {
   retireCustomerLedgerByRef,
   retirePersonLedgerByRef,
   retireSupplierLedgerByRef,
+  retireRepLedgerByRef,
+  hideVoidedRepLedgerRows,
   purgeHollowPartyLedgerReversals,
 };

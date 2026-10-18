@@ -238,6 +238,7 @@ function buildRepLedgerView(db, repId, { from, to } = {}) {
   const paidParams = [repId];
   if (from) { paidWhere += ' AND date>=?'; paidParams.push(from); }
   if (to) { paidWhere += ' AND date<=?'; paidParams.push(to); }
+  paidWhere += ` AND COALESCE(status,'posted')<>'reversed'`;
   const paid = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE ${paidWhere}`).get(...paidParams).s;
 
   let expSql = `SELECT COALESCE(SUM(amount),0) s FROM rep_expenses WHERE rep_id=? AND status='approved'`;
@@ -256,7 +257,8 @@ function buildRepLedgerView(db, repId, { from, to } = {}) {
   if (from) { manSql += ' AND date>=?'; manParams.push(from); }
   if (to) { manSql += ' AND date<=?'; manParams.push(to); }
   manSql += ' ORDER BY date DESC, id DESC LIMIT 500';
-  const manual = db.prepare(manSql).all(...manParams);
+  const { hideVoidedRepLedgerRows } = require('./party-ledger-retire');
+  const manual = hideVoidedRepLedgerRows(db, db.prepare(manSql).all(...manParams));
 
   return {
     rep: u,
@@ -283,7 +285,12 @@ function buildRepStatement(db, repId, { from, to } = {}) {
     debit: 0, credit: view.commission.totalComm, running_balance: null
   });
 
-  const pays = db.prepare(`SELECT * FROM incentive_payments WHERE rep_id=?${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC, id DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
+  const pays = db.prepare(`
+    SELECT * FROM incentive_payments
+    WHERE rep_id=? AND COALESCE(status,'posted')<>'reversed'
+    ${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''}
+    ORDER BY date DESC, id DESC LIMIT 200
+  `).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
   for (const p of pays) {
     entries.push({ date: p.date, type: 'payment', type_label: 'پرداخت انگیزه', description: p.note || '', debit: p.amount, credit: 0, reference: `#${p.id}` });
   }
@@ -537,28 +544,49 @@ function reverseCommissionAccrual(db, refType, refId, userId, date) {
     ORDER BY id DESC LIMIT 1
   `).get(refType, refId);
   if (!row || !(Number(row.credit) > 0)) return null;
-  const exists = db.prepare(`
-    SELECT id FROM rep_ledger
-    WHERE ref_type=? AND ref_id=? AND entry_type='commission_reversal' LIMIT 1
-  `).get(refType, refId);
-  if (exists) return null;
-  const postingDate = date || require('../jalali').todayJalali();
-  const expense = acct(db, 'coa_rep_commission_expense');
-  const payable = acct(db, 'coa_rep_commission_payable');
-  const journalId = postToLedger(db, {
-    sourceType: `commission_accrual_${refType}_reversal`, sourceId: refId, date: postingDate,
-    description: `ابطال ${row.description || 'تعهد انگیزه فروش'}`, createdBy: userId,
-    lines: [
-      { code: payable.code, name: payable.name, debit: rialToLedger(row.credit), credit: 0 },
-      { code: expense.code, name: expense.name, debit: 0, credit: rialToLedger(row.credit) },
-    ],
+  // v446: soft-void accrual JE + retire subledger (no hollow «ابطال تعهد» twin)
+  const srcType = refType === 'invoice'
+    ? 'commission_accrual_invoice'
+    : refType === 'settlement'
+      ? 'commission_accrual_settlement'
+      : `commission_accrual_${refType}`;
+  const { reverseJournalEntry, hardDeleteJournalEntry } = require('./void-journal');
+  const je = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type=? AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC LIMIT 1
+  `).get(srcType, refId);
+  if (je) {
+    reverseJournalEntry(db, je.id, {
+      userId,
+      date: date || require('../jalali').todayJalali(),
+      reason: `ابطال ${row.description || 'تعهد انگیزه فروش'}`,
+      sourceType: `${srcType}_reversal`,
+    });
+  }
+  try {
+    const revs = db.prepare(`
+      SELECT id FROM journal_entries WHERE ref_type=? AND ref_id=?
+    `).all(`${srcType}_reversal`, refId);
+    for (const r of revs) hardDeleteJournalEntry(db, r.id);
+  } catch (_) { /* optional */ }
+  const { retireRepLedgerByRef } = require('./party-ledger-retire');
+  retireRepLedgerByRef(db, {
+    refTypes: [refType, `${refType}_reversal`],
+    refId,
+    repId: row.rep_id,
   });
-  addRepLedger(db, {
-    rep_id: row.rep_id, date: postingDate, entry_type: 'commission_reversal',
-    ref_type: refType, ref_id: refId, description: `ابطال ${row.description || 'تعهد انگیزه فروش'}`,
-    debit: row.credit, credit: 0, created_by: userId,
-  });
-  return journalId;
+  // Also drop any leftover commission_reversal rows tagged with original ref_type
+  try {
+    db.prepare(`
+      DELETE FROM rep_ledger
+      WHERE ref_type=? AND ref_id=?
+        AND entry_type IN ('commission_accrual','commission_reversal','reversal')
+    `).run(refType, refId);
+  } catch (_) { /* ignore */ }
+  return je ? je.id : null;
 }
 
 function getRepProfitReport(db, repId, { from, to } = {}) {
