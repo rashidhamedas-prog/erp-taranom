@@ -346,15 +346,40 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
     const expense = acct(db, 'coa_sales_expense');
+    const { resolveRepPersonLeaf, mirrorPersonMovement } = require('../lib/person-counterparty');
+    const leaf = resolveRepPersonLeaf(db, row.rep_id);
+    const amtL = rialToLedger(row.amount);
+    const lines = leaf
+      ? [
+        { code: expense.code, name: expense.name, debit: amtL, credit: 0, cost_center_id: row.cost_center_id || null },
+        { code: leaf.account.code, name: leaf.account.name, debit: 0, credit: amtL },
+        { code: leaf.account.code, name: leaf.account.name, debit: amtL, credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: amtL },
+      ]
+      : [
+        { code: expense.code, name: expense.name, debit: amtL, credit: 0, cost_center_id: row.cost_center_id || null },
+        { code: cash.code, name: cash.name, debit: 0, credit: amtL },
+      ];
     postToLedger(db, {
       sourceType: 'rep_expense', sourceId: row.id,
       date: row.date || todayJalali(), description: `بازپرداخت هزینه نماینده ${row.rep_name}`, createdBy: req.user.id,
       costCenterId: row.cost_center_id || null,
-      lines: [
-        { code: expense.code, name: expense.name, debit: rialToLedger(row.amount), credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(row.amount) }
-      ]
+      lines,
     });
+    if (leaf) {
+      mirrorPersonMovement(db, {
+        personId: leaf.person.id, date: row.date || '',
+        entryType: 'rep_expense_payable', refType: 'rep_expense', refId: row.id,
+        description: `تعهد بازپرداخت هزینه ${row.rep_name}`,
+        debit: 0, credit: row.amount, userId: req.user.id,
+      });
+      mirrorPersonMovement(db, {
+        personId: leaf.person.id, date: row.date || '',
+        entryType: 'rep_expense_paid', refType: 'rep_expense', refId: row.id,
+        description: `بازپرداخت هزینه نماینده ${row.rep_name}`,
+        debit: row.amount, credit: 0, userId: req.user.id,
+      });
+    }
   })();
   notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} ریال تأیید شد.`, req.user.id, { sms: true });
   res.json({ ok: true });
@@ -594,7 +619,9 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
       description: `مساعده — ${note || ''}`, debit: amt, credit: 0, created_by: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const advance = acct(db, 'coa_rep_advance');
+    const { counterpartyAccount, mirrorPersonMovement } = require('../lib/person-counterparty');
+    const destParty = counterpartyAccount(db, repId, 'coa_rep_advance');
+    const advance = destParty.account;
     postToLedger(db, {
       sourceType: 'rep_advance', sourceId: r.lastInsertRowid,
       date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`, createdBy: req.user.id,
@@ -603,6 +630,19 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
         { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
+    if (destParty.person) {
+      mirrorPersonMovement(db, {
+        personId: destParty.person.id,
+        date: date || todayJalali(),
+        entryType: 'rep_advance',
+        refType: 'rep_advance',
+        refId: r.lastInsertRowid,
+        description: `مساعده به نماینده ${rep.name}`,
+        debit: amt,
+        credit: 0,
+        userId: req.user.id,
+      });
+    }
     return r;
   })();
   notifyRep(db, repId, `💰 مساعده ${amt} ریال به حساب شما ثبت شد.`, req.user.id);
@@ -628,7 +668,9 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     let advSettled = 0;
     if (settle_advances !== false) advSettled = settleAdvancesAgainstPayment(db, repId, amt, pay.lastInsertRowid, req.user.id);
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const payable = acct(db, 'coa_rep_commission_payable');
+    const { counterpartyAccount, mirrorPersonMovement } = require('../lib/person-counterparty');
+    const destParty = counterpartyAccount(db, repId, 'coa_rep_commission_payable');
+    const payable = destParty.account;
     postToLedger(db, {
       sourceType: 'rep_settlement', sourceId: pay.lastInsertRowid,
       date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`, createdBy: req.user.id,
@@ -637,6 +679,19 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
         { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
+    if (destParty.person) {
+      mirrorPersonMovement(db, {
+        personId: destParty.person.id,
+        date: date || todayJalali(),
+        entryType: 'rep_settlement',
+        refType: 'rep_settlement',
+        refId: pay.lastInsertRowid,
+        description: `تسویه نماینده ${rep.name}`,
+        debit: amt,
+        credit: 0,
+        userId: req.user.id,
+      });
+    }
     db.prepare(`
       INSERT INTO rep_settlements (rep_id,date,settlement_type,commission_paid,advance_settled,total_amount,balance_before,balance_after,note,ref_payment_id,created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)

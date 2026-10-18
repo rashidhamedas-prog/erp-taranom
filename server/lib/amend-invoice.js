@@ -668,7 +668,10 @@ function rewriteCommissionInPlace(db, { row, invLike, userId, date }) {
   const { computeSingleInvoiceCommission } = require('./rep-ledger');
   const amount = Math.round(Number(computeSingleInvoiceCommission(db, invLike)) || 0);
   const expense = acct(db, 'coa_rep_commission_expense');
-  const payable = acct(db, 'coa_rep_commission_payable');
+  const { counterpartyAccount, mirrorPersonMovement } = require('./person-counterparty');
+  const { retirePersonLedgerByRef } = require('./party-ledger-retire');
+  const destParty = counterpartyAccount(db, invLike.user_id || row.user_id, 'coa_rep_commission_payable');
+  const payable = destParty.account;
   const L = rialToLedger(amount);
   const lines = amount > 0
     ? [
@@ -699,6 +702,24 @@ function rewriteCommissionInPlace(db, { row, invLike, userId, date }) {
     SET credit=?, date=?, description=?
     WHERE ref_type='invoice' AND ref_id=? AND entry_type='commission_accrual'
   `).run(amount, date || '', `تعهد انگیزه فاکتور ${invLike.num}`, row.id);
+  if (destParty.person && amount > 0) {
+    mirrorPersonMovement(db, {
+      personId: destParty.person.id,
+      date: date || '',
+      entryType: 'commission_accrual_invoice',
+      refType: 'commission_accrual_invoice',
+      refId: row.id,
+      description: `تعهد انگیزه فروش — فاکتور ${invLike.num}`,
+      debit: 0,
+      credit: amount,
+      userId,
+    });
+  } else if (destParty.person) {
+    retirePersonLedgerByRef(db, {
+      refTypes: ['commission_accrual_invoice'],
+      refId: row.id,
+    });
+  }
   return existing.id;
 }
 

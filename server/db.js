@@ -2689,6 +2689,21 @@ function initSyncSchema(db, opts) {
     console.warn('purge_hollow_rep_incentive_v446:', e.message);
   }
 
+  // v449 — پرداخت/تعهد نماینده روی تفصیلی شخص، نه فقط حساب تجمیعی ۲۱۰۷/۱۱۰۷
+  try {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='reclass_rep_person_v449'").get();
+    if (!flag || flag.value !== '1') {
+      const { reclassRepCounterpartyToPerson } = require('./lib/person-counterparty');
+      const result = reclassRepCounterpartyToPerson(db);
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('reclass_rep_person_v449','1')").run();
+      if (result.moved || result.mirrored) {
+        console.log('✅ reclass_rep_person_v449:', JSON.stringify(result));
+      }
+    }
+  } catch (e) {
+    console.warn('reclass_rep_person_v449:', e.message);
+  }
+
   // v376 — continuous: opening-cheque phantom credits must not inflate creditor KPI
   try {
     const { repairOpeningChequeLedgerMirrors } = require('./lib/customer-books');

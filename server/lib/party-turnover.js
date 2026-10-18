@@ -8,9 +8,9 @@
  * - Default = merge all role books so net closing = dashboard مانده.
  * - Optional ?role=customer|supplier|person for a single leaf (closing = that leaf).
  * - Docs fallback (PO/payment) only when supplier_ledger empty; still gap-aligned to books.
- * - v448 (ADR-PARTY-001 §13): دو دفتر جدا — گردش شخص = فقط party-books / person_ledger / GL.
- *   انگیزه فروش روی `rep_ledger` است و در صورت‌حساب نماینده دیده می‌شود؛ ادغام نیمه‌کاره
- *   (نمایش بدون اثر روی مانده) ممنوع. linked_rep_id فقط برای لینک UI برمی‌گردد.
+ * - v448 (ADR-PARTY-001 §13): گردش شخص `rep_ledger` را ادغام نمی‌کند (نیمه‌ادغام ممنوع).
+ * - v449: پرداخت/تعهد نماینده‌ای که به شخص لینک است روی تفصیلی همان شخص و person_ledger
+ *   ثبت می‌شود، پس سند بانک در همین گردش دیده می‌شود. linked_rep_id فقط لینک خلاصه است.
  */
 const { linkedCustomerIds, linkedSupplierIds } = require('./parties-sync');
 const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
@@ -396,17 +396,23 @@ function buildSupplierTurnover(db, partyId, softIds, detail) {
 }
 
 /**
- * person_ledger rows often mirror JE with ref_id = journal_entries.id while JE.ref_id
- * may be null (manual vouchers) or a business id. Prefer matching journal_id.
+ * person_ledger rows sometimes mirror a JE by storing journal_entries.id in ref_id
+ * (opening, manual voucher, account receipt/payment). Business ids must match
+ * ref_type + ref_id only, so an incentive payment id cannot hide the opening.
  */
 function personLedgerCoveredByGl(merged, plRow, amt) {
   const rid = plRow.ref_id != null ? String(plRow.ref_id) : '';
   const rt = String(plRow.ref_type || '');
   const payrollish = /payroll/.test(rt);
+  // ref_id is the journal id only for these mirrors. Business ids (incentive
+  // payment, advance, invoice) must not match an unrelated journal_id.
+  const refIsJournalId = rt === 'opening_balance' || rt === 'opening'
+    || rt === 'manual_voucher' || rt === 'account_payment' || rt === 'account_receipt'
+    || rt === 'excel_import';
   return merged.some((e) => {
     if (e.source !== 'gl') return false;
     if (rid) {
-      if (e.journal_id != null && String(e.journal_id) === rid) return true;
+      if (refIsJournalId && e.journal_id != null && String(e.journal_id) === rid) return true;
       if (rt && e.ref_type === rt && e.ref_id != null && String(e.ref_id) === rid) return true;
     }
     if (

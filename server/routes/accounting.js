@@ -965,7 +965,9 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
       assertOutboundPayment(db, req.body);
       const ids = [];
       const cash = cashAccountForSource(db, spec);
-      const payable = coaAcct(db, 'coa_rep_commission_payable');
+      const { counterpartyAccount, mirrorPersonMovement } = require('../lib/person-counterparty');
+      const destParty = counterpartyAccount(db, rep_id, 'coa_rep_commission_payable');
+      const payable = destParty.account;
       spec.amounts.forEach((amount, i) => {
         const fee = i === 0 ? spec.fee : 0;
         const result = db.prepare(
@@ -987,6 +989,19 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
           date: spec.date, description: `پرداخت انگیزه فروش به ${rep.name}`, createdBy: req.user.id,
           lines,
         });
+        if (destParty.person) {
+          mirrorPersonMovement(db, {
+            personId: destParty.person.id,
+            date: spec.date,
+            entryType: 'incentive_payment',
+            refType: 'incentive_payment',
+            refId: paymentId,
+            description: `پرداخت انگیزه فروش به ${rep.name}`,
+            debit: amount,
+            credit: 0,
+            userId: req.user.id,
+          });
+        }
         ids.push(paymentId);
       });
       return { id: ids[0], ids, ok: true, fee_rial: spec.fee };
@@ -1043,11 +1058,15 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
         }
       }
     }
-    const { retireRepLedgerByRef } = require('../lib/party-ledger-retire');
+    const { retireRepLedgerByRef, retirePersonLedgerByRef } = require('../lib/party-ledger-retire');
     retireRepLedgerByRef(db, {
       refTypes: ['incentive_payment', 'incentive_payment_reversal'],
       refId: row.id,
       repId: row.rep_id,
+    });
+    retirePersonLedgerByRef(db, {
+      refTypes: ['incentive_payment', 'rep_settlement', 'incentive_payment_reversal'],
+      refId: row.id,
     });
     db.prepare("UPDATE incentive_payments SET status='reversed',reversal_journal_id=NULL,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(req.user.id, row.id);

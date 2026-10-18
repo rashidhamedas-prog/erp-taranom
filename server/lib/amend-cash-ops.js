@@ -276,7 +276,9 @@ function resyncSettlementCommission(db, settlementId, snap, userId) {
     db.prepare('UPDATE rep_ledger SET date=? WHERE id=?').run(snap.date || '', oldAcc.id);
     if (liveJe(db, 'commission_accrual_settlement', settlementId)) {
       const expense = acct(db, 'coa_rep_commission_expense');
-      const payable = acct(db, 'coa_rep_commission_payable');
+      const { counterpartyAccount, mirrorPersonMovement } = require('./person-counterparty');
+      const destParty = counterpartyAccount(db, inv.user_id, 'coa_rep_commission_payable');
+      const payable = destParty.account;
       rewriteJournalEntry(db, {
         sourceType: 'commission_accrual_settlement',
         sourceId: settlementId,
@@ -287,6 +289,19 @@ function resyncSettlementCommission(db, settlementId, snap, userId) {
           { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(newAmt) },
         ],
       });
+      if (destParty.person) {
+        mirrorPersonMovement(db, {
+          personId: destParty.person.id,
+          date: snap.date || '',
+          entryType: 'commission_accrual_settlement',
+          refType: 'commission_accrual_settlement',
+          refId: settlementId,
+          description: oldAcc.description || 'تعهد انگیزه وصول',
+          debit: 0,
+          credit: newAmt,
+          userId,
+        });
+      }
     }
     return;
   }
@@ -303,6 +318,11 @@ function resyncSettlementCommission(db, settlementId, snap, userId) {
       UPDATE rep_ledger SET entry_type='commission_accrual_void'
       WHERE ref_type='settlement' AND ref_id=? AND entry_type='commission_accrual'
     `).run(settlementId);
+    const { retirePersonLedgerByRef } = require('./party-ledger-retire');
+    retirePersonLedgerByRef(db, {
+      refTypes: ['commission_accrual_settlement'],
+      refId: settlementId,
+    });
   }
   if (inv && newAmt > 0) {
     recordSettlementCommissionAccrual(db, {
@@ -621,7 +641,10 @@ function amendIncentivePayment(db, id, body, userId) {
   });
 
   const cash = cashAccount(db, payType, bankId, cashBoxId, '');
-  const payable = acct(db, 'coa_rep_commission_payable');
+  const { counterpartyAccount, mirrorPersonMovement } = require('./person-counterparty');
+  const { retirePersonLedgerByRef } = require('./party-ledger-retire');
+  const destParty = counterpartyAccount(db, repId, 'coa_rep_commission_payable');
+  const payable = destParty.account;
   const { lines } = outboundPaymentLines(db, {
     amount, feeRial: fee, payType, dest: payable, cash, feeCostCenterId: feeCcId,
   });
@@ -659,11 +682,28 @@ function amendIncentivePayment(db, id, body, userId) {
   }
 
   let jeId = null;
+  retirePersonLedgerByRef(db, {
+    refTypes: ['incentive_payment', 'rep_settlement'],
+    refId: row.id,
+  });
   for (const refType of jeTypes) {
     jeId = rewriteOrThrow(db, {
       sourceType: refType, sourceId: row.id,
       date, description: `پرداخت انگیزه فروش به ${rep.name}`, lines,
     });
+    if (destParty.person) {
+      mirrorPersonMovement(db, {
+        personId: destParty.person.id,
+        date,
+        entryType: refType,
+        refType,
+        refId: row.id,
+        description: `پرداخت انگیزه فروش به ${rep.name}`,
+        debit: amount,
+        credit: 0,
+        userId,
+      });
+    }
   }
   return {
     id: row.id, amount, journal_id: jeId,

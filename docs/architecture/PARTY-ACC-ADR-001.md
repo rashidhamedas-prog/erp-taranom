@@ -29,7 +29,11 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 
 ### Amendment v448 (person vs incentive ledgers)
 
-13. **Two books, never half-merge:** Person/party turnover (`buildMergedPersonTurnover`) must **not** include `rep_ledger` / incentive payment rows. Incentive accrual & payments live only on the representative statement (`buildRepStatement` / `rep_ledger` + live `incentive_payments`). Displaying incentive debits on شخص گردش without affecting running balance or period totals is forbidden (v447 anti-pattern). UI may expose `linked_rep_id` to open the rep statement. Every row shown on a statement must participate in debit/credit totals and running balance for that same SoT.
+13. **Two books, never half-merge:** Person/party turnover (`buildMergedPersonTurnover`) must **not** merge `rep_ledger` rows into the control-account statement. Displaying incentive debits without affecting running balance or period totals is forbidden (v447 anti-pattern). UI may expose `linked_rep_id` to open the operational rep statement. Every row shown on a statement must participate in debit/credit totals and running balance for that same SoT.
+
+### Amendment v449 (rep cash hits the person leaf)
+
+14. **Counterparty is the person, not the pool:** When a sales rep is linked to a party that has its own COA leaf, incentive accrual, incentive payment, rep settlement, and rep advance debit/credit **that leaf** and write `person_ledger` for the same rial amount. Pooled `2107` / `1107` is only the fallback when no leaf exists. Bank and fee lines stay on the cash account. A historical heal (`reclass_rep_person_v449`) moves live pooled lines onto the leaf without changing amounts. Expense reimbursement keeps the P&L line and also books a net-zero person payable + payment pair so the cash document is on گردش. Void retires the person rows (no hollow reverse line).
 
 ## Also in scope (P0)
 

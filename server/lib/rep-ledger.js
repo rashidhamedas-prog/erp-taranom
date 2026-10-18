@@ -460,7 +460,9 @@ function recordCommissionAccrual(db, inv, userId) {
   const existing = db.prepare("SELECT id FROM rep_ledger WHERE rep_id=? AND ref_type='invoice' AND ref_id=? AND entry_type='commission_accrual'").get(inv.user_id, inv.id);
   if (existing) return amount;
   const expense = acct(db, 'coa_rep_commission_expense');
-  const payable = acct(db, 'coa_rep_commission_payable');
+  const { counterpartyAccount, mirrorPersonMovement } = require('./person-counterparty');
+  const destParty = counterpartyAccount(db, inv.user_id, 'coa_rep_commission_payable');
+  const payable = destParty.account;
   const ccId = parseInt(inv.cost_center_id, 10) || null;
   postToLedger(db, {
     sourceType: 'commission_accrual_invoice', sourceId: inv.id,
@@ -477,6 +479,19 @@ function recordCommissionAccrual(db, inv, userId) {
     rep_id: inv.user_id, date: inv.date || '', entry_type: 'commission_accrual', ref_type: 'invoice', ref_id: inv.id,
     description: `تعهد انگیزه فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
+  if (destParty.person) {
+    mirrorPersonMovement(db, {
+      personId: destParty.person.id,
+      date: inv.date || '',
+      entryType: 'commission_accrual_invoice',
+      refType: 'commission_accrual_invoice',
+      refId: inv.id,
+      description: `تعهد انگیزه فروش — فاکتور ${inv.num}`,
+      debit: 0,
+      credit: amount,
+      userId,
+    });
+  }
   notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} ریال`, userId, { sms: true });
   return amount;
 }
@@ -516,7 +531,9 @@ function recordSettlementCommissionAccrual(db, settlement, inv, userId) {
   if (existing) return amount;
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(repId);
   const expense = acct(db, 'coa_rep_commission_expense');
-  const payable = acct(db, 'coa_rep_commission_payable');
+  const { counterpartyAccount, mirrorPersonMovement } = require('./person-counterparty');
+  const destParty = counterpartyAccount(db, repId, 'coa_rep_commission_payable');
+  const payable = destParty.account;
   const ccId = parseInt(inv.cost_center_id, 10) || null;
   postToLedger(db, {
     sourceType: 'commission_accrual_settlement', sourceId: settlement.id,
@@ -533,6 +550,19 @@ function recordSettlementCommissionAccrual(db, settlement, inv, userId) {
     rep_id: repId, date: settlement.date || '', entry_type: 'commission_accrual', ref_type: 'settlement', ref_id: settlement.id,
     description: `تعهد انگیزه وصول فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
+  if (destParty.person) {
+    mirrorPersonMovement(db, {
+      personId: destParty.person.id,
+      date: settlement.date || '',
+      entryType: 'commission_accrual_settlement',
+      refType: 'commission_accrual_settlement',
+      refId: settlement.id,
+      description: `تعهد انگیزه وصول — فاکتور ${inv.num}`,
+      debit: 0,
+      credit: amount,
+      userId,
+    });
+  }
   notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} ریال ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
   return amount;
 }
@@ -572,11 +602,15 @@ function reverseCommissionAccrual(db, refType, refId, userId, date) {
     `).all(`${srcType}_reversal`, refId);
     for (const r of revs) hardDeleteJournalEntry(db, r.id);
   } catch (_) { /* optional */ }
-  const { retireRepLedgerByRef } = require('./party-ledger-retire');
+  const { retireRepLedgerByRef, retirePersonLedgerByRef } = require('./party-ledger-retire');
   retireRepLedgerByRef(db, {
     refTypes: [refType, `${refType}_reversal`],
     refId,
     repId: row.rep_id,
+  });
+  retirePersonLedgerByRef(db, {
+    refTypes: [srcType, `${srcType}_reversal`],
+    refId,
   });
   // Also drop any leftover commission_reversal rows tagged with original ref_type
   try {
