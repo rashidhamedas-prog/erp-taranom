@@ -108,7 +108,7 @@ const db = getDB();
   }, admin.id);
   bomLib.addLine(db, bom.id, {
     component_product_id: fabId, qty_per_base: 1.5, scrap_percent: 0,
-    line_type: 'material', size_matrix: JSON.stringify({ '38': 1.2 }),
+    line_type: 'material',
   }, admin.id);
   bomLib.activateBom(db, bom.id, '1405/01/01', admin.id);
 
