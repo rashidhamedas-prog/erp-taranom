@@ -3,8 +3,8 @@
 - **ریشه:** در DB دو `persons` با یک تلفن و `party_id`های متفاوت (۳→۱۰۲ و ۱۳۲→۱۳۶؛ ۸ جفت هم‌تلفن زنده). `syncPartyToPerson` / `ensurePersonForParty` فقط با `party_id` مچ می‌کردند و برای party دوم INSERT می‌زدند. سلکتور هم بدون dedupe همه را نشان می‌داد.
 - **رفع:** `lib/person-dedupe.js` (پیدا کردن با تلفن/کدملی، survivor، heal بوت `person_phone_dedupe_v450`)؛ همگام party→person بدون INSERT تکراری؛ GET `?for_picker=1` + `personSelect` یک ردیف/تلفن؛ POST/PUT تلفن تکراری → ۴۰۹ `E_PERSON_PHONE_DUP`. راهنما + SW `erp-taranom-v452`.
 - **فایل‌ها:** `lib/{person-dedupe,party-employee-sync,party-turnover}.js`, `routes/persons.js`, `db.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-person-phone-dedupe-v451.js`, CHANGE-LOG.
-- **تست:** `test-person-phone-dedupe-v451` + `test-sms` + روی ایران SQLite.
-- **Deploy:** ⏳
+- **تست:** ایران `test-person-phone-dedupe-v451` ۲۷/۰؛ `test-sms` ۲۲/۰؛ پروب زنده مهدیه: raw=2 → picked=1 (id=3).
+- **Deploy:** ✅ `ef865b0a` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v452`.
 
 ### ۱۴۰۵/۰۷/۲۶ — فی برگشت بدون‌فاکتور: ویرگول هزارگان قطع می‌شد (SW v450)
 - **علائم:** در «برگشت از فروش» (بدون فاکتور / ماتریس) ورود `۱۷٬۰۰۰٬۰۰۰` در فی فروش → جدول و جمع پایین `۱۷`؛ مبلغ برگشت هم ۱۷ ریال.
