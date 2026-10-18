@@ -138,8 +138,9 @@ function availableBatchMeters(db, batchId) {
 function normalizeFabricColor(raw) {
   return String(raw == null ? '' : raw)
     .trim()
-    // ZWNJ often stands in for a space (سورمه‌ای ≈ سورمه ای) — treat as whitespace.
-    .replace(/\u200c/g, ' ')
+    // ZWNJ / ZWJ / ZWSP / NBSP / BOM often stand in for a space (سورمه‌ای ≈ سورمه ای).
+    .replace(/[\u200c\u200d\u200b\u00a0\ufeff]/g, ' ')
+    .replace(/\u0640/g, '')
     .replace(/[\u064A\u0649]/g, '\u06cc')
     .replace(/\u0643/g, '\u06a9')
     .replace(/\s+/g, ' ')
@@ -162,6 +163,20 @@ function colorsMatch(a, b) {
   if (!na || !nb) return false;
   if (na === nb) return true;
   return fabricColorMatchKey(na) === fabricColorMatchKey(nb);
+}
+
+/**
+ * SQL twin of fabricColorMatchKey. A raw LIKE on b.color drops the row before
+ * colorsMatch runs: ماتریس «سرمه‌ای» (نیم‌فاصله، بدون و) ≠ طاقه «سورمه ای».
+ */
+function fabricColorKeySql(expr) {
+  const drop = [8204, 8205, 8203, 160, 65279, 1600, 9, 10, 13, 32, 1608];
+  let sql = `IFNULL(${expr},'')`;
+  for (const cp of drop) sql = `REPLACE(${sql}, char(${cp}), '')`;
+  sql = `REPLACE(${sql}, char(1610), char(1740))`;
+  sql = `REPLACE(${sql}, char(1609), char(1740))`;
+  sql = `REPLACE(${sql}, char(1603), char(1705))`;
+  return sql;
 }
 
 function applyLiveRollQty(db, r) {
@@ -199,9 +214,15 @@ function listFabricCirculation(db, query = {}) {
   if (query.batch_id) { where.push('l.batch_id=?'); params.push(Number(query.batch_id)); }
   if (query.product_id) { where.push('b.product_id=?'); params.push(Number(query.product_id)); }
   if (query.q) {
-    where.push('(b.batch_no LIKE ? OR IFNULL(p.name,\'\') LIKE ? OR IFNULL(b.color,\'\') LIKE ?)');
     const like = `%${String(query.q).trim()}%`;
-    params.push(like, like, like);
+    const key = fabricColorMatchKey(query.q);
+    if (key.length >= 2) {
+      where.push(`(b.batch_no LIKE ? OR IFNULL(p.name,'') LIKE ? OR IFNULL(b.color,'') LIKE ? OR ${fabricColorKeySql('b.color')} = ?)`);
+      params.push(like, like, like, key);
+    } else {
+      where.push('(b.batch_no LIKE ? OR IFNULL(p.name,\'\') LIKE ? OR IFNULL(b.color,\'\') LIKE ?)');
+      params.push(like, like, like);
+    }
   }
   if (query.from) { where.push('l.date>=?'); params.push(String(query.from)); }
   if (query.to) { where.push('l.date<=?'); params.push(String(query.to)); }
@@ -359,17 +380,26 @@ function listFabricRolls(db, query = {}) {
   if (query.status) { where.push('b.status=?'); params.push(String(query.status)); }
   else { where.push("COALESCE(b.status,'active') <> 'reversed'"); }
   if (query.color) {
-    where.push("IFNULL(b.color,'') LIKE ?");
-    params.push('%' + String(query.color).trim() + '%');
+    const key = fabricColorMatchKey(query.color);
+    if (key) {
+      where.push(`${fabricColorKeySql('b.color')} = ?`);
+      params.push(key);
+    }
   }
   if (query.width_cm != null && query.width_cm !== '' && Number(query.width_cm) > 0) {
     where.push('(b.width_cm=? OR IFNULL(b.width_cm,0)=0)');
     params.push(Math.round(Number(query.width_cm)));
   }
   if (query.q) {
-    where.push("(b.batch_no LIKE ? OR IFNULL(p.name,'') LIKE ? OR IFNULL(b.color,'') LIKE ?)");
     const like = '%' + String(query.q).trim() + '%';
-    params.push(like, like, like);
+    const key = fabricColorMatchKey(query.q);
+    if (key.length >= 2) {
+      where.push(`(b.batch_no LIKE ? OR IFNULL(p.name,'') LIKE ? OR IFNULL(b.color,'') LIKE ? OR ${fabricColorKeySql('b.color')} = ?)`);
+      params.push(like, like, like, key);
+    } else {
+      where.push("(b.batch_no LIKE ? OR IFNULL(p.name,'') LIKE ? OR IFNULL(b.color,'') LIKE ?)");
+      params.push(like, like, like);
+    }
   }
   const rows = db.prepare(`
     SELECT b.*, p.name AS product_name, w.code AS warehouse_code, w.name AS warehouse_name,
@@ -947,6 +977,7 @@ function updateFabricRoll(db, id, body, user) {
 module.exports = {
   normalizeFabricColor,
   fabricColorMatchKey,
+  fabricColorKeySql,
   colorsMatch,
   listFabricRolls,
   listFabricCirculation,

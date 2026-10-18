@@ -12649,7 +12649,8 @@ function cuttingRenderSizeGrid(sizes){
 /** هم‌تراز سرور: فاصله/نیم‌فاصله/و اختیاری (سورمه ای ≈ سرمه‌ای) */
 function normalizeFabricColor(raw){
   return String(raw==null?'':raw).trim()
-    .replace(/\u200c/g,' ')
+    .replace(/[\u200c\u200d\u200b\u00a0\ufeff]/g,' ')
+    .replace(/\u0640/g,'')
     .replace(/[\u064A\u0649]/g,'\u06cc')
     .replace(/\u0643/g,'\u06a9')
     .replace(/\s+/g,' ')
@@ -12955,7 +12956,7 @@ async function cuttingResolveFabricAndRolls(){
     window._cutFabricProductId=p.fabric_product_id||null;
     if(hint){
       hint.textContent=window._cutFabricProductId
-        ? ('پارچهٔ فرمول: #'+window._cutFabricProductId+' — فقط طاقه‌های همین کالا با رنگ انتخابی نشان داده می‌شوند.')
+        ? ('پارچهٔ فرمول: #'+window._cutFabricProductId+' — طاقه‌های همین کالا. فاصله، نیم‌فاصله و «و» در رنگ یکی حساب می‌شود.')
         : 'برای این کالا پارچهٔ متری در فرمول پیدا نشد؛ طاقه‌ها فیلتر کالا ندارند.';
     }
   }catch(e){
@@ -13002,9 +13003,33 @@ async function cuttingRefreshRollPicker(){
   let rows=[];
   try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
   rows=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
-  cuttingRenderRollPicker(rows, color);
+  let emptyNote='';
+  if(!rows.length && color) emptyNote=await cuttingExplainMissingRolls(color, width);
+  cuttingRenderRollPicker(rows, color, emptyNote);
 }
-function cuttingRenderRollPicker(rows, color){
+async function cuttingExplainMissingRolls(color, width){
+  const qs=new URLSearchParams({status:'active', min_qty:'0.01'});
+  if(window._cutFabricProductId) qs.set('product_id', String(window._cutFabricProductId));
+  let rows=[];
+  try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
+  rows=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  if(!rows.length){
+    return 'طاقهٔ فعالی برای پارچهٔ این فرمول با ماندهٔ زنده نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.';
+  }
+  const sameColor=rows.filter(b=>typeof colorsMatch==='function' && colorsMatch(b.color, color));
+  const label=b=>esc((b.batch_no||('#'+b.id))+' · '+(b.color||'بدون رنگ')+(b.width_cm?(' · عرض '+b.width_cm):''));
+  if(!sameColor.length){
+    return 'طاقهٔ این پارچه موجود است، ولی رنگش با «'+esc(color)+'» یکی نیست. فاصله، نیم‌فاصله و «و» یکی حساب شده‌اند. موجود: '+rows.slice(0,5).map(label).join('، ');
+  }
+  if(width>0){
+    const sameW=sameColor.filter(b=>!Math.round(Number(b.width_cm)||0) || Math.round(Number(b.width_cm))===Math.round(width));
+    if(!sameW.length){
+      return 'طاقه با این رنگ هست، ولی عرض '+esc(String(width))+' سانتی‌متر ندارد. موجود: '+sameColor.slice(0,5).map(label).join('، ');
+    }
+  }
+  return 'طاقهٔ فعالی با این پارچه/رنگ/عرض نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.';
+}
+function cuttingRenderRollPicker(rows, color, emptyNote){
   const box=el('cl-rolls'); if(!box) return;
   if(!color){
     box.innerHTML='<span class="muted">رنگ را انتخاب کنید تا طاقه‌های هم‌رنگ از انبار مواد لیست شوند.</span>';
@@ -13021,7 +13046,7 @@ function cuttingRenderRollPicker(rows, color){
   });
   const list=[...byId.values()];
   if(!list.length){
-    box.innerHTML='<span class="muted">طاقهٔ فعالی با این پارچه/رنگ/عرض نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.</span>';
+    box.innerHTML='<span class="muted">'+(emptyNote||'طاقهٔ فعالی با این پارچه/رنگ/عرض نیست — اول در «دریافت طاقه» یا خرید طاقه‌ای ثبت کنید.')+'</span>';
     return;
   }
   box.innerHTML=list.map(b=>{
@@ -31802,7 +31827,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد. عنوان هر ستون روی همان داده می‌ماند. جستجوی کالا فقط ردیف‌ها را عوض می‌کند و ستون انتخاب را دوباره به سرستون اضافه نمی‌کند.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
-        <li><b>طاقه در لایه‌چینی:</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر اجباری: پارچهٔ همان فرمول + رنگ هم‌خوان با سفارش/برش (+ عرض در صورت تعریف). رنگ طاقه و رنگ برش باید یکی باشند؛ سرور انتخاب ناسازگار را رد می‌کند.</li>
+        <li><b>طاقه در لایه‌چینی (v465):</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر: پارچهٔ همان فرمول + رنگ هم‌خوان + عرض (اگر هر دو طرف عرض داشته باشند). رنگ ماتریس و رنگ طاقه با فاصله، نیم‌فاصله، ی/ک عربی و «و» اختیاری یکی‌اند — مثلاً «سرمه‌ای» همان «سورمه ای» است. اگر طاقه هست ولی عرض یا کالای فرمول فرق دارد، پیام همان علت را می‌گوید. سرور انتخاب ناسازگار را رد می‌کند.</li>
         <li><b>رنگ×سایز و مواد هر عملیات (v278/v279):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> / <code>matrix_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
         <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
         <li><b>«اجرای تولید» قدیمی بسته شد (v280):</b> صفحهٔ قدیمی تحلیل هزینه، موجودی و بهای کالا را مستقیم تغییر می‌داد — بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید. با نصب مدول تولید، ثبت و ابطال از آن مسیر با <code>E_LEGACY_PRODUCTION_DISABLED</code> (۴۰۹) رد می‌شود و ردیف‌های قبلی فقط‌خواندنی می‌مانند؛ تولید جدید فقط از <b>سفارش‌های تولید</b> (یا لایه‌چینی/رسید محصول) ثبت می‌شود. اگر برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه لازم شد، <b>admin</b> می‌تواند در تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی مجاز باشد» را موقتاً روشن کند؛ حتی در آن حالت هم ثبت در ماه بستهٔ تولید با <code>E_PERIOD_CLOSED</code> رد می‌شود. مهاجرت ردیف‌های تاریخی به دفتر انبار یک کار جداگانه است.</li>
@@ -32467,7 +32492,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v464</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v465</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول.</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
