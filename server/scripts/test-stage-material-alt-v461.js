@@ -45,6 +45,7 @@ function whQty(pid) {
 }
 
 const pFg = seedProduct('کاپشن تست', 0, 0, 'finished');
+const pFgVar = seedProduct('کاپشن متغیر', 0, 0, 'finished');
 const pZip = seedProduct('زیپ کلاه', 50000, 70, 'raw');
 const pAlt = seedProduct('زیپ ساده', 45000, 100, 'raw');
 const ccId = db.prepare("SELECT id FROM cost_centers WHERE code='CC-40'").get()?.id
@@ -59,9 +60,9 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_f
 putWh(pZip, 70);
 putWh(pAlt, 100);
 
-function makeOrder(analysis) {
+function makeOrder(analysis, productId) {
   const draft = bom.createBom(db, {
-    product_id: pFg,
+    product_id: productId,
     name: 'BOM stage alt ' + analysis,
     yield_percent: 100,
     base_qty: 1,
@@ -86,7 +87,7 @@ function makeOrder(analysis) {
   }, adminId);
   bom.activateBom(db, draft.id, '1405/01/01', adminId);
   const po = engine.createOrder(db, {
-    product_id: pFg,
+    product_id: productId,
     bom_id: draft.id,
     qty_planned: 1,
     analysis_type: analysis,
@@ -100,7 +101,7 @@ function makeOrder(analysis) {
   return { po, stage };
 }
 
-const fixed = makeOrder('fixed_adv');
+const fixed = makeOrder('fixed_adv', pFg);
 const tpl = adv.getStageIssueTemplate(db, fixed.po.id, fixed.stage.id);
 const zipLine = (tpl.lines || []).find(L => Number(L.product_id) === pZip);
 ok(!!zipLine && Number(zipLine.stock_short) === 1, 'template flags zip shortage 70<96', zipLine);
@@ -189,7 +190,7 @@ eq('reverse restores alt', whQty(pAlt), 100);
 
 putWh(pZip, 70);
 putWh(pAlt, 40);
-const variable = makeOrder('variable_adv');
+const variable = makeOrder('variable_adv', pFgVar);
 const issued = adv.issueStageMaterials(db, {
   orderId: variable.po.id,
   stageId: variable.stage.id,
