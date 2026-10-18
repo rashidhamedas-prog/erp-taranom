@@ -37,7 +37,8 @@ ok(!delSlice.includes("entry_type: 'reversal'") && !delSlice.includes("entry_typ
   'DELETE incentive no longer inserts reversal row');
 ok(repSrc.includes("COALESCE(status,'posted')<>'reversed'"), 'paid/statement exclude reversed');
 ok(repSrc.includes('hideVoidedRepLedgerRows'), 'buildRepLedgerView filters voids');
-ok(turnSrc.includes('hideVoidedRepLedgerRows'), 'party turnover filters rep_ledger');
+ok(turnSrc.includes('linked_rep_id') || turnSrc.includes('do NOT merge rep_ledger'),
+  'party turnover does not half-merge rep_ledger (v448)');
 ok(/reverseCommissionAccrual[\s\S]*retireRepLedgerByRef/.test(repSrc),
   'reverseCommissionAccrual retires (no hollow twin)');
 ok(dbSrc.includes('purge_hollow_rep_incentive_v446'), 'boot heal flag v446');

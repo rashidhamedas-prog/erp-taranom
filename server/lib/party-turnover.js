@@ -8,8 +8,9 @@
  * - Default = merge all role books so net closing = dashboard مانده.
  * - Optional ?role=customer|supplier|person for a single leaf (closing = that leaf).
  * - Docs fallback (PO/payment) only when supplier_ledger empty; still gap-aligned to books.
- * - v447: rep_ledger (انگیزه) may appear on شخص گردش for visibility but is ignored in
- *   align/running/totals so no fake «تطبیق با دفتر زنده» offsets incentive debits.
+ * - v448 (ADR-PARTY-001 §13): دو دفتر جدا — گردش شخص = فقط party-books / person_ledger / GL.
+ *   انگیزه فروش روی `rep_ledger` است و در صورت‌حساب نماینده دیده می‌شود؛ ادغام نیمه‌کاره
+ *   (نمایش بدون اثر روی مانده) ممنوع. linked_rep_id فقط برای لینک UI برمی‌گردد.
  */
 const { linkedCustomerIds, linkedSupplierIds } = require('./parties-sync');
 const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
@@ -89,20 +90,11 @@ function leafSignedFromDetail(detail, source) {
 /**
  * Prepend synthetic opening so entry stream sums to targetSigned (party-books leaf/net).
  * Positive target extras → بدهکار؛ negative → بستانکار.
- *
- * meta.ignoreSources — e.g. ['rep_ledger']: still listed on گردش for visibility, but
- * NOT part of party-books SoT. Ignoring them in the gap math prevents a fake
- * «تطبیق با دفتر زنده» that merely offsets incentive debits (v447 / عارف قاسمی).
+ * Every listed row participates in signedSum (no display-only rows).
  */
 function alignEntriesToTarget(entries, targetSigned, meta) {
   const list = Array.isArray(entries) ? entries.slice() : [];
-  const ignore = new Set(
-    Array.isArray(meta && meta.ignoreSources) ? meta.ignoreSources.map(String) : []
-  );
-  const booksSlice = ignore.size
-    ? list.filter((e) => !ignore.has(String(e.source || '')))
-    : list;
-  const cur = signedSum(booksSlice);
+  const cur = signedSum(list);
   const gap = Math.round(Number(targetSigned) || 0) - cur;
   if (Math.abs(gap) <= 1) return list;
   const debit = gap > 0 ? gap : 0;
@@ -121,63 +113,35 @@ function alignEntriesToTarget(entries, targetSigned, meta) {
   return list;
 }
 
-/** Running balance skips sources that are informational only (not party-books SoT). */
-function recomputeRunning(rows, balanceIgnoreSources) {
-  const skip = new Set(
-    Array.isArray(balanceIgnoreSources) ? balanceIgnoreSources.map(String) : []
-  );
+function recomputeRunning(rows) {
   let run = 0;
   for (const e of rows) {
-    if (!skip.has(String(e.source || ''))) {
-      run += (e.debit || 0) - (e.credit || 0);
-    }
+    run += (e.debit || 0) - (e.credit || 0);
     e.balance = run;
   }
   return rows;
 }
 
 function finalizeTurnover(kind, title, entityId, rawEntries, closingTarget, extra) {
-  const ignoreSources = (extra && extra.align_ignore_sources) || [];
   const aligned = alignEntriesToTarget(rawEntries, closingTarget, {
     description: 'مانده اول دوره / تطبیق با دفتر زنده',
     source: 'opening_fold',
-    ignoreSources,
   });
   if (!aligned.length && Math.round(Number(closingTarget) || 0) === 0) return null;
   const out = [];
   for (const e of aligned) pushEntry(out, e);
-  recomputeRunning(out, ignoreSources);
+  recomputeRunning(out);
   const closing = Math.round(Number(closingTarget) || 0);
-  // Force last books-affecting row to SoT (rep_ledger rows keep prior books run)
-  if (out.length) {
-    const skip = new Set(ignoreSources.map(String));
-    let lastBooks = -1;
-    for (let i = out.length - 1; i >= 0; i -= 1) {
-      if (!skip.has(String(out[i].source || ''))) { lastBooks = i; break; }
-    }
-    if (lastBooks >= 0) out[lastBooks].balance = closing;
-    // Informational rows after that inherit books closing
-    for (let i = lastBooks + 1; i < out.length; i += 1) out[i].balance = closing;
-    if (lastBooks < 0) out[out.length - 1].balance = closing;
-  }
-  // Period totals for SoT exclude informational sources (incentives stay visible as rows)
-  const ignoreSet = new Set(ignoreSources.map(String));
-  const booksEntries = ignoreSet.size
-    ? out.filter((e) => !ignoreSet.has(String(e.source || '')))
-    : out;
-  const totals = sumDebitCredit(booksEntries);
-  const rest = { ...(extra || {}) };
-  delete rest.align_ignore_sources;
-  return {
+  if (out.length) out[out.length - 1].balance = closing;
+  return withTotals({
     kind,
     title,
     entity_id: entityId,
     entries: out,
     closing,
     books_closing: closing,
-    ...totals,
-    ...rest,
-  };
+    ...(extra || {}),
+  });
 }
 
 function buildCustomerTurnover(db, partyId, custIds, detail) {
@@ -517,32 +481,12 @@ function buildMergedPersonTurnover(db, party, partyId, detail) {
     }
   }
 
-  const user = db.prepare('SELECT id, name, role FROM users WHERE party_id=?').get(partyId);
-  if (user) {
-    try {
-      const { hideVoidedRepLedgerRows } = require('./party-ledger-retire');
-      const rlRaw = db.prepare(`
-        SELECT date, entry_type, ref_type, ref_id, description, debit, credit, created_at, id
-        FROM rep_ledger WHERE rep_id=? ORDER BY date ASC, id ASC
-      `).all(user.id);
-      const rl = hideVoidedRepLedgerRows(db, rlRaw);
-      for (const r of rl) {
-        merged.push({
-          date: r.date || '',
-          description: `${r.description || r.entry_type || 'دفتر بازاریاب'} — ${user.name || ''}`.trim(),
-          type_label: r.entry_type || '',
-          debit: Math.round(Number(r.debit) || 0),
-          credit: Math.round(Number(r.credit) || 0),
-          created_at: r.created_at || 0,
-          source: 'rep_ledger',
-          ref_type: r.ref_type || '',
-          ref_id: r.ref_id,
-          journal_id: null,
-          id: r.id,
-        });
-      }
-    } catch (_) { /* rep_ledger optional */ }
-  }
+  // v448: do NOT merge rep_ledger here — incentive has its own statement (ADR-PARTY-001 §13).
+  const linkedRep = db.prepare(`
+    SELECT id, name, role FROM users
+    WHERE party_id=? AND role IN ('field_sales','inside_sales','sales_manager')
+    ORDER BY id ASC LIMIT 1
+  `).get(partyId);
 
   sortReportRows(merged, { date: 'date', dir: 'asc' });
   const raw = merged.map((r) => ({
@@ -561,14 +505,12 @@ function buildMergedPersonTurnover(db, party, partyId, detail) {
   if (!closingTarget && detail && (detail.source === 'person' || detail.source === 'gl' || detail.source === 'opening')) {
     closingTarget = Math.round(Number(detail.balance) || 0);
   }
-  // Fallback closing must ignore informational rep_ledger (party-books SoT only)
-  if (!closingTarget && raw.length) {
-    closingTarget = signedSum(raw.filter((e) => e.source !== 'rep_ledger'));
-  }
+  if (!closingTarget && raw.length) closingTarget = signedSum(raw);
 
   return finalizeTurnover('person', 'گردش شخص', personId, raw, closingTarget, {
-    user_id: user ? user.id : null,
-    align_ignore_sources: ['rep_ledger'],
+    linked_rep_id: linkedRep ? linkedRep.id : null,
+    linked_rep_name: linkedRep ? linkedRep.name : null,
+    has_incentive_ledger: !!linkedRep,
   });
 }
 
@@ -671,7 +613,13 @@ function buildPartyTurnover(db, partyId, opts) {
         personTurn.entity_id,
         rawPerson,
         netClosing,
-        { books_net: netClosing, unified: true, align_ignore_sources: ['rep_ledger'] }
+        {
+          books_net: netClosing,
+          unified: true,
+          linked_rep_id: personTurn.linked_rep_id || null,
+          linked_rep_name: personTurn.linked_rep_name || null,
+          has_incentive_ledger: !!personTurn.has_incentive_ledger,
+        }
       );
     }
     return personTurn;

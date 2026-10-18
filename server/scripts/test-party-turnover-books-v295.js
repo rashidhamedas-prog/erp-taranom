@@ -86,7 +86,10 @@ db.prepare(`
 
 const turnAref = buildPartyTurnover(db, partyAref);
 ok(turnAref && turnAref.kind === 'person', 'aref person kind');
-ok(turnAref.entries.some((e) => e.source === 'rep_ledger' && e.debit === 100000000), 'incentive on turnover');
+ok(!(turnAref.entries || []).some((e) => e.source === 'rep_ledger'),
+  'v448: incentive not merged into person turnover');
+ok(turnAref.has_incentive_ledger === true && Number(turnAref.linked_rep_id) === Number(userAref),
+  'linked_rep_id exposed for UI', turnAref);
 
 const settId = db.prepare(`
   INSERT INTO settlements (user_id, cust_id, amount, amount_rial, pay_type, date, note, status)

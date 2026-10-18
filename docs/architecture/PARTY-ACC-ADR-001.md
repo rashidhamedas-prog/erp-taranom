@@ -27,6 +27,10 @@ Ship **Option 1 Minimal** — correctness + enforceable per-party credit, withou
 
 12. **گردش SoT:** `buildPartyTurnover` ending `closing` must equal `partySignedBalanceDetailMap` (net by default; leaf when `?role=`). Synthetic opening fold when subledger lacks opening row; union all linked customer/supplier ids; never use purchase/payment docs formula for closing when books leaf exists.
 
+### Amendment v448 (person vs incentive ledgers)
+
+13. **Two books, never half-merge:** Person/party turnover (`buildMergedPersonTurnover`) must **not** include `rep_ledger` / incentive payment rows. Incentive accrual & payments live only on the representative statement (`buildRepStatement` / `rep_ledger` + live `incentive_payments`). Displaying incentive debits on شخص گردش without affecting running balance or period totals is forbidden (v447 anti-pattern). UI may expose `linked_rep_id` to open the rep statement. Every row shown on a statement must participate in debit/credit totals and running balance for that same SoT.
+
 ## Also in scope (P0)
 
 - Server guards + regression test `test-party-acc-adr001-v337.js`

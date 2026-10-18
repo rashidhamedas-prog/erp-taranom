@@ -11196,8 +11196,11 @@ async function showPartyTurnover(id,name,role){
     const closing=d.closing!=null?d.closing:(d.books_closing!=null?d.books_closing:(entries.length?entries[entries.length-1].balance:0));
     const side=(closing||0)>0?'بدهکار':((closing||0)<0?'بستانکار':'صفر');
     const sideColor=(closing||0)>0?'var(--red)':((closing||0)<0?'var(--green)':'inherit');
+    const repHint=d.has_incentive_ledger&&d.linked_rep_id
+      ? `<div class="muted" data-csp-style="${CSP.style(`padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;line-height:1.7`)}">پرداخت و تعهد انگیزه فروش در این گردش نیست (کنترل‌حساب شخص جدا از دفتر نماینده است). برای مانده انگیزه: <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){closeModal();go('acc-reps');setTimeout(function(){loadRepDetail(Number(d.linked_rep_id))},80)})}">صورت‌حساب نماینده${d.linked_rep_name?' — '+esc(d.linked_rep_name):''}</button></div>`
+      : '';
     const body=entries.length
-      ? `<div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
+      ? `${repHint}<div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
         <th>تاریخ</th><th>شرح</th><th>بدهکار ${moneyColLabel()}</th><th>بستانکار ${moneyColLabel()}</th><th>مانده ${moneyColLabel()}</th>
       </tr></thead><tbody>${entries.map(r=>`<tr>
         <td class="mono">${escDate(r.date)}</td><td>${esc(r.description||'-')}</td>
@@ -11214,7 +11217,7 @@ async function showPartyTurnover(id,name,role){
         مانده نهایی (هم‌تراز کنترل حساب): <span data-csp-style="${CSP.style(`color:${sideColor}`)}">${fmt(closing||0)} ریال${side!=='صفر'?' ('+side+')':''}</span>
         <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع بدهکار ${fmt(totalDebit)} ریال · جمع بستانکار ${fmt(totalCredit)} ریال · منبع مانده party-books</div>
       </div>`
-      : `<div data-csp-style="${CSP.style(`padding:24px;text-align:center`)}"><p class="muted">هنوز ردیف گردشی برای این شخص ثبت نشده است.</p><p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">پس از ثبت سند حسابداری، فاکتور، خرید یا پرداخت، گردش اینجا دیده می‌شود.</p></div>`;
+      : `${repHint}<div data-csp-style="${CSP.style(`padding:24px;text-align:center`)}"><p class="muted">هنوز ردیف گردشی برای این شخص ثبت نشده است.</p><p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">پس از ثبت سند حسابداری، فاکتور، خرید یا پرداخت، گردش اینجا دیده می‌شود. انگیزه فروش در صورت‌حساب نماینده است.</p></div>`;
     openModal(`
       <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:0`)}">${body}</div>
@@ -30495,7 +30498,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مسیر: <b>حسابداری → اشخاص → گزارشات → کنترل حساب اشخاص</b>.</li>
         <li><b>KPI:</b> جمع بدهکار / بستانکار / مانده خالص، تعداد عبور از سقف اعتبار، اختلاف دفتر زنده با تفصیلی.</li>
         <li><b>مانده زنده (اصول):</b> زیردفتر نقش + افتتاحیه <b>دقیقاً یک‌بار</b> (اگر ردیف افتتاحیه در زیردفتر نباشد از ماندهٔ هدر اشخاص). تأمین‌کننده از <code>supplier_ledger</code> است نه فرمول خرید/پرداخت.</li>
-        <li><b>گردش (v442 / v447):</b> ماندهٔ انتهای مودال گردش با همان <code>party-books</code> لیست یکی است. افتتاحیهٔ هدر/تأمین که در زیردفتر نباشد به‌صورت ردیف «مانده اول دوره / تطبیق» می‌آید؛ همهٔ شناسه‌های لینک‌شدهٔ مشتری/تأمین خوانده می‌شوند. نقش دوگانه = ادغام دفاتر با ماندهٔ خالص. فیلتر سمت داشبورد با <code>?role=</code> به گردش پاس داده می‌شود. <b>پرداخت انگیزه / دفتر بازاریاب</b> برای شفافیت در گردش شخص دیده می‌شود ولی در مانده و جمع دورهٔ کنترل‌حساب نمی‌نشیند — ردیف مصنوعی «تطبیق با دفتر زنده» برای جبران انگیزه ساخته نمی‌شود (صورت‌حساب نماینده منبع ماندهٔ انگیزه است).</li>
+        <li><b>گردش (v442 / v448):</b> ماندهٔ انتهای مودال گردش با همان <code>party-books</code> لیست یکی است. افتتاحیهٔ هدر/تأمین که در زیردفتر نباشد به‌صورت ردیف «مانده اول دوره / تطبیق» می‌آید؛ همهٔ شناسه‌های لینک‌شدهٔ مشتری/تأمین خوانده می‌شوند. نقش دوگانه = ادغام دفاتر با ماندهٔ خالص. فیلتر سمت داشبورد با <code>?role=</code> به گردش پاس داده می‌شود. <b>دو دفتر جدا (ADR-PARTY-001):</b> گردش شخص فقط کنترل‌حساب شخص است؛ پرداخت/تعهد انگیزه فروش در <b>صورت‌حساب نماینده</b> (مدیریت نمایندگان / تأیید انگیزه) است — ردیف انگیزه در گردش شخص نمی‌آید تا مانده و جمع بدهکار همیشه با جدول یکی باشند.</li>
         <li><b>جمع صفحه:</b> ستون مانده + بدهکار + بستانکار صفحهٔ فیلترشده.
         <li><b>اختلاف دفتر:</b> مقایسهٔ <b>هر برگه</b> با همان برگهٔ تفصیلی (نقش دوگانه AR≠AP). افتتاحیهٔ فقط‌هدر دیگر مانده را از GL جدا نمی‌کند. هشدار فقط برای اختلاف واقعی زیردفتر↔GL است.</li>
         <li><b>ثبت افتتاحیه:</b> سند اول دوره همزمان روی JE و همهٔ زیردفترهای لینک‌شده (مشتری/شخص/تأمین) می‌نشیند تا دوباره شکاف ساخته نشود.</li>
@@ -31417,7 +31420,7 @@ function renderSalesGuide(){
       </ul>`),
     helpSec('💼','حساب من',`
       <p>از منوی <b>حساب من</b> دریافت، هزینه، بازدید و تماس را ثبت کنید. پس از پر کردن فیلدهای ستاره‌دار، ثبت با پیام موفقیت یا خطای مشخص تمام می‌شود — دکمه روی «در حال ارسال» گیر نمی‌کند.</p>
-      <div class="tip">مانده و صورت‌حساب انگیزه / دفتر بازاریاب فقط اسناد زنده را نشان می‌دهد — پرداخت ابطال‌شده و ردیف «ابطال» تکراری در گزارش عملیاتی نمی‌آید (همان قانون ابطال کامل حسابداری).</div>
+      <div class="tip">مانده انگیزه در «حساب من / صورت‌حساب نماینده» است، نه در گردش شخص طرف‌حساب. پرداخت ابطال‌شده و ردیف «ابطال» تکراری در گزارش عملیاتی نمی‌آید.</div>
       <ul>
         <li><b>دریافت از مشتری:</b> مشتری تخصیص‌یافته، مبلغ ریال، نوع پرداخت و عکس رسید الزامی است. تا تأیید حسابدار روی مانده اثر ندارد. از پیگیری یا تاریخچهٔ مشتری هم «ثبت دریافت» باز می‌شود و همان فرم میدانی است (نه سند حسابداری مستقیم)</li>
         <li><b>هزینه:</b> دسته (حمل‌ونقل، سوخت، هتل، پذیرایی، هدایا، تبلیغات، اداری، سایر)، مبلغ، تاریخ و شرح الزامی است؛ رسید اختیاری. اگر فهرست دسته خالی آمد همان دسته‌های ثابت سیستم استفاده می‌شود</li>
