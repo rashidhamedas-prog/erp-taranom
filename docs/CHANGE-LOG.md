@@ -2,8 +2,8 @@
 - **ریشه:** تیک «اجازه موجودی منفی» در ATP و لایهٔ اپلیکیشن رعایت می‌شد، ولی تریگر SQLite `trg_ws_no_negative` هر `warehouse_stock.qty < 0` را بدون خواندن فلگ انبار abort می‌کرد → فاکتور با کمبود موجودی شکست می‌خورد. روش ثبت ادواری روی create/convert درست بود، اما amend فاکتور، مرجوعی فروش و تسویه امانی هنوز `invoice_cogs` / معکوس بهای تمام‌شده می‌زدند.
 - **اصلاح:** تریگر DROP+CREATE با شرط `warehouses.allow_negative` یا `settings.inventory_allow_negative`؛ گیت INSERT جدا. amend/return/consignment از `warehouseUsesPerpetualValuation` استفاده می‌کنند. UI فرم انبار راهنمای کوتاه برای دو فیلد جدا (ریالی‌کردن ≠ روش ثبت) و اثر تیک منفی. راهنما + SW `erp-taranom-v435`.
 - **فایل‌ها:** `lib/production/schema.js`, `lib/{amend-invoice,sales-return-doc,consignments}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-wh-neg-periodic-v435.js`, `scripts/test-nontax-atp.js`, CHANGE-LOG.
-- **تست:** محلی `test-wh-neg-periodic-v435`؛ `test-sms`؛ در صورت ABI، `test-nontax-atp` مورد L باید فروش با موجودی منفی را ۲۰۰ کند.
-- **Deploy:** ⏳
+- **تست:** ایران `test-wh-neg-periodic-v435` ۲۲/۰ (live trigger سبز)؛ `test-sms` ۲۲/۰. تریگر زنده: `allow_negative_ok` + `insert_trigger:ok`.
+- **Deploy:** ✅ `9cb1e8c0` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v435`.
 
 ### ۱۴۰۵/۰۷/۲۶ — افتتاحیه مشتری، سند دستی، چک دریافت، صندوق کیمیا، قیمت تک (SW v433)
 - **ریشه:** تغییر مانده اول دوره سند تازه می‌ساخت و سند قبلی می‌ماند؛ برای مشتری دیگر فقط فیلد شخص عوض می‌شد و دفتر/مانده مشتری نه. سند دستی «ثبت شد» می‌گفت ولی اگر کلید درخواست روی سند ابطال‌شده مانده بود، سند زنده ساخته نمی‌شد و در گردش مشتری هم نمی‌آمد. کارت مشخصات چک در دریافت دیده نمی‌شد. صندوق کیمیا باید تاریخ مانده ۳۱ شهریور بگیرد. اکسل کالا قیمت تک نداشت.
