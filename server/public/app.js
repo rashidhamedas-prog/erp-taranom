@@ -5572,6 +5572,24 @@ function warehouseNameById(id){
   if(ME && Number(ME.sales_warehouse_id)===n) return String(ME.sales_warehouse_name||('انبار '+n));
   return 'انبار '+n;
 }
+/** Client mirror of server salesAllowsNegative — WH flag OR settings.inventory_allow_negative. */
+function clientAllowsNegativeStock(warehouseId){
+  const wid=warehouseId!=null&&warehouseId!==''?Number(warehouseId):null;
+  if(Number.isFinite(wid)&&wid>0){
+    const rows=CACHE.warehouses||CACHE._prodWarehouses||[];
+    const wh=rows.find(w=>Number(w.id)===wid);
+    if(wh&&Number(wh.allow_negative)) return true;
+  }
+  const s=(CACHE.settings||{}).inventory_allow_negative;
+  return String(s||'0')==='1';
+}
+/** When allow-negative: empty live pack falls back to full color×size matrix (qty still chosen by caller). */
+function livePackRowsForSale(pack, warehouseId){
+  const live=(pack&&pack.live)||[];
+  if(live.length) return live;
+  if(clientAllowsNegativeStock(warehouseId)) return (pack&&pack.matrix)||[];
+  return [];
+}
 /** انبار ردیف فاکتور: select زندهٔ سبد → ردیف cart → هدر → انبار فروش کاربر */
 function resolveInvLineWarehouseId(indices){
   const ix=Array.isArray(indices)?indices:[];
@@ -5654,26 +5672,30 @@ function variantLineFromSku(v, qty){
     sku_stock: Number(v.stock)||0
   };
 }
-function applyAutoLivePack(p, pack, dest){
-  const live=(pack&&pack.live)||[];
+function applyAutoLivePack(p, pack, dest, warehouseId){
+  const whId=warehouseId!=null?warehouseId:(typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null);
+  const live=livePackRowsForSale(pack, whId);
   if(!live.length){
     showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
     return false;
   }
   const lines=live.map(function(v){ return variantLineFromSku(v, 1); });
-  const toast='پک کامل ('+fmt(lines.length)+' قطعه) به سبد اضافه شد';
+  const fromZero=clientAllowsNegativeStock(whId) && !((pack&&pack.live)||[]).length;
+  const toast=fromZero
+    ?('پک کامل با موجودی صفر ('+fmt(lines.length)+' قطعه) اضافه شد — انبار اجازهٔ موجودی منفی دارد')
+    :('پک کامل ('+fmt(lines.length)+' قطعه) به سبد اضافه شد');
   if(dest==='marketer'){
     if(!(window.MarketerUI && typeof MarketerUI.addVariantLines==='function')){
       showToast('سبد فروش در دسترس نیست','error');
       return false;
     }
-    MarketerUI.addVariantLines(p, lines, { toast: toast });
+    MarketerUI.addVariantLines(p, lines, { toast: toast, allowNegative: clientAllowsNegativeStock(whId) });
     return true;
   }
   lines.forEach(function(row){ addCartRow(p, row); });
   try{ renderCart(); }catch(_){}
   try{ renderInvPicker(); }catch(_){}
-  showToast(toast);
+  showToast(toast, fromZero?'info':'success');
   return true;
 }
 async function addToCart(pid){
@@ -5691,7 +5713,7 @@ async function addToCart(pid){
   }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
-    applyAutoLivePack(p, pack, 'invoice');
+    applyAutoLivePack(p, pack, 'invoice', whId);
     return;
   }
   addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1, warehouse_id: whId });
@@ -5719,7 +5741,10 @@ function bumpInvVarQty(vid, delta){
   if(!inp) return;
   const stock=Number(inp.getAttribute('data-stock'));
   let n=Math.max(0, Math.floor((Number(inp.value)||0)+Number(delta||0)));
-  if(Number.isFinite(stock) && stock>=0 && n>stock) n=stock;
+  const allowNeg=inp.getAttribute('data-allow-neg')==='1'
+    || (window._variantPick && typeof clientAllowsNegativeStock==='function'
+      && clientAllowsNegativeStock(window._variantPick.warehouse_id));
+  if(!allowNeg && Number.isFinite(stock) && stock>=0 && n>stock) n=stock;
   inp.value=n;
 }
 function filterInvVariantColorFromChip(ev){
@@ -5751,7 +5776,8 @@ function openInvVariantSplitModal(p, pack, opts){
   const qtyMap={};
   (opts.existing||[]).forEach(r=>{ if(r.variant_id) qtyMap[String(r.variant_id)]=Number(r.qty)||0; });
   const replaceIndices=opts.replaceIndices||null;
-  window._variantPick={ dest: dest, product: p, replaceIndices: replaceIndices, warehouse_id: opts.warehouseId||null };
+  const allowNegPick=typeof clientAllowsNegativeStock==='function'&&clientAllowsNegativeStock(opts.warehouseId);
+  window._variantPick={ dest: dest, product: p, replaceIndices: replaceIndices, warehouse_id: opts.warehouseId||null, allow_negative: allowNegPick?1:0 };
   const confirmOpts={ dest: dest, warehouse_id: opts.warehouseId||null };
   if(replaceIndices) confirmOpts.replaceIndices=replaceIndices.slice();
   const splitConfirmBind=CSP.bind('click',function(){
@@ -5803,7 +5829,7 @@ function openInvVariantSplitModal(p, pack, opts){
         <td class="mono">${fmt(Number(v.stock)||0)}</td>
         <td><div class="inv-var-qty-cell">
           <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${minus}">−</button>
-          <input type="number" min="0" step="1" inputmode="numeric" value="${defQty}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${Number(v.stock)||0}">
+          <input type="number" min="0" step="1" inputmode="numeric" value="${defQty}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${Number(v.stock)||0}" data-allow-neg="${allowNegPick?1:0}">
           <button type="button" class="btn sm ghost inv-var-step" data-csp-click="${plus}">+</button>
         </div></td>
       </tr>`;
@@ -7741,7 +7767,7 @@ function productCardHtml(p, opts){
         <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${Number(p.website_stock_push)===0?'<div class="code">ارسال موجودی به سایت: خاموش</div>':''}
         ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
-        ${opts.addToCartFn?((Number(stockQty)||0)<=0
+        ${opts.addToCartFn?(((Number(stockQty)||0)<=0 && !(typeof clientAllowsNegativeStock==='function'&&clientAllowsNegativeStock(opts.warehouseFilter||opts.warehouseId||null)))
           ?`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px;opacity:.55`)}" disabled title="موجودی صفر">⛔ بدون موجودی</button>`
           :`<button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){CSP.resolve(opts.addToCartFn)((p.id))})}">${productNeedsColorPick(p)?'➕ افزودن پک':('➕ افزودن به سبد'+(pack>1?` (${pack} عدد)`:''))}</button>`):''}
         ${opts.canEdit?`<div class="acts">
@@ -10847,9 +10873,10 @@ async function genCartAdd(pid){
   }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
-    // خرید: اگر انبار مقصد خالی است ماتریس کامل (ورود کالا)؛ برگشت فروش: فقط پک زنده همان انبار
+    // خرید: اگر انبار مقصد خالی است ماتریس کامل (ورود کالا)؛ برگشت فروش: پک زنده یا ماتریس اگر allow_negative
     let live=pack.live||[];
     if(GEN_CART_PRICE_FIELD==='cost' && !live.length) live=pack.matrix||[];
+    if(!live.length) live=livePackRowsForSale(pack, whId);
     if(!live.length){
       const whName=whId&&typeof warehouseNameById==='function'?warehouseNameById(whId):'';
       showToast(whName
@@ -11098,6 +11125,11 @@ async function showPartyTurnover(id,name){
       balance:e.balance||e.running_balance||0
     }));
     const title=(d.title||'گردش')+': '+name;
+    const totalDebit=d.totalDebit!=null?d.totalDebit:entries.reduce((a,e)=>a+(Number(e.debit)||0),0);
+    const totalCredit=d.totalCredit!=null?d.totalCredit:entries.reduce((a,e)=>a+(Number(e.credit)||0),0);
+    const closing=d.closing!=null?d.closing:(entries.length?entries[entries.length-1].balance:0);
+    const side=(closing||0)>0?'بدهکار':'بستانکار';
+    const sideColor=(closing||0)>0?'var(--red)':'var(--green)';
     const body=entries.length
       ? `<div class="tbl-wrap" data-csp-style="${CSP.style(`max-height:70vh`)}"><table class="tbl"><thead><tr>
         <th>تاریخ</th><th>شرح</th><th>بدهکار ${moneyColLabel()}</th><th>بستانکار ${moneyColLabel()}</th><th>مانده ${moneyColLabel()}</th>
@@ -11105,7 +11137,17 @@ async function showPartyTurnover(id,name){
         <td class="mono">${escDate(r.date)}</td><td>${esc(r.description||'-')}</td>
         <td class="mono">${fmt(r.debit||0)}</td><td class="mono">${fmt(r.credit||0)}</td>
         <td class="mono">${fmt(r.balance||0)}</td>
-      </tr>`).join('')}</tbody></table></div>`
+      </tr>`).join('')}</tbody>
+      <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
+        <td colspan="2">جمع دوره</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(totalDebit)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(totalCredit)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:${sideColor}`)}">${fmt(Math.abs(closing||0))} ${side}</td>
+      </tr></tfoot></table></div>
+      <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
+        مانده نهایی: <span data-csp-style="${CSP.style(`color:${sideColor}`)}">${fmt(Math.abs(closing||0))} ریال (${side})</span>
+        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع بدهکار ${fmt(totalDebit)} ریال · جمع بستانکار ${fmt(totalCredit)} ریال</div>
+      </div>`
       : `<div data-csp-style="${CSP.style(`padding:24px;text-align:center`)}"><p class="muted">هنوز ردیف گردشی برای این شخص ثبت نشده است.</p><p class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">پس از ثبت سند حسابداری، فاکتور، خرید یا پرداخت، گردش اینجا دیده می‌شود.</p></div>`;
     openModal(`
       <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -13639,7 +13681,7 @@ async function whPickProduct(i,id,label,available){
   }catch(_){ style=null; }
   const pack=livePackFromStyle(style);
   if(pack.matrix.length){
-    const live=pack.live||[];
+    const live=livePackRowsForSale(pack, wh);
     if(!live.length){
       const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(wh))?.name||'';
       showToast(whName
@@ -13918,6 +13960,7 @@ async function csPickProduct(i,id,label,available){
     if(direction==='out'){
       const stocked=live.filter(v=>(Number(v.stock)||0)>0);
       if(stocked.length) live=stocked;
+      else if(typeof livePackRowsForSale==='function') live=livePackRowsForSale(pack, wh);
     }
     if(direction==='out' && !live.length){
       showToast('در این انبار رنگ/سایز موجودی برای این کالا نیست','error');
@@ -30723,7 +30766,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
       <ul>
         <li>کالاها از <b>بیشترین موجودی به کمترین</b> مرتب می‌شوند</li>
-        <li>اگر کالا ماتریس رنگ×سایز داشته باشد، با «افزودن پک» <b>هر نقش</b> کل پک زنده را یکجا به سبد می‌برد — لیست رنگ باز نمی‌شود. در سبد هر کالا <b>یک ردیف</b> است و زیر نام، رنگ‌ها و تعداد سایزبندی دیده می‌شود. «ویرایش رنگ/سایز» همان پنجره را برای اصلاح باز می‌کند. ذخیره فاکتور همچنان per-SKU است</li>
+        <li>اگر کالا ماتریس رنگ×سایز داشته باشد، با «افزودن پک» <b>هر نقش</b> کل پک زنده را یکجا به سبد می‌برد — لیست رنگ باز نمی‌شود. اگر انبار مبدأ <b>اجازه موجودی منفی</b> داشته باشد و موجودی رنگ/سایز صفر باشد، همان پک کامل با هشدار اضافه می‌شود (مسدود نمی‌شود). در سبد هر کالا <b>یک ردیف</b> است و زیر نام، رنگ‌ها و تعداد سایزبندی دیده می‌شود. «ویرایش رنگ/سایز» همان پنجره را برای اصلاح باز می‌کند. ذخیره فاکتور همچنان per-SKU است</li>
         <li>چیپ/خلاصهٔ رنگ×سایز روی کارت کاتالوگ و picker فاکتور از موجودی <b>انبار انتخاب‌شده</b> (یا انبار تخصیص‌یافتهٔ کارشناس) می‌آید — نه موجودی سراسری</li>
         <li>کالای بدون ماتریس مثل قبل به‌اندازه <b>تعداد در پک</b> اضافه می‌شود</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
@@ -30771,7 +30814,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد و کارت مشخصات (بانک، صیاد، سررسید، مبلغ) زیر روش دریافت باز می‌شود؛ در حالت چندقسطی انتخاب «چک» همان کارت را نشان می‌دهد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. چک در پرداخت به شخص، حساب و هزینه تا اتصال دفتر چک پرداختنی بسته است. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
-        <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد</li>
+        <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد. ردیف‌های گردش، صورت‌حساب و دفترها بر اساس <b>تاریخ سند</b> (قدیم به جدید) چیده می‌شوند. پایین گردش، جمع بدهکار، جمع بستانکار و ماندهٔ نهایی — مثل صورت‌حساب — دیده می‌شود</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
@@ -30782,7 +30825,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>داشبورد فروش و خرید</b>: زیرگزارشات همین ماژول — KPI، سود ناخالص/خالص و حاشیه، پل سود، مقایسه دوره، نمودار، Topها، هشدار؛ drill به اسناد و باز کردن فاکتور</li>
-        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا (v402)</b>: پیش‌فرض فقط اسناد حقیقی — ردیف‌های <b>ابطال/معکوس</b> (از جمله جفت «تولید PO-…» + «ابطال رسید PO-…» بعد از ابطال سفارش) و <b>هم‌ترازی</b> مخفی‌اند؛ مانده از جریان اقتصادی کامل است. تیک «نمایش ابطال و هم‌ترازی» فقط ممیزی. ابطال سفارش تولید اصل رسید انبار را <code>reversed</code> می‌کند (نه فقط خروج جدا). فهرست اسناد حسابداری/اکسل همان فیلتر.</li>

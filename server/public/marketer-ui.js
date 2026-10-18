@@ -399,7 +399,7 @@
       : { matrix: [], live: [], pack: packQty(p) };
     if (pack.matrix && pack.matrix.length) {
       if (typeof applyAutoLivePack === 'function') {
-        applyAutoLivePack(p, pack, 'marketer');
+        applyAutoLivePack(p, pack, 'marketer', wh);
         return;
       }
       if (typeof openInvVariantSplitModal !== 'function') {
@@ -417,11 +417,12 @@
     const qty = packQty(p);
     const row = cart.find(c => Number(c.product_id) === Number(productId) && !c.variant_id);
     const already = row ? (Number(row.qty) || 0) : 0;
-    if (stock <= 0) {
+    const allowNeg = typeof clientAllowsNegativeStock === 'function' && clientAllowsNegativeStock(wh);
+    if (stock <= 0 && !allowNeg) {
       showToast('کسر موجودی: «' + (p.name || '') + '» موجودی ندارد و به سبد اضافه نمی‌شود', 'error');
       return;
     }
-    if (already + qty > stock) {
+    if (!allowNeg && already + qty > stock) {
       showToast(
         'کسر موجودی: برای «' + (p.name || '') + '» فقط ' + fmt(stock) + ' عدد موجود است'
           + (already ? ' (در سبد: ' + fmt(already) + ')' : ''),
@@ -466,7 +467,9 @@
         return Number(c.product_id) === Number(p.id) && Number(c.variant_id || 0) === vid;
       });
       const already = row ? (Number(row.qty) || 0) : 0;
-      if (skuStock != null && skuStock >= 0 && already + qty > skuStock) {
+      const allowNegLine = !!(opts && opts.allowNegative)
+        || (typeof clientAllowsNegativeStock === 'function' && clientAllowsNegativeStock(salesWarehouseId()));
+      if (!allowNegLine && skuStock != null && skuStock >= 0 && already + qty > skuStock) {
         showToast(
           'موجودی «' + (skuLabel(line) || [line.color_name || '', (typeof displaySizeName === 'function' ? displaySizeName(line.size_name) : (line.size_name || ''))].filter(Boolean).join(' ')) + '» کافی نیست (موجود: ' + fmt(skuStock) + ')',
           'error'
@@ -670,7 +673,8 @@
     const skuCap = line.variant_id && line.sku_stock != null ? Number(line.sku_stock) : null;
     const p = (window._mkProds || []).find(x => Number(x.id) === Number(line.product_id));
     const stock = skuCap != null ? skuCap : (p != null ? (Number(p.stock) || 0) : null);
-    if (stock != null && want > stock) {
+    const allowNegQty = typeof clientAllowsNegativeStock === 'function' && clientAllowsNegativeStock(salesWarehouseId());
+    if (!allowNegQty && stock != null && want > stock) {
       mkCartError = 'کسر موجودی: برای «' + (line.name || '') + (skuLabel(line) ? ' / ' + skuLabel(line) : '') + '» فقط ' + fmt(stock) + ' عدد موجود است';
       showToast(mkCartError, 'error');
       cart[i].qty = Math.max(1, Math.min(want, Math.max(1, stock)));
