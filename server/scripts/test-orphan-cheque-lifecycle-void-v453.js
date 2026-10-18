@@ -101,11 +101,23 @@ if (sqliteOk) {
   let custId = null;
   try {
     const c = db.prepare(`
-      INSERT INTO customers (biz, owner, phone, status) VALUES ('مشتری v453','مالک','09120004530','active')
+      INSERT INTO customers (user_id, biz, owner, phone, status)
+      VALUES (1,'مشتری v453','مالک','09120004530','active')
     `).run();
     custId = c.lastInsertRowid;
   } catch (e) {
-    ok(false, 'create customer', e.message);
+    try {
+      const c = db.prepare(`
+        INSERT INTO customers (biz, owner, phone, status) VALUES ('مشتری v453','مالک','09120004530','active')
+      `).run();
+      custId = c.lastInsertRowid;
+    } catch (e2) {
+      ok(false, 'create customer', e2.message);
+    }
+  }
+  if (!custId) {
+    console.log(`\nResult: ${pass} passed, ${fail} failed\n`);
+    process.exit(fail ? 1 : 0);
   }
 
   // Settings for COA map keys if used
