@@ -534,6 +534,13 @@ function moneyInit(v){ v=toDisplayAmount(parseInt(v)||0); return v?Number(v).toL
 function moneyParseInput(elm){
   return parseInt(toEnDigits(String((elm&&elm.value)||'')).replace(/[^\d]/g,''),10)||0;
 }
+/** Any money-ish value (element / "17,000,000" / FA digits / number) → integer rial. Never bare parseFloat. */
+function parseMoneyAny(v){
+  if(v==null||v==='') return 0;
+  if(typeof v==='number') return Number.isFinite(v)?Math.round(v):0;
+  if(typeof v==='object' && 'value' in v) return moneyParseInput(v);
+  return parseInt(toEnDigits(String(v)).replace(/[^\d]/g,''),10)||0;
+}
 function freightTypeIsSeller(v){
   const t=String(v||'').trim().toLowerCase();
   return t==='seller' || t==='عهده فروشنده' || t==='فروشنده';
@@ -1240,9 +1247,35 @@ function productSelect(id, selectedId, list, extra){
   }));
   return searchSelect(id, items, selectedId, Object.assign({kind:'product', placeholder:'جستجو: نام، کد کالا...'}, extra||{}));
 }
+function normalizePersonPhoneClient(phone){
+  return String(phone==null?'':phone).replace(/\s+/g,'').trim();
+}
+/** یک ردیف به‌ازای هر تلفن در سلکتور شخص (BOM دستمزد و بقیه) — ریشهٔ تکرار: چند persons با یک phone. */
+function dedupePersonsForPicker(rows, selectedId){
+  const list=Array.isArray(rows)?rows:[];
+  const sel=selectedId!=null&&selectedId!==''?Number(selectedId):null;
+  const byKey=new Map();
+  const score=p=>{
+    let s=Number(p&&p.active)?2:0;
+    if(p&&p.party_id!=null) s+=1;
+    if(p&&p.id!=null) s+=1/(1+Number(p.id));
+    return s;
+  };
+  for(const p of list){
+    if(!p) continue;
+    const phone=normalizePersonPhoneClient(p.phone);
+    const key=phone||('id:'+String(p.id));
+    const prev=byKey.get(key);
+    if(!prev){ byKey.set(key,p); continue; }
+    if(sel!=null&&Number(p.id)===sel){ byKey.set(key,p); continue; }
+    if(sel!=null&&Number(prev.id)===sel) continue;
+    byKey.set(key, score(p)>=score(prev)?p:prev);
+  }
+  return [...byKey.values()];
+}
 function personSelect(id, selectedId, list){
   const src=list||CACHE.persons||[];
-  const items=(Array.isArray(src)?src:[]).map(p=>({
+  const items=dedupePersonsForPicker(Array.isArray(src)?src:[], selectedId).map(p=>({
     id:p.id,
     label:p.name||p.full_name||'',
     meta:p.phone||p.personnel_code||p.category_name||'',
@@ -5944,8 +5977,8 @@ function confirmInvVariantSplit(pid, opts){
     const isSr=dest==='sales_return';
     const priceEl=isSr?el('sr-open-price'):el('pr-open-price');
     const whEl=isSr?el('sr-wh'):el('pr-wh');
-    let defaultPrice=parseFloat(priceEl?.value);
-    if(!Number.isFinite(defaultPrice)) defaultPrice=0;
+    // money fields auto-insert commas — never parseFloat (truncates at first comma).
+    let defaultPrice=priceEl?moneyParseInput(priceEl):0;
     if(!defaultPrice){
       defaultPrice=isSr?Number(p.price||0):Number(p.purchase_price||p.cost||0);
     }
@@ -14933,8 +14966,11 @@ async function prodBomEditModal(id, tab){
       }catch(e){ stageCCs=[]; }
     }
     try{
-      if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
-    }catch(e){ if(!CACHE.persons) CACHE.persons=[]; }
+      if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons?for_picker=1'))||[];
+    }catch(e){
+      try{ if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[]; }
+      catch(e2){ if(!CACHE.persons) CACHE.persons=[]; }
+    }
   }
   if(activeTab==='outputs' || multi){
     try{ outs=(await api('GET','/production/boms/'+id+'/outputs'))?.rows||[]; }catch(e){ outs=[]; }
@@ -21220,7 +21256,8 @@ function returnExtraDiscInputs(kind){
   const amtEl=el(isSr?'sr-extra-disc-amt':'pr-extra-disc-amt');
   return {
     pct: parseFloat(pctEl&&pctEl.value)||0,
-    amt: parseFloat(amtEl&&amtEl.value)||0,
+    // amt is a money field (commas) — strip via moneyParseInput, not parseFloat.
+    amt: amtEl?moneyParseInput(amtEl):0,
   };
 }
 function syncReturnExtraDisc(kind, from){
@@ -21233,9 +21270,9 @@ function syncReturnExtraDisc(kind, from){
   const base=Math.max(0, goods-hdr);
   if(from==='pct'){
     const pct=parseFloat(pctEl.value)||0;
-    amtEl.value=base>0?String(Math.round(base*pct/100)): '0';
+    amtEl.value=base>0?moneyInit(Math.round(base*pct/100)):'0';
   } else {
-    const amt=parseFloat(amtEl.value)||0;
+    const amt=moneyParseInput(amtEl);
     pctEl.value=base>0?String(Math.round((amt/base)*10000)/100): '0';
   }
   updateReturnPreview(kind);
@@ -21371,7 +21408,7 @@ function purchaseReturnModal(){
         <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg"><label>کد علت (اختیاری)</label><select id="pr-reason">${returnReasonOptionsHtml('')}</select></div>
         <div class="fg"><label>تخفیف کلی٪ ${hlp('تخفیف اضافه روی سند برگشت خرید؛ بعد از تخفیف ردیف و سهم تخفیف کل فاکتور خرید.')}</label><input id="pr-extra-disc" type="number" min="0" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('pr','pct')})}"></div>
-        <div class="fg"><label>تخفیف کلی (مبلغ)</label><input id="pr-extra-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('pr','amt')})}"></div>
+        <div class="fg"><label>تخفیف کلی (مبلغ)</label><input id="pr-extra-disc-amt" class="money" type="text" inputmode="numeric" value="0" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('pr','amt')})}"></div>
         <div class="fg full"><label>یادداشت</label><input id="pr-note"></div>
         <div class="fg full muted" id="pr-hdr-disc-hint" data-csp-style="${CSP.style(`font-size:12px`)}"></div>
       </div>
@@ -21473,11 +21510,11 @@ async function renderPrOpenPanel(){
   const box=el('prRowsContainer'); if(!box) return;
   const prods=await ensureReturnProductsCache();
   box.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی خرید را دستی بزنید. اگر کالا ماتریس رنگ×سایز دارد، با «افزودن» ماتریس باز می‌شود. سقف از فاکتور اعمال نمی‌شود.</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی خرید دستی (با جداکننده هزارگان؛ مبلغ کامل به جدول می‌رود). اگر کالا ماتریس رنگ×سایز دارد، با «افزودن» ماتریس باز می‌شود. سقف از فاکتور اعمال نمی‌شود.</div>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
       <div class="fg"><label>کالا</label>${productSelect('pr-open-prod','',prods)}</div>
       <div class="fg"><label>تعداد (بدون ماتریس)</label><input id="pr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
-      <div class="fg"><label>فی خرید</label><input id="pr-open-price" type="number" min="0" value="0"></div>
+      <div class="fg"><label>فی خرید</label><input id="pr-open-price" class="money" type="text" inputmode="numeric" value="0"></div>
       <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){openReturnProductPick('pr')})}">➕ افزودن / ماتریس</button></div>
     </div>
     <div id="prOpenRowsTbl"></div>`;
@@ -21488,7 +21525,7 @@ async function renderPrOpenPanel(){
     prProd.addEventListener('change',function(){
       const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===Number(this.value));
       const pe=el('pr-open-price');
-      if(p&&pe&&!(parseFloat(pe.value)>0)) pe.value=String(Number(p.purchase_price||p.cost||p.price||0)||0);
+      if(p&&pe&&!(moneyParseInput(pe)>0)) pe.value=moneyInit(Number(p.purchase_price||p.cost||p.price||0)||0);
     });
   }
   renderPrOpenRowsTbl();
@@ -21499,7 +21536,7 @@ function prOpenAddLineSimple(){
   if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
   const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
   const qty=Math.max(0.001, parseQty(el('pr-open-qty')?.value,1));
-  const price=parseFloat(el('pr-open-price')?.value)||Number(p?.purchase_price||p?.cost||p?.price||0)||0;
+  const price=moneyParseInput(el('pr-open-price'))||Number(p?.purchase_price||p?.cost||p?.price||0)||0;
   const wh=+el('pr-wh')?.value||null;
   const line={product_id:pid,name:p?.name||('#'+pid),qty,price,unit_cost_est:returnUnitCostEstimate(p)};
   if(wh) line.warehouse_id=wh;
@@ -21626,7 +21663,7 @@ async function salesReturnModal(editRow){
         <div class="fg"><label>تاریخ</label><input id="sr-date" data-jdate value="${esc(editing&&editRow.date?editRow.date:todayJalali())}"></div>
         <div class="fg"><label>کد علت (اختیاری)</label><select id="sr-reason">${returnReasonOptionsHtml(editing?(editRow.reason_code||''):'')}</select></div>
         <div class="fg"><label>تخفیف کلی٪ ${hlp('تخفیف اضافه روی سند برگشت (بعد از تخفیف ردیف و سهم تخفیف کل فاکتور). مبلغ اولویت دارد.')}</label><input id="sr-extra-disc" type="number" min="0" step="0.01" value="${esc(editing&&editRow.extra_disc_pct!=null?editRow.extra_disc_pct:0)}" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('sr','pct')})}"></div>
-        <div class="fg"><label>تخفیف کلی (مبلغ)</label><input id="sr-extra-disc-amt" type="number" min="0" value="${esc(editing&&editRow.extra_disc_amt!=null?editRow.extra_disc_amt:0)}" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('sr','amt')})}"></div>
+        <div class="fg"><label>تخفیف کلی (مبلغ)</label><input id="sr-extra-disc-amt" class="money" type="text" inputmode="numeric" value="${moneyInit(editing&&editRow.extra_disc_amt!=null?editRow.extra_disc_amt:0)}" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('sr','amt')})}"></div>
         <div class="fg full"><label>یادداشت</label><input id="sr-note" value="${esc(editing?(editRow.note||''):'')}"></div>
         <div class="fg full muted" id="sr-hdr-disc-hint" data-csp-style="${CSP.style(`font-size:12px`)}"></div>
       </div>
@@ -21757,11 +21794,11 @@ async function renderSrOpenPanel(){
   const box=el('srRowsContainer'); if(!box) return;
   const prods=await ensureReturnProductsCache();
   box.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی فروش دستی. کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز می‌گیرد. VAT متناسب فقط روی برگشت لینک‌شده است؛ بهای تمام‌شده در ثبت از میانگین کالا محاسبه می‌شود.</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.7`)}">بدون فاکتور: فی فروش دستی (با جداکننده هزارگان؛ مبلغ کامل به جدول می‌رود). کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز می‌گیرد. VAT متناسب فقط روی برگشت لینک‌شده است؛ بهای تمام‌شده در ثبت از میانگین کالا محاسبه می‌شود.</div>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
       <div class="fg"><label>کالا</label>${productSelect('sr-open-prod','',prods)}</div>
       <div class="fg"><label>تعداد (بدون ماتریس)</label><input id="sr-open-qty" type="number" min="0.001" step="0.001" value="1"></div>
-      <div class="fg"><label>فی فروش</label><input id="sr-open-price" type="number" min="0" value="0"></div>
+      <div class="fg"><label>فی فروش</label><input id="sr-open-price" class="money" type="text" inputmode="numeric" value="0"></div>
       <div class="fg"><label>&nbsp;</label><button class="btn sm" data-csp-click="${CSP.bind('click',function(){openReturnProductPick('sr')})}">➕ افزودن / ماتریس</button></div>
     </div>
     <div id="srOpenRowsTbl"></div>`;
@@ -21772,7 +21809,7 @@ async function renderSrOpenPanel(){
     srProd.addEventListener('change',function(){
       const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===Number(this.value));
       const pe=el('sr-open-price');
-      if(p&&pe&&!(parseFloat(pe.value)>0)) pe.value=String(Number(p.price||0)||0);
+      if(p&&pe&&!(moneyParseInput(pe)>0)) pe.value=moneyInit(Number(p.price||0)||0);
     });
   }
   renderSrOpenRowsTbl();
@@ -21783,7 +21820,8 @@ function srOpenAddLineSimple(){
   if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
   const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
   const qty=Math.max(0.001, parseQty(el('sr-open-qty')?.value,1));
-  const price=parseFloat(el('sr-open-price')?.value)||Number(p?.price||0)||0;
+  // money field may show "17,000,000" — strip separators; bare parseFloat truncates to 17.
+  const price=moneyParseInput(el('sr-open-price'))||Number(p?.price||0)||0;
   srOpenRows.push({product_id:pid,name:p?.name||('#'+pid),qty,price,unit_cost_est:returnUnitCostEstimate(p)});
   renderSrOpenRowsTbl();
 }
@@ -30906,7 +30944,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>داشبورد فروش و خرید</b>: زیرگزارشات همین ماژول — KPI، سود ناخالص/خالص و حاشیه، پل سود، مقایسه دوره، نمودار، Topها، هشدار؛ drill به اسناد و باز کردن فاکتور</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372 + فی بدون‌فاکتور v450): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. در حالت <b>بدون فاکتور</b> فیلد «فی فروش/خرید» و «تخفیف کلی (مبلغ)» با جداکننده هزارگان وارد می‌شوند و هنگام افزودن (ساده یا ماتریس) همان مبلغ کامل ریالی به جدول و جمع پایین می‌رود — دیگر عدد در ویرگول قطع نمی‌شود. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا (v402)</b>: پیش‌فرض فقط اسناد حقیقی — ردیف‌های <b>ابطال/معکوس</b> (از جمله جفت «تولید PO-…» + «ابطال رسید PO-…» بعد از ابطال سفارش) و <b>هم‌ترازی</b> مخفی‌اند؛ مانده از جریان اقتصادی کامل است. تیک «نمایش ابطال و هم‌ترازی» فقط ممیزی. ابطال سفارش تولید اصل رسید انبار را <code>reversed</code> می‌کند (نه فقط خروج جدا). فهرست اسناد حسابداری/اکسل همان فیلتر.</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار (<b>روش ریالی‌کردن</b> جداست و فقط قیمت‌گذاری لایه است). حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند — همین قانون برای <b>اصلاح فاکتور، مرجوعی فروش و تسویه امانی</b> هم اعمال می‌شود. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. <b>اجازه موجودی منفی</b> روی حوالهٔ انبار و <b>فاکتور فروش / فروش فروشگاهی</b> از همان انبار اعمال می‌شود (موجودی می‌تواند منفی شود). فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
@@ -31321,7 +31359,7 @@ function renderSalesGuide(){
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v352</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
-      <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ).</div>
+      <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>

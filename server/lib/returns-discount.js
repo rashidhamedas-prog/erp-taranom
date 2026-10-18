@@ -7,7 +7,12 @@
  */
 'use strict';
 
+const { parseMoneyInput } = require('./money');
+
 function rial(n) {
+  if (typeof n === 'string' && /[,\u066C\u060C]/.test(n)) {
+    return Math.round(parseMoneyInput(n) || 0);
+  }
   return Math.round(Number(n) || 0);
 }
 
@@ -108,7 +113,10 @@ function allocateHeaderDiscount({
 function resolveExtraDiscount({ extraDiscAmt, extraDiscPct, maxBase }) {
   const cap = Math.max(0, rial(maxBase));
   let X = 0;
-  const amt = Number(extraDiscAmt);
+  // Prefer digit-strip parse so "1,000,000" from UI is not Number→NaN / parseFloat→1.
+  const amt = (typeof extraDiscAmt === 'string')
+    ? parseMoneyInput(extraDiscAmt)
+    : Number(extraDiscAmt);
   const pct = Number(extraDiscPct);
   if (Number.isFinite(amt) && amt > 0) {
     X = rial(amt);

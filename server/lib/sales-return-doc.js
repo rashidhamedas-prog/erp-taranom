@@ -14,6 +14,7 @@ const {
 } = require('./sales-document');
 const { recomputeInvoiceSettledBalances } = require('./invoice-payments');
 const { parseQty } = require('./round3');
+const { parseMoneyInput } = require('./money');
 const {
   prorateLineDiscount, priorHeaderDiscConsumed, priorVatConsumed,
   computeReturnTotals, returnMoneyParts, rial,
@@ -110,10 +111,11 @@ function buildSalesReturnLines(db, {
       discAmt = pr.discAmt;
       if (!lineWh && origLine.warehouse_id) lineWh = parseInt(origLine.warehouse_id, 10);
     } else {
-      price = parseFloat(r.price) || prod.price;
+      // Open (no-invoice) mode: never parseFloat formatted money ("17,000,000"→17).
+      price = parseMoneyInput(r.price) || parseMoneyInput(prod.price) || 0;
       disc = Number(r.disc) || 0;
-      discAmt = r.disc_amt != null ? rial(r.disc_amt)
-        : (r.disc_amount != null ? rial(r.disc_amount) : rial(qty * price * disc / 100));
+      discAmt = r.disc_amt != null ? rial(parseMoneyInput(r.disc_amt))
+        : (r.disc_amount != null ? rial(parseMoneyInput(r.disc_amount)) : rial(qty * price * disc / 100));
     }
     const sum = rial(qty * price - discAmt);
     goodsAmountA += sum;

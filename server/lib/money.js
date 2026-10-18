@@ -3,6 +3,23 @@
 
 const RIAL_PER_TOMAN = 10;
 
+/**
+ * Parse a UI/API money value to integer rial.
+ * Strips FA/AR digits and thousand separators — never use bare parseFloat on
+ * formatted strings ("17,000,000" → 17 with parseFloat).
+ */
+function parseMoneyInput(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v) : 0;
+  const s = String(v)
+    .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(/[^\d]/g, '');
+  if (!s) return 0;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Reject values that cannot be represented exactly as a JS integer (avoids silent money corruption). */
 function assertSafeRial(n, label) {
   if (!Number.isFinite(n)) {
@@ -82,7 +99,7 @@ function migrateRealToRial(db, table, realCol, rialCol) {
 }
 
 module.exports = {
-  RIAL_PER_TOMAN, assertSafeRial, tomanToRial, rialToToman, rialToLedger,
+  RIAL_PER_TOMAN, assertSafeRial, parseMoneyInput, tomanToRial, rialToToman, rialToLedger,
   jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL,
   withTomanDisplay, migrateRealToRial,
 };

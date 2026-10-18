@@ -27,7 +27,7 @@ function getSetting(db, key) {
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
-const { rialToLedger } = require('../lib/money');
+const { rialToLedger, parseMoneyInput } = require('../lib/money');
 const {
   parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
   outboundPaymentLines, outboundPaymentReversalLines,
@@ -79,9 +79,11 @@ function buildRows(db, inputRows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
     if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
     const qty = Math.max(0.001, parseQty(r.qty, 1));
-    const price = (r.price !== undefined && r.price !== null && r.price !== '') ? (parseFloat(r.price) || 0) : (prod.cost || 0);
+    const price = (r.price !== undefined && r.price !== null && r.price !== '')
+      ? (parseMoneyInput(r.price) || 0)
+      : (parseMoneyInput(prod.cost) || 0);
     const disc = Math.min(100, Math.max(0, parseFloat(r.disc) || 0));
-    const discAmountIn = Math.max(0, Math.round(parseFloat(r.disc_amount) || 0));
+    const discAmountIn = Math.max(0, parseMoneyInput(r.disc_amount));
     const description = String(r.description || '').trim();
     const gross = qty * price;
     const discPctAmt = Math.round(gross * disc / 100);
