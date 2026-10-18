@@ -3,8 +3,8 @@
 - **ریشه:** بک‌اند v435 منفی را می‌پذیرد؛ فرانت `livePackFromStyle` فقط stock>0 را «پک زنده» می‌داند و `applyAutoLivePack` / کاتالوگ بازاریاب / سقف `bumpInvVarQty` فلگ انبار را نمی‌خواندند.
 - **اصلاح:** `clientAllowsNegativeStock` + `livePackRowsForSale`؛ فاکتور، genCart برگشت، حواله/امانی، کارت کاتالوگ، MarketerUI و سقف تعداد ماتریس. راهنما + SW `erp-taranom-v438`.
 - **فایل‌ها:** `public/{app.js,marketer-ui.js,sw.js,index.html}`, `scripts/test-inv-neg-ui-v438.js`, CHANGE-LOG.
-- **تست:** محلی `test-inv-neg-ui-v438`؛ `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-inv-neg-ui-v438` ۱۷/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `b4adbe0e` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v438`.
 
 ### ۱۴۰۵/۰۷/۲۶ — ریشهٔ هشدار مطالبات دفتر مشتری ≠ تفصیلی (برخورد شناسه افتتاحیه — SW v436)
 - **علائم:** داشبورد مالی: مطالبات دفتر مشتری ۱۰٬۷۶۳٬۵۲۳٬۴۲۰ با تفصیلی ۱۰٬۷۵۷٬۶۲۸٬۴۲۰ (Δ دقیقاً ۵٬۸۹۵٬۰۰۰). بستانکار هم‌تراز؛ تراز آزمایشی متوازن؛ یتیم `ar_control_reclass` صفر (v390 سالم).
