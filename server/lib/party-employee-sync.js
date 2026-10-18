@@ -39,18 +39,30 @@ function syncPartyToPerson(db, partyId) {
   } else if (!groupId) {
     groupId = ensurePersonnelPartyGroup(db);
   }
-  const existing = db.prepare('SELECT * FROM persons WHERE party_id=?').get(partyId);
+  const { findPersonForParty, normalizePersonPhone } = require('./person-dedupe');
+  const existing = findPersonForParty(db, partyId);
   const positionId = p.position_id || null;
   if (existing) {
+    // Reuse by party_id / phone / national_id — never INSERT a second row for the same phone.
+    const canClaimParty = existing.party_id == null || Number(existing.party_id) === Number(partyId);
     db.prepare(`
       UPDATE persons SET name=?, phone=?, address=?, note=?, party_group_id=?,
         national_id=?, birth_date=?, coa_code=?, position_id=?, active=1
+        ${canClaimParty ? ', party_id=?' : ''}
       WHERE id=?
     `).run(
-      name, p.phone || '', p.address || '', p.notes || '', groupId,
-      p.national_id || '', p.birth_date || '', p.coa_code || '', positionId, existing.id
+      ...(canClaimParty
+        ? [name, p.phone || '', p.address || '', p.notes || '', groupId,
+          p.national_id || '', p.birth_date || '', p.coa_code || '', positionId, partyId, existing.id]
+        : [name, p.phone || '', p.address || '', p.notes || '', groupId,
+          p.national_id || '', p.birth_date || '', p.coa_code || '', positionId, existing.id])
     );
     return existing.id;
+  }
+  const phone = normalizePersonPhone(p.phone);
+  if (phone) {
+    const raced = db.prepare("SELECT id FROM persons WHERE TRIM(IFNULL(phone,''))=? LIMIT 1").get(phone);
+    if (raced) return raced.id;
   }
   const r = db.prepare(`
     INSERT INTO persons (name, phone, address, note, party_id, party_group_id, national_id, birth_date, coa_code, position_id, active)

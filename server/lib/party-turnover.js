@@ -25,14 +25,27 @@ function withTotals(payload) {
 function ensurePersonForParty(db, partyId) {
   const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!party) return null;
-  const byParty = db.prepare('SELECT id FROM persons WHERE party_id=?').get(partyId);
-  if (byParty) return byParty.id;
+  const { findPersonForParty, normalizePersonPhone } = require('./person-dedupe');
+  const existing = findPersonForParty(db, partyId);
+  if (existing) {
+    if (existing.party_id == null) {
+      try { db.prepare('UPDATE persons SET party_id=? WHERE id=? AND party_id IS NULL').run(partyId, existing.id); } catch (_) { /* unique race */ }
+    }
+    return existing.id;
+  }
   try {
     const synced = require('./party-employee-sync').syncPartyToPerson(db, partyId);
     if (synced) return synced;
   } catch (_) { /* optional */ }
+  const afterSync = findPersonForParty(db, partyId);
+  if (afterSync) return afterSync.id;
   const name = party.full_name || party.biz || party.company_name || '';
   if (!name) return null;
+  const phone = normalizePersonPhone(party.phone);
+  if (phone) {
+    const byPhone = db.prepare("SELECT id FROM persons WHERE TRIM(IFNULL(phone,''))=? LIMIT 1").get(phone);
+    if (byPhone) return byPhone.id;
+  }
   const r = db.prepare(`
     INSERT INTO persons (name, phone, address, note, party_id, party_group_id, national_id, birth_date, coa_code, active)
     VALUES (?,?,?,?,?,?,?,?,?,1)

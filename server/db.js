@@ -2760,6 +2760,14 @@ function initSyncSchema(db, opts) {
     require('./lib/portal-schema').initPortalSchema(db);
     require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
     require('./lib/party-employee-sync').runPersonPartyUnifyV1(db);
+    try {
+      const heal = require('./lib/person-dedupe').runPersonPhoneDedupeHealV450(db);
+      if (heal && !heal.skipped) {
+        console.log('✅ person_phone_dedupe_v450:', JSON.stringify(heal));
+      }
+    } catch (eHeal) {
+      console.warn('person_phone_dedupe_v450:', eHeal.message);
+    }
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {

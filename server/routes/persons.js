@@ -4,6 +4,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const { personLedgerLineRial, personLedgerAliveSql } = require('../lib/person-ledger-money');
+const { dedupePersonsForPicker, normalizePersonPhone, findPersonByPhone } = require('../lib/person-dedupe');
 
 // General "Persons" module — for anyone who isn't already a customer or
 // supplier (employees, partners, investors, contractors, service providers, ...).
@@ -63,19 +64,28 @@ router.delete('/categories/:id', auth, adminOrAccounting, (req, res) => {
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const pq = listQueryPlan(req.query);
+  const forPicker = req.query.for_picker === '1' || req.query.for_picker === 'true'
+    || req.query.picker === '1' || req.query.picker === 'true';
+  // active=1 → فقط فعال؛ for_picker dedupe می‌کند ولی inactive-only را حذف نمی‌کند
+  const activeOnly = req.query.active === '1' || req.query.active === 'true';
+  const where = activeOnly ? ' WHERE COALESCE(p.active,1)=1 ' : '';
   const total = pq.paginate
-    ? (db.prepare('SELECT COUNT(*) AS c FROM persons').get()?.c || 0)
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM persons p${where}`).get()?.c || 0)
     : 0;
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT p.*, ${LIVE_BAL} AS balance, c.name as category_name, c.nature as category_nature,
       pg.name as party_group_name, pp.name as position_name
     FROM persons p LEFT JOIN person_categories c ON p.category_id=c.id
     LEFT JOIN party_groups pg ON p.party_group_id=pg.id
     LEFT JOIN person_positions pp ON p.position_id=pp.id
-    ORDER BY p.name
+    ${where}
+    ORDER BY COALESCE(p.active,1) DESC, p.name
     ${pq.limitSql}
   `).all(...pq.limitParams);
   for (const r of rows) r.balance = personBalanceRial(db, r.id);
+  if (forPicker) {
+    rows = dedupePersonsForPicker(rows, { onlyActive: false });
+  }
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
@@ -90,6 +100,18 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام شخص الزامی است' });
   const db = getDB();
+  const phoneNorm = normalizePersonPhone(phone);
+  if (phoneNorm) {
+    const dup = findPersonByPhone(db, phoneNorm);
+    if (dup) {
+      return res.status(409).json({
+        error: 'شخصی با این تلفن از قبل ثبت شده است',
+        code: 'E_PERSON_PHONE_DUP',
+        existing_id: dup.id,
+        existing_name: dup.name,
+      });
+    }
+  }
   const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] || '');
   const personId = db.transaction(() => {
     const result = db.prepare(
@@ -133,6 +155,19 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   } = req.body;
   const pgid = party_group_id !== undefined ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
   const posId = position_id !== undefined ? (position_id ? parseInt(position_id, 10) : null) : row.position_id;
+  const nextPhone = phone !== undefined ? phone : row.phone;
+  const phoneNormPut = normalizePersonPhone(nextPhone);
+  if (phoneNormPut) {
+    const dup = findPersonByPhone(db, phoneNormPut);
+    if (dup && Number(dup.id) !== Number(row.id)) {
+      return res.status(409).json({
+        error: 'شخصی با این تلفن از قبل ثبت شده است',
+        code: 'E_PERSON_PHONE_DUP',
+        existing_id: dup.id,
+        existing_name: dup.name,
+      });
+    }
+  }
   const mset = PARTY_MAHAK_COLS.map(k => `${k}=?`).join(',');
   const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] ?? row[k] ?? '');
   db.prepare(`UPDATE persons SET category_id=?,name=?,phone=?,address=?,note=?,credit_limit=?,debit_limit=?,active=?,
