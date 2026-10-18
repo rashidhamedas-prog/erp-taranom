@@ -90,7 +90,8 @@ try {
   const DATE = '1405/07/26';
   function seedProduct(name, type, mfg) {
     const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,0)').run(name, 0).lastInsertRowid;
-    db.prepare('UPDATE products SET item_type=?, is_manufactured=?, average_cost_rial=0 WHERE id=?').run(type, mfg, id);
+    db.prepare(`UPDATE products SET item_type=?, is_manufactured=?, average_cost_rial=0, unit='عدد', code=? WHERE id=?`)
+      .run(type, mfg, 'T459-' + id, id);
     return id;
   }
   const pA = seedProduct('یلدا', 'finished', 1);
