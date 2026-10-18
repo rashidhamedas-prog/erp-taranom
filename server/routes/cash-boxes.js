@@ -3,12 +3,12 @@ const { allocTafsili, releaseTafsili, acct } = require('../lib/coa-map');
 const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
-const { rialToLedger } = require('../lib/money');
+const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
-// Unrestricted cash box management — mirrors banks.js (opening balance + live ledger).
+// Unrestricted cash box management — opening upsert mirrors parties (signed + retire duplicates).
 
 function fiscalOpeningDate(db) {
   const fy = getActiveFiscalYear(db);
@@ -22,6 +22,29 @@ function cashOpeningDate(db, box) {
   return start;
 }
 
+function collectCashOpeningJournalIds(db, boxId) {
+  return db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='cash_opening' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC
+  `).all(boxId).map((r) => Number(r.id));
+}
+
+/** Keep one live cash_opening JE; soft-void the rest (party opening pattern). */
+function retireOtherCashOpenings(db, box, keepId, userId) {
+  const keep = Number(keepId) || 0;
+  for (const id of collectCashOpeningJournalIds(db, box.id)) {
+    if (Number(id) === keep) continue;
+    reverseJournalEntry(db, id, {
+      userId: userId || 1,
+      reason: `جمع شدن سند تکراری موجودی اول دوره صندوق ${box.name}`,
+      sourceType: 'cash_opening_reversal',
+    });
+  }
+}
+
 function liveCashOpeningJeId(db, box) {
   if (box.opening_balance_je_id) {
     const live = db.prepare(
@@ -31,8 +54,9 @@ function liveCashOpeningJeId(db, box) {
     db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
     box.opening_balance_je_id = null;
   }
+  // ASC = same order as rewriteJournalEntry — keep oldest live JE
   const existing = db.prepare(
-    "SELECT id FROM journal_entries WHERE ref_type='cash_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void') ORDER BY id DESC LIMIT 1"
+    "SELECT id FROM journal_entries WHERE ref_type='cash_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void') ORDER BY id ASC LIMIT 1"
   ).get(box.id);
   if (existing) {
     db.prepare('UPDATE cash_boxes SET opening_balance_je_id=? WHERE id=?').run(existing.id, box.id);
@@ -42,26 +66,52 @@ function liveCashOpeningJeId(db, box) {
   return null;
 }
 
-function cashOpeningLines(db, box, amt) {
+/** amt>0 debit cash / credit opening; amt<0 credit cash / debit opening (بستانکار). */
+function cashOpeningLines(db, box, amtRial) {
   syncCashBoxAccount(db, box);
   const joinCode = resolveCashJoinCode(db, box);
   const cashAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(joinCode);
   const cashCode = cashAcct || { code: joinCode, name: box.name };
   const openingAccount = acct(db, 'coa_opening_balance');
-  const valueToman = rialToLedger(amt);
-  return [
-    { code: cashCode.code, name: cashCode.name || box.name, debit: valueToman, credit: 0 },
-    { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-  ];
+  const absToman = rialToLedger(Math.abs(Math.round(Number(amtRial) || 0)));
+  const amt = Math.round(Number(amtRial) || 0);
+  return amt >= 0
+    ? [
+      { code: cashCode.code, name: cashCode.name || box.name, debit: absToman, credit: 0 },
+      { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: absToman },
+    ]
+    : [
+      { code: openingAccount.code, name: openingAccount.name, debit: absToman, credit: 0 },
+      { code: cashCode.code, name: cashCode.name || box.name, debit: 0, credit: absToman },
+    ];
 }
 
-/** Upsert opening JE: create / rewrite amount+FY-start date / void when amt≤0. */
+function cashOpeningSideMatches(db, jeId, amtRial) {
+  const amt = Math.round(Number(amtRial) || 0);
+  if (!amt) return false;
+  const opening = acct(db, 'coa_opening_balance');
+  const line = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d,
+           COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS c
+    FROM journal_lines jl
+    WHERE jl.entry_id=? AND jl.account_code=?
+  `).get(jeId, opening.code);
+  const openDebit = Math.round(Number(line && line.d) || 0);
+  const openCredit = Math.round(Number(line && line.c) || 0);
+  if (amt > 0) return openCredit > 0 && openDebit === 0;
+  return openDebit > 0 && openCredit === 0;
+}
+
+/**
+ * Upsert opening JE: create / rewrite amount+date+side / void when amt===0.
+ * Signed opening: negative = بستانکار (credit cash). One live JE per box.
+ */
 function upsertCashOpening(db, box, openingRial, userId, { dateOverride } = {}) {
   const amt = Math.round(Number(openingRial) || 0);
   const date = dateOverride || cashOpeningDate(db, box);
   let jeId = liveCashOpeningJeId(db, box);
 
-  if (amt <= 0) {
+  if (!amt) {
     if (jeId) {
       reverseJournalEntry(db, jeId, {
         userId: userId || 1,
@@ -69,6 +119,7 @@ function upsertCashOpening(db, box, openingRial, userId, { dateOverride } = {}) 
         sourceType: 'cash_opening_reversal',
       });
     }
+    retireOtherCashOpenings(db, box, null, userId);
     db.prepare('UPDATE cash_boxes SET opening_balance_rial=0, opening_balance_je_id=NULL, opening_balance_date=? WHERE id=?')
       .run(date, box.id);
     return null;
@@ -79,46 +130,49 @@ function upsertCashOpening(db, box, openingRial, userId, { dateOverride } = {}) 
 
   if (jeId) {
     const je = db.prepare('SELECT entry_date, total_debit_rial, ref_type FROM journal_entries WHERE id=?').get(jeId);
-    const currentRial = Math.round(Number(je && je.total_debit_rial) || 0);
     const isCashOpening = String(je && je.ref_type || '') === 'cash_opening';
     if (!isCashOpening) {
       db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
       jeId = null;
-    } else if (currentRial !== amt || String(je && je.entry_date || '') !== String(date)) {
-      const rewritten = rewriteJournalEntry(db, {
-        sourceType: 'cash_opening',
-        sourceId: box.id,
-        date,
-        description,
-        lines,
-      });
-      if (!rewritten) {
-        db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
-        jeId = null;
-      } else {
-        db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-          .run(amt, rewritten, date, box.id);
-        return rewritten;
-      }
     } else {
-      db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-        .run(amt, jeId, date, box.id);
-      return jeId;
+      const currentAbs = Math.round(Number(je && je.total_debit_rial) || 0);
+      const wantAbs = Math.abs(amt);
+      const dateMismatch = String(je && je.entry_date || '') !== String(date);
+      const sideMismatch = !cashOpeningSideMatches(db, jeId, amt);
+      if (currentAbs !== wantAbs || dateMismatch || sideMismatch) {
+        const rewritten = rewriteJournalEntry(db, {
+          sourceType: 'cash_opening',
+          sourceId: box.id,
+          date,
+          description,
+          lines,
+        });
+        if (!rewritten) {
+          db.prepare('UPDATE cash_boxes SET opening_balance_je_id=NULL WHERE id=?').run(box.id);
+          jeId = null;
+        } else {
+          jeId = rewritten;
+        }
+      }
     }
   }
 
-  const journalId = postToLedger(db, {
-    sourceType: 'cash_opening',
-    sourceId: box.id,
-    date,
-    description,
-    createdBy: userId,
-    voucherType: 'opening',
-    lines,
-  });
+  if (!jeId) {
+    jeId = postToLedger(db, {
+      sourceType: 'cash_opening',
+      sourceId: box.id,
+      date,
+      description,
+      createdBy: userId,
+      voucherType: 'opening',
+      lines,
+    });
+  }
+
+  retireOtherCashOpenings(db, box, jeId, userId);
   db.prepare('UPDATE cash_boxes SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-    .run(amt, journalId, date, box.id);
-  return journalId;
+    .run(amt, jeId, date, box.id);
+  return jeId;
 }
 
 function postCashOpeningJe(db, box, openingRial, userId) {
@@ -127,8 +181,13 @@ function postCashOpeningJe(db, box, openingRial, userId) {
 
 function repairCashOpeningIfNeeded(db, box, userId) {
   const amt = Math.round(Number(box.opening_balance_rial) || 0);
-  if (amt <= 0) return box;
-  if (liveCashOpeningJeId(db, box)) return db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(box.id) || box;
+  if (!amt) return box;
+  const liveId = liveCashOpeningJeId(db, box);
+  if (liveId) {
+    // Retire orphans even when pointer is healthy
+    retireOtherCashOpenings(db, box, liveId, userId || 1);
+    return db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(box.id) || box;
+  }
   try {
     upsertCashOpening(db, box, amt, userId || 1);
   } catch (e) {
@@ -204,7 +263,8 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
       coa_code: String(b.coa_code || '').trim() || (joinCode.startsWith('1101-') ? b.coa_code : joinCode),
       balance,
       opening_balance_rial: openingStored,
-      opening_effective_rial: openingStored > 0 ? openingStored : balance,
+      // Signed master wins; else GL (Mahak/legacy) — includes negative/credit openings
+      opening_effective_rial: openingStored !== 0 ? openingStored : balance,
     };
   });
   res.json(rows);
@@ -230,7 +290,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       'INSERT INTO cash_boxes (name,custodian,is_petty_cash,currency,is_foreign,opening_balance_rial,opening_balance_date,float_ceiling_rial) VALUES (?,?,?,?,?,?,?,?)'
     ).run(
       name, custodian || '', is_petty_cash ? 1 : 0, cur, foreign,
-      openingRial > 0 ? openingRial : 0, openingRial > 0 ? openDate : (opening_balance_date || null),
+      openingRial, openingRial !== 0 ? openDate : (opening_balance_date || null),
       floatCeil
     );
     try {
@@ -240,7 +300,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     let row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
     syncCashBoxAccount(db, row);
     row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
-    if (openingRial > 0) {
+    if (openingRial !== 0) {
       upsertCashOpening(db, row, openingRial, req.user.id);
       row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
     }
@@ -308,17 +368,18 @@ router.post('/:id/void-opening', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (!row.opening_balance_je_id) return res.status(400).json({ error: 'سند موجودی اول دوره برای این صندوق وجود ندارد' });
-  db.transaction(() => {
-    reverseJournalEntry(db, row.opening_balance_je_id, {
-      userId: req.user.id,
-      reason: `ابطال موجودی اول دوره صندوق ${row.name}`,
-      sourceType: 'cash_opening_reversal',
-    });
-    db.prepare('UPDATE cash_boxes SET opening_balance_rial=0, opening_balance_je_id=NULL WHERE id=?').run(row.id);
-  })();
-  audit(req.user.id, 'reverse', 'cash_opening', row.id, `ابطال موجودی اول دوره صندوق ${row.name}`);
-  res.json({ ok: true });
+  const hasLive = liveCashOpeningJeId(db, row) || Math.round(Number(row.opening_balance_rial) || 0) !== 0;
+  if (!hasLive) return res.status(400).json({ error: 'سند موجودی اول دوره برای این صندوق وجود ندارد' });
+  try {
+    db.transaction(() => {
+      upsertCashOpening(db, row, 0, req.user.id);
+    })();
+    audit(req.user.id, 'reverse', 'cash_opening', row.id, `ابطال موجودی اول دوره صندوق ${row.name}`);
+    res.json({ ok: true });
+  } catch (e) {
+    const status = e && e.status ? e.status : 500;
+    res.status(status).json({ error: e.message || 'خطا در ابطال افتتاحیه' });
+  }
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
@@ -334,13 +395,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare("SELECT COUNT(*) c FROM account_transfers WHERE (from_type='cash' AND from_id=?) OR (to_type='cash' AND to_id=?)").get(req.params.id, req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این صندوق در تراکنش‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
   db.transaction(() => {
-    if (row.opening_balance_je_id) {
-      reverseJournalEntry(db, row.opening_balance_je_id, {
-        userId: req.user.id,
-        reason: `ابطال موجودی اول دوره صندوق ${row.name} (حذف صندوق)`,
-        sourceType: 'cash_opening_reversal',
-      });
-    }
+    upsertCashOpening(db, row, 0, req.user.id);
     db.prepare('DELETE FROM cash_boxes WHERE id=?').run(req.params.id);
     if (row.coa_code) releaseTafsili(db, row.coa_code);
     try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1101-' + row.id); } catch (_) {}

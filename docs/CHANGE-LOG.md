@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — صندوق/بانک: افتتاحیه upsert + مانده بستانکار (SW v448)
+- **علائم:** تغییر مانده اول دوره بعضی صندوق‌ها سند تکراری می‌ساخت؛ مانده بستانکار (مثل کیمیا با موجودی زنده منفی) پذیرفته نمی‌شد (`amt<=0` = ابطال).
+- **ریشه:** `upsertCashOpening`/`upsertBankOpening` فقط مثبت بودند؛ lookup زنده `ORDER BY id DESC` با `rewriteJournalEntry` (ASC) ناهم‌خوان بود؛ بدون retire سندهای یتیم.
+- **رفع:** الگوی شخص (`opening-post`): مبلغ امضاشده (منفی=بستانکار)، rewrite مبلغ/تاریخ/سمت، `retireOther*Openings`، live JE با ASC؛ UI رادیو بدهکار/بستانکار؛ حذف/ابطال از همان upsert صفر. تاریخ = شروع سال مالی (کیمیا: روز قبل). راهنما + SW `erp-taranom-v448`.
+- **فایل‌ها:** `routes/{cash-boxes,banks}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-cash-opening-credit-v448.js`, CHANGE-LOG.
+- **تست:** ایران `test-cash-opening-credit-v448` + `test-sms` / `test-sync`؛ محلی sqlite Node24 SKIP.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۶ — گردش شخص: بدون تطبیق مصنوعی برای انگیزه (SW v447)
 - **علائم:** بعد از v446، گردش عارف قاسمی ردیف «مانده اول دوره / تطبیق با دفتر زنده» با بستانکار ۱۳۲M داشت (دقیقاً جمع پرداخت‌های زندهٔ انگیزه).
 - **ریشه:** `alignEntriesToTarget` ماندهٔ party-books را با جمع همه‌ٔ ردیف‌ها (شامل `rep_ledger`) مقایسه می‌کرد → شکاف = −انگیزه → ردیف مصنوعی.

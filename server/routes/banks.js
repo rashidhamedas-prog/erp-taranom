@@ -3,20 +3,39 @@ const { allocTafsili, releaseTafsili, acct } = require('../lib/coa-map');
 const { getDB, audit, syncBankAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
-const { rialToLedger } = require('../lib/money');
+const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { assertValidSheba } = require('../lib/treasury-guards');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
-// Unrestricted bank management — no limit on how many banks can be created.
-// Every bank is simultaneously a real chart-of-accounts ledger row (see
-// syncBankAccount in db.js), so it's reportable in General Ledger / Trial
-// Balance / Balance Sheet exactly like any other account.
+// Unrestricted bank management — opening upsert mirrors parties (signed + retire duplicates).
 
 function fiscalOpeningDate(db) {
   const fy = getActiveFiscalYear(db);
   return (fy && fy.start_date) || todayJalali();
+}
+
+function collectBankOpeningJournalIds(db, bankId) {
+  return db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='bank_opening' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+    ORDER BY id ASC
+  `).all(bankId).map((r) => Number(r.id));
+}
+
+function retireOtherBankOpenings(db, bank, keepId, userId) {
+  const keep = Number(keepId) || 0;
+  for (const id of collectBankOpeningJournalIds(db, bank.id)) {
+    if (Number(id) === keep) continue;
+    reverseJournalEntry(db, id, {
+      userId: userId || 1,
+      reason: `جمع شدن سند تکراری موجودی اول دوره بانک ${bank.name}`,
+      sourceType: 'bank_opening_reversal',
+    });
+  }
 }
 
 function liveBankOpeningJeId(db, bank) {
@@ -29,7 +48,7 @@ function liveBankOpeningJeId(db, bank) {
     bank.opening_balance_je_id = null;
   }
   const existing = db.prepare(
-    "SELECT id FROM journal_entries WHERE ref_type='bank_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void') ORDER BY id DESC LIMIT 1"
+    "SELECT id FROM journal_entries WHERE ref_type='bank_opening' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void') ORDER BY id ASC LIMIT 1"
   ).get(bank.id);
   if (existing) {
     db.prepare('UPDATE banks SET opening_balance_je_id=? WHERE id=?').run(existing.id, bank.id);
@@ -39,26 +58,49 @@ function liveBankOpeningJeId(db, bank) {
   return null;
 }
 
-function bankOpeningLines(db, bank, amt) {
+/** amt>0 debit bank / credit opening; amt<0 credit bank / debit opening. */
+function bankOpeningLines(db, bank, amtRial) {
   syncBankAccount(db, bank);
   const joinCode = resolveBankJoinCode(db, bank);
   const bankAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(joinCode);
   const bankCode = bankAcct || { code: joinCode, name: bank.name };
   const openingAccount = acct(db, 'coa_opening_balance');
-  const valueToman = rialToLedger(amt);
-  return [
-    { code: bankCode.code, name: bankCode.name || bank.name, debit: valueToman, credit: 0 },
-    { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-  ];
+  const absToman = rialToLedger(Math.abs(Math.round(Number(amtRial) || 0)));
+  const amt = Math.round(Number(amtRial) || 0);
+  return amt >= 0
+    ? [
+      { code: bankCode.code, name: bankCode.name || bank.name, debit: absToman, credit: 0 },
+      { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: absToman },
+    ]
+    : [
+      { code: openingAccount.code, name: openingAccount.name, debit: absToman, credit: 0 },
+      { code: bankCode.code, name: bankCode.name || bank.name, debit: 0, credit: absToman },
+    ];
 }
 
-/** Upsert opening JE: create / rewrite amount+FY-start date / void when amt≤0. */
+function bankOpeningSideMatches(db, jeId, amtRial) {
+  const amt = Math.round(Number(amtRial) || 0);
+  if (!amt) return false;
+  const opening = acct(db, 'coa_opening_balance');
+  const line = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d,
+           COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS c
+    FROM journal_lines jl
+    WHERE jl.entry_id=? AND jl.account_code=?
+  `).get(jeId, opening.code);
+  const openDebit = Math.round(Number(line && line.d) || 0);
+  const openCredit = Math.round(Number(line && line.c) || 0);
+  if (amt > 0) return openCredit > 0 && openDebit === 0;
+  return openDebit > 0 && openCredit === 0;
+}
+
+/** Upsert opening JE: create / rewrite amount+date+side / void when amt===0. */
 function upsertBankOpening(db, bank, openingRial, userId, { dateOverride } = {}) {
   const amt = Math.round(Number(openingRial) || 0);
   const date = dateOverride || fiscalOpeningDate(db);
   let jeId = liveBankOpeningJeId(db, bank);
 
-  if (amt <= 0) {
+  if (!amt) {
     if (jeId) {
       reverseJournalEntry(db, jeId, {
         userId: userId || 1,
@@ -66,6 +108,7 @@ function upsertBankOpening(db, bank, openingRial, userId, { dateOverride } = {})
         sourceType: 'bank_opening_reversal',
       });
     }
+    retireOtherBankOpenings(db, bank, null, userId);
     db.prepare('UPDATE banks SET opening_balance_rial=0, opening_balance_je_id=NULL, opening_balance_date=? WHERE id=?')
       .run(date, bank.id);
     return null;
@@ -76,47 +119,49 @@ function upsertBankOpening(db, bank, openingRial, userId, { dateOverride } = {})
 
   if (jeId) {
     const je = db.prepare('SELECT entry_date, total_debit_rial, ref_type FROM journal_entries WHERE id=?').get(jeId);
-    const currentRial = Math.round(Number(je && je.total_debit_rial) || 0);
     const isBankOpening = String(je && je.ref_type || '') === 'bank_opening';
     if (!isBankOpening) {
-      // Stale/wrong pointer (e.g. mahak_opening) — do not rewrite alien JE; post a real bank_opening
       db.prepare('UPDATE banks SET opening_balance_je_id=NULL WHERE id=?').run(bank.id);
       jeId = null;
-    } else if (currentRial !== amt || String(je && je.entry_date || '') !== String(date)) {
-      const rewritten = rewriteJournalEntry(db, {
-        sourceType: 'bank_opening',
-        sourceId: bank.id,
-        date,
-        description,
-        lines,
-      });
-      if (!rewritten) {
-        db.prepare('UPDATE banks SET opening_balance_je_id=NULL WHERE id=?').run(bank.id);
-        jeId = null;
-      } else {
-        db.prepare('UPDATE banks SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-          .run(amt, rewritten, date, bank.id);
-        return rewritten;
-      }
     } else {
-      db.prepare('UPDATE banks SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-        .run(amt, jeId, date, bank.id);
-      return jeId;
+      const currentAbs = Math.round(Number(je && je.total_debit_rial) || 0);
+      const wantAbs = Math.abs(amt);
+      const dateMismatch = String(je && je.entry_date || '') !== String(date);
+      const sideMismatch = !bankOpeningSideMatches(db, jeId, amt);
+      if (currentAbs !== wantAbs || dateMismatch || sideMismatch) {
+        const rewritten = rewriteJournalEntry(db, {
+          sourceType: 'bank_opening',
+          sourceId: bank.id,
+          date,
+          description,
+          lines,
+        });
+        if (!rewritten) {
+          db.prepare('UPDATE banks SET opening_balance_je_id=NULL WHERE id=?').run(bank.id);
+          jeId = null;
+        } else {
+          jeId = rewritten;
+        }
+      }
     }
   }
 
-  const journalId = postToLedger(db, {
-    sourceType: 'bank_opening',
-    sourceId: bank.id,
-    date,
-    description,
-    createdBy: userId,
-    voucherType: 'opening',
-    lines,
-  });
+  if (!jeId) {
+    jeId = postToLedger(db, {
+      sourceType: 'bank_opening',
+      sourceId: bank.id,
+      date,
+      description,
+      createdBy: userId,
+      voucherType: 'opening',
+      lines,
+    });
+  }
+
+  retireOtherBankOpenings(db, bank, jeId, userId);
   db.prepare('UPDATE banks SET opening_balance_rial=?, opening_balance_je_id=?, opening_balance_date=? WHERE id=?')
-    .run(amt, journalId, date, bank.id);
-  return journalId;
+    .run(amt, jeId, date, bank.id);
+  return jeId;
 }
 
 function postBankOpeningJe(db, bank, openingRial, userId) {
@@ -125,8 +170,12 @@ function postBankOpeningJe(db, bank, openingRial, userId) {
 
 function repairBankOpeningIfNeeded(db, bank, userId) {
   const amt = Math.round(Number(bank.opening_balance_rial) || 0);
-  if (amt <= 0) return bank;
-  if (liveBankOpeningJeId(db, bank)) return db.prepare('SELECT * FROM banks WHERE id=?').get(bank.id) || bank;
+  if (!amt) return bank;
+  const liveId = liveBankOpeningJeId(db, bank);
+  if (liveId) {
+    retireOtherBankOpenings(db, bank, liveId, userId || 1);
+    return db.prepare('SELECT * FROM banks WHERE id=?').get(bank.id) || bank;
+  }
   try {
     upsertBankOpening(db, bank, amt, userId || 1);
   } catch (e) {
@@ -205,8 +254,8 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
       coa_code: b.coa_code || (joinCode.startsWith('1102-') ? b.coa_code : joinCode),
       balance,
       opening_balance_rial: openingStored,
-      // For Mahak imports: master opening is 0 but GL has the opening lines
-      opening_effective_rial: openingStored > 0 ? openingStored : balance,
+      // Signed master wins; else GL (Mahak/legacy) — includes negative/credit openings
+      opening_effective_rial: openingStored !== 0 ? openingStored : balance,
     };
   });
   res.json(rows);
@@ -239,7 +288,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     ).run(
       name, account_number || '', branch || '', account_type || '', phone || '', card_number || '',
       card_expiry || '', shebaNorm, note || '', extraJson, cur, foreign,
-      openingRial > 0 ? openingRial : 0, openingRial > 0 ? openDate : (opening_balance_date || null),
+      openingRial, openingRial !== 0 ? openDate : (opening_balance_date || null),
       odLimit
     );
     try {
@@ -249,7 +298,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     let row = db.prepare('SELECT * FROM banks WHERE id=?').get(result.lastInsertRowid);
     syncBankAccount(db, row);
     row = db.prepare('SELECT * FROM banks WHERE id=?').get(result.lastInsertRowid);
-    if (openingRial > 0) {
+    if (openingRial !== 0) {
       upsertBankOpening(db, row, openingRial, req.user.id);
       row = db.prepare('SELECT * FROM banks WHERE id=?').get(result.lastInsertRowid);
     }
@@ -320,17 +369,18 @@ router.post('/:id/void-opening', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (!row.opening_balance_je_id) return res.status(400).json({ error: 'سند موجودی اول دوره برای این بانک وجود ندارد' });
-  db.transaction(() => {
-    reverseJournalEntry(db, row.opening_balance_je_id, {
-      userId: req.user.id,
-      reason: `ابطال موجودی اول دوره بانک ${row.name}`,
-      sourceType: 'bank_opening_reversal',
-    });
-    db.prepare('UPDATE banks SET opening_balance_rial=0, opening_balance_je_id=NULL WHERE id=?').run(row.id);
-  })();
-  audit(req.user.id, 'reverse', 'bank_opening', row.id, `ابطال موجودی اول دوره بانک ${row.name}`);
-  res.json({ ok: true });
+  const hasLive = liveBankOpeningJeId(db, row) || Math.round(Number(row.opening_balance_rial) || 0) !== 0;
+  if (!hasLive) return res.status(400).json({ error: 'سند موجودی اول دوره برای این بانک وجود ندارد' });
+  try {
+    db.transaction(() => {
+      upsertBankOpening(db, row, 0, req.user.id);
+    })();
+    audit(req.user.id, 'reverse', 'bank_opening', row.id, `ابطال موجودی اول دوره بانک ${row.name}`);
+    res.json({ ok: true });
+  } catch (e) {
+    const status = e && e.status ? e.status : 500;
+    res.status(status).json({ error: e.message || 'خطا در ابطال افتتاحیه' });
+  }
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
@@ -345,13 +395,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare('SELECT COUNT(*) c FROM check_categories WHERE bank_id=?').get(req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این بانک در تراکنش‌ها یا دسته‌چک‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
   db.transaction(() => {
-    if (row.opening_balance_je_id) {
-      reverseJournalEntry(db, row.opening_balance_je_id, {
-        userId: req.user.id,
-        reason: `ابطال موجودی اول دوره بانک ${row.name} (حذف بانک)`,
-        sourceType: 'bank_opening_reversal',
-      });
-    }
+    upsertBankOpening(db, row, 0, req.user.id);
     db.prepare('DELETE FROM banks WHERE id=?').run(req.params.id);
     if (row.coa_code) releaseTafsili(db, row.coa_code);
     try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1102-' + row.id); } catch (_) { /* legacy */ }

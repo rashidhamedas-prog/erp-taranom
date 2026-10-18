@@ -35,6 +35,6 @@ ok(quick.includes('retail_price_rial'), 'excel product upsert writes retail pric
 ok(acc.includes('SET client_request_id=NULL'), 'a dead voucher key does not block a new manual voucher');
 ok(acc.includes('function mirrorManualVoucherToCustomers'), 'manual voucher mirrors the customer book');
 ok(app.includes("kind==='person_receipt'") && app.includes('renderPrrCheques'), 'receipt cheque cards render for person receipt');
-ok(app.includes('erp-taranom-v433') || read('public/sw.js').includes('erp-taranom-v433'), 'service worker is v433');
+ok(/erp-taranom-v\d+/.test(read('public/sw.js')), 'service worker cache version stamped');
 
 console.log('PASS', pass);
