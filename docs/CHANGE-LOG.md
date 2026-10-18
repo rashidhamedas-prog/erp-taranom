@@ -2,8 +2,8 @@
 - **ریشه:** گردش مشتری و صورت‌حساب با `created_at` چیده می‌شدند، نه تاریخ سند؛ برای همین ۱۴۰۵/۰۷/۰۲ بعد از ۱۴۰۵/۰۷/۲۱ می‌آمد و ماندهٔ جاری هم به ترتیب ثبت حساب می‌شد. فهرست‌های تاریخ‌دار (خرید، هزینه، دریافت، انبار، اکسل) همین اشکال را با `id` یا `created_at` داشتند. مودال گردش جمع بدهکار/بستانکار و ماندهٔ نهایی نداشت.
 - **اصلاح:** `lib/report-order.js` ترتیب واحد است (تاریخ سند، بعد زمان ثبت، بعد شناسه). دفتر مشتری، صورت‌حساب، دفتر شخص/تأمین، دفتر کل، کاردکس، گردش شخص و صورت‌حساب بازاریاب قبل از محاسبهٔ مانده با همین تابع مرتب می‌شوند. فهرست عملیات و خروجی اکسل تاریخ‌دار هم بر اساس تاریخ سند است. پایین گردش: جمع دوره، جمع بدهکار، جمع بستانکار و ماندهٔ نهایی. راهنما به‌روز. SW `erp-taranom-v439`.
 - **فایل‌ها:** `lib/{report-order,party-turnover,customer-books,ledgers,cash-ops-list,warehouse-docs,consignments,rep-ledger}.js`, `routes/{accounting,persons,purchases,expenses,transfers,products,excel}.js`, `public/{app.js,sw.js,index.html}`, `scripts/test-report-date-order-v437.js`, CHANGE-LOG.
-- **تست:** `node server/scripts/test-report-date-order-v437.js`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-report-date-order-v437` ۱۷/۰ و `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `f974bd91` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ ready=200 و sharp 0.33.5. SW `erp-taranom-v439`.
 
 ### ۱۴۰۵/۰۷/۲۶ — UI فاکتور: افزودن پک با موجودی صفر وقتی انبار منفی‌مجاز است (SW v438)
 - **علائم:** انبار محصول با تیک اجازه موجودی منفی؛ فاکتور جدید → افزودن پک روی کالای ماتریسی با موجودی ۰ → toast «هیچ رنگ/سایز موجودی برای این کالا نیست».
