@@ -346,10 +346,11 @@ function reverseChequeLedgerByRef(db, { chequeId, refTypes, date, userId, descri
   void date; void userId; void descriptionPrefix;
   // v373: retire party books — no hollow reverse lines on statements.
   const {
-    retireCustomerLedgerByRef, retirePersonLedgerByRef,
+    retireCustomerLedgerByRef, retirePersonLedgerByRef, retireSupplierLedgerByRef,
   } = require('./party-ledger-retire');
   retireCustomerLedgerByRef(db, { refTypes: types, refId: chequeId });
   retirePersonLedgerByRef(db, { refTypes: types, refId: chequeId });
+  retireSupplierLedgerByRef(db, { refTypes: types, refId: chequeId });
 }
 
 /**

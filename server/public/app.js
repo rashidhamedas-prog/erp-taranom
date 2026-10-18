@@ -10650,6 +10650,7 @@ async function loadAccTab(tab){
     body.innerHTML=`
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${accNavId==='acc-cheques-pay'?'چک‌های پرداختی — پیش‌فرض فقط جهت پرداختی.':'دفتر چک — واردشده از فایل داده (لیست چک‌های دریافتی/پرداختی)'}</div>
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
+        ${payNav?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){chequePaymentModal()})}">➕ پرداخت چک</button>`:''}
         <select id="mchqDir" data-nav="${esc(accNavId||'')}" data-csp-change="${CSP.bind('change',function(event){loadAccTab('cheque-register')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
           <option value="">همه جهت‌ها</option>
           <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی</option>
@@ -25550,9 +25551,101 @@ function paymentOpChooser(){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(accountPaymentModal,50)})}">📒 پرداخت به حساب</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(()=>transferModal('bank'),50)})}">🏦 انتقال داخلی به بانک</button>
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(expensePaymentModal,50)})}">🧾 پرداخت هزینه</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(chequePaymentModal,50)})}">📑 پرداخت چک</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();setTimeout(()=>transferModal('cash'),50)})}">💰 انتقال داخلی به صندوق</button>
     </div>
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+/** ثبت + تحویل چک پرداختنی از منوی پرداخت‌ها (دفتر چک؛ نه فرم شخص/حساب/هزینه). */
+async function chequePaymentModal(){
+  await ensurePayCaches();
+  await ensurePartiesCache().catch(()=>{});
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+  const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>📑 پرداخت چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">چک در دفتر چک پرداختنی ثبت و تحویل می‌شود: بدهکار طرف‌حساب (یا هزینه) و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور چک بستانکار نمی‌شود. برای نقد/کارت از «پرداخت به شخص» استفاده کنید.</div></div>
+      <div class="fg"><label>تاریخ سند *</label><input id="chqp-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>نوع عملیات *</label><select id="chqp-kind" data-csp-change="${CSP.bind('change',function(){chqpKindToggle()})}">
+        <option value="pay">تسویه طرف حساب (تحویل چک)</option>
+        <option value="expense">خرج چک بابت هزینه</option>
+      </select></div>
+      <div class="fg full" id="chqp-party-wrap"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو کنید — نام آزاد پذیرفته نمی‌شود.')}</label>${partySelect('chqpParty')}</div>
+      <div class="fg full" id="chqp-exp-wrap" data-csp-style="${CSP.style(`display:none`)}">
+        <div class="form-grid" data-csp-style="${CSP.style(`margin:0;padding:0;border:0`)}">
+          <div class="fg full"><label>بخش مالک هزینه</label>
+            <select id="chqp-sec">
+              <option value="admin">اداری — ۶۱۰۲</option>
+              <option value="selling">فروش و توزیع — ۶۱۰۳</option>
+              <option value="production_overhead">سربار تولید — کنترل ۵۲۰۲</option>
+            </select></div>
+          <div class="fg full"><label>${expenseCcFieldLabel('سربار تولید همیشه مرکز می‌خواهد.')}</label>
+            <select id="chqp-cc"><option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'— بدون مرکز —'}</option>${ccOpts}</select></div>
+        </div>
+      </div>
+      <div class="fg"><label>شماره چک *</label><input id="chqp-num" class="mono"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="chqp-amt" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>بانک صادرکننده</label><input id="chqp-bank"></div>
+      <div class="fg"><label>شعبه</label><input id="chqp-branch"></div>
+      <div class="fg"><label>شماره حساب</label><input id="chqp-acct" class="mono"></div>
+      <div class="fg"><label>شبا</label><input id="chqp-sheba" class="mono"></div>
+      <div class="fg"><label>صیاد (۱۶ رقم)</label><input id="chqp-sayadi" class="mono" maxlength="16"></div>
+      <div class="fg"><label>سررسید</label><input id="chqp-due" data-jdate></div>
+      <div class="fg full"><label>شرح</label><input id="chqp-note" placeholder="پرداخت چک"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveChequePayment()})}">💾 ثبت و تحویل</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  initPartySearches(el('modalRoot'));
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  chqpKindToggle();
+}
+function chqpKindToggle(){
+  const kind=el('chqp-kind')?.value||'pay';
+  const exp=el('chqp-exp-wrap');
+  if(exp) exp.style.display=kind==='expense'?'':'none';
+}
+async function saveChequePayment(){
+  const kind=el('chqp-kind')?.value||'pay';
+  const amount=moneyVal('chqp-amt');
+  const party_id=+el('chqpParty')?.value||0;
+  const cheque_number=String(el('chqp-num')?.value||'').trim();
+  const date=el('chqp-date')?.value||todayJalali();
+  if(!amount||amount<=0){ showToast('مبلغ الزامی است','error'); return; }
+  if(!cheque_number){ showToast('شماره چک الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
+  if(kind==='expense'){
+    const cost_section=el('chqp-sec')?.value||'admin';
+    const cost_center_id=+el('chqp-cc')?.value||null;
+    if(cost_section==='production_overhead' && !cost_center_id){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
+    if(isExpenseCcRequired() && !cost_center_id){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
+  }
+  try{
+    const created=await api('POST','/cheque-records',{
+      direction:'out', amount, party_id, cheque_number,
+      bank_name:el('chqp-bank')?.value||'', branch:el('chqp-branch')?.value||'',
+      account_number:el('chqp-acct')?.value||'', sheba:el('chqp-sheba')?.value||'',
+      sayadi:el('chqp-sayadi')?.value||'', due_date:el('chqp-due')?.value||'',
+      issue_date:date, note:el('chqp-note')?.value||'پرداخت چک'
+    });
+    const id=created&&created.id;
+    if(!id){ showToast('ثبت چک ناموفق بود','error'); return; }
+    if(kind==='expense'){
+      await api('POST','/cheque-records/'+id+'/expense',{
+        date,
+        cost_section:el('chqp-sec')?.value||'admin',
+        cost_center_id:+el('chqp-cc')?.value||null
+      });
+      showToast('خرج چک ثبت شد');
+    }else{
+      await api('POST','/cheque-records/'+id+'/pay',{date});
+      showToast('پرداخت چک ثبت شد');
+    }
+    closeModal();
+    if(typeof go==='function') go('acc-cheques-pay');
+    else if(typeof loadAccTab==='function') loadAccTab(accTab||'cheque-register');
+  }catch(e){ showToast((e&&e.message)||'ثبت پرداخت چک ناموفق بود','error'); }
 }
 async function personPaymentModal(){
   await ensurePayCaches();
@@ -25575,7 +25668,7 @@ async function personPaymentModal(){
         <option value="party">سایر اشخاص</option>
       </select></div>
       <div class="fg full" id="pp-target-wrap"></div>
-      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">مبدأ وجه همان صندوق یا بانک انتخاب‌شده است. «واریز» برای ورود وجه است و در پرداخت به کار نمی‌رود. صدور چک تا اتصال دفتر چک پرداختنی در این فرم نیست، چون بانک با صرف صدور چک بستانکار نمی‌شود.</div></div>
+      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">مبدأ وجه همان صندوق یا بانک انتخاب‌شده است. «واریز» برای ورود وجه است و در پرداخت به کار نمی‌رود. برای صدور چک از «پرداخت چک» در منوی نوع پرداخت استفاده کنید — بانک با صرف صدور چک بستانکار نمی‌شود.</div></div>
       <div class="fg"><label>روش پرداخت *</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:false,flow:'out'})}</select></div>
       <div class="fg" id="pp-bank-fg"><label>برداشت از بانک *</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
         <option value="">— انتخاب بانک —</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -30710,7 +30803,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». برای سفارش طاقه‌دار (v403) پارچه از لایه‌چینی می‌آید و «رسید» فقط پس از PACK مجاز است؛ بقیهٔ اقلام BOM (آستر/زیپ/…) همچنان با حواله. انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود. اگر موجودی قلم BOM کمتر از مقدار حواله باشد، می‌توانید <b>کالای جایگزین</b> برای الباقی کسری انتخاب کنید؛ سیستم موجودی اصل را تا سقف انبار و الباقی را از جایگزین حواله می‌کند و دلیل انحراف را با توضیح تأمین از کالای دیگر پر می‌کند (قابل ویرایش).</li>
       </ul>
       <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
-        <li>در دریافت: نقد فقط <b>صندوق مقصد</b>، واریز فقط <b>بانک مقصد شرکت</b>، <b>چک دریافتنی</b> بدون بانک شرکت (اسناد دریافتنی نزد صندوق، با بانک صادرکننده، شعبه، حساب، شماره، صیاد ۱۶ رقمی، سررسید و صادرکننده)، کارتخوان فقط ترمینال و وجوه در راه. در پرداخت عنوان بانک <b>برداشت از حساب بانکی</b> است نه واریز. صدور چک پرداختنی تا دفتر چک پرداختنی در فرم پرداخت شخص/حساب/هزینه بسته است.</li>
+        <li>در دریافت: نقد فقط <b>صندوق مقصد</b>، واریز فقط <b>بانک مقصد شرکت</b>، <b>چک دریافتنی</b> بدون بانک شرکت (اسناد دریافتنی نزد صندوق، با بانک صادرکننده، شعبه، حساب، شماره، صیاد ۱۶ رقمی، سررسید و صادرکننده)، کارتخوان فقط ترمینال و وجوه در راه. در پرداخت عنوان بانک <b>برداشت از حساب بانکی</b> است نه واریز. صدور چک پرداختنی از منوی «پرداخت‌ها → پرداخت چک» یا «چک‌های پرداختی» است؛ در فرم شخص/حساب/هزینه چک بسته می‌ماند چون بانک با صرف صدور بستانکار نمی‌شود.</li>
         <li>دریافت مشتری با کارتخوان از مسیر <b>وجوه در راه (۱۱۱۸)</b> ثبت می‌شود نه بدهکار بانک؛ تسویه دسته‌ای بعداً به بانک می‌رود.</li>
         <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
         <li><b>تخصیص فاکتور (v372):</b> در دریافت، اصلاح سند، تخصیص اعتبار برگشت و برگشت روی فاکتور، مبلغ نمایش‌داده‌شده <b>خالص پس از تخفیف</b> فاکتور است (همان وجه AR/AP)؛ مانده زنده از همین خالص منهای دریافت/برگشت/تخصیص محاسبه می‌شود.</li>
@@ -30930,7 +31023,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کنترل حساب اشخاص</b> (اشخاص → گزارشات): داشبورد KPI مانده بدهکار/بستانکار همهٔ اشخاص با هر سمت، پیری مطالبات، سقف اعتبار، اختلاف دفتر/تفصیلی، worklist اقدام، فیلتر و خروجی CSV؛ از ردیف به گردش یا صورت‌حساب مشتری می‌روید</li>
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — بدون <b>حساب معین</b>؛ انتخاب فاکتور، ثبت چند قسط. مقصد <b>بانک</b> فقط <b>واریز بانکی</b> است (نه انتخاب حساب معین بانک). هر چک دریافتی یک ردیف جدا در <b>دفتر چک</b> می‌سازد و کارت مشخصات (بانک، صیاد، سررسید، مبلغ) زیر روش دریافت باز می‌شود؛ در حالت چندقسطی انتخاب «چک» همان کارت را نشان می‌دهد. واریز به صندوق/بانک طبق نوع. دکمهٔ مداد سند ثبت‌شده را اصلاح می‌کند (مبلغ، طرف، بانک/صندوق، تاریخ، فاکتور، مشخصات چک) و دفتر را با همان شماره سند بازنویسی می‌کند. دریافت همراه فاکتور و کارتخوان از ویرایش فاکتور اصلاح می‌شود. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی). خودِ اصلاح، تأیید میدانی را رد نمی‌کند. <b>نوار بازهٔ بالا</b> (ماه/هفته/ماه قبل/همه/بازه دلخواه) هم دریافت‌ها و هم پرداخت‌های خروجی را محدود می‌کند؛ با «بازه دلخواه» ابتدا/انتها را بزنید و «اعمال» کنید. <b>جمع ستون مبلغ</b> با جستجوی بالای جدول (مثلاً نام مشتری) هم‌خوان با ردیف‌های نمایش‌داده‌شده است، نه کل لیست</li>
-        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. چک در پرداخت به شخص، حساب و هزینه تا اتصال دفتر چک پرداختنی بسته است. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، <b>پرداخت به شخص</b> (سند+دفتر همان شخص)، <b>پرداخت به حساب</b> کدینگ، و پرداخت هزینه عمومی (اجاره، قبض، ...). همهٔ این‌ها در جدول «پرداخت‌ها (خروجی)» دیده می‌شوند (منبع جدا از گردش شخص). در فرم هزینه، حساب هزینه هر سطح کدینگ هزینه است — از جمله معین اول هر کل مثل ۶۱۰۳۰۱ — و مبلغ روی همان کد می‌نشیند. کارمزد انتقال بانکی همیشه روی <b>برگ</b> حساب کارمزد (معین زیر ۶۱۱۵ اگر ساخته شده باشد) ثبت می‌شود؛ خود گروه ۶۱۱۵ اگر فرزند داشته باشد سطح پست نیست. دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد. «پرداخت به بانک» و «پرداخت به صندوق» انتقال داخلی‌اند و مبدأ و مقصد باید حساب مشخص باشند. برای چک پرداختنی از «پرداخت چک» در همین منو یا «چک‌های پرداختی» استفاده کنید (ثبت+تحویل: بدهکار طرف‌حساب / بستانکار اسناد پرداختنی؛ بانک با صدور بستانکار نمی‌شود). فرم شخص/حساب/هزینه همچنان چک را رد می‌کند. پرداخت هزینه فقط هزینه مستقیم است؛ تسویه فاکتور خرید از پرداخت به تأمین‌کننده است. اقساط یک درخواست واحدند. حساب معین جدا در پرداخت به شخص و در اصلاح پرداخت تأمین‌کننده حذف شده چون حساب نقد/بانک از همان صندوق یا بانک انتخاب‌شده می‌آید. هزینهٔ وصل به فاکتور خرید تا اصلاح جداگانهٔ مانده، مبلغش عوض نمی‌شود. پرداخت به حساب همچنان هر سطح کدینگ فعال را می‌پذیرد و مبلغ روی خود همان کد می‌نشیند. مداد روی ردیف تأمین‌کننده، انگیزه و هزینه همان سند را اصلاح می‌کند؛ کارمزد بانکی و تسویهٔ مساعده دوباره محاسبه می‌شود. مداد روی پرداخت به شخص و پرداخت به حساب همان سند را با همان شمارهٔ JV اصلاح می‌کند (دفتر کل + دفتر شخص). دریافت از شخص/حساب هنوز با ابطال و ثبت مجدد اصلاح می‌شود. در پرداخت به شخص و سایر پرداخت‌های خروجی با نوع <b>واریز بانکی</b> فیلد <b>کارمزد انتقال</b> و فیلد جداگانهٔ <b>مرکز هزینه کارمزد بانکی</b> ظاهر می‌شود (سطر ۶۱۱۵ با همان مرکز؛ اگر خالی باشد از مرکز سند هزینه می‌گیرد؛ با الزام مرکز هزینه وقتی کارمزد>۰ اجباری است): اصل به طرف‌حساب و کارمزد روی برگ حساب کارمزد بانکی؛ بانک مبدأ اصل+کارمزد بستانکار می‌شود؛ ابطال کامل همان سند را معکوس می‌کند</li>
         <li><b>گردش اشخاص</b>: دکمه «گردش» روی هر طرف‌حساب، صورت‌حساب مشتری / دفتر تأمین / دفتر شخص+بازاریاب را از یک API واحد می‌خواند. اگر شخص هم مشتری و هم تأمین‌کننده باشد و دفتر مشتری خالی باشد، به‌جای خطای خالی به دفتر تأمین یا تفصیلی می‌افتد. ردیف‌های دفتر شخص که همان سند دفتر کل‌اند دوبل نمی‌شوند. اگر هنوز ردیفی نباشد، مودال خالی توضیحی نشان داده می‌شود نه toast قرمز. دریافت از مشتری که سمت مشتری دارد مستقیم به‌صورت تسویه در دفتر مشتری می‌آید؛ پرداخت انگیزه روی حساب بازاریابِ لینک‌شده به همان شخص در گردش دیده می‌شود. «دریافت/پرداخت از حساب» اگر حساب برگ متعلق به مشتری یا شخص باشد، همان لحظه در دفتر طرف‌حساب هم ثبت می‌شود و با ابطال سند معکوس می‌گردد. ردیف‌های گردش، صورت‌حساب و دفترها بر اساس <b>تاریخ سند</b> (قدیم به جدید) چیده می‌شوند. پایین گردش، جمع بدهکار، جمع بستانکار و ماندهٔ نهایی — مثل صورت‌حساب — دیده می‌شود</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
@@ -31144,7 +31237,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v428</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v453</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

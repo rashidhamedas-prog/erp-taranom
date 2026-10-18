@@ -75,7 +75,7 @@ function voidChequeRecord(db, chequeId, user) {
     const { reverseChequeLedgerByRef } = require('./cheque-party-books');
     reverseChequeLedgerByRef(db, {
       chequeId: row.id,
-      refTypes: ['cheque_endorse', 'cheque_in', 'cheque_bounce'],
+      refTypes: ['cheque_endorse', 'cheque_in', 'cheque_bounce', 'cheque_pay'],
       date: todayJalali(),
       userId: user.id,
       descriptionPrefix: `ابطال چک ${row.cheque_number || row.id}`,

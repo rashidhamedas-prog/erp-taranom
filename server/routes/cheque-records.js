@@ -159,39 +159,77 @@ function resolveEndorseDebit(db, body) {
   };
 }
 
-function postSupplierEndorseLedger(db, { supplierId, date, chequeId, description, amountRial, userId }) {
+function postSupplierEndorseLedger(db, { supplierId, date, chequeId, description, amountRial, userId, refType }) {
   if (!supplierId || !(amountRial > 0)) return;
+  const rt = String(refType || 'cheque_endorse');
   try {
+    const exists = db.prepare(`
+      SELECT 1 FROM supplier_ledger
+      WHERE ref_type=? AND ref_id=? AND supplier_id=? LIMIT 1
+    `).get(rt, chequeId, supplierId);
+    if (exists) return;
     db.prepare(`
       INSERT INTO supplier_ledger
         (supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id)
       VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(supplierId, date || '', 'payment', 'cheque_endorse', chequeId, description || '', amountRial, 0, userId || null);
+    `).run(supplierId, date || '', 'payment', rt, chequeId, description || '', amountRial, 0, userId || null);
   } catch (e) {
     if (db.inTransaction) throw e;
   }
 }
 
-function postCustomerEndorseLedger(db, { customerId, date, chequeId, description, amountRial, userId }) {
+function postCustomerEndorseLedger(db, { customerId, date, chequeId, description, amountRial, userId, refType }) {
   if (!customerId || !(amountRial > 0)) return;
+  const rt = String(refType || 'cheque_endorse');
   const { createLedgerEntry } = require('../db');
   const exists = db.prepare(`
     SELECT 1 FROM customer_ledger
-    WHERE ref_type='cheque_endorse' AND ref_id=? AND customer_id=? AND entry_type<>'reversal'
+    WHERE ref_type=? AND ref_id=? AND customer_id=? AND entry_type<>'reversal'
     LIMIT 1
-  `).get(chequeId, customerId);
+  `).get(rt, chequeId, customerId);
   if (exists) return;
   createLedgerEntry(db, {
     customer_id: customerId,
     date: date || '',
     entry_type: 'cheque',
-    ref_type: 'cheque_endorse',
+    ref_type: rt,
     ref_id: chequeId,
     description: description || '',
     debit: amountRial,
     credit: 0,
     user_id: userId || null,
   });
+}
+
+/** Person sub-ledger mirror for outgoing cheque pay (XOR with customer). */
+function postPersonChequePayLedger(db, { partyId, customerId, date, chequeId, description, amountRial, userId }) {
+  if (customerId || !(amountRial > 0) || !chequeId) return;
+  const pid = parseInt(partyId, 10);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  const person = db.prepare('SELECT id FROM persons WHERE party_id=? LIMIT 1').get(pid);
+  if (!person) return;
+  try {
+    const exists = db.prepare(`
+      SELECT 1 FROM person_ledger
+      WHERE ref_type='cheque_pay' AND ref_id=? AND person_id=? AND COALESCE(entry_type,'')<>'reversal'
+      LIMIT 1
+    `).get(chequeId, person.id);
+    if (exists) return;
+    const { createPersonLedgerEntry } = require('../db');
+    createPersonLedgerEntry(db, {
+      person_id: person.id,
+      date: date || '',
+      entry_type: 'cheque',
+      ref_type: 'cheque_pay',
+      ref_id: chequeId,
+      description: description || '',
+      debit: amountRial,
+      credit: 0,
+      user_id: userId || null,
+    });
+  } catch (e) {
+    if (db.inTransaction) throw e;
+  }
 }
 
 function resolveNamedAcct(db, key, fallbackKey) {
@@ -298,11 +336,16 @@ function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey, useEx
     let debitAcct;
     let costCenterId = null;
     let expenseCode = null;
+    let payBooks = null;
     if (useExpensePosting && (bodyChoosesExpenseSection(body) || !body.account_key)) {
       const posting = chequeExpensePosting(db, body, row.amount);
       debitAcct = posting.account;
       costCenterId = posting.costCenterId;
       expenseCode = posting.account.code;
+    } else if (sourceType === 'cheque_pay' && !body.account_key && row.party_id) {
+      // Party-aware debit (supplier/person/customer COA); credit stays notes payable (v428).
+      payBooks = resolveEndorseDebit(db, { party_id: row.party_id });
+      debitAcct = payBooks.debitAcct;
     } else {
       debitAcct = resolveNamedAcct(db, req.body.account_key, debitKey);
     }
@@ -323,6 +366,27 @@ function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey, useEx
         SET cost_center_id=?, expense_account_code=?
         WHERE id=?
       `).run(costCenterId, expenseCode, row.id);
+    }
+    if (sourceType === 'cheque_pay') {
+      const amountRial = chequeAmountRial(row);
+      const desc = `پرداخت چک ${row.cheque_number || row.id}${row.party_name ? ' — ' + row.party_name : ''}`;
+      const books = payBooks || (row.party_id ? resolveEndorseDebit(db, { party_id: row.party_id }) : null);
+      if (books) {
+        postSupplierEndorseLedger(db, {
+          supplierId: books.supplierId, date: entryDate, chequeId: row.id,
+          description: desc, amountRial, userId: req.user.id, refType: 'cheque_pay',
+        });
+        postCustomerEndorseLedger(db, {
+          customerId: books.customerId, date: entryDate, chequeId: row.id,
+          description: desc, amountRial, userId: req.user.id, refType: 'cheque_pay',
+        });
+        postPersonChequePayLedger(db, {
+          partyId: books.partyId || row.party_id,
+          customerId: books.customerId,
+          date: entryDate, chequeId: row.id, description: desc,
+          amountRial, userId: req.user.id,
+        });
+      }
     }
     return id;
   })();

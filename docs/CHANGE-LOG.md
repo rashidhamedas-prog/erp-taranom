@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۶ — پرداخت چک در منوی پرداخت‌ها (SW v453)
+- **علائم:** در «نوع پرداخت را انتخاب کنید» فقط شخص/حساب/بانک/هزینه/صندوق بود؛ «پرداخت چک» نبود و کاربر مسیر دفتر چک را پیدا نمی‌کرد.
+- **تصمیم:** فرم‌های پنج‌گانه همچنان `E_CHEQUE_FORM_CLOSED` می‌مانند (بانک با صرف صدور بستانکار نمی‌شود). مسیر درست = دفتر چک پرداختنی.
+- **رفع:** دکمهٔ «پرداخت چک» در `paymentOpChooser` + مودال ثبت‌وتحویل (`chequePaymentModal`: تسویه طرف‌حساب یا خرج هزینه)؛ دکمه در تب چک‌های پرداختی؛ روی `POST …/pay` بدهکار از `party_id` (مثل endorse) + آینهٔ `supplier`/`customer`/`person` ledger با `ref_type=cheque_pay`؛ بستانکار همیشه اسناد پرداختنی؛ ابطال `cheque_pay` را retire می‌کند. راهنما + SW `erp-taranom-v453`.
+- **فایل‌ها:** `routes/cheque-records.js`, `lib/{void-cheque,cheque-party-books}.js`, `public/{app.js,sw.js}`, `scripts/test-cheque-payment-chooser-v453.js`, CHANGE-LOG.
+- **تست:** محلی static ۱۴/۰ (+ v428 static ۳۷/۰)؛ `test-sms` ۲۲/۰؛ `test-sync` روی ویندوز bindings ندارد. ایران: sqlite کامل.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۶ — سلکتور شخص BOM: ردیف تکراری هم‌تلفن (SW v452)
 - **علائم:** در ویرایش BOM → مسیر عملیات → «شخص (بستانکار دستمزد)» جستجوی «ابراه» دو ردیف یکسان «مهدیه ابراهیمی / 09360887707» می‌آورد.
 - **ریشه:** در DB دو `persons` با یک تلفن و `party_id`های متفاوت (۳→۱۰۲ و ۱۳۲→۱۳۶؛ ۸ جفت هم‌تلفن زنده). `syncPartyToPerson` / `ensurePersonForParty` فقط با `party_id` مچ می‌کردند و برای party دوم INSERT می‌زدند. سلکتور هم بدون dedupe همه را نشان می‌داد.
