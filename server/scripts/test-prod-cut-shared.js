@@ -132,7 +132,7 @@ try {
   const again = postSharedCut(db, body, { id: admin.id });
   eq('تکرار همان شناسه', again.id, posted.id);
   const packs = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
-  eq('دو بسته محصول', packs, 2);
+  eq('برش چندمحصول هنوز PACK انبار نساخته', packs, 0);
 
   db.prepare("UPDATE settings SET value='2' WHERE key='production_remnant_min_m'").run();
   const snap = posted.policy;
