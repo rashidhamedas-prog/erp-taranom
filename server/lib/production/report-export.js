@@ -70,6 +70,8 @@ function fmtToman(rial) {
 function costSheetHtml(reportResult) {
   const s = reportResult.data?.summary || {};
   const stages = reportResult.data?.stages || [];
+  const cut = reportResult.data?.cutting || {};
+  const incomplete = !!reportResult.data?.incomplete;
   const title = reportResult.title || 'برگه بهای تمام‌شده';
   const stageRows = stages.map(st => `<tr>
     <td>${escHtml(st.seq)}</td>
@@ -81,6 +83,9 @@ function costSheetHtml(reportResult) {
     <td class="num">${fmtToman(st.overhead_rial)}</td>
     <td class="num">${fmtToman(st.cost_out_rial)}</td>
   </tr>`).join('');
+  const warn = incomplete
+    ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #c45c26;background:#fff4ec;color:#5c2b0a">برگه موقت — بهای نهایی نیست. ${(reportResult.data?.incomplete_reasons || []).map(r => escHtml(r.message || r.code)).join(' ')}</div>`
+    : '';
 
   return `<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8">
 <title>${escHtml(title)}</title>
@@ -95,8 +100,9 @@ function costSheetHtml(reportResult) {
   .summary td:first-child{font-weight:600;width:40%}
   @media print{body{margin:12mm} @page{size:A4;margin:12mm}}
 </style></head><body>
-<h1>${escHtml(title)}</h1>
-<div class="meta">سفارش: ${escHtml(s.order_no || '—')} · محصول: ${escHtml(s.product_name || '—')} · دوره: ${escHtml(s.period_label || '—')}</div>
+${warn}
+<h1>${escHtml(title)}${incomplete ? ' (موقت)' : ''}</h1>
+<div class="meta">سفارش: ${escHtml(s.order_no || '—')} · محصول: ${escHtml(s.product_name || '—')} · دوره: ${escHtml(s.period_label || '—')} · ${incomplete ? 'بهای موقت' : 'بهای نهایی'}${cut.requires_fabric_cutting ? ` · انحراف پارچه ${escHtml(cut.fabric_variance_m)} م · ضایعات غیرعادی ${fmtToman(cut.lay_waste_rial)} ت` : ''}</div>
 <table class="summary"><tbody>
   <tr><td>تعداد برنامه</td><td class="num">${escHtml(s.qty_planned)}</td></tr>
   <tr><td>تعداد تولید</td><td class="num">${escHtml(s.qty_produced)}</td></tr>

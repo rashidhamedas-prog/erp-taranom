@@ -312,9 +312,13 @@ function assertNoOrphanSellablePack(db, productId, orderId) {
 }
 
 /**
- * Apparel fabric path: meter fabric in BOM that is roll-tracked (طاقه) must go
+ * Apparel fabric path: meter fabric in BOM must go
  * lay → PACK (WIP) → order receipt/finalize (FG). Never short-circuit via
  * POST /production/orders/:id/receipt alone.
+ *
+ * v467: پارچهٔ متری در BOM حتی قبل از ورود اولین طاقه همین مسیر را می‌خواهد
+ * تا ضایعات/انحراف لایه‌چینی از بهای تمام‌شده جا نماند. مواد غیرمتری
+ * (زیپ و …) و مسیر بدون پارچهٔ متری معاف‌اند.
  */
 function orderRequiresFabricCutting(db, po) {
   if (!po || !po.bom_id || !po.product_id) return false;
@@ -328,22 +332,7 @@ function orderRequiresFabricCutting(db, po) {
   const fabId = Number(fabricLine.product_id);
   const prod = db.prepare('SELECT unit FROM products WHERE id=?').get(fabId);
   if (!isMeterUnit(prod && prod.unit)) return false;
-  const hasRoll = db.prepare(`
-    SELECT 1 AS ok FROM inventory_batches
-    WHERE product_id=? AND COALESCE(kind,'generic')='fabric'
-    LIMIT 1
-  `).get(fabId);
-  if (hasRoll) return true;
-  // Already on cutting path for this order (even if rolls were voided later).
-  if (po.id) {
-    const lay = db.prepare(`
-      SELECT 1 AS ok FROM cutting_lays
-      WHERE production_order_id=? AND COALESCE(status,'posted')<>'reversed'
-      LIMIT 1
-    `).get(Number(po.id));
-    if (lay) return true;
-  }
-  return false;
+  return true;
 }
 
 function cuttingQtyForOrder(db, orderId) {
@@ -939,6 +928,7 @@ function postCuttingLay(db, body, user) {
           layNo,
           fabricProductId: plan.fabric_product_id,
           amountRial: amount,
+          wasteAmountRial: wasteAmt,
           qtyPieces: plan.qty_pieces,
           meters: plan.actual_meters,
           date,
@@ -971,6 +961,7 @@ function unbindCuttingLayFromOrderStage(db, row, user, date) {
     layId: row.id,
     layNo: row.lay_no,
     amountRial: row.amount_rial,
+    wasteAmountRial: row.waste_amount_rial,
     userId: user.id,
     date: date || row.date,
   });

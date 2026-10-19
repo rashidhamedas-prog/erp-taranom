@@ -178,7 +178,7 @@ try {
   ok(st.status === 'completed' && Number(st.qty_produced) === 4,
     'full qty completes order even when is_partial was set');
 
-  console.log('v403 — non-roll fabric BOM does not force gate');
+  console.log('v403/v467 — meter fabric BOM forces gate even without roll batch');
   const fabric2 = db.prepare(`
     INSERT INTO products (user_id,name,code,price,stock,average_cost_rial,unit,item_type,is_manufactured)
     VALUES (?,'پارچه بدون طاقه','V403-FAB2',0,50,1000,'متر','raw',0)
@@ -199,8 +199,8 @@ try {
   const po2 = {
     id: 0, product_id: fg2, bom_id: bom2, size_breakdown: null, date: '1405/07/23',
   };
-  ok(cutting.orderRequiresFabricCutting(db, po2) === false,
-    'meter fabric without any fabric batch does not require cutting gate');
+  ok(cutting.orderRequiresFabricCutting(db, po2) === true,
+    'v467: meter fabric in BOM requires cutting gate even without fabric batch');
 } finally {
   try { db.close(); } catch (_) {}
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

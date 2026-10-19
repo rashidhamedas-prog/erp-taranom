@@ -227,20 +227,138 @@ function costSheet(db, { orderId }) {
   summary.products = products;
 
   const wipRial = Math.round(Number(wip?.wip_rial) || 0);
+  const balanced = Math.abs(wipRial) <= 5 || summary.status === 'closed';
+  const cutting = costSheetCuttingAudit(db, order, summary);
+
   return {
     data: {
       summary,
       stages: stagesVa,
       journals,
       wip_rial: wipRial,
-      balanced: Math.abs(wipRial) <= 5 || summary.status === 'closed',
+      balanced,
+      /** WIP residual only — not “production complete”. Use cost_final. */
+      cutting,
+      incomplete: !!cutting.incomplete,
+      incomplete_reasons: cutting.incomplete_reasons,
+      cost_final: !!cutting.cost_final,
     },
     totals: {
       total_cost_rial: summary.total_cost_rial,
       unit_cost_rial: summary.unit_cost_rial,
       yield_pct: summary.yield_pct,
+      cost_final: !!cutting.cost_final,
     },
-    meta: { empty: !stagesVa.length && !journals.length, message: null },
+    meta: {
+      empty: !stagesVa.length && !journals.length,
+      message: cutting.incomplete
+        ? (cutting.incomplete_reasons[0] && cutting.incomplete_reasons[0].message) || null
+        : null,
+    },
+  };
+}
+
+/**
+ * v467 — بهای نهایی فقط وقتی لایه‌چینی (و PACK در صورت تولید FG) برای مسیر پارچهٔ متری
+ * ثبت شده و ضایعات/انحراف لایه در برگه قابل مشاهده است.
+ * سفارش بدون پارچهٔ متری: همیشه cost_final از نظر برش.
+ */
+function costSheetCuttingAudit(db, order, summary) {
+  const empty = {
+    requires_fabric_cutting: false,
+    lay_count: 0,
+    cutting_lay_qty: 0,
+    cutting_pack_qty: 0,
+    actual_meters: 0,
+    matrix_meters: 0,
+    fabric_variance_m: 0,
+    waste_normal_m: 0,
+    waste_abnormal_m: 0,
+    lay_amount_rial: 0,
+    lay_waste_rial: 0,
+    order_abnormal_waste_rial: Math.round(Number(order.abnormal_waste_rial) || 0),
+    incomplete: false,
+    incomplete_reasons: [],
+    cost_final: true,
+  };
+  let gate = { requires_fabric_cutting: false, cutting_lay_qty: 0, cutting_pack_qty: 0 };
+  try {
+    const cutting = require('./cutting');
+    gate = cutting.fabricCuttingGateInfo(db, order);
+  } catch {
+    return empty;
+  }
+
+  let lays = [];
+  try {
+    lays = db.prepare(`
+      SELECT COALESCE(actual_meters,0) AS actual_meters,
+             COALESCE(matrix_meters,0) AS matrix_meters,
+             COALESCE(waste_normal_m,0) AS waste_normal_m,
+             COALESCE(waste_abnormal_m,0) AS waste_abnormal_m,
+             COALESCE(amount_rial,0) AS amount_rial,
+             COALESCE(waste_amount_rial,0) AS waste_amount_rial,
+             COALESCE(qty_pieces,0) AS qty_pieces
+      FROM cutting_lays
+      WHERE production_order_id=? AND COALESCE(status,'posted')<>'reversed'
+    `).all(Number(order.id));
+  } catch { lays = []; }
+
+  const agg = lays.reduce((a, l) => {
+    a.actual_meters += Number(l.actual_meters) || 0;
+    a.matrix_meters += Number(l.matrix_meters) || 0;
+    a.waste_normal_m += Number(l.waste_normal_m) || 0;
+    a.waste_abnormal_m += Number(l.waste_abnormal_m) || 0;
+    a.lay_amount_rial += Math.round(Number(l.amount_rial) || 0);
+    a.lay_waste_rial += Math.round(Number(l.waste_amount_rial) || 0);
+    a.qty_pieces += Number(l.qty_pieces) || 0;
+    return a;
+  }, {
+    actual_meters: 0, matrix_meters: 0, waste_normal_m: 0, waste_abnormal_m: 0,
+    lay_amount_rial: 0, lay_waste_rial: 0, qty_pieces: 0,
+  });
+
+  const reasons = [];
+  if (gate.requires_fabric_cutting) {
+    if (!lays.length) {
+      reasons.push({
+        code: 'E_COST_NO_LAY',
+        message: 'سفارش پارچهٔ متری دارد ولی لایه‌چینی ثبت نشده — ضایعات و انحراف برش در بها نیست؛ برگه موقت است و بهای نهایی صادر نمی‌شود.',
+      });
+    } else {
+      const produced = Number(order.qty_produced) || 0;
+      if (produced > 0 && Number(gate.cutting_lay_qty) + 1e-9 < produced) {
+        reasons.push({
+          code: 'E_COST_LAY_QTY',
+          message: `تعداد قطعهٔ لایه‌چینی (${gate.cutting_lay_qty}) از تولید ثبت‌شده (${produced}) کمتر است — لایه‌چینی کامل نیست.`,
+        });
+      }
+      if (produced > 0 && Number(gate.cutting_pack_qty) + 1e-9 < produced) {
+        reasons.push({
+          code: 'E_COST_NO_PACK',
+          message: `بعد از لایه‌چینی، PACK برای حداقل ${produced} عدد لازم است (فعلی: ${gate.cutting_pack_qty}) تا بهای محصول فروش‌پذیر نهایی شود.`,
+        });
+      }
+    }
+  }
+
+  const incomplete = reasons.length > 0;
+  return {
+    requires_fabric_cutting: !!gate.requires_fabric_cutting,
+    lay_count: lays.length,
+    cutting_lay_qty: Number(gate.cutting_lay_qty) || 0,
+    cutting_pack_qty: Number(gate.cutting_pack_qty) || 0,
+    actual_meters: round2(agg.actual_meters),
+    matrix_meters: round2(agg.matrix_meters),
+    fabric_variance_m: round2(agg.actual_meters - agg.matrix_meters),
+    waste_normal_m: round2(agg.waste_normal_m),
+    waste_abnormal_m: round2(agg.waste_abnormal_m),
+    lay_amount_rial: agg.lay_amount_rial,
+    lay_waste_rial: agg.lay_waste_rial,
+    order_abnormal_waste_rial: Math.round(Number(order.abnormal_waste_rial) || 0),
+    incomplete,
+    incomplete_reasons: reasons,
+    cost_final: !incomplete,
   };
 }
 

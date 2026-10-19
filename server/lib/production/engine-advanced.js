@@ -1972,7 +1972,7 @@ function resolveCuttingStage(db, orderId) {
  * Caller باید داخل تراکنش باشد. JE پارچه فقط از cutting_lay است.
  */
 function applyCuttingLayToStage(db, {
-  orderId, layId, layNo, fabricProductId, amountRial, qtyPieces, meters, date, userId,
+  orderId, layId, layNo, fabricProductId, amountRial, wasteAmountRial, qtyPieces, meters, date, userId,
 }) {
   const po = getOrder(db, orderId);
   if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
@@ -1987,6 +1987,7 @@ function applyCuttingLayToStage(db, {
   }
 
   const amount = Math.round(num(amountRial));
+  const wasteAmt = Math.max(0, Math.round(num(wasteAmountRial)));
   const qty = round6(num(qtyPieces));
   const m = round6(num(meters));
   const when = date || todayJalali();
@@ -2027,32 +2028,35 @@ function applyCuttingLayToStage(db, {
     userId
   );
 
-  if (amount > 0) {
+  if (amount > 0 || wasteAmt > 0) {
     db.prepare(`
       UPDATE production_orders SET
         material_cost_rial = material_cost_rial + ?,
+        abnormal_waste_rial = COALESCE(abnormal_waste_rial,0) + ?,
         status = CASE WHEN status='released' THEN 'in_progress' ELSE status END,
         updated_at = strftime('%s','now')
       WHERE id=?
-    `).run(amount, orderId);
+    `).run(amount, wasteAmt, orderId);
   }
 
   db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
 
+  const netToWip = Math.max(0, amount - wasteAmt);
   if (stage.status === 'done') {
     db.prepare(`
       UPDATE production_order_stages SET
         material_added_rial = COALESCE(material_added_rial,0) + ?,
+        waste_abnormal_rial = COALESCE(waste_abnormal_rial,0) + ?,
         cost_out_rial = COALESCE(cost_out_rial,0) + ?
       WHERE id=?
-    `).run(amount, amount, stage.id);
+    `).run(amount, wasteAmt, netToWip, stage.id);
     const nxt = nextStage(db, orderId, stage.seq);
-    if (nxt) {
+    if (nxt && netToWip) {
       db.prepare(`
         UPDATE production_order_stages SET
           material_in_rial = COALESCE(material_in_rial,0) + ?
         WHERE id=?
-      `).run(amount, nxt.id);
+      `).run(netToWip, nxt.id);
     }
     return { ok: true, stage_id: stage.id, status: 'done', accumulated: true };
   }
@@ -2109,7 +2113,7 @@ function applyCuttingLayToStage(db, {
  * برگشت اتصال لایه از مرحله — قبل از reverse موجودی/JE لایه صدا زده شود.
  */
 function unlinkCuttingLayFromStage(db, {
-  orderId, layId, layNo, amountRial, userId, date,
+  orderId, layId, layNo, amountRial, wasteAmountRial, userId, date,
 }) {
   if (!orderId) return { ok: false, skipped: true };
   const po = getOrder(db, orderId);
@@ -2142,18 +2146,21 @@ function unlinkCuttingLayFromStage(db, {
       db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
     }
     const amt = Math.round(num(amountRial));
-    if (amt > 0) {
+    const wasteAmt = Math.max(0, Math.round(num(wasteAmountRial)));
+    if (amt > 0 || wasteAmt > 0) {
       db.prepare(`
         UPDATE production_order_stages SET
-          material_added_rial = MAX(0, COALESCE(material_added_rial,0) - ?)
+          material_added_rial = MAX(0, COALESCE(material_added_rial,0) - ?),
+          waste_abnormal_rial = MAX(0, COALESCE(waste_abnormal_rial,0) - ?)
         WHERE id=?
-      `).run(amt, stageId);
+      `).run(amt, wasteAmt, stageId);
       db.prepare(`
         UPDATE production_orders SET
           material_cost_rial = MAX(0, material_cost_rial - ?),
+          abnormal_waste_rial = MAX(0, COALESCE(abnormal_waste_rial,0) - ?),
           updated_at = strftime('%s','now')
         WHERE id=?
-      `).run(amt, orderId);
+      `).run(amt, wasteAmt, orderId);
     }
   }
 
