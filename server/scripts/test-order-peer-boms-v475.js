@@ -36,7 +36,7 @@ try {
       const id = db.prepare(`
         INSERT INTO bom_headers
           (code, product_id, name, base_qty, status, is_default, has_routing, has_coproducts, created_by)
-        VALUES (?, ?, ?, 1, 'active', 1, 1, 0, ?)
+        VALUES (?, ?, ?, 1, 'draft', 1, 1, 0, ?)
       `).run(code, productId, code, admin.id).lastInsertRowid;
       db.prepare(`
         INSERT INTO bom_operations (bom_id, seq, cost_center_id, operation_name, yield_percent, labor_method)
@@ -59,6 +59,7 @@ try {
         INSERT INTO bom_lines (bom_id, line_no, component_product_id, qty_per_base, line_type)
         VALUES (?, 1, ?, 1.2, 'material')
       `).run(id, fabric);
+      db.prepare("UPDATE bom_headers SET status='active' WHERE id=?").run(id);
     }
     const wh = db.prepare('SELECT id FROM warehouses LIMIT 1').get();
     if (wh) {
@@ -88,7 +89,7 @@ try {
     cleanup();
   }
 } catch (e) {
-  ok('db peer order', false, e.code || e.message);
+  ok('db peer order', false, `${e.code || ''} ${e.message || ''}`);
 }
 
 summary();
