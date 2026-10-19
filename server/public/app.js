@@ -1302,23 +1302,39 @@ function rollSelect(id, rolls, selectedId){
   }));
   return searchSelect(id, items, selectedId, {kind:'roll', placeholder:'جستجو: شماره طاقه، کالا، رنگ...'});
 }
+function setSearchSelect(id, itemId){
+  const h=el(id);
+  const items=_searchLists[id]||[];
+  const item=items.find(x=>String(x.id)===String(itemId));
+  if(h) h.value=(itemId!=null && itemId!=='')?String(itemId):'';
+  const inp=el(id+'-input');
+  if(!inp) return;
+  if(item) inp.value=item.label;
+  else if(itemId==null || itemId==='') inp.value='';
+}
+function replaceSearchList(id, items, selectedId){
+  _searchLists[id]=items||[];
+  if(!el(id)) return;
+  const keep=selectedId!=null?selectedId:(el(id).value||'');
+  setSearchSelect(id, keep);
+}
 function showGenericDrop(id, q){
   const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
-  const term=(q||'').trim().toLowerCase();
-  let list=_searchLists[id]||[];
+  const term=(q||'').trim();
+  const src=_searchLists[id]||[];
+  let list=src;
   if(term){
-    const words=term.split(/\s+/);
-    list=list.filter(it=>{
-      const hay=((it.hay||'')+' '+(it.label||'')+' '+(it.meta||'')).toLowerCase();
-      return words.every(w=>hay.includes(w));
-    });
+    list=src.filter(it=>textMatchesQuery(((it.hay||'')+' '+(it.label||'')+' '+(it.meta||'')), term));
   }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  const emptyMsg=!src.length
+    ? 'فهرست کالا خالی است'
+    : (term ? 'با این عبارت در فهرست فعلی نیست' : 'موردی یافت نشد');
   drop.innerHTML = list.slice(0,80).map(it=>`
     <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickGeneric(`${String((id) ?? '')}`,(it.id))})}">
       <span>${esc(it.label)}</span><span class="cust-si-meta">${esc(it.meta||'')}</span>
-    </div>`).join('') || '<div class="cust-si-empty">موردی یافت نشد</div>';
+    </div>`).join('') || ('<div class="cust-si-empty">'+emptyMsg+'</div>');
 }
 function pickGeneric(id, itemId){
   const h=el(id);
@@ -2821,6 +2837,7 @@ function closeOmnibox(){ el('omniboxOverlay').classList.remove('open'); }
 // Normalize Persian text for tolerant matching (Arabic ي/ك, ZWNJ, punctuation, digits).
 function _omniNorm(s){
   return String(s||'')
+    .replace(/\u200c/g,' ')
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g,'')
     .replace(/ي/g,'ی').replace(/ى/g,'ی').replace(/ك/g,'ک')
     .replace(/ۀ/g,'ه').replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/[أإآ]/g,'ا')
@@ -2828,7 +2845,7 @@ function _omniNorm(s){
     .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
     .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))
     .replace(/[()[\]{}«»""''،,.;:!?؟\-_/\\|+*=<>@#$%^&~`]/g,' ')
-    .toLowerCase().replace(/\u200c/g,' ').replace(/\s+/g,' ').trim();
+    .toLowerCase().replace(/\s+/g,' ').trim();
 }
 function textMatchesQuery(haystack, query){
   const q=_omniNorm(query);
@@ -12725,15 +12742,67 @@ function cuttingSetMultiMode(on){
 function cuttingMultiProducts(){
   return Array.isArray(window._cutMultiProducts)?window._cutMultiProducts:[];
 }
+function cuttingIsSewnProduct(p){
+  if(!p) return false;
+  const t=String(p.item_type||'');
+  return !!(Number(p.is_manufactured)===1 || p.is_manufactured===true || t==='finished' || t==='product' || t==='semi');
+}
+function cuttingSewnPickerProducts(po){
+  const byId=new Map();
+  (CACHE.allProducts||[]).forEach(p=>{ if(p&&p.id!=null) byId.set(Number(p.id), p); });
+  const plan=Array.isArray(po&&po.fg_plan)?po.fg_plan:[];
+  const ids=[];
+  const push=id=>{ const n=Number(id)||0; if(n>0 && !ids.includes(n)) ids.push(n); };
+  plan.forEach(line=>push(line&&line.product_id));
+  if(po) push(po.product_id);
+  if(ids.length){
+    return ids.map(id=>{
+      const cat=byId.get(id)||{};
+      const line=plan.find(x=>Number(x&&x.product_id)===id)||{};
+      return {
+        id,
+        name:cat.name||line.product_name||('#'+id),
+        code:cat.code||line.product_code||'',
+        barcode:cat.barcode||'',
+        sku:cat.sku||'',
+        category:cat.category||'',
+        stock:cat.stock,
+        wh_qty:cat.wh_qty,
+        qty_planned:line.qty_planned,
+      };
+    });
+  }
+  const fg=(CACHE.allProducts||[]).filter(cuttingIsSewnProduct);
+  return fg.length?fg:(CACHE.allProducts||[]);
+}
+function cuttingBindSewnPickers(po){
+  const products=cuttingSewnPickerProducts(po||null);
+  const items=(products||[]).map(p=>({
+    id:p.id,
+    label:p.name||('#'+p.id),
+    meta:(p.code?p.code+' · ':'')+(p.qty_planned!=null?('برنامه '+fmt(p.qty_planned)):'موجودی '+fmt(p.wh_qty!=null?p.wh_qty:(p.stock||0))),
+    hay:[p.name,p.code,p.barcode,p.sku,p.category].filter(Boolean).join(' ')
+  }));
+  const scoped=Array.isArray(po&&po.fg_plan)&&po.fg_plan.length || (po&&po.product_id);
+  const ph=scoped?'جستجو در محصولات این سفارش...':'جستجو: نام، کد کالا...';
+  ['cl-prod','cl-multi-add'].forEach(id=>{
+    if(!el(id) && !_searchLists[id]) return;
+    const keep=id==='cl-multi-add'?'':(el(id)&&el(id).value);
+    replaceSearchList(id, items, keep);
+    const inp=el(id+'-input');
+    if(inp) inp.placeholder=ph;
+  });
+}
 async function cuttingMultiAddProduct(pid){
   const list=cuttingMultiProducts();
   const id=Number(pid)||0;
   if(!id){ showToast('کالا را انتخاب کنید','error'); return; }
   if(list.some(x=>Number(x.product_id)===id)){ showToast('این کالا قبلاً اضافه شده','error'); return; }
+  const picked=(_searchLists['cl-multi-add']||[]).find(x=>String(x.id)===String(id));
   const prod=(CACHE.allProducts||[]).find(x=>Number(x.id)===id);
   const sizes=await cuttingSizeLabelsForProduct(id);
   const breakdown={}; sizes.forEach(s=>{ breakdown[s]=0; });
-  list.push({product_id:id, product_name:prod?prod.name:('#'+id), sizes, breakdown});
+  list.push({product_id:id, product_name:(prod&&prod.name)||(picked&&picked.label)||('#'+id), sizes, breakdown});
   window._cutMultiProducts=list;
   cuttingRenderMultiProducts();
   await cuttingResolveFabricAndRolls();
@@ -13153,9 +13222,13 @@ async function cuttingLayModal(editId, opts){
       window._cutEditRollBoost[bid]=(window._cutEditRollBoost[bid]||0)+back;
     });
   }
-  const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
-  const list=prods.length?prods:(CACHE.allProducts||[]);
+  try{ await ensureProductsCache(); }catch(_){}
   const prodVal=lay?String(lay.product_id||''):'';
+  let list=cuttingSewnPickerProducts(null);
+  if(prodVal && !list.some(p=>String(p.id)===prodVal)){
+    const extra=(CACHE.allProducts||[]).find(p=>String(p.id)===prodVal);
+    if(extra) list=[extra].concat(list);
+  }
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   const ccRows=(CACHE.costCenters||[]).filter(c=>c.active!==0);
   const cutDefault=ccRows.find(c=>String(c.code||'')==='CC-10')||ccRows.find(c=>String(c.name||'')==='برش');
@@ -13466,12 +13539,17 @@ function cuttingRenderRollPicker(rows, color, emptyNote){
 }
 async function cuttingApplyPo(){
   const id=+el('cl-po')?.value||0;
-  if(!id) return;
+  if(!id){
+    cuttingBindSewnPickers(null);
+    const joint0=el('cl-joint');
+    if(joint0){ joint0.hidden=true; joint0.innerHTML=''; }
+    return;
+  }
   try{
     const po=await api('GET','/production/orders/'+id);
+    cuttingBindSewnPickers(po);
     if(po && po.product_id && el('cl-prod')){
-      el('cl-prod').value=String(po.product_id);
-      // trigger product search select if custom widget
+      setSearchSelect('cl-prod', po.product_id);
       el('cl-prod').dispatchEvent(new Event('change'));
     }
     if(po && po.color){
@@ -32399,6 +32477,7 @@ function renderAdminGuide(){
         <li><b>سفارش تولید</b> سفارش آزاد و در جریان را قابل انتخاب نشان می‌دهد. سفارش بسته‌ای که پارچهٔ طولی دارد ولی برش و بسته‌بندی ندارد هم دیده می‌شود، ولی غیرفعال است تا طاقه دوباره مصرف نشود.</li>
         <li><b>پارچهٔ یاردی هم مثل متری</b> فقط از لایه‌چینی مصرف می‌شود. حوالهٔ مرحله و رسید محصول قبل از برش و بسته‌بندی برای این واحد بسته است.</li>
         <li><b>ثبت خروجی برش:</b> اگر همان مرحله پارچهٔ طولی دارد و لایه‌چینی هنوز به اندازهٔ ورودی نیست، دکمهٔ «ثبت خروجی» فرم لایه‌چینی را برای همان سفارش باز می‌کند (سفارش قفل است). با ثبت لایه، پارچه از طاقه می‌رود و مرحلهٔ برش تکمیل می‌شود. مواد غیرطولی همان مرحله همچنان با حواله/خروجی معمولی می‌روند.</li>
+        <li><b>جستجوی کالای دوخته‌شده (v487):</b> فرم خروجی برش اول کاتالوگ کامل کالا را بار می‌کند. تا وقتی سفارش انتخاب است، جستجوی «کالای دوخته‌شده» و «افزودن کالا» فقط محصولات همان سفارش را نشان می‌دهد (حتی اگر پرچم ساختنی خالی باشد) و نام انتخاب‌شده در کادر می‌ماند. ی/ک عربی و نیم‌فاصله در جستجو یکی‌اند. اگر عبارت در همین فهرست نباشد، پیام می‌گوید در فهرست فعلی نیست؛ اگر کاتالوگ اصلاً نیاید، پیام «فهرست کالا خالی است» است.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
       <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
@@ -33347,7 +33426,7 @@ function renderSalesGuide(){
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v469</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
-      <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول.</div>
+      <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول. با سفارش انتخاب‌شده، جستجوی کالای دوخته‌شده فقط محصولات همان سفارش را می‌آورد (v487).</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. روی مرحلهٔ برش با پارچهٔ متری یا یاردی، «ثبت خروجی» لایه‌چینی همان سفارش را باز می‌کند. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
