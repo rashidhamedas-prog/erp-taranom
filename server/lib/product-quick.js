@@ -70,6 +70,8 @@ function createQuickProduct(db, user, body) {
     throw httpErr(422, 'موجودی اول دوره بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید');
   }
   const userId = user && user.id;
+  const { resolveProductUnit } = require('./uom');
+  const resolvedUnit = resolveProductUnit(db, body || {}, null);
 
   return db.transaction(() => {
     const result = db.prepare(`
@@ -80,13 +82,16 @@ function createQuickProduct(db, user, body) {
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       userId, catName, catId, prodCode, name, parseFloat(price) || 0, costRial,
-      openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
+      openingStock, parseInt(stock_alert, 10) || 5, resolvedUnit.unit || 'عدد', defaultWarehouse,
       note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
       String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
       tax_id || '', parseFloat(consumer_price) || 0, location || '', openingPriceRial,
       sms_code || '', String(body.tax_stuff_id || '').trim() || null
     );
     const productId = result.lastInsertRowid;
+    if (resolvedUnit.unit_id) {
+      db.prepare('UPDATE products SET unit_id=? WHERE id=?').run(resolvedUnit.unit_id, productId);
+    }
     if (body.retail_price != null && body.retail_price !== '') {
       const retail = Math.round(parseFloat(body.retail_price) || 0);
       db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?')

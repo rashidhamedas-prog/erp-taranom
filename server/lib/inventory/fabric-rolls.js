@@ -276,8 +276,7 @@ function requireRawWarehouse(db, warehouseId) {
 }
 
 function isMeterProductUnit(unit) {
-  const s = String(unit == null ? '' : unit).trim().toLowerCase();
-  return /متر|meter|metre|\bm\b/.test(s) || s === 'm';
+  return require('../uom').isLengthText(unit);
 }
 
 /** Tracked receipt kinds on WH-RAW (ADR-007: fabric + similar attributed materials). */
@@ -316,13 +315,13 @@ function trackedKindSql(kinds, params) {
  * fabric = طاقه متری (برش/فروش طاقه) — رنگ اجباری، واحد متر
  * attr = مواد با ویژگی (رنگ/طرح/درجه اختیاری) — هر واحد کالا، خارج از لایه‌چینی
  */
-function resolveReceiptProfile(prod, body = {}) {
+function resolveReceiptProfile(prod, body = {}, db = null) {
   const explicit = String(body.profile || body.kind || body.receipt_kind || '').trim().toLowerCase();
   if (explicit === 'fabric' || explicit === 'roll' || explicit === 'طاقه') return 'fabric';
   if (explicit === 'attr' || explicit === 'attributed' || explicit === 'generic_attr' || explicit === 'مواد') {
     return 'attr';
   }
-  if (isMeterProductUnit(prod && prod.unit)) return 'fabric';
+  if (require('../uom').isLengthProduct(db, prod)) return 'fabric';
   return 'attr';
 }
 
@@ -585,7 +584,7 @@ function receiveFabricRoll(db, body, user) {
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!prod) throw httpErr(404, 'کالا یافت نشد', 'E_FABRIC_PRODUCT');
 
-  const profile = resolveReceiptProfile(prod, body);
+  const profile = resolveReceiptProfile(prod, body, db);
   const wh = requireRawWarehouse(db, body.warehouse_id);
   let color = String(body.color || '').trim();
   const pattern = String(body.pattern || body.design || '').trim();
@@ -601,7 +600,8 @@ function receiveFabricRoll(db, body, user) {
     if (!(qty > 0) || !Number.isFinite(qty)) {
       throw httpErr(400, 'متراژ باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
     }
-    unit = normUnit(body.unit);
+    const lengthToken = require('../uom').lengthTokenForProduct(db, prod);
+    unit = lengthToken || normUnit(body.unit);
   } else {
     // attr: color optional (empty → «—» for display); any product unit on WH-RAW
     if (!color) color = '—';

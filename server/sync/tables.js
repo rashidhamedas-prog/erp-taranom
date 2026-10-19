@@ -599,6 +599,11 @@ const FK_COLUMNS = [
   ['payroll_loan_recoveries', 'loan_id'],
   ['payroll_loan_recoveries', 'installment_id'],
   ['payroll_loan_recoveries', 'payroll_record_id'],
+  // Measurement unit catalog (append-only). Portal op_*.unit_id stays above and points at op_units.
+  ['products', 'unit_id'],
+  ['bom_headers', 'unit_id'],
+  ['bom_lines', 'unit_id'],
+  ['bom_outputs', 'unit_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

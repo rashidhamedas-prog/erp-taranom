@@ -2300,6 +2300,7 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'warehouses', 'warehouse_type', "TEXT DEFAULT 'finished_goods'");
   ensureColumn(db, 'warehouses', 'is_default', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'unit_id', 'INTEGER');
+  require('./lib/uom').bootstrap(db);
   ensureColumn(db, 'products', 'vat_class', "TEXT DEFAULT 'standard'");
   ensureColumn(db, 'products', 'barcode', 'TEXT');
   ensureColumn(db, 'products', 'reorder_point', 'INTEGER DEFAULT 12');

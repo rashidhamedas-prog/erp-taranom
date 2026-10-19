@@ -692,12 +692,8 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
 }
 
 function isMeterUnit(unit) {
-  const u = String(unit || '').trim().toLowerCase();
-  const compact = u.replace(/\s+/g, '');
-  if (u === 'm' || u === 'meter' || u === 'metre' || u === 'متر' || u.includes('متر')) return true;
-  // یارد همان پارچهٔ طولی است؛ در دادهٔ واقعی سفارش‌ها واحد طاقه یارد است نه متر.
-  if (compact === 'یارد' || compact === 'يارد' || u === 'yard' || u === 'yards' || u === 'yd') return true;
-  return false;
+  // یارد همان پارچهٔ طولی است؛ موجودی در واحد خود کالا می‌ماند و به متر تبدیل نمی‌شود.
+  return require('../uom').isLengthText(unit);
 }
 
 function pickFabricLine(db, lines, preferredProductId) {

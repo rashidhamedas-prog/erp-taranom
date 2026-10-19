@@ -10,8 +10,9 @@
  * fractional "pairs of pants" in the ledger.
  */
 const { round3, parseQty } = require('../round3');
+const { matchText, policyForProduct } = require('../uom');
 
-const CONTINUOUS_UNIT_RE = /متر|کیلو|kg|گرم|g\b|لیتر|liter|yard|yards|\bm\b|ثانیه|ساعت|roll|طاقه|نوار|پارچه/i;
+const CONTINUOUS_UNIT_RE = /متر|یارد|کیلو|kg|گرم|g\b|لیتر|liter|yard|yards|\byd\b|\bm\b|ثانیه|ساعت|roll|طاقه|نوار|پارچه/i;
 const PIECE_UNIT_RE = /^(عدد|pcs?|piece|ea|each|جفت|دست|بسته|پک)?$/i;
 
 function tableExists(db, name) {
@@ -46,6 +47,18 @@ function productUnit(db, productId) {
  */
 function requiresIntegerQty(db, productId, unitHint) {
   if (productId && hasActiveMatrixVariants(db, productId)) return true;
+  if (db && unitHint != null && String(unitHint).trim()) {
+    try {
+      const matched = matchText(db, unitHint);
+      if (matched) return (matched.dimension || 'count') === 'count';
+    } catch (_) { /* catalog not ready */ }
+  }
+  if (db && productId) {
+    try {
+      const pol = policyForProduct(db, productId);
+      if (pol.known) return pol.dimension === 'count';
+    } catch (_) { /* catalog not ready */ }
+  }
   const unit = String(unitHint != null ? unitHint : productUnit(db, productId) || '').trim();
   if (CONTINUOUS_UNIT_RE.test(unit)) return false;
   if (!unit || PIECE_UNIT_RE.test(unit)) return true;

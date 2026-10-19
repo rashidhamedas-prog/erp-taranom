@@ -5569,6 +5569,7 @@ function safeCssHex(h){
 }
 async function invProdQuickModal(prefill){
   await ensureProductCategories();
+  await ensureUomCatalog();
   const name=(prefill||'').trim();
   openNestedModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -5581,7 +5582,7 @@ async function invProdQuickModal(prefill){
       <div class="fg"><label>قیمت فروش (ریال)</label><input id="iq-price" type="text" inputmode="numeric" class="money" value="0"></div>
       <div class="fg"><label>بهای تمام‌شده (ریال)</label><input id="iq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
       <div class="fg"><label>موجودی</label><input id="iq-stock" type="number" value="0"></div>
-      <div class="fg"><label>واحد</label><input id="iq-unit" value="عدد"></div>
+      <div class="fg"><label>واحد</label>${uomSelectHtml('iq-unit','','عدد')}</div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveInvProdQuick()})}">💾 ساخت و افزودن به سبد</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -5592,7 +5593,7 @@ async function saveInvProdQuick(){
   try{
     const p=await api('POST','/products/quick',{
       name, category_id:+el('iq-cat').value||null, code:el('iq-code').value,
-      price:moneyVal('iq-price'), cost:moneyVal('iq-cost'), unit:el('iq-unit').value||'عدد',
+      price:moneyVal('iq-price'), cost:moneyVal('iq-cost'), ...uomPayload('iq-unit'),
       stock:+el('iq-stock').value||0
     });
     if(!CACHE.allProducts) CACHE.allProducts=[];
@@ -7941,6 +7942,7 @@ function productWebsiteStockPushOn(p){
 async function prodModal(id){
   await loadLiveWarehousesForAccess();
   await ensureProductCategories(true);
+  if(!CACHE.uoms){ try{ CACHE.uoms=await api('GET','/units')||[]; }catch(_){ CACHE.uoms=[]; } }
   let p = id ? (CACHE.products||[]).find(x=>Number(x.id)===Number(id)) || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(id)) : {};
   if(id){
     try{
@@ -7974,7 +7976,7 @@ async function prodModal(id){
       <div class="fg"><label>بهای تمام‌شده (ریال) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
       <div class="fg" id="p-stock-fg"><label>موجودی کلی ${hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" type="number" step="0.001" inputmode="decimal" value="${p.stock!=null?p.stock:0}"></div>
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
-      <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
+      <div class="fg"><label>واحد ${hlp('از کاتالوگ واحدها انتخاب می‌شود. عدد و ست و جفت صحیح می‌مانند. متر و یارد و کیلو اعشار دارند. موجودی در همین واحد نگه داشته می‌شود.')}</label>${uomSelectHtml('p-unit-id', p.unit_id, p.unit||'عدد')}</div>
       <div class="fg"><label>طبقه‌بندی تولید ${hlp('برای اجزاء BOM باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشد. محصول نهایی دوخته‌شده = محصول نهایی + تیک ساختنی.')}</label>
         <select id="p-item_type">
           <option value="finished" ${(p.item_type||'finished')==='finished'?'selected':''}>محصول نهایی</option>
@@ -8536,7 +8538,9 @@ async function saveProduct(id){
   fd.append('cost',moneyVal('p-cost'));
   fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
-  fd.append('unit',el('p-unit').value||'عدد');
+  const picked=uomPayload('p-unit-id');
+  fd.append('unit_id', picked.unit_id||'');
+  fd.append('unit', picked.unit||'عدد');
   fd.append('item_type',el('p-item_type')?.value||'finished');
   fd.append('is_manufactured', el('p-is-manufactured')?.checked ? '1' : '0');
   const websitePushEl = el('p-website-stock-push');
@@ -10953,7 +10957,7 @@ function enhanceAccTables(root){
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const dataRows=[...t.tBodies[0].rows].filter(r=>!r.querySelector('td[colspan], .empty'));
-    const wantFooter=dataRows.length>=2;
+    const wantFooter=t.dataset.noSum!=='1' && dataRows.length>=2;
     const hasId=dataRows.some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
     if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:wantFooter});
@@ -11104,6 +11108,7 @@ function genProdShowDrop(q){
 }
 async function genProdQuickModal(prefill){
   await ensureProductCategories();
+  await ensureUomCatalog();
   const name=(prefill||'').trim();
   openModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -11115,7 +11120,7 @@ async function genProdQuickModal(prefill){
       <div class="fg"><label>کد</label><input id="gq-code"></div>
       <div class="fg"><label>قیمت فروش (ریال)</label><input id="gq-price" type="text" inputmode="numeric" class="money" value="0"></div>
       <div class="fg"><label>بهای تمام‌شده (ریال)</label><input id="gq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
-      <div class="fg"><label>واحد</label><input id="gq-unit" value="عدد"></div>
+      <div class="fg"><label>واحد</label>${uomSelectHtml('gq-unit','','عدد')}</div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveGenProdQuick()})}">💾 ساخت و افزودن به سبد</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -11126,7 +11131,7 @@ async function saveGenProdQuick(){
   try{
     const p=await api('POST','/products/quick',{
       name, category_id:+el('gq-cat').value||null, code:el('gq-code').value,
-      price:moneyVal('gq-price'), cost:moneyVal('gq-cost'), unit:el('gq-unit').value||'عدد'
+      price:moneyVal('gq-price'), cost:moneyVal('gq-cost'), ...uomPayload('gq-unit')
     });
     if(!CACHE.allProducts) CACHE.allProducts=[];
     CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
@@ -12299,7 +12304,15 @@ function newFabricIdemKey(){
 }
 function fabricReceiptIsMeterUnit(unit){
   const s=String(unit==null?'':unit).trim().toLowerCase();
-  return /متر|meter|metre|\bm\b/.test(s)||s==='m';
+  const c=s.replace(/\s+/g,'');
+  if(/متر|meter|metre|\bm\b/.test(s)||s==='m'||s==='mtr') return true;
+  if(c==='یارد'||c==='يارد'||s==='yard'||s==='yards'||s==='yd'||s==='yrd') return true;
+  return false;
+}
+function fabricLengthWord(unit){
+  const s=String(unit==null?'':unit).trim().toLowerCase().replace(/\s+/g,'');
+  if(s==='یارد'||s==='يارد'||s==='yard'||s==='yards'||s==='yd'||s==='yrd') return 'یارد';
+  return 'متر';
 }
 function fabricRollModal(profile){
   window._fabricIdemKey=newFabricIdemKey();
@@ -12345,11 +12358,12 @@ function fabricRollOnProductChange(){
   const hint=el('fr-cost-hint');
   const isAttr=window._fabricReceiptProfile==='attr';
   if(hint && !isAttr && p.unit && !fabricReceiptIsMeterUnit(p.unit)){
-    hint.textContent='واحد این کالا متر نیست؛ برای ورودی غیرمتری سگمنت «مواد با ویژگی» را بزنید. فعلاً به‌عنوان طاقه متری ثبت می‌شود.';
+    hint.textContent='واحد این کالا طولی نیست؛ برای ورودی غیرمتری سگمنت «مواد با ویژگی» را بزنید. فعلاً به‌عنوان طاقه ثبت می‌شود.';
   }
-  if(isAttr){
-    const ql=el('fr-qty-label');
-    if(ql) ql.textContent='مقدار'+(p.unit?(' ('+p.unit+')'):'');
+  const ql=el('fr-qty-label');
+  if(ql){
+    if(isAttr) ql.textContent='مقدار'+(p.unit?(' ('+p.unit+')'):'');
+    else ql.textContent=fabricLengthWord(p.unit);
   }
 }
 function fabricRollCostFromForm(){
@@ -12548,7 +12562,7 @@ async function fabricRollSave(){
   if(profile==='fabric'){
     payload.width_cm=+el('fr-w')?.value||0;
     payload.meters=+el('fr-m').value;
-    payload.unit='m';
+    payload.unit=fabricLengthWord(p&&p.unit)==='یارد'?'yd':'m';
   }else{
     payload.qty=+el('fr-m').value;
     payload.unit=(p&&p.unit)||'pcs';
@@ -12576,7 +12590,8 @@ function fabricRollEditModal(b){
   const unused=b.status!=='reversed' && Math.abs(live-meters)<1e-6;
   const fromPurchase=String(b.source_type||'')==='purchase';
   const finLocked=!unused || fromPurchase;
-  const qtyWord=isAttr?'مقدار':'متر';
+  const rollProd=prods.find(x=>Number(x.id)===Number(b.product_id));
+  const qtyWord=isAttr?'مقدار':fabricLengthWord(b.unit==='yd'?'یارد':(rollProd&&rollProd.unit));
   const lockHint=fromPurchase
     ? 'این ردیف از فاکتور خرید آمده؛ مقدار/بها/تأمین‌کننده را از همان فاکتور اصلاح کنید. رنگ/طرح/شماره آزاد است.'
     : (!unused
@@ -25435,25 +25450,117 @@ async function saveDetailAccount(id){
     closeModal(); showToast('ذخیره شد'); loadAccTab('detail-accounts');
   }catch(e){}
 }
+const UOM_DIM_FA={count:'شمارش',length:'طول',mass:'جرم',area:'سطح',volume:'حجم',time:'زمان'};
+async function ensureUomCatalog(){
+  if(CACHE.uoms&&CACHE.uoms.length) return CACHE.uoms;
+  try{ CACHE.uoms=await api('GET','/units')||[]; }catch(_){ CACHE.uoms=[]; }
+  return CACHE.uoms;
+}
+function uomSelectHtml(selectId, selectedId, currentText){
+  const rows=CACHE.uoms||[];
+  let matched=selectedId?Number(selectedId):0;
+  const text=String(currentText||'').trim();
+  if(!matched && text){
+    const t=text.toLowerCase();
+    const hit=rows.find(u=>String(u.name||'').trim().toLowerCase()===t || String(u.code||'').toLowerCase()===t);
+    if(hit) matched=Number(hit.id);
+  }
+  const free=!matched && text ? `<option value="" selected>${esc(text)} (متن آزاد)</option>` : '<option value="">—</option>';
+  const opts=rows.filter(u=>Number(u.is_active)!==0 || Number(u.id)===matched).map(u=>
+    `<option value="${u.id}" ${Number(u.id)===matched?'selected':''}>${esc(u.name)} (${esc(u.code)})</option>`
+  ).join('');
+  return `<select id="${selectId}" data-free="${esc(text)}">${free}${opts}</select>`;
+}
+function uomPayload(selectId){
+  const sel=el(selectId);
+  if(!sel) return {unit:'عدد'};
+  const id=sel.value||'';
+  if(!id){
+    const label=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].textContent:'';
+    if(sel.dataset.free && String(label).includes('متن آزاد')) return {unit:sel.dataset.free};
+    return {unit:'عدد'};
+  }
+  const row=(CACHE.uoms||[]).find(u=>String(u.id)===String(id));
+  return {unit_id:id, unit:row?row.name:'عدد'};
+}
+function uomFactorText(v){
+  if(v==null || v==='') return '—';
+  const n=Number(v);
+  if(!Number.isFinite(n)) return '—';
+  return String(Math.round(n*1e6)/1e6);
+}
 async function renderUnitsTab(body){
   const rows=await api('GET','/units')||[];
+  CACHE.uoms=rows;
+  window._uomRows=rows;
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){unitModal()})}">➕ واحد جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th></tr></thead>
-    <tbody>${rows.map(u=>`<tr><td class="mono">${esc(u.code)}</td><td>${esc(u.name)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>`;
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){unitModal()})}">➕ واحد جدید</button>
+      <span class="muted">موجودی در واحد خود کالا می‌ماند. تبدیل فقط داخل یک بعد است؛ ۱ یارد = ۰٫۹۱۴۴ متر. ست و جفت ضریب جهانی ندارند.</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" data-no-sum="1"><thead><tr>
+      <th data-col-kind="skip">کد</th><th data-col-kind="skip">نام</th><th data-col-kind="skip">بعد</th>
+      <th data-col-kind="skip">نماد</th><th data-col-kind="skip">ضریب به مرجع</th><th data-col-kind="skip">اعشار</th>
+      <th data-col-kind="skip">استاندارد</th><th data-col-kind="skip">وضعیت</th><th data-col-kind="skip"></th>
+    </tr></thead>
+    <tbody>${rows.map(u=>`<tr>
+      <td class="mono">${esc(u.code)}</td>
+      <td>${esc(u.name)}${u.is_reference?' <span class="tag">مرجع</span>':''}</td>
+      <td>${esc(UOM_DIM_FA[u.dimension]||u.dimension||'')}</td>
+      <td class="mono">${esc(u.symbol||'')}</td>
+      <td class="mono">${esc(uomFactorText(u.factor_to_ref))}</td>
+      <td class="mono">${esc(u.decimal_places==null?0:u.decimal_places)}</td>
+      <td class="mono">${esc(u.unece_code||'')}</td>
+      <td>${Number(u.is_active)===0?'غیرفعال':('فعال'+(u.in_use?(' · '+u.in_use+' کالا'):''))}</td>
+      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){unitModal((u.id))})}">ویرایش</button></td>
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
-function unitModal(){
-  openModal(`<div class="modal-head"><h3>واحد اندازه‌گیری جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+function unitModal(id){
+  const row=id?(window._uomRows||[]).find(u=>Number(u.id)===Number(id)):null;
+  const dim=(row&&row.dimension)||'count';
+  const dims=Object.keys(UOM_DIM_FA).map(k=>'<option value="'+k+'"'+(k===dim?' selected':'')+'>'+UOM_DIM_FA[k]+'</option>').join('');
+  const factorVal=row&&row.factor_to_ref!=null?esc(uomFactorText(row.factor_to_ref)):'';
+  const decVal=row&&row.decimal_places!=null?row.decimal_places:(dim==='count'?0:3);
+  const statusField=row
+    ? '<div class="fg"><label>وضعیت</label><select id="u-active"><option value="1"'+(Number(row.is_active)!==0?' selected':'')+'>فعال</option><option value="0"'+(Number(row.is_active)===0?' selected':'')+'>غیرفعال</option></select></div>'
+    : '';
+  const saveId=row?row.id:'null';
+  openModal(`<div class="modal-head"><h3>${row?'ویرایش واحد':'واحد اندازه‌گیری جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>کد *</label><input id="u-code" placeholder="MTR"></div>
-      <div class="fg full"><label>نام *</label><input id="u-name" placeholder="متر"></div>
-    </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveUnit()})}">💾 ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+      <div class="fg"><label>کد *</label><input id="u-code" ${row?'disabled':''} value="${esc(row&&row.code||'')}" placeholder="YD"></div>
+      <div class="fg"><label>نام *</label><input id="u-name" value="${esc(row&&row.name||'')}" placeholder="یارد"></div>
+      <div class="fg"><label>نماد</label><input id="u-symbol" value="${esc(row&&row.symbol||'')}" placeholder="yd"></div>
+      <div class="fg"><label>بعد</label><select id="u-dimension">${dims}</select></div>
+      <div class="fg"><label>کد UNECE</label><input id="u-unece" value="${esc(row&&row.unece_code||'')}" placeholder="YRD"></div>
+      <div class="fg"><label>ضریب به واحد مرجع ${hlp('چند واحد مرجع در یک واحد از این یکی هست. متر برابر ۱ و یارد برابر ۰٫۹۱۴۴ است. برای ست و جفت خالی بگذارید.')}</label><input id="u-factor" inputmode="decimal" value="${factorVal}" placeholder="0.9144"></div>
+      <div class="fg"><label>اعشار مقدار</label><input id="u-decimals" type="number" min="0" max="6" value="${decVal}"></div>
+      <div class="fg"><label data-csp-style="${CSP.style('display:flex;gap:8px;align-items:center;margin-top:22px')}"><input type="checkbox" id="u-ref" ${row&&row.is_reference?'checked':''}> واحد مرجع این بعد</label></div>
+      ${statusField}
+    </div>
+    <p class="muted">تبدیل کیلو به متر رد می‌شود. موجودی قبلی جابه‌جا نمی‌شود.</p>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveUnit(SAVEID)})}">💾 ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`.replace('SAVEID', String(saveId)));
 }
-async function saveUnit(){
-  const code=el('u-code').value.trim(), name=el('u-name').value.trim();
-  if(!code||!name){ showToast('کد و نام الزامی است','error'); return; }
-  try{ await api('POST','/units',{code,name}); closeModal(); showToast('ذخیره شد'); loadAccTab('units'); }catch(e){}
+async function saveUnit(id){
+  const name=el('u-name').value.trim();
+  const payload={
+    name,
+    symbol:el('u-symbol').value.trim(),
+    dimension:el('u-dimension').value,
+    unece_code:el('u-unece').value.trim(),
+    factor_to_ref:el('u-factor').value.trim(),
+    decimal_places:el('u-decimals').value,
+    is_reference:!!el('u-ref')?.checked,
+  };
+  if(!id) payload.code=el('u-code').value.trim();
+  if(id && el('u-active')) payload.is_active=el('u-active').value!=='0';
+  if(!payload.name || (!id && !payload.code)){ showToast('کد و نام الزامی است','error'); return; }
+  try{
+    if(id) await api('PUT','/units/'+id,payload);
+    else await api('POST','/units',payload);
+    CACHE.uoms=null;
+    closeModal(); showToast('ذخیره شد'); loadAccTab('units');
+  }catch(e){}
 }
 async function renderAccCompanySettingsTab(body){
   body.innerHTML=`<div class="panel"><div class="panel-body">
@@ -32272,6 +32379,16 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📏','واحد اندازه‌گیری',`
+      <p>کاتالوگ <b>کالا → واحدهای اندازه‌گیری</b> منبع واحد کالا، فاکتور، سیاست عدد صحیح، و تشخیص پارچهٔ طولی است. موجودی در واحد خود کالا می‌ماند و به واحد دیگر بازنویسی نمی‌شود.</p>
+      <ul>
+        <li>هر واحد یک <b>بعد</b> دارد: شمارش، طول، جرم، سطح، حجم، زمان. تبدیل فقط داخل همان بعد است. کیلو به متر رد می‌شود.</li>
+        <li>ضریب، نسبت به واحد مرجع همان بعد است. متر = ۱، یارد = ۰٫۹۱۴۴ (یک یارد بین‌المللی). کد استاندارد فاکتور UNECE است: H87 عدد، MTR متر، YRD یارد، KGM کیلوگرم.</li>
+        <li><b>ست و جفت</b> ضریب جهانی ندارند. در پوشاک یک ست همیشه دو یا سه عدد نیست، پس به عدد تبدیل نمی‌شوند.</li>
+        <li>روی کالا واحد از همین فهرست انتخاب می‌شود. عدد صحیح می‌ماند؛ متر، یارد و کیلو تا سه رقم اعشار. اگر واحد کالا یارد باشد، دریافت طاقه و برش همان یارد را طولی می‌دانند.</li>
+        <li>واحدی که روی کالا یا فرمول نشسته غیرفعال نمی‌شود و بعدش عوض نمی‌شود. حذف فیزیکی نیست.</li>
+        <li>ردیف «جمع» پایین این فهرست نیست؛ این جدول مبلغ و تعداد ندارد.</li>
+      </ul>`),
     helpSec('✂️','مرکز هزینه ضایعات لایه‌چینی',`
       <p>اگر هنگام «ثبت لایه‌چینی» مصرف از سقف ضایعات عادی بیشتر باشد، مازاد به حساب <b>۵۲۲۱ هزینه ضایعات غیرعادی</b> می‌رود. با روشن بودن «الزام مرکز هزینه روی هزینه‌ها» این حساب بدون مرکز هزینه ثبت نمی‌شود.</p>
       <ul>
@@ -33207,6 +33324,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('📏','واحد روی فاکتور',`
+      <p>واحد هر ردیف فاکتور همان واحد کالاست. عدد و جفت و ست را نمی‌شود خرد کرد. متر و یارد و کیلو اعشار دارند. اگر واحد کالا اشتباه است، از مدیر بخواهید در فرم کالا آن را از فهرست واحدها عوض کند؛ خود فاکتور واحد جدا نمی‌سازد.</p>`),
     helpSec('✂️','ضایعات لایه‌چینی',`
       <p>ثبت لایه‌چینی کار تولید است. اگر مصرف از سقف ضایعات عادی بیشتر شود، مازاد روی حساب ۵۲۲۱ و مرکز هزینهٔ برش می‌نشیند و فرم همان مرکز را پیشنهاد می‌کند. بعد از رسید سفارش هم از تب لایه‌چینی می‌توان همان لایه را ویرایش یا ابطال کرد. ویرایش تعداد قطعه را عوض نمی‌کند. ابطال ردیف را پاک نمی‌کند و فقط اثر همان لایه را برمی‌گرداند.</p>`),
     helpSec('🎯','نسخه نمایشی',`

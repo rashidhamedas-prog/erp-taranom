@@ -511,7 +511,15 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     ? db.prepare('SELECT id FROM warehouses WHERE id=?').get(parseInt(warehouse_id, 10))
     : db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
-  const unitVal = unit || 'عدد';
+  const { resolveProductUnit } = require('../lib/uom');
+  let resolvedUnit;
+  try {
+    resolvedUnit = resolveProductUnit(db, req.body || {}, null);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
+  const unitVal = resolvedUnit.unit || 'عدد';
   const stockOpen = parseStockQty(stock, { unit: unitVal, integer: requiresIntegerQty(null, null, unitVal) });
   const openingUnit = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
   if (stockOpen > 0 && !openingUnit) {
@@ -532,6 +540,9 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
         parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
         String(tax_stuff_id || '').trim() || null);
+  if (resolvedUnit.unit_id) {
+    db.prepare('UPDATE products SET unit_id=? WHERE id=?').run(resolvedUnit.unit_id, result.lastInsertRowid);
+  }
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(result.lastInsertRowid, defaultWarehouse.id, stockOpen);
@@ -655,7 +666,20 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     : (prod.code || '');
   const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
   const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
-  const unitVal = bodyHas(body, 'unit') ? (unit || 'عدد') : (prod.unit || 'عدد');
+  const { resolveProductUnit } = require('../lib/uom');
+  let resolvedUnit = { unit: prod.unit || 'عدد', unit_id: prod.unit_id || null };
+  if (bodyHas(body, 'unit') || bodyHas(body, 'unit_id')) {
+    try {
+      resolvedUnit = resolveProductUnit(db, {
+        unit: bodyHas(body, 'unit') ? unit : undefined,
+        unit_id: bodyHas(body, 'unit_id') ? body.unit_id : undefined,
+      }, prod);
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+      throw e;
+    }
+  }
+  const unitVal = resolvedUnit.unit || 'عدد';
   const intStock = requiresIntegerQty(db, Number(req.params.id), unitVal);
   const stockVal = excelHasMoves
     ? parseStockQty(prod.stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock })
@@ -689,9 +713,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     ? (String(tax_stuff_id || '').trim() || null)
     : (prod.tax_stuff_id || null);
 
-  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
+  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,unit_id=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
     full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
-    .run(catName, catId, codeVal, nameVal, priceVal, costVal, stockVal, alertVal, unitVal, noteVal, image,
+    .run(catName, catId, codeVal, nameVal, priceVal, costVal, stockVal, alertVal, unitVal, resolvedUnit.unit_id, noteVal, image,
          colorsVal, packVal, whId, barcodeVal,
          fullNameVal, productTypeVal, productIndexVal, taxIdVal, consumerVal,
          locationVal, openingPriceVal, smsCodeVal, taxStuffVal,

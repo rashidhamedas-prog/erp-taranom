@@ -17,6 +17,13 @@ function err(code, status = 422, extra = {}) {
 
 function nowUnix() { return Math.floor(Date.now() / 1000); }
 
+function componentStockUnitId(db, productId) {
+  const id = parseInt(productId, 10);
+  if (!id) return null;
+  const row = db.prepare('SELECT unit_id FROM products WHERE id=?').get(id);
+  return row && row.unit_id ? row.unit_id : null;
+}
+
 function round6(n) {
   return Math.round(Number(n) * 1e6) / 1e6;
 }
@@ -875,7 +882,7 @@ function createBom(db, body, userId) {
       `).run(
         code, productId, version, revision, body.name || '',
         body.bom_type || 'standard', body.alt_of_bom_id || null, body.alt_reason || '',
-        body.base_qty != null ? body.base_qty : 1, body.unit_id || null,
+        body.base_qty != null ? body.base_qty : 1, body.unit_id || componentStockUnitId(db, productId),
         body.valid_from || '', body.valid_to || '', body.is_default ? 1 : 0,
         body.is_multilevel ? 1 : 0, body.has_routing ? 1 : 0, body.has_coproducts ? 1 : 0,
         body.has_routing ? 100 : (body.yield_percent != null ? body.yield_percent : 100),
@@ -925,7 +932,7 @@ function updateBomHeader(db, bomId, body, userId) {
       body.valid_from != null ? body.valid_from : b.valid_from,
       body.valid_to != null ? body.valid_to : b.valid_to,
       body.is_default != null ? (body.is_default ? 1 : 0) : b.is_default,
-      body.unit_id != null ? body.unit_id : b.unit_id,
+      body.unit_id != null ? body.unit_id : (b.unit_id || componentStockUnitId(db, b.product_id)),
       bomId
     );
     // v472: قفل تک‌محصول؛ فقط خاموش‌کردن چندمحصولی قدیمی یا نگهداشت peers موجود (بدون افزودن)
@@ -1090,7 +1097,7 @@ function addLine(db, bomId, body, userId, opts = {}) {
       body.line_no || maxLine + 1,
       body.component_product_id,
       body.qty_per_base != null ? body.qty_per_base : 0,
-      body.unit_id || null,
+      body.unit_id || componentStockUnitId(db, body.component_product_id),
       scrap,
       body.fixed_qty || 0,
       body.line_type || 'material',
@@ -1160,7 +1167,7 @@ function updateLine(db, bomId, lineId, body, userId) {
     `).run(
       body.component_product_id != null ? body.component_product_id : L.component_product_id,
       body.qty_per_base != null ? body.qty_per_base : L.qty_per_base,
-      body.unit_id != null ? body.unit_id : L.unit_id,
+      body.unit_id != null ? body.unit_id : (L.unit_id || componentStockUnitId(db, body.component_product_id != null ? body.component_product_id : L.component_product_id)),
       scrap,
       body.fixed_qty != null ? body.fixed_qty : L.fixed_qty,
       body.line_type != null ? body.line_type : L.line_type,
