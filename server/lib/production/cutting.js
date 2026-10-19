@@ -210,7 +210,10 @@ function resolveOptionalOrder(db, orderId, productId) {
     throw httpErr(409, 'سفارش تولید بسته یا لغو شده است', 'E_PACK_ORDER_STATUS');
   }
   if (productId && Number(po.product_id) !== Number(productId)) {
-    throw httpErr(400, 'سفارش باید همان کالای لایه باشد', 'E_PACK_ORDER_PRODUCT');
+    const { orderBomPeerLines } = require('./bom');
+    const peers = orderBomPeerLines(po);
+    const onOrder = peers && peers.some((l) => Number(l.product_id) === Number(productId));
+    if (!onOrder) throw httpErr(400, 'سفارش باید همان کالای لایه باشد', 'E_PACK_ORDER_PRODUCT');
   }
   return po;
 }
@@ -222,10 +225,14 @@ function findOpenProductionOrdersForProduct(db, productId) {
   return db.prepare(`
     SELECT id, order_no, status, product_id
     FROM production_orders
-    WHERE product_id=?
+    WHERE (
+        product_id=?
+        OR instr(IFNULL(fg_plan_json,''), '"product_id":' || ? || ',') > 0
+        OR instr(IFNULL(fg_plan_json,''), '"product_id":' || ? || '}') > 0
+      )
       AND COALESCE(status,'') NOT IN ('cancelled','closed','completed','done','voided')
     ORDER BY id DESC
-  `).all(pid);
+  `).all(pid, pid, pid);
 }
 
 /**

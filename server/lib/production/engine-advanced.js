@@ -5,7 +5,7 @@
 const { allocateNumber, audit } = require('../../db');
 const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
-const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiproductBom, orderFgQtyMap } = require('./bom');
+const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiproductBom, orderFgQtyMap, orderBomPeerLines, orderQtyAsMainBase } = require('./bom');
 const { backwardQty, planScopedStageQtys, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
@@ -1046,6 +1046,101 @@ function postStageCore(db, {
   };
 }
 
+function stageIsCutting(db, op) {
+  const cc = db.prepare('SELECT code, name FROM cost_centers WHERE id=?').get(op.cost_center_id);
+  const blob = `${cc?.code || ''} ${cc?.name || ''} ${op.operation_name || ''}`;
+  return /برش|CC-10|\bCUT\b/i.test(blob);
+}
+
+/** چند فرمول روی یک سفارش: یک مرحلهٔ برش مشترک، بعد مراحل هر محصول جدا. */
+function releasePeerBomOrder(db, po, userId) {
+  const lines = orderBomPeerLines(po);
+  const pieces = lines.map((line) => {
+    const ops = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq, id').all(line.bom_id);
+    const qty = orderQtyAsMainBase(db, line.bom_id, line.qty_planned, line.product_id);
+    const back = ops.length ? backwardQty(db, line.bom_id, qty) : { qty_start: qty };
+    return { line, ops, qtyStart: Number(back.qty_start) || qty };
+  });
+  const cuts = [];
+  const rest = [];
+  for (const piece of pieces) {
+    let seenCut = false;
+    for (const op of piece.ops) {
+      if (!seenCut && stageIsCutting(db, op)) {
+        cuts.push({ piece, op });
+        seenCut = true;
+      } else {
+        rest.push({ piece, op });
+      }
+    }
+  }
+  if (!cuts.length && !rest.length) throw err('E_ROUTING_EMPTY', 422);
+
+  const ins = db.prepare(`
+    INSERT INTO production_order_stages
+      (order_id, seq, cost_center_id, operation_id, operation_name, status,
+       qty_in, qty_planned_in, driver, is_subcontract, supplier_id, created_by,
+       product_scope, scoped_product_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+  let seq = 10;
+  let opened = false;
+  const openStatus = () => {
+    const status = opened ? 'pending' : 'in_progress';
+    opened = true;
+    return status;
+  };
+  if (cuts.length) {
+    const op = cuts[0].op;
+    const qty = cuts.reduce((s, c) => s + (Number(c.piece.qtyStart) || 0), 0);
+    const cc = db.prepare('SELECT driver FROM cost_centers WHERE id=?').get(op.cost_center_id);
+    ins.run(
+      po.id, seq, op.cost_center_id, op.id, op.operation_name || 'برش مشترک',
+      openStatus(), qty, qty, op.overhead_driver || cc?.driver || '',
+      op.is_subcontract ? 1 : 0, op.subcontract_supplier_id || null, userId,
+      'shared', null
+    );
+    seq += 10;
+  }
+  for (const item of rest) {
+    const op = item.op;
+    const qty = Number(item.piece.line.qty_planned) || 0;
+    const cc = db.prepare('SELECT driver FROM cost_centers WHERE id=?').get(op.cost_center_id);
+    ins.run(
+      po.id, seq, op.cost_center_id, op.id, op.operation_name || '',
+      openStatus(), qty, qty, op.overhead_driver || cc?.driver || '',
+      op.is_subcontract ? 1 : 0, op.subcontract_supplier_id || null, userId,
+      'exclusive', item.piece.line.product_id
+    );
+    seq += 10;
+  }
+
+  for (const piece of pieces) {
+    const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(piece.line.bom_id);
+    const ex = explodeBom(db, {
+      bomId: piece.line.bom_id,
+      qty: orderQtyAsMainBase(db, piece.line.bom_id, piece.line.qty_planned, piece.line.product_id),
+      priceBasis: 'average',
+      yieldOverride: bom?.has_routing ? 100 : null,
+      forProductId: piece.line.product_id,
+    });
+    for (const L of ex.lines) {
+      db.prepare(`
+        INSERT INTO production_reservations
+          (order_id, product_id, warehouse_id, qty, status, date)
+        VALUES (?,?,?,?,'active',?)
+      `).run(po.id, L.product_id, po.warehouse_raw_id, L.qty_final, po.date);
+    }
+  }
+
+  db.prepare(`
+    UPDATE production_orders SET status='released', updated_at=strftime('%s','now') WHERE id=?
+  `).run(po.id);
+  audit(userId, 'update', 'production_order', po.id, `آزادسازی چندفرمولی ${po.order_no}`);
+  emit(db, 'production.order.released', { orderId: po.id });
+  return { ok: true, order: getOrder(db, po.id), stages: stageList(db, po.id) };
+}
+
 function releaseAdvancedOrder(db, orderId, userId) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
@@ -1055,6 +1150,7 @@ function releaseAdvancedOrder(db, orderId, userId) {
     if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
     if (!po.bom_id) throw err('E_NO_ACTIVE_BOM', 422);
     require('./product-completeness').assertOrderReady(db, orderId, 'release');
+    if (orderBomPeerLines(po)) return releasePeerBomOrder(db, po, userId);
 
     const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
     if (!bom?.has_routing) throw err('E_NO_ROUTING', 422);

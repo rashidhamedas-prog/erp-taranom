@@ -80,6 +80,7 @@ BOM (هر محصول مستقل)
 | **W2b** | برگه بها از `cutting_batch_allocations` وقتی به سفارش وصل است | ✅ v471 |
 | **W3** | گیت `E_LAY_BEFORE_NEXT_STAGE` + `production_order_id` روی lay/pack + applyCuttingLayToStage | ✅ v471 |
 | **W4** | UX ویرایش چندمحصول؛ `reverseOrder` بدون restore طاقه برای `cutting_lay`؛ تست v471 | ✅ v471 |
+| **W5** | یک سفارش، چند محصول، هر کدام BOM تک‌محصولی خودش؛ برش مشترک یک مرحله؛ لای به همان سفارش | ✅ v475 |
 
 هر موج: Help + CHANGE-LOG + test-sms + تست اختصاصی + deploy ایران.
 
@@ -91,7 +92,7 @@ BOM (هر محصول مستقل)
 - لای shared: create+void؛ amend = `E_SHARED_CUT_NO_AMEND`؛ UI گاهی «ویرایش» نشان می‌دهد و toast رد می‌کند → در W2 یا amend واقعی یا حذف دکمه.
 - `voidCuttingPackByLay` فقط یک pack (`LIMIT 1`) — برای چند PACK WIP مشترک خطرناک.
 - `purge`/`reverseStage` بعد از `completed` با `E_ORDER_FINALIZED`؛ زنجیرهٔ کامل finalize→pack→lay در تست G1 هنوز PENDING.
-- مدل داده: همچنان **یک BOM چندخروجی** روی یک سفارش (نه N BOM مستقل) — مگر مالک صریحاً W5 بخواهد.
+- مدل دادهٔ v475: سفارش می‌تواند چند BOM تک‌محصولی را در `fg_plan_json` (هر ردیف `bom_id`) نگه دارد. فرمول چندخروجی جدید همچنان ساخته نمی‌شود.
 - `test-sync` روی ویندوز Node ۲۴ به‌خاطر binding بهتر-sqlite3 بالا نمی‌آید؛ معیار سبز = ایران.
 
 ---

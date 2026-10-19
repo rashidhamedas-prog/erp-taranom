@@ -9,7 +9,7 @@ const { acct } = require('../coa-map');
 const {
   explodeBom, resolveBom, isMultiproductBom, assertProductInBomFg,
   explodeProductScopeForOrder, planBomFgOutputs, orderQtyAsMainBase,
-  explodeQtyForOrder, orderFgPlanRows, parseFgPlanJson,
+  explodeQtyForOrder, orderFgPlanRows, parseFgPlanJson, orderBomPeerLines,
 } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
@@ -230,6 +230,50 @@ function listOrderLines(db, orderId) {
   }
 }
 
+function bomHasRouting(db, bomId) {
+  if (!bomId) return false;
+  const bom = db.prepare('SELECT has_routing FROM bom_headers WHERE id=?').get(bomId);
+  const opCount = db.prepare('SELECT COUNT(*) AS c FROM bom_operations WHERE bom_id=?').get(bomId)?.c || 0;
+  return !!(bom?.has_routing || opCount > 0);
+}
+
+/** محصولات اضافهٔ سفارش، هر کدام با فرمول تک‌محصولی خودش. */
+function collectOrderPeerLines(db, { productId, bom, qtyPlanned, date, body }) {
+  const extra = Array.isArray(body.order_products) ? body.order_products : [];
+  const lines = [];
+  const seen = new Set([Number(productId)]);
+  for (const raw of extra) {
+    const pid = Number(raw?.product_id);
+    const qty = Number(raw?.qty);
+    if (!pid || pid === Number(productId)) continue;
+    if (seen.has(pid)) throw err('E_ORDER_PRODUCT_DUP', 422, { product_id: pid });
+    seen.add(pid);
+    if (!(qty > 0)) throw err('E_QTY_INVALID', 422, { product_id: pid });
+    const product = db.prepare('SELECT id, name, is_manufactured FROM products WHERE id=?').get(pid);
+    if (!product) throw err('E_NOT_FOUND', 404, { product_id: pid });
+    if (!product.is_manufactured) throw err('E_NOT_MANUFACTURED', 422, { name: product.name });
+    const { assertProductReady } = require('./product-completeness');
+    assertProductReady(db, pid, 'order');
+    const peerBom = resolveBom(db, {
+      productId: pid,
+      date,
+      preferredBomId: raw.bom_id ? Number(raw.bom_id) : null,
+    });
+    if (isMultiproductBom(db, peerBom)) {
+      throw err('E_BOM_SINGLE_PRODUCT', 422, { bom_id: peerBom.id });
+    }
+    assertProductInBomFg(db, peerBom, pid);
+    lines.push({ product_id: pid, qty, bom_id: peerBom.id });
+  }
+  if (!lines.length) return null;
+  if (isMultiproductBom(db, bom)) {
+    throw err('E_ORDER_MIXED_BOM', 422, {
+      detail: 'فرمول چندمحصولی قدیمی با محصولِ فرمول‌جدا در یک سفارش جمع نمی‌شود',
+    });
+  }
+  return [{ product_id: Number(productId), qty: qtyPlanned, bom_id: bom.id }, ...lines];
+}
+
 function createOrder(db, body, userId) {
   const productId = Number(body.product_id);
   let qtyPlanned = num(body.qty_planned);
@@ -328,6 +372,16 @@ function createOrder(db, body, userId) {
   }
   if (qtyPlanned <= 0) throw err('E_QTY_INVALID', 422);
 
+  const peerStored = collectOrderPeerLines(db, {
+    productId, bom, qtyPlanned, date, body,
+  });
+  if (peerStored) {
+    const routed = peerStored.some((line) => bomHasRouting(db, line.bom_id));
+    if (routed && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
+      analysisType = analysisType === 'variable' ? 'variable_adv' : 'fixed_adv';
+    }
+  }
+
   let fgMap = null;
   if (multiBom) {
     const formula = planBomFgOutputs(db, bom.id, qtyPlanned, productId);
@@ -411,7 +465,12 @@ function createOrder(db, body, userId) {
       qtyPlanned > 0 ? Math.round((stdMat + stdLab + stdOh) / qtyPlanned) : 0,
       body.note || '', userId
     ).lastInsertRowid;
-    if (fgMap) {
+    if (peerStored) {
+      try {
+        db.prepare('UPDATE production_orders SET fg_plan_json=? WHERE id=?')
+          .run(JSON.stringify(peerStored), orderId);
+      } catch { /* column missing before v460 ensureColumn */ }
+    } else if (fgMap) {
       try {
         db.prepare('UPDATE production_orders SET fg_plan_json=? WHERE id=?')
           .run(fgPlanJson(fgMap), orderId);
@@ -495,11 +554,9 @@ function releaseOrder(db, orderId, userId) {
   }
   // سفارش ساده روی BOM مسیر‌دار: ارتقا به پیشرفته قبل از آزادسازی
   if (po.bom_id) {
-    const bom = db.prepare('SELECT has_routing FROM bom_headers WHERE id=?').get(po.bom_id);
-    const opCount = db.prepare(
-      'SELECT COUNT(*) AS c FROM bom_operations WHERE bom_id=?'
-    ).get(po.bom_id)?.c || 0;
-    if (bom?.has_routing || opCount > 0) {
+    const peerIds = (orderBomPeerLines(po) || []).map((p) => p.bom_id);
+    const routed = bomHasRouting(db, po.bom_id) || peerIds.some((id) => bomHasRouting(db, id));
+    if (routed) {
       const upgraded = po.analysis_type === 'variable' ? 'variable_adv' : 'fixed_adv';
       db.prepare(
         'UPDATE production_orders SET analysis_type=?, updated_at=strftime(\'%s\',\'now\') WHERE id=?'
@@ -513,21 +570,31 @@ function releaseOrder(db, orderId, userId) {
     if (!po.bom_id) throw err('E_NO_ACTIVE_BOM', 422);
     require('./product-completeness').assertOrderReady(db, orderId, 'release');
 
-    const ex = explodeBom(db, {
-      bomId: po.bom_id,
-      qty: explodeQtyForOrder(db, po),
-      sizeBreakdown: safeJson(po.size_breakdown),
-      color: po.color,
-      priceBasis: 'average',
-      forProductId: explodeProductScopeForOrder(db, po),
-    });
+    const peers = orderBomPeerLines(po);
+    const explosions = peers
+      ? peers.map((line) => explodeBom(db, {
+        bomId: line.bom_id,
+        qty: orderQtyAsMainBase(db, line.bom_id, line.qty_planned, line.product_id),
+        priceBasis: 'average',
+        forProductId: line.product_id,
+      }))
+      : [explodeBom(db, {
+        bomId: po.bom_id,
+        qty: explodeQtyForOrder(db, po),
+        sizeBreakdown: safeJson(po.size_breakdown),
+        color: po.color,
+        priceBasis: 'average',
+        forProductId: explodeProductScopeForOrder(db, po),
+      })];
 
-    for (const L of ex.lines) {
-      db.prepare(`
-        INSERT INTO production_reservations
-          (order_id, product_id, warehouse_id, qty, status, date)
-        VALUES (?,?,?,?,'active',?)
-      `).run(po.id, L.product_id, po.warehouse_raw_id, L.qty_final, po.date);
+    for (const ex of explosions) {
+      for (const L of ex.lines) {
+        db.prepare(`
+          INSERT INTO production_reservations
+            (order_id, product_id, warehouse_id, qty, status, date)
+          VALUES (?,?,?,?,'active',?)
+        `).run(po.id, L.product_id, po.warehouse_raw_id, L.qty_final, po.date);
+      }
     }
 
     db.prepare(`
@@ -2234,7 +2301,7 @@ function listOrders(db, { status, productId, period, page = 1, limit = 50, inclu
 
 function getOrderDetail(db, orderId) {
   const po = getOrder(db, orderId);
-  const multi = !!(po.bom_id && isMultiproductBom(db, po.bom_id));
+  const multi = !!(po.bom_id && isMultiproductBom(db, po.bom_id)) || !!orderBomPeerLines(po);
   const fg_plan = po.bom_id
     ? orderFgPlanRows(db, po)
     : [];
@@ -2469,7 +2536,21 @@ function updateOrder(db, orderId, body = {}) {
       Math.round((stdMat + num(po.std_labor_rial) + num(po.std_overhead_rial)) / qtyPlanned)
     );
   }
-  if (fgMap) {
+  const existingPeers = orderBomPeerLines(po);
+  if (existingPeers && (body.fg_plan || qtyPlanned != null)) {
+    if (po.status !== 'draft') throw err('E_INVALID_STATUS', 409, { status: po.status });
+    const sent = parseFgPlanJson(body.fg_plan);
+    const next = existingPeers.map((p) => ({
+      product_id: p.product_id,
+      bom_id: p.bom_id,
+      qty: Number(p.product_id) === Number(po.product_id)
+        ? (qtyPlanned != null ? qtyPlanned : p.qty_planned)
+        : (sent && sent[p.product_id] != null ? sent[p.product_id] : p.qty_planned),
+    }));
+    if (next.some((p) => !(Number(p.qty) > 0))) throw err('E_QTY_INVALID', 422);
+    fields.push('fg_plan_json=?');
+    params.push(JSON.stringify(next));
+  } else if (fgMap) {
     fields.push('fg_plan_json=?');
     params.push(fgPlanJson(fgMap));
   }

@@ -18327,6 +18327,9 @@ function prodOrderErrMsg(e){
   const code=e?.code||e?.message||'';
   const map={
     E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا در «فرمول تولید» بسازید و فعال کنید',
+    E_ORDER_PRODUCT_DUP:'این محصول را دوبار در سفارش گذاشته‌اید',
+    E_ORDER_MIXED_BOM:'فرمول چندمحصولی قدیمی با محصولِ فرمول‌جدا در یک سفارش جمع نمی‌شود',
+    E_BOM_SINGLE_PRODUCT:'فرمول هر محصول باید تک‌محصولی باشد',
     E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
     E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
     E_VARIANT_REQUIRED:'برای این کالا تعداد هر رنگ و سایز را مشخص کنید',
@@ -18366,6 +18369,8 @@ async function prodOrderCreateModal(){
     if(!mfg.length) mfg=all.slice(0,200);
     const wh=(CACHE.warehouses||[]).filter(w=>w.active!==0);
     const warn=!activeBomProductIds.size?'⚠️ هنوز فرمول ساخت فعال ندارید — اول در «فرمول تولید» بسازید و فعال کنید.':'';
+    window._poMfg=mfg;
+    window._poPeerSeq=0;
     window._prodCreateBoms=boms||[];
     window._prodCreateCcs=ccs||[];
     window._poBom=null;
@@ -18407,6 +18412,11 @@ async function prodOrderCreateModal(){
           ${(ME.role==='admin'||ME.role==='accounting')?`<div class="fg full"><label>دلیل استثنای مشخصات (اختیاری — فقط کد/بهای صفر در حواله) ${hlp('اگر مواد بهای صفر دارند یا کد FG موقتاً خالی است، دلیل کوتاه بنویسید تا آزادسازی/حواله با audit عبور کند. نام/واحد/نوع همچنان اجباری‌اند.')}</label>
             <input id="po-waive" placeholder="مثلاً: اصلاح بها بعد از رسید خرید — تأیید مدیر"></div>`:''}
         </div>
+      </section>
+      <section class="po-sec" id="po-peer-box">
+        <header class="po-sec-h"><span>+</span><div><b>محصول دیگر با فرمول جدا</b><small>هر ردیف فرمول فعال خودش را دارد. برش این سفارش یکی می‌ماند و در لایه‌چینی مشترک همان سفارش ثبت می‌شود.</small></div></header>
+        <div id="po-peer-rows"></div>
+        <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodOrderAddPeer()})}">افزودن محصول</button>
       </section>
       <section class="po-sec" id="po-fg-plan" hidden></section>
       <section class="po-sec" id="po-stage-plan" hidden></section>
@@ -18455,7 +18465,40 @@ async function prodOrderFilterBoms(){
       return `<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}${multi}${head}</option>`;
     }).join('');
   await prodOrderRefreshFgPlan();
+  prodOrderSyncPeers();
   prodOrderLoadVariantPanel(pid);
+}
+function prodOrderSyncPeers(){
+  const box=el('po-peer-box');
+  if(!box) return;
+  box.hidden=prodOrderIsMulti(window._poBom);
+}
+function prodOrderAddPeer(){
+  const host=el('po-peer-rows');
+  if(!host) return;
+  const rowId=++window._poPeerSeq;
+  const wrap=document.createElement('div');
+  wrap.className='form-grid po-peer-row';
+  wrap.dataset.row=String(rowId);
+  wrap.innerHTML=`
+    <div class="fg"><label>محصول</label>${productSelect('po-peer-p-'+rowId, '', window._poMfg||[])}</div>
+    <div class="fg"><label>فرمول این محصول</label><select id="po-peer-b-${rowId}"><option value="">— خودکار (پیش‌فرض فعال) —</option></select></div>
+    <div class="fg"><label>تعداد</label><input id="po-peer-q-${rowId}" type="number" min="1" value="1"></div>
+    <div class="fg"><label>&nbsp;</label><button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wrap.remove()})}">حذف</button></div>`;
+  host.appendChild(wrap);
+  el('po-peer-p-'+rowId)?.addEventListener('change', ()=>prodOrderFillPeerBoms(rowId));
+}
+async function prodOrderFillPeerBoms(rowId){
+  const pid=+el('po-peer-p-'+rowId)?.value;
+  const sel=el('po-peer-b-'+rowId);
+  if(!sel) return;
+  let boms=[];
+  if(pid){
+    try{ boms=(await api('GET','/production/boms?status=active&for_product_id='+pid+'&limit=50'))?.rows||[]; }
+    catch(_){ boms=[]; }
+  }
+  sel.innerHTML='<option value="">— خودکار (پیش‌فرض فعال) —</option>'+
+    boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} ${esc(b.name||'')}</option>`).join('');
 }
 function prodOrderOpFactor(op){
   const y=(Number(op.yield_percent)||100)/100;
@@ -18940,6 +18983,16 @@ async function prodOrderCreateSave(){
   }else{
     if(!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
     body.qty_planned=qty;
+  }
+  const peers=[...document.querySelectorAll('#po-peer-rows .po-peer-row')].map(row=>{
+    const id=row.dataset.row;
+    return { product_id:+el('po-peer-p-'+id)?.value||0, bom_id:+el('po-peer-b-'+id)?.value||0, qty:+el('po-peer-q-'+id)?.value||0 };
+  }).filter(p=>p.product_id);
+  if(peers.length){
+    if(peers.some(p=>!(p.qty>0))){ showToast('تعداد هر محصول اضافه باید بزرگ‌تر از صفر باشد','error'); return; }
+    if(peers.some(p=>p.product_id===pid)){ showToast('محصول اضافه نباید همان محصول بالای فرم باشد','error'); return; }
+    body.order_products=peers;
+    if(!['fixed_adv','variable_adv'].includes(body.analysis_type)) body.analysis_type='fixed_adv';
   }
   const bomId=+el('po-bom')?.value; if(bomId) body.bom_id=bomId;
   const whR=+el('po-wh-raw')?.value; if(whR) body.warehouse_raw_id=whR;
@@ -32118,6 +32171,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
+        <li><b>چند محصول با فرمول جدا (v475):</b> در «سفارش تولید جدید» با «افزودن محصول» کالای دوم را با فرمول فعال خودش و تعداد خودش بگذارید. فرمول ساخت همچنان یک محصول است. آزادسازی یک مرحلهٔ برش مشترک می‌سازد و بقیهٔ مراحل هر محصول جدا می‌ماند. لایه‌چینی مشترک را به همان شمارهٔ سفارش وصل کنید.</li>
         <li><b>سربار سراسری کارگاه (v474):</b> مرکز با واحد «کارگاه تولید» در برگهٔ بهای BOM و در جذب واقعی سفارش، یک‌بار روی تعداد محصول تمام‌شده می‌آید — حتی اگر روی مسیر همان BOM نباشد. اگر همان مرکز خودش مرحلهٔ مسیر باشد دوباره حساب نمی‌شود. دفتر توزیع، اداری و فروش هزینهٔ دوره است و داخل بها نمی‌آید. نرخ ذخیره‌شده عوض نمی‌شود.</li>
         <li><b>نرخ سربار مراکز (v334 / v458):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. ویرایش «نرخ کل» یا «دستمزد / عدد» (مثلاً اتو و بسته‌بندی CC-60) بعد از ذخیره در همان ردیف جدول می‌ماند؛ قبلاً اگر ثابت برابر نرخ کل کپی شده بود، تغییر نرخ کل دور ریخته می‌شد. بودجه فقط وقتی نرخ را عوض می‌کند که خود بودجه را ویرایش کنید یا نرخ ذخیره‌شده با بودجه یکی باشد. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>

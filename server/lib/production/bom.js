@@ -296,7 +296,38 @@ function parseFgPlanJson(raw) {
   return Object.keys(map).length ? map : null;
 }
 
+/**
+ * v475 — چند فرمول تک‌محصولی روی یک سفارش.
+ * هر ردیف fg_plan bom_id خودش را دارد و دست‌کم دو فرمول متفاوت لازم است.
+ */
+function orderBomPeerLines(po) {
+  if (!po?.fg_plan_json) return null;
+  let rows = po.fg_plan_json;
+  if (typeof rows === 'string') {
+    try { rows = JSON.parse(rows); } catch { return null; }
+  }
+  if (!Array.isArray(rows)) return null;
+  const lines = [];
+  const boms = new Set();
+  for (const row of rows) {
+    const product_id = Number(row?.product_id);
+    const qty_planned = Number(row?.qty != null ? row.qty : row?.qty_planned) || 0;
+    const bom_id = Number(row?.bom_id) || 0;
+    if (!product_id || !(qty_planned > 0) || !bom_id) continue;
+    lines.push({ product_id, qty_planned, bom_id });
+    boms.add(bom_id);
+  }
+  if (lines.length < 2 || boms.size < 2) return null;
+  return lines;
+}
+
 function orderFgQtyMap(db, po) {
+  const peers = orderBomPeerLines(po);
+  if (peers) {
+    const map = {};
+    for (const p of peers) map[p.product_id] = p.qty_planned;
+    return map;
+  }
   if (!po?.bom_id || !isMultiproductBom(db, po.bom_id)) return null;
   const stored = parseFgPlanJson(po.fg_plan_json);
   if (stored) return stored;
@@ -311,6 +342,24 @@ function orderFgQtyMap(db, po) {
 
 /** برنامهٔ نمایشی: اگر تعداد هر محصول جدا ذخیره شده باشد، همان جایگزین نسبت فرمول می‌شود. */
 function orderFgPlanRows(db, po) {
+  const peers = orderBomPeerLines(po);
+  if (peers) {
+    return peers.map((p) => {
+      const prod = db.prepare('SELECT name, code FROM products WHERE id=?').get(p.product_id);
+      const bom = db.prepare('SELECT code, name FROM bom_headers WHERE id=?').get(p.bom_id);
+      return {
+        product_id: p.product_id,
+        product_name: prod?.name || (`#${p.product_id}`),
+        product_code: prod?.code || '',
+        qty_planned: p.qty_planned,
+        bom_id: p.bom_id,
+        bom_code: bom?.code || '',
+        bom_name: bom?.name || '',
+        cost_share_percent: 0,
+        is_order_product: Number(p.product_id) === Number(po.product_id),
+      };
+    });
+  }
   const formula = planBomFgOutputs(db, po.bom_id, Number(po.qty_planned) || 0, po.product_id);
   const stored = parseFgPlanJson(po.fg_plan_json);
   if (!stored) return formula;
@@ -1574,4 +1623,5 @@ module.exports = {
   assertBomLineUniqueness, lineConsumptionFactor,
   assertProductInBomFg, isMultiproductBom, explodeProductScopeForOrder, planBomFgOutputs,
   orderQtyAsMainBase, explodeQtyForOrder, orderFgQtyMap, orderFgPlanRows, parseFgPlanJson,
+  orderBomPeerLines,
 };
