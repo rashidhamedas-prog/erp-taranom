@@ -315,6 +315,9 @@ async function api(method, path, data, isFormData, silent){
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
         E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — بهای مواد/دستمزد با رسید تولید هم‌خوان نیست؛ سفارش را بررسی یا ابطال/تعمیر کنید',
         E_PREV_STAGE_OPEN:'مرحلهٔ قبلی هنوز تکمیل نشده — مسیر BOM باید به‌ترتیب طی شود',
+        E_LAY_REQUIRED_ON_CUT: j.message || 'خروجی مرحلهٔ برش فقط بعد از لایه‌چینی همان سفارش ثبت می‌شود. پارچه از طاقه مصرف می‌شود.',
+        E_FABRIC_VIA_CUT: j.message || 'پارچهٔ طولی فقط از لایه‌چینی و طاقه مصرف می‌شود، نه از حوالهٔ مرحله',
+        E_LAY_BEFORE_NEXT_STAGE: j.message || 'قبل از مرحلهٔ بعد از برش، لایه‌چینی به اندازهٔ برنامه لازم است',
         E_STAGE_HAS_MATERIALS:'این مرحله مواد تعریف‌شده دارد و قابل رد کردن نیست — ابتدا حواله/خروجی بزنید',
         E_STAGE_MATERIAL_OWNER:'این قلم مواد به این مرحله از مسیر BOM تعلق ندارد',
         E_JE_REQUIRED:'ثبت بدون سند حسابداری مجاز نیست — عملیات برگشت خورد',
@@ -13101,8 +13104,17 @@ async function goCuttingLaysView(view){
   try{ sessionStorage.setItem('cuttingLaysView', v); }catch(_){}
   go('acc-cutting-lays');
 }
-async function cuttingLayModal(editId){
+function cuttingReturnAfterPost(toast){
+  const back=window._cutReturnOrderId?Number(window._cutReturnOrderId):0;
+  window._cutReturnOrderId=null;
+  closeModal();
+  if(toast) showToast(toast);
+  if(back){ prodOrderStagesModal(back); return; }
+  loadAccTab('cutting-lays');
+}
+async function cuttingLayModal(editId, opts){
   window._cutEditId=editId?Number(editId):null;
+  window._cutReturnOrderId=(!window._cutEditId && opts && opts.orderId)?Number(opts.orderId):null;
   window._cutQtyLocked=false;
   window._cutEditRollBoost={};
   window._cutIdemKey=window._cutEditId?null:newCutIdemKey();
@@ -13134,8 +13146,12 @@ async function cuttingLayModal(editId){
   const cutDefault=ccRows.find(c=>String(c.code||'')==='CC-10')||ccRows.find(c=>String(c.name||'')==='برش');
   const ccSelected=lay&&lay.cost_center_id?String(lay.cost_center_id):(cutDefault?String(cutDefault.id):'');
   const ccOpts=ccRows.map(c=>'<option value="'+c.id+'"'+(String(c.id)===ccSelected?' selected':'')+'>'+esc((c.code?c.code+' — ':'')+c.name)+'</option>').join('');
-  const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):'لایه‌چینی و برش';
+  const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):(window._cutReturnOrderId?'خروجی برش — لایه‌چینی':'لایه‌چینی و برش');
+  const stageBanner=window._cutReturnOrderId
+    ? `<p class="prod-empty" data-csp-style="${CSP.style(`margin:0 0 10px;line-height:1.7`)}">خروجی این مرحلهٔ برش همین‌جا ثبت می‌شود. طول مارکر، لایه و طاقه را وارد کنید. با ثبت، پارچه از طاقه مصرف می‌شود و مرحلهٔ برش همین سفارش تکمیل می‌شود. حوالهٔ جدا برای پارچهٔ طولی زده نمی‌شود.</p>`
+    : '';
   showModal(title,`
+    ${stageBanner}
     ${((!window._cutEditId || window._cutSharedBatchId) && cuttingSharedEnabled())?`<div class="toolbar" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;align-items:center">
       ${window._cutSharedBatchId?'<span class="muted" style="font-size:12px">ویرایش برش مشترک — همان شماره لایه/برنامه حفظ می‌شود.</span>':`<button type="button" class="btn sm" id="cl-mode-single" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(false)})}">تک‌محصول</button>
       <button type="button" class="btn sm ghost" id="cl-mode-multi" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(true)})}">چند محصول روی یک مارکر</button>`}
@@ -13151,7 +13167,7 @@ async function cuttingLayModal(editId){
         <select id="cl-color"><option value="">— انتخاب از طاقه‌های موجود —</option></select>
         <input id="cl-color-extra" placeholder="یا رنگ دستی" value="${lay?esc(String(lay.color||'')):''}" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
       </div>
-      <div class="fg"><label>سفارش تولید</label><select id="cl-po" data-selected="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"><option value="">در حال بارگذاری سفارش‌های باز…</option></select></div>
+      <div class="fg"><label>سفارش تولید</label><select id="cl-po" data-selected="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):(window._cutReturnOrderId?esc(String(window._cutReturnOrderId)):'')}" data-locked="${window._cutReturnOrderId?'1':''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"><option value="">در حال بارگذاری سفارش‌های باز…</option></select></div>
       <div class="fg"><label>مرکز هزینه ضایعات</label>
         <select id="cl-cc"><option value="">— خودکار: برش —</option>${ccOpts}</select>
       </div>
@@ -13192,7 +13208,12 @@ async function cuttingLayModal(editId){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">${window._cutEditId?'ذخیره ویرایش':'ثبت لایه‌چینی'}</button>
     </div>`);
-  cuttingFillPoSelect();
+  cuttingFillPoSelect().then(async()=>{
+    if(!window._cutReturnOrderId || !el('cl-po')) return;
+    el('cl-po').value=String(window._cutReturnOrderId);
+    el('cl-po').disabled=true;
+    await cuttingApplyPo();
+  });
   const prodEl=el('cl-prod');
   if(window._cutEditId && prodEl){
     prodEl.disabled=true;
@@ -13583,17 +13604,13 @@ async function cuttingLaySave(){
         if(!confirm('ویرایش لایه‌چینی چندمحصولی؟ اثرات قبلی همین شماره برمی‌گردد و دوباره ثبت می‌شود.')) return;
         body.reason='ویرایش برش مشترک از گزارش';
         const posted=await api('PUT','/production/cutting-batches/'+window._cutSharedBatchId, body);
-        closeModal();
-        showToast('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' ویرایش شد');
-        loadAccTab('cutting-lays');
+        cuttingReturnAfterPost('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' ویرایش شد');
         return;
       }
       if(!confirm('ثبت لایه‌چینی چندمحصولی؟ پارچه مصرف می‌شود و قطعات در WIP می‌مانند. ورود به انبار محصول بعد از «بسته‌بندی / رسید محصول» و سپس نهایی‌سازی همین سفارش است.')) return;
       body.idempotency_key=window._cutIdemKey||newCutIdemKey();
       const posted=await api('POST','/production/cutting-batches',body);
-      closeModal();
-      showToast('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد');
-      loadAccTab('cutting-lays');
+      cuttingReturnAfterPost('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد. مرحلهٔ برش با همین لایه تکمیل شد.');
       return;
     }
     const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
@@ -13619,11 +13636,11 @@ async function cuttingLaySave(){
     };
     if(window._cutEditId){
       await api('PUT','/production/cutting-lays/'+window._cutEditId, payload);
-      closeModal(); showToast('لایه‌چینی ویرایش شد'); loadAccTab('cutting-lays');
+      cuttingReturnAfterPost('لایه‌چینی ویرایش شد');
     } else {
       payload.idempotency_key=window._cutIdemKey||newCutIdemKey();
       await api('POST','/production/cutting-lays', payload);
-      closeModal(); showToast('لایه‌چینی ثبت شد'); loadAccTab('cutting-lays');
+      cuttingReturnAfterPost(window._cutReturnOrderId?'لایه‌چینی ثبت شد و خروجی مرحلهٔ برش با آن تکمیل می‌شود':'لایه‌چینی ثبت شد');
     }
   }catch(e){}
 }
@@ -19776,7 +19793,7 @@ async function prodOrderStagesModal(orderId){
   const STATUS_FA={done:'انجام شد',in_progress:'در جریان',pending:'منتظر',blocked:'متوقف',skipped:'رد شده'};
   showModal('مراحل سفارش '+esc(order.order_no||''),`
     <div class="prod-scope">
-    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد. در سفارش چندمحصولی، مرحلهٔ مشترک جمع تعدادها را دارد و مرحلهٔ اختصاصی فقط تعداد همان محصول را؛ تمام شدن مرحلهٔ قبل، تعداد اختصاصی را عوض نمی‌کند.</p>
+    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد. اگر مرحلهٔ برش پارچهٔ طولی (متر یا یارد) دارد، «ثبت خروجی» همان فرم لایه‌چینی را برای این سفارش باز می‌کند و پارچه از طاقه مصرف می‌شود. در سفارش چندمحصولی، مرحلهٔ مشترک جمع تعدادها را دارد و مرحلهٔ اختصاصی فقط تعداد همان محصول را؛ تمام شدن مرحلهٔ قبل، تعداد اختصاصی را عوض نمی‌کند.</p>
     ${PU?PU.stageFlow(stages):''}
     <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:12px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>#</th><th>عملیات / مرکز</th><th>تخصیص</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
@@ -19951,6 +19968,11 @@ async function prodStageOutputModal(orderId,stageId,qtyIn,scopeLabel){
   let tpl=null;
   try{ tpl=await api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'); }
   catch(_){ tpl=null; }
+  if(tpl && tpl.cut_lay && Number(tpl.cut_lay.required)===1 && Number(tpl.cut_lay.covered)!==1){
+    showToast('خروجی برش با لایه‌چینی ثبت می‌شود؛ پارچه از طاقه مصرف می‌شود');
+    await cuttingLayModal(null,{orderId:orderId});
+    return;
+  }
   const whId=Number(tpl&&tpl.warehouse_raw_id)||0;
   const shortLines=(tpl&&tpl.lines||[]).filter(L=>Number(L.stock_short)===1);
   const shortHtml=shortLines.length?(`
@@ -20037,10 +20059,12 @@ async function prodStageIssueModal(orderId,stageId){
   try{ tpl=await api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'); }
   catch(e){ showToast(e.message||'خطا در دریافت الگوی حواله','error'); return; }
   const lines=tpl.lines||[];
+  const issuable=lines.filter(L=>Number(L.via_cutting_lay)!==1);
+  const layOnly=lines.filter(L=>Number(L.via_cutting_lay)===1);
   const whId=Number(tpl.warehouse_raw_id)||0;
   const hint=tpl.empty_hint||'مادهٔ مرتبط با این مرحله نیست';
   const lineAvgOk=L=>L.avg_cost_ok!=null?Number(L.avg_cost_ok)>0:Number(L.average_cost_rial)>0;
-  const zeroCost=lines.filter(L=>!lineAvgOk(L));
+  const zeroCost=issuable.filter(L=>!lineAvgOk(L));
   const canCost=typeof canAccounting==='function' && canAccounting();
   const zeroHint=zeroCost.length
     ? (canCost
@@ -20050,11 +20074,12 @@ async function prodStageIssueModal(orderId,stageId){
   showModal('حواله مواد مرحله',`
     <div class="prod-scope">
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
-    ${!lines.length?`<div class="prod-empty">${esc(hint)}</div>`:zeroHint}
+    ${layOnly.length?`<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}">پارچهٔ طولی این مرحله از حواله مصرف نمی‌شود: ${esc(layOnly.map(L=>L.name||('#'+L.product_id)).join('، '))}. از «ثبت خروجی» لایه‌چینی همین سفارش را ثبت کنید.</div>`:''}
+    ${!issuable.length?`<div class="prod-empty">${lines.length?'قلمی جز پارچهٔ طولی برای حوالهٔ این مرحله نیست.':esc(hint)}</div>`:zeroHint}
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>دلیل انحراف</th>
     </tr></thead><tbody id="psi-rows">
-      ${lines.map((L,i)=>{
+      ${issuable.map((L,i)=>{
         const short=Number(L.stock_short)===1;
         const need=Number(L.qty_actual!=null?L.qty_actual:L.qty_standard)||0;
         const stock=L.stock_available!=null?Number(L.stock_available):null;
@@ -20072,7 +20097,7 @@ async function prodStageIssueModal(orderId,stageId){
     </tbody></table></div>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-      <button class="btn" id="psi-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodStageIssueSave((orderId),(stageId))})}" ${(!lines.length||zeroCost.length)?'disabled':''} ${zeroCost.length?'title="بهای میانگین صفر"':''}>ثبت حواله</button>
+      <button class="btn" id="psi-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodStageIssueSave((orderId),(stageId))})}" ${(!issuable.length||zeroCost.length)?'disabled':''} ${zeroCost.length?'title="بهای میانگین صفر"':''}>ثبت حواله</button>
     </div>
     </div>`);
   prodStageIssueUpdateSubmit();
@@ -32256,6 +32281,7 @@ function renderAdminGuide(){
         <li><b>اضافه طاقه:</b> اگر طول مارکر × لایه از ماندهٔ دفتر بیشتر است و پارچه واقعاً روی طاقه هست، متر تفاوت را در «اضافه طاقه» بنویسید (یا «پر کردن کسری»). این متر اول به موجودی طاقه اضافه می‌شود (بدهکار مواد ۱۱۱۰ / بستانکار انحراف مقدار ۵۲۱۱) و بعد همراه پهن‌شدن مصرف می‌شود. اتلاف این کسری را جبران نمی‌کند.</li>
         <li><b>سفارش تولید</b> سفارش آزاد و در جریان را قابل انتخاب نشان می‌دهد. سفارش بسته‌ای که پارچهٔ طولی دارد ولی برش و بسته‌بندی ندارد هم دیده می‌شود، ولی غیرفعال است تا طاقه دوباره مصرف نشود.</li>
         <li><b>پارچهٔ یاردی هم مثل متری</b> فقط از لایه‌چینی مصرف می‌شود. حوالهٔ مرحله و رسید محصول قبل از برش و بسته‌بندی برای این واحد بسته است.</li>
+        <li><b>ثبت خروجی برش:</b> اگر همان مرحله پارچهٔ طولی دارد و لایه‌چینی هنوز به اندازهٔ ورودی نیست، دکمهٔ «ثبت خروجی» فرم لایه‌چینی را برای همان سفارش باز می‌کند (سفارش قفل است). با ثبت لایه، پارچه از طاقه می‌رود و مرحلهٔ برش تکمیل می‌شود. مواد غیرطولی همان مرحله همچنان با حواله/خروجی معمولی می‌روند.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
       <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
@@ -33203,7 +33229,7 @@ function renderSalesGuide(){
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v469</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول.</div>
-      <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. جزئیات در راهنمای مدیر است.</div>
+      <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. روی مرحلهٔ برش با پارچهٔ متری یا یاردی، «ثبت خروجی» لایه‌چینی همان سفارش را باز می‌کند. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>

@@ -29,10 +29,18 @@ const {
   relieveStagedPackQty,
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
+  isMeterUnit,
 } = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
+
+/** پارچهٔ طولی (متر/یارد). null اگر این کالا از مسیر طاقه مصرف نمی‌شود. */
+function lengthFabricProduct(db, productId) {
+  const prod = db.prepare('SELECT id, name, unit FROM products WHERE id=?').get(Number(productId));
+  if (!prod || !isMeterUnit(prod.unit)) return null;
+  return prod;
+}
 
 /**
  * W3 — اگر سفارش پارچهٔ متری است، تکمیل/خروجی هر مرحلهٔ بعد از برش
@@ -57,6 +65,28 @@ function assertLayCompleteBeforePostCutStage(db, po, stage) {
     throw err('E_LAY_BEFORE_NEXT_STAGE', 409, {
       need, lay_qty, order_id: po.id, stage_seq: stage.seq, cut_seq: cut.seq,
       message: `قبل از مرحلهٔ بعد از برش، لایه‌چینی برای حداقل ${need} قطعه لازم است (فعلی: ${lay_qty})`,
+    });
+  }
+}
+
+/**
+ * خروجی خودِ مرحلهٔ برش: پارچهٔ طولی از حواله/backflush نمی‌آید.
+ * تا وقتی لایه‌چینی به اندازهٔ خروجی سالم نباشد، مرحله تکمیل نمی‌شود.
+ */
+function assertCuttingOutputHasLay(db, po, stage, qtyOut) {
+  const cut = resolveCuttingStage(db, po.id);
+  if (!cut || Number(stage.id) !== Number(cut.id)) return;
+  const lines = stageMaterialLines(db, po, stage);
+  if (!lines.some((L) => lengthFabricProduct(db, L.product_id))) return;
+  const { lay_qty } = cuttingQtyForOrder(db, po.id);
+  const need = num(qtyOut);
+  if (lay_qty + 1e-9 < need) {
+    throw err('E_LAY_REQUIRED_ON_CUT', 409, {
+      need,
+      lay_qty,
+      order_id: po.id,
+      stage_id: stage.id,
+      message: `خروجی برش ${need} قطعه است و لایه‌چینی همین سفارش ${lay_qty} قطعه را پوشش داده. پارچهٔ طولی فقط از طاقه در لایه‌چینی مصرف می‌شود؛ با ثبت لایه، همین مرحله تکمیل می‌شود.`,
     });
   }
 }
@@ -521,6 +551,19 @@ function backflushStageMaterials(db, {
   for (const L of materials) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
     if (!prod) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
+    if (lengthFabricProduct(db, L.product_id)) {
+      const cut = resolveCuttingStage(db, po.id);
+      const onCut = cut && Number(stage.id) === Number(cut.id);
+      if (!onCut || Number(L.substitute_of_product_id)) {
+        throw err('E_FABRIC_VIA_CUT', 409, {
+          product_id: prod.id,
+          name: prod.name,
+          unit: prod.unit,
+          message: `«${prod.name}» پارچهٔ طولی است (${prod.unit}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله.`,
+        });
+      }
+      continue;
+    }
     const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
     const resolved = resolveIssueStd(std, L, materials);
     const s = resolved.s;
@@ -679,6 +722,7 @@ function postStageCore(db, {
 
   // W3 / ADR-006 — بعد از مرحلهٔ برش، بدون پوشش لایه‌چینی جلو نرو
   assertLayCompleteBeforePostCutStage(db, po, stage);
+  assertCuttingOutputHasLay(db, po, stage, qtyOut);
 
   const allowedPct = op ? num(op.normal_waste_percent) : 0;
   const allowed = Math.ceil(qtyIn * allowedPct / 100 - 1e-9);
@@ -1936,6 +1980,14 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
       if (!prod) throw err('E_NOT_FOUND', 404);
+      if (lengthFabricProduct(db, L.product_id) && AQ > 0) {
+        throw err('E_FABRIC_VIA_CUT', 409, {
+          product_id: prod.id,
+          name: prod.name,
+          unit: prod.unit,
+          message: `«${prod.name}» پارچهٔ طولی است (${prod.unit}). حوالهٔ مرحله آن را مصرف نمی‌کند. از ثبت خروجی مرحلهٔ برش، لایه‌چینی همین سفارش را ثبت کنید.`,
+        });
+      }
       const resolved = resolveIssueStd(std, L, materials);
       const s = resolved.s;
       if (!s && AQ > 0) {
@@ -2085,13 +2137,16 @@ function getStageIssueTemplate(db, orderId, stageId) {
         : Number(db.prepare('SELECT stock FROM products WHERE id=?').get(L.product_id)?.stock) || 0;
     } catch (_) { stockAvail = 0; }
     const needQty = Number(L.qty_final) || 0;
+    const viaLay = lengthFabricProduct(db, L.product_id) ? 1 : 0;
     return {
       product_id: L.product_id,
       name: prod?.name || ('#' + L.product_id),
+      unit: prod?.unit || '',
       qty_standard: L.qty_final,
       qty_actual: L.qty_final,
       stock_available: stockAvail,
-      stock_short: needQty > 0 && stockAvail + 1e-9 < needQty ? 1 : 0,
+      stock_short: viaLay ? 0 : (needQty > 0 && stockAvail + 1e-9 < needQty ? 1 : 0),
+      via_cutting_lay: viaLay,
       std_cost_rial: Math.round(Number(L.unit_cost_rial) || Number(prod?.std_cost_rial) || 0),
       average_cost_rial: avg,
       // R11-safe gate (not stripped): operators without cost view still see zero-avg block
@@ -2104,11 +2159,26 @@ function getStageIssueTemplate(db, orderId, stageId) {
         : '',
     };
   });
+  const cut = resolveCuttingStage(db, orderId);
+  const isCut = !!(cut && Number(cut.id) === Number(stage.id));
+  let cut_lay = null;
+  if (isCut && lines.some((L) => L.via_cutting_lay)) {
+    const { lay_qty } = cuttingQtyForOrder(db, po.id);
+    const need = Number(stage.qty_in) || 0;
+    cut_lay = {
+      required: 1,
+      lay_qty,
+      need,
+      covered: lay_qty + 1e-9 >= need ? 1 : 0,
+      order_id: po.id,
+    };
+  }
   return {
     order_id: orderId,
     stage_id: stageId,
     warehouse_raw_id: po.warehouse_raw_id || null,
     qty_in: stage.qty_in,
+    cut_lay,
     operation_name: stage.operation_name || '',
     lines,
     empty_hint: lines.length ? '' : stageMaterialEmptyHint(db, po, stage),
