@@ -2570,26 +2570,30 @@ function initSyncSchema(db, opts) {
     throw e;
   }
 
-  try {
-    if (!isDevice() && !opts.skipOpeningBackfill) {
+  if (!isDevice() && !opts.skipOpeningBackfill) {
+    const runSafe = (label, fn) => {
+      try {
+        return fn();
+      } catch (e) {
+        console.warn(`${label}:`, e && e.message ? e.message : e);
+        return null;
+      }
+    };
+    runSafe('opening_inventory_ledger_backfill', () => {
       const {
         backfillOpeningInventoryLedger,
         reconcileInventoryLedgerGaps,
+        redateOpeningDocsToFiscalStart,
+        retireDuplicateOpeningValueJournals,
       } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
       if (bf && !bf.skipped && bf.count) {
         console.log('✅ opening_inventory_ledger_backfill_v1:', JSON.stringify(bf));
       }
-      // Continuous heal: one-shot backfill can seal with count=0 before warehouse_stock
-      // exists; products then show stock with empty kardex (e.g. code 7134).
       const gap = reconcileInventoryLedgerGaps(db);
       if (gap && !gap.skipped && (gap.count || gap.seeded_wh)) {
         console.log('✅ inventory_ledger_gap_reconcile_v1:', JSON.stringify(gap));
       }
-      const {
-        redateOpeningDocsToFiscalStart,
-        retireDuplicateOpeningValueJournals,
-      } = require('./lib/opening-post');
       const dated = redateOpeningDocsToFiscalStart(db);
       if (dated && !dated.skipped && (dated.ledger || dated.journals)) {
         console.log('✅ opening_fiscal_date_v490:', JSON.stringify(dated));
@@ -2598,6 +2602,8 @@ function initSyncSchema(db, opts) {
       if (dup && !dup.skipped && dup.count) {
         console.log('✅ opening_dup_value_v490:', JSON.stringify(dup));
       }
+    });
+    runSafe('kardex_void_heals', () => {
       const invHeal = require('./lib/inventory/ledger');
       const twins = invHeal.retirePostedReversalTwins(db);
       if (twins && !twins.skipped && twins.count) {
@@ -2607,9 +2613,7 @@ function initSyncSchema(db, opts) {
       if (orphans && !orphans.skipped && orphans.count) {
         console.log('✅ kardex_orphan_stage_void_v491:', JSON.stringify(orphans));
       }
-    }
-  } catch (e) {
-    console.warn('opening_inventory_ledger_backfill/reconcile:', e.message);
+    });
   }
 
   // v363 — fabric roll live meters must include reversed+reversal pairs; realign

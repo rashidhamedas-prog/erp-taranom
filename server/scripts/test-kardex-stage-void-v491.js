@@ -98,15 +98,42 @@ try {
   postInventoryMovement(db, {
     eventType: 'production_return', productId: prod, warehouseId: wh,
     qtyIn: 221, unitCostRial: 1000, sourceType: 'production_material_return', sourceId: 99,
-    date: '1405/07/06', note: 'ابطال مرحله 10 — PO-0013', createdBy: adminId,
+    date: '1405/07/06', note: 'ابطال مصرف PO-0013', createdBy: adminId,
   });
+  // Manual حواله without PO in the note — void twin carries the PO + order id.
+  let hawaleOrderId = null;
+  try {
+    const cols = db.prepare('PRAGMA table_info(production_orders)').all().map((c) => c.name);
+    if (cols.includes('order_no')) {
+      hawaleOrderId = db.prepare(
+        "INSERT INTO production_orders (order_no, status) VALUES ('PO-0077','voided')"
+      ).run().lastInsertRowid;
+    }
+  } catch (_) { hawaleOrderId = null; }
+  let hawale = null;
+  if (hawaleOrderId) {
+    hawale = postInventoryMovement(db, {
+      eventType: 'production_issue', productId: prod, warehouseId: wh,
+      qtyOut: 50, unitCostRial: 1000, sourceType: 'production_issue', sourceId: hawaleOrderId,
+      date: '1405/07/07', note: 'حواله مرحله 10', createdBy: adminId,
+    });
+    postInventoryMovement(db, {
+      eventType: 'production_return', productId: prod, warehouseId: wh,
+      qtyIn: 50, unitCostRial: 1000, sourceType: 'production_material_return', sourceId: 100,
+      date: '1405/07/07', note: 'ابطال مصرف PO-0077', createdBy: adminId,
+    });
+  }
   ok(!!issue.id, 'stage issue seeded');
 
-  const before = buildStockLedger(db, { product_id: prod, from: fy, to: '1405/12/29' });
+  const before = buildStockLedger(db, { product_id: prod, from: '1405/01/01', to: '1405/12/29' });
   const beforeNotes = (before.lines || []).map((l) => l.description || '');
-  ok(!beforeNotes.some((n) => /مرحله 10|ابطال مرحله/.test(n)),
+  ok(!beforeNotes.some((n) => /مرحله 10 — PO-0013|ابطال مصرف PO-0013/.test(n)),
     'operational kardex hides voided stage issue and twin');
-  ok(Math.abs(Number(before.opening_qty) - 600) < 0.001, 'opening shows 600', before.opening_qty);
+  if (hawale) {
+    ok(!beforeNotes.some((n) => /حواله مرحله 10|ابطال مصرف PO-0077/.test(n)),
+      'حواله without PO token is hidden via order_no on twin');
+  }
+  ok(Math.abs(Number(before.opening_qty) - 600) < 0.001, 'opening shows 600 even if from is before FY start', before.opening_qty);
 
   const heal = retireOrphanVoidedProductionIssues(db);
   ok(heal.count >= 1, 'heal retires orphan stage void pair', heal);

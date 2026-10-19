@@ -893,8 +893,9 @@ function redateOpeningDocsToFiscalStart(db) {
       AND (
         event_type='opening'
         OR source_type='opening_inventory'
-        OR note LIKE 'بهای اولیه موجودی%'
-        OR note LIKE 'موجودی اول دوره%'
+        OR replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE 'بهای اولیه%'
+        OR replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE 'موجودی اول دوره%'
+        OR replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%بهای اولیه موجودی%'
       )
   `).run(start, start);
   const jeCols = db.prepare('PRAGMA table_info(journal_entries)').all().map((c) => c.name);

@@ -529,27 +529,48 @@ function retireOrphanVoidedProductionIssues(db) {
   `).all();
   let retired = 0;
   let reversed = 0;
+  const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get()?.id
+    || db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()?.id
+    || 1;
   const run = db.transaction(() => {
     for (const o of issues) {
       const note = String(o.note || '');
       const token = (note.match(/PO-\d+/i) || note.match(/PR-\d+/i) || [])[0];
       const stage = (note.match(/مرحله\s*(\d+)/) || [])[1];
-      let twin = null;
-      if (token) {
-        const twins = db.prepare(`
-          SELECT id, note FROM inventory_ledger
-          WHERE status='posted' AND product_id=?
-            AND event_type IN ('production_return','reversal')
-            AND note LIKE 'ابطال%'
-            AND note LIKE ?
-          ORDER BY id DESC
-        `).all(o.product_id, `%${token}%`);
-        twin = twins.find((t) => {
-          if (!stage) return true;
-          const ts = (String(t.note || '').match(/مرحله\s*(\d+)/) || [])[1];
-          return !ts || ts === stage;
-        }) || null;
-      }
+      const qOrig = Number(o.qty_out) || 0;
+      const twins = db.prepare(`
+        SELECT id, note, qty_in FROM inventory_ledger
+        WHERE status='posted' AND product_id=?
+          AND event_type IN ('production_return','reversal')
+          AND note LIKE 'ابطال%'
+        ORDER BY id DESC
+      `).all(o.product_id);
+      const twin = twins.find((t) => {
+        const tNote = String(t.note || '');
+        const tToken = (tNote.match(/PO-\d+/i) || tNote.match(/PR-\d+/i) || [])[0];
+        const ts = (tNote.match(/مرحله\s*(\d+)/) || [])[1];
+        if (stage && ts && ts !== stage) return false;
+        if (token && tToken && token !== tToken) return false;
+        if (token && tNote.includes(token)) return true;
+        if (tToken && o.source_id) {
+          try {
+            const oid = db.prepare(
+              'SELECT id FROM production_orders WHERE order_no=? COLLATE NOCASE LIMIT 1'
+            ).get(tToken)?.id;
+            if (oid != null && Number(oid) === Number(o.source_id)) {
+              const qTwin = Number(t.qty_in) || 0;
+              if (qOrig > 0 && qTwin > 0 && Math.abs(qTwin - qOrig) > 1e-3) return false;
+              return true;
+            }
+          } catch (_) { /* */ }
+        }
+        if (!token && stage && ts === stage) {
+          const qTwin = Number(t.qty_in) || 0;
+          if (qOrig > 0 && qTwin > 0 && Math.abs(qTwin - qOrig) > 1e-3) return false;
+          return true;
+        }
+        return false;
+      }) || null;
 
       // Twin already restored qty — retire both without another stock move.
       if (twin) {
@@ -559,21 +580,34 @@ function retireOrphanVoidedProductionIssues(db) {
         continue;
       }
 
-      // No twin: only reverse when the material-issue row is known voided.
-      let miReversed = false;
+      // No twin: reverse when MI is voided or the production order itself is dead.
+      let dead = false;
       try {
         if (o.source_id) {
+          const liveMi = db.prepare(`
+            SELECT id FROM production_material_issues
+            WHERE order_id=? AND product_id=?
+              AND COALESCE(status,'posted')='posted'
+            LIMIT 1
+          `).get(o.source_id, o.product_id);
           const anyMi = db.prepare(`
             SELECT id, status FROM production_material_issues
             WHERE order_id=? AND product_id=?
             ORDER BY id DESC LIMIT 1
           `).get(o.source_id, o.product_id);
-          miReversed = !!anyMi && String(anyMi.status || '') === 'reversed';
+          const po = db.prepare(
+            'SELECT id, status FROM production_orders WHERE id=?'
+          ).get(o.source_id);
+          const poStatus = String(po?.status || '').toLowerCase();
+          const orderDead = !po || ['reversed', 'void', 'cancelled', 'canceled', 'voided'].includes(poStatus);
+          if (anyMi && String(anyMi.status || '') === 'reversed' && !liveMi) dead = true;
+          if (orderDead && !liveMi) dead = true;
         }
-      } catch (_) { miReversed = false; }
-      if (!miReversed) continue;
+      } catch (_) { dead = false; }
+      if (!dead) continue;
       const rev = reverseInventoryMovement(db, o.id, {
         note: 'بازنشسته — عملیات پشت سند ابطال شده',
+        createdBy: adminId,
       });
       if (rev && rev.id) softRetireLedgerRow(db, rev.id);
       reversed += 1;

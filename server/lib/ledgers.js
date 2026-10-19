@@ -403,12 +403,34 @@ function isAuditOnlyStockRow(r, extraHideIds) {
 /**
  * Hide both sides of legacy production void pairs that lack reversed_of.
  * reverseStage used to leave the original production_issue posted and only
- * post a twin «ابطال مرحله N — PO-…» return — so the issue stayed in the live
- * kardex until soft-retired. Same for receipt / حواله مرحله / مصرف PO.
+ * post a twin «ابطال مرحله N — PO-…» return. Manual حواله often has no PO in
+ * the note — match by stage number + product (and PO token when present).
  */
-function collectLegacyVoidedReceiptIds(rows) {
+function collectLegacyVoidedReceiptIds(rows, db) {
   const hide = new Set();
   const posted = (rows || []).filter((r) => String(r.status || '') === 'posted');
+  const isStageIssueRow = (o) => {
+    const oEt = String(o.event_type || '');
+    const oNote = String(o.note || '').trim();
+    return oEt === 'production_issue'
+      || /^مرحله\s*\d+/.test(oNote)
+      || /^حواله\s*مرحله\s*\d+/.test(oNote)
+      || /^حواله\s*MI-/i.test(oNote)
+      || /^مصرف\s/.test(oNote);
+  };
+  const orderIdByToken = new Map();
+  const resolveOrderId = (token) => {
+    if (!token || !db) return null;
+    if (orderIdByToken.has(token)) return orderIdByToken.get(token);
+    let id = null;
+    try {
+      id = db.prepare(
+        'SELECT id FROM production_orders WHERE order_no=? COLLATE NOCASE LIMIT 1'
+      ).get(token)?.id || null;
+    } catch (_) { id = null; }
+    orderIdByToken.set(token, id);
+    return id;
+  };
   for (const rev of posted) {
     const et = String(rev.event_type || '');
     const note = String(rev.note || '').trim();
@@ -421,25 +443,40 @@ function collectLegacyVoidedReceiptIds(rows) {
     hide.add(rev.id);
     if (rev.reversed_of) hide.add(rev.reversed_of);
     const token = (note.match(/PO-\d+/i) || note.match(/PR-\d+/i) || [])[0];
-    if (!token) continue;
-    const stageMatch = note.match(/مرحله\s*(\d+)/);
-    const stageSeq = stageMatch ? stageMatch[1] : null;
+    const stageSeq = (note.match(/مرحله\s*(\d+)/) || [])[1] || null;
+    const orderId = resolveOrderId(token);
+    const qTwin = (Number(rev.qty_in) || 0) || (Number(rev.qty_out) || 0);
     for (const o of posted) {
       if (o.id === rev.id) continue;
+      if (Number(o.product_id) && Number(rev.product_id)
+        && Number(o.product_id) !== Number(rev.product_id)) continue;
       const oNote = String(o.note || '');
-      if (!oNote.includes(token)) continue;
       const oEt = String(o.event_type || '');
-      const isStageIssue = oEt === 'production_issue'
-        || /^مرحله\s*\d+/.test(oNote.trim())
-        || /^حواله\s*مرحله\s*\d+/.test(oNote.trim())
-        || /^مصرف\s/.test(oNote.trim());
       const isReceipt = oEt === 'production_receipt';
-      if (!isStageIssue && !isReceipt) continue;
-      if (stageSeq && isStageIssue) {
-        const oStage = (oNote.match(/مرحله\s*(\d+)/) || [])[1];
-        if (oStage && oStage !== stageSeq) continue;
+      if (isReceipt) {
+        if (token && oNote.includes(token)) hide.add(o.id);
+        continue;
       }
-      hide.add(o.id);
+      if (!isStageIssueRow(o)) continue;
+      const qOrig = (Number(o.qty_out) || 0) || (Number(o.qty_in) || 0);
+      const sameOrder = orderId != null && Number(o.source_id) === Number(orderId);
+      const sameToken = !!(token && oNote.includes(token));
+      if (sameToken || sameOrder) {
+        if (stageSeq) {
+          const oStage = (oNote.match(/مرحله\s*(\d+)/) || [])[1];
+          if (oStage && oStage !== stageSeq) continue;
+        }
+        if (qTwin > 0 && qOrig > 0 && Math.abs(qTwin - qOrig) > 1e-3 && !sameToken) continue;
+        hide.add(o.id);
+        continue;
+      }
+      // حواله مرحله N without PO — pair by stage + qty on the same product.
+      if (stageSeq) {
+        const oStage = (oNote.match(/مرحله\s*(\d+)/) || [])[1];
+        if (oStage !== stageSeq) continue;
+        if (qTwin > 0 && qOrig > 0 && Math.abs(qTwin - qOrig) > 1e-3) continue;
+        hide.add(o.id);
+      }
     }
   }
   return hide;
@@ -500,7 +537,7 @@ function buildStockLedger(db, {
     }
   } catch (_) { /* optional */ }
 
-  const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows);
+  const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows, db);
 
   // Live stream = posted rows that are not one side of a void.
   // Opening documents dated on or before «از تاریخ» are اول دوره, not ورود.
@@ -511,9 +548,18 @@ function buildStockLedger(db, {
     && (!eventFilter || r.event_type === eventFilter)
   ));
 
+  let fyStart = null;
+  try {
+    fyStart = require('./opening-post').fiscalOpeningDate(db);
+  } catch (_) { fyStart = null; }
+
   const countsAsOpening = (r) => {
     if (!from || !isOpeningStockRow(r)) return false;
-    return (r.date || '') <= from;
+    const d = r.date || '';
+    if (d <= from) return true;
+    // سال مالی وسط سال باز شده؛ بازهٔ گزارش از اول تقویم شروع شده
+    if (fyStart && d === fyStart && from <= fyStart) return true;
+    return false;
   };
 
   let opening_qty = 0;
