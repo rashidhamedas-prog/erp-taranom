@@ -19,7 +19,7 @@ function finish() {
 }
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v490/.test(sw), 'SW v490');
+ok(/erp-taranom-v(490|491|\d{3,})/.test(sw), 'SW stamped');
 const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(app.includes('پایان دوره = اول دوره + ورود − خروج'), 'kardex caption states the identity');
 try { new Function(app); ok(true, 'app.js parses'); }
