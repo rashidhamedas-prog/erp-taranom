@@ -69,10 +69,6 @@ try {
       INSERT INTO bom_headers (code, product_id, name, base_qty, status, has_routing, has_coproducts, created_by)
       VALUES ('BOM-474', ?, 'تست', 1, 'active', 1, 0, ?)
     `).run(fg, admin.id).lastInsertRowid;
-    db.prepare(`
-      INSERT INTO bom_outputs (bom_id, product_id, output_type, qty_per_base, cost_method)
-      VALUES (?,?,'main',1,'share')
-    `).run(bomId, fg);
     let seq = 10;
     for (const id of [cut, sew, iron]) {
       db.prepare(`
