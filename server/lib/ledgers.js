@@ -361,14 +361,40 @@ function isAuditOnlyJournalDescription(desc) {
  * — legacy void pairs: original production_receipt still posted while twin
  *   «ابطال رسید PO-…» outbound exists (pre-v402 reverseOrder bug)
  */
-function isAuditOnlyStockRow(r, extraHideIds) {
+/**
+ * Both sides of a void: the original (status reversed) and the posted opposite
+ * row. Live reports drop the pair so qty and value are not counted twice and
+ * a cancelled receipt does not stay in the running balance.
+ */
+function isVoidPairStockRow(r, extraHideIds) {
   if (!r) return false;
   if (extraHideIds && extraHideIds.has(r.id)) return true;
   if (String(r.status || '') === 'reversed') return true;
   const et = String(r.event_type || '');
   if (et === 'reversal' || et.endsWith('_reversal')) return true;
-  if (String(r.source_type || '') === 'stock_reconcile') return true;
   if (String(r.source_type || '').endsWith('_reversal')) return true;
+  if (r.reversed_of) return true;
+  const note = String(r.note || r.description || '').trim();
+  if (/^\[?ابطال/.test(note)) return true;
+  return false;
+}
+
+/** Beginning stock document — belongs in اول دوره, not in period turnover. */
+function isOpeningStockRow(r) {
+  if (!r || isVoidPairStockRow(r)) return false;
+  const et = String(r.event_type || '');
+  if (et === 'opening') return true;
+  if (String(r.source_type || '') === 'opening_inventory') return true;
+  const note = String(r.note || r.description || '').trim();
+  if (/^بهای اولیه موجودی/.test(note)) return true;
+  if (/^موجودی اول دوره/.test(note)) return true;
+  return false;
+}
+
+function isAuditOnlyStockRow(r, extraHideIds) {
+  if (!r) return false;
+  if (isVoidPairStockRow(r, extraHideIds)) return true;
+  if (String(r.source_type || '') === 'stock_reconcile') return true;
   const note = String(r.note || r.description || '');
   if (isAuditOnlyJournalDescription(note)) return true;
   return false;
@@ -455,28 +481,36 @@ function buildStockLedger(db, {
 
   const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows);
 
-  // Economic stream = every posted non-ghost row (incl. reversal + هم‌ترازی).
-  // Balances are always computed from this; the table can hide audit-only rows.
+  // Live stream = posted rows that are not one side of a void.
+  // Opening documents dated on or before «از تاریخ» are اول دوره, not ورود.
   const economic = rows.filter((r) => (
     r.status === 'posted'
     && !isZeroQtyValueGhost(r)
+    && !isVoidPairStockRow(r, legacyVoidHideIds)
     && (!eventFilter || r.event_type === eventFilter)
   ));
+
+  const countsAsOpening = (r) => {
+    if (!from || !isOpeningStockRow(r)) return false;
+    return (r.date || '') <= from;
+  };
 
   let opening_qty = 0;
   let opening_wh_qty = 0;
   if (from) {
     for (const r of economic) {
-      if ((r.date || '') < from) {
-        const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
-        opening_wh_qty += delta;
-        if (!isWarehouseOnlyRow(r)) opening_qty += delta;
-      }
+      const before = (r.date || '') < from;
+      if (!before && !countsAsOpening(r)) continue;
+      const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+      opening_wh_qty += delta;
+      if (!isWarehouseOnlyRow(r)) opening_qty += delta;
     }
   }
 
   let period_qty_in = 0;
   let period_qty_out = 0;
+  let live_qty_in = 0;
+  let live_qty_out = 0;
   let running = opening_qty;
   let runningWh = opening_wh_qty;
   const lines = [];
@@ -497,23 +531,29 @@ function buildStockLedger(db, {
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
     const wipOnly = isWarehouseOnlyRow(r);
-    const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r);
+    const voidRow = isVoidPairStockRow(r, legacyVoidHideIds);
+    const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r) && !voidRow;
     const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
-    // Operational KPIs follow the rows on the report. Void pairs and alignment
-    // stay in the economic running total (they net, or they are the warehouse
-    // control) but they are not "ورود/خروج دوره" unless the audit toggle is on.
-    const inLiveReport = showAudit || !auditOnly;
-    if (contributes) {
+    const openingSlice = contributes && countsAsOpening(r);
+    const alignOnly = auditOnly && !voidRow && !openingSlice;
+    // Live balance ignores void pairs and hidden alignment. Opening dated on
+    // or before «از تاریخ» is the header figure, not a period receipt.
+    const liveMove = contributes && !openingSlice && !alignOnly;
+    if (liveMove) {
       if (!wipOnly) {
-        if (inLiveReport) {
-          period_qty_in += qIn;
-          period_qty_out += qOut;
-        }
+        live_qty_in += qIn;
+        live_qty_out += qOut;
+        period_qty_in += qIn;
+        period_qty_out += qOut;
         running += qIn - qOut;
       }
       runningWh += qIn - qOut;
+    } else if (showAudit && r.status === 'posted' && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice) {
+      period_qty_in += qIn;
+      period_qty_out += qOut;
     }
-    if (!inLiveReport) continue;
+    if (openingSlice) continue;
+    if ((voidRow || alignOnly) && !showAudit) continue;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
@@ -552,16 +592,9 @@ function buildStockLedger(db, {
   }
 
   const period_net_qty = period_qty_in - period_qty_out;
-  // closing stays on the full economic stream (void pairs net to zero;
-  // alignment rows keep the ledger equal to the warehouse).
-  let economic_net = 0;
-  for (const r of economic) {
-    if (from && (r.date || '') < from) continue;
-    if (to && (r.date || '') > to) continue;
-    if (isWarehouseOnlyRow(r)) continue;
-    economic_net += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
-  }
-  const closing_qty = opening_qty + economic_net;
+  // پایان دوره از جریان زنده است (اول دوره + ورود زنده − خروج زنده)، حتی وقتی
+  // تیک ممیزی ورود/خروج را با ردیف ابطال بزرگ‌تر نشان می‌دهد.
+  const closing_qty = opening_qty + live_qty_in - live_qty_out;
   const control_gap_qty = closing_qty - (opening_qty + period_net_qty);
   const closing_warehouse_qty = runningWh;
 
@@ -676,6 +709,8 @@ module.exports = {
   signMove,
   safeSourceLink,
   isAuditOnlyStockRow,
+  isVoidPairStockRow,
+  isOpeningStockRow,
   isAuditOnlyJournalDescription,
   buildAccountLedger,
   buildFinancialLedger,

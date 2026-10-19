@@ -601,14 +601,18 @@ function postProductOpeningInventory(db, {
   if (!product) return null;
 
   const totalRial = Math.round(q * unit);
-  const inventory = acct(db, 'coa_inventory');
+  const { inventoryAccountForWarehouse } = require('./inventory/ledger');
+  const inventory = product.warehouse_id
+    ? inventoryAccountForWarehouse(db, product.warehouse_id)
+    : acct(db, 'coa_inventory');
   const opening = acct(db, 'coa_opening_balance');
   const amtToman = rialToLedger(totalRial);
+  const openingDate = date || fiscalOpeningDate(db);
 
   const entryId = postToLedger(db, {
     sourceType: 'opening_inventory',
     sourceId: productId,
-    date: date || todayJalali(),
+    date: openingDate,
     description: description || `موجودی اول دوره — ${product.name || productId} × ${q}`,
     createdBy: userId,
     voucherType: 'opening',
@@ -632,7 +636,7 @@ function postProductOpeningInventory(db, {
       sourceType: 'opening_inventory',
       sourceId: productId,
       jeId: entryId,
-      date: date || todayJalali(),
+      date: openingDate,
       note: description || `موجودی اول دوره — ${product.name || productId}`,
       createdBy: userId,
       updateAvg: false,
@@ -763,7 +767,7 @@ function reconcileProductStockLedger(db, productId, {
         unitCostRial: unit,
         sourceType: 'opening_inventory',
         sourceId: pid,
-        date: todayJalali(),
+        date: fiscalOpeningDate(db),
         note: noteIn,
         createdBy: adminId,
         skipStock: true,
@@ -870,6 +874,84 @@ function reconcileInventoryLedgerGaps(db, {
   return { count, seeded_wh: seededWh };
 }
 
+/**
+ * Opening qty/value belongs on the first day of the active fiscal year.
+ * Moves only dates that fall after that day (a mid-year «بهای اولیه» or
+ * opening heal). Prior-year openings stay where they are.
+ */
+function redateOpeningDocsToFiscalStart(db) {
+  if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
+  const flag = db.prepare("SELECT value FROM settings WHERE key='opening_fiscal_date_v490'").get();
+  if (flag && flag.value === '1') return { skipped: true };
+  const start = fiscalOpeningDate(db);
+  const ledger = db.prepare(`
+    UPDATE inventory_ledger
+    SET date=?
+    WHERE COALESCE(status,'posted')='posted'
+      AND IFNULL(date,'') > ?
+      AND (
+        event_type='opening'
+        OR source_type='opening_inventory'
+        OR note LIKE 'بهای اولیه موجودی%'
+        OR note LIKE 'موجودی اول دوره%'
+      )
+  `).run(start, start);
+  const journals = db.prepare(`
+    UPDATE journal_entries
+    SET date=?
+    WHERE COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      AND ref_type='opening_inventory'
+      AND IFNULL(date,'') > ?
+  `).run(start, start);
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_fiscal_date_v490','1')").run();
+  return { ledger: ledger.changes || 0, journals: journals.changes || 0, date: start };
+}
+
+/**
+ * «بهای اولیه» posted to the goods account after a receipt already capitalized
+ * the same product. Soft-void that journal only; quantity rows stay.
+ */
+function retireDuplicateOpeningValueJournals(db) {
+  if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
+  const flag = db.prepare("SELECT value FROM settings WHERE key='opening_dup_value_v490'").get();
+  if (flag && flag.value === '1') return { skipped: true };
+  const { reverseJournalEntry } = require('./void-journal');
+  const rows = db.prepare(`
+    SELECT id, ref_id AS product_id
+    FROM journal_entries
+    WHERE ref_type='opening_inventory'
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      AND IFNULL(description,'') LIKE 'بهای اولیه موجودی%'
+  `).all();
+  let count = 0;
+  const run = db.transaction(() => {
+    for (const je of rows) {
+      const other = db.prepare(`
+        SELECT id FROM inventory_ledger
+        WHERE product_id=? AND je_id IS NOT NULL AND je_id != ?
+          AND COALESCE(status,'posted')='posted'
+          AND COALESCE(amount_rial,0) != 0
+          AND COALESCE(source_type,'') IN (
+            'fabric_roll','purchase','warehouse_receipt',
+            'warehouse_receipt_grni','warehouse_receipt_batch'
+          )
+        LIMIT 1
+      `).get(je.product_id, je.id);
+      if (!other) continue;
+      reverseJournalEntry(db, je.id, {
+        reason: 'بهای اولیه تکراری — ارزش قبلاً با رسید مواد ثبت شده',
+        sourceType: 'opening_inventory_reversal',
+      });
+      count += 1;
+    }
+  });
+  run();
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_dup_value_v490','1')").run();
+  return { count };
+}
+
 module.exports = {
   postPartyOpeningBalance,
   upsertPartyOpening,
@@ -885,6 +967,8 @@ module.exports = {
   backfillOpeningInventoryLedger,
   reconcileInventoryLedgerGaps,
   reconcileProductStockLedger,
+  redateOpeningDocsToFiscalStart,
+  retireDuplicateOpeningValueJournals,
   controlAccountForParty,
   parseRoles,
 };

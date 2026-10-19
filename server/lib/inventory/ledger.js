@@ -416,7 +416,15 @@ function getKardex(db, productId, { warehouseId, limit = 500 } = {}) {
     WHERE ${where.join(' AND ')}
     ORDER BY l.id ASC
     LIMIT ?
-  `).all(...params, limit);
+  `).all(...params, limit).filter((r) => {
+    if (String(r.status || '') === 'reversed') return false;
+    const et = String(r.event_type || '');
+    if (et === 'reversal' || et.endsWith('_reversal')) return false;
+    if (r.reversed_of) return false;
+    const note = String(r.note || '').trim();
+    if (/^\[?ابطال/.test(note)) return false;
+    return true;
+  });
   return { product, rows };
 }
 
@@ -470,6 +478,37 @@ function retireZeroQtyLedgerGhosts(db) {
   return { count: r.changes || 0 };
 }
 
+/**
+ * Historical fabric/material voids left the opposite row posted after the
+ * original was marked reversed. That posted opposite is a second subtraction.
+ * Retire it without another stock move. liveBatchMeters sums every status.
+ */
+function retirePostedReversalTwins(db) {
+  if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
+    return { skipped: true, reason: 'no_table' };
+  }
+  const flag = db.prepare("SELECT value FROM settings WHERE key='kardex_void_twin_retire_v490'").get();
+  if (flag && flag.value === '1') return { skipped: true };
+  const rows = db.prepare(`
+    SELECT r.id
+    FROM inventory_ledger r
+    JOIN inventory_ledger o ON o.id = r.reversed_of
+    WHERE r.status='posted' AND o.status='reversed'
+      AND (r.event_type='reversal' OR r.event_type GLOB '*_reversal')
+  `).all();
+  let count = 0;
+  const run = db.transaction(() => {
+    for (const r of rows) {
+      softRetireLedgerRow(db, r.id);
+      count += 1;
+    }
+  });
+  run();
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_void_twin_retire_v490','1')").run();
+  return { count };
+}
+
 module.exports = {
   postInventoryMovement,
   reverseInventoryMovement,
@@ -477,6 +516,7 @@ module.exports = {
   isZeroQtyValueGhost,
   softRetireLedgerRow,
   retireZeroQtyLedgerGhosts,
+  retirePostedReversalTwins,
   warehouseQty,
   inventoryAccountForWarehouse,
   inventoryAmountLinesByWarehouse,

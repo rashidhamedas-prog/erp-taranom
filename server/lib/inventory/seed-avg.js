@@ -4,7 +4,6 @@
  * Posts opening inventory (Dr inventory / Cr opening balance) only if that JE is missing.
  * Does not change quantity. Refuses when average_cost_rial is already set (ADR-011).
  */
-const { todayJalali } = require('../../jalali');
 const { postProductOpeningInventory } = require('../opening-post');
 
 function fail(code, status, message, extra) {
@@ -45,13 +44,27 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
       `).get(productId)?.s) || 0;
     } catch (_) { ledgerNet = 0; }
     const kardexCoversStock = qty > 0 && ledgerNet + 1e-9 >= qty;
-    if (!jeId && qty > 0) {
+    // A receipt already debited the warehouse inventory account (raw 1110 / typed
+    // COA). A second «بهای اولیه» into the goods account doubles that asset.
+    let alreadyCapitalized = false;
+    try {
+      alreadyCapitalized = !!db.prepare(`
+        SELECT 1 AS ok FROM inventory_ledger
+        WHERE product_id=? AND je_id IS NOT NULL
+          AND COALESCE(status,'posted')='posted'
+          AND COALESCE(source_type,'') != 'opening_inventory'
+          AND COALESCE(amount_rial,0) != 0
+        LIMIT 1
+      `).get(productId);
+    } catch (_) { alreadyCapitalized = false; }
+    if (!jeId && qty > 0 && !alreadyCapitalized) {
+      const { fiscalOpeningDate } = require('../opening-post');
       jeId = postProductOpeningInventory(db, {
         productId,
         qty,
         unitCostRial: unit,
         userId,
-        date: date || todayJalali(),
+        date: date || fiscalOpeningDate(db),
         description: `بهای اولیه موجودی — ${p.name}`,
         // Value JE only when kardex already shows the qty — seed must not change qty.
         skipLedger: kardexCoversStock,

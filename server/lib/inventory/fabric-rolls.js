@@ -218,6 +218,17 @@ function circulationShowsAudit(query = {}) {
 }
 
 /** Voided receipt/issue and its reversal. Not a physical delete — report hide only. */
+function isOpeningCirculationRow(r) {
+  if (!r || isCancelledCirculationRow(r)) return false;
+  const et = String(r.event_type || '');
+  if (et === 'opening') return true;
+  if (String(r.source_type || '') === 'opening_inventory') return true;
+  const note = String(r.note || '').trim();
+  if (/^بهای اولیه موجودی/.test(note)) return true;
+  if (/^موجودی اول دوره/.test(note)) return true;
+  return false;
+}
+
 function isCancelledCirculationRow(r) {
   if (!r) return false;
   if (String(r.ledger_status || r.status || '') === 'reversed') return true;
@@ -281,8 +292,9 @@ function listFabricCirculation(db, query = {}) {
     const next = prev + qIn - qOut;
     runByBatch.set(bid, next);
     const before = from && (r.date || '') < from;
+    const openingDoc = from && (r.date || '') <= from && isOpeningCirculationRow(r);
     const after = to && (r.date || '') > to;
-    if (before) {
+    if (before || openingDoc) {
       openingByBatch.set(bid, next);
       continue;
     }
@@ -818,10 +830,14 @@ function voidFabricRoll(db, id, user, { reason } = {}) {
   const { reverseJournalEntry } = require('../void-journal');
   db.transaction(() => {
     if (row.ledger_id) {
-      reverseInventoryMovement(db, row.ledger_id, {
+      const { softRetireLedgerRow } = require('./ledger');
+      const rev = reverseInventoryMovement(db, row.ledger_id, {
         createdBy: user.id,
         note: reason || 'ابطال دریافت طاقه',
       });
+      if (rev && rev.id) {
+        softRetireLedgerRow(db, rev.id, { note: reason || 'ابطال دریافت طاقه' });
+      }
     }
     let revJe = null;
     if (row.journal_id) {

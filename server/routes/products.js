@@ -344,7 +344,9 @@ router.get('/:id/kardex', auth, (req, res) => {
       ORDER BY l.date ASC, l.id ASC
     `).all(req.params.id);
     if (rows.length) {
-      const logs = rows.map(l => ({
+      const { isVoidPairStockRow } = require('../lib/ledgers');
+      const liveRows = rows.filter((l) => !isVoidPairStockRow(l));
+      const logs = liveRows.map(l => ({
         id: l.id,
         tx_no: l.tx_no,
         event_type: l.event_type,

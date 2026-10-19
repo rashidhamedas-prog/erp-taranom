@@ -2586,6 +2586,22 @@ function initSyncSchema(db, opts) {
       if (gap && !gap.skipped && (gap.count || gap.seeded_wh)) {
         console.log('✅ inventory_ledger_gap_reconcile_v1:', JSON.stringify(gap));
       }
+      const {
+        redateOpeningDocsToFiscalStart,
+        retireDuplicateOpeningValueJournals,
+      } = require('./lib/opening-post');
+      const dated = redateOpeningDocsToFiscalStart(db);
+      if (dated && !dated.skipped && (dated.ledger || dated.journals)) {
+        console.log('✅ opening_fiscal_date_v490:', JSON.stringify(dated));
+      }
+      const dup = retireDuplicateOpeningValueJournals(db);
+      if (dup && !dup.skipped && dup.count) {
+        console.log('✅ opening_dup_value_v490:', JSON.stringify(dup));
+      }
+      const twins = require('./lib/inventory/ledger').retirePostedReversalTwins(db);
+      if (twins && !twins.skipped && twins.count) {
+        console.log('✅ kardex_void_twin_retire_v490:', JSON.stringify(twins));
+      }
     }
   } catch (e) {
     console.warn('opening_inventory_ledger_backfill/reconcile:', e.message);
