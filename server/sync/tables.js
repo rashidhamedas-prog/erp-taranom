@@ -250,6 +250,8 @@ const SYNCABLE_TABLES = [
   { name: 'cutting_batch_outputs',             upsertKey: 'id' },
   { name: 'cutting_batch_allocations',         upsertKey: 'id' },
   { name: 'cutting_remnant_rules',             upsertKey: 'id' },
+  // Payroll loan recovery slices — one row per payslip deduction (append-only)
+  { name: 'payroll_loan_recoveries',           upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -594,6 +596,9 @@ const FK_COLUMNS = [
   ['cutting_remnant_rules', 'warehouse_id'],
   ['cutting_lays', 'batch_id'],
   ['cutting_lays', 'cost_center_id'],
+  ['payroll_loan_recoveries', 'loan_id'],
+  ['payroll_loan_recoveries', 'installment_id'],
+  ['payroll_loan_recoveries', 'payroll_record_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

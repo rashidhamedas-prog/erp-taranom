@@ -20961,14 +20961,18 @@ async function savePayrollTax(year){
 
 const PAYROLL_EXEMPT_LABELS={contractor:'پیمانکار، خارج از رابطه کارگری',marketer:'بازاریاب غیروابسته، بدون رابطه استخدامی',owner:'صاحب کار یا شریک',other:'سایر'};
 async function renderPayrollProcessing(body){
-  const [periods,employees,costCenters]=await Promise.all([
+  const [periods,employees,costCenters,banks,cashBoxes]=await Promise.all([
     api('GET','/payroll/periods'),
     api('GET','/payroll/employees'),
-    CACHE.costCenters?Promise.resolve(CACHE.costCenters):api('GET','/accounting/cost-centers').catch(()=>[])
+    CACHE.costCenters?Promise.resolve(CACHE.costCenters):api('GET','/accounting/cost-centers').catch(()=>[]),
+    CACHE.banks?Promise.resolve(CACHE.banks):api('GET','/banks').catch(()=>[]),
+    CACHE.cashBoxes?Promise.resolve(CACHE.cashBoxes):api('GET','/cash-boxes').catch(()=>[])
   ]);
   CACHE.payrollPeriods=periods||[];
   CACHE.payrollEmployees=employees||[];
   CACHE.costCenters=costCenters||CACHE.costCenters||[];
+  CACHE.banks=banks||[];
+  CACHE.cashBoxes=cashBoxes||[];
   const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
@@ -21021,12 +21025,33 @@ async function renderPayrollProcessing(body){
       <div class="fg full"><label>توضیح</label><textarea id="pc-m-note" rows="2" placeholder="برای مبنای سایر الزامی است"></textarea></div>
     </div>
   </div>
+  <div id="pc-loan-issue" data-csp-style="${CSP.style(`margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:10px`)}">
+    <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:6px`)}">ثبت وام کارکنان</div>
+    <div class="muted" data-csp-style="${CSP.style(`line-height:1.8;margin-bottom:8px`)}">اصل وام سند جدا است: بدهکار ۱۱۱۹ و بستانکار صندوق یا بانک. داخل ناخالص، بیمه و مالیات نمی‌آید. پرداخت نقد وام همان لحظهٔ ثبت است و با خالص حقوق این دوره جمع می‌شود، نه داخل فیش. اولین قسط پیش‌فرض <b>دورهٔ بعد</b> است تا همین ماه اصل و حقوق هر دو دست کارمند بماند.</div>
+    <div class="form-grid">
+      <div class="fg"><label>مبلغ وام (ریال) *</label><input id="pc-loan-principal" class="money" inputmode="numeric" value="0" data-csp-input="${CSP.bind('input',function(){previewPayrollLoanIssue()})}"></div>
+      <div class="fg"><label>تعداد اقساط *</label><input id="pc-loan-count" type="number" min="1" max="120" value="1" data-csp-input="${CSP.bind('input',function(){previewPayrollLoanIssue()})}"></div>
+      <div class="fg"><label>پرداخت از</label><select id="pc-loan-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>بانک</label><select id="pc-loan-bank">${payrollPayBankOptions()}</select></div>
+      <div class="fg"><label>صندوق</label><select id="pc-loan-cash">${payrollPayCashOptions()}</select></div>
+      <div class="fg"><label>تاریخ پرداخت</label><input id="pc-loan-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}"><input type="checkbox" id="pc-loan-same" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){previewPayrollLoanIssue()})}"> اولین قسط از همین دوره کسر شود</label></div>
+      <div class="fg full"><label>یادداشت</label><input id="pc-loan-note" placeholder="اختیاری"></div>
+    </div>
+    <div id="pc-loan-schedule" class="muted" data-csp-style="${CSP.style(`margin-top:8px;line-height:1.7`)}"></div>
+    ${canPerm('payroll','create')?`<div class="toolbar" data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){savePayrollLoanIssue()})}">${lucide('check')} ثبت و پرداخت وام</button></div>`:''}
+    <div id="pc-loan-open" data-csp-style="${CSP.style(`margin-top:10px`)}"></div>
+  </div>
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
   ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
   initCustSearches(body);
+  attachDatepickers(body);
   const hid=el('pc-person');
   if(hid) hid.addEventListener('change', payrollProcessingPersonChanged);
+  const per=el('pc-period');
+  if(per) per.addEventListener('change', payrollProcessingPersonChanged);
+  previewPayrollLoanIssue();
 }
 function payrollEntryMode(){
   return document.querySelector('input[name="pc-mode"]:checked')?.value||'labor';
@@ -21054,6 +21079,90 @@ function refreshManualExemptNet(){
   const box=el('pc-m-net-view');
   if(!box) return;
   box.textContent=fmt(Math.max(0,gross-ded-adv-loan))+' ریال';
+}
+function payrollNextPeriodLabel(label){
+  const m=String(label||'').match(/^(\d{4})\/(\d{1,2})/);
+  if(!m) return '';
+  let y=+m[1], mo=+m[2]+1;
+  if(mo>12){ mo=1; y+=1; }
+  return y+'/'+String(mo).padStart(2,'0');
+}
+function payrollLoanFirstDueLabel(){
+  const periods=CACHE.payrollPeriods||[];
+  const id=el('pc-period')?.value;
+  const cur=periods.find(p=>String(p.id)===String(id))?.label||'';
+  if(!cur) return '';
+  return el('pc-loan-same')?.checked?cur:payrollNextPeriodLabel(cur);
+}
+function previewPayrollLoanIssue(){
+  const box=el('pc-loan-schedule');
+  if(!box) return;
+  const principal=moneyVal('pc-loan-principal');
+  const count=Math.max(1, Math.min(120, Math.round(+el('pc-loan-count')?.value||1)));
+  const start=payrollLoanFirstDueLabel();
+  if(!(principal>0)){
+    box.textContent=start?('اولین قسط از '+start+' — مبلغ وام را وارد کنید.'):'دوره را انتخاب کنید تا سررسید اولین قسط معلوم شود.';
+    return;
+  }
+  const base=Math.floor(principal/count);
+  const last=base+(principal-base*count);
+  const end=start?payrollShiftPeriod(start, count-1):'';
+  box.textContent=(start?('اولین قسط '+start+'، آخرین '+end+' — '):'دوره را انتخاب کنید. ')+count+' قسط × '+fmt(base)+' ریال'+(last!==base?('؛ قسط آخر '+fmt(last)):'')+'؛ جمع '+fmt(principal)+' ریال. این مبلغ به ناخالص حقوق اضافه نمی‌شود.';
+}
+function payrollShiftPeriod(label, add){
+  const m=String(label||'').match(/^(\d{4})\/(\d{1,2})/);
+  if(!m) return label||'';
+  let y=+m[1], mo=+m[2]+(add||0);
+  while(mo>12){ mo-=12; y+=1; }
+  while(mo<1){ mo+=12; y-=1; }
+  return y+'/'+String(mo).padStart(2,'0');
+}
+async function refreshPayrollLoanPanel(){
+  const box=el('pc-loan-open');
+  previewPayrollLoanIssue();
+  if(!box) return;
+  const personId=+el('pc-person')?.value||0;
+  if(!personId){ box.innerHTML='<span class="muted">وام‌های باز بعد از انتخاب شخص اینجا دیده می‌شود.</span>'; return; }
+  try{
+    const rows=await api('GET','/payroll/loans?person_id='+personId+'&limit=20')||[];
+    const open=(rows||[]).filter(r=>r.status!=='reversed');
+    if(!open.length){ box.innerHTML='<span class="muted">وام بازی برای این شخص نیست.</span>'; return; }
+    box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>اصل</th><th>قسط</th><th>مانده</th><th>شروع کسر</th><th>وضعیت</th><th></th></tr></thead><tbody>${open.map(r=>{
+      const st=r.status==='closed'?'تسویه':(r.status==='open'?'باز':r.status);
+      const canVoid=r.status==='open'&&!(r.recovered_rial>0)&&canPerm('payroll','create');
+      return `<tr><td>${r.id}</td><td class="mono">${fmt(r.principal_rial)}</td><td>${fmt(r.installment_count)} × ${fmt(r.installment_rial)}</td><td class="mono">${fmt(r.remaining_rial)}</td><td>${esc(r.start_period_label||'')}</td><td>${esc(st)}</td><td>${canVoid?`<button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){voidPayrollLoanIssue((r.id))})}">ابطال</button>`:''}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  }catch(_){ box.innerHTML='<span class="muted">فهرست وام خوانده نشد.</span>'; }
+}
+async function savePayrollLoanIssue(){
+  const personId=+el('pc-person')?.value||0;
+  if(!personId){ showToast('شخص را از فهرست انتخاب کنید','error'); return; }
+  const principal=moneyVal('pc-loan-principal');
+  const count=Math.round(+el('pc-loan-count')?.value||0);
+  if(!(principal>0)){ showToast('مبلغ وام را وارد کنید','error'); return; }
+  if(count<1||count>120){ showToast('تعداد اقساط بین ۱ تا ۱۲۰ باشد','error'); return; }
+  const start=payrollLoanFirstDueLabel();
+  if(!start){ showToast('دوره حقوق را انتخاب کنید تا سررسید قسط معلوم شود','error'); return; }
+  try{
+    const r=await api('POST','/payroll/loans',{
+      person_id:personId, principal_rial:principal, installment_count:count,
+      start_period_label:start, pay_type:el('pc-loan-paytype')?.value||'cash',
+      bank_id:+el('pc-loan-bank')?.value||null, cash_box_id:+el('pc-loan-cash')?.value||null,
+      date:el('pc-loan-date')?.value||todayJalali(), note:(el('pc-loan-note')?.value||'').trim()
+    });
+    if(el('pc-loan-principal')){ el('pc-loan-principal').value=moneyInit(0); ensureMoneyField(el('pc-loan-principal')); }
+    if(el('pc-loan-note')) el('pc-loan-note').value='';
+    showToast('وام ثبت شد — پرداخت نقد '+fmt(r.principal_rial)+' ریال؛ اولین قسط '+esc(r.start_period_label||start));
+    await payrollProcessingPersonChanged();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function voidPayrollLoanIssue(id){
+  if(!confirm('این وام ابطال و سند نقد آن معکوس شود؟ فقط اگر هیچ قسطی کسر نشده باشد.')) return;
+  try{
+    await api('POST','/payroll/loans/'+id+'/void');
+    showToast('وام ابطال شد');
+    await payrollProcessingPersonChanged();
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 function payrollCalcPayload(){
   if(!el('pc-period')?.value) throw new Error('دوره حقوق را انتخاب کنید');
@@ -21152,6 +21261,7 @@ function payrollShowCalcError(e){
 }
 async function payrollProcessingPersonChanged(){
   const personId=+el('pc-person')?.value||0;
+  refreshPayrollLoanPanel();
   if(!personId){ const box=el('pc-result'); if(box) box.innerHTML='<span class="muted">کارمند را انتخاب کنید</span>'; return; }
   try{
     try{
@@ -32638,7 +32748,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی از فهرست «سمت و جایگاه» روی فرم شخص است. ثبت/ویرایش پرونده، ساختار/حکم، <b>پارامترهای قانونی سال</b>، دوره، پلکان مالیات، پردازش، فراننکو، عیدی/سنوات، پرداخت و ابطال فقط با <code>payroll.create</code> است. در <b>پارامترهای قانونی سال</b> حداقل مزد روزانه، حق مسکن، بن کارگری، حق اولاد، حق تأهل، پایه سنوات روزانه، سقف مشمول بیمه (۷×حداقل×۳۰)، معافیت ماهانه ماده ۸۴ و ضرایب اضافه‌کاری/شب/جمعه ذخیره می‌شود؛ دکمه «بارگذاری مصوبه قانونی» بستهٔ سال (مثلاً ۱۴۰۵) را می‌نشاند. این مقادیر به‌عنوان <b>کف</b> روی حکم اعمال می‌شوند (اگر حکم بالاتر باشد همان بالاتر می‌ماند). در <b>محاسبه و پردازش</b> نوبت‌کاری، غیبت/مرخصی بدون حقوق، ماموریت (غیرمشمول بیمه و مالیات)، پاداش تولید، جمعه‌کاری، پایه سنوات، معافیت بیمه اضافی، بازپرداخت مساعده و پیش‌نمایش فیش دیده می‌شود؛ <b>حق اولاد خودکار از مبنای بیمه خارج</b> است. مرکز هزینه همیشه الزامی است. <b>سند تعهد:</b> بدهکار ۶۱۰۴ + ۶۱۰۶ / بستانکار تفصیلی شخص + ۲۱۰۵ (کارگر۷٪+کارفرما۲۰٪) + ۲۱۱۳ (بیکاری۳٪) + ۲۱۰۶ + در صورت نیاز ۲۱۰۸ و ۱۱۱۹. <b>ذخیره ماهانه عیدی/سنوات</b> به ۲۱۱۰/۲۱۱۱؛ <b>ذخیره مرخصی</b> ۲٫۵ روز/ماه به ۶۱۱۶/۲۱۱۴. <b>پرداخت بیمه/بیکاری/مالیات</b> مانده ۲۱۰۵/۲۱۱۳/۲۱۰۶ را تسویه می‌کند. خروجی CSV بانک از دوره برای شبا+خالص باقی‌مانده. <b>مساعده</b> بدهکار ۱۱۱۹ و کسر از فیش است. پرداخت چندمرحله‌ای، حکم چندتایی با قفل ماه دارای سند، ابطال R13، فراننکو، و مسیر «ثبت دستی بدون بیمه و مالیات» برای پیمانکار/بازاریاب/صاحب کار هم قسط وام و مساعده را خودکار (یا دستی) از فیش روی ۱۱۱۹ کسر می‌کند؛ بیمه/مالیات در این مسیر صفر می‌ماند. پلکان ماده ۸۴ اختیاری است؛ بدون پله مالیات صفر می‌ماند.</li>
+        <li><b>حقوق و دستمزد</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی از فهرست «سمت و جایگاه» روی فرم شخص است. ثبت/ویرایش پرونده، ساختار/حکم، <b>پارامترهای قانونی سال</b>، دوره، پلکان مالیات، پردازش، فراننکو، عیدی/سنوات، پرداخت و ابطال فقط با <code>payroll.create</code> است. در <b>پارامترهای قانونی سال</b> حداقل مزد روزانه، حق مسکن، بن کارگری، حق اولاد، حق تأهل، پایه سنوات روزانه، سقف مشمول بیمه (۷×حداقل×۳۰)، معافیت ماهانه ماده ۸۴ و ضرایب اضافه‌کاری/شب/جمعه ذخیره می‌شود؛ دکمه «بارگذاری مصوبه قانونی» بستهٔ سال (مثلاً ۱۴۰۵) را می‌نشاند. این مقادیر به‌عنوان <b>کف</b> روی حکم اعمال می‌شوند (اگر حکم بالاتر باشد همان بالاتر می‌ماند). در <b>محاسبه و پردازش</b> نوبت‌کاری، غیبت/مرخصی بدون حقوق، ماموریت (غیرمشمول بیمه و مالیات)، پاداش تولید، جمعه‌کاری، پایه سنوات، معافیت بیمه اضافی، بازپرداخت مساعده و پیش‌نمایش فیش دیده می‌شود. <b>ثبت وام</b> روی همین صفحه اصل را با سند جدا (بدهکار ۱۱۱۹ / بستانکار صندوق یا بانک) می‌پردازد و به ناخالص، بیمه و مالیات اضافه نمی‌کند؛ جمع اقساط برابر اصل است و قسط آخر مابه‌التفاوت را می‌گیرد. اولین قسط پیش‌فرض دورهٔ بعد است و تیک جدا آن را به همین دوره می‌آورد. پردازش، قسط سررسید را تا سقف خالص صفر کم می‌کند. ابطال وام فقط پیش از هر قسط است؛ ابطال فیش فقط سهم همان فیش را برمی‌گرداند. <b>حق اولاد خودکار از مبنای بیمه خارج</b> است. مرکز هزینه همیشه الزامی است. <b>سند تعهد:</b> بدهکار ۶۱۰۴ + ۶۱۰۶ / بستانکار تفصیلی شخص + ۲۱۰۵ (کارگر۷٪+کارفرما۲۰٪) + ۲۱۱۳ (بیکاری۳٪) + ۲۱۰۶ + در صورت نیاز ۲۱۰۸ و ۱۱۱۹. <b>ذخیره ماهانه عیدی/سنوات</b> به ۲۱۱۰/۲۱۱۱؛ <b>ذخیره مرخصی</b> ۲٫۵ روز/ماه به ۶۱۱۶/۲۱۱۴. <b>پرداخت بیمه/بیکاری/مالیات</b> مانده ۲۱۰۵/۲۱۱۳/۲۱۰۶ را تسویه می‌کند. خروجی CSV بانک از دوره برای شبا+خالص باقی‌مانده. <b>مساعده</b> بدهکار ۱۱۱۹ و کسر از فیش است. پرداخت چندمرحله‌ای، حکم چندتایی با قفل ماه دارای سند، ابطال R13، فراننکو، و مسیر «ثبت دستی بدون بیمه و مالیات» برای پیمانکار/بازاریاب/صاحب کار هم قسط وام و مساعده را خودکار (یا دستی) از فیش روی ۱۱۱۹ کسر می‌کند؛ بیمه/مالیات در این مسیر صفر می‌ماند. پلکان ماده ۸۴ اختیاری است؛ بدون پله مالیات صفر می‌ماند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. فروش و شمار فاکتور با بازه محدود می‌شوند؛ مانده مشتریان همیشه زنده است.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

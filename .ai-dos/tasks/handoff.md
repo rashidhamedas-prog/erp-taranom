@@ -1,3 +1,9 @@
+## 2026-10-19 — payroll loan register on process screen (SW v482)
+
+- Stale claim: PROD-CUT-MP01 still lists `app.js`, `index.html`, `sw.js`, `db.js`, `sync/tables.js`, CHANGE-LOG. Reclaimed only for the loan panel, `payroll_loan_recoveries`, backfill v26, and help. Did not edit production-cut files.
+- Design: disburse principal on its own 1119/cash journal; first installment defaults to the next payroll period; payslip void reverses only that payslip's recovery rows.
+- Local sqlite ABI on Node 24 skipped. Iran test is the gate.
+
 ## 2026-10-18 — cash-ops review block closed (SW v428)
 
 - Reviewer [بازبینی قرارداد پرداخت](3b583739-47d8-453e-a9fe-df9323b9dac9) blocked supplier amend: `account_code` could replace the cash/bank credit. That path now resolves the instrument and rejects a different code (`E_PAY_SOURCE`).

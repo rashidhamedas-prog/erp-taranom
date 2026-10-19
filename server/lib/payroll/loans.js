@@ -55,6 +55,21 @@ function ensureLoansSchema(db) {
       ON payroll_loan_installments(due_period_label, status);
     CREATE INDEX IF NOT EXISTS idx_payroll_loan_inst_loan
       ON payroll_loan_installments(loan_id, seq);
+
+    CREATE TABLE IF NOT EXISTS payroll_loan_recoveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      loan_id INTEGER NOT NULL,
+      installment_id INTEGER NOT NULL,
+      payroll_record_id INTEGER NOT NULL,
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(loan_id) REFERENCES payroll_loans(id),
+      FOREIGN KEY(installment_id) REFERENCES payroll_loan_installments(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_payroll_loan_recoveries_rec
+      ON payroll_loan_recoveries(payroll_record_id);
+    CREATE INDEX IF NOT EXISTS idx_payroll_loan_recoveries_inst
+      ON payroll_loan_recoveries(installment_id);
   `);
 }
 
@@ -271,11 +286,16 @@ function applyLoanRecoveries(db, payrollRecordId, legs) {
       status = CASE WHEN recovered_rial + ? >= principal_rial THEN 'closed' ELSE status END
     WHERE id=? AND status='open'
   `);
+  const insRec = db.prepare(`
+    INSERT INTO payroll_loan_recoveries (loan_id, installment_id, payroll_record_id, amount_rial)
+    VALUES (?,?,?,?)
+  `);
   for (const leg of legs) {
     const amt = Math.round(Number(leg.amount_rial) || 0);
     if (amt <= 0) continue;
     updInst.run(amt, amt, amt, payrollRecordId, amt, leg.installment_id);
     updLoan.run(amt, amt, leg.loan_id);
+    insRec.run(leg.loan_id, leg.installment_id, payrollRecordId, amt);
     total += amt;
   }
   return total;
@@ -283,6 +303,42 @@ function applyLoanRecoveries(db, payrollRecordId, legs) {
 
 function reverseLoanRecoveries(db, payrollRecordId) {
   ensureLoansSchema(db);
+  const slices = db.prepare(`
+    SELECT * FROM payroll_loan_recoveries WHERE payroll_record_id=?
+  `).all(payrollRecordId);
+  if (slices.length) {
+    for (const r of slices) {
+      const amt = Math.round(Number(r.amount_rial) || 0);
+      if (amt <= 0) continue;
+      const inst = db.prepare('SELECT * FROM payroll_loan_installments WHERE id=?').get(r.installment_id);
+      if (!inst) continue;
+      const paid = Math.max(0, Math.round(Number(inst.paid_rial) || 0) - amt);
+      const status = paid <= 0 ? 'pending' : (paid >= inst.amount_rial ? 'paid' : 'partial');
+      const other = db.prepare(`
+        SELECT payroll_record_id FROM payroll_loan_recoveries
+        WHERE installment_id=? AND payroll_record_id!=?
+        ORDER BY id DESC LIMIT 1
+      `).get(r.installment_id, payrollRecordId);
+      db.prepare(`
+        UPDATE payroll_loan_installments SET
+          paid_rial=?, status=?, payroll_record_id=?,
+          paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END
+        WHERE id=?
+      `).run(paid, status, paid > 0 ? (other?.payroll_record_id || null) : null, status, r.installment_id);
+      db.prepare(`
+        UPDATE payroll_loans SET
+          recovered_rial = CASE WHEN recovered_rial - ? < 0 THEN 0 ELSE recovered_rial - ? END,
+          status = CASE
+            WHEN status='reversed' THEN status
+            WHEN recovered_rial - ? < principal_rial THEN 'open'
+            ELSE status
+          END
+        WHERE id=?
+      `).run(amt, amt, amt, r.loan_id);
+    }
+    db.prepare('DELETE FROM payroll_loan_recoveries WHERE payroll_record_id=?').run(payrollRecordId);
+    return slices.length;
+  }
   const rows = db.prepare(`
     SELECT * FROM payroll_loan_installments
     WHERE payroll_record_id=? AND paid_rial > 0
