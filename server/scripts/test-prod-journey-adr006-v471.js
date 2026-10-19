@@ -96,11 +96,19 @@ try {
     const packsBefore = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
     eq('two WIP packs', packsBefore, 2);
 
+    voidCuttingPackByLay(db, posted.lay_id, { id: admin.id }, { reason: 'test multi void' });
+    const packsLive = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
+    eq('all packs voided', packsLive, 0);
+
+    // پس از void PACK، amend با متر زندهٔ طاقه
+    const liveM = Number(db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(rollId).q) || 0;
+    const plies = Math.max(1, Math.min(4, Math.floor(liveM / 5)));
     const amended = amendSharedCut(db, posted.id, Object.assign({}, body, {
       outputs: [
         { product_id: a, size_code: 'M', pieces_per_ply: 1 },
         { product_id: b, size_code: 'L', pieces_per_ply: 4 },
       ],
+      rolls: [{ batch_id: rollId, opening_m: liveM, ply_count: plies, color: 'مشکی', length_loss_m: 0 }],
       reason: 'آزمون amend',
     }), { id: admin.id });
     ok(amended.id === posted.id, 'same batch id after amend');
@@ -109,13 +117,6 @@ try {
     const sumP = outs.reduce((s, o) => s + Number(o.pieces_per_ply || 0), 0);
     eq('amended pieces sum', sumP, 5);
 
-    voidCuttingPackByLay(db, posted.lay_id, { id: admin.id }, { reason: 'test multi void' });
-    const packsLive = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
-    eq('all packs voided', packsLive, 0);
-
-    // re-post packs via fresh amend then void whole batch
-    const body2 = Object.assign({}, body, { idempotency_key: 'v471-shared-2', rolls: [{ batch_id: rollId, opening_m: 50, ply_count: 4, color: 'مشکی', length_loss_m: 0 }] });
-    // roll may be depleted — void shared first from amended state
     voidSharedCut(db, posted.id, { id: admin.id }, 'cleanup');
     ok(getSharedCut(db, posted.id).status === 'reversed', 'batch reversed');
     dbOk = true;
