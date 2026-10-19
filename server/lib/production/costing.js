@@ -281,6 +281,93 @@ function reverseReceiptStock(db, {
   return led;
 }
 
+/**
+ * Find the posted stage-issue ledger row (مرحله N / حواله مرحله N / مصرف).
+ * issueFromStock stamps source_id=orderId; notes carry the PO token.
+ */
+function findProductionIssueLedger(db, {
+  productId, orderId, orderNo, warehouseId, qty, stageSeq,
+}) {
+  if (!productId) return null;
+  const q = Number(qty) || 0;
+  if (orderId != null) {
+    const candidates = db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND status='posted' AND event_type='production_issue'
+        AND COALESCE(source_type,'') IN ('production_issue','')
+        AND source_id=?
+      ORDER BY id DESC
+    `).all(productId, orderId);
+    for (const row of candidates) {
+      const note = String(row.note || '');
+      if (stageSeq != null && !note.includes(`مرحله ${stageSeq}`)) continue;
+      if (q > 0 && Math.abs((Number(row.qty_out) || 0) - q) > 1e-4) continue;
+      if (warehouseId && row.warehouse_id && Number(row.warehouse_id) !== Number(warehouseId)) continue;
+      return row;
+    }
+    if (candidates.length === 1) return candidates[0];
+  }
+  if (orderNo) {
+    const like = stageSeq != null
+      ? `%مرحله ${stageSeq}%${orderNo}%`
+      : `%${orderNo}%`;
+    const byNote = db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND status='posted' AND event_type='production_issue'
+        AND note LIKE ?
+      ORDER BY id DESC LIMIT 1
+    `).get(productId, like);
+    if (byNote) return byNote;
+  }
+  return null;
+}
+
+/**
+ * Reverse a stage material issue through the ledger (R12). Prefer marking the
+ * original production_issue reversed. Fallback posts a return twin only when
+ * the original cannot be found (legacy path).
+ */
+function reverseIssueStock(db, {
+  productId, warehouseId, qty, unitCostRial, userId, note, date,
+  orderId, orderNo, stageSeq, sourceId,
+}) {
+  const q = Number(qty) || 0;
+  if (q <= 0) return null;
+  const { reverseInventoryMovement, softRetireLedgerRow } = require('../inventory/ledger');
+  const voidNote = note || (orderNo
+    ? `ابطال مرحله${stageSeq != null ? ` ${stageSeq}` : ''} — ${orderNo}`
+    : 'ابطال حواله تولید');
+  const orig = findProductionIssueLedger(db, {
+    productId,
+    orderId: orderId != null ? orderId : null,
+    orderNo,
+    warehouseId,
+    qty: q,
+    stageSeq,
+  });
+  if (orig) {
+    const led = reverseInventoryMovement(db, orig.id, {
+      createdBy: userId || null,
+      date: date || '',
+      note: voidNote,
+    });
+    if (led && led.id) softRetireLedgerRow(db, led.id, { note: voidNote });
+    return led;
+  }
+  restoreStock(db, {
+    productId,
+    warehouseId,
+    qty: q,
+    unitCostRial,
+    userId,
+    note: voidNote,
+    sourceType: 'production_material_return',
+    sourceId: sourceId || null,
+    date,
+  });
+  return null;
+}
+
 function restoreStock(db, { productId, warehouseId, qty, userId, note, sourceType, sourceId, date, unitCostRial }) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
@@ -321,6 +408,8 @@ module.exports = {
   receiveScrap,
   restoreStock,
   findProductionReceiptLedger,
+  findProductionIssueLedger,
+  reverseIssueStock,
   reverseReceiptStock,
   recalcAvgOnReturn,
   setting,

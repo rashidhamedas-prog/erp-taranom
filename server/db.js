@@ -2598,9 +2598,14 @@ function initSyncSchema(db, opts) {
       if (dup && !dup.skipped && dup.count) {
         console.log('✅ opening_dup_value_v490:', JSON.stringify(dup));
       }
-      const twins = require('./lib/inventory/ledger').retirePostedReversalTwins(db);
+      const invHeal = require('./lib/inventory/ledger');
+      const twins = invHeal.retirePostedReversalTwins(db);
       if (twins && !twins.skipped && twins.count) {
         console.log('✅ kardex_void_twin_retire_v490:', JSON.stringify(twins));
+      }
+      const orphans = invHeal.retireOrphanVoidedProductionIssues(db);
+      if (orphans && !orphans.skipped && orphans.count) {
+        console.log('✅ kardex_orphan_stage_void_v491:', JSON.stringify(orphans));
       }
     }
   } catch (e) {

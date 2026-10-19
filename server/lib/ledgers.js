@@ -400,25 +400,46 @@ function isAuditOnlyStockRow(r, extraHideIds) {
   return false;
 }
 
-/** Hide both sides of legacy production void pairs that lack reversed_of. */
+/**
+ * Hide both sides of legacy production void pairs that lack reversed_of.
+ * reverseStage used to leave the original production_issue posted and only
+ * post a twin «ابطال مرحله N — PO-…» return — so the issue stayed in the live
+ * kardex until soft-retired. Same for receipt / حواله مرحله / مصرف PO.
+ */
 function collectLegacyVoidedReceiptIds(rows) {
   const hide = new Set();
   const posted = (rows || []).filter((r) => String(r.status || '') === 'posted');
   for (const rev of posted) {
     const et = String(rev.event_type || '');
     const note = String(rev.note || '').trim();
+    const isVoidNote = /^\[?ابطال/.test(note);
     const isProdVoid = et === 'production_receipt_reversal'
+      || et === 'production_return'
       || (et.endsWith('_reversal') && /ابطال/.test(note))
-      || /^ابطال\s*رسید/.test(note);
+      || isVoidNote;
     if (!isProdVoid) continue;
     hide.add(rev.id);
     if (rev.reversed_of) hide.add(rev.reversed_of);
     const token = (note.match(/PO-\d+/i) || note.match(/PR-\d+/i) || [])[0];
     if (!token) continue;
+    const stageMatch = note.match(/مرحله\s*(\d+)/);
+    const stageSeq = stageMatch ? stageMatch[1] : null;
     for (const o of posted) {
       if (o.id === rev.id) continue;
-      if (String(o.event_type || '') !== 'production_receipt') continue;
-      if (String(o.note || '').includes(token)) hide.add(o.id);
+      const oNote = String(o.note || '');
+      if (!oNote.includes(token)) continue;
+      const oEt = String(o.event_type || '');
+      const isStageIssue = oEt === 'production_issue'
+        || /^مرحله\s*\d+/.test(oNote.trim())
+        || /^حواله\s*مرحله\s*\d+/.test(oNote.trim())
+        || /^مصرف\s/.test(oNote.trim());
+      const isReceipt = oEt === 'production_receipt';
+      if (!isStageIssue && !isReceipt) continue;
+      if (stageSeq && isStageIssue) {
+        const oStage = (oNote.match(/مرحله\s*(\d+)/) || [])[1];
+        if (oStage && oStage !== stageSeq) continue;
+      }
+      hide.add(o.id);
     }
   }
   return hide;

@@ -9,7 +9,7 @@ const { explodeBom, explodeProductScopeForOrder, explodeQtyForOrder, isMultiprod
 const { backwardQty, planScopedStageQtys, stageLabor, stageDriverQty } = require('./bom-advanced');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
-  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting, getWhQty,
+  issueFromStock, updateMovingAverage, receiveScrap, reverseIssueStock, setting, getWhQty,
 } = require('./costing');
 const {
   getOverheadRate, coerceDriver, appliedOverheadRial,
@@ -1948,13 +1948,16 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
         db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
         continue;
       }
-      restoreStock(db, {
+      reverseIssueStock(db, {
         productId: i.product_id,
         warehouseId: i.warehouse_id || po.warehouse_raw_id,
         qty: i.qty_actual,
         unitCostRial: i.unit_cost_rial,
         userId,
         note: `ابطال مرحله ${stage.seq} — ${po.order_no}`,
+        orderId,
+        orderNo: po.order_no,
+        stageSeq: stage.seq,
         sourceId: i.id,
         date: revDate,
       });

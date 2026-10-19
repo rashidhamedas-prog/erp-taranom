@@ -13,7 +13,7 @@ const {
 } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
-  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
+  issueFromStock, updateMovingAverage, receiveScrap, reverseIssueStock, reverseReceiptStock,
   recalcAvgOnReturn, setting, getWhQty,
 } = require('./costing');
 const { applyOverhead, reverseAppliedOverheadCounters, postPlantOverhead } = require('./overhead');
@@ -1447,13 +1447,15 @@ function reverseOrder(db, orderId, userId, reason = '') {
         db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
         continue;
       }
-      restoreStock(db, {
+      reverseIssueStock(db, {
         productId: i.product_id,
         warehouseId: i.warehouse_id,
         qty: i.qty_actual,
         unitCostRial: i.unit_cost_rial,
         userId,
         note: `ابطال مصرف ${po.order_no}`,
+        orderId: po.id,
+        orderNo: po.order_no,
         sourceId: i.id,
         date,
       });

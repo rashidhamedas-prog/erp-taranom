@@ -488,8 +488,6 @@ function retirePostedReversalTwins(db) {
   if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
     return { skipped: true, reason: 'no_table' };
   }
-  const flag = db.prepare("SELECT value FROM settings WHERE key='kardex_void_twin_retire_v490'").get();
-  if (flag && flag.value === '1') return { skipped: true };
   const rows = db.prepare(`
     SELECT r.id
     FROM inventory_ledger r
@@ -505,8 +503,84 @@ function retirePostedReversalTwins(db) {
     }
   });
   run();
-  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_void_twin_retire_v490','1')").run();
   return { count };
+}
+
+/**
+ * reverseStage used to leave production_issue posted and only add a twin
+ * «ابطال مرحله…» return. Soft-retire both sides without another stock move
+ * (qty already netted). Also retire the original when its material issue row
+ * is reversed/missing and a twin return already restored stock.
+ */
+function retireOrphanVoidedProductionIssues(db) {
+  if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
+    return { skipped: true, reason: 'no_table' };
+  }
+  const issues = db.prepare(`
+    SELECT id, product_id, warehouse_id, qty_out, note, source_id
+    FROM inventory_ledger
+    WHERE status='posted' AND event_type='production_issue'
+      AND (
+        note GLOB 'مرحله *'
+        OR note GLOB 'حواله مرحله *'
+        OR note GLOB 'مصرف *'
+      )
+  `).all();
+  let retired = 0;
+  let reversed = 0;
+  const run = db.transaction(() => {
+    for (const o of issues) {
+      const note = String(o.note || '');
+      const token = (note.match(/PO-\d+/i) || note.match(/PR-\d+/i) || [])[0];
+      const stage = (note.match(/مرحله\s*(\d+)/) || [])[1];
+      let twin = null;
+      if (token) {
+        const twins = db.prepare(`
+          SELECT id, note FROM inventory_ledger
+          WHERE status='posted' AND product_id=?
+            AND event_type IN ('production_return','reversal')
+            AND note LIKE 'ابطال%'
+            AND note LIKE ?
+          ORDER BY id DESC
+        `).all(o.product_id, `%${token}%`);
+        twin = twins.find((t) => {
+          if (!stage) return true;
+          const ts = (String(t.note || '').match(/مرحله\s*(\d+)/) || [])[1];
+          return !ts || ts === stage;
+        }) || null;
+      }
+
+      // Twin already restored qty — retire both without another stock move.
+      if (twin) {
+        softRetireLedgerRow(db, o.id, { note: 'بازنشسته — عملیات پشت سند ابطال شده' });
+        softRetireLedgerRow(db, twin.id, { note: 'بازنشسته — جفت ابطال مرحله' });
+        retired += 1;
+        continue;
+      }
+
+      // No twin: only reverse when the material-issue row is known voided.
+      let miReversed = false;
+      try {
+        if (o.source_id) {
+          const anyMi = db.prepare(`
+            SELECT id, status FROM production_material_issues
+            WHERE order_id=? AND product_id=?
+            ORDER BY id DESC LIMIT 1
+          `).get(o.source_id, o.product_id);
+          miReversed = !!anyMi && String(anyMi.status || '') === 'reversed';
+        }
+      } catch (_) { miReversed = false; }
+      if (!miReversed) continue;
+      const rev = reverseInventoryMovement(db, o.id, {
+        note: 'بازنشسته — عملیات پشت سند ابطال شده',
+      });
+      if (rev && rev.id) softRetireLedgerRow(db, rev.id);
+      reversed += 1;
+    }
+  });
+  run();
+  return { retired, reversed, count: retired + reversed };
 }
 
 module.exports = {
@@ -517,6 +591,7 @@ module.exports = {
   softRetireLedgerRow,
   retireZeroQtyLedgerGhosts,
   retirePostedReversalTwins,
+  retireOrphanVoidedProductionIssues,
   warehouseQty,
   inventoryAccountForWarehouse,
   inventoryAmountLinesByWarehouse,

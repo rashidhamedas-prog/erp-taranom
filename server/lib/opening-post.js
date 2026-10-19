@@ -881,11 +881,10 @@ function reconcileInventoryLedgerGaps(db, {
  */
 function redateOpeningDocsToFiscalStart(db) {
   if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
-  const flag = db.prepare("SELECT value FROM settings WHERE key='opening_fiscal_date_v490'").get();
-  if (flag && flag.value === '1') return { skipped: true };
   const cols = db.prepare('PRAGMA table_info(inventory_ledger)').all().map((c) => c.name);
   if (!cols.includes('date')) return { skipped: true, reason: 'no_date' };
   const start = fiscalOpeningDate(db);
+  // Continuous: mid-year «بهای اولیه» can appear after a one-shot flag was sealed.
   const ledger = db.prepare(`
     UPDATE inventory_ledger
     SET date=?
@@ -909,7 +908,6 @@ function redateOpeningDocsToFiscalStart(db) {
           AND IFNULL(date,'') > ?
       `).run(start, start)
     : { changes: 0 };
-  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_fiscal_date_v490','1')").run();
   return { ledger: ledger.changes || 0, journals: journals.changes || 0, date: start };
 }
 
