@@ -2,8 +2,8 @@
 - **ریشه:** `addOutput` برای by/scrap پرچم `has_coproducts` را روشن می‌کرد و فعال‌سازی فرمول تک‌محصولی با `E_NO_COPRODUCT` می‌ایستاد. ذخیرهٔ سرفصل هم peers را فقط از `output_type=co` می‌فرستاد.
 - **رفع:** by/scrap پرچم را عوض نمی‌کند؛ گیت `E_NO_COPRODUCT` برای کمتر از دو main حذف شد؛ فعال‌سازی پرچم ماندهٔ تک‌اصلی را خاموش می‌کند؛ ذخیرهٔ سرفصل فقط محصولات اصلیِ غیرلنگر را می‌فرستد.
 - **فایل‌ها:** `lib/production/{bom,bom-advanced,product-completeness}.js`, `public/{app.js,sw.js}`, `scripts/test-bom-single-product-v472.js`, CHANGE-LOG.
-- **تست:** `test-bom-single-product-v472`؛ `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-bom-single-product-v472` ۱۸/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `05f2f51a` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v473`.
 
 ### ۱۴۰۵/۰۷/۲۷ — BOM فقط تک‌محصولی؛ چندمحصولی در سفارش/لای (SW v472)
 - **درخواست:** در تعریف فرمول هنوز تیک «چند محصول با یک برش مشترک» و افزودن محصول اصلی دیگر بود؛ طبق ADR-006 هر BOM یک محصول است و چندمحصولی فقط بعد از سفارش/لایه‌چینی.
