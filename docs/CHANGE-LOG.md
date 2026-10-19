@@ -3,8 +3,8 @@
 - **ریشه:** ۱) `orderRequiresFabricCutting` فقط وقتی طاقهٔ `kind=fabric` وجود داشت روشن می‌شد — پارچهٔ متری بدون بچ طاقه از گیت رسید و از مسیر بهای نهایی جا می‌ماند. ۲) `costSheet` هیچ پرچم کامل بودن برش نداشت و فقط `balanced` (مانده WIP) برمی‌گرداند.
 - **رفع:** پارچهٔ متری در BOM همیشه مسیر لایه‌چینی می‌خواهد. برگه بها `incomplete` / `cost_final` / متر واقعی / انحراف / ضایعات عادی و غیرعادی / مبلغ ۵۲۲۱ را برمی‌گرداند؛ UI بنر «موقت» می‌زند و WIP متوازن را از بهای نهایی جدا می‌کند. اتصال لایه به مرحله، `abnormal_waste_rial` را هم می‌نویسد. چاپ HTML همان هشدار را دارد. راهنما + SW `erp-taranom-v467`.
 - **فایل‌ها:** `lib/production/{cutting,reports,engine-advanced,report-export}.js`, `public/{app.js,prod-journey-gate.js,sw.js,index.html}`, `scripts/test-cost-sheet-lay-gate-v467.js`, `scripts/test-prod-fabric-receipt-gate-v403.js`, CHANGE-LOG.
-- **تست:** محلی `test-sms` ۲۲/۰؛ `test-prod-journey-gate-v382` ۱۰/۰؛ parse `app.js`. `test-cost-sheet-lay-gate-v467` و `test-prod-fabric-receipt-gate-v403` روی ویندوز (Node ۲۴ بدون binding بهتر-sqlite3) SKIP — روی ایران اجرا می‌شود.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cost-sheet-lay-gate-v467` ۱۴/۰؛ `test-prod-fabric-receipt-gate-v403` ۹/۰؛ `test-sms` ۲۲/۰. محلی `test-prod-journey-gate-v382` ۱۰/۰ و parse `app.js`.
+- **Deploy:** ✅ `06c1c511` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v467`.
 
 ### ۱۴۰۵/۰۷/۲۷ — لایه‌چینی طاقهٔ «سورمه ای» را با رنگ ماتریس «سرمه‌ای» پیدا می‌کند (SW v465)
 - **علائم:** در لایه‌چینی کاپشن مموری بلدا، رنگ ماتریس «سرمه‌ای» و عرض ۱۵۰، پیام «طاقهٔ فعالی با این پارچه/رنگ/عرض نیست» می‌آمد. همان کالا (فرمول #۳۳۳، پارچه مموری لایکو دوزی) طاقهٔ LOT-0005 با ماندهٔ زنده ۱۱۳ متر در ویرایش طاقه و گردش مواد بود. رنگ ذخیره‌شدهٔ طاقه «سورمه ای» است (فاصلهٔ کامل + حرف و).
