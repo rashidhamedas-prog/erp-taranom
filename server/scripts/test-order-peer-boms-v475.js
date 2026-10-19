@@ -48,8 +48,18 @@ try {
       `).run(id, 20, cc30, 'دوخت');
       return id;
     }
+    const fabric = db.prepare(`
+      INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured, average_cost_rial)
+      VALUES (?, 'پارچه', 'RM-475', 'متر', 'raw', 0, 1000)
+    `).run(admin.id).lastInsertRowid;
     const bomA = bomFor(a, 'BOM-475A');
     const bomB = bomFor(b, 'BOM-475B');
+    for (const id of [bomA, bomB]) {
+      db.prepare(`
+        INSERT INTO bom_lines (bom_id, line_no, component_product_id, qty_per_base, line_type)
+        VALUES (?, 1, ?, 1.2, 'material')
+      `).run(id, fabric);
+    }
     const wh = db.prepare('SELECT id FROM warehouses LIMIT 1').get();
     if (wh) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('production_wh_raw_id', ?)").run(String(wh.id));
@@ -63,7 +73,7 @@ try {
       analysis_type: 'fixed',
       order_products: [{ product_id: b, bom_id: bomB, qty: 6 }],
     }, admin.id);
-    eq('analysis upgraded', created.analysis_type, 'fixed_adv');
+    ok('analysis upgraded', created.analysis_type === 'fixed_adv', created.analysis_type);
     const detail = engine.getOrderDetail(db, created.id);
     eq('two products on the order', detail.fg_plan.length, 2);
     ok('two different formulas', detail.fg_plan.every((p) => p.bom_id) && new Set(detail.fg_plan.map((p) => p.bom_id)).size === 2);
