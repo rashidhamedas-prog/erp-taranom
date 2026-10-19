@@ -73,7 +73,7 @@ try {
   const voided = postInventoryMovement(db, {
     eventType: 'receipt', productId: prod, warehouseId: wh,
     qtyIn: 40, unitCostRial: 1000, sourceType: 'fabric_roll', sourceId: 2,
-    date: fy, note: 'رسید ابطال‌شونده', createdBy: adminId, skipStock: true,
+    date: fy, note: 'رسید ابطال‌شونده', createdBy: adminId,
   });
   reverseInventoryMovement(db, voided.id, {
     createdBy: adminId, date: fy, note: 'ابطال دریافت طاقه',
