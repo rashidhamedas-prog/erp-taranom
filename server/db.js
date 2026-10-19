@@ -2503,6 +2503,45 @@ function initSyncSchema(db, opts) {
     throw e;
   }
 
+  // برش مشترک قطعات را در WIP نگه می‌دارد. اگر شرکت انبار WIP ندارد، همین‌جا ساخته می‌شود.
+  try {
+    const hasWip = db.prepare(`
+      SELECT id FROM warehouses
+      WHERE code IN ('WH-WIP','WH-CUT')
+         OR COALESCE(warehouse_type,'') IN ('wip','work_in_process','semi')
+         OR COALESCE(kind,'') IN ('wip','work_in_process','semi')
+      LIMIT 1
+    `).get();
+    if (!hasWip) {
+      const info = db.prepare('PRAGMA table_info(warehouses)').all().map((c) => c.name);
+      const cols = ['code', 'name'];
+      const vals = ['WH-WIP', 'انبار کار در جریان'];
+      if (info.includes('active')) { cols.push('active'); vals.push(1); }
+      if (info.includes('address')) { cols.push('address'); vals.push(''); }
+      if (info.includes('warehouse_type')) { cols.push('warehouse_type'); vals.push('wip'); }
+      if (info.includes('kind')) { cols.push('kind'); vals.push('wip'); }
+      if (info.includes('entity')) { cols.push('entity'); vals.push('workshop'); }
+      db.prepare(`INSERT INTO warehouses (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+    }
+    const wipId = db.prepare(`
+      SELECT id FROM warehouses
+      WHERE code IN ('WH-WIP','WH-CUT')
+         OR COALESCE(warehouse_type,'') IN ('wip','work_in_process','semi')
+         OR COALESCE(kind,'') IN ('wip','work_in_process','semi')
+      ORDER BY CASE WHEN code='WH-WIP' THEN 0 ELSE 1 END, id
+      LIMIT 1
+    `).get();
+    if (wipId) {
+      const cur = db.prepare("SELECT value FROM settings WHERE key='production_wh_wip_id'").get();
+      if (!cur) db.prepare("INSERT INTO settings (key,value) VALUES ('production_wh_wip_id',?)").run(String(wipId.id));
+      else if (!String(cur.value || '').trim()) {
+        db.prepare("UPDATE settings SET value=? WHERE key='production_wh_wip_id'").run(String(wipId.id));
+      }
+    }
+  } catch (e) {
+    console.error('WH-WIP seed:', e.message);
+  }
+
   try {
     require('./lib/inventory/schema').initInventorySchema(db);
   } catch (e) {

@@ -328,13 +328,50 @@ function previewSharedCut(db, body) {
   };
 }
 
+function rememberWipSetting(db, settingKey, warehouseId) {
+  if (!settingKey || !warehouseId) return;
+  const cur = db.prepare('SELECT value FROM settings WHERE key=?').get(settingKey);
+  if (!cur) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?,?)').run(settingKey, String(warehouseId));
+    return;
+  }
+  if (!String(cur.value || '').trim()) {
+    db.prepare('UPDATE settings SET value=? WHERE key=?').run(String(warehouseId), settingKey);
+  }
+}
+
 function warehouseByCode(db, code, settingKey) {
   const id = Number(setting(db, settingKey, '')) || 0;
   if (id) {
     const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(id);
     if (row) return row;
   }
-  return db.prepare('SELECT * FROM warehouses WHERE code=?').get(code);
+  const byCode = db.prepare('SELECT * FROM warehouses WHERE code=?').get(code);
+  if (byCode) return byCode;
+  if (code !== 'WH-WIP') return null;
+  const typed = db.prepare(`
+    SELECT * FROM warehouses
+    WHERE active IS NULL OR active=1
+  `).all().find((wh) => {
+    const types = [String(wh.warehouse_type || ''), String(wh.kind || ''), String(wh.code || '')];
+    return types.some((t) => t === 'wip' || t === 'work_in_process' || t === 'semi' || t === 'WH-CUT');
+  });
+  if (typed) {
+    rememberWipSetting(db, settingKey, typed.id);
+    return typed;
+  }
+  const info = db.prepare('PRAGMA table_info(warehouses)').all().map((c) => c.name);
+  const cols = ['code', 'name'];
+  const vals = ['WH-WIP', 'انبار کار در جریان'];
+  if (info.includes('active')) { cols.push('active'); vals.push(1); }
+  if (info.includes('address')) { cols.push('address'); vals.push(''); }
+  if (info.includes('warehouse_type')) { cols.push('warehouse_type'); vals.push('wip'); }
+  if (info.includes('kind')) { cols.push('kind'); vals.push('wip'); }
+  if (info.includes('entity')) { cols.push('entity'); vals.push('workshop'); }
+  db.prepare(`INSERT INTO warehouses (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+  const created = db.prepare("SELECT * FROM warehouses WHERE code='WH-WIP'").get();
+  if (created) rememberWipSetting(db, settingKey, created.id);
+  return created || null;
 }
 
 function postSharedCut(db, body, user) {
