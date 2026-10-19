@@ -84,6 +84,10 @@ try {
   db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,100000)').run(fab, raw.id);
   const a = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'A','FG-A','عدد','finished',1)`).run(admin.id).lastInsertRowid;
   const b = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'B','FG-B','عدد','finished',1)`).run(admin.id).lastInsertRowid;
+  const poId = db.prepare(`
+    INSERT INTO production_orders (order_no, product_id, qty_planned, date, status, analysis_type)
+    VALUES ('PO-SHARED', ?, 48, '1405/07/26', 'released', 'fixed')
+  `).run(a).lastInsertRowid;
   const ids = openings.map((m, i) => db.prepare(`
     INSERT INTO inventory_batches (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, unit, unit_cost_rial)
     VALUES (?,?,?,?,?,'active','fabric','متر', 9999)
@@ -96,6 +100,7 @@ try {
     width_cm: 150,
     date: '1405/07/26',
     idempotency_key: 'shared-gold-1',
+    production_order_id: poId,
     outputs: [
       { product_id: a, size_code: 'ALL', pieces_per_ply: 1, weight: 40 },
       { product_id: b, size_code: 'ALL', pieces_per_ply: 2, weight: 60 },
@@ -190,6 +195,7 @@ try {
     width_cm: 150,
     date: '1405/07/27',
     idempotency_key: 'shared-extra-1',
+    production_order_id: poId,
     outputs: [
       { product_id: a, size_code: 'ALL', pieces_per_ply: 1, weight: 50 },
       { product_id: b, size_code: 'ALL', pieces_per_ply: 1, weight: 50 },
