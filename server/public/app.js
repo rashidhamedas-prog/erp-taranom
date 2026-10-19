@@ -12678,10 +12678,11 @@ function cuttingSharedEnabled(){
   return String((CACHE.settings||{}).production_shared_cut||'')==='1';
 }
 function cuttingIsMultiMode(){
+  if(window._cutSharedBatchId) return !!window._cutMultiMode && cuttingSharedEnabled();
   return !window._cutEditId && !!window._cutMultiMode && cuttingSharedEnabled();
 }
 function cuttingSetMultiMode(on){
-  window._cutMultiMode=!!on && cuttingSharedEnabled() && !window._cutEditId;
+  window._cutMultiMode=!!on && cuttingSharedEnabled() && (!window._cutEditId || !!window._cutSharedBatchId);
   const single=el('cl-single-box');
   const multi=el('cl-multi-box');
   const hint=el('cl-mode-hint');
@@ -12984,7 +12985,11 @@ async function renderCuttingLaysTab(body){
       if(r.status==='reversed') acts='ابطال‌شده';
       else {
         if(view==='lays'){
-          acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش</button> ';
+          if(Number(r.is_shared_cut)===1 || r.batch_id){
+            acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش چندمحصول</button> ';
+          } else {
+            acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش</button> ';
+          }
           if(!isPacked || viaOrderFg){
             acts+='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id, viaOrderFg)})+'">ابطال لایه‌چینی</button>';
           }
@@ -13036,18 +13041,16 @@ async function cuttingLayModal(editId){
   window._cutFabricProductId=null;
   window._cutMultiMode=false;
   window._cutMultiProducts=[];
+  window._cutSharedBatchId=null;
   if(!CACHE.settings){ try{ CACHE.settings=await api('GET','/settings')||{}; }catch(_){ CACHE.settings={}; } }
   let lay=null;
   if(window._cutEditId){
     try{ lay=await api('GET','/production/cutting-lays/'+window._cutEditId); }
     catch(e){ showToast(e.message||'لایه یافت نشد','error'); return; }
     if(!lay || lay.status==='reversed'){ showToast('لایه ابطال‌شده قابل ویرایش نیست','error'); return; }
-    const realPack=(lay.packs||[]).some(p=>p.status==='posted');
-    if(lay.batch_id || Number(lay.is_shared_cut)===1){
-      showToast('لایه‌چینی چندمحصولی را ابطال کنید و دوباره ثبت کنید — ویرایش مستقیم ندارد','error');
-      return;
-    }
-    if(realPack){ showToast('ابتدا رسید محصول (PACK) را ابطال کنید','error'); return; }
+    const realPack=(lay.packs||[]).some(p=>p.status==='posted' && (p.ledger_id||p.journal_id));
+    if(realPack){ showToast('ابتدا رسید محصول (PACK انبار) را ابطال کنید','error'); return; }
+    window._cutSharedBatchId=lay.batch_id?Number(lay.batch_id):null;
     window._cutQtyLocked=Number(lay.fg_covered_by_order)===1||Number(lay.pack_via_order_fg)===1;
     (lay.rolls||[]).filter(r=>r.status==='posted').forEach(r=>{
       const bid=Number(r.batch_id); if(!bid) return;
@@ -13064,9 +13067,9 @@ async function cuttingLayModal(editId){
   const ccOpts=ccRows.map(c=>'<option value="'+c.id+'"'+(String(c.id)===ccSelected?' selected':'')+'>'+esc((c.code?c.code+' — ':'')+c.name)+'</option>').join('');
   const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):'لایه‌چینی و برش';
   showModal(title,`
-    ${(!window._cutEditId && cuttingSharedEnabled())?`<div class="toolbar" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;align-items:center">
-      <button type="button" class="btn sm" id="cl-mode-single" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(false)})}">تک‌محصول</button>
-      <button type="button" class="btn sm ghost" id="cl-mode-multi" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(true)})}">چند محصول روی یک مارکر</button>
+    ${((!window._cutEditId || window._cutSharedBatchId) && cuttingSharedEnabled())?`<div class="toolbar" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;align-items:center">
+      ${window._cutSharedBatchId?'<span class="muted" style="font-size:12px">ویرایش برش مشترک — همان شماره لایه/برنامه حفظ می‌شود.</span>':`<button type="button" class="btn sm" id="cl-mode-single" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(false)})}">تک‌محصول</button>
+      <button type="button" class="btn sm ghost" id="cl-mode-multi" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(true)})}">چند محصول روی یک مارکر</button>`}
       <span class="muted" id="cl-mode-hint" style="font-size:12px">ماتریس سایز = تعداد قطعهٔ این لایه (مسیر کلاسیک تک‌محصول).</span>
     </div>`:''}
     <div class="form-grid">
@@ -13170,8 +13173,42 @@ async function cuttingLayModal(editId){
       });
     }
   };
-  finish().then(()=>{
-    if(!window._cutEditId && cuttingSharedEnabled()) cuttingSetMultiMode(false);
+  finish().then(async()=>{
+    if(window._cutSharedBatchId){
+      try{
+        const batch=await api('GET','/production/cutting-batches/'+window._cutSharedBatchId);
+        window._cutMultiMode=true;
+        const byPid={};
+        (batch.outputs||[]).forEach(o=>{
+          const pid=Number(o.product_id);
+          if(!byPid[pid]){
+            const prod=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+            byPid[pid]={product_id:pid, product_name:prod?prod.name:('#'+pid), sizes:[], breakdown:{}, fabric_std_m:Number(o.fabric_std_m)||0, manual_weight:Number(o.weight_pct)||0};
+          }
+          const sz=String(o.size_code||'ALL');
+          if(!byPid[pid].sizes.includes(sz)) byPid[pid].sizes.push(sz);
+          byPid[pid].breakdown[sz]=Number(o.pieces_per_ply)||0;
+          if(Number(o.fabric_std_m)>0) byPid[pid].fabric_std_m=Number(o.fabric_std_m);
+        });
+        window._cutMultiProducts=Object.values(byPid);
+        cuttingSetMultiMode(true);
+        if(el('cl-alloc-basis') && batch.allocation_basis) el('cl-alloc-basis').value=batch.allocation_basis;
+        cuttingRefreshAllocUi();
+        const postedRolls=(batch.rolls||[]).filter(r=>String(r.status||'posted')==='posted');
+        cuttingRenderRollPickerExtras();
+        postedRolls.forEach(r=>{
+          const ch=document.querySelector('.cl-roll[data-id="'+r.batch_id+'"]');
+          if(!ch) return;
+          ch.checked=true;
+          const pl=ch.parentElement && ch.parentElement.querySelector('.cl-roll-plies');
+          const loss=ch.parentElement && ch.parentElement.querySelector('.cl-roll-loss');
+          if(pl) pl.value=String(r.ply_count||'');
+          if(loss) loss.value=String(r.length_loss_m||0);
+        });
+      }catch(e){ showToast(e.message||'بارگذاری برش مشترک ناموفق','error'); }
+    } else if(!window._cutEditId && cuttingSharedEnabled()){
+      cuttingSetMultiMode(false);
+    }
     cuttingRenderMultiProducts();
   });
 }
@@ -13454,6 +13491,15 @@ async function cuttingLaySave(){
       if(!body) return;
       const preview=await api('POST','/production/cutting-batches/preview',body);
       if(!preview.balanced){ showToast('تراز طاقه برقرار نیست — پیش‌نمایش را ببینید','error'); return; }
+      if(window._cutSharedBatchId){
+        if(!confirm('ویرایش لایه‌چینی چندمحصولی؟ اثرات قبلی همین شماره برمی‌گردد و دوباره ثبت می‌شود.')) return;
+        body.reason='ویرایش برش مشترک از گزارش';
+        const posted=await api('PUT','/production/cutting-batches/'+window._cutSharedBatchId, body);
+        closeModal();
+        showToast('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' ویرایش شد');
+        loadAccTab('cutting-lays');
+        return;
+      }
       if(!confirm('ثبت لایه‌چینی چندمحصولی؟ متر پهن‌شده به WIP می‌رود؛ برگشت/ته‌طاقه طبق سیاست؛ PACK WIP برای هر محصول ساخته می‌شود.')) return;
       body.idempotency_key=window._cutIdemKey||newCutIdemKey();
       const posted=await api('POST','/production/cutting-batches',body);
@@ -31904,15 +31950,14 @@ function renderAdminGuide(){
         <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
         <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
       </ul>`),
-    helpSec('✂️','برش مشترک / چند محصول روی یک مارکر (v470)',`
+    helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
       <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
       <ul>
-        <li>طول مارکر مشترک است؛ برای هر کالا ماتریس «قطعه در مارکر (در هر لایهٔ پارچه)» جداست — مثلاً مدل یلدا و آبان با تعداد متفاوت در یک پهن.</li>
-        <li><b>روش تسهیم هزینهٔ پارچه (v470):</b> نسبت تعداد قطعه · نسبت متر استاندارد پارچه · درصد دستی · ترکیبی (پیشنهاد + قابل‌ویرایش). روش روی سند batch ذخیره می‌شود.</li>
-        <li>قطعهٔ برنامه‌ای = قطعه در مارکر × لایه روی همان طاقه. طاقه: پهن‌شده / برگشت / ته‌طاقه / اتلاف طولی (۵۲۲۱ با مرکز برش).</li>
-        <li>ثبت، PACK WIP برای هر محصول می‌سازد. ویرایش مستقیم لایهٔ چندمحصولی هنوز با ابطال کامل (R13) سپس ثبت دوباره است (موج بعد: amend اتمی).</li>
-        <li>بعد از ورود انبار: بهای رسمی در رسید قفل است؛ اصلاح = ابطال رسید یا اصلاح اختلاف بها اگر بخشی فروش رفته (ADR-006).</li>
-        <li>تک‌محصول همان مسیر کلاسیک (ویرایش/پوشش سفارش) می‌ماند.</li>
+        <li>طول مارکر مشترک؛ ماتریس قطعه در مارکر per محصول؛ روش تسهیم: قطعه / متر استاندارد / دستی / ترکیبی.</li>
+        <li><b>ویرایش چندمحصول (v471):</b> همان شماره لایه/برنامه با reverse+ثبت مجدد اتمی. ابطال همهٔ PACKهای WIP یک لایه با هم. پیوند سفارش روی لای و PACK.</li>
+        <li><b>گیت مرحله:</b> بعد از برش، بدون پوشش لایه‌چینی (به اندازهٔ برنامه) مرحلهٔ بعد شروع/ثبت نمی‌شود.</li>
+        <li><b>برگه بها:</b> اگر برش مشترک به سفارش وصل باشد سهم محصولات از تخصیص واقعی پارچه است نه فقط ٪ فرمول.</li>
+        <li>بعد از ورود انبار: بهای رسمی در رسید؛ اصلاح با ابطال رسید یا اختلاف‌بها (ADR-006).</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`
       <p>آدرس رسمی ERP: <b dir="ltr">https://erptaranom.com</b>. DNS به‌صورت multi-primary است: Name Server روی سرور ایران (<span dir="ltr">ns1/ns2.erptaranom.com</span>) و Cloudflare (<span dir="ltr">connie/finley</span>) با رکورد هم‌سان — اگر یکی جواب ندهد دیگری resolve می‌کند. سرور اپ روی ایران است؛ با VPN اگر باز نشد split-tunnel بزنید. دامنهٔ قدیمی <span dir="ltr">erp.poshaktaranom.com</span> بازنشسته است.</p>
@@ -32166,7 +32211,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v411 اتصال لایه‌چینی → مرحلهٔ برش:</b> وقتی لایه‌چینی به سفارش پیشرفته پیوند دارد، سرور مرحلهٔ برش مسیر (CC-10 / نام «برش» / اولین مرحلهٔ پارچه) را پیدا می‌کند، مصرف پارچه را روی همان مرحله ثبت می‌کند، مرحله را تکمیل می‌کند و مرحلهٔ بعد را باز می‌کند (دستمزد/سربار مرحله از نرخ مسیر). ابطال/ویرایش لایه همان اتصال را با R13 برمی‌گرداند. پارچه دوباره در حوالهٔ مرحله حواله نمی‌شود.
           <br><b>v463 مرکز هزینه ضایعات:</b> مازاد بر سقف ضایعات عادی به ۵۲۲۱ و مرکز برش (فیلد فرم، یا CC-10) می‌رود تا الزام مرکز هزینه ثبت را نبندد.
-          <br><b>برش مشترک / چندمحصول (v470، ADR-006):</b> سوییچ «چند محصول روی یک مارکر» + انتخاب روش تسهیم (قطعه / متر استاندارد پارچه / دستی / ترکیبی). ته‌طاقه و اتلاف طولی مثل قبل. ابطال R13 کامل؛ ویرایش مستقیم لایهٔ چندمحصولی هنوز void+ثبت مجدد.
+          <br><b>برش مشترک / ADR-006 (v471):</b> تسهیم قابل‌انتخاب؛ ویرایش اتمی چندمحصول؛ void همهٔ PACK؛ گیت لای قبل از مرحلهٔ بعد از برش؛ برگه بها از allocated_rial وقتی به سفارش وصل است.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>

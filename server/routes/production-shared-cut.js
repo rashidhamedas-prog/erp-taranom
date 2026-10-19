@@ -4,7 +4,7 @@ const { getDB, audit } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const { canSeeCost, stripCostFields } = require('../lib/production/access');
 const {
-  previewSharedCut, postSharedCut, getSharedCut, voidSharedCut, loadPolicy,
+  previewSharedCut, postSharedCut, getSharedCut, voidSharedCut, amendSharedCut, loadPolicy,
 } = require('../lib/production/shared-cut');
 
 function sendRow(req, res, data) {
@@ -67,7 +67,15 @@ router.post('/', auth, requirePermission('production', 'create'), (req, res) => 
   } catch (e) { sendErr(res, e); }
 });
 
-router.post('/:id/void', auth, requirePermission('production', 'delete'), (req, res) => {
+router.put('/:id', auth, requirePermission('production', 'create'), (req, res) => {
+  try {
+    const row = amendSharedCut(getDB(), req.params.id, req.body || {}, req.user);
+    audit(req.user.id, 'update', 'cutting_batch', row.id, `ویرایش برش مشترک ${row.batch_no}`);
+    sendRow(req, res, row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/:id/void', auth, requirePermission('production', 'create'), (req, res) => {
   try {
     const row = voidSharedCut(getDB(), req.params.id, req.user, (req.body || {}).reason);
     audit(req.user.id, 'void', 'cutting_batch', row.id, 'ابطال برش مشترک');

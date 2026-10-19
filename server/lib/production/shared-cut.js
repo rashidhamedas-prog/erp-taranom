@@ -378,11 +378,12 @@ function postSharedCut(db, body, user) {
         Number(o.fabric_std_m) || 0
       );
     }
+    const poId = Number(body.production_order_id) || null;
     const lay = db.prepare(`
       INSERT INTO cutting_lays
         (lay_no, product_id, bom_id, fabric_product_id, marker_length_m, ply_count,
-         planned_meters, actual_meters, qty_pieces, status, idempotency_key, date, note, created_by, batch_id, color, width_cm)
-      VALUES (?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?,?,?)
+         planned_meters, actual_meters, qty_pieces, status, idempotency_key, date, note, created_by, batch_id, color, width_cm, production_order_id)
+      VALUES (?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?)
     `).run(
       layNo, anchor.product_id, body.bom_id || null, body.fabric_product_id || null,
       plan.marker_length_m,
@@ -390,7 +391,7 @@ function postSharedCut(db, body, user) {
       plan.laid_m, plan.laid_m,
       plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
       key + ':lay', date, String(body.note || ''), user && user.id, batchId,
-      String(body.color || ''), Math.round(Number(body.width_cm) || 0)
+      String(body.color || ''), Math.round(Number(body.width_cm) || 0), poId
     );
     const layId = lay.lastInsertRowid;
     let common = 0;
@@ -537,11 +538,11 @@ function postSharedCut(db, body, user) {
       const packNo = alloc(db, 'cutting_pack', 'PK');
       db.prepare(`
         INSERT INTO cutting_packs
-          (pack_no, lay_id, product_id, warehouse_id, qty, amount_rial, unit_cost_rial, status, idempotency_key, date, note, created_by)
-        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?)
+          (pack_no, lay_id, product_id, warehouse_id, qty, amount_rial, unit_cost_rial, status, idempotency_key, date, note, created_by, production_order_id)
+        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?,?)
       `).run(
         packNo, layId, pid, wip.id, qty, amt, qty > 0 ? Math.round(amt / qty) : 0,
-        key + ':pack:' + pid, date, 'WIP برش مشترک', user && user.id
+        key + ':pack:' + pid, date, 'WIP برش مشترک', user && user.id, poId
       );
     }
     db.prepare(`
@@ -550,6 +551,26 @@ function postSharedCut(db, body, user) {
     `).run(journalId, wasteJe, common + lossRial, lossRial, plan.laid_m > 0 ? Math.round(common / plan.laid_m) : 0, layId);
     db.prepare('UPDATE cutting_batches SET journal_id=?, waste_journal_id=?, lay_id=?, common_rial=? WHERE id=?')
       .run(journalId, wasteJe, layId, common, batchId);
+    if (poId) {
+      try {
+        const { applyCuttingLayToStage } = require('./engine-advanced');
+        applyCuttingLayToStage(db, {
+          orderId: poId,
+          layId,
+          layNo,
+          fabricProductId: body.fabric_product_id,
+          amountRial: common,
+          wasteAmountRial: lossRial,
+          qtyPieces: plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
+          meters: plan.laid_m,
+          date,
+          userId: user && user.id,
+        });
+      } catch (e) {
+        if (e && e.code && String(e.code).startsWith('E_')) throw e;
+        // سفارش غیرپیشرفته: فقط پیوند production_order_id کافی است
+      }
+    }
     return getSharedCut(db, batchId);
   })();
 }
@@ -576,48 +597,102 @@ function getSharedCut(db, id) {
   return batch;
 }
 
+/** Reverse JE/stock/packs/rolls. Caller must be inside a transaction when used by amend. */
+function reverseSharedCutEffects(db, batch, user, reason) {
+  const lay = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(batch.lay_id);
+  if (lay && (lay.stage_id || lay.production_order_id)) {
+    try {
+      const { unlinkCuttingLayFromStage } = require('./engine-advanced');
+      unlinkCuttingLayFromStage(db, {
+        orderId: lay.production_order_id,
+        layId: lay.id,
+        layNo: lay.lay_no,
+        amountRial: lay.amount_rial,
+        wasteAmountRial: lay.waste_amount_rial,
+        userId: user && user.id,
+        date: lay.date,
+      });
+    } catch (e) {
+      if (e && (e.code === 'E_ORDER_FINALIZED' || e.code === 'E_CANNOT_REVERSE' || e.code === 'E_INVALID_STATUS')) {
+        // مراحل بعدی جلوتر رفته‌اند یا سفارش نهایی شده — فقط JE/طاقه؛ مرحله باز نمی‌شود
+        try {
+          db.prepare('UPDATE cutting_lays SET stage_id=NULL WHERE id=?').run(lay.id);
+        } catch (_) { /* ignore */ }
+      } else if (e && e.code && String(e.code).startsWith('E_')) {
+        throw e;
+      }
+    }
+  }
+  const packs = batch.packs && batch.packs.length
+    ? batch.packs
+    : (batch.lay_id
+      ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND COALESCE(status,'posted')='posted'").all(batch.lay_id)
+      : []);
+  for (const pack of packs) {
+    // PACK WIP مشترک معمولاً بدون ledger/JE است — فقط وضعیت. با ledger، معکوس موجودی بدون تراکنش تو در تو.
+    if (pack.ledger_id) {
+      reverseInventoryMovement(db, pack.ledger_id, {
+        createdBy: user && user.id,
+        note: reason || 'ابطال PACK برش مشترک',
+      });
+    }
+    if (pack.journal_id) {
+      const { reverseJournalEntry } = require('../void-journal');
+      reverseJournalEntry(db, pack.journal_id, {
+        userId: user && user.id,
+        reason: reason || 'ابطال PACK برش مشترک',
+        sourceType: 'production_receipt_reversal',
+      });
+    }
+    db.prepare("UPDATE cutting_packs SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
+      .run(user && user.id, pack.id);
+  }
+  const rolls = batch.rolls && batch.rolls.length
+    ? batch.rolls
+    : (batch.lay_id
+      ? db.prepare("SELECT * FROM cutting_lay_rolls WHERE lay_id=? AND COALESCE(status,'posted')='posted'").all(batch.lay_id)
+      : []);
+  for (const roll of rolls) {
+    if (roll.ledger_id) {
+      reverseInventoryMovement(db, roll.ledger_id, { createdBy: user && user.id, note: reason || 'ابطال برش مشترک' });
+    }
+    const issueM = Number(roll.meters) || 0;
+    if (issueM) adjustBatchQty(db, roll.batch_id, issueM);
+    if (roll.remnant_batch_id) {
+      const remLedger = Number(roll.remnant_ledger_id) || (db.prepare(`
+        SELECT id FROM inventory_ledger
+        WHERE source_type='cutting_remnant' AND batch_id=? AND COALESCE(status,'posted')='posted'
+        ORDER BY id DESC LIMIT 1
+      `).get(roll.remnant_batch_id) || {}).id;
+      if (remLedger) {
+        reverseInventoryMovement(db, remLedger, { createdBy: user && user.id, note: reason || 'ابطال ته‌طاقه' });
+      }
+      adjustBatchQty(db, roll.remnant_batch_id, -(Number(roll.remnant_m) || 0));
+      db.prepare("UPDATE inventory_batches SET status='reversed' WHERE id=?").run(roll.remnant_batch_id);
+    }
+    db.prepare("UPDATE cutting_lay_rolls SET status='reversed' WHERE id=?").run(roll.id);
+  }
+  const { reverseJournalEntry } = require('../void-journal');
+  let revJe = null;
+  if (lay && lay.waste_journal_id) {
+    reverseJournalEntry(db, lay.waste_journal_id, {
+      userId: user && user.id, reason: reason || 'ابطال اتلاف', sourceType: 'production_waste_reversal',
+    });
+  }
+  if (lay && lay.journal_id) {
+    const rev = reverseJournalEntry(db, lay.journal_id, {
+      userId: user && user.id, reason: reason || 'ابطال برش مشترک', sourceType: 'production_material_issue_reversal',
+    });
+    revJe = rev && (rev.id || rev.je_id || rev);
+  }
+  return { lay, revJe };
+}
+
 function voidSharedCut(db, id, user, reason) {
   const batch = getSharedCut(db, id);
   if (batch.status === 'reversed') throw httpErr(409, 'این برنامه قبلاً ابطال شده', 'E_CUT_REVERSED');
   db.transaction(() => {
-    const lay = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(batch.lay_id);
-    for (const pack of batch.packs) {
-      db.prepare("UPDATE cutting_packs SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
-        .run(user && user.id, pack.id);
-    }
-    for (const roll of batch.rolls) {
-      if (roll.ledger_id) {
-        reverseInventoryMovement(db, roll.ledger_id, { createdBy: user && user.id, note: reason || 'ابطال برش مشترک' });
-      }
-      const issueM = Number(roll.meters) || 0;
-      if (issueM) adjustBatchQty(db, roll.batch_id, issueM);
-      if (roll.remnant_batch_id) {
-        const remLedger = Number(roll.remnant_ledger_id) || (db.prepare(`
-          SELECT id FROM inventory_ledger
-          WHERE source_type='cutting_remnant' AND batch_id=? AND COALESCE(status,'posted')='posted'
-          ORDER BY id DESC LIMIT 1
-        `).get(roll.remnant_batch_id) || {}).id;
-        if (remLedger) {
-          reverseInventoryMovement(db, remLedger, { createdBy: user && user.id, note: reason || 'ابطال ته‌طاقه' });
-        }
-        adjustBatchQty(db, roll.remnant_batch_id, -(Number(roll.remnant_m) || 0));
-        db.prepare("UPDATE inventory_batches SET status='reversed' WHERE id=?").run(roll.remnant_batch_id);
-      }
-      db.prepare("UPDATE cutting_lay_rolls SET status='reversed' WHERE id=?").run(roll.id);
-    }
-    const { reverseJournalEntry } = require('../void-journal');
-    let revJe = null;
-    if (lay && lay.waste_journal_id) {
-      reverseJournalEntry(db, lay.waste_journal_id, {
-        userId: user && user.id, reason: reason || 'ابطال اتلاف', sourceType: 'production_waste_reversal',
-      });
-    }
-    if (lay && lay.journal_id) {
-      const rev = reverseJournalEntry(db, lay.journal_id, {
-        userId: user && user.id, reason: reason || 'ابطال برش مشترک', sourceType: 'production_material_issue_reversal',
-      });
-      revJe = rev && (rev.id || rev.je_id || rev);
-    }
+    const { lay, revJe } = reverseSharedCutEffects(db, batch, user, reason);
     if (lay) {
       db.prepare(`UPDATE cutting_lays SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=? WHERE id=?`)
         .run(user && user.id, revJe || null, lay.id);
@@ -626,6 +701,265 @@ function voidSharedCut(db, id, user, reason) {
       .run(user && user.id, revJe || null, batch.id);
   })();
   return getSharedCut(db, id);
+}
+
+/**
+ * W2 — ویرایش اتمی برش مشترک: reverse اثرات + ثبت مجدد روی همان batch/lay.
+ * body مثل postSharedCut (outputs, rolls, allocation_basis, …).
+ */
+function amendSharedCut(db, id, body, user) {
+  assertFlag(db);
+  const existing = getSharedCut(db, id);
+  if (existing.status === 'reversed') {
+    throw httpErr(409, 'برنامه ابطال‌شده قابل ویرایش نیست', 'E_CUT_REVERSED');
+  }
+  const livePacks = (existing.packs || []).filter((p) => p.status === 'posted');
+  for (const p of livePacks) {
+    if (p.ledger_id || p.journal_id) {
+      throw httpErr(409, 'ابتدا رسید محصول (PACK انبار) را ابطال کنید', 'E_CUT_HAS_PACK');
+    }
+  }
+  const plan = previewSharedCut(db, body);
+  if (!plan.balanced && !body.override_balance) {
+    throw httpErr(400, 'تراز طاقه خارج از تلرانس است', 'E_ROLL_BALANCE', { errors: plan.errors });
+  }
+  const date = String(body.date || existing.date || todayJalali()).trim();
+  const anchor = plan.outputs.slice().sort((a, b) => a.product_id - b.product_id)[0];
+  const poId = Number(body.production_order_id != null ? body.production_order_id : (
+    existing.lay_id && (db.prepare('SELECT production_order_id FROM cutting_lays WHERE id=?').get(existing.lay_id) || {}).production_order_id
+  )) || null;
+
+  return db.transaction(() => {
+    reverseSharedCutEffects(db, existing, user, body.reason || 'ویرایش برش مشترک');
+    db.prepare('DELETE FROM cutting_batch_allocations WHERE batch_id=?').run(existing.id);
+    db.prepare('DELETE FROM cutting_batch_outputs WHERE batch_id=?').run(existing.id);
+    db.prepare('DELETE FROM cutting_packs WHERE lay_id=?').run(existing.lay_id);
+    db.prepare('DELETE FROM cutting_lay_rolls WHERE lay_id=?').run(existing.lay_id);
+
+    db.prepare(`
+      UPDATE cutting_batches SET
+        marker_length_m=?, width_cm=?, bom_id=?, fabric_product_id=?, policy_json=?,
+        date=?, note=?, allocation_basis=?, status='posted',
+        journal_id=NULL, waste_journal_id=NULL, common_rial=0,
+        reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL
+      WHERE id=?
+    `).run(
+      plan.marker_length_m, Math.round(Number(body.width_cm) || 0),
+      body.bom_id || null, body.fabric_product_id || null,
+      JSON.stringify(plan.policy), date, String(body.note || existing.note || ''),
+      plan.allocation_basis || 'pieces', existing.id
+    );
+
+    const insOut = db.prepare(`
+      INSERT INTO cutting_batch_outputs
+        (batch_id, product_id, size_code, pieces_per_ply, weight_pct, planned_pieces, accepted_plies, good_pieces, fabric_std_m)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `);
+    for (const o of plan.outputs) {
+      insOut.run(
+        existing.id, o.product_id, o.size_code, o.pieces_per_ply, o.weight, o.planned_pieces, 0, o.planned_pieces,
+        Number(o.fabric_std_m) || 0
+      );
+    }
+
+    db.prepare(`
+      UPDATE cutting_lays SET
+        product_id=?, bom_id=?, fabric_product_id=?, marker_length_m=?, ply_count=?,
+        planned_meters=?, actual_meters=?, qty_pieces=?, color=?, width_cm=?,
+        production_order_id=?, date=?, note=?, status='posted',
+        journal_id=NULL, waste_journal_id=NULL, amount_rial=0, waste_amount_rial=0, unit_cost_rial=0,
+        reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL, stage_id=NULL
+      WHERE id=?
+    `).run(
+      anchor.product_id, body.bom_id || null, body.fabric_product_id || null,
+      plan.marker_length_m, plan.rolls.reduce((s, r) => s + r.ply_count, 0),
+      plan.laid_m, plan.laid_m, plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
+      String(body.color || ''), Math.round(Number(body.width_cm) || 0),
+      poId, date, String(body.note || ''), existing.lay_id
+    );
+
+    const layId = existing.lay_id;
+    const batchId = existing.id;
+    let common = 0;
+    let lossRial = 0;
+    const whRaw = warehouseByCode(db, 'WH-RAW', 'production_wh_raw_id');
+    const whRem = warehouseByCode(db, 'WH-SCRAP', 'production_wh_remnant_id');
+    for (const roll of plan.rolls) {
+      const fabBatch = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(roll.batch_id);
+      if (!fabBatch) throw httpErr(400, 'طاقه یافت نشد', 'E_CUT_ROLL');
+      const busy = db.prepare(`
+        SELECT r.id FROM cutting_lay_rolls r
+        JOIN cutting_lays l ON l.id=r.lay_id
+        WHERE r.batch_id=? AND r.status='posted' AND l.status='posted' AND l.id<>?
+      `).get(fabBatch.id, layId);
+      if (busy) throw httpErr(409, 'این طاقه روی لایهٔ باز دیگری مصرف شده است', 'E_ROLL_BUSY');
+      applyLiveRollQty(db, fabBatch);
+      const avail = availableBatchMeters(db, fabBatch.id);
+      const leave = roundM(roll.opening_m - roll.returned_m - roll.adjustment_m);
+      if (avail + 1e-6 < leave) throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY');
+      const unit = avgUnitRial(db, fabBatch.product_id);
+      const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
+      const laidRial = assertSafeRial(Math.round(unit * roll.laid_m), 'laid');
+      const lossPart = assertSafeRial(Math.round(unit * roll.length_loss_m), 'loss');
+      common += laidRial;
+      lossRial += lossPart;
+      let ledgerId = null;
+      if (issueM > 0) {
+        const led = postInventoryMovement(db, {
+          eventType: 'production_issue',
+          productId: fabBatch.product_id,
+          warehouseId: fabBatch.warehouse_id || (whRaw && whRaw.id),
+          qtyOut: issueM,
+          unitCostRial: unit,
+          amountRial: assertSafeRial(Math.round(unit * issueM), 'issue'),
+          sourceType: 'cutting_lay',
+          sourceId: layId,
+          batchId: fabBatch.id,
+          date,
+          note: `برش مشترک اصلاح ${existing.batch_no}`,
+          createdBy: user && user.id,
+        });
+        ledgerId = led && led.id;
+        adjustBatchQty(db, fabBatch.id, -issueM);
+      }
+      let remnantBatchId = null;
+      let remnantLedgerId = null;
+      if (roll.remnant_m > 0) {
+        if (!whRem) throw httpErr(400, 'انبار ته‌طاقه تنظیم نشده', 'E_REMNANT_WH');
+        const ins = db.prepare(`
+          INSERT INTO inventory_batches
+            (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, color, width_cm, unit, unit_cost_rial, source_type, source_id, note)
+          VALUES (?,?,?,?,?,'active','fabric',?,?, 'متر', ?, 'cutting_remnant', ?, ?)
+        `).run(
+          `${existing.batch_no}-R`, fabBatch.product_id, whRem.id, roll.remnant_m, roll.remnant_m,
+          existing.color || body.color || '', Math.round(Number(body.width_cm) || 0), unit, batchId, 'ته‌طاقه'
+        );
+        remnantBatchId = ins.lastInsertRowid;
+        const remLed = postInventoryMovement(db, {
+          eventType: 'production_receipt',
+          productId: fabBatch.product_id,
+          warehouseId: whRem.id,
+          qtyIn: roll.remnant_m,
+          unitCostRial: unit,
+          amountRial: assertSafeRial(Math.round(unit * roll.remnant_m), 'remnant'),
+          sourceType: 'cutting_remnant',
+          sourceId: batchId,
+          batchId: remnantBatchId,
+          date,
+          note: `ته‌طاقه ${existing.batch_no}`,
+          createdBy: user && user.id,
+        });
+        remnantLedgerId = remLed && remLed.id;
+      }
+      db.prepare(`
+        INSERT INTO cutting_lay_rolls
+          (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status,
+           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id)
+        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        layId, fabBatch.id, issueM, unit, laidRial + lossPart, ledgerId,
+        roll.opening_m, roll.ply_count, roll.laid_m, roll.returned_m, roll.remnant_m,
+        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId
+      );
+    }
+    common = assertSafeRial(common, 'common');
+    const cutCc = resolveCuttingCostCenterId(db, {
+      explicitId: body.cost_center_id,
+      bomId: body.bom_id,
+      warehouseId: whRaw && whRaw.id,
+    });
+    db.prepare('UPDATE cutting_lays SET cost_center_id=? WHERE id=?').run(cutCc, layId);
+    assertJournalIdempotent(db, 'production_material_issue', layId);
+    let journalId = null;
+    if (common > 0) {
+      const je = postEvent(db, {
+        event: 'PRD-01',
+        sourceId: layId,
+        date,
+        description: `مصرف خالص برش مشترک (ویرایش) ${existing.batch_no}`,
+        createdBy: user && user.id,
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
+        lines: [dr(db, 'coa_wip', common), cr(db, 'coa_raw_materials', common)],
+      });
+      journalId = je ? je.je_id : null;
+    }
+    let wasteJe = null;
+    if (lossRial > 0) {
+      assertJournalIdempotent(db, 'production_waste', layId);
+      const wje = postEvent(db, {
+        event: 'PRD-09',
+        sourceId: layId,
+        date,
+        description: `اتلاف طولی برش (ویرایش) ${existing.batch_no}`,
+        createdBy: user && user.id,
+        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_raw_materials', lossRial)],
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
+      });
+      wasteJe = wje ? wje.je_id : null;
+    }
+    const shares = allocateRial(common, plan.outputs.map((o) => ({
+      product_id: o.product_id, size_code: o.size_code, weight: o.weight,
+    })));
+    const allocBasis = plan.allocation_basis || 'pieces';
+    const byProduct = new Map();
+    for (const s of shares) {
+      const cur = byProduct.get(s.product_id) || 0;
+      byProduct.set(s.product_id, cur + s.amount_rial);
+      db.prepare(`
+        INSERT INTO cutting_batch_allocations (batch_id, product_id, weight, amount_rial, basis)
+        VALUES (?,?,?,?,?)
+      `).run(batchId, s.product_id, s.weight, s.amount_rial, allocBasis);
+    }
+    const wip = warehouseByCode(db, 'WH-WIP', 'production_wh_wip_id');
+    if (!wip) throw httpErr(400, 'انبار WIP یافت نشد', 'E_WIP_WH');
+    const pieceByProduct = new Map();
+    for (const o of plan.outputs) {
+      pieceByProduct.set(o.product_id, (pieceByProduct.get(o.product_id) || 0) + o.planned_pieces);
+    }
+    const key = String(existing.idempotency_key || ('amend-' + batchId));
+    for (const [pid, qty] of pieceByProduct) {
+      const amt = byProduct.get(pid) || 0;
+      const { allocateNumber: alloc } = require('../../db');
+      const packNo = alloc(db, 'cutting_pack', 'PK');
+      db.prepare(`
+        INSERT INTO cutting_packs
+          (pack_no, lay_id, product_id, warehouse_id, qty, amount_rial, unit_cost_rial, status, idempotency_key, date, note, created_by, production_order_id)
+        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?,?)
+      `).run(
+        packNo, layId, pid, wip.id, qty, amt, qty > 0 ? Math.round(amt / qty) : 0,
+        key + ':pack:' + pid + ':a' + Date.now(), date, 'WIP برش مشترک', user && user.id, poId
+      );
+    }
+    db.prepare(`
+      UPDATE cutting_lays SET journal_id=?, waste_journal_id=?, amount_rial=?, waste_amount_rial=?, unit_cost_rial=?
+      WHERE id=?
+    `).run(journalId, wasteJe, common + lossRial, lossRial, plan.laid_m > 0 ? Math.round(common / plan.laid_m) : 0, layId);
+    db.prepare('UPDATE cutting_batches SET journal_id=?, waste_journal_id=?, common_rial=? WHERE id=?')
+      .run(journalId, wasteJe, common, batchId);
+    if (poId) {
+      try {
+        const { applyCuttingLayToStage } = require('./engine-advanced');
+        const layRow = db.prepare('SELECT lay_no FROM cutting_lays WHERE id=?').get(layId);
+        applyCuttingLayToStage(db, {
+          orderId: poId,
+          layId,
+          layNo: layRow && layRow.lay_no,
+          fabricProductId: body.fabric_product_id,
+          amountRial: common,
+          wasteAmountRial: lossRial,
+          qtyPieces: plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
+          meters: plan.laid_m,
+          date,
+          userId: user && user.id,
+        });
+      } catch (e) {
+        if (e && e.code && String(e.code).startsWith('E_')) throw e;
+      }
+    }
+    return getSharedCut(db, batchId);
+  })();
 }
 
 function listPersonLaborConflicts(db) {
@@ -712,7 +1046,9 @@ module.exports = {
   previewSharedCut,
   postSharedCut,
   getSharedCut,
+  reverseSharedCutEffects,
   voidSharedCut,
+  amendSharedCut,
   listPersonLaborConflicts,
   periodChecks,
 };

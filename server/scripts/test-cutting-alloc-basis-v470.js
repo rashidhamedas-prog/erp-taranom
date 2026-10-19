@@ -15,7 +15,7 @@ ok(appSrc.includes('روش تسهیم هزینهٔ پارچه'), 'UI label');
 ok(appSrc.includes('allocation_basis:cuttingAllocBasis'), 'body sends basis');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v470'), 'SW bumped to v470');
+ok(sw.includes('erp-taranom-v471') || sw.includes('erp-taranom-v470'), 'SW v470+ lineage');
 
 const adr = fs.readFileSync(path.join(__dirname, '../../docs/architecture/PROD-JOURNEY-ADR-006-cost-truth.md'), 'utf8');
 ok(adr.includes('allocation_basis'), 'ADR-006 documents basis');

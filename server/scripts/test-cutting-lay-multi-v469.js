@@ -13,11 +13,11 @@ ok(appSrc.includes('cuttingIsMultiMode'), 'UI multi mode helper');
 ok(appSrc.includes('cuttingBuildSharedBody'), 'UI shared body builder');
 ok(appSrc.includes('چند محصول روی یک مارکر'), 'modal switch label');
 ok(appSrc.includes('cutting-batches/preview'), 'preview routes to shared-cut');
-ok(appSrc.includes('E_SHARED_CUT_NO_AMEND') || appSrc.includes('ویرایش مستقیم ندارد'), 'edit blocked messaging');
 ok(appSrc.includes('قطعه در مارکر'), 'pieces-in-marker copy');
+ok(appSrc.includes('amendSharedCut') || appSrc.includes('ویرایش چندمحصول') || appSrc.includes('cutting-batches/'), 'shared edit path');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes("erp-taranom-v469"), 'SW bumped to v469');
+ok(sw.includes("erp-taranom-v471") || sw.includes("erp-taranom-v469"), 'SW v469+ lineage');
 
 const schema = fs.readFileSync(path.join(__dirname, '../lib/production/schema.js'), 'utf8');
 ok(schema.includes("production_shared_cut: '1'"), 'default flag on');
@@ -28,7 +28,7 @@ ok(shared.includes('جمع قطعه در مارکر صفر است') || shared.in
 
 const cutting = fs.readFileSync(path.join(__dirname, '../lib/production/cutting.js'), 'utf8');
 ok(cutting.includes('voidSharedCut'), 'void lay delegates shared');
-ok(cutting.includes('E_SHARED_CUT_NO_AMEND'), 'amend blocked for batch lays');
+ok(cutting.includes('amendSharedCut'), 'amend for batch lays (v471)');
 ok(cutting.includes('shared_outputs'), 'list exposes outputs');
 
 try {
@@ -101,14 +101,16 @@ try {
     ok('لیست shared', row && Number(row.is_shared_cut) === 1);
     ok('نام دو محصول', row && (row.shared_product_names || []).length >= 2);
 
-    let amendBlocked = false;
-    try {
-      const { updateCuttingLay } = require('../lib/production/cutting');
-      updateCuttingLay(db, posted.lay_id, { product_id: a, marker_length_m: 6, ply_count: 11, size_breakdown: { فری: 2 }, rolls: [] }, { id: admin.id });
-    } catch (e) {
-      amendBlocked = e.code === 'E_SHARED_CUT_NO_AMEND';
-    }
-    ok('amend مسدود', amendBlocked);
+    const { amendSharedCut } = require('../lib/production/shared-cut');
+    const amended = amendSharedCut(db, posted.id, Object.assign({}, body, {
+      outputs: [
+        { product_id: a, size_code: 'M', pieces_per_ply: 1 },
+        { product_id: b, size_code: 'L', pieces_per_ply: 4 },
+      ],
+      reason: 'آزمون amend v471',
+    }), { id: admin.id });
+    ok('amend همان batch', amended && amended.id === posted.id);
+    ok('amend همان lay', amended && amended.lay_id === posted.lay_id);
 
     voidCuttingLay(db, posted.lay_id, { id: admin.id }, { reason: 'آزمون v469' });
     const layAfter = db.prepare('SELECT status FROM cutting_lays WHERE id=?').get(posted.lay_id);

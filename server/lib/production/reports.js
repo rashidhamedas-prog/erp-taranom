@@ -205,19 +205,61 @@ function costSheet(db, { orderId }) {
     const plan = orderFgPlanRows(db, order);
     if (plan.length > 1) {
       const total = Math.round(Number(summary.total_cost_rial) || 0);
-      products = plan.map(p => {
-        const share = Number(p.cost_share_percent) || 0;
-        const cost = Math.round(total * share / 100);
+      // W2b / ADR-006 — اگر برش مشترک به سفارش وصل باشد، سهم از allocated_rial واقعی
+      let allocByPid = new Map();
+      let allocSum = 0;
+      try {
+        const rows = db.prepare(`
+          SELECT a.product_id AS product_id, SUM(COALESCE(a.amount_rial,0)) AS amt
+          FROM cutting_batch_allocations a
+          JOIN cutting_batches b ON b.id = a.batch_id
+          JOIN cutting_lays l ON l.id = b.lay_id
+          WHERE l.production_order_id = ?
+            AND COALESCE(l.status,'posted') <> 'reversed'
+            AND COALESCE(b.status,'posted') <> 'reversed'
+          GROUP BY a.product_id
+        `).all(oid);
+        for (const r of rows) {
+          const amt = Math.round(Number(r.amt) || 0);
+          allocByPid.set(Number(r.product_id), amt);
+          allocSum += amt;
+        }
+      } catch { /* tables may be missing */ }
+      const useAlloc = allocSum > 0 && plan.every((p) => allocByPid.has(Number(p.product_id)));
+      products = plan.map((p) => {
         const qty = Number(p.qty_planned) || 0;
+        const bomShare = Number(p.cost_share_percent) || 0;
+        let share = bomShare;
+        let cost;
+        if (useAlloc) {
+          const a = allocByPid.get(Number(p.product_id)) || 0;
+          share = allocSum > 0 ? Math.round((a * 10000) / allocSum) / 100 : bomShare;
+          cost = Math.round(total * (a / allocSum));
+        } else {
+          cost = Math.round(total * bomShare / 100);
+        }
         return {
           product_id: p.product_id,
           product_name: p.product_name,
           qty_planned: qty,
           cost_share_percent: share,
+          cost_share_source: useAlloc ? 'shared_cut_alloc' : 'bom_percent',
+          allocated_fabric_rial: useAlloc ? (allocByPid.get(Number(p.product_id)) || 0) : null,
           cost_rial: cost,
           unit_cost_rial: qty > 0 ? Math.round(cost / qty) : 0,
         };
       });
+      if (useAlloc && products.length) {
+        let drift = total - products.reduce((s, x) => s + x.cost_rial, 0);
+        if (drift !== 0) {
+          const richest = products.slice().sort((a, b) => b.cost_rial - a.cost_rial
+            || a.product_id - b.product_id)[0];
+          richest.cost_rial += drift;
+          if (richest.qty_planned > 0) {
+            richest.unit_cost_rial = Math.round(richest.cost_rial / richest.qty_planned);
+          }
+        }
+      }
     }
   } catch { products = []; }
   if (!summary.product_name) {

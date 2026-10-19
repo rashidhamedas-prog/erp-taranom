@@ -1432,7 +1432,18 @@ function updateCuttingLay(db, id, body, user) {
   if (!row) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (row.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل ویرایش نیست', 'E_CUT_REVERSED');
   if (row.batch_id) {
-    throw httpErr(409, 'لایه‌چینی چندمحصولی (برش مشترک) را ابطال کنید و دوباره ثبت کنید — ویرایش مستقیم ندارد', 'E_SHARED_CUT_NO_AMEND');
+    // W2 / ADR-006 — ویرایش اتمی برش مشترک (همان batch/lay)
+    if (!Array.isArray(body.outputs) || !body.outputs.length || !Array.isArray(body.rolls)) {
+      throw httpErr(400, 'ویرایش چندمحصولی را از مودال «ویرایش چندمحصول» انجام دهید (outputs + rolls)', 'E_SHARED_CUT_BODY');
+    }
+    const { amendSharedCut } = require('./shared-cut');
+    const bodyShared = Object.assign({}, body, {
+      production_order_id: body.production_order_id !== undefined
+        ? body.production_order_id
+        : row.production_order_id,
+    });
+    amendSharedCut(db, row.batch_id, bodyShared, user);
+    return getCuttingLay(db, row.id);
   }
   if (postedPackForLay(db, row.id)) {
     throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
@@ -1857,11 +1868,15 @@ function voidCuttingPack(db, packId, user, { reason } = {}) {
 }
 
 function voidCuttingPackByLay(db, layId, user, opts) {
-  const pack = db.prepare(`
-    SELECT * FROM cutting_packs WHERE lay_id=? ORDER BY id DESC LIMIT 1
-  `).get(Number(layId));
-  if (!pack) throw httpErr(404, 'رسید برش یافت نشد', 'E_PACK');
-  return voidCuttingPack(db, pack.id, user, opts);
+  const packs = db.prepare(`
+    SELECT * FROM cutting_packs WHERE lay_id=? AND COALESCE(status,'posted')='posted' ORDER BY id DESC
+  `).all(Number(layId));
+  if (!packs.length) throw httpErr(404, 'رسید برش یافت نشد', 'E_PACK');
+  let last = null;
+  for (const pack of packs) {
+    last = voidCuttingPack(db, pack.id, user, opts);
+  }
+  return last;
 }
 
 module.exports = {

@@ -1328,7 +1328,12 @@ function reverseOrder(db, orderId, userId, reason = '') {
     }
 
     // Restore materials (issue does not change average_cost)
+    // W4 / ADR-006: cutting_lay memos — موجودی پارچه مال لایه‌چینی است؛ restore دوباره = طاقهٔ شبح
     for (const i of issues) {
+      if (String(i.issue_type || '') === 'cutting_lay') {
+        db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
+        continue;
+      }
       restoreStock(db, {
         productId: i.product_id,
         warehouseId: i.warehouse_id,

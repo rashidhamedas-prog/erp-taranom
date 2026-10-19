@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۷/۲۷ — ADR-006 کامل W2–W4 (SW v471)
+- **W2:** `amendSharedCut` (همان batch/lay)؛ `voidCuttingPackByLay` همهٔ PACKها؛ void shared با مجوز `production:create`؛ UI «ویرایش چندمحصول» + PUT `/cutting-batches/:id`.
+- **W2b:** برگه بها چندمحصولی از `cutting_batch_allocations` وقتی لای به سفارش وصل است (`cost_share_source=shared_cut_alloc`).
+- **W3:** گیت `E_LAY_BEFORE_NEXT_STAGE` قبل از start/output مراحل بعد از برش؛ `production_order_id` روی lay/pack مشترک + `applyCuttingLayToStage`.
+- **W4:** `reverseOrder` برای `issue_type=cutting_lay` موجودی طاقه را دوباره restore نمی‌کند؛ Help + تست `test-prod-journey-adr006-v471`.
+- **فایل‌ها:** `lib/production/{shared-cut,cutting,reports,engine,engine-advanced}.js`, `routes/production-shared-cut.js`, `public/{app.js,sw.js}`, scripts v469/v471، ADR-006، CHANGE-LOG.
+- **تست:** `test-prod-journey-adr006-v471`؛ `test-cutting-lay-multi-v469`؛ `test-sms`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۷ — ADR-006: ادغام ممیزی R13 و موج‌های W2/W2b
 - **خلاصه:** یافته‌های ممیزی مسیر تولید (shared بدون amend، multi-pack void، cost sheet هنوز از ٪ فرمول) و تحقیق شکاف‌ها در ADR-006/پرامپت master ثبت شد؛ اولویت بعدی W2 سپس W2b. `test-sync` ویندوز = binding Node۲۴ (بی‌ربط به v470؛ سبز روی ایران).
 - **فایل‌ها:** `docs/architecture/PROD-JOURNEY-ADR-006-cost-truth.md`, `PROD-JOURNEY-MASTER-PROMPT-v470.md`, CHANGE-LOG.

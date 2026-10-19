@@ -74,11 +74,11 @@ BOM (هر محصول مستقل)
 
 | موج | محتوا | SW / وضعیت |
 |-----|--------|------------|
-| **W1** | ADR + `allocation_basis` (`pieces\|fabric\|manual\|hybrid`) + UI + تست | ✅ v470 (`047b1770`) |
-| **W2** | R13 لای چندمحصولی: amend اتمی (void+repost) یا مخفی‌کردن ویرایش دروغین؛ void همهٔ PACKهای WIP یک لایه؛ هم‌ترازی RBAC void | ⏳ v471+ |
-| **W2b** | برگه بها: سهم محصول از `cutting_batch_allocations.allocated_rial` (+ ضایعات لای)، نه فقط `cost_share_percent` فرمول | ⏳ |
-| **W3** | گیت سخت: عبور از برش فقط با پوشش لای؛ پیوند shared-cut ↔ سفارش/مرحله | ⏳ |
-| **W4** | یکپارچه‌سازی UX دو مسیر classic/batch؛ تست E2E finalize→pack→lay R13؛ رفع `reverseOrder` روی `cutting_lay` memo | ⏳ |
+| **W1** | ADR + `allocation_basis` (`pieces\|fabric\|manual\|hybrid`) + UI + تست | ✅ v470 |
+| **W2** | amend اتمی shared + void همهٔ PACK + RBAC create + UI ویرایش چندمحصول | ✅ v471 |
+| **W2b** | برگه بها از `cutting_batch_allocations` وقتی به سفارش وصل است | ✅ v471 |
+| **W3** | گیت `E_LAY_BEFORE_NEXT_STAGE` + `production_order_id` روی lay/pack + applyCuttingLayToStage | ✅ v471 |
+| **W4** | UX ویرایش چندمحصول؛ `reverseOrder` بدون restore طاقه برای `cutting_lay`؛ تست v471 | ✅ v471 |
 
 هر موج: Help + CHANGE-LOG + test-sms + تست اختصاصی + deploy ایران.
 

@@ -28,10 +28,39 @@ const {
   assertFabricIssueAllowed,
   assertFabricCuttingPathForFgReceipt,
   relieveStagedPackQty,
+  orderRequiresFabricCutting,
+  cuttingQtyForOrder,
 } = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
+
+/**
+ * W3 — اگر سفارش پارچهٔ متری است، تکمیل/خروجی هر مرحلهٔ بعد از برش
+ * فقط وقتی لایه‌چینی (qty_pieces) حداقل به اندازهٔ برنامهٔ سفارش باشد.
+ */
+function assertLayCompleteBeforePostCutStage(db, po, stage) {
+  if (!orderRequiresFabricCutting(db, po)) return;
+  const cut = resolveCuttingStage(db, po.id);
+  if (!cut) return;
+  if (Number(stage.id) === Number(cut.id)) return;
+  if (Number(stage.seq) <= Number(cut.seq)) return;
+  const { orderFgPlanRows } = require('./bom');
+  let need = Number(po.qty_planned) || 0;
+  try {
+    const rows = orderFgPlanRows(db, po);
+    if (rows && rows.length > 1) {
+      need = rows.reduce((s, r) => s + (Number(r.qty_planned) || 0), 0);
+    }
+  } catch { /* keep header qty */ }
+  const { lay_qty } = cuttingQtyForOrder(db, po.id);
+  if (lay_qty + 1e-9 < need) {
+    throw err('E_LAY_BEFORE_NEXT_STAGE', 409, {
+      need, lay_qty, order_id: po.id, stage_seq: stage.seq, cut_seq: cut.seq,
+      message: `قبل از مرحلهٔ بعد از برش، لایه‌چینی برای حداقل ${need} قطعه لازم است (فعلی: ${lay_qty})`,
+    });
+  }
+}
 
 function safeJson(s) {
   if (!s) return null;
@@ -649,6 +678,9 @@ function postStageCore(db, {
     throw err('E_QTY_BALANCE', 422, { in: qtyIn, out: sumOut });
   }
 
+  // W3 / ADR-006 — بعد از مرحلهٔ برش، بدون پوشش لایه‌چینی جلو نرو
+  assertLayCompleteBeforePostCutStage(db, po, stage);
+
   const allowedPct = op ? num(op.normal_waste_percent) : 0;
   const allowed = Math.ceil(qtyIn * allowedPct / 100 - 1e-9);
   let wN = wNormal;
@@ -1074,6 +1106,8 @@ function startStage(db, orderId, stageId, userId) {
     if (prev && !['done', 'skipped'].includes(prev.status)) {
       throw err('E_PREV_STAGE_OPEN', 409, { prev_seq: prev.seq, prev_status: prev.status });
     }
+    const poGate = getOrder(db, orderId);
+    assertLayCompleteBeforePostCutStage(db, poGate, stage);
     if (num(stage.qty_in) <= 0) throw err('E_QTY_INVALID', 422);
     const date = todayJalali();
     db.prepare(`
