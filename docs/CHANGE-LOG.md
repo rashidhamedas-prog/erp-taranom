@@ -3,8 +3,8 @@
 - **تصمیم:** موجودی در واحد خود کالا می‌ماند. هر واحد بعد، کد UNECE Rec 20، اعشار و ضریب نسبت به واحد مرجع همان بعد دارد. تبدیل فقط داخل یک بعد است (۱ یارد = ۰٫۹۱۴۴ متر). ست و جفت ضریب جهانی ندارند. کیلو به متر رد می‌شود.
 - **رفع:** کالا، ساخت سریع و اکسل واحد را به کاتالوگ وصل می‌کنند. سیاست عدد صحیح، دریافت طاقه و برش از بعد طول/شمارش می‌خوانند. فرمول جدید واحد جزء را از واحد کالا می‌گیرد. واحدِ در حال استفاده غیرفعال نمی‌شود. فهرست واحد جمع ندارد و قابل ویرایش است.
 - **فایل‌ها:** `lib/uom.js`, `routes/units.js`, `routes/products.js`, `lib/product-quick.js`, `lib/inventory/{qty-policy,fabric-rolls}.js`, `lib/production/{cutting,bom}.js`, `db.js`, `sync/tables.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-uom-v486.js`, CHANGE-LOG.
-- **تست:** `test-uom-v486` و `test-sms`.
-- **Deploy:** در حال انجام. SW `erp-taranom-v486`.
+- **تست:** ایران `test-uom-v486` ۱۶/۰، `test-sms` ۲۲/۰، `test-material-attr-receipt-v417` ۲۰/۰، `test-prod-fabric-receipt-gate-v403` ۱۰/۰.
+- **Deploy:** ✅ `05ed0efc` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v486`.
 
 ### ۱۴۰۵/۰۷/۲۸ — خروجی مرحلهٔ برش همان لایه‌چینی است (SW v485)
 - **ریشه:** در مراحل PO-0014 دکمهٔ «ثبت خروجی» برش مشترک، پارچهٔ «Memory Lycra» با واحد یارد را مثل حوالهٔ انبار backflush می‌کرد. گیت v484 همان مسیر را با `E_FABRIC_VIA_CUT` می‌بست. لایه‌چینی از قبل مرحله را تکمیل می‌کند؛ فرم خروجی این راه را باز نمی‌کرد.
