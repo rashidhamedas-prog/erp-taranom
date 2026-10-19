@@ -3,8 +3,8 @@
 - **تصمیم:** `docs/architecture/PROD-JOURNEY-ADR-006-cost-truth.md` — قفل بها در رسید؛ اصلاح با ابطال‌رسید یا اختلاف‌بها (الگوی v466/v468)؛ موج‌های W1…W4.
 - **موج W1:** `allocation_basis` روی `cutting_batches` + `normalizeOutputs` برای `pieces|fabric|manual|hybrid`؛ UI انتخاب روش + متر استاندارد/درصد دستی؛ ذخیره روی allocations؛ راهنما + SW `erp-taranom-v470`.
 - **فایل‌ها:** `lib/production/{shared-cut,schema}.js`, `public/{app.js,sw.js}`, `scripts/test-cutting-alloc-basis-v470.js`, ADR-006, CHANGE-LOG.
-- **تست:** `test-cutting-alloc-basis-v470`؛ `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cutting-alloc-basis-v470` ۲۲/۰؛ `test-cutting-lay-multi-v469` ۲۹/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `6e3ec669` — overlay ایران (درخت VPS کثیف؛ pull FF ممکن نبود)؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v470`.
 
 ### ۱۴۰۵/۰۷/۲۷ — لایه‌چینی چندمحصول روی یک مارکر (SW v469)
 - **درخواست:** وقتی یک طاقه پهن می‌شود دو (یا چند) محصول هم‌زمان در طول مارکر چیده می‌شوند — مثلاً قد ۶ متر، مدل A دو عدد و مدل B سه عدد در مارکر؛ انحراف، ضایعات، ته‌طاقه، حواله و ثبت حسابداری باید دقیق باشد.
