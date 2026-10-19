@@ -12905,8 +12905,13 @@ async function cuttingFillPoSelect(){
     const data=await api('GET','/production/orders?limit=200');
     rows=(data&&data.rows)||[];
   }catch(_){ rows=[]; }
-  const live=new Set(['released','in_progress']);
-  let list=rows.filter(o=>live.has(String(o.status||'')));
+  const open=new Set(['released','in_progress']);
+  let list=rows.filter(o=>{
+    const st=String(o.status||'');
+    if(st==='voided'||st==='cancelled'||st==='draft') return false;
+    if(open.has(st)) return true;
+    return !!(o.requires_fabric_cutting && !o.cutting_receipt_ready);
+  });
   if(keep && !list.some(o=>String(o.id)===keep)){
     const cur=rows.find(o=>String(o.id)===keep);
     if(cur) list=[cur].concat(list);
@@ -12918,10 +12923,13 @@ async function cuttingFillPoSelect(){
     }
   }
   const statusFa={released:'آزاد',in_progress:'در جریان',draft:'پیش‌نویس',completed:'تمام',closed:'بسته',cancelled:'لغو',voided:'حذف'};
+  const lockedSt=new Set(['closed','completed']);
   sel.innerHTML='<option value="">— بدون سفارش (برش برای موجودی) —</option>'+list.map(o=>{
     const st=statusFa[o.status]||o.status||'';
-    const label=(o.order_no||('#'+o.id))+' — '+(o.product_name||'')+(st?(' · '+st):'');
-    return '<option value="'+o.id+'">'+esc(label)+'</option>';
+    const gap=o.requires_fabric_cutting && !o.cutting_receipt_ready;
+    const locked=lockedSt.has(String(o.status||''));
+    const label=(o.order_no||('#'+o.id))+' — '+(o.product_name||'')+(st?(' · '+st):'')+(gap?(locked?' · رسید شده بدون برش':' · برش نشده'):'');
+    return '<option value="'+o.id+'"'+(locked?' disabled':'')+'>'+esc(label)+'</option>';
   }).join('');
   if(keep && [...sel.options].some(o=>o.value===keep)) sel.value=keep;
   if(sel.getAttribute('data-locked')==='1') sel.disabled=true;
@@ -32246,7 +32254,8 @@ function renderAdminGuide(){
         <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
         <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
         <li><b>اضافه طاقه:</b> اگر طول مارکر × لایه از ماندهٔ دفتر بیشتر است و پارچه واقعاً روی طاقه هست، متر تفاوت را در «اضافه طاقه» بنویسید (یا «پر کردن کسری»). این متر اول به موجودی طاقه اضافه می‌شود (بدهکار مواد ۱۱۱۰ / بستانکار انحراف مقدار ۵۲۱۱) و بعد همراه پهن‌شدن مصرف می‌شود. اتلاف این کسری را جبران نمی‌کند.</li>
-        <li><b>سفارش تولید</b> فهرست کشویی سفارش‌های آزاد و در جریان است (شمارهٔ سفارش، نه شناسهٔ داخلی). پیش‌نویس، تمام‌شده و لغوشده در فهرست زنده نیستند.</li>
+        <li><b>سفارش تولید</b> سفارش آزاد و در جریان را قابل انتخاب نشان می‌دهد. سفارش بسته‌ای که پارچهٔ طولی دارد ولی برش و بسته‌بندی ندارد هم دیده می‌شود، ولی غیرفعال است تا طاقه دوباره مصرف نشود.</li>
+        <li><b>پارچهٔ یاردی هم مثل متری</b> فقط از لایه‌چینی مصرف می‌شود. حوالهٔ مرحله و رسید محصول قبل از برش و بسته‌بندی برای این واحد بسته است.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
       <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>

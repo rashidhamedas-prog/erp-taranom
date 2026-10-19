@@ -125,6 +125,7 @@ try {
   `).run(poId, cc.id, zip, whRaw, adminId);
 
   const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(poId);
+  ok(cutting.isMeterUnit('متر') && cutting.isMeterUnit('یارد') && cutting.isMeterUnit('yard') && !cutting.isMeterUnit('عدد'), 'meter and yard are length fabric');
   ok(cutting.orderRequiresFabricCutting(db, po) === true, 'PO with meter fabric + roll requires cutting');
   const gate0 = cutting.fabricCuttingGateInfo(db, po);
   ok(gate0.requires_fabric_cutting && !gate0.cutting_receipt_ready, 'receipt not ready before lay/pack');

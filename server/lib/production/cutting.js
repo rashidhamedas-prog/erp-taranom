@@ -655,6 +655,15 @@ function fabricIssueAllowance(db, { productId, orderId } = {}) {
 function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
   const AQ = Number(qty) || 0;
   if (!(AQ > 0) || !productId) return;
+  const lengthProd = db.prepare('SELECT name, unit FROM products WHERE id=?').get(Number(productId));
+  if (lengthProd && isMeterUnit(lengthProd.unit)) {
+    throw httpErr(
+      409,
+      `«${lengthProd.name}» پارچهٔ طولی است (${lengthProd.unit}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله یا رسید مستقیم سفارش.`,
+      'E_FABRIC_VIA_CUT',
+      { product_id: Number(productId), unit: lengthProd.unit }
+    );
+  }
   if (batchId) {
     const used = db.prepare(`
       SELECT COALESCE(SUM(r.meters),0) AS s
@@ -684,7 +693,11 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
 
 function isMeterUnit(unit) {
   const u = String(unit || '').trim().toLowerCase();
-  return u === 'm' || u === 'meter' || u === 'metre' || u === 'متر' || u.includes('متر');
+  const compact = u.replace(/\s+/g, '');
+  if (u === 'm' || u === 'meter' || u === 'metre' || u === 'متر' || u.includes('متر')) return true;
+  // یارد همان پارچهٔ طولی است؛ در دادهٔ واقعی سفارش‌ها واحد طاقه یارد است نه متر.
+  if (compact === 'یارد' || compact === 'يارد' || u === 'yard' || u === 'yards' || u === 'yd') return true;
+  return false;
 }
 
 function pickFabricLine(db, lines, preferredProductId) {

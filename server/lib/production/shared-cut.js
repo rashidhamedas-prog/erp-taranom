@@ -428,6 +428,9 @@ function postSharedCut(db, body, user) {
   if (productIds.length >= 2 && !poIdReq) {
     throw httpErr(400, 'برای برش چندمحصول، سفارش تولید را انتخاب کنید تا لایه به همان سفارش وصل شود.', 'E_CUT_PO_REQUIRED');
   }
+  if (poIdReq) {
+    require('./cutting').resolveOptionalOrder(db, poIdReq, null);
+  }
   let date = String(body.date || '').trim();
   if (!date && poIdReq) {
     const poRow = db.prepare('SELECT date FROM production_orders WHERE id=?').get(poIdReq);
@@ -838,6 +841,7 @@ function amendSharedCut(db, id, body, user) {
   const poId = Number(body.production_order_id != null ? body.production_order_id : (
     existing.lay_id && (db.prepare('SELECT production_order_id FROM cutting_lays WHERE id=?').get(existing.lay_id) || {}).production_order_id
   )) || null;
+  if (poId) require('./cutting').resolveOptionalOrder(db, poId, null);
 
   return db.transaction(() => {
     reverseSharedCutEffects(db, existing, user, body.reason || 'ویرایش برش مشترک');
