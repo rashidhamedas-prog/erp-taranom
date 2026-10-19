@@ -1681,6 +1681,12 @@ function ensureSharedCutSchema(db) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
   `);
+  if (tableExists(db, 'cutting_batches')) {
+    ensureColumn(db, 'cutting_batches', 'allocation_basis', "TEXT NOT NULL DEFAULT 'pieces'");
+  }
+  if (tableExists(db, 'cutting_batch_outputs')) {
+    ensureColumn(db, 'cutting_batch_outputs', 'fabric_std_m', 'REAL NOT NULL DEFAULT 0');
+  }
   if (tableExists(db, 'cutting_lays')) {
     ensureColumn(db, 'cutting_lays', 'batch_id', 'INTEGER');
   }

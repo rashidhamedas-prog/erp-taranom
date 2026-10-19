@@ -64,6 +64,44 @@ function plannedPieces(acceptedPlies, piecesPerPly) {
   return Math.round(plies * per);
 }
 
+/** ADR-006 W1 — تسهیم قابل‌انتخاب لای مشترک */
+const ALLOC_BASES = new Set(['pieces', 'fabric', 'manual', 'hybrid']);
+
+function normalizeAllocationBasis(raw) {
+  const b = String(raw || 'pieces').trim().toLowerCase();
+  if (!ALLOC_BASES.has(b)) {
+    throw httpErr(400, 'روش تسهیم نامعتبر است (pieces|fabric|manual|hybrid)', 'E_ALLOC_BASIS');
+  }
+  return b;
+}
+
+function weightsToBps(rawWeights) {
+  const sum = rawWeights.reduce((s, n) => s + (Number(n) || 0), 0);
+  if (!(sum > 0)) throw httpErr(400, 'جمع سهم خروجی صفر است', 'E_SHARE_ZERO');
+  const bps = rawWeights.map((n) => Math.floor(((Number(n) || 0) / sum) * 10000));
+  let left = 10000 - bps.reduce((s, n) => s + n, 0);
+  const order = bps.map((_, i) => i).sort((a, b) => bps[b] - bps[a] || a - b);
+  for (const i of order) {
+    if (left <= 0) break;
+    bps[i] += 1;
+    left -= 1;
+  }
+  return bps.map((n) => n / 100);
+}
+
+function blendHybridWeights(pieceWeights, fabricWeights) {
+  const n = pieceWeights.length;
+  const mixed = [];
+  for (let i = 0; i < n; i++) {
+    const p = Number(pieceWeights[i]) || 0;
+    const f = Number(fabricWeights[i]) || 0;
+    if (f > 0 && p > 0) mixed.push((p + f) / 2);
+    else if (f > 0) mixed.push(f);
+    else mixed.push(p);
+  }
+  return weightsToBps(mixed);
+}
+
 function allocateRial(commonRial, weights) {
   const common = Math.round(Number(commonRial) || 0);
   const rows = (weights || []).map((w) => ({
@@ -145,7 +183,17 @@ function loadPolicy(db, ctx) {
   return { ...base, ...remnantThreshold(base, marker) };
 }
 
-function normalizeOutputs(outputs, acceptedPlies) {
+/**
+ * @param {object[]} outputs
+ * @param {number} acceptedPlies
+ * @param {{ allocation_basis?: string }} [opts]
+ * allocation_basis: pieces | fabric | manual | hybrid (ADR-006)
+ * fabric: نیاز به fabric_std_m (متر استاندارد پارچه به‌ازای یک قطعه در مارکر) روی هر خروجی
+ * manual: weight/weight_pct اجباری جمع ≈۱۰۰
+ * hybrid: میانگین pieces و fabric؛ اگر weight دستی باشد همان وزن می‌ماند
+ */
+function normalizeOutputs(outputs, acceptedPlies, opts) {
+  const basis = normalizeAllocationBasis(opts && opts.allocation_basis);
   const rows = Array.isArray(outputs) ? outputs : [];
   if (!rows.length) throw httpErr(400, 'حداقل یک خروجی لازم است', 'E_OUTPUTS');
   const mapped = rows.map((o) => {
@@ -153,28 +201,54 @@ function normalizeOutputs(outputs, acceptedPlies) {
     if (!(pieces > 0)) throw httpErr(400, 'قطعه در هر لایه باید بزرگ‌تر از صفر باشد', 'E_PIECES');
     const pid = Number(o.product_id);
     if (!pid) throw httpErr(400, 'کالای خروجی الزامی است', 'E_OUTPUT_PRODUCT');
+    const fabricStd = Number(o.fabric_std_m != null ? o.fabric_std_m : o.std_fabric_m);
     return {
       product_id: pid,
       size_code: String(o.size_code || ''),
       pieces_per_ply: pieces,
+      fabric_std_m: Number.isFinite(fabricStd) && fabricStd > 0 ? fabricStd : 0,
       weight: Number(o.weight != null ? o.weight : o.weight_pct),
       planned_pieces: plannedPieces(acceptedPlies, pieces),
     };
   });
-  const hasWeight = mapped.every((o) => Number.isFinite(o.weight) && o.weight > 0);
-  if (hasWeight) return mapped;
-  // سهم فنی از تعداد قطعه در مارکر (قطعه در هر لایه) — اگر کلاینت weight نفرستد.
-  const sumP = mapped.reduce((s, o) => s + o.pieces_per_ply, 0);
-  if (!(sumP > 0)) throw httpErr(400, 'جمع قطعه در مارکر صفر است', 'E_SHARE_ZERO');
-  const bps = mapped.map((o) => Math.floor((o.pieces_per_ply / sumP) * 10000));
-  let left = 10000 - bps.reduce((s, n) => s + n, 0);
-  const order = bps.map((_, i) => i).sort((a, b) => bps[b] - bps[a] || mapped[a].product_id - mapped[b].product_id);
-  for (const i of order) {
-    if (left <= 0) break;
-    bps[i] += 1;
-    left -= 1;
+
+  const pieceRaw = mapped.map((o) => o.pieces_per_ply);
+  const fabricRaw = mapped.map((o) => o.fabric_std_m * o.pieces_per_ply);
+  const hasManual = mapped.every((o) => Number.isFinite(o.weight) && o.weight > 0);
+  const hasFabric = fabricRaw.every((n) => n > 0);
+
+  let weights;
+  if (basis === 'manual') {
+    if (!hasManual) throw httpErr(400, 'در تسهیم دستی درصد هر محصول الزامی است', 'E_ALLOC_MANUAL');
+    weights = weightsToBps(mapped.map((o) => o.weight));
+  } else if (basis === 'fabric') {
+    if (!hasFabric) {
+      throw httpErr(400, 'در تسهیم پارچه، متر استاندارد پارچه (fabric_std_m) برای هر محصول لازم است', 'E_ALLOC_FABRIC');
+    }
+    weights = weightsToBps(fabricRaw);
+  } else if (basis === 'hybrid') {
+    if (hasManual) {
+      weights = weightsToBps(mapped.map((o) => o.weight));
+    } else {
+      const pw = weightsToBps(pieceRaw);
+      if (!hasFabric) {
+        weights = pw;
+      } else {
+        const fw = weightsToBps(fabricRaw);
+        weights = blendHybridWeights(pw, fw);
+      }
+    }
+  } else {
+    // pieces — اگر weight دستی ارسال شده باشد محترم است (سازگاری با کلاینت قدیمی)
+    if (hasManual) weights = weightsToBps(mapped.map((o) => o.weight));
+    else weights = weightsToBps(pieceRaw);
   }
-  return mapped.map((o, i) => ({ ...o, weight: bps[i] / 100 }));
+
+  return mapped.map((o, i) => ({
+    ...o,
+    weight: weights[i],
+    allocation_basis: basis,
+  }));
 }
 
 function previewRolls(rolls, policy, markerLengthM, tolerance) {
@@ -235,12 +309,14 @@ function previewSharedCut(db, body) {
     });
   const tol = Number(setting(db, 'production_roll_balance_tolerance_m', '0.01'));
   const pliesHint = (body.rolls || []).reduce((s, r) => s + Math.round(Number(r.ply_count) || 0), 0);
-  const outputs = normalizeOutputs(body.outputs, pliesHint);
+  const allocation_basis = normalizeAllocationBasis(body.allocation_basis);
+  const outputs = normalizeOutputs(body.outputs, pliesHint, { allocation_basis });
   const rolls = previewRolls(body.rolls, policy, marker, tol);
   const bad = rolls.filter((r) => !r.equation.ok);
   return {
     preview: true,
     marker_length_m: marker,
+    allocation_basis,
     policy,
     outputs,
     rolls,
@@ -282,21 +358,25 @@ function postSharedCut(db, body, user) {
     const head = db.prepare(`
       INSERT INTO cutting_batches
         (batch_no, marker_length_m, width_cm, bom_id, fabric_product_id, status, policy_json,
-         idempotency_key, date, note, created_by)
-      VALUES (?,?,?,?,?,'posted',?,?,?,?,?)
+         idempotency_key, date, note, created_by, allocation_basis)
+      VALUES (?,?,?,?,?,'posted',?,?,?,?,?,?)
     `).run(
       batchNo, plan.marker_length_m, Math.round(Number(body.width_cm) || 0),
       body.bom_id || null, body.fabric_product_id || null,
-      JSON.stringify(plan.policy), key, date, String(body.note || ''), user && user.id
+      JSON.stringify(plan.policy), key, date, String(body.note || ''), user && user.id,
+      plan.allocation_basis || 'pieces'
     );
     const batchId = head.lastInsertRowid;
     const insOut = db.prepare(`
       INSERT INTO cutting_batch_outputs
-        (batch_id, product_id, size_code, pieces_per_ply, weight_pct, planned_pieces, accepted_plies, good_pieces)
-      VALUES (?,?,?,?,?,?,?,?)
+        (batch_id, product_id, size_code, pieces_per_ply, weight_pct, planned_pieces, accepted_plies, good_pieces, fabric_std_m)
+      VALUES (?,?,?,?,?,?,?,?,?)
     `);
     for (const o of plan.outputs) {
-      insOut.run(batchId, o.product_id, o.size_code, o.pieces_per_ply, o.weight, o.planned_pieces, 0, o.planned_pieces);
+      insOut.run(
+        batchId, o.product_id, o.size_code, o.pieces_per_ply, o.weight, o.planned_pieces, 0, o.planned_pieces,
+        Number(o.fabric_std_m) || 0
+      );
     }
     const lay = db.prepare(`
       INSERT INTO cutting_lays
@@ -435,14 +515,15 @@ function postSharedCut(db, body, user) {
     const shares = allocateRial(common, plan.outputs.map((o) => ({
       product_id: o.product_id, size_code: o.size_code, weight: o.weight,
     })));
+    const allocBasis = plan.allocation_basis || 'pieces';
     const byProduct = new Map();
     for (const s of shares) {
       const cur = byProduct.get(s.product_id) || 0;
       byProduct.set(s.product_id, cur + s.amount_rial);
       db.prepare(`
         INSERT INTO cutting_batch_allocations (batch_id, product_id, weight, amount_rial, basis)
-        VALUES (?,?,?,?, 'marker_share')
-      `).run(batchId, s.product_id, s.weight, s.amount_rial);
+        VALUES (?,?,?,?,?)
+      `).run(batchId, s.product_id, s.weight, s.amount_rial, allocBasis);
     }
     const wip = warehouseByCode(db, 'WH-WIP', 'production_wh_wip_id');
     if (!wip) throw httpErr(400, 'انبار WIP یافت نشد', 'E_WIP_WH');
@@ -623,6 +704,9 @@ module.exports = {
   rollEquation,
   plannedPieces,
   allocateRial,
+  normalizeAllocationBasis,
+  weightsToBps,
+  blendHybridWeights,
   normalizeOutputs,
   loadPolicy,
   previewSharedCut,

@@ -12689,9 +12689,10 @@ function cuttingSetMultiMode(on){
   if(multi) multi.hidden=!window._cutMultiMode;
   if(hint){
     hint.textContent=window._cutMultiMode
-      ? 'عدد هر سایز = قطعه در طول مارکر (در هر لایهٔ پارچه). قطعهٔ کل = آن × لایه روی طاقه. سهم پارچه از نسبت قطعات است.'
+      ? 'عدد هر سایز = قطعه در طول مارکر (در هر لایه). روش تسهیم هزینهٔ پارچه را از لیست زیر انتخاب کنید (قطعه / متر استاندارد / دستی / ترکیبی).'
       : 'ماتریس سایز = تعداد قطعهٔ این لایه (مسیر کلاسیک تک‌محصول).';
   }
+  cuttingRefreshAllocUi();
   const t1=el('cl-mode-single'); const t2=el('cl-mode-multi');
   if(t1) t1.className='btn sm'+(window._cutMultiMode?' ghost':'');
   if(t2) t2.className='btn sm'+(window._cutMultiMode?'':' ghost');
@@ -12728,10 +12729,38 @@ function cuttingSyncMultiFromInputs(){
     }
   });
 }
+function cuttingAllocBasis(){
+  const v=(el('cl-alloc-basis')&&el('cl-alloc-basis').value)||'pieces';
+  return ['pieces','fabric','manual','hybrid'].includes(v)?v:'pieces';
+}
+function cuttingRefreshAllocUi(){
+  const basis=cuttingAllocBasis();
+  const fabBox=el('cl-alloc-fabric-hint');
+  const manBox=el('cl-alloc-manual-hint');
+  if(fabBox) fabBox.hidden=!(basis==='fabric'||basis==='hybrid');
+  if(manBox) manBox.hidden=!(basis==='manual'||basis==='hybrid');
+  cuttingRenderMultiProducts();
+}
+function cuttingSyncMultiMetaFromInputs(){
+  document.querySelectorAll('#cl-multi-list [data-mp-fabric]').forEach(inp=>{
+    const pid=+inp.getAttribute('data-mp-fabric');
+    const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
+    if(row) row.fabric_std_m=+inp.value||0;
+  });
+  document.querySelectorAll('#cl-multi-list [data-mp-weight]').forEach(inp=>{
+    const pid=+inp.getAttribute('data-mp-weight');
+    const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
+    if(row) row.manual_weight=+inp.value||0;
+  });
+}
 function cuttingRenderMultiProducts(){
   const box=el('cl-multi-list'); if(!box) return;
   cuttingSyncMultiFromInputs();
+  cuttingSyncMultiMetaFromInputs();
   const list=cuttingMultiProducts();
+  const basis=cuttingAllocBasis();
+  const showFab=basis==='fabric'||basis==='hybrid';
+  const showMan=basis==='manual'||basis==='hybrid';
   if(!list.length){
     box.innerHTML='<p class="muted">حداقل دو کالای دوخته‌شده اضافه کنید. عدد = قطعه در مارکر (در هر لایه).</p>';
     const share0=el('cl-multi-share'); if(share0) share0.textContent='';
@@ -12743,44 +12772,78 @@ function cuttingRenderMultiProducts(){
       return '<div class="fg"><label>'+esc(sz)+'</label><input type="number" min="0" step="1" value="'+v+'" data-mp-pid="'+p.product_id+'" data-mp-size="'+esc(sz)+'"></div>';
     }).join('');
     const sum=Object.values(p.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
+    const fab=Number(p.fabric_std_m)||0;
+    const mw=Number(p.manual_weight)||0;
+    const meta=(showFab?'<div class="fg"><label>متر استاندارد پارچه / قطعه</label><input type="number" min="0" step="0.001" value="'+(fab||'')+'" data-mp-fabric="'+p.product_id+'"></div>':'')
+      +(showMan?'<div class="fg"><label>سهم٪ دستی</label><input type="number" min="0" step="0.01" value="'+(mw||'')+'" data-mp-weight="'+p.product_id+'"></div>':'');
     return '<div class="panel" style="margin:8px 0;padding:8px" data-mp-card="'+p.product_id+'">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
       +'<b>'+esc(p.product_name||('#'+p.product_id))+'</b>'
       +'<span class="muted">جمع در مارکر: <b data-mp-sum="'+p.product_id+'">'+fmt(sum)+'</b></span>'
       +'<button type="button" class="btn ghost sm" data-mp-remove="'+p.product_id+'">حذف</button>'
-      +'</div><div class="form-grid" style="margin-top:6px">'+cells+'</div></div>';
+      +'</div><div class="form-grid" style="margin-top:6px">'+cells+meta+'</div></div>';
   }).join('');
   box.querySelectorAll('[data-mp-remove]').forEach(btn=>{
     btn.addEventListener('click',()=>cuttingMultiRemoveProduct(+btn.getAttribute('data-mp-remove')));
   });
-  box.querySelectorAll('[data-mp-pid]').forEach(inp=>{
-    inp.addEventListener('input',()=>{
-      cuttingSyncMultiFromInputs();
-      const pid=+inp.getAttribute('data-mp-pid');
-      const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
-      const sumEl=box.querySelector('[data-mp-sum="'+pid+'"]');
-      if(row && sumEl){
-        const sum=Object.values(row.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
-        sumEl.textContent=fmt(sum);
+  const refreshShare=()=>{
+    cuttingSyncMultiFromInputs();
+    cuttingSyncMultiMetaFromInputs();
+    const rows=cuttingMultiProducts();
+    const pieces=rows.map(x=>Object.values(x.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0));
+    let pct;
+    if(basis==='manual'){
+      pct=sharedCutSharePct(rows.map(x=>Number(x.manual_weight)||0));
+    }else if(basis==='fabric'){
+      pct=sharedCutSharePct(rows.map((x,i)=>pieces[i]*(Number(x.fabric_std_m)||0)));
+    }else if(basis==='hybrid'){
+      const hasMan=rows.every(x=>Number(x.manual_weight)>0);
+      if(hasMan) pct=sharedCutSharePct(rows.map(x=>Number(x.manual_weight)||0));
+      else{
+        const pw=sharedCutSharePct(pieces);
+        const fwRaw=rows.map((x,i)=>pieces[i]*(Number(x.fabric_std_m)||0));
+        if(fwRaw.every(n=>n>0)){
+          const fw=sharedCutSharePct(fwRaw);
+          pct=sharedCutSharePct(pw.map((p,i)=>((Number(p)||0)+(Number(fw[i])||0))/2));
+        }else pct=pw;
       }
-      const pieces=cuttingMultiProducts().map(x=>Object.values(x.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0));
-      const pct=sharedCutSharePct(pieces);
-      const share=el('cl-multi-share');
-      if(share) share.textContent=cuttingMultiProducts().map((x,i)=>esc(x.product_name)+': '+(pct[i]!=null?pct[i]:0)+'%').join(' · ');
+    }else pct=sharedCutSharePct(pieces);
+    const share=el('cl-multi-share');
+    if(share) share.textContent=rows.map((x,i)=>esc(x.product_name)+': '+(pct[i]!=null?pct[i]:0)+'%').join(' · ');
+  };
+  box.querySelectorAll('[data-mp-pid],[data-mp-fabric],[data-mp-weight]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const pid=+inp.getAttribute('data-mp-pid');
+      if(pid){
+        cuttingSyncMultiFromInputs();
+        const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
+        const sumEl=box.querySelector('[data-mp-sum="'+pid+'"]');
+        if(row && sumEl){
+          const sum=Object.values(row.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
+          sumEl.textContent=fmt(sum);
+        }
+      }
+      refreshShare();
     });
   });
-  const pieces=list.map(x=>Object.values(x.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0));
-  const pct=sharedCutSharePct(pieces);
-  const share=el('cl-multi-share');
-  if(share) share.textContent=list.map((x,i)=>esc(x.product_name)+': '+(pct[i]!=null?pct[i]:0)+'%').join(' · ');
+  refreshShare();
 }
 function cuttingCollectMultiOutputs(){
   cuttingSyncMultiFromInputs();
+  cuttingSyncMultiMetaFromInputs();
   const outs=[];
+  const basis=cuttingAllocBasis();
   cuttingMultiProducts().forEach(p=>{
-    Object.entries(p.breakdown||{}).forEach(([sz,q])=>{
-      const n=+q||0;
-      if(n>0) outs.push({product_id:Number(p.product_id), size_code:String(sz), pieces_per_ply:n});
+    const entries=Object.entries(p.breakdown||{}).map(([sz,q])=>[sz,+q||0]).filter(([,n])=>n>0);
+    const sumPieces=entries.reduce((s,[,n])=>s+n,0);
+    const productWeight=Number(p.manual_weight)||0;
+    const useManualWeight=(basis==='manual'||basis==='hybrid') && productWeight>0 && sumPieces>0;
+    entries.forEach(([sz,n])=>{
+      const row={product_id:Number(p.product_id), size_code:String(sz), pieces_per_ply:n};
+      if(Number(p.fabric_std_m)>0) row.fabric_std_m=Number(p.fabric_std_m);
+      // وزن محصول را بین سایزها به نسبت قطعه پخش کن تا جمع سهم‌ها خراب نشود
+      if(useManualWeight) row.weight=productWeight*(n/sumPieces);
+      outs.push(row);
     });
   });
   return outs;
@@ -13036,9 +13099,19 @@ async function cuttingLayModal(editId){
       <div class="toolbar" style="gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
         <div class="fg" style="margin:0;min-width:220px"><label>افزودن کالا</label>${productSelect('cl-multi-add','',list)}</div>
         <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){cuttingMultiAddProduct(el('cl-multi-add')&&el('cl-multi-add').value)})}">➕ افزودن</button>
+        <div class="fg" style="margin:0;min-width:200px"><label>روش تسهیم هزینهٔ پارچه</label>
+          <select id="cl-alloc-basis" data-csp-change="${CSP.bind('change',function(){cuttingRefreshAllocUi()})}">
+            <option value="pieces" selected>نسبت تعداد قطعه</option>
+            <option value="fabric">نسبت متر استاندارد پارچه</option>
+            <option value="manual">درصد دستی</option>
+            <option value="hybrid">ترکیبی (پیشنهاد + قابل‌ویرایش)</option>
+          </select>
+        </div>
       </div>
+      <p class="muted" id="cl-alloc-fabric-hint" hidden style="font-size:12px;margin:0 0 6px">برای هر محصول «متر استاندارد پارچه به‌ازای یک قطعه در مارکر» را وارد کنید (مثلاً ۱٫۳ برای یلدا).</p>
+      <p class="muted" id="cl-alloc-manual-hint" hidden style="font-size:12px;margin:0 0 6px">درصد سهم هر محصول را وارد کنید؛ جمع باید حدود ۱۰۰٪ باشد (سرور نرمال می‌کند).</p>
       <div id="cl-multi-list"></div>
-      <p class="muted" style="font-size:12px">سهم پارچه (خودکار): <span id="cl-multi-share"></span></p>
+      <p class="muted" style="font-size:12px">سهم محاسبه‌شده: <span id="cl-multi-share"></span></p>
     </div>
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود. در حالت چندمحصول برای هر طاقه «لایه» و «اتلاف طولی» را وارد کنید.</div>
     <div id="cl-rolls"><span class="muted">ابتدا کالا و رنگ را انتخاب کنید…</span></div>
@@ -13367,6 +13440,7 @@ function cuttingBuildSharedBody(){
     width_cm:+el('cl-w').value||0,
     fabric_product_id:window._cutFabricProductId||undefined,
     color,
+    allocation_basis:cuttingAllocBasis(),
     cost_center_id: el('cl-cc')&&el('cl-cc').value?+el('cl-cc').value:undefined,
     production_order_id: el('cl-po')&&el('cl-po').value?+el('cl-po').value:undefined,
     outputs,
@@ -31830,14 +31904,15 @@ function renderAdminGuide(){
         <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
         <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
       </ul>`),
-    helpSec('✂️','برش مشترک / چند محصول روی یک مارکر (v469)',`
-      <p>از v469 پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
+    helpSec('✂️','برش مشترک / چند محصول روی یک مارکر (v470)',`
+      <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
       <ul>
-        <li>طول مارکر مشترک است؛ برای هر کالا ماتریس «قطعه در مارکر (در هر لایهٔ پارچه)» جداست — مثلاً مدل A دو عدد و مدل B سه عدد در قد ۶ متر.</li>
-        <li>قطعهٔ برنامه‌ای = قطعه در مارکر × لایه روی همان طاقه. سهم ریال/متر از نسبت قطعات است (نه درصد دستی).</li>
-        <li>طاقه: مانده = ورودی؛ پهن‌شده = لایه×قد؛ باقیمانده تا آستانه ته‌طاقه، بیشتر برگشت به همان طاقه؛ اتلاف طولی به ۵۲۲۱ با مرکز برش.</li>
-        <li>ثبت، PACK WIP برای هر محصول می‌سازد. ویرایش مستقیم ندارد — ابطال کامل (R13) سپس ثبت دوباره.</li>
-        <li>تک‌محصول همان مسیر کلاسیک قبلی می‌ماند (ویرایش/پوشش سفارش).</li>
+        <li>طول مارکر مشترک است؛ برای هر کالا ماتریس «قطعه در مارکر (در هر لایهٔ پارچه)» جداست — مثلاً مدل یلدا و آبان با تعداد متفاوت در یک پهن.</li>
+        <li><b>روش تسهیم هزینهٔ پارچه (v470):</b> نسبت تعداد قطعه · نسبت متر استاندارد پارچه · درصد دستی · ترکیبی (پیشنهاد + قابل‌ویرایش). روش روی سند batch ذخیره می‌شود.</li>
+        <li>قطعهٔ برنامه‌ای = قطعه در مارکر × لایه روی همان طاقه. طاقه: پهن‌شده / برگشت / ته‌طاقه / اتلاف طولی (۵۲۲۱ با مرکز برش).</li>
+        <li>ثبت، PACK WIP برای هر محصول می‌سازد. ویرایش مستقیم لایهٔ چندمحصولی هنوز با ابطال کامل (R13) سپس ثبت دوباره است (موج بعد: amend اتمی).</li>
+        <li>بعد از ورود انبار: بهای رسمی در رسید قفل است؛ اصلاح = ابطال رسید یا اصلاح اختلاف بها اگر بخشی فروش رفته (ADR-006).</li>
+        <li>تک‌محصول همان مسیر کلاسیک (ویرایش/پوشش سفارش) می‌ماند.</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`
       <p>آدرس رسمی ERP: <b dir="ltr">https://erptaranom.com</b>. DNS به‌صورت multi-primary است: Name Server روی سرور ایران (<span dir="ltr">ns1/ns2.erptaranom.com</span>) و Cloudflare (<span dir="ltr">connie/finley</span>) با رکورد هم‌سان — اگر یکی جواب ندهد دیگری resolve می‌کند. سرور اپ روی ایران است؛ با VPN اگر باز نشد split-tunnel بزنید. دامنهٔ قدیمی <span dir="ltr">erp.poshaktaranom.com</span> بازنشسته است.</p>
@@ -32091,7 +32166,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v411 اتصال لایه‌چینی → مرحلهٔ برش:</b> وقتی لایه‌چینی به سفارش پیشرفته پیوند دارد، سرور مرحلهٔ برش مسیر (CC-10 / نام «برش» / اولین مرحلهٔ پارچه) را پیدا می‌کند، مصرف پارچه را روی همان مرحله ثبت می‌کند، مرحله را تکمیل می‌کند و مرحلهٔ بعد را باز می‌کند (دستمزد/سربار مرحله از نرخ مسیر). ابطال/ویرایش لایه همان اتصال را با R13 برمی‌گرداند. پارچه دوباره در حوالهٔ مرحله حواله نمی‌شود.
           <br><b>v463 مرکز هزینه ضایعات:</b> مازاد بر سقف ضایعات عادی به ۵۲۲۱ و مرکز برش (فیلد فرم، یا CC-10) می‌رود تا الزام مرکز هزینه ثبت را نبندد.
-          <br><b>برش مشترک / چندمحصول (v469، پرچم production_shared_cut پیش‌فرض روشن):</b> در مودال لایه‌چینی سوییچ «چند محصول روی یک مارکر». عدد سایز = قطعه در طول مارکر در هر لایه. سهم ریال از نسبت قطعات. ته‌طاقه با آستانهٔ سیاست (پیش‌فرض max(۱٫۲۰م، ۲۰٪ قد الگو)). اتلاف طولی بستانکار مواد (۵۲۲۱). ابطال لایهٔ چندمحصولی کل برنامه + PACK WIP + ته‌طاقه را برمی‌گرداند. ویرایش مستقیم ندارد.
+          <br><b>برش مشترک / چندمحصول (v470، ADR-006):</b> سوییچ «چند محصول روی یک مارکر» + انتخاب روش تسهیم (قطعه / متر استاندارد پارچه / دستی / ترکیبی). ته‌طاقه و اتلاف طولی مثل قبل. ابطال R13 کامل؛ ویرایش مستقیم لایهٔ چندمحصولی هنوز void+ثبت مجدد.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>
