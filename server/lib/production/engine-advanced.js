@@ -26,7 +26,6 @@ const {
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
 const {
   assertFabricIssueAllowed,
-  assertFabricCuttingPathForFgReceipt,
   relieveStagedPackQty,
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
@@ -1278,7 +1277,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const open = stages.filter(s => !['done', 'skipped'].includes(s.status));
     if (open.length) throw err('E_STAGES_OPEN', 409, { open: open.map(s => s.seq) });
 
-    const date = body.date || todayJalali();
+    const date = String(body.date || po.date || todayJalali()).trim();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
     const jes = [];
@@ -1351,11 +1350,22 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     // F06: refuse finalize if a standalone cut-to-stock PACK already credited FG
     // for this product — that would double products.stock / WH-FG.
     require('./cutting').assertNoOrphanSellablePack(db, po.product_id, orderId);
-    // Roll-fabric apparel: lay + PACK must cover FG qty before sellable receipt.
-    assertFabricCuttingPathForFgReceipt(db, po, qtyGoodFinal);
+    // طاقه‌دار: برش و PACK هر محصول باید با تعداد سفارش یکی باشد؛ وگرنه رسید FG ممنوع.
+    require('./cutting').assertOrderCutQtyMatches(db, po);
 
     // v423: تسهیم WIP بین محصولات اصلی مستقل (peer mains)
+    const peerLines = require('./bom').orderBomPeerLines(po);
     let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
+    if (peerLines) {
+      const sumQ = peerLines.reduce((s, p) => s + (Number(p.qty_planned) || 0), 0) || 1;
+      shareOuts = peerLines.map((p) => ({
+        output_type: 'main',
+        product_id: p.product_id,
+        qty_per_base: p.qty_planned,
+        cost_share_percent: ((Number(p.qty_planned) || 0) / sumQ) * 100,
+        _peer_qty: Number(p.qty_planned) || 0,
+      }));
+    }
     if (!shareOuts.length) {
       shareOuts = [{
         output_type: 'main', product_id: po.product_id,
@@ -1396,6 +1406,8 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       let q;
       if (qtyByProduct[pid] != null) {
         q = qtyByProduct[pid];
+      } else if (o._peer_qty != null) {
+        q = o._peer_qty;
       } else if (isOrderProduct || shareOuts.length === 1) {
         q = qtyGoodFinal;
       } else {
@@ -1523,9 +1535,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       ? Math.round(orderAlloc.amount_rial / orderAlloc.qty)
       : unitCost;
 
-    relieveStagedPackQty(db, {
-      orderId, productId: po.product_id, qtyGood: qtyProducedOrder, userId, date, receiptId: primaryReceiptId,
-    });
+    for (const rec of receipts) {
+      relieveStagedPackQty(db, {
+        orderId, productId: rec.product_id, qtyGood: rec.qty, userId, date, receiptId: rec.receipt_id,
+      });
+    }
 
     db.prepare(`
       UPDATE production_orders SET
@@ -1897,7 +1911,7 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       throw err('E_PREV_STAGE_OPEN', 409, { prev_seq: prev.seq, prev_status: prev.status });
     }
 
-    const date = body.date || todayJalali();
+    const date = String(body.date || po.date || todayJalali()).trim();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
     const materialsRaw = body.materials || body.lines || [];

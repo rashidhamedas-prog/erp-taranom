@@ -198,7 +198,9 @@ function layNetWipRial(lay) {
 
 function postedPackForLay(db, layId) {
   return db.prepare(`
-    SELECT * FROM cutting_packs WHERE lay_id=? AND status='posted' ORDER BY id DESC LIMIT 1
+    SELECT * FROM cutting_packs
+    WHERE lay_id=? AND status='posted' AND ledger_id IS NOT NULL
+    ORDER BY id DESC LIMIT 1
   `).get(Number(layId));
 }
 
@@ -362,7 +364,7 @@ function cuttingQtyForOrder(db, orderId) {
     ? Number(db.prepare(`
         SELECT COALESCE(SUM(COALESCE(qty,0)),0) AS s
         FROM cutting_packs
-        WHERE production_order_id=? AND status='posted'
+        WHERE production_order_id=? AND status='posted' AND ledger_id IS NOT NULL
       `).get(oid)?.s) || 0
     : 0;
   return { lay_qty, pack_qty };
@@ -408,6 +410,63 @@ function assertFabricCuttingPathForFgReceipt(db, po, qtyGood) {
     );
   }
   return { required: true, need, lay_qty, pack_qty };
+}
+
+function cuttingQtyForOrderProduct(db, orderId, productId) {
+  const oid = Number(orderId) || 0;
+  const pid = Number(productId) || 0;
+  if (!oid || !pid) return { lay_qty: 0, pack_qty: 0 };
+  const layShared = Number(db.prepare(`
+    SELECT COALESCE(SUM(o.planned_pieces),0) AS s
+    FROM cutting_batch_outputs o
+    JOIN cutting_batches b ON b.id = o.batch_id
+    JOIN cutting_lays l ON l.id = b.lay_id
+    WHERE l.production_order_id=? AND o.product_id=?
+      AND COALESCE(l.status,'posted')<>'reversed'
+      AND COALESCE(b.status,'posted')<>'reversed'
+  `).get(oid, pid)?.s) || 0;
+  const layClassic = Number(db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(qty_pieces,0)),0) AS s
+    FROM cutting_lays
+    WHERE production_order_id=? AND product_id=? AND batch_id IS NULL
+      AND COALESCE(status,'posted')<>'reversed'
+  `).get(oid, pid)?.s) || 0;
+  const pack_qty = Number(db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(qty,0)),0) AS s
+    FROM cutting_packs
+    WHERE production_order_id=? AND product_id=? AND status='posted' AND ledger_id IS NOT NULL
+  `).get(oid, pid)?.s) || 0;
+  return { lay_qty: layShared + layClassic, pack_qty };
+}
+
+/** برش و بسته‌بندی هر محصول سفارش باید با تعداد همان محصول برابر باشد. */
+function assertOrderCutQtyMatches(db, po) {
+  if (!orderRequiresFabricCutting(db, po)) return { required: false };
+  const { orderBomPeerLines } = require('./bom');
+  const peers = orderBomPeerLines(po);
+  const lines = peers || [{ product_id: po.product_id, qty_planned: Number(po.qty_planned) || 0 }];
+  for (const line of lines) {
+    const need = Number(line.qty_planned) || 0;
+    const q = cuttingQtyForOrderProduct(db, po.id, line.product_id);
+    const name = db.prepare('SELECT name FROM products WHERE id=?').get(line.product_id)?.name || ('#' + line.product_id);
+    if (Math.abs(q.lay_qty - need) > 0.001) {
+      throw httpErr(
+        409,
+        `تعداد برش «${name}» (${q.lay_qty}) با تعداد سفارش (${need}) یکی نیست. لایه‌چینی را به همین سفارش وصل کنید.`,
+        'E_CUT_QTY_MISMATCH',
+        { product_id: line.product_id, need, lay_qty: q.lay_qty, pack_qty: q.pack_qty }
+      );
+    }
+    if (Math.abs(q.pack_qty - need) > 0.001) {
+      throw httpErr(
+        409,
+        `بسته‌بندی «${name}» (${q.pack_qty}) با تعداد سفارش (${need}) یکی نیست. از تب «بسته‌بندی / رسید محصول» ثبت کنید؛ تا قبل از آن کالا وارد انبار محصول نمی‌شود.`,
+        'E_CUTTING_PACK_REQUIRED',
+        { product_id: line.product_id, need, lay_qty: q.lay_qty, pack_qty: q.pack_qty }
+      );
+    }
+  }
+  return { required: true };
 }
 
 /**
@@ -1634,6 +1693,118 @@ function getCuttingPack(db, packId) {
   return pack;
 }
 
+function sharedPackRows(db, lay) {
+  const outs = db.prepare(`
+    SELECT product_id, size_code, planned_pieces
+    FROM cutting_batch_outputs WHERE batch_id=?
+  `).all(lay.batch_id);
+  const alloc = db.prepare(`
+    SELECT product_id, SUM(amount_rial) AS amt
+    FROM cutting_batch_allocations WHERE batch_id=?
+    GROUP BY product_id
+  `).all(lay.batch_id);
+  const amtBy = new Map(alloc.map((a) => [Number(a.product_id), Math.round(Number(a.amt) || 0)]));
+  const by = new Map();
+  for (const o of outs) {
+    const pid = Number(o.product_id);
+    if (!pid) continue;
+    if (!by.has(pid)) by.set(pid, { product_id: pid, qty: 0, sizes: {} });
+    const row = by.get(pid);
+    const q = Math.round(Number(o.planned_pieces) || 0);
+    row.qty += q;
+    const sz = String(o.size_code || '');
+    row.sizes[sz] = (row.sizes[sz] || 0) + q;
+  }
+  const rows = [...by.values()];
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0) || 1;
+  const net = layNetWipRial(lay);
+  const haveAlloc = rows.some((r) => (amtBy.get(r.product_id) || 0) > 0);
+  return rows.map((r) => ({
+    ...r,
+    amount_rial: haveAlloc ? (amtBy.get(r.product_id) || 0) : Math.round(net * r.qty / totalQty),
+  }));
+}
+
+function postSharedCuttingPacks(db, lay, body, user, key) {
+  const rows = sharedPackRows(db, lay).filter((r) => r.qty > 0);
+  if (!rows.length) throw httpErr(400, 'خروجی برش مشترک برای بسته‌بندی خالی است', 'E_PACK_QTY');
+  const resolved = resolvePackProductionOrder(db, lay, body || {});
+  const po = resolved.po;
+  const postsFg = !po;
+  const wh = requirePackWarehouse(db, body.warehouse_id, { linkedOrder: !!po });
+  const date = String(body.date || lay.date || (po && po.date) || todayJalali()).trim();
+  assertCutPeriodOpen(db, date);
+  const covered = layFgCoveredByOrder(db, lay);
+  if (covered.fg_covered_by_order) {
+    throw httpErr(409, `این لایه با رسید سفارش ${covered.covered_order_no || covered.covered_order_id} وارد انبار محصول شده`, 'E_LAY_FG_COVERED', covered);
+  }
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE cutting_packs SET status='reversed'
+      WHERE lay_id=? AND status='posted' AND ledger_id IS NULL
+    `).run(lay.id);
+    if (po && Number(lay.production_order_id) !== Number(po.id)) {
+      db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, lay.id);
+      lay.production_order_id = po.id;
+    }
+    for (const row of rows) {
+      const already = db.prepare(`
+        SELECT id FROM cutting_packs
+        WHERE lay_id=? AND product_id=? AND status='posted' AND ledger_id IS NOT NULL
+      `).get(lay.id, row.product_id);
+      if (already) continue;
+      const unitCost = row.qty > 0 ? Math.round(row.amount_rial / row.qty) : 0;
+      let packNo;
+      try {
+        const { allocateNumber } = require('../../db');
+        packNo = allocateNumber(db, 'cutting_pack', 'PK');
+      } catch (_) {
+        packNo = 'PK-' + Date.now().toString(36).toUpperCase();
+      }
+      const idem = key + ':p:' + row.product_id;
+      const id = db.prepare(`
+        INSERT INTO cutting_packs (
+          pack_no, lay_id, production_order_id, product_id, warehouse_id, qty,
+          amount_rial, unit_cost_rial, size_breakdown, status, idempotency_key, date, note, created_by
+        ) VALUES (?,?,?,?,?,?,?,?,?,'posted',?,?,?,?)
+      `).run(
+        packNo, lay.id, po ? po.id : null, row.product_id, wh.id, row.qty,
+        row.amount_rial, unitCost, JSON.stringify(row.sizes), idem, date,
+        String(body.note || 'بسته‌بندی برش مشترک').trim(), user.id
+      ).lastInsertRowid;
+      const led = postInventoryMovement(db, {
+        eventType: postsFg ? 'production_receipt' : 'cutting_pack',
+        productId: row.product_id,
+        warehouseId: wh.id,
+        qtyIn: row.qty,
+        unitCostRial: unitCost,
+        amountRial: row.amount_rial,
+        sourceType: 'cutting_pack',
+        sourceId: id,
+        date,
+        note: postsFg ? `رسید برش ${packNo}` : `بسته برش (WIP) ${packNo}`,
+        createdBy: user.id,
+        updateAvg: !!postsFg,
+        warehouseOnly: !postsFg,
+      });
+      let journalId = null;
+      if (postsFg && row.amount_rial > 0) {
+        const je = postEvent(db, {
+          event: 'PRD-07',
+          sourceId: id,
+          date,
+          description: `رسید برش ${row.qty} عدد — ${packNo}`,
+          createdBy: user.id,
+          lines: [dr(db, 'coa_finished_goods', row.amount_rial), cr(db, 'coa_wip', row.amount_rial)],
+        });
+        journalId = je ? je.je_id : null;
+      }
+      db.prepare('UPDATE cutting_packs SET journal_id=?, ledger_id=? WHERE id=?').run(journalId, led.id, id);
+    }
+  })();
+  return getCuttingLay(db, lay.id);
+}
+
 function postCuttingPack(db, layId, body, user) {
   const key = String(body.idempotency_key || '').trim();
   if (!key) throw httpErr(400, 'کلید تکرارناپذیر الزامی است', 'E_PACK_IDEMPOTENCY');
@@ -1643,10 +1814,8 @@ function postCuttingPack(db, layId, body, user) {
   const lay = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(layId));
   if (!lay) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (lay.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل بسته‌بندی نیست', 'E_CUT_REVERSED');
-  const live = lay.batch_id
-    ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND product_id=? AND status='posted'")
-      .get(lay.id, Number((body && body.product_id) || lay.product_id))
-    : postedPackForLay(db, lay.id);
+  if (lay.batch_id) return postSharedCuttingPacks(db, lay, body || {}, user, key);
+  const live = postedPackForLay(db, lay.id);
   if (live) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
 
   const covered = layFgCoveredByOrder(db, lay);
@@ -1680,9 +1849,7 @@ function postCuttingPack(db, layId, body, user) {
       const packProductId = lay.batch_id
         ? Number((body && body.product_id) || lay.product_id)
         : Number(lay.product_id);
-      const liveNow = lay.batch_id
-        ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND product_id=? AND status='posted'").get(lay.id, packProductId)
-        : postedPackForLay(db, lay.id);
+      const liveNow = postedPackForLay(db, lay.id);
       if (liveNow) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
       if (po && Number(lay.production_order_id) !== Number(po.id)) {
         db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, lay.id);
@@ -1913,6 +2080,7 @@ module.exports = {
   cuttingQtyForOrder,
   fabricCuttingGateInfo,
   assertFabricCuttingPathForFgReceipt,
+  assertOrderCutQtyMatches,
   relieveStagedPackQty,
   layFgCoveredByOrder,
   fabricLineFromBom,

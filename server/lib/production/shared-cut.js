@@ -385,7 +385,17 @@ function postSharedCut(db, body, user) {
   if (!plan.balanced && !body.override_balance) {
     throw httpErr(400, 'تراز طاقه خارج از تلرانس است', 'E_ROLL_BALANCE', { errors: plan.errors });
   }
-  const date = String(body.date || todayJalali()).trim();
+  const productIds = [...new Set(plan.outputs.map((o) => Number(o.product_id)).filter((n) => n > 0))];
+  const poIdReq = Number(body.production_order_id) || 0;
+  if (productIds.length >= 2 && !poIdReq) {
+    throw httpErr(400, 'برای برش چندمحصول، سفارش تولید را انتخاب کنید تا لایه به همان سفارش وصل شود.', 'E_CUT_PO_REQUIRED');
+  }
+  let date = String(body.date || '').trim();
+  if (!date && poIdReq) {
+    const poRow = db.prepare('SELECT date FROM production_orders WHERE id=?').get(poIdReq);
+    if (poRow && poRow.date) date = String(poRow.date).trim();
+  }
+  if (!date) date = todayJalali();
   const anchor = plan.outputs.slice().sort((a, b) => a.product_id - b.product_id)[0];
 
   return db.transaction(() => {
@@ -563,25 +573,6 @@ function postSharedCut(db, body, user) {
         INSERT INTO cutting_batch_allocations (batch_id, product_id, weight, amount_rial, basis)
         VALUES (?,?,?,?,?)
       `).run(batchId, s.product_id, s.weight, s.amount_rial, allocBasis);
-    }
-    const wip = warehouseByCode(db, 'WH-WIP', 'production_wh_wip_id');
-    if (!wip) throw httpErr(400, 'انبار WIP یافت نشد', 'E_WIP_WH');
-    const pieceByProduct = new Map();
-    for (const o of plan.outputs) {
-      pieceByProduct.set(o.product_id, (pieceByProduct.get(o.product_id) || 0) + o.planned_pieces);
-    }
-    for (const [pid, qty] of pieceByProduct) {
-      const amt = byProduct.get(pid) || 0;
-      const { allocateNumber: alloc } = require('../../db');
-      const packNo = alloc(db, 'cutting_pack', 'PK');
-      db.prepare(`
-        INSERT INTO cutting_packs
-          (pack_no, lay_id, product_id, warehouse_id, qty, amount_rial, unit_cost_rial, status, idempotency_key, date, note, created_by, production_order_id)
-        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?,?)
-      `).run(
-        packNo, layId, pid, wip.id, qty, amt, qty > 0 ? Math.round(amt / qty) : 0,
-        key + ':pack:' + pid, date, 'WIP برش مشترک', user && user.id, poId
-      );
     }
     db.prepare(`
       UPDATE cutting_lays SET journal_id=?, waste_journal_id=?, amount_rial=?, waste_amount_rial=?, unit_cost_rial=?
@@ -957,26 +948,6 @@ function amendSharedCut(db, id, body, user) {
         INSERT INTO cutting_batch_allocations (batch_id, product_id, weight, amount_rial, basis)
         VALUES (?,?,?,?,?)
       `).run(batchId, s.product_id, s.weight, s.amount_rial, allocBasis);
-    }
-    const wip = warehouseByCode(db, 'WH-WIP', 'production_wh_wip_id');
-    if (!wip) throw httpErr(400, 'انبار WIP یافت نشد', 'E_WIP_WH');
-    const pieceByProduct = new Map();
-    for (const o of plan.outputs) {
-      pieceByProduct.set(o.product_id, (pieceByProduct.get(o.product_id) || 0) + o.planned_pieces);
-    }
-    const key = String(existing.idempotency_key || ('amend-' + batchId));
-    for (const [pid, qty] of pieceByProduct) {
-      const amt = byProduct.get(pid) || 0;
-      const { allocateNumber: alloc } = require('../../db');
-      const packNo = alloc(db, 'cutting_pack', 'PK');
-      db.prepare(`
-        INSERT INTO cutting_packs
-          (pack_no, lay_id, product_id, warehouse_id, qty, amount_rial, unit_cost_rial, status, idempotency_key, date, note, created_by, production_order_id)
-        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?,?)
-      `).run(
-        packNo, layId, pid, wip.id, qty, amt, qty > 0 ? Math.round(amt / qty) : 0,
-        key + ':pack:' + pid + ':a' + Date.now(), date, 'WIP برش مشترک', user && user.id, poId
-      );
     }
     db.prepare(`
       UPDATE cutting_lays SET journal_id=?, waste_journal_id=?, amount_rial=?, waste_amount_rial=?, unit_cost_rial=?

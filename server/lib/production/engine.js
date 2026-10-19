@@ -774,7 +774,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     }
     require('./product-completeness').assertOrderReady(db, orderId, 'finalize');
 
-    const date = body.date || todayJalali();
+    const date = String(body.date || po.date || todayJalali()).trim();
     const period = jalaliPeriod(date);
     const fy = assertFiscalYearWritable(db, date);
     if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
@@ -1696,7 +1696,7 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
     `).get(orderId);
     if (hasReceipt) throw err('E_RECEIPT_EXISTS', 409);
 
-    const date = body.date || todayJalali();
+    const date = String(body.date || po.date || todayJalali()).trim();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
     const fy = assertFiscalYearWritable(db, date);
@@ -1933,7 +1933,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
     `).get(orderId);
     if (!issued || Math.abs(Number(issued.s)) < 1) throw err('E_NO_MATERIAL_ISSUED', 422);
 
-    const date = body.date || todayJalali();
+    const date = String(body.date || po.date || todayJalali()).trim();
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
 
