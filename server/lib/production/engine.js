@@ -189,7 +189,7 @@ function normalizeMatrixPayload(body) {
 }
 
 /** Each product's color×size grid is resolved against that product, not the order header. */
-function resolveMatrixGroups(db, { fallbackProductId, bomId, lines }) {
+function resolveMatrixGroups(db, { fallbackProductId, bomId, lines, bomByProduct }) {
   const groups = new Map();
   for (const ln of lines) {
     const pid = Number(ln.product_id) || Number(fallbackProductId);
@@ -198,7 +198,8 @@ function resolveMatrixGroups(db, { fallbackProductId, bomId, lines }) {
   }
   const out = [];
   for (const [pid, part] of groups) {
-    for (const ln of resolveMatrixLines(db, { productId: pid, bomId, lines: part })) {
+    const scopedBom = bomByProduct && bomByProduct[pid] ? bomByProduct[pid] : bomId;
+    for (const ln of resolveMatrixLines(db, { productId: pid, bomId: scopedBom, lines: part })) {
       out.push({ ...ln, product_id: pid });
     }
   }
@@ -333,10 +334,24 @@ function createOrder(db, body, userId) {
   const color = String(body.color || '').trim();
 
   // PA-04 — explicit color×size order matrix. On a joint run each product has its own grid.
+  const peerBomByProduct = {};
+  if (Array.isArray(body.order_products)) {
+    for (const raw of body.order_products) {
+      const pid = Number(raw?.product_id);
+      if (!pid || pid === Number(productId)) continue;
+      const peerBom = resolveBom(db, {
+        productId: pid,
+        date,
+        preferredBomId: raw.bom_id ? Number(raw.bom_id) : null,
+      });
+      peerBomByProduct[pid] = peerBom.id;
+      raw.bom_id = peerBom.id;
+    }
+  }
   let matrixLines = normalizeMatrixPayload(body);
   if (matrixLines && matrixLines.length) {
     matrixLines = resolveMatrixGroups(db, {
-      fallbackProductId: productId, bomId: bom.id, lines: matrixLines,
+      fallbackProductId: productId, bomId: bom.id, lines: matrixLines, bomByProduct: peerBomByProduct,
     });
     assertMatrixCellsUnique(matrixLines);
   }
@@ -376,6 +391,17 @@ function createOrder(db, body, userId) {
     productId, bom, qtyPlanned, date, body,
   });
   if (peerStored) {
+    for (const line of peerStored) {
+      if (Number(line.product_id) === Number(productId)) continue;
+      const mine = linesFor(line.product_id);
+      if (mine.length) line.qty = sumOf(mine);
+      else if (hasActiveMatrixVariants(db, line.product_id)) {
+        throw err('E_VARIANT_REQUIRED', 400, {
+          product_id: line.product_id,
+          detail: 'برای محصول اضافه‌شده هم رنگ و سایز لازم است',
+        });
+      }
+    }
     const routed = peerStored.some((line) => bomHasRouting(db, line.bom_id));
     if (routed && !['fixed_adv', 'variable_adv'].includes(analysisType)) {
       analysisType = analysisType === 'variable' ? 'variable_adv' : 'fixed_adv';
@@ -502,7 +528,8 @@ function createOrder(db, body, userId) {
     let lineCount = 0;
     if (matrixLines && matrixLines.length) {
       for (const ln of matrixLines) {
-        insLine.run(orderId, ln.product_id || productId, ln.variant_id, ln.color_id, ln.size_id, ln.qty, String(bom.id));
+        const lineBom = (peerStored || []).find((p) => Number(p.product_id) === Number(ln.product_id || productId));
+        insLine.run(orderId, ln.product_id || productId, ln.variant_id, ln.color_id, ln.size_id, ln.qty, String(lineBom?.bom_id || bom.id));
         lineCount++;
       }
     } else if (sizeBdObj && color) {

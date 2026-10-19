@@ -18486,10 +18486,41 @@ function prodOrderAddPeer(){
     <div class="fg"><label>محصول</label>${productSelect('po-peer-p-'+rowId, '', list)}</div>
     <div class="fg"><label>فرمول این محصول</label><select id="po-peer-b-${rowId}"><option value="">— خودکار (پیش‌فرض فعال) —</option></select></div>
     <div class="fg"><label>تعداد</label><input id="po-peer-q-${rowId}" type="number" min="1" value="1"></div>
-    <div class="fg"><label>&nbsp;</label><button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wrap.remove()})}">حذف</button></div>`;
+    <div class="fg"><label>&nbsp;</label><button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wrap.remove(); prodOrderRefreshPeerPlans();})}">حذف</button></div>
+    <div class="fg full" id="po-peer-mx-${rowId}"></div>`;
   host.appendChild(wrap);
   initCustSearches(wrap);
   el('po-peer-p-'+rowId)?.addEventListener('change', ()=>prodOrderFillPeerBoms(rowId));
+  el('po-peer-b-'+rowId)?.addEventListener('change', ()=>prodOrderLoadPeerMatrix(rowId));
+  el('po-peer-q-'+rowId)?.addEventListener('input', ()=>prodOrderRefreshPeerPlans());
+}
+async function prodOrderLoadPeerMatrix(rowId){
+  const box=el('po-peer-mx-'+rowId);
+  const pid=+el('po-peer-p-'+rowId)?.value;
+  const bomId=+el('po-peer-b-'+rowId)?.value;
+  if(!box||!pid){ if(box) box.innerHTML=''; return; }
+  const variants=await prodOrderActiveVariants(pid);
+  const mx=prodOrderBuildMatrix(variants);
+  if(!mx.colors.length||!mx.sizes.length){
+    box.innerHTML='';
+    const q=el('po-peer-q-'+rowId);
+    if(q) q.readOnly=false;
+    prodOrderRefreshPeerPlans();
+    return;
+  }
+  const allowed=await prodOrderAllowedForBom(bomId);
+  box.innerHTML=`<div class="po-fg-matrix" data-fg-pid="${pid}"><p class="po-dep"><b>رنگ × سایز همین محصول</b></p>${prodOrderMatrixGridHtml(mx, null, false, allowed)}</div>`;
+  const wrap=box.querySelector('.po-fg-matrix');
+  const q=el('po-peer-q-'+rowId);
+  if(q) q.readOnly=true;
+  prodOrderBindMatrix(wrap, null);
+  const sync=()=>{
+    const total=prodOrderMatrixCells(wrap).reduce((s,c)=>s+c.qty_planned,0);
+    if(q) q.value=total||'';
+    prodOrderRefreshPeerPlans();
+  };
+  wrap.querySelectorAll('.po-mx-cell').forEach(inp=>inp.addEventListener('input', sync));
+  sync();
 }
 async function prodOrderFillPeerBoms(rowId){
   const pid=+el('po-peer-p-'+rowId)?.value;
@@ -18502,6 +18533,75 @@ async function prodOrderFillPeerBoms(rowId){
   }
   sel.innerHTML='<option value="">— خودکار (پیش‌فرض فعال) —</option>'+
     boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} ${esc(b.name||'')}</option>`).join('');
+  if(boms.length===1) sel.value=String(boms[0].id);
+  window._poPeerBom=window._poPeerBom||{};
+  const chosen=+sel.value;
+  if(chosen){
+    try{ window._poPeerBom[rowId]=await api('GET','/production/boms/'+chosen); }
+    catch(_){ window._poPeerBom[rowId]=null; }
+  }else window._poPeerBom[rowId]=null;
+  await prodOrderLoadPeerMatrix(rowId);
+}
+async function prodOrderRefreshPeerPlans(){
+  const headerBom=window._poBom;
+  const rows=[...document.querySelectorAll('#po-peer-rows .po-peer-row')];
+  if(!rows.length){
+    if(headerBom) prodOrderPaintStages(headerBom);
+    return;
+  }
+  const pieces=[];
+  const headerPid=+el('po-product')?.value||0;
+  const headerQty=+el('po-qty')?.value||0;
+  if(headerBom && headerPid) pieces.push({ pid:headerPid, name:'محصول انتخاب‌شده', qty:headerQty, bom:headerBom });
+  for(const row of rows){
+    const id=row.dataset.row;
+    const pid=+el('po-peer-p-'+id)?.value||0;
+    const qty=+el('po-peer-q-'+id)?.value||0;
+    const bomId=+el('po-peer-b-'+id)?.value||0;
+    let bom=window._poPeerBom&&window._poPeerBom[id];
+    if(pid && bomId && (!bom || Number(bom.id)!==bomId)){
+      try{ bom=await api('GET','/production/boms/'+bomId); }catch(_){ bom=null; }
+      window._poPeerBom=window._poPeerBom||{};
+      window._poPeerBom[id]=bom;
+    }
+    if(!pid||!bom) continue;
+    const label=(CACHE.allProducts||[]).find(p=>Number(p.id)===pid)?.name||('#'+pid);
+    pieces.push({ pid, name:label, qty, bom });
+  }
+  if(pieces.length<2){
+    if(headerBom) prodOrderPaintStages(headerBom);
+    return;
+  }
+  const stBox=el('po-stage-plan');
+  if(!stBox) return;
+  const isCut=op=>{
+    const cc=(window._prodCreateCcs||[]).find(c=>Number(c.id)===Number(op.cost_center_id));
+    const blob=((cc&&cc.code)||'')+' '+((cc&&cc.name)||'')+' '+(op.operation_name||'');
+    return /برش|CC-10|\bCUT\b/i.test(blob);
+  };
+  let cutQty=0, cutName='برش مشترک', cutCc=null, sawCut=false;
+  const rest=[];
+  pieces.forEach(piece=>{
+    let seen=false;
+    (piece.bom.operations||[]).forEach(op=>{
+      if(!seen && isCut(op)){
+        cutQty+=Number(piece.qty)||0;
+        cutName=op.operation_name||cutName;
+        cutCc=op.cost_center_id;
+        seen=true;
+        sawCut=true;
+      }else rest.push({ op, piece });
+    });
+  });
+  const rowsHtml=[];
+  if(sawCut) rowsHtml.push(`<tr><td class="num">${toFa(10)}</td><td>${esc(cutName)}</td><td><span class="po-chip">مشترک</span></td><td>${esc(prodOrderCcName(cutCc)||'—')}</td><td class="num">${toFa(cutQty)}</td></tr>`);
+  rest.forEach((item,i)=>{
+    rowsHtml.push(`<tr><td class="num">${toFa(20+i*10)}</td><td>${esc(item.op.operation_name||'')}</td><td><span class="po-chip is-ex">اختصاصی · ${esc(item.piece.name)}</span></td><td>${esc(prodOrderCcName(item.op.cost_center_id)||'—')}</td><td class="num">${toFa(item.piece.qty)}</td></tr>`);
+  });
+  stBox.hidden=false;
+  stBox.innerHTML=`<header class="po-sec-h"><span>۳</span><div><b>مراحل این سفارش</b><small>برش یک مرحلهٔ مشترک است. دوخت و بقیهٔ مراحل هر فرمول برای همان محصول می‌ماند.</small></div></header>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>عملیات</th><th>تخصیص</th><th>مرکز</th><th class="num">ورودی برنامه‌ای</th></tr></thead>
+    <tbody>${rowsHtml.join('')||'<tr><td colspan="5" class="muted">مسیر عملیات در این فرمول‌ها نیست.</td></tr>'}</tbody></table></div>`;
 }
 function prodOrderOpFactor(op){
   const y=(Number(op.yield_percent)||100)/100;
@@ -18636,6 +18736,10 @@ function prodOrderCcName(id){
 function prodOrderPaintStages(bom){
   const stBox=el('po-stage-plan');
   if(!stBox||!bom) return;
+  if(document.querySelector('#po-peer-rows .po-peer-row')){
+    prodOrderRefreshPeerPlans();
+    return;
+  }
   const multi=prodOrderIsMulti(bom);
   const {map, plan}=prodOrderFgMapFromState(bom);
   const ops=bom.operations||[];
@@ -18989,12 +19093,18 @@ async function prodOrderCreateSave(){
   }
   const peers=[...document.querySelectorAll('#po-peer-rows .po-peer-row')].map(row=>{
     const id=row.dataset.row;
-    return { product_id:+el('po-peer-p-'+id)?.value||0, bom_id:+el('po-peer-b-'+id)?.value||0, qty:+el('po-peer-q-'+id)?.value||0 };
+    const matrix=row.querySelector('.po-fg-matrix');
+    const cells=matrix?prodOrderMatrixCells(matrix):[];
+    const sum=cells.reduce((a,c)=>a+c.qty_planned,0);
+    const qty=sum>0?sum:(+el('po-peer-q-'+id)?.value||0);
+    return { product_id:+el('po-peer-p-'+id)?.value||0, bom_id:+el('po-peer-b-'+id)?.value||0, qty, cells, named:el('po-peer-p-'+id+'-input')?.value||'' };
   }).filter(p=>p.product_id);
   if(peers.length){
-    if(peers.some(p=>!(p.qty>0))){ showToast('تعداد هر محصول اضافه باید بزرگ‌تر از صفر باشد','error'); return; }
+    if(peers.some(p=>!(p.qty>0))){ showToast('تعداد یا رنگ و سایز هر محصول اضافه را پر کنید','error'); return; }
     if(peers.some(p=>p.product_id===pid)){ showToast('محصول اضافه نباید همان محصول بالای فرم باشد','error'); return; }
-    body.order_products=peers;
+    body.order_products=peers.map(p=>({ product_id:p.product_id, bom_id:p.bom_id, qty:p.qty }));
+    const extra=peers.flatMap(p=>p.cells.map(c=>({ ...c, product_id:p.product_id })));
+    if(extra.length) body.matrix_lines=(body.matrix_lines||[]).concat(extra);
     if(!['fixed_adv','variable_adv'].includes(body.analysis_type)) body.analysis_type='fixed_adv';
   }
   const bomId=+el('po-bom')?.value; if(bomId) body.bom_id=bomId;
@@ -32174,7 +32284,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
-        <li><b>چند محصول با فرمول جدا (v475):</b> در «سفارش تولید جدید» با «افزودن محصول» کالای دوم را با فرمول فعال خودش و تعداد خودش بگذارید. فرمول ساخت همچنان یک محصول است. آزادسازی یک مرحلهٔ برش مشترک می‌سازد و بقیهٔ مراحل هر محصول جدا می‌ماند. لایه‌چینی مشترک را به همان شمارهٔ سفارش وصل کنید.</li>
+        <li><b>چند محصول با فرمول جدا (v475 / v477):</b> در «سفارش تولید جدید» با «افزودن محصول» کالای دوم را با فرمول فعال خودش بگذارید. اگر رنگ و سایز دارد، جدولش زیر همان ردیف می‌آید و جمع خانه‌ها تعدادش را می‌سازد. پیش‌نمایش مراحل، برش را مشترک و بقیه را اختصاصی همان محصول نشان می‌دهد. فرمول ساخت همچنان یک محصول است. لایه‌چینی مشترک را به همان شمارهٔ سفارش وصل کنید.</li>
         <li><b>سربار سراسری کارگاه (v474):</b> مرکز با واحد «کارگاه تولید» در برگهٔ بهای BOM و در جذب واقعی سفارش، یک‌بار روی تعداد محصول تمام‌شده می‌آید — حتی اگر روی مسیر همان BOM نباشد. اگر همان مرکز خودش مرحلهٔ مسیر باشد دوباره حساب نمی‌شود. دفتر توزیع، اداری و فروش هزینهٔ دوره است و داخل بها نمی‌آید. نرخ ذخیره‌شده عوض نمی‌شود.</li>
         <li><b>نرخ سربار مراکز (v334 / v458):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. ویرایش «نرخ کل» یا «دستمزد / عدد» (مثلاً اتو و بسته‌بندی CC-60) بعد از ذخیره در همان ردیف جدول می‌ماند؛ قبلاً اگر ثابت برابر نرخ کل کپی شده بود، تغییر نرخ کل دور ریخته می‌شد. بودجه فقط وقتی نرخ را عوض می‌کند که خود بودجه را ویرایش کنید یا نرخ ذخیره‌شده با بودجه یکی باشد. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
