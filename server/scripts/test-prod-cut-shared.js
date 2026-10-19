@@ -5,7 +5,7 @@
  */
 const { ok, eq, freshDb, summary } = require('./lib/test-harness');
 const {
-  remnantThreshold, classifyUsableRemaining, rollEquation, plannedPieces, allocateRial, previewSharedCut,
+  remnantThreshold, classifyUsableRemaining, rollEquation, previewRolls, plannedPieces, allocateRial, previewSharedCut,
   postSharedCut, voidSharedCut,
 } = require('../lib/production/shared-cut');
 
@@ -42,6 +42,22 @@ const split = allocateRial(100, [
   { product_id: 1, weight: 66.667 },
 ]);
 eq('جمع ریال سهم', split.reduce((s, r) => s + r.amount_rial, 0), 100);
+
+const bare = previewRolls([
+  { batch_id: 1, opening_m: 71, ply_count: 11, length_loss_m: 0 },
+], { mode: 'formula', min_remnant_m: 1.2, remnant_ratio: 0.2 }, 6.56, 0.01);
+ok('کسری دفتر بدون اضافه', bare[0].equation.ok === false, bare[0].equation.diff_m);
+const coveredRoll = previewRolls([
+  { batch_id: 1, opening_m: 71, ply_count: 11, length_loss_m: 0, extra_m: 1.16 },
+], { mode: 'formula', min_remnant_m: 1.2, remnant_ratio: 0.2 }, 6.56, 0.01);
+ok('اضافه طاقه تراز را می‌بندد', coveredRoll[0].equation.ok, coveredRoll[0].equation.diff_m);
+eq('مانده دفتر جدا از اضافه', coveredRoll[0].opening_m, 71, 0.001);
+eq('طول مؤثر', coveredRoll[0].effective_opening_m, 72.16, 0.001);
+let extraRejected = false;
+try {
+  previewRolls([{ batch_id: 1, opening_m: 71, ply_count: 11, extra_m: -1 }], { mode: 'formula', min_remnant_m: 1.2, remnant_ratio: 0.2 }, 6.56, 0.01);
+} catch (e) { extraRejected = e && e.code === 'E_ROLL_EXTRA'; }
+ok('اضافه منفی رد می‌شود', extraRejected);
 
 let ctx;
 try {
@@ -162,6 +178,43 @@ try {
     WHERE source_type='cutting_remnant' AND source_id=?
   `).get(lossPosted.id).q;
   eq('ته‌طاقه بعد از ابطال صفر', Number(remLeft), 0, 0.001);
+
+  const shortId = db.prepare(`
+    INSERT INTO inventory_batches (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, unit, unit_cost_rial)
+    VALUES ('R71',?,?,71,71,'active','fabric','متر',1000)
+  `).run(fab, raw.id).lastInsertRowid;
+  const shortBody = {
+    marker_length_m: 6.56,
+    fabric_product_id: fab,
+    warehouse_id: raw.id,
+    width_cm: 150,
+    date: '1405/07/27',
+    idempotency_key: 'shared-extra-1',
+    outputs: [
+      { product_id: a, size_code: 'ALL', pieces_per_ply: 1, weight: 50 },
+      { product_id: b, size_code: 'ALL', pieces_per_ply: 1, weight: 50 },
+    ],
+    rolls: [{ batch_id: shortId, opening_m: 71, ply_count: 11, length_loss_m: 0 }],
+  };
+  const shortPrev = previewSharedCut(db, shortBody);
+  ok('بدون اضافه طاقه نامتوازن', shortPrev.balanced === false);
+  ok('کسری حدود ۱٫۱۶', Math.abs(shortPrev.shortfall_m - 1.16) < 0.02, shortPrev.shortfall_m);
+  shortBody.rolls[0].extra_m = 1.16;
+  shortBody.idempotency_key = 'shared-extra-2';
+  const covered = previewSharedCut(db, shortBody);
+  ok('با اضافه طاقه متوازن', covered.balanced, JSON.stringify(covered.errors));
+  eq('اضافه پیش‌نمایش', covered.extra_m, 1.16, 0.001);
+  const extraPosted = postSharedCut(db, shortBody, { id: admin.id });
+  eq('مانده بعد از اضافه', Number(db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(shortId).q), 0, 0.02);
+  const extraJe = db.prepare('SELECT extra_journal_id id FROM cutting_lays WHERE id=?').get(extraPosted.lay_id).id;
+  ok('سند اضافه طاقه', Number(extraJe) > 0);
+  const varLine = db.prepare(`
+    SELECT COUNT(*) c FROM journal_lines
+    WHERE entry_id=? AND account_code='5211' AND COALESCE(credit_rial,0) > 0
+  `).get(extraJe).c;
+  eq('انحراف مقدار بستانکار', varLine, 1);
+  voidSharedCut(db, extraPosted.id, { id: admin.id }, 'آزمون اضافه طاقه');
+  eq('برگشت مانده ۷۱', Number(db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(shortId).q), 71, 0.02);
 } catch (e) {
   ok('مسیر دیتابیس', false, e.stack || e.message);
 } finally {

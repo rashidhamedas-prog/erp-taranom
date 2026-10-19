@@ -251,6 +251,16 @@ function normalizeOutputs(outputs, acceptedPlies, opts) {
   }));
 }
 
+function normalizeExtraM(raw, opening, laid) {
+  const extra = roundM(raw || 0);
+  if (extra < -1e-9) throw httpErr(400, 'اضافه طاقه نمی‌تواند منفی باشد', 'E_ROLL_EXTRA');
+  const cap = roundM(Math.max(Number(opening) || 0, Number(laid) || 0));
+  if (extra > cap + 1e-6) {
+    throw httpErr(400, 'اضافه طاقه از طول پهن‌شده و ماندهٔ دفتر بزرگ‌تر است', 'E_ROLL_EXTRA', { extra_m: extra, cap_m: cap });
+  }
+  return extra;
+}
+
 function previewRolls(rolls, policy, markerLengthM, tolerance) {
   const T = remnantThreshold(policy, markerLengthM);
   return (rolls || []).map((r, idx) => {
@@ -258,7 +268,9 @@ function previewRolls(rolls, policy, markerLengthM, tolerance) {
     const laid = roundM(r.laid_m != null ? r.laid_m : plies * markerLengthM);
     const loss = roundM(r.length_loss_m || 0);
     const adj = roundM(r.adjustment_m || 0);
-    const opening = roundM(r.opening_m);
+    const book = roundM(r.opening_m);
+    const extra = normalizeExtraM(r.extra_m, book, laid);
+    const opening = roundM(book + extra);
     let returned = r.returned_m != null ? roundM(r.returned_m) : null;
     let remnant = r.remnant_m != null ? roundM(r.remnant_m) : null;
     let destination = r.destination || '';
@@ -282,7 +294,9 @@ function previewRolls(rolls, policy, markerLengthM, tolerance) {
       batch_id: Number(r.batch_id),
       color: String(r.color || ''),
       ply_count: plies,
-      opening_m: opening,
+      opening_m: book,
+      extra_m: extra,
+      effective_opening_m: opening,
       laid_m: laid,
       returned_m: returned,
       remnant_m: remnant,
@@ -325,7 +339,31 @@ function previewSharedCut(db, body) {
     returned_m: roundM(rolls.reduce((s, r) => s + r.returned_m, 0)),
     remnant_m: roundM(rolls.reduce((s, r) => s + r.remnant_m, 0)),
     laid_m: roundM(rolls.reduce((s, r) => s + r.laid_m, 0)),
+    extra_m: roundM(rolls.reduce((s, r) => s + r.extra_m, 0)),
+    shortfall_m: roundM(bad.reduce((s, r) => s + Math.max(0, -r.equation.diff_m), 0)),
   };
+}
+
+function bookRollSurplus(db, { batch, extraM, unit, layId, date, user, batchNo }) {
+  const extra = roundM(extraM);
+  if (!(extra > 0)) return { extra_m: 0, extra_ledger_id: null, extra_rial: 0 };
+  const amount = assertSafeRial(Math.round(unit * extra), 'extra');
+  const led = postInventoryMovement(db, {
+    eventType: 'production_receipt',
+    productId: batch.product_id,
+    warehouseId: batch.warehouse_id,
+    qtyIn: extra,
+    unitCostRial: unit,
+    amountRial: amount,
+    sourceType: 'cutting_roll_surplus',
+    sourceId: layId,
+    batchId: batch.id,
+    date,
+    note: `اضافه طاقه ${batchNo || ''}`.trim(),
+    createdBy: user && user.id,
+  });
+  adjustBatchQty(db, batch.id, extra);
+  return { extra_m: extra, extra_ledger_id: led && led.id, extra_rial: amount };
 }
 
 function rememberWipSetting(db, settingKey, warehouseId) {
@@ -443,6 +481,7 @@ function postSharedCut(db, body, user) {
     const layId = lay.lastInsertRowid;
     let common = 0;
     let lossRial = 0;
+    let extraRial = 0;
     const whRaw = warehouseByCode(db, 'WH-RAW', 'production_wh_raw_id');
     const whRem = warehouseByCode(db, 'WH-SCRAP', 'production_wh_remnant_id');
     for (const roll of plan.rolls) {
@@ -457,10 +496,15 @@ function postSharedCut(db, body, user) {
       applyLiveRollQty(db, batch);
       const avail = availableBatchMeters(db, batch.id);
       const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
-      if (avail + 1e-6 < issueM) {
-        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, batch_id: batch.id });
+      const extraNeed = roundM(roll.extra_m || 0);
+      if (avail + extraNeed + 1e-6 < issueM) {
+        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: batch.id });
       }
       const unit = avgUnitRial(db, batch.product_id);
+      const surplus = bookRollSurplus(db, {
+        batch, extraM: extraNeed, unit, layId, date, user, batchNo,
+      });
+      extraRial += surplus.extra_rial;
       const laidRial = assertSafeRial(Math.round(unit * roll.laid_m), 'laid');
       const lossPart = assertSafeRial(Math.round(unit * roll.length_loss_m), 'loss');
       common += laidRial;
@@ -516,12 +560,13 @@ function postSharedCut(db, body, user) {
       db.prepare(`
         INSERT INTO cutting_lay_rolls
           (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status,
-           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id)
-        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?)
+           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id, extra_m, extra_ledger_id)
+        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
         layId, batch.id, issueM, unit, laidRial + lossPart, ledgerId,
         roll.opening_m, roll.ply_count, roll.laid_m, roll.returned_m, roll.remnant_m,
-        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId
+        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId,
+        surplus.extra_m, surplus.extra_ledger_id
       );
     }
     common = assertSafeRial(common, 'common');
@@ -560,6 +605,21 @@ function postSharedCut(db, body, user) {
         warehouseId: whRaw && whRaw.id,
       });
       wasteJe = wje ? wje.je_id : null;
+    }
+    if (extraRial > 0) {
+      assertJournalIdempotent(db, 'cutting_roll_surplus', layId);
+      const eje = postEvent(db, {
+        event: 'PRD-18',
+        sourceId: layId,
+        date,
+        description: `اضافه طاقه برش ${batchNo}`,
+        createdBy: user && user.id,
+        lines: [dr(db, 'coa_raw_materials', extraRial), cr(db, 'coa_var_material_qty', extraRial)],
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
+      });
+      const extraJe = eje ? eje.je_id : null;
+      if (extraJe) db.prepare('UPDATE cutting_lays SET extra_journal_id=? WHERE id=?').run(extraJe, layId);
     }
     const shares = allocateRial(common, plan.outputs.map((o) => ({
       product_id: o.product_id, size_code: o.size_code, weight: o.weight,
@@ -693,6 +753,16 @@ function reverseSharedCutEffects(db, batch, user, reason) {
     }
     const issueM = Number(roll.meters) || 0;
     if (issueM) adjustBatchQty(db, roll.batch_id, issueM);
+    if (Number(roll.extra_m) > 0) {
+      if (roll.extra_ledger_id) {
+        try {
+          reverseInventoryMovement(db, roll.extra_ledger_id, { createdBy: user && user.id, note: reason || 'ابطال اضافه طاقه' });
+        } catch (e) {
+          if (!(e && e.code === 'E_ALREADY_REVERSED')) throw e;
+        }
+      }
+      adjustBatchQty(db, roll.batch_id, -(Number(roll.extra_m) || 0));
+    }
     if (roll.remnant_batch_id) {
       const remLedger = Number(roll.remnant_ledger_id) || (db.prepare(`
         SELECT id FROM inventory_ledger
@@ -709,6 +779,11 @@ function reverseSharedCutEffects(db, batch, user, reason) {
   }
   const { reverseJournalEntry } = require('../void-journal');
   let revJe = null;
+  if (lay && lay.extra_journal_id) {
+    reverseJournalEntry(db, lay.extra_journal_id, {
+      userId: user && user.id, reason: reason || 'ابطال اضافه طاقه', sourceType: 'cutting_roll_surplus_reversal',
+    });
+  }
   if (lay && lay.waste_journal_id) {
     reverseJournalEntry(db, lay.waste_journal_id, {
       userId: user && user.id, reason: reason || 'ابطال اتلاف', sourceType: 'production_waste_reversal',
@@ -802,7 +877,7 @@ function amendSharedCut(db, id, body, user) {
         product_id=?, bom_id=?, fabric_product_id=?, marker_length_m=?, ply_count=?,
         planned_meters=?, actual_meters=?, qty_pieces=?, color=?, width_cm=?,
         production_order_id=?, date=?, note=?, status='posted',
-        journal_id=NULL, waste_journal_id=NULL, amount_rial=0, waste_amount_rial=0, unit_cost_rial=0,
+        journal_id=NULL, waste_journal_id=NULL, extra_journal_id=NULL, amount_rial=0, waste_amount_rial=0, unit_cost_rial=0,
         reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL, stage_id=NULL
       WHERE id=?
     `).run(
@@ -817,6 +892,7 @@ function amendSharedCut(db, id, body, user) {
     const batchId = existing.id;
     let common = 0;
     let lossRial = 0;
+    let extraRial = 0;
     const whRaw = warehouseByCode(db, 'WH-RAW', 'production_wh_raw_id');
     const whRem = warehouseByCode(db, 'WH-SCRAP', 'production_wh_remnant_id');
     for (const roll of plan.rolls) {
@@ -831,11 +907,16 @@ function amendSharedCut(db, id, body, user) {
       applyLiveRollQty(db, fabBatch);
       const avail = availableBatchMeters(db, fabBatch.id);
       const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
+      const extraNeed = roundM(roll.extra_m || 0);
       // تسهیم/برگشت روی طاقه در leave قدیمی گاهی از avail بزرگ‌تر می‌شود؛ ملاک مصرف واقعی است
-      if (avail + 1e-6 < issueM) {
-        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, batch_id: fabBatch.id });
+      if (avail + extraNeed + 1e-6 < issueM) {
+        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: fabBatch.id });
       }
       const unit = avgUnitRial(db, fabBatch.product_id);
+      const surplus = bookRollSurplus(db, {
+        batch: fabBatch, extraM: extraNeed, unit, layId, date, user, batchNo: existing.batch_no,
+      });
+      extraRial += surplus.extra_rial;
       const laidRial = assertSafeRial(Math.round(unit * roll.laid_m), 'laid');
       const lossPart = assertSafeRial(Math.round(unit * roll.length_loss_m), 'loss');
       common += laidRial;
@@ -891,12 +972,13 @@ function amendSharedCut(db, id, body, user) {
       db.prepare(`
         INSERT INTO cutting_lay_rolls
           (lay_id, batch_id, meters, unit_cost_rial, amount_rial, ledger_id, status,
-           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id)
-        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?)
+           opening_m, ply_count, laid_m, returned_m, remnant_m, length_loss_m, adjustment_m, destination, remnant_batch_id, remnant_ledger_id, extra_m, extra_ledger_id)
+        VALUES (?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
         layId, fabBatch.id, issueM, unit, laidRial + lossPart, ledgerId,
         roll.opening_m, roll.ply_count, roll.laid_m, roll.returned_m, roll.remnant_m,
-        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId
+        roll.length_loss_m, roll.adjustment_m, roll.destination, remnantBatchId, remnantLedgerId,
+        surplus.extra_m, surplus.extra_ledger_id
       );
     }
     common = assertSafeRial(common, 'common');
@@ -935,6 +1017,21 @@ function amendSharedCut(db, id, body, user) {
         warehouseId: whRaw && whRaw.id,
       });
       wasteJe = wje ? wje.je_id : null;
+    }
+    if (extraRial > 0) {
+      assertJournalIdempotent(db, 'cutting_roll_surplus', layId);
+      const eje = postEvent(db, {
+        event: 'PRD-18',
+        sourceId: layId,
+        date,
+        description: `اضافه طاقه برش (ویرایش) ${existing.batch_no}`,
+        createdBy: user && user.id,
+        lines: [dr(db, 'coa_raw_materials', extraRial), cr(db, 'coa_var_material_qty', extraRial)],
+        costCenterId: cutCc,
+        warehouseId: whRaw && whRaw.id,
+      });
+      const extraJe = eje ? eje.je_id : null;
+      if (extraJe) db.prepare('UPDATE cutting_lays SET extra_journal_id=? WHERE id=?').run(extraJe, layId);
     }
     const shares = allocateRial(common, plan.outputs.map((o) => ({
       product_id: o.product_id, size_code: o.size_code, weight: o.weight,
@@ -1053,6 +1150,7 @@ module.exports = {
   remnantThreshold,
   classifyUsableRemaining,
   rollEquation,
+  previewRolls,
   plannedPieces,
   allocateRial,
   normalizeAllocationBasis,

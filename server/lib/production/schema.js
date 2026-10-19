@@ -1689,6 +1689,7 @@ function ensureSharedCutSchema(db) {
   }
   if (tableExists(db, 'cutting_lays')) {
     ensureColumn(db, 'cutting_lays', 'batch_id', 'INTEGER');
+    ensureColumn(db, 'cutting_lays', 'extra_journal_id', 'INTEGER');
   }
   if (tableExists(db, 'cutting_lay_rolls')) {
     ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');
@@ -1698,6 +1699,8 @@ function ensureSharedCutSchema(db) {
     ensureColumn(db, 'cutting_lay_rolls', 'remnant_m', 'REAL DEFAULT 0');
     ensureColumn(db, 'cutting_lay_rolls', 'length_loss_m', 'REAL DEFAULT 0');
     ensureColumn(db, 'cutting_lay_rolls', 'adjustment_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'extra_m', 'REAL DEFAULT 0');
+    ensureColumn(db, 'cutting_lay_rolls', 'extra_ledger_id', 'INTEGER');
     ensureColumn(db, 'cutting_lay_rolls', 'destination', "TEXT DEFAULT ''");
     ensureColumn(db, 'cutting_lay_rolls', 'remnant_batch_id', 'INTEGER');
     ensureColumn(db, 'cutting_lay_rolls', 'remnant_ledger_id', 'INTEGER');

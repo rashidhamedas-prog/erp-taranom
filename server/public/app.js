@@ -12856,21 +12856,75 @@ function cuttingCollectMultiOutputs(){
   return outs;
 }
 function cuttingRenderRollPickerExtras(){
+  const kept=new Map();
+  document.querySelectorAll('.cl-roll').forEach(ch=>{
+    const lab=ch.parentElement; if(!lab) return;
+    kept.set(ch, {
+      plies: lab.querySelector('.cl-roll-plies')?.value,
+      loss: lab.querySelector('.cl-roll-loss')?.value,
+      extra: lab.querySelector('.cl-roll-extra-m')?.value,
+    });
+  });
   document.querySelectorAll('.cl-roll-extra').forEach(n=>n.remove());
   if(!cuttingIsMultiMode()) return;
   const pliesDefault=+el('cl-plies')?.value||0;
-  const checked=[...document.querySelectorAll('.cl-roll:checked')];
   const rolls=[...document.querySelectorAll('.cl-roll')];
   rolls.forEach(ch=>{
     const lab=ch.parentElement; if(!lab) return;
+    const prev=kept.get(ch)||{};
     const wrap=document.createElement('span');
     wrap.className='cl-roll-extra';
     wrap.style.cssText='display:inline-flex;gap:6px;align-items:center;margin-inline-start:6px;flex-wrap:wrap';
-    const defPlies=(rolls.length===1 || ch.checked)?pliesDefault:'';
-    wrap.innerHTML='لایه <input type="number" class="cl-roll-plies" min="0" step="1" value="'+(defPlies||'')+'" style="width:64px"> '
-      +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="0" placeholder="متر" style="width:70px">';
+    const defPlies=prev.plies!=null && prev.plies!=='' ? prev.plies : ((rolls.length===1 || ch.checked)?pliesDefault:'');
+    const lossVal=prev.loss!=null && prev.loss!=='' ? prev.loss : '0';
+    const extraVal=prev.extra!=null && prev.extra!=='' ? prev.extra : '0';
+    wrap.innerHTML='لایه <input type="number" class="cl-roll-plies" min="0" step="1" value="'+esc(String(defPlies||''))+'" style="width:64px"> '
+      +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="'+esc(String(lossVal))+'" placeholder="متر" style="width:70px"> '
+      +'اضافه طاقه <input type="number" class="cl-roll-extra-m" min="0" step="0.001" value="'+esc(String(extraVal))+'" placeholder="متر" style="width:74px" title="متراژی که روی طاقه هست ولی در ماندهٔ دفتر نیست"> '
+      +'<button type="button" class="btn sm ghost cl-roll-extra-fill">پر کردن کسری</button>';
     lab.appendChild(wrap);
+    wrap.querySelector('.cl-roll-extra-fill').addEventListener('click',()=>cuttingFillRollExtra(ch));
   });
+}
+function cuttingFillRollExtra(ch){
+  const lab=ch && ch.parentElement; if(!lab) return;
+  const marker=+el('cl-marker')?.value||0;
+  const plies=+(lab.querySelector('.cl-roll-plies')?.value)||0;
+  const loss=+(lab.querySelector('.cl-roll-loss')?.value)||0;
+  const opening=+ch.dataset.max||0;
+  const gap=Math.max(0, Math.round((plies*marker+loss-opening)*1000)/1000);
+  const inp=lab.querySelector('.cl-roll-extra-m');
+  if(inp) inp.value=gap?String(gap):'0';
+  if(!(gap>0)) showToast('با این لایه و اتلاف، ماندهٔ دفتر کم نمی‌آید');
+}
+async function cuttingFillPoSelect(){
+  const sel=el('cl-po'); if(!sel || sel.tagName!=='SELECT') return;
+  const keep=String(sel.getAttribute('data-selected')||sel.value||'');
+  let rows=[];
+  try{
+    const data=await api('GET','/production/orders?limit=200');
+    rows=(data&&data.rows)||[];
+  }catch(_){ rows=[]; }
+  const live=new Set(['released','in_progress']);
+  let list=rows.filter(o=>live.has(String(o.status||'')));
+  if(keep && !list.some(o=>String(o.id)===keep)){
+    const cur=rows.find(o=>String(o.id)===keep);
+    if(cur) list=[cur].concat(list);
+    else {
+      try{
+        const one=await api('GET','/production/orders/'+keep);
+        if(one && one.id) list=[one].concat(list);
+      }catch(_){}
+    }
+  }
+  const statusFa={released:'آزاد',in_progress:'در جریان',draft:'پیش‌نویس',completed:'تمام',closed:'بسته',cancelled:'لغو',voided:'حذف'};
+  sel.innerHTML='<option value="">— بدون سفارش (برش برای موجودی) —</option>'+list.map(o=>{
+    const st=statusFa[o.status]||o.status||'';
+    const label=(o.order_no||('#'+o.id))+' — '+(o.product_name||'')+(st?(' · '+st):'');
+    return '<option value="'+o.id+'">'+esc(label)+'</option>';
+  }).join('');
+  if(keep && [...sel.options].some(o=>o.value===keep)) sel.value=keep;
+  if(sel.getAttribute('data-locked')==='1') sel.disabled=true;
 }
 
 function sharedCutDraft(){
@@ -13060,7 +13114,8 @@ async function cuttingLayModal(editId){
     window._cutQtyLocked=Number(lay.fg_covered_by_order)===1||Number(lay.pack_via_order_fg)===1;
     (lay.rolls||[]).filter(r=>r.status==='posted').forEach(r=>{
       const bid=Number(r.batch_id); if(!bid) return;
-      window._cutEditRollBoost[bid]=(window._cutEditRollBoost[bid]||0)+Number(r.meters||0);
+      const back=Number(r.meters||0)-Number(r.extra_m||0);
+      window._cutEditRollBoost[bid]=(window._cutEditRollBoost[bid]||0)+back;
     });
   }
   const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
@@ -13088,7 +13143,7 @@ async function cuttingLayModal(editId){
         <select id="cl-color"><option value="">— انتخاب از طاقه‌های موجود —</option></select>
         <input id="cl-color-extra" placeholder="یا رنگ دستی" value="${lay?esc(String(lay.color||'')):''}" data-csp-style="${CSP.style(`margin-top:4px`)}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}">
       </div>
-      <div class="fg"><label>سفارش تولید</label><input id="cl-po" type="number" min="1" step="1" placeholder="پیشنهادی: شناسه سفارش باز (خالی = cut-to-stock)" value="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"></div>
+      <div class="fg"><label>سفارش تولید</label><select id="cl-po" data-selected="${lay&&lay.production_order_id?esc(String(lay.production_order_id)):''}" data-csp-change="${CSP.bind('change',function(){cuttingApplyPo()})}"><option value="">در حال بارگذاری سفارش‌های باز…</option></select></div>
       <div class="fg"><label>مرکز هزینه ضایعات</label>
         <select id="cl-cc"><option value="">— خودکار: برش —</option>${ccOpts}</select>
       </div>
@@ -13122,13 +13177,14 @@ async function cuttingLayModal(editId){
       <div id="cl-multi-list"></div>
       <p class="muted" style="font-size:12px">سهم محاسبه‌شده: <span id="cl-multi-share"></span></p>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود. در حالت چندمحصول برای هر طاقه «لایه» و «اتلاف طولی» را وارد کنید.</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود. در حالت چندمحصول برای هر طاقه «لایه»، «اتلاف» و در صورت بلندتر بودن طاقه از ماندهٔ دفتر «اضافه طاقه» را وارد کنید.</div>
     <div id="cl-rolls"><span class="muted">ابتدا کالا و رنگ را انتخاب کنید…</span></div>
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">${window._cutEditId?'ذخیره ویرایش':'ثبت لایه‌چینی'}</button>
     </div>`);
+  cuttingFillPoSelect();
   const prodEl=el('cl-prod');
   if(window._cutEditId && prodEl){
     prodEl.disabled=true;
@@ -13159,7 +13215,7 @@ async function cuttingLayModal(editId){
     await cuttingResolveFabricAndRolls();
     if(window._cutQtyLocked){
       document.querySelectorAll('#cl-size-grid input').forEach(inp=>{ inp.readOnly=true; });
-      const poEl=el('cl-po'); if(poEl) poEl.readOnly=true;
+      const poEl=el('cl-po'); if(poEl){ poEl.disabled=true; poEl.setAttribute('data-locked','1'); }
     }
     if(lay && lay.color){
       if(el('cl-color-extra') && !el('cl-color-extra').value) el('cl-color-extra').value=lay.color;
@@ -13210,6 +13266,8 @@ async function cuttingLayModal(editId){
           const loss=ch.parentElement && ch.parentElement.querySelector('.cl-roll-loss');
           if(pl) pl.value=String(r.ply_count||'');
           if(loss) loss.value=String(r.length_loss_m||0);
+          const extra=ch.parentElement && ch.parentElement.querySelector('.cl-roll-extra-m');
+          if(extra) extra.value=String(r.extra_m||0);
         });
       }catch(e){ showToast(e.message||'بارگذاری برش مشترک ناموفق','error'); }
     } else if(!window._cutEditId && cuttingSharedEnabled()){
@@ -13450,9 +13508,11 @@ async function cuttingLayPreview(){
       if(!body) return;
       const data=await api('POST','/production/cutting-batches/preview',body);
       const outs=(data.outputs||[]).map(o=>('#'+o.product_id+'/'+esc(o.size_code||'')+': '+o.pieces_per_ply+'→'+o.planned_pieces+' قطعه ('+(o.weight||0)+'%)')).join(' · ');
-      el('cl-preview').textContent='پهن '+fmtQtyFa(data.laid_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
-        +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmt(data.policy.threshold_m):'—')
+      const short=Number(data.shortfall_m)||0;
+      el('cl-preview').textContent='پهن '+fmtQtyFa(data.laid_m||0)+' · اضافه طاقه '+fmtQtyFa(data.extra_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
+        +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmtQtyFa(data.policy.threshold_m):'—')
         +(data.balanced?' · تراز OK':' · تراز طاقه برقرار نیست')
+        +(short>0?(' — کسری دفتر '+fmtQtyFa(short)+' متر؛ اگر طاقه واقعاً بلندتر است «پر کردن کسری» یا فیلد اضافه طاقه را بزنید'):'')
         +(outs?(' | '+outs):'');
       return;
     }
@@ -13481,10 +13541,12 @@ function cuttingBuildSharedBody(){
   for(const ch of checked){
     const plies=+(ch.parentElement.querySelector('.cl-roll-plies')?.value);
     const loss=+(ch.parentElement.querySelector('.cl-roll-loss')?.value)||0;
+    const extra=+(ch.parentElement.querySelector('.cl-roll-extra-m')?.value)||0;
     const opening=+ch.dataset.max||0;
     if(!(plies>0)){ showToast('برای هر طاقهٔ انتخاب‌شده تعداد لایه را وارد کنید','error'); return null; }
     if(!(opening>0)){ showToast('مانده طاقه نامعتبر است','error'); return null; }
-    rolls.push({batch_id:+ch.dataset.id, opening_m:opening, ply_count:plies, color, length_loss_m:loss});
+    if(extra<0){ showToast('اضافه طاقه نمی‌تواند منفی باشد','error'); return null; }
+    rolls.push({batch_id:+ch.dataset.id, opening_m:opening, ply_count:plies, color, length_loss_m:loss, extra_m:extra});
   }
   return {
     marker_length_m:marker,
@@ -32183,6 +32245,8 @@ function renderAdminGuide(){
         <li>فرم لایه‌چینی فیلد <b>مرکز هزینه ضایعات</b> دارد. پیش‌فرض مرکز <b>برش (CC-10)</b> است.</li>
         <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
         <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
+        <li><b>اضافه طاقه:</b> اگر طول مارکر × لایه از ماندهٔ دفتر بیشتر است و پارچه واقعاً روی طاقه هست، متر تفاوت را در «اضافه طاقه» بنویسید (یا «پر کردن کسری»). این متر اول به موجودی طاقه اضافه می‌شود (بدهکار مواد ۱۱۱۰ / بستانکار انحراف مقدار ۵۲۱۱) و بعد همراه پهن‌شدن مصرف می‌شود. اتلاف این کسری را جبران نمی‌کند.</li>
+        <li><b>سفارش تولید</b> فهرست کشویی سفارش‌های آزاد و در جریان است (شمارهٔ سفارش، نه شناسهٔ داخلی). پیش‌نویس، تمام‌شده و لغوشده در فهرست زنده نیستند.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
       <p>پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
