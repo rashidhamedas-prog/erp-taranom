@@ -623,6 +623,7 @@ module.exports = {
   rollEquation,
   plannedPieces,
   allocateRial,
+  normalizeOutputs,
   loadPolicy,
   previewSharedCut,
   postSharedCut,
