@@ -114,7 +114,11 @@ ok(Math.abs(Number(batchRow.qty_on_hand) - 113) < 1e-3, 'qty_on_hand healed to 1
 const circ = listFabricCirculation(db, { batch_id: roll.id });
 const last = (circ.rows || [])[circ.rows.length - 1];
 ok(last && Math.abs(Number(last.running_meters) - 113) < 1e-3, 'circulation running ends at 113', last && last.running_meters);
-ok((circ.rows || []).some((r) => r.ledger_status === 'reversed'), 'circulation shows reversed original');
+ok(!(circ.rows || []).some((r) => r.ledger_status === 'reversed' || r.event_type === 'reversal'),
+  'operational circulation hides void pair');
+ok(Math.abs(Number(circ.closing_qty) - 113) < 1e-3, 'live closing = 113', circ.closing_qty);
+const circAudit = listFabricCirculation(db, { batch_id: roll.id, show_cancelled: 1 });
+ok((circAudit.rows || []).some((r) => r.ledger_status === 'reversed'), 'audit circulation shows reversed original');
 
 // Simulate untagged drain of product warehouse while roll still holds meters
 db.prepare(

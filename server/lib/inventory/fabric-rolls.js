@@ -210,9 +210,31 @@ function applyLiveRollQty(db, r) {
   return r;
 }
 
+function circulationShowsAudit(query = {}) {
+  const v = query.show_cancelled != null ? query.show_cancelled : query.show_audit;
+  return v === true || v === 1
+    || String(v || '') === '1'
+    || String(v || '').toLowerCase() === 'true';
+}
+
+/** Voided receipt/issue and its reversal. Not a physical delete — report hide only. */
+function isCancelledCirculationRow(r) {
+  if (!r) return false;
+  if (String(r.ledger_status || r.status || '') === 'reversed') return true;
+  const et = String(r.event_type || '');
+  if (et === 'reversal' || et.endsWith('_reversal')) return true;
+  if (String(r.source_type || '').endsWith('_reversal')) return true;
+  if (r.reversed_of) return true;
+  const note = String(r.note || '').trim();
+  if (/^\[?ابطال/.test(note)) return true;
+  return false;
+}
+
 function listFabricCirculation(db, query = {}) {
-  // Include reversed originals + reversal children so running meters net correctly
-  // (see liveBatchMeters). UI can style status=reversed rows.
+  // Operational report drops a voided movement and its reversal (R13, same as
+  // party books). Running meters are rebuilt from the rows that remain, so a
+  // cancelled receipt/issue does not inflate ورود/خروج. liveBatchMeters still
+  // sums every ledger row; that figure is returned as control_qty.
   // Default kind=fabric keeps cutting/legacy callers safe; UI passes kind=all.
   const params = [];
   const where = [trackedKindSql(parseTrackedKinds(query), params)];
@@ -229,8 +251,9 @@ function listFabricCirculation(db, query = {}) {
       params.push(like, like, like);
     }
   }
-  if (query.from) { where.push('l.date>=?'); params.push(String(query.from)); }
-  if (query.to) { where.push('l.date<=?'); params.push(String(query.to)); }
+  const from = query.from ? String(query.from) : '';
+  const to = query.to ? String(query.to) : '';
+  const showAudit = circulationShowsAudit(query);
   const rows = db.prepare(`
     SELECT l.id, l.date, l.event_type, l.qty_in, l.qty_out, l.note, l.source_type, l.source_id,
            l.status AS ledger_status, l.reversed_of, l.batch_id, b.batch_no, b.color, b.pattern,
@@ -242,17 +265,54 @@ function listFabricCirculation(db, query = {}) {
     LEFT JOIN users u ON u.id = l.created_by
     WHERE ${where.join(' AND ')}
     ORDER BY l.date ASC, l.id ASC
-    LIMIT 2000
+    LIMIT 4000
   `).all(...params);
+  const live = showAudit ? rows : rows.filter((r) => !isCancelledCirculationRow(r));
+  const openingByBatch = new Map();
   const runByBatch = new Map();
-  for (const r of rows) {
+  let period_qty_in = 0;
+  let period_qty_out = 0;
+  const visible = [];
+  for (const r of live) {
     const bid = r.batch_id || 0;
+    const qIn = Number(r.qty_in) || 0;
+    const qOut = Number(r.qty_out) || 0;
     const prev = runByBatch.get(bid) || 0;
-    const next = prev + (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+    const next = prev + qIn - qOut;
     runByBatch.set(bid, next);
+    const before = from && (r.date || '') < from;
+    const after = to && (r.date || '') > to;
+    if (before) {
+      openingByBatch.set(bid, next);
+      continue;
+    }
+    if (after) continue;
+    if (!openingByBatch.has(bid)) openingByBatch.set(bid, prev);
+    period_qty_in += qIn;
+    period_qty_out += qOut;
     r.running_meters = next;
+    r.cancelled = isCancelledCirculationRow(r);
+    visible.push(r);
   }
-  return { rows };
+  let opening_qty = 0;
+  for (const v of openingByBatch.values()) opening_qty += v;
+  const closing_qty = opening_qty + period_qty_in - period_qty_out;
+  const batchIds = [...new Set(rows.map((r) => r.batch_id).filter(Boolean))];
+  let control_qty = 0;
+  for (const id of batchIds) {
+    const m = liveBatchMeters(db, id);
+    if (m != null) control_qty += m;
+  }
+  return {
+    rows: visible,
+    opening_qty,
+    period_qty_in,
+    period_qty_out,
+    closing_qty,
+    control_qty,
+    show_cancelled: showAudit,
+    live_period: true,
+  };
 }
 
 function httpErr(status, message, code, extra) {

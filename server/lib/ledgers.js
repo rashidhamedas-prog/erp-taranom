@@ -498,15 +498,22 @@ function buildStockLedger(db, {
     const qOut = Number(r.qty_out) || 0;
     const wipOnly = isWarehouseOnlyRow(r);
     const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r);
+    const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
+    // Operational KPIs follow the rows on the report. Void pairs and alignment
+    // stay in the economic running total (they net, or they are the warehouse
+    // control) but they are not "ورود/خروج دوره" unless the audit toggle is on.
+    const inLiveReport = showAudit || !auditOnly;
     if (contributes) {
       if (!wipOnly) {
-        period_qty_in += qIn;
-        period_qty_out += qOut;
+        if (inLiveReport) {
+          period_qty_in += qIn;
+          period_qty_out += qOut;
+        }
         running += qIn - qOut;
       }
       runningWh += qIn - qOut;
     }
-    if (!showAudit && isAuditOnlyStockRow(r, legacyVoidHideIds)) continue;
+    if (!inLiveReport) continue;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
       ref_type: srcType,
@@ -517,7 +524,6 @@ function buildStockLedger(db, {
       || String(r.event_type || '') === 'reversal'
       || String(r.event_type || '').endsWith('_reversal')
       || legacyVoidHideIds.has(r.id);
-    const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
     lines.push({
       id: r.id,
       tx_no: r.tx_no || null,
@@ -546,7 +552,17 @@ function buildStockLedger(db, {
   }
 
   const period_net_qty = period_qty_in - period_qty_out;
-  const closing_qty = opening_qty + period_net_qty;
+  // closing stays on the full economic stream (void pairs net to zero;
+  // alignment rows keep the ledger equal to the warehouse).
+  let economic_net = 0;
+  for (const r of economic) {
+    if (from && (r.date || '') < from) continue;
+    if (to && (r.date || '') > to) continue;
+    if (isWarehouseOnlyRow(r)) continue;
+    economic_net += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+  }
+  const closing_qty = opening_qty + economic_net;
+  const control_gap_qty = closing_qty - (opening_qty + period_net_qty);
   const closing_warehouse_qty = runningWh;
 
   let warehouse_qty = null;
@@ -573,6 +589,8 @@ function buildStockLedger(db, {
     period_qty_in,
     period_qty_out,
     period_net_qty,
+    control_gap_qty,
+    live_period: !showAudit,
     closing_qty,
     closing_warehouse_qty,
     show_cancelled: showCancelled,

@@ -11912,6 +11912,7 @@ async function voidInvoiceDoc(id,num){
    Operational value rows only by default; void+align hidden; optional audit.
 ============================================================ */
 let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'', show_cancelled:false };
+let _frkState={ batch_id:'', product_id:'', q:'', from:'', to:'', show_cancelled:false };
 
 async function renderItemKardexTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
@@ -12006,7 +12007,9 @@ async function loadItemKardex(productId){
       opening_qty:raw.opening_qty,
       period_qty_in:raw.period_qty_in,
       period_qty_out:raw.period_qty_out,
+      control_gap_qty:raw.control_gap_qty,
       closing_qty:raw.closing_qty,
+      control_gap_qty:raw.control_gap_qty,
       closing_warehouse_qty:raw.closing_warehouse_qty,
       warehouse_qty:raw.warehouse_qty,
       logs:raw.lines.map(l=>({
@@ -12047,6 +12050,7 @@ async function loadItemKardex(productId){
         ${kpi('پایان دوره (فروش‌پذیر)', d.closing_qty)}
         ${d.closing_warehouse_qty!=null?kpi('پایان فیزیکی انبار', d.closing_warehouse_qty):''}
       </div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:4px 14px 0;line-height:1.7`)}">ورود و خروج دوره جمع همان ردیف‌های این جدول است${_kardexState.show_cancelled?' (حالت ممیزی، شامل ابطال)':'؛ رسید و حوالهٔ ابطال‌شده در جمع نیست'}. ماندهٔ پایان از دفتر انبار است.</div>
       <div class="panel-body tbl-wrap">
         <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>مانده</th>
@@ -12083,7 +12087,24 @@ async function loadItemKardex(productId){
             ? 'ردیفی در دفتر موجودی نیست — با راه‌اندازی مجدد سرور هم‌ترازی انجام می‌شود؛ اگر ماند، پشتیبانی را خبر کنید'
             : 'تراکنشی ثبت نشده'
         }</td></tr>`}
-        </tbody></table>
+        </tbody>
+        <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
+          <td colspan="4">جمع دوره</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(d.period_qty_in||0)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(d.period_qty_out||0)}</td>
+          <td class="mono">${fmt(d.closing_qty||0)}</td>
+          ${window.__canSeeCost?'<td></td><td></td>':''}
+          <td></td>
+        </tr></tfoot>
+        </table>
+      </div>
+      <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
+        مانده نهایی (هم‌تراز دفتر انبار): <span class="mono">${fmt(d.closing_qty||0)} ${unit}</span>
+        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmt(d.period_qty_in||0)} · جمع خروج ${fmt(d.period_qty_out||0)} · منبع inventory_ledger${
+          Math.abs(Number(d.control_gap_qty)||0)>1e-6
+            ? ' · تفاوت '+fmt(d.control_gap_qty)+' از ردیف هم‌ترازیِ خارج از جدول است'
+            : ''
+        }</div>
       </div>
     </div>`;
   box.querySelectorAll('[data-kardex-ref]').forEach(a=>{
@@ -12266,24 +12287,35 @@ async function renderFabricRollKardexTab(body){
   let rolls=[];
   try{ rolls=(await api('GET','/inventory/fabric-rolls?kind=all')||{}).rows||[]; }catch(_){ rolls=[]; }
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گردش هر طاقه/بچ مواد از دفتر انبار زنده است: دریافت، فروش، برش، برگشت و ابطال. مانده از جمع همهٔ ردیف‌ها (از جمله ابطال‌شده + معکوس) است. لایه‌چینی فقط طاقهٔ پارچه را مصرف می‌کند.</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گردش مواد از دفتر انبار زنده است. رسید و حوالهٔ ابطال‌شده و ردیف معکوس‌شان در جدول و در ورود/خروج دوره نیستند. ماندهٔ پایان جمع همین ردیف‌هاست و با ماندهٔ زندهٔ طاقه سنجیده می‌شود. تیک ممیزی همان جفت ابطال را فقط برای بازرسی برمی‌گرداند. لایه‌چینی فقط طاقهٔ پارچه را مصرف می‌کند.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
-      ${rollSelect('frk-roll', rolls, '')}
-      ${productSelect('frk-prod','',CACHE.allProducts||[])}
-      <input id="frk-q" class="search" placeholder="جستجو شرح / شماره..." data-csp-style="${CSP.style(`min-width:180px`)}">
+      ${rollSelect('frk-roll', rolls, _frkState.batch_id||'')}
+      ${productSelect('frk-prod',_frkState.product_id||'',CACHE.allProducts||[])}
+      <input id="frk-q" class="search" placeholder="جستجو شرح / شماره..." value="${esc(_frkState.q||'')}" data-csp-style="${CSP.style(`min-width:180px`)}">
+      <input id="frk-from" data-jdate placeholder="از تاریخ" value="${esc(_frkState.from||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px`)}">
+      <input id="frk-to" data-jdate placeholder="تا تاریخ" value="${esc(_frkState.to||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px`)}">
+      <label class="muted" data-csp-style="${CSP.style(`font-size:12px;display:flex;align-items:center;gap:6px`)}"><input type="checkbox" id="frk-audit" ${_frkState.show_cancelled?'checked':''}> نمایش ابطال</label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(){loadFabricRollKardex()})}">نمایش</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">دریافت مواد</button>
     </div>
     <div id="frkBody"><div class="empty">شماره، کالا یا عبارت جستجو را انتخاب کنید</div></div>`;
   initCustSearches(body);
+  if(typeof attachDatepickers==='function') attachDatepickers(body);
   el('frk-roll')?.addEventListener('change', loadFabricRollKardex);
   el('frk-prod')?.addEventListener('change', loadFabricRollKardex);
+  el('frk-audit')?.addEventListener('change', loadFabricRollKardex);
 }
 async function loadFabricRollKardex(){
   const box=el('frkBody'); if(!box) return;
   const batch_id=el('frk-roll')?.value||'';
   const product_id=el('frk-prod')?.value||'';
   const q=el('frk-q')?.value||'';
+  _frkState.batch_id=batch_id;
+  _frkState.product_id=product_id;
+  _frkState.q=q;
+  _frkState.from=el('frk-from')?.value?.trim()||'';
+  _frkState.to=el('frk-to')?.value?.trim()||'';
+  _frkState.show_cancelled=!!el('frk-audit')?.checked;
   if(!batch_id && !product_id && !q){ box.innerHTML='<div class="empty">شماره، کالا یا عبارت جستجو را وارد کنید</div>'; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const qs=new URLSearchParams();
@@ -12291,16 +12323,32 @@ async function loadFabricRollKardex(){
   if(batch_id) qs.set('batch_id', batch_id);
   if(product_id) qs.set('product_id', product_id);
   if(q) qs.set('q', q);
+  if(_frkState.from) qs.set('from', _frkState.from);
+  if(_frkState.to) qs.set('to', _frkState.to);
+  if(_frkState.show_cancelled) qs.set('show_cancelled','1');
   const d=await api('GET','/inventory/fabric-rolls/circulation?'+qs.toString());
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت گردش</div>'; return; }
   const rows=d.rows||[];
+  const kpi=(label,val,tone)=>`<div data-csp-style="${CSP.style(`flex:1;min-width:110px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card,var(--bg))`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${label}</div>
+    <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmtQtyFa(val||0)}</div>
+  </div>`;
+  const gap=Math.abs((Number(d.control_qty)||0)-(Number(d.closing_qty)||0));
   box.innerHTML=`
-    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    <div class="panel">
+      <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
+        ${kpi('اول دوره', d.opening_qty)}
+        ${kpi('ورود دوره', d.period_qty_in, 'var(--green)')}
+        ${kpi('خروج دوره', d.period_qty_out, 'var(--red)')}
+        ${kpi('پایان دوره', d.closing_qty)}
+        ${kpi('مانده زنده', d.control_qty)}
+      </div>
+      <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>تاریخ</th><th>شماره</th><th>کالا</th><th>نوع</th><th>شرح</th><th>ورود</th><th>خروج</th><th>مانده</th><th>ثبت‌کننده</th>
     </tr></thead><tbody>
     ${rows.map(r=>{
-      const voided=r.ledger_status==='reversed';
-      const typ=esc(r.event_type||r.source_type||'-')+(voided?' <span class="tag t-silent">ابطال‌شده</span>':'');
+      const voided=r.cancelled||r.ledger_status==='reversed'||r.event_type==='reversal';
+      const typ=esc(r.event_type||r.source_type||'-')+(voided?' <span class="tag t-silent">ابطال</span>':'');
       return `<tr data-csp-style="${CSP.style(voided?'opacity:.65':'')}">
       <td class="mono">${esc(r.date||'-')}</td>
       <td class="mono">${esc(r.batch_no||'')} ${esc(r.color||'')}</td>
@@ -12312,8 +12360,23 @@ async function loadFabricRollKardex(){
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.running_meters||0)}</td>
       <td class="muted">${esc(r.user_name||'-')}</td>
     </tr>`;
-    }).join('')||'<tr><td colspan="9" class="empty">گردشی ثبت نشده</td></tr>'}
-    </tbody></table></div></div>`;
+    }).join('')||'<tr><td colspan="9" class="empty">گردش زنده‌ای در این دوره نیست</td></tr>'}
+    </tbody>
+    <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
+      <td colspan="5">جمع دوره</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyFa(d.period_qty_in||0)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyFa(d.period_qty_out||0)}</td>
+      <td class="mono">${fmtQtyFa(d.closing_qty||0)}</td>
+      <td></td>
+    </tr></tfoot>
+    </table></div>
+    <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
+      مانده پایان دوره: <span class="mono">${fmtQtyFa(d.closing_qty||0)}</span>
+      <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmtQtyFa(d.period_qty_in||0)} · جمع خروج ${fmtQtyFa(d.period_qty_out||0)} · مانده زندهٔ طاقه ${fmtQtyFa(d.control_qty||0)}${
+        gap>1e-6?' · اختلاف به‌خاطر بازهٔ تاریخ یا ردیف خارج از این نما است':''
+      } · منبع دفتر انبار</div>
+    </div>
+    </div>`;
 }
 function newFabricIdemKey(){
   try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
@@ -33014,7 +33077,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372 + فی بدون‌فاکتور v450): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. در حالت <b>بدون فاکتور</b> فیلد «فی فروش/خرید» و «تخفیف کلی (مبلغ)» با جداکننده هزارگان وارد می‌شوند و هنگام افزودن (ساده یا ماتریس) همان مبلغ کامل ریالی به جدول و جمع پایین می‌رود — دیگر عدد در ویرگول قطع نمی‌شود. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
-        <li><b>کاردکس کالا (v402)</b>: پیش‌فرض فقط اسناد حقیقی — ردیف‌های <b>ابطال/معکوس</b> (از جمله جفت «تولید PO-…» + «ابطال رسید PO-…» بعد از ابطال سفارش) و <b>هم‌ترازی</b> مخفی‌اند؛ مانده از جریان اقتصادی کامل است. تیک «نمایش ابطال و هم‌ترازی» فقط ممیزی. ابطال سفارش تولید اصل رسید انبار را <code>reversed</code> می‌کند (نه فقط خروج جدا). فهرست اسناد حسابداری/اکسل همان فیلتر.</li>
+        <li><b>کاردکس کالا (v489)</b>: پیش‌فرض فقط اسناد حقیقی. رسید و حوالهٔ ابطال‌شده و ردیف معکوس‌شان در جدول نیستند و در <b>ورود دوره / خروج دوره</b> هم جمع نمی‌شوند — این دو عدد جمع همان ردیف‌های جدول‌اند. ماندهٔ پایان همچنان از دفتر انبار است (جفت ابطال اثر خالص صفر دارد؛ اگر ردیف هم‌ترازی مخفی مانده را جابه‌جا کرده باشد، زیر جدول گفته می‌شود). پایین جدول مثل صورت‌حساب: جمع دوره و ماندهٔ نهایی. تیک «نمایش ابطال و هم‌ترازی» فقط ممیزی است و در آن حالت ورود/خروج همان ردیف‌های ممیزی را هم می‌شمارد. حذف فیزیکی نیست</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار (<b>روش ریالی‌کردن</b> جداست و فقط قیمت‌گذاری لایه است). حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند — همین قانون برای <b>اصلاح فاکتور، مرجوعی فروش و تسویه امانی</b> هم اعمال می‌شود. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. <b>اجازه موجودی منفی</b> روی حوالهٔ انبار و <b>فاکتور فروش / فروش فروشگاهی</b> از همان انبار اعمال می‌شود (موجودی می‌تواند منفی شود). فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار (v333)</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). میانگین بها و ارزش ریالی از <code>average_cost_rial</code> یا بهای تمام‌شدهٔ کالا — هر دو ریال؛ دیگر بهای کاتالوگ را ×۱۰ (تومان قدیمی) نمی‌کند. فیلتر و خروجی CSV/اکسل</li>
@@ -33022,7 +33085,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
-        <li><b>دریافت مواد (طاقه / ویژگی) v417:</b> منوی انبار ← <b>دریافت مواد</b>. فقط انبار مواد اولیه (WH-RAW). دو پروفایل در یک فرم: <b>پارچه (طاقه)</b> — متر، رنگ اجباری، عرض؛ قابل برش و فروش طاقه‌ای؛ و <b>مواد با ویژگی</b> — هر کالای غیرمتری/غیرطاقه‌ای با رنگ/طرح/درجه اختیاری و مقدار بر اساس واحد کالا (برای زیپ، دکمه، لیبل، بسته و …). موجودی از دفتر <b>لحظه‌ای</b> است. لایه‌چینی و «افزودن طاقه» فاکتور فقط پروفایل طاقه را می‌بینند. گزارش <b>گردش مواد/طاقه</b> هر دو را پوشش می‌دهد. بچ Lot عمومی (انقضا/FEFO) جدا در «بچ (Lot)» می‌ماند و بدون رسید موجودی نمی‌سازد</li>
+        <li><b>دریافت مواد (طاقه / ویژگی):</b> منوی انبار ← <b>دریافت مواد</b>. فقط انبار مواد اولیه (WH-RAW). دو پروفایل: <b>پارچه (طاقه)</b> — متر، رنگ اجباری، عرض؛ قابل برش و فروش طاقه‌ای؛ و <b>مواد با ویژگی</b> — مقدار بر اساس واحد کالا. موجودی از دفتر لحظه‌ای است. لایه‌چینی فقط طاقه را می‌بیند</li>
+        <li><b>گردش مواد/طاقه (v489)</b>: همان پایهٔ صورت‌حساب — اول دوره، ورود دوره، خروج دوره، جمع پایین جدول، ماندهٔ پایان. پیش‌فرض جفت ابطال (رسید/حواله + معکوس) را نشان نمی‌دهد و ورود/خروج فقط از ردیف‌های زندهٔ همین بازه است، نه از جمع تاریخیِ شامل ابطال. «مانده زنده» جمع دفتر همان طاقه‌هاست. تیک «نمایش ابطال» برای رسیدگی است. بازهٔ تاریخ، اول دوره را از ردیف‌های قبل از «از تاریخ» می‌سازد</li>
         <li><b>ویرایش دریافت مواد (R13):</b> رنگ / طرح / شماره (و عرض برای طاقه) همیشه قابل اصلاح است. تغییر مقدار / بها / تأمین‌کننده فقط وقتی مانده زنده = مقدار دریافتی باشد و ردیف از فاکتور خرید نباشد — سرور اثرات قبلی را معکوس و دوباره ثبت می‌کند. «ابطال» فقط مصرف‌نشده</li>
         <li><b>لایه‌چینی / رسید محصول:</b> تولید → عملیات. دو تب جدا: لایه‌چینی (مصرف طاقه) و رسید انبار محصول. ویرایش لایه = reverse کامل + ثبت مجدد روی همان شماره. ردیف پوشش‌شده با رسید سفارش هم ویرایش و ابطال می‌شود. ویرایش اختلاف بها را به موجودی می‌برد و تعداد قطعه قفل است. ابطال ردیف را پاک نمی‌کند؛ طاقه و سهم بهای همان لایه از رسید سفارش برمی‌گردد و تعداد محصول می‌ماند. PACK مستقیم را قبل از ویرایش یا ابطال لایه ابطال کنید. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند. <b>برگه بهای تمام‌شده (v467):</b> بدون لایه‌چینی برای سفارش پارچهٔ متری فقط بهای موقت است؛ ضایعات و انحراف برش باید در بها بنشیند</li>
         <li><b>دفتر چک</b>: فقط برگ‌های <b>pay_type=چک</b> را نشان می‌دهد — کارتخوان/نقد/واریز اینجا نمی‌آیند. برچسب «قسط N» در شرح قدیمی یعنی <b>مرحلهٔ دریافت</b> (مثلاً چک+کارتخوان)، نه لزوماً دو فقره چک. هر فقره چک <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>

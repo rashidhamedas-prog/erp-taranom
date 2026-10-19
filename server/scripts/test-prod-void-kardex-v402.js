@@ -118,9 +118,15 @@ try {
     'live closed PO receipt stays in operational kardex');
   ok(Math.abs(Number(opsC.closing_qty) - 50) < 0.001,
     'closing qty = live PO-0008 only (void pairs net to zero)');
+  ok(Math.abs(Number(opsC.period_qty_in) - 50) < 0.001,
+    'period in is the live receipt only', opsC.period_qty_in);
+  ok(Math.abs(Number(opsC.period_qty_out) || 0) < 0.001,
+    'period out excludes voided issues', opsC.period_qty_out);
   const audit2 = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   ok(Number(opsC.closing_qty) === Number(audit2.closing_qty),
     'closing identical with/without audit rows in the table');
+  ok(Number(audit2.period_qty_in) > Number(opsC.period_qty_in),
+    'audit toggle puts voided receipts back into period in', audit2.period_qty_in);
 } finally {
   try { db.close(); } catch (_) {}
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
