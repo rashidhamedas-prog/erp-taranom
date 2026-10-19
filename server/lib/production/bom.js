@@ -738,10 +738,68 @@ function assertDraft(b) {
   if (b.status !== 'draft') throw err('E_BOM_NOT_DRAFT', 409);
 }
 
+/**
+ * ADR-006 / v472 — هر فرمول فقط یک محصول اصلی.
+ * چندمحصولی فقط در سفارش (fg_plan / فرمول قدیمی) و لایه‌چینی مشترک.
+ * فرعی/ضایعات (by/scrap) همچنان مجازند.
+ */
+function assertBomSingleMainCreate(body = {}) {
+  const peerSrc = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
+  const peers = Array.isArray(peerSrc)
+    ? peerSrc.map(Number).filter((n) => n && n !== Number(body.product_id))
+    : [];
+  const outputQtys = body.main_outputs || body.output_qtys;
+  const outIds = Array.isArray(outputQtys)
+    ? [...new Set(outputQtys.map((r) => Number(r?.product_id ?? r?.id)).filter((n) => n))]
+    : [];
+  const multiOut = outIds.length > 1
+    || (outIds.length === 1 && Number(body.product_id) && outIds[0] !== Number(body.product_id));
+  if (body.has_coproducts || peers.length || multiOut) {
+    throw err('E_BOM_SINGLE_PRODUCT', 422, {
+      detail: 'فرمول فقط یک محصول اصلی دارد. چند محصول را در سفارش تولید و لایه‌چینی مشترک تعریف کنید.',
+    });
+  }
+}
+
+function assertBomSingleMainUpdate(db, bom, body = {}) {
+  const peerBody = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
+  if (!Array.isArray(peerBody) && body.has_coproducts == null) return;
+  const peerIds = Array.isArray(peerBody)
+    ? peerBody.map(Number).filter((n) => n && n !== Number(bom.product_id))
+    : [];
+  const wantMulti = body.has_coproducts != null ? !!body.has_coproducts : peerIds.length > 0;
+  // اجازهٔ خاموش‌کردن چندمحصولی قدیمی (مهاجرت به تک‌محصول)
+  if (!wantMulti && !peerIds.length) return;
+  const alreadyMulti = isMultiproductBom(db, bom);
+  if (alreadyMulti && peerIds.length) {
+    // فقط همان peers موجود — افزودن peer جدید ممنوع
+    const existing = new Set(
+      db.prepare(`
+        SELECT product_id FROM bom_outputs
+        WHERE bom_id=? AND output_type IN ('main','co') AND product_id<>?
+      `).all(bom.id, bom.product_id).map((r) => Number(r.product_id))
+    );
+    const extras = peerIds.filter((id) => !existing.has(id));
+    if (extras.length) {
+      throw err('E_BOM_SINGLE_PRODUCT', 422, {
+        detail: 'افزودن محصول اصلی به فرمول ممنوع است. برای محصول جدید فرمول جدا بسازید؛ چندمحصولی در سفارش/لایه‌چینی است.',
+        product_ids: extras,
+      });
+    }
+    return;
+  }
+  if (wantMulti || peerIds.length) {
+    throw err('E_BOM_SINGLE_PRODUCT', 422, {
+      detail: 'فرمول فقط یک محصول اصلی دارد. چند محصول را در سفارش تولید و لایه‌چینی مشترک تعریف کنید.',
+    });
+  }
+}
+
 function createBom(db, body, userId) {
   return db.transaction(() => {
     const productId = body.product_id;
     if (!productId) throw err('E_VALIDATION', 400);
+    assertBomSingleMainCreate(body);
     const code = allocateNumber(db, 'bom', 'BOM');
     const ver = body.version != null ? Number(body.version) : nextBomVersion(db, productId);
     const revision = (body.revision && String(body.revision).trim()) || 'A';
@@ -779,19 +837,15 @@ function createBom(db, body, userId) {
     } catch (e) {
       rethrowBomConstraint(e);
     }
-    // Multi-product / share: seed peer mains BEFORE lines so exclusive scoped_product_id validates
-    const peerSrc = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
-    const extraProducts = Array.isArray(peerSrc)
-      ? peerSrc.map(Number).filter(n => n && n !== Number(productId))
-      : [];
+    // تک‌محصول: فقط ردیف خروجی لنگر (در صورت ارسال main_outputs تک‌عضوی)
     const outputQtys = body.main_outputs || body.output_qtys || null;
-    if (body.has_coproducts || extraProducts.length || (Array.isArray(outputQtys) && outputQtys.length)) {
+    if (Array.isArray(outputQtys) && outputQtys.length) {
       const { ensureShareOutputs } = require('./bom-advanced');
       ensureShareOutputs(db, id, {
         mainProductId: productId,
-        peerProductIds: extraProducts,
-        autoShare: body.auto_share_method || 'sales_value',
-        outputQtys,
+        peerProductIds: [],
+        autoShare: null,
+        outputQtys: outputQtys.filter((r) => Number(r?.product_id ?? r?.id) === Number(productId)),
       });
     }
     if (Array.isArray(body.lines)) {
@@ -825,7 +879,8 @@ function updateBomHeader(db, bomId, body, userId) {
       body.unit_id != null ? body.unit_id : b.unit_id,
       bomId
     );
-    // Sync multi-product peer main list from editor (optional; accepts legacy co_product_ids)
+    // v472: قفل تک‌محصول؛ فقط خاموش‌کردن چندمحصولی قدیمی یا نگهداشت peers موجود (بدون افزودن)
+    assertBomSingleMainUpdate(db, b, body);
     const peerBody = body.main_product_ids || body.peer_product_ids || body.co_product_ids;
     if (Array.isArray(peerBody) || body.has_coproducts != null) {
       const peerIds = Array.isArray(peerBody)
@@ -834,13 +889,16 @@ function updateBomHeader(db, bomId, body, userId) {
       const wantMulti = body.has_coproducts != null
         ? !!body.has_coproducts
         : peerIds.length > 0;
-      db.prepare('UPDATE bom_headers SET has_coproducts=? WHERE id=?').run(wantMulti ? 1 : 0, bomId);
-      if (wantMulti || peerIds.length) {
+      if (!wantMulti && !peerIds.length) {
+        db.prepare('UPDATE bom_headers SET has_coproducts=0 WHERE id=?').run(bomId);
+      } else if (wantMulti || peerIds.length) {
+        db.prepare('UPDATE bom_headers SET has_coproducts=? WHERE id=?').run(wantMulti ? 1 : 0, bomId);
         const { ensureShareOutputs } = require('./bom-advanced');
         ensureShareOutputs(db, bomId, {
           mainProductId: b.product_id,
           peerProductIds: peerIds,
           autoShare: body.auto_share_method || null,
+          allowLegacyPeers: true,
         });
       }
     }

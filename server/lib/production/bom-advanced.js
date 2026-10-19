@@ -785,6 +785,7 @@ function ensureShareOutputs(db, bomId, {
   mainProductIds = null,
   autoShare: method = null,
   outputQtys = null,
+  allowLegacyPeers = false,
 } = {}) {
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -793,6 +794,12 @@ function ensureShareOutputs(db, bomId, {
 
   const existing = new Set(
     db.prepare('SELECT product_id FROM bom_outputs WHERE bom_id=?').all(bomId).map(r => Number(r.product_id))
+  );
+  const existingMains = new Set(
+    db.prepare(`
+      SELECT product_id FROM bom_outputs
+      WHERE bom_id=? AND output_type IN ('main','co')
+    `).all(bomId).map((r) => Number(r.product_id))
   );
   const qtyByProduct = new Map();
   for (const row of outputQtys || []) {
@@ -804,6 +811,20 @@ function ensureShareOutputs(db, bomId, {
   }
   const peers = (peerProductIds || mainProductIds || coProductIds || [])
     .map(Number).filter(n => n && n !== mainPid);
+  // v472: افزودن محصول اصلی جدید به فرمول ممنوع (مگر نگهداشت peers موجود روی فرمول قدیمی)
+  const newPeers = peers.filter((pid) => !existingMains.has(pid));
+  if (newPeers.length && !allowLegacyPeers) {
+    throw err('E_BOM_SINGLE_PRODUCT', 422, {
+      detail: 'فرمول فقط یک محصول اصلی دارد. چند محصول را در سفارش و لایه‌چینی مشترک تعریف کنید.',
+      product_ids: newPeers,
+    });
+  }
+  if (newPeers.length && allowLegacyPeers) {
+    throw err('E_BOM_SINGLE_PRODUCT', 422, {
+      detail: 'افزودن محصول اصلی به فرمول ممنوع است. برای محصول جدید فرمول جدا بسازید.',
+      product_ids: newPeers,
+    });
+  }
   for (const pid of peers) {
     const q = qtyByProduct.get(pid) || 1;
     if (existing.has(pid)) {
@@ -814,6 +835,7 @@ function ensureShareOutputs(db, bomId, {
       `).run(bomId, pid);
       continue;
     }
+    // نباید به اینجا برسد (newPeers بالا پرتاب می‌شود)
     db.prepare(`
       INSERT INTO bom_outputs
         (bom_id, product_id, output_type, qty_per_base, cost_method, cost_share_percent, nrv_rial)
@@ -850,7 +872,7 @@ function addOutput(db, bomId, body) {
   const productId = Number(body.product_id);
   if (!productId) throw err('E_VALIDATION', 400);
 
-  // Peer main: another product as main is allowed; ensure anchor exists
+  // v472: محصول اصلی دوم ممنوع؛ by/scrap مجاز
   if (outputType === 'main') {
     ensureMainOutputRow(db, bomId);
     const dup = db.prepare(`
@@ -859,7 +881,6 @@ function addOutput(db, bomId, body) {
     if (dup) {
       return updateOutput(db, bomId, dup.id, { ...body, output_type: 'main', product_id: productId });
     }
-    // First valued FG for header product only — update-in-place if single empty-ish row
     if (productId === Number(bom.product_id)) {
       const only = db.prepare(`
         SELECT id FROM bom_outputs WHERE bom_id=? AND product_id=? AND output_type='main'
@@ -867,6 +888,11 @@ function addOutput(db, bomId, body) {
       if (only) {
         return updateOutput(db, bomId, only.id, { ...body, output_type: 'main', product_id: bom.product_id });
       }
+    } else {
+      throw err('E_BOM_SINGLE_PRODUCT', 422, {
+        detail: 'فرمول فقط یک محصول اصلی دارد. محصول دوم را با فرمول جدا و در سفارش/لایه‌چینی مشترک اضافه کنید.',
+        product_id: productId,
+      });
     }
   }
 

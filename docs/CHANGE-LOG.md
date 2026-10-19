@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۲۷ — BOM فقط تک‌محصولی؛ چندمحصولی در سفارش/لای (SW v472)
+- **درخواست:** در تعریف فرمول هنوز تیک «چند محصول با یک برش مشترک» و افزودن محصول اصلی دیگر بود؛ طبق ADR-006 هر BOM یک محصول است و چندمحصولی فقط بعد از سفارش/لایه‌چینی.
+- **رفع:** UI ایجاد/ویرایش بدون multi؛ تب خروجی فقط فرعی/ضایعات؛ سرور `E_BOM_SINGLE_PRODUCT` روی create/update/addOutput/ensure-share برای محصول اصلی دوم؛ فرمول‌های چندmain قدیمی خواندنی/سفارش‌پذیر می‌مانند بدون افزودن peer جدید. Help + تست `test-bom-single-product-v472`.
+- **فایل‌ها:** `lib/production/{bom,bom-advanced}.js`, `routes/production-boms.js`, `public/{app.js,sw.js}`, scripts v472، CHANGE-LOG.
+- **تست:** `test-bom-single-product-v472`؛ `test-sms`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۷ — ADR-006 کامل W2–W4 (SW v471)
 - **W2:** `amendSharedCut` (همان batch/lay)؛ `voidCuttingPackByLay` همهٔ PACKها؛ void shared با مجوز `production:create`؛ UI «ویرایش چندمحصول» + PUT `/cutting-batches/:id`.
 - **W2b:** برگه بها چندمحصولی از `cutting_batch_allocations` وقتی لای به سفارش وصل است (`cost_share_source=shared_cut_alloc`).
