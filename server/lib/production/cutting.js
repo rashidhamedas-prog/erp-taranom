@@ -812,6 +812,22 @@ function listCuttingLays(db, query = {}) {
       row.pack_posted = 1;
       row.pack_via_order_fg = 1;
     }
+    if (row.batch_id) {
+      const outs = db.prepare(`
+        SELECT o.product_id, o.size_code, o.pieces_per_ply, o.planned_pieces, o.weight_pct, p.name AS product_name
+        FROM cutting_batch_outputs o
+        LEFT JOIN products p ON p.id = o.product_id
+        WHERE o.batch_id=?
+        ORDER BY o.product_id, o.size_code
+      `).all(row.batch_id);
+      row.shared_outputs = outs;
+      row.shared_product_names = [...new Set(outs.map((o) => o.product_name || ('#' + o.product_id)))];
+      row.is_shared_cut = 1;
+    } else {
+      row.shared_outputs = [];
+      row.shared_product_names = [];
+      row.is_shared_cut = 0;
+    }
     return row;
   });
 }
@@ -848,6 +864,19 @@ function getCuttingLay(db, id) {
   if (covered.fg_covered_by_order) {
     row.pack_posted = 1;
     row.pack_via_order_fg = 1;
+  }
+  if (row.batch_id) {
+    row.shared_outputs = db.prepare(`
+      SELECT o.product_id, o.size_code, o.pieces_per_ply, o.planned_pieces, o.weight_pct, p.name AS product_name
+      FROM cutting_batch_outputs o
+      LEFT JOIN products p ON p.id = o.product_id
+      WHERE o.batch_id=?
+      ORDER BY o.product_id, o.size_code
+    `).all(row.batch_id);
+    row.is_shared_cut = 1;
+  } else {
+    row.shared_outputs = [];
+    row.is_shared_cut = 0;
   }
   return attachPacks(db, row);
 }
@@ -1163,6 +1192,12 @@ function voidCuttingLay(db, id, user, { reason } = {}) {
   const row = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(id));
   if (!row) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (row.status === 'reversed') throw httpErr(409, 'این لایه قبلاً ابطال شده است', 'E_CUT_REVERSED');
+  // برش مشترک (چندمحصول روی یک مارکر): PACKهای WIP داخل همان برنامه است — ابطال از موتور shared-cut.
+  if (row.batch_id) {
+    const { voidSharedCut } = require('./shared-cut');
+    voidSharedCut(db, row.batch_id, user, reason || 'ابطال لایه‌چینی چندمحصولی');
+    return getCuttingLay(db, row.id);
+  }
   if (postedPackForLay(db, row.id)) {
     throw httpErr(409, 'ابتدا رسید برش (PACK) را ابطال کنید؛ بعد خود لایه‌چینی ابطال می‌شود', 'E_CUT_HAS_PACK');
   }
@@ -1396,6 +1431,9 @@ function updateCuttingLay(db, id, body, user) {
   const row = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(id));
   if (!row) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (row.status === 'reversed') throw httpErr(409, 'لایه ابطال‌شده قابل ویرایش نیست', 'E_CUT_REVERSED');
+  if (row.batch_id) {
+    throw httpErr(409, 'لایه‌چینی چندمحصولی (برش مشترک) را ابطال کنید و دوباره ثبت کنید — ویرایش مستقیم ندارد', 'E_SHARED_CUT_NO_AMEND');
+  }
   if (postedPackForLay(db, row.id)) {
     throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
   }

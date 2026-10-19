@@ -12673,6 +12673,136 @@ function sharedCutSharePct(pieces){
   for(const i of order){ if(left<=0) break; bps[i]+=1; left-=1; }
   return bps.map(n=>n/100);
 }
+/** v469 — چند محصول روی یک مارکر در همان مودال لایه‌چینی */
+function cuttingSharedEnabled(){
+  return String((CACHE.settings||{}).production_shared_cut||'')==='1';
+}
+function cuttingIsMultiMode(){
+  return !window._cutEditId && !!window._cutMultiMode && cuttingSharedEnabled();
+}
+function cuttingSetMultiMode(on){
+  window._cutMultiMode=!!on && cuttingSharedEnabled() && !window._cutEditId;
+  const single=el('cl-single-box');
+  const multi=el('cl-multi-box');
+  const hint=el('cl-mode-hint');
+  if(single) single.hidden=!!window._cutMultiMode;
+  if(multi) multi.hidden=!window._cutMultiMode;
+  if(hint){
+    hint.textContent=window._cutMultiMode
+      ? 'عدد هر سایز = قطعه در طول مارکر (در هر لایهٔ پارچه). قطعهٔ کل = آن × لایه روی طاقه. سهم پارچه از نسبت قطعات است.'
+      : 'ماتریس سایز = تعداد قطعهٔ این لایه (مسیر کلاسیک تک‌محصول).';
+  }
+  const t1=el('cl-mode-single'); const t2=el('cl-mode-multi');
+  if(t1) t1.className='btn sm'+(window._cutMultiMode?' ghost':'');
+  if(t2) t2.className='btn sm'+(window._cutMultiMode?'':' ghost');
+  cuttingRenderRollPickerExtras();
+}
+function cuttingMultiProducts(){
+  return Array.isArray(window._cutMultiProducts)?window._cutMultiProducts:[];
+}
+async function cuttingMultiAddProduct(pid){
+  const list=cuttingMultiProducts();
+  const id=Number(pid)||0;
+  if(!id){ showToast('کالا را انتخاب کنید','error'); return; }
+  if(list.some(x=>Number(x.product_id)===id)){ showToast('این کالا قبلاً اضافه شده','error'); return; }
+  const prod=(CACHE.allProducts||[]).find(x=>Number(x.id)===id);
+  const sizes=await cuttingSizeLabelsForProduct(id);
+  const breakdown={}; sizes.forEach(s=>{ breakdown[s]=0; });
+  list.push({product_id:id, product_name:prod?prod.name:('#'+id), sizes, breakdown});
+  window._cutMultiProducts=list;
+  cuttingRenderMultiProducts();
+  if(list.length===1) await cuttingResolveFabricAndRolls();
+}
+function cuttingMultiRemoveProduct(pid){
+  window._cutMultiProducts=cuttingMultiProducts().filter(x=>Number(x.product_id)!==Number(pid));
+  cuttingRenderMultiProducts();
+}
+function cuttingSyncMultiFromInputs(){
+  document.querySelectorAll('#cl-multi-list [data-mp-pid]').forEach(inp=>{
+    const pid=+inp.getAttribute('data-mp-pid');
+    const sz=inp.getAttribute('data-mp-size');
+    const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
+    if(row){
+      if(!row.breakdown) row.breakdown={};
+      row.breakdown[sz]=+inp.value||0;
+    }
+  });
+}
+function cuttingRenderMultiProducts(){
+  const box=el('cl-multi-list'); if(!box) return;
+  cuttingSyncMultiFromInputs();
+  const list=cuttingMultiProducts();
+  if(!list.length){
+    box.innerHTML='<p class="muted">حداقل دو کالای دوخته‌شده اضافه کنید. عدد = قطعه در مارکر (در هر لایه).</p>';
+    const share0=el('cl-multi-share'); if(share0) share0.textContent='';
+    return;
+  }
+  box.innerHTML=list.map(p=>{
+    const cells=Object.keys(p.breakdown||{}).map(sz=>{
+      const v=Number((p.breakdown||{})[sz])||0;
+      return '<div class="fg"><label>'+esc(sz)+'</label><input type="number" min="0" step="1" value="'+v+'" data-mp-pid="'+p.product_id+'" data-mp-size="'+esc(sz)+'"></div>';
+    }).join('');
+    const sum=Object.values(p.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
+    return '<div class="panel" style="margin:8px 0;padding:8px" data-mp-card="'+p.product_id+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<b>'+esc(p.product_name||('#'+p.product_id))+'</b>'
+      +'<span class="muted">جمع در مارکر: <b data-mp-sum="'+p.product_id+'">'+fmt(sum)+'</b></span>'
+      +'<button type="button" class="btn ghost sm" data-mp-remove="'+p.product_id+'">حذف</button>'
+      +'</div><div class="form-grid" style="margin-top:6px">'+cells+'</div></div>';
+  }).join('');
+  box.querySelectorAll('[data-mp-remove]').forEach(btn=>{
+    btn.addEventListener('click',()=>cuttingMultiRemoveProduct(+btn.getAttribute('data-mp-remove')));
+  });
+  box.querySelectorAll('[data-mp-pid]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      cuttingSyncMultiFromInputs();
+      const pid=+inp.getAttribute('data-mp-pid');
+      const row=cuttingMultiProducts().find(x=>Number(x.product_id)===pid);
+      const sumEl=box.querySelector('[data-mp-sum="'+pid+'"]');
+      if(row && sumEl){
+        const sum=Object.values(row.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
+        sumEl.textContent=fmt(sum);
+      }
+      const pieces=cuttingMultiProducts().map(x=>Object.values(x.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0));
+      const pct=sharedCutSharePct(pieces);
+      const share=el('cl-multi-share');
+      if(share) share.textContent=cuttingMultiProducts().map((x,i)=>esc(x.product_name)+': '+(pct[i]!=null?pct[i]:0)+'%').join(' · ');
+    });
+  });
+  const pieces=list.map(x=>Object.values(x.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0));
+  const pct=sharedCutSharePct(pieces);
+  const share=el('cl-multi-share');
+  if(share) share.textContent=list.map((x,i)=>esc(x.product_name)+': '+(pct[i]!=null?pct[i]:0)+'%').join(' · ');
+}
+function cuttingCollectMultiOutputs(){
+  cuttingSyncMultiFromInputs();
+  const outs=[];
+  cuttingMultiProducts().forEach(p=>{
+    Object.entries(p.breakdown||{}).forEach(([sz,q])=>{
+      const n=+q||0;
+      if(n>0) outs.push({product_id:Number(p.product_id), size_code:String(sz), pieces_per_ply:n});
+    });
+  });
+  return outs;
+}
+function cuttingRenderRollPickerExtras(){
+  document.querySelectorAll('.cl-roll-extra').forEach(n=>n.remove());
+  if(!cuttingIsMultiMode()) return;
+  const pliesDefault=+el('cl-plies')?.value||0;
+  const checked=[...document.querySelectorAll('.cl-roll:checked')];
+  const rolls=[...document.querySelectorAll('.cl-roll')];
+  rolls.forEach(ch=>{
+    const lab=ch.parentElement; if(!lab) return;
+    const wrap=document.createElement('span');
+    wrap.className='cl-roll-extra';
+    wrap.style.cssText='display:inline-flex;gap:6px;align-items:center;margin-inline-start:6px;flex-wrap:wrap';
+    const defPlies=(rolls.length===1 || ch.checked)?pliesDefault:'';
+    wrap.innerHTML='لایه <input type="number" class="cl-roll-plies" min="0" step="1" value="'+(defPlies||'')+'" style="width:64px"> '
+      +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="0" placeholder="متر" style="width:70px">';
+    lab.appendChild(wrap);
+  });
+}
+
 function sharedCutDraft(){
   const marker=parseFloat(el('sc-marker').value);
   const a=parseInt(el('sc-a').value,10);
@@ -12811,7 +12941,10 @@ async function renderCuttingLaysTab(body){
         :(isPacked
           ?(r.production_order_id||(livePack&&livePack.production_order_id)?'✅ بسته‌بندی WIP (منتظر نهایی‌سازی)':'✅ در انبار محصول')
           :(r.status==='reversed'?'—':'⏳ منتظر PACK'));
-      return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+esc(r.product_name||('#'+r.product_id))+'</td>'
+      const nameCell=(Number(r.is_shared_cut)===1 && (r.shared_product_names||[]).length)
+        ? ('<span class="muted">چندمحصول:</span> '+esc((r.shared_product_names||[]).join(' + ')))
+        : esc(r.product_name||('#'+r.product_id));
+      return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+nameCell+'</td>'
         +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
         +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
         +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td>'
@@ -12838,12 +12971,19 @@ async function cuttingLayModal(editId){
   window._cutEditRollBoost={};
   window._cutIdemKey=window._cutEditId?null:newCutIdemKey();
   window._cutFabricProductId=null;
+  window._cutMultiMode=false;
+  window._cutMultiProducts=[];
+  if(!CACHE.settings){ try{ CACHE.settings=await api('GET','/settings')||{}; }catch(_){ CACHE.settings={}; } }
   let lay=null;
   if(window._cutEditId){
     try{ lay=await api('GET','/production/cutting-lays/'+window._cutEditId); }
     catch(e){ showToast(e.message||'لایه یافت نشد','error'); return; }
     if(!lay || lay.status==='reversed'){ showToast('لایه ابطال‌شده قابل ویرایش نیست','error'); return; }
     const realPack=(lay.packs||[]).some(p=>p.status==='posted');
+    if(lay.batch_id || Number(lay.is_shared_cut)===1){
+      showToast('لایه‌چینی چندمحصولی را ابطال کنید و دوباره ثبت کنید — ویرایش مستقیم ندارد','error');
+      return;
+    }
     if(realPack){ showToast('ابتدا رسید محصول (PACK) را ابطال کنید','error'); return; }
     window._cutQtyLocked=Number(lay.fg_covered_by_order)===1||Number(lay.pack_via_order_fg)===1;
     (lay.rolls||[]).filter(r=>r.status==='posted').forEach(r=>{
@@ -12861,8 +13001,13 @@ async function cuttingLayModal(editId){
   const ccOpts=ccRows.map(c=>'<option value="'+c.id+'"'+(String(c.id)===ccSelected?' selected':'')+'>'+esc((c.code?c.code+' — ':'')+c.name)+'</option>').join('');
   const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):'لایه‌چینی و برش';
   showModal(title,`
+    ${(!window._cutEditId && cuttingSharedEnabled())?`<div class="toolbar" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" class="btn sm" id="cl-mode-single" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(false)})}">تک‌محصول</button>
+      <button type="button" class="btn sm ghost" id="cl-mode-multi" data-csp-click="${CSP.bind('click',function(){cuttingSetMultiMode(true)})}">چند محصول روی یک مارکر</button>
+      <span class="muted" id="cl-mode-hint" style="font-size:12px">ماتریس سایز = تعداد قطعهٔ این لایه (مسیر کلاسیک تک‌محصول).</span>
+    </div>`:''}
     <div class="form-grid">
-      <div class="fg"><label>کالای دوخته‌شده${window._cutEditId?' (ثابت)':''}</label>${productSelect('cl-prod',prodVal,list)}</div>
+      <div class="fg" id="cl-single-prod-wrap"><label>کالای دوخته‌شده${window._cutEditId?' (ثابت)':''}</label>${productSelect('cl-prod',prodVal,list)}</div>
       <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="${lay?esc(String(lay.marker_length_m||2)):'2'}"></div>
       <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="${lay?esc(String(lay.ply_count||10)):'10'}"></div>
       <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null?esc(String(lay.actual_meters)):''}"></div>
@@ -12882,9 +13027,20 @@ async function cuttingLayModal(editId){
       ?'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">این لایه با رسید سفارش پوشش شده. ویرایش متر، طاقه، رنگ، عرض و مرکز هزینه، اختلاف بها را به موجودی همان محصول می‌برد (اگر موجودی تمام شده باشد، سهم فروش‌رفته به بهای تمام‌شده می‌رود). تعداد قطعه و سفارش در ویرایش قفل است. ابطال همین لایه طاقه و سهم بها را برمی‌گرداند و تعداد محصول را عوض نمی‌کند.</p>'
       :'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">ویرایش = ابطال کامل اثرات قبلی همین شماره لایه و ثبت مجدد (موجودی طاقه و سند حسابداری). کالا قابل تغییر نیست. اگر PACK مستقیم دارد اول ابطالش کنید.</p>'):''}
     <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
+    <div id="cl-single-box">
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
     <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(sz=>`<div class="fg"><label>${sz}</label><input type="number" min="0" step="1" value="0" data-cut-size="${sz}"></div>`).join('')}</div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود</div>
+    </div>
+    <div id="cl-multi-box" hidden>
+      <div class="muted" style="margin:10px 0 6px;font-size:12px">محصولات روی یک مارکر — قطعه در مارکر (در هر لایهٔ پارچه)</div>
+      <div class="toolbar" style="gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
+        <div class="fg" style="margin:0;min-width:220px"><label>افزودن کالا</label>${productSelect('cl-multi-add','',list)}</div>
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){cuttingMultiAddProduct(el('cl-multi-add')&&el('cl-multi-add').value)})}">➕ افزودن</button>
+      </div>
+      <div id="cl-multi-list"></div>
+      <p class="muted" style="font-size:12px">سهم پارچه (خودکار): <span id="cl-multi-share"></span></p>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌های مجاز (مانده زنده${window._cutEditId?' + متر همین لایه':''}) — انبار از طاقه تشخیص داده می‌شود. در حالت چندمحصول برای هر طاقه «لایه» و «اتلاف طولی» را وارد کنید.</div>
     <div id="cl-rolls"><span class="muted">ابتدا کالا و رنگ را انتخاب کنید…</span></div>
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
@@ -12941,10 +13097,17 @@ async function cuttingLayModal(editId){
       });
     }
   };
-  finish();
+  finish().then(()=>{
+    if(!window._cutEditId && cuttingSharedEnabled()) cuttingSetMultiMode(false);
+    cuttingRenderMultiProducts();
+  });
 }
 async function cuttingResolveFabricAndRolls(){
-  const pid=+el('cl-prod')?.value||0;
+  let pid=+el('cl-prod')?.value||0;
+  if(cuttingIsMultiMode()){
+    const first=cuttingMultiProducts()[0];
+    pid=first?Number(first.product_id):0;
+  }
   window._cutFabricProductId=null;
   const hint=el('cl-fabric-hint');
   if(!pid){
@@ -13070,6 +13233,10 @@ function cuttingRenderRollPicker(rows, color, emptyNote){
       +(b.product_name?(' <span class="muted">('+esc(b.product_name)+')</span>'):'')
       +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="متر"></label>';
   }).filter(Boolean).join('');
+  cuttingRenderRollPickerExtras();
+  document.querySelectorAll('.cl-roll').forEach(ch=>{
+    ch.addEventListener('change',()=>cuttingRenderRollPickerExtras());
+  });
 }
 async function cuttingApplyPo(){
   const id=+el('cl-po')?.value||0;
@@ -13101,10 +13268,36 @@ async function cuttingApplyPo(){
         });
         joint.hidden=false;
         joint.innerHTML=`<div class="po-sec" data-csp-style="${CSP.style(`margin-top:8px`)}"><b>محصولات این سفارش</b>
-          <p class="po-dep">لایه‌چینی پارچهٔ مشترک را برای جمع قطعه‌ها مصرف می‌کند. تعداد و رنگ هر محصول جدا می‌ماند.</p>
+          <p class="po-dep">برای چند محصول روی یک مارکر، حالت «چند محصول روی یک مارکر» را بزنید. عدد هر سایز = قطعه در مارکر (در هر لایه).</p>
           <table class="tbl"><thead><tr><th>محصول</th><th class="num">تعداد</th><th>رنگ × سایز</th></tr></thead><tbody>
           ${plan.map(p=>`<tr><td>${esc(p.product_name||('#'+p.product_id))}</td><td class="num">${toFa(p.qty_planned||0)}</td><td>${esc((byPid[p.product_id]||[]).join('، ')||'—')}</td></tr>`).join('')}
           </tbody></table></div>`;
+        if(cuttingSharedEnabled() && !window._cutEditId && plan.length>1){
+          cuttingSetMultiMode(true);
+          window._cutMultiProducts=[];
+          for(const p of plan){
+            await cuttingMultiAddProduct(p.product_id);
+          }
+          // پیش‌پیشنهاد نسبت یک لایه از برنامهٔ سفارش (تقسیم بر لایهٔ فرم)
+          const plies=Math.max(1,+el('cl-plies')?.value||1);
+          const bySize={};
+          (po.matrix_lines||[]).forEach(l=>{
+            const pid=Number(l.product_id)||Number(po.product_id);
+            const sz=String(l.size_name||l.size_id||'').trim();
+            const q=Number(l.qty_planned)||0;
+            if(!pid||!sz||!(q>0)) return;
+            if(!bySize[pid]) bySize[pid]={};
+            bySize[pid][sz]=(bySize[pid][sz]||0)+q;
+          });
+          cuttingMultiProducts().forEach(row=>{
+            const m=bySize[row.product_id]||{};
+            Object.keys(row.breakdown||{}).forEach(sz=>{
+              const total=Number(m[sz])||0;
+              row.breakdown[sz]=total>0?Math.max(1,Math.round(total/plies)):0;
+            });
+          });
+          cuttingRenderMultiProducts();
+        }
       }else{ joint.hidden=true; joint.innerHTML=''; }
     }
     if(po && po.size_breakdown){
@@ -13127,9 +13320,20 @@ function cuttingLayBreakdown(){
   return o;
 }
 async function cuttingLayPreview(){
-  const bd=cuttingLayBreakdown();
-  const actual=el('cl-actual').value?+el('cl-actual').value:undefined;
   try{
+    if(cuttingIsMultiMode()){
+      const body=cuttingBuildSharedBody();
+      if(!body) return;
+      const data=await api('POST','/production/cutting-batches/preview',body);
+      const outs=(data.outputs||[]).map(o=>('#'+o.product_id+'/'+esc(o.size_code||'')+': '+o.pieces_per_ply+'→'+o.planned_pieces+' قطعه ('+(o.weight||0)+'%)')).join(' · ');
+      el('cl-preview').textContent='پهن '+fmt(data.laid_m||0)+' · برگشت '+fmt(data.returned_m||0)+' · ته‌طاقه '+fmt(data.remnant_m||0)
+        +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmt(data.policy.threshold_m):'—')
+        +(data.balanced?' · تراز OK':' · تراز طاقه برقرار نیست')
+        +(outs?(' | '+outs):'');
+      return;
+    }
+    const bd=cuttingLayBreakdown();
+    const actual=el('cl-actual').value?+el('cl-actual').value:undefined;
     const q='product_id='+encodeURIComponent(el('cl-prod').value)
       +'&marker_length_m='+encodeURIComponent(el('cl-marker').value)
       +'&ply_count='+encodeURIComponent(el('cl-plies').value)
@@ -13139,29 +13343,72 @@ async function cuttingLayPreview(){
     el('cl-preview').textContent='مصرف نظری '+fmt(p.matrix_meters||0)+' متر · پهن‌شده '+fmt(p.planned_meters||0)+' · ضایعات عادی '+fmt(p.waste_normal_m||0)+' / غیرعادی '+fmt(p.waste_abnormal_m||0);
   }catch(e){ const box=el('cl-preview'); if(box) box.textContent=e.message||e.code||'خطا در پیش‌نمایش'; showToast(e.message||'خطا در پیش‌نمایش','error'); }
 }
-async function cuttingLaySave(){
-  const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
-  const actual=el('cl-actual').value?+el('cl-actual').value:planned;
+function cuttingBuildSharedBody(){
+  const outputs=cuttingCollectMultiOutputs();
+  const pids=[...new Set(outputs.map(o=>o.product_id))];
+  if(pids.length<2){ showToast('حداقل دو محصول با قطعه در مارکر لازم است','error'); return null; }
   const checked=[...document.querySelectorAll('.cl-roll:checked')];
+  if(!checked.length){ showToast('طاقه انتخاب کنید','error'); return null; }
+  const color=(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim();
+  if(!color){ showToast('رنگ الزامی است','error'); return null; }
+  const marker=+el('cl-marker').value||0;
+  if(!(marker>0)){ showToast('طول مارکر نامعتبر است','error'); return null; }
   const rolls=[];
-  checked.forEach(ch=>{
-    const inp=ch.parentElement.querySelector('.cl-roll-m');
-    let m=+(inp&&inp.value);
-    if(!(m>0) && checked.length===1) m=actual;
-    if(m>0) rolls.push({batch_id:+ch.dataset.id, meters:m});
-  });
-  if(!Object.keys(cuttingLayBreakdown()).length){ showToast('ماتریس سایز را وارد کنید','error'); return; }
-  if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
-  const payload={
-    product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
-    marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
-    actual_meters:actual, width_cm:+el('cl-w').value||0,
-    production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
-    cost_center_id: el('cl-cc') && el('cl-cc').value ? +el('cl-cc').value : undefined,
-    size_breakdown:cuttingLayBreakdown(), rolls,
-    reason: window._cutEditId ? 'ویرایش از گزارش' : undefined,
+  for(const ch of checked){
+    const plies=+(ch.parentElement.querySelector('.cl-roll-plies')?.value);
+    const loss=+(ch.parentElement.querySelector('.cl-roll-loss')?.value)||0;
+    const opening=+ch.dataset.max||0;
+    if(!(plies>0)){ showToast('برای هر طاقهٔ انتخاب‌شده تعداد لایه را وارد کنید','error'); return null; }
+    if(!(opening>0)){ showToast('مانده طاقه نامعتبر است','error'); return null; }
+    rolls.push({batch_id:+ch.dataset.id, opening_m:opening, ply_count:plies, color, length_loss_m:loss});
+  }
+  return {
+    marker_length_m:marker,
+    width_cm:+el('cl-w').value||0,
+    fabric_product_id:window._cutFabricProductId||undefined,
+    color,
+    cost_center_id: el('cl-cc')&&el('cl-cc').value?+el('cl-cc').value:undefined,
+    production_order_id: el('cl-po')&&el('cl-po').value?+el('cl-po').value:undefined,
+    outputs,
+    rolls,
   };
+}
+async function cuttingLaySave(){
   try{
+    if(cuttingIsMultiMode()){
+      const body=cuttingBuildSharedBody();
+      if(!body) return;
+      const preview=await api('POST','/production/cutting-batches/preview',body);
+      if(!preview.balanced){ showToast('تراز طاقه برقرار نیست — پیش‌نمایش را ببینید','error'); return; }
+      if(!confirm('ثبت لایه‌چینی چندمحصولی؟ متر پهن‌شده به WIP می‌رود؛ برگشت/ته‌طاقه طبق سیاست؛ PACK WIP برای هر محصول ساخته می‌شود.')) return;
+      body.idempotency_key=window._cutIdemKey||newCutIdemKey();
+      const posted=await api('POST','/production/cutting-batches',body);
+      closeModal();
+      showToast('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد');
+      loadAccTab('cutting-lays');
+      return;
+    }
+    const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
+    const actual=el('cl-actual').value?+el('cl-actual').value:planned;
+    const checked=[...document.querySelectorAll('.cl-roll:checked')];
+    const rolls=[];
+    checked.forEach(ch=>{
+      const inp=ch.parentElement.querySelector('.cl-roll-m');
+      let m=+(inp&&inp.value);
+      if(!(m>0) && checked.length===1) m=actual;
+      if(m>0) rolls.push({batch_id:+ch.dataset.id, meters:m});
+    });
+    if(!Object.keys(cuttingLayBreakdown()).length){ showToast('ماتریس سایز را وارد کنید','error'); return; }
+    if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
+    const payload={
+      product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
+      marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
+      actual_meters:actual, width_cm:+el('cl-w').value||0,
+      production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
+      cost_center_id: el('cl-cc') && el('cl-cc').value ? +el('cl-cc').value : undefined,
+      size_breakdown:cuttingLayBreakdown(), rolls,
+      reason: window._cutEditId ? 'ویرایش از گزارش' : undefined,
+    };
     if(window._cutEditId){
       await api('PUT','/production/cutting-lays/'+window._cutEditId, payload);
       closeModal(); showToast('لایه‌چینی ویرایش شد'); loadAccTab('cutting-lays');
@@ -31583,12 +31830,14 @@ function renderAdminGuide(){
         <li>اگر خالی بماند، سرور اول مرکز برشِ همان فرمول و بعد CC-10 را می‌گذارد. مرکز سربرگ سفارش (اغلب دوخت) روی ضایعات برش نمی‌نشیند.</li>
         <li>همین قاعده برای اتلاف طولی برش مشترک و کسری نزد پیمانکار (مرکز همان مرحله) هم هست. سوییچ الزام مرکز هزینه خاموش نمی‌شود.</li>
       </ul>`),
-    helpSec('✂️','برش مشترک',`
-      <p>در تنظیمات تولید، <b>برش مشترک</b> پیش‌فرض خاموش است. دکمهٔ برنامه فقط پیش‌نمایش است و سند مالی نمی‌سازد.</p>
+    helpSec('✂️','برش مشترک / چند محصول روی یک مارکر (v469)',`
+      <p>از v469 پرچم <b>برش مشترک</b> پیش‌فرض روشن است. در «لایه‌چینی جدید» سوییچ <b>چند محصول روی یک مارکر</b> را بزنید.</p>
       <ul>
-        <li>یک قد الگو می‌تواند چند محصول بدهد. محصول دوم خالی یعنی یک خروجی.</li>
-        <li>کف و نسبت ته‌طاقه در تنظیمات است و روی برنامهٔ ثبت‌شده ذخیره می‌شود.</li>
-        <li>بستهٔ این مسیر WIP است. دستمزد جدید به کنترل ۵۲۰۱ می‌رود.</li>
+        <li>طول مارکر مشترک است؛ برای هر کالا ماتریس «قطعه در مارکر (در هر لایهٔ پارچه)» جداست — مثلاً مدل A دو عدد و مدل B سه عدد در قد ۶ متر.</li>
+        <li>قطعهٔ برنامه‌ای = قطعه در مارکر × لایه روی همان طاقه. سهم ریال/متر از نسبت قطعات است (نه درصد دستی).</li>
+        <li>طاقه: مانده = ورودی؛ پهن‌شده = لایه×قد؛ باقیمانده تا آستانه ته‌طاقه، بیشتر برگشت به همان طاقه؛ اتلاف طولی به ۵۲۲۱ با مرکز برش.</li>
+        <li>ثبت، PACK WIP برای هر محصول می‌سازد. ویرایش مستقیم ندارد — ابطال کامل (R13) سپس ثبت دوباره.</li>
+        <li>تک‌محصول همان مسیر کلاسیک قبلی می‌ماند (ویرایش/پوشش سفارش).</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`
       <p>آدرس رسمی ERP: <b dir="ltr">https://erptaranom.com</b>. DNS به‌صورت multi-primary است: Name Server روی سرور ایران (<span dir="ltr">ns1/ns2.erptaranom.com</span>) و Cloudflare (<span dir="ltr">connie/finley</span>) با رکورد هم‌سان — اگر یکی جواب ندهد دیگری resolve می‌کند. سرور اپ روی ایران است؛ با VPN اگر باز نشد split-tunnel بزنید. دامنهٔ قدیمی <span dir="ltr">erp.poshaktaranom.com</span> بازنشسته است.</p>
@@ -31842,7 +32091,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br><b>v409 قرارداد مرحله‌محور BOM:</b> ترتیب عملیات در تب <b>مسیر</b> فرمول تعریف می‌شود. سفارش روی BOM مسیر‌دار همیشه <b>پیشرفته</b> (<code>fixed_adv</code>/<code>variable_adv</code>) ساخته/آزاد می‌شود تا مراحل حسابداری ساخته شوند. حواله مواد مرحله فقط وقتی مرحله «در جریان» است و مرحلهٔ قبل done/skipped باشد؛ قلم باید متعلق به همان مرحله باشد؛ پارچهٔ لایه‌چینی‌شده دوباره حواله نمی‌شود؛ بدون سند JE حواله ثبت نمی‌شود. رد کردن مرحلهٔ دارای مواد ممنوع است. داشبورد: نوار پیشرفت مراحل + مرحله ۴ فقط با حداقل یک مرحلهٔ <b>انجام‌شده</b> (نه فقط آزادسازی).
           <br><b>v411 اتصال لایه‌چینی → مرحلهٔ برش:</b> وقتی لایه‌چینی به سفارش پیشرفته پیوند دارد، سرور مرحلهٔ برش مسیر (CC-10 / نام «برش» / اولین مرحلهٔ پارچه) را پیدا می‌کند، مصرف پارچه را روی همان مرحله ثبت می‌کند، مرحله را تکمیل می‌کند و مرحلهٔ بعد را باز می‌کند (دستمزد/سربار مرحله از نرخ مسیر). ابطال/ویرایش لایه همان اتصال را با R13 برمی‌گرداند. پارچه دوباره در حوالهٔ مرحله حواله نمی‌شود.
           <br><b>v463 مرکز هزینه ضایعات:</b> مازاد بر سقف ضایعات عادی به ۵۲۲۱ و مرکز برش (فیلد فرم، یا CC-10) می‌رود تا الزام مرکز هزینه ثبت را نبندد.
-          <br><b>برش مشترک (پرچم production_shared_cut):</b> یک یا چند محصول روی یک قد الگو. سهم ریال و متر هر مدل از «قطعه در هر لایه» است. باقیمانده تا آستانه (پیش‌فرض بیشترینِ ۱٫۲۰ متر و ۲۰٪ قد الگو، قابل تنظیم) ته‌طاقه است؛ بیشتر از آستانه به همان طاقه برمی‌گردد. اتلاف طولی بستانکار مواد است، چون کالای درجریان فقط متر پهن‌شده را بدهکار شده. ابطال، رسید انبار ته‌طاقه را هم برمی‌گرداند. مراحل بعد از برش برای هر محصول جداست و از همین فرم سفارش جدا ساخته نمی‌شود.
+          <br><b>برش مشترک / چندمحصول (v469، پرچم production_shared_cut پیش‌فرض روشن):</b> در مودال لایه‌چینی سوییچ «چند محصول روی یک مارکر». عدد سایز = قطعه در طول مارکر در هر لایه. سهم ریال از نسبت قطعات. ته‌طاقه با آستانهٔ سیاست (پیش‌فرض max(۱٫۲۰م، ۲۰٪ قد الگو)). اتلاف طولی بستانکار مواد (۵۲۲۱). ابطال لایهٔ چندمحصولی کل برنامه + PACK WIP + ته‌طاقه را برمی‌گرداند. ویرایش مستقیم ندارد.
           <br><b>v379 رنگ طاقه↔ماتریس:</b> فاصله / نیم‌فاصله / «و» اختیاری یکسان است.
           <br>مسیر ۱ (cut-to-stock بدون سفارش): PACK مستقیم به انبار محصول + JE WIP→FG.
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>
@@ -32519,7 +32768,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v468</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v469</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول.</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>

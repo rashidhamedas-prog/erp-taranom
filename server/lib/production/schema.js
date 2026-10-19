@@ -80,7 +80,7 @@ const PRODUCTION_SETTINGS = {
   pricing_margin_percent: '35',
   production_module_enabled: '1',
   production_wh_dist_id: '',
-  production_shared_cut: '0',
+  production_shared_cut: '1',
   production_roll_balance_tolerance_m: '0.01',
   production_remnant_mode: 'formula',
   production_remnant_min_m: '1.20',
@@ -1498,6 +1498,11 @@ function seedSettings(db) {
   const ins = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
   for (const [k, v] of Object.entries(PRODUCTION_SETTINGS)) {
     ins.run(k, v);
+  }
+  // v469 — چندمحصول روی یک مارکر در لایه‌چینی؛ یک‌بار پرچم را روشن کن (INSERT OR IGNORE قبلی مقدار قدیمی را نگه می‌داشت).
+  if (!db.prepare("SELECT 1 FROM settings WHERE key='production_shared_cut_ui_v469'").get()) {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_shared_cut','1')").run();
+    ins.run('production_shared_cut_ui_v469', '1');
   }
   // Map logical coa keys to codes (optional overrides)
   const coaSettings = {

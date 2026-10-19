@@ -148,17 +148,33 @@ function loadPolicy(db, ctx) {
 function normalizeOutputs(outputs, acceptedPlies) {
   const rows = Array.isArray(outputs) ? outputs : [];
   if (!rows.length) throw httpErr(400, 'حداقل یک خروجی لازم است', 'E_OUTPUTS');
-  return rows.map((o) => {
+  const mapped = rows.map((o) => {
     const pieces = Number(o.pieces_per_ply);
     if (!(pieces > 0)) throw httpErr(400, 'قطعه در هر لایه باید بزرگ‌تر از صفر باشد', 'E_PIECES');
+    const pid = Number(o.product_id);
+    if (!pid) throw httpErr(400, 'کالای خروجی الزامی است', 'E_OUTPUT_PRODUCT');
     return {
-      product_id: Number(o.product_id),
+      product_id: pid,
       size_code: String(o.size_code || ''),
       pieces_per_ply: pieces,
       weight: Number(o.weight != null ? o.weight : o.weight_pct),
       planned_pieces: plannedPieces(acceptedPlies, pieces),
     };
   });
+  const hasWeight = mapped.every((o) => Number.isFinite(o.weight) && o.weight > 0);
+  if (hasWeight) return mapped;
+  // سهم فنی از تعداد قطعه در مارکر (قطعه در هر لایه) — اگر کلاینت weight نفرستد.
+  const sumP = mapped.reduce((s, o) => s + o.pieces_per_ply, 0);
+  if (!(sumP > 0)) throw httpErr(400, 'جمع قطعه در مارکر صفر است', 'E_SHARE_ZERO');
+  const bps = mapped.map((o) => Math.floor((o.pieces_per_ply / sumP) * 10000));
+  let left = 10000 - bps.reduce((s, n) => s + n, 0);
+  const order = bps.map((_, i) => i).sort((a, b) => bps[b] - bps[a] || mapped[a].product_id - mapped[b].product_id);
+  for (const i of order) {
+    if (left <= 0) break;
+    bps[i] += 1;
+    left -= 1;
+  }
+  return mapped.map((o, i) => ({ ...o, weight: bps[i] / 100 }));
 }
 
 function previewRolls(rolls, policy, markerLengthM, tolerance) {
@@ -469,6 +485,13 @@ function getSharedCut(db, id) {
   batch.packs = batch.lay_id
     ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND status='posted'").all(batch.lay_id)
     : [];
+  if (batch.lay_id) {
+    const lay = db.prepare('SELECT lay_no, status FROM cutting_lays WHERE id=?').get(batch.lay_id);
+    if (lay) {
+      batch.lay_no = lay.lay_no;
+      batch.lay_status = lay.status;
+    }
+  }
   return batch;
 }
 
