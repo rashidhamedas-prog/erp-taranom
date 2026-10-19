@@ -12713,11 +12713,12 @@ async function cuttingMultiAddProduct(pid){
   list.push({product_id:id, product_name:prod?prod.name:('#'+id), sizes, breakdown});
   window._cutMultiProducts=list;
   cuttingRenderMultiProducts();
-  if(list.length===1) await cuttingResolveFabricAndRolls();
+  await cuttingResolveFabricAndRolls();
 }
 function cuttingMultiRemoveProduct(pid){
   window._cutMultiProducts=cuttingMultiProducts().filter(x=>Number(x.product_id)!==Number(pid));
   cuttingRenderMultiProducts();
+  cuttingResolveFabricAndRolls();
 }
 function cuttingSyncMultiFromInputs(){
   document.querySelectorAll('#cl-multi-list [data-mp-pid]').forEach(inp=>{
@@ -13212,12 +13213,16 @@ async function cuttingLayModal(editId){
     cuttingRenderMultiProducts();
   });
 }
+function cuttingFgProductIds(){
+  const ids=[];
+  const push=id=>{ const n=Number(id)||0; if(n>0 && !ids.includes(n)) ids.push(n); };
+  push(el('cl-prod')?.value);
+  if(cuttingIsMultiMode()) cuttingMultiProducts().forEach(p=>push(p.product_id));
+  return ids;
+}
 async function cuttingResolveFabricAndRolls(){
-  let pid=+el('cl-prod')?.value||0;
-  if(cuttingIsMultiMode()){
-    const first=cuttingMultiProducts()[0];
-    pid=first?Number(first.product_id):0;
-  }
+  const ids=cuttingFgProductIds();
+  let pid=ids[0]||0;
   window._cutFabricProductId=null;
   const hint=el('cl-fabric-hint');
   if(!pid){
@@ -13248,20 +13253,24 @@ async function cuttingResolveFabricAndRolls(){
 async function cuttingLoadRollColors(){
   const sel=el('cl-color'); if(!sel) return;
   const prev=sel.value || (el('cl-color-extra')?.value||'').trim();
-  const fgPid=+el('cl-prod')?.value||0;
+  const fgIds=cuttingFgProductIds();
   const qs=new URLSearchParams({status:'active', min_qty:'0.01'});
   if(window._cutFabricProductId) qs.set('product_id', String(window._cutFabricProductId));
   let rows=[];
   try{ rows=(await api('GET','/production/cutting-lays/rolls?'+qs.toString())||{}).rows||[]; }catch(_){ rows=[]; }
   window._cutRollsAll=rows.filter(b=>Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
   const rollColors=[...new Set(window._cutRollsAll.map(b=>String(b.color||'').trim()).filter(Boolean))];
-  // ماتریس کالای دوخته‌شده را اول بگذار تا PACK همان نام master را ببیند؛ طاقه با colorsMatch نرم جور می‌شود.
+  // ماتریس هر کالای روی مارکر را اول بگذار تا PACK همان نام master را ببیند؛ طاقه با colorsMatch نرم جور می‌شود.
   let matrixColors=[];
-  if(fgPid){
+  for(const fgPid of fgIds){
     try{
       const vars=await api('GET','/product-variants?product_id='+fgPid+'&include_default=0')||[];
-      matrixColors=[...new Set(vars.filter(v=>!v.is_default).map(v=>String(v.color_name||'').trim()).filter(Boolean))];
-    }catch(_){ matrixColors=[]; }
+      const list=Array.isArray(vars)?vars:(vars.rows||vars.variants||[]);
+      list.filter(v=>v && !v.is_default).forEach(v=>{
+        const name=String(v.color_name||v.color||'').trim();
+        if(name && !matrixColors.some(mc=>typeof colorsMatch==='function'?colorsMatch(mc,name):mc===name)) matrixColors.push(name);
+      });
+    }catch(_){ /* رنگ این کالا نیاید بقیه را قطع نکند */ }
   }
   const colors=[...matrixColors];
   rollColors.forEach(rc=>{
@@ -32332,7 +32341,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد. عنوان هر ستون روی همان داده می‌ماند. جستجوی کالا فقط ردیف‌ها را عوض می‌کند و ستون انتخاب را دوباره به سرستون اضافه نمی‌کند.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
-        <li><b>طاقه در لایه‌چینی (v465):</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر: پارچهٔ همان فرمول + رنگ هم‌خوان + عرض (اگر هر دو طرف عرض داشته باشند). رنگ ماتریس و رنگ طاقه با فاصله، نیم‌فاصله، ی/ک عربی و «و» اختیاری یکی‌اند — مثلاً «سرمه‌ای» همان «سورمه ای» است. اگر طاقه هست ولی عرض یا کالای فرمول فرق دارد، پیام همان علت را می‌گوید. سرور انتخاب ناسازگار را رد می‌کند.</li>
+        <li><b>طاقه در لایه‌چینی (v465 / v478):</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر: پارچهٔ همان فرمول + رنگ هم‌خوان + عرض (اگر هر دو طرف عرض داشته باشند). فهرست رنگ از ماتریس همان کالای دوخته‌شده (و در مارکر چندمحصول، از همهٔ کالاهای اضافه‌شده) پر می‌شود، حتی اگر هنوز طاقهٔ آن رنگ نباشد. رنگ ماتریس و رنگ طاقه با فاصله، نیم‌فاصله، ی/ک عربی و «و» اختیاری یکی‌اند — مثلاً «سرمه‌ای» همان «سورمه ای» است. اگر طاقه هست ولی عرض یا کالای فرمول فرق دارد، پیام همان علت را می‌گوید. سرور انتخاب ناسازگار را رد می‌کند.</li>
         <li><b>رنگ×سایز و مواد هر عملیات (v278/v279):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> / <code>matrix_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
         <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
         <li><b>«اجرای تولید» قدیمی بسته شد (v280):</b> صفحهٔ قدیمی تحلیل هزینه، موجودی و بهای کالا را مستقیم تغییر می‌داد — بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید. با نصب مدول تولید، ثبت و ابطال از آن مسیر با <code>E_LEGACY_PRODUCTION_DISABLED</code> (۴۰۹) رد می‌شود و ردیف‌های قبلی فقط‌خواندنی می‌مانند؛ تولید جدید فقط از <b>سفارش‌های تولید</b> (یا لایه‌چینی/رسید محصول) ثبت می‌شود. اگر برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه لازم شد، <b>admin</b> می‌تواند در تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی مجاز باشد» را موقتاً روشن کند؛ حتی در آن حالت هم ثبت در ماه بستهٔ تولید با <code>E_PERIOD_CLOSED</code> رد می‌شود. مهاجرت ردیف‌های تاریخی به دفتر انبار یک کار جداگانه است.</li>
