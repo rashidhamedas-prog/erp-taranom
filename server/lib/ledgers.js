@@ -548,7 +548,10 @@ function buildStockLedger(db, {
         running += qIn - qOut;
       }
       runningWh += qIn - qOut;
-    } else if (showAudit && r.status === 'posted' && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice) {
+    } else if (
+      showAudit && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice
+      && (r.status === 'posted' || r.status === 'reversed')
+    ) {
       period_qty_in += qIn;
       period_qty_out += qOut;
     }

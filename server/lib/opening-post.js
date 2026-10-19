@@ -883,6 +883,8 @@ function redateOpeningDocsToFiscalStart(db) {
   if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
   const flag = db.prepare("SELECT value FROM settings WHERE key='opening_fiscal_date_v490'").get();
   if (flag && flag.value === '1') return { skipped: true };
+  const cols = db.prepare('PRAGMA table_info(inventory_ledger)').all().map((c) => c.name);
+  if (!cols.includes('date')) return { skipped: true, reason: 'no_date' };
   const start = fiscalOpeningDate(db);
   const ledger = db.prepare(`
     UPDATE inventory_ledger
@@ -896,14 +898,17 @@ function redateOpeningDocsToFiscalStart(db) {
         OR note LIKE 'موجودی اول دوره%'
       )
   `).run(start, start);
-  const journals = db.prepare(`
-    UPDATE journal_entries
-    SET date=?
-    WHERE COALESCE(deleted_at,0)=0
-      AND COALESCE(status,'posted') NOT IN ('reversed','void')
-      AND ref_type='opening_inventory'
-      AND IFNULL(date,'') > ?
-  `).run(start, start);
+  const jeCols = db.prepare('PRAGMA table_info(journal_entries)').all().map((c) => c.name);
+  const journals = jeCols.includes('date')
+    ? db.prepare(`
+        UPDATE journal_entries
+        SET date=?
+        WHERE COALESCE(deleted_at,0)=0
+          AND COALESCE(status,'posted') NOT IN ('reversed','void')
+          AND ref_type='opening_inventory'
+          AND IFNULL(date,'') > ?
+      `).run(start, start)
+    : { changes: 0 };
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_fiscal_date_v490','1')").run();
   return { ledger: ledger.changes || 0, journals: journals.changes || 0, date: start };
 }
