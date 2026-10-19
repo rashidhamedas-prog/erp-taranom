@@ -649,10 +649,11 @@ function postSharedCut(db, body, user) {
     `).run(journalId, wasteJe, common + lossRial, lossRial, plan.laid_m > 0 ? Math.round(common / plan.laid_m) : 0, layId);
     db.prepare('UPDATE cutting_batches SET journal_id=?, waste_journal_id=?, lay_id=?, common_rial=? WHERE id=?')
       .run(journalId, wasteJe, layId, common, batchId);
+    let stageBind = null;
     if (poId) {
       try {
         const { applyCuttingLayToStage } = require('./engine-advanced');
-        applyCuttingLayToStage(db, {
+        stageBind = applyCuttingLayToStage(db, {
           orderId: poId,
           layId,
           layNo,
@@ -669,7 +670,9 @@ function postSharedCut(db, body, user) {
         // سفارش غیرپیشرفته: فقط پیوند production_order_id کافی است
       }
     }
-    return getSharedCut(db, batchId);
+    const posted = getSharedCut(db, batchId);
+    if (stageBind) posted.stage_bind = stageBind;
+    return posted;
   })();
 }
 
@@ -1062,11 +1065,12 @@ function amendSharedCut(db, id, body, user) {
     `).run(journalId, wasteJe, common + lossRial, lossRial, plan.laid_m > 0 ? Math.round(common / plan.laid_m) : 0, layId);
     db.prepare('UPDATE cutting_batches SET journal_id=?, waste_journal_id=?, common_rial=? WHERE id=?')
       .run(journalId, wasteJe, common, batchId);
+    let stageBind = null;
     if (poId) {
       try {
         const { applyCuttingLayToStage } = require('./engine-advanced');
         const layRow = db.prepare('SELECT lay_no FROM cutting_lays WHERE id=?').get(layId);
-        applyCuttingLayToStage(db, {
+        stageBind = applyCuttingLayToStage(db, {
           orderId: poId,
           layId,
           layNo: layRow && layRow.lay_no,
@@ -1082,7 +1086,9 @@ function amendSharedCut(db, id, body, user) {
         if (e && e.code && String(e.code).startsWith('E_')) throw e;
       }
     }
-    return getSharedCut(db, batchId);
+    const amended = getSharedCut(db, batchId);
+    if (stageBind) amended.stage_bind = stageBind;
+    return amended;
   })();
 }
 

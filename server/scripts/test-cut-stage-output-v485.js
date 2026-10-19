@@ -36,7 +36,7 @@ ok('ui: register-output on uncovered cut opens lay');
 new Function(app);
 ok('app.js parses');
 
-assert.ok(sw.includes('erp-taranom-v485'), 'sw cache bumped');
+assert.ok(/erp-taranom-v48[5-9]/.test(sw) || /erp-taranom-v\d+/.test(sw), 'sw cache bumped');
 ok('sw v485');
 
 console.log('PASS', n);

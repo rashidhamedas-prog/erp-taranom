@@ -132,10 +132,26 @@ router.post('/orders/:id/stages/:stageId/subcontract/receive', auth, requirePerm
 });
 
 router.get('/orders/:id/stages', auth, requirePermission('production', 'view'), (req, res) => {
-  handle(res, () => ({
-    order_id: orderId(req),
-    stages: adv.stageList(getDB(), orderId(req)),
-  }));
+  handle(res, () => {
+    const db = getDB();
+    const id = orderId(req);
+    const stages = adv.stageList(db, id);
+    let po = null;
+    try { po = engine.getOrderDetail(db, id); } catch (_) { po = null; }
+    const cut = adv.resolveCuttingStage(db, id);
+    let coverage = null;
+    if (po && cut) {
+      try { coverage = adv.cuttingStageCoverage(db, po, cut); } catch (_) { coverage = null; }
+    }
+    return {
+      order_id: id,
+      stages: stages.map((s) => (
+        coverage && cut && Number(s.id) === Number(cut.id)
+          ? { ...s, cut_coverage: coverage }
+          : s
+      )),
+    };
+  });
 });
 
 router.get('/orders/:id/stages/:stageId/issue-template', auth, requirePermission('production', 'view'), (req, res) => {

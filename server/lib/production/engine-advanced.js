@@ -29,6 +29,7 @@ const {
   relieveStagedPackQty,
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
+  cuttingQtyForOrderProduct,
   isMeterUnit,
 } = require('./cutting');
 
@@ -78,17 +79,129 @@ function assertCuttingOutputHasLay(db, po, stage, qtyOut) {
   if (!cut || Number(stage.id) !== Number(cut.id)) return;
   const lines = stageMaterialLines(db, po, stage);
   if (!lines.some((L) => lengthFabricProduct(db, L.product_id))) return;
-  const { lay_qty } = cuttingQtyForOrder(db, po.id);
-  const need = num(qtyOut);
-  if (lay_qty + 1e-9 < need) {
-    throw err('E_LAY_REQUIRED_ON_CUT', 409, {
+  const cov = cuttingStageCoverage(db, po, stage);
+  if (cov.covered) return;
+  throw err('E_LAY_REQUIRED_ON_CUT', 409, {
+    need: cov.need,
+    lay_qty: cov.lay_qty,
+    order_id: po.id,
+    stage_id: stage.id,
+    qty_out: num(qtyOut),
+    message: cov.message,
+  });
+}
+
+/**
+ * پوشش برش در برابر برنامهٔ سفارش.
+ * چندمحصول: هر محصول جدا. تک‌محصول: جمع قطعه‌های لایه با ورودی برنامه‌ای مرحله.
+ * برابر بودن لازم است؛ کمتر مرحله را نمی‌بندد و بیشتر هم به‌جای سفارش قبول نمی‌شود.
+ */
+function cuttingStageCoverage(db, po, stage) {
+  const { orderBomPeerLines } = require('./bom');
+  const peers = orderBomPeerLines(po);
+  const products = [];
+  if (peers && peers.length) {
+    for (const line of peers) {
+      const q = cuttingQtyForOrderProduct(db, po.id, line.product_id);
+      const name = db.prepare('SELECT name FROM products WHERE id=?').get(line.product_id)?.name || ('#' + line.product_id);
+      products.push({
+        product_id: line.product_id,
+        name,
+        need: Number(line.qty_planned) || 0,
+        lay_qty: Number(q.lay_qty) || 0,
+      });
+    }
+  } else {
+    const need = num(stage && stage.qty_planned_in) > 0
+      ? num(stage.qty_planned_in)
+      : (num(po.qty_planned) || num(stage && stage.qty_in));
+    const name = db.prepare('SELECT name FROM products WHERE id=?').get(po.product_id)?.name || '';
+    products.push({
+      product_id: po.product_id,
+      name,
       need,
-      lay_qty,
-      order_id: po.id,
-      stage_id: stage.id,
-      message: `خروجی برش ${need} قطعه است و لایه‌چینی همین سفارش ${lay_qty} قطعه را پوشش داده. پارچهٔ طولی فقط از طاقه در لایه‌چینی مصرف می‌شود؛ با ثبت لایه، همین مرحله تکمیل می‌شود.`,
+      lay_qty: cuttingQtyForOrder(db, po.id).lay_qty,
     });
   }
+  const need = products.reduce((s, p) => s + p.need, 0);
+  const lay_qty = products.reduce((s, p) => s + p.lay_qty, 0);
+  const short = products.filter((p) => p.lay_qty + 0.001 < p.need);
+  const over = products.filter((p) => p.lay_qty > p.need + 0.001);
+  const covered = products.length > 0 && products.every((p) => p.need > 0 && Math.abs(p.lay_qty - p.need) <= 0.001);
+  const gapText = products.map((p) => `${p.name || 'محصول'}: ${p.lay_qty} از ${p.need}`).join('؛ ');
+  const message = covered
+    ? `برش با سفارش برابر است (${lay_qty}).`
+    : `برش هنوز با سفارش برابر نیست (${gapText}). تا برابر شدن، مرحلهٔ بعد باز نمی‌شود.`;
+  return { required: 1, covered, lay_qty, need, products, short, over, message };
+}
+
+function cuttingDownstreamUntouched(db, orderId, seq) {
+  const rows = db.prepare(`
+    SELECT * FROM production_order_stages WHERE order_id=? AND seq>? ORDER BY seq
+  `).all(orderId, seq);
+  for (const st of rows) {
+    if (st.status === 'done' || st.status === 'skipped') return false;
+    if (num(st.qty_out) > 0) return false;
+    const labor = db.prepare(`
+      SELECT 1 FROM production_labor_entries WHERE stage_id=? AND status='posted' LIMIT 1
+    `).get(st.id);
+    const issued = db.prepare(`
+      SELECT 1 FROM production_material_issues
+      WHERE stage_id=? AND status='posted' AND COALESCE(issue_type,'')!='cutting_lay' LIMIT 1
+    `).get(st.id);
+    if (labor || issued) return false;
+  }
+  return true;
+}
+
+/** اگر یک لایه مرحله را زودتر بسته، و مرحلهٔ بعد هنوز کاری نکرده، برش را باز کن. پارچهٔ طاقه دست نمی‌خورد. */
+function reopenUndercutCuttingStage(db, po, stage, userId, date) {
+  const when = date || todayJalali();
+  const labs = db.prepare(`
+    SELECT * FROM production_labor_entries WHERE stage_id=? AND status='posted'
+  `).all(stage.id);
+  let laborRial = 0;
+  for (const l of labs) {
+    laborRial += Math.round(num(l.amount_rial));
+    if (l.je_id) {
+      reverseEvent(db, {
+        jeId: l.je_id, reason: 'برش ناقص — مرحلهٔ بعد زود باز شده بود', userId, date: when,
+      });
+    }
+    db.prepare(`UPDATE production_labor_entries SET status='reversed' WHERE id=?`).run(l.id);
+  }
+  const ohs = db.prepare(`
+    SELECT * FROM production_overhead_applications WHERE stage_id=? AND status='posted'
+  `).all(stage.id);
+  let ohRial = 0;
+  for (const o of ohs) {
+    ohRial += Math.round(num(o.amount_rial));
+    if (o.je_id) {
+      reverseEvent(db, {
+        jeId: o.je_id, reason: 'برش ناقص — مرحلهٔ بعد زود باز شده بود', userId, date: when,
+      });
+    }
+    db.prepare(`UPDATE production_overhead_applications SET status='reversed' WHERE id=?`).run(o.id);
+  }
+  const planned = num(stage.qty_planned_in) > 0 ? num(stage.qty_planned_in) : num(stage.qty_in);
+  db.prepare(`
+    UPDATE production_order_stages SET
+      status='in_progress', qty_in=?, qty_out=0,
+      qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
+      labor_rial=0, overhead_rial=0, subcontract_rial=0,
+      cost_out_rial=0, unit_cost_out_rial=0, driver_qty=0,
+      ended_at=NULL
+    WHERE id=?
+  `).run(planned, stage.id);
+  if (laborRial || ohRial) {
+    db.prepare(`
+      UPDATE production_orders SET
+        labor_cost_rial = MAX(0, COALESCE(labor_cost_rial,0) - ?),
+        overhead_cost_rial = MAX(0, COALESCE(overhead_cost_rial,0) - ?)
+      WHERE id=?
+    `).run(laborRial, ohRial, po.id);
+  }
+  resetDownstreamStages(db, po.id, stage.seq);
 }
 
 function safeJson(s) {
@@ -2163,13 +2276,13 @@ function getStageIssueTemplate(db, orderId, stageId) {
   const isCut = !!(cut && Number(cut.id) === Number(stage.id));
   let cut_lay = null;
   if (isCut && lines.some((L) => L.via_cutting_lay)) {
-    const { lay_qty } = cuttingQtyForOrder(db, po.id);
-    const need = Number(stage.qty_in) || 0;
+    const cov = cuttingStageCoverage(db, po, stage);
     cut_lay = {
       required: 1,
-      lay_qty,
-      need,
-      covered: lay_qty + 1e-9 >= need ? 1 : 0,
+      lay_qty: cov.lay_qty,
+      need: cov.need,
+      covered: cov.covered ? 1 : 0,
+      message: cov.message,
       order_id: po.id,
     };
   }
@@ -2229,7 +2342,7 @@ function applyCuttingLayToStage(db, {
   if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
     return { ok: false, skipped: true, reason: 'not_advanced' };
   }
-  const stage = resolveCuttingStage(db, orderId);
+  let stage = resolveCuttingStage(db, orderId);
   if (!stage) return { ok: false, skipped: true, reason: 'no_stages' };
 
   const prev = prevStage(db, orderId, stage.seq);
@@ -2292,6 +2405,12 @@ function applyCuttingLayToStage(db, {
 
   db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
 
+  const cov = cuttingStageCoverage(db, po, stage);
+  if (stage.status === 'done' && !cov.covered && cuttingDownstreamUntouched(db, orderId, stage.seq)) {
+    reopenUndercutCuttingStage(db, po, stage, userId, when);
+    stage = getStage(db, orderId, stage.id);
+  }
+
   const netToWip = Math.max(0, amount - wasteAmt);
   if (stage.status === 'done') {
     db.prepare(`
@@ -2309,29 +2428,39 @@ function applyCuttingLayToStage(db, {
         WHERE id=?
       `).run(netToWip, nxt.id);
     }
-    return { ok: true, stage_id: stage.id, status: 'done', accumulated: true };
+    return {
+      ok: true, stage_id: stage.id, status: 'done', accumulated: true, completed: true,
+      lay_qty: cov.lay_qty, need: cov.need, message: cov.message,
+    };
   }
 
   if (stage.status === 'pending') {
     db.prepare(`
       UPDATE production_order_stages SET status='in_progress', started_at=? WHERE id=?
     `).run(when, stage.id);
+    stage = getStage(db, orderId, stage.id);
   }
 
-  // qty_in را با تعداد برش‌خورده هم‌تراز کن تا بالانس مرحله برقرار شود
-  const qtyIn = num(stage.qty_in);
-  const qtyOut = qty > 0 ? qty : qtyIn;
-  if (qtyOut > 0 && Math.abs(qtyOut - qtyIn) > 0.01) {
-    db.prepare('UPDATE production_order_stages SET qty_in=? WHERE id=?').run(qtyOut, stage.id);
-  }
-  if (qtyOut <= 0) {
-    // فقط مواد ثبت شد؛ تکمیل بعداً از کانبان
+  if (!cov.covered || qty <= 0) {
     db.prepare(`
       UPDATE production_order_stages SET
         material_added_rial = COALESCE(material_added_rial,0) + ?
       WHERE id=?
     `).run(amount, stage.id);
-    return { ok: true, stage_id: stage.id, status: 'in_progress', completed: false };
+    return {
+      ok: true,
+      stage_id: stage.id,
+      status: 'in_progress',
+      completed: false,
+      lay_qty: cov.lay_qty,
+      need: cov.need,
+      message: cov.message,
+    };
+  }
+
+  const planned = num(stage.qty_planned_in) > 0 ? num(stage.qty_planned_in) : cov.need;
+  if (planned > 0 && Math.abs(num(stage.qty_in) - planned) > 0.01) {
+    db.prepare('UPDATE production_order_stages SET qty_in=? WHERE id=?').run(planned, stage.id);
   }
 
   // تکمیل با مسیر variable تا مواد دوباره backflush نشود (حتی روی fixed_adv)
@@ -2341,7 +2470,7 @@ function applyCuttingLayToStage(db, {
     userId,
     mode: 'variable',
     body: {
-      qty_out: qtyOut,
+      qty_out: planned,
       waste_normal: 0,
       waste_abnormal: 0,
       rework: 0,
@@ -2356,6 +2485,9 @@ function applyCuttingLayToStage(db, {
     stage_id: stage.id,
     status: 'done',
     completed: true,
+    lay_qty: cov.lay_qty,
+    need: cov.need,
+    message: cov.message,
     next_stage: result.next_stage || null,
   };
 }
@@ -2439,4 +2571,5 @@ module.exports = {
   resolveCuttingStage,
   applyCuttingLayToStage,
   unlinkCuttingLayFromStage,
+  cuttingStageCoverage,
 };

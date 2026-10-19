@@ -13188,6 +13188,12 @@ async function goCuttingLaysView(view){
   try{ sessionStorage.setItem('cuttingLaysView', v); }catch(_){}
   go('acc-cutting-lays');
 }
+function cuttingStageBindToast(posted, doneText){
+  const b=posted&&posted.stage_bind;
+  if(b && b.completed===false) return b.message||'لایه ثبت شد. تا برابر شدن برش با سفارش، مرحلهٔ بعد باز نمی‌شود.';
+  if(b && b.completed) return 'برش با تعداد سفارش برابر شد و مرحلهٔ بعد باز شد.';
+  return doneText;
+}
 function cuttingReturnAfterPost(toast){
   const back=window._cutReturnOrderId?Number(window._cutReturnOrderId):0;
   window._cutReturnOrderId=null;
@@ -13697,13 +13703,13 @@ async function cuttingLaySave(){
         if(!confirm('ویرایش لایه‌چینی چندمحصولی؟ اثرات قبلی همین شماره برمی‌گردد و دوباره ثبت می‌شود.')) return;
         body.reason='ویرایش برش مشترک از گزارش';
         const posted=await api('PUT','/production/cutting-batches/'+window._cutSharedBatchId, body);
-        cuttingReturnAfterPost('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' ویرایش شد');
+        cuttingReturnAfterPost(cuttingStageBindToast(posted,'برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' ویرایش شد'));
         return;
       }
       if(!confirm('ثبت لایه‌چینی چندمحصولی؟ پارچه مصرف می‌شود و قطعات در WIP می‌مانند. ورود به انبار محصول بعد از «بسته‌بندی / رسید محصول» و سپس نهایی‌سازی همین سفارش است.')) return;
       body.idempotency_key=window._cutIdemKey||newCutIdemKey();
       const posted=await api('POST','/production/cutting-batches',body);
-      cuttingReturnAfterPost('برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد. مرحلهٔ برش با همین لایه تکمیل شد.');
+      cuttingReturnAfterPost(cuttingStageBindToast(posted,'برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد.'));
       return;
     }
     const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
@@ -13728,12 +13734,12 @@ async function cuttingLaySave(){
       reason: window._cutEditId ? 'ویرایش از گزارش' : undefined,
     };
     if(window._cutEditId){
-      await api('PUT','/production/cutting-lays/'+window._cutEditId, payload);
-      cuttingReturnAfterPost('لایه‌چینی ویرایش شد');
+      const posted=await api('PUT','/production/cutting-lays/'+window._cutEditId, payload);
+      cuttingReturnAfterPost(cuttingStageBindToast(posted,'لایه‌چینی ویرایش شد'));
     } else {
       payload.idempotency_key=window._cutIdemKey||newCutIdemKey();
-      await api('POST','/production/cutting-lays', payload);
-      cuttingReturnAfterPost(window._cutReturnOrderId?'لایه‌چینی ثبت شد و خروجی مرحلهٔ برش با آن تکمیل می‌شود':'لایه‌چینی ثبت شد');
+      const posted=await api('POST','/production/cutting-lays', payload);
+      cuttingReturnAfterPost(cuttingStageBindToast(posted,'لایه‌چینی ثبت شد'));
     }
   }catch(e){}
 }
@@ -19897,7 +19903,7 @@ async function prodOrderStagesModal(orderId){
         <td>${ex?('اختصاصی'+(s.scoped_product_name?' · '+esc(s.scoped_product_name):'')):'مشترک'}</td>
         <td>${PU?PU.badge(s.status):esc(STATUS_FA[s.status]||s.status)}</td>
         <td class="num">${s.qty_in??'—'}</td>
-        <td class="num">${s.qty_out??'—'}</td>
+        <td class="num">${s.qty_out??'—'}${s.cut_coverage&&s.status!=='done'?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">برش ${toFa(s.cut_coverage.lay_qty)} از ${toFa(s.cut_coverage.need)}</div>`:''}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           ${s.status==='pending'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageStart((orderId),(s.id))})}">شروع</button>`:''}
           ${s.status==='in_progress'&&order.analysis_type==='variable_adv'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageIssueModal((orderId),(s.id))})}">حواله مواد</button>`:''}
@@ -32476,7 +32482,7 @@ function renderAdminGuide(){
         <li><b>اضافه طاقه:</b> اگر طول مارکر × لایه از ماندهٔ دفتر بیشتر است و پارچه واقعاً روی طاقه هست، متر تفاوت را در «اضافه طاقه» بنویسید (یا «پر کردن کسری»). این متر اول به موجودی طاقه اضافه می‌شود (بدهکار مواد ۱۱۱۰ / بستانکار انحراف مقدار ۵۲۱۱) و بعد همراه پهن‌شدن مصرف می‌شود. اتلاف این کسری را جبران نمی‌کند.</li>
         <li><b>سفارش تولید</b> سفارش آزاد و در جریان را قابل انتخاب نشان می‌دهد. سفارش بسته‌ای که پارچهٔ طولی دارد ولی برش و بسته‌بندی ندارد هم دیده می‌شود، ولی غیرفعال است تا طاقه دوباره مصرف نشود.</li>
         <li><b>پارچهٔ یاردی هم مثل متری</b> فقط از لایه‌چینی مصرف می‌شود. حوالهٔ مرحله و رسید محصول قبل از برش و بسته‌بندی برای این واحد بسته است.</li>
-        <li><b>ثبت خروجی برش:</b> اگر همان مرحله پارچهٔ طولی دارد و لایه‌چینی هنوز به اندازهٔ ورودی نیست، دکمهٔ «ثبت خروجی» فرم لایه‌چینی را برای همان سفارش باز می‌کند (سفارش قفل است). با ثبت لایه، پارچه از طاقه می‌رود و مرحلهٔ برش تکمیل می‌شود. مواد غیرطولی همان مرحله همچنان با حواله/خروجی معمولی می‌روند.</li>
+        <li><b>ثبت خروجی برش:</b> اگر همان مرحله پارچهٔ طولی دارد و لایه‌چینی هنوز با سفارش برابر نیست، دکمهٔ «ثبت خروجی» فرم لایه‌چینی را برای همان سفارش باز می‌کند. هر طاقه جدا ثبت می‌شود و پارچه همان لحظه از طاقه می‌رود، ولی مرحلهٔ برش و مرحلهٔ بعد فقط وقتی بسته/باز می‌شوند که تعداد برش — برای هر محصول در سفارش چندمحصولی — با تعداد همان سفارش برابر باشد. یک طاقهٔ کمتر یا بیشتر مرحله را تمام نمی‌کند.</li>
         <li><b>جستجوی کالای دوخته‌شده (v487):</b> فرم خروجی برش اول کاتالوگ کامل کالا را بار می‌کند. تا وقتی سفارش انتخاب است، جستجوی «کالای دوخته‌شده» و «افزودن کالا» فقط محصولات همان سفارش را نشان می‌دهد (حتی اگر پرچم ساختنی خالی باشد) و نام انتخاب‌شده در کادر می‌ماند. ی/ک عربی و نیم‌فاصله در جستجو یکی‌اند. اگر عبارت در همین فهرست نباشد، پیام می‌گوید در فهرست فعلی نیست؛ اگر کاتالوگ اصلاً نیاید، پیام «فهرست کالا خالی است» است.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`

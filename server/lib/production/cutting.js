@@ -993,6 +993,7 @@ function postCuttingLay(db, body, user) {
   });
 
   let layId;
+  let stageBind = null;
   try {
     layId = db.transaction(() => {
       const raced = db.prepare('SELECT id FROM cutting_lays WHERE idempotency_key=?').get(key);
@@ -1026,7 +1027,7 @@ function postCuttingLay(db, body, user) {
         costCenterId,
       });
       if (po) {
-        bindCuttingLayToOrderStage(db, {
+        stageBind = bindCuttingLayToOrderStage(db, {
           orderId: po.id,
           layId: id,
           layNo,
@@ -1048,7 +1049,9 @@ function postCuttingLay(db, body, user) {
     }
     throw e;
   }
-  return getCuttingLay(db, layId);
+  const lay = getCuttingLay(db, layId);
+  if (stageBind) lay.stage_bind = stageBind;
+  return lay;
 }
 
 /** v410 — اتصال لایه‌چینی به مرحلهٔ برش سفارش پیشرفته (lazy require ضد حلقه) */
@@ -1544,6 +1547,7 @@ function updateCuttingLay(db, id, body, user) {
     }
   }
 
+  let stageBind = null;
   db.transaction(() => {
     if (!covered.fg_covered_by_order) {
       unbindCuttingLayFromOrderStage(db, row, user, row.date);
@@ -1641,7 +1645,7 @@ function updateCuttingLay(db, id, body, user) {
         user,
       });
     } else if (po) {
-      bindCuttingLayToOrderStage(db, {
+      stageBind = bindCuttingLayToOrderStage(db, {
         orderId: po.id,
         layId: row.id,
         layNo: row.lay_no,
@@ -1654,7 +1658,9 @@ function updateCuttingLay(db, id, body, user) {
       });
     }
   })();
-  return getCuttingLay(db, row.id);
+  const amendedLay = getCuttingLay(db, row.id);
+  if (stageBind) amendedLay.stage_bind = stageBind;
+  return amendedLay;
 }
 
 function linkCuttingLayOrder(db, id, productionOrderId, user) {
@@ -2087,6 +2093,7 @@ module.exports = {
   assertNoOrphanSellablePack,
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
+  cuttingQtyForOrderProduct,
   fabricCuttingGateInfo,
   assertFabricCuttingPathForFgReceipt,
   assertOrderCutQtyMatches,
