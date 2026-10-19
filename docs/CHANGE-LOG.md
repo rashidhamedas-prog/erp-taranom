@@ -3,8 +3,8 @@
 - **ریشه:** مسیر کلاسیک `cutting_lays` تک‌`product_id` است. موتور چندخروجی (`cutting_batches` / ADR-005) از قبل بود ولی پرچم `production_shared_cut` خاموش و UI آن با شناسهٔ خام/textarea جدا بود؛ مودال لایه‌چینی فقط جدول خواندنی محصولات سفارش را نشان می‌داد.
 - **رفع:** پرچم پیش‌فرض روشن + مهاجرت یک‌بارهٔ v469. در مودال «لایه‌چینی جدید» سوییچ **چند محصول روی یک مارکر**: ماتریس «قطعه در مارکر (در هر لایه)» per محصول، سهم پارچه خودکار از نسبت قطعات، طاقه با لایه/اتلاف طولی، پیش‌نمایش و ثبت از `/cutting-batches`. تک‌محصول همان مسیر کلاسیک (ویرایش/پوشش) می‌ماند. ابطال لایهٔ چندمحصولی کل برنامه+PACK WIP+ته‌طاقه را برمی‌گرداند؛ ویرایش مستقیم مسدود (`E_SHARED_CUT_NO_AMEND`). وزن خروجی اگر خالی باشد از قطعات محاسبه می‌شود. فهرست لایه‌ها نام چندمحصول را نشان می‌دهد. راهنما + SW `erp-taranom-v469`.
 - **فایل‌ها:** `lib/production/{schema,shared-cut,cutting}.js`, `public/{app.js,sw.js}`, `scripts/test-cutting-lay-multi-v469.js`, CHANGE-LOG.
-- **تست:** `test-cutting-lay-multi-v469` + `test-prod-cut-shared` + `test-sms` / `test-sync` پس از deploy.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cutting-lay-multi-v469` ۲۹/۰؛ `test-prod-cut-shared` ۳۸/۰؛ `test-sms` ۲۲/۰. روی ویندوز binding بهتر-sqlite3 برای Node ۲۴ نیست.
+- **Deploy:** ✅ `075638f2` — overlay ایران (درخت VPS کثیف؛ pull FF ممکن نبود)؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v469`.
 
 ### ۱۴۰۵/۰۷/۲۷ — ابطال لایه‌چینی پوشش‌شده با رسید سفارش (SW v468)
 - **علائم:** بعد از ویرایش v466، ردیف «پوشش‌شده با رسید سفارش» هنوز دکمهٔ ابطال نداشت. ابطال معمولی مرحلهٔ برشِ سفارش نهایی‌شده را باز می‌کند و با `E_ORDER_FINALIZED` برمی‌گردد.
