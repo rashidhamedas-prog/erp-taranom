@@ -344,6 +344,14 @@ function previewSharedCut(db, body) {
   };
 }
 
+function assertLayOrderOpen(db, orderId) {
+  const po = db.prepare('SELECT order_no, status FROM production_orders WHERE id=?').get(Number(orderId));
+  if (!po) throw httpErr(404, 'سفارش تولید یافت نشد', 'E_PACK_ORDER');
+  if (['cancelled', 'closed', 'voided', 'completed'].includes(String(po.status || ''))) {
+    throw httpErr(409, `سفارش ${po.order_no} بسته یا نهایی شده است. لایه‌چینی جدید پارچه را دوباره مصرف می‌کند و رسید قبلی را پاک نمی‌کند.`, 'E_PACK_ORDER_STATUS');
+  }
+}
+
 function bookRollSurplus(db, { batch, extraM, unit, layId, date, user, batchNo }) {
   const extra = roundM(extraM);
   if (!(extra > 0)) return { extra_m: 0, extra_ledger_id: null, extra_rial: 0 };
@@ -428,9 +436,7 @@ function postSharedCut(db, body, user) {
   if (productIds.length >= 2 && !poIdReq) {
     throw httpErr(400, 'برای برش چندمحصول، سفارش تولید را انتخاب کنید تا لایه به همان سفارش وصل شود.', 'E_CUT_PO_REQUIRED');
   }
-  if (poIdReq) {
-    require('./cutting').resolveOptionalOrder(db, poIdReq, null);
-  }
+  if (poIdReq) assertLayOrderOpen(db, poIdReq);
   let date = String(body.date || '').trim();
   if (!date && poIdReq) {
     const poRow = db.prepare('SELECT date FROM production_orders WHERE id=?').get(poIdReq);
@@ -841,7 +847,7 @@ function amendSharedCut(db, id, body, user) {
   const poId = Number(body.production_order_id != null ? body.production_order_id : (
     existing.lay_id && (db.prepare('SELECT production_order_id FROM cutting_lays WHERE id=?').get(existing.lay_id) || {}).production_order_id
   )) || null;
-  if (poId) require('./cutting').resolveOptionalOrder(db, poId, null);
+  if (poId) assertLayOrderOpen(db, poId);
 
   return db.transaction(() => {
     reverseSharedCutEffects(db, existing, user, body.reason || 'ویرایش برش مشترک');
