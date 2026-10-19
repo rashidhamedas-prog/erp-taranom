@@ -18477,15 +18477,18 @@ function prodOrderAddPeer(){
   const host=el('po-peer-rows');
   if(!host) return;
   const rowId=++window._poPeerSeq;
+  const list=(window._poMfg&&window._poMfg.length)?window._poMfg:(CACHE.allProducts||[]);
+  if(!list.length) showToast('فهرست کالا هنوز بارگذاری نشده','error');
   const wrap=document.createElement('div');
   wrap.className='form-grid po-peer-row';
   wrap.dataset.row=String(rowId);
   wrap.innerHTML=`
-    <div class="fg"><label>محصول</label>${productSelect('po-peer-p-'+rowId, '', window._poMfg||[])}</div>
+    <div class="fg"><label>محصول</label>${productSelect('po-peer-p-'+rowId, '', list)}</div>
     <div class="fg"><label>فرمول این محصول</label><select id="po-peer-b-${rowId}"><option value="">— خودکار (پیش‌فرض فعال) —</option></select></div>
     <div class="fg"><label>تعداد</label><input id="po-peer-q-${rowId}" type="number" min="1" value="1"></div>
     <div class="fg"><label>&nbsp;</label><button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wrap.remove()})}">حذف</button></div>`;
   host.appendChild(wrap);
+  initCustSearches(wrap);
   el('po-peer-p-'+rowId)?.addEventListener('change', ()=>prodOrderFillPeerBoms(rowId));
 }
 async function prodOrderFillPeerBoms(rowId){

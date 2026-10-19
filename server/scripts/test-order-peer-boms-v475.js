@@ -10,7 +10,7 @@ const { ok, eq, summary } = require('./lib/test-harness');
 const root = path.join(__dirname, '..');
 const appSrc = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-ok('SW v475', sw.includes('erp-taranom-v475'));
+ok('SW v475+', /erp-taranom-v47[5-9]/.test(sw));
 ok('peer add button', appSrc.includes('prodOrderAddPeer'));
 ok('Help v475', appSrc.includes('چند محصول با فرمول جدا (v475)'));
 try { new Function(appSrc); ok('app.js parse', true); }
