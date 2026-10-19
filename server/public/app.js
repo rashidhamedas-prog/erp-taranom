@@ -384,6 +384,11 @@ function fmtQty(n){
   if(Object.is(x,-0)||x===0) return '0';
   return String(parseFloat(x.toFixed(3)));
 }
+/** نمایش متر/مقدار پیوسته — تا ۳ رقم، بدون رند به عدد صحیح (fmt مخصوص ریال است) */
+function fmtQtyFa(n){
+  const x=round3(n);
+  return x.toLocaleString('fa-IR',{maximumFractionDigits:3});
+}
 /** موجودی قطعه‌ای (عدد/رنگ×سایز) — فقط صحیح، بدون جداکننده تا input اعشار نسازد */
 function fmtPieceQty(n){
   const x=Math.round(Number(n)||0);
@@ -1288,7 +1293,7 @@ function rollSelect(id, rolls, selectedId){
   const items=(rolls||[]).map(b=>({
     id:b.id,
     label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
-    meta:`مانده زنده ${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
     hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
     extra:b
   }));
@@ -6222,7 +6227,7 @@ function renderCart(){
       const packNote=isPack
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
-        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmt(live)+' متر'; })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmtQtyFa(live)+' متر'; })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
       const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && negProd.has(Number(r.product_id));
       const qtyCell=(isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
@@ -12216,7 +12221,7 @@ async function renderFabricRollsTab(body){
       );
       return '<tr data-hay="'+esc(((b.batch_no||'')+' '+(b.product_name||'')+' '+(b.color||'')+' '+(b.pattern||'')+' '+kindLabel).toLowerCase())+'"><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(kindLabel)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
         +'<td>'+esc(b.color||'')+'</td><td>'+esc(b.pattern||'')+'</td>'
-        +'<td class="num">'+(String(b.kind)==='attr'?'—':esc(b.width_cm||0))+'</td><td class="num">'+fmt(live)+(unitHint?' <span class="muted">'+esc(unitHint)+'</span>':'')+'</td>'
+        +'<td class="num">'+(String(b.kind)==='attr'?'—':esc(b.width_cm||0))+'</td><td class="num">'+fmtQtyFa(live)+(unitHint?' <span class="muted">'+esc(unitHint)+'</span>':'')+'</td>'
         +'<td class="num" data-col-kind="money">'+fmt(total)+'</td><td>'+act+'</td></tr>';
     }).join('')||'<tr><td colspan="9" class="empty">هنوز دریافتی ثبت نشده — طاقه پارچه یا مواد با ویژگی</td></tr>'}
     </tbody></table></div></div>`;
@@ -12277,9 +12282,9 @@ async function loadFabricRollKardex(){
       <td>${esc(r.product_name||'-')}</td>
       <td>${typ}</td>
       <td>${esc(r.note||'-')}</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${Number(r.qty_in)?fmt(r.qty_in):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${Number(r.qty_out)?fmt(r.qty_out):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.running_meters||0)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${Number(r.qty_in)?fmtQtyFa(r.qty_in):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${Number(r.qty_out)?fmtQtyFa(r.qty_out):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.running_meters||0)}</td>
       <td class="muted">${esc(r.user_name||'-')}</td>
     </tr>`;
     }).join('')||'<tr><td colspan="9" class="empty">گردشی ثبت نشده</td></tr>'}
@@ -12404,10 +12409,10 @@ function syncInvoiceFabricRollLive(){
   const tone=after<-1e-9?'bad':(after<=1e-9?'warn':'ok');
   box.className='ifr-live-box ifr-live-'+tone;
   box.setAttribute('aria-live','polite');
-  box.innerHTML='<div><b>مانده زنده انبار:</b> '+fmt(warehouseLive)+' متر</div>'
-    +'<div>رزرو در این فاکتور: '+fmt(reserved)+' متر</div>'
-    +'<div>قابل فروش الان: <b>'+fmt(now)+'</b> متر</div>'
-    +(typed?'<div>پس از این ردیف: <b>'+fmt(after)+'</b> متر</div>':'')
+  box.innerHTML='<div><b>مانده زنده انبار:</b> '+fmtQtyFa(warehouseLive)+' متر</div>'
+    +'<div>رزرو در این فاکتور: '+fmtQtyFa(reserved)+' متر</div>'
+    +'<div>قابل فروش الان: <b>'+fmtQtyFa(now)+'</b> متر</div>'
+    +(typed?'<div>پس از این ردیف: <b>'+fmtQtyFa(after)+'</b> متر</div>':'')
     +(after<-1e-9?'<div class="ifr-live-alert">این مقدار مانده طاقه را منفی می‌کند.</div>':'');
   sel.dataset.qty=String(now);
 }
@@ -12416,7 +12421,7 @@ function refreshInvoiceFabricRollSelect(){
   const items=(mapped||[]).map(b=>({
     id:b.id,
     label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
-    meta:`مانده زنده ${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
     hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
     extra:b
   }));
@@ -12494,7 +12499,7 @@ function invoiceFabricRollAddSale(){
   const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
   const maxQty=Number(sel.dataset.qty)||0;
   const qty=Math.max(0.001, Number(el('ifr-m')?.value)||maxQty||1);
-  if(maxQty && qty-maxQty>1e-9){ showToast('متر بیشتر از مانده زنده طاقه است ('+fmt(maxQty)+')','error'); return; }
+  if(maxQty && qty-maxQty>1e-9){ showToast('متر بیشتر از مانده زنده طاقه است ('+fmtQtyFa(maxQty)+')','error'); return; }
   const price=moneyVal('ifr-price')|| (p&&p.price)||0;
   const wh=(+sel.dataset.wh)||headerInvoiceWarehouseId()||null;
   invCart.push({
@@ -12572,7 +12577,7 @@ function fabricRollEditModal(b){
   const lockHint=fromPurchase
     ? 'این ردیف از فاکتور خرید آمده؛ مقدار/بها/تأمین‌کننده را از همان فاکتور اصلاح کنید. رنگ/طرح/شماره آزاد است.'
     : (!unused
-      ? 'مانده زنده ('+fmt(live)+') کمتر از '+qtyWord+' دریافتی ('+fmt(meters)+') است — فقط متادیتا قابل ویرایش است. برای مقدار/بها ابتدا مصرف را برگردانید.'
+      ? 'مانده زنده ('+fmtQtyFa(live)+') کمتر از '+qtyWord+' دریافتی ('+fmtQtyFa(meters)+') است — فقط متادیتا قابل ویرایش است. برای مقدار/بها ابتدا مصرف را برگردانید.'
       : 'ویرایش مقدار/بها = ابطال اثرات دریافت قبلی و ثبت مجدد در یک تراکنش (R13).');
   const finAttr=finLocked?' disabled':'';
   showModal(isAttr?'ویرایش مواد با ویژگی':'ویرایش طاقه',`
@@ -12587,7 +12592,7 @@ function fabricRollEditModal(b){
       <div class="fg"><label>${qtyWord} دریافتی</label><input id="fr-m" type="number" min="0" step="0.01" value="${meters}"${finAttr} data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>${isAttr?'بها هر واحد (ریال)':'بها هر متر (ریال)'}</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(b.unit_cost_rial||0)}"${finAttr} data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>تأمین‌کننده</label><div id="fr-sup-wrap">${supplierSelect('fr-sup', b.supplier_id||'')}</div></div>
-      <div class="fg full muted">مانده زنده الان: <b class="mono">${fmt(live)}</b>${isAttr&&b.unit?' '+esc(b.unit): (isAttr?'':' متر')}</div>
+      <div class="fg full muted">مانده زنده الان: <b class="mono">${fmtQtyFa(live)}</b>${isAttr&&b.unit?' '+esc(b.unit): (isAttr?'':' متر')}</div>
       <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">${fmt(Math.round((Number(b.unit_cost_rial)||0)*meters))}</span> ریال</b></div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){fabricRollUpdateSave((b.id), !!finLocked, isAttr)})}">ذخیره ویرایش</button></div>`);
@@ -13014,9 +13019,9 @@ async function renderCuttingLaysTab(body){
         ? ('<span class="muted">چندمحصول:</span> '+esc((r.shared_product_names||[]).join(' + ')))
         : esc(r.product_name||('#'+r.product_id));
       return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+nameCell+'</td>'
-        +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
-        +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
-        +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td>'
+        +'<td class="num">'+fmtQtyFa(r.ply_count||0)+'×'+fmtQtyFa(r.marker_length_m||0)+'</td>'
+        +'<td class="num">'+fmtQtyFa(r.actual_meters||0)+'</td><td class="num">'+fmtQtyFa(r.matrix_meters||0)+'</td>'
+        +'<td class="num">'+fmtQtyFa(r.waste_normal_m||0)+' / '+fmtQtyFa(r.waste_abnormal_m||0)+'</td>'
         +'<td>'+packedLbl+'</td><td>'+acts+'</td></tr>';
     }).join('')||('<tr><td colspan="8" class="empty">'+(view==='pending-pack'?'لایه‌ای منتظر PACK نیست':'لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»')+'</td></tr>')}
     </tbody></table></div></div></div>`;
@@ -13348,7 +13353,7 @@ function cuttingRenderRollPicker(rows, color, emptyNote){
       +'<input type="checkbox" class="cl-roll" data-id="'+b.id+'" data-wh="'+(b.warehouse_id||'')+'" data-max="'+live+'" data-color="'+esc(b.color||'')+'"> '
       +'<span class="mono">'+esc(b.batch_no||('#'+b.id))+'</span> '
       +esc(b.color||'')+pat+w
-      +' — مانده <b>'+fmt(live)+'</b> متر'
+      +' — مانده <b>'+fmtQtyFa(live)+'</b> متر'
       +(b.product_name?(' <span class="muted">('+esc(b.product_name)+')</span>'):'')
       +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="متر"></label>';
   }).filter(Boolean).join('');
@@ -13445,7 +13450,7 @@ async function cuttingLayPreview(){
       if(!body) return;
       const data=await api('POST','/production/cutting-batches/preview',body);
       const outs=(data.outputs||[]).map(o=>('#'+o.product_id+'/'+esc(o.size_code||'')+': '+o.pieces_per_ply+'→'+o.planned_pieces+' قطعه ('+(o.weight||0)+'%)')).join(' · ');
-      el('cl-preview').textContent='پهن '+fmt(data.laid_m||0)+' · برگشت '+fmt(data.returned_m||0)+' · ته‌طاقه '+fmt(data.remnant_m||0)
+      el('cl-preview').textContent='پهن '+fmtQtyFa(data.laid_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
         +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmt(data.policy.threshold_m):'—')
         +(data.balanced?' · تراز OK':' · تراز طاقه برقرار نیست')
         +(outs?(' | '+outs):'');
@@ -13459,7 +13464,7 @@ async function cuttingLayPreview(){
       +(actual!=null?'&actual_meters='+encodeURIComponent(actual):'')
       +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
     const p=await api('GET','/production/cutting-lays/preview?'+q);
-    el('cl-preview').textContent='مصرف نظری '+fmt(p.matrix_meters||0)+' متر · پهن‌شده '+fmt(p.planned_meters||0)+' · ضایعات عادی '+fmt(p.waste_normal_m||0)+' / غیرعادی '+fmt(p.waste_abnormal_m||0);
+    el('cl-preview').textContent='مصرف نظری '+fmtQtyFa(p.matrix_meters||0)+' متر · پهن‌شده '+fmtQtyFa(p.planned_meters||0)+' · ضایعات عادی '+fmtQtyFa(p.waste_normal_m||0)+' / غیرعادی '+fmtQtyFa(p.waste_abnormal_m||0);
   }catch(e){ const box=el('cl-preview'); if(box) box.textContent=e.message||e.code||'خطا در پیش‌نمایش'; showToast(e.message||'خطا در پیش‌نمایش','error'); }
 }
 function cuttingBuildSharedBody(){
@@ -17271,7 +17276,7 @@ async function prodKanbanLoad(){
     ${pendingPackRows.map(lay=>`<div class="prod-kanban-card st-in_progress" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView('pending-pack')})}">
       <div data-csp-style="${CSP.style(`font-weight:700`)}">${esc(lay.lay_no||('#'+lay.id))}</div>
       <div>${esc(lay.product_name||'')}</div>
-      <div class="num">${esc(lay.color||'')} · ${fmt(lay.qty_pieces||lay.actual_meters||0)}</div>
+      <div class="num">${esc(lay.color||'')} · ${lay.qty_pieces?fmt(lay.qty_pieces):fmtQtyFa(lay.actual_meters||0)}</div>
       <div>⌛ منتظر رسید محصول</div>
     </div>`).join('')}
   </div>`:'';
@@ -17395,7 +17400,7 @@ async function prodMrpRun(){
       </tr>`).join('')||emptyRow(7)}
     </tbody></table></div>`;
 }
-function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmt(v||0); }
+function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmtQtyFa(v||0); }
 
 /* ============================================================
    نرخ سربار مراکز — GET/POST /production/cost-centers/rates
@@ -32341,6 +32346,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد. عنوان هر ستون روی همان داده می‌ماند. جستجوی کالا فقط ردیف‌ها را عوض می‌کند و ستون انتخاب را دوباره به سرستون اضافه نمی‌کند.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه، نرخ و در صورت نیاز <b>شخص</b> را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
+        <li><b>اعشار متر (v480):</b> طول مارکر، متر مصرف، ضایعات، مانده طاقه و گردش مواد با همان اعشار ذخیره‌شده نشان داده می‌شوند (تا ۳ رقم). <code>fmt</code> مخصوص مبلغ ریال است و متر را به عدد صحیح رند می‌کرد. ثبت در پایگاه از قبل اعشاری بود.</li>
         <li><b>انبار برش مشترک (v479):</b> قطعات مارکر چندمحصول تا نهایی‌شدن سفارش در انبار کار در جریان می‌مانند. اگر چنین انباری نباشد، سیستم «انبار کار در جریان» (WH-WIP) را می‌سازد و تنظیم production_wh_wip_id را پر می‌کند.</li>
         <li><b>طاقه در لایه‌چینی (v465 / v478):</b> فقط طاقه‌های ثبت‌شده در «دریافت طاقه / خرید طاقه‌ای» (انبار مواد) قابل انتخاب‌اند. فیلتر: پارچهٔ همان فرمول + رنگ هم‌خوان + عرض (اگر هر دو طرف عرض داشته باشند). فهرست رنگ از ماتریس همان کالای دوخته‌شده (و در مارکر چندمحصول، از همهٔ کالاهای اضافه‌شده) پر می‌شود، حتی اگر هنوز طاقهٔ آن رنگ نباشد. رنگ ماتریس و رنگ طاقه با فاصله، نیم‌فاصله، ی/ک عربی و «و» اختیاری یکی‌اند — مثلاً «سرمه‌ای» همان «سورمه ای» است. اگر طاقه هست ولی عرض یا کالای فرمول فرق دارد، پیام همان علت را می‌گوید. سرور انتخاب ناسازگار را رد می‌کند.</li>
         <li><b>رنگ×سایز و مواد هر عملیات (v278/v279):</b> تخصیص مواد به <code>operation_id</code> در تب مسیر عملیات (نه فقط مرکز هزینه). دو عملیات هم‌مرکز مواد مستقل دارند؛ سهم مشترک باید ۱۰۰٪ جمع شود. دامنه چندرنگ/چندسایز با <code>allowed-variants</code> و سطرهای <code>production_order_lines</code> / <code>matrix_lines</code> پشتیبانی می‌شود. ماتریس تعداد سفارش از دامنه فرمول جداست. اجزاء BOM همچنان باید نوع مجاز داشته باشند (<code>E_BOM_COMP_TYPE</code>).</li>
