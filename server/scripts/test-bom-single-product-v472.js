@@ -15,7 +15,8 @@ const advSrc = fs.readFileSync(path.join(root, 'lib/production/bom-advanced.js')
 
 ok(sw.includes('erp-taranom-v472'), 'SW v472');
 ok(!appSrc.includes('id="pb-multi"'), 'create modal has no pb-multi');
-ok(!appSrc.includes('چند محصول با یک برش مشترک'), 'create label removed');
+ok(!appSrc.includes('id="pb-multi-box"'), 'create modal has no multi box');
+ok(!/prodBomCreateAddCo\s*\(/.test(appSrc) || appSrc.includes('async function prodBomAddCoFromHeader'), 'legacy add guarded');
 ok(appSrc.includes('هر فرمول فقط'), 'create copy mentions single BOM');
 ok(appSrc.includes('E_BOM_SINGLE_PRODUCT') || bomSrc.includes('E_BOM_SINGLE_PRODUCT'), 'error code present');
 ok(bomSrc.includes('assertBomSingleMainCreate'), 'create gate');
