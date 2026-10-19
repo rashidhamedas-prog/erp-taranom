@@ -13,7 +13,7 @@ const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 ok('SW v475+', /erp-taranom-v47[5-9]/.test(sw));
 ok('peer matrix', appSrc.includes('prodOrderLoadPeerMatrix'));
 ok('peer add button', appSrc.includes('prodOrderAddPeer'));
-ok('Help v475', appSrc.includes('چند محصول با فرمول جدا (v475)'));
+ok('Help v477', appSrc.includes('v475 / v477'));
 try { new Function(appSrc); ok('app.js parse', true); }
 catch (e) { ok('app.js parse', false, e.message); }
 
