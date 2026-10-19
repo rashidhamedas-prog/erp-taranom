@@ -2,8 +2,8 @@
 - **ریشه:** متر در پایگاه اعشاری مانده بود (طاقه ۲۰٫۵۵، مارکر ۵٫۶۱ و ۶٫۵۶). فهرست‌ها از `fmt` استفاده می‌کردند که مخصوص ریال است و با `Math.round` عدد را صحیح نشان می‌داد (۲۱، ۶×۳، ۷×۱۵).
 - **رفع:** نمایش متر، طول مارکر، مصرف، ضایعات، مانده طاقه و گردش مواد با `fmtQtyFa` تا ۳ رقم اعشار. مبلغ ریال همان `fmt` می‌ماند. ورودی عدد همچنان `fmtQty` لاتین است تا فیلد عددی نشکند.
 - **فایل‌ها:** `public/{app.js,index.html,sw.js}`, `scripts/test-fabric-meter-display-v480.js`, CHANGE-LOG.
-- **تست:** `test-fabric-meter-display-v480`؛ ایران `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-fabric-meter-display-v480` سبز؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `d64cad12` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v480`.
 
 ### ۱۴۰۵/۰۷/۲۷ — انبار WIP برای ثبت برش مشترک (SW v479)
 - **ریشه:** ثبت لایه‌چینی چندمحصول با «انبار WIP یافت نشد» می‌ایستاد. در این شرکت انبار با کد WH-WIP یا نوع wip نبود و `production_wh_wip_id` خالی بود.
