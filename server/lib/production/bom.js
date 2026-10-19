@@ -1167,9 +1167,17 @@ function replaceLines(db, bomId, lines, userId) {
 function activateBom(db, bomId, validFrom, userId) {
   return db.transaction(() => {
     try {
-      const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+      let b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
       if (!b) throw err('E_NOT_FOUND', 404);
       if (b.status !== 'draft') throw err('E_BOM_NOT_DRAFT', 409);
+      // پرچم مانده از by/scrap روی فرمول تک‌اصلی را قبل از گیت چندمحصولی خاموش کن
+      const mainN = db.prepare(`
+        SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
+      `).get(bomId)?.c || 0;
+      if (Number(b.has_coproducts) === 1 && mainN < 2) {
+        db.prepare('UPDATE bom_headers SET has_coproducts=0 WHERE id=?').run(bomId);
+        b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+      }
       if (!validFrom) throw err('E_VALIDATION', 400);
       validateBom(db, bomId);
 

@@ -13,7 +13,7 @@ const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const bomSrc = fs.readFileSync(path.join(root, 'lib/production/bom.js'), 'utf8');
 const advSrc = fs.readFileSync(path.join(root, 'lib/production/bom-advanced.js'), 'utf8');
 
-ok(sw.includes('erp-taranom-v472'), 'SW v472');
+ok(sw.includes('erp-taranom-v473'), 'SW v473');
 ok(!appSrc.includes('id="pb-multi"'), 'create modal has no pb-multi');
 ok(!appSrc.includes('id="pb-multi-box"'), 'create modal has no multi box');
 ok(!/prodBomCreateAddCo\s*\(/.test(appSrc) || appSrc.includes('async function prodBomAddCoFromHeader'), 'legacy add guarded');
@@ -100,6 +100,8 @@ try {
       product_id: b, output_type: 'by', qty_per_base: 0.1, cost_method: 'nrv', nrv_rial: 1000,
     });
     ok(!!by.id && by.output_type === 'by', 'by-product still allowed');
+    const flag = db.prepare('SELECT has_coproducts c FROM bom_headers WHERE id=?').get(single.id).c;
+    eq('by does not set multiproduct flag', Number(flag) || 0, 0);
 
     dbOk = true;
   } finally {

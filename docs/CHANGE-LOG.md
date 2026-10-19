@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۷/۲۷ — فرعی/ضایعات دیگر فرمول را چندمحصولی نمی‌کند (SW v473)
+- **ریشه:** `addOutput` برای by/scrap پرچم `has_coproducts` را روشن می‌کرد و فعال‌سازی فرمول تک‌محصولی با `E_NO_COPRODUCT` می‌ایستاد. ذخیرهٔ سرفصل هم peers را فقط از `output_type=co` می‌فرستاد.
+- **رفع:** by/scrap پرچم را عوض نمی‌کند؛ گیت `E_NO_COPRODUCT` برای کمتر از دو main حذف شد؛ فعال‌سازی پرچم ماندهٔ تک‌اصلی را خاموش می‌کند؛ ذخیرهٔ سرفصل فقط محصولات اصلیِ غیرلنگر را می‌فرستد.
+- **فایل‌ها:** `lib/production/{bom,bom-advanced,product-completeness}.js`, `public/{app.js,sw.js}`, `scripts/test-bom-single-product-v472.js`, CHANGE-LOG.
+- **تست:** `test-bom-single-product-v472`؛ `test-sms`.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۷ — BOM فقط تک‌محصولی؛ چندمحصولی در سفارش/لای (SW v472)
 - **درخواست:** در تعریف فرمول هنوز تیک «چند محصول با یک برش مشترک» و افزودن محصول اصلی دیگر بود؛ طبق ADR-006 هر BOM یک محصول است و چندمحصولی فقط بعد از سفارش/لایه‌چینی.
 - **رفع:** UI ایجاد/ویرایش بدون multi؛ تب خروجی فقط فرعی/ضایعات؛ سرور `E_BOM_SINGLE_PRODUCT` روی create/update/addOutput/ensure-share برای محصول اصلی دوم؛ فرمول‌های چندmain قدیمی خواندنی/سفارش‌پذیر می‌مانند بدون افزودن peer جدید. Help + تست `test-bom-single-product-v472`.

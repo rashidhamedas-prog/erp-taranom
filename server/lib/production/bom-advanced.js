@@ -907,9 +907,8 @@ function addOutput(db, bomId, body) {
     body.stage_cost_center_id || null
   ).lastInsertRowid;
 
-  if (['by', 'scrap'].includes(outputType)) {
-    db.prepare('UPDATE bom_headers SET has_coproducts=1 WHERE id=?').run(bomId);
-  } else if (outputType === 'main') {
+  // v473: by/scrap پرچم چندمحصولی نیست — وگرنه فعال‌سازی تک‌محصول E_NO_COPRODUCT می‌دهد
+  if (outputType === 'main') {
     const fgN = db.prepare(`
       SELECT COUNT(*) c FROM bom_outputs WHERE bom_id=? AND output_type IN ('main','co')
     `).get(bomId)?.c || 0;
@@ -995,10 +994,6 @@ function validateAdvancedBom(db, bomId) {
     // Anchor product must be among peer mains
     if (!shares.some(o => Number(o.product_id) === Number(bom.product_id))) {
       throw err('E_MAIN_MISMATCH', 422);
-    }
-    // Multiproduct flag requires ≥2 peer main products
-    if (Number(bom.has_coproducts) === 1 && shares.length < 2) {
-      throw err('E_NO_COPRODUCT', 422);
     }
     const seen = new Set();
     for (const o of outs) {

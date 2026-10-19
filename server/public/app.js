@@ -16098,7 +16098,7 @@ function prodBomAddLineRow(){
 async function prodBomSaveHeader(id){
   try{
     const bom=window._prodBomEditBom||{};
-    const cos=(bom.outputs||[]).filter(o=>o.output_type==='co').map(o=>Number(o.product_id));
+    const peers=(bom.outputs||[]).filter(o=>(o.output_type==='main'||o.output_type==='co')&&Number(o.product_id)!==Number(bom.product_id)).map(o=>Number(o.product_id));
     const payload={
       name:el('pbe-name')?.value||'',
       base_qty:+el('pbe-base')?.value||1,
@@ -16108,9 +16108,9 @@ async function prodBomSaveHeader(id){
       color_id:+el('pbe-color-id')?.value||null,
       note:el('pbe-note')?.value||''
     };
-    if(cos.length||Number(bom.has_coproducts)===1){
+    if(peers.length){
       payload.has_coproducts=true;
-      payload.co_product_ids=cos;
+      payload.co_product_ids=peers;
     }
     await api('PUT','/production/boms/'+id, payload);
     showToast('فرمول ذخیره شد');
