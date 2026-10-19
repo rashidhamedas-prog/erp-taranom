@@ -76,8 +76,8 @@ try {
     let seq = 10;
     for (const id of [cut, sew, iron]) {
       db.prepare(`
-        INSERT INTO bom_operations (bom_id, seq, cost_center_id, yield_percent, labor_rate_rial)
-        VALUES (?,?,?,100,0)
+        INSERT INTO bom_operations (bom_id, seq, cost_center_id, yield_percent, labor_method, labor_rate_rial)
+        VALUES (?,?,?,100,'contract',0)
       `).run(bomId, seq, id);
       seq += 10;
     }
