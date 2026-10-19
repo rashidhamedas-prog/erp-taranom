@@ -5,8 +5,8 @@
 - **W4:** `reverseOrder` برای `issue_type=cutting_lay` موجودی طاقه را دوباره restore نمی‌کند؛ Help + تست `test-prod-journey-adr006-v471`.
 - **هات‌فیکس متر طاقه:** `liveBatchMeters` وقتی رسید بدون `batch_id` است و فقط reversalِ حواله `taggedIn` دارد، پایه را از `qty_received` می‌گیرد (قبلاً بعد از ابطال/ویرایش `E_CUT_ROLL_QTY` می‌داد)؛ gate ثبت با `issueM`؛ reverse مشترک مثل کلاسیک ledger+`adjustBatchQty`.
 - **فایل‌ها:** `lib/production/{shared-cut,cutting,reports,engine,engine-advanced}.js`, `lib/inventory/fabric-rolls.js`, `routes/production-shared-cut.js`, `public/{app.js,sw.js}`, scripts v469/v471/v363، ADR-006، CHANGE-LOG.
-- **تست:** `test-prod-journey-adr006-v471`؛ `test-fabric-reversal-live-v363`؛ `test-cutting-lay-multi-v469`؛ `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-prod-journey-adr006-v471` ۲۷/۰؛ `test-fabric-reversal-live-v363` ۱۲/۰؛ `test-cutting-lay-multi-v469`؛ `test-cutting-alloc-basis-v470` ۲۲/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `67f5ba9c` — overlay ایران (درخت VPS کثیف؛ pull FF ممکن نبود)؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v471`.
 
 ### ۱۴۰۵/۰۷/۲۷ — ADR-006: ادغام ممیزی R13 و موج‌های W2/W2b
 - **خلاصه:** یافته‌های ممیزی مسیر تولید (shared بدون amend، multi-pack void، cost sheet هنوز از ٪ فرمول) و تحقیق شکاف‌ها در ADR-006/پرامپت master ثبت شد؛ اولویت بعدی W2 سپس W2b. `test-sync` ویندوز = binding Node۲۴ (بی‌ربط به v470؛ سبز روی ایران).
