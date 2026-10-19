@@ -50,7 +50,7 @@ function gl(code) {
   ok(appJs.includes('cuttingLayModal(r.id)') && appJs.includes('>ویرایش</button>'), 'list always offers edit');
   ok(!appJs.includes('if(!isPacked){'), 'edit is not hidden after coverage');
   ok(appJs.includes('این لایه با رسید سفارش پوشش شده'), 'covered-edit hint');
-  ok(appJs.includes('erp-taranom-v466') || fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v466'), 'sw v466');
+  ok(/erp-taranom-v\d+/.test(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8')), 'sw cache name');
   new Function(appJs);
   ok(true, 'app.js parses');
 

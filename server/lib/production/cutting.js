@@ -1154,16 +1154,52 @@ function postCuttingLayStockAndJe(db, {
     .run(journalId, wasteJe, id);
 }
 
+function layIssueNoteMatchers(layNo, layId) {
+  const tag = layNo || ('#' + layId);
+  return [`*${tag}[^0-9]*`, `*${tag}`];
+}
+
 function voidCuttingLay(db, id, user, { reason } = {}) {
   const row = db.prepare('SELECT * FROM cutting_lays WHERE id=?').get(Number(id));
   if (!row) throw httpErr(404, 'لایه یافت نشد', 'E_CUT_LAY');
   if (row.status === 'reversed') throw httpErr(409, 'این لایه قبلاً ابطال شده است', 'E_CUT_REVERSED');
   if (postedPackForLay(db, row.id)) {
-    throw httpErr(409, 'ابتدا رسید برش را ابطال کنید', 'E_CUT_HAS_PACK');
+    throw httpErr(409, 'ابتدا رسید برش (PACK) را ابطال کنید؛ بعد خود لایه‌چینی ابطال می‌شود', 'E_CUT_HAS_PACK');
   }
+  const covered = layFgCoveredByOrder(db, row);
   db.transaction(() => {
-    unbindCuttingLayFromOrderStage(db, row, user, row.date);
+    let po = null;
+    if (covered.fg_covered_by_order) {
+      const oid = Number(row.production_order_id || covered.covered_order_id || 0);
+      po = oid ? db.prepare('SELECT * FROM production_orders WHERE id=?').get(oid) : null;
+      if (!po) throw httpErr(409, 'سفارش پوشش‌دهندهٔ این لایه پیدا نشد', 'E_CUT_NO_RECEIPT');
+      if (['cancelled', 'voided'].includes(String(po.status || ''))) {
+        throw httpErr(409, 'سفارش تولید لغو شده است', 'E_PACK_ORDER_STATUS');
+      }
+    } else {
+      unbindCuttingLayFromOrderStage(db, row, user, row.date);
+    }
     const { revJe } = reverseCuttingLayEffects(db, row, user, reason || 'ابطال لایه‌چینی');
+    if (po) {
+      absorbCoveredLayDelta(db, {
+        lay: row,
+        po,
+        oldAmount: Math.round(Number(row.amount_rial) || 0),
+        oldWaste: Math.round(Number(row.waste_amount_rial) || 0),
+        newAmount: 0,
+        newWaste: 0,
+        newMeters: 0,
+        newUnit: 0,
+        date: row.date || todayJalali(),
+        user,
+      });
+      const [globMid, globEnd] = layIssueNoteMatchers(row.lay_no, row.id);
+      db.prepare(`
+        UPDATE production_material_issues SET status='reversed'
+        WHERE order_id=? AND issue_type='cutting_lay' AND status='posted'
+          AND (note GLOB ? OR note GLOB ?)
+      `).run(po.id, globMid, globEnd);
+    }
     db.prepare(`
       UPDATE cutting_lays
       SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=?, stage_id=NULL
@@ -1189,12 +1225,13 @@ function absorbCoveredLayDelta(db, {
   const deltaNet = newNet - oldNet;
   const layTag = lay.lay_no || ('#' + lay.id);
 
+  const [globMid, globEnd] = layIssueNoteMatchers(lay.lay_no, lay.id);
   const mi = db.prepare(`
     SELECT id FROM production_material_issues
     WHERE order_id=? AND issue_type='cutting_lay' AND status='posted'
-      AND note LIKE ?
+      AND (note GLOB ? OR note GLOB ?)
     ORDER BY id DESC LIMIT 1
-  `).get(po.id, `%${layTag}%`);
+  `).get(po.id, globMid, globEnd);
   if (mi) {
     db.prepare(`
       UPDATE production_material_issues SET
