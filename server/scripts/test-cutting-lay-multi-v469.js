@@ -110,10 +110,11 @@ try {
     }
     ok('amend مسدود', amendBlocked);
 
-    const voided = voidCuttingLay(db, posted.lay_id, { id: admin.id }, { reason: 'آزمون v469' });
-    ok('ابطال از cutting_lay', voided.status === 'reversed' || voided.lay_status === 'reversed' || true);
+    voidCuttingLay(db, posted.lay_id, { id: admin.id }, { reason: 'آزمون v469' });
     const layAfter = db.prepare('SELECT status FROM cutting_lays WHERE id=?').get(posted.lay_id);
-    eq('وضعیت لایه reversed', layAfter.status, 'reversed');
+    ok('وضعیت لایه reversed', layAfter && layAfter.status === 'reversed', layAfter && layAfter.status);
+    const batchAfter = db.prepare('SELECT status FROM cutting_batches WHERE id=?').get(posted.id);
+    ok('وضعیت batch reversed', batchAfter && batchAfter.status === 'reversed', batchAfter && batchAfter.status);
     const left = db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(rollId).q;
     eq('برگشت طاقه', Number(left), 80, 0.05);
     dbOk = true;
