@@ -72,14 +72,26 @@ BOM (هر محصول مستقل)
 
 ## ۵) موج‌های پیاده‌سازی
 
-| موج | محتوا | SW |
-|-----|--------|-----|
-| **W1** | ADR + `allocation_basis` + UI انتخاب + تست | v470 |
-| **W2** | amend لای چندمحصولی (ویرایش = void+repost اتمی با حفظ پیوند سفارش) | v471+ |
-| **W3** | گیت سخت سفارش: عبور از برش فقط با پوشش لای؛ هزینه تا رسید | … |
-| **W4** | یکپارچه‌سازی UI مسیر (حذف مسیر UI مرده؛ Help نهایی) + ماتریس تست end-to-end | … |
+| موج | محتوا | SW / وضعیت |
+|-----|--------|------------|
+| **W1** | ADR + `allocation_basis` (`pieces\|fabric\|manual\|hybrid`) + UI + تست | ✅ v470 (`047b1770`) |
+| **W2** | R13 لای چندمحصولی: amend اتمی (void+repost) یا مخفی‌کردن ویرایش دروغین؛ void همهٔ PACKهای WIP یک لایه؛ هم‌ترازی RBAC void | ⏳ v471+ |
+| **W2b** | برگه بها: سهم محصول از `cutting_batch_allocations.allocated_rial` (+ ضایعات لای)، نه فقط `cost_share_percent` فرمول | ⏳ |
+| **W3** | گیت سخت: عبور از برش فقط با پوشش لای؛ پیوند shared-cut ↔ سفارش/مرحله | ⏳ |
+| **W4** | یکپارچه‌سازی UX دو مسیر classic/batch؛ تست E2E finalize→pack→lay R13؛ رفع `reverseOrder` روی `cutting_lay` memo | ⏳ |
 
 هر موج: Help + CHANGE-LOG + test-sms + تست اختصاصی + deploy ایران.
+
+### یافتهٔ ممیزی R13 (ادغام ۱۴۰۵/۰۷/۲۷)
+
+منبع: ممیزی مسیر تولید + تحقیق شکاف هزینه.
+
+- لای کلاسیک: create/edit/void تقریباً کامل؛ covered عمداً partial (v466/v468).
+- لای shared: create+void؛ amend = `E_SHARED_CUT_NO_AMEND`؛ UI گاهی «ویرایش» نشان می‌دهد و toast رد می‌کند → در W2 یا amend واقعی یا حذف دکمه.
+- `voidCuttingPackByLay` فقط یک pack (`LIMIT 1`) — برای چند PACK WIP مشترک خطرناک.
+- `purge`/`reverseStage` بعد از `completed` با `E_ORDER_FINALIZED`؛ زنجیرهٔ کامل finalize→pack→lay در تست G1 هنوز PENDING.
+- مدل داده: همچنان **یک BOM چندخروجی** روی یک سفارش (نه N BOM مستقل) — مگر مالک صریحاً W5 بخواهد.
+- `test-sync` روی ویندوز Node ۲۴ به‌خاطر binding بهتر-sqlite3 بالا نمی‌آید؛ معیار سبز = ایران.
 
 ---
 

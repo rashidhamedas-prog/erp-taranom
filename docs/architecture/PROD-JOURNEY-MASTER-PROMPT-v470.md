@@ -23,9 +23,12 @@
 | موج | وضعیت |
 |-----|--------|
 | W1 تسهیم قابل‌انتخاب + ADR | ✅ v470 |
-| W2 amend لای چندمحصولی اتمی | ⏳ |
-| W3 گیت سخت برش→مرحله بعد | ⏳ |
-| W4 یکپارچه‌سازی UI + E2E | ⏳ |
+| W2 R13 shared amend + multi-pack void | ⏳ (اولویت بعدی) |
+| W2b برگه بها از allocated_rial واقعی | ⏳ |
+| W3 گیت سخت برش→مرحله + پیوند سفارش | ⏳ |
+| W4 UX یکپارچه + E2E R13 finalize | ⏳ |
+
+شکاف G6 (تسهیم قابل‌انتخاب) با W1 بسته شد. G3/G5 از ممیزی هنوز بازند.
 
 ## Skills / refs
 project-conventions · tap-erp-architecture · PROD-CUT-ADR-005 · Production-Master-Architecture · garment cut-order / WIP→FG costing practices
