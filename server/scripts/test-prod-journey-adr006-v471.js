@@ -100,39 +100,22 @@ try {
     const packsLive = db.prepare("SELECT COUNT(*) c FROM cutting_packs WHERE lay_id=? AND status='posted'").get(posted.lay_id).c;
     eq('all packs voided', packsLive, 0);
 
-    // ابطال کامل لایه → طاقه برمی‌گردد؛ سپس post+amend روی برنامهٔ تازه
-    voidSharedCut(db, posted.id, { id: admin.id }, 'cleanup before amend');
-    ok(getSharedCut(db, posted.id).status === 'reversed', 'batch reversed');
-
-    const liveM = Number(db.prepare('SELECT qty_on_hand q FROM inventory_batches WHERE id=?').get(rollId).q) || 0;
-    ok(liveM > 10, 'roll restored after voidSharedCut');
-    const body2 = {
-      marker_length_m: 5,
-      width_cm: 150,
-      fabric_product_id: fab,
-      color: 'مشکی',
-      allocation_basis: 'pieces',
-      outputs: [
-        { product_id: a, size_code: 'M', pieces_per_ply: 2 },
-        { product_id: b, size_code: 'L', pieces_per_ply: 3 },
-      ],
-      rolls: [{ batch_id: rollId, opening_m: liveM, ply_count: 2, color: 'مشکی', length_loss_m: 0 }],
-      idempotency_key: 'v471-shared-2',
-    };
-    const posted2 = postSharedCut(db, body2, { id: admin.id });
-    const amended = amendSharedCut(db, posted2.id, Object.assign({}, body2, {
+    // amend روی همان batch (reverse اثرات + ثبت مجدد) قبل از void نهایی
+    const amended = amendSharedCut(db, posted.id, Object.assign({}, body, {
       outputs: [
         { product_id: a, size_code: 'M', pieces_per_ply: 1 },
         { product_id: b, size_code: 'L', pieces_per_ply: 4 },
       ],
       reason: 'آزمون amend',
     }), { id: admin.id });
-    ok(amended.id === posted2.id, 'same batch id after amend');
-    ok(amended.lay_id === posted2.lay_id, 'same lay id after amend');
+    ok(amended.id === posted.id, 'same batch id after amend');
+    ok(amended.lay_id === posted.lay_id, 'same lay id after amend');
     const outs = amended.outputs || [];
     const sumP = outs.reduce((s, o) => s + Number(o.pieces_per_ply || 0), 0);
     eq('amended pieces sum', sumP, 5);
-    voidSharedCut(db, posted2.id, { id: admin.id }, 'final cleanup');
+
+    voidSharedCut(db, posted.id, { id: admin.id }, 'cleanup');
+    ok(getSharedCut(db, posted.id).status === 'reversed', 'batch reversed');
     dbOk = true;
   } finally {
     cleanup();

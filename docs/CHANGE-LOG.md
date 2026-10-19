@@ -3,8 +3,9 @@
 - **W2b:** برگه بها چندمحصولی از `cutting_batch_allocations` وقتی لای به سفارش وصل است (`cost_share_source=shared_cut_alloc`).
 - **W3:** گیت `E_LAY_BEFORE_NEXT_STAGE` قبل از start/output مراحل بعد از برش؛ `production_order_id` روی lay/pack مشترک + `applyCuttingLayToStage`.
 - **W4:** `reverseOrder` برای `issue_type=cutting_lay` موجودی طاقه را دوباره restore نمی‌کند؛ Help + تست `test-prod-journey-adr006-v471`.
-- **فایل‌ها:** `lib/production/{shared-cut,cutting,reports,engine,engine-advanced}.js`, `routes/production-shared-cut.js`, `public/{app.js,sw.js}`, scripts v469/v471، ADR-006، CHANGE-LOG.
-- **تست:** `test-prod-journey-adr006-v471`؛ `test-cutting-lay-multi-v469`؛ `test-sms`.
+- **هات‌فیکس متر طاقه:** `liveBatchMeters` وقتی رسید بدون `batch_id` است و فقط reversalِ حواله `taggedIn` دارد، پایه را از `qty_received` می‌گیرد (قبلاً بعد از ابطال/ویرایش `E_CUT_ROLL_QTY` می‌داد)؛ gate ثبت با `issueM`؛ reverse مشترک مثل کلاسیک ledger+`adjustBatchQty`.
+- **فایل‌ها:** `lib/production/{shared-cut,cutting,reports,engine,engine-advanced}.js`, `lib/inventory/fabric-rolls.js`, `routes/production-shared-cut.js`, `public/{app.js,sw.js}`, scripts v469/v471/v363، ADR-006، CHANGE-LOG.
+- **تست:** `test-prod-journey-adr006-v471`؛ `test-fabric-reversal-live-v363`؛ `test-cutting-lay-multi-v469`؛ `test-sms`.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۷ — ADR-006: ادغام ممیزی R13 و موج‌های W2/W2b

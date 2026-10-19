@@ -654,8 +654,14 @@ function reverseSharedCutEffects(db, batch, user, reason) {
       ? db.prepare("SELECT * FROM cutting_lay_rolls WHERE lay_id=? AND COALESCE(status,'posted')='posted'").all(batch.lay_id)
       : []);
   for (const roll of rolls) {
+    if (String(roll.status || '') === 'reversed') continue;
+    // مثل reverseCuttingLayEffects: معکوس ledger + بازگرداندن qty_on_hand
     if (roll.ledger_id) {
-      reverseInventoryMovement(db, roll.ledger_id, { createdBy: user && user.id, note: reason || 'ابطال برش مشترک' });
+      try {
+        reverseInventoryMovement(db, roll.ledger_id, { createdBy: user && user.id, note: reason || 'ابطال برش مشترک' });
+      } catch (e) {
+        if (!(e && e.code === 'E_ALREADY_REVERSED')) throw e;
+      }
     }
     const issueM = Number(roll.meters) || 0;
     if (issueM) adjustBatchQty(db, roll.batch_id, issueM);

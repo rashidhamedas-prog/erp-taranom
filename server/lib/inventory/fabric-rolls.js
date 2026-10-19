@@ -44,9 +44,14 @@ function liveBatchMeters(db, batchId) {
   if (!agg || !Number(agg.n)) return null;
   const taggedIn = Number(agg.qty_in) || 0;
   const taggedOut = Number(agg.qty_out) || 0;
-  if (taggedIn > 0) return taggedIn - taggedOut;
   const received = Number(batch.qty_received);
   const cached = Number(batch.qty_on_hand) || 0;
+  // رسید خرید اغلب بدون batch_id است (فقط qty_received). اگر فقط reversalِ حواله
+  // taggedIn بسازد، فرمول taggedIn−taggedOut موجودی را صفر می‌کند؛ پایه = qty_received.
+  if (Number.isFinite(received) && received > 0 && taggedIn + 1e-9 < received) {
+    return received + taggedIn - taggedOut;
+  }
+  if (taggedIn > 0) return taggedIn - taggedOut;
   const inbound = (Number.isFinite(received) && received > 0)
     ? received
     : (cached + taggedOut);
