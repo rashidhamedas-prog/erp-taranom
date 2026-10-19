@@ -409,10 +409,11 @@ function postSharedCut(db, body, user) {
       if (busy) throw httpErr(409, 'این طاقه روی لایهٔ باز دیگری مصرف شده است', 'E_ROLL_BUSY');
       applyLiveRollQty(db, batch);
       const avail = availableBatchMeters(db, batch.id);
-      const leave = roundM(roll.opening_m - roll.returned_m - roll.adjustment_m);
-      if (avail + 1e-6 < leave) throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY');
-      const unit = avgUnitRial(db, batch.product_id);
       const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
+      if (avail + 1e-6 < issueM) {
+        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, batch_id: batch.id });
+      }
+      const unit = avgUnitRial(db, batch.product_id);
       const laidRial = assertSafeRial(Math.round(unit * roll.laid_m), 'laid');
       const lossPart = assertSafeRial(Math.round(unit * roll.length_loss_m), 'loss');
       common += laidRial;
@@ -795,10 +796,12 @@ function amendSharedCut(db, id, body, user) {
       if (busy) throw httpErr(409, 'این طاقه روی لایهٔ باز دیگری مصرف شده است', 'E_ROLL_BUSY');
       applyLiveRollQty(db, fabBatch);
       const avail = availableBatchMeters(db, fabBatch.id);
-      const leave = roundM(roll.opening_m - roll.returned_m - roll.adjustment_m);
-      if (avail + 1e-6 < leave) throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY');
-      const unit = avgUnitRial(db, fabBatch.product_id);
       const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
+      // تسهیم/برگشت روی طاقه در leave قدیمی گاهی از avail بزرگ‌تر می‌شود؛ ملاک مصرف واقعی است
+      if (avail + 1e-6 < issueM) {
+        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, batch_id: fabBatch.id });
+      }
+      const unit = avgUnitRial(db, fabBatch.product_id);
       const laidRial = assertSafeRial(Math.round(unit * roll.laid_m), 'laid');
       const lossPart = assertSafeRial(Math.round(unit * roll.length_loss_m), 'loss');
       common += laidRial;
