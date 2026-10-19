@@ -2,8 +2,8 @@
 - **قاعده:** مرکز با `entity=workshop` در برگهٔ بهای BOM و در جذب واقعی سفارش، یک‌بار روی تعداد محصول تمام‌شده می‌آید. دفتر توزیع / اداری / فروش داخل بها نیست. اگر همان مرکز روی مسیر باشد دوباره حساب نمی‌شود. نرخ ذخیره‌شده عوض نمی‌شود.
 - **اجرا:** آخرین مرحلهٔ سفارش سند PRD-05 جدا می‌زند و مبلغ داخل `overhead_rial` همان مرحله می‌نشیند تا ابطال R13 برگردد. سفارش بدون مسیر هم در رسید ثابت/متغیر همین جذب را می‌گیرد.
 - **فایل‌ها:** `lib/production/{overhead,bom-advanced,engine,engine-advanced}.js`, `public/{app.js,sw.js}`, `scripts/test-plant-overhead-v474.js`, CHANGE-LOG.
-- **تست:** `test-plant-overhead-v474` — کارگاه ۲۰۰٬۰۰۰ × ۳۰۰ = ۶۰٬۰۰۰٬۰۰۰؛ سه مرحله ۱۸۰٬۰۰۰٬۰۰۰؛ جمع ۲۴۰٬۰۰۰٬۰۰۰؛ توزیع صفر.
-- **Deploy:** ⏳
+- **تست:** ایران `test-plant-overhead-v474` ۱۳/۰؛ `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `8bb4c0b6` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v474`.
 
 ### ۱۴۰۵/۰۷/۲۷ — فرعی/ضایعات دیگر فرمول را چندمحصولی نمی‌کند (SW v473)
 - **ریشه:** `addOutput` برای by/scrap پرچم `has_coproducts` را روشن می‌کرد و فعال‌سازی فرمول تک‌محصولی با `E_NO_COPRODUCT` می‌ایستاد. ذخیرهٔ سرفصل هم peers را فقط از `output_type=co` می‌فرستاد.
