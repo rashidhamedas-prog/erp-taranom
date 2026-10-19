@@ -179,6 +179,15 @@ function absorbMultiplier(rate) {
   return Math.min(100, Math.max(0, raw)) / 100;
 }
 
+/** مراکز سراسری تولید (کارگاه). دفتر توزیع / اداری / فروش داخل بها نمی‌آیند. */
+function listPlantCostCenters(db) {
+  return db.prepare(`
+    SELECT * FROM cost_centers
+    WHERE COALESCE(active,1)=1 AND entity='workshop'
+    ORDER BY COALESCE(seq,0), id
+  `).all();
+}
+
 function appliedOverheadRial(rate, driverQty) {
   const rateRial = roundRial(rate && rate.total_rate_rial);
   const qty = Number(driverQty) || 0;
@@ -646,7 +655,56 @@ function applyOverhead(db, {
   };
 }
 
+function plantDriverQty(driver, ctx) {
+  const d = coerceDriver(driver || 'output_qty');
+  if (d === 'output_qty') return Number(ctx.qty) || 0;
+  if (d === 'direct_labor_rial') return (Number(ctx.laborRial) || 0) / 1e6;
+  if (d === 'material_rial') return (Number(ctx.matRial) || 0) / 1e6;
+  if (d === 'manual') return Number(ctx.manual) || 0;
+  return 0;
+}
+
+/** سربار کارگاه، یک‌بار. دفتر توزیع جذب نمی‌شود. مرکز روی مسیر سفارش رد می‌شود. */
+function postPlantOverhead(db, ctx) {
+  const po = ctx.po;
+  const skip = new Set((ctx.skipCcIds || []).map((id) => Number(id)));
+  if (po.cost_center_id) skip.add(Number(po.cost_center_id));
+  const lines = [];
+  let total = 0;
+  for (const cc of listPlantCostCenters(db)) {
+    if (skip.has(Number(cc.id))) continue;
+    const rate = getOverheadRate(db, cc.id, ctx.period);
+    if (!rate) continue;
+    const driver = coerceDriver(rate.driver || cc.driver || 'output_qty');
+    const driverQty = plantDriverQty(driver, ctx);
+    const amount = appliedOverheadRial(rate, driverQty);
+    if (!(amount > 0)) continue;
+    let docNo = '';
+    try { docNo = allocateNumber(db, 'overhead_apply', 'OH'); }
+    catch { docNo = `OH-${Date.now()}`; }
+    const id = db.prepare(`
+      INSERT INTO production_overhead_applications
+        (doc_no, order_id, stage_id, cost_center_id, rate_id, driver, driver_qty,
+         fixed_rate_rial, var_rate_rial, rate_rial, amount_rial,
+         date, period_label, status, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?)
+    `).run(
+      docNo, po.id, ctx.stageId || null, cc.id, rate.id, driver, driverQty,
+      Math.round(Number(rate.fixed_rate_rial) || 0),
+      Math.round(Number(rate.var_rate_rial) || 0),
+      Math.round(Number(rate.total_rate_rial) || 0),
+      amount, ctx.date, ctx.period, ctx.userId
+    ).lastInsertRowid;
+    bumpRateApplied(db, rate.id, amount, driverQty);
+    lines.push({ id, amount_rial: amount, cost_center_id: cc.id, name: cc.name });
+    total += amount;
+  }
+  return { amount_rial: total, lines };
+}
+
 module.exports = {
+  listPlantCostCenters,
+  postPlantOverhead,
   getOverheadRate,
   bootstrapRate,
   computeDriverQty,

@@ -794,6 +794,24 @@ function postStageCore(db, {
   const oh = applyStageOverhead(db, {
     po, stage, op, cc, qtyIn, laborRial, matRial: ohDriverMat, date, period, userId,
   });
+  const laterStage = db.prepare(`
+    SELECT id FROM production_order_stages
+    WHERE order_id=? AND seq>? AND COALESCE(status,'')!='skipped'
+    LIMIT 1
+  `).get(orderId, stage.seq);
+  let plant = { amount_rial: 0, lines: [] };
+  if (!laterStage) {
+    const { postPlantOverhead } = require('./overhead');
+    const used = db.prepare('SELECT cost_center_id FROM production_order_stages WHERE order_id=?').all(orderId)
+      .map((r) => Number(r.cost_center_id));
+    const orderLabor = Math.round(num(po.labor_cost_rial) + laborRial);
+    const orderMat = Math.round(num(po.material_cost_rial) + num(po.packaging_cost_rial) + ohDriverMat);
+    plant = postPlantOverhead(db, {
+      po, stageId: stage.id, qty: qtyOut, laborRial: orderLabor, matRial: orderMat,
+      date, period, userId, skipCcIds: used, manual: num(po.manual_driver_qty),
+    });
+  }
+  const ohTotal = (oh.amount_rial || 0) + (plant.amount_rial || 0);
   if (oh.amount_rial) {
     const je3 = postEvent(db, {
       event: 'PRD-05',
@@ -811,6 +829,25 @@ function postStageCore(db, {
       jes.push(je3);
       db.prepare('UPDATE production_overhead_applications SET je_id=? WHERE id=?')
         .run(je3.je_id, oh.id);
+    }
+  }
+  for (const line of plant.lines || []) {
+    const jeP = postEvent(db, {
+      event: 'PRD-05',
+      sourceId: orderId,
+      date,
+      description: `جذب سربار سراسری ${line.name} — ${po.order_no}`,
+      createdBy: userId,
+      costCenterId: line.cost_center_id,
+      lines: [
+        dr(db, 'coa_wip', line.amount_rial, po.coa_wip_tafsili),
+        cr(db, 'coa_overhead_applied', line.amount_rial),
+      ],
+    });
+    if (jeP) {
+      jes.push(jeP);
+      db.prepare('UPDATE production_overhead_applications SET je_id=? WHERE id=?')
+        .run(jeP.je_id, line.id);
     }
   }
 
@@ -834,7 +871,7 @@ function postStageCore(db, {
 
   const costIn = Math.round(num(stage.material_in_rial));
   const materialAdded = matRial + pkgRial;
-  const costGross = costIn + materialAdded + laborRial + oh.amount_rial + subcontractRial;
+  const costGross = costIn + materialAdded + laborRial + ohTotal + subcontractRial;
   const costPerIn = qtyIn > 0 ? costGross / qtyIn : 0;
 
   let abnormalRial = 0;
@@ -932,7 +969,7 @@ function postStageCore(db, {
     WHERE id=?
   `).run(
     qtyOut, wN, wA, rework,
-    materialAdded, laborRial, oh.amount_rial || 0, subcontractRial,
+    materialAdded, laborRial, ohTotal, subcontractRial,
     abnormalRial, scrapCredit, costOut, unitCostOut,
     oh.driver_qty || 0, date,
     body.qc_passed != null ? (body.qc_passed ? 1 : 0) : stage.qc_passed,
@@ -962,7 +999,7 @@ function postStageCore(db, {
       updated_at = strftime('%s','now')
     WHERE id=?
   `).run(
-    orderMat, orderPkg, laborRial, oh.amount_rial || 0, subcontractRial,
+    orderMat, orderPkg, laborRial, ohTotal, subcontractRial,
     abnormalRial, scrapCredit, wN, wA, date, orderId
   );
 
@@ -986,7 +1023,7 @@ function postStageCore(db, {
       labor_rial: laborRial,
       labor_method: laborMethod,
       subcontract_rial: subcontractRial,
-      overhead_rial: oh.amount_rial || 0,
+      overhead_rial: ohTotal,
       overhead_driver: oh.driver,
       overhead_driver_qty: oh.driver_qty,
       overhead_rate_rial: oh.rate_rial,

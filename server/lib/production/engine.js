@@ -16,7 +16,7 @@ const {
   issueFromStock, updateMovingAverage, receiveScrap, restoreStock, reverseReceiptStock,
   recalcAvgOnReturn, setting, getWhQty,
 } = require('./costing');
-const { applyOverhead, reverseAppliedOverheadCounters } = require('./overhead');
+const { applyOverhead, reverseAppliedOverheadCounters, postPlantOverhead } = require('./overhead');
 const {
   sumLabor,
   autoPostLabor,
@@ -886,9 +886,28 @@ function postReceiptFixed(db, { orderId, body, userId }) {
           .run(je3.je_id, oh.id);
       }
     }
+    const plant = postPlantOverhead(db, {
+      po, qty: qtyGood, laborRial, matRial: matRial + pkgRial, date, period, userId,
+    });
+    for (const line of plant.lines) {
+      const jeP = postEvent(db, {
+        event: 'PRD-05', sourceId: orderId, date, createdBy: userId,
+        description: `جذب سربار سراسری ${line.name} — ${po.order_no}`,
+        costCenterId: line.cost_center_id,
+        lines: [
+          dr(db, 'coa_wip', line.amount_rial, po.coa_wip_tafsili),
+          cr(db, 'coa_overhead_applied', line.amount_rial),
+        ],
+      });
+      if (jeP) {
+        jes.push(jeP);
+        db.prepare('UPDATE production_overhead_applications SET je_id=? WHERE id=?').run(jeP.je_id, line.id);
+      }
+    }
+    const ohRial = (oh.amount_rial || 0) + plant.amount_rial;
 
     // ═══ ۴. WIP total ═══
-    const wipTotal = matRial + pkgRial + laborRial + (oh.amount_rial || 0) + sumSubcontract(db, orderId);
+    const wipTotal = matRial + pkgRial + laborRial + ohRial + sumSubcontract(db, orderId);
     const costPerStarted = qtyStarted > 0 ? wipTotal / qtyStarted : 0;
 
     // ═══ ۵. Abnormal waste (PRD-09) ═══
@@ -1105,7 +1124,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       WHERE id=?
     `).run(
       qtyGood, wN, wA,
-      matRial, pkgRial, laborRial, oh.amount_rial || 0,
+      matRial, pkgRial, laborRial, ohRial,
       abnormalRial, scrapCredit,
       Math.max(0, wipTotal - abnormalRial - scrapCredit),
       unitCost,
@@ -1142,7 +1161,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         material_rial: matRial,
         packaging_rial: pkgRial,
         labor_rial: laborRial,
-        overhead_rial: oh.amount_rial || 0,
+        overhead_rial: ohRial,
         wip_total_rial: wipTotal,
         abnormal_waste_rial: abnormalRial,
         scrap_credit_rial: scrapCredit,
@@ -1895,8 +1914,29 @@ function postReceiptVariable(db, { orderId, body, userId }) {
           .run(je3.je_id, oh.id);
       }
     }
+    const plant = postPlantOverhead(db, {
+      po, qty: qtyGood, laborRial,
+      matRial: matActual + pkgActual,
+      date, period, userId,
+    });
+    for (const line of plant.lines) {
+      const jeP = postEvent(db, {
+        event: 'PRD-05', sourceId: orderId, date, createdBy: userId,
+        description: `جذب سربار سراسری ${line.name} — ${po.order_no}`,
+        costCenterId: line.cost_center_id,
+        lines: [
+          dr(db, 'coa_wip', line.amount_rial, po.coa_wip_tafsili),
+          cr(db, 'coa_overhead_applied', line.amount_rial),
+        ],
+      });
+      if (jeP) {
+        jes.push(jeP);
+        db.prepare('UPDATE production_overhead_applications SET je_id=? WHERE id=?').run(jeP.je_id, line.id);
+      }
+    }
+    const ohRial = (oh.amount_rial || 0) + plant.amount_rial;
 
-    const wipTotal = matActual + pkgActual + laborRial + (oh.amount_rial || 0) + sumSubcontract(db, orderId);
+    const wipTotal = matActual + pkgActual + laborRial + ohRial + sumSubcontract(db, orderId);
     const costPerStarted = qtyStarted > 0 ? wipTotal / qtyStarted : 0;
 
     let abnormalRial = 0;
@@ -2049,7 +2089,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         updated_at = strftime('%s','now')
       WHERE id=?
     `).run(
-      qtyGood, wN, wA, laborRial, oh.amount_rial || 0,
+      qtyGood, wN, wA, laborRial, ohRial,
       abnormalRial, scrapCredit, wipNet, unitCost,
       resolveReceiptOrderStatus(po, body, qtyGood), date, period, orderId
     );
@@ -2070,7 +2110,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         material_rial: matActual,
         packaging_rial: pkgActual,
         labor_rial: laborRial,
-        overhead_rial: oh.amount_rial || 0,
+        overhead_rial: ohRial,
         wip_total_rial: wipTotal,
         abnormal_waste_rial: abnormalRial,
         scrap_credit_rial: scrapCredit,

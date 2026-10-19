@@ -4,7 +4,7 @@
  * NO ledger posting.
  */
 const { explodeBom, resolveBom } = require('./bom');
-const { getOverheadRate, appliedOverheadRial } = require('./overhead');
+const { getOverheadRate, appliedOverheadRial, listPlantCostCenters } = require('./overhead');
 const { setting } = require('./costing');
 const { todayJalali } = require('../../jalali');
 
@@ -440,6 +440,52 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     totSub += subcon;
     totOh += overhead;
     if (!qtyByProduct) qtyIn = qtyOut;
+    costIn = costOut;
+  }
+
+  // v474 — سربار سراسری کارگاه، یک‌بار روی تعداد محصول تمام‌شده (نه روی هر مرحله)
+  const finishedQty = qtyByProduct ? batchQty : qtyIn;
+  const onRoute = new Set(ops.map((o) => Number(o.cost_center_id)));
+  for (const cc of listPlantCostCenters(db)) {
+    if (onRoute.has(Number(cc.id))) continue;
+    const rate = getOverheadRate(db, cc.id, period) || { total_rate_rial: 0, is_estimated: 1, driver: cc.driver };
+    if (rate.is_estimated) warnings.push(`نرخ سربار سراسری «${cc.name}» برآوردی است`);
+    let driverQty = 0;
+    try {
+      driverQty = stageDriverQty(db, {}, cc, {
+        qty: finishedQty,
+        labor: totLab,
+        material: totMat,
+        driver: rate.driver || cc.driver || 'output_qty',
+        manualDriver: 0,
+      });
+    } catch (e) {
+      warnings.push(`محرک سربار سراسری «${cc.name}» قابل محاسبه نیست`);
+      driverQty = 0;
+    }
+    if (!Number.isFinite(driverQty)) driverQty = 0;
+    const overhead = appliedOverheadRial(rate, driverQty);
+    const costOut = costIn + overhead;
+    stages.push({
+      seq: null,
+      plant: 1,
+      cost_center_id: cc.id,
+      cost_center: `${cc.code || ''} ${cc.name}`.trim(),
+      qty_in: finishedQty,
+      qty_out: finishedQty,
+      cost_in_rial: costIn,
+      material_rial: 0,
+      labor_rial: 0,
+      subcontract_rial: 0,
+      overhead_rial: overhead,
+      overhead_driver: rate.driver || cc.driver || 'output_qty',
+      overhead_driver_qty: round6(driverQty),
+      overhead_rate_rial: Math.round(Number(rate.total_rate_rial) || 0),
+      cost_out_rial: costOut,
+      unit_cost_out_rial: finishedQty ? Math.round(overhead / finishedQty) : 0,
+      supplier: null,
+    });
+    totOh += overhead;
     costIn = costOut;
   }
 

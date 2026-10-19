@@ -13,7 +13,7 @@ const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const bomSrc = fs.readFileSync(path.join(root, 'lib/production/bom.js'), 'utf8');
 const advSrc = fs.readFileSync(path.join(root, 'lib/production/bom-advanced.js'), 'utf8');
 
-ok(sw.includes('erp-taranom-v473'), 'SW v473');
+ok(/erp-taranom-v47[3-9]/.test(sw), 'SW v473+');
 ok(!appSrc.includes('id="pb-multi"'), 'create modal has no pb-multi');
 ok(!appSrc.includes('id="pb-multi-box"'), 'create modal has no multi box');
 ok(!/prodBomCreateAddCo\s*\(/.test(appSrc) || appSrc.includes('async function prodBomAddCoFromHeader'), 'legacy add guarded');
