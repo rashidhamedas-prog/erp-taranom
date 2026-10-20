@@ -10,8 +10,8 @@
 - **ریشه (ابراهیمی / PO-0014):** شخص هم‌زمان مشتری+تأمین‌کننده+پرسنل است. مسیر یکپارچهٔ گردش فقط دفاتر مشتری/تأمین را ادغام می‌کرد و `ref_type=opening` مشتری را نگه می‌داشت، بعد با `alignEntriesToTarget` یک «تطبیق با دفتر زنده» اضافه می‌کرد → دو مانده اول دورهٔ ۴۰٬۳۹۶٬۰۰۰. دستمزد قطعه‌ای روی برگ تأمین‌کننده (`2101…`) می‌نشست و `party-leaf-sync` با `ref_type+ref_id=orderId` فقط اولین PRD-03 را در `supplier_ledger` می‌نوشت → دستمزد آبان در گردش یکپارچه غایب بود (در `person_ledger` هر دو بود).
 - **رفع:** strip همهٔ توکن‌های opening؛ ادغام جریان شخص در نقش دوگانه؛ match مبلغ در leaf-sync؛ `sourceId` سند PRD-03 = id ردیف دستمزد؛ کلید dedupe دستمزد با `date|amount` (نه فقط ref_id) تا آینهٔ مشتری/تأمین با id سفارش دوبل نشود؛ heal بازطبقه‌بندی برگ شخص + پاک‌سازی یتیم `supplier_ledger` روی برگ AP + resync؛ راهنما.
 - **فایل‌ها:** `lib/{party-turnover,party-leaf-sync,production/labor}.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-party-labor-turnover-v501,heal-party-labor-turnover-v501}.js`, CHANGE-LOG.
-- **تست:** ایران `test-party-labor-turnover-v501` + `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-party-labor-turnover-v501` ۱۸/۰ + `test-sms` ۲۲/۰؛ heal زنده `supplier_orphans_removed=1`؛ ابراهیمی party ۱۳۶: ۱ افتتاحیه + ۲ دستمزد (۱۹۲M+۲۱۱٫۲M).
+- **Deploy:** ✅ `2aa7484d` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200. منطق گردش روی SW `erp-taranom-v502` (cache جلوتر).
 
 ### ۱۴۰۵/۰۷/۲۸ — مقدار گزارش تا ۳ رقم؛ ریال صحیح می‌ماند (SW v500)
 - **ریشه:** کاردکس کالا (و چند گزارش موجودی) مقدار یارد/متر را با `fmt` نشان می‌داد. `fmt` مخصوص ریال است و `Math.round` می‌زند؛ مثلاً ۰٫۴ یارد می‌شود ۰ و ۱٫۶ می‌شود ۲. سلول ورود ردیف اضافه طاقه در کاردکس همان مسیر بود. ذخیرهٔ دفتر اعشار را تا ۳ رقم نگه می‌دارد؛ CSV خام است.
