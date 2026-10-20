@@ -300,6 +300,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?)
       `).run('receipt', product_id, toWh, qty, date, note, user.id,
         led.id, led.unit_cost_rial, led.amount_rial, batchId || null, docId, lineNo, variantId);
+      // source_id = move id (stable join for kardex); aggregation uses wm.doc_id → WH-####.
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
       ids.push(r.lastInsertRowid);
       postWhVariantMovement(db, {

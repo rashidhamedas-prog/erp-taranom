@@ -175,8 +175,10 @@ router.get('/', auth, (req, res) => {
   const total = pq.paginate
     ? (db.prepare(`SELECT COUNT(*) AS c FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id ${whereSql}`).get(...params)?.c || 0)
     : 0;
+  // Never fall back to company-wide products.stock for another warehouse —
+  // missing warehouse_stock row means 0 in that WH (invoice picker scope).
   const whSelect = warehouseId
-    ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
+    ? `, COALESCE((SELECT ws.qty FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${Number(warehouseId)} LIMIT 1), 0) as wh_qty`
     : '';
   const rows = db.prepare(`
     SELECT p.*, w.name as warehouse_name${whSelect}

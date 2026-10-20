@@ -5481,7 +5481,11 @@ function renderInvPicker(){
   el('invPicker').innerHTML = shown.map(p=>{
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
     const reserved=invCart.filter(r=>Number(r.product_id)===Number(p.id)).reduce((a,r)=>a+r.qty,0);
-    const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
+    // When a warehouse is selected, never fall back to company-wide products.stock.
+    const onHand=whId
+      ?(p.wh_qty!=null?Number(p.wh_qty):0)
+      :(p.wh_qty!=null?Number(p.wh_qty):(Number(p.stock)||0));
+    const avail=onHand-reserved;
     const needsColor=productNeedsColorPick(p);
     const colorBtn=needsColor
       ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">➕ افزودن پک</button>`
@@ -5492,7 +5496,7 @@ function renderInvPicker(){
       <div class="pn">${esc(p.name)}</div>
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
-      <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmtQtyFa(avail)}</div>
+      <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی${whId?' انبار':''}: ${fmtQtyFa(avail)}</div>
       ${colorBtn}
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
@@ -5936,16 +5940,28 @@ function openInvVariantSplitModal(p, pack, opts){
       : (dest==='store_quick'
         ? (replaceIndices?'اعمال روی سبد فروشگاهی':'افزودن به فروش سریع')
         : (replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور'));
-  const firstColor=colorMeta.length?colorMeta[0].name:'*';
+  // Edit mode: show all colors so every size can be zeroed/customized (no forced pair pack).
+  const editing=!!replaceIndices;
+  const firstColor=editing?'*':(colorMeta.length?colorMeta[0].name:'*');
   const hint=dest==='marketer'
-    ? '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).'
-    : '۱) رنگ را انتخاب کنید  ۲) سایز و تعداد را بزنید. پک زنده = '+fmt(pack.pack)+' عدد.'
-      +(whLabel?(' موجودی نمایش‌داده‌شده فقط «'+whLabel+'» است (نه جمع همهٔ انبارها).'):'');
+    ? (editing
+      ? 'تعداد هر رنگ×سایز آزاد است (صفر = حذف از سبد). فیلتر رنگ فقط نمایش را محدود می‌کند.'
+      : '۱) رنگ مشتری را بزنید  ۲) فقط سایزهای همان رنگ را با +/− پر کنید (بقیه صفر).')
+    : (editing
+      ? 'ویرایش شخصی: تعداد هر خانه آزاد است؛ صفر = حذف از فاکتور. اجبار زوج/پک کامل نیست.'
+        +(whLabel?(' موجودی فقط «'+whLabel+'».'):'')
+      : '۱) رنگ را انتخاب کنید  ۲) سایز و تعداد را بزنید. پک زنده = '+fmt(pack.pack)+' عدد.'
+        +(whLabel?(' موجودی نمایش‌داده‌شده فقط «'+whLabel+'» است (نه جمع همهٔ انبارها).'):''));
+  const zeroAllBind=CSP.bind('click',function(){
+    const root=document.getElementById('nestedActiveModal')||document;
+    root.querySelectorAll('.inv-var-qty').forEach(function(inp){ inp.value='0'; });
+  });
   openNestedModal(`
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">${esc(hint)}</p>
+      ${editing?`<div data-csp-style="${CSP.style(`margin-bottom:10px`)}"><button type="button" class="btn sm ghost" data-csp-click="${zeroAllBind}">صفر کردن همه</button></div>`:''}
       <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
         <button type="button" class="var-chip var-chip-btn${firstColor==='*'?' is-on':''}" data-color="*" data-csp-click="${chipBind}">همه</button>
         ${colorMeta.map(c=>{
@@ -7347,9 +7363,9 @@ function storeQsRenderLines(){
     return `<tr>
     <td data-label="کالا"><b>${esc(ln.name)}</b>
       <div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div></td>
-    <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody();})}"></td>
-    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].unit_price=Math.max(0,moneyParseInput(this));storeQsRenderBody();})}"></td>
-    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody();})}"></td>
+    <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody({keepFocus:true});})}"></td>
+    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\d]/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
+    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody({keepFocus:true});})}"></td>
     <td data-label="جمع" class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
     <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
   </tr>`;
@@ -12031,6 +12047,9 @@ function _kardexOpenSource(refType, refId){
   if(!refType || !refId) return;
   if(refType==='invoice'){ openInvBuilder(refId); return; }
   if(refType==='purchase'){ if(typeof printPurchase==='function') printPurchase(refId); else toast('فاکتور خرید #'+refId); return; }
+  if(refType==='warehouse_doc' || refType==='warehouse_transfer'){
+    if(typeof viewWarehouseDoc==='function'){ viewWarehouseDoc(refId); return; }
+  }
   if(typeof openAccTradeDoc==='function'){ openAccTradeDoc(refType, refId); return; }
   toast(refType+' #'+refId);
 }
@@ -12059,14 +12078,16 @@ async function loadItemKardex(productId){
       closing_warehouse_qty:raw.closing_warehouse_qty,
       warehouse_qty:raw.warehouse_qty,
       logs:raw.lines.map(l=>({
-        id:l.id, date:l.date, tx_no:l.tx_no, event_type:l.event_type, note:l.description,
+        id:l.id, date:l.date, tx_no:l.tx_no, doc_num:l.doc_num||l.wh_doc_num||null,
+        event_type:l.event_type, note:l.description,
         warehouse_name:l.warehouse_name, qty_in:l.qty_in, qty_out:l.qty_out,
         running_balance:l.running_qty, warehouse_running_qty:l.warehouse_running_qty,
         unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
         user_name:l.user_name||'', status:l.status||'posted', cancelled:!!l.cancelled,
         audit_only:!!l.audit_only, is_opening:!!l.is_opening,
         ref_type:l.ref_type, ref_id:l.ref_id, source_type:l.source_type, source_id:l.source_id,
-        warehouse_only:!!l.warehouse_only
+        warehouse_only:!!l.warehouse_only,
+        is_group:!!l.is_group, detail_count:l.detail_count||0, details:l.details||null
       })),
       source:'inventory_ledger'
     };
@@ -12084,10 +12105,13 @@ async function loadItemKardex(productId){
     <div class="panel">
       <div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
         <h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
-        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmtQtyFa(d.product.stock||0)} ${unit}
+        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmtQtyFa(
+          (_kardexState.warehouse_id && d.warehouse_qty!=null) ? d.warehouse_qty : (d.product.stock||0)
+        )} ${unit}
           ${d.source==='inventory_ledger'?' · دفتر کل انبار (فعال)':''}
           ${_kardexState.show_cancelled?' · شامل ابطال و هم‌ترازی (ممیزی)':''}
-          ${d.warehouse_qty!=null?' · موجودی انبار فیلتر: '+fmtQtyFa(d.warehouse_qty):''}
+          ${(!_kardexState.warehouse_id && d.warehouse_qty!=null)?' · موجودی انبار فیلتر: '+fmtQtyFa(d.warehouse_qty):''}
+          ${_kardexState.warehouse_id?' · محدودهٔ انبار انتخاب‌شده':''}
         </span>
       </div>
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
@@ -12111,6 +12135,7 @@ async function loadItemKardex(productId){
           const cancelled=l.cancelled||l.status==='reversed';
           const auditOnly=!!l.audit_only;
           const isOpening=!!l.is_opening;
+          const isGroup=!!l.is_group && Array.isArray(l.details) && l.details.length>1;
           const canDrill=l.ref_type && l.ref_id;
           const noteHtml=canDrill
             ? `<a href="#" data-kardex-ref="${esc(l.ref_type)}" data-kardex-id="${esc(String(l.ref_id))}" data-csp-style="${CSP.style(`color:var(--accent,var(--purple));text-decoration:underline`)}">${esc(l.note||'-')}</a>`
@@ -12119,9 +12144,23 @@ async function loadItemKardex(productId){
             :(isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`
             :(auditOnly?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">هم‌ترازی</span>`:''));
           const wip=l.warehouse_only?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">WIP</span>`:'';
+          const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
+          const colSpan=window.__canSeeCost?10:8;
+          const detailRows=isGroup?l.details.map(d=>{
+            const dIn=Number(d.qty_in)||0, dOut=Number(d.qty_out)||0;
+            const dLabel=[d.color_name,d.size_name].filter(Boolean).join(' / ')||d.description||d.tx_no||'—';
+            return `<tr class="kardex-detail" data-kparent="${esc(String(l.id))}" data-csp-style="${CSP.style(`display:none;background:var(--bg-soft,var(--purple-light));font-size:11px`)}">
+              <td></td>
+              <td class="mono muted">${esc(d.tx_no||'')}</td>
+              <td colspan="2">${esc(dLabel)}</td>
+              <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(dIn)}</td>
+              <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(dOut)}</td>
+              <td colspan="${window.__canSeeCost?4:2}" class="muted">جزئیات رنگ/سایز</td>
+            </tr>`;
+          }).join(''):'';
           return `<tr data-csp-style="${CSP.style(`${(cancelled||auditOnly||isOpening)?'opacity:.55':''}`)}">
           <td class="mono">${esc(dt)}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.tx_no||l.event_type||'-')}${badge}${wip}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.doc_num||l.tx_no||l.event_type||'-')}${badge}${wip}${groupBadge}</td>
           <td>${noteHtml}</td>
           <td class="muted">${esc(l.warehouse_name||'-')}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(qIn)}</td>
@@ -12130,7 +12169,7 @@ async function loadItemKardex(productId){
           ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut||cancelled)?fmt(l.unit_cost_rial):'-'}</td>
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
-        </tr>`;
+        </tr>${detailRows}`;
         }).join('')||`<tr><td colspan="10" class="empty">${
           Number(d.product?.stock||0)>0
             ? 'ردیفی در دفتر موجودی نیست — با راه‌اندازی مجدد سرور هم‌ترازی انجام می‌شود؛ اگر ماند، پشتیبانی را خبر کنید'
@@ -12162,6 +12201,21 @@ async function loadItemKardex(productId){
     a.addEventListener('click',function(ev){
       ev.preventDefault();
       _kardexOpenSource(this.getAttribute('data-kardex-ref'), this.getAttribute('data-kardex-id'));
+    });
+  });
+  box.querySelectorAll('.kardex-tog').forEach(btn=>{
+    btn.addEventListener('click',function(ev){
+      ev.preventDefault();
+      const kid=this.getAttribute('data-kid');
+      const rows=box.querySelectorAll('tr.kardex-detail[data-kparent="'+kid+'"]');
+      let open=false;
+      rows.forEach(function(tr){
+        const hide=tr.style.display==='none'||!tr.style.display;
+        tr.style.display=hide?'':'none';
+        if(hide) open=true;
+      });
+      const n=rows.length;
+      this.textContent=(open?'▴ ':'▾ ')+n+' جزئیات';
     });
   });
 }
@@ -33125,7 +33179,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اصلاح سند:</b> کنار حذف، مداد همان دریافت یا پرداخت را با همان شماره اصلاح می‌کند. دفتر کل، دفتر طرف‌حساب، تخصیص فاکتور و چکِ هنوز نزد صندوق با هم به‌روز می‌شوند. مبلغ نباید از ماندهٔ فاکتور (به‌علاوهٔ همین سند) بیشتر شود. دریافتِ همراه فاکتور، کارتخوان، و چکی که وصول یا واگذار شده از اینجا عوض نمی‌شود. ابطال همچنان سند را برمی‌گرداند؛ اصلاح، ردیف را حذف نمی‌کند.</li>
       </ul>
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
-        <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
+        <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را با فیلتر «همه» باز می‌کند؛ تعداد هر رنگ×سایز کاملاً دستی است (صفر = حذف؛ اجبار زوج نیست). ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
+        <li><b>کاردکس / گردش کالا (v504):</b> حواله یا فاکتور چندرنگ به‌صورت <b>یک ردیف مادر</b> دیده می‌شود؛ دکمه «جزئیات» رنگ/سایز را باز می‌کند. موجودی کارت فاکتور با انبار انتخاب‌شده است (نه جمع کل شرکت). سندهای هم‌ترازی نادرست کاردکس برای کالای دارای گردش واقعی ابطال و موجودی انبار هم‌تراز می‌شود.</li>
         <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
         <li><b>ترتیب لیست (v393):</b> صفحهٔ فاکتور و «فاکتورهای فروش» همیشه بر اساس <b>تاریخ صدور</b> نزولی نسبت به امروز مرتب می‌شوند (جدیدترین بالا). شماره فاکتور معیار سورت پیش‌فرض نیست؛ با تاریخ یکسان، شناسهٔ بالاتر بالاتر می‌آید.</li>
       </ul>

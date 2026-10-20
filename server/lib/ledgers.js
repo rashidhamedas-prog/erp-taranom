@@ -22,6 +22,13 @@ const SAFE_REF_TYPES = new Set([
   'journal', 'manual_voucher', 'voucher', 'settlement',
   'warehouse_move', 'transfer', 'expense', 'opening',
   'opening_balance', 'person',
+  'warehouse_doc', 'warehouse_transfer',
+]);
+
+/** Source types that may collapse multi-SKU lines into one parent row. */
+const STOCK_AGGREGATE_SOURCES = new Set([
+  'invoice', 'purchase', 'warehouse_transfer', 'warehouse_move',
+  'sales_return', 'purchase_return', 'sales_return_invoice',
 ]);
 
 function LedgerError(status, error, extra) {
@@ -502,6 +509,138 @@ function collectLegacyVoidedReceiptIds(rows, db) {
   return hide;
 }
 
+/**
+ * Collapse multi-SKU movements of the same business document into one parent
+ * row with details[] for drill-down (transfer WH-####, invoice T-####, …).
+ * Running balances stay on the parent (last child in the group).
+ */
+function stockLineGroupKey(line) {
+  const dir = (Number(line.qty_in) || 0) > 0 ? 'in'
+    : ((Number(line.qty_out) || 0) > 0 ? 'out' : 'zero');
+  const wh = line.warehouse_id != null ? String(line.warehouse_id) : '';
+  if (line.wh_doc_id) {
+    return `wd:${line.wh_doc_id}:${wh}:${dir}`;
+  }
+  const st = String(line.source_type || '');
+  if (STOCK_AGGREGATE_SOURCES.has(st) && line.source_id != null && line.source_id !== '') {
+    return `src:${st}:${line.source_id}:${wh}:${dir}`;
+  }
+  return `id:${line.id}`;
+}
+
+function enrichInvoiceGroupDetails(db, productId, parent) {
+  if (String(parent.source_type || '') !== 'invoice' || !parent.source_id) return;
+  try {
+    const inv = db.prepare('SELECT id, num, rows FROM invoices WHERE id=?').get(parent.source_id);
+    if (!inv) return;
+    if (inv.num) {
+      parent.doc_num = inv.num;
+      parent.tx_no = inv.num;
+    }
+    let rows = [];
+    try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
+    const parts = (rows || []).filter((r) => Number(r.product_id) === Number(productId));
+    if (!parts.length) return;
+    parent.details = parts.map((r, i) => ({
+      id: `${parent.id}-inv-${i}`,
+      tx_no: inv.num || parent.tx_no,
+      qty_in: 0,
+      qty_out: Number(r.qty) || 0,
+      color_name: r.color_name || r.color || null,
+      size_name: r.size_name || null,
+      description: [r.color_name || r.color, r.size_name].filter(Boolean).join(' / ') || parent.description,
+    }));
+    if (parent.details.length > 1) {
+      parent.is_group = true;
+      parent.detail_count = parent.details.length;
+      const label = parent.details.length + ' رنگ/سایز';
+      if (parent.description && !String(parent.description).includes('رنگ/سایز')) {
+        parent.description = `${parent.description} (${label})`;
+      }
+    }
+  } catch (_) { /* optional */ }
+}
+
+function aggregateStockLedgerLines(db, lines, productId) {
+  if (!Array.isArray(lines) || lines.length < 2) return lines || [];
+  const buckets = new Map();
+  const order = [];
+  for (const line of lines) {
+    const key = stockLineGroupKey(line);
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
+      order.push(key);
+    }
+    buckets.get(key).push(line);
+  }
+  const out = [];
+  for (const key of order) {
+    const group = buckets.get(key);
+    if (!group || group.length === 1) {
+      const one = group[0];
+      if (one && String(one.source_type || '') === 'invoice') {
+        enrichInvoiceGroupDetails(db, productId, one);
+      }
+      out.push(one);
+      continue;
+    }
+    if (key.startsWith('id:')) {
+      for (const g of group) out.push(g);
+      continue;
+    }
+    const first = group[0];
+    const last = group[group.length - 1];
+    let qtyIn = 0;
+    let qtyOut = 0;
+    let amount = 0;
+    const details = group.map((g) => {
+      qtyIn += Number(g.qty_in) || 0;
+      qtyOut += Number(g.qty_out) || 0;
+      amount += Number(g.amount_rial) || 0;
+      return {
+        id: g.id,
+        tx_no: g.tx_no,
+        qty_in: g.qty_in,
+        qty_out: g.qty_out,
+        color_name: g.color_name || null,
+        size_name: g.size_name || null,
+        variant_sku: g.variant_sku || null,
+        description: g.description,
+        unit_cost_rial: g.unit_cost_rial,
+        amount_rial: g.amount_rial,
+      };
+    });
+    const docNum = first.wh_doc_num || null;
+    const parent = {
+      ...first,
+      qty_in: qtyIn,
+      qty_out: qtyOut,
+      amount_rial: amount,
+      unit_cost_rial: (qtyIn || qtyOut)
+        ? Math.round(amount / (qtyIn || qtyOut))
+        : first.unit_cost_rial,
+      running_qty: last.running_qty,
+      warehouse_running_qty: last.warehouse_running_qty,
+      tx_no: docNum || first.tx_no,
+      doc_num: docNum,
+      is_group: true,
+      detail_count: details.length,
+      details,
+      child_ids: group.map((g) => g.id),
+    };
+    if (String(parent.source_type || '') === 'invoice') {
+      enrichInvoiceGroupDetails(db, productId, parent);
+    } else if (details.length > 1) {
+      const label = details.length + ' رنگ/سایز';
+      if (parent.description && !parent.description.includes(label)) {
+        parent.description = `${parent.description} (${label})`;
+      }
+    }
+    out.push(parent);
+  }
+  return out;
+}
+
 function buildStockLedger(db, {
   product_id, warehouse_id, from, to, show_cancelled, show_audit, event_type,
 } = {}, { stripCost = false } = {}) {
@@ -537,11 +676,35 @@ function buildStockLedger(db, {
   const params = [pid];
   if (whId) { where.push('l.warehouse_id=?'); params.push(whId); }
 
+  const hasWhMoves = tableExists(db, 'warehouse_moves');
+  const hasWhDocs = tableExists(db, 'warehouse_docs');
+  const hasVariants = tableExists(db, 'product_variants');
+  // source_id on WH docs = warehouse_moves.id (both in/out of a transfer share it).
+  const moveJoin = hasWhMoves
+    ? `LEFT JOIN warehouse_moves wm ON (
+         l.source_type IN ('warehouse_transfer','warehouse_move','warehouse_receipt','warehouse_issue')
+         AND wm.id = l.source_id
+       )`
+    : '';
+  const docJoin = hasWhMoves && hasWhDocs
+    ? 'LEFT JOIN warehouse_docs wd ON wd.id = wm.doc_id'
+    : '';
+  const variantJoin = hasWhMoves && hasVariants
+    ? `LEFT JOIN product_variants pv ON pv.id = wm.variant_id
+       LEFT JOIN product_colors pcol ON pcol.id = pv.color_id
+       LEFT JOIN product_sizes psz ON psz.id = pv.size_id`
+    : '';
   const rows = db.prepare(`
     SELECT l.*, w.name AS warehouse_name, u.name AS user_name
+      ${hasWhMoves ? ', wm.doc_id AS wh_doc_id, wm.variant_id AS move_variant_id, wm.line_no AS move_line_no' : ''}
+      ${hasWhDocs ? ', wd.num AS wh_doc_num, wd.type AS wh_doc_type' : ''}
+      ${hasVariants ? ', pcol.name AS color_name, psz.name AS size_name, pv.sku AS variant_sku' : ''}
     FROM inventory_ledger l
     LEFT JOIN warehouses w ON l.warehouse_id=w.id
     LEFT JOIN users u ON l.created_by=u.id
+    ${moveJoin}
+    ${docJoin}
+    ${variantJoin}
     WHERE ${where.join(' AND ')}
     ORDER BY l.date ASC, l.id ASC
   `).all(...params);
@@ -657,9 +820,16 @@ function buildStockLedger(db, {
     if (openingSlice && !showAudit) continue;
     if ((voidRow || alignOnly) && !showAudit) continue;
     const srcType = r.source_type || r.event_type || null;
+    const whDocId = r.wh_doc_id != null ? Number(r.wh_doc_id) : null;
+    const linkRefType = (Number.isFinite(whDocId) && whDocId > 0)
+      ? 'warehouse_doc'
+      : srcType;
+    const linkRefId = (Number.isFinite(whDocId) && whDocId > 0)
+      ? whDocId
+      : r.source_id;
     const link = safeSourceLink({
-      ref_type: srcType,
-      ref_id: r.source_id,
+      ref_type: linkRefType,
+      ref_id: linkRefId,
       journal_id: r.je_id,
     });
     const cancelled = r.status === 'reversed'
@@ -689,10 +859,19 @@ function buildStockLedger(db, {
       user_name: r.user_name || '',
       source_type: r.source_type || null,
       source_id: r.source_id || null,
+      wh_doc_id: Number.isFinite(whDocId) && whDocId > 0 ? whDocId : null,
+      wh_doc_num: r.wh_doc_num || null,
+      color_name: r.color_name || null,
+      size_name: r.size_name || null,
+      variant_sku: r.variant_sku || null,
       source: 'inventory_ledger',
       ...link,
     });
   }
+
+  const aggregated = aggregateStockLedgerLines(db, lines, pid);
+  lines.length = 0;
+  for (const row of aggregated) lines.push(row);
 
   const period_net_qty = period_qty_in - period_qty_out;
   // پایان دوره از جریان زنده است (اول دوره + ورود زنده − خروج زنده)، حتی وقتی
@@ -818,6 +997,8 @@ module.exports = {
   buildAccountLedger,
   buildFinancialLedger,
   buildStockLedger,
+  aggregateStockLedgerLines,
+  stockLineGroupKey,
   financialToCsv,
   stockToCsv,
   parseCsvTotals,

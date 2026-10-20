@@ -369,13 +369,21 @@ function postInventoryMovement(db, opts) {
 /**
  * Reverse a posted ledger row (R12). Creates opposite movement + marks original reversed.
  */
-function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) {
+function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipStock } = {}) {
   const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
   if (!row) throw invErr('E_LEDGER_NOT_FOUND', 404);
   if (row.status === 'reversed') throw invErr('E_ALREADY_REVERSED', 409);
 
   const valueOnly = (Number(row.qty_in) || 0) === 0 && (Number(row.qty_out) || 0) === 0
     && Math.round(Number(row.amount_rial) || 0) !== 0;
+  // Opening / هم‌ترازی seeds were posted with skipStock — reverse must not touch warehouse_stock.
+  const noteFa = String(row.note || '').replace(/\u200c/g, '').replace(/ي/g, 'ی');
+  const alignSeed = String(row.source_type || '') === 'opening_inventory'
+    || String(row.source_type || '') === 'stock_reconcile'
+    || String(row.event_type || '') === 'opening'
+    || /هم[\u200c\s]*ترازی\s*کاردکس/.test(noteFa)
+    || /^موجودی اول دوره/.test(noteFa);
+  const skip = skipStock === true || valueOnly || alignSeed;
   const rev = postInventoryMovement(db, {
     eventType: 'reversal',
     productId: row.product_id,
@@ -393,9 +401,9 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note } = {}) 
     date: date || row.date,
     note: note || `معکوس ${row.tx_no}`,
     createdBy,
-    updateAvg: !valueOnly,
+    updateAvg: !valueOnly && !skip,
     warehouseOnly: isWarehouseOnlyRow(row),
-    skipStock: valueOnly,
+    skipStock: skip,
     valueOnly,
   });
 

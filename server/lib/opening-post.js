@@ -956,6 +956,126 @@ function retireDuplicateOpeningValueJournals(db) {
   return { count };
 }
 
+/**
+ * Retire spurious «موجودی اول دوره (هم‌ترازی کاردکس)» rows when the product
+ * already has real economic movements (transfer / sale / pack / purchase).
+ * Seeds were skipStock — reverse is skipStock; then warehouse_stock is synced
+ * to ledger net so invoice picker and kardex agree.
+ *
+ * @returns {{ candidates: number, reversed: number, synced_wh: number, items: any[] }}
+ */
+function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {}) {
+  if (process.env.SYNC_ROLE === 'device') {
+    return { skipped: true, reason: 'device', candidates: 0, reversed: 0, synced_wh: 0, items: [] };
+  }
+  const hasLedger = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'"
+  ).get();
+  if (!hasLedger) return { candidates: 0, reversed: 0, synced_wh: 0, items: [] };
+
+  const { reverseInventoryMovement } = require('./inventory/ledger');
+  const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get()?.id || 1;
+  const pidFilter = productId != null && Number(productId) > 0
+    ? ' AND l.product_id=' + parseInt(productId, 10)
+    : '';
+
+  const seeds = db.prepare(`
+    SELECT l.*, p.name AS product_name, p.code AS product_code
+    FROM inventory_ledger l
+    JOIN products p ON p.id = l.product_id
+    WHERE COALESCE(l.status,'posted')='posted'
+      AND (
+        l.event_type='opening'
+        OR IFNULL(l.source_type,'')='opening_inventory'
+        OR IFNULL(l.source_type,'')='stock_reconcile'
+      )
+      AND (
+        replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس%'
+        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس با موجودی%'
+        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'موجودی اول دوره (هم‌ترازی%'
+        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'هم‌ترازی کاردکس با موجودی انبار%'
+      )
+      ${pidFilter}
+    ORDER BY l.product_id, l.warehouse_id, l.id
+  `).all();
+
+  const items = [];
+  let reversed = 0;
+  let syncedWh = 0;
+
+  const hasRealEconomic = (pid, whId, excludeId) => !!db.prepare(`
+    SELECT 1 AS ok FROM inventory_ledger
+    WHERE product_id=? AND warehouse_id=?
+      AND COALESCE(status,'posted')='posted'
+      AND id<>?
+      AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+      AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+      AND NOT (
+        replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس%'
+      )
+    LIMIT 1
+  `).get(pid, whId, excludeId);
+
+  for (const row of seeds) {
+    if (!hasRealEconomic(row.product_id, row.warehouse_id, row.id)) continue;
+    const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
+    const entry = {
+      ledger_id: row.id,
+      tx_no: row.tx_no,
+      product_id: row.product_id,
+      product_name: row.product_name,
+      warehouse_id: row.warehouse_id,
+      qty: gapQty,
+      note: row.note,
+      date: row.date,
+    };
+    items.push(entry);
+    if (!apply) continue;
+
+    reverseInventoryMovement(db, row.id, {
+      createdBy: adminId,
+      date: row.date,
+      note: `ابطال هم‌ترازی نادرست کاردکس (${row.tx_no || row.id})`,
+      skipStock: true,
+    });
+    reversed += 1;
+
+    const net = _ledgerNet(db, row.product_id, row.warehouse_id);
+    const ws = db.prepare(
+      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+    ).get(row.product_id, row.warehouse_id);
+    if (ws) {
+      if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
+        db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+          .run(net, row.product_id, row.warehouse_id);
+        syncedWh += 1;
+      }
+    } else if (Math.abs(net) > 1e-9) {
+      db.prepare(
+        'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
+      ).run(row.product_id, row.warehouse_id, net);
+      syncedWh += 1;
+    }
+    // Header stock = Σ warehouse_stock
+    const header = db.prepare(`
+      SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
+    `).get(row.product_id);
+    db.prepare('UPDATE products SET stock=? WHERE id=?')
+      .run(Number(header?.q) || 0, row.product_id);
+    entry.applied = true;
+    entry.ledger_net_after = net;
+  }
+
+  if (apply && reversed) {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_align_retire_v503',?)")
+      .run(JSON.stringify({
+        ok: 1, reversed, synced_wh: syncedWh, at: new Date().toISOString(),
+      }));
+  }
+
+  return { candidates: items.length, reversed, synced_wh: syncedWh, items };
+}
+
 module.exports = {
   postPartyOpeningBalance,
   upsertPartyOpening,
@@ -973,6 +1093,7 @@ module.exports = {
   reconcileProductStockLedger,
   redateOpeningDocsToFiscalStart,
   retireDuplicateOpeningValueJournals,
+  retireSpuriousKardexAlign,
   controlAccountForParty,
   parseRoles,
 };
