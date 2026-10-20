@@ -3,8 +3,8 @@
 - **ریشه:** `reconcileInventoryLedgerGaps` روی هر بوت با `skipStock` seed می‌کاشت حتی وقتی SKU گردش واقعی داشت؛ `retireSpuriousKardexAlign` روی بوت اجرا نمی‌شد و گیت `ws_worse` (وقتی WS همان seed را آینه کرده) ابطال امن را صفر می‌کرد. UI با `style.display===''` بعد از باز شدن همیشه «مخفی» فرض می‌کرد. `enrichInvoiceGroupDetails` ماتریس `invoices.rows` را جایگزین qty دفتر می‌کرد بدون تطبیق جمع.
 - **رفع معماری:** seed فقط برای انبار بدون گردش زنده با برچسب تمیز «موجودی اول دوره»؛ بوت بعد از gap → retire (بدون گیت ws_worse) + پاس seed تکراری + relabel باقی‌مانده‌های واقعی؛ جزییات فاکتور فقط وقتی Σ خطوط = qty مادر؛ toggle با `aria-expanded` + `hidden`.
 - **فایل‌ها:** `lib/{opening-post,ledgers}.js`, `db.js`, `public/{app.js,sw.js}`, `scripts/test-kardex-rootfix-v506.js`, CHANGE-LOG.
-- **تست:** ایران root-fix + group/align + sms؛ بوت زنده `kardex_align_retire_v506` reversed≥23.
-- **Deploy:** ⏳
+- **تست:** ایران root-fix + group/align + sms؛ بوت زنده retire سپس relabel ۳۷۲ افتتاحیه؛ notes با «هم‌ترازی» از ۴۶۷→۶۸ (عمدتاً تعدیل audit-only).
+- **Deploy:** ✅ `a9472500` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v506`.
 
 ### ۱۴۰۵/۰۷/۲۸ — فروش سریع: harden فی/فوکوس + R13 ابطال استرداد (SW v505)
 - **علائم (باقی‌مانده v503):** خالی‌کردن فی هنگام blur → ۰؛ هر `storeQsRenderBody` فوکوس را به اسکن می‌دزدید؛ تخفیف٪/تعداد برگشت روی `input` کل سبد را wipe می‌کرد؛ ابطال برگشت، JE `store_exchange_refund` را برنمی‌گرداند.
