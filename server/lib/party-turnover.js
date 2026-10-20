@@ -100,6 +100,28 @@ function leafSignedFromDetail(detail, source) {
   return 0;
 }
 
+/** Real or synthetic opening rows — strip before a single net align (v501). */
+function isOpeningTurnoverRow(e) {
+  if (!e) return false;
+  if (e.source === 'opening_fold') return true;
+  const rt = String(e.ref_type || '').toLowerCase();
+  const tl = String(e.type_label || e.entry_type || '').toLowerCase();
+  const desc = String(e.description || '');
+  if (rt === 'opening' || rt === 'opening_balance' || rt.includes('opening')) return true;
+  if (tl === 'opening' || tl.includes('opening')) return true;
+  if (/مانده\s*اول\s*دوره|افتتاحیه|opening/i.test(desc) && rt !== 'production_labor') return true;
+  return false;
+}
+
+function turnoverRowKey(e) {
+  const rt = String(e.ref_type || '');
+  const rid = e.ref_id != null ? String(e.ref_id) : '';
+  const d = Math.round(Number(e.debit) || 0);
+  const c = Math.round(Number(e.credit) || 0);
+  if (rt && rid) return `${rt}|${rid}|${d}|${c}`;
+  return `${e.source || ''}|${e.date || ''}|${d}|${c}|${String(e.description || '').slice(0, 40)}`;
+}
+
 /**
  * Prepend synthetic opening so entry stream sums to targetSigned (party-books leaf/net).
  * Positive target extras → بدهکار؛ negative → بستانکار.
@@ -601,31 +623,42 @@ function buildPartyTurnover(db, partyId, opts) {
     return only;
   }
 
-  if (parts.length > 1) {
-    // Merge role streams without double-counting each leaf's opening_fold:
-    // rebuild from raw ledgers by stripping prior align, then one net align.
+  const personTurn = buildMergedPersonTurnover(db, party, partyId, detail);
+
+  if (parts.length > 1 || (parts.length >= 1 && personTurn)) {
+    // Merge customer/supplier/person without double-counting openings:
+    // strip every opening token (incl. ref_type=opening), then one net align.
+    // Person stream carries piece-labor credits that only live on person_ledger
+    // (or were dropped from supplier_ledger when several PRD-03 shared order ref_id).
     const mergedRaw = [];
+    const seen = new Set();
+    const pushUnique = (e) => {
+      if (!e || isOpeningTurnoverRow(e)) return;
+      const k = turnoverRowKey(e);
+      if (seen.has(k)) return;
+      seen.add(k);
+      mergedRaw.push(e);
+    };
     for (const p of parts) {
-      for (const e of stripRunning(p.payload)) {
-        if (e.source === 'opening_fold' || e.ref_type === 'opening_balance') continue;
-        mergedRaw.push(e);
-      }
+      for (const e of stripRunning(p.payload)) pushUnique(e);
     }
-    // Re-include opening once via net align
+    if (personTurn) {
+      for (const e of stripRunning(personTurn)) pushUnique(e);
+    }
     sortReportRows(mergedRaw, { date: 'date', dir: 'asc' });
     return finalizeTurnover('party', 'گردش شخص', Number(partyId), mergedRaw, netClosing, {
       books_net: netClosing,
-      roles: parts.map((p) => p.role),
+      roles: [...parts.map((p) => p.role), ...(personTurn ? ['person'] : [])],
       unified: true,
+      linked_rep_id: personTurn ? personTurn.linked_rep_id || null : null,
+      linked_rep_name: personTurn ? personTurn.linked_rep_name || null : null,
+      has_incentive_ledger: !!(personTurn && personTurn.has_incentive_ledger),
     });
   }
 
-  const personTurn = buildMergedPersonTurnover(db, party, partyId, detail);
   if (personTurn) {
     if (Math.abs((personTurn.closing || 0) - netClosing) > 2) {
-      const rawPerson = stripRunning(personTurn).filter(
-        (e) => e.source !== 'opening_fold' && e.ref_type !== 'opening_balance'
-      );
+      const rawPerson = stripRunning(personTurn).filter((e) => !isOpeningTurnoverRow(e));
       return finalizeTurnover(
         'person',
         'گردش شخص',

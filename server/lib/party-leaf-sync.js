@@ -48,7 +48,10 @@ function findUnusedMatch(book, gl) {
   if (rt && rid) {
     for (let i = 0; i < rows.length; i++) {
       if (used.has(i)) continue;
-      if (String(rows[i].ref_type || '') === rt && Number(rows[i].ref_id) === rid) return i;
+      if (String(rows[i].ref_type || '') !== rt || Number(rows[i].ref_id) !== rid) continue;
+      // Same ref_type+ref_id can cover several JEs (e.g. two PRD-03 on one order).
+      // Only treat as covered when the rial amount also matches.
+      if (moneyClose(rows[i], gl)) return i;
     }
   }
   if (isOpeningToken(rt)) {

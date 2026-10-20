@@ -472,56 +472,55 @@ function absorbLaborJournal(db, {
 
   const jes = [];
   for (const [, group] of groups) {
-    const amountRial = group.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
-    if (!(amountRial > 0)) continue;
-
     const wantPerson = laborCreditsPerson(group[0]);
-    const side = resolveLaborCreditSide(db, {
-      personId: wantPerson ? group[0].person_id : null,
-      amountRial,
-      crControl: (amt) => cr(db, 'coa_labor_control', amt),
-    });
-    const person = side.person;
-    const creditLine = side.line;
-    const desc = group[0].note
-      || descriptionFallback
-      || formatLaborJeDescription({ amountRial, personName: person && person.name });
 
-    const je = postEvent(db, {
-      event: 'PRD-03',
-      sourceId: orderId,
-      date,
-      description: desc,
-      createdBy: userId,
-      costCenterId: costCenterId || null,
-      lines: [
-        dr(db, 'coa_wip', amountRial, wipTafsili || null),
-        creditLine,
-      ],
-    });
-    if (!je) continue;
-
-    const ids = group.map((e) => e.id).filter(Boolean);
-    if (ids.length) {
-      db.prepare(`
-        UPDATE production_labor_entries SET je_id=?
-        WHERE id IN (${ids.map(() => '?').join(',')}) AND je_id IS NULL
-      `).run(je.je_id, ...ids);
-    }
-
-    if (side.mode === 'person' && person) {
-      for (const e of group) {
+    // One JE per labor entry so party-leaf-sync ref_type+ref_id stays unique
+    // (multi-product orders previously shared ref_id=orderId and dropped sibling wages).
+    for (const e of group) {
+      const amt = Math.round(Number(e.amount_rial) || 0);
+      if (!(amt > 0)) continue;
+      const entrySide = resolveLaborCreditSide(db, {
+        personId: wantPerson ? e.person_id || group[0].person_id : null,
+        amountRial: amt,
+        crControl: (a) => cr(db, 'coa_labor_control', a),
+      });
+      const entryDesc = e.note
+        || descriptionFallback
+        || formatLaborJeDescription({
+          amountRial: amt,
+          personName: entrySide.person && entrySide.person.name,
+        });
+      const je = postEvent(db, {
+        event: 'PRD-03',
+        sourceId: e.id,
+        date,
+        description: entryDesc,
+        createdBy: userId,
+        costCenterId: costCenterId || null,
+        lines: [
+          dr(db, 'coa_wip', amt, wipTafsili || null),
+          entrySide.line,
+        ],
+      });
+      if (!je) continue;
+      if (e.id) {
+        db.prepare(`
+          UPDATE production_labor_entries SET je_id=?
+          WHERE id=? AND je_id IS NULL
+        `).run(je.je_id, e.id);
+      }
+      if (entrySide.mode === 'person' && entrySide.person) {
         writePersonLaborLedger(db, {
-          personId: person.id,
+          personId: entrySide.person.id,
           laborEntryId: e.id,
           date,
-          description: e.note || desc,
-          amountRial: Math.round(Number(e.amount_rial) || 0),
+          description: entryDesc,
+          amountRial: amt,
           userId,
         });
       }
+      jes.push(je);
     }
-    jes.push(je);
   }
   return jes;
 }
