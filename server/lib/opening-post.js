@@ -1019,24 +1019,34 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
   for (const row of seeds) {
     if (!hasRealEconomic(row.product_id, row.warehouse_id, row.id)) continue;
     const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
-    // Only retire when later real receipts cover the seed qty (new FG / transfer in).
-    // Bare openings that funded later issues must stay (zip/accessories, …).
+    // Never retire negative adjust / qty_out seeds — only positive opening qty_in.
+    if (gapQty <= 1e-9) continue;
+    // Later inbound ops that can explain stock without the seed (transfer/receipt/FG).
     const laterIn = Number(db.prepare(`
       SELECT COALESCE(SUM(qty_in),0) q FROM inventory_ledger
       WHERE product_id=? AND warehouse_id=?
         AND COALESCE(status,'posted')='posted'
         AND id<>?
         AND COALESCE(qty_in,0) > 0
-        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
-        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
-        AND NOT (
-          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+        AND (
+          IFNULL(event_type,'') IN (
+            'transfer_in','receipt','purchase','cutting_pack','production_receipt','pack'
+          )
+          OR IFNULL(source_type,'') IN (
+            'warehouse_transfer','warehouse_move','cutting_pack','purchase','purchase_invoice'
+          )
         )
         AND IFNULL(date,'') >= IFNULL(?, '')
     `).get(row.product_id, row.warehouse_id, row.id, row.date || '')?.q) || 0;
-    if (laterIn + 1e-9 < Math.abs(gapQty)) continue;
+    if (laterIn + 1e-9 < gapQty) continue;
     const netNow = _ledgerNet(db, row.product_id, row.warehouse_id);
-    if (netNow - gapQty < -1e-9) continue; // would leave negative ledger without seed
+    const netWithout = netNow - gapQty;
+    if (netWithout < -1e-9) continue; // would leave negative ledger without seed
+    const wsQty = Number(db.prepare(
+      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+    ).get(row.product_id, row.warehouse_id)?.qty) || 0;
+    // Prefer seeds that are redundant vs live WH qty (gap without seed not worse).
+    if (Math.abs(wsQty - netWithout) > Math.abs(wsQty - netNow) + 1e-9) continue;
     const entry = {
       ledger_id: row.id,
       tx_no: row.tx_no,

@@ -123,6 +123,9 @@ const saleGroup = (ledB2.lines || []).filter((l) => l.is_group && Number(l.qty_o
 ok(saleGroup.length >= 1, 'invoice sales collapsed');
 ok(saleGroup.some((l) => Number(l.qty_out) === 3), 'sale parent qty_out=3');
 
+// Physical WH qty matches transfer only (24), not the +1 seed → seed is redundant.
+db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+  .run(24, pid, whB);
 const dry = retireSpuriousKardexAlign(db, { apply: false, productId: pid });
 ok(dry.candidates >= 1, 'dry-run finds align seed candidates=' + dry.candidates);
 const applied = retireSpuriousKardexAlign(db, { apply: true, productId: pid });
