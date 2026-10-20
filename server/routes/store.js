@@ -157,6 +157,120 @@ router.post('/quick-sale', auth, requirePermission('invoices', 'create'), (req, 
 });
 
 /**
+ * برگشت کامل فروشگاهی (بدون فروش جایگزین) + استرداد وجه از صندوق.
+ * Body: { cust_id, invoice_id, return_rows, refund_cash_box_id?, return_note?, reason_code?, warehouse_id?, date? }
+ */
+router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req, res) => {
+  const db = getDB();
+  if (!allowStoreRole(req.user) && !isStoreQuickRequest(req.body, req.user.role)) {
+    return res.status(403).json({ error: 'دسترسی به برگشت فروشگاهی ندارید', code: 'E_STORE_FORBIDDEN' });
+  }
+  const body = req.body || {};
+  const custId = parseInt(body.cust_id, 10);
+  const invoiceId = parseInt(body.invoice_id, 10);
+  const returnRowsRaw = body.return_rows || body.returnRows || [];
+  if (!(custId > 0)) {
+    return res.status(400).json({ error: 'مشتری الزامی است', code: 'E_STORE_CUST_REQUIRED' });
+  }
+  if (!(invoiceId > 0)) {
+    return res.status(400).json({ error: 'فاکتور مرجع برای برگشت الزامی است', code: 'E_STORE_RETURN_INV' });
+  }
+  const returnRows = (Array.isArray(returnRowsRaw) ? returnRowsRaw : [])
+    .filter((r) => r && Number(r.qty) > 0);
+  if (!returnRows.length) {
+    return res.status(400).json({ error: 'حداقل یک سطر برگشت با تعداد > ۰ لازم است', code: 'E_STORE_RETURN_ROWS' });
+  }
+
+  let avail;
+  try {
+    avail = getInvoiceReturnablePack(db, invoiceId, { custId, requireFirm: true });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const availMap = {};
+  for (const r of avail.rows || []) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    availMap[k] = r;
+  }
+  for (const r of returnRows) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    const a = availMap[k] || availMap[`p:${r.product_id}`];
+    if (!a) {
+      return res.status(400).json({
+        error: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
+        code: 'E_STORE_RETURN_LINE',
+      });
+    }
+    if (Number(r.qty) > Number(a.max_returnable)) {
+      return res.status(400).json({
+        error: `حداکثر قابل برگشت برای ${a.name || 'کالا'}: ${a.max_returnable}`,
+        code: 'E_STORE_RETURN_QTY',
+      });
+    }
+  }
+
+  let refundCashBoxId = null;
+  try {
+    refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
+      cash_box_id: body.refund_cash_box_id || body.cash_box_id,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+
+  let retOut = null;
+  let refund = null;
+  try {
+    retOut = createSalesReturn(db, {
+      cust_id: custId,
+      invoice_id: invoiceId,
+      date: body.date || todayJalali(),
+      note: body.return_note || body.note || 'برگشت کامل فروشگاهی',
+      reason_code: body.reason_code || 'store_full_return',
+      rows: returnRows,
+      warehouse_id: body.warehouse_id || null,
+    }, req.user);
+
+    const retRow = db.prepare(
+      'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
+    ).get(retOut.id);
+    const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
+
+    const doRefund = body.refund !== false && body.refund !== 0 && body.refund !== '0';
+    if (doRefund && returnGross > 0) {
+      refund = postStoreExchangeRefund(db, {
+        custId,
+        amountRial: returnGross,
+        cashBoxId: refundCashBoxId,
+        userId: req.user.id,
+        date: body.date || todayJalali(),
+        note: `استرداد برگشت کامل فروشگاهی — برگشت #${retOut.id}`,
+        exchangeKey: `ret-${retOut.id}`,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      return_id: retOut.id,
+      return_gross: returnGross,
+      refund_rial: refund ? refund.amount_rial : 0,
+      settlement_case: 'return_only',
+      invoice: null,
+      refund,
+    });
+  } catch (e) {
+    if (retOut && retOut.id) {
+      try { voidSalesReturn(db, retOut.id, req.user); } catch (_) { /* best-effort */ }
+    }
+    return res.status(e.status || 400).json({
+      error: e.message || 'خطا در ثبت برگشت کامل',
+      code: e.code || 'E_STORE_RETURN_FAIL',
+      return_id: retOut && retOut.id,
+    });
+  }
+});
+
+/**
  * تعویض اتمیک (با جبران): برگشت از فاکتور قبلی + فاکتور جایگزین + تسویه خالص / استرداد.
  * سناریوها: collect (فروش>برگشت) | refund (برگشت>فروش) | even (برابر).
  * Body: {

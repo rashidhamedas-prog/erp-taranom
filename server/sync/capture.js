@@ -76,6 +76,7 @@ const PATH_TABLE_MAP = [
   ['/api/persons', 'persons'],
   ['/api/customers', 'customers'],
   ['/api/parties', 'parties'],
+  ['/api/store/quick-return', 'sales_returns'],
   ['/api/store/quick-exchange', 'invoices'],
   ['/api/store/quick-sale', 'invoices'],
   ['/api/invoices', 'invoices'],

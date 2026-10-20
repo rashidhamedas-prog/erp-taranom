@@ -313,7 +313,7 @@ async function api(method, path, data, isFormData, silent){
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
-        E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — بهای مواد/دستمزد با رسید تولید هم‌خوان نیست. دکمهٔ «اصلاح بها» ستون‌های سفارش را با اسناد زنده یکی می‌کند.',
+        E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — «اصلاح بها» ستون‌ها را با اسناد یکی می‌کند و در صورت نیاز رسید را با خالص WIP تطبیق می‌دهد.',
         E_PREV_STAGE_OPEN:'مرحلهٔ قبلی هنوز تکمیل نشده — مسیر BOM باید به‌ترتیب طی شود',
         E_LAY_REQUIRED_ON_CUT: j.message || 'خروجی مرحلهٔ برش فقط بعد از لایه‌چینی همان سفارش ثبت می‌شود. پارچه از طاقه مصرف می‌شود.',
         E_FABRIC_VIA_CUT: j.message || 'پارچهٔ طولی فقط از لایه‌چینی و طاقه مصرف می‌شود، نه از حوالهٔ مرحله',
@@ -7335,7 +7335,10 @@ async function storeQsLookupScan(code){
 }
 function storeQsRenderLines(){
   if(!_storeQs.lines.length){
-    return `<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">بارکد را اسکن کنید یا نام/کد کالا را جستجو کنید</div>`;
+    const exchangeHint=(_storeQs.mode||'sale')==='exchange'
+      ? 'سبد جایگزین خالی است — برای برگشت کامل + استرداد وجه فقط اقلام برگشتی را انتخاب و ثبت کنید'
+      : 'بارکد را اسکن کنید یا نام/کد کالا را جستجو کنید';
+    return `<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">${exchangeHint}</div>`;
   }
   return `<div class="tbl-wrap"><table class="tbl"><thead><tr>
     <th>کالا</th><th>تعداد</th><th data-col-kind="money">فی</th><th>تخفیف٪</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
@@ -7344,9 +7347,9 @@ function storeQsRenderLines(){
     return `<tr>
     <td data-label="کالا"><b>${esc(ln.name)}</b>
       <div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div></td>
-    <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody();})}"></td>
-    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].unit_price=Math.max(0,fromInputAmount(parseInt(toEnDigits(String(this.value||'')).replace(/[^\\d]/g,''),10)||0));storeQsRenderBody();})}"></td>
-    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-input="${CSP.bind('input',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody();})}"></td>
+    <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody();})}"></td>
+    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].unit_price=Math.max(0,moneyParseInput(this));storeQsRenderBody();})}"></td>
+    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody();})}"></td>
     <td data-label="جمع" class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
     <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
   </tr>`;
@@ -7502,7 +7505,7 @@ function storeQsRenderBody(){
       <div data-csp-style="${CSP.style(`margin-top:8px`)}"><b>اقلام برگشتی</b></div>
       ${storeQsRenderReturnLines()}
     </div>`:''}
-    <div data-csp-style="${CSP.style(`margin-bottom:6px`)}"><b>${mode==='exchange'?'سبد فروش جایگزین':'سبد فروش'}</b></div>
+    <div data-csp-style="${CSP.style(`margin-bottom:6px`)}"><b>${mode==='exchange'?'سبد فروش جایگزین (اختیاری — خالی = فقط برگشت+استرداد)':'سبد فروش'}</b></div>
     ${storeQsRenderLines()}
     <div class="card" data-csp-style="${CSP.style(`margin-top:12px`)}">
       <div class="grid2">
@@ -7532,11 +7535,13 @@ function storeQsRenderBody(){
       </div>
       <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px`)}">
         <div>${netLabel}
-          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">فروش ${fmt(finalAmt)} − برگشت ${fmt(returnGross)}${settleCase==='even'?' · برابر':settleCase==='collect'?' · مشتری می‌پردازد':' · استرداد'}</div>`:''}
+          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">${returnOnly
+            ? ('برگشت '+fmt(returnGross)+' · استرداد کامل از صندوق')
+            : ('فروش '+fmt(finalAmt)+' − برگشت '+fmt(returnGross)+(settleCase==='even'?' · برابر':settleCase==='collect'?' · مشتری می‌پردازد':' · استرداد'))}</div>`:''}
         </div>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
-          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];_storeQs.availableRows=[];_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
-          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${mode==='exchange'?(settleCase==='refund'?'ثبت تعویض + استرداد':settleCase==='even'?'ثبت تعویض برابر':'ثبت تعویض'):'ثبت فروش'}</button>
+          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];(_storeQs.availableRows||[]).forEach(function(r){r.qty_return=0;});_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
+          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${checkoutLbl}</button>
         </div>
       </div>
     </div>`;
@@ -7604,30 +7609,32 @@ function storeQsSaleRows(){
 async function storeQsCheckout(){
   if(_storeQs.busy) return;
   const mode=_storeQs.mode||'sale';
-  if(!_storeQs.lines.length){ showToast('سبد فروش خالی است','error'); return; }
   if(mode==='exchange'){
     storeQsSyncReturnLines();
     if(!_storeQs.refInvoiceId){ showToast('فاکتور مرجع برگشت را انتخاب کنید','error'); return; }
     if(!_storeQs.returnLines.length){ showToast('تعداد برگشتی را برای حداقل یک کالا وارد کنید','error'); return; }
+  } else if(!_storeQs.lines.length){
+    showToast('سبد فروش خالی است','error'); return;
   }
+  const returnOnly=mode==='exchange' && !_storeQs.lines.length && _storeQs.returnLines.length>0;
   const boot=_storeQs.boot||{};
   const walkinId=Number(boot.walkin_customer_id||0);
   const custEl=el('storeQsCust');
   const custId=Number((custEl&&custEl.value)||_storeQs.custId||walkinId||0);
   if(!custId){ showToast('مشتری الزامی است','error'); return; }
   const finalAmt=storeQsFinal();
-  if(!(finalAmt>0)){ showToast('مبلغ فاکتور نامعتبر است','error'); return; }
+  if(!returnOnly && !(finalAmt>0)){ showToast('مبلغ فاکتور نامعتبر است','error'); return; }
   const netDue=mode==='exchange'?storeQsNetDue():finalAmt;
-  const settleCase=mode==='exchange'?storeQsSettlementCase():'sale';
-  const collectAmt=Math.max(0, netDue);
+  const settleCase=returnOnly?'refund':(mode==='exchange'?storeQsSettlementCase():'sale');
+  const collectAmt=returnOnly?0:Math.max(0, netDue);
   const tender=storeQsBuildPaySplits(collectAmt);
   if(!tender) return;
   if((mode==='sale'||(mode==='exchange'&&collectAmt>0))&&tender.payType==='credit'&&custId===walkinId){
     showToast('نسیه برای مشتری نقدی فروشگاه مجاز نیست','error'); return;
   }
-  if(mode==='exchange'&&settleCase==='refund'){
+  if(mode==='exchange'&&(settleCase==='refund'||returnOnly)){
     const cashId=tender.cashBoxId||_storeQs.cashBoxId||boot.cash_box_id;
-    if(!cashId){ showToast('برای استرداد مابه‌التفاوت، صندوق الزامی است','error'); return; }
+    if(!cashId){ showToast('برای استرداد وجه، صندوق الزامی است','error'); return; }
   }
   const whId=storeQsWhId();
   if(!whId){ showToast('انبار فروش را انتخاب کنید','error'); return; }
@@ -7635,7 +7642,39 @@ async function storeQsCheckout(){
   _storeQs.busy=true;
   storeQsRenderBody();
   try{
-    if(mode==='exchange'){
+    if(mode==='exchange' && returnOnly){
+      const body={
+        cust_id:custId,
+        invoice_id:_storeQs.refInvoiceId,
+        return_rows:_storeQs.returnLines.map(ln=>({
+          product_id:ln.product_id,
+          qty:Number(ln.qty)||1,
+          variant_id:ln.variant_id||null,
+          color_id:ln.color_id||null,
+          size_id:ln.size_id||null,
+          warehouse_id:ln.warehouse_id||whId,
+        })),
+        reason_code:'store_full_return',
+        return_note:'برگشت کامل فروشگاهی + استرداد وجه',
+        warehouse_id:whId,
+        refund_cash_box_id:tender.cashBoxId||_storeQs.cashBoxId||boot.cash_box_id||null,
+        refund:true,
+      };
+      const out=await api('POST','/store/quick-return', body);
+      let msg='برگشت کامل ثبت شد';
+      if(out&&out.return_id) msg+=' (#'+out.return_id+')';
+      if(out&&out.refund_rial) msg+=' — استرداد '+fmt(out.refund_rial);
+      showToast(msg);
+      _storeQs.lines=[];
+      _storeQs.returnLines=[];
+      _storeQs.availableRows=[];
+      _storeQs.availableDisc=null;
+      _storeQs.refInvoiceId=null;
+      _storeQs.refInvoice=null;
+      _storeQs.discPct=0;
+      _storeQs.custId=walkinId;
+      storeQsRenderBody();
+    } else if(mode==='exchange'){
       const payTypeOut=collectAmt>0
         ? (tender.payType||'cash')
         : 'credit';
@@ -32773,8 +32812,8 @@ function renderAdminGuide(){
         <li><b>ویرایش چندمحصول (v471):</b> همان شماره لایه/برنامه با reverse+ثبت مجدد اتمی. ابطال همهٔ PACKهای WIP یک لایه با هم. پیوند سفارش روی لای و PACK.</li>
         <li><b>گیت مرحله:</b> بعد از برش، بدون پوشش لایه‌چینی (به اندازهٔ برنامه) مرحلهٔ بعد شروع/ثبت نمی‌شود.</li>
         <li><b>برگه بها:</b> اگر برش مشترک به سفارش وصل باشد سهم محصولات از تخصیص واقعی پارچه است نه فقط ٪ فرمول.</li>
-        <li><b>اصلاح بها:</b> اگر بستن سفارش بگوید ماندهٔ کار در جریان صفر نیست، دکمهٔ «اصلاح بها» ستون‌های مواد و دستمزد و سربار را با حواله‌ها و اسناد زنده یکی می‌کند. رسید، موجودی و سند حسابداری عوض نمی‌شود. اگر بعد از آن مانده صفر شد، بستن را بزنید.</li>
-        <li>بعد از ورود انبار: بهای رسمی در رسید؛ اصلاح با ابطال رسید یا اختلاف‌بها (ADR-006).</li>
+        <li><b>اصلاح بها (v503):</b> اگر بستن بگوید ماندهٔ WIP صفر نیست، «اصلاح بها» را بزنید. اول ستون‌های مواد/دستمزد/سربار/ضایعات با اسناد زنده یکی می‌شود. اگر ستون‌ها از قبل یکی بودند ولی مانده از خود رسید بود، همان دکمه رسید را با خالص WIP تطبیق می‌دهد (سهم انبار → بهای کالا، سهم فروش‌رفته → بهای تمام‌شده؛ مراحل باز نمی‌شوند). اتلاف طولی برش مشترک در ماندهٔ بستن نیست چون وارد WIP نشده.</li>
+        <li>بعد از ورود انبار: بهای رسمی در رسید؛ اصلاح با ابطال رسید یا اختلاف‌بها / اصلاح بها (ADR-006).</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`
       <p>آدرس رسمی ERP: <b dir="ltr">https://erptaranom.com</b>. DNS به‌صورت multi-primary است: Name Server روی سرور ایران (<span dir="ltr">ns1/ns2.erptaranom.com</span>) و Cloudflare (<span dir="ltr">connie/finley</span>) با رکورد هم‌سان — اگر یکی جواب ندهد دیگری resolve می‌کند. سرور اپ روی ایران است؛ با VPN اگر باز نشد split-tunnel بزنید. دامنهٔ قدیمی <span dir="ltr">erp.poshaktaranom.com</span> بازنشسته است.</p>
@@ -33218,17 +33257,17 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه یا چک مشتری واقعی انتخاب کنید</li>
         <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند. در impersonation فیلتر روی کاربر مؤثر نشست است</li>
         <li>کالای ماتریسی قبل از افزودن به سبد، فقط <b>رنگ و سایز تعریف‌شدهٔ فعال</b> را از سرور می‌پرسد (نه رنگ حذف‌شده)</li>
-        <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
+        <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید (جداکننده هزارگان حفظ می‌شود؛ روی blur ذخیره می‌شود)؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
         <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال <code>store_quick</code>؛ ثبت = فاکتور معمولی + موجودی + سند حسابداری</li>
         <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد</li>
-        <li><b>تعویض / برگشت+فروش (v413):</b> فاکتور قطعی مرجع → جدول اقلام قابل‌برگشت (فروخته / برگشتی قبل / سقف) با فی قفل؛ سبد جایگزین جدا. اعتبار برگشت روی فاکتور جدید تخصیص می‌شود (مانده صفر در حالت برابر). سه حالت خالص:
+        <li><b>تعویض / برگشت+فروش:</b> فاکتور قطعی مرجع → جدول اقلام قابل‌برگشت با فی قفل؛ دکمهٔ <b>برگشت کامل</b> همه را تا سقف می‌گیرد. سبد جایگزین اختیاری است.
           <ul>
-            <li>فروش گران‌تر → دریافت مابه‌التفاوت (نقد/کارت؛ برای مشتری واقعی نسیه هم مجاز)</li>
-            <li>برگشت گران‌تر → استرداد نقد از صندوق</li>
+            <li>فروش گران‌تر → دریافت مابه‌التفاوت</li>
+            <li>برگشت گران‌تر (با فروش جایگزین) → استرداد مابه‌التفاوت از صندوق</li>
             <li>برابر → بدون دریافت/استرداد</li>
+            <li><b>فقط برگشت (بدون سبد جایگزین):</b> «ثبت برگشت کامل + استرداد وجه» — برگشت از فروش + استرداد کامل مبلغ از صندوق</li>
           </ul>
-          چندقلم برگشت + چندقلم فروش در یک ثبت؛ اگر نیمهٔ فروش شکست بخورد برگشت جبران (rollback) می‌شود</li>
-        <li>فقط برگشت بدون خرید جایگزین از منوی «برگشت از فروش» حسابداری است — اینجا همیشه برگشت+فروش است</li>
+          چندقلم در یک ثبت؛ اگر نیمهٔ فروش شکست بخورد برگشت جبران (rollback) می‌شود</li>
         <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -33799,12 +33838,13 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. v411: تعویض با مابه‌التفاوت (دریافت / استرداد / برابر).</p>
+      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. تعویض، برگشت کامل و استرداد وجه هم از همین صفحه است.</p>
       <ul>
         <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ جستجوی مشتری کار می‌کند؛ برای نسیه مشتری واقعی بگذارید</li>
         <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فروشگاه فقط تراکنش‌های خودتان را در لیست فاکتور، تاریخچه و چاپ می‌بینید — فروش همکارانتان دیده نمی‌شود</li>
         <li>انبار و صندوق فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
-        <li>تعویض: فاکتور قبلی → تعداد برگشتی تا سقف «قابل» → کالای جایگزین → سیستم خالص را نشان می‌دهد (پرداخت / استرداد / صفر) و یکجا ثبت می‌کند</li>
+        <li>فی سطر را دستی عوض کنید؛ مبلغ پاک نمی‌شود</li>
+        <li>تعویض: فاکتور قبلی → «برگشت کامل» یا تعداد دستی → اختیاری کالای جایگزین → دریافت / استرداد / برابر. بدون جایگزین = برگشت کامل + استرداد وجه از صندوق</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>
