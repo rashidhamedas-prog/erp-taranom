@@ -93,8 +93,10 @@ function req(app, method, url, body, token) {
   const { issueStaffSession, closeSessionStore } = require('../lib/auth-sessions');
   const token = issueStaffSession(db, admin, {
     device_kind: 'test',
-    user_agent: 'test-cheque-clear-v494',
-  });
+    device_name: 'cheque-clear-v494',
+    device_fingerprint: 'cheque-clear-v494-fp',
+  }).token;
+  ok(!!token, 'session token');
 
   let party = db.prepare("SELECT id FROM parties WHERE COALESCE(is_active,1)=1 LIMIT 1").get();
   if (!party) {
