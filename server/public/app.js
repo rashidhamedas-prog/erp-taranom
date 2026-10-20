@@ -19685,26 +19685,44 @@ async function prodOrderReconcileCost(id){
   let preview=null;
   try{ preview=await api('GET','/production/orders/'+id+'/cost-reconcile'); }
   catch(e){ showToast(e.message||'خطا','error'); return; }
-  const zeroAfter=Math.abs(Number(preview.after_residual_rial)||0)<=5;
+  const residual=Math.abs(Number(preview.after_residual_rial)||0);
+  const projected=Math.abs(Number(preview.projected_after_auto_rial!=null?preview.projected_after_auto_rial:preview.after_residual_rial)||0);
+  const zeroAfter=residual<=5;
+  const needCols=!!preview.can_align_columns || !preview.aligned;
+  const needReceipt=!!preview.can_align_receipt || (!zeroAfter && !!preview.aligned);
+  const sharedNote=Number(preview.shared_lay_waste_rial||0)>0
+    ? `<p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:8px 0 0')}">اتلاف طولی برش مشترک (${fmt(preview.shared_lay_waste_rial)} ریال) در ماندهٔ بستن نیست چون وارد کار در جریان نشده است.</p>`
+    : '';
+  const gap=Number(preview.receipt_gap_rial)||0;
+  const receiptHint=!zeroAfter
+    ? `<p data-csp-style="${CSP.style('margin:8px 0 0;line-height:1.7')}">رسید الان: <b>${fmt(preview.receipts_rial)}</b> · خالص مورد انتظار: <b>${fmt(preview.expected_receipts_rial)}</b> · اختلاف: <b>${fmt(gap)}</b> ریال. تطبیق رسید سهم انبار را به بهای کالا و سهم فروش‌رفته را به بهای تمام‌شده می‌برد (ADR-006).</p>`
+    : '';
+  const actionLabel=needCols&&needReceipt?'اعمال اصلاح بها (ستون‌ها + رسید)'
+    : needCols?'یکی کردن با اسناد'
+    : needReceipt?'تطبیق رسید با خالص WIP'
+    : '';
   showModal('اصلاح بهای '+esc(preview.order_no||''),`
-    <p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:0 0 10px')}">ستون‌های سفارش با حواله، دستمزد، سربار و ضایعاتِ ثبت‌شده یکی می‌شود. رسید تولید، موجودی و سند حسابداری عوض نمی‌شود.</p>
+    <p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:0 0 10px')}">۱) ستون‌های سفارش با حواله، دستمزد، سربار و ضایعات ثبت‌شده یکی می‌شود. ۲) اگر مانده از خود رسید باشد، مبلغ رسید با خالص WIP تطبیق می‌شود (موجودی/COGS؛ مراحل دوباره باز نمی‌شوند).</p>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>قلم</th><th>الان روی سفارش</th><th>جمع اسناد</th></tr></thead><tbody>
       ${prodReconcileBucketRows(preview)}
     </tbody></table></div>
-    <p data-csp-style="${CSP.style('margin:10px 0 0;line-height:1.7')}">ماندهٔ الان: <b>${fmt(preview.before_residual_rial)}</b> ریال. بعد از اصلاح: <b>${fmt(preview.after_residual_rial)}</b> ریال.${zeroAfter?' بعدش می‌توانید بستن را بزنید.':' اگر بعد از اصلاح هنوز صفر نشد، اختلاف از خود رسید است و این دکمه آن را عوض نمی‌کند.'}</p>
-    <div data-csp-style="${CSP.style('margin-top:14px;display:flex;gap:8px;justify-content:flex-end')}">
+    <p data-csp-style="${CSP.style('margin:10px 0 0;line-height:1.7')}">ماندهٔ الان: <b>${fmt(preview.before_residual_rial)}</b> ریال. بعد از اعمال کامل: <b>${fmt(preview.projected_after_auto_rial!=null?preview.projected_after_auto_rial:preview.after_residual_rial)}</b> ریال.${projected<=5?' بعدش می‌توانید بستن را بزنید.':''}</p>
+    ${sharedNote}${receiptHint}
+    <div data-csp-style="${CSP.style('margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap')}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-      ${preview.aligned?'':`<button class="btn" id="po-reconcile-save" data-csp-click="${CSP.bind('click',function(event){prodOrderReconcileCostSave((id))})}">یکی کردن با اسناد</button>`}
+      ${actionLabel?`<button class="btn" id="po-reconcile-save" data-csp-click="${CSP.bind('click',function(event){prodOrderReconcileCostSave((id))})}">${actionLabel}</button>`:''}
     </div>`);
 }
 async function prodOrderReconcileCostSave(id){
   const btn=el('po-reconcile-save');
   if(btn) btn.disabled=true;
   try{
-    const result=await api('POST','/production/orders/'+id+'/cost-reconcile',{});
+    const result=await api('POST','/production/orders/'+id+'/cost-reconcile',{mode:'auto'});
     closeModal();
     const left=Math.abs(Number(result.after_residual_rial)||0);
-    showToast(left<=5?'بها با اسناد یکی شد. حالا بستن را بزنید.':'ستون‌ها با اسناد یکی شد. مانده هنوز صفر نیست.');
+    if(left<=5) showToast('اصلاح بها انجام شد. حالا بستن را بزنید.');
+    else if(result.receipts_touched) showToast('رسید تطبیق شد ولی مانده هنوز صفر نیست — برگه بها را بررسی کنید.','error');
+    else showToast(result.applied?'ستون‌ها یکی شد؛ مانده از رسید است و تطبیق ممکن نشد.':'چیزی برای اعمال نبود.','error');
     loadAccTab('production-orders');
   }catch(e){
     showToast(e.message||'خطا','error');
@@ -33536,7 +33554,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v502</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v503</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

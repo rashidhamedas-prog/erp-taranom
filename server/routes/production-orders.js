@@ -203,15 +203,21 @@ router.post('/:id/cost-reconcile', auth, requirePermission('production_close', '
       throw fail;
     }
     const { audit } = require('../db');
+    const mode = String((req.body && req.body.mode) || 'auto').toLowerCase();
     const result = db.transaction(() => {
-      const applied = engine.applyDocumentCosts(db, Number(req.params.id));
+      const applied = engine.reconcileOrderCosts(db, Number(req.params.id), {
+        mode,
+        userId: req.user.id,
+      });
       if (applied.applied) {
+        const steps = Array.isArray(applied.steps) ? applied.steps.join('+') : (applied.mode || mode);
         audit(
           req.user.id,
           'update',
           'production_order',
           applied.order_id,
-          `اصلاح بهای ${applied.order_no}: ستون‌ها با اسناد زنده یکی شد. مانده ${applied.before_residual_rial} → ${applied.after_residual_rial}. رسید و سند عوض نشد.`
+          `اصلاح بهای ${applied.order_no} [${steps}]: مانده → ${applied.after_residual_rial}`
+            + (applied.receipts_touched ? `؛ رسید ${applied.receipt_delta_rial || 0} ریال.` : '؛ رسید طبق R2.')
         );
       }
       return applied;

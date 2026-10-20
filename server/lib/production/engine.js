@@ -663,19 +663,24 @@ function cancelOrder(db, orderId, userId, reason = '') {
 }
 
 function wipResidual(db, orderId) {
-  const po = getOrder(db, orderId);
-  const receipts = db.prepare(`
-    SELECT COALESCE(SUM(amount_rial),0) s FROM production_receipts
-    WHERE order_id=? AND status='posted'
-  `).get(orderId);
-  const inWip =
-    num(po.material_cost_rial) + num(po.packaging_cost_rial) +
-    num(po.labor_cost_rial) + num(po.overhead_cost_rial) +
-    num(po.subcontract_cost_rial) + num(po.rework_cost_rial);
-  const outWip =
-    num(po.abnormal_waste_rial) + num(po.scrap_credit_rial) +
-    num(po.byproduct_credit_rial) + num(receipts?.s);
-  return inWip - outWip;
+  // اتلاف برش مشترک (بستانکار مواد) در ماندهٔ WIP نیست — order-cost-reconcile.
+  try {
+    return require('./order-cost-reconcile').wipResidualFromDocs(db, orderId);
+  } catch (_) {
+    const po = getOrder(db, orderId);
+    const receipts = db.prepare(`
+      SELECT COALESCE(SUM(amount_rial),0) s FROM production_receipts
+      WHERE order_id=? AND status='posted'
+    `).get(orderId);
+    const inWip =
+      num(po.material_cost_rial) + num(po.packaging_cost_rial) +
+      num(po.labor_cost_rial) + num(po.overhead_cost_rial) +
+      num(po.subcontract_cost_rial) + num(po.rework_cost_rial);
+    const outWip =
+      num(po.abnormal_waste_rial) + num(po.scrap_credit_rial) +
+      num(po.byproduct_credit_rial) + num(receipts?.s);
+    return inWip - outWip;
+  }
 }
 
 function closeOrder(db, orderId, userId) {
@@ -689,7 +694,7 @@ function closeOrder(db, orderId, userId) {
     const residual = wipResidual(db, orderId);
     if (Math.abs(residual) > 5) {
       const fail = err('E_WIP_NOT_ZERO', 409, { residual: Math.round(residual) });
-      fail.message = `مانده WIP صفر نیست (${Math.round(residual).toLocaleString('en-US')} ریال) — بهای ثبت‌شده روی سفارش با رسید تولید هم‌خوان نیست. دکمهٔ «اصلاح بها» ستون‌های سفارش را با حواله، دستمزد و سربار زنده یکی می‌کند و رسید و سند را عوض نمی‌کند.`;
+      fail.message = `مانده WIP صفر نیست (${Math.round(residual).toLocaleString('en-US')} ریال) — بهای سفارش با رسید هم‌خوان نیست. «اصلاح بها» ستون‌ها را با اسناد یکی می‌کند و در صورت نیاز رسید را با خالص WIP تطبیق می‌دهد (الگوی اختلاف‌بها).`;
       throw fail;
     }
     db.prepare(`
@@ -2639,6 +2644,8 @@ module.exports = {
   wipResidual,
   previewOrderCostReconcile,
   applyDocumentCosts,
+  applyReceiptToWipNet: (...args) => require('./order-cost-reconcile').applyReceiptToWipNet(...args),
+  reconcileOrderCosts: (...args) => require('./order-cost-reconcile').reconcileOrderCosts(...args),
   listOrders,
   getOrderDetail,
   listOrderLines,
