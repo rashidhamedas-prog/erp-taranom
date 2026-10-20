@@ -110,9 +110,11 @@ try {
     const pc = tableCols('products');
     const cols = ['name', 'code', 'cost', 'price', 'stock', 'unit'];
     const vals = ["'کالای amend خرید'", "'PO-AMEND-1'", '10000', '20000', '0', "'عدد'"];
+    if (pc.has('user_id')) { cols.push('user_id'); vals.push(String(admin.id)); }
     if (pc.has('active')) { cols.push('active'); vals.push('1'); }
     prodId = db.prepare(`INSERT INTO products (${cols.join(',')}) VALUES (${vals.join(',')})`).run().lastInsertRowid;
   }
+  ok(!!prodId, 'product id');
 
   const express = require('express');
   const http = require('http');
