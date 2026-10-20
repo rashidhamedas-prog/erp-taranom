@@ -6251,7 +6251,7 @@ function renderCart(){
       const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
       const oneLine=isPack?invPackOneLine(indices):(variantAttrsLabel(r.color_name||r.color, r.size_name, ' · '));
       const retQty=(!isIncome&&invReturnQtyMap[invReturnLineKey(r)])||0;
-      const retHint=retQty>0?('<div class="muted" data-csp-style="'+CSP.style('font-size:11px;margin-top:2px')+'">برگشتی: <span class="mono">'+fmt(retQty)+'</span></div>'):'';
+      const retHint=retQty>0?('<div class="muted" data-csp-style="'+CSP.style('font-size:11px;margin-top:2px')+'">برگشتی: <span class="mono">'+fmtQtyFa(retQty)+'</span></div>'):'';
       const packNote=isPack
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
@@ -11124,7 +11124,7 @@ function genProdShowDrop(q){
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
   const items=list.slice(0,40).map(p=>`
     <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){genCartAdd((p.id));el('genProdSearch').value='';el('genProdDrop').style.display='none'})}">
-      <span>${esc(p.name)}</span><span class="cust-si-meta">موجودی: ${fmt(p.stock||0)}</span>
+      <span>${esc(p.name)}</span><span class="cust-si-meta">موجودی: ${fmtQtyFa(p.stock||0)}</span>
     </div>`).join('');
   const quickBtn=term?`<div class="cust-si-item" data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}" data-csp-click="${CSP.bind('click',function(event){genProdQuickModal(`${String((CSP.htmlDecode(String(esc(term)))) ?? '')}`)})}">➕ ساخت کالا «${esc(term)}»</div>`:'';
   drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">کالایی یافت نشد — دکمه ساخت کالای جدید را بزنید</div>';
@@ -12850,7 +12850,7 @@ function cuttingBindSewnPickers(po){
   const items=(products||[]).map(p=>({
     id:p.id,
     label:p.name||('#'+p.id),
-    meta:(p.code?p.code+' · ':'')+(p.qty_planned!=null?('برنامه '+fmt(p.qty_planned)):'موجودی '+fmt(p.wh_qty!=null?p.wh_qty:(p.stock||0))),
+    meta:(p.code?p.code+' · ':'')+(p.qty_planned!=null?('برنامه '+fmtQtyFa(p.qty_planned)):'موجودی '+fmtQtyFa(p.wh_qty!=null?p.wh_qty:(p.stock||0))),
     hay:[p.name,p.code,p.barcode,p.sku,p.category].filter(Boolean).join(' ')
   }));
   const scoped=Array.isArray(po&&po.fg_plan)&&po.fg_plan.length || (po&&po.product_id);
@@ -13920,7 +13920,7 @@ async function renderInvBatchesTab(body){
       ${(batches.rows||[]).map(b=>{
         const p=(CACHE.allProducts||[]).find(x=>x.id===b.product_id);
         return `<tr><td class="mono">${esc(b.batch_no)}</td><td>${esc(p?.name||('#'+b.product_id))}</td>
-          <td class="mono">${esc(b.expiry_date||'-')}</td><td class="num">${fmt(b.qty_on_hand||0)}</td>
+          <td class="mono">${esc(b.expiry_date||'-')}</td><td class="num">${fmtQtyFa(b.qty_on_hand||0)}</td>
           <td>${esc(b.status)}</td></tr>`;
       }).join('')||'<tr><td colspan="5" class="empty">بچ ثبت نشده</td></tr>'}
       </tbody></table></div>
@@ -13983,7 +13983,7 @@ async function renderInvReservationsTab(body){
       return `<tr>
         <td class="mono">${esc(r.reservation_no)}</td><td>${esc(r.kind)}</td>
         <td>${esc(p?.name||('#'+r.product_id))}</td>
-        <td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.qty_consumed||0)}</td>
+        <td class="num">${fmtQtyFa(r.qty)}</td><td class="num">${fmtQtyFa(r.qty_consumed||0)}</td>
         <td>${esc(r.status)}</td>
         <td>${r.status==='active'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){invRsvRelease((r.id))})}">آزادسازی</button>`:''}</td>
       </tr>`;
@@ -14087,7 +14087,7 @@ async function invLandedVoid(){
    the documented limits of this simplified (non-per-warehouse-quantity) model.
 ============================================================ */
 function productOptions(selectedId){
-  return `<option value="">-- انتخاب کالا --</option>` + (CACHE.allProducts||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)} (${esc(p.code||'-')}) — موجودی: ${fmt(p.stock||0)}</option>`).join('');
+  return `<option value="">-- انتخاب کالا --</option>` + (CACHE.allProducts||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)} (${esc(p.code||'-')}) — موجودی: ${fmtQtyFa(p.stock||0)}</option>`).join('');
 }
 async function renderWarehousesTab(body){
   const [warehouses,lookup]=await Promise.all([
@@ -14291,7 +14291,7 @@ async function viewWarehouseStock(id,name){
         <th>کد</th><th>نام کالا</th><th>موجودی</th><th>واحد</th>
       </tr></thead><tbody>${rows.map(p=>`<tr>
         <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${p.stock<=p.stock_alert?'var(--red)':'inherit'}`)}">${fmt(p.stock)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${p.stock<=p.stock_alert?'var(--red)':'inherit'}`)}">${fmtQtyFa(p.stock)}</td>
         <td class="muted">${esc(p.unit||'-')}</td>
       </tr>`).join('')||'<tr><td colspan="4" class="empty">کالایی در این انبار نیست</td></tr>'}</tbody></table></div>
     </div>
@@ -14321,7 +14321,7 @@ async function renderWarehouseOpsTab(body){
       <td class="muted">${esc(d.from_warehouse_name||'-')}</td>
       <td class="muted">${esc(d.to_warehouse_name||'-')}</td>
       <td class="mono">${fmt(d.line_count||0)}</td>
-      <td class="mono">${fmt(d.qty_total||0)}</td>
+      <td class="mono">${fmtQtyFa(d.qty_total||0)}</td>
       <td class="muted">${esc(d.note||'-')}</td>
       <td class="muted">${esc(d.recorder||'-')}</td>
       <td data-csp-style="${CSP.style('white-space:nowrap')}">
@@ -14350,7 +14350,7 @@ async function viewWarehouseDoc(id){
           ${doc.to_warehouse_name?` · به: <b>${esc(doc.to_warehouse_name)}</b>`:''}
           ${doc.note?` · یادداشت: ${esc(doc.note)}`:''}
           · خطوط: <b>${fmt(doc.line_count||lines.length)}</b>
-          · جمع: <b class="mono">${fmt(doc.qty_total||0)}</b>
+          · جمع: <b class="mono">${fmtQtyFa(doc.qty_total||0)}</b>
           ${doc.recorder?` · ثبت‌کننده: ${esc(doc.recorder)}`:''}
         </div>
         <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style('font-size:12px')}"><thead><tr>
@@ -14359,7 +14359,7 @@ async function viewWarehouseDoc(id){
           <td class="mono">${fmt(l.line_no||(i+1))}</td>
           <td>${esc(l.product_name||'-')}${l.product_code?` <span class="mono muted">${esc(l.product_code)}</span>`:''}</td>
           <td class="muted">${esc(variantAttrsLabel(l.color_name, l.size_name)||'-')}</td>
-          <td class="mono">${fmt(l.qty)}</td>
+          <td class="mono">${fmtQtyFa(l.qty)}</td>
         </tr>`).join('')||emptyRow(4)}</tbody></table></div>
       </div>
       <div class="modal-foot">
@@ -14732,7 +14732,7 @@ async function renderConsignmentsTab(body){
       <td class="mono">${esc(r.doc_num||(r.doc_id?('#'+r.doc_id):'—'))}${r.line_no?`<span class="muted"> · ${fmt(r.line_no)}</span>`:''}</td>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
       <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}${(r.color_name||r.size_name)?` <span class="muted">${esc(variantAttrsLabel(r.color_name, r.size_name))}</span>`:''}</td>
-      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
+      <td class="mono">${fmtQtyFa(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
       <td class="mono">${escDate(r.date)}</td>
       <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
@@ -14880,7 +14880,7 @@ function csDocLinesHtml(){
       <td>${csDocLines.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){csDocLines.splice((i),1);renderCsDocLines()})}">×</button>`:''}</td>
     </tr>`).join('')}</tbody></table></div>
     <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){csDocLines.push({product_id:'',product_label:'',qty:1,unit_price_rial:0,variant_id:null});renderCsDocLines()})}">➕ کالای دیگر</button>
-    <div class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:6px')}">جمع ردیف‌ها: <b class="mono">${fmt(csDocLines.filter(l=>l.product_id&&+l.qty>0).length)}</b> · جمع تعداد: <b class="mono">${fmt(csDocLines.reduce((s,l)=>s+(l.product_id?(+l.qty||0):0),0))}</b></div>`;
+    <div class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:6px')}">جمع ردیف‌ها: <b class="mono">${fmt(csDocLines.filter(l=>l.product_id&&+l.qty>0).length)}</b> · جمع تعداد: <b class="mono">${fmtQtyFa(csDocLines.reduce((s,l)=>s+(l.product_id?(+l.qty||0):0),0))}</b></div>`;
 }
 function renderCsDocLines(){
   const box=el('csDocLines');
@@ -15114,9 +15114,9 @@ async function renderSalesByProductReport(box){
   const d=await api('GET','/adv-reports/sales-by-product'+(qp.length?'?'+qp.join('&'):''))||{rows:[],totals:{}};
   box.innerHTML=advDateFilterBar()+`
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th><th>درآمد (ریال)</th></tr></thead>
-    <tbody>${d.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.revenue)}</td></tr>`).join('')||emptyRow(3)}</tbody>
+    <tbody>${d.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmtQtyFa(r.qty)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.revenue)}</td></tr>`).join('')||emptyRow(3)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td>جمع کل</td><td class="mono">${fmt(d.totals.qty||0)}</td><td class="mono">${fmt(d.totals.revenue||0)}</td>
+      <td>جمع کل</td><td class="mono">${fmtQtyFa(d.totals.qty||0)}</td><td class="mono">${fmt(d.totals.revenue||0)}</td>
     </tr></tfoot></table></div>`;
   attachDatepickers(box);
 }
@@ -15126,11 +15126,11 @@ async function renderInventoryValuationReport(box){
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
       <th>کد</th><th>نام کالا</th><th>موجودی</th><th>بهای تمام‌شده واحد</th><th>ارزش به بهای تمام‌شده</th><th>ارزش به قیمت فروش</th>
     </tr></thead><tbody>${d.rows.map(p=>`<tr>
-      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="mono">${fmt(p.stock)}</td>
+      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="mono">${fmtQtyFa(p.stock)}</td>
       <td class="mono">${fmt(p.cost)}</td><td class="mono">${fmt(p.cost_value)}</td><td class="mono">${fmt(p.retail_value)}</td>
     </tr>`).join('')||emptyRow(6)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="2">جمع کل (${fmt(d.rows.length)} کالا)</td><td class="mono">${fmt(d.totals.stock||0)}</td>
+      <td colspan="2">جمع کل (${fmt(d.rows.length)} کالا)</td><td class="mono">${fmtQtyFa(d.totals.stock||0)}</td>
       <td></td><td class="mono">${fmt(d.totals.cost_value||0)}</td><td class="mono">${fmt(d.totals.retail_value||0)}</td>
     </tr></tfoot></table></div>`;
 }
@@ -15141,15 +15141,15 @@ async function renderInventoryHealthReport(box){
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px`)}">
       <div class="panel"><div class="panel-head"><h4>⚠️ موجودی منفی/صفر</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>موجودی</th></tr></thead>
-        <tbody>${d.negative.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+        <tbody>${d.negative.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyFa(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
       </div>
       <div class="panel"><div class="panel-head"><h4>🔥 پرفروش‌ترین (این بازه)</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th></tr></thead>
-        <tbody>${d.fastMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(p.qty)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+        <tbody>${d.fastMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmtQtyFa(p.qty)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
       </div>
       <div class="panel" data-csp-style="${CSP.style(`grid-column:1/-1`)}"><div class="panel-head"><h4>🐌 کم‌فروش‌ترین / بدون فروش (این بازه، موجودی بالا)</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>موجودی فعلی</th></tr></thead>
-        <tbody>${d.slowMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono">${fmt(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+        <tbody>${d.slowMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono">${fmtQtyFa(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
       </div>
     </div>`;
   attachDatepickers(box);
@@ -17003,7 +17003,8 @@ function prodReportTotalsHtml(totals, spec){
   const chips=Object.entries(totals).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>{
     const lbl=labels[k]||k;
     const isMoney=/rial|cost|fee|profit|amount|variance/i.test(k);
-    const val=isMoney?(PU?PU.moneyCell(v):prodFmtToman(v)):fmt(v);
+    const isQty=/qty/i.test(k)&&!/rial/i.test(k);
+    const val=isMoney?(PU?PU.moneyCell(v):prodFmtToman(v)):(isQty?qtyFmt(v):fmt(v));
     return '<span><b>'+esc(lbl)+':</b> '+val+'</span>';
   }).join('');
   return chips?'<div class="prod-report-totals">'+chips+'</div>':'';
@@ -17023,7 +17024,7 @@ function prodReportRenderPeriodCost(r, spec){
       +(prev?'<td data-label="قبل" class="num">'+(PU?PU.moneyCell(prev.total_rial&&row.key==='total_rial'?prev.total_rial:''):'—')+'</td>':'')
       +'</tr>').join('')+'</tbody></table></div>';
   const kpi=PU?[
-    PU.kpiCard({icon:'📦',label:'تولید دوره',value:fmt(cur.qty_produced||0)}),
+    PU.kpiCard({icon:'📦',label:'تولید دوره',value:fmtQtyFa(cur.qty_produced||0)}),
     PU.kpiCard({icon:'💰',label:'بهای واحد',value:prodFmtToman(r.totals?.unit_cost_rial||0)}),
     PU.kpiCard({icon:'📊',label:'جمع هزینه',value:prodFmtToman(r.totals?.total_rial||0)}),
   ].join(''):'';
@@ -18405,7 +18406,7 @@ async function crvPreview(){
       </tr></thead><tbody>
       ${r.lines.map(l=>`<tr>
         <td><b>${esc(l.product_code||'')}</b> ${esc(l.product_name||'')}</td>
-        <td class="num">${fmt(l.qty_on_hand)}</td>
+        <td class="num">${fmtQtyFa(l.qty_on_hand)}</td>
         <td class="num">${money(l.old_unit_cost_rial)}</td>
         <td class="num">${money(l.new_unit_cost_rial)}</td>
         <td class="num">${money(l.delta_inventory_rial)}</td>
@@ -20787,7 +20788,7 @@ async function renderProductionTab(body){
       <th>تاریخ</th><th>کالا</th><th>تعداد تولیدی</th><th>ضایعات</th><th>بهای کل (ت)</th><th>بهای واحد (ت)</th><th>حاشیه سود واحد (ت)</th><th>کارایی</th><th>عملیات</th>
     </tr></thead><tbody>${(runs||[]).map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td><td>${esc(r.product_name||'-')}</td>
-      <td class="mono">${fmt(r.qty_produced)}</td><td class="mono">${fmt(r.waste_qty||0)}</td>
+      <td class="mono">${fmtQtyFa(r.qty_produced)}</td><td class="mono">${fmtQtyFa(r.waste_qty||0)}</td>
       <td class="mono">${fmt(r.total_cost)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.round(r.unit_cost))}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:${r.margin>=0?'var(--green)':'var(--red)'}`)}">${fmt(Math.round(r.margin))}</td>
       <td class="mono">${Math.round(r.efficiency*100)}٪</td>
@@ -22904,7 +22905,7 @@ async function openWhGrniPickerForPurchase(){
       <td>${esc(d.date||'')}</td>
       <td>${esc(d.warehouse_name||'')}</td>
       <td>${esc(d.supplier_name||'—')}</td>
-      <td class="mono">${fmt(d.qty_total||0)}</td>
+      <td class="mono">${fmtQtyFa(d.qty_total||0)}</td>
       <td class="mono">${(d.lines||[]).length} ردیف</td>
       <td class="muted">${esc(d.created_by_name||'')}</td>
     </tr>`).join('');
@@ -23454,8 +23455,8 @@ async function loadPrReturnRows(){
     <td>${esc(color||'—')}</td>
     <td>${esc(displaySizeName(size)||'—')}</td>
     <td class="muted">${esc(r.roll_no||'—')}</td>
-    <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
+    <td class="mono">${fmtQtyFa(r.qty)}</td><td class="mono">${fmtQtyFa(r.already_returned)}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.max_returnable)}</td>
     <td class="mono">${fmt(r.price)}</td>
     <td class="mono muted">${lineDisc?fmt(lineDisc):'—'}</td>
     <td class="mono">${fmt(netU)}</td>
@@ -23512,7 +23513,7 @@ function renderPrOpenRowsTbl(){
       <td>${esc(r.name)}</td>
       <td>${esc(r.color_name||'—')}</td>
       <td>${esc(displaySizeName(r.size_name)||'—')}</td>
-      <td class="mono">${fmt(r.qty)}</td>
+      <td class="mono">${fmtQtyFa(r.qty)}</td>
       <td class="mono">${fmt(r.price)}</td>
       ${returnOpenRowsCostCell(r)}
       <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){prOpenRows.splice(i,1);renderPrOpenRowsTbl()})}">✕</button></td>
@@ -23737,8 +23738,8 @@ async function loadSrReturnRows(){
     <td>${esc(r.name)}</td>
     <td>${esc(color||'—')}</td>
     <td>${esc(displaySizeName(size)||'—')}</td>
-    <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td>
+    <td class="mono">${fmtQtyFa(r.qty)}</td><td class="mono">${fmtQtyFa(r.already_returned)}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.max_returnable)}</td>
     <td class="mono">${fmt(r.price)}</td>
     <td class="mono muted">${lineDisc?fmt(lineDisc):'—'}</td>
     <td class="mono">${fmt(netU)}</td>
@@ -23794,7 +23795,7 @@ function renderSrOpenRowsTbl(){
       <td>${esc(r.name)}</td>
       <td>${esc(r.color_name||'—')}</td>
       <td>${esc(displaySizeName(r.size_name)||'—')}</td>
-      <td class="mono">${fmt(r.qty)}</td>
+      <td class="mono">${fmtQtyFa(r.qty)}</td>
       <td class="mono">${fmt(r.price)}</td>
       ${returnOpenRowsCostCell(r)}
       <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(){srOpenRows.splice(i,1);renderSrOpenRowsTbl()})}">✕</button></td>
@@ -24782,7 +24783,7 @@ function _accProductsRowsHtml(rows, canMut){
     <td class="mono" data-sort="${esc(p.code||'')}">${esc(p.code||'-')}</td>
     <td>${esc(p.name)}</td>
     <td class="muted">${esc(p.category_name||p.category||'-')}</td>
-    <td class="mono" data-col-kind="qty" data-sort="${Number(p.stock)||0}">${fmt(p.stock||0)}</td>
+    <td class="mono" data-col-kind="qty" data-sort="${Number(p.stock)||0}">${fmtQtyFa(p.stock||0)}</td>
     <td class="mono" data-col-kind="avg" data-sort="${Number(p.price)||0}">${fmt(p.price||0)}</td>
     <td class="mono" data-col-kind="avg" data-sort="${Number(p.cost)||0}">${fmt(p.cost||0)}</td>
     <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
@@ -26257,12 +26258,12 @@ async function loadWarehouseReport(){
   const blocks=(data.rows||[]).map(r=>{
     const rows=r.products||[];
     return `<div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}"><div class="panel-head"><h4>${esc(r.warehouse_name)} <span class="muted mono">${esc(r.warehouse_code||'')}</span></h4>
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(r.product_count)} کالا · موجودی ${fmt(r.total_qty)} · ارزش ریالی ${fmt(r.total_amount_rial)} · میانگین بها ${fmt(r.avg_unit_cost_rial)}</span></div>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(r.product_count)} کالا · موجودی ${fmtQtyFa(r.total_qty)} · ارزش ریالی ${fmt(r.total_amount_rial)} · میانگین بها ${fmt(r.avg_unit_cost_rial)}</span></div>
       <div class="panel-body"><div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
         <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی</th><th data-col-kind="avg">میانگین بها</th><th data-col-kind="money">ارزش ریالی</th><th data-col-kind="avg">قیمت فروش</th><th data-col-kind="money">ارزش فروش</th>
       </tr></thead><tbody>${rows.map(p=>`<tr>
         <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="muted">${esc(p.category||'-')}</td>
-        <td class="mono" data-col-kind="qty">${fmt(p.qty)}</td>
+        <td class="mono" data-col-kind="qty">${fmtQtyFa(p.qty)}</td>
         <td class="mono" data-col-kind="avg">${fmt(p.avg_cost_rial||p.unit_cost_rial||0)}</td>
         <td class="mono" data-col-kind="money">${fmt(p.amount_rial||0)}</td>
         <td class="mono" data-col-kind="avg">${fmt(p.unit_price_rial||0)}</td>
@@ -33291,7 +33292,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. دکمهٔ <b>✏️ ویرایش</b> اصلاح در محل روی همان شماره است (مثل فروش): سند خرید، موجودی، دفتر تأمین‌کننده و پرداخت هنگام فاکتور بازنویسی می‌شوند؛ <b>⛔ ابطال</b> کنار آن است (R13). اگر برگشت از خرید فعال باشد ابتدا آن را ابطال کنید. پرداخت‌های جدا (بعد از ثبت) اگر ساختار پرداخت هنگام فاکتور عوض شود مسدود می‌کنند. فاکتور از رسید GRNI فقط فی/تخفیف/کرایه/تاریخ را می‌پذیرد — تعداد و کالا قفل است</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372 + فی بدون‌فاکتور v450): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. در حالت <b>بدون فاکتور</b> فیلد «فی فروش/خرید» و «تخفیف کلی (مبلغ)» با جداکننده هزارگان وارد می‌شوند و هنگام افزودن (ساده یا ماتریس) همان مبلغ کامل ریالی به جدول و جمع پایین می‌رود — دیگر عدد در ویرگول قطع نمی‌شود. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
-        <li><b>کاردکس کالا (v492)</b>: اول دوره در نوار بالاست؛ اگر سال مالی وسط سال باز شده باشد و بازه از اول تقویم باشد، سند افتتاحیهٔ همان روز شروع سال مالی در اول دوره می‌نشیند نه ورود. حواله/مصرف مرحله که با «ابطال مصرف / ابطال مرحله» جفت شده از جدول و مانده خارج است (حتی اگر شرح حواله شماره PO نداشته باشد). ابطال جدید همان ردیف اصلی را برمی‌گرداند. تیک ممیزی فقط تاریخچه است.</li>
+        <li><b>کاردکس کالا (v500)</b>: مقدار ورود، خروج، مانده و جمع‌ها تا ۳ رقم اعشار است (یارد و متر). مبلغ و بهای واحد ریال صحیح می‌مانند. اول دوره در نوار بالاست؛ اگر سال مالی وسط سال باز شده باشد و بازه از اول تقویم باشد، سند افتتاحیهٔ همان روز شروع سال مالی در اول دوره می‌نشیند نه ورود. حواله/مصرف مرحله که با «ابطال مصرف / ابطال مرحله» جفت شده از جدول و مانده خارج است (حتی اگر شرح حواله شماره PO نداشته باشد). ابطال جدید همان ردیف اصلی را برمی‌گرداند. تیک ممیزی فقط تاریخچه است. خروجی CSV همان عدد ذخیره‌شده را می‌نویسد.</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار (<b>روش ریالی‌کردن</b> جداست و فقط قیمت‌گذاری لایه است). حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند — همین قانون برای <b>اصلاح فاکتور، مرجوعی فروش و تسویه امانی</b> هم اعمال می‌شود. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. <b>اجازه موجودی منفی</b> روی حوالهٔ انبار و <b>فاکتور فروش / فروش فروشگاهی</b> از همان انبار اعمال می‌شود (موجودی می‌تواند منفی شود). فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار (v333)</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). میانگین بها و ارزش ریالی از <code>average_cost_rial</code> یا بهای تمام‌شدهٔ کالا — هر دو ریال؛ دیگر بهای کاتالوگ را ×۱۰ (تومان قدیمی) نمی‌کند. فیلتر و خروجی CSV/اکسل</li>
@@ -33491,7 +33492,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v495</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v500</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -33688,7 +33689,7 @@ helpSec('🔑','لایسنس و entitlement',`
 function renderSalesGuide(){
   return [
     helpSec('📏','واحد روی فاکتور',`
-      <p>واحد هر ردیف فاکتور همان واحد کالاست. عدد و جفت و ست را نمی‌شود خرد کرد. متر و یارد و کیلو اعشار دارند. اگر واحد کالا اشتباه است، از مدیر بخواهید در فرم کالا آن را از فهرست واحدها عوض کند؛ خود فاکتور واحد جدا نمی‌سازد.</p>`),
+      <p>واحد هر ردیف فاکتور همان واحد کالاست. عدد و جفت و ست را نمی‌شود خرد کرد. متر و یارد و کیلو اعشار دارند و در کاردکس، فهرست کالا و گزارش انبار تا ۳ رقم دیده می‌شوند؛ مبلغ ریال صحیح می‌ماند. اگر واحد کالا اشتباه است، از مدیر بخواهید در فرم کالا آن را از فهرست واحدها عوض کند؛ خود فاکتور واحد جدا نمی‌سازد.</p>`),
     helpSec('✂️','ضایعات لایه‌چینی',`
       <p>ثبت لایه‌چینی کار تولید است. اگر مصرف از سقف ضایعات عادی بیشتر شود، مازاد روی حساب ۵۲۲۱ و مرکز هزینهٔ برش می‌نشیند و فرم همان مرکز را پیشنهاد می‌کند. بعد از رسید سفارش هم از تب لایه‌چینی می‌توان همان لایه را ویرایش یا ابطال کرد. ویرایش تعداد قطعه را عوض نمی‌کند. ابطال ردیف را پاک نمی‌کند و فقط اثر همان لایه را برمی‌گرداند.</p>`),
     helpSec('🎯','نسخه نمایشی',`
@@ -33709,7 +33710,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: فقط مشتریان کارشناس/منتصب شما، فروش کل (فاکتور معمولی+رسمی، هم‌خوان با حساب من)، مانده همان مشتریان، و پیگیری‌های باز. آمار سراسری شرکت مخصوص مدیر و حسابداری است. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v469</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v500</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول. با سفارش انتخاب‌شده، جستجوی کالای دوخته‌شده فقط محصولات همان سفارش را می‌آورد (v487).</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. روی مرحلهٔ برش با پارچهٔ متری یا یاردی، «ثبت خروجی» لایه‌چینی همان سفارش را باز می‌کند. جزئیات در راهنمای مدیر است.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
