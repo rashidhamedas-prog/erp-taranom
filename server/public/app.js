@@ -13164,16 +13164,28 @@ async function renderCuttingLaysTab(body){
   window._cutRolls=(rolls.rows||[]).filter(b=>Number(b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
   let view='lays';
   try{ view=window._cuttingLaysView||sessionStorage.getItem('cuttingLaysView')||'lays'; }catch(_){ view=window._cuttingLaysView||'lays'; }
-  if(view!=='pending-pack' && view!=='lays') view='lays';
+  if(view!=='pending-pack' && view!=='active-pack' && view!=='lays') view='lays';
   window._cuttingLaysView=view;
   const allRows=lays.rows||[];
+  const cuttingHasLivePack=(r)=>{
+    if(Number(r.has_live_pack)===1) return true;
+    if((r.packs||[]).some(p=>p.status==='posted' && (p.ledger_id||p.journal_id))) return true;
+    // list API بدون packs[]: pack_posted از ledger واقعی؛ pack_via_order_fg فقط پوشش سفارش بدون PACK
+    return Number(r.pack_posted)===1 && Number(r.pack_via_order_fg)!==1 && !!r.pack_no;
+  };
   const pendingRows=allRows.filter(r=>{
     if(r.status==='reversed') return false;
-    const packed=(r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1 || Number(r.fg_covered_by_order)===1;
+    const packed=cuttingHasLivePack(r) || Number(r.pack_posted)===1 || Number(r.fg_covered_by_order)===1;
     return !packed;
   });
-  const showRows=view==='pending-pack'?pendingRows:allRows;
+  const activePackRows=allRows.filter(r=>r.status!=='reversed' && cuttingHasLivePack(r));
+  const showRows=view==='pending-pack'?pendingRows:(view==='active-pack'?activePackRows:allRows);
   const tabBtn=(k,label,count)=>`<button type="button" class="btn sm ${view===k?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){goCuttingLaysView(k)})}">${label}${count!=null?' ('+fmt(count)+')':''}</button>`;
+  const emptyMsg=view==='pending-pack'
+    ?'لایه‌ای منتظر PACK نیست — اگر PACK ثبت‌شده دارید تب «PACK فعال» را ببینید'
+    :(view==='active-pack'
+      ?'هیچ PACK انبار زنده‌ای نیست — لایه‌های پوشش‌شده فقط با رسید سفارش اینجا نمی‌آیند'
+      :'لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»');
   body.innerHTML=`
     <div class="prod-scope">
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
@@ -13181,12 +13193,14 @@ async function renderCuttingLaysTab(body){
       ۱) <b>لایه‌چینی</b> = مصرف طاقه از انبار مواد و بدهکار WIP. مازاد بر سقف ضایعات عادی به حساب ۵۲۲۱ و مرکز «برش» می‌رود.
       ۲) <b>PACK</b> با سفارش تولید = فقط بسته‌بندی در انبار WIP (بدون ورود فروش‌پذیر).
       ۳) ورود انبار محصول فروش‌پذیر برای سفارش <b>طاقه‌دار</b> فقط بعد از لایه‌چینی+PACK و سپس «رسید/نهایی‌سازی سفارش» (دکمهٔ رسید لیست سفارش تا قبل از PACK قفل است — v403).
+      تب <b>بسته‌بندی</b> = صف منتظر PACK؛ تب <b>PACK فعال</b> = سندهای PACK زنده‌ای که باید قبل از ویرایش لایه ابطال شوند (حتی اگر سفارش قبلاً رسید محصول خورده باشد).
       ردیف «پوشش‌شده با رسید سفارش» هم <b>ویرایش</b> و <b>ابطال</b> دارد. ویرایش متر و طاقه، اختلاف بها را به همان رسید می‌برد و تعداد قطعه قفل است. ابطال ردیف را پاک نمی‌کند؛ طاقه و سهم بهای همان لایه برمی‌گردد و تعداد محصول می‌ماند.
       بدون سفارش باز = رسید مستقیم به انبار محصول (cut-to-stock). هرگز هر دو مسیر را برای یک بچ نزنید.
     </div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
       ${tabBtn('lays','✂️ لایه‌چینی', allRows.filter(r=>r.status!=='reversed').length)}
-      ${tabBtn('pending-pack','📦 بسته‌بندی / رسید محصول', pendingRows.length)}
+      ${tabBtn('pending-pack','📦 منتظر PACK', pendingRows.length)}
+      ${tabBtn('active-pack','📦 PACK فعال', activePackRows.length)}
       ${view==='lays'?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>`:''}
       ${view==='lays' && (CACHE.settings||{}).production_shared_cut==='1'?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){sharedCutToggle()})}">برنامهٔ برش مشترک</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('cutting-lays')})}">🔄</button>
@@ -13196,9 +13210,11 @@ async function renderCuttingLaysTab(body){
       <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th>وضعیت محصول</th><th>عملیات</th>
     </tr></thead><tbody>
     ${showRows.map(r=>{
-      const livePack=(r.packs||[]).find(p=>p.status==='posted');
+      const livePack=(r.packs||[]).find(p=>p.status==='posted' && (p.ledger_id||p.journal_id))
+        || (r.packs||[]).find(p=>p.status==='posted');
+      const hasLivePack=cuttingHasLivePack(r);
       const viaOrderFg=Number(r.fg_covered_by_order)===1 || Number(r.pack_via_order_fg)===1;
-      const isPacked=!!livePack || Number(r.pack_posted)===1 || viaOrderFg;
+      const isPacked=hasLivePack || viaOrderFg || Number(r.pack_posted)===1;
       let acts='';
       if(r.status==='reversed') acts='ابطال‌شده';
       else {
@@ -13208,25 +13224,35 @@ async function renderCuttingLaysTab(body){
           } else {
             acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){cuttingLayModal(r.id)})+'">ویرایش</button> ';
           }
-          if(!isPacked || viaOrderFg){
+          // ابطال لایه فقط وقتی PACK انبار زنده نباشد (وگرنه E_CUT_HAS_PACK)
+          if(!hasLivePack){
             acts+='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id, viaOrderFg)})+'">ابطال لایه‌چینی</button>';
           }
         }
-        if(viaOrderFg){
-          acts+=' <span class="muted">پوشش‌شده با رسید '+(esc(r.covered_order_no||('#'+(r.covered_order_id||''))))+'</span>';
-        } else if(isPacked){
+        if(hasLivePack){
           acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackPrint(r.id)})+'">چاپ بارکد</button>';
           acts+=' <button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingPackRow(r.id)})+'">ابطال رسید محصول</button>';
-        } else {
+        } else if(!viaOrderFg && (view==='pending-pack' || view==='lays')){
           const packLbl=r.production_order_id?'بسته‌بندی WIP':'ورود به انبار محصول';
           acts+=' <button class="btn green" data-csp-click="'+CSP.bind('click',function(){cuttingPackSave(r.id)})+'">'+packLbl+'</button>';
         }
+        if(viaOrderFg){
+          acts+=' <span class="muted">پوشش‌شده با رسید '+(esc(r.covered_order_no||('#'+(r.covered_order_id||''))))+'</span>';
+        }
       }
-      const packedLbl=viaOrderFg
-        ?('✅ رسید انبار محصول از سفارش '+(esc(r.covered_order_no||'')))
-        :(isPacked
-          ?(r.production_order_id||(livePack&&livePack.production_order_id)?'✅ بسته‌بندی WIP (منتظر نهایی‌سازی)':'✅ در انبار محصول')
-          :(r.status==='reversed'?'—':'⏳ منتظر PACK'));
+      let packedLbl;
+      if(r.status==='reversed') packedLbl='—';
+      else if(hasLivePack && viaOrderFg){
+        packedLbl='✅ PACK انبار زنده + رسید سفارش '+(esc(r.covered_order_no||''));
+      } else if(viaOrderFg){
+        packedLbl='✅ رسید انبار محصول از سفارش '+(esc(r.covered_order_no||''));
+      } else if(hasLivePack || isPacked){
+        packedLbl=(r.production_order_id||(livePack&&livePack.production_order_id)
+          ?'✅ بسته‌بندی WIP (منتظر نهایی‌سازی)'
+          :'✅ در انبار محصول');
+      } else {
+        packedLbl='⏳ منتظر PACK';
+      }
       const nameCell=(Number(r.is_shared_cut)===1 && (r.shared_product_names||[]).length)
         ? ('<span class="muted">چندمحصول:</span> '+esc((r.shared_product_names||[]).join(' + ')))
         : esc(r.product_name||('#'+r.product_id));
@@ -13235,11 +13261,11 @@ async function renderCuttingLaysTab(body){
         +'<td class="num">'+fmtQtyFa(r.actual_meters||0)+'</td><td class="num">'+fmtQtyFa(r.matrix_meters||0)+'</td>'
         +'<td class="num">'+fmtQtyFa(r.waste_normal_m||0)+' / '+fmtQtyFa(r.waste_abnormal_m||0)+'</td>'
         +'<td>'+packedLbl+'</td><td>'+acts+'</td></tr>';
-    }).join('')||('<tr><td colspan="8" class="empty">'+(view==='pending-pack'?'لایه‌ای منتظر PACK نیست':'لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»')+'</td></tr>')}
+    }).join('')||('<tr><td colspan="8" class="empty">'+emptyMsg+'</td></tr>')}
     </tbody></table></div></div></div>`;
 }
 async function goCuttingLaysView(view){
-  const v=view==='pending-pack'?'pending-pack':'lays';
+  const v=(view==='pending-pack'||view==='active-pack')?view:'lays';
   try{
     if(!window._prodJourneyState){
       const period=window._prodDashPeriod||todayJalali().slice(0,7);
@@ -30851,24 +30877,35 @@ async function chequeBounceSave(id){
   }catch(e){}
 }
 async function chequeResend(id){
+  if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
+  let chq=null;
+  try{ chq=await api('GET','/cheque-records/'+id); }catch(_){ chq=null; }
+  const preBank=chq&&chq.collection_bank_id?String(chq.collection_bank_id):'';
+  const bankOpts=(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>
+    `<option value="${b.id}" ${String(b.id)===preBank?'selected':''}>${esc(b.name)}</option>`
+  ).join('');
   openModal(`
-    <div class="modal-head"><h3>ارسال مجدد چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>ارسال مجدد و وصول چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">سند برگشت ابطال نرم می‌شود (حذف فیزیکی نیست) و وضعیت قبلی چرخه بازیابی می‌شود. تاریخ ثبت این مرحله را مشخص کنید.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">سند برگشت ابطال نرم می‌شود. اگر قبلاً وصول شده بود آن وصول هم ابطال نرم می‌شود و <b>وصول جدید</b> با تاریخ و بانک انتخابی به دفتر بانک می‌نشیند (نه تاریخ وصول قبلی).</p>
       <div class="form-grid">
-        <div class="fg"><label>تاریخ *</label><input id="cresend-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg full"><label>بانک واریز *</label>
+          <select id="cresend-bank"><option value="">— انتخاب بانک —</option>${bankOpts}</select></div>
+        <div class="fg"><label>تاریخ وصول *</label><input id="cresend-date" data-jdate value="${todayJalali()}"></div>
       </div>
     </div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){chequeResendSave((id))})}">ثبت ارسال مجدد</button>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){chequeResendSave((id))})}">💾 ثبت وصول مجدد</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   if(typeof initJalaliPickers==='function') initJalaliPickers();
 }
 async function chequeResendSave(id){
+  const bank_id=+el('cresend-bank')?.value||null;
   const date=String(el('cresend-date')?.value||'').trim();
-  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ را به صورت YYYY/MM/DD وارد کنید','error'); return; }
+  if(!bank_id){ showToast('بانک واریز را انتخاب کنید','error'); return; }
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ وصول را به صورت YYYY/MM/DD وارد کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/resend',{date});
-    closeModal(); showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/resend',{date, bank_id});
+    closeModal(); showToast('ارسال مجدد و وصول ثبت شد — تاریخ سند '+date); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequePayOut(id){
@@ -33602,7 +33639,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>خرج / ظهرنویسی</b>: ذینفع از تأمین‌کننده یا اشخاص. بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی + ردیف دفتر تأمین‌کننده/مشتری</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است، مودال <b>تاریخ وصول</b> (پیش‌فرض امروز، قابل تغییر) و <b>بانک واریز</b> (پیش‌فرض بانک واگذاری) باز می‌شود — بدهکار بانک / بستانکار در جریان وصول. تاریخ = روز واریز واقعی به بانک است، نه لزوماً سررسید برگه. تاریخ وصول نمی‌تواند قبل از تاریخ واگذاری باشد. همان لحظه از هشدار سررسید داشبورد مالی هم حذف می‌شود</li>
         <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — مودال تاریخ برگشت؛ مبلغ به بدهی صورت‌حساب طرف حساب برمی‌گردد</li>
-        <li><b>ارسال مجدد</b>: پس از برگشت — مودال تاریخ؛ ابطال نرم سند برگشت و بازگشت به وضعیت قبلی چرخه (وصول‌شده / در جریان وصول / نزد صندوق)</li>
+        <li><b>ارسال مجدد</b>: پس از برگشت — مودال <b>تاریخ وصول</b> + <b>بانک واریز</b>. برگشت ابطال نرم می‌شود؛ اگر قبلاً وصول شده بود آن وصول هم ابطال نرم می‌شود و وصول جدید با همان تاریخ/بانک در دفتر بانک ثبت می‌شود</li>
         <li><b>ابطال تسویه / اصلاح فاکتور (R13 v454):</b> اگر چک قبلاً واگذار یا وصول شده باشد، ابطال تسویه فقط برگه را مخفی نمی‌کند — سندهای واگذاری و وصول هم soft-void می‌شوند تا گردش بانک با دفتر چک و گردش طرف‌حساب یکی بماند. ابطال از خود دفتر چک همچنان همهٔ اسناد را کامل برمی‌گرداند</li>
       </ul>
       <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>

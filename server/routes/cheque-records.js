@@ -48,6 +48,84 @@ function assertClearNotBeforeSend(db, row, entryDate) {
   }
 }
 
+function softVoidChequeJe(db, jeId, { userId, date, reason, sourceType, failMsg }) {
+  if (!jeId) return;
+  const head = db.prepare('SELECT id FROM journal_entries WHERE id=?').get(jeId);
+  if (!head) {
+    throw Object.assign(new Error(failMsg || 'سند حسابداری یافت نشد'), {
+      status: 400,
+      code: 'E_CHEQUE_LIFECYCLE',
+    });
+  }
+  reverseJournalEntry(db, jeId, { userId, date, reason, sourceType });
+  const after = db.prepare('SELECT status, deleted_at FROM journal_entries WHERE id=?').get(jeId);
+  const voided = after
+    && (Number(after.deleted_at || 0) > 0 || ['reversed', 'void'].includes(String(after.status || '')));
+  if (!voided) {
+    throw Object.assign(new Error(failMsg || 'ابطال نرم سند ناموفق بود'), {
+      status: 400,
+      code: 'E_CHEQUE_LIFECYCLE',
+    });
+  }
+}
+
+/** Post clear JE while row is in_collection; returns { jeId, resolvedBankId }. */
+function postReceivableClear(db, row, { bankId, entryDate, userId }) {
+  const amountRial = Math.round(Number(row.amount) || 0);
+  if (amountRial <= 0) {
+    throw Object.assign(new Error('مبلغ چک نامعتبر است'), { status: 400, code: 'E_CHEQUE_AMOUNT' });
+  }
+  if (row.lifecycle_status !== 'in_collection') {
+    throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), {
+      status: 400,
+      code: 'E_CHEQUE_LIFECYCLE',
+    });
+  }
+  assertClearNotBeforeSend(db, row, entryDate);
+  postChequeInReceipt(db, row, userId, entryDate);
+  assertJournalIdempotent(db, 'cheque_clear', row.id);
+
+  const bank = acct(db, 'coa_bank_default');
+  const collection = acct(db, 'coa_cheques_in_collection');
+  const amt = amountRial / 10;
+  let cashLine = bank;
+  let resolvedBankId = bankId || row.collection_bank_id || null;
+  if (resolvedBankId) {
+    const b = db.prepare('SELECT id, coa_code, name FROM banks WHERE id=?').get(resolvedBankId);
+    if (!b) {
+      throw Object.assign(new Error('بانک واریز معتبر نیست'), { status: 400, code: 'E_CHEQUE_BANK' });
+    }
+    cashLine = { code: b.coa_code || ('1102-' + b.id), name: b.name || bank.name };
+    resolvedBankId = b.id;
+  }
+
+  const jeId = postToLedger(db, {
+    sourceType: 'cheque_clear', sourceId: row.id,
+    date: entryDate,
+    description: `وصول چک ${row.cheque_number || row.id}`,
+    createdBy: userId,
+    lines: [
+      { code: cashLine.code, name: cashLine.name, debit: amt, credit: 0, debit_rial: amountRial },
+      { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
+    ],
+  });
+  const updated = db.prepare(`
+    UPDATE cheque_records
+    SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده',
+        collection_bank_id=COALESCE(?, collection_bank_id)
+    WHERE id=? AND lifecycle_status='in_collection'
+  `).run(jeId, resolvedBankId, row.id);
+  if (!updated.changes) {
+    throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), {
+      status: 400,
+      code: 'E_CHEQUE_LIFECYCLE',
+    });
+  }
+  syncSettlementChequeStatus(db, row.id);
+  return { jeId, resolvedBankId };
+}
+
+
 function resolveChequeParty(db, body) {
   const partyId = parseInt(body && body.party_id, 10);
   if (!Number.isFinite(partyId) || partyId <= 0) {
@@ -728,55 +806,17 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
     const amountProbe = db.prepare("SELECT amount, collection_bank_id FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
     if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
 
-    const amountRial = Math.round(Number(amountProbe.amount) || 0);
-    const bank = acct(db, 'coa_bank_default');
-    const collection = acct(db, 'coa_cheques_in_collection');
-    const amt = amountRial / 10;
     const bankId = req.body.bank_id || amountProbe.collection_bank_id;
     const entryDate = resolveChequeEntryDate(req.body.date);
 
     const jeId = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
       if (!row) throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
-      if (row.lifecycle_status !== 'in_collection') {
-        throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      assertClearNotBeforeSend(db, row, entryDate);
-      postChequeInReceipt(db, row, req.user.id, entryDate);
-      assertJournalIdempotent(db, 'cheque_clear', row.id);
-
-      let cashLine = bank;
-      let resolvedBankId = bankId || null;
-      if (resolvedBankId) {
-        const b = db.prepare('SELECT id, coa_code, name FROM banks WHERE id=?').get(resolvedBankId);
-        if (!b) {
-          throw Object.assign(new Error('بانک واریز معتبر نیست'), { status: 400, code: 'E_CHEQUE_BANK' });
-        }
-        cashLine = { code: b.coa_code || ('1102-' + b.id), name: b.name || bank.name };
-        resolvedBankId = b.id;
-      }
-
-      const id = postToLedger(db, {
-        sourceType: 'cheque_clear', sourceId: row.id,
-        date: entryDate,
-        description: `وصول چک ${row.cheque_number || row.id}`,
-        createdBy: req.user.id,
-        lines: [
-          { code: cashLine.code, name: cashLine.name, debit: amt, credit: 0, debit_rial: amountRial },
-          { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
-        ],
-      });
-      const updated = db.prepare(`
-        UPDATE cheque_records
-        SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده',
-            collection_bank_id=COALESCE(?, collection_bank_id)
-        WHERE id=? AND lifecycle_status='in_collection'
-      `).run(id, resolvedBankId, row.id);
-      if (!updated.changes) {
-        throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      syncSettlementChequeStatus(db, row.id);
-      return id;
+      return postReceivableClear(db, row, {
+        bankId,
+        entryDate,
+        userId: req.user.id,
+      }).jeId;
     })();
 
     const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
@@ -823,13 +863,14 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
 });
 
 /**
- * bounce → resend: reverse bounce JE and restore prior lifecycle
- * (cleared if clear JE still present, else in_collection).
+ * bounce → resend: soft-void bounce (+ prior clear if any), restore in_collection,
+ * then post a NEW clear JE on the user-chosen date/bank (redeposit = وصول).
  */
 router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     const entryDate = resolveChequeEntryDate(req.body.date);
+    const bankId = req.body.bank_id || null;
 
     const result = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
@@ -840,41 +881,27 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
       if (!row.bounced_je_id) {
         throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
-
-      const prior = row.cleared_je_id ? 'cleared' : (row.collection_je_id ? 'in_collection' : 'registered');
-      const statusLabel = prior === 'cleared' ? 'وصول‌شده' : (prior === 'in_collection' ? 'در جریان وصول' : 'ثبت‌شده');
-
-      const bounceJeId = Number(row.bounced_je_id);
-      const bounceJe = db.prepare(`
-        SELECT id, status, deleted_at FROM journal_entries WHERE id=?
-      `).get(bounceJeId);
-      if (!bounceJe) {
-        throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), {
+      if (!row.collection_je_id) {
+        throw Object.assign(new Error('واگذاری به بانک برای ارسال مجدد لازم است'), {
           status: 400,
           code: 'E_CHEQUE_LIFECYCLE',
         });
       }
+      const resolvedBankId = bankId || row.collection_bank_id;
+      if (!resolvedBankId) {
+        throw Object.assign(new Error('بانک واریز برای وصول پس از ارسال مجدد الزامی است'), {
+          status: 400,
+          code: 'E_CHEQUE_BANK',
+        });
+      }
 
-      // v285+: reverseJournalEntry soft-voids the bounce JE (no paired reverse voucher).
-      // Truthy = just voided; null = already voided — both OK for resend.
-      reverseJournalEntry(db, bounceJeId, {
+      softVoidChequeJe(db, row.bounced_je_id, {
         userId: req.user.id,
         date: entryDate,
         reason: `ارسال مجدد چک ${row.cheque_number || row.id} پس از برگشت`,
         sourceType: 'cheque_resend',
+        failMsg: 'ابطال نرم سند برگشت ناموفق بود',
       });
-      const after = db.prepare(`
-        SELECT status, deleted_at FROM journal_entries WHERE id=?
-      `).get(bounceJeId);
-      const voided = after
-        && (Number(after.deleted_at || 0) > 0 || ['reversed', 'void'].includes(String(after.status || '')));
-      if (!voided) {
-        throw Object.assign(new Error('ابطال نرم سند برگشت ناموفق بود'), {
-          status: 400,
-          code: 'E_CHEQUE_LIFECYCLE',
-        });
-      }
-
       reverseChequeLedgerByRef(db, {
         chequeId: row.id,
         refTypes: ['cheque_bounce'],
@@ -882,20 +909,45 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
         userId: req.user.id,
         descriptionPrefix: 'ارسال مجدد پس از برگشت',
       });
-      const updated = db.prepare(`
+
+      // If previously cleared, soft-void that clear so bank is not left on the old date;
+      // then post a fresh clear on the selected settlement date.
+      if (row.cleared_je_id) {
+        softVoidChequeJe(db, row.cleared_je_id, {
+          userId: req.user.id,
+          date: entryDate,
+          reason: `ارسال مجدد چک ${row.cheque_number || row.id} — ابطال وصول قبلی برای ثبت مجدد`,
+          sourceType: 'cheque_clear_resend_void',
+          failMsg: 'ابطال نرم سند وصول قبلی ناموفق بود',
+        });
+      }
+
+      const prepared = db.prepare(`
         UPDATE cheque_records
-        SET lifecycle_status=?, bounced_je_id=NULL, status=?
+        SET lifecycle_status='in_collection', bounced_je_id=NULL, cleared_je_id=NULL,
+            status='واگذارشده', collection_bank_id=?
         WHERE id=? AND lifecycle_status='bounced'
-      `).run(prior, statusLabel, row.id);
-      if (!updated.changes) {
+      `).run(resolvedBankId, row.id);
+      if (!prepared.changes) {
         throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
-      syncSettlementChequeStatus(db, row.id);
-      return { id: bounceJeId, prior, cheque_number: row.cheque_number };
+
+      const fresh = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(row.id);
+      const { jeId } = postReceivableClear(db, fresh, {
+        bankId: resolvedBankId,
+        entryDate,
+        userId: req.user.id,
+      });
+      return { id: jeId, cheque_number: row.cheque_number, date: entryDate };
     })();
 
     audit(req.user.id, 'cheque_resend', 'cheque_record', req.params.id, result.cheque_number);
-    res.json({ ok: true, journal_entry_id: result.id, lifecycle_status: result.prior });
+    res.json({
+      ok: true,
+      journal_entry_id: result.id,
+      lifecycle_status: 'cleared',
+      date: result.date,
+    });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
