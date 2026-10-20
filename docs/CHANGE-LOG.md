@@ -3,8 +3,8 @@
 - **ریشه:** `mirrorPartyOpeningSubledgers` همان `opening_balance` هدر را هم‌زمان روی دفتر مشتری **و** تأمین می‌نوشت. ادغام نقش‌دوگانه هر دو را می‌دید؛ بعد از strip، `alignEntriesToTarget` یک‌بار دیگر تا ماندهٔ زنده (۱× JE) پر می‌کرد → نمایش ۲× یا mismatch وقتی برگ غیرJE آینهٔ یتیم داشت.
 - **رفع:** `partyOpeningMirrorTargets` فقط برگ کنترل JE (معمولاً `party.coa_code`) را آینه می‌کند؛ clear همه سپس rewrite همان برگ؛ `retireDuplicateRoleOpeningMirrors` در بوت (+اسکریپت heal) آینهٔ نقش غیرکنترل را برمی‌دارد؛ برچسب گردش «مانده اول دوره».
 - **فایل‌ها:** `lib/{opening-post,party-turnover}.js`, `db.js`, `public/{app.js,index.html,sw.js,portal-ui.js}`, `scripts/{test-party-dual-open-v507,heal-party-dual-open-v507}.js`, CHANGE-LOG.
-- **تست:** `test-party-dual-open-v507` (+sms روی ایران)؛ heal زنده party ۱۳۶.
-- **Deploy:** ⏳ pending.
+- **تست:** ایران `test-party-dual-open-v507` ۲۰/۰ + `test-sms` ۲۲/۰؛ بوت `party_dual_open_retire_v507` candidates=1 retired=1؛ ابراهیمی party ۱۳۶: افتتاحیهٔ گردش ۴۰٬۳۹۶٬۰۰۰ (۱×) با برچسب «مانده اول دوره»، `mismatch=false`، آینهٔ تأمین صفر.
+- **Deploy:** ✅ `a5be17c6` (+`17891669` harness) — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v507`.
 
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس: ریشهٔ هم‌ترازی یتیم + toggle/جمع جزییات (SW v506)
 - **علائم:** اسناد `موجودی اول دوره (هم‌ترازی کاردکس)` بعد از حذف/ابطال منبع در کاردکس و جمع مانده می‌ماندند؛ دکمهٔ «جزئیات» باز می‌شد ولی بسته نمی‌شد؛ برای فاکتورهایی مثل T-0009 سطر مادر خروج ۲ و هر رنگ جزییات هم ۲ نشان می‌داد (جمع ۸≠۲).
