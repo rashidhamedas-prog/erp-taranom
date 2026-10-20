@@ -90,26 +90,28 @@ try {
     whId = db.prepare("INSERT INTO warehouses (name,active) VALUES ('WH-AMEND-PO',1)").run().lastInsertRowid;
   }
 
+  function tableCols(name) {
+    return new Set(db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name));
+  }
+
   let supId = db.prepare('SELECT id FROM suppliers ORDER BY id LIMIT 1').get()?.id;
   if (!supId) {
-    try {
-      supId = db.prepare("INSERT INTO suppliers (name,active) VALUES ('تأمین‌کننده amend v495',1)").run().lastInsertRowid;
-    } catch (_) {
-      const cols = db.prepare('PRAGMA table_info(suppliers)').all().map((c) => c.name);
-      if (cols.includes('phone')) {
-        supId = db.prepare("INSERT INTO suppliers (name,phone,active) VALUES ('تأمین‌کننده amend v495','09120000000',1)")
-          .run().lastInsertRowid;
-      }
-    }
+    const sc = tableCols('suppliers');
+    const cols = ['name'];
+    const vals = ["'تأمین‌کننده amend v495'"];
+    if (sc.has('phone')) { cols.push('phone'); vals.push("'09120000000'"); }
+    if (sc.has('active')) { cols.push('active'); vals.push('1'); }
+    supId = db.prepare(`INSERT INTO suppliers (${cols.join(',')}) VALUES (${vals.join(',')})`).run().lastInsertRowid;
   }
   ok(!!supId, 'supplier id');
 
   let prodId = db.prepare('SELECT id FROM products ORDER BY id LIMIT 1').get()?.id;
   if (!prodId) {
-    prodId = db.prepare(`
-      INSERT INTO products (name,code,cost,price,stock,unit,active)
-      VALUES ('کالای amend خرید','PO-AMEND-1',10000,20000,0,'عدد',1)
-    `).run().lastInsertRowid;
+    const pc = tableCols('products');
+    const cols = ['name', 'code', 'cost', 'price', 'stock', 'unit'];
+    const vals = ["'کالای amend خرید'", "'PO-AMEND-1'", '10000', '20000', '0', "'عدد'"];
+    if (pc.has('active')) { cols.push('active'); vals.push('1'); }
+    prodId = db.prepare(`INSERT INTO products (${cols.join(',')}) VALUES (${vals.join(',')})`).run().lastInsertRowid;
   }
 
   const express = require('express');
