@@ -3,8 +3,8 @@
 - **ریشهٔ فی:** `replace(/[^\\d]/g)` در handler فی، رقم‌ها را حذف می‌کرد → `parseInt` → ۰. رفع با `moneyParseInput` (همان الگوی v450).
 - **برگشت کامل:** دکمهٔ UI + `POST /api/store/quick-return` (`createSalesReturn` + `postStoreExchangeRefund` بدون فاکتور جایگزین)؛ capture → `sales_returns`. تعویض قبلی دست‌نخورده.
 - **فایل‌ها:** `public/{app.js,sw.js,index.html}`, `routes/store.js`, `sync/capture.js`, `scripts/test-store-qs-price-return-v503.js`, CHANGE-LOG.
-- **تست:** `test-store-qs-price-return-v503` ۲۱/۰ + `test-sms` ۲۲/۰؛ پارس `app.js` سبز.
-- **Deploy:** ⏳
+- **تست:** ایران `test-store-qs-price-return-v503` ۲۱/۰ + `test-sms` ۲۲/۰؛ پارس `app.js` سبز.
+- **Deploy:** ✅ `c91b64fb` — overlay gzip ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v503`.
 
 ### ۱۴۰۵/۰۷/۲۸ — اصلاح بها: دکمهٔ اعمال + تطبیق رسید با خالص WIP (SW v503)
 - **ریشه (PO-0015 و مشابه):** مودال «اصلاح بها» وقتی ستون‌ها با اسناد هم‌تراز بودند دکمهٔ اعمال را مخفی می‌کرد؛ کاربر فقط انصراف می‌دید و همان `E_WIP_NOT_ZERO` تکرار می‌شد. مانده اغلب برابر اتلاف لایه بود چون (۱) اتلاف برش مشترک (ADR-005، بستانکار مواد) اشتباهاً از ماندهٔ WIP کم می‌شد؛ (۲) تکمیل مرحله با `waste_abnormal:0` اتلاف لایهٔ کلاسیک را از `cost_out` کم نمی‌کرد → رسید بیش از خالص WIP.
