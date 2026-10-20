@@ -1036,36 +1036,37 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     LIMIT 1
   `).get(pid, whId, excludeId);
 
-  for (const row of seeds) {
-    if (!hasRealEconomic(row.product_id, row.warehouse_id, row.id)) continue;
-    const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
-    // Never retire negative adjust / qty_out seeds — only positive opening qty_in.
-    if (gapQty <= 1e-9) continue;
-    // Any non-seed inbound (not only transfer/FG) can explain stock without the
-    // phantom opening — otherwise seeds linger after production/docs were voided
-    // while warehouse_stock still mirrored the skipStock inflate.
-    const laterIn = Number(db.prepare(`
-      SELECT COALESCE(SUM(qty_in),0) q FROM inventory_ledger
-      WHERE product_id=? AND warehouse_id=?
-        AND COALESCE(status,'posted')='posted'
-        AND id<>?
-        AND COALESCE(qty_in,0) > 0
-        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
-        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
-        AND NOT (
-          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
-        )
-        AND IFNULL(date,'') >= IFNULL(?, '')
-    `).get(row.product_id, row.warehouse_id, row.id, row.date || '')?.q) || 0;
-    if (laterIn + 1e-9 < gapQty) continue;
-    const netNow = _ledgerNet(db, row.product_id, row.warehouse_id);
-    const netWithout = netNow - gapQty;
-    if (netWithout < -1e-9) continue; // would leave negative ledger without seed
-    const wsQty = Number(db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(row.product_id, row.warehouse_id)?.qty) || 0;
-    // Prefer seeds that are redundant vs live WH qty (gap without seed not worse).
-    if (Math.abs(wsQty - netWithout) > Math.abs(wsQty - netNow) + 1e-9) continue;
+  const syncWhToLedger = (productId, warehouseId, entry) => {
+    const net = _ledgerNet(db, productId, warehouseId);
+    if (entry) entry.ledger_net_after = net;
+    try {
+      const ws = db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(productId, warehouseId);
+      if (ws) {
+        if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
+          db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+            .run(net, productId, warehouseId);
+          syncedWh += 1;
+        }
+      } else if (Math.abs(net) > 1e-9) {
+        db.prepare(
+          'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
+        ).run(productId, warehouseId, net);
+        syncedWh += 1;
+      }
+      const header = db.prepare(`
+        SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
+      `).get(productId);
+      db.prepare('UPDATE products SET stock=? WHERE id=?')
+        .run(Number(header?.q) || 0, productId);
+    } catch (e) {
+      if (entry) entry.ws_sync_error = e.message || String(e);
+    }
+    return net;
+  };
+
+  const applyReverse = (row, gapQty, laterIn, reason) => {
     const entry = {
       ledger_id: row.id,
       tx_no: row.tx_no,
@@ -1076,10 +1077,10 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
       note: row.note,
       date: row.date,
       later_in: laterIn,
+      reason: reason || 'covered_by_later_in',
     };
     items.push(entry);
-    if (!apply) continue;
-
+    if (!apply) return entry;
     reverseInventoryMovement(db, row.id, {
       createdBy: adminId,
       date: row.date,
@@ -1087,35 +1088,92 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
       skipStock: true,
     });
     reversed += 1;
-
-    const net = _ledgerNet(db, row.product_id, row.warehouse_id);
-    entry.ledger_net_after = net;
-    try {
-      const ws = db.prepare(
-        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-      ).get(row.product_id, row.warehouse_id);
-      if (ws) {
-        if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
-          db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-            .run(net, row.product_id, row.warehouse_id);
-          syncedWh += 1;
-        }
-      } else if (Math.abs(net) > 1e-9) {
-        db.prepare(
-          'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
-        ).run(row.product_id, row.warehouse_id, net);
-        syncedWh += 1;
-      }
-      const header = db.prepare(`
-        SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
-      `).get(row.product_id);
-      db.prepare('UPDATE products SET stock=? WHERE id=?')
-        .run(Number(header?.q) || 0, row.product_id);
-    } catch (e) {
-      // Triggers may block negative warehouse_stock; ledger reverse already applied.
-      entry.ws_sync_error = e.message || String(e);
-    }
+    syncWhToLedger(row.product_id, row.warehouse_id, entry);
     entry.applied = true;
+    return entry;
+  };
+
+  const nonSeedInbound = (pid, whId, excludeId, fromDate) => Number(db.prepare(`
+    SELECT COALESCE(SUM(qty_in),0) q FROM inventory_ledger
+    WHERE product_id=? AND warehouse_id=?
+      AND COALESCE(status,'posted')='posted'
+      AND id<>?
+      AND COALESCE(qty_in,0) > 0
+      AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+      AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+      AND NOT (
+        replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+      )
+      AND IFNULL(date,'') >= IFNULL(?, '')
+  `).get(pid, whId, excludeId, fromDate || '')?.q) || 0;
+
+  // Pass 1: seed fully covered by later real inbound — reverse + sync WS.
+  // Do NOT block when WS currently mirrors the seed (apply always resyncs WS);
+  // that gate was why hundreds of double-count openings survived v504.
+  for (const row of seeds) {
+    if (!hasRealEconomic(row.product_id, row.warehouse_id, row.id)) continue;
+    const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
+    if (gapQty <= 1e-9) continue;
+    const laterIn = nonSeedInbound(row.product_id, row.warehouse_id, row.id, row.date);
+    if (laterIn + 1e-9 < gapQty) continue;
+    const netNow = _ledgerNet(db, row.product_id, row.warehouse_id);
+    const netWithout = netNow - gapQty;
+    if (netWithout < -1e-9) continue;
+    applyReverse(row, gapQty, laterIn, 'covered_by_later_in');
+  }
+
+  // Pass 2: multiple هم‌ترازی openings on same SKU×WH — keep only the qty still
+  // needed after non-seed net; reverse the rest (oldest first).
+  const grouped = new Map();
+  for (const row of seeds) {
+    const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
+    if (gapQty <= 1e-9) continue;
+    if (items.some((x) => x.ledger_id === row.id)) continue; // already queued/reversed
+    if (String(row.status || 'posted') !== 'posted') continue;
+    // Re-read status if apply already reversed in pass 1
+    if (apply) {
+      const live = db.prepare(
+        "SELECT status FROM inventory_ledger WHERE id=?"
+      ).get(row.id);
+      if (!live || String(live.status) !== 'posted') continue;
+    }
+    const key = `${row.product_id}:${row.warehouse_id}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ row, gapQty });
+  }
+  for (const [, group] of grouped) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => a.row.id - b.row.id);
+    const pid = group[0].row.product_id;
+    const whId = group[0].row.warehouse_id;
+    const nonSeedNet = Number(db.prepare(`
+      SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=?
+        AND COALESCE(status,'posted')='posted'
+        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+        AND NOT (
+          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+        )
+    `).get(pid, whId)?.q) || 0;
+    const wsQty = Number(db.prepare(
+      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+    ).get(pid, whId)?.qty) || 0;
+    // Opening still needed so ledger+kept-seeds can reach WS (never invent stock).
+    let needOpen = Math.max(0, wsQty - nonSeedNet);
+    let kept = 0;
+    for (const { row, gapQty } of group) {
+      if (kept + 1e-9 >= needOpen) {
+        const netNow = _ledgerNet(db, pid, whId);
+        if (netNow - gapQty < -1e-9) {
+          kept += gapQty;
+          continue;
+        }
+        applyReverse(row, gapQty, nonSeedInbound(pid, whId, row.id, row.date), 'surplus_multi_seed');
+        continue;
+      }
+      kept += gapQty;
+    }
   }
 
   if (apply && reversed) {

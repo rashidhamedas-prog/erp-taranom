@@ -157,5 +157,31 @@ db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id
 const retired = retireSpuriousKardexAlign(db, { apply: true, productId: pid2 });
 ok(retired.reversed >= 1, 'retire reverses covered align seed');
 
+// WS currently mirrors seed must NOT block retire when later inbound covers it.
+const pid3 = db.prepare(
+  "INSERT INTO products (name, code, unit, stock, warehouse_id, average_cost_rial, user_id) VALUES ('Vest','V506','عدد',0,?,1000,?)"
+).run(whA, adminId).lastInsertRowid;
+db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(pid3, whA, 8);
+postInventoryMovement(db, {
+  eventType: 'opening', productId: pid3, warehouseId: whA, qty: 4,
+  unitCostRial: 1000, sourceType: 'opening_inventory', sourceId: pid3,
+  date: '1405/06/31', note: 'موجودی اول دوره (هم‌ترازی کاردکس)',
+  createdBy: adminId, skipStock: true, updateAvg: false,
+});
+postInventoryMovement(db, {
+  eventType: 'transfer_in', productId: pid3, warehouseId: whA, qty: 4,
+  unitCostRial: 1000, sourceType: 'warehouse_transfer', sourceId: 50603,
+  date: '1405/07/11', note: 'ورود انتقال', createdBy: adminId, updateAvg: false,
+});
+// WS = ledger with seed (8) — old ws_worse gate skipped these.
+db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+  .run(8, pid3, whA);
+const retiredWs = retireSpuriousKardexAlign(db, { apply: true, productId: pid3 });
+ok(retiredWs.reversed >= 1, 'retire even when WS mirrored seed reversed=' + retiredWs.reversed);
+const wsAfter = Number(db.prepare(
+  'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+).get(pid3, whA)?.qty) || 0;
+ok(Math.abs(wsAfter - 4) < 1e-6, 'WS synced to net without seed got=' + wsAfter);
+
 console.log(`\n══ Result: ${passed} passed, ${failed} failed ══\n`);
 process.exit(failed ? 1 : 0);
