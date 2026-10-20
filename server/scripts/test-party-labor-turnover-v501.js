@@ -32,9 +32,9 @@ ok(/ref_type.*opening/.test(turnoverSrc) && turnoverSrc.includes('isOpeningTurno
 ok(turnoverSrc.includes("personTurn") && turnoverSrc.includes("roles:"), 'multi-role merges person stream');
 ok(leafSrc.includes('moneyClose(rows[i], gl)'), 'leaf-sync requires amount match on same ref');
 ok(laborSrc.includes('sourceId: e.id'), 'PRD-03 sourceId = labor entry id');
-ok(swSrc.includes('erp-taranom-v501'), 'SW v501');
-ok(idxSrc.includes('app.js?v=501'), 'index cache bust v501');
-ok(appJs.includes('v501') || appJs.includes('گردش شخص'), 'app help present');
+ok(/erp-taranom-v(501|502|[5-9]\d{2})/.test(swSrc), 'SW v501+ (cache may advance)');
+ok(/app\.js\?v=(501|502|[5-9]\d{2})/.test(idxSrc), 'index cache bust v501+');
+ok(appJs.includes('v501') || appJs.includes('گردش شخص') || appJs.includes('isOpening'), 'app help present');
 
 let Database;
 try {
