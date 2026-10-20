@@ -207,7 +207,7 @@
     if (target === 'acc-production-orders' || target === 'order') return 1;
     if (target === 'lays' || target === 'acc-cutting-lays' || target === 'lay') return 2;
     if (target === 'acc-production-kanban' || target === 'kanban') return 3;
-    if (target === 'pending-pack' || target === 'pack') return 4;
+    if (target === 'pending-pack' || target === 'active-pack' || target === 'pack') return 4;
     if (target === 'acc-production-cost-sheet' || target === 'cost') return 5;
     return -1;
   }

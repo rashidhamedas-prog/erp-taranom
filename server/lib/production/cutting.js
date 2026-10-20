@@ -879,13 +879,17 @@ function listCuttingLays(db, query = {}) {
   `).all(...params);
   return rows.map((row) => {
     const pack = postedPackForLay(db, row.id);
+    row.has_live_pack = pack ? 1 : 0;
     row.pack_posted = pack ? 1 : 0;
     row.pack_no = pack ? pack.pack_no : null;
     Object.assign(row, layFgCoveredByOrder(db, row));
     // Covered-by-order counts as "done" for pending-pack queues (F06 already posted).
-    if (row.fg_covered_by_order && !row.pack_posted) {
+    // pack_via_order_fg فقط وقتی پوشش سفارش هست و PACK انبار زنده نیست — تا UI ابطال PACK را مخفی نکند.
+    if (row.fg_covered_by_order && !row.has_live_pack) {
       row.pack_posted = 1;
       row.pack_via_order_fg = 1;
+    } else {
+      row.pack_via_order_fg = 0;
     }
     if (row.batch_id) {
       const outs = db.prepare(`
@@ -936,9 +940,17 @@ function getCuttingLay(db, id) {
   }
   const covered = layFgCoveredByOrder(db, row);
   Object.assign(row, covered);
-  if (covered.fg_covered_by_order) {
+  const livePack = postedPackForLay(db, row.id);
+  row.has_live_pack = livePack ? 1 : 0;
+  if (livePack) {
+    row.pack_posted = 1;
+    row.pack_no = livePack.pack_no;
+    row.pack_via_order_fg = 0;
+  } else if (covered.fg_covered_by_order) {
     row.pack_posted = 1;
     row.pack_via_order_fg = 1;
+  } else {
+    row.pack_via_order_fg = 0;
   }
   if (row.batch_id) {
     row.shared_outputs = db.prepare(`

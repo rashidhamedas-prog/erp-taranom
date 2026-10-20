@@ -1,9 +1,9 @@
-### ۱۴۰۵/۰۷/۲۸ — ارسال مجدد = وصول مجدد با تاریخ و بانک انتخابی (SW v497)
-- **ریشه (از برگهٔ 655099):** بعد از برگشت، «ارسال مجدد» فقط سند برگشت را ابطال نرم می‌کرد و وضعیت را به وصول قبلی برمی‌گرداند؛ سند بانک همان وصول قدیمی (مثلاً ۱۴۰۵/۰۷/۲۸) می‌ماند و تاریخ/بانک مودال روی دفتر اثر نداشت.
-- **تصمیم:** ارسال مجدد = redeposit. ابطال نرم برگشت؛ اگر قبلاً وصول شده بود ابطال نرم همان وصول؛ بازگشت به «در جریان وصول»؛ سپس **وصول جدید** با تاریخ و بانک انتخابی (settlement date). واگذاری قبلی دست نمی‌خورد.
-- **رفع:** `postReceivableClear` / `softVoidChequeJe`؛ مودال ارسال مجدد با بانک + تاریخ وصول؛ راهنما؛ تست v497.
-- **فایل‌ها:** `routes/cheque-records.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-cheque-resend-clear-v497.js`, CHANGE-LOG.
-- **تست:** `test-cheque-resend-clear-v497.js` + `test-sms.js`.
+### ۱۴۰۵/۰۷/۲۸ — تب PACK فعال + ابطال وقتی پوشش سفارش هست (SW v498)
+- **ریشه:** تب «بسته‌بندی / رسید محصول» فقط صف **منتظر PACK** بود (count=0 بعد از PACK/نهایی‌سازی). وقتی `fg_covered_by_order` بود، UI دکمهٔ «ابطال رسید محصول» را مخفی می‌کرد حتی اگر `cutting_packs` با ledger زنده مانده بود؛ ویرایش چندمحصول با `E_CUT_HAS_PACK` قفل می‌شد و کاربر جایی برای ابطال نمی‌دید.
+- **تصمیم (R13):** اصلاح PACK = ابطال + ثبت مجدد (بدون amend همان شماره). سه تب: لایه‌چینی / منتظر PACK / **PACK فعال**. پوشش سفارش ≠ نبود PACK.
+- **رفع:** `has_live_pack` و `pack_via_order_fg` صادق در list/get؛ دکمهٔ ابطال/چاپ وقتی PACK زنده است حتی با پوشش سفارش؛ ریدایرکت ویرایش قفل‌شده به تب PACK فعال؛ journey `active-pack` → مرحله ۵؛ راهنما.
+- **فایل‌ها:** `lib/production/cutting.js`, `public/{app.js,prod-journey-gate.js,index.html,sw.js}`, `scripts/test-cutting-pack-active-ui-v498.js`, CHANGE-LOG.
+- **تست:** محلی `test-cutting-pack-active-ui-v498` ۴/۰ و `test-sms` ۲۲/۰.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۸ — ارسال مجدد = وصول مجدد با تاریخ و بانک انتخابی (SW v497)
@@ -11,8 +11,8 @@
 - **تصمیم:** ارسال مجدد = redeposit. ابطال نرم برگشت؛ اگر قبلاً وصول شده بود ابطال نرم همان وصول؛ بازگشت به «در جریان وصول»؛ سپس **وصول جدید** با تاریخ و بانک انتخابی (settlement date). واگذاری قبلی دست نمی‌خورد.
 - **رفع:** `postReceivableClear` / `softVoidChequeJe`؛ مودال ارسال مجدد با بانک + تاریخ وصول؛ راهنما؛ تست v497.
 - **فایل‌ها:** `routes/cheque-records.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-cheque-resend-clear-v497.js`, CHANGE-LOG.
-- **تست:** `test-cheque-resend-clear-v497.js` + `test-sms.js`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cheque-resend-clear-v497` ۲۰/۰ و `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `da581a51` — overlay ایران؛ health=200؛ SW `erp-taranom-v497`.
 
 ### ۱۴۰۵/۰۷/۲۸ — ارسال مجدد چک بعد از soft-void سند برگشت (SW v496)
 - **ریشه:** از v285 به‌بعد `reverseJournalEntry` سند معکوس جدا نمی‌سازد و همیشه `null` برمی‌گرداند (ابطال نرم همان JE). مسیر `POST /cheque-records/:id/resend` هنوز `if (!id)` را شکست می‌گرفت و پیام «معکوس سند برگشت ناموفق بود» نشان می‌داد — حتی وقتی سند برگشت درست ابطال شده بود.
