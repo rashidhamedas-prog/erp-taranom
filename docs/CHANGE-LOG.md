@@ -3,15 +3,15 @@
 - **تصمیم (کاردکس استاندارد):** سند opening / اول‌دوره همیشه اول دوره است نه ورود؛ در ممیزی دیده می‌شود ولی مانده از همان opening ساخته می‌شود. جفت ابطال فقط جمع ممیزی را بزرگ می‌کند؛ هم‌ترازی mid-period دیگر `control_gap` جعلی نمی‌سازد.
 - **رفع:** `isOpeningStockRow` نرمال‌سازی ی/ک؛ opening دیگر `audit-only` نیست؛ `countsAsOpening` برای هر opening داخل بازه؛ نمایش opening در ممیزی؛ UI `audit_only`/`is_opening`؛ راهنما.
 - **فایل‌ها:** `lib/ledgers.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-kardex-align-audit-v502.js`, CHANGE-LOG.
-- **تست:** `test-kardex-align-audit-v502` + `test-kardex-opening-v490` + `test-hide-audit-rows-v400` + `test-sms`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-kardex-align-audit-v502` ۲۲/۰ + `test-kardex-opening-v490` ۱۲/۰ + `test-hide-audit-rows-v400` ۱۷/۰ + `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `99f8332d` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v502`.
 
 ### ۱۴۰۵/۰۷/۲۸ — گردش نقش‌دوگانه: یک افتتاحیه + همه دستمزدهای سفارش (SW v501)
 - **ریشه (ابراهیمی / PO-0014):** شخص هم‌زمان مشتری+تأمین‌کننده+پرسنل است. مسیر یکپارچهٔ گردش فقط دفاتر مشتری/تأمین را ادغام می‌کرد و `ref_type=opening` مشتری را نگه می‌داشت، بعد با `alignEntriesToTarget` یک «تطبیق با دفتر زنده» اضافه می‌کرد → دو مانده اول دورهٔ ۴۰٬۳۹۶٬۰۰۰. دستمزد قطعه‌ای روی برگ تأمین‌کننده (`2101…`) می‌نشست و `party-leaf-sync` با `ref_type+ref_id=orderId` فقط اولین PRD-03 را در `supplier_ledger` می‌نوشت → دستمزد آبان در گردش یکپارچه غایب بود (در `person_ledger` هر دو بود).
 - **رفع:** strip همهٔ توکن‌های opening؛ ادغام جریان شخص در نقش دوگانه؛ match مبلغ در leaf-sync؛ `sourceId` سند PRD-03 = id ردیف دستمزد؛ heal بازطبقه‌بندی برگ شخص + resync؛ راهنما.
 - **فایل‌ها:** `lib/{party-turnover,party-leaf-sync,production/labor}.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-party-labor-turnover-v501,heal-party-labor-turnover-v501}.js`, CHANGE-LOG.
-- **تست:** ایران `test-party-labor-turnover-v501` + `test-sms`؛ harness بدون ستون `opening_balance` روی customers/suppliers.
-- **Deploy:** ⏳ overlay کد v501 روی ایران؛ heal بعد از سبز شدن تست.
+- **تست:** ایران `test-party-labor-turnover-v501` + `test-sms`؛ harness با PRAGMA؛ سناریوی leaf-sync روی برگ مشترک person+supplier.
+- **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۸ — مقدار گزارش تا ۳ رقم؛ ریال صحیح می‌ماند (SW v500)
 - **ریشه:** کاردکس کالا (و چند گزارش موجودی) مقدار یارد/متر را با `fmt` نشان می‌داد. `fmt` مخصوص ریال است و `Math.round` می‌زند؛ مثلاً ۰٫۴ یارد می‌شود ۰ و ۱٫۶ می‌شود ۲. سلول ورود ردیف اضافه طاقه در کاردکس همان مسیر بود. ذخیرهٔ دفتر اعشار را تا ۳ رقم نگه می‌دارد؛ CSV خام است.
