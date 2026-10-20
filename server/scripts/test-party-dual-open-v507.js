@@ -96,14 +96,31 @@ try {
   `).run();
 } catch (_) { /* optional schema */ }
 
+function tableCols(name) {
+  return new Set(db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name));
+}
+
 const partyId = db.prepare(`
   INSERT INTO parties (person_code, party_type, party_roles, full_name, phone, coa_code, opening_balance, is_active)
   VALUES ('P-D507','other','["customer","supplier","employee"]','تست دوگانه v507','09120005007',?, -40396000, 1)
 `).run(coaPerson).lastInsertRowid;
 
-const custId = db.prepare(`
-  INSERT INTO customers (biz, phone, coa_code, party_id, balance) VALUES ('تست دوگانه v507','09120005007',?,?,0)
-`).run(coaCust, partyId).lastInsertRowid;
+const custCols = tableCols('customers');
+{
+  const cols = [];
+  const vals = [];
+  if (custCols.has('user_id')) { cols.push('user_id'); vals.push(1); }
+  if (custCols.has('biz')) { cols.push('biz'); vals.push('تست دوگانه v507'); }
+  else if (custCols.has('name')) { cols.push('name'); vals.push('تست دوگانه v507'); }
+  if (custCols.has('phone')) { cols.push('phone'); vals.push('09120005007'); }
+  if (custCols.has('coa_code')) { cols.push('coa_code'); vals.push(coaCust); }
+  if (custCols.has('party_id')) { cols.push('party_id'); vals.push(partyId); }
+  if (custCols.has('balance')) { cols.push('balance'); vals.push(0); }
+  if (custCols.has('status')) { cols.push('status'); vals.push('active'); }
+  db.prepare(`INSERT INTO customers (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`)
+    .run(...vals);
+}
+const custId = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyId).id;
 
 const supId = db.prepare(`
   INSERT INTO suppliers (name, phone, coa_code, party_id, balance) VALUES ('تست دوگانه v507','09120005007',?,?,0)
