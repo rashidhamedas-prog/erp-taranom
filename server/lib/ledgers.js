@@ -537,26 +537,46 @@ function enrichInvoiceGroupDetails(db, productId, parent) {
       parent.doc_num = inv.num;
       parent.tx_no = inv.num;
     }
+    // Ledger-aggregated children already carry true qty_out/in — never replace
+    // them with invoice JSON (pack matrix often repeats line qty per color).
+    if (Array.isArray(parent.child_ids) && parent.child_ids.length > 1
+      && Array.isArray(parent.details) && parent.details.length > 1) {
+      return;
+    }
     let rows = [];
     try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
     const parts = (rows || []).filter((r) => Number(r.product_id) === Number(productId));
-    if (!parts.length) return;
+    if (parts.length <= 1) return;
+    const parentOut = Number(parent.qty_out) || 0;
+    const parentIn = Number(parent.qty_in) || 0;
+    const invSumOut = parts.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    const parentQty = parentOut > 0 ? parentOut : parentIn;
+    // Only explode when invoice line qtys sum to the ledger parent — otherwise
+    // details would show 2+2+2+2 while parent shows 2.
+    if (Math.abs(invSumOut - parentQty) > 1e-6) {
+      const colors = parts
+        .map((r) => [r.color_name || r.color, r.size_name].filter(Boolean).join('/'))
+        .filter(Boolean);
+      if (colors.length && parent.description
+        && !String(parent.description).includes('رنگ')) {
+        parent.description = `${parent.description} (${colors.slice(0, 6).join('، ')})`;
+      }
+      return;
+    }
     parent.details = parts.map((r, i) => ({
       id: `${parent.id}-inv-${i}`,
       tx_no: inv.num || parent.tx_no,
-      qty_in: 0,
-      qty_out: Number(r.qty) || 0,
+      qty_in: parentIn > 0 ? (Number(r.qty) || 0) : 0,
+      qty_out: parentOut > 0 ? (Number(r.qty) || 0) : 0,
       color_name: r.color_name || r.color || null,
       size_name: r.size_name || null,
       description: [r.color_name || r.color, r.size_name].filter(Boolean).join(' / ') || parent.description,
     }));
-    if (parent.details.length > 1) {
-      parent.is_group = true;
-      parent.detail_count = parent.details.length;
-      const label = parent.details.length + ' رنگ/سایز';
-      if (parent.description && !String(parent.description).includes('رنگ/سایز')) {
-        parent.description = `${parent.description} (${label})`;
-      }
+    parent.is_group = true;
+    parent.detail_count = parent.details.length;
+    const label = parent.details.length + ' رنگ/سایز';
+    if (parent.description && !String(parent.description).includes('رنگ/سایز')) {
+      parent.description = `${parent.description} (${label})`;
     }
   } catch (_) { /* optional */ }
 }

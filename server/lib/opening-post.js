@@ -754,10 +754,30 @@ function reconcileProductStockLedger(db, productId, {
   `).all(pid);
 
   let count = 0;
+  let skippedLive = 0;
   for (const r of rows) {
     const net = _ledgerNet(db, pid, r.warehouse_id);
     const gap = Number(r.qty) - net;
     if (Math.abs(gap) <= 1e-9) continue;
+    // Never invent «موجودی اول دوره (هم‌ترازی)» after the SKU already has real
+    // warehouse life (sale / transfer / pack / purchase). Those seeds survive
+    // voids, reappear on every boot, and inflate kardex + reports. Gap stays
+    // visible as control_gap until an explicit admin reconcile.
+    const hasLive = !!db.prepare(`
+      SELECT 1 AS ok FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=?
+        AND COALESCE(status,'posted')='posted'
+        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+        AND NOT (
+          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+        )
+      LIMIT 1
+    `).get(pid, r.warehouse_id);
+    if (hasLive) {
+      skippedLive += 1;
+      continue;
+    }
     if (gap > 0) {
       postInventoryMovement(db, {
         eventType: 'opening',
@@ -791,7 +811,7 @@ function reconcileProductStockLedger(db, productId, {
     }
     count += 1;
   }
-  return { count, seeded_wh: seeded };
+  return { count, seeded_wh: seeded, skipped_live: skippedLive };
 }
 
 /**
@@ -1021,20 +1041,19 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
     // Never retire negative adjust / qty_out seeds — only positive opening qty_in.
     if (gapQty <= 1e-9) continue;
-    // Later inbound ops that can explain stock without the seed (transfer/receipt/FG).
+    // Any non-seed inbound (not only transfer/FG) can explain stock without the
+    // phantom opening — otherwise seeds linger after production/docs were voided
+    // while warehouse_stock still mirrored the skipStock inflate.
     const laterIn = Number(db.prepare(`
       SELECT COALESCE(SUM(qty_in),0) q FROM inventory_ledger
       WHERE product_id=? AND warehouse_id=?
         AND COALESCE(status,'posted')='posted'
         AND id<>?
         AND COALESCE(qty_in,0) > 0
-        AND (
-          IFNULL(event_type,'') IN (
-            'transfer_in','receipt','purchase','cutting_pack','production_receipt','pack'
-          )
-          OR IFNULL(source_type,'') IN (
-            'warehouse_transfer','warehouse_move','cutting_pack','purchase','purchase_invoice'
-          )
+        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+        AND NOT (
+          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
         )
         AND IFNULL(date,'') >= IFNULL(?, '')
     `).get(row.product_id, row.warehouse_id, row.id, row.date || '')?.q) || 0;
@@ -1100,7 +1119,7 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
   }
 
   if (apply && reversed) {
-    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_align_retire_v503',?)")
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_align_retire_v506',?)")
       .run(JSON.stringify({
         ok: 1, reversed, synced_wh: syncedWh, at: new Date().toISOString(),
       }));

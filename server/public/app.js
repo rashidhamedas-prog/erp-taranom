@@ -12155,12 +12155,12 @@ async function loadItemKardex(productId){
             :(isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`
             :(auditOnly?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">هم‌ترازی</span>`:''));
           const wip=l.warehouse_only?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">WIP</span>`:'';
-          const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
+          const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" aria-expanded="false" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
           const colSpan=window.__canSeeCost?10:8;
           const detailRows=isGroup?l.details.map(d=>{
             const dIn=Number(d.qty_in)||0, dOut=Number(d.qty_out)||0;
             const dLabel=[d.color_name,d.size_name].filter(Boolean).join(' / ')||d.description||d.tx_no||'—';
-            return `<tr class="kardex-detail" data-kparent="${esc(String(l.id))}" data-csp-style="${CSP.style(`display:none;background:var(--bg-soft,var(--purple-light));font-size:11px`)}">
+            return `<tr class="kardex-detail" data-kparent="${esc(String(l.id))}" hidden data-csp-style="${CSP.style(`background:var(--bg-soft,var(--purple-light));font-size:11px`)}">
               <td></td>
               <td class="mono muted">${esc(d.tx_no||'')}</td>
               <td colspan="2">${esc(dLabel)}</td>
@@ -12217,16 +12217,24 @@ async function loadItemKardex(productId){
   box.querySelectorAll('.kardex-tog').forEach(btn=>{
     btn.addEventListener('click',function(ev){
       ev.preventDefault();
+      ev.stopPropagation();
       const kid=this.getAttribute('data-kid');
       const rows=box.querySelectorAll('tr.kardex-detail[data-kparent="'+kid+'"]');
-      let open=false;
+      // aria-expanded is the source of truth — empty style.display after first
+      // open was misread as «hidden» so the row never collapsed (v506).
+      const willOpen=this.getAttribute('aria-expanded')!=='true';
       rows.forEach(function(tr){
-        const hide=tr.style.display==='none'||!tr.style.display;
-        tr.style.display=hide?'':'none';
-        if(hide) open=true;
+        if(willOpen){
+          tr.removeAttribute('hidden');
+          tr.style.removeProperty('display');
+        }else{
+          tr.setAttribute('hidden','');
+          tr.style.setProperty('display','none');
+        }
       });
+      this.setAttribute('aria-expanded', willOpen?'true':'false');
       const n=rows.length;
-      this.textContent=(open?'▴ ':'▾ ')+n+' جزئیات';
+      this.textContent=(willOpen?'▴ ':'▾ ')+n+' جزئیات';
     });
   });
 }
@@ -33191,7 +33199,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
         <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را با فیلتر «همه» باز می‌کند؛ تعداد هر رنگ×سایز کاملاً دستی است (صفر = حذف؛ اجبار زوج نیست). ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
-        <li><b>کاردکس / گردش کالا (v504):</b> حواله یا فاکتور چندرنگ به‌صورت <b>یک ردیف مادر</b> دیده می‌شود؛ دکمه «جزئیات» رنگ/سایز را باز می‌کند. موجودی کارت فاکتور با انبار انتخاب‌شده است (نه جمع کل شرکت). سندهای هم‌ترازی نادرست کاردکس برای کالای دارای گردش واقعی ابطال و موجودی انبار هم‌تراز می‌شود.</li>
+        <li><b>کاردکس / گردش کالا (v506):</b> حواله یا فاکتور چندرنگ به‌صورت <b>یک ردیف مادر</b> دیده می‌شود؛ دکمه «جزئیات» با کلیک دوم بسته می‌شود و جمع جزییات با سطر مادر یکی است (ماتریس فاکتور دیگر مقدار دفتر را باد نمی‌کند). سند «موجودی اول دوره (هم‌ترازی کاردکس)» فقط برای کالای بدون گردش واقعی ساخته می‌شود؛ روی بوت، هم‌ترازی‌های یتیم ابطال نرم می‌شوند تا گزارش‌ها باد نمانند. موجودی کارت فاکتور با انبار انتخاب‌شده است.</li>
         <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
         <li><b>ترتیب لیست (v393):</b> صفحهٔ فاکتور و «فاکتورهای فروش» همیشه بر اساس <b>تاریخ صدور</b> نزولی نسبت به امروز مرتب می‌شوند (جدیدترین بالا). شماره فاکتور معیار سورت پیش‌فرض نیست؛ با تاریخ یکسان، شناسهٔ بالاتر بالاتر می‌آید.</li>
       </ul>

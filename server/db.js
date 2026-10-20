@@ -2585,6 +2585,7 @@ function initSyncSchema(db, opts) {
         reconcileInventoryLedgerGaps,
         redateOpeningDocsToFiscalStart,
         retireDuplicateOpeningValueJournals,
+        retireSpuriousKardexAlign,
       } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
       if (bf && !bf.skipped && bf.count) {
@@ -2593,6 +2594,17 @@ function initSyncSchema(db, opts) {
       const gap = reconcileInventoryLedgerGaps(db);
       if (gap && !gap.skipped && (gap.count || gap.seeded_wh)) {
         console.log('✅ inventory_ledger_gap_reconcile_v1:', JSON.stringify(gap));
+      }
+      // After gap seed: reverse phantom هم‌ترازی openings that real movements
+      // already explain (R12 soft-void). Must run on boot or next reconcile
+      // would keep inflating kardex forever.
+      const retire = retireSpuriousKardexAlign(db, { apply: true });
+      if (retire && !retire.skipped && (retire.reversed || retire.candidates)) {
+        console.log('✅ kardex_align_retire_v506:', JSON.stringify({
+          candidates: retire.candidates,
+          reversed: retire.reversed,
+          synced_wh: retire.synced_wh,
+        }));
       }
       const dated = redateOpeningDocsToFiscalStart(db);
       if (dated && !dated.skipped && (dated.ledger || dated.journals)) {
