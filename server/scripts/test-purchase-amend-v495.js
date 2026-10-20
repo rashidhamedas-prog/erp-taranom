@@ -118,24 +118,27 @@ try {
 
   const express = require('express');
   const http = require('http');
-  delete require.cache[require.resolve('../server')];
-  // Prefer mounting purchases router directly
+  const authPath = require.resolve('../middleware/auth');
+  delete require.cache[authPath];
+  require.cache[authPath] = {
+    id: authPath,
+    filename: authPath,
+    loaded: true,
+    exports: {
+      auth: (req, _res, next) => {
+        req.user = { id: admin.id, role: 'admin', username: 'admin', name: admin.name || 'admin' };
+        next();
+      },
+      adminOrAccounting: (_req, _res, next) => next(),
+      requirePermission: () => (_req, _res, next) => next(),
+      centralOnly: (_req, _res, next) => next(),
+    },
+  };
+  delete require.cache[require.resolve('../routes/purchases')];
   const purchasesRouter = require('../routes/purchases');
-  const { auth } = require('../middleware/auth');
-  const jwt = require('jsonwebtoken');
-  const token = jwt.sign(
-    { id: admin.id, role: admin.role || 'admin', username: 'admin' },
-    process.env.JWT_SECRET,
-    { expiresIn: '1h' }
-  );
 
   const app = express();
   app.use(express.json({ limit: '2mb' }));
-  // Minimal auth stub if route uses auth middleware with real JWT
-  app.use((req, _res, next) => {
-    req.headers.authorization = 'Bearer ' + token;
-    next();
-  });
   app.use('/api/purchases', purchasesRouter);
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -144,10 +147,7 @@ try {
   async function api(method, urlPath, body) {
     const res = await fetch('http://127.0.0.1:' + port + urlPath, {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + token,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: body != null ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
