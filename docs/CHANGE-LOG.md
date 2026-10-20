@@ -10,8 +10,8 @@
 - **ریشه (PO-0015 و مشابه):** مودال «اصلاح بها» وقتی ستون‌ها با اسناد هم‌تراز بودند دکمهٔ اعمال را مخفی می‌کرد؛ کاربر فقط انصراف می‌دید و همان `E_WIP_NOT_ZERO` تکرار می‌شد. مانده اغلب برابر اتلاف لایه بود چون (۱) اتلاف برش مشترک (ADR-005، بستانکار مواد) اشتباهاً از ماندهٔ WIP کم می‌شد؛ (۲) تکمیل مرحله با `waste_abnormal:0` اتلاف لایهٔ کلاسیک را از `cost_out` کم نمی‌کرد → رسید بیش از خالص WIP.
 - **رفع:** ماندهٔ بستن فقط ضایعات مؤثر بر WIP را می‌شمارد؛ اتلاف طولی مشترک جدا گزارش می‌شود. `POST …/cost-reconcile` با `mode=auto` اول ستون‌ها را یکی می‌کند و اگر لازم باشد رسید را با خالص WIP تطبیق می‌دهد (FG/COGS، الگوی ADR-006/v466). UI همیشه دکمهٔ اعمال نشان می‌دهد. تکمیل مرحلهٔ جلویی اتلاف کلاسیک را از `cost_out` کم می‌کند؛ اتصال لایهٔ مشترک `netToWip` را کم‌حساب نمی‌کند.
 - **فایل‌ها:** `lib/production/{order-cost-reconcile,engine,engine-advanced}.js`, `routes/production-orders.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-order-cost-reconcile-v503.js`, CHANGE-LOG.
-- **تست:** ایران `test-order-cost-reconcile-v503` + `test-order-cost-reconcile-v493` + `test-sms`؛ پارس محلی `app.js` سبز (sqlite محلی Node۲۴ ABI ندارد).
-- **Deploy:** ⏳
+- **تست:** ایران `test-order-cost-reconcile-v503` ۱۹/۰ + `test-order-cost-reconcile-v493` + `test-sms` ۲۲/۰؛ پارس محلی `app.js` سبز.
+- **Deploy:** ✅ `d5ced959` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v503`.
 
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس: هم‌ترازی اول‌دوره دیگر مانده را صفر نمی‌کند (SW v502)
 - **ریشه:** با تیک «نمایش ابطال و هم‌ترازی»، ردیف `موجودی اول دوره (هم‌ترازی کاردکس)` به‌خاطر کلمهٔ هم‌ترازی در `alignOnly` می‌افتاد: `qty_in` در جدول می‌آمد ولی `running_qty` و `opening_qty` اثر نمی‌گرفتند. اگر تاریخ seed (مثلاً ۱۴۰۵/۰۶/۳۱) با `fiscal_years.start_date` (اغلب ۱۴۰۵/۰۱/۰۱) یکی نبود، `countsAsOpening` هم رد می‌شد → ورود ۱۹ / پایان ۰ در حالی که موجودی فعلی ۱۲ بود و پیام «تفاوت از ردیف هم‌ترازی خارج از جدول».
