@@ -118,6 +118,11 @@ function turnoverRowKey(e) {
   const rid = e.ref_id != null ? String(e.ref_id) : '';
   const d = Math.round(Number(e.debit) || 0);
   const c = Math.round(Number(e.credit) || 0);
+  // Piece labor may sit on person_ledger (labor entry id) and an old supplier_ledger
+  // row (order id) after heal/reclass — same date+amount must not double-count.
+  if (rt === 'production_labor') {
+    return `production_labor|${e.date || ''}|${d}|${c}`;
+  }
   if (rt && rid) return `${rt}|${rid}|${d}|${c}`;
   return `${e.source || ''}|${e.date || ''}|${d}|${c}|${String(e.description || '').slice(0, 40)}`;
 }

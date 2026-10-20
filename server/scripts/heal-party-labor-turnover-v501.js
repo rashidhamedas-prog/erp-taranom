@@ -36,6 +36,34 @@ const rows = db.prepare(`
 `).all();
 
 out.scanned = rows.length;
+out.supplier_orphans_removed = 0;
+
+function purgeSupplierLaborOrphans(person, laborId, jeId, amountRial) {
+  const partyId = person.party_id != null ? Number(person.party_id) : 0;
+  const amt = Math.round(Number(amountRial) || 0);
+  if (!partyId || !amt) return 0;
+  let removed = 0;
+  const je = db.prepare('SELECT ref_id FROM journal_entries WHERE id=?').get(jeId);
+  const orderRef = je && je.ref_id != null ? Number(je.ref_id) : null;
+  // Only wipe AP-leaf supplier books — never person/customer mirrors on the payable leaf.
+  const info = db.prepare(`
+    DELETE FROM supplier_ledger
+    WHERE supplier_id IN (
+      SELECT s.id FROM suppliers s
+      WHERE s.party_id=?
+        AND COALESCE(s.coa_code,'') <> ?
+    )
+      AND ref_type='production_labor'
+      AND (
+        ref_id=?
+        OR ref_id=?
+        OR ABS(ROUND(COALESCE(credit,0)) - ?) <= 1
+        OR ABS(ROUND(COALESCE(credit,0) * 10) - ?) <= 1
+      )
+  `).run(partyId, String(person.coa_code || ''), laborId, orderRef || -1, amt, amt);
+  removed += Number(info.changes) || 0;
+  return removed;
+}
 
 for (const r of rows) {
   try {
@@ -53,14 +81,20 @@ for (const r of rows) {
     `).get(r.je_id);
     if (!cr) { out.skipped++; continue; }
     const needsReclass = String(cr.account_code) !== String(payable.code);
-    if (!needsReclass && !dryRun) {
-      try {
-        require('../lib/party-leaf-sync').syncJournalEntryToPartyBooks(db, r.je_id);
-        out.synced++;
-      } catch (_) { /* optional */ }
+    if (!needsReclass) {
+      if (!dryRun) {
+        out.supplier_orphans_removed += purgeSupplierLaborOrphans(
+          person, r.labor_id, r.je_id, r.amount_rial
+        );
+        try {
+          require('../lib/party-leaf-sync').syncJournalEntryToPartyBooks(db, r.je_id);
+          out.synced++;
+        } catch (_) { /* optional */ }
+      } else {
+        out.skipped++;
+      }
       continue;
     }
-    if (!needsReclass) { out.skipped++; continue; }
 
     if (dryRun) {
       out.reclassed++;
@@ -72,6 +106,10 @@ for (const r of rows) {
       SET account_code=?, account_name=?, detail_account_id=COALESCE(?, detail_account_id)
       WHERE id=?
     `).run(payable.code, payable.name, person.detail_account_id || null, cr.id);
+
+    out.supplier_orphans_removed += purgeSupplierLaborOrphans(
+      person, r.labor_id, r.je_id, r.amount_rial
+    );
 
     try {
       require('../lib/party-leaf-sync').syncJournalEntryToPartyBooks(db, r.je_id);

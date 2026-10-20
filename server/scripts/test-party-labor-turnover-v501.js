@@ -28,6 +28,10 @@ const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 
 ok(turnoverSrc.includes('isOpeningTurnoverRow'), 'isOpeningTurnoverRow helper');
 ok(turnoverSrc.includes('turnoverRowKey'), 'turnoverRowKey helper');
+ok(
+  /production_labor\|\$\{e\.date/.test(turnoverSrc) || turnoverSrc.includes("production_labor|${e.date"),
+  'production_labor dedupe key ignores divergent ref_id'
+);
 ok(/ref_type.*opening/.test(turnoverSrc) && turnoverSrc.includes('isOpeningTurnoverRow'), 'strips opening not only opening_balance');
 ok(turnoverSrc.includes("personTurn") && turnoverSrc.includes("roles:"), 'multi-role merges person stream');
 ok(leafSrc.includes('moneyClose(rows[i], gl)'), 'leaf-sync requires amount match on same ref');

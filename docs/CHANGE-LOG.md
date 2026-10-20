@@ -8,9 +8,9 @@
 
 ### ۱۴۰۵/۰۷/۲۸ — گردش نقش‌دوگانه: یک افتتاحیه + همه دستمزدهای سفارش (SW v501)
 - **ریشه (ابراهیمی / PO-0014):** شخص هم‌زمان مشتری+تأمین‌کننده+پرسنل است. مسیر یکپارچهٔ گردش فقط دفاتر مشتری/تأمین را ادغام می‌کرد و `ref_type=opening` مشتری را نگه می‌داشت، بعد با `alignEntriesToTarget` یک «تطبیق با دفتر زنده» اضافه می‌کرد → دو مانده اول دورهٔ ۴۰٬۳۹۶٬۰۰۰. دستمزد قطعه‌ای روی برگ تأمین‌کننده (`2101…`) می‌نشست و `party-leaf-sync` با `ref_type+ref_id=orderId` فقط اولین PRD-03 را در `supplier_ledger` می‌نوشت → دستمزد آبان در گردش یکپارچه غایب بود (در `person_ledger` هر دو بود).
-- **رفع:** strip همهٔ توکن‌های opening؛ ادغام جریان شخص در نقش دوگانه؛ match مبلغ در leaf-sync؛ `sourceId` سند PRD-03 = id ردیف دستمزد؛ heal بازطبقه‌بندی برگ شخص + resync؛ راهنما.
+- **رفع:** strip همهٔ توکن‌های opening؛ ادغام جریان شخص در نقش دوگانه؛ match مبلغ در leaf-sync؛ `sourceId` سند PRD-03 = id ردیف دستمزد؛ کلید dedupe دستمزد با `date|amount` (نه فقط ref_id) تا آینهٔ مشتری/تأمین با id سفارش دوبل نشود؛ heal بازطبقه‌بندی برگ شخص + پاک‌سازی یتیم `supplier_ledger` روی برگ AP + resync؛ راهنما.
 - **فایل‌ها:** `lib/{party-turnover,party-leaf-sync,production/labor}.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-party-labor-turnover-v501,heal-party-labor-turnover-v501}.js`, CHANGE-LOG.
-- **تست:** ایران `test-party-labor-turnover-v501` + `test-sms`؛ harness با PRAGMA؛ سناریوی leaf-sync روی برگ مشترک person+supplier.
+- **تست:** ایران `test-party-labor-turnover-v501` + `test-sms`.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۸ — مقدار گزارش تا ۳ رقم؛ ریال صحیح می‌ماند (SW v500)
