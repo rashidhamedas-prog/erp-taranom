@@ -1,10 +1,10 @@
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس تجمیعی + موجودی انبار فاکتور + ویرایش آزاد پک + heal هم‌ترازی (SW v504)
 - **علائم:** کاردکس انبار کیمیا برای حواله چندرنگ (مثل WH-0010) چند سطر INV جدا نشان می‌داد؛ موجودی کارت فاکتور با انبار انتخاب‌شده هم‌خوان نبود؛ سند «موجودی اول دوره (هم‌ترازی کاردکس)» برای کالای تازه‌تولید ورود دوره را باد می‌کرد؛ ویرایش رنگ/سایز بعد از افزودن پک عملاً زوج/پک کامل می‌ماند.
 - **ریشه:** هر رنگ حواله `warehouse_moves` جدا با `tx_no` جدا است؛ کارت فاکتور با `wh_qty` تهی به `products.stock` سراسری برمی‌گشت؛ reconcile با `skipStock` seed هم‌ترازی می‌کاشت؛ مودال ویرایش روی اولین رنگ فیلتر می‌شد و qty=۱ پک روی سایزهای مخفی می‌ماند.
-- **رفع:** `buildStockLedger` ردیف مادر + `details[]` (حواله با `WH-####`، فاکتور با شماره فاکتور)؛ UI دکمه «جزئیات»؛ موجودی فاکتور فقط انبار انتخاب‌شده؛ مودال ویرایش پیش‌فرض «همه» + صفر کردن همه؛ `retireSpuriousKardexAlign` (reverse skipStock + sync `warehouse_stock`/`products.stock`)؛ reverse opening/align دیگر موجودی فیزیکی را جابه‌جا نمی‌کند.
-- **فایل‌ها:** `lib/{ledgers,opening-post,inventory/ledger}.js`, `routes/products.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-kardex-group-v504,heal-kardex-align-v504}.js`, CHANGE-LOG.
-- **تست:** محلی static `test-kardex-group-v504` ۷/۰ + پارس `app.js` + `test-sms` ۲۲/۰؛ DB روی ایران.
-- **Deploy:** ⏳
+- **رفع:** `buildStockLedger` ردیف مادر + `details[]` (حواله با `WH-####`، فاکتور با شماره فاکتور)؛ UI دکمه «جزئیات»؛ موجودی فاکتور فقط انبار انتخاب‌شده؛ مودال ویرایش پیش‌فرض «همه» + صفر کردن همه؛ `retireSpuriousKardexAlign` فقط برای opening مثبت با رسید بعدی کافی و بدون بدتر شدن فاصلهٔ WS (اولین پاس heal بیش‌ازحد بود → `undo-kardex-align-retire-v504` همه را برگرداند).
+- **فایل‌ها:** `lib/{ledgers,opening-post,inventory/ledger}.js`, `routes/products.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-kardex-group-v504,heal-kardex-align-v504,undo-kardex-align-retire-v504}.js`, CHANGE-LOG.
+- **تست:** ایران `test-kardex-group-v504` ۱۶/۰ + `test-sms` ۲۲/۰؛ heal امن candidates=0 پس از undo.
+- **Deploy:** ✅ `b99f6cf8` (+`b7fa221a` harden) — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp. SW `erp-taranom-v504`.
 
 ### ۱۴۰۵/۰۷/۲۸ — فروش سریع: فی دستی + برگشت کامل / استرداد وجه (SW v503)
 - **علائم:** ویرایش دستی فی در سبد فروش سریع بعد از blur خالی می‌شد و جمع ردیف ۰ می‌ماند. برگشت بدون کالای جایگزین و استرداد کامل وجه در همان صفحه نبود.
