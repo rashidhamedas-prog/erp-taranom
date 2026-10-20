@@ -3,8 +3,8 @@
 - **تصمیم:** هیبرید — قطعه‌ای/ساعتی + شخص → بستانکار برگ شخص + `person_ledger`؛ ماهانه یا بدون شخص → ۵۲۰۱ (حقوق ماهانه با PRD-04). ابطال مرحله همچنان retire می‌کند (R13). heal اختیاری برای اسناد تاریخی ADR-005.
 - **رفع:** `absorbLaborJournal` گروه‌بندی بر اساس مقصد بستانکار؛ `healPieceLaborPersonPayable` + اسکریپت dry-run/`--apply`؛ به‌روز ADR-005 و accounting-events؛ راهنما/SW v499.
 - **فایل‌ها:** `lib/production/labor.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-bom-labor-person-je-v499,heal-labor-person-payable-v499}.js`, `docs/{CHANGE-LOG,architecture/PROD-CUT-ADR-005-shared-cut,Production/accounting-events}.md`.
-- **تست:** محلی static v499 ۲۰/۰ + `test-sms` ۲۲/۰؛ sqlite محلی ABI رد. ایران بعد از deploy.
-- **Deploy:** ⏳
+- **تست:** ایران `test-bom-labor-person-je-v499` ۳۵/۰ + `test-sms` ۲۲/۰. heal زنده ۲ ردیف قطعه‌ای تاریخی از ۵۲۰۱ به حساب شخص + `person_ledger` (idempotent).
+- **Deploy:** ✅ `13363ca6` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp. SW `erp-taranom-v499`.
 
 ### ۱۴۰۵/۰۷/۲۸ — تب PACK فعال + ابطال وقتی پوشش سفارش هست (SW v498)
 - **ریشه:** تب «بسته‌بندی / رسید محصول» فقط صف **منتظر PACK** بود (count=0 بعد از PACK/نهایی‌سازی). وقتی `fg_covered_by_order` بود، UI دکمهٔ «ابطال رسید محصول» را مخفی می‌کرد حتی اگر `cutting_packs` با ledger زنده مانده بود؛ ویرایش چندمحصول با `E_CUT_HAS_PACK` قفل می‌شد و کاربر جایی برای ابطال نمی‌دید.
