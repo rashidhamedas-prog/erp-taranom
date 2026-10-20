@@ -16717,7 +16717,7 @@ function prodJourneyStepClick(stepIndex){
   const s=state.steps[stepIndex];
   if(s.goFn==='goCuttingLaysView'){
     // از کارت مسیر؛ گیت همین‌جا پاس شده — بدون گیت دوباره
-    window._cuttingLaysView=s.goArg==='pending-pack'?'pending-pack':'lays';
+    window._cuttingLaysView=(s.goArg==='pending-pack'||s.goArg==='active-pack')?s.goArg:'lays';
     try{ sessionStorage.setItem('cuttingLaysView', window._cuttingLaysView); }catch(_){}
     go('acc-cutting-lays');
     return;
