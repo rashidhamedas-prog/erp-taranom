@@ -339,14 +339,26 @@ function isStockLedgerGhost(r) {
   return qIn === 0 && qOut === 0 && amt === 0;
 }
 
-/** Strip ZWNJ/spaces so «هم‌ترازی» / «هم ترازی» / «همترازی» match the same. */
+/** Strip ZWNJ/spaces + Arabic Yeh/Kaf so «هم‌ترازی» / «همترازي» match the same. */
 function normalizeAuditText(s) {
-  return String(s || '').replace(/\u200c/g, '').replace(/\s+/g, '');
+  return String(s || '')
+    .replace(/\u200c/g, '')
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\s+/g, '');
+}
+
+/** Normalize Persian letters without collapsing spaces (for opening note prefixes). */
+function normalizeFaLetters(s) {
+  return String(s || '')
+    .replace(/\u200c/g, '')
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک');
 }
 
 /** Journal/doc description that is void or technical alignment (operational hide). */
 function isAuditOnlyJournalDescription(desc) {
-  const raw = String(desc || '').trim();
+  const raw = normalizeFaLetters(String(desc || '').trim());
   if (!raw) return false;
   if (/^\[?ابطال/.test(raw)) return true;
   return normalizeAuditText(raw).includes('همترازی');
@@ -385,15 +397,23 @@ function isOpeningStockRow(r) {
   const et = String(r.event_type || '');
   if (et === 'opening') return true;
   if (String(r.source_type || '') === 'opening_inventory') return true;
-  const note = String(r.note || r.description || '').trim();
+  const note = normalizeFaLetters(String(r.note || r.description || '').trim());
   if (/^بهای اولیه موجودی/.test(note)) return true;
   if (/^موجودی اول دوره/.test(note)) return true;
+  // Excel absolute-stock seed uses the same opening movement with a different note.
+  if (/^موجودی اکسل/.test(note)) return true;
   return false;
 }
 
+/**
+ * Audit-only = void twin OR mid-period stock_reconcile / هم‌ترازی noise.
+ * Opening seeds that happen to say «هم‌ترازی» in the note stay economic openings
+ * (they must not fall into the alignOnly dead-zone that freezes running_qty).
+ */
 function isAuditOnlyStockRow(r, extraHideIds) {
   if (!r) return false;
   if (isVoidPairStockRow(r, extraHideIds)) return true;
+  if (isOpeningStockRow(r)) return false;
   if (String(r.source_type || '') === 'stock_reconcile') return true;
   const note = String(r.note || r.description || '');
   if (isAuditOnlyJournalDescription(note)) return true;
@@ -556,10 +576,15 @@ function buildStockLedger(db, {
   const countsAsOpening = (r) => {
     if (!from || !isOpeningStockRow(r)) return false;
     const d = r.date || '';
+    if (d < from) return false; // already in opening via «before» loop
+    if (to && d > to) return false;
     if (d <= from) return true;
     // سال مالی وسط سال باز شده؛ بازهٔ گزارش از اول تقویم شروع شده
     if (fyStart && d === fyStart && from <= fyStart) return true;
-    return false;
+    // Opening / هم‌ترازی اول‌دوره anywhere inside the filter window is still
+    // اول دوره — never period inflow and never the alignOnly dead-zone that
+    // shows qty_in but leaves running_qty unchanged (audit toggle bug).
+    return true;
   };
 
   let opening_qty = 0;
@@ -602,7 +627,9 @@ function buildStockLedger(db, {
     const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r) && !voidRow;
     const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
     const openingSlice = contributes && countsAsOpening(r);
-    const alignOnly = auditOnly && !voidRow && !openingSlice;
+    // Align-only = technical mid-period reconcile. Openings are never align-only
+    // even when the note contains «هم‌ترازی» (seed rows from reconcileProductStockLedger).
+    const alignOnly = auditOnly && !voidRow && !openingSlice && !isOpeningStockRow(r);
     // Live balance ignores void pairs and hidden alignment. Opening dated on
     // or before «از تاریخ» is the header figure, not a period receipt.
     const liveMove = contributes && !openingSlice && !alignOnly;
@@ -616,13 +643,18 @@ function buildStockLedger(db, {
       }
       runningWh += qIn - qOut;
     } else if (
-      showAudit && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice
+      // Audit mode may inflate period totals with void pairs for visibility.
+      // Do NOT add alignOnly here — that created control_gap while the row was
+      // still visible in the table («تفاوت از ردیف هم‌ترازی خارج از جدول»).
+      showAudit && voidRow && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice
       && (r.status === 'posted' || r.status === 'reversed')
     ) {
       period_qty_in += qIn;
       period_qty_out += qOut;
     }
-    if (openingSlice) continue;
+    // Operational: hide opening seeds (KPI «اول دوره» already has them).
+    // Audit: show the seed row; running already includes it via opening_qty.
+    if (openingSlice && !showAudit) continue;
     if ((voidRow || alignOnly) && !showAudit) continue;
     const srcType = r.source_type || r.event_type || null;
     const link = safeSourceLink({
@@ -652,6 +684,7 @@ function buildStockLedger(db, {
       status: r.status || 'posted',
       cancelled: !!cancelled,
       audit_only: !!auditOnly,
+      is_opening: !!openingSlice,
       reversed_of: r.reversed_of || null,
       user_name: r.user_name || '',
       source_type: r.source_type || null,

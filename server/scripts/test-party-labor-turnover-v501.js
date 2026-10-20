@@ -89,44 +89,62 @@ for (const [code, name, type] of [
   }
 }
 
-const partyId = db.prepare(`
-  INSERT INTO parties (person_code, party_type, party_roles, full_name, phone, coa_code, opening_balance, is_active, biz)
-  VALUES ('P-V501','other','["customer","supplier","employee"]','کارگر v501','09120000501',?,?,1,'کارگر v501')
-`).run(coaPerson, -1000).lastInsertRowid;
-
-try {
-  db.prepare(`
-    INSERT INTO customers (user_id, biz, owner, phone, party_id, coa_code, status)
-    VALUES (1,'کارگر v501','کارگر','09120000501',?,?,'active')
-  `).run(partyId, coaPerson);
-} catch (_) {
-  db.prepare(`
-    INSERT INTO customers (user_id, biz, owner, phone, party_id, status)
-    VALUES (1,'کارگر v501','کارگر','09120000501',?,'active')
-  `).run(partyId);
-  try { db.prepare('UPDATE customers SET coa_code=? WHERE party_id=?').run(coaPerson, partyId); } catch (__) { /* */ }
+function tableCols(name) {
+  return new Set(db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name));
 }
 
+const partyCols = tableCols('parties');
+{
+  const cols = [];
+  const vals = [];
+  const push = (c, v) => { cols.push(c); vals.push(v); };
+  if (partyCols.has('person_code')) push('person_code', 'P-V501');
+  if (partyCols.has('party_type')) push('party_type', 'other');
+  if (partyCols.has('party_roles')) push('party_roles', '["customer","supplier","employee"]');
+  if (partyCols.has('full_name')) push('full_name', 'کارگر v501');
+  if (partyCols.has('phone')) push('phone', '09120000501');
+  if (partyCols.has('coa_code')) push('coa_code', coaPerson);
+  if (partyCols.has('opening_balance')) push('opening_balance', -1000);
+  if (partyCols.has('is_active')) push('is_active', 1);
+  if (partyCols.has('biz')) push('biz', 'کارگر v501');
+  const ph = cols.map(() => '?').join(',');
+  var partyId = db.prepare(`INSERT INTO parties (${cols.join(',')}) VALUES (${ph})`).run(...vals).lastInsertRowid;
+}
+
+const custCols = tableCols('customers');
+{
+  const cols = ['user_id', 'biz', 'owner', 'phone'];
+  const vals = [1, 'کارگر v501', 'کارگر', '09120000501'];
+  if (custCols.has('party_id')) { cols.push('party_id'); vals.push(partyId); }
+  if (custCols.has('coa_code')) { cols.push('coa_code'); vals.push(coaPerson); }
+  if (custCols.has('status')) { cols.push('status'); vals.push('active'); }
+  db.prepare(`INSERT INTO customers (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+}
 const custId = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyId).id;
 
-try {
-  db.prepare(`
-    INSERT INTO suppliers (name, phone, party_id, coa_code, active)
-    VALUES ('کارگر v501','09120000501',?,?,1)
-  `).run(partyId, coaSup);
-} catch (_) {
-  db.prepare(`
-    INSERT INTO suppliers (name, phone, party_id, active)
-    VALUES ('کارگر v501','09120000501',?,1)
-  `).run(partyId);
-  try { db.prepare('UPDATE suppliers SET coa_code=? WHERE party_id=?').run(coaSup, partyId); } catch (__) { /* */ }
+const supCols = tableCols('suppliers');
+{
+  const cols = ['name'];
+  const vals = ['کارگر v501'];
+  if (supCols.has('phone')) { cols.push('phone'); vals.push('09120000501'); }
+  if (supCols.has('party_id')) { cols.push('party_id'); vals.push(partyId); }
+  if (supCols.has('coa_code')) { cols.push('coa_code'); vals.push(coaSup); }
+  if (supCols.has('active')) { cols.push('active'); vals.push(1); }
+  if (supCols.has('balance')) { cols.push('balance'); vals.push(0); }
+  db.prepare(`INSERT INTO suppliers (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
 }
 const supId = db.prepare('SELECT id FROM suppliers WHERE party_id=?').get(partyId).id;
 
-const personId = db.prepare(`
-  INSERT INTO persons (name, phone, party_id, active, coa_code)
-  VALUES ('کارگر v501','09120000501',?,1,?)
-`).run(partyId, coaPerson).lastInsertRowid;
+const personCols = tableCols('persons');
+{
+  const cols = ['name'];
+  const vals = ['کارگر v501'];
+  if (personCols.has('phone')) { cols.push('phone'); vals.push('09120000501'); }
+  if (personCols.has('party_id')) { cols.push('party_id'); vals.push(partyId); }
+  if (personCols.has('coa_code')) { cols.push('coa_code'); vals.push(coaPerson); }
+  if (personCols.has('active')) { cols.push('active'); vals.push(1); }
+  var personId = db.prepare(`INSERT INTO persons (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals).lastInsertRowid;
+}
 
 // Customer opening with ref_type=opening (the token multi-role used to keep)
 db.prepare(`
