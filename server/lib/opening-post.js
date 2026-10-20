@@ -979,6 +979,7 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     ? ' AND l.product_id=' + parseInt(productId, 10)
     : '';
 
+  // Strip ZWNJ from note before LIKE — pattern must not keep «‌» or match fails.
   const seeds = db.prepare(`
     SELECT l.*, p.name AS product_name, p.code AS product_code
     FROM inventory_ledger l
@@ -990,10 +991,9 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
         OR IFNULL(l.source_type,'')='stock_reconcile'
       )
       AND (
-        replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس%'
-        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس با موجودی%'
-        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'موجودی اول دوره (هم‌ترازی%'
-        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'هم‌ترازی کاردکس با موجودی انبار%'
+        replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'موجودی اول دوره (همترازی%'
+        OR replace(replace(IFNULL(l.note,''), char(8204), ''), 'ي', 'ی') LIKE 'همترازی کاردکس با موجودی انبار%'
       )
       ${pidFilter}
     ORDER BY l.product_id, l.warehouse_id, l.id
@@ -1011,7 +1011,7 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
       AND IFNULL(event_type,'') NOT IN ('opening','reversal')
       AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
       AND NOT (
-        replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%هم‌ترازی کاردکس%'
+        replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
       )
     LIMIT 1
   `).get(pid, whId, excludeId);
@@ -1019,6 +1019,24 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
   for (const row of seeds) {
     if (!hasRealEconomic(row.product_id, row.warehouse_id, row.id)) continue;
     const gapQty = (Number(row.qty_in) || 0) - (Number(row.qty_out) || 0);
+    // Only retire when later real receipts cover the seed qty (new FG / transfer in).
+    // Bare openings that funded later issues must stay (zip/accessories, …).
+    const laterIn = Number(db.prepare(`
+      SELECT COALESCE(SUM(qty_in),0) q FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=?
+        AND COALESCE(status,'posted')='posted'
+        AND id<>?
+        AND COALESCE(qty_in,0) > 0
+        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
+        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
+        AND NOT (
+          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+        )
+        AND IFNULL(date,'') >= IFNULL(?, '')
+    `).get(row.product_id, row.warehouse_id, row.id, row.date || '')?.q) || 0;
+    if (laterIn + 1e-9 < Math.abs(gapQty)) continue;
+    const netNow = _ledgerNet(db, row.product_id, row.warehouse_id);
+    if (netNow - gapQty < -1e-9) continue; // would leave negative ledger without seed
     const entry = {
       ledger_id: row.id,
       tx_no: row.tx_no,
@@ -1028,6 +1046,7 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
       qty: gapQty,
       note: row.note,
       date: row.date,
+      later_in: laterIn,
     };
     items.push(entry);
     if (!apply) continue;
@@ -1041,29 +1060,33 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     reversed += 1;
 
     const net = _ledgerNet(db, row.product_id, row.warehouse_id);
-    const ws = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(row.product_id, row.warehouse_id);
-    if (ws) {
-      if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
-        db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-          .run(net, row.product_id, row.warehouse_id);
+    entry.ledger_net_after = net;
+    try {
+      const ws = db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(row.product_id, row.warehouse_id);
+      if (ws) {
+        if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
+          db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+            .run(net, row.product_id, row.warehouse_id);
+          syncedWh += 1;
+        }
+      } else if (Math.abs(net) > 1e-9) {
+        db.prepare(
+          'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
+        ).run(row.product_id, row.warehouse_id, net);
         syncedWh += 1;
       }
-    } else if (Math.abs(net) > 1e-9) {
-      db.prepare(
-        'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
-      ).run(row.product_id, row.warehouse_id, net);
-      syncedWh += 1;
+      const header = db.prepare(`
+        SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
+      `).get(row.product_id);
+      db.prepare('UPDATE products SET stock=? WHERE id=?')
+        .run(Number(header?.q) || 0, row.product_id);
+    } catch (e) {
+      // Triggers may block negative warehouse_stock; ledger reverse already applied.
+      entry.ws_sync_error = e.message || String(e);
     }
-    // Header stock = Σ warehouse_stock
-    const header = db.prepare(`
-      SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
-    `).get(row.product_id);
-    db.prepare('UPDATE products SET stock=? WHERE id=?')
-      .run(Number(header?.q) || 0, row.product_id);
     entry.applied = true;
-    entry.ledger_net_after = net;
   }
 
   if (apply && reversed) {
