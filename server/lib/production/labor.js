@@ -437,10 +437,23 @@ function autoPostLabor(db, { po, qtyStarted, date, period, userId, laborSpecs = 
 }
 
 /**
+ * Piece/hourly with person_id → Cr person payable + person_ledger (v419 / SW v499).
+ * Monthly (or no person) → Cr 5201; payroll (PRD-04) owns monthly liability (ADR-005 carve-out).
+ */
+function laborCreditsPerson(entry) {
+  if (!entry || !entry.person_id) return false;
+  const m = String(entry.method || '').toLowerCase();
+  return m === 'piece' || m === 'hourly' || m === 'hours';
+}
+
+function laborCreditGroupKey(entry) {
+  if (laborCreditsPerson(entry)) return `p:${Number(entry.person_id)}`;
+  return 'control';
+}
+
+/**
  * Post PRD-03 for one or more labor entries already inserted.
- * ADR-005: new absorption credits coa_labor_control (5201) only.
- * Payroll owns the employee payable. person_id stays on the labor row for attribution.
- * Historical person_ledger rows are not rewritten here.
+ * Groups by credit destination so mixed piece-person + monthly-control batches stay correct.
  */
 function absorbLaborJournal(db, {
   orderId, date, userId, costCenterId, wipTafsili,
@@ -450,34 +463,173 @@ function absorbLaborJournal(db, {
   const list = (entries || []).filter((e) => e && Math.round(Number(e.amount_rial) || 0) > 0);
   if (!list.length) return [];
 
-  const amountRial = list.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
-  if (!(amountRial > 0)) return [];
-  const creditLine = cr(db, 'coa_labor_control', amountRial);
-  const person = list[0].person_id ? loadPersonForLabor(db, list[0].person_id) : null;
-  const desc = list[0].note
-    || descriptionFallback
-    || formatLaborJeDescription({ amountRial, personName: person && person.name });
-  const je = postEvent(db, {
-    event: 'PRD-03',
-    sourceId: orderId,
-    date,
-    description: desc,
-    createdBy: userId,
-    costCenterId: costCenterId || null,
-    lines: [
-      dr(db, 'coa_wip', amountRial, wipTafsili || null),
-      creditLine,
-    ],
-  });
-  if (!je) return [];
-  const ids = list.map((e) => e.id).filter(Boolean);
-  if (ids.length) {
-    db.prepare(`
-      UPDATE production_labor_entries SET je_id=?
-      WHERE id IN (${ids.map(() => '?').join(',')}) AND je_id IS NULL
-    `).run(je.je_id, ...ids);
+  const groups = new Map();
+  for (const e of list) {
+    const key = laborCreditGroupKey(e);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
   }
-  return [je];
+
+  const jes = [];
+  for (const [, group] of groups) {
+    const amountRial = group.reduce((s, e) => s + Math.round(Number(e.amount_rial) || 0), 0);
+    if (!(amountRial > 0)) continue;
+
+    const wantPerson = laborCreditsPerson(group[0]);
+    const side = resolveLaborCreditSide(db, {
+      personId: wantPerson ? group[0].person_id : null,
+      amountRial,
+      crControl: (amt) => cr(db, 'coa_labor_control', amt),
+    });
+    const person = side.person;
+    const creditLine = side.line;
+    const desc = group[0].note
+      || descriptionFallback
+      || formatLaborJeDescription({ amountRial, personName: person && person.name });
+
+    const je = postEvent(db, {
+      event: 'PRD-03',
+      sourceId: orderId,
+      date,
+      description: desc,
+      createdBy: userId,
+      costCenterId: costCenterId || null,
+      lines: [
+        dr(db, 'coa_wip', amountRial, wipTafsili || null),
+        creditLine,
+      ],
+    });
+    if (!je) continue;
+
+    const ids = group.map((e) => e.id).filter(Boolean);
+    if (ids.length) {
+      db.prepare(`
+        UPDATE production_labor_entries SET je_id=?
+        WHERE id IN (${ids.map(() => '?').join(',')}) AND je_id IS NULL
+      `).run(je.je_id, ...ids);
+    }
+
+    if (side.mode === 'person' && person) {
+      for (const e of group) {
+        writePersonLaborLedger(db, {
+          personId: person.id,
+          laborEntryId: e.id,
+          date,
+          description: e.note || desc,
+          amountRial: Math.round(Number(e.amount_rial) || 0),
+          userId,
+        });
+      }
+    }
+    jes.push(je);
+  }
+  return jes;
+}
+
+/**
+ * Reclass historical piece/hourly PRD-03 that credited 5201 while person_id was set
+ * (ADR-005 era) onto the person's payable leaf + person_ledger. Idempotent.
+ * @returns {{ scanned:number, healed:number, skipped:number, errors:Array }}
+ */
+function healPieceLaborPersonPayable(db, { dryRun = true, laborEntryIds = null } = {}) {
+  const { acct } = require('../coa-map');
+  let laborCtrl = '5201';
+  try { laborCtrl = String(acct(db, 'coa_labor_control').code); } catch (_) { /* default */ }
+
+  let rows;
+  if (Array.isArray(laborEntryIds) && laborEntryIds.length) {
+    rows = laborEntryIds.map((id) => db.prepare(`
+      SELECT * FROM production_labor_entries WHERE id=?
+    `).get(Number(id))).filter(Boolean);
+  } else {
+    rows = db.prepare(`
+      SELECT * FROM production_labor_entries
+      WHERE status='posted'
+        AND COALESCE(person_id,0)>0
+        AND LOWER(COALESCE(method,'')) IN ('piece','hourly','hours')
+        AND COALESCE(amount_rial,0)>0
+        AND je_id IS NOT NULL
+      ORDER BY id
+    `).all();
+  }
+
+  const out = { scanned: rows.length, healed: 0, skipped: 0, errors: [], dryRun: !!dryRun };
+  const alivePl = (() => {
+    try {
+      const cols = db.prepare('PRAGMA table_info(person_ledger)').all().map((c) => c.name);
+      if (cols.includes('deleted_at')) return 'COALESCE(deleted_at,0)=0';
+    } catch (_) { /* old */ }
+    return '1=1';
+  })();
+
+  for (const e of rows) {
+    try {
+      if (!laborCreditsPerson(e)) { out.skipped++; continue; }
+      const hasPl = db.prepare(`
+        SELECT id FROM person_ledger
+        WHERE person_id=? AND ref_type='production_labor' AND ref_id=? AND ${alivePl}
+        LIMIT 1
+      `).get(e.person_id, e.id);
+      const je = db.prepare(`
+        SELECT id, description, entry_date, status, deleted_at
+        FROM journal_entries WHERE id=?
+      `).get(e.je_id);
+      if (!je || Number(je.deleted_at) || ['reversed', 'void'].includes(String(je.status || ''))) {
+        out.skipped++;
+        continue;
+      }
+      const person = loadPersonForLabor(db, e.person_id);
+      if (!person) {
+        out.errors.push({ id: e.id, code: 'E_PERSON_MISSING' });
+        continue;
+      }
+      const payable = resolvePersonPayableAccount(db, person);
+      if (!payable || !payable.code) {
+        out.errors.push({ id: e.id, code: 'E_PERSON_NO_COA', person_id: person.id });
+        continue;
+      }
+
+      const crLines = db.prepare(`
+        SELECT id, account_code, credit, credit_rial, detail_account_id
+        FROM journal_lines WHERE entry_id=? AND COALESCE(credit,0)+COALESCE(credit_rial,0)>0
+      `).all(e.je_id);
+      const ctrlLine = crLines.find((l) => String(l.account_code) === laborCtrl);
+      const needsJe = !!ctrlLine;
+      const needsPl = !hasPl;
+      if (!needsJe && !needsPl) { out.skipped++; continue; }
+
+      if (dryRun) {
+        out.healed++;
+        continue;
+      }
+
+      if (needsJe) {
+        db.prepare(`
+          UPDATE journal_lines
+          SET account_code=?, account_name=?, detail_account_id=COALESCE(?, detail_account_id)
+          WHERE id=?
+        `).run(payable.code, payable.name, person.detail_account_id || null, ctrlLine.id);
+      }
+
+      if (needsPl) {
+        writePersonLaborLedger(db, {
+          personId: person.id,
+          laborEntryId: e.id,
+          date: e.date || je.entry_date || '',
+          description: e.note || je.description || 'دستمزد تولید',
+          amountRial: Math.round(Number(e.amount_rial) || 0),
+          userId: e.created_by || null,
+        });
+      }
+      try {
+        require('../party-leaf-sync').syncJournalEntryToPartyBooks(db, e.je_id);
+      } catch (_) { /* optional */ }
+      out.healed++;
+    } catch (err) {
+      out.errors.push({ id: e.id, error: err && err.message ? err.message : String(err) });
+    }
+  }
+  return out;
 }
 
 module.exports = {
@@ -493,4 +645,6 @@ module.exports = {
   productLabelForOrder,
   loadPersonForLabor,
   absorbLaborJournal,
+  laborCreditsPerson,
+  healPieceLaborPersonPayable,
 };

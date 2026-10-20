@@ -368,6 +368,7 @@ function currencyUnit(){ return 'ریال'; }
 function currencyUnitShort(){ return 'ریال'; }
 function toDisplayAmount(stored){ return Math.round(parseFloat(stored)||0); }
 function fromInputAmount(input){ return Math.round(parseFloat(input)||0); }
+/** مبلغ ریال صحیح. مقدار کالا را با این نزن — اعشار حذف می‌شود؛ fmtQtyFa را بگذار. */
 function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
 function fmtCrmRial(n){ return fmt(n)+' ریال'; }
 /** مقدار کالا — تا ۳ رقم اعشار، رقم سوم رند می‌شود */
@@ -387,10 +388,16 @@ function fmtQty(n){
   if(Object.is(x,-0)||x===0) return '0';
   return String(parseFloat(x.toFixed(3)));
 }
-/** نمایش متر/مقدار پیوسته — تا ۳ رقم، بدون رند به عدد صحیح (fmt مخصوص ریال است) */
+/** نمایش مقدار کالا — تا ۳ رقم، بدون رند به عدد صحیح (fmt مخصوص ریال است) */
 function fmtQtyFa(n){
   const x=round3(n);
-  return x.toLocaleString('fa-IR',{maximumFractionDigits:3});
+  return x.toLocaleString('fa-IR',{maximumFractionDigits:3,minimumFractionDigits:0});
+}
+/** ورود/خروج گزارش: صفر واقعی خط تیره؛ کسری زیر نیم‌هزارم هم صفر است */
+function fmtQtyOrDash(n){
+  const x=round3(n);
+  if(!x) return '-';
+  return fmtQtyFa(x);
 }
 /** موجودی قطعه‌ای (عدد/رنگ×سایز) — فقط صحیح، بدون جداکننده تا input اعشار نسازد */
 function fmtPieceQty(n){
@@ -1251,7 +1258,7 @@ function productSelect(id, selectedId, list, extra){
   const items=src.map(p=>({
     id:p.id,
     label:p.name||'',
-    meta:(p.code?p.code+' · ':'')+'موجودی '+fmt(p.wh_qty!=null?p.wh_qty:(p.stock||0)),
+    meta:(p.code?p.code+' · ':'')+'موجودی '+fmtQtyFa(p.wh_qty!=null?p.wh_qty:(p.stock||0)),
     hay:[p.name,p.code,p.barcode,p.sku,p.category].filter(Boolean).join(' ')
   }));
   return searchSelect(id, items, selectedId, Object.assign({kind:'product', placeholder:'جستجو: نام، کد کالا...'}, extra||{}));
@@ -5485,7 +5492,7 @@ function renderInvPicker(){
       <div class="pn">${esc(p.name)}</div>
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
-      <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmt(avail)}</div>
+      <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmtQtyFa(avail)}</div>
       ${colorBtn}
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
@@ -7369,9 +7376,9 @@ function storeQsRenderReturnLines(){
       const tot=Math.round(qty*net);
       return `<tr>
         <td><b>${esc(r.name||'')}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${varLbl?esc(varLbl):''}</div></td>
-        <td class="mono">${fmt(r.qty)}</td>
-        <td class="mono">${fmt(r.already_returned||0)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(max)}</td>
+        <td class="mono">${fmtQtyFa(r.qty)}</td>
+        <td class="mono">${fmtQtyFa(r.already_returned||0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(max)}</td>
         <td class="mono">${fmt(r.price)}</td>
         <td class="mono">${fmt(net)}</td>
         <td><input type="number" min="0" max="${max}" step="1" value="${esc(String(qty))}" data-csp-style="${CSP.style(`width:72px`)}"
@@ -7814,7 +7821,7 @@ async function productsPage(canEdit, opts){
       ${canEdit?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodModal()})}">➕ کالا</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){productCategoriesModal()})}">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){enterAccountingShell().then(()=>go('acc-warehouses'))})}">🏭 موجودی انبارها</button>
-        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })})}">📷 اسکن بارکد</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmtQtyFa(p.stock)); prodModal(p.id); } }catch(e){} })})}">📷 اسکن بارکد</button>
         ${excelButtonsHtml('products')}`:''}
     </div>
     ${isCatalog && typeof isRepRole==='function' && isRepRole(ME?.role)?`<div id="catalogSalesBar" class="catalog-sales-bar"></div>`:''}
@@ -7890,7 +7897,7 @@ function productCardHtml(p, opts){
         <div class="name">${esc(p.name)}</div>
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
-        <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
+        <div class="stock ${low?'low':''}">موجودی: ${fmtQtyFa(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${Number(p.website_stock_push)===0?'<div class="code">ارسال موجودی به سایت: خاموش</div>':''}
         ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?(((Number(stockQty)||0)<=0 && !(typeof clientAllowsNegativeStock==='function'&&clientAllowsNegativeStock(opts.warehouseFilter||opts.warehouseId||null)))
@@ -9088,7 +9095,7 @@ async function stkOpenDetail(id){
         `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){stkVoidApply((s.id))})}">⛔ ابطال اعمال</button>`}
     </div>
     <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم) — سه شمارش + تگ</h4>
-      <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b data-csp-style="${CSP.style(`color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}`)}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
+      <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b data-csp-style="${CSP.style(`color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}`)}">${varianceTotal>0?'+':''}${fmtQtyFa(varianceTotal)}</b></span>
     </div>
     <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>کد</th><th>کالا</th><th>رنگ</th><th>سایز</th><th>واحد</th><th>سیستم</th>
@@ -9113,7 +9120,7 @@ function stkDetailRows(items, editable){
     const matrix=g.items.some(it=>it.variant_id);
     const sysSum=g.items.reduce((a,it)=>a+(+it.system_qty||0),0);
     const gap=Math.round((g.header-sysSum)*1000)/1000;
-    const banner=matrix?`<tr><td colspan="12" data-csp-style="${CSP.style(`background:var(--surface);font-size:12px`)}"><b>${esc(g.name||'-')}</b> <span class="muted">${esc(g.code||'')}</span> — موجودی سربرگ ${fmt(g.header)} — جمع سیستم رنگ×سایز ${fmt(sysSum)}${Math.abs(gap)>0.001?` — <span data-csp-style="${CSP.style(`color:var(--orange,#b86e00)`)}">تخصیص‌نیافته ${fmt(gap)}</span>`:''}</td></tr>`:'';
+    const banner=matrix?`<tr><td colspan="12" data-csp-style="${CSP.style(`background:var(--surface);font-size:12px`)}"><b>${esc(g.name||'-')}</b> <span class="muted">${esc(g.code||'')}</span> — موجودی سربرگ ${fmtQtyFa(g.header)} — جمع سیستم رنگ×سایز ${fmtQtyFa(sysSum)}${Math.abs(gap)>0.001?` — <span data-csp-style="${CSP.style(`color:var(--orange,#b86e00)`)}">تخصیص‌نیافته ${fmtQtyFa(gap)}</span>`:''}</td></tr>`:'';
     return banner+g.items.map(it=>{
       const conf=parseInt(it.confirmed_count,10)||1;
       const c1=it.count1_qty!=null?it.count1_qty:(it.counted_qty||0);
@@ -9127,17 +9134,17 @@ function stkDetailRows(items, editable){
         <td>${esc(it.color_name||'—')}</td>
         <td>${esc(displaySizeName(it.size_name)||'—')}</td>
         <td>${esc(it.unit||'-')}</td>
-        <td class="mono">${fmt(it.system_qty||0)}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmt(c1)}</span>`}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c2 num-fit" value="${c2}">`:`<span class="mono">${c2===''?'—':fmt(c2)}</span>`}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-c3 num-fit" value="${c3}">`:`<span class="mono">${c3===''?'—':fmt(c3)}</span>`}</td>
+        <td class="mono">${fmtQtyFa(it.system_qty||0)}</td>
+        <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmtQtyFa(c1)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c2 num-fit" value="${c2}">`:`<span class="mono">${c2===''?'—':fmtQtyFa(c2)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c3 num-fit" value="${c3}">`:`<span class="mono">${c3===''?'—':fmtQtyFa(c3)}</span>`}</td>
         <td>${editable?`<input type="text" class="stk-tag" value="${esc(it.count_tag||'')}" placeholder="تگ" data-csp-style="${CSP.style(`width:80px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">`:`<span>${esc(it.count_tag||'-')}</span>`}</td>
         <td>${editable?`<select class="stk-conf" data-csp-style="${CSP.style(`padding:4px 6px;border:1.5px solid var(--border);border-radius:6px`)}">
           <option value="1" ${conf===1?'selected':''}>۱</option>
           <option value="2" ${conf===2?'selected':''}>۲</option>
           <option value="3" ${conf===3?'selected':''}>۳</option>
         </select>`:`<span class="mono">${conf}</span>`}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}`)}">${v>0?'+':''}${fmt(v)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}`)}">${v>0?'+':''}${fmtQtyFa(v)}</td>
       </tr>`;
     }).join('');
   }).join('');
@@ -12031,16 +12038,16 @@ async function loadItemKardex(productId){
   const unit=esc(d.product.unit||'عدد');
   const kpi=(label,val,tone)=>`<div data-csp-style="${CSP.style(`flex:1;min-width:110px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card,var(--bg))`)}">
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${label}</div>
-    <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmt(val||0)}</div>
+    <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmtQtyFa(val||0)}</div>
   </div>`;
   box.innerHTML=`
     <div class="panel">
       <div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
         <h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
-        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmt(d.product.stock||0)} ${unit}
+        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmtQtyFa(d.product.stock||0)} ${unit}
           ${d.source==='inventory_ledger'?' · دفتر کل انبار (فعال)':''}
           ${_kardexState.show_cancelled?' · شامل ابطال و هم‌ترازی (ممیزی)':''}
-          ${d.warehouse_qty!=null?' · موجودی انبار فیلتر: '+fmt(d.warehouse_qty):''}
+          ${d.warehouse_qty!=null?' · موجودی انبار فیلتر: '+fmtQtyFa(d.warehouse_qty):''}
         </span>
       </div>
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
@@ -12075,9 +12082,9 @@ async function loadItemKardex(productId){
           <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.tx_no||l.event_type||'-')}${badge}${wip}</td>
           <td>${noteHtml}</td>
           <td class="muted">${esc(l.warehouse_name||'-')}</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${qIn?fmt(qIn):'-'}</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${qOut?fmt(qOut):'-'}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(l.running_balance||0)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(qIn)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(qOut)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(l.running_balance||0)}</td>
           ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut||cancelled)?fmt(l.unit_cost_rial):'-'}</td>
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
@@ -12090,19 +12097,19 @@ async function loadItemKardex(productId){
         </tbody>
         <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
           <td colspan="4">جمع دوره</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(d.period_qty_in||0)}</td>
-          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(d.period_qty_out||0)}</td>
-          <td class="mono">${fmt(d.closing_qty||0)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyFa(d.period_qty_in||0)}</td>
+          <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyFa(d.period_qty_out||0)}</td>
+          <td class="mono">${fmtQtyFa(d.closing_qty||0)}</td>
           ${window.__canSeeCost?'<td></td><td></td>':''}
           <td></td>
         </tr></tfoot>
         </table>
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-        مانده نهایی (هم‌تراز دفتر انبار): <span class="mono">${fmt(d.closing_qty||0)} ${unit}</span>
-        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmt(d.period_qty_in||0)} · جمع خروج ${fmt(d.period_qty_out||0)} · منبع inventory_ledger${
+        مانده نهایی (هم‌تراز دفتر انبار): <span class="mono">${fmtQtyFa(d.closing_qty||0)} ${unit}</span>
+        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmtQtyFa(d.period_qty_in||0)} · جمع خروج ${fmtQtyFa(d.period_qty_out||0)} · منبع inventory_ledger${
           Math.abs(Number(d.control_gap_qty)||0)>1e-6
-            ? ' · تفاوت '+fmt(d.control_gap_qty)+' از ردیف هم‌ترازیِ خارج از جدول است'
+            ? ' · تفاوت '+fmtQtyFa(d.control_gap_qty)+' از ردیف هم‌ترازیِ خارج از جدول است'
             : ''
         }</div>
       </div>
@@ -15806,7 +15813,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi){
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">با مسیر عملیات، بازده فرمول = ۱۰۰٪</span>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>. شخص اختیاری است و هزینهٔ عملیات را به همان فرد نسبت می‌دهد.</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>. با انتخاب <b>شخص</b> در قطعه‌ای/ساعتی، هنگام جذب، حساب همان شخص بستانکار می‌شود و در گردش شخص دیده می‌شود (v499).</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>ترتیب</th><th>عملیات</th>${scopeCol}<th>مرکز هزینه</th><th>شخص</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
@@ -32991,7 +32998,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
-        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد (یا فرمول ساعتی/ماهانه)، سند PRD-03 بدهکار WIP و بستانکار کنترل دستمزد ۵۲۰۱ است؛ بدهی شخص را فقط حقوق ثبت می‌کند، و شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. بدون شخص، بستانکار همان کنترل دستمزد ۵۲۰۱ می‌ماند. <b>جستجوی شخص (v451):</b> اگر چند ردیف <code>persons</code> با یک تلفن ساخته شده باشد (همگام قدیمی party→person فقط با <code>party_id</code>)، سلکتور و API <code>?for_picker=1</code> یک ردیف به‌ازای هر تلفن نشان می‌دهند؛ ساخت/ویرایش شخص با تلفن تکراری ۴۰۹ می‌دهد و heal بوت تکراری‌ها را غیرفعال می‌کند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
+        <li><b>مسیر عملیات (v499):</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد. اگر روش <b>قطعه‌ای یا ساعتی</b> و شخص انتخاب شده باشد، سند PRD-03 بدهکار WIP و <b>بستانکار حساب همان شخص</b> است و ردیف در گردش شخص ثبت می‌شود؛ روش <b>ماهانه</b> یا بدون شخص → بستانکار کنترل ۵۲۰۱ و بدهی حقوق ماهانه فقط از مسیر حقوق (PRD-04). شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. ابطال مرحله ردیف دفتر شخص را هم برمی‌دارد (R13). <b>جستجوی شخص (v451):</b> اگر چند ردیف <code>persons</code> با یک تلفن ساخته شده باشد (همگام قدیمی party→person فقط با <code>party_id</code>)، سلکتور و API <code>?for_picker=1</code> یک ردیف به‌ازای هر تلفن نشان می‌دهند؛ ساخت/ویرایش شخص با تلفن تکراری ۴۰۹ می‌دهد و heal بوت تکراری‌ها را غیرفعال می‌کند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>فرمول تک‌محصولی (v472 / ADR-006):</b> هر BOM فقط <b>یک محصول اصلی</b> دارد. تیک «چند محصول با یک برش مشترک» و افزودن محصول اصلی دوم از تعریف فرمول حذف شد. چند محصول روی یک قد الگو → <b>سفارش تولید</b> (فرمول چندمحصولی قدیمی هنوز خوانده می‌شود) و <b>لایه‌چینی چند محصول روی یک مارکر</b>. فرعی/ضایعات (by/scrap) در تب خروجی برای NRV مجاز است. سرور با <code>E_BOM_SINGLE_PRODUCT</code> ایجاد/افزودن محصول اصلی دوم را رد می‌کند.</li>
         <li><b>خروجی‌ها / میراث چندمحصولی (v416→v423):</b> فرمول‌های قدیمی با چند محصول اصلی همچنان برای سفارش‌های جاری کار می‌کنند؛ افزودن peer جدید ممنوع است. سهم٪ و تسهیم روی همان فرمول‌های قدیمی می‌ماند.</li>

@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۸ — دستمزد قطعه‌ای با شخص → دفتر شخص (SW v499)
+- **ریشه:** v419 بستانکار حساب شخص + `person_ledger` را برای PRD-03 با `person_id` اضافه کرد؛ ADR-005 / SW v426 عمداً همهٔ جذب‌های جدید را فقط `Cr 5201` کرد و `person_ledger` ننوشت. UI هنوز «شخص (بستانکار دستمزد)» می‌گفت، برگه بها دستمزد را نشان می‌داد، ولی گردش شخص صفر بستانکار می‌ماند (مثل مهدیه ابراهیمی روی BOM-0027/0029).
+- **تصمیم:** هیبرید — قطعه‌ای/ساعتی + شخص → بستانکار برگ شخص + `person_ledger`؛ ماهانه یا بدون شخص → ۵۲۰۱ (حقوق ماهانه با PRD-04). ابطال مرحله همچنان retire می‌کند (R13). heal اختیاری برای اسناد تاریخی ADR-005.
+- **رفع:** `absorbLaborJournal` گروه‌بندی بر اساس مقصد بستانکار؛ `healPieceLaborPersonPayable` + اسکریپت dry-run/`--apply`؛ به‌روز ADR-005 و accounting-events؛ راهنما/SW v499.
+- **فایل‌ها:** `lib/production/labor.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-bom-labor-person-je-v499,heal-labor-person-payable-v499}.js`, `docs/{CHANGE-LOG,architecture/PROD-CUT-ADR-005-shared-cut,Production/accounting-events}.md`.
+- **تست:** محلی static v499 ۲۰/۰ + `test-sms` ۲۲/۰؛ sqlite محلی ABI رد. ایران بعد از deploy.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۸ — تب PACK فعال + ابطال وقتی پوشش سفارش هست (SW v498)
 - **ریشه:** تب «بسته‌بندی / رسید محصول» فقط صف **منتظر PACK** بود (count=0 بعد از PACK/نهایی‌سازی). وقتی `fg_covered_by_order` بود، UI دکمهٔ «ابطال رسید محصول» را مخفی می‌کرد حتی اگر `cutting_packs` با ledger زنده مانده بود؛ ویرایش چندمحصول با `E_CUT_HAS_PACK` قفل می‌شد و کاربر جایی برای ابطال نمی‌دید.
 - **تصمیم (R13):** اصلاح PACK = ابطال + ثبت مجدد (بدون amend همان شماره). سه تب: لایه‌چینی / منتظر PACK / **PACK فعال**. پوشش سفارش ≠ نبود PACK.
