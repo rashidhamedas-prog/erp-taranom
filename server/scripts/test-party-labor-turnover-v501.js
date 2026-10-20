@@ -94,17 +94,33 @@ const partyId = db.prepare(`
   VALUES ('P-V501','other','["customer","supplier","employee"]','کارگر v501','09120000501',?,?,1,'کارگر v501')
 `).run(coaPerson, -1000).lastInsertRowid;
 
-db.prepare(`
-  INSERT INTO customers (user_id, biz, owner, phone, party_id, coa_code, opening_balance, status)
-  VALUES (1,'کارگر v501','کارگر','09120000501',?,?,?, 'active')
-`).run(partyId, coaPerson, 0);
+try {
+  db.prepare(`
+    INSERT INTO customers (user_id, biz, owner, phone, party_id, coa_code, status)
+    VALUES (1,'کارگر v501','کارگر','09120000501',?,?,'active')
+  `).run(partyId, coaPerson);
+} catch (_) {
+  db.prepare(`
+    INSERT INTO customers (user_id, biz, owner, phone, party_id, status)
+    VALUES (1,'کارگر v501','کارگر','09120000501',?,'active')
+  `).run(partyId);
+  try { db.prepare('UPDATE customers SET coa_code=? WHERE party_id=?').run(coaPerson, partyId); } catch (__) { /* */ }
+}
 
 const custId = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyId).id;
 
-db.prepare(`
-  INSERT INTO suppliers (name, phone, party_id, coa_code, opening_balance, active)
-  VALUES ('کارگر v501','09120000501',?,?,0,1)
-`).run(partyId, coaSup);
+try {
+  db.prepare(`
+    INSERT INTO suppliers (name, phone, party_id, coa_code, active)
+    VALUES ('کارگر v501','09120000501',?,?,1)
+  `).run(partyId, coaSup);
+} catch (_) {
+  db.prepare(`
+    INSERT INTO suppliers (name, phone, party_id, active)
+    VALUES ('کارگر v501','09120000501',?,1)
+  `).run(partyId);
+  try { db.prepare('UPDATE suppliers SET coa_code=? WHERE party_id=?').run(coaSup, partyId); } catch (__) { /* */ }
+}
 const supId = db.prepare('SELECT id FROM suppliers WHERE party_id=?').get(partyId).id;
 
 const personId = db.prepare(`
