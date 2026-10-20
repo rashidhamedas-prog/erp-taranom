@@ -712,7 +712,9 @@ function _unitCostRial(product) {
  */
 function reconcileProductStockLedger(db, productId, {
   createdBy = null,
-  noteIn = 'موجودی اول دوره (هم‌ترازی کاردکس)',
+  // Plain opening label — the old «هم‌ترازی کاردکس» suffix made legitimate
+  // first-period stock look like phantom noise in every report.
+  noteIn = 'موجودی اول دوره',
   noteOut = 'هم‌ترازی کاردکس با موجودی انبار',
 } = {}) {
   const pid = parseInt(productId, 10);
@@ -820,7 +822,7 @@ function reconcileProductStockLedger(db, productId, {
  * Unlike backfillOpeningInventoryLedger, this is NOT sealed by a one-shot flag.
  */
 function reconcileInventoryLedgerGaps(db, {
-  noteIn = 'موجودی اول دوره (هم‌ترازی کاردکس)',
+  noteIn = 'موجودی اول دوره',
   noteOut = 'هم‌ترازی کاردکس با موجودی انبار',
   recordSetting = true,
 } = {}) {
@@ -1176,14 +1178,39 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     }
   }
 
-  if (apply && reversed) {
+  // Kept openings that still carry the old «هم‌ترازی» suffix are real first-period
+  // stock (no later inbound to cover them). Relabel so reports don't look haunted.
+  let relabeled = 0;
+  if (apply) {
+    const ren = db.prepare(`
+      UPDATE inventory_ledger
+      SET note='موجودی اول دوره'
+      WHERE COALESCE(status,'posted')='posted'
+        AND (
+          event_type='opening'
+          OR IFNULL(source_type,'')='opening_inventory'
+        )
+        AND replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی')
+            LIKE 'موجودی اول دوره (همترازی%'
+        ${pidFilter.replace('l.product_id', 'product_id')}
+    `).run();
+    relabeled = ren.changes || 0;
+  }
+
+  if (apply && (reversed || relabeled)) {
     db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('kardex_align_retire_v506',?)")
       .run(JSON.stringify({
-        ok: 1, reversed, synced_wh: syncedWh, at: new Date().toISOString(),
+        ok: 1, reversed, synced_wh: syncedWh, relabeled, at: new Date().toISOString(),
       }));
   }
 
-  return { candidates: items.length, reversed, synced_wh: syncedWh, items };
+  return {
+    candidates: items.length,
+    reversed,
+    synced_wh: syncedWh,
+    relabeled,
+    items,
+  };
 }
 
 module.exports = {

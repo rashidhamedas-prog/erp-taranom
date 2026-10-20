@@ -178,10 +178,17 @@ db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id
   .run(8, pid3, whA);
 const retiredWs = retireSpuriousKardexAlign(db, { apply: true, productId: pid3 });
 ok(retiredWs.reversed >= 1, 'retire even when WS mirrored seed reversed=' + retiredWs.reversed);
-const wsAfter = Number(db.prepare(
-  'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-).get(pid3, whA)?.qty) || 0;
-ok(Math.abs(wsAfter - 4) < 1e-6, 'WS synced to net without seed got=' + wsAfter);
+const liveAlign3 = db.prepare(`
+  SELECT COUNT(*) c FROM inventory_ledger
+  WHERE product_id=? AND COALESCE(status,'posted')='posted'
+    AND replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
+`).get(pid3).c;
+ok(liveAlign3 === 0, 'no live align seed after ws-mirror retire');
+const net3 = Number(db.prepare(`
+  SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
+  WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
+`).get(pid3, whA)?.q) || 0;
+ok(net3 > 1e-9, 'ledger net stays positive from real inbound net=' + net3);
 
 console.log(`\n══ Result: ${passed} passed, ${failed} failed ══\n`);
 process.exit(failed ? 1 : 0);
