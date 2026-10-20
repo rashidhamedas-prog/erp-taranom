@@ -194,10 +194,18 @@ const je2 = db.prepare('SELECT ref_id FROM journal_entries WHERE id=?').get(jes[
 ok(Number(je1.ref_id) === Number(l1.id), 'JE1 ref_id = labor entry 1', je1.ref_id);
 ok(Number(je2.ref_id) === Number(l2.id), 'JE2 ref_id = labor entry 2', je2.ref_id);
 
-// Simulate old bump: both JEs wrongly share order ref_id on supplier leaf, sync once
+// Same leaf on person+supplier so syncJournalEntryToPartyBooks has sibling books
+db.prepare('UPDATE persons SET coa_code=? WHERE id=?').run(coaSup, personId);
+db.prepare('UPDATE parties SET coa_code=? WHERE id=?').run(coaSup, partyId);
+// Simulate old bump: both JEs share order ref_id on that leaf
 db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(orderId, jes[0].je_id);
 db.prepare('UPDATE journal_entries SET ref_id=? WHERE id=?').run(orderId, jes[1].je_id);
-// Reclass credit to supplier leaf to mimic live bug
+try {
+  db.prepare(`
+    UPDATE person_ledger SET ref_id=?
+    WHERE person_id=? AND ref_type='production_labor'
+  `).run(orderId, personId);
+} catch (_) { /* */ }
 for (const jid of [jes[0].je_id, jes[1].je_id]) {
   db.prepare(`
     UPDATE journal_lines SET account_code=?, account_name=?
