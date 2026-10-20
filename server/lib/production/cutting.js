@@ -1493,6 +1493,7 @@ function absorbCoveredLayDelta(db, {
   const unit = header && Number(header.qty) > 0
     ? Math.round(Number(header.amount_rial) / Number(header.qty))
     : 0;
+  require('./order-cost-reconcile').applyDocumentCosts(db, po.id);
   db.prepare('UPDATE production_orders SET total_cost_rial=?, unit_cost_rial=? WHERE id=?')
     .run(Math.round(Number(sum && sum.s) || 0), unit, po.id);
   return { delta_net_rial: deltaNet };

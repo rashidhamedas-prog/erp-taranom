@@ -313,7 +313,7 @@ async function api(method, path, data, isFormData, silent){
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
-        E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — بهای مواد/دستمزد با رسید تولید هم‌خوان نیست؛ سفارش را بررسی یا ابطال/تعمیر کنید',
+        E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — بهای مواد/دستمزد با رسید تولید هم‌خوان نیست. دکمهٔ «اصلاح بها» ستون‌های سفارش را با اسناد زنده یکی می‌کند.',
         E_PREV_STAGE_OPEN:'مرحلهٔ قبلی هنوز تکمیل نشده — مسیر BOM باید به‌ترتیب طی شود',
         E_LAY_REQUIRED_ON_CUT: j.message || 'خروجی مرحلهٔ برش فقط بعد از لایه‌چینی همان سفارش ثبت می‌شود. پارچه از طاقه مصرف می‌شود.',
         E_FABRIC_VIA_CUT: j.message || 'پارچهٔ طولی فقط از لایه‌چینی و طاقه مصرف می‌شود، نه از حوالهٔ مرحله',
@@ -18580,6 +18580,7 @@ async function renderProductionOrdersTab(body){
           ${o.analysis_type==='variable'&&o.status==='in_progress'
             ?(canSimpleReceipt?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderReceiptModal((o.id))})}">رسید</button>`:cutHint)
             :''}
+          ${o.status==='completed'&&(canPerm('production_close','edit')||isAdmin())?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodOrderReconcileCost((o.id))})}">اصلاح بها</button>`:''}
           ${o.status==='completed'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodOrderClose((o.id))})}">بستن</button>
           ${(canPerm('production','delete')||isAdmin())?`<button class="btn sm ghost" data-csp-style="${CSP.style(`color:var(--red)`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderReverse((o.id))})}">ابطال</button>`:''}`:''}
           ${o.status==='closed'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodOrderReopen((o.id))})}">بازگشایی</button>`:''}
@@ -19573,6 +19574,53 @@ async function prodOrderReopen(id){
   if(!confirm('بازگشایی سفارش بسته‌شده (بازگشت به تکمیل‌شده)؟')) return;
   try{ await api('POST','/production/orders/'+id+'/reopen',{}); showToast('بازگشایی شد'); loadAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
+}
+function prodReconcileBucketRows(preview){
+  const labels=[
+    ['material_cost_rial','مواد'],
+    ['packaging_cost_rial','بسته‌بندی'],
+    ['labor_cost_rial','دستمزد'],
+    ['overhead_cost_rial','سربار'],
+    ['subcontract_cost_rial','پیمانکاری'],
+    ['abnormal_waste_rial','ضایعات غیرعادی'],
+    ['scrap_credit_rial','ضایعات قابل فروش'],
+  ];
+  return labels.map(([key,label])=>{
+    const now=Number(preview.before&&preview.before[key])||0;
+    const doc=Number(preview.documents&&preview.documents[key])||0;
+    const mark=now===doc?'':' data-csp-style="'+CSP.style('background:rgba(180,40,40,.08)')+'"';
+    return `<tr${mark}><td>${label}</td><td class="num">${fmt(now)}</td><td class="num">${fmt(doc)}</td></tr>`;
+  }).join('');
+}
+async function prodOrderReconcileCost(id){
+  let preview=null;
+  try{ preview=await api('GET','/production/orders/'+id+'/cost-reconcile'); }
+  catch(e){ showToast(e.message||'خطا','error'); return; }
+  const zeroAfter=Math.abs(Number(preview.after_residual_rial)||0)<=5;
+  showModal('اصلاح بهای '+esc(preview.order_no||''),`
+    <p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:0 0 10px')}">ستون‌های سفارش با حواله، دستمزد، سربار و ضایعاتِ ثبت‌شده یکی می‌شود. رسید تولید، موجودی و سند حسابداری عوض نمی‌شود.</p>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>قلم</th><th>الان روی سفارش</th><th>جمع اسناد</th></tr></thead><tbody>
+      ${prodReconcileBucketRows(preview)}
+    </tbody></table></div>
+    <p data-csp-style="${CSP.style('margin:10px 0 0;line-height:1.7')}">ماندهٔ الان: <b>${fmt(preview.before_residual_rial)}</b> ریال. بعد از اصلاح: <b>${fmt(preview.after_residual_rial)}</b> ریال.${zeroAfter?' بعدش می‌توانید بستن را بزنید.':' اگر بعد از اصلاح هنوز صفر نشد، اختلاف از خود رسید است و این دکمه آن را عوض نمی‌کند.'}</p>
+    <div data-csp-style="${CSP.style('margin-top:14px;display:flex;gap:8px;justify-content:flex-end')}">
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+      ${preview.aligned?'':`<button class="btn" id="po-reconcile-save" data-csp-click="${CSP.bind('click',function(event){prodOrderReconcileCostSave((id))})}">یکی کردن با اسناد</button>`}
+    </div>`);
+}
+async function prodOrderReconcileCostSave(id){
+  const btn=el('po-reconcile-save');
+  if(btn) btn.disabled=true;
+  try{
+    const result=await api('POST','/production/orders/'+id+'/cost-reconcile',{});
+    closeModal();
+    const left=Math.abs(Number(result.after_residual_rial)||0);
+    showToast(left<=5?'بها با اسناد یکی شد. حالا بستن را بزنید.':'ستون‌ها با اسناد یکی شد. مانده هنوز صفر نیست.');
+    loadAccTab('production-orders');
+  }catch(e){
+    showToast(e.message||'خطا','error');
+    if(btn) btn.disabled=false;
+  }
 }
 async function prodOrderClose(id){
   try{ await api('POST','/production/orders/'+id+'/close',{}); showToast('بسته شد'); loadAccTab('production-orders'); }
@@ -32555,6 +32603,7 @@ function renderAdminGuide(){
         <li><b>ویرایش چندمحصول (v471):</b> همان شماره لایه/برنامه با reverse+ثبت مجدد اتمی. ابطال همهٔ PACKهای WIP یک لایه با هم. پیوند سفارش روی لای و PACK.</li>
         <li><b>گیت مرحله:</b> بعد از برش، بدون پوشش لایه‌چینی (به اندازهٔ برنامه) مرحلهٔ بعد شروع/ثبت نمی‌شود.</li>
         <li><b>برگه بها:</b> اگر برش مشترک به سفارش وصل باشد سهم محصولات از تخصیص واقعی پارچه است نه فقط ٪ فرمول.</li>
+        <li><b>اصلاح بها:</b> اگر بستن سفارش بگوید ماندهٔ کار در جریان صفر نیست، دکمهٔ «اصلاح بها» ستون‌های مواد و دستمزد و سربار را با حواله‌ها و اسناد زنده یکی می‌کند. رسید، موجودی و سند حسابداری عوض نمی‌شود. اگر بعد از آن مانده صفر شد، بستن را بزنید.</li>
         <li>بعد از ورود انبار: بهای رسمی در رسید؛ اصلاح با ابطال رسید یا اختلاف‌بها (ADR-006).</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`

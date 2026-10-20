@@ -27,6 +27,10 @@ const {
 } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
 const {
+  previewOrderCostReconcile,
+  applyDocumentCosts,
+} = require('./order-cost-reconcile');
+const {
   assertFabricIssueAllowed,
   fabricIssueAllowance,
   assertNoOrphanSellablePack,
@@ -685,7 +689,7 @@ function closeOrder(db, orderId, userId) {
     const residual = wipResidual(db, orderId);
     if (Math.abs(residual) > 5) {
       const fail = err('E_WIP_NOT_ZERO', 409, { residual: Math.round(residual) });
-      fail.message = `مانده WIP صفر نیست (${Math.round(residual).toLocaleString('en-US')} ریال) — بهای ثبت‌شده روی سفارش با رسید تولید هم‌خوان نیست`;
+      fail.message = `مانده WIP صفر نیست (${Math.round(residual).toLocaleString('en-US')} ریال) — بهای ثبت‌شده روی سفارش با رسید تولید هم‌خوان نیست. دکمهٔ «اصلاح بها» ستون‌های سفارش را با حواله، دستمزد و سربار زنده یکی می‌کند و رسید و سند را عوض نمی‌کند.`;
       throw fail;
     }
     db.prepare(`
@@ -2633,6 +2637,8 @@ module.exports = {
   listIssues,
   reverseOrder,
   wipResidual,
+  previewOrderCostReconcile,
+  applyDocumentCosts,
   listOrders,
   getOrderDetail,
   listOrderLines,

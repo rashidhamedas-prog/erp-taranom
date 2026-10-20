@@ -180,6 +180,46 @@ router.post('/:id/purge', auth, requirePermission('production', 'edit'), (req, r
   ));
 });
 
+router.get('/:id/cost-reconcile', auth, requirePermission('production_close', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    if (!canSeeCost(db, req.user)) {
+      const fail = new Error('دیدن بهای تولید برای این اصلاح لازم است');
+      fail.status = 403;
+      fail.code = 'E_COST_HIDDEN';
+      throw fail;
+    }
+    return engine.previewOrderCostReconcile(db, Number(req.params.id));
+  });
+});
+
+router.post('/:id/cost-reconcile', auth, requirePermission('production_close', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    if (!canSeeCost(db, req.user)) {
+      const fail = new Error('دیدن بهای تولید برای این اصلاح لازم است');
+      fail.status = 403;
+      fail.code = 'E_COST_HIDDEN';
+      throw fail;
+    }
+    const { audit } = require('../db');
+    const result = db.transaction(() => {
+      const applied = engine.applyDocumentCosts(db, Number(req.params.id));
+      if (applied.applied) {
+        audit(
+          req.user.id,
+          'update',
+          'production_order',
+          applied.order_id,
+          `اصلاح بهای ${applied.order_no}: ستون‌ها با اسناد زنده یکی شد. مانده ${applied.before_residual_rial} → ${applied.after_residual_rial}. رسید و سند عوض نشد.`
+        );
+      }
+      return applied;
+    })();
+    return result;
+  });
+});
+
 router.post('/:id/close', auth, requirePermission('production_close', 'edit'), (req, res) => {
   handle(res, () => engine.closeOrder(getDB(), Number(req.params.id), req.user.id));
 });

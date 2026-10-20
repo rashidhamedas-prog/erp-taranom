@@ -24,6 +24,7 @@ const {
   retirePersonLaborForEntries,
 } = require('./labor');
 const { jalaliPeriod, wipResidual, assertPeriodOpen } = require('./engine');
+const { applyDocumentCosts } = require('./order-cost-reconcile');
 const {
   assertFabricIssueAllowed,
   relieveStagedPackQty,
@@ -1166,6 +1167,8 @@ function postStageCore(db, {
     orderId, stageId, ccId: stage.cost_center_id, qtyOut, costOutRial: costOut,
   });
 
+  applyDocumentCosts(db, orderId);
+
   return {
     ok: true,
     stage: { id: stageId, seq: stage.seq, status: 'done' },
@@ -2039,6 +2042,7 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     audit(userId, 'update', 'production_order_stage', stageId,
       `ابطال مرحله ${stage.seq} — ${po.order_no}: ${reason || ''}`);
     emit(db, 'production.stage.reversed', { orderId, stageId, reason });
+    applyDocumentCosts(db, orderId);
 
     const refreshed = getStage(db, orderId, stageId);
     return {
@@ -2228,6 +2232,8 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
       });
     }
 
+    applyDocumentCosts(db, orderId);
+
     return {
       ok: true,
       issue_no: issueNo,
@@ -2360,6 +2366,8 @@ function applyCuttingLayToStage(db, {
   const when = date || todayJalali();
   const period = jalaliPeriod(when);
 
+  const healOrderCost = () => applyDocumentCosts(db, orderId);
+
   const already = db.prepare(`
     SELECT id FROM production_material_issues
     WHERE stage_id=? AND order_id=? AND issue_type='cutting_lay'
@@ -2368,6 +2376,7 @@ function applyCuttingLayToStage(db, {
   `).get(stage.id, orderId, `%${layNo || ('#' + layId)}%`);
   if (already) {
     db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
+    healOrderCost();
     return { ok: true, stage_id: stage.id, idempotent: true };
   }
 
@@ -2431,6 +2440,7 @@ function applyCuttingLayToStage(db, {
         WHERE id=?
       `).run(netToWip, nxt.id);
     }
+    healOrderCost();
     return {
       ok: true, stage_id: stage.id, status: 'done', accumulated: true, completed: true,
       lay_qty: cov.lay_qty, need: cov.need, message: cov.message,
@@ -2450,6 +2460,7 @@ function applyCuttingLayToStage(db, {
         material_added_rial = COALESCE(material_added_rial,0) + ?
       WHERE id=?
     `).run(amount, stage.id);
+    healOrderCost();
     return {
       ok: true,
       stage_id: stage.id,
@@ -2533,7 +2544,7 @@ function unlinkCuttingLayFromStage(db, {
     }
     const amt = Math.round(num(amountRial));
     const wasteAmt = Math.max(0, Math.round(num(wasteAmountRial)));
-    if (amt > 0 || wasteAmt > 0) {
+    if (mi.length && (amt > 0 || wasteAmt > 0)) {
       db.prepare(`
         UPDATE production_order_stages SET
           material_added_rial = MAX(0, COALESCE(material_added_rial,0) - ?),
@@ -2551,6 +2562,7 @@ function unlinkCuttingLayFromStage(db, {
   }
 
   db.prepare('UPDATE cutting_lays SET stage_id=NULL WHERE id=?').run(layId);
+  applyDocumentCosts(db, orderId);
   return { ok: true, stage_id: stageId };
 }
 
