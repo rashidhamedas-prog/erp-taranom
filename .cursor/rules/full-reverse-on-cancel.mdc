@@ -35,5 +35,5 @@
 - دفتر چک: void کامل lifecycle JEها + UI ابطال
 - دارایی ثابت: غیرفعال‌سازی + ابطال استهلاک دوره + void dispose
 - نرخ سربار: `DELETE /production/cost-centers/rates/:id` → `status=inactive`
-- خرید: ابطال با مسدودسازی روی برگشت/پرداخت فعال؛ UI «ابطال» (نه ویرایش in-place)
+- خرید: ابطال با مسدودسازی روی برگشت/پرداخت بعدی؛ UI «ویرایش in-place» (`PUT /purchases/:id`) + «ابطال» کنار هم (مثل فروش)
 - accounting: `production.delete=true` برای ابطال سفارش تولید

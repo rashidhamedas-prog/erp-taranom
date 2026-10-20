@@ -401,6 +401,106 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(invId));
 });
 
+/** In-place amend (same PO num) — mirror PUT /invoices/:id for AP side. */
+router.put('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') {
+    return res.status(400).json({ error: 'این فاکتور خرید ابطال شده و قابل ویرایش نیست', code: 'E_PURCHASE_DEAD' });
+  }
+
+  const {
+    supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
+    freight_amount, freight_type, vat_exempt, cost_center_id,
+    cheque_duration, cheque_due_date, cheque_info,
+  } = req.body || {};
+  const supplierId = supplier_id != null && supplier_id !== '' ? parseInt(supplier_id, 10) : row.supplier_id;
+  if (!supplierId) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
+
+  let built;
+  try { built = buildRows(db, rows); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
+  const discPct = parseFloat(disc != null ? disc : row.disc) || 0;
+  const totals = calcDocTotals(db, built, discPct, {
+    vatExempt: vat_exempt != null ? !!vat_exempt : !!Number(row.vat_exempt),
+  });
+  const freightRial = Math.round(parseFloat(
+    freight_amount != null ? freight_amount : (row.freight_amount || 0)
+  ) || 0);
+  const allocMethod = ['amount', 'qty', 'equal'].includes(req.body.freight_alloc_method)
+    ? req.body.freight_alloc_method
+    : (row.freight_alloc_method || 'amount');
+  const ft = freight_type != null ? freight_type : (row.freight_type || '');
+  allocateFreight(built.rows, freightRial, allocMethod);
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, ft);
+  const { final } = freightAdj;
+  const entryDate = date || row.date || todayJalali();
+  const whId = warehouse_id != null && warehouse_id !== ''
+    ? parseInt(warehouse_id, 10)
+    : (row.warehouse_id || null);
+  if (whId) {
+    for (const r of built.rows) {
+      if (!r.warehouse_id) r.warehouse_id = whId;
+    }
+  }
+  const pType = pay_type || row.pay_type || 'credit';
+  const ccId = cost_center_id != null && cost_center_id !== ''
+    ? parseInt(cost_center_id, 10)
+    : (row.cost_center_id || null);
+
+  let payPlan;
+  try {
+    payPlan = resolvePurchasePayments(req.body || {}, final);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const storedPayType = payPlan.splits.length
+    ? headerPayTypeFromSplits(payPlan.splits, pType, final)
+    : pType;
+  try {
+    resolveCashPaid(req.body || {}, final);
+    if (storedPayType === 'cash' && !payPlan.splits.length) {
+      assertCashBoxRequired('cash', cash_box_id != null ? cash_box_id : row.cash_box_id);
+    }
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_CASH_BOX_REQUIRED' });
+  }
+
+  // Seed body fields used by amend for cheque / bank when omitted
+  const body = {
+    ...req.body,
+    supplier_id: supplierId,
+    date: entryDate,
+    note: note != null ? note : row.note,
+    bank_id: bank_id !== undefined ? bank_id : row.bank_id,
+    cash_box_id: cash_box_id !== undefined ? cash_box_id : row.cash_box_id,
+    check_category_id: check_category_id !== undefined ? check_category_id : row.check_category_id,
+    cheque_duration: cheque_duration !== undefined ? cheque_duration : row.cheque_duration,
+    cheque_due_date: cheque_due_date !== undefined ? cheque_due_date : row.cheque_due_date,
+    cheque_info: cheque_info !== undefined ? cheque_info : row.cheque_info,
+    vat_exempt: vat_exempt != null ? vat_exempt : row.vat_exempt,
+  };
+
+  let amended;
+  try {
+    const { amendPostedPurchaseInPlace } = require('../lib/amend-purchase');
+    amended = db.transaction(() => amendPostedPurchaseInPlace(db, {
+      row, built, totals, freightAdj, body, whId, ccId, payPlan,
+      freightRial, freight_type: ft, allocMethod, storedPayType, userId: req.user.id,
+    }))();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+
+  audit(req.user.id, 'update', 'purchase', row.id, `اصلاح فاکتور خرید ${row.num} به مبلغ ${final}`);
+  const out = db.prepare(
+    'SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?'
+  ).get(row.id);
+  res.json({ ...out, amended: true, journal_id: amended.journal_id, grni: !!amended.grni });
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(req.params.id);

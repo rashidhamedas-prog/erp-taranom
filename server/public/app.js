@@ -22609,7 +22609,7 @@ async function renderPurchasesTab(body){
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه'};
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){purchaseInvoiceModal()})}">➕ فاکتور خرید جدید</button>
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-right:8px`)}">ویرایش پس از ثبت نیست — برای اصلاح، ابطال کنید و فاکتور جدید بزنید</span></div>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-right:8px`)}">ویرایش در محل همان شماره را نگه می‌دارد؛ ابطال کنار ویرایش است (R13)</span></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/purchases" data-bulk-label="ابطال" data-bulk-confirm="{n} فاکتور خرید ابطال شود؟"><thead><tr>
       <th>شماره</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr data-id="${r.id}">
@@ -22618,7 +22618,8 @@ async function renderPurchasesTab(body){
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printPurchase((r.id))})}" title="چاپ">🖨️</button>
+      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){purchaseInvoiceModal((r.id))})}" title="ویرایش فاکتور خرید">✏️</button>
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printPurchase((r.id))})}" title="چاپ">🖨️</button>
         <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){printWarehouseSlip('purchase',(r.id))})}" title="رسید ورود انبار">📦 رسید انبار</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
     </tr>`).join('')||emptyRow(8)}</tbody>
@@ -22627,71 +22628,101 @@ async function renderPurchasesTab(body){
       <td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(rows.reduce((a,r)=>a+(r.final||0),0))}</td><td colspan="3"></td>
     </tr></tfoot></table></div>`;
 }
-async function purchaseInvoiceModal(){
-  genCart=[]; genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
+async function purchaseInvoiceModal(id){
+  genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
   window._poFromWhGrni=null;
+  window._poEditId=id?Number(id):0;
+  let po=null;
+  if(id){
+    try{ po=await api('GET','/purchases/'+id); }catch(e){ po=null; }
+    if(!po){ showToast('فاکتور خرید یافت نشد','error'); return; }
+    if(po.status==='reversed'){ showToast('فاکتور ابطال‌شده قابل ویرایش نیست','error'); return; }
+  }
   if(!CACHE.allProducts || !CACHE.allProducts.length){ CACHE.allProducts=await api('GET','/products')||[]; if(!CACHE.products||!CACHE.products.length) CACHE.products=CACHE.allProducts; }
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   await loadLiveWarehousesForAccess();
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
+  const isEdit=!!po;
+  const isGrniEdit=isEdit && (!Number(po.stock_added) || Number(po.warehouse_doc_id));
+  genCart=isEdit?(po.rows||[]).map(r=>({
+    product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
+    disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
+    warehouse_id:r.warehouse_id||po.warehouse_id||null,
+    batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+    color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+    roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
+    variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
+    color_name:r.color_name||'', size_name:r.size_name||'',
+    provisional_rial:r.provisional_rial||0,
+    _grniLockedQty:isGrniEdit
+  })):[];
+  const poTitle=isEdit?('ویرایش فاکتور خرید '+(po.num||('#'+id))):'فاکتور خرید جدید';
+  const poPay=po?(po.pay_type||'credit'):'credit';
+  const poPayOpen=poPay && poPay!=='credit';
+  const poSaveLabel=isEdit?'ذخیره تغییرات':'ثبت فاکتور خرید';
   openModal(`
-    <div class="modal-head"><h3>فاکتور خرید جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>${esc(poTitle)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body inv-doc">
       <header class="inv-doc-head">
         <div class="inv-doc-head-main">
-          <h4 class="inv-doc-title">فاکتور خرید جدید</h4>
+          <h4 class="inv-doc-title">${esc(poTitle)}</h4>
           <div class="inv-doc-meta">
             <span class="inv-doc-badge">خرید</span>
-            <span class="inv-doc-badge muted">پیش‌نویس</span>
-            <span class="inv-doc-badge warn">بدون ویرایش پس از ثبت</span>
+            ${isEdit?`<span class="inv-doc-badge muted mono">${esc(po.num||('#'+id))}</span><span class="inv-doc-badge warn">اصلاح در محل</span>`:`<span class="inv-doc-badge muted">پیش‌نویس</span>`}
+            ${isGrniEdit?`<span class="inv-doc-badge ok">GRNI — تعداد قفل</span>`:''}
           </div>
         </div>
         <div class="inv-doc-head-aside">
           <span>تاریخ سند</span>
-          <span class="mono">${todayJalali()}</span>
+          <span class="mono">${esc(po?po.date:todayJalali())}</span>
         </div>
       </header>
 
       <div class="inv-doc-essentials">
-        <div class="fg"><label>تأمین‌کننده *</label>${supplierSelect('po-supplier',0)}</div>
-        <div class="fg"><label>تاریخ</label><input id="po-date" data-jdate value="${todayJalali()}"></div>
-        <div class="fg"><label>انبار مقصد</label><select id="po-warehouse">${warehouseOptionsHtml('','— انتخاب انبار —')}</select></div>
+        <div class="fg"><label>تأمین‌کننده *</label>${supplierSelect('po-supplier',po?po.supplier_id:0)}</div>
+        <div class="fg"><label>تاریخ</label><input id="po-date" data-jdate value="${esc(po?po.date:todayJalali())}"></div>
+        <div class="fg"><label>انبار مقصد</label><select id="po-warehouse" ${isGrniEdit?'disabled':''}>${warehouseOptionsHtml(po?po.warehouse_id:'','— انتخاب انبار —')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="po-cc"><option value="">—</option>
-          ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
-        <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
-        <div class="fg full">
+          ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${po&&Number(po.cost_center_id)===Number(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="${po?po.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
+        <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="${po?po.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
+        ${isEdit?'':`<div class="fg full">
           <button type="button" class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){openWhGrniPickerForPurchase()})}">📦 از رسید انبار بدون فاکتور (GRNI)</button>
           <span id="po-grni-banner" class="muted" data-csp-style="${CSP.style(`margin-right:8px;font-size:12px`)}"></span>
-        </div>
+        </div>`}
+        ${isGrniEdit?`<div class="fg full"><span id="po-grni-banner" class="muted" data-csp-style="${CSP.style(`font-size:12px;color:var(--blue,#2563eb)`)}">حالت GRNI: فقط فی/تخفیف/کرایه/تاریخ — تعداد و کالا قفل است</span></div>`:''}
       </div>
 
-      <details class="inv-doc-sec" id="po-sec-pay">
+      <details class="inv-doc-sec" id="po-sec-pay" ${poPayOpen?'open':''}>
         <summary>پرداخت</summary>
         <div class="inv-doc-sec-body">
-          <p class="inv-doc-sec-hint">نسیه حساب تأمین‌کننده را باز می‌گذارد؛ نقد/چک/واریز همان لحظه پرداخت ثبت می‌شود.</p>
+          <p class="inv-doc-sec-hint">${isGrniEdit?'فاکتور GRNI معمولاً نسیه است؛ پرداخت جدا از لیست پرداخت‌ها.':'نسیه حساب تأمین‌کننده را باز می‌گذارد؛ نقد/چک/واریز همان لحظه پرداخت ثبت می‌شود. در ویرایش، پرداخت هنگام فاکتور بازنویسی می‌شود.'}</p>
           <div class="form-grid">
-            <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" data-csp-change="${CSP.bind('change',function(event){togglePoBankFields();const s=el('po-sec-pay');if(s&&this.value&&this.value!=='credit')s.open=true})}">
-              <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
-              <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
+            <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" ${isGrniEdit?'disabled':''} data-csp-change="${CSP.bind('change',function(event){togglePoBankFields();const s=el('po-sec-pay');if(s&&this.value&&this.value!=='credit')s.open=true})}">
+              <option value="credit" ${!po||poPay==='credit'?'selected':''}>نسیه (حساب باز)</option>
+              <option value="cash" ${poPay==='cash'?'selected':''}>نقد</option>
+              <option value="cheque" ${poPay==='cheque'?'selected':''}>چک</option>
+              <option value="bank_transfer" ${poPay==='bank_transfer'||poPay==='bank'?'selected':''}>واریز بانکی</option>
+              ${poPay==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
+            </select></div>
             <div class="fg" id="po-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب تأمین‌کننده می‌ماند.')}</label>
-              <input id="po-pay-amount" type="text" inputmode="numeric" class="money" value="" placeholder="مبلغ پرداختی" data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderPoCashRemainder==='function')renderPoCashRemainder()})}">
+              <input id="po-pay-amount" type="text" inputmode="numeric" class="money" value="${po&&po.pay_amount_rial?moneyInit(po.pay_amount_rial):''}" placeholder="مبلغ پرداختی" ${po&&Number(po.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderPoCashRemainder==='function')renderPoCashRemainder()})}">
               <div id="po-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
             <div class="fg" id="po-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از بانک</label><select id="po-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('po')})}">
-              <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+              <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${po&&Number(po.bank_id)===Number(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
             </select></div>
             <div class="fg" id="po-cashbox-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>پرداخت از صندوق *</label><select id="po-cashbox">
-              <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+              <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${po&&Number(po.cash_box_id)===Number(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
             </select></div>
             <div class="fg" id="po-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="po-checkcat"><option value="">—</option></select></div>
           </div>
           <div id="poChequeFields" data-csp-style="${CSP.style(`display:none`)}">
             <div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
-              <div class="fg"><label>مدت چک (روز)</label><input id="po-cheque-dur" type="number" value=""></div>
-              <div class="fg"><label>تاریخ سررسید</label><input id="po-cheque-due" data-jdate value=""></div>
-              <div class="fg full"><label>اطلاعات چک</label><input id="po-cheque-info" placeholder="بانک، شماره صیادی، …"></div>
+              <div class="fg"><label>مدت چک (روز)</label><input id="po-cheque-dur" type="number" value="${esc(po&&po.cheque_duration?po.cheque_duration:'')}"></div>
+              <div class="fg"><label>تاریخ سررسید</label><input id="po-cheque-due" data-jdate value="${esc(po&&po.cheque_due_date?po.cheque_due_date:'')}"></div>
+              <div class="fg full"><label>اطلاعات چک</label><input id="po-cheque-info" value="${esc(po&&po.cheque_info?po.cheque_info:'')}" placeholder="بانک، شماره صیادی، …"></div>
             </div>
           </div>
         </div>
@@ -22701,24 +22732,24 @@ async function purchaseInvoiceModal(){
         <summary>کرایه، مالیات و یادداشت</summary>
         <div class="inv-doc-sec-body">
           <div class="form-grid">
-            <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
-            <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
+            <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(po?po.freight_amount||0:0)}" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
+            <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer" ${po&&po.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option><option value="seller" ${po&&po.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
             <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}">
-              <option value="amount">به نسبت مبلغ</option>
-              <option value="qty">به نسبت مقدار</option>
-              <option value="equal">مساوی</option>
+              <option value="amount" ${!po||po.freight_alloc_method==='amount'||!po.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
+              <option value="qty" ${po&&po.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
+              <option value="equal" ${po&&po.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
             </select></div>
-            <div class="fg"><label><input type="checkbox" id="po-vat-exempt" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
-            <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
+            <div class="fg"><label><input type="checkbox" id="po-vat-exempt" ${po&&Number(po.vat_exempt)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
+            <div class="fg full"><label>یادداشت</label><input id="po-note" value="${esc(po&&po.note?po.note:'')}"></div>
           </div>
         </div>
       </details>
 
       <div class="inv-doc-body">
         <aside class="inv-doc-picker">
-          ${genProductSearchHtml()}
-          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
-          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>
+          ${isGrniEdit?'<p class="muted" style="font-size:12px;line-height:1.7">در GRNI افزودن/حذف کالا از این فرم ممکن نیست.</p>':genProductSearchHtml()}
+          ${isGrniEdit?'':`<button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:4px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>`}
         </aside>
         <section class="inv-doc-lines">
           <div class="inv-cart-head">
@@ -22730,20 +22761,21 @@ async function purchaseInvoiceModal(){
         <aside class="inv-doc-rail">
           <div class="cart-tot" id="genCartTot"></div>
           <div class="inv-doc-rail-actions">
-            <button class="btn green" id="po-save-btn" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">ثبت فاکتور خرید</button>
+            <button class="btn green" id="po-save-btn" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">${esc(poSaveLabel)}</button>
             <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
           </div>
           <div class="inv-doc-mobile-bar" id="po-mobile-bar">
             <span class="inv-m-final" id="po-mobile-final">—</span>
-            <button type="button" class="btn green" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">ثبت خرید</button>
+            <button type="button" class="btn green" data-csp-click="${CSP.bind('click',function(event){savePurchaseInvoice()})}">${esc(isEdit?'ذخیره':'ثبت خرید')}</button>
           </div>
         </aside>
       </div>
     </div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
+  if(po&&po.check_category_id){ try{ updateCheckCategoryOptions('po'); if(el('po-checkcat')) el('po-checkcat').value=String(po.check_category_id); }catch(_){} }
   renderGenCart(); togglePoBankFields();
   const poWh=el('po-warehouse');
-  if(poWh && !poWh.dataset.whBound){
+  if(poWh && !poWh.dataset.whBound && !isGrniEdit){
     poWh.dataset.whBound='1';
     poWh.addEventListener('change',()=>{
       applyHeaderWarehouseToCart(genCart, headerPurchaseWarehouseId());
@@ -22884,8 +22916,9 @@ async function savePurchaseInvoice(){
   const supplier_id=+el('po-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
+  const editId=Number(window._poEditId)||0;
   const fromGrni=window._poFromWhGrni;
-  if(fromGrni&&fromGrni.docIds&&fromGrni.docIds.length){
+  if(!editId && fromGrni&&fromGrni.docIds&&fromGrni.docIds.length){
     try{
       await api('POST','/purchases/warehouse-grni-invoices',{
         warehouse_doc_ids:fromGrni.docIds,
@@ -22915,35 +22948,43 @@ async function savePurchaseInvoice(){
   if(pay_type==='cash' && poPayAmt>(Number(window._poLastFinal)||0)){
     showToast('مبلغ نقد نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return;
   }
+  const payload={
+    supplier_id, date:el('po-date').value, note:el('po-note').value,
+    disc:+el('po-disc').value||0, pay_type,
+    pay_amount: (pay_type==='cash'||pay_type==='cheque'||pay_type==='bank_transfer') ? poPayAmt : undefined,
+    bank_id:+el('po-bank')?.value||null,
+    cash_box_id:+el('po-cashbox')?.value||null,
+    check_category_id:+el('po-checkcat')?.value||null,
+    warehouse_id:+el('po-warehouse')?.value||null,
+    cost_center_id:+el('po-cc')?.value||null,
+    freight_amount:moneyVal('po-freight'),
+    freight_type:el('po-freight-type')?.value||'',
+    freight_alloc_method:el('po-freight-alloc')?.value||'amount',
+    vat_exempt:el('po-vat-exempt')?.checked?1:0,
+    cheque_duration: pay_type==='cheque' ? (el('po-cheque-dur')?.value||'') : '',
+    cheque_due_date: pay_type==='cheque' ? (el('po-cheque-due')?.value||'') : '',
+    cheque_info: pay_type==='cheque' ? (el('po-cheque-info')?.value||'') : '',
+    rows: genCart.map(r=>({
+      product_id:r.product_id, qty:r.qty, price:r.price,
+      disc:r.disc||0, disc_amount:r.disc_amount||0,
+      description:r.description||'', warehouse_id:r.warehouse_id||headerPurchaseWarehouseId()||null,
+      batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+      color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+      roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
+      variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
+      color_name:r.color_name||'', size_name:r.size_name||'',
+      provisional_rial:r.provisional_rial||0
+    }))
+  };
   try{
-    await api('POST','/purchases',{
-      supplier_id, date:el('po-date').value, note:el('po-note').value,
-      disc:+el('po-disc').value||0, pay_type,
-      pay_amount: (pay_type==='cash'||pay_type==='cheque'||pay_type==='bank_transfer') ? poPayAmt : undefined,
-      bank_id:+el('po-bank')?.value||null,
-      cash_box_id:+el('po-cashbox')?.value||null,
-      check_category_id:+el('po-checkcat')?.value||null,
-      warehouse_id:+el('po-warehouse')?.value||null,
-      cost_center_id:+el('po-cc')?.value||null,
-      freight_amount:moneyVal('po-freight'),
-      freight_type:el('po-freight-type')?.value||'',
-      freight_alloc_method:el('po-freight-alloc')?.value||'amount',
-      vat_exempt:el('po-vat-exempt')?.checked?1:0,
-      cheque_duration: pay_type==='cheque' ? (el('po-cheque-dur')?.value||'') : '',
-      cheque_due_date: pay_type==='cheque' ? (el('po-cheque-due')?.value||'') : '',
-      cheque_info: pay_type==='cheque' ? (el('po-cheque-info')?.value||'') : '',
-      rows: genCart.map(r=>({
-        product_id:r.product_id, qty:r.qty, price:r.price,
-        disc:r.disc||0, disc_amount:r.disc_amount||0,
-        description:r.description||'', warehouse_id:r.warehouse_id||headerPurchaseWarehouseId()||null,
-        batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
-        color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
-        roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
-        variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
-        color_name:r.color_name||'', size_name:r.size_name||''
-      }))
-    });
-    closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
+    if(editId){
+      await api('PUT','/purchases/'+editId, payload);
+      window._poEditId=0;
+      closeModal(); showToast('فاکتور خرید اصلاح شد'); loadAccTab('purchases');
+    }else{
+      await api('POST','/purchases', payload);
+      closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
+    }
   }catch(e){}
 }
 async function deletePurchaseInvoice(id){
@@ -33192,7 +33233,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>داشبورد فروش و خرید</b>: زیرگزارشات همین ماژول — KPI، سود ناخالص/خالص و حاشیه، پل سود، مقایسه دوره، نمودار، Topها، هشدار؛ drill به اسناد و باز کردن فاکتور</li>
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. دکمهٔ <b>✏️ ویرایش</b> اصلاح در محل روی همان شماره است (مثل فروش): سند خرید، موجودی، دفتر تأمین‌کننده و پرداخت هنگام فاکتور بازنویسی می‌شوند؛ <b>⛔ ابطال</b> کنار آن است (R13). اگر برگشت از خرید فعال باشد ابتدا آن را ابطال کنید. پرداخت‌های جدا (بعد از ثبت) اگر ساختار پرداخت هنگام فاکتور عوض شود مسدود می‌کنند. فاکتور از رسید GRNI فقط فی/تخفیف/کرایه/تاریخ را می‌پذیرد — تعداد و کالا قفل است</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372 + فی بدون‌فاکتور v450): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. در حالت <b>بدون فاکتور</b> فیلد «فی فروش/خرید» و «تخفیف کلی (مبلغ)» با جداکننده هزارگان وارد می‌شوند و هنگام افزودن (ساده یا ماتریس) همان مبلغ کامل ریالی به جدول و جمع پایین می‌رود — دیگر عدد در ویرگول قطع نمی‌شود. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
         <li><b>کاردکس کالا (v492)</b>: اول دوره در نوار بالاست؛ اگر سال مالی وسط سال باز شده باشد و بازه از اول تقویم باشد، سند افتتاحیهٔ همان روز شروع سال مالی در اول دوره می‌نشیند نه ورود. حواله/مصرف مرحله که با «ابطال مصرف / ابطال مرحله» جفت شده از جدول و مانده خارج است (حتی اگر شرح حواله شماره PO نداشته باشد). ابطال جدید همان ردیف اصلی را برمی‌گرداند. تیک ممیزی فقط تاریخچه است.</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار (<b>روش ریالی‌کردن</b> جداست و فقط قیمت‌گذاری لایه است). حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند — همین قانون برای <b>اصلاح فاکتور، مرجوعی فروش و تسویه امانی</b> هم اعمال می‌شود. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. <b>اجازه موجودی منفی</b> روی حوالهٔ انبار و <b>فاکتور فروش / فروش فروشگاهی</b> از همان انبار اعمال می‌شود (موجودی می‌تواند منفی شود). فقط یک انبار پیش‌فرض مجاز است.</li>
@@ -33394,7 +33435,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v457</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v495</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
