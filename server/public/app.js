@@ -30756,31 +30756,99 @@ async function chequeSendToBankSave(id){
   }catch(e){}
 }
 async function chequeClear(id){
-  if(!confirm('وصول چک ثبت شود؟')) return;
+  if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
+  let chq=null;
+  try{ chq=await api('GET','/cheque-records/'+id); }catch(_){ chq=null; }
+  const preBank=chq&&chq.collection_bank_id?String(chq.collection_bank_id):'';
+  const dueHint=chq&&chq.due_date?` سررسید برگه <b>${esc(chq.due_date)}</b> است؛ تاریخ وصول می‌تواند با آن فرق کند.`:'';
+  const bankOpts=(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>
+    `<option value="${b.id}" ${String(b.id)===preBank?'selected':''}>${esc(b.name)}</option>`
+  ).join('');
+  openModal(`
+    <div class="modal-head"><h3>✅ وصول چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">تاریخ وصول = روز واریز واقعی به حساب بانک (نه لزوماً امروز). پیش‌فرض امروز است؛ برای ثبت با تأخیر تاریخ واریز بانک را بزنید.${dueHint} سند: بدهکار بانک / بستانکار «در جریان وصول».</p>
+      <div class="form-grid">
+        <div class="fg full"><label>بانک واریز *</label>
+          <select id="cclear-bank"><option value="">— انتخاب بانک —</option>${bankOpts}</select></div>
+        <div class="fg"><label>تاریخ وصول *</label><input id="cclear-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){chequeClearSave((id))})}">💾 ثبت وصول</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeClearSave(id){
+  const bank_id=+el('cclear-bank')?.value||null;
+  const date=String(el('cclear-date')?.value||'').trim();
+  if(!bank_id){ showToast('بانک واریز را انتخاب کنید','error'); return; }
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ وصول را به صورت YYYY/MM/DD وارد کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/clear',{date:todayJalali()});
-    showToast('وصول ثبت شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/clear',{date, bank_id});
+    closeModal(); showToast('وصول ثبت شد — تاریخ سند '+date); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeBounce(id){
-  if(!confirm('برگشت چک ثبت شود؟ مبلغ به بدهی طرف حساب در صورت‌حساب اضافه می‌شود.')) return;
+  openModal(`
+    <div class="modal-head"><h3>↩️ برگشت چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">مبلغ به بدهی طرف حساب در صورت‌حساب برمی‌گردد. تاریخ برگشت را مطابق اعلام بانک وارد کنید (پیش‌فرض امروز).</p>
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ برگشت *</label><input id="cbounce-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn red" data-csp-click="${CSP.bind('click',function(event){chequeBounceSave((id))})}">ثبت برگشت</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeBounceSave(id){
+  const date=String(el('cbounce-date')?.value||'').trim();
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ برگشت را به صورت YYYY/MM/DD وارد کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/bounce',{date:todayJalali()});
-    showToast('برگشت ثبت شد — مبلغ به بدهی صورت‌حساب طرف حساب اضافه شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/bounce',{date});
+    closeModal(); showToast('برگشت ثبت شد — مبلغ به بدهی صورت‌حساب طرف حساب اضافه شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeResend(id){
-  if(!confirm('ارسال مجدد پس از برگشت؟ سند برگشت معکوس و وضعیت قبلی چرخه بازیابی می‌شود.')) return;
+  openModal(`
+    <div class="modal-head"><h3>ارسال مجدد چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">سند برگشت معکوس و وضعیت قبلی چرخه بازیابی می‌شود. تاریخ سند معکوس را مشخص کنید.</p>
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ *</label><input id="cresend-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){chequeResendSave((id))})}">ثبت ارسال مجدد</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeResendSave(id){
+  const date=String(el('cresend-date')?.value||'').trim();
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ را به صورت YYYY/MM/DD وارد کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/resend',{date:todayJalali()});
-    showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/resend',{date});
+    closeModal(); showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequePayOut(id){
-  if(!confirm('پرداخت/تحویل چک به ذینفع ثبت شود؟ سند بدهکار پرداختنی و بستانکار اسناد پرداختنی زده می‌شود.')) return;
+  openModal(`
+    <div class="modal-head"><h3>پرداخت / تحویل چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">سند بدهکار پرداختنی و بستانکار اسناد پرداختنی. تاریخ تحویل/پرداخت را مشخص کنید.</p>
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ *</label><input id="cpay-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){chequePayOutSave((id))})}">ثبت پرداخت</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequePayOutSave(id){
+  const date=String(el('cpay-date')?.value||'').trim();
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ را به صورت YYYY/MM/DD وارد کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/pay',{date:todayJalali()});
-    showToast('پرداخت چک ثبت شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/pay',{date});
+    closeModal(); showToast('پرداخت چک ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeExpenseOut(id){
@@ -33491,14 +33559,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ثبت / نزد صندوق</b> (<code>registered</code>): از فاکتور فروش، دفتر چک، یا مانده اول دوره. بدهکار اسناد دریافتنی (۱۱۰۹) — هنوز نزد بانک نیست. دکمه‌های <b>واگذاری</b> و <b>خرج</b> فقط در این مرحله فعال‌اند. چک فاکتور فروش سندش همان تسویه است و دوباره مشتری را بستانکار نمی‌کند</li>
         <li><b>واگذاری به بانک</b>: بانک وصول + تاریخ. سند بدهکار «در جریان وصول» (۱۱۱۶) / بستانکار اسناد دریافتنی — فقط جابه‌جایی دارایی. وضعیت «واگذارشده». چک اول دوره و چک فاکتور فروش هم همین چرخه را دارند</li>
         <li><b>خرج / ظهرنویسی</b>: ذینفع از تأمین‌کننده یا اشخاص. بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی + ردیف دفتر تأمین‌کننده/مشتری</li>
-        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بدهکار بانک / بستانکار در جریان وصول. همان لحظه از هشدار سررسید داشبورد مالی هم حذف می‌شود</li>
-        <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — مبلغ به بدهی صورت‌حساب طرف حساب برمی‌گردد</li>
-        <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
+        <li><b>وصول</b>: وقتی چک در «جریان وصول» است، مودال <b>تاریخ وصول</b> (پیش‌فرض امروز، قابل تغییر) و <b>بانک واریز</b> (پیش‌فرض بانک واگذاری) باز می‌شود — بدهکار بانک / بستانکار در جریان وصول. تاریخ = روز واریز واقعی به بانک است، نه لزوماً سررسید برگه. تاریخ وصول نمی‌تواند قبل از تاریخ واگذاری باشد. همان لحظه از هشدار سررسید داشبورد مالی هم حذف می‌شود</li>
+        <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — مودال تاریخ برگشت؛ مبلغ به بدهی صورت‌حساب طرف حساب برمی‌گردد</li>
+        <li><b>ارسال مجدد</b>: پس از برگشت — مودال تاریخ؛ معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
         <li><b>ابطال تسویه / اصلاح فاکتور (R13 v454):</b> اگر چک قبلاً واگذار یا وصول شده باشد، ابطال تسویه فقط برگه را مخفی نمی‌کند — سندهای واگذاری و وصول هم soft-void می‌شوند تا گردش بانک با دفتر چک و گردش طرف‌حساب یکی بماند. ابطال از خود دفتر چک همچنان همهٔ اسناد را کامل برمی‌گرداند</li>
       </ul>
       <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
       <ul>
-        <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
+        <li><b>پرداخت / تحویل</b>: از ثبت‌شده — مودال تاریخ؛ بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
         <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند. با روشن بودن «الزام مرکز هزینه» در تنظیمات، وقتی مبلغ هزینه پر باشد مرکز برای بخش‌های دوره اجباری است (سربار همیشه اجباری بوده)</li>
         <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود. <b>چک اول‌دوره دریافتنی</b> فقط اسناد/افتتاحیه است و اعتبار در دفتر مشتری نمی‌سازد (v376؛ heal پیوسته ردیف‌های قدیمی را پاک می‌کند).</li>
       </ul>

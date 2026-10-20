@@ -21,6 +21,33 @@ const {
 const { syncSettlementChequeStatus } = require('../lib/cheque-due');
 const { enrichChequeRow, buildChequeHistory } = require('../lib/cheque-history');
 
+/** Jalali YYYY/MM/DD for lifecycle JE dates; empty → today (API compat). */
+function resolveChequeEntryDate(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return todayJalali();
+  if (!/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
+    throw Object.assign(new Error('تاریخ باید به صورت YYYY/MM/DD باشد'), {
+      status: 400,
+      code: 'E_CHEQUE_DATE',
+    });
+  }
+  return s;
+}
+
+function assertClearNotBeforeSend(db, row, entryDate) {
+  if (!row || !row.collection_je_id) return;
+  const sendJe = db.prepare(
+    'SELECT entry_date FROM journal_entries WHERE id=? AND COALESCE(deleted_at,0)=0'
+  ).get(row.collection_je_id);
+  const sendDate = sendJe && String(sendJe.entry_date || '').trim();
+  if (sendDate && entryDate < sendDate) {
+    throw Object.assign(
+      new Error(`تاریخ وصول نمی‌تواند قبل از تاریخ واگذاری (${sendDate}) باشد`),
+      { status: 400, code: 'E_CHEQUE_CLEAR_BEFORE_SEND' }
+    );
+  }
+}
+
 function resolveChequeParty(db, body) {
   const partyId = parseInt(body && body.party_id, 10);
   if (!Number.isFinite(partyId) || partyId <= 0) {
@@ -580,7 +607,7 @@ router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
       }));
     }
 
-    const entryDate = req.body.date || todayJalali();
+    const entryDate = resolveChequeEntryDate(req.body.date);
     const jeId = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
       if (!row) {
@@ -643,7 +670,7 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
     const receivable = acct(db, 'coa_cheques_receivable');
     const amt = amountRial / 10;
     const bankId = req.body.collection_bank_id || null;
-    const entryDate = req.body.date || todayJalali();
+    const entryDate = resolveChequeEntryDate(req.body.date);
 
     const jeId = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
@@ -706,7 +733,7 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
     const collection = acct(db, 'coa_cheques_in_collection');
     const amt = amountRial / 10;
     const bankId = req.body.bank_id || amountProbe.collection_bank_id;
-    const entryDate = req.body.date || todayJalali();
+    const entryDate = resolveChequeEntryDate(req.body.date);
 
     const jeId = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
@@ -714,15 +741,20 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
       if (row.lifecycle_status !== 'in_collection') {
         throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      assertClearNotBeforeSend(db, row, entryDate);
       postChequeInReceipt(db, row, req.user.id, entryDate);
       assertJournalIdempotent(db, 'cheque_clear', row.id);
 
-      const cashLine = bankId
-        ? (() => {
-          const b = db.prepare('SELECT coa_code, name FROM banks WHERE id=?').get(bankId);
-          return { code: b?.coa_code || ('1102-' + bankId), name: b?.name || bank.name };
-        })()
-        : bank;
+      let cashLine = bank;
+      let resolvedBankId = bankId || null;
+      if (resolvedBankId) {
+        const b = db.prepare('SELECT id, coa_code, name FROM banks WHERE id=?').get(resolvedBankId);
+        if (!b) {
+          throw Object.assign(new Error('بانک واریز معتبر نیست'), { status: 400, code: 'E_CHEQUE_BANK' });
+        }
+        cashLine = { code: b.coa_code || ('1102-' + b.id), name: b.name || bank.name };
+        resolvedBankId = b.id;
+      }
 
       const id = postToLedger(db, {
         sourceType: 'cheque_clear', sourceId: row.id,
@@ -735,9 +767,11 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
         ],
       });
       const updated = db.prepare(`
-        UPDATE cheque_records SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده'
+        UPDATE cheque_records
+        SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده',
+            collection_bank_id=COALESCE(?, collection_bank_id)
         WHERE id=? AND lifecycle_status='in_collection'
-      `).run(id, row.id);
+      `).run(id, resolvedBankId, row.id);
       if (!updated.changes) {
         throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
@@ -747,7 +781,7 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
 
     const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
     audit(req.user.id, 'cheque_clear', 'cheque_record', req.params.id, row?.cheque_number);
-    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'cleared' });
+    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'cleared', date: entryDate });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
@@ -759,7 +793,7 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
     const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
     if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
 
-    const entryDate = req.body.date || todayJalali();
+    const entryDate = resolveChequeEntryDate(req.body.date);
 
     const jeId = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
@@ -795,7 +829,7 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
 router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const entryDate = req.body.date || todayJalali();
+    const entryDate = resolveChequeEntryDate(req.body.date);
 
     const result = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
