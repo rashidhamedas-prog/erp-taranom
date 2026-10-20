@@ -10,8 +10,8 @@
 - **تصمیم:** همان الگوی فروش (نه credit-memo BC): `PUT /purchases/:id` روی همان شماره؛ JE با `rewriteJournalEntry`؛ موجودی با reverse+repost منبع؛ پرداخت هنگام فاکتور بازنویسی؛ پرداخت بعدی / برگشت فعال گیت. GRNI: فقط فی/تخفیف/کرایه/تاریخ (تعداد قفل).
 - **رفع:** `lib/amend-purchase.js`؛ مسیر PUT؛ دکمهٔ ✏️ + مودال ویرایش؛ ابطال کنار ویرایش (R13)؛ راهنما؛ تست `test-purchase-amend-v495.js`.
 - **فایل‌ها:** `lib/amend-purchase.js`, `routes/purchases.js`, `public/{app.js,sw.js}`, `scripts/test-purchase-amend-v495.js`, `.cursor/rules/full-reverse-on-cancel.mdc`, CHANGE-LOG.
-- **تست:** محلی static ۱۶/۰ + پارس `app.js` + `test-sms` ۲۲/۰؛ sqlite محلی ABI رد. ایران پس از deploy.
-- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v495`.
+- **تست:** ایران `test-purchase-amend-v495` ۲۶/۰ و `test-sms` ۲۲/۰. محلی static + پارس `app.js`؛ sqlite محلی ABI رد.
+- **Deploy:** ✅ `2110b8b1` (feature `5a629a84`) — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v495`.
 
 ### ۱۴۰۵/۰۷/۲۸ — تاریخ دستی وصول چک + مودال بانک (SW v494)
 - **ریشه:** دکمهٔ «وصول» در دفتر چک فقط `confirm` می‌زد و همیشه `todayJalali()` می‌فرستاد؛ API از قبل `date`/`bank_id` را می‌پذیرفت ولی UI راهی برای تاریخ واریز واقعی نمی‌داد. برگشت/ارسال مجدد/پرداخت هم همین شکاف را داشتند (G7 در CHEQUE-LEAF research).

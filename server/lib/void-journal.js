@@ -6,8 +6,9 @@
  * reverse voucher is posted. Historical reverse vouchers are purged by
  * purgeHistoricalReversalDocs().
  *
- * Callers that previously stored reversal_journal_id receive null (or the
- * original id when already voided) — business rows keep status='reversed'.
+ * Return value: original jeId when this call soft-voided a live entry;
+ * null if missing or already voided. No paired reverse voucher id.
+ * Business rows keep status='reversed'.
  */
 'use strict';
 
@@ -42,7 +43,7 @@ function reverseJournalEntry(db, jeId, { userId, date, reason, sourceType } = {}
   // Drop any existing paired reverse vouchers for this original (legacy R12).
   purgeReverseVouchersForOriginal(db, jeId, origHead);
 
-  return alreadyDead ? null : null;
+  return alreadyDead ? null : jeId;
 }
 
 function purgeReverseVouchersForOriginal(db, originalId, origHead) {

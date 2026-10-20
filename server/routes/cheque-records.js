@@ -844,15 +844,37 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
       const prior = row.cleared_je_id ? 'cleared' : (row.collection_je_id ? 'in_collection' : 'registered');
       const statusLabel = prior === 'cleared' ? 'وصول‌شده' : (prior === 'in_collection' ? 'در جریان وصول' : 'ثبت‌شده');
 
-      const id = reverseJournalEntry(db, row.bounced_je_id, {
+      const bounceJeId = Number(row.bounced_je_id);
+      const bounceJe = db.prepare(`
+        SELECT id, status, deleted_at FROM journal_entries WHERE id=?
+      `).get(bounceJeId);
+      if (!bounceJe) {
+        throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), {
+          status: 400,
+          code: 'E_CHEQUE_LIFECYCLE',
+        });
+      }
+
+      // v285+: reverseJournalEntry soft-voids the bounce JE (no paired reverse voucher).
+      // Truthy = just voided; null = already voided — both OK for resend.
+      reverseJournalEntry(db, bounceJeId, {
         userId: req.user.id,
         date: entryDate,
         reason: `ارسال مجدد چک ${row.cheque_number || row.id} پس از برگشت`,
         sourceType: 'cheque_resend',
       });
-      if (!id) {
-        throw Object.assign(new Error('معکوس سند برگشت ناموفق بود'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      const after = db.prepare(`
+        SELECT status, deleted_at FROM journal_entries WHERE id=?
+      `).get(bounceJeId);
+      const voided = after
+        && (Number(after.deleted_at || 0) > 0 || ['reversed', 'void'].includes(String(after.status || '')));
+      if (!voided) {
+        throw Object.assign(new Error('ابطال نرم سند برگشت ناموفق بود'), {
+          status: 400,
+          code: 'E_CHEQUE_LIFECYCLE',
+        });
       }
+
       reverseChequeLedgerByRef(db, {
         chequeId: row.id,
         refTypes: ['cheque_bounce'],
@@ -869,7 +891,7 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
         throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
       syncSettlementChequeStatus(db, row.id);
-      return { id, prior, cheque_number: row.cheque_number };
+      return { id: bounceJeId, prior, cheque_number: row.cheque_number };
     })();
 
     audit(req.user.id, 'cheque_resend', 'cheque_record', req.params.id, result.cheque_number);
