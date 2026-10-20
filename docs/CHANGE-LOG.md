@@ -3,8 +3,8 @@
 - **رفع UX:** خالی → نگه داشتن قیمت قبلی؛ `keepFocus` روی ویرایش سبد؛ حذف `autofocus` اسکن؛ disc/qty روی `change`؛ برچسب «برگشت کامل» + `checkoutLbl`/`returnOnly` در render.
 - **R13:** `voidStoreExchangeRefund` + `sourceId` عددی = id برگشت؛ از `reverseSalesReturnEffects` فراخوانی می‌شود (void/amend/rollback).
 - **فایل‌ها:** `lib/{store-quick-sale,sales-return-doc}.js`, `routes/store.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-store-qs-harden-v505.js`, CHANGE-LOG.
-- **تست:** `test-store-qs-harden-v505` ۲۰/۰ + `test-sms` ۲۲/۰؛ پارس `app.js` سبز.
-- **Deploy:** ⏳
+- **تست:** ایران `test-store-qs-harden-v505` ۲۰/۰ + `test-sms` ۲۲/۰؛ پارس `app.js` سبز.
+- **Deploy:** ✅ `f42b399d` — overlay gzip ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v505`.
 
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس تجمیعی + موجودی انبار فاکتور + ویرایش آزاد پک + heal هم‌ترازی (SW v504)
 - **علائم:** کاردکس انبار کیمیا برای حواله چندرنگ (مثل WH-0010) چند سطر INV جدا نشان می‌داد؛ موجودی کارت فاکتور با انبار انتخاب‌شده هم‌خوان نبود؛ سند «موجودی اول دوره (هم‌ترازی کاردکس)» برای کالای تازه‌تولید ورود دوره را باد می‌کرد؛ ویرایش رنگ/سایز بعد از افزودن پک عملاً زوج/پک کامل می‌ماند.
