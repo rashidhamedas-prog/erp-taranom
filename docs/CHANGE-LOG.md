@@ -1,9 +1,9 @@
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس: ریشهٔ هم‌ترازی یتیم + toggle/جمع جزییات (SW v506)
 - **علائم:** اسناد `موجودی اول دوره (هم‌ترازی کاردکس)` بعد از حذف/ابطال منبع در کاردکس و جمع مانده می‌ماندند؛ دکمهٔ «جزئیات» باز می‌شد ولی بسته نمی‌شد؛ برای فاکتورهایی مثل T-0009 سطر مادر خروج ۲ و هر رنگ جزییات هم ۲ نشان می‌داد (جمع ۸≠۲).
-- **ریشه:** `reconcileInventoryLedgerGaps` روی هر بوت با `skipStock` seed می‌کاشت حتی وقتی SKU گردش واقعی داشت؛ `retireSpuriousKardexAlign` روی بوت اجرا نمی‌شد → seedها برمی‌گشتند. UI با `style.display===''` بعد از باز شدن همیشه «مخفی» فرض می‌کرد. `enrichInvoiceGroupDetails` ماتریس `invoices.rows` را جایگزین qty دفتر می‌کرد بدون تطبیق جمع.
-- **رفع معماری:** seed هم‌ترازی فقط برای انبار بدون گردش زنده؛ بوت بعد از gap → retire اعمال‌شده؛ جزییات فاکتور فقط وقتی Σ خطوط = qty مادر؛ toggle با `aria-expanded` + `hidden`.
+- **ریشه:** `reconcileInventoryLedgerGaps` روی هر بوت با `skipStock` seed می‌کاشت حتی وقتی SKU گردش واقعی داشت؛ `retireSpuriousKardexAlign` روی بوت اجرا نمی‌شد و گیت `ws_worse` (وقتی WS همان seed را آینه کرده) ابطال امن را صفر می‌کرد. UI با `style.display===''` بعد از باز شدن همیشه «مخفی» فرض می‌کرد. `enrichInvoiceGroupDetails` ماتریس `invoices.rows` را جایگزین qty دفتر می‌کرد بدون تطبیق جمع.
+- **رفع معماری:** seed هم‌ترازی فقط برای انبار بدون گردش زنده؛ بوت بعد از gap → retire؛ حذف گیت ws_worse + پاس دوم برای seedهای تکراری همان SKU×انبار؛ جزییات فاکتور فقط وقتی Σ خطوط = qty مادر؛ toggle با `aria-expanded` + `hidden`.
 - **فایل‌ها:** `lib/{opening-post,ledgers}.js`, `db.js`, `public/{app.js,sw.js}`, `scripts/test-kardex-rootfix-v506.js`, CHANGE-LOG.
-- **تست:** `test-kardex-rootfix-v506` + `test-sms`؛ DB runtime روی ایران.
+- **تست:** ایران `test-kardex-rootfix-v506` ۱۶/۰ + group/align + `test-sms`؛ `test-sync` harness pairing جدا (از قبل).
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۷/۲۸ — فروش سریع: harden فی/فوکوس + R13 ابطال استرداد (SW v505)
