@@ -3,8 +3,8 @@
 - **تصمیم (R13):** اصلاح PACK = ابطال + ثبت مجدد (بدون amend همان شماره). سه تب: لایه‌چینی / منتظر PACK / **PACK فعال**. پوشش سفارش ≠ نبود PACK.
 - **رفع:** `has_live_pack` و `pack_via_order_fg` صادق در list/get؛ دکمهٔ ابطال/چاپ وقتی PACK زنده است حتی با پوشش سفارش؛ ریدایرکت ویرایش قفل‌شده به تب PACK فعال؛ journey `active-pack` → مرحله ۵؛ راهنما.
 - **فایل‌ها:** `lib/production/cutting.js`, `public/{app.js,prod-journey-gate.js,index.html,sw.js}`, `scripts/test-cutting-pack-active-ui-v498.js`, CHANGE-LOG.
-- **تست:** محلی `test-cutting-pack-active-ui-v498` ۴/۰ و `test-sms` ۲۲/۰.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cutting-pack-active-ui-v498` ۴/۰ و `test-sms` ۲۲/۰.
+- **Deploy:** ✅ `10b863b7` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp. SW `erp-taranom-v498`.
 
 ### ۱۴۰۵/۰۷/۲۸ — ارسال مجدد = وصول مجدد با تاریخ و بانک انتخابی (SW v497)
 - **ریشه (از برگهٔ 655099):** بعد از برگشت، «ارسال مجدد» فقط سند برگشت را ابطال نرم می‌کرد و وضعیت را به وصول قبلی برمی‌گرداند؛ سند بانک همان وصول قدیمی (مثلاً ۱۴۰۵/۰۷/۲۸) می‌ماند و تاریخ/بانک مودال روی دفتر اثر نداشت.
