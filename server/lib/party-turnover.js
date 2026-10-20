@@ -163,8 +163,14 @@ function recomputeRunning(rows) {
 }
 
 function finalizeTurnover(kind, title, entityId, rawEntries, closingTarget, extra) {
+  // After strip+merge the fold is the real opening once — plain label (v507).
+  // Callers may pass opening_fold_label / mid_stream_align for rare drift cases.
+  const desc = (extra && extra.opening_fold_label)
+    || (extra && extra.mid_stream_align
+      ? 'مانده اول دوره / تطبیق با دفتر زنده'
+      : 'مانده اول دوره');
   const aligned = alignEntriesToTarget(rawEntries, closingTarget, {
-    description: 'مانده اول دوره / تطبیق با دفتر زنده',
+    description: desc,
     source: 'opening_fold',
   });
   if (!aligned.length && Math.round(Number(closingTarget) || 0) === 0) return null;

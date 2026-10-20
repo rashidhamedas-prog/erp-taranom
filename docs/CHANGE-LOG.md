@@ -1,10 +1,18 @@
+### ۱۴۰۵/۰۷/۲۸ — اشخاص نقش‌دوگانه: افتتاحیهٔ ۱× روی برگ کنترل (SW v507)
+- **علائم:** کنترل حساب اشخاص «اختلاف دفتر و تفصیلی»؛ گردش شخص (مثل ابراهیمی) «مانده اول دوره / تطبیق با دفتر زنده» با مبلغ ۲× افتتاحیهٔ واقعی (۸۰٬۷۹۲٬۰۰۰ به‌جای ۴۰٬۳۹۶٬۰۰۰).
+- **ریشه:** `mirrorPartyOpeningSubledgers` همان `opening_balance` هدر را هم‌زمان روی دفتر مشتری **و** تأمین می‌نوشت. ادغام نقش‌دوگانه هر دو را می‌دید؛ بعد از strip، `alignEntriesToTarget` یک‌بار دیگر تا ماندهٔ زنده (۱× JE) پر می‌کرد → نمایش ۲× یا mismatch وقتی برگ غیرJE آینهٔ یتیم داشت.
+- **رفع:** `partyOpeningMirrorTargets` فقط برگ کنترل JE (معمولاً `party.coa_code`) را آینه می‌کند؛ clear همه سپس rewrite همان برگ؛ `retireDuplicateRoleOpeningMirrors` در بوت (+اسکریپت heal) آینهٔ نقش غیرکنترل را برمی‌دارد؛ برچسب گردش «مانده اول دوره».
+- **فایل‌ها:** `lib/{opening-post,party-turnover}.js`, `db.js`, `public/{app.js,index.html,sw.js,portal-ui.js}`, `scripts/{test-party-dual-open-v507,heal-party-dual-open-v507}.js`, CHANGE-LOG.
+- **تست:** `test-party-dual-open-v507` (+sms روی ایران)؛ heal زنده party ۱۳۶.
+- **Deploy:** ⏳ pending.
+
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس: ریشهٔ هم‌ترازی یتیم + toggle/جمع جزییات (SW v506)
 - **علائم:** اسناد `موجودی اول دوره (هم‌ترازی کاردکس)` بعد از حذف/ابطال منبع در کاردکس و جمع مانده می‌ماندند؛ دکمهٔ «جزئیات» باز می‌شد ولی بسته نمی‌شد؛ برای فاکتورهایی مثل T-0009 سطر مادر خروج ۲ و هر رنگ جزییات هم ۲ نشان می‌داد (جمع ۸≠۲).
 - **ریشه:** `reconcileInventoryLedgerGaps` روی هر بوت با `skipStock` seed می‌کاشت حتی وقتی SKU گردش واقعی داشت؛ `retireSpuriousKardexAlign` روی بوت اجرا نمی‌شد و گیت `ws_worse` (وقتی WS همان seed را آینه کرده) ابطال امن را صفر می‌کرد. UI با `style.display===''` بعد از باز شدن همیشه «مخفی» فرض می‌کرد. `enrichInvoiceGroupDetails` ماتریس `invoices.rows` را جایگزین qty دفتر می‌کرد بدون تطبیق جمع.
 - **رفع معماری:** seed فقط برای انبار بدون گردش زنده با برچسب تمیز «موجودی اول دوره»؛ بوت بعد از gap → retire (بدون گیت ws_worse) + پاس seed تکراری + relabel باقی‌مانده‌های واقعی؛ جزییات فاکتور فقط وقتی Σ خطوط = qty مادر؛ toggle با `aria-expanded` + `hidden`.
 - **فایل‌ها:** `lib/{opening-post,ledgers}.js`, `db.js`, `public/{app.js,sw.js}`, `scripts/test-kardex-rootfix-v506.js`, CHANGE-LOG.
 - **تست:** ایران root-fix + group/align + sms؛ بوت زنده retire سپس relabel ۳۷۲ افتتاحیه؛ notes با «هم‌ترازی» از ۴۶۷→۶۸ (عمدتاً تعدیل audit-only).
-- **Deploy:** ✅ `a9472500` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v506`.
+- **Deploy:** ✅ `264274d4` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp 0.33.5. SW `erp-taranom-v506`.
 
 ### ۱۴۰۵/۰۷/۲۸ — فروش سریع: harden فی/فوکوس + R13 ابطال استرداد (SW v505)
 - **علائم (باقی‌مانده v503):** خالی‌کردن فی هنگام blur → ۰؛ هر `storeQsRenderBody` فوکوس را به اسکن می‌دزدید؛ تخفیف٪/تعداد برگشت روی `input` کل سبد را wipe می‌کرد؛ ابطال برگشت، JE `store_exchange_refund` را برنمی‌گرداند.

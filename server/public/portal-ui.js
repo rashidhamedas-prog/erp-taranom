@@ -2590,7 +2590,7 @@
           <div>
             <div class="trsy-kicker">اشخاص · کنترل حساب ۲۰۲۶</div>
             <h3 class="trsy-title">داشبورد کنترل حساب اشخاص</h3>
-            <p class="trsy-lead">مانده زنده = زیردفتر + افتتاحیه (یک‌بار)؛ تأمین از دفتر تأمین؛ اختلاف فقط وقتی همان برگه با تفصیلی یکی نباشد — پیری، سقف اعتبار و فهرست اقدام.</p>
+            <p class="trsy-lead">مانده زنده = زیردفتر + افتتاحیه (یک‌بار روی برگ کنترل)؛ تأمین از دفتر تأمین؛ اختلاف فقط وقتی همان برگه با تفصیلی یکی نباشد — پیری، سقف اعتبار و فهرست اقدام.</p>
           </div>
           <div class="trsy-hero-actions">
             <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">↻ بروزرسانی</button>

@@ -2586,6 +2586,7 @@ function initSyncSchema(db, opts) {
         redateOpeningDocsToFiscalStart,
         retireDuplicateOpeningValueJournals,
         retireSpuriousKardexAlign,
+        retireDuplicateRoleOpeningMirrors,
       } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
       if (bf && !bf.skipped && bf.count) {
@@ -2604,6 +2605,13 @@ function initSyncSchema(db, opts) {
           candidates: retire.candidates,
           reversed: retire.reversed,
           synced_wh: retire.synced_wh,
+        }));
+      }
+      const dualOpen = retireDuplicateRoleOpeningMirrors(db, { apply: true });
+      if (dualOpen && !dualOpen.skipped && (dualOpen.retired || dualOpen.candidates)) {
+        console.log('✅ party_dual_open_retire_v507:', JSON.stringify({
+          candidates: dualOpen.candidates,
+          retired: dualOpen.retired,
         }));
       }
       const dated = redateOpeningDocsToFiscalStart(db);

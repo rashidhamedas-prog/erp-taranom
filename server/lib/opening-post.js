@@ -258,6 +258,71 @@ function clearPartyOpeningSubledgers(db, partyId) {
   } catch (_) { /* */ }
 }
 
+/**
+ * Which role books should carry the header opening mirror.
+ * JE only hits resolvePartyControlAccount (usually party.coa_code) — mirroring
+ * the same amount onto BOTH customer AR and supplier AP doubles net books and
+ * makes گردش «تطبیق با دفتر زنده» show 2× opening (Ebrahimi / v507).
+ */
+function partyOpeningMirrorTargets(db, party) {
+  const control = resolvePartyControlAccount(db, party);
+  const controlCode = String((control && control.code) || party.coa_code || '').trim();
+  const out = { customer: false, supplier: false, person: false, controlCode };
+  if (!controlCode) {
+    // No leaf: prefer customer if linked, else supplier, else person.
+    out.customer = partyCustomerIds(db, party).length > 0;
+    if (!out.customer) {
+      try {
+        out.supplier = !!(db.prepare('SELECT 1 FROM suppliers WHERE party_id=? LIMIT 1').get(party.id));
+      } catch (_) { /* */ }
+    }
+    if (!out.customer && !out.supplier) out.person = true;
+    return out;
+  }
+  const isAr = /^1103/.test(controlCode);
+  const isAp = /^2101/.test(controlCode);
+  const isPerson = /^1106/.test(controlCode);
+  if (isAr) out.customer = true;
+  else if (isAp) out.supplier = true;
+  else if (isPerson) out.person = true;
+  else {
+    // Match linked entity whose coa equals control
+    try {
+      const c = db.prepare(
+        'SELECT 1 AS ok FROM customers WHERE party_id=? AND coa_code=? LIMIT 1'
+      ).get(party.id, controlCode);
+      if (c) out.customer = true;
+    } catch (_) { /* */ }
+    try {
+      const s = db.prepare(
+        'SELECT 1 AS ok FROM suppliers WHERE party_id=? AND coa_code=? LIMIT 1'
+      ).get(party.id, controlCode);
+      if (s) out.supplier = true;
+    } catch (_) { /* */ }
+    try {
+      const pe = db.prepare(
+        'SELECT 1 AS ok FROM persons WHERE party_id=? AND coa_code=? LIMIT 1'
+      ).get(party.id, controlCode);
+      if (pe) out.person = true;
+    } catch (_) { /* */ }
+    if (!out.customer && !out.supplier && !out.person) {
+      if (isAr || controlCode.startsWith('11')) out.customer = true;
+      else if (isAp || controlCode.startsWith('21')) out.supplier = true;
+      else out.person = true;
+    }
+  }
+  // Person book only when that person shares the JE leaf (never every linked person).
+  if (!out.person && (out.customer || out.supplier)) {
+    try {
+      const pe = db.prepare(
+        'SELECT 1 AS ok FROM persons WHERE party_id=? AND coa_code=? LIMIT 1'
+      ).get(party.id, controlCode);
+      if (pe) out.person = true;
+    } catch (_) { /* */ }
+  }
+  return out;
+}
+
 function mirrorPartyOpeningSubledgers(db, {
   partyId, entryId, amtRial, openDate, userId, description,
 }) {
@@ -269,71 +334,183 @@ function mirrorPartyOpeningSubledgers(db, {
     return;
   }
 
+  // Always clear every role mirror first, then rewrite only the JE leaf — stops
+  // dual-role AR+AP double openings from a prior buggy mirror.
+  clearPartyOpeningSubledgers(db, partyId);
+
+  const targets = partyOpeningMirrorTargets(db, party);
   const { createLedgerEntry, createPersonLedgerEntry } = require('../db');
   const debit = amt > 0 ? Math.abs(amt) : 0;
   const credit = amt < 0 ? Math.abs(amt) : 0;
   const desc = description || 'مانده اول دوره';
 
-  for (const cid of partyCustomerIds(db, party)) {
-    deleteCustomerOpeningMirrors(db, cid);
-    createLedgerEntry(db, {
-      customer_id: cid, date: openDate, entry_type: 'opening',
-      ref_type: 'opening', ref_id: entryId,
-      description: 'مانده اولیه حساب', debit, credit, user_id: userId,
-    });
-    refreshCustomerBalanceFromLedger(db, cid);
+  if (targets.customer) {
+    for (const cid of partyCustomerIds(db, party)) {
+      createLedgerEntry(db, {
+        customer_id: cid, date: openDate, entry_type: 'opening',
+        ref_type: 'opening', ref_id: entryId,
+        description: 'مانده اولیه حساب', debit, credit, user_id: userId,
+      });
+      refreshCustomerBalanceFromLedger(db, cid);
+    }
   }
 
-  const personIds = new Set();
-  if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
-  try {
-    for (const r of db.prepare('SELECT id FROM persons WHERE party_id=?').all(partyId)) {
-      personIds.add(Number(r.id));
-    }
-  } catch (_) { /* */ }
-  for (const peid of personIds) {
-    if (!Number.isFinite(peid)) continue;
+  if (targets.person) {
+    const personIds = new Set();
+    if (party.legacy_table === 'persons' && party.legacy_id) personIds.add(Number(party.legacy_id));
     try {
-      db.prepare(`
-        DELETE FROM person_ledger
-        WHERE person_id=? AND (
-          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
-          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
-        )
-      `).run(peid);
+      const q = targets.controlCode
+        ? db.prepare('SELECT id FROM persons WHERE party_id=? AND coa_code=?')
+        : db.prepare('SELECT id FROM persons WHERE party_id=?');
+      const rows = targets.controlCode
+        ? q.all(partyId, targets.controlCode)
+        : q.all(partyId);
+      for (const r of rows) personIds.add(Number(r.id));
     } catch (_) { /* */ }
-    createPersonLedgerEntry(db, {
-      person_id: peid, date: openDate, entry_type: 'opening',
-      ref_type: 'opening_balance', ref_id: entryId,
-      description: desc, debit, credit, user_id: userId,
-    });
+    for (const peid of personIds) {
+      if (!Number.isFinite(peid)) continue;
+      createPersonLedgerEntry(db, {
+        person_id: peid, date: openDate, entry_type: 'opening',
+        ref_type: 'opening_balance', ref_id: entryId,
+        description: desc, debit, credit, user_id: userId,
+      });
+    }
   }
 
-  try {
-    const supRows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId);
-    for (const s of supRows) {
-      const sid = Number(s.id);
-      if (!Number.isFinite(sid)) continue;
-      db.prepare(`
-        DELETE FROM supplier_ledger
-        WHERE supplier_id=? AND (
-          LOWER(COALESCE(ref_type,'')) IN ('opening','opening_balance')
-          OR LOWER(COALESCE(entry_type,'')) IN ('opening','opening_balance')
-        )
-      `).run(sid);
-      const sDebit = amt > 0 ? Math.abs(amt) : 0;
-      const sCredit = amt < 0 ? Math.abs(amt) : 0;
-      db.prepare(`
-        INSERT INTO supplier_ledger
-          (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(
-        sid, openDate, 'opening', 'opening_balance', entryId,
-        desc, sDebit, sCredit, userId || 1
-      );
-      db.prepare('UPDATE suppliers SET balance=? WHERE id=?').run(amt < 0 ? Math.abs(amt) : 0, sid);
+  if (targets.supplier) {
+    try {
+      const supRows = db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId);
+      for (const s of supRows) {
+        const sid = Number(s.id);
+        if (!Number.isFinite(sid)) continue;
+        const sDebit = amt > 0 ? Math.abs(amt) : 0;
+        const sCredit = amt < 0 ? Math.abs(amt) : 0;
+        db.prepare(`
+          INSERT INTO supplier_ledger
+            (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
+          VALUES (?,?,?,?,?,?,?,?,?)
+        `).run(
+          sid, openDate, 'opening', 'opening_balance', entryId,
+          desc, sDebit, sCredit, userId || 1
+        );
+        db.prepare('UPDATE suppliers SET balance=? WHERE id=?').run(amt < 0 ? Math.abs(amt) : 0, sid);
+      }
+    } catch (_) { /* supplier_ledger optional */ }
+  }
+}
+
+function _purgeRoleOpeningMirror(db, role, entityId) {
+  if (role === 'supplier') {
+    db.prepare(`
+      DELETE FROM supplier_ledger
+      WHERE supplier_id=? AND LOWER(IFNULL(ref_type,'')) IN ('opening','opening_balance')
+    `).run(entityId);
+    const bal = db.prepare(`
+      SELECT COALESCE(SUM(debit-credit),0) b FROM supplier_ledger WHERE supplier_id=?
+    `).get(entityId);
+    // suppliers.balance > 0 ⇒ we owe them
+    const signed = Math.round(Number(bal && bal.b) || 0);
+    db.prepare('UPDATE suppliers SET balance=? WHERE id=?')
+      .run(signed < 0 ? Math.abs(signed) : 0, entityId);
+    return;
+  }
+  if (role === 'customer') {
+    db.prepare(`
+      DELETE FROM customer_ledger
+      WHERE customer_id=? AND LOWER(IFNULL(ref_type,'')) IN ('opening','opening_balance')
+    `).run(entityId);
+    refreshCustomerBalanceFromLedger(db, entityId);
+  }
+}
+
+/**
+ * Retire same-amount opening mirrors on non-JE role leaves (dual-role double).
+ * Keep only the leaf matching party.coa_code / control; when control is person
+ * (1106), drop BOTH customer and supplier opening mirrors of the header amount.
+ */
+function retireDuplicateRoleOpeningMirrors(db, { apply = false, partyId = null } = {}) {
+  if (process.env.SYNC_ROLE === 'device') {
+    return { skipped: true, reason: 'device', candidates: 0, retired: 0, items: [] };
+  }
+  const pidFilter = partyId != null && Number(partyId) > 0
+    ? ' AND p.id=' + parseInt(partyId, 10)
+    : '';
+  const rows = db.prepare(`
+    SELECT p.id AS party_id, p.full_name, p.coa_code, p.opening_balance,
+      c.id AS cust_id, s.id AS sup_id,
+      (SELECT COALESCE(SUM(ABS(credit)+ABS(debit)),0) FROM customer_ledger
+        WHERE customer_id=c.id
+          AND LOWER(IFNULL(ref_type,'')) IN ('opening','opening_balance')) AS cust_open_abs,
+      (SELECT COALESCE(SUM(ABS(credit)+ABS(debit)),0) FROM supplier_ledger
+        WHERE supplier_id=s.id
+          AND LOWER(IFNULL(ref_type,'')) IN ('opening','opening_balance')) AS sup_open_abs
+    FROM parties p
+    JOIN customers c ON c.party_id = p.id
+    JOIN suppliers s ON s.party_id = p.id
+    WHERE ABS(COALESCE(p.opening_balance,0)) > 0
+      ${pidFilter}
+  `).all();
+
+  const items = [];
+  let retired = 0;
+  for (const r of rows) {
+    const headerAbs = Math.abs(Math.round(Number(r.opening_balance) || 0));
+    const custAbs = Math.abs(Math.round(Number(r.cust_open_abs) || 0));
+    const supAbs = Math.abs(Math.round(Number(r.sup_open_abs) || 0));
+    if (!custAbs && !supAbs) continue;
+    // At least one role mirror matches header; classic bug has BOTH.
+    const custMatches = custAbs > 0 && Math.abs(custAbs - headerAbs) <= 2;
+    const supMatches = supAbs > 0 && Math.abs(supAbs - headerAbs) <= 2;
+    if (!custMatches && !supMatches) continue;
+    if (!(custMatches && supMatches) && !(custAbs && supAbs && Math.abs(custAbs - supAbs) <= 2)) {
+      // Single-role mirror that matches header is healthy — leave it.
+      // Only heal when both roles carry an opening (double) OR both match header.
+      if (!(custAbs && supAbs)) continue;
+      if (Math.abs(custAbs - supAbs) > 2) continue;
     }
-  } catch (_) { /* supplier_ledger optional */ }
+    const targets = partyOpeningMirrorTargets(db, {
+      id: r.party_id, coa_code: r.coa_code, full_name: r.full_name,
+    });
+    const drops = [];
+    if (targets.person && !targets.customer && !targets.supplier) {
+      if (custAbs) drops.push('customer');
+      if (supAbs) drops.push('supplier');
+    } else if (targets.customer && !targets.supplier) {
+      if (supAbs) drops.push('supplier');
+    } else if (targets.supplier && !targets.customer) {
+      if (custAbs) drops.push('customer');
+    } else if (targets.customer && targets.supplier) {
+      // Ambiguous — keep the leaf whose abs matches header; drop the other.
+      drops.push(custMatches ? 'supplier' : 'customer');
+    } else {
+      // Prefer keep customer if it matches header
+      drops.push(custMatches ? 'supplier' : 'customer');
+    }
+    if (!drops.length) continue;
+    const entry = {
+      party_id: r.party_id,
+      name: r.full_name,
+      drop: drops.join('+'),
+      amount: headerAbs,
+      keep: targets.person ? 'person'
+        : (targets.customer && !drops.includes('customer') ? 'customer'
+          : (targets.supplier && !drops.includes('supplier') ? 'supplier' : 'control')),
+      control: targets.controlCode || r.coa_code || '',
+    };
+    items.push(entry);
+    if (!apply) continue;
+    for (const drop of drops) {
+      if (drop === 'supplier') _purgeRoleOpeningMirror(db, 'supplier', r.sup_id);
+      else if (drop === 'customer') _purgeRoleOpeningMirror(db, 'customer', r.cust_id);
+    }
+    entry.applied = true;
+    retired += 1;
+  }
+  if (apply && retired) {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('party_dual_open_retire_v507',?)")
+      .run(JSON.stringify({ ok: 1, retired, at: new Date().toISOString() }));
+  }
+  return { candidates: items.length, retired, items };
 }
 
 /**
@@ -1224,6 +1401,9 @@ module.exports = {
   refreshCustomerBalanceFromLedger,
   repairStaleCustomerOpeningMirrors,
   partyOpeningLines,
+  partyOpeningMirrorTargets,
+  mirrorPartyOpeningSubledgers,
+  retireDuplicateRoleOpeningMirrors,
   postProductOpeningInventory,
   backfillOpeningInventoryLedger,
   reconcileInventoryLedgerGaps,
