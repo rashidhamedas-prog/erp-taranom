@@ -2,8 +2,8 @@
 - **ریشه:** از v285 به‌بعد `reverseJournalEntry` سند معکوس جدا نمی‌سازد و همیشه `null` برمی‌گرداند (ابطال نرم همان JE). مسیر `POST /cheque-records/:id/resend` هنوز `if (!id)` را شکست می‌گرفت و پیام «معکوس سند برگشت ناموفق بود» نشان می‌داد — حتی وقتی سند برگشت درست ابطال شده بود.
 - **رفع:** ارسال مجدد وجود سند برگشت را چک می‌کند، soft-void را اعمال می‌کند، وضعیت `reversed`/`deleted_at` را تأیید می‌کند، سپس دفتر طرف و چرخه را برمی‌گرداند. `reverseJournalEntry` برای JE زنده‌ای که همین الان ابطال شد `jeId` برمی‌گرداند. متن مودال/راهنما با ابطال نرم هم‌خوان شد.
 - **فایل‌ها:** `lib/void-journal.js`, `routes/cheque-records.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-cheque-resend-softvoid-v496.js`, CHANGE-LOG.
-- **تست:** `test-cheque-resend-softvoid-v496.js` + `test-sms.js`.
-- **Deploy:** ⏳
+- **تست:** ایران `test-cheque-resend-softvoid-v496` ۱۸/۰ و `test-sms` ۲۲/۰ (محلی فقط static به‌خاطر ABI).
+- **Deploy:** ✅ `169872d5` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp. SW `erp-taranom-v496`.
 
 ### ۱۴۰۵/۰۷/۲۸ — ویرایش در محل فاکتور خرید (SW v495)
 - **ریشه:** فاکتور فروش `PUT` اصلاح در محل داشت؛ خرید فقط ابطال + صدور جدید (شماره جدید) بود و UI صریحاً ویرایش را ممنوع کرده بود.
