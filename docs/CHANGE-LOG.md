@@ -1,8 +1,8 @@
 ### ۱۴۰۵/۰۷/۲۸ — دستمزد قطعه‌ای با شخص → دفتر شخص (SW v499)
 - **ریشه:** v419 بستانکار حساب شخص + `person_ledger` را برای PRD-03 با `person_id` اضافه کرد؛ ADR-005 / SW v426 عمداً همهٔ جذب‌های جدید را فقط `Cr 5201` کرد و `person_ledger` ننوشت. UI هنوز «شخص (بستانکار دستمزد)» می‌گفت، برگه بها دستمزد را نشان می‌داد، ولی گردش شخص صفر بستانکار می‌ماند (مثل مهدیه ابراهیمی روی BOM-0027/0029).
 - **تصمیم:** هیبرید — قطعه‌ای/ساعتی + شخص → بستانکار برگ شخص + `person_ledger`؛ ماهانه یا بدون شخص → ۵۲۰۱ (حقوق ماهانه با PRD-04). ابطال مرحله همچنان retire می‌کند (R13). heal اختیاری برای اسناد تاریخی ADR-005.
-- **رفع:** `absorbLaborJournal` گروه‌بندی بر اساس مقصد بستانکار؛ `healPieceLaborPersonPayable` + اسکریپت dry-run/`--apply`؛ به‌روز ADR-005 و accounting-events؛ راهنما/SW v499.
-- **فایل‌ها:** `lib/production/labor.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-bom-labor-person-je-v499,heal-labor-person-payable-v499}.js`, `docs/{CHANGE-LOG,architecture/PROD-CUT-ADR-005-shared-cut,Production/accounting-events}.md`.
+- **رفع:** `absorbLaborJournal` گروه‌بندی بر اساس مقصد بستانکار؛ `healPieceLaborPersonPayable` + اسکریپت dry-run/`--apply`؛ به‌روز ADR-005 و accounting-events؛ راهنما/SW v499. تست قدیمی `test-bom-labor-person-je-v419` دیگر assertِ «فقط ۵۲۰۱» ندارد و به v499 delegate می‌کند.
+- **فایل‌ها:** `lib/production/labor.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test-bom-labor-person-je-v499,test-bom-labor-person-je-v419,heal-labor-person-payable-v499}.js`, `docs/{CHANGE-LOG,architecture/PROD-CUT-ADR-005-shared-cut,Production/accounting-events}.md`.
 - **تست:** ایران `test-bom-labor-person-je-v499` ۳۵/۰ + `test-sms` ۲۲/۰. heal زنده ۲ ردیف قطعه‌ای تاریخی از ۵۲۰۱ به حساب شخص + `person_ledger` (idempotent).
 - **Deploy:** ✅ `13363ca6` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200 و `image_engine` sharp. SW `erp-taranom-v499`.
 
