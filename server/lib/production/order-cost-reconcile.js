@@ -384,13 +384,13 @@ function applyReceiptToWipNet(db, orderId, userId) {
     .run(sum, unit, po.id);
 
   const after = previewOrderCostReconcile(db, orderId);
-  return Object.assign({
+  return Object.assign({}, after, {
     applied: true,
     mode: 'receipt',
     receipt_delta_rial: gap,
     receipts_touched: true,
     journal_touched: true,
-  }, after);
+  });
 }
 
 /**
