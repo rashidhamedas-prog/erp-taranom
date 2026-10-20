@@ -245,6 +245,7 @@ router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req
         userId: req.user.id,
         date: body.date || todayJalali(),
         note: `استرداد برگشت کامل فروشگاهی — برگشت #${retOut.id}`,
+        returnId: retOut.id,
         exchangeKey: `ret-${retOut.id}`,
       });
     }
@@ -457,6 +458,7 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
         userId: req.user.id,
         date: body.date || todayJalali(),
         note: `استرداد تعویض — برگشت #${retOut.id} / فاکتور ${inv.num || inv.id}`,
+        returnId: retOut.id,
         exchangeKey: `ex-${retOut.id}-${inv.id}`,
       });
     }

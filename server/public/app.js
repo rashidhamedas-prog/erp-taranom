@@ -7381,7 +7381,7 @@ function storeQsRenderReturnLines(){
   }
   const returnGross=storeQsReturnGross();
   return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin:6px 0`)}">
-      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsSetAllReturnMax();})}">انتخاب همه (حداکثر)</button>
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsSetAllReturnMax();})}">برگشت کامل</button>
       <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsClearReturns();})}">پاک کردن برگشتی</button>
       <span class="muted" data-csp-style="${CSP.style(`align-self:center`)}">جمع برگشت (تقریبی): <b class="mono">${fmt(returnGross)}</b></span>
     </div>
@@ -7401,11 +7401,11 @@ function storeQsRenderReturnLines(){
         <td class="mono">${fmt(r.price)}</td>
         <td class="mono">${fmt(net)}</td>
         <td><input type="number" min="0" max="${max}" step="1" value="${esc(String(qty))}" data-csp-style="${CSP.style(`width:72px`)}"
-          data-csp-input="${CSP.bind('input',function(){
+          data-csp-change="${CSP.bind('change',function(){
             const v=Math.max(0, Math.min(max, Number(this.value)||0));
             _storeQs.availableRows[idx].qty_return=v;
             storeQsSyncReturnLines();
-            storeQsRenderBody();
+            storeQsRenderBody({keepFocus:true});
           })}"></td>
         <td class="mono"><b>${fmt(tot)}</b></td>
       </tr>`;
@@ -7457,7 +7457,8 @@ async function storeQsSelectRefInvoice(id){
   }
   storeQsRenderBody();
 }
-function storeQsRenderBody(){
+function storeQsRenderBody(opts){
+  opts=opts||{};
   const box=el('storeQsBody');
   if(!box) return;
   const boot=_storeQs.boot||{};
@@ -7484,13 +7485,21 @@ function storeQsRenderBody(){
       </select>`;
   const cashSelectLocked=locksCash&&!storeQsCanChangeCash();
   const settleCase=mode==='exchange'?storeQsSettlementCase():'sale';
+  const returnOnly=mode==='exchange' && !_storeQs.lines.length && _storeQs.returnLines.length>0;
+  let checkoutLbl='ثبت فروش';
+  if(mode==='exchange'){
+    if(returnOnly) checkoutLbl='ثبت برگشت کامل + استرداد وجه';
+    else if(settleCase==='refund') checkoutLbl='ثبت تعویض + استرداد';
+    else if(settleCase==='even') checkoutLbl='ثبت تعویض برابر';
+    else checkoutLbl='ثبت تعویض + دریافت';
+  }
   let netLabel;
   if(mode!=='exchange'){
     netLabel=`<span class="muted">قابل پرداخت</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(finalAmt)}</div>`;
+  } else if(returnOnly||settleCase==='refund'){
+    netLabel=`<span class="muted">${returnOnly?'استرداد کامل به مشتری':'مابه‌التفاوت — استرداد به مشتری'}</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(returnOnly?returnGross:Math.abs(netDue))}</div>`;
   } else if(settleCase==='collect'){
     netLabel=`<span class="muted">مابه‌التفاوت — دریافت از مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(netDue)}</div>`;
-  } else if(settleCase==='refund'){
-    netLabel=`<span class="muted">مابه‌التفاوت — استرداد به مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(Math.abs(netDue))}</div>`;
   } else {
     netLabel=`<span class="muted">تعویض برابر — بدون دریافت/استرداد</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--green)`)}">۰</div>`;
   }
@@ -7503,7 +7512,7 @@ function storeQsRenderBody(){
     <div class="card" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
       <div class="fg full"><label>اسکن / جستجوی کالا ${mode==='exchange'?'(جایگزین)':''}</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-          <input id="storeQsScan" class="search" autofocus placeholder="بارکد یا نام کالا + Enter" value="${esc(_storeQs.scanQ||'')}" data-csp-style="${CSP.style(`flex:1;min-width:220px`)}"
+          <input id="storeQsScan" class="search" placeholder="بارکد یا نام کالا + Enter" value="${esc(_storeQs.scanQ||'')}" data-csp-style="${CSP.style(`flex:1;min-width:220px`)}"
             data-csp-keydown="${CSP.bind('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _storeQs.scanQ=this.value; storeQsLookupScan(this.value); this.value=''; _storeQs.scanQ=''; } })}">
           <button class="btn" data-csp-click="${CSP.bind('click',function(){ const i=el('storeQsScan'); storeQsLookupScan(i&&i.value); if(i) i.value=''; })}">افزودن</button>
           <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ openBarcodeScanner(async c=>{ storeQsLookupScan(c); }); })}">📷 اسکن</button>
@@ -7531,7 +7540,7 @@ function storeQsRenderBody(){
         </div>
         <div class="fg"><label>انبار</label>${whSelect}</div>
         <div class="fg"><label>تخفیف کل ٪</label>
-          <input type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" data-csp-input="${CSP.bind('input',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody();})}">
+          <input type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" data-csp-change="${CSP.bind('change',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody({keepFocus:true});})}">
         </div>
         <div class="fg"><label>نوع پرداخت</label>
           <select id="storeQsPay" data-csp-change="${CSP.bind('change',function(){_storeQs.payType=this.value; storeQsRenderBody();})}">
@@ -7541,10 +7550,10 @@ function storeQsRenderBody(){
             ${!isWalkin?`<option value="credit" ${_storeQs.payType==='credit'?'selected':''}>نسیه (مانده مشتری)</option>`:''}
           </select>
         </div>
-        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&settleCase==='refund')?`<div class="fg"><label>صندوق *</label>
+        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly))?`<div class="fg"><label>صندوق *</label>
           ${cashSelectLocked
             ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
-               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر${settleCase==='refund'?' — برای استرداد':''}</div>`
+               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر${(settleCase==='refund'||returnOnly)?' — برای استرداد':''}</div>`
             : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;})}"><option value="">—</option>${cashOpts}</select>`}
         </div>`:''}
         ${_storeQs.payType==='pos_card'||_storeQs.payType==='mixed'?`<div class="fg"><label>کارتخوان *</label><select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select></div>`:''}
@@ -7572,7 +7581,9 @@ function storeQsRenderBody(){
       storeQsRenderBody();
     }, { once:true });
   }
-  setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
+  if(!opts.keepFocus){
+    setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
+  }
 }
 function storeQsBuildPaySplits(finalAmt){
   const payType=_storeQs.payType||'cash';
@@ -33341,7 +33352,8 @@ helpSec('🔑','لایسنس و entitlement',`
             <li><b>فقط برگشت (بدون سبد جایگزین):</b> «ثبت برگشت کامل + استرداد وجه» — برگشت از فروش + استرداد کامل مبلغ از صندوق</li>
           </ul>
           چندقلم در یک ثبت؛ اگر نیمهٔ فروش شکست بخورد برگشت جبران (rollback) می‌شود</li>
-        <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست</li>
+        <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست. ابطال برگشت فروشگاهی، JE استرداد صندوق (store_exchange_refund) را هم soft-void می‌کند</li>
+        <li>فی سبد: خالی‌گذاشتن فیلد قیمت قبلی را نگه می‌دارد؛ فوکوس اسکن بعد از ویرایش سبد دزدیده نمی‌شود</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -33916,8 +33928,8 @@ function renderSalesGuide(){
         <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ جستجوی مشتری کار می‌کند؛ برای نسیه مشتری واقعی بگذارید</li>
         <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فروشگاه فقط تراکنش‌های خودتان را در لیست فاکتور، تاریخچه و چاپ می‌بینید — فروش همکارانتان دیده نمی‌شود</li>
         <li>انبار و صندوق فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
-        <li>فی سطر را دستی عوض کنید؛ مبلغ پاک نمی‌شود</li>
-        <li>تعویض: فاکتور قبلی → «برگشت کامل» یا تعداد دستی → اختیاری کالای جایگزین → دریافت / استرداد / برابر. بدون جایگزین = برگشت کامل + استرداد وجه از صندوق</li>
+        <li>فی سطر را دستی عوض کنید؛ اگر فیلد را خالی رها کنید قیمت قبلی می‌ماند (صفر اتفاقی نمی‌شود)</li>
+        <li>تعویض: فاکتور قبلی → «برگشت کامل» یا تعداد دستی → اختیاری کالای جایگزین → دریافت / استرداد / برابر. بدون جایگزین = برگشت کامل + استرداد وجه از صندوق. ابطال برگشت، استرداد صندوق را هم برمی‌گرداند (R13)</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. هر کالا یک ردیف است؛ رنگ و سایزبندی زیر نام نوشته می‌شود. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>

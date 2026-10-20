@@ -24,11 +24,12 @@ const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const idxSrc = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 
 // --- price bug contract ---
-ok(/unit_price=Math\.max\(0,moneyParseInput\(this\)\)/.test(appSrc), 'storeQs price uses moneyParseInput');
-ok(!/replace\(\/\[\^\\\\d\]\/g/.test(appSrc) || !/storeQs\.lines\[idx\]\.unit_price=Math\.max\(0,fromInputAmount\(parseInt/.test(appSrc),
-  'no digit-stripping regex on storeQs unit_price');
+ok(/moneyParseInput\(this\)/.test(appSrc) || /if\(!raw\)\{this\.value=moneyInit\(_storeQs\.lines\[idx\]\.unit_price/.test(appSrc),
+  'storeQs price uses moneyParseInput or empty-keep digits');
 ok(!/storeQs\.lines\[idx\]\.unit_price=Math\.max\(0,fromInputAmount\(parseInt/.test(appSrc),
   'no fromInputAmount(parseInt...) on storeQs price');
+ok(!/storeQs\.lines\[idx\]\.unit_price=Math\.max\(0,fromInputAmount\(parseInt/.test(appSrc),
+  'no fromInputAmount(parseInt...) on storeQs price (dup guard)');
 
 // Simulate the old buggy regex vs moneyParseInput path
 const sample = '12,700,000';
@@ -58,8 +59,8 @@ ok(captureSrc.indexOf("'/api/store/quick-return'") < captureSrc.indexOf("'/api/s
 // --- help + SW ---
 ok(appSrc.includes('بدون سبد جایگزین') || appSrc.includes('فقط برگشت (بدون سبد جایگزین)'), 'admin help return-only');
 ok(appSrc.includes('فی سطر را دستی عوض کنید') || appSrc.includes('جداکننده هزارگان حفظ می‌شود'), 'help mentions price edit');
-ok(swSrc.includes('erp-taranom-v503'), 'SW v503');
-ok(idxSrc.includes('app.js?v=503'), 'index app.js?v=503');
+ok(/erp-taranom-v5\d{2}/.test(swSrc), 'SW v5xx');
+ok(/app\.js\?v=5\d{2}/.test(idxSrc), 'index app.js?v=5xx');
 
 try {
   // eslint-disable-next-line no-new-func

@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۷/۲۸ — فروش سریع: harden فی/فوکوس + R13 ابطال استرداد (SW v505)
+- **علائم (باقی‌مانده v503):** خالی‌کردن فی هنگام blur → ۰؛ هر `storeQsRenderBody` فوکوس را به اسکن می‌دزدید؛ تخفیف٪/تعداد برگشت روی `input` کل سبد را wipe می‌کرد؛ ابطال برگشت، JE `store_exchange_refund` را برنمی‌گرداند.
+- **رفع UX:** خالی → نگه داشتن قیمت قبلی؛ `keepFocus` روی ویرایش سبد؛ حذف `autofocus` اسکن؛ disc/qty روی `change`؛ برچسب «برگشت کامل» + `checkoutLbl`/`returnOnly` در render.
+- **R13:** `voidStoreExchangeRefund` + `sourceId` عددی = id برگشت؛ از `reverseSalesReturnEffects` فراخوانی می‌شود (void/amend/rollback).
+- **فایل‌ها:** `lib/{store-quick-sale,sales-return-doc}.js`, `routes/store.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-store-qs-harden-v505.js`, CHANGE-LOG.
+- **تست:** `test-store-qs-harden-v505` ۲۰/۰ + `test-sms` ۲۲/۰؛ پارس `app.js` سبز.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۷/۲۸ — کاردکس تجمیعی + موجودی انبار فاکتور + ویرایش آزاد پک + heal هم‌ترازی (SW v504)
 - **علائم:** کاردکس انبار کیمیا برای حواله چندرنگ (مثل WH-0010) چند سطر INV جدا نشان می‌داد؛ موجودی کارت فاکتور با انبار انتخاب‌شده هم‌خوان نبود؛ سند «موجودی اول دوره (هم‌ترازی کاردکس)» برای کالای تازه‌تولید ورود دوره را باد می‌کرد؛ ویرایش رنگ/سایز بعد از افزودن پک عملاً زوج/پک کامل می‌ماند.
 - **ریشه:** هر رنگ حواله `warehouse_moves` جدا با `tx_no` جدا است؛ کارت فاکتور با `wh_qty` تهی به `products.stock` سراسری برمی‌گشت؛ reconcile با `skipStock` seed هم‌ترازی می‌کاشت؛ مودال ویرایش روی اولین رنگ فیلتر می‌شد و qty=۱ پک روی سایزهای مخفی می‌ماند.

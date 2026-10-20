@@ -385,6 +385,16 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
     reverseAllocationsForReturn(db, SIDE_SALES, row.id, userId);
   } catch (_) { /* older DBs */ }
 
+  // R13: store quick-return / exchange cash refund travels with the sales return.
+  try {
+    const { voidStoreExchangeRefund } = require('./store-quick-sale');
+    voidStoreExchangeRefund(db, {
+      returnId: row.id,
+      userId,
+      reason: reason || `ابطال استرداد همراه برگشت #${row.id}`,
+    });
+  } catch (_) { /* ignore */ }
+
   return { reversalId, gross, invoiceId: row.invoice_id };
 }
 

@@ -354,10 +354,24 @@ function scalePaySplitsToNet(splits, targetRial) {
 }
 
 /**
+ * Resolve stable numeric source id for store_exchange_refund JE / customer_ledger.
+ * Prefer sales_return id so R13 void can find rows despite INTEGER affinity
+ * (legacy string keys like ret-12 / ex-12-34 often coerced or stored as TEXT).
+ */
+function storeExchangeRefundSourceId({ returnId, exchangeKey, custId } = {}) {
+  if (Number(returnId) > 0) return Number(returnId);
+  const key = String(exchangeKey || '');
+  const m = key.match(/^(?:ret|ex)-(\d+)/);
+  if (m) return Number(m[1]);
+  if (/^\d+$/.test(key)) return Number(key);
+  return String(key || `${custId || 0}-${Date.now()}`).slice(0, 64);
+}
+
+/**
  * Refund excess return credit to customer from cash box (AR debit + cash credit).
  */
 function postStoreExchangeRefund(db, {
-  custId, amountRial, cashBoxId, userId, date, note, exchangeKey,
+  custId, amountRial, cashBoxId, userId, date, note, exchangeKey, returnId,
 }) {
   const amt = moneyRial(amountRial);
   if (!(amt > 0)) return null;
@@ -379,7 +393,7 @@ function postStoreExchangeRefund(db, {
   }
   if (!ar) ar = acct(db, 'coa_receivable');
 
-  const sourceId = String(exchangeKey || `${custId}-${Date.now()}`).slice(0, 64);
+  const sourceId = storeExchangeRefundSourceId({ returnId, exchangeKey, custId });
   createLedgerEntry(db, {
     customer_id: custId,
     date: date || todayJalali(),
@@ -402,7 +416,61 @@ function postStoreExchangeRefund(db, {
       { code: cash.code, name: cash.name, debit: 0, credit: amt },
     ],
   });
-  return { journal_id: jeId, amount_rial: amt, cash_box_id: Number(cashBoxId) };
+  return { journal_id: jeId, amount_rial: amt, cash_box_id: Number(cashBoxId), source_id: sourceId };
+}
+
+/**
+ * R13: soft-void store_exchange_refund JE + retire customer_ledger for a sales return.
+ * Matches numeric return id (v504+) and legacy string keys / description tokens.
+ */
+function voidStoreExchangeRefund(db, { returnId, userId, reason } = {}) {
+  const rid = Number(returnId);
+  if (!(rid > 0)) return { voided: 0, ledger: 0 };
+  const { reverseJournalEntry } = require('./void-journal');
+  const reasonText = reason || `ابطال استرداد فروشگاهی — برگشت #${rid}`;
+  const jes = db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='store_exchange_refund'
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      AND (
+        CAST(ref_id AS TEXT)=?
+        OR CAST(ref_id AS TEXT)=?
+        OR CAST(ref_id AS TEXT) LIKE ?
+        OR description LIKE ?
+      )
+  `).all(String(rid), `ret-${rid}`, `ex-${rid}-%`, `%برگشت #${rid}%`);
+
+  let voided = 0;
+  for (const je of jes) {
+    reverseJournalEntry(db, je.id, {
+      userId,
+      reason: reasonText,
+      sourceType: 'store_exchange_refund',
+    });
+    voided += 1;
+  }
+
+  const { retireCustomerLedgerByRef } = require('./party-ledger-retire');
+  let ledger = retireCustomerLedgerByRef(db, {
+    refTypes: ['store_exchange_refund'],
+    refId: rid,
+  });
+  try {
+    const leg = db.prepare(`
+      DELETE FROM customer_ledger
+      WHERE ref_type='store_exchange_refund'
+        AND (
+          CAST(ref_id AS TEXT)=?
+          OR CAST(ref_id AS TEXT)=?
+          OR CAST(ref_id AS TEXT) LIKE ?
+          OR (COALESCE(ref_id,0)=0 AND description LIKE ?)
+        )
+    `).run(String(rid), `ret-${rid}`, `ex-${rid}-%`, `%برگشت #${rid}%`);
+    ledger += Number(leg.changes || 0);
+  } catch (_) { /* ignore */ }
+
+  return { voided, ledger };
 }
 
 /** Rough final from rows (retail prices + header disc%) — for scaling tender before invoice create. */
@@ -660,6 +728,8 @@ module.exports = {
   bootstrapStoreSale,
   scalePaySplitsToNet,
   postStoreExchangeRefund,
+  voidStoreExchangeRefund,
+  storeExchangeRefundSourceId,
   prepareExchangeSaleBody,
   computeExchangeSettlement,
   estimateSaleFinalRial,
