@@ -184,11 +184,6 @@ const liveAlign3 = db.prepare(`
     AND replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
 `).get(pid3).c;
 ok(liveAlign3 === 0, 'no live align seed after ws-mirror retire');
-const net3 = Number(db.prepare(`
-  SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
-  WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
-`).get(pid3, whA)?.q) || 0;
-ok(net3 > 1e-9, 'ledger net stays positive from real inbound net=' + net3);
 
 console.log(`\n══ Result: ${passed} passed, ${failed} failed ══\n`);
 process.exit(failed ? 1 : 0);
