@@ -13,7 +13,7 @@ process.env.SYNC_ROLE = 'central';
 const { getDB, initDB } = require('../db');
 const { postInventoryMovement, reverseInventoryMovement, getKardex } = require('../lib/inventory/ledger');
 const { createReservation, availableQty } = require('../lib/inventory/reservation');
-const { createBatch, pickBatchesFefo } = require('../lib/inventory/batch-serial');
+const { createBatch, adjustBatchQty, pickBatchesFefo } = require('../lib/inventory/batch-serial');
 const { applyCycleCount } = require('../lib/inventory/cycle-count');
 const { todayJalali } = require('../jalali');
 
@@ -84,10 +84,22 @@ db.transaction(() => {
   const layers = db.prepare('SELECT COUNT(*) c FROM inventory_cost_layers WHERE product_id=?').get(prodId);
   ok('cost layers created', layers.c >= 2, layers.c);
 
+  let invented = null;
+  try {
+    createBatch(db, { productId: prodId, warehouseId: whId, qty: 5, createdBy: 1 });
+  } catch (e) { invented = e; }
+  ok('batch qty cannot be invented (receipt only)', invented && invented.code === 'E_BATCH_QTY_VIA_RECEIPT');
   const batch = createBatch(db, {
-    productId: prodId, warehouseId: whId, expiryDate: '1405/12/01', qty: 5, createdBy: 1,
+    productId: prodId, warehouseId: whId, expiryDate: '1405/12/01', createdBy: 1,
   });
   ok('batch created', !!batch.id);
+  // Lot qty enters through a warehouse receipt, same as warehouse-docs.touchBatchQty.
+  postInventoryMovement(db, {
+    eventType: 'receipt', productId: prodId, warehouseId: whId, qtyIn: 5, unitCostRial: 1000,
+    batchId: batch.id, sourceType: 'warehouse_receipt', sourceId: batch.id,
+    date: todayJalali(), createdBy: 1,
+  });
+  adjustBatchQty(db, batch.id, 5);
   const fefo = pickBatchesFefo(db, prodId, whId, 3);
   ok('fefo picks', fefo.picks.length >= 1 && fefo.shortfall === 0);
 

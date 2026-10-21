@@ -325,6 +325,34 @@ function startInitialSyncAfterPair() {
 }
 
 // ---- Pairing ----
+/**
+ * Pre-v509 builds seeded the system walk-in customer (+ its party) at boot on
+ * devices too. It carries no business data; on an unpaired device it only
+ * squats a low id that the initial pull must own. Any document on it = real data.
+ */
+function systemWalkinSeed(db) {
+  let biz;
+  try { biz = require('../lib/store-quick-sale').WALKIN_BIZ; } catch (_) { return null; }
+  const c = db.prepare('SELECT id, party_id FROM customers WHERE biz=?').all(biz);
+  if (c.length !== 1) return null;
+  const used = (sql) => { try { return !!db.prepare(sql).get(c[0].id); } catch (_) { return false; } };
+  if (used('SELECT 1 FROM invoices WHERE cust_id=? LIMIT 1')
+    || used('SELECT 1 FROM customer_ledger WHERE customer_id=? LIMIT 1')
+    || used('SELECT 1 FROM settlements WHERE customer_id=? LIMIT 1')) return null;
+  return c[0];
+}
+
+function dropSystemWalkinSeed(db, seed) {
+  db.transaction(() => {
+    db.prepare('DELETE FROM customers WHERE id=?').run(seed.id);
+    if (seed.party_id) {
+      db.prepare("DELETE FROM parties WHERE id=? AND legacy_table='customers' AND legacy_id=?")
+        .run(seed.party_id, seed.id);
+    }
+    db.prepare("DELETE FROM settings WHERE key='store_walkin_customer_id'").run();
+  })();
+}
+
 async function pair(centralUrl, username, password, deviceName) {
   const db = getDB();
   if (isPaired(db)) {
@@ -348,7 +376,8 @@ async function pair(centralUrl, username, password, deviceName) {
 
   // Pairing requires a fresh (empty) local database — pre-pairing business
   // rows would occupy the low id range and collide with pulled central rows.
-  const custCount = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
+  const walkinSeed = systemWalkinSeed(db);
+  const custCount = db.prepare('SELECT COUNT(*) c FROM customers').get().c - (walkinSeed ? 1 : 0);
   const invCount = db.prepare('SELECT COUNT(*) c FROM invoices').get().c;
   if (custCount || invCount) {
     throw new Error('اتصال فقط روی پایگاه‌داده خالی امکان‌پذیر است — ابتدا «قطع اتصال و اتصال مجدد» را بزنید');
@@ -385,6 +414,7 @@ async function pair(centralUrl, username, password, deviceName) {
     throw new Error('پاسخ نامعتبر از سرور مرکزی — دوباره تلاش کنید');
   }
 
+  if (walkinSeed) dropSystemWalkinSeed(db, walkinSeed);
   kvSet(db, 'central_url', base);
   kvSet(db, 'device_id', body.device_id);
   setSecret(db, 'device_token', body.device_token);

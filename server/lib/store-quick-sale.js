@@ -42,6 +42,9 @@ function ensureWalkinCustomer(db) {
     if (exists) return saved;
   }
   let row = db.prepare('SELECT id FROM customers WHERE biz=? LIMIT 1').get(WALKIN_BIZ);
+  // Devices receive the shared walk-in from central (pull). A local seed would
+  // take a low id that collides with central rows and blocks pairing.
+  if (!row && process.env.SYNC_ROLE === 'device') return 0;
   if (!row) {
     const admin = db.prepare("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 ORDER BY id LIMIT 1").get()
       || db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get();
@@ -282,9 +285,16 @@ function prepareStoreQuickSaleBody(db, user, body) {
   b.store_quick = true;
   b.sales_channel = STORE_CHANNEL;
   if (!b.type || b.type === 'proforma') b.type = 'normal';
-  const walkinId = getWalkinCustomerId(db);
   const custId = parseInt(b.cust_id, 10);
-  if (!(custId > 0)) b.cust_id = walkinId;
+  if (!(custId > 0)) {
+    const walkinId = getWalkinCustomerId(db);
+    if (!(walkinId > 0)) {
+      const e = new Error('مشتری نقدی فروشگاه هنوز از سرور مرکزی دریافت نشده — یک‌بار همگام‌سازی کنید');
+      e.status = 409;
+      throw e;
+    }
+    b.cust_id = walkinId;
+  }
   const whId = resolveStoreWarehouseId(db, user, b);
   b.warehouse_id = whId;
   b.rows = applyRetailRowDefaults(db, b.rows);
