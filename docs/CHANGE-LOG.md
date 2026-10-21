@@ -4,7 +4,7 @@
 - **رفتار:** فهرست «همه کارشناسان» / «بدون کارشناس» / هر کارشناسِ دارای شخص، با تعداد. انتخاب، داشبورد را دوباره می‌خواند. جمع بدهکار و بستانکار، پیری، تفکیک سمت، هشدار، worklist و جدول به دفتر همان کارشناس محدود می‌شوند. فیلترهای سمت/مانده/ریسک/جستجو مثل قبل فقط جدول و worklist را تنگ می‌کنند و KPI محدودهٔ کارشناس را عوض نمی‌کنند. نام کارشناس زیر نام شخص و در CSV می‌آید.
 - **فایل‌ها:** `lib/party-control-dashboard.js`, `public/{portal-ui.js,app.js,index.html,sw.js}`, `scripts/test-party-control-expert-v518.js` (جدید). Help فیلتر داشبورد (v518).
 - **تست (محلی، Node 22 + preload better-sqlite3):** `test-party-control-expert-v518` ۳۰/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰. `test-party-control-dashboard-v361` روی رشتهٔ `partySignedBalanceMap` از قبل شکست می‌خورد (سورس `partySignedBalanceDetailMap` است) و بقیهٔ ادعاهایش تا همان نقطه سبز بود.
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ `8fff2457` — overlay ایران (۷ فایل، درخت کثیف `8a5cd54`، بدون reset و بدون `git pull`)؛ بکاپ DB لازم نبود (فقط کد خواندنی، اسکیما عوض نشد)؛ `pm2 restart` بدون `--update-env`؛ health=200، `image_engine` sharp 0.33.5؛ SW `erp-taranom-v518` و `portal-ui.js?v=518` / `app.js?v=518`؛ md5 هر ۷ فایل = کامیت. روی سرور `test-party-control-expert-v518` ۳۰/۰. صفحهٔ عمومی `https://erptaranom.com` همان select `pcExpert` را سرو می‌کند.
 
 ### ۱۴۰۵/۰۷/۲۹ — بررسی جداگانهٔ لاگ سرور + رفع خطاهای تکرارشونده (SW v517)
 - **دامنه:** `~/.pm2/logs/erp-taranom-{error,out}-8.log` (از ۱۴۰۵/۰۷/۲۰، ۲۱۸ بوت) + لاگ‌های چرخشی و `pm2.log`. همهٔ پروب‌ها روی DB تولید فقط‌خواندنی بودند و هیچ مقدار رازی چاپ نشد.
