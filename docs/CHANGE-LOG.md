@@ -10,7 +10,7 @@
 - **اجرای یکپارچه (ایران `/tmp/int515`، ۲۲ مجموعه، همه exit 0):** موارد بالا + v514 ۳۵، v512 ۳۴، v510 ۵، v485 ۴، v486 ۱۶، shared ۵۱، v469 ۳۰، v364 ۱۹، prod-02 ۳۹، v467 ۱۴، v513 ۴۵، v403 ۱۰، v363 ۱۴، v409 ۶، v461 ۲۸، `test-sms` ۲۲، `test-sync` ۴۴، `_diag-sync-gaps` mismatches=[].
 - **اقدام کاربر:** در «دریافت مواد» برای کالای 14 و 64 «اصلاح برچسب واحد طاقه‌ها» را با دلیل بزنید تا لایه‌چینی آن‌ها به کیلوگرم و با ضریب «هر متر مارکر = ؟ کیلوگرم» انجام شود. اصلاح عمداً خودکار اجرا نشد (R13).
 - **فایل‌ها:** `lib/uom.js`, `lib/inventory/{fabric-rolls,roll-unit-relabel (جدید),schema}.js`, `lib/production/{cutting,engine-advanced}.js`, `routes/inventory.js`, `sync/{tables,capture}.js`, `db.js`, `public/{app.js,index.html,sw.js}` (Help سه بند v515)، ۴ تست جدید + ۴ تست ترمیم‌شده.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `5c3a9cae` — overlay ایران (۲۲ فایل `caf6c75d..5c3a9cae`، درخت کثیف، بدون reset)؛ بکاپ `backups/pre-v515-*.db`؛ `ensure-sharp-runtime` OK؛ `pm2 restart` بدون `--update-env`؛ health=200، `image_engine` sharp 0.33.5؛ SW `erp-taranom-v515`؛ md5 هر ۲۲ فایل = کامیت. بعد از بوت: `unit_id` کالاهای 14/64/83/85/87/89/94 = KG، جدول `fabric_roll_unit_relabels` و `sync_seq_backfill_v27` ساخته شد، موجودی انبار 64 = ۴۰٫۰۶۴ (دست‌نخورده). روی سرور تست‌های v515 (۵۸/۴۵/۲۱/۷۲)، shared ۵۱، v512 ۳۴ پاس. خطای لاگ `opening_inventory_ledger_backfill/reconcile: NOT NULL stock_logs.user_id` یک‌بار از بوت قبلی است. بوت بکاپ پیش از v515 با کد جدید آن را تکرار نکرد (gap count=0).
 
 ### ۱۴۰۵/۰۷/۲۹ — لایه‌چینی به واحد خود طاقه (متر/یارد/کیلوگرم/متر مربع) (SW v514)
 - **درخواست:** لایه‌چینی برای هر واحدی که طاقه دارد، به همان واحد انجام شود، نه فقط متر.
