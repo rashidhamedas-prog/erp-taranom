@@ -1959,6 +1959,11 @@ body.erp-demo-mode{padding-top:32px}
 .ifr-live-box.ifr-live-warn{border-color:var(--orange);background:var(--warnbox-bg)}
 .ifr-live-box.ifr-live-bad{border-color:var(--red);background:var(--bad-bg)}
 .ifr-live-alert{color:var(--red);font-weight:700}
+.fr-conv{font-size:12px;line-height:1.8;color:var(--muted)}
+.fr-conv:empty{display:none}
+.fr-conv.fr-conv-warn{padding:6px 10px;border-radius:8px;border:1px solid var(--orange);background:var(--warnbox-bg);color:inherit}
+.fr-conv.fr-conv-bad{padding:6px 10px;border-radius:8px;border:1px solid var(--red);background:var(--bad-bg);color:inherit}
+.fr-unit-warn{color:var(--red);font-size:11px;font-weight:700;white-space:nowrap}
 
 /* ===== Field-ops / marketer (v205) ===== */
 .rep-form-error{

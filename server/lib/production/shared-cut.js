@@ -544,10 +544,10 @@ function postSharedCut(db, body, user) {
         const ins = db.prepare(`
           INSERT INTO inventory_batches
             (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, color, width_cm, unit, unit_cost_rial, source_type, source_id, note)
-          VALUES (?,?,?,?,?,'active','fabric',?,?, 'متر', ?, 'cutting_remnant', ?, ?)
+          VALUES (?,?,?,?,?,'active','fabric',?,?, ?, ?, 'cutting_remnant', ?, ?)
         `).run(
           `${batch.batch_no}-R`, batch.product_id, whRem.id, roll.remnant_m, roll.remnant_m,
-          batch.color || '', Math.round(Number(batch.width_cm) || 0), unit, batchId, 'ته‌طاقه'
+          batch.color || '', Math.round(Number(batch.width_cm) || 0), batch.unit || 'm', unit, batchId, 'ته‌طاقه'
         );
         remnantBatchId = ins.lastInsertRowid;
         const remLed = postInventoryMovement(db, {
@@ -960,10 +960,10 @@ function amendSharedCut(db, id, body, user) {
         const ins = db.prepare(`
           INSERT INTO inventory_batches
             (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, color, width_cm, unit, unit_cost_rial, source_type, source_id, note)
-          VALUES (?,?,?,?,?,'active','fabric',?,?, 'متر', ?, 'cutting_remnant', ?, ?)
+          VALUES (?,?,?,?,?,'active','fabric',?,?, ?, ?, 'cutting_remnant', ?, ?)
         `).run(
           `${existing.batch_no}-R`, fabBatch.product_id, whRem.id, roll.remnant_m, roll.remnant_m,
-          existing.color || body.color || '', Math.round(Number(body.width_cm) || 0), unit, batchId, 'ته‌طاقه'
+          existing.color || body.color || '', Math.round(Number(body.width_cm) || 0), fabBatch.unit || 'm', unit, batchId, 'ته‌طاقه'
         );
         remnantBatchId = ins.lastInsertRowid;
         const remLed = postInventoryMovement(db, {

@@ -77,6 +77,15 @@ router.get('/fabric-rolls/circulation', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+router.get('/fabric-rolls/units', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const prod = db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(Number(req.query.product_id) || 0);
+    if (!prod) return res.status(404).json({ error: 'کالا یافت نشد', code: 'E_FABRIC_PRODUCT' });
+    res.json(require('../lib/uom').fabricReceiptUnits(db, prod));
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();

@@ -604,6 +604,7 @@ const FK_COLUMNS = [
   ['bom_headers', 'unit_id'],
   ['bom_lines', 'unit_id'],
   ['bom_outputs', 'unit_id'],
+  ['inventory_batches', 'entry_unit_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

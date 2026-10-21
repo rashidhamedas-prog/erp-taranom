@@ -711,7 +711,7 @@ function isRollFabricProduct(db, productOrId) {
       SELECT DISTINCT COALESCE(NULLIF(TRIM(unit),''),'m') AS u FROM inventory_batches
       WHERE product_id=? AND COALESCE(kind,'generic')='fabric'
     `).all(Number(prod.id));
-    return rows.some((r) => uom.isLengthText(r.u));
+    return rows.some((r) => uom.isLengthToken(db, r.u));
   } catch {
     return false;
   }
@@ -719,7 +719,7 @@ function isRollFabricProduct(db, productOrId) {
 
 /** برچسب واحد برای پیام: واحد کالا اگر طولی است، وگرنه متر طاقه. */
 function rollFabricUnitLabel(db, prod) {
-  if (prod && require('../uom').isLengthText(prod.unit)) return prod.unit;
+  if (prod && require('../uom').isLengthToken(db, prod.unit)) return prod.unit;
   return 'متر طاقه';
 }
 

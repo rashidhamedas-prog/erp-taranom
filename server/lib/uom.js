@@ -162,23 +162,124 @@ function isLengthProduct(db, prod) {
   return isLengthText(prod.unit) || isLengthText(prod.unit_code);
 }
 
-/** Batch token stored on fabric rolls: m or yd. Empty when not a length unit. */
+/** Token written on inventory_batches.unit: m / yd for the classic codes, else lower-case catalog code. */
+function rollUnitToken(row) {
+  if (!row) return '';
+  const code = String(row.code || '').toUpperCase();
+  const unece = String(row.unece_code || '').toUpperCase();
+  if (code === 'M' || unece === 'MTR') return 'm';
+  if (code === 'YD' || code === 'YRD' || unece === 'YRD') return 'yd';
+  return code.toLowerCase();
+}
+
+/** Batch token stored on fabric rolls. Empty when not a length unit. */
 function lengthTokenForProduct(db, prod) {
   if (!prod) return '';
   if (db && prod.unit_id) {
     const row = getUnit(db, prod.unit_id);
-    if (row && row.dimension === 'length') {
-      const code = String(row.code || '').toUpperCase();
-      const unece = String(row.unece_code || '').toUpperCase();
-      if (code === 'YD' || code === 'YRD' || unece === 'YRD') return 'yd';
-      return 'm';
-    }
+    if (row && row.dimension === 'length') return rollUnitToken(row);
     if (row) return '';
   }
   const s = String(prod.unit || '').trim().toLowerCase().replace(/\s+/g, '');
   if (s === 'یارد' || s === 'يارد' || s === 'yard' || s === 'yards' || s === 'yd' || s === 'yrd') return 'yd';
   if (isLengthText(prod.unit)) return 'm';
   return '';
+}
+
+/** Catalog row of the product's stock unit (unit_id first, then its text). */
+function stockUnitForProduct(db, prod) {
+  if (!db || !prod) return null;
+  if (prod.unit_id) {
+    const row = getUnit(db, prod.unit_id);
+    if (row) return row;
+  }
+  return matchText(db, prod.unit) || null;
+}
+
+/** Is a roll's stored unit token a length unit (m, yd, cm, or any length row in the catalog)? */
+function isLengthToken(db, token) {
+  if (isLengthText(token)) return true;
+  if (!db || !token) return false;
+  const row = matchText(db, token);
+  return !!(row && row.dimension === 'length');
+}
+
+// A roll may be bought in any physical unit; only these make sense for cloth.
+const ROLL_ENTRY_DIMENSIONS = ['length', 'mass', 'area'];
+
+/**
+ * Units offered on a fabric roll receipt.
+ * Stock stays in the product's unit and must be a length unit, because lay-up
+ * consumes marker length. Same-dimension units convert by catalog factor;
+ * other dimensions (kg, m²) need a per-roll factor typed by the user.
+ */
+function fabricReceiptUnits(db, prod) {
+  const stock = stockUnitForProduct(db, prod);
+  const stockOk = !!(stock && stock.dimension === 'length' && Number(stock.factor_to_ref) > 0);
+  const rows = db.prepare('SELECT * FROM units_of_measure WHERE COALESCE(is_active,1)=1 ORDER BY dimension, COALESCE(is_reference,0) DESC, id').all();
+  const units = rows
+    .filter((u) => ROLL_ENTRY_DIMENSIONS.includes(u.dimension || 'count'))
+    .map((u) => {
+      const sameDim = stockOk && u.dimension === stock.dimension && Number(u.factor_to_ref) > 0;
+      return {
+        id: u.id,
+        code: u.code,
+        name: u.name,
+        symbol: u.symbol || '',
+        dimension: u.dimension,
+        decimal_places: Number(u.decimal_places) || 0,
+        mode: sameDim ? 'convert' : 'factor',
+        factor_to_stock: sameDim ? convertBetween(u, stock, 1) : null,
+      };
+    });
+  let reason = '';
+  if (!stock) reason = `واحد کالا «${prod && prod.unit || '—'}» در کاتالوگ واحدها نیست. در کارت کالا یک واحد طولی (متر/یارد) انتخاب کنید.`;
+  else if (!stockOk) reason = `واحد انبار این کالا «${stock.name}» است. طاقهٔ برش‌خور باید واحد انبار طولی (متر/یارد) داشته باشد تا لایه‌چینی از آن کم کند. واحد کارت کالا را اصلاح کنید یا از «مواد با ویژگی» استفاده کنید.`;
+  return {
+    stock_unit: stock ? { id: stock.id, code: stock.code, name: stock.name, symbol: stock.symbol || '', dimension: stock.dimension, token: rollUnitToken(stock) } : null,
+    stock_ok: stockOk ? 1 : 0,
+    reason,
+    units,
+  };
+}
+
+/**
+ * Resolve the quantity typed on a roll receipt into the product stock unit.
+ * body: entry_unit_id | unit_id | unit (text) , entry_qty | meters | qty , entry_factor (stock per 1 entry unit, cross-dimension only)
+ */
+function resolveRollEntry(db, prod, body = {}) {
+  const info = fabricReceiptUnits(db, prod);
+  if (!info.stock_ok) throw httpErr(400, info.reason, 'E_FABRIC_STOCK_UNIT');
+  const stock = getUnit(db, info.stock_unit.id);
+  const idRaw = body.entry_unit_id != null && body.entry_unit_id !== '' ? body.entry_unit_id : body.unit_id;
+  let entry = null;
+  if (idRaw != null && idRaw !== '') entry = getUnit(db, idRaw);
+  else if (body.unit != null && String(body.unit).trim() !== '') entry = matchText(db, body.unit);
+  if (!entry) entry = stock;
+  if (entry.is_active === 0) throw httpErr(400, `واحد «${entry.name}» غیرفعال است`, 'E_UOM_INACTIVE');
+  if (!ROLL_ENTRY_DIMENSIONS.includes(entry.dimension || 'count')) {
+    throw httpErr(400, `واحد «${entry.name}» برای طاقه مجاز نیست (فقط طول، وزن یا مساحت)`, 'E_FABRIC_ENTRY_UNIT');
+  }
+  const qtyRaw = body.entry_qty != null ? body.entry_qty : (body.meters != null ? body.meters : body.qty);
+  const entryQty = Number(qtyRaw);
+  if (!(entryQty > 0) || !Number.isFinite(entryQty)) {
+    throw httpErr(400, `مقدار طاقه (${entry.name}) باید بزرگ‌تر از صفر باشد`, 'E_FABRIC_METERS');
+  }
+  let factor;
+  let mode;
+  if (entry.dimension === stock.dimension && Number(entry.factor_to_ref) > 0) {
+    mode = 'convert';
+    factor = convertBetween(entry, stock, 1);
+  } else {
+    mode = 'factor';
+    factor = Number(body.entry_factor);
+    if (!(factor > 0) || !Number.isFinite(factor)) {
+      throw httpErr(400, `برای دریافت به «${entry.name}» بگویید هر ۱ ${entry.name} چند ${stock.name} است`, 'E_FABRIC_ENTRY_FACTOR');
+    }
+  }
+  const stockQty = Math.round(entryQty * factor * 1e6) / 1e6;
+  if (!(stockQty > 0)) throw httpErr(400, 'مقدار تبدیل‌شده صفر شد', 'E_FABRIC_METERS');
+  return { stock, entry, entryQty, stockQty, factor, mode, token: rollUnitToken(stock) };
 }
 
 function policyFromRow(row) {
@@ -336,6 +437,9 @@ function countInUse(db, id) {
       n += db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE unit_id=?`).get(id).c;
     }
   }
+  if (columnExists(db, 'inventory_batches', 'entry_unit_id')) {
+    n += db.prepare(`SELECT COUNT(*) c FROM inventory_batches WHERE entry_unit_id=? AND COALESCE(status,'')<>'reversed'`).get(id).c;
+  }
   return n;
 }
 
@@ -348,6 +452,12 @@ module.exports = {
   isLengthText,
   isLengthProduct,
   lengthTokenForProduct,
+  rollUnitToken,
+  stockUnitForProduct,
+  isLengthToken,
+  ROLL_ENTRY_DIMENSIONS,
+  fabricReceiptUnits,
+  resolveRollEntry,
   policyForProduct,
   resolveProductUnit,
   convertBetween,

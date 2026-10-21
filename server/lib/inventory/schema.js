@@ -233,6 +233,11 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'inventory_batches', 'reversal_journal_id', 'INTEGER');
     ensureColumn(db, 'inventory_batches', 'source_type', 'TEXT');
     ensureColumn(db, 'inventory_batches', 'source_id', 'INTEGER');
+    // Receipt as typed (unit/qty/price); qty_* stay in the product stock unit.
+    ensureColumn(db, 'inventory_batches', 'entry_unit_id', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'entry_qty', 'REAL');
+    ensureColumn(db, 'inventory_batches', 'entry_factor', 'REAL');
+    ensureColumn(db, 'inventory_batches', 'entry_unit_cost_rial', 'INTEGER');
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_batches_idem ON inventory_batches(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }
