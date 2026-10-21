@@ -13214,6 +13214,7 @@ function cuttingRenderRollPickerExtras(){
       plies: lab.querySelector('.cl-roll-plies')?.value,
       loss: lab.querySelector('.cl-roll-loss')?.value,
       extra: lab.querySelector('.cl-roll-extra-m')?.value,
+      laid: lab.querySelector('.cl-roll-laid')?.value,
     });
   });
   document.querySelectorAll('.cl-roll-extra').forEach(n=>n.remove());
@@ -13229,7 +13230,10 @@ function cuttingRenderRollPickerExtras(){
     const defPlies=prev.plies!=null && prev.plies!=='' ? prev.plies : ((rolls.length===1 || ch.checked)?pliesDefault:'');
     const lossVal=prev.loss!=null && prev.loss!=='' ? prev.loss : '0';
     const extraVal=prev.extra!=null && prev.extra!=='' ? prev.extra : '0';
+    const laidVal=prev.laid!=null ? prev.laid : '';
+    const markerM=+el('cl-marker')?.value||0;
     wrap.innerHTML='لایه <input type="number" class="cl-roll-plies" min="0" step="1" value="'+esc(String(defPlies||''))+'" style="width:64px"> '
+      +'متر واقعی پهن <input type="number" class="cl-roll-laid" min="0" step="0.01" value="'+esc(String(laidVal))+'" placeholder="'+esc(String(Math.round((+defPlies||0)*markerM*100)/100||'متر'))+'" style="width:84px" title="متری که واقعاً روی میز پهن شد (اندازه‌گیری). خالی = از «متر واقعی مصرف‌شده» کل به نسبت لایه پخش می‌شود"> '
       +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="'+esc(String(lossVal))+'" placeholder="متر" style="width:70px"> '
       +'اضافه طاقه <input type="number" class="cl-roll-extra-m" min="0" step="0.001" value="'+esc(String(extraVal))+'" placeholder="متر" style="width:74px" title="متراژی که روی طاقه هست ولی در ماندهٔ دفتر نیست"> '
       +'<button type="button" class="btn sm ghost cl-roll-extra-fill">پر کردن کسری</button>';
@@ -13242,8 +13246,9 @@ function cuttingFillRollExtra(ch){
   const marker=+el('cl-marker')?.value||0;
   const plies=+(lab.querySelector('.cl-roll-plies')?.value)||0;
   const loss=+(lab.querySelector('.cl-roll-loss')?.value)||0;
+  const laid=+(lab.querySelector('.cl-roll-laid')?.value)||plies*marker;
   const opening=+ch.dataset.max||0;
-  const gap=Math.max(0, Math.round((plies*marker+loss-opening)*1000)/1000);
+  const gap=Math.max(0, Math.round((laid+loss-opening)*1000)/1000);
   const inp=lab.querySelector('.cl-roll-extra-m');
   if(inp) inp.value=gap?String(gap):'0';
   if(!(gap>0)) showToast('با این لایه و اتلاف، ماندهٔ دفتر کم نمی‌آید');
@@ -13551,7 +13556,8 @@ async function cuttingLayModal(editId, opts){
       <div class="fg" id="cl-single-prod-wrap"><label>کالای دوخته‌شده${window._cutEditId?' (ثابت)':''}</label>${productSelect('cl-prod',prodVal,list)}</div>
       <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="${lay?esc(String(lay.marker_length_m||2)):'2'}"></div>
       <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="${lay?esc(String(lay.ply_count||10)):'10'}"></div>
-      <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null?esc(String(lay.actual_meters)):''}"></div>
+      <div class="fg"><label>متر واقعی مصرف‌شده * ${hlp('عدد اندازه‌گیری‌شده از طاقه (پهن + اتلاف سر و ته). انحراف از فرمول و ضایعات عادی/غیرعادی فقط از همین عدد حساب می‌شود؛ فرم آن را به «مارکر × لایه» تبدیل نمی‌کند. در حالت چندمحصول می‌توانید به‌جایش «متر واقعی پهن» هر طاقه را بزنید.')}</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null&&!lay.batch_id?esc(String(lay.actual_meters)):''}" placeholder="مثلاً ۲۱٫۴" data-csp-input="${CSP.bind('input',function(){cuttingActualHint()})}">
+        <small class="muted" id="cl-actual-hint" data-csp-style="${CSP.style(`display:block;font-size:11px;margin-top:2px`)}"></small></div>
       <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="${lay?esc(String(lay.width_cm||150)):'150'}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}"></div>
       <div class="fg"><label>رنگ *</label>
         <select id="cl-color"><option value="">— انتخاب از طاقه‌های موجود —</option></select>
@@ -13617,6 +13623,9 @@ async function cuttingLayModal(editId, opts){
     });
   }
   el('cl-color')?.addEventListener('change', ()=>{ if(el('cl-color-extra')) el('cl-color-extra').value=''; cuttingRefreshRollPicker(); });
+  el('cl-marker')?.addEventListener('input', cuttingActualHint);
+  el('cl-plies')?.addEventListener('input', cuttingActualHint);
+  cuttingActualHint();
   const finish=async()=>{
     await refreshSizes();
     if(lay){
@@ -13685,6 +13694,8 @@ async function cuttingLayModal(editId, opts){
           const loss=ch.parentElement && ch.parentElement.querySelector('.cl-roll-loss');
           if(pl) pl.value=String(r.ply_count||'');
           if(loss) loss.value=String(r.length_loss_m||0);
+          const laidIn=ch.parentElement && ch.parentElement.querySelector('.cl-roll-laid');
+          if(laidIn && Number(r.laid_m)>0) laidIn.value=String(r.laid_m);
           const extra=ch.parentElement && ch.parentElement.querySelector('.cl-roll-extra-m');
           if(extra) extra.value=String(r.extra_m||0);
         });
@@ -13918,6 +13929,20 @@ async function cuttingApplyPo(){
     await cuttingResolveFabricAndRolls();
   }catch(e){ showToast(e.message||'سفارش یافت نشد','error'); }
 }
+/** متر واقعی اندازه‌گیری‌شده؛ هرگز به مارکر × لایه برنمی‌گردد. */
+function cuttingMeasuredActual(rollSum){
+  const typed=+el('cl-actual')?.value||0;
+  if(typed>0) return typed;
+  return Number(rollSum)>0?Number(rollSum):0;
+}
+function cuttingActualHint(){
+  const box=el('cl-actual-hint'); if(!box) return;
+  const planned=Math.round((+el('cl-marker')?.value||0)*(+el('cl-plies')?.value||0)*1000)/1000;
+  const actual=+el('cl-actual')?.value||0;
+  if(!(actual>0)){ box.textContent='مارکر × لایه = '+fmtQtyFa(planned)+' متر (فقط مرجع؛ جای عدد واقعی را نمی‌گیرد)'; return; }
+  const d=Math.round((actual-planned)*1000)/1000;
+  box.textContent='مارکر × لایه '+fmtQtyFa(planned)+' · اختلاف پهن/اتلاف '+(d>0?'+':'')+fmtQtyFa(d)+' متر';
+}
 function cuttingLayBreakdown(){
   const o={};
   document.querySelectorAll('#cl-size-grid [data-cut-size]').forEach(inp=>{
@@ -13933,7 +13958,11 @@ async function cuttingLayPreview(){
       const data=await api('POST','/production/cutting-batches/preview',body);
       const outs=(data.outputs||[]).map(o=>('#'+o.product_id+'/'+esc(o.size_code||'')+': '+o.pieces_per_ply+'→'+o.planned_pieces+' قطعه ('+(o.weight||0)+'%)')).join(' · ');
       const short=Number(data.shortfall_m)||0;
-      el('cl-preview').textContent='پهن '+fmtQtyFa(data.laid_m||0)+' · اضافه طاقه '+fmtQtyFa(data.extra_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
+      el('cl-preview').textContent='مارکر × لایه '+fmtQtyFa(data.planned_meters||0)
+        +' · واقعی (پهن + اتلاف) '+fmtQtyFa(data.actual_meters||0)
+        +(Number(data.matrix_meters)>0?(' · استاندارد فرمول '+fmtQtyFa(data.matrix_meters)+' · انحراف '+fmtQtyFa(data.fabric_variance_m||0)):' · استاندارد فرمول پیدا نشد (متر استاندارد هر محصول را وارد کنید)')
+        +' · ضایعات عادی '+fmtQtyFa(data.waste_normal_m||0)+' / غیرعادی (۵۲۲۱) '+fmtQtyFa(data.waste_abnormal_m||0)
+        +' · پهن '+fmtQtyFa(data.laid_m||0)+' · اضافه طاقه '+fmtQtyFa(data.extra_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
         +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmtQtyFa(data.policy.threshold_m):'—')
         +(data.balanced?' · تراز OK':' · تراز طاقه برقرار نیست')
         +(short>0?(' — کسری دفتر '+fmtQtyFa(short)+' متر؛ اگر طاقه واقعاً بلندتر است «پر کردن کسری» یا فیلد اضافه طاقه را بزنید'):'')
@@ -13941,14 +13970,20 @@ async function cuttingLayPreview(){
       return;
     }
     const bd=cuttingLayBreakdown();
-    const actual=el('cl-actual').value?+el('cl-actual').value:undefined;
+    const rollSum=[...document.querySelectorAll('.cl-roll:checked')].reduce((s,ch)=>s+(+(ch.parentElement.querySelector('.cl-roll-m')?.value)||0),0);
+    const measured=cuttingMeasuredActual(rollSum);
+    const actual=measured>0?measured:undefined;
     const q='product_id='+encodeURIComponent(el('cl-prod').value)
       +'&marker_length_m='+encodeURIComponent(el('cl-marker').value)
       +'&ply_count='+encodeURIComponent(el('cl-plies').value)
       +(actual!=null?'&actual_meters='+encodeURIComponent(actual):'')
       +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
     const p=await api('GET','/production/cutting-lays/preview?'+q);
-    el('cl-preview').textContent='مصرف نظری '+fmtQtyFa(p.matrix_meters||0)+' متر · پهن‌شده '+fmtQtyFa(p.planned_meters||0)+' · ضایعات عادی '+fmtQtyFa(p.waste_normal_m||0)+' / غیرعادی '+fmtQtyFa(p.waste_abnormal_m||0);
+    el('cl-preview').textContent=(actual==null?'⚠️ متر واقعی وارد نشده — اعداد زیر فرضی (مارکر × لایه) است · ':'')
+      +'استاندارد فرمول '+fmtQtyFa(p.matrix_meters||0)+' متر · مارکر × لایه '+fmtQtyFa(p.planned_meters||0)
+      +' · واقعی '+fmtQtyFa(p.actual_meters||0)
+      +' · انحراف از فرمول '+fmtQtyFa(Math.round(((p.actual_meters||0)-(p.matrix_meters||0))*1000)/1000)
+      +' · ضایعات عادی '+fmtQtyFa(p.waste_normal_m||0)+' / غیرعادی (۵۲۲۱) '+fmtQtyFa(p.waste_abnormal_m||0);
   }catch(e){ const box=el('cl-preview'); if(box) box.textContent=e.message||e.code||'خطا در پیش‌نمایش'; showToast(e.message||'خطا در پیش‌نمایش','error'); }
 }
 function cuttingBuildSharedBody(){
@@ -13966,13 +14001,27 @@ function cuttingBuildSharedBody(){
     const plies=+(ch.parentElement.querySelector('.cl-roll-plies')?.value);
     const loss=+(ch.parentElement.querySelector('.cl-roll-loss')?.value)||0;
     const extra=+(ch.parentElement.querySelector('.cl-roll-extra-m')?.value)||0;
+    const laid=+(ch.parentElement.querySelector('.cl-roll-laid')?.value)||0;
     const opening=+ch.dataset.max||0;
     if(!(plies>0)){ showToast('برای هر طاقهٔ انتخاب‌شده تعداد لایه را وارد کنید','error'); return null; }
     if(!(opening>0)){ showToast('مانده طاقه نامعتبر است','error'); return null; }
     if(extra<0){ showToast('اضافه طاقه نمی‌تواند منفی باشد','error'); return null; }
-    rolls.push({batch_id:+ch.dataset.id, opening_m:opening, ply_count:plies, color, length_loss_m:loss, extra_m:extra});
+    const row={batch_id:+ch.dataset.id, opening_m:opening, ply_count:plies, color, length_loss_m:loss, extra_m:extra};
+    if(laid>0) row.laid_m=laid;
+    rolls.push(row);
+  }
+  const headerActual=+el('cl-actual')?.value||0;
+  const perRoll=rolls.every(r=>r.laid_m>0);
+  if(!perRoll){
+    if(!(headerActual>0)){
+      showToast('متر واقعی را وارد کنید: یا «متر واقعی مصرف‌شده» کل، یا «متر واقعی پهن» هر طاقه. بدون آن انحراف و ضایعات صفر می‌شود.','error');
+      el('cl-actual')?.focus();
+      return null;
+    }
+    rolls.forEach(r=>{ delete r.laid_m; });
   }
   return {
+    actual_meters: perRoll?undefined:headerActual,
     marker_length_m:marker,
     width_cm:+el('cl-w').value||0,
     fabric_product_id:window._cutFabricProductId||undefined,
@@ -14008,9 +14057,14 @@ async function cuttingLaySave(){
       cuttingReturnAfterPost(cuttingStageBindToast(posted,'برش مشترک '+(posted&&posted.batch_no?posted.batch_no:'')+' / لایه '+(posted&&posted.lay_no?posted.lay_no:'')+' ثبت شد.'));
       return;
     }
-    const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
-    const actual=el('cl-actual').value?+el('cl-actual').value:planned;
     const checked=[...document.querySelectorAll('.cl-roll:checked')];
+    const rollSum=Math.round(checked.reduce((s,ch)=>s+(+(ch.parentElement.querySelector('.cl-roll-m')?.value)||0),0)*1000)/1000;
+    const actual=cuttingMeasuredActual(rollSum);
+    if(!(actual>0)){
+      showToast('متر واقعی مصرف‌شده را وارد کنید (عدد اندازه‌گیری‌شده، نه طول مارکر × لایه) — انحراف و ضایعات از همین عدد حساب می‌شود','error');
+      el('cl-actual')?.focus();
+      return;
+    }
     const rolls=[];
     checked.forEach(ch=>{
       const inp=ch.parentElement.querySelector('.cl-roll-m');
@@ -19197,14 +19251,30 @@ function prodOrderSyncAnalysisLock(bom){
   const multi=!!(bom&&(bom.is_multiproduct||(bom.fg_products||[]).length>1||Number(bom.has_coproducts)===1));
   const routing=!!(bom&&(Number(bom.has_routing)===1||(bom.operations||[]).length>0));
   const lock=multi||routing;
-  an.disabled=lock;
+  // فقط گزینه‌های غیرمرحله‌ای بسته می‌شوند؛ انتخاب بین ثابت/متغیر مرحله‌ای همیشه آزاد است.
+  an.disabled=false;
+  [...an.options].forEach(o=>{
+    const staged=o.value==='fixed_adv'||o.value==='variable_adv';
+    o.disabled=lock && !staged;
+    o.hidden=lock && !staged;
+  });
   if(lock && !['fixed_adv','variable_adv'].includes(an.value)){
     an.value=an.value==='variable'?'variable_adv':'fixed_adv';
   }
+  if(!an.dataset.noteBound){
+    an.dataset.noteBound='1';
+    an.addEventListener('change', ()=>prodOrderSyncAnalysisLock(window._poBom));
+  }
   if(note){
-    note.textContent=multi
-      ?'فرمول چندمحصولی است. آنالیز روی مرحله‌ای قفل شد تا آزادسازی، مراحل مسیر را بسازد.'
-      :(routing?'این فرمول مسیر عملیات دارد. سفارش مرحله‌ای می‌شود تا همان مراحل ساخته شوند.':'');
+    const why=multi
+      ?'فرمول چندمحصولی است؛ فقط آنالیز مرحله‌ای مجاز است تا آزادسازی، مراحل مسیر را بسازد. '
+      :(routing?'این فرمول مسیر عملیات دارد؛ فقط آنالیز مرحله‌ای مجاز است تا همان مراحل ساخته شوند. ':'');
+    const how=an.value==='variable_adv'
+      ?'متغیر مرحله‌ای: مواد هر مرحله با «حواله مواد» و مقدار واقعی مصرف می‌شود.'
+      :(an.value==='fixed_adv'
+        ?'ثابت مرحله‌ای: مواد هر مرحله به مقدار استاندارد فرمول کسر می‌شود؛ مصرف بیش از استاندارد را با «مصرف اضافه» همان مرحله ثبت کنید.'
+        :'');
+    note.textContent=why+how;
   }
 }
 function prodOrderIsMulti(bom){
@@ -20275,6 +20345,7 @@ async function prodOrderStagesModal(orderId){
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           ${s.status==='pending'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageStart((orderId),(s.id))})}">شروع</button>`:''}
           ${s.status==='in_progress'&&order.analysis_type==='variable_adv'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageIssueModal((orderId),(s.id))})}">حواله مواد</button>`:''}
+          ${['fixed_adv','variable_adv'].includes(order.analysis_type)&&['in_progress','done'].includes(s.status)?`<button class="btn sm ghost" title="مصرف بیش از استاندارد فرمول در همین مرحله (مثلاً زیپ خراب)" data-csp-click="${CSP.bind('click',function(event){prodStageExtraModal((orderId),(s.id),(s.status))})}">مصرف اضافه</button>`:''}
           ${s.status==='in_progress'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){prodStageOutputModal((orderId),(s.id),(s.qty_in||0),(prodStageScopeHtml(s)))})}">ثبت خروجی</button>`:''}
           ${s.status==='pending'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageSkip((orderId),(s.id))})}">رد کردن</button>`:''}
           ${s.is_subcontract && s.status==='in_progress'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodStageSubSend((orderId),(s.id),(s.supplier_id||0),(s.qty_in||0))})}">📤 ارسال پیمانکار</button>`:''}
@@ -20289,6 +20360,85 @@ async function prodOrderStagesModal(orderId){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderFinalize((orderId))})}">✅ نهایی‌سازی سفارش و رسید تولید</button>
     </div>`:''}
     </div>`);
+}
+async function prodStageExtraModal(orderId,stageId,stageStatus){
+  let tpl=null, list=null;
+  try{
+    [tpl,list]=await Promise.all([
+      api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'),
+      api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/extra-issues'),
+    ]);
+  }catch(e){ showToast(e.message||'خطا در دریافت مواد مرحله','error'); return; }
+  const open=stageStatus==='in_progress';
+  const reasons=(list&&list.reasons)||[];
+  const lines=((tpl&&tpl.lines)||[]).filter(L=>!Number(L.via_cutting_lay));
+  const CLS_FA={normal:'عادی — در بهای محصول',abnormal:'غیرعادی — ۵۲۲۱'};
+  const reasonOpts=reasons.map(r=>`<option value="${esc(r.code)}" data-cls="${esc(r.default_class)}">${esc(r.label)}</option>`).join('');
+  const rows=(list&&list.rows)||[];
+  showModal('مصرف اضافهٔ مواد — مرحله',`
+    <div class="prod-scope">
+    <p class="prod-floor-lead">وقتی در این مرحله بیش از استاندارد فرمول مصرف شد (مثلاً ۱۰ زیپ لازم بود ولی چند زیپ خراب شد و ۲۰ عدد مصرف شد)، فقط <b>مقدار اضافه</b> را اینجا بزنید. مقدار استاندارد خودش با مرحله کسر می‌شود.
+    «عادی» تا سقف درصد ضایعات عادی عملیات در بهای محصول می‌ماند؛ بیشتر از سقف یا دلیل غیرعادی، هزینهٔ ضایعات غیرعادی (۵۲۲۱) همان مرکز هزینه می‌شود و بهای محصول را بالا نمی‌برد. پارچهٔ طاقه‌ای اینجا نیست؛ مصرف واقعی آن با «متر واقعی» لایه‌چینی ثبت می‌شود.</p>
+    ${open?(lines.length?`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>قلم</th><th class="num">استاندارد مرحله</th><th class="num">مقدار اضافه</th><th>دلیل</th><th>طبقه</th><th>توضیح</th>
+    </tr></thead><tbody>
+    ${lines.map((L,i)=>`<tr data-pex-row="${i}" data-pid="${L.product_id}">
+      <td>${esc(L.name||('#'+L.product_id))}${L.scoped_product_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(L.scoped_product_name)}</div>`:''}</td>
+      <td class="num">${fmtQtyFa(L.qty_standard||0)} ${esc(L.unit||'')}</td>
+      <td><input class="pex-qty" type="number" min="0" step="0.001" value="" placeholder="۰" data-csp-style="${CSP.style(`width:90px`)}"></td>
+      <td><select class="pex-reason" data-csp-change="${CSP.bind('change',function(){const o=this.selectedOptions[0]; const c=this.closest('tr').querySelector('.pex-cls'); if(c&&o) c.value=o.dataset.cls||'abnormal';})}"><option value="">— دلیل —</option>${reasonOpts}</select></td>
+      <td><select class="pex-cls"><option value="abnormal">${CLS_FA.abnormal}</option><option value="normal">${CLS_FA.normal}</option></select></td>
+      <td><input class="pex-note" placeholder="اختیاری؛ برای «سایر» الزامی" data-csp-style="${CSP.style(`width:100%;min-width:140px`)}"></td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div data-csp-style="${CSP.style(`margin-top:10px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){prodStageExtraSave(orderId,stageId,stageStatus)})}">ثبت مصرف اضافه</button></div>`
+      :`<p class="prod-empty">${esc((tpl&&tpl.empty_hint)||'برای این مرحله قلم مصرفی (غیر از پارچهٔ طاقه‌ای) در فرمول نیست.')}</p>`)
+      :'<p class="prod-empty">مرحله تمام شده است. برای اصلاح، «ابطال مرحله» را بزنید؛ همهٔ مصرف‌های اضافهٔ آن هم برمی‌گردد.</p>'}
+    <h4 data-csp-style="${CSP.style(`margin:14px 0 6px`)}">مصرف‌های اضافهٔ ثبت‌شده</h4>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>سند</th><th>قلم</th><th class="num">مقدار</th><th>طبقه</th><th>دلیل</th><th class="num">مبلغ</th><th>وضعیت</th><th></th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.doc_no||'')}</td>
+      <td>${esc(r.product_name||('#'+r.product_id))}</td>
+      <td class="num">${fmtQtyFa(r.qty||0)} ${esc(r.unit||'')}</td>
+      <td>${esc(CLS_FA[r.extra_class]||r.extra_class||'')}</td>
+      <td>${esc(r.note||'')}</td>
+      <td class="num">${r.amount_rial!=null?prodFmtToman(r.amount_rial):'—'}</td>
+      <td>${r.status==='posted'?'ثبت‌شده':'ابطال‌شده'}</td>
+      <td>${open&&r.status==='posted'?`<button class="btn sm ghost" data-csp-style="${CSP.style(`color:var(--red)`)}" data-csp-click="${CSP.bind('click',function(){prodStageExtraVoid(orderId,stageId,r.id,stageStatus)})}">ابطال</button>`:''}</td>
+    </tr>`).join('')||emptyRow(8)}
+    </tbody></table></div>
+    </div>`);
+}
+async function prodStageExtraSave(orderId,stageId,stageStatus){
+  const out=[];
+  for(const tr of document.querySelectorAll('[data-pex-row]')){
+    const qty=parseQty(tr.querySelector('.pex-qty')?.value,0);
+    if(!(qty>0)) continue;
+    const reason=tr.querySelector('.pex-reason')?.value||'';
+    const note=(tr.querySelector('.pex-note')?.value||'').trim();
+    if(!reason){ showToast('برای هر قلم دارای مقدار، دلیل را انتخاب کنید','error'); return; }
+    if(reason==='other' && !note){ showToast('برای دلیل «سایر» توضیح بنویسید','error'); return; }
+    out.push({ product_id:+tr.dataset.pid, qty, reason_code:reason, extra_class:tr.querySelector('.pex-cls')?.value||'', note });
+  }
+  if(!out.length){ showToast('حداقل یک قلم با مقدار اضافه وارد کنید','error'); return; }
+  if(!confirm('ثبت مصرف اضافه؟ مواد از انبار کسر و سند حسابداری صادر می‌شود.')) return;
+  try{
+    const r=await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/extra-issues',{lines:out});
+    const ab=(r.lines||[]).filter(x=>x.extra_class==='abnormal').length;
+    showToast('مصرف اضافه '+(r.doc_no||'')+' ثبت شد'+(ab?' — بخشی غیرعادی (۵۲۲۱) شد':''));
+    prodStageExtraModal(orderId,stageId,stageStatus);
+  }catch(e){ showToast(e.detail||e.message||e.code||'خطا','error'); }
+}
+async function prodStageExtraVoid(orderId,stageId,issueId,stageStatus){
+  const reason=prompt('دلیل ابطال مصرف اضافه:')||'';
+  if(!reason.trim()){ showToast('دلیل الزامی است','error'); return; }
+  try{
+    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/extra-issues/'+issueId+'/void',{reason});
+    showToast('مصرف اضافه ابطال شد — مواد به انبار برگشت و سند معکوس شد');
+    prodStageExtraModal(orderId,stageId,stageStatus);
+  }catch(e){ showToast(e.detail||e.message||e.code||'خطا','error'); }
 }
 async function prodStageStart(orderId,stageId){
   try{ await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/start',{}); showToast('مرحله شروع شد'); prodOrderStagesModal(orderId); }
@@ -33229,6 +33379,7 @@ helpSec('🔑','لایسنس و entitlement',`
           تب «لایه‌چینی» = مصرف طاقه از انبار مواد و بدهکار WIP. تب PACK با <b>سفارش باز</b> = فقط بسته‌بندی در انبار WIP (<code>warehouseOnly</code>).
           <b>v403 / v467 سفارش پارچهٔ متری:</b> اگر BOM پارچهٔ متری داشته باشد (حتی قبل از ورود اولین طاقه)، دکمهٔ «رسید» تا قبل از لایه‌چینی+PACK قفل است (<code>E_CUTTING_LAY_REQUIRED</code> / <code>E_CUTTING_PACK_REQUIRED</code>). ورود فروش‌پذیر فقط با رسید/نهایی‌سازی بعد از PACK. وقتی تولید به برنامه برسد وضعیت خودکار <code>completed</code> می‌شود (حتی اگر تیک جزئی مانده باشد).
           <b>v467 برگه بهای تمام‌شده:</b> برای سفارش پارچهٔ متری بدون لایه‌چینی فعال، برگه <b>موقت</b> است (<code>cost_final=false</code>) و بهای نهایی صادر نمی‌شود — ضایعات عادی در مواد، مازاد سقف به ۵۲۲۱، و انحراف متر واقعی در برابر استاندارد ماتریس روی برگه دیده می‌شود. WIP متوازن ≠ بهای نهایی.
+          <b>v513 متر واقعی لایه‌چینی:</b> «متر واقعی مصرف‌شده» عدد اندازه‌گیری‌شده است و الزامی؛ فرم دیگر آن را بی‌صدا با «طول مارکر × لایه» پر نمی‌کند (اگر خالی بماند و متر طاقه‌ها هم خالی باشد، ثبت نمی‌شود). در حالت «چند محصول روی یک مارکر» یا کل متر واقعی را بزنید (به نسبت لایه بین طاقه‌ها پخش می‌شود) یا «متر واقعی پهن» هر طاقه را. سیستم سه عدد را جدا نگه می‌دارد: استاندارد فرمول (BOM یا متر استاندارد هر محصول)، مارکر × لایه، و واقعی (پهن + اتلاف). انحراف = واقعی − استاندارد فرمول. مازاد پهن تا سقف ٪ ضایعات عادی در بهای محصول می‌ماند و بیشتر از آن به‌همراه اتلاف طولی به ۵۲۲۱ می‌رود؛ همین اعداد در برگه بهای تمام‌شده دیده می‌شود.
           <b>v404 پوشش لایه با رسید سفارش:</b> اگر لایه‌چینی (با یا بدون PACK ابطال‌شده) با رسید FG همان سفارش هم‌پوشان باشد، وضعیت «رسید انبار محصول از سفارش …» نشان داده می‌شود و دکمهٔ PACK قفل است (<code>E_LAY_FG_COVERED</code>) تا «منتظر PACK» کاذب پیش نیاید.
           بدون سفارش باز = cut-to-stock مستقیم به FG. سرور اگر یک سفارش باز برای همان کالا باشد خودکار پیوند می‌زند؛ چند سفارش باز → <code>E_PACK_PO_REQUIRED</code>؛ اگر قبلاً PACK فروش‌پذیر زده باشید و بخواهید سفارش را نهایی کنید → <code>E_STANDALONE_PACK_FG</code> (اول ابطال PACK). هرگز PACK فروش‌پذیر و finalize را برای یک بچ با هم نزنید.
           <br><b>ویرایش لایه‌چینی (R13 / v466):</b> روی هر ردیف فعال تب لایه‌چینی دکمهٔ «ویرایش» هست، از جمله ردیفی که «پوشش‌شده با رسید سفارش» است. همان شماره لایه می‌ماند؛ طاقه و سند قبلی برمی‌گردد و با متر/طاقه/رنگ/عرض/مرکز جدید ثبت می‌شود. کالا قفل است. اگر PACK مستقیم (ورود انبار بدون سفارش) دارد، اول همان PACK ابطال شود. اگر رسید سفارش قبلاً محصول را وارد کرده، تعداد قطعه و پیوند سفارش قفل است و اختلاف بهای خالص به همان رسید می‌رود: سهم موجودِ باقیمانده بهای کالا را عوض می‌کند و سهم فروش‌رفته به بهای تمام‌شده می‌رود. مرحله‌های انجام‌شده دوباره باز نمی‌شوند. از v468 همان ردیف دکمهٔ «ابطال لایه‌چینی» دارد: ردیف پاک نمی‌شود؛ طاقه، سند لایه، حوالهٔ برش و سهم بها از رسید سفارش برمی‌گردد. تعداد محصول و مراحل بعدی باز نمی‌شوند. اگر PACK مستقیم هنوز مانده، اول همان PACK ابطال شود.
@@ -33263,6 +33414,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
         <li><b>کسری مواد در مرحله (v462):</b> اگر هنگام «ثبت خروجی» (آنالیز ثابت: حواله خودکار) یا «حواله مواد» (آنالیز متغیر) موجودی یک قلم کمتر از نیاز همان مرحله باشد، برای همان قلم یک کالای دیگر و مقدار پوشش انتخاب کنید. اصل تا سقف موجودی حواله می‌شود و مانده از جایگزین. استاندارد فرمول روی قلم اصلی می‌ماند؛ در پوشش جزئی مقدار استاندارد جایگزین صفر است. اگر پوشش ناقص باشد ثبت انجام نمی‌شود. ابطال مرحله موجودی هر دو کالا را برمی‌گرداند. انحراف همچنان سند حسابداری ندارد.</li>
+        <li><b>انتخاب نوع آنالیز با فرمول مسیر‌دار (v513):</b> اگر فرمول مسیر عملیات دارد یا چندمحصولی است، فقط دو گزینهٔ مرحله‌ای باز است و بین آن‌ها آزادانه انتخاب می‌کنید: «ثابت مرحله‌ای» (مواد هر مرحله به مقدار استاندارد کسر می‌شود) یا «متغیر مرحله‌ای» (مواد هر مرحله با «حواله مواد» و مقدار واقعی). گزینه‌های بدون مرحله پنهان می‌شوند چون مراحل مسیر ساخته نمی‌شوند.</li>
+        <li><b>مصرف اضافهٔ مرحله (v513):</b> در «مراحل سفارش» دکمهٔ «مصرف اضافه» برای هر دو آنالیز مرحله‌ای. وقتی در عمل بیش از فرمول مصرف شد (مثلاً ۱۰ زیپ لازم بود ولی زیپ خراب شد و ۲۰ عدد رفت) فقط مقدار اضافه را با دلیل بزنید: قلم معیوب، خطای اپراتور، خرابی دستگاه، دوباره‌کاری، گم‌شدن، مصرف واقعی بیش از فرمول، نمونهٔ QC، تغییر مشخصات، سایر (توضیح الزامی). «عادی» تا سقف درصد ضایعات عادی عملیات (یا تنظیم <code>production_material_extra_normal_pct</code>) روی استاندارد همان قلم در بهای محصول (WIP) می‌ماند و با خروجی مرحله جلو می‌رود؛ مازاد سقف یا دلیل غیرعادی با سند PRD-24 بدهکار ۵۲۲۱ / بستانکار مواد روی مرکز هزینهٔ همان مرحله ثبت می‌شود و بهای محصول را بالا نمی‌برد. انحراف مقدار در گزارش انحراف (memo) دیده می‌شود. ابطال: تا مرحله در جریان است دکمهٔ «ابطال» همان ردیف (مواد به انبار، سند معکوس)؛ بعد از اتمام مرحله «ابطال مرحله» همه را برمی‌گرداند. پارچهٔ طاقه‌ای اینجا نیست؛ مصرف واقعی پارچه با «متر واقعی» لایه‌چینی ثبت می‌شود.</li>
         <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>
         <li><b>حذف کامل سفارش:</b> در لیست سفارش‌ها دکمهٔ قرمز «حذف کامل» (و انتخاب چندتایی) اسناد را معکوس می‌کند و ردیف را از لیست برمی‌دارد؛ وضعیت <code>voided</code> می‌ماند. حذف فیزیکی نیست.</li>
         <li><b>وضعیت مراحل:</b> برچسب‌ها فارسی است (انجام شد / در جریان / منتظر / متوقف). نام عملیات در جدول مراحل نمایش داده می‌شود.</li>

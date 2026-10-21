@@ -73,6 +73,42 @@ router.post('/orders/:id/stages/:stageId/issue', auth, requirePermission('produc
   }, req);
 });
 
+router.get('/orders/:id/stages/:stageId/extra-issues', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => adv.listStageExtraIssues(getDB(), orderId(req), stageId(req)), req);
+});
+
+router.post('/orders/:id/stages/:stageId/extra-issues', auth, requirePermission('production', 'create'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const st = stageCc(db, orderId(req), stageId(req));
+    if (!st) throw Object.assign(new Error('E_NOT_FOUND'), { code: 'E_NOT_FOUND', status: 404 });
+    assertUserCostCenter(db, req.user.id, st.cost_center_id);
+    return adv.issueStageExtraMaterials(db, {
+      orderId: orderId(req),
+      stageId: stageId(req),
+      body: req.body || {},
+      userId: req.user.id,
+    });
+  }, req);
+});
+
+router.post('/orders/:id/stages/:stageId/extra-issues/:issueId/void', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const st = stageCc(db, orderId(req), stageId(req));
+    if (!st) throw Object.assign(new Error('E_NOT_FOUND'), { code: 'E_NOT_FOUND', status: 404 });
+    assertUserCostCenter(db, req.user.id, st.cost_center_id);
+    return adv.voidStageExtraIssue(db, {
+      orderId: orderId(req),
+      stageId: stageId(req),
+      issueId: Number(req.params.issueId),
+      reason: req.body?.reason || '',
+      userId: req.user.id,
+      date: req.body?.date,
+    });
+  }, req);
+});
+
 router.post('/orders/:id/finalize', auth, requirePermission('production', 'create'), (req, res) => {
   handle(res, () => adv.finalizeAdvancedOrder(getDB(), {
     orderId: orderId(req),

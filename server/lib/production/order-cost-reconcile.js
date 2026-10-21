@@ -62,6 +62,15 @@ function stageAbnormalWasteRial(db, orderId) {
   `, [orderId]);
 }
 
+/** مصرف اضافهٔ غیرعادی مرحله (v513): بستانکار مواد، بدهکار ۵۲۲۱ — هرگز وارد WIP نشده. */
+function extraAbnormalMaterialRial(db, orderId) {
+  return sumOf(db, `
+    SELECT COALESCE(SUM(amount_rial),0) AS s
+    FROM production_material_issues
+    WHERE order_id=? AND status='posted' AND issue_type='extra' AND COALESCE(extra_class,'')='abnormal'
+  `, [orderId]);
+}
+
 /** ضایعات مؤثر بر ماندهٔ WIP (برای بستن سفارش). */
 function wipEffectiveAbnormalWasteRial(db, orderId) {
   return stageAbnormalWasteRial(db, orderId) + classicLayWasteRial(db, orderId);
@@ -71,7 +80,8 @@ function wipEffectiveAbnormalWasteRial(db, orderId) {
 function economicAbnormalWasteRial(db, orderId) {
   return stageAbnormalWasteRial(db, orderId)
     + classicLayWasteRial(db, orderId)
-    + sharedLayWasteRial(db, orderId);
+    + sharedLayWasteRial(db, orderId)
+    + extraAbnormalMaterialRial(db, orderId);
 }
 
 function documentCostBuckets(db, orderId) {
@@ -84,6 +94,7 @@ function documentCostBuckets(db, orderId) {
     LEFT JOIN bom_lines bl ON bl.id = mi.bom_line_id
     LEFT JOIN products p ON p.id = mi.product_id
     WHERE mi.order_id=? AND mi.status='posted'
+      AND COALESCE(mi.extra_class,'')<>'abnormal'
   `).get(orderId);
   const totalIssued = num(issued && issued.total);
   const pkg = num(issued && issued.pkg);
@@ -452,5 +463,6 @@ module.exports = {
   wipEffectiveAbnormalWasteRial,
   classicLayWasteRial,
   sharedLayWasteRial,
+  extraAbnormalMaterialRial,
   wipResidualFromDocs,
 };

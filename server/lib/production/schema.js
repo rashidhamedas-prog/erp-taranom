@@ -229,6 +229,9 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'production_material_issues')) {
     ensureColumn(db, 'production_material_issues', 'variance_status', "TEXT DEFAULT 'memo'");
     ensureColumn(db, 'production_material_issues', 'variant_lines_json', "TEXT DEFAULT ''");
+    // v513: مصرف اضافهٔ مرحله — normal = در بهای محصول (WIP)، abnormal = ۵۲۲۱ (بیرون از WIP)
+    ensureColumn(db, 'production_material_issues', 'extra_class', "TEXT DEFAULT ''");
+    ensureColumn(db, 'production_material_issues', 'reason_code', "TEXT DEFAULT ''");
   }
   if (tableExists(db, 'production_receipts')) {
     ensureColumn(db, 'production_receipts', 'variant_lines_json', "TEXT DEFAULT ''");

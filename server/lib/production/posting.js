@@ -69,6 +69,7 @@ const PRD = {
   'PRD-16': { name: 'محصول فرعی', sourceType: 'production_byproduct' },
   'PRD-17': { name: 'تعدیل انبارگردانی', sourceType: 'production_stock_adjust' },
   'PRD-18': { name: 'اضافه طاقه', sourceType: 'cutting_roll_surplus' },
+  'PRD-24': { name: 'مصرف اضافهٔ غیرعادی مواد', sourceType: 'production_material_extra' },
   'PRD-21': { name: 'بستن انحراف دستمزد', sourceType: 'production_close_labor' },
   'PRD-22': { name: 'بستن انحراف سربار', sourceType: 'production_close_overhead' },
   'PRD-23': { name: 'تسهیم انحراف', sourceType: 'production_close_allocate' },

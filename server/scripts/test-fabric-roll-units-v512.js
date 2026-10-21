@@ -66,6 +66,8 @@ const raw = db.prepare(`
   SELECT * FROM warehouses WHERE code='WH-RAW' OR warehouse_type='raw_material' OR kind='raw' LIMIT 1
 `).get();
 ok(!!(admin && raw), 'admin + WH-RAW');
+let sup = db.prepare('SELECT id FROM suppliers LIMIT 1').get();
+if (!sup) sup = { id: db.prepare("INSERT INTO suppliers (name, phone, coa_code) VALUES ('تأمین v512', '', '2101')").run().lastInsertRowid };
 const unit = (code) => db.prepare('SELECT * FROM units_of_measure WHERE code=?').get(code);
 const M = unit('M');
 const YD = unit('YD');
@@ -102,7 +104,7 @@ function recv(extra) {
   k += 1;
   return receiveFabricRoll(db, {
     product_id: pM, warehouse_id: raw.id, color: 'مشکی', width_cm: 150,
-    date: '1405/07/29', idempotency_key: 'v512-' + k, roll_no: 'V511-' + k, ...extra,
+    date: '1405/07/29', supplier_id: sup.id, idempotency_key: 'v512-' + k, roll_no: 'V511-' + k, ...extra,
   }, admin);
 }
 
@@ -133,11 +135,11 @@ const pcs = unit('PCS');
 expectCode(() => recv({ entry_unit_id: pcs.id, entry_qty: 3, unit_cost_rial: 1 }), 'E_FABRIC_ENTRY_UNIT');
 expectCode(() => receiveFabricRoll(db, {
   product_id: pKg, warehouse_id: raw.id, color: 'سفید', width_cm: 150, meters: 10,
-  unit_cost_rial: 1000, date: '1405/07/29', idempotency_key: 'v512-kg', roll_no: 'V511-KG',
+  unit_cost_rial: 1000, supplier_id: sup.id, date: '1405/07/29', idempotency_key: 'v512-kg', roll_no: 'V511-KG',
 }, admin), 'E_FABRIC_STOCK_UNIT');
 
 const up = updateFabricRoll(db, r3.id, {
-  color: 'مشکی', entry_unit_id: KG.id, entry_qty: 25, entry_factor: 4, unit_cost_rial: 50000, date: '1405/07/29',
+  color: 'مشکی', entry_unit_id: KG.id, entry_qty: 25, entry_factor: 4, unit_cost_rial: 50000, supplier_id: sup.id, date: '1405/07/29',
 }, admin);
 ok(near(up.qty_received, 100), 'amend kg roll → 100 m', up.qty_received);
 const b3u = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(r3.id);

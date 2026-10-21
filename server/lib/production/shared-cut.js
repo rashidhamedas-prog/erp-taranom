@@ -310,6 +310,133 @@ function previewRolls(rolls, policy, markerLengthM, tolerance) {
   });
 }
 
+/**
+ * متر واقعی اندازه‌گیری‌شده (v513): per-roll laid_m یا جمع actual_meters که به نسبت لایه پخش می‌شود.
+ * بدون هیچ‌کدام = طول مارکر × لایه (سازگاری API قدیمی؛ فرم جدید اجازه نمی‌دهد).
+ */
+function applyMeasuredLaid(rolls, actualMeters, marker) {
+  const rows = (Array.isArray(rolls) ? rolls : []).map((r) => {
+    const copy = { ...r };
+    const laid = Number(copy.laid_m);
+    if (copy.laid_m == null || copy.laid_m === '' || !(laid > 0) || !Number.isFinite(laid)) delete copy.laid_m;
+    else copy.laid_m = roundM(laid);
+    return copy;
+  });
+  const withLaid = rows.filter((r) => r.laid_m != null).length;
+  if (withLaid) return { rolls: rows, source: withLaid === rows.length ? 'roll' : 'mixed' };
+  const hasHeader = actualMeters != null && actualMeters !== '';
+  if (!hasHeader) return { rolls: rows, source: 'standard' };
+  const total = Number(actualMeters);
+  if (!(total > 0) || !Number.isFinite(total)) {
+    throw httpErr(400, 'متر واقعی نامعتبر است', 'E_CUT_ACTUAL');
+  }
+  const plies = rows.map((r) => Math.max(0, Math.round(Number(r.ply_count) || 0)));
+  const sumPlies = plies.reduce((s, n) => s + n, 0);
+  if (!(sumPlies > 0)) return { rolls: rows, source: 'standard' };
+  let left = roundM(total);
+  rows.forEach((r, i) => {
+    const last = i === rows.length - 1;
+    const part = last ? left : roundM(total * plies[i] / sumPlies);
+    r.laid_m = roundM(part);
+    left = roundM(left - part);
+  });
+  return { rolls: rows, source: 'header' };
+}
+
+/** استاندارد BOM پارچه برای خروجی‌های برش مشترک؛ complete=false اگر یک محصول استاندارد ندارد. */
+function sharedMatrixMeters(db, outputs, fabricProductId, bomId) {
+  const byPid = new Map();
+  for (const o of outputs || []) {
+    const pid = Number(o.product_id);
+    if (!byPid.has(pid)) byPid.set(pid, []);
+    byPid.get(pid).push(o);
+  }
+  let total = 0;
+  let complete = byPid.size > 0;
+  for (const [pid, rows] of byPid) {
+    if (rows.every((o) => Number(o.fabric_std_m) > 0)) {
+      total += rows.reduce((s, o) => s + Number(o.fabric_std_m) * (Number(o.planned_pieces) || 0), 0);
+      continue;
+    }
+    const sizeBreakdown = {};
+    rows.forEach((o) => {
+      const key = String(o.size_code || 'ALL');
+      sizeBreakdown[key] = (sizeBreakdown[key] || 0) + (Number(o.planned_pieces) || 0);
+    });
+    let m = 0;
+    try {
+      const { fabricLineFromBom } = require('./cutting');
+      const r = fabricLineFromBom(db, {
+        productId: pid,
+        bomId: byPid.size === 1 ? bomId : null,
+        sizeBreakdown,
+        fabricProductId,
+      });
+      m = Number(r && r.matrixMeters) || 0;
+    } catch (_) { m = 0; }
+    if (m > 0) total += m;
+    else complete = false;
+  }
+  return { matrix_m: roundM(total), complete };
+}
+
+/**
+ * انحراف/ضایعات برش مشترک از متر واقعی:
+ * planned = مارکر × لایه، actual = پهن واقعی + اتلاف طولی، matrix = استاندارد BOM.
+ * مازاد پهن بیش از سقف ضایعات عادی (همان درصد لایهٔ کلاسیک) غیرعادی است و به ۵۲۲۱ می‌رود.
+ */
+function sharedLayMeters(db, { rolls, outputs, marker, fabricProductId, bomId }) {
+  const planned = roundM((rolls || []).reduce((s, r) => s + (Number(r.ply_count) || 0) * marker, 0));
+  const laid = roundM((rolls || []).reduce((s, r) => s + (Number(r.laid_m) || 0), 0));
+  const loss = roundM((rolls || []).reduce((s, r) => s + (Number(r.length_loss_m) || 0), 0));
+  const actual = roundM(laid + loss);
+  const mx = sharedMatrixMeters(db, outputs, fabricProductId, bomId);
+  const pct = Number(setting(db, 'production_normal_waste_default_pct', '3')) || 3;
+  let wN = 0;
+  let laidAbnormal = 0;
+  if (mx.complete && mx.matrix_m > 0) {
+    const over = Math.max(0, laid - mx.matrix_m);
+    const allowed = Math.max(0, actual * pct / 100);
+    wN = Math.min(over, allowed);
+    laidAbnormal = roundM(Math.max(0, over - allowed));
+  }
+  return {
+    planned_meters: planned,
+    actual_meters: actual,
+    laid_meters: laid,
+    matrix_meters: mx.matrix_m,
+    matrix_complete: mx.complete,
+    waste_normal_m: roundM(wN),
+    waste_abnormal_m: roundM(loss + laidAbnormal),
+    laid_abnormal_m: laidAbnormal,
+    fabric_variance_m: mx.matrix_m > 0 ? roundM(actual - mx.matrix_m) : 0,
+    spread_variance_m: roundM(laid - planned),
+    normal_waste_pct: pct,
+  };
+}
+
+function writeLayMeters(db, layId, plan) {
+  db.prepare(`
+    UPDATE cutting_lays SET matrix_meters=?, waste_normal_m=?, waste_abnormal_m=?, waste_allowed_m=?
+    WHERE id=?
+  `).run(
+    Number(plan.matrix_meters) || 0,
+    Number(plan.waste_normal_m) || 0,
+    Number(plan.waste_abnormal_m) || 0,
+    roundM((Number(plan.actual_meters) || 0) * (Number(plan.normal_waste_pct) || 0) / 100),
+    layId
+  );
+}
+
+/** سهم ریالی مازاد غیرعادی پهن از WIP به ۵۲۲۱ منتقل می‌شود. */
+function splitAbnormalLaid(commonRial, plan) {
+  const laid = Number(plan.laid_meters != null ? plan.laid_meters : plan.laid_m) || 0;
+  const ab = Number(plan.laid_abnormal_m) || 0;
+  if (!(laid > 0) || !(ab > 0)) return { common: commonRial, abnormal: 0 };
+  const abnormal = Math.min(commonRial, Math.round(commonRial * ab / laid));
+  return { common: commonRial - abnormal, abnormal };
+}
+
 function previewSharedCut(db, body) {
   const marker = Number(body.marker_length_m);
   if (!(marker > 0)) throw httpErr(400, 'قد الگو باید بزرگ‌تر از صفر باشد', 'E_MARKER');
@@ -325,8 +452,12 @@ function previewSharedCut(db, body) {
   const pliesHint = (body.rolls || []).reduce((s, r) => s + Math.round(Number(r.ply_count) || 0), 0);
   const allocation_basis = normalizeAllocationBasis(body.allocation_basis);
   const outputs = normalizeOutputs(body.outputs, pliesHint, { allocation_basis });
-  const rolls = previewRolls(body.rolls, policy, marker, tol);
+  const measured = applyMeasuredLaid(body.rolls, body.actual_meters, marker);
+  const rolls = previewRolls(measured.rolls, policy, marker, tol);
   const bad = rolls.filter((r) => !r.equation.ok);
+  const meters = sharedLayMeters(db, {
+    rolls, outputs, marker, fabricProductId: body.fabric_product_id, bomId: body.bom_id,
+  });
   return {
     preview: true,
     marker_length_m: marker,
@@ -334,6 +465,17 @@ function previewSharedCut(db, body) {
     policy,
     outputs,
     rolls,
+    actual_source: measured.source,
+    planned_meters: meters.planned_meters,
+    actual_meters: meters.actual_meters,
+    matrix_meters: meters.matrix_meters,
+    waste_normal_m: meters.waste_normal_m,
+    waste_abnormal_m: meters.waste_abnormal_m,
+    fabric_variance_m: meters.fabric_variance_m,
+    spread_variance_m: meters.spread_variance_m,
+    laid_abnormal_m: meters.laid_abnormal_m,
+    matrix_complete: meters.matrix_complete,
+    normal_waste_pct: meters.normal_waste_pct,
     balanced: bad.length === 0,
     errors: bad.map((r) => ({ index: r.index, code: 'E_ROLL_BALANCE', diff_m: r.equation.diff_m })),
     returned_m: roundM(rolls.reduce((s, r) => s + r.returned_m, 0)),
@@ -482,12 +624,13 @@ function postSharedCut(db, body, user) {
       layNo, anchor.product_id, body.bom_id || null, body.fabric_product_id || null,
       plan.marker_length_m,
       plan.rolls.reduce((s, r) => s + r.ply_count, 0),
-      plan.laid_m, plan.laid_m,
+      plan.planned_meters, plan.actual_meters,
       plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
       key + ':lay', date, String(body.note || ''), user && user.id, batchId,
       String(body.color || ''), Math.round(Number(body.width_cm) || 0), poId
     );
     const layId = lay.lastInsertRowid;
+    writeLayMeters(db, layId, plan);
     let common = 0;
     let lossRial = 0;
     let extraRial = 0;
@@ -579,6 +722,11 @@ function postSharedCut(db, body, user) {
       );
     }
     common = assertSafeRial(common, 'common');
+    {
+      const split = splitAbnormalLaid(common, plan);
+      common = split.common;
+      lossRial += split.abnormal;
+    }
     const cutCc = resolveCuttingCostCenterId(db, {
       explicitId: body.cost_center_id,
       bomId: body.bom_id,
@@ -896,10 +1044,11 @@ function amendSharedCut(db, id, body, user) {
     `).run(
       anchor.product_id, body.bom_id || null, body.fabric_product_id || null,
       plan.marker_length_m, plan.rolls.reduce((s, r) => s + r.ply_count, 0),
-      plan.laid_m, plan.laid_m, plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
+      plan.planned_meters, plan.actual_meters, plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
       String(body.color || ''), Math.round(Number(body.width_cm) || 0),
       poId, date, String(body.note || ''), existing.lay_id
     );
+    writeLayMeters(db, existing.lay_id, plan);
 
     const layId = existing.lay_id;
     const batchId = existing.id;
@@ -995,6 +1144,11 @@ function amendSharedCut(db, id, body, user) {
       );
     }
     common = assertSafeRial(common, 'common');
+    {
+      const split = splitAbnormalLaid(common, plan);
+      common = split.common;
+      lossRial += split.abnormal;
+    }
     const cutCc = resolveCuttingCostCenterId(db, {
       explicitId: body.cost_center_id,
       bomId: body.bom_id,

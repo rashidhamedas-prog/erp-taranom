@@ -764,10 +764,20 @@ function sumStageIssued(db, stageId) {
     LEFT JOIN bom_lines bl ON bl.id = mi.bom_line_id
     LEFT JOIN products p ON p.id = mi.product_id
     WHERE mi.stage_id=? AND mi.status='posted'
+      AND COALESCE(mi.extra_class,'')<>'abnormal'
   `).get(stageId);
   const total = Math.round(num(rows?.s));
   const pkg = Math.round(num(rows?.pkg));
   return { matRial: total - pkg, pkgRial: pkg, total };
+}
+
+/** مصرف اضافهٔ عادی همین مرحله (در WIP)؛ در آنالیز ثابت به بهای خروجی مرحله اضافه می‌شود. */
+function sumStageExtraNormal(db, stageId) {
+  const r = db.prepare(`
+    SELECT COALESCE(SUM(amount_rial),0) s FROM production_material_issues
+    WHERE stage_id=? AND status='posted' AND issue_type='extra' AND COALESCE(extra_class,'')='normal'
+  `).get(stageId);
+  return Math.round(num(r?.s));
 }
 
 function insertAutoSubcontractFee(db, {
@@ -892,10 +902,16 @@ function postStageCore(db, {
       SELECT 1 FROM bom_lines WHERE bom_id=? AND stage_cost_center_id=? LIMIT 1
     `).get(po.bom_id, stage.cost_center_id);
     const issued = sumStageIssued(db, stageId);
-    if (hasBomLines && issued.total < 1) throw err('E_NO_MATERIAL_ISSUED', 422);
+    const regular = db.prepare(`
+      SELECT COUNT(*) n FROM production_material_issues
+      WHERE stage_id=? AND status='posted' AND COALESCE(issue_type,'')<>'extra'
+    `).get(stageId);
+    if (hasBomLines && (issued.total < 1 || !num(regular?.n))) throw err('E_NO_MATERIAL_ISSUED', 422);
     matRial = issued.matRial;
     pkgRial = issued.pkgRial;
   }
+  // ثابت: backflush فقط استاندارد است؛ مصرف اضافهٔ عادیِ ثبت‌شده در طول مرحله هم با قطعه جلو می‌رود.
+  const extraNormalRial = mode === 'fixed' ? sumStageExtraNormal(db, stageId) : 0;
 
   const laborRial = stageLabor(db, op || {}, qtyIn, period);
   let laborMethod = op?.labor_method || 'piece';
@@ -948,7 +964,7 @@ function postStageCore(db, {
     for (const j of laborJes) jes.push(j);
   }
 
-  const ohDriverMat = mode === 'variable' ? matRial + pkgRial : matRial + pkgRial;
+  const ohDriverMat = matRial + pkgRial + extraNormalRial;
   const oh = applyStageOverhead(db, {
     po, stage, op, cc, qtyIn, laborRial, matRial: ohDriverMat, date, period, userId,
   });
@@ -1028,7 +1044,7 @@ function postStageCore(db, {
   }
 
   const costIn = Math.round(num(stage.material_in_rial));
-  const materialAdded = matRial + pkgRial;
+  const materialAdded = matRial + pkgRial + extraNormalRial;
   const costGross = costIn + materialAdded + laborRial + ohTotal + subcontractRial;
   const costPerIn = qtyIn > 0 ? costGross / qtyIn : 0;
 
@@ -2259,6 +2275,269 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
   })();
 }
 
+/**
+ * v513 — مصرف اضافهٔ مرحله (هر دو آنالیز مرحله‌ای): وقتی در عمل بیش از استاندارد فرمول مصرف شد
+ * (زیپ خراب، دوخت مجدد، خرابی دستگاه، …).
+ * normal تا سقف درصد ضایعات عادی عملیات روی استاندارد همان قلم → WIP (بهای محصول).
+ * مازاد سقف یا دلیل غیرعادی → PRD-24 بدهکار ۵۲۲۱ / بستانکار مواد، بیرون از WIP.
+ */
+const EXTRA_REASONS = {
+  material_defect: { label: 'قلم معیوب (مثلاً زیپ خراب)', cls: 'abnormal' },
+  operator_error: { label: 'خطای اپراتور / دوخت اشتباه', cls: 'abnormal' },
+  machine: { label: 'خرابی دستگاه', cls: 'abnormal' },
+  rework: { label: 'دوباره‌کاری قطعه', cls: 'abnormal' },
+  lost: { label: 'گم‌شدن / کسری در سالن', cls: 'abnormal' },
+  bom_understated: { label: 'مصرف واقعی بیش از فرمول (فرمول باید اصلاح شود)', cls: 'normal' },
+  qc_sample: { label: 'نمونه / تست کنترل کیفیت', cls: 'normal' },
+  spec_change: { label: 'تغییر مشخصات سفارش', cls: 'normal' },
+  other: { label: 'سایر', cls: 'abnormal' },
+};
+
+function stageExtraNormalPct(db, op) {
+  const opPct = num(op && op.normal_waste_percent);
+  if (opPct > 0) return opPct;
+  return num(setting(db, 'production_material_extra_normal_pct', '')) || 0;
+}
+
+function issueStageExtraMaterials(db, { orderId, stageId, body, userId }) {
+  return db.transaction(() => {
+    const po = getOrder(db, orderId);
+    if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) throw err('E_WRONG_ANALYSIS', 409);
+    if (po.status === 'draft') throw err('E_NOT_RELEASED', 409);
+    if (['closed', 'cancelled', 'completed'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
+    const stage = getStage(db, orderId, stageId);
+    if (stage.status !== 'in_progress') {
+      throw err('E_INVALID_STATUS', 409, {
+        status: stage.status,
+        detail: 'مصرف اضافه فقط برای مرحلهٔ در جریان ثبت می‌شود. اگر مرحله تمام شده، اول ابطالش کنید.',
+      });
+    }
+    const date = String(body.date || todayJalali()).trim();
+    const period = jalaliPeriod(date);
+    const fy = assertFiscalYearWritable(db, date);
+    if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
+    assertPeriodOpen(db, period);
+
+    const raw = Array.isArray(body.lines) ? body.lines : (Array.isArray(body.materials) ? body.materials : []);
+    const lines = raw.filter((L) => num(L && (L.qty != null ? L.qty : L.qty_actual)) > 0);
+    if (!lines.length) throw err('E_QTY_INVALID', 422, { detail: 'حداقل یک قلم با مقدار اضافه لازم است' });
+
+    const std = new Map();
+    for (const L of stageMaterialLines(db, po, stage)) {
+      const cur = std.get(Number(L.product_id)) || { qty: 0, price: 0, bom_line_id: null };
+      cur.qty = round6(cur.qty + num(L.qty_final));
+      cur.price = Math.round(num(L.unit_cost_rial)) || cur.price;
+      cur.bom_line_id = cur.bom_line_id || L.bom_line_id || null;
+      std.set(Number(L.product_id), cur);
+    }
+    const op = getOperation(db, stage, po.bom_id);
+    const pct = stageExtraNormalPct(db, op);
+    const whId = po.warehouse_raw_id;
+    let docNo = '';
+    try { docNo = allocateNumber(db, 'material_issue', 'MI'); }
+    catch { docNo = `MI-${Date.now()}`; }
+
+    const out = [];
+    const totals = { normal_rial: 0, abnormal_rial: 0 };
+    const insert = db.prepare(`
+      INSERT INTO production_material_issues
+        (doc_no, order_id, stage_id, cost_center_id, product_id, bom_line_id, issue_type,
+         qty_standard, qty_actual, qty_variance, unit_cost_rial, std_cost_rial,
+         amount_rial, std_amount_rial, var_price_rial, var_qty_rial,
+         warehouse_id, date, period_label, status, variance_status, note, created_by,
+         extra_class, reason_code)
+      VALUES (?,?,?,?,?,?,'extra',0,?,?,?,?,?,0,?,?,?,?,?,'posted','memo',?,?,?,?)
+    `);
+
+    for (const L of lines) {
+      const pid = Number(L.product_id);
+      const qty = round6(num(L.qty != null ? L.qty : L.qty_actual));
+      const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+      if (!prod) throw err('E_NOT_FOUND', 404, { product_id: pid });
+      if (lengthFabricProduct(db, pid)) {
+        throw err('E_FABRIC_VIA_CUT', 409, {
+          product_id: pid,
+          name: prod.name,
+          message: `«${prod.name}» پارچهٔ طاقه‌ای است؛ مصرف اضافهٔ پارچه با لایه‌چینی (متر واقعی) ثبت می‌شود.`,
+        });
+      }
+      const s = std.get(pid);
+      if (!s) {
+        throw err('E_STAGE_MATERIAL_OWNER', 409, {
+          product_id: pid, name: prod.name, detail: 'این قلم در فرمول این مرحله نیست',
+        });
+      }
+      const reasonCode = String(L.reason_code || L.reason || '').trim();
+      const reason = EXTRA_REASONS[reasonCode];
+      if (!reason) throw err('E_EXTRA_REASON', 422, { detail: 'دلیل مصرف اضافه را انتخاب کنید', product_id: pid });
+      const note = String(L.note || '').trim();
+      if (reasonCode === 'other' && !note) {
+        throw err('E_EXTRA_REASON', 422, { detail: 'برای دلیل «سایر» توضیح لازم است', product_id: pid });
+      }
+      const wantCls = ['normal', 'abnormal'].includes(String(L.extra_class || ''))
+        ? String(L.extra_class) : reason.cls;
+      const AP = Math.round(num(prod.average_cost_rial));
+      if (!AP) throw err('E_ZERO_AVG_COST', 422, { name: prod.name, product_id: pid });
+      const SP = Math.round(num(s.price)) || AP;
+
+      let normalQty = 0;
+      if (wantCls === 'normal') {
+        const used = db.prepare(`
+          SELECT COALESCE(SUM(qty_actual),0) q FROM production_material_issues
+          WHERE stage_id=? AND product_id=? AND status='posted'
+            AND issue_type='extra' AND COALESCE(extra_class,'')='normal'
+        `).get(stageId, pid);
+        const cap = round6(Math.max(0, s.qty * pct / 100 - num(used?.q)));
+        normalQty = round6(Math.min(qty, cap));
+      }
+      const parts = [
+        { cls: 'normal', qty: normalQty },
+        { cls: 'abnormal', qty: round6(qty - normalQty) },
+      ].filter((p) => p.qty > 0);
+
+      for (const part of parts) {
+        assertFabricIssueAllowed(db, { productId: pid, qty: part.qty, orderId: po.id });
+        const issued = issueFromStock(db, {
+          productId: pid, warehouseId: whId, qty: part.qty, userId,
+          note: `مصرف اضافه مرحله ${stage.seq} — ${po.order_no}`,
+          variantId: L.variant_id, sourceType: 'production_issue', sourceId: po.id, date,
+        });
+        const amount = Math.round(part.qty * AP);
+        const autoNote = wantCls === 'normal' && part.cls === 'abnormal'
+          ? ` (مازاد سقف ${pct}٪ استاندارد)` : '';
+        const row = insert.run(
+          docNo, orderId, stageId, stage.cost_center_id, pid, s.bom_line_id,
+          part.qty, part.qty, AP, SP, amount,
+          Math.round((AP - SP) * part.qty), Math.round(part.qty * SP),
+          whId, date, period, `${reason.label}${note ? ' — ' + note : ''}${autoNote}`, userId,
+          part.cls, reasonCode
+        );
+        const issueId = row.lastInsertRowid;
+        if (issued && issued.variantLines && issued.variantLines.length) {
+          require('../inventory/apparel-lines').postApparelLines(db, {
+            productId: pid, warehouseId: whId, lines: issued.variantLines,
+            docType: 'production_issue', docId: issueId, userId,
+            note: `مصرف اضافه مرحله ${stage.seq}`, sign: -1, allowNegative: false,
+          });
+        }
+        const creditKey = prod.item_type === 'packaging' ? 'coa_packaging_materials' : 'coa_raw_materials';
+        const desc = `مصرف اضافهٔ ${part.cls === 'normal' ? 'عادی' : 'غیرعادی'} مرحله ${stage.seq} — ${prod.name} — ${po.order_no}`;
+        const je = part.cls === 'normal'
+          ? postEvent(db, {
+            event: 'PRD-01', sourceId: orderId, date, description: desc, createdBy: userId,
+            costCenterId: stage.cost_center_id || po.cost_center_id || null,
+            lines: [dr(db, 'coa_wip', amount, po.coa_wip_tafsili), cr(db, creditKey, amount)],
+          })
+          : postEvent(db, {
+            event: 'PRD-24', sourceId: issueId, date, description: desc, createdBy: userId,
+            costCenterId: stage.cost_center_id || po.cost_center_id || null,
+            lines: [dr(db, 'coa_abnormal_waste', amount), cr(db, creditKey, amount)],
+          });
+        if (amount > 0 && !je) throw err('E_JE_REQUIRED', 500, { detail: 'سند مصرف اضافه ثبت نشد' });
+        if (je) db.prepare('UPDATE production_material_issues SET je_id=? WHERE id=?').run(je.je_id, issueId);
+        try {
+          db.prepare(`
+            INSERT INTO production_variances
+              (period_label, order_id, stage_id, product_id, variance_type, amount_rial, status)
+            VALUES (?,?,?,?,'material_qty',?, 'memo')
+          `).run(period, orderId, stageId, pid, Math.round(part.qty * SP));
+        } catch { /* optional */ }
+        if (part.cls === 'normal') {
+          totals.normal_rial += amount;
+          db.prepare(`
+            UPDATE production_order_stages SET material_added_rial = COALESCE(material_added_rial,0) + ?
+            WHERE id=?
+          `).run(amount, stageId);
+        } else {
+          totals.abnormal_rial += amount;
+        }
+        out.push({
+          id: issueId, product_id: pid, name: prod.name, qty: part.qty, extra_class: part.cls,
+          reason_code: reasonCode, amount_rial: amount, je_id: je ? je.je_id : null,
+        });
+      }
+    }
+
+    audit(userId, 'create', 'production_material_extra', orderId,
+      `مصرف اضافه ${docNo} مرحله ${stage.seq} — ${po.order_no}`);
+    applyDocumentCosts(db, orderId);
+    return { ok: true, doc_no: docNo, normal_pct: pct, lines: out, totals };
+  })();
+}
+
+function voidStageExtraIssue(db, { orderId, stageId, issueId, reason, userId, date }) {
+  return db.transaction(() => {
+    const po = getOrder(db, orderId);
+    if (['closed', 'cancelled', 'completed'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
+    const stage = getStage(db, orderId, stageId);
+    if (stage.status !== 'in_progress') {
+      throw err('E_INVALID_STATUS', 409, {
+        status: stage.status,
+        detail: 'مرحله تمام شده؛ «ابطال مرحله» همهٔ مصرف‌های اضافهٔ آن را هم برمی‌گرداند.',
+      });
+    }
+    const row = db.prepare(`
+      SELECT * FROM production_material_issues
+      WHERE id=? AND order_id=? AND stage_id=? AND issue_type='extra'
+    `).get(Number(issueId), orderId, stageId);
+    if (!row) throw err('E_NOT_FOUND', 404);
+    if (row.status !== 'posted') throw err('E_ALREADY_REVERSED', 409);
+    const revDate = date || todayJalali();
+    const fy = assertFiscalYearWritable(db, revDate);
+    if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
+    let revId = null;
+    if (row.je_id) {
+      revId = reverseEvent(db, {
+        jeId: row.je_id, reason: reason || 'ابطال مصرف اضافه', userId, date: revDate,
+      });
+    }
+    reverseIssueStock(db, {
+      productId: row.product_id,
+      warehouseId: row.warehouse_id || po.warehouse_raw_id,
+      qty: row.qty_actual,
+      unitCostRial: row.unit_cost_rial,
+      userId,
+      note: `ابطال مصرف اضافه مرحله ${stage.seq} — ${po.order_no}`,
+      orderId,
+      orderNo: po.order_no,
+      stageSeq: stage.seq,
+      sourceId: row.id,
+      date: revDate,
+    });
+    require('../inventory/apparel-lines').reverseApparelDoc(db, {
+      docType: 'production_issue', docId: row.id, userId,
+      note: `ابطال مصرف اضافه مرحله ${stage.seq} — ${po.order_no}`,
+    });
+    db.prepare(`UPDATE production_material_issues SET status='reversed', reversed_je_id=? WHERE id=?`)
+      .run(revId, row.id);
+    if (String(row.extra_class) === 'normal') {
+      db.prepare(`
+        UPDATE production_order_stages SET material_added_rial = MAX(0, COALESCE(material_added_rial,0) - ?)
+        WHERE id=?
+      `).run(Math.round(num(row.amount_rial)), stageId);
+    }
+    audit(userId, 'update', 'production_material_extra', row.id,
+      `ابطال مصرف اضافه ${row.doc_no} — ${po.order_no}: ${reason || ''}`);
+    applyDocumentCosts(db, orderId);
+    return { ok: true, id: row.id, status: 'reversed', reversed_je_id: revId };
+  })();
+}
+
+function listStageExtraIssues(db, orderId, stageId) {
+  const rows = db.prepare(`
+    SELECT mi.id, mi.doc_no, mi.product_id, p.name AS product_name, p.unit, mi.qty_actual AS qty,
+           mi.extra_class, mi.reason_code, mi.note, mi.amount_rial, mi.status, mi.date
+    FROM production_material_issues mi
+    LEFT JOIN products p ON p.id = mi.product_id
+    WHERE mi.order_id=? AND mi.stage_id=? AND mi.issue_type='extra'
+    ORDER BY mi.id DESC
+  `).all(orderId, stageId);
+  return {
+    rows,
+    reasons: Object.entries(EXTRA_REASONS).map(([code, r]) => ({ code, label: r.label, default_class: r.cls })),
+  };
+}
+
 function getStageIssueTemplate(db, orderId, stageId) {
   const po = getOrder(db, orderId);
   const stage = getStage(db, orderId, stageId);
@@ -2594,6 +2873,10 @@ module.exports = {
   unblockStage,
   reverseStage,
   issueStageMaterials,
+  issueStageExtraMaterials,
+  voidStageExtraIssue,
+  listStageExtraIssues,
+  EXTRA_REASONS,
   stageList,
   getStageIssueTemplate,
   resolveFinalizeApparelLines,
