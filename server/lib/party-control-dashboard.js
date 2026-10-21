@@ -113,6 +113,61 @@ function emptyAging() {
   return { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0, total: 0 };
 }
 
+/** parties.user_id is the کارت شخص «کارشناس»; customer owner is the fallback. */
+function resolveExpertId(partyUserId, fallbackId) {
+  const direct = Number(partyUserId) || 0;
+  if (direct > 0) return direct;
+  const fb = Number(fallbackId) || 0;
+  return fb > 0 ? fb : null;
+}
+
+function parseExpertFilter(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s || s === 'all') return null;
+  if (s === 'none' || s === '0') return 'none';
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10);
+    return n > 0 ? n : null;
+  }
+  return null;
+}
+
+function summarizeParties(rows) {
+  const byRole = {};
+  const aging = emptyAging();
+  let totalDebit = 0;
+  let totalCredit = 0;
+  let withBal = 0;
+  let overCreditCount = 0;
+  let overCreditRial = 0;
+  let mismatchCount = 0;
+  for (const r of rows) {
+    const roles = r.party_roles && r.party_roles.length ? r.party_roles : ['other'];
+    for (const role of roles) {
+      if (!byRole[role]) {
+        byRole[role] = { role, label: ROLE_LABELS[role] || role, count: 0, debit_rial: 0, credit_rial: 0, with_balance: 0 };
+      }
+      byRole[role].count += 1;
+      byRole[role].debit_rial += r.debit_rial;
+      byRole[role].credit_rial += r.credit_rial;
+      if (r.balance_rial !== 0) byRole[role].with_balance += 1;
+    }
+    if (r.balance_rial !== 0) withBal += 1;
+    totalDebit += r.debit_rial;
+    totalCredit += r.credit_rial;
+    if (r.over_credit) {
+      overCreditCount += 1;
+      overCreditRial += (Number(r.credit_used_rial) || 0) - (Number(r.credit_limit_rial) || 0);
+    }
+    if (r.books_mismatch) mismatchCount += 1;
+    if (r.aging_bucket && r.balance_rial > 0) {
+      aging[r.aging_bucket] += r.debit_rial;
+      aging.total += r.debit_rial;
+    }
+  }
+  return { byRole, aging, totalDebit, totalCredit, withBal, overCreditCount, overCreditRial, mismatchCount };
+}
+
 function buildPartyControlDashboard(db, query = {}) {
   const q = query || {};
   const search = String(q.search || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
@@ -124,6 +179,7 @@ function buildPartyControlDashboard(db, query = {}) {
   const positionId = q.position_id ? parseInt(q.position_id, 10) : null;
   const sort = String(q.sort || 'balance_abs').toLowerCase();
   const lim = Math.min(500, Math.max(20, parseInt(q.limit, 10) || 200));
+  const expertFilter = parseExpertFilter(q.expert_id != null && q.expert_id !== '' ? q.expert_id : q.expert);
 
   if (!tableExists(db, 'parties')) {
     return {
@@ -167,25 +223,42 @@ function buildPartyControlDashboard(db, query = {}) {
     } catch (_) { /* */ }
   }
 
+  const expertNameById = new Map();
+  if (tableExists(db, 'users')) {
+    try {
+      for (const u of db.prepare('SELECT id, name FROM users').all()) {
+        expertNameById.set(Number(u.id), String(u.name || '').trim());
+      }
+    } catch (_) { /* */ }
+  }
+  const custExpertByParty = new Map();
+  if (tableExists(db, 'customers')) {
+    try {
+      const custs = db.prepare(`
+        SELECT party_id, user_id, assigned_to
+        FROM customers
+        WHERE party_id IS NOT NULL
+        ORDER BY id ASC
+      `).all();
+      for (const c of custs) {
+        const pid = Number(c.party_id);
+        const eid = Number(c.assigned_to) || Number(c.user_id) || 0;
+        if (!pid || !eid || custExpertByParty.has(pid)) continue;
+        custExpertByParty.set(pid, eid);
+      }
+    } catch (_) { /* assigned_to may be absent on a very old db */ }
+  }
+
   const rows = db.prepare(`
     SELECT p.id, p.person_code, p.party_type, p.party_roles, p.full_name, p.company_name, p.biz,
            p.phone, p.mobile, p.city, p.coa_code, p.credit_limit, p.opening_balance,
-           p.party_group_id, p.position_id, p.is_active,
+           p.party_group_id, p.position_id, p.is_active, p.user_id,
            pg.name AS party_group_name, pp.name AS position_name
     FROM parties p
     LEFT JOIN party_groups pg ON pg.id = p.party_group_id
     LEFT JOIN person_positions pp ON pp.id = p.position_id
     WHERE COALESCE(p.is_active,1)=1
   `).all();
-
-  const byRole = {};
-  const aging = emptyAging();
-  let totalDebit = 0;
-  let totalCredit = 0;
-  let withBal = 0;
-  let overCreditCount = 0;
-  let overCreditRial = 0;
-  let mismatchCount = 0;
 
   const all = [];
   for (const p of rows) {
@@ -217,28 +290,8 @@ function buildPartyControlDashboard(db, query = {}) {
       ageDays = agingByCust.get(custId);
     }
     const bucket = ageDays != null ? agingBucket(ageDays) : null;
-
-    // Role aggregates (unfiltered universe for KPI by_role)
-    for (const role of (roles.length ? roles : ['other'])) {
-      if (!byRole[role]) byRole[role] = { role, label: ROLE_LABELS[role] || role, count: 0, debit_rial: 0, credit_rial: 0, with_balance: 0 };
-      byRole[role].count += 1;
-      byRole[role].debit_rial += debitSide;
-      byRole[role].credit_rial += creditSide;
-      if (balance !== 0) byRole[role].with_balance += 1;
-    }
-
-    if (balance !== 0) withBal += 1;
-    totalDebit += debitSide;
-    totalCredit += creditSide;
-    if (overCredit) {
-      overCreditCount += 1;
-      overCreditRial += creditUsed - creditLimit;
-    }
-    if (booksMismatch) mismatchCount += 1;
-    if (bucket && balance > 0) {
-      aging[bucket] += debitSide;
-      aging.total += debitSide;
-    }
+    const expertId = resolveExpertId(p.user_id, custExpertByParty.get(id));
+    const expertName = expertId ? (expertNameById.get(expertId) || ('#' + expertId)) : '';
 
     const riskScore = Math.round(
       Math.abs(balance)
@@ -278,6 +331,8 @@ function buildPartyControlDashboard(db, query = {}) {
       aging_bucket: bucket,
       linked_customer_id: custId,
       linked_supplier_id: supId,
+      expert_id: expertId,
+      expert_name: expertName,
       risk_score: riskScore,
       risk_level: overCredit || (bucket === 'b90plus' && balance > 0)
         ? 'high'
@@ -285,12 +340,41 @@ function buildPartyControlDashboard(db, query = {}) {
     });
   }
 
-  // Filters for table/worklist
-  let filtered = all.slice();
+  const expertCounts = new Map();
+  let unassignedCount = 0;
+  for (const r of all) {
+    if (!r.expert_id) {
+      unassignedCount += 1;
+      continue;
+    }
+    const cur = expertCounts.get(r.expert_id) || { id: r.expert_id, name: r.expert_name, count: 0 };
+    cur.count += 1;
+    if (!cur.name && r.expert_name) cur.name = r.expert_name;
+    expertCounts.set(r.expert_id, cur);
+  }
+  const experts = [...expertCounts.values()]
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'fa'));
+
+  let scope = all;
+  if (expertFilter === 'none') scope = all.filter((r) => !r.expert_id);
+  else if (expertFilter) scope = all.filter((r) => r.expert_id === expertFilter);
+
+  const summary = summarizeParties(scope);
+  const byRole = summary.byRole;
+  const aging = summary.aging;
+  const totalDebit = summary.totalDebit;
+  const totalCredit = summary.totalCredit;
+  const withBal = summary.withBal;
+  const overCreditCount = summary.overCreditCount;
+  const overCreditRial = summary.overCreditRial;
+  const mismatchCount = summary.mismatchCount;
+
+  // Filters for table/worklist (expert already narrowed KPI scope)
+  let filtered = scope.slice();
   if (search) {
     const s = search.toLowerCase();
     filtered = filtered.filter((r) => {
-      const hay = [r.name, r.company_name, r.phone, r.person_code, r.coa_code, r.city, ...(r.party_roles || [])]
+      const hay = [r.name, r.company_name, r.phone, r.person_code, r.coa_code, r.city, r.expert_name, ...(r.party_roles || [])]
         .join(' ').toLowerCase();
       return hay.includes(s);
     });
@@ -335,6 +419,8 @@ function buildPartyControlDashboard(db, query = {}) {
       aging_days: r.aging_days,
       aging_bucket: r.aging_bucket,
       party_roles: r.party_roles,
+      expert_id: r.expert_id,
+      expert_name: r.expert_name,
       next_action: r.over_credit
         ? 'بررسی سقف اعتبار / پیگیری وصول'
         : (r.books_mismatch
@@ -380,6 +466,7 @@ function buildPartyControlDashboard(db, query = {}) {
     unit: 'rial',
     kpis: {
       parties_total: all.length,
+      parties_in_scope: scope.length,
       parties_with_balance: withBal,
       parties_filtered: filtered.length,
       total_debit_rial: totalDebit,
@@ -394,8 +481,11 @@ function buildPartyControlDashboard(db, query = {}) {
     parties,
     worklist,
     alerts,
+    experts,
+    unassigned_count: unassignedCount,
     filters: {
       search, role: roleFilter || 'all', side, balance: balanceMode, risk,
+      expert_id: expertFilter == null ? '' : expertFilter,
       party_group_id: groupId, position_id: positionId, sort, limit: lim,
     },
   };

@@ -2601,6 +2601,10 @@
         </div>
         <div class="sp-filter-bar pc-filter-bar" id="pcDashFilters">
           <input id="pcSearch" type="search" placeholder="جستجو نام / تلفن / کد / تفصیلی…" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:180px;flex:1 1 160px`)}" />
+          <select id="pcExpert" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:150px`)}">
+            <option value="">همه کارشناسان</option>
+            <option value="none">بدون کارشناس</option>
+          </select>
           <select id="pcRole" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
             <option value="">همه سمت‌ها</option>
             <option value="customer">مشتری</option>
@@ -2643,7 +2647,26 @@
         if (ev.key === 'Enter') loadPartyControlDashboard();
       });
     }
+    const expertEl = document.getElementById('pcExpert');
+    if (expertEl) {
+      expertEl.addEventListener('change', function () { loadPartyControlDashboard(); });
+    }
     await loadPartyControlDashboard();
+  }
+
+  function fillPcExpertOptions(experts, unassignedCount) {
+    const sel = document.getElementById('pcExpert');
+    if (!sel) return;
+    const cur = sel.value;
+    const opts = ['<option value="">همه کارشناسان</option>'];
+    opts.push(`<option value="none">بدون کارشناس${unassignedCount ? ' (' + fmt(unassignedCount) + ')' : ''}</option>`);
+    for (const e of experts || []) {
+      const id = Number(e.id) || 0;
+      if (!id) continue;
+      opts.push(`<option value="${id}">${esc(e.name || ('#' + id))} (${fmt(e.count || 0)})</option>`);
+    }
+    sel.innerHTML = opts.join('');
+    if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
   }
 
   async function loadPartyControlDashboard() {
@@ -2653,12 +2676,14 @@
     const qp = [];
     const g = (id) => document.getElementById(id);
     const search = (g('pcSearch') && g('pcSearch').value) || '';
+    const expert = (g('pcExpert') && g('pcExpert').value) || '';
     const role = (g('pcRole') && g('pcRole').value) || '';
     const side = (g('pcSide') && g('pcSide').value) || 'all';
     const balance = (g('pcBalance') && g('pcBalance').value) || 'nonzero';
     const risk = (g('pcRisk') && g('pcRisk').value) || 'all';
     const sort = (g('pcSort') && g('pcSort').value) || 'balance_abs';
     if (search) qp.push('search=' + encodeURIComponent(search));
+    if (expert) qp.push('expert_id=' + encodeURIComponent(expert));
     if (role) qp.push('role=' + encodeURIComponent(role));
     if (side) qp.push('side=' + encodeURIComponent(side));
     if (balance) qp.push('balance=' + encodeURIComponent(balance));
@@ -2673,6 +2698,7 @@
       return;
     }
     window._pcDashLast = d;
+    fillPcExpertOptions(d.experts, d.unassigned_count);
     const k = d.kpis || {};
     const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
     const health = Number(d.health_score) || 0;
@@ -2700,7 +2726,7 @@
 
     const workRows = (d.worklist || []).map((w) => `
       <tr>
-        <td><b>${esc(w.name)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc((w.party_roles || []).join(' · '))}</div></td>
+        <td><b>${esc(w.name)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc((w.party_roles || []).join(' · '))}${w.expert_name ? ' · کارشناس ' + esc(w.expert_name) : ''}</div></td>
         <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(w.balance_rial)}`)}">${fmt(w.balance_rial || 0)}</td>
         <td>${pcRiskChip(w.risk_level)}${w.aging_days != null ? ` <span class="muted mono">${fmt(w.aging_days)} روز</span>` : ''}</td>
         <td data-csp-style="${CSP.style(`font-size:12px`)}">${esc(w.next_action || '')}</td>
@@ -2714,7 +2740,7 @@
       <tr class="pc-party-row">
         <td>
           <b>${esc(p.name)}</b>
-          <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(p.person_code || '')}${p.city ? ' · ' + esc(p.city) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(p.person_code || '')}${p.city ? ' · ' + esc(p.city) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}${p.expert_name ? ' · کارشناس ' + esc(p.expert_name) : ''}</div>
           <div class="pc-role-chips">${(p.role_labels || []).map((x) => `<span class="pc-chip">${esc(x)}</span>`).join('')}${p.position_name ? `<span class="pc-chip pc-chip-pos">${esc(p.position_name)}</span>` : ''}</div>
         </td>
         <td class="mono muted">${esc(p.coa_code || '—')}</td>
@@ -2754,7 +2780,7 @@
         <span class="inv-badge moadian-approved">🟢 مانده زنده party-books</span>
         <span>بروزرسانی: ${esc(liveAt)}</span>
         <span class="trsy-chip ${healthCls}">سلامت کنترل ${fmt(health)}٪</span>
-        <span>نمایش ${fmt((d.parties || []).length)} از ${fmt(k.parties_filtered || 0)} فیلترشده · کل اشخاص ${fmt(k.parties_total || 0)}</span>
+        <span>نمایش ${fmt((d.parties || []).length)} از ${fmt(k.parties_filtered || 0)} فیلترشده · کل اشخاص ${fmt(k.parties_total || 0)}${expert ? ' · محدوده کارشناس ' + fmt(k.parties_in_scope || 0) : ''}</span>
       </div>
       ${alertsHtml}
 
@@ -2854,11 +2880,11 @@
       if (typeof showToast === 'function') showToast('داده‌ای برای خروجی نیست', 'error');
       return;
     }
-    const header = ['کد', 'نام', 'سمت‌ها', 'شهر', 'تلفن', 'تفصیلی', 'مانده', 'بدهکار', 'بستانکار', 'سقف', 'مصرف‌اعتبار', 'پیری_روز', 'ریسک'];
+    const header = ['کد', 'نام', 'سمت‌ها', 'کارشناس', 'شهر', 'تلفن', 'تفصیلی', 'مانده', 'بدهکار', 'بستانکار', 'سقف', 'مصرف‌اعتبار', 'پیری_روز', 'ریسک'];
     const lines = [header.join(',')];
     for (const p of d.parties) {
       const cells = [
-        p.person_code, p.name, (p.party_roles || []).join('|'), p.city, p.phone, p.coa_code,
+        p.person_code, p.name, (p.party_roles || []).join('|'), p.expert_name, p.city, p.phone, p.coa_code,
         p.balance_rial, p.debit_rial, p.credit_rial, p.credit_limit_rial, p.credit_used_rial,
         p.aging_days != null ? p.aging_days : '', p.risk_level,
       ].map((x) => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"');
