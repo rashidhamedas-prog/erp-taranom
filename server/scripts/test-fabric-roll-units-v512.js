@@ -103,7 +103,7 @@ let k = 0;
 function recv(extra) {
   k += 1;
   return receiveFabricRoll(db, {
-    product_id: pM, warehouse_id: raw.id, color: 'مشکی', width_cm: 150,
+    profile: 'fabric', product_id: pM, warehouse_id: raw.id, color: 'مشکی', width_cm: 150,
     date: '1405/07/29', supplier_id: sup.id, idempotency_key: 'v512-' + k, roll_no: 'V511-' + k, ...extra,
   }, admin);
 }
@@ -134,7 +134,7 @@ ok(near(legacy.qty_received, 30) && legacy.unit === 'm', 'legacy meters/unit tex
 const pcs = unit('PCS');
 expectCode(() => recv({ entry_unit_id: pcs.id, entry_qty: 3, unit_cost_rial: 1 }), 'E_FABRIC_ENTRY_UNIT');
 expectCode(() => receiveFabricRoll(db, {
-  product_id: pKg, warehouse_id: raw.id, color: 'سفید', width_cm: 150, meters: 10,
+  profile: 'fabric', product_id: pKg, warehouse_id: raw.id, color: 'سفید', width_cm: 150, meters: 10,
   unit_cost_rial: 1000, supplier_id: sup.id, date: '1405/07/29', idempotency_key: 'v512-kg', roll_no: 'V511-KG',
 }, admin), 'E_FABRIC_STOCK_UNIT');
 
@@ -153,11 +153,13 @@ ok(l1 && Number(l1.amount_rial) === 914400, 'list amount = entry qty × entry co
 
 voidFabricRoll(db, r3.id, admin, { reason: 'تست v512' });
 const rev = db.prepare(`
-  SELECT COALESCE(SUM(qty_in),0)-COALESCE(SUM(qty_out),0) q, COALESCE(SUM(CASE WHEN qty_out>0 THEN amount_rial ELSE 0 END),0) outAmt
+  SELECT COALESCE(SUM(qty_in),0)-COALESCE(SUM(qty_out),0) q, COALESCE(SUM(CASE WHEN qty_in>0 THEN amount_rial ELSE -amount_rial END),0) net
   FROM inventory_ledger WHERE batch_id=?
 `).get(r3.id);
 ok(near(rev.q, 0), 'void returns stock to zero', rev.q);
-ok(Number(rev.outAmt) === 1250000, 'void reverses entry value (25 kg × 50,000)', rev.outAmt);
+ok(Number(rev.net) === 0, 'void reverses full entry value (net 0)', rev.net);
+const lastOut = db.prepare('SELECT amount_rial a FROM inventory_ledger WHERE batch_id=? AND qty_out>0 ORDER BY id DESC LIMIT 1').get(r3.id);
+ok(lastOut && Number(lastOut.a) === 1250000, 'void amount = 25 kg × 50,000', lastOut && lastOut.a);
 
 try {
   ok(Number(uom.countInUse(db, YD.id)) > 0, 'yard on a roll counts as in use');
