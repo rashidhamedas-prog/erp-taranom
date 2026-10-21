@@ -1,12 +1,23 @@
 'use strict';
 /**
- * One COA leaf, one signed story.
+ * One COA leaf, one signed story — and the journal is the only author.
  *
- * When a party has several role books on the same leaf (person + supplier, …)
- * a payment that landed in only one book must not be hidden by a staler sibling.
- * v456 copies each live GL line on that leaf into every linked book that lacks it,
- * and live posts mirror the same way. Opening rows are filled only by the boot
- * heal — opening-post already writes every linked book.
+ * When a party has several role books on the same leaf (person + supplier,
+ * customer + supplier, …) every book must read like the GL leaf. v456 copied
+ * each live GL line on the leaf into the sibling books that lacked it (insert-only).
+ *
+ * v519 — the sibling row is a *projection* of the journal, never a book of its own:
+ *   - reconcileLeaf() matches live GL leaf lines ↔ book rows, inserts the missing
+ *     mirror and retires the stale one (pre-amend amount, voided document,
+ *     duplicate copy). Nothing is written to the journal.
+ *   - A row is retired only when it is foreign to its book (a purchase row inside a
+ *     customer book, an invoice row inside a supplier book, …) or anchored to a
+ *     journal entry that is no longer alive (manual_voucher). Native rows belong
+ *     to their own module and its R13 retire helpers; they are never deleted here.
+ *   - Hooks: every post/rewrite (ledger.js), every role-book insert/update
+ *     (afterPartyBookInsert), every void (void-journal.js), the books heal
+ *     (ensureCustomerBooksRepaired) and boot run the same reconcile, so a
+ *     one-sided mirror cannot survive to the dashboard.
  *
  * Payroll rows stored in toman stay put: a ref match covers the rial GL line,
  * so personLedgerLineRial keeps scaling them. Amounts on the journal are never rewritten.
@@ -16,6 +27,35 @@ const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { personLedgerAliveSql } = require('./person-ledger-money');
 
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
+
+/** Document families and the role book that owns them. */
+const SALES_REFS = [
+  'invoice', 'invoice_payment', 'invoice_ar_reclass', 'ar_control_reclass',
+  'settlement', 'pos_receipt', 'sales_return', 'sales_return_reversal',
+  'store_sale', 'store_exchange', 'store_return',
+];
+const PURCHASE_REFS = [
+  'purchase', 'purchase_invoice', 'purchase_return', 'purchase_return_reversal',
+  'supplier_payment', 'fabric_roll',
+];
+const PERSON_REFS = [
+  'payroll', 'payroll_payment', 'payroll_advance', 'payroll_loan', 'payroll_settlement',
+  'production_labor', 'incentive_payment', 'rep_advance', 'rep_settlement',
+];
+/** ref_id is the journal entry id itself (self ref) — alive iff that JE is alive. */
+const JOURNAL_ANCHORED_REFS = new Set(['manual_voucher']);
+
+const FOREIGN_REFS = {
+  customer: new Set([...PURCHASE_REFS, ...PERSON_REFS]),
+  supplier: new Set([...SALES_REFS, ...PERSON_REFS]),
+  person: new Set([...SALES_REFS, ...PURCHASE_REFS]),
+};
+
+const REF_FAMILY = {
+  purchase_invoice: 'purchase',
+  invoice_ar_reclass: 'invoice',
+  invoice_payment: 'invoice',
+};
 
 function tableExists(db, name) {
   try {
@@ -30,6 +70,40 @@ function isOpeningToken(refType, entryType) {
   return s.includes('opening') || s.includes('افتتاح');
 }
 
+function refFamily(refType) {
+  const t = String(refType || '');
+  if (isOpeningToken(t)) return 'opening';
+  return REF_FAMILY[t] || t;
+}
+
+const SIDE_OF_REF = new Map([
+  ...SALES_REFS.map((r) => [r, 'sales']),
+  ...PURCHASE_REFS.map((r) => [r, 'purchase']),
+  ...PERSON_REFS.map((r) => [r, 'person']),
+]);
+
+/** Business side of a document: a purchase line must never stand in for a sales receipt. */
+function refSide(refType) {
+  const t = String(refType || '');
+  if (isOpeningToken(t)) return 'opening';
+  return SIDE_OF_REF.get(t) || 'other';
+}
+
+function rowSign(row) {
+  const d = Math.round(Number(row.debit) || 0);
+  const c = Math.round(Number(row.credit) || 0);
+  if (d && !c) return 'dr';
+  if (c && !d) return 'cr';
+  return 'mixed';
+}
+
+function sameRef(a, b) {
+  const ida = a.ref_id != null && a.ref_id !== '' ? Number(a.ref_id) : 0;
+  const idb = b.ref_id != null && b.ref_id !== '' ? Number(b.ref_id) : 0;
+  if (!ida || !idb || ida !== idb) return false;
+  return refFamily(a.ref_type) === refFamily(b.ref_type);
+}
+
 function moneyClose(row, gl) {
   const gd = Math.round(Number(gl.debit) || 0);
   const gc = Math.round(Number(gl.credit) || 0);
@@ -40,32 +114,74 @@ function moneyClose(row, gl) {
   return pairs.some(([d, c]) => Math.abs(d - gd) <= 1 && Math.abs(c - gc) <= 1);
 }
 
-function findUnusedMatch(book, gl) {
+/** Pass 1 — same document (family + id) with the same rial amount, or an opening token. */
+function findStrongMatch(book, gl) {
   const rows = book.rows;
   const used = book.used;
-  const rt = String(gl.ref_type || '');
   const rid = gl.ref_id != null && gl.ref_id !== '' ? Number(gl.ref_id) : 0;
-  if (rt && rid) {
+  if (gl.ref_type && rid) {
     for (let i = 0; i < rows.length; i++) {
       if (used.has(i)) continue;
-      if (String(rows[i].ref_type || '') !== rt || Number(rows[i].ref_id) !== rid) continue;
-      // Same ref_type+ref_id can cover several JEs (e.g. two PRD-03 on one order).
-      // Only treat as covered when the rial amount also matches.
+      // Same ref can cover several JEs (e.g. two PRD-03 on one order):
+      // only an amount match counts as covered.
+      if (sameRef(rows[i], gl) && moneyClose(rows[i], gl)) return i;
+    }
+  }
+  if (isOpeningToken(gl.ref_type)) {
+    let any = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (used.has(i)) continue;
+      if (!isOpeningToken(rows[i].ref_type, rows[i].entry_type)) continue;
       if (moneyClose(rows[i], gl)) return i;
+      if (any < 0) any = i;
     }
+    return any;
   }
-  if (isOpeningToken(rt)) {
-    for (let i = 0; i < rows.length; i++) {
-      if (used.has(i)) continue;
-      if (isOpeningToken(rows[i].ref_type, rows[i].entry_type)) return i;
-    }
-  }
+  return -1;
+}
+
+/**
+ * Pass 2 — legacy rows whose ref naming differs from the journal (invoice_payment
+ * row ↔ settlement voucher): same day, same amount, same business side. A purchase
+ * line cannot swallow a customer's settlement of the same amount.
+ */
+function findWeakMatch(book, gl) {
+  const rows = book.rows;
+  const used = book.used;
+  const glSide = refSide(gl.ref_type);
   for (let i = 0; i < rows.length; i++) {
     if (used.has(i)) continue;
     const r = rows[i];
-    if (String(r.date || '') === String(gl.date || '') && moneyClose(r, gl)) return i;
+    if (String(r.date || '') !== String(gl.date || '') || !moneyClose(r, gl)) continue;
+    const side = refSide(r.ref_type);
+    if (side !== 'other' && glSide !== 'other' && side !== glSide) continue;
+    return i;
   }
   return -1;
+}
+
+/**
+ * Match every GL line against every book: strong matches for all lines first,
+ * then the date+amount fallback for what is left. Marks book.used; returns
+ * matched[gi][bi] = row index or -1.
+ */
+function matchBooks(books, glLines) {
+  const matched = glLines.map(() => books.map(() => -1));
+  for (const pass of ['strong', 'weak']) {
+    for (let gi = 0; gi < glLines.length; gi++) {
+      const gl = glLines[gi];
+      for (let bi = 0; bi < books.length; bi++) {
+        if (matched[gi][bi] >= 0) continue;
+        const book = books[bi];
+        const idx = pass === 'strong' ? findStrongMatch(book, gl) : findWeakMatch(book, gl);
+        if (idx >= 0) {
+          book.used.add(idx);
+          matched[gi][bi] = idx;
+        }
+      }
+    }
+  }
+  return matched;
 }
 
 function entryTypeFor(gl) {
@@ -104,15 +220,17 @@ function loadBookRows(db, kind, entityId) {
   if (kind === 'person') {
     const alive = personLedgerAliveSql(db);
     return db.prepare(`
-      SELECT date, entry_type, ref_type, ref_id, description, debit, credit
+      SELECT id, date, entry_type, ref_type, ref_id, description, debit, credit
       FROM person_ledger pl WHERE person_id=? AND ${alive}
+      ORDER BY id ASC
     `).all(entityId);
   }
   const table = kind === 'supplier' ? 'supplier_ledger' : 'customer_ledger';
   const col = kind === 'supplier' ? 'supplier_id' : 'customer_id';
   return db.prepare(`
-    SELECT date, entry_type, ref_type, ref_id, description, debit, credit
+    SELECT id, date, entry_type, ref_type, ref_id, description, debit, credit
     FROM ${table} WHERE ${col}=?
+    ORDER BY id ASC
   `).all(entityId);
 }
 
@@ -120,7 +238,7 @@ function booksForPartyCode(db, partyId, code) {
   const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(partyId);
   const partyCoa = party && party.coa_code ? String(party.coa_code) : '';
   const books = [];
-  const consider = (kind, table, idCol) => {
+  const consider = (kind, table) => {
     if (!tableExists(db, table)) return;
     let entities = [];
     try {
@@ -141,10 +259,14 @@ function booksForPartyCode(db, partyId, code) {
       });
     }
   };
-  consider('person', 'persons', 'id');
-  consider('supplier', 'suppliers', 'id');
-  consider('customer', 'customers', 'id');
+  consider('person', 'persons');
+  consider('supplier', 'suppliers');
+  consider('customer', 'customers');
   return books;
+}
+
+function bookTable(kind) {
+  return kind === 'person' ? 'person_ledger' : (kind === 'supplier' ? 'supplier_ledger' : 'customer_ledger');
 }
 
 function insertBookRow(db, book, gl) {
@@ -162,23 +284,25 @@ function insertBookRow(db, book, gl) {
     credit,
     gl.created_by || null,
   ];
+  let info;
   if (book.kind === 'person') {
-    db.prepare(`
+    info = db.prepare(`
       INSERT INTO person_ledger (person_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
       VALUES (?,?,?,?,?,?,?,?,?)
     `).run(...args);
   } else if (book.kind === 'supplier') {
-    db.prepare(`
+    info = db.prepare(`
       INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
       VALUES (?,?,?,?,?,?,?,?,?)
     `).run(...args);
   } else {
-    db.prepare(`
+    info = db.prepare(`
       INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
       VALUES (?,?,?,?,?,?,?,?,?)
     `).run(...args);
   }
   book.rows.push({
+    id: info && info.lastInsertRowid != null ? Number(info.lastInsertRowid) : null,
     date: gl.date || '',
     entry_type: entryTypeFor(gl),
     ref_type: gl.ref_type || '',
@@ -208,6 +332,7 @@ function glLinesFor(db, code, entryId) {
     WHERE jl.account_code=? AND ${JE_ALIVE}${entrySql}
     ORDER BY je.id ASC, jl.id ASC
   `).all(...params).map((r) => ({
+    je_id: r.je_id,
     date: r.date || '',
     ref_type: r.ref_type || '',
     ref_id: r.ref_id,
@@ -219,34 +344,200 @@ function glLinesFor(db, code, entryId) {
   })).filter((r) => r.debit || r.credit);
 }
 
+function journalEntryAlive(db, jeId) {
+  const id = Number(jeId);
+  if (!id || !tableExists(db, 'journal_entries')) return false;
+  try {
+    return !!db.prepare(`SELECT 1 FROM journal_entries je WHERE je.id=? AND ${JE_ALIVE}`).get(id);
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
- * @param {{requireExisting?: boolean}} opts
- * requireExisting: live post — copy only when some sibling already has the line.
- * Boot heal leaves it false so a GL line missing from every book is inserted too.
+ * Is the document itself still alive in the journal — on any account?
+ * A payment to a party that reached another leaf of the same party (supplier
+ * leaf vs person leaf) is a GL reclass question, not a stale projection.
+ */
+function documentAliveAnywhere(db, row) {
+  const rid = row.ref_id != null && row.ref_id !== '' ? Number(row.ref_id) : 0;
+  if (!rid || !tableExists(db, 'journal_entries')) return false;
+  const fam = refFamily(row.ref_type);
+  const types = Object.keys(REF_FAMILY).filter((k) => REF_FAMILY[k] === fam);
+  types.push(fam, String(row.ref_type || ''));
+  const uniq = [...new Set(types.filter(Boolean))];
+  try {
+    return !!db.prepare(`
+      SELECT 1 FROM journal_entries je
+      WHERE je.ref_id=? AND je.ref_type IN (${uniq.map(() => '?').join(',')}) AND ${JE_ALIVE}
+      LIMIT 1
+    `).get(rid, ...uniq);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** A row the book does not own: a projection of another role's document or of a voucher. */
+function isProjectionRow(kind, row) {
+  const rt = String(row.ref_type || '');
+  if (JOURNAL_ANCHORED_REFS.has(rt)) return true;
+  const set = FOREIGN_REFS[kind];
+  return !!(set && set.has(rt));
+}
+
+function logRetire(db, book, row, info) {
+  if (!tableExists(db, 'audit_log')) return;
+  try {
+    const detail = JSON.stringify({
+      reason: info.reason || 'stale_projection',
+      leaf: info.code || null,
+      book: book.kind,
+      entity_id: book.id,
+      date: row.date || '',
+      entry_type: row.entry_type || '',
+      ref_type: row.ref_type || '',
+      ref_id: row.ref_id != null ? row.ref_id : null,
+      debit: Math.round(Number(row.debit) || 0),
+      credit: Math.round(Number(row.credit) || 0),
+      via: info.via || 'reconcile',
+    });
+    db.prepare(`
+      INSERT INTO audit_log (user_id, action, entity, entity_id, detail, ip_address, user_agent)
+      VALUES (?,?,?,?,?,?,?)
+    `).run(info.userId || null, 'party_books_retire', bookTable(book.kind), row.id || null, detail, '', 'party-leaf-sync');
+  } catch (_) { /* audit must never break the posting */ }
+}
+
+/** Same policy as party-ledger-retire: no hollow reverse row, the projection simply goes. */
+function deleteBookRow(db, book, row) {
+  if (!row || row.id == null) return 0;
+  return Number(db.prepare(`DELETE FROM ${bookTable(book.kind)} WHERE id=?`).run(row.id).changes || 0);
+}
+
+/**
+ * Retire unmatched projection rows.
+ *   document_dead     — the document has no live journal entry at all (voided)
+ *   superseded_amount — the document is alive on this leaf with another amount and
+ *                       this book already carries the current one (pre-amend leftover
+ *                       or duplicate copy)
+ * Kept on purpose: a projection whose document is alive but whose current amount has
+ * not reached this book yet (amend in flight — the follow-up hook retires it), and a
+ * projection whose journal entry is alive on another leaf of the same party
+ * (needs a GL reclass, never a silent delete).
+ */
+function retireUnmatched(db, books, glLines, info) {
+  let retired = 0;
+  const actions = [];
+  for (const book of books) {
+    for (let i = 0; i < book.rows.length; i++) {
+      if (book.used.has(i)) continue;
+      const row = book.rows[i];
+      if (!row || row.id == null) continue;
+      if (!isProjectionRow(book.kind, row)) continue;
+      let reason;
+      if (JOURNAL_ANCHORED_REFS.has(String(row.ref_type || ''))) {
+        if (journalEntryAlive(db, row.ref_id)) continue;
+        reason = 'journal_dead';
+      } else {
+        const refLive = glLines.some((gl) => sameRef(gl, row));
+        if (!refLive) {
+          if (documentAliveAnywhere(db, row)) continue;
+          reason = 'document_dead';
+        } else {
+          // Same document, same side, another amount already matched → pre-amend leftover.
+          // (An invoice debit never supersedes its own payment credit.)
+          const sign = rowSign(row);
+          const current = book.rows.some((r, j) => j !== i && book.used.has(j) && sameRef(r, row) && rowSign(r) === sign);
+          if (!current) continue;
+          reason = 'superseded_amount';
+        }
+      }
+      actions.push({
+        book: book.kind, entity_id: book.id, row_id: row.id, reason,
+        ref_type: row.ref_type, ref_id: row.ref_id, debit: row.debit, credit: row.credit, date: row.date,
+      });
+      if (info.dryRun) continue;
+      logRetire(db, book, row, { ...info, reason });
+      retired += deleteBookRow(db, book, row);
+    }
+  }
+  return { retired, actions };
+}
+
+/**
+ * Insert the GL lines a book lacks.
+ *   'siblings' — only when some sibling book already carries the line (live posts,
+ *                continuous heal: never invent a native-looking row from the journal alone)
+ *   'all'      — every live GL leaf line (v456 one-shot backfill)
+ *   'none'     — match only
  */
 function applyGlLines(db, books, glLines, opts) {
-  const requireExisting = !!(opts && opts.requireExisting);
+  const mode = opts && opts.insert ? opts.insert : ((opts && opts.requireExisting) ? 'siblings' : 'all');
+  const matched = matchBooks(books, glLines);
   let inserted = 0;
-  for (const gl of glLines) {
-    if (requireExisting && isOpeningToken(gl.ref_type)) continue;
-    const missing = [];
-    let any = false;
-    for (const book of books) {
-      const idx = findUnusedMatch(book, gl);
-      if (idx >= 0) {
-        book.used.add(idx);
-        any = true;
-      } else {
-        missing.push(book);
-      }
-    }
-    if (requireExisting && !any) continue;
-    for (const book of missing) {
+  const actions = [];
+  if (mode === 'none') return { inserted, actions, matched };
+  for (let gi = 0; gi < glLines.length; gi++) {
+    const gl = glLines[gi];
+    if (mode === 'siblings' && isOpeningToken(gl.ref_type)) continue;
+    const any = matched[gi].some((idx) => idx >= 0);
+    if (mode === 'siblings' && !any) continue;
+    for (let bi = 0; bi < books.length; bi++) {
+      if (matched[gi][bi] >= 0) continue;
+      const book = books[bi];
+      actions.push({
+        book: book.kind, entity_id: book.id, je_id: gl.je_id || null,
+        ref_type: gl.ref_type, ref_id: gl.ref_id, debit: gl.debit, credit: gl.credit, date: gl.date,
+      });
+      if (opts && opts.dryRun) continue;
       insertBookRow(db, book, gl);
+      matched[gi][bi] = book.rows.length - 1;
       inserted += 1;
     }
   }
-  return inserted;
+  return { inserted, actions, matched };
+}
+
+function scopeFilter(scope) {
+  if (!scope || !scope.ref_type || !(Number(scope.ref_id) > 0)) return null;
+  const probe = { ref_type: scope.ref_type, ref_id: Number(scope.ref_id) };
+  return (row) => sameRef(row, probe);
+}
+
+/**
+ * Reconcile every role book on one leaf against the live journal.
+ * @param {object} opts
+ *   insert: 'siblings' | 'all' | 'none'   (default 'siblings')
+ *   scope:  {ref_type, ref_id}            only that document (hooks)
+ *   dryRun: boolean                       plan only
+ *   reason / via / userId                 audit detail
+ */
+function reconcileLeaf(db, code, opts) {
+  const o = opts || {};
+  const out = { code: String(code), inserted: 0, retired: 0, books: 0, actions: { inserted: [], retired: [] } };
+  if (!code || !tableExists(db, 'parties')) return out;
+  const partyId = o.partyId || uniquePartyForCode(db, code);
+  if (!partyId) return out;
+  let books = booksForPartyCode(db, partyId, code);
+  if (!books.length) return out;
+  const filter = scopeFilter(o.scope);
+  if (filter) {
+    books = books.map((b) => ({ ...b, rows: b.rows.filter(filter), used: new Set() }));
+  }
+  out.books = books.length;
+  let glLines = glLinesFor(db, code, null);
+  if (filter) glLines = glLines.filter(filter);
+  const insertMode = o.insert || 'siblings';
+  // A single book has no sibling to copy from or to; only dead/journal rows are judged.
+  const effectiveInsert = books.length < 2 && insertMode === 'siblings' ? 'none' : insertMode;
+  const applied = applyGlLines(db, books, glLines, { insert: effectiveInsert, dryRun: !!o.dryRun });
+  out.inserted = applied.inserted;
+  out.actions.inserted = applied.actions;
+  const info = { code: String(code), reason: o.reason, via: o.via, userId: o.userId, dryRun: !!o.dryRun };
+  const ret = retireUnmatched(db, books, glLines, info);
+  out.retired = ret.retired;
+  out.actions.retired = ret.actions;
+  return out;
 }
 
 function leafCodes(db) {
@@ -266,6 +557,37 @@ function leafCodes(db) {
   return [...codes];
 }
 
+/** Leaves carrying more than one role book (the only place a mirror can exist). */
+function sharedLeafCodes(db) {
+  if (!tableExists(db, 'parties')) return [];
+  const partyCoa = new Map();
+  try {
+    for (const p of db.prepare("SELECT id, coa_code FROM parties WHERE COALESCE(coa_code,'')<>''").all()) {
+      partyCoa.set(Number(p.id), String(p.coa_code).trim());
+    }
+  } catch (_) { /* optional */ }
+  const kindsByCode = new Map();
+  const scan = (kind, table) => {
+    if (!tableExists(db, table)) return;
+    let rows = [];
+    try {
+      rows = db.prepare(`SELECT id, party_id, coa_code FROM ${table} WHERE party_id IS NOT NULL`).all();
+    } catch (_) {
+      return;
+    }
+    for (const r of rows) {
+      const code = r.coa_code ? String(r.coa_code).trim() : (partyCoa.get(Number(r.party_id)) || '');
+      if (!code) continue;
+      if (!kindsByCode.has(code)) kindsByCode.set(code, 0);
+      kindsByCode.set(code, kindsByCode.get(code) + 1);
+    }
+  };
+  scan('person', 'persons');
+  scan('supplier', 'suppliers');
+  scan('customer', 'customers');
+  return [...kindsByCode.entries()].filter(([, n]) => n > 1).map(([code]) => code);
+}
+
 function backfillPartyLeafBooks(db) {
   let inserted = 0;
   let leaves = 0;
@@ -277,7 +599,7 @@ function backfillPartyLeafBooks(db) {
     if (books.length < 1) continue;
     const lines = glLinesFor(db, code, null);
     if (!lines.length) continue;
-    const n = applyGlLines(db, books, lines, { requireExisting: false });
+    const n = applyGlLines(db, books, lines, { insert: 'all' }).inserted;
     if (n) {
       inserted += n;
       leaves += 1;
@@ -286,71 +608,170 @@ function backfillPartyLeafBooks(db) {
   return { inserted, leaves };
 }
 
-function syncJournalEntryToPartyBooks(db, entryId) {
+/**
+ * Continuous reconcile of every shared leaf (boot + books heal).
+ * Central only — devices receive the result through sync tombstones.
+ */
+function reconcileAllPartyLeafBooks(db, opts) {
+  const o = opts || {};
+  if (process.env.SYNC_ROLE === 'device' && !o.force) return { skipped: true, reason: 'device' };
+  if (!tableExists(db, 'parties')) return { skipped: true, reason: 'no-parties' };
+  const codes = o.allLeaves ? leafCodes(db) : sharedLeafCodes(db);
+  const summary = { leaves: 0, inserted: 0, retired: 0, actions: [] };
+  const run = () => {
+    for (const code of codes) {
+      const r = reconcileLeaf(db, code, {
+        insert: o.insert || 'siblings',
+        dryRun: !!o.dryRun,
+        reason: o.reason || 'reconcile',
+        via: o.via || 'reconcile_all',
+      });
+      if (r.inserted || r.retired || r.actions.inserted.length || r.actions.retired.length) {
+        summary.leaves += 1;
+        summary.inserted += r.inserted;
+        summary.retired += r.retired;
+        if (o.dryRun || o.collect) summary.actions.push(r);
+      }
+    }
+  };
+  if (o.dryRun) run();
+  else db.transaction(run)();
+  return summary;
+}
+
+/** Leaf codes touched by a journal entry that belong to a party. */
+function partyCodesForEntry(db, entryId) {
   const id = Number(entryId);
-  if (!id || !tableExists(db, 'journal_lines')) return { inserted: 0 };
-  let inserted = 0;
-  let codes = [];
+  if (!id || !tableExists(db, 'journal_lines')) return [];
   try {
-    codes = db.prepare(`
+    return db.prepare(`
       SELECT DISTINCT account_code AS code FROM journal_lines WHERE entry_id=?
     `).all(id).map((r) => (r.code ? String(r.code) : '')).filter(Boolean);
   } catch (_) {
-    return { inserted: 0 };
+    return [];
   }
-  for (const code of codes) {
-    const partyId = uniquePartyForCode(db, code);
-    if (!partyId) continue;
-    const books = booksForPartyCode(db, partyId, code);
-    if (books.length < 2) continue;
-    const lines = glLinesFor(db, code, id);
-    inserted += applyGlLines(db, books, lines, { requireExisting: true });
+}
+
+function entryHead(db, entryId) {
+  try {
+    return db.prepare('SELECT id, ref_type, ref_id FROM journal_entries WHERE id=?').get(Number(entryId)) || null;
+  } catch (_) {
+    return null;
   }
-  return { inserted };
+}
+
+function scopeForHead(head) {
+  if (!head) return null;
+  const rt = String(head.ref_type || '');
+  if (!rt) return null;
+  const rid = JOURNAL_ANCHORED_REFS.has(rt) ? Number(head.ref_id || head.id) : Number(head.ref_id);
+  if (!(rid > 0)) return null;
+  return { ref_type: rt, ref_id: rid };
 }
 
 /**
- * After a role book insert: copy that movement onto sibling books of the same leaf.
+ * After post / rewrite (ledger.js): copy the new line onto sibling books and
+ * retire the projection the rewrite left behind.
+ */
+function syncJournalEntryToPartyBooks(db, entryId) {
+  const id = Number(entryId);
+  if (!id || !tableExists(db, 'journal_lines')) return { inserted: 0, retired: 0 };
+  let inserted = 0;
+  let retired = 0;
+  const codes = partyCodesForEntry(db, id);
+  const scope = scopeForHead(entryHead(db, id));
+  for (const code of codes) {
+    const partyId = uniquePartyForCode(db, code);
+    if (!partyId) continue;
+    if (scope) {
+      // Every live JE of that document on this leaf, every book: copy + retire.
+      const r = reconcileLeaf(db, code, { partyId, scope, insert: 'siblings', reason: 'journal_post', via: 'sync_journal' });
+      inserted += r.inserted;
+      retired += r.retired;
+      continue;
+    }
+    const books = booksForPartyCode(db, partyId, code);
+    if (books.length < 2) continue;
+    const lines = glLinesFor(db, code, id);
+    inserted += applyGlLines(db, books, lines, { insert: 'siblings' }).inserted;
+  }
+  return { inserted, retired };
+}
+
+/**
+ * After a void / hard delete (void-journal.js): the document's projections on
+ * every party leaf of that entry must go — unless another live JE still carries them.
+ */
+function retireProjectionsForJournalEntry(db, entryId, head, codes) {
+  const id = Number(entryId);
+  if (!id) return { retired: 0 };
+  const h = head || entryHead(db, id);
+  const scope = scopeForHead(h);
+  if (!scope) return { retired: 0 };
+  const leafList = Array.isArray(codes) && codes.length ? codes : partyCodesForEntry(db, id);
+  let retired = 0;
+  for (const code of leafList) {
+    const partyId = uniquePartyForCode(db, code);
+    if (!partyId) continue;
+    const r = reconcileLeaf(db, code, { partyId, scope, insert: 'none', reason: 'journal_void', via: 'void_journal' });
+    retired += r.retired;
+  }
+  return { retired };
+}
+
+/**
+ * After a role book insert/update: copy that movement onto sibling books of the
+ * same leaf and retire the sibling projection it supersedes.
  * Openings are skipped (opening-post writes every linked book; the heal fills gaps).
  */
 function afterPartyBookInsert(db, spec) {
-  if (!spec || !spec.kind || !spec.entityId) return { copied: 0 };
-  if (isOpeningToken(spec.ref_type, spec.entry_type)) return { copied: 0 };
-  if (!tableExists(db, 'parties')) return { copied: 0 };
+  if (!spec || !spec.kind || !spec.entityId) return { copied: 0, retired: 0 };
+  if (isOpeningToken(spec.ref_type, spec.entry_type)) return { copied: 0, retired: 0 };
+  if (!tableExists(db, 'parties')) return { copied: 0, retired: 0 };
   const debit = Math.round(Number(spec.debit) || 0);
   const credit = Math.round(Number(spec.credit) || 0);
-  if (!debit && !credit) return { copied: 0 };
   const table = spec.kind === 'person' ? 'persons' : (spec.kind === 'supplier' ? 'suppliers' : 'customers');
-  if (!tableExists(db, table)) return { copied: 0 };
+  if (!tableExists(db, table)) return { copied: 0, retired: 0 };
   const ent = db.prepare(`SELECT party_id, coa_code FROM ${table} WHERE id=?`).get(Number(spec.entityId));
-  if (!ent || !ent.party_id) return { copied: 0 };
+  if (!ent || !ent.party_id) return { copied: 0, retired: 0 };
   const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(Number(ent.party_id));
   const code = (ent.coa_code || (party && party.coa_code) || '').trim();
-  if (!code) return { copied: 0 };
-  if (uniquePartyForCode(db, code) !== Number(ent.party_id)) return { copied: 0 };
+  if (!code) return { copied: 0, retired: 0 };
+  if (uniquePartyForCode(db, code) !== Number(ent.party_id)) return { copied: 0, retired: 0 };
   const books = booksForPartyCode(db, Number(ent.party_id), code);
-  if (books.length < 2) return { copied: 0 };
-  const gl = {
-    date: spec.date || '',
-    ref_type: spec.ref_type || '',
-    ref_id: spec.ref_id != null ? spec.ref_id : null,
-    je_desc: spec.description || '',
-    line_desc: spec.description || '',
-    created_by: spec.user_id || null,
-    debit,
-    credit,
-  };
-  if (spec.kind === 'person') {
-    try {
-      const { personLedgerLineRial } = require('./person-ledger-money');
-      const scaled = personLedgerLineRial(db, {
-        debit, credit, ref_type: spec.ref_type, ref_id: spec.ref_id, entry_type: spec.entry_type,
-      });
-      gl.debit = scaled.debit;
-      gl.credit = scaled.credit;
-    } catch (_) { /* keep stored amount */ }
+  if (books.length < 2) return { copied: 0, retired: 0 };
+  let copied = 0;
+  if (debit || credit) {
+    const gl = {
+      date: spec.date || '',
+      ref_type: spec.ref_type || '',
+      ref_id: spec.ref_id != null ? spec.ref_id : null,
+      je_desc: spec.description || '',
+      line_desc: spec.description || '',
+      created_by: spec.user_id || null,
+      debit,
+      credit,
+    };
+    if (spec.kind === 'person') {
+      try {
+        const { personLedgerLineRial } = require('./person-ledger-money');
+        const scaled = personLedgerLineRial(db, {
+          debit, credit, ref_type: spec.ref_type, ref_id: spec.ref_id, entry_type: spec.entry_type,
+        });
+        gl.debit = scaled.debit;
+        gl.credit = scaled.credit;
+      } catch (_) { /* keep stored amount */ }
+    }
+    copied = applyGlLines(db, books, [gl], { insert: 'siblings' }).inserted;
   }
-  return { copied: applyGlLines(db, books, [gl], { requireExisting: true }) };
+  let retired = 0;
+  const scope = spec.ref_type && Number(spec.ref_id) > 0 ? { ref_type: spec.ref_type, ref_id: Number(spec.ref_id) } : null;
+  if (scope) {
+    retired = reconcileLeaf(db, code, {
+      partyId: Number(ent.party_id), scope, insert: 'siblings', reason: 'book_write', via: 'after_book_write', userId: spec.user_id || null,
+    }).retired;
+  }
+  return { copied, retired };
 }
 
 function alignPartyLeafBooksV456(db) {
@@ -372,4 +793,11 @@ module.exports = {
   syncJournalEntryToPartyBooks,
   afterPartyBookInsert,
   alignPartyLeafBooksV456,
+  reconcileLeaf,
+  reconcileAllPartyLeafBooks,
+  retireProjectionsForJournalEntry,
+  sharedLeafCodes,
+  isProjectionRow,
+  FOREIGN_REFS,
+  JOURNAL_ANCHORED_REFS,
 };

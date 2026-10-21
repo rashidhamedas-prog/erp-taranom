@@ -43,7 +43,21 @@ function reverseJournalEntry(db, jeId, { userId, date, reason, sourceType } = {}
   // Drop any existing paired reverse vouchers for this original (legacy R12).
   purgeReverseVouchersForOriginal(db, jeId, origHead);
 
+  // v519: a voided document leaves no projection on sibling party books
+  // (customer+supplier / supplier+person on one leaf). Native rows are retired
+  // by the business void (party-ledger-retire); this covers the mirrors.
+  retirePartyProjections(db, jeId, origHead, null);
+
   return alreadyDead ? null : jeId;
+}
+
+function retirePartyProjections(db, jeId, head, codes) {
+  try {
+    require('./party-leaf-sync').retireProjectionsForJournalEntry(db, jeId, head, codes);
+  } catch (e) {
+    if (db.inTransaction) throw e;
+    console.error('party projections retire:', e.message);
+  }
 }
 
 function purgeReverseVouchersForOriginal(db, originalId, origHead) {
@@ -68,8 +82,16 @@ function purgeReverseVouchersForOriginal(db, originalId, origHead) {
 
 function hardDeleteJournalEntry(db, jeId) {
   if (!jeId) return;
+  let head = null;
+  let codes = [];
+  try {
+    head = db.prepare('SELECT id, ref_type, ref_id FROM journal_entries WHERE id=?').get(jeId) || null;
+    codes = db.prepare('SELECT DISTINCT account_code AS code FROM journal_lines WHERE entry_id=?')
+      .all(jeId).map((r) => (r.code ? String(r.code) : '')).filter(Boolean);
+  } catch (_) { /* nothing to retire */ }
   db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(jeId);
   db.prepare('DELETE FROM journal_entries WHERE id=?').run(jeId);
+  if (head && codes.length) retirePartyProjections(db, jeId, head, codes);
 }
 
 /**

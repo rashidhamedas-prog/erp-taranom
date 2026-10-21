@@ -106,7 +106,7 @@ function escapeHtml(value) {
 const {
   attachMissingInvoiceRows, stmtEntryType, hideVoidedBookRows, glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance, canonicalCustomerFold, ensureCustomerBooksRepaired,
-  reclassifyControlArToCustomerLeaf,
+  reclassifyControlArToCustomerLeaf, customerBooksMismatchList,
 } = require('../lib/customer-books');
 const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 
@@ -438,6 +438,16 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const mismatchCr = Math.abs(Number(creditorBalance) - Number(recvGl.creditor)) > 1;
   const mismatchLedAr = Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1;
   const mismatchLedCr = Math.abs(Number(creditorLedger) - Number(recvGl.creditor)) > 1;
+  const booksMismatch = mismatchAr || mismatchCr || mismatchLedAr || mismatchLedCr;
+  // v519: the alarm names the customers whose book differs from their own leaf.
+  let mismatchCustomers = { count: 0, rows: [] };
+  if (booksMismatch) {
+    try {
+      mismatchCustomers = customerBooksMismatchList(db, { asOf, limit: 8 });
+    } catch (e) {
+      console.error('books mismatch drill-down:', e.message);
+    }
+  }
   res.json({
     totalInvoiced, totalSettled,
     outstanding,
@@ -455,7 +465,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     outstandingLedger,
     asOf: asOf || null,
     pendingSettlements,
-    books_mismatch: mismatchAr || mismatchCr || mismatchLedAr || mismatchLedCr,
+    books_mismatch: booksMismatch,
     books_mismatch_detail: {
       receivable: mismatchAr,
       creditor: mismatchCr,
@@ -464,6 +474,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       receivable_delta: Math.round(Number(totalReceivable) - Number(recvGl.display)),
       creditor_delta: Math.round(Number(creditorBalance) - Number(recvGl.creditor)),
     },
+    books_mismatch_customers: mismatchCustomers.rows,
+    books_mismatch_customers_count: mismatchCustomers.count,
     scoped: false,
   });
 });

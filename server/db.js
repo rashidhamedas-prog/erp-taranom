@@ -2881,6 +2881,18 @@ function initSyncSchema(db, opts) {
     } catch (eLeaf) {
       console.warn('party_leaf_books_align_v456:', eLeaf.message);
     }
+    // v519 — continuous: every shared leaf (dual-role party) reads like the journal.
+    // Copies the missing projection, retires the stale one (pre-amend amount / voided doc).
+    try {
+      const proj = require('./lib/party-leaf-sync').reconcileAllPartyLeafBooks(db, { reason: 'boot', via: 'boot' });
+      if (proj && !proj.skipped && (proj.inserted || proj.retired)) {
+        console.log('✅ party_leaf_projection_v519:', JSON.stringify({
+          leaves: proj.leaves, inserted: proj.inserted, retired: proj.retired,
+        }));
+      }
+    } catch (eProj) {
+      console.warn('party_leaf_projection_v519:', eProj.message);
+    }
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {

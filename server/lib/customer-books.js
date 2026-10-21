@@ -36,6 +36,20 @@ const AR_CONTROL_RECLASS = 'ar_control_reclass';
 const OPENING_CHEQUE_NOTE_SQL = `(IFNULL(cr.note,'') LIKE '%مانده اول دوره%' OR IFNULL(cr.status,'') LIKE '%اول دوره%')`;
 
 /**
+ * v519 — rows a customer book does not own (projection of a supplier/person document
+ * on a shared leaf) are live only while a journal entry of that document is live.
+ * Same list as party-leaf-sync FOREIGN_REFS.customer.
+ */
+const CUSTOMER_FOREIGN_REFS = [
+  'purchase', 'purchase_invoice', 'purchase_return', 'purchase_return_reversal',
+  'supplier_payment', 'fabric_roll',
+  'payroll', 'payroll_payment', 'payroll_advance', 'payroll_loan', 'payroll_settlement',
+  'production_labor', 'incentive_payment', 'rep_advance', 'rep_settlement',
+];
+const CUSTOMER_FOREIGN_REFS_SQL = CUSTOMER_FOREIGN_REFS.map((r) => `'${r}'`).join(',');
+const CUSTOMER_FOREIGN_REF_SET = new Set(CUSTOMER_FOREIGN_REFS);
+
+/**
  * SQL: customer_ledger alias is operationally live (aligns with hideVoidedBookRows +
  * opening-cheque policy — opening receipt is notes/equity, never a customer creditor).
  */
@@ -89,7 +103,50 @@ function sqlCustomerLedgerLive(alias) {
           )
       )
     )
+    AND NOT (
+      ${a}.ref_type IN (${CUSTOMER_FOREIGN_REFS_SQL}) AND NOT EXISTS (
+        SELECT 1 FROM journal_entries _je
+        WHERE _je.ref_id=${a}.ref_id
+          AND (
+            _je.ref_type=${a}.ref_type
+            OR (_je.ref_type IN ('purchase','purchase_invoice') AND ${a}.ref_type IN ('purchase','purchase_invoice'))
+          )
+          AND COALESCE(_je.deleted_at,0)=0
+          AND COALESCE(_je.status,'posted') NOT IN ('reversed','void')
+      )
+    )
+    AND NOT (
+      ${a}.ref_type='manual_voucher' AND NOT EXISTS (
+        SELECT 1 FROM journal_entries _je
+        WHERE _je.id=${a}.ref_id
+          AND COALESCE(_je.deleted_at,0)=0
+          AND COALESCE(_je.status,'posted') NOT IN ('reversed','void')
+      )
+    )
   `;
+}
+
+function liveForeignRefKeys(db) {
+  const keys = new Set();
+  const jeIds = new Set();
+  let ok = true;
+  try {
+    const rows = db.prepare(`
+      SELECT id, ref_type, ref_id FROM journal_entries
+      WHERE COALESCE(deleted_at,0)=0
+        AND COALESCE(status,'posted') NOT IN ('reversed','void')
+        AND (ref_type IN (${CUSTOMER_FOREIGN_REFS_SQL}) OR ref_type='manual_voucher')
+    `).all();
+    for (const r of rows) {
+      const rt = String(r.ref_type || '');
+      const fam = rt === 'purchase_invoice' ? 'purchase' : rt;
+      if (rt === 'manual_voucher') jeIds.add(Number(r.id));
+      if (r.ref_id != null) keys.add(`${fam}|${Number(r.ref_id)}`);
+    }
+  } catch (_) {
+    ok = false; // journal optional on ancient DBs — do not hide anything blindly
+  }
+  return { keys, jeIds, ok };
 }
 
 const STMT_REF_ALIAS = {
@@ -212,10 +269,18 @@ function hideVoidedBookRows(db, rows) {
       );
     } catch (__) { /* optional */ }
   }
+  const foreign = liveForeignRefKeys(db);
   return (rows || []).filter((e) => {
     const refId = Number(e.ref_id);
     const rt = String(e.ref_type || '');
     const et = String(e.entry_type || '');
+    // v519: a supplier/person document projected onto this customer book lives
+    // only while its journal entry lives (shared leaf of a dual-role party).
+    if (foreign.ok && CUSTOMER_FOREIGN_REF_SET.has(rt)) {
+      const fam = rt === 'purchase_invoice' ? 'purchase' : rt;
+      if (!foreign.keys.has(`${fam}|${refId}`)) return false;
+    }
+    if (foreign.ok && rt === 'manual_voucher' && !foreign.jeIds.has(refId)) return false;
     if (CHEQUE_BOOK_REFS.has(rt) && reversedCheques.has(refId)) return false;
     // Opening cheque = notes/equity JE only — never a live customer receipt credit.
     if (rt === 'cheque_in' && openingCheques.has(refId)) return false;
@@ -423,6 +488,18 @@ function updateInvoiceCustomerLedger(db, {
   customerId, date, invId, num, invType, final, userId, payType, skipImmediatePayment,
 }) {
   const desc = `${invoiceTypeLabel(invType)} ${num}`;
+  // v519: an in-place amend must reach the sibling books of a dual-role party
+  // (customer + supplier on one leaf) — copy the new amount, retire the old projection.
+  const syncSiblings = (spec) => {
+    try {
+      require('./party-leaf-sync').afterPartyBookInsert(db, {
+        kind: 'customer', entityId: customerId, date, user_id: userId, ...spec,
+      });
+    } catch (e) {
+      if (db.inTransaction) throw e;
+      console.error('invoice amend sibling sync:', e.message);
+    }
+  };
   const invRow = db.prepare(
     "SELECT id FROM customer_ledger WHERE ref_type='invoice' AND ref_id=? AND entry_type='invoice' LIMIT 1"
   ).get(invId);
@@ -432,6 +509,7 @@ function updateInvoiceCustomerLedger(db, {
       SET customer_id=?, date=?, description=?, debit=?, credit=0
       WHERE id=?
     `).run(customerId, date || '', desc, final, invRow.id);
+    syncSiblings({ entry_type: 'invoice', ref_type: 'invoice', ref_id: invId, description: desc, debit: final, credit: 0 });
   } else {
     postInvoiceCustomerLedger(db, {
       customerId, date, invId, num, invType, final, userId,
@@ -450,6 +528,10 @@ function updateInvoiceCustomerLedger(db, {
         SET customer_id=?, date=?, description=?, debit=0, credit=?
         WHERE id=?
       `).run(customerId, date || '', `دریافت هنگام فاکتور ${num}`, final, payRow.id);
+      syncSiblings({
+        entry_type: 'settlement', ref_type: 'invoice_payment', ref_id: invId,
+        description: `دریافت هنگام فاکتور ${num}`, debit: 0, credit: final,
+      });
     } else {
       postInvoiceCustomerLedger(db, {
         customerId, date, invId, num, invType, final, userId, payType,
@@ -462,6 +544,7 @@ function updateInvoiceCustomerLedger(db, {
       SET customer_id=?, date=?, description=?, debit=0, credit=0
       WHERE id=?
     `).run(customerId, date || '', '—', payRow.id);
+    syncSiblings({ entry_type: 'settlement', ref_type: 'invoice_payment', ref_id: invId, description: '—', debit: 0, credit: 0 });
   }
 }
 
@@ -1871,10 +1954,80 @@ function ensureCustomerBooksRepaired(db) {
     console.error('cheque receipt mirror:', e.message);
     chequeMirror = { error: e.message };
   }
+  // v519 — last word belongs to the journal: on every shared leaf (dual-role party)
+  // copy the missing projection and retire the stale one (pre-amend amount, voided doc).
+  let leafProjection = {};
+  try {
+    leafProjection = require('./party-leaf-sync').reconcileAllPartyLeafBooks(db, { reason: 'books_heal', via: 'ensure_books' });
+    if (leafProjection && (leafProjection.inserted || leafProjection.retired)) {
+      console.log('✅ party leaf projection reconciled:', JSON.stringify({
+        leaves: leafProjection.leaves, inserted: leafProjection.inserted, retired: leafProjection.retired,
+      }));
+    }
+  } catch (e) {
+    console.error('party leaf projection:', e.message);
+    leafProjection = { error: e.message };
+  }
   return {
     ...v1, openingCtl, reclass, ...openingGl, v2, v3: { skipped: true },
     openingCheque, orphanReclass, openingMirror, settBooks, settRevBooks, settLeafJe, chequeMirror,
+    leafProjection,
   };
+}
+
+/**
+ * Per-customer drill-down for the dashboard integrity alarm: live customer book
+ * (same liveness as the statement) vs GL on the customer's own leaf.
+ * Returns only the customers that differ, largest gap first.
+ */
+function customerBooksMismatchList(db, { asOf, limit } = {}) {
+  const max = Number(limit) > 0 ? Number(limit) : 8;
+  const liveSql = sqlCustomerLedgerLive('cl');
+  const ledParams = [];
+  let ledAsOf = '';
+  if (asOf) { ledAsOf = ' AND cl.date <= ?'; ledParams.push(asOf); }
+  const ledRows = db.prepare(`
+    SELECT c.id, c.biz, c.coa_code,
+      COALESCE(SUM(cl.debit),0) AS debit, COALESCE(SUM(cl.credit),0) AS credit
+    FROM (
+      SELECT MIN(id) AS id FROM customers
+      WHERE coa_code IS NOT NULL AND TRIM(coa_code) <> ''
+      GROUP BY coa_code
+    ) u
+    JOIN customers c ON c.id = u.id
+    LEFT JOIN customer_ledger cl ON cl.customer_id = c.id ${ledAsOf}
+      AND (${liveSql})
+    GROUP BY c.id
+  `).all(...ledParams);
+  const glParams = [];
+  let glAsOf = '';
+  if (asOf) { glAsOf = ' AND je.entry_date <= ?'; glParams.push(asOf); }
+  const glRows = db.prepare(`
+    SELECT jl.account_code AS code,
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
+      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id = je.id
+    WHERE ${JE_BALANCE}
+      ${glAsOf}
+      AND jl.account_code IN (
+        SELECT coa_code FROM customers
+        WHERE coa_code IS NOT NULL AND TRIM(coa_code) <> ''
+      )
+    GROUP BY jl.account_code
+  `).all(...glParams);
+  const glByCode = new Map();
+  for (const g of glRows) glByCode.set(String(g.code), Number(g.debit || 0) - Number(g.credit || 0));
+  const out = [];
+  for (const r of ledRows) {
+    const ledger = Math.round(Number(r.debit || 0) - Number(r.credit || 0));
+    const gl = Math.round(glByCode.get(String(r.coa_code)) || 0);
+    const delta = ledger - gl;
+    if (Math.abs(delta) <= 1) continue;
+    out.push({ id: Number(r.id), biz: r.biz || '', coa_code: r.coa_code, ledger, gl, delta });
+  }
+  out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return { count: out.length, rows: out.slice(0, max) };
 }
 
 module.exports = {
@@ -1914,7 +2067,9 @@ module.exports = {
   repairReversedSettlementBooks,
   repairSettlementsMissingLeafJe,
   ensureCustomerBooksRepaired,
+  customerBooksMismatchList,
   resolveCustomerIdFromArJe,
   isFirmSale,
   AR_CONTROL_RECLASS,
+  CUSTOMER_FOREIGN_REFS,
 };
