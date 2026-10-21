@@ -138,7 +138,10 @@ function applyRepPaymentAsSettlement(db, sub, userId) {
     debit: 0, credit: amount, user_id: userId
   });
   const cash = resolveCashAccount(db, pay_type, null, null);
-  const receivable = acct(db, 'coa_receivable');
+  // v519: credit the customer's own tafsili leaf (like POST /settlements), not the 1103 control.
+  // Posting to control while the customer book is credited left the leaf ≠ book until the
+  // ar_control_reclass heal ran — the dashboard "books integrity" alarm.
+  const receivable = require('../lib/customer-books').receivableAcct(db, sub.cust_id);
   postToLedger(db, {
     sourceType: 'settlement', sourceId: settlementId,
     date: sub.date || todayJalali(), description: `تسویه ${payLabel} مشتری (نماینده میدانی)`, createdBy: userId,
@@ -974,3 +977,5 @@ router.get('/:id/export/pdf', auth, adminRepOrSelf, (req, res) => {
 });
 
 module.exports = router;
+// test seam (v519): approval posting must hit the customer leaf, not the control account.
+module.exports.applyRepPaymentAsSettlement = applyRepPaymentAsSettlement;
