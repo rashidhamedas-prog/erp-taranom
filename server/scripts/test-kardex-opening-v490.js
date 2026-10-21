@@ -93,7 +93,8 @@ try {
 
   const audit = buildStockLedger(db, { product_id: prod, from: fy, to: '1405/12/29', show_cancelled: 1 });
   ok(Number(audit.closing_qty) === Number(ops.closing_qty), 'audit toggle does not change closing');
-  ok(Number(audit.period_qty_in) > Number(ops.period_qty_in), 'audit period in includes the voided receipt');
+  // v508: single ledger — the legacy audit flag is ignored; voids never re-enter.
+  ok(Number(audit.period_qty_in) === Number(ops.period_qty_in), 'v508: legacy audit flag ignored (no void rows)');
 } finally {
   try { db.close(); } catch (_) {}
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

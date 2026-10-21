@@ -2607,6 +2607,12 @@ function initSyncSchema(db, opts) {
           synced_wh: retire.synced_wh,
         }));
       }
+      try {
+        const kh = require('./lib/kardex-heal-v508').healKardexSingleLedger(db, { apply: true });
+        if (kh && !kh.skipped) console.log('✅ kardex_single_ledger_v508:', JSON.stringify(kh));
+      } catch (e) {
+        console.warn('⚠ kardex_single_ledger_v508:', e.message);
+      }
       const dualOpen = retireDuplicateRoleOpeningMirrors(db, { apply: true });
       if (dualOpen && !dualOpen.skipped && (dualOpen.retired || dualOpen.candidates)) {
         console.log('✅ party_dual_open_retire_v507:', JSON.stringify({

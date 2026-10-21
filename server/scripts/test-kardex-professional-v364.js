@@ -23,7 +23,7 @@ ok(!/UPDATE inventory_ledger SET qty_out=0, amount_rial=0/.test(amendSrc),
   'amend no longer zeros qty in place as primary path');
 
 const ledgersSrc = fs.readFileSync(path.join(__dirname, '../lib/ledgers.js'), 'utf8');
-ok(ledgersSrc.includes('show_cancelled'), 'buildStockLedger supports show_cancelled');
+ok(ledgersSrc.includes('book_gap_qty'), 'v508: buildStockLedger reports book gap (no history toggle)');
 ok(ledgersSrc.includes('isZeroQtyValueGhost') || ledgersSrc.includes('isStockLedgerGhost'),
   'buildStockLedger filters ghosts');
 
@@ -35,8 +35,8 @@ const salesSrc = fs.readFileSync(path.join(__dirname, '../lib/sales-document.js'
 ok(salesSrc.includes('isZeroQtyValueGhost'), 'void path skips zero ghosts');
 
 const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-ok(appSrc.includes('kardexShowCanc') && appSrc.includes('_kardexOpenSource'),
-  'UI has history toggle + drill');
+ok(!appSrc.includes('kardexShowCanc') && appSrc.includes('_kardexOpenSource'),
+  'v508: UI drill without history toggle');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kardex-v364-'));
 const testDb = path.join(dir, 't.db');
@@ -133,9 +133,9 @@ try {
   ok(ledger.lines.length === 2, 'after heal still 2 active lines', ledger.lines.length);
 
   const withHist = buildStockLedger(db, { product_id: pid, show_cancelled: 1 });
-  ok(withHist.lines.length >= 4, 'show_cancelled reveals retired rows', withHist.lines.length);
-  ok(withHist.lines.some((l) => l.cancelled || l.status === 'reversed'),
-    'history marks cancelled');
+  ok(withHist.lines.length === 2, 'v508: retired rows never shown (flag ignored)', withHist.lines.length);
+  ok(!withHist.lines.some((l) => l.cancelled || l.status === 'reversed'),
+    'v508: no cancelled rows in kardex');
 
   // Soft-retire the sale line (amend-style) without reverse stock post
   const live = db.prepare(`

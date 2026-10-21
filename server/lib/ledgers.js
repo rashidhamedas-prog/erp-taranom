@@ -528,6 +528,20 @@ function stockLineGroupKey(line) {
   return `id:${line.id}`;
 }
 
+/** Kardex wording: document type + number only; colour/size live in details[]. */
+function shortStockDescription(r) {
+  const st = String(r.source_type || '');
+  const et = String(r.event_type || '');
+  if (st === 'stock_reconcile') return 'تعدیل موجودی';
+  if (isOpeningStockRow(r)) return 'موجودی اول دوره';
+  let note = normalizeFaLetters(String(r.note || r.description || et || '').trim());
+  if (normalizeAuditText(note).includes('همترازی')) return 'تعدیل موجودی';
+  note = note.replace(/\s*—\s*اصلاح فاکتور\s*$/, '');
+  note = note.replace(/فاکتور (معمولی|رسمی|فروش)\s+/, '');
+  note = note.replace(/\s*\([^)]*\)\s*$/, '');
+  return note.trim() || et;
+}
+
 function enrichInvoiceGroupDetails(db, productId, parent) {
   if (String(parent.source_type || '') !== 'invoice' || !parent.source_id) return;
   try {
@@ -536,6 +550,9 @@ function enrichInvoiceGroupDetails(db, productId, parent) {
     if (inv.num) {
       parent.doc_num = inv.num;
       parent.tx_no = inv.num;
+      parent.description = (Number(parent.qty_in) || 0) > 0 && !(Number(parent.qty_out) || 0)
+        ? `برگشت فروش ${inv.num}`
+        : `فروش ${inv.num}`;
     }
     // Ledger-aggregated children already carry true qty_out/in — never replace
     // them with invoice JSON (pack matrix often repeats line qty per color).
@@ -553,16 +570,7 @@ function enrichInvoiceGroupDetails(db, productId, parent) {
     const parentQty = parentOut > 0 ? parentOut : parentIn;
     // Only explode when invoice line qtys sum to the ledger parent — otherwise
     // details would show 2+2+2+2 while parent shows 2.
-    if (Math.abs(invSumOut - parentQty) > 1e-6) {
-      const colors = parts
-        .map((r) => [r.color_name || r.color, r.size_name].filter(Boolean).join('/'))
-        .filter(Boolean);
-      if (colors.length && parent.description
-        && !String(parent.description).includes('رنگ')) {
-        parent.description = `${parent.description} (${colors.slice(0, 6).join('، ')})`;
-      }
-      return;
-    }
+    if (Math.abs(invSumOut - parentQty) > 1e-6) return;
     parent.details = parts.map((r, i) => ({
       id: `${parent.id}-inv-${i}`,
       tx_no: inv.num || parent.tx_no,
@@ -574,10 +582,6 @@ function enrichInvoiceGroupDetails(db, productId, parent) {
     }));
     parent.is_group = true;
     parent.detail_count = parent.details.length;
-    const label = parent.details.length + ' رنگ/سایز';
-    if (parent.description && !String(parent.description).includes('رنگ/سایز')) {
-      parent.description = `${parent.description} (${label})`;
-    }
   } catch (_) { /* optional */ }
 }
 
@@ -650,11 +654,6 @@ function aggregateStockLedgerLines(db, lines, productId) {
     };
     if (String(parent.source_type || '') === 'invoice') {
       enrichInvoiceGroupDetails(db, productId, parent);
-    } else if (details.length > 1) {
-      const label = details.length + ' رنگ/سایز';
-      if (parent.description && !parent.description.includes(label)) {
-        parent.description = `${parent.description} (${label})`;
-      }
     }
     out.push(parent);
   }
@@ -662,7 +661,7 @@ function aggregateStockLedgerLines(db, lines, productId) {
 }
 
 function buildStockLedger(db, {
-  product_id, warehouse_id, from, to, show_cancelled, show_audit, event_type,
+  product_id, warehouse_id, from, to, event_type,
 } = {}, { stripCost = false } = {}) {
   const pid = parseInt(product_id, 10);
   if (!Number.isFinite(pid) || pid <= 0) throw LedgerError(400, 'شناسه کالا الزامی است');
@@ -679,15 +678,6 @@ function buildStockLedger(db, {
     throw LedgerError(404, 'دفتر موجودی یافت نشد');
   }
 
-  const showAudit = show_cancelled === true
-    || show_cancelled === 1
-    || String(show_cancelled || '') === '1'
-    || String(show_cancelled || '').toLowerCase() === 'true'
-    || show_audit === true
-    || show_audit === 1
-    || String(show_audit || '') === '1'
-    || String(show_audit || '').toLowerCase() === 'true';
-  const showCancelled = showAudit; // API alias kept for older clients
   const eventFilter = event_type != null && String(event_type).trim() !== ''
     ? String(event_type).trim()
     : null;
@@ -742,11 +732,28 @@ function buildStockLedger(db, {
 
   const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows, db);
 
-  // Live stream = posted rows that are not one side of a void.
-  // Opening documents dated on or before «از تاریخ» are اول دوره, not ورود.
+  // WIP (کار در جریان) is a production stage, not goods on hand: its rows
+  // belong to production reports. Only an explicit WIP-warehouse filter shows them.
+  let wipWarehouseIds = new Set();
+  try {
+    wipWarehouseIds = new Set(db.prepare(
+      "SELECT id FROM warehouses WHERE kind='wip' OR warehouse_type='wip'"
+    ).all().map((w) => Number(w.id)));
+  } catch (_) { wipWarehouseIds = new Set(); }
+  const wipView = whId != null && wipWarehouseIds.has(whId);
+  const isProductionStageRow = (r) => !wipView && (
+    isWarehouseOnlyRow(r) || wipWarehouseIds.has(Number(r.warehouse_id))
+  );
+  // Kardex is quantity-based: value-only revaluations (qty 0) live in costing reports.
+  const isValueOnlyRow = (r) => !(Number(r.qty_in) || 0) && !(Number(r.qty_out) || 0);
+
+  // One live stream: every posted movement except void pairs, production-stage
+  // rows and value-only revaluations. No hidden rows feed the balance.
   const economic = rows.filter((r) => (
     r.status === 'posted'
     && !isZeroQtyValueGhost(r)
+    && !isValueOnlyRow(r)
+    && !isProductionStageRow(r)
     && !isVoidPairStockRow(r, legacyVoidHideIds)
     && (!eventFilter || r.event_type === eventFilter)
   ));
@@ -762,124 +769,60 @@ function buildStockLedger(db, {
     if (d < from) return false; // already in opening via «before» loop
     if (to && d > to) return false;
     if (d <= from) return true;
-    // سال مالی وسط سال باز شده؛ بازهٔ گزارش از اول تقویم شروع شده
     if (fyStart && d === fyStart && from <= fyStart) return true;
-    // Opening / هم‌ترازی اول‌دوره anywhere inside the filter window is still
-    // اول دوره — never period inflow and never the alignOnly dead-zone that
-    // shows qty_in but leaves running_qty unchanged (audit toggle bug).
     return true;
   };
 
   let opening_qty = 0;
-  let opening_wh_qty = 0;
   if (from) {
     for (const r of economic) {
       const before = (r.date || '') < from;
       if (!before && !countsAsOpening(r)) continue;
-      const delta = (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
-      opening_wh_qty += delta;
-      if (!isWarehouseOnlyRow(r)) opening_qty += delta;
+      opening_qty += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
     }
   }
 
   let period_qty_in = 0;
   let period_qty_out = 0;
-  let live_qty_in = 0;
-  let live_qty_out = 0;
   let running = opening_qty;
-  let runningWh = opening_wh_qty;
   const lines = [];
 
-  // Walk full history for correct running balance; emit only operational rows
-  // unless audit toggle is on (then also emit reversed + audit-only).
-  const walk = showAudit
-    ? rows.filter((r) => {
-      if (isZeroQtyValueGhost(r) && r.status === 'posted') return false;
-      if (eventFilter && r.event_type !== eventFilter && r.event_type !== 'reversal') return false;
-      return true;
-    })
-    : economic;
-
-  for (const r of walk) {
+  for (const r of economic) {
     if (from && (r.date || '') < from) continue;
     if (to && (r.date || '') > to) continue;
+    if (countsAsOpening(r)) continue; // already in «اول دوره»
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
-    const wipOnly = isWarehouseOnlyRow(r);
-    const voidRow = isVoidPairStockRow(r, legacyVoidHideIds);
-    const contributes = r.status === 'posted' && !isZeroQtyValueGhost(r) && !voidRow;
-    const auditOnly = isAuditOnlyStockRow(r, legacyVoidHideIds);
-    const openingSlice = contributes && countsAsOpening(r);
-    // Align-only = technical mid-period reconcile. Openings are never align-only
-    // even when the note contains «هم‌ترازی» (seed rows from reconcileProductStockLedger).
-    const alignOnly = auditOnly && !voidRow && !openingSlice && !isOpeningStockRow(r);
-    // Live balance ignores void pairs and hidden alignment. Opening dated on
-    // or before «از تاریخ» is the header figure, not a period receipt.
-    const liveMove = contributes && !openingSlice && !alignOnly;
-    if (liveMove) {
-      if (!wipOnly) {
-        live_qty_in += qIn;
-        live_qty_out += qOut;
-        period_qty_in += qIn;
-        period_qty_out += qOut;
-        running += qIn - qOut;
-      }
-      runningWh += qIn - qOut;
-    } else if (
-      // Audit mode may inflate period totals with void pairs for visibility.
-      // Do NOT add alignOnly here — that created control_gap while the row was
-      // still visible in the table («تفاوت از ردیف هم‌ترازی خارج از جدول»).
-      showAudit && voidRow && !isZeroQtyValueGhost(r) && !wipOnly && !openingSlice
-      && (r.status === 'posted' || r.status === 'reversed')
-    ) {
-      period_qty_in += qIn;
-      period_qty_out += qOut;
-    }
-    // Operational: hide opening seeds (KPI «اول دوره» already has them).
-    // Audit: show the seed row; running already includes it via opening_qty.
-    if (openingSlice && !showAudit) continue;
-    if ((voidRow || alignOnly) && !showAudit) continue;
+    period_qty_in += qIn;
+    period_qty_out += qOut;
+    running += qIn - qOut;
     const srcType = r.source_type || r.event_type || null;
     const whDocId = r.wh_doc_id != null ? Number(r.wh_doc_id) : null;
-    const linkRefType = (Number.isFinite(whDocId) && whDocId > 0)
-      ? 'warehouse_doc'
-      : srcType;
-    const linkRefId = (Number.isFinite(whDocId) && whDocId > 0)
-      ? whDocId
-      : r.source_id;
+    const hasWhDoc = Number.isFinite(whDocId) && whDocId > 0;
     const link = safeSourceLink({
-      ref_type: linkRefType,
-      ref_id: linkRefId,
+      ref_type: hasWhDoc ? 'warehouse_doc' : srcType,
+      ref_id: hasWhDoc ? whDocId : r.source_id,
       journal_id: r.je_id,
     });
-    const cancelled = r.status === 'reversed'
-      || String(r.event_type || '') === 'reversal'
-      || String(r.event_type || '').endsWith('_reversal')
-      || legacyVoidHideIds.has(r.id);
     lines.push({
       id: r.id,
       tx_no: r.tx_no || null,
       date: r.date,
-      description: r.note || r.event_type || '',
+      description: shortStockDescription(r),
       event_type: r.event_type,
       warehouse_id: r.warehouse_id,
       warehouse_name: r.warehouse_name || '',
       qty_in: qIn,
       qty_out: qOut,
       running_qty: running,
-      warehouse_running_qty: runningWh,
-      warehouse_only: !!wipOnly,
-      unit_cost_rial: (contributes || showAudit) ? r.unit_cost_rial : null,
+      unit_cost_rial: r.unit_cost_rial,
       amount_rial: r.amount_rial,
-      status: r.status || 'posted',
-      cancelled: !!cancelled,
-      audit_only: !!auditOnly,
-      is_opening: !!openingSlice,
-      reversed_of: r.reversed_of || null,
+      status: 'posted',
+      is_opening: isOpeningStockRow(r),
       user_name: r.user_name || '',
       source_type: r.source_type || null,
       source_id: r.source_id || null,
-      wh_doc_id: Number.isFinite(whDocId) && whDocId > 0 ? whDocId : null,
+      wh_doc_id: hasWhDoc ? whDocId : null,
       wh_doc_num: r.wh_doc_num || null,
       color_name: r.color_name || null,
       size_name: r.size_name || null,
@@ -889,24 +832,34 @@ function buildStockLedger(db, {
     });
   }
 
-  const aggregated = aggregateStockLedgerLines(db, lines, pid);
+  const aggregated = aggregateStockLedgerLines(db, lines, pid).slice();
   lines.length = 0;
   for (const row of aggregated) lines.push(row);
 
   const period_net_qty = period_qty_in - period_qty_out;
-  // پایان دوره از جریان زنده است (اول دوره + ورود زنده − خروج زنده)، حتی وقتی
-  // تیک ممیزی ورود/خروج را با ردیف ابطال بزرگ‌تر نشان می‌دهد.
-  const closing_qty = opening_qty + live_qty_in - live_qty_out;
-  const control_gap_qty = closing_qty - (opening_qty + period_net_qty);
-  const closing_warehouse_qty = runningWh;
+  const closing_qty = opening_qty + period_net_qty;
 
+  // Physical stock card (warehouse_stock) must equal the ledger. Any gap is
+  // reported, never silently aligned — it is settled by a stock count document.
   let warehouse_qty = null;
-  if (whId && tableExists(db, 'warehouse_stock')) {
-    const ws = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(pid, whId);
-    warehouse_qty = ws ? Number(ws.qty) || 0 : 0;
+  if (tableExists(db, 'warehouse_stock')) {
+    if (whId) {
+      const ws = db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(pid, whId);
+      warehouse_qty = ws ? Number(ws.qty) || 0 : 0;
+    } else {
+      const ids = [...wipWarehouseIds];
+      const ws = db.prepare(`
+        SELECT COALESCE(SUM(qty),0) AS q FROM warehouse_stock
+        WHERE product_id=? ${ids.length ? `AND warehouse_id NOT IN (${ids.map(() => '?').join(',')})` : ''}
+      `).get(pid, ...ids);
+      warehouse_qty = Number(ws?.q) || 0;
+    }
   }
+  const book_gap_qty = (!to && !eventFilter && warehouse_qty != null)
+    ? Math.round((closing_qty - warehouse_qty) * 1000) / 1000
+    : 0;
 
   let payload = {
     entity_type: 'product',
@@ -920,16 +873,15 @@ function buildStockLedger(db, {
     },
     warehouse_id: whId,
     warehouse_qty,
+    book_gap_qty,
     opening_qty,
     period_qty_in,
     period_qty_out,
     period_net_qty,
-    control_gap_qty,
-    live_period: !showAudit,
+    control_gap_qty: 0,
+    live_period: true,
     closing_qty,
-    closing_warehouse_qty,
-    show_cancelled: showCancelled,
-    show_audit: showAudit,
+    closing_warehouse_qty: closing_qty,
     event_type: eventFilter,
     lines,
     source: 'inventory_ledger',

@@ -105,7 +105,7 @@ try {
 
   const audit = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   const aNotes = (audit.lines || []).map((l) => l.description || '');
-  ok(aNotes.some((n) => /PO-0006/.test(n)), 'audit toggle reveals legacy void pair');
+  ok(!aNotes.some((n) => /PO-0006/.test(n)), 'v508: void pair never shown (audit flag ignored)');
 
   // Live closed-order style receipt must remain visible
   postInventoryMovement(db, {
@@ -125,8 +125,8 @@ try {
   const audit2 = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   ok(Number(opsC.closing_qty) === Number(audit2.closing_qty),
     'closing identical with/without audit rows in the table');
-  ok(Number(audit2.period_qty_in) > Number(opsC.period_qty_in),
-    'audit toggle puts voided receipts back into period in', audit2.period_qty_in);
+  ok(Number(audit2.period_qty_in) === Number(opsC.period_qty_in),
+    'v508: audit flag ignored — period in unchanged', audit2.period_qty_in);
 } finally {
   try { db.close(); } catch (_) {}
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

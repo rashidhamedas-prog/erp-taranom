@@ -852,7 +852,7 @@ function backfillOpeningInventoryLedger(db) {
   }
   const result = reconcileInventoryLedgerGaps(db, {
     noteIn: 'موجودی اول دوره (backfill)',
-    noteOut: 'هم‌ترازی کاردکس با موجودی انبار (backfill)',
+    noteOut: 'تعدیل موجودی (backfill)',
     recordSetting: false,
   });
   const count = Number(result.count) || 0;
@@ -892,7 +892,7 @@ function reconcileProductStockLedger(db, productId, {
   // Plain opening label — the old «هم‌ترازی کاردکس» suffix made legitimate
   // first-period stock look like phantom noise in every report.
   noteIn = 'موجودی اول دوره',
-  noteOut = 'هم‌ترازی کاردکس با موجودی انبار',
+  noteOut = 'تعدیل موجودی',
 } = {}) {
   const pid = parseInt(productId, 10);
   if (!Number.isFinite(pid) || pid <= 0) return { count: 0, seeded_wh: 0 };
@@ -1000,7 +1000,7 @@ function reconcileProductStockLedger(db, productId, {
  */
 function reconcileInventoryLedgerGaps(db, {
   noteIn = 'موجودی اول دوره',
-  noteOut = 'هم‌ترازی کاردکس با موجودی انبار',
+  noteOut = 'تعدیل موجودی',
   recordSetting = true,
 } = {}) {
   if (process.env.SYNC_ROLE === 'device') {

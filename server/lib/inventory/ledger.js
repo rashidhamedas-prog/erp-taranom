@@ -424,7 +424,17 @@ function getKardex(db, productId, { warehouseId, limit = 500 } = {}) {
     WHERE ${where.join(' AND ')}
     ORDER BY l.id ASC
     LIMIT ?
-  `).all(...params, limit).filter((r) => {
+  `).all(...params, limit);
+  let wipIds = new Set();
+  try {
+    wipIds = new Set(db.prepare(
+      "SELECT id FROM warehouses WHERE kind='wip' OR warehouse_type='wip'"
+    ).all().map((w) => Number(w.id)));
+  } catch (_) { wipIds = new Set(); }
+  const wipView = warehouseId && wipIds.has(Number(warehouseId));
+  return { product, rows: rows.filter((r) => {
+    if (!wipView && (isWarehouseOnlyRow(r) || wipIds.has(Number(r.warehouse_id)))) return false;
+    if (!(Number(r.qty_in) || 0) && !(Number(r.qty_out) || 0)) return false;
     if (String(r.status || '') === 'reversed') return false;
     const et = String(r.event_type || '');
     if (et === 'reversal' || et.endsWith('_reversal')) return false;
@@ -432,8 +442,7 @@ function getKardex(db, productId, { warehouseId, limit = 500 } = {}) {
     const note = String(r.note || '').trim();
     if (/^\[?ابطال/.test(note)) return false;
     return true;
-  });
-  return { product, rows };
+  }) };
 }
 
 /** True when a posted row has no qty and no value — amend ghost / noop. */

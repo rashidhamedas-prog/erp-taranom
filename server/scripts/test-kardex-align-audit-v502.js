@@ -25,9 +25,9 @@ function finish() {
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 ok(/erp-taranom-v(502|\d{3,})/.test(sw), 'SW stamped >= v502');
 const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-ok(app.includes('audit_only:!!l.audit_only') && app.includes('is_opening:!!l.is_opening'),
-  'UI maps audit_only + is_opening');
-ok(app.includes('اول دوره + ورود زنده − خروج زنده'), 'kardex caption uses live in/out');
+ok(!app.includes('audit_only:!!l.audit_only') && app.includes('is_opening:!!l.is_opening'),
+  'v508: UI maps is_opening, no audit_only');
+ok(/پایان دوره = اول دوره \+ ورود( زنده)? − خروج( زنده)?/.test(app), 'kardex caption states the identity');
 try { new Function(app); ok(true, 'app.js parses'); }
 catch (e) { ok(false, 'app.js parse: ' + e.message); }
 
@@ -143,11 +143,13 @@ try {
   ok(Math.abs(Number(audit.period_qty_in) - 7) < 0.001,
     'audit period in still 7 (seed not period inflow)', audit.period_qty_in);
   ok(Math.abs(Number(audit.control_gap_qty) || 0) < 0.001, 'audit control_gap=0', audit.control_gap_qty);
-  const openLine = (audit.lines || []).find((l) => /موجودی اول دوره/.test(l.description || ''));
-  ok(!!openLine, 'audit shows opening seed row');
+  ok(!(audit.lines || []).some((l) => /موجودی اول دوره/.test(l.description || '')),
+    'v508: opening folded into اول دوره (flag ignored)');
+  const all = buildStockLedger(db, { product_id: prod });
+  const openLine = (all.lines || []).find((l) => /موجودی اول دوره/.test(l.description || ''));
+  ok(!!openLine, 'no from-date: opening seed row shown');
   ok(!!openLine && openLine.is_opening, 'opening line flagged is_opening');
-  ok(!!openLine && Math.abs(Number(openLine.running_qty) - 12) < 0.001,
-    'opening line running_qty=12 (not stuck at 0)', openLine && openLine.running_qty);
+  ok(Math.abs(Number(all.closing_qty) - 12) < 0.001, 'no from-date: closing=12', all.closing_qty);
   const last = audit.lines[audit.lines.length - 1];
   ok(last && Math.abs(Number(last.running_qty) - 12) < 0.001,
     'final running matches closing 12', last && last.running_qty);

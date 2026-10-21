@@ -11984,8 +11984,8 @@ async function voidInvoiceDoc(id,num){
    ITEM KARDEX (کاردکس کالا) — professional stock ledger (v364/v400)
    Operational value rows only by default; void+align hidden; optional audit.
 ============================================================ */
-let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'', show_cancelled:false };
-let _frkState={ batch_id:'', product_id:'', q:'', from:'', to:'', show_cancelled:false };
+let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'' };
+let _frkState={ batch_id:'', product_id:'', q:'', from:'', to:'' };
 
 async function renderItemKardexTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
@@ -12019,9 +12019,6 @@ async function renderItemKardexTab(body){
             `<option value="${e}" ${String(_kardexState.event_type)===e?'selected':''}>${e}</option>`).join('')}
         </select>
       </div>
-      <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px;padding-bottom:8px`)}" title="فقط برای ممیزی؛ پیش‌فرض مخفی است">
-        <input type="checkbox" id="kardexShowCanc" ${_kardexState.show_cancelled?'checked':''}> نمایش ابطال و هم‌ترازی
-      </label>
       <button type="button" class="btn" id="kardexReload" data-csp-style="${CSP.style(`margin-bottom:2px`)}">نمایش</button>
       <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}">CSV</a>
     </div>
@@ -12033,12 +12030,10 @@ async function renderItemKardexTab(body){
     _kardexState.from=el('kardexFrom')?.value?.trim()||'';
     _kardexState.to=el('kardexTo')?.value?.trim()||'';
     _kardexState.event_type=el('kardexEvt')?.value||'';
-    _kardexState.show_cancelled=!!el('kardexShowCanc')?.checked;
     loadItemKardex(_kardexState.productId);
   };
   el('kardexProduct')?.addEventListener('change',reload);
   el('kardexReload')?.addEventListener('click',reload);
-  el('kardexShowCanc')?.addEventListener('change',reload);
   el('kardexCsv')?.addEventListener('click',function(ev){
     ev.preventDefault();
     const pid=el('kardexProduct')?.value;
@@ -12048,7 +12043,6 @@ async function renderItemKardexTab(body){
     if(el('kardexFrom')?.value?.trim()) q.set('from',el('kardexFrom').value.trim());
     if(el('kardexTo')?.value?.trim()) q.set('to',el('kardexTo').value.trim());
     if(el('kardexEvt')?.value) q.set('event_type',el('kardexEvt').value);
-    if(el('kardexShowCanc')?.checked) q.set('show_cancelled','1');
     window.open('/api/ledgers/stock?'+q.toString(),'_blank');
   });
   if(_kardexState.productId) loadItemKardex(_kardexState.productId);
@@ -12074,7 +12068,6 @@ async function loadItemKardex(productId){
   if(_kardexState.from) q.set('from',_kardexState.from);
   if(_kardexState.to) q.set('to',_kardexState.to);
   if(_kardexState.event_type) q.set('event_type',_kardexState.event_type);
-  if(_kardexState.show_cancelled) q.set('show_cancelled','1');
   let raw=await api('GET','/ledgers/stock?'+q.toString()).catch(()=>null);
   let d=null;
   if(raw && raw.lines){
@@ -12083,19 +12076,16 @@ async function loadItemKardex(productId){
       opening_qty:raw.opening_qty,
       period_qty_in:raw.period_qty_in,
       period_qty_out:raw.period_qty_out,
-      control_gap_qty:raw.control_gap_qty,
       closing_qty:raw.closing_qty,
-      control_gap_qty:raw.control_gap_qty,
-      closing_warehouse_qty:raw.closing_warehouse_qty,
       warehouse_qty:raw.warehouse_qty,
+      book_gap_qty:raw.book_gap_qty,
       logs:raw.lines.map(l=>({
         id:l.id, date:l.date, tx_no:l.tx_no, doc_num:l.doc_num||l.wh_doc_num||null,
         event_type:l.event_type, note:l.description,
         warehouse_name:l.warehouse_name, qty_in:l.qty_in, qty_out:l.qty_out,
         running_balance:l.running_qty, warehouse_running_qty:l.warehouse_running_qty,
         unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
-        user_name:l.user_name||'', status:l.status||'posted', cancelled:!!l.cancelled,
-        audit_only:!!l.audit_only, is_opening:!!l.is_opening,
+        user_name:l.user_name||'', status:l.status||'posted', is_opening:!!l.is_opening,
         ref_type:l.ref_type, ref_id:l.ref_id, source_type:l.source_type, source_id:l.source_id,
         warehouse_only:!!l.warehouse_only,
         is_group:!!l.is_group, detail_count:l.detail_count||0, details:l.details||null
@@ -12116,12 +12106,9 @@ async function loadItemKardex(productId){
     <div class="panel">
       <div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
         <h4>${esc(d.product.name)} <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(${esc(d.product.code||'-')})</span></h4>
-        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی فعلی: ${fmtQtyFa(
-          (_kardexState.warehouse_id && d.warehouse_qty!=null) ? d.warehouse_qty : (d.product.stock||0)
+        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">موجودی انبار: ${fmtQtyFa(
+          d.warehouse_qty!=null ? d.warehouse_qty : (d.product.stock||0)
         )} ${unit}
-          ${d.source==='inventory_ledger'?' · دفتر کل انبار (فعال)':''}
-          ${_kardexState.show_cancelled?' · شامل ابطال و هم‌ترازی (ممیزی)':''}
-          ${(!_kardexState.warehouse_id && d.warehouse_qty!=null)?' · موجودی انبار فیلتر: '+fmtQtyFa(d.warehouse_qty):''}
           ${_kardexState.warehouse_id?' · محدودهٔ انبار انتخاب‌شده':''}
         </span>
       </div>
@@ -12129,10 +12116,10 @@ async function loadItemKardex(productId){
         ${kpi('اول دوره', d.opening_qty)}
         ${kpi('ورود دوره', d.period_qty_in, 'var(--green)')}
         ${kpi('خروج دوره', d.period_qty_out, 'var(--red)')}
-        ${kpi('پایان دوره (فروش‌پذیر)', d.closing_qty)}
-        ${d.closing_warehouse_qty!=null?kpi('پایان فیزیکی انبار', d.closing_warehouse_qty):''}
+        ${kpi('پایان دوره', d.closing_qty)}
       </div>
-      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:4px 14px 0;line-height:1.7`)}">اول دوره، موجودی تا شروع همین بازه است؛ سند افتتاحیه / هم‌ترازی اول‌دوره در ورود دوره نیست و مانده را از همان اول می‌سازد. ${_kardexState.show_cancelled?'در ممیزی، ابطال و هم‌ترازی دیده می‌شوند؛ ماندهٔ نهایی همان جریان زنده است (ابطال خالص را عوض نمی‌کند). ورود/خروج زنده فقط ردیف‌های عملیاتی‌اند؛ جفت ابطال فقط برای شفافیت در جمع ممیزی می‌آید.':'سند ابطال‌شده و ردیف معکوسش در جدول و در مانده نیست.'} پایان دوره = اول دوره + ورود زنده − خروج زنده.</div>
+      ${Math.abs(Number(d.book_gap_qty)||0)>1e-6?`<div data-csp-style="${CSP.style(`margin:8px 14px 0;padding:8px 12px;border:1px solid var(--red);border-radius:8px;font-size:12px;line-height:1.8`)}">⚠ ماندهٔ کاردکس ${fmtQtyFa(d.closing_qty||0)} با موجودی انبار ${fmtQtyFa(d.warehouse_qty||0)} ${fmtQtyFa(Math.abs(d.book_gap_qty))} ${unit} اختلاف دارد. این اختلاف خودکار پوشانده نمی‌شود؛ با شمارش انبار (انبارگردانی) و ثبت سند تعدیل رفع کنید.</div>`:''}
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:4px 14px 0;line-height:1.7`)}">کاردکس فقط گردش کالای انبارهای فیزیکی است: اسناد ابطال‌شده، مراحل کار در جریان (بسته برش/WIP) و تعدیل‌های فقط-بهایی در گزارش‌های تولید و بهای تمام‌شده‌اند. پایان دوره = اول دوره + ورود − خروج.</div>
       <div class="panel-body tbl-wrap">
         <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>مانده</th>
@@ -12143,18 +12130,13 @@ async function loadItemKardex(productId){
           const dt=l.date||(l.created_at?new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR'):'-');
           const qIn=Number(l.qty_in)||0;
           const qOut=Number(l.qty_out)||0;
-          const cancelled=l.cancelled||l.status==='reversed';
-          const auditOnly=!!l.audit_only;
           const isOpening=!!l.is_opening;
           const isGroup=!!l.is_group && Array.isArray(l.details) && l.details.length>1;
           const canDrill=l.ref_type && l.ref_id;
           const noteHtml=canDrill
             ? `<a href="#" data-kardex-ref="${esc(l.ref_type)}" data-kardex-id="${esc(String(l.ref_id))}" data-csp-style="${CSP.style(`color:var(--accent,var(--purple));text-decoration:underline`)}">${esc(l.note||'-')}</a>`
             : esc(l.note||'-');
-          const badge=cancelled?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">${l.event_type==='reversal'?'معکوس':'ابطال'}</span>`
-            :(isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`
-            :(auditOnly?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">هم‌ترازی</span>`:''));
-          const wip=l.warehouse_only?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">WIP</span>`:'';
+          const badge=isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`:'';
           const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" aria-expanded="false" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
           const colSpan=window.__canSeeCost?10:8;
           const detailRows=isGroup?l.details.map(d=>{
@@ -12169,21 +12151,21 @@ async function loadItemKardex(productId){
               <td colspan="${window.__canSeeCost?4:2}" class="muted">جزئیات رنگ/سایز</td>
             </tr>`;
           }).join(''):'';
-          return `<tr data-csp-style="${CSP.style(`${(cancelled||auditOnly||isOpening)?'opacity:.55':''}`)}">
+          return `<tr>
           <td class="mono">${esc(dt)}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.doc_num||l.tx_no||l.event_type||'-')}${badge}${wip}${groupBadge}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.doc_num||l.tx_no||l.event_type||'-')}${badge}${groupBadge}</td>
           <td>${noteHtml}</td>
           <td class="muted">${esc(l.warehouse_name||'-')}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(qIn)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(qOut)}</td>
           <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(l.running_balance||0)}</td>
-          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut||cancelled)?fmt(l.unit_cost_rial):'-'}</td>
+          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut)?fmt(l.unit_cost_rial):'-'}</td>
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
         </tr>${detailRows}`;
         }).join('')||`<tr><td colspan="10" class="empty">${
           Number(d.product?.stock||0)>0
-            ? 'ردیفی در دفتر موجودی نیست — با راه‌اندازی مجدد سرور هم‌ترازی انجام می‌شود؛ اگر ماند، پشتیبانی را خبر کنید'
+            ? 'ردیفی در دفتر موجودی نیست — موجودی را با سند اول دوره یا شمارش انبار ثبت کنید'
             : 'تراکنشی ثبت نشده'
         }</td></tr>`}
         </tbody>
@@ -12198,14 +12180,8 @@ async function loadItemKardex(productId){
         </table>
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-        مانده نهایی (هم‌تراز دفتر انبار): <span class="mono">${fmtQtyFa(d.closing_qty||0)} ${unit}</span>
-        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmtQtyFa(d.period_qty_in||0)} · جمع خروج ${fmtQtyFa(d.period_qty_out||0)} · منبع inventory_ledger${
-          Math.abs(Number(d.control_gap_qty)||0)>1e-6
-            ? (_kardexState.show_cancelled
-              ? ' · اختلاف ممیزی '+fmtQtyFa(d.control_gap_qty)+' (جفت ابطال در جمع دوره؛ ماندهٔ نهایی از جریان زنده)'
-              : ' · تفاوت '+fmtQtyFa(d.control_gap_qty)+' از ردیف هم‌ترازیِ مخفی نسبت به جمع جدول')
-            : ''
-        }</div>
+        مانده نهایی: <span class="mono">${fmtQtyFa(d.closing_qty||0)} ${unit}</span>
+        <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmtQtyFa(d.period_qty_in||0)} · جمع خروج ${fmtQtyFa(d.period_qty_out||0)}</div>
       </div>
     </div>`;
   box.querySelectorAll('[data-kardex-ref]').forEach(a=>{
@@ -12418,7 +12394,6 @@ async function renderFabricRollKardexTab(body){
       <input id="frk-q" class="search" placeholder="جستجو شرح / شماره..." value="${esc(_frkState.q||'')}" data-csp-style="${CSP.style(`min-width:180px`)}">
       <input id="frk-from" data-jdate placeholder="از تاریخ" value="${esc(_frkState.from||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px`)}">
       <input id="frk-to" data-jdate placeholder="تا تاریخ" value="${esc(_frkState.to||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px`)}">
-      <label class="muted" data-csp-style="${CSP.style(`font-size:12px;display:flex;align-items:center;gap:6px`)}"><input type="checkbox" id="frk-audit" ${_frkState.show_cancelled?'checked':''}> نمایش ابطال</label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(){loadFabricRollKardex()})}">نمایش</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">دریافت مواد</button>
     </div>
@@ -12427,7 +12402,6 @@ async function renderFabricRollKardexTab(body){
   if(typeof attachDatepickers==='function') attachDatepickers(body);
   el('frk-roll')?.addEventListener('change', loadFabricRollKardex);
   el('frk-prod')?.addEventListener('change', loadFabricRollKardex);
-  el('frk-audit')?.addEventListener('change', loadFabricRollKardex);
 }
 async function loadFabricRollKardex(){
   const box=el('frkBody'); if(!box) return;
@@ -12439,7 +12413,6 @@ async function loadFabricRollKardex(){
   _frkState.q=q;
   _frkState.from=el('frk-from')?.value?.trim()||'';
   _frkState.to=el('frk-to')?.value?.trim()||'';
-  _frkState.show_cancelled=!!el('frk-audit')?.checked;
   if(!batch_id && !product_id && !q){ box.innerHTML='<div class="empty">شماره، کالا یا عبارت جستجو را وارد کنید</div>'; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const qs=new URLSearchParams();
@@ -12449,7 +12422,6 @@ async function loadFabricRollKardex(){
   if(q) qs.set('q', q);
   if(_frkState.from) qs.set('from', _frkState.from);
   if(_frkState.to) qs.set('to', _frkState.to);
-  if(_frkState.show_cancelled) qs.set('show_cancelled','1');
   const d=await api('GET','/inventory/fabric-rolls/circulation?'+qs.toString());
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت گردش</div>'; return; }
   const rows=d.rows||[];
@@ -25778,7 +25750,7 @@ async function renderJournalDocsTab(body){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){voucherModal()})}">➕ سند دستی</button>
       <input id="jdSearch" type="search" inputmode="search" class="mono" placeholder="جستجو شماره سند…" value="${esc(_jdSearchQ)}" autocomplete="off" data-csp-style="${CSP.style(`min-width:200px;max-width:280px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}" data-csp-input="${CSP.bind('input',function(event){onJournalDocsSearch(this.value)})}">
       <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}" title="فقط ممیزی">
-        <input type="checkbox" id="jdShowAudit" ${_jdShowAudit?'checked':''} data-csp-change="${CSP.bind('change',function(){_jdShowAudit=!!el('jdShowAudit')?.checked;loadAccTab('journal-docs')})}"> نمایش ابطال و هم‌ترازی
+        <input type="checkbox" id="jdShowAudit" ${_jdShowAudit?'checked':''} data-csp-change="${CSP.bind('change',function(){_jdShowAudit=!!el('jdShowAudit')?.checked;loadAccTab('journal-docs')})}"> نمایش اسناد ابطال‌شده
       </label>
       <span class="tag">${fmt(total)} سند${_jdSearchQ?' (نتیجه جستجو)':''}${_jdShowAudit?' · ممیزی':''}</span>
     </div>
@@ -33429,7 +33401,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد برای همه نقش‌ها <b>یک پک زنده</b> می‌گذارد (هر رنگ×سایز موجود qty=۱؛ با اجازه موجودی منفی انبار حتی اگر موجودی صفر باشد)؛ ویرایش از سبد است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>📦 حواله انبار</b> برگهٔ عملیاتی A4/A5 برای انباردار می‌سازد (جدول کد/نام/رنگ/سایز/تعداد — <b>بدون مبلغ</b>؛ جایگزین فاکتور مالی نیست). دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. افزودن به سبد خرید (<code>genCart</code>) ماتریس رنگ×سایز را با <b>انبار مقصد</b> سربرگ می‌خواند؛ اگر پک زنده خالی باشد (ورود کالا) ماتریس کامل همان انبار نشان داده می‌شود. کالای ماتریسی مثل فروش به پک زنده (رنگ×سایز) شکسته می‌شود و هر خط <code>variant_id</code> دارد. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). دکمهٔ <b>📦 رسید انبار</b> برگهٔ کنترل ورود کالا (A4/A5، بدون مبلغ) برای انباردار است. دکمهٔ <b>✏️ ویرایش</b> اصلاح در محل روی همان شماره است (مثل فروش): سند خرید، موجودی، دفتر تأمین‌کننده و پرداخت هنگام فاکتور بازنویسی می‌شوند؛ <b>⛔ ابطال</b> کنار آن است (R13). اگر برگشت از خرید فعال باشد ابتدا آن را ابطال کنید. پرداخت‌های جدا (بعد از ثبت) اگر ساختار پرداخت هنگام فاکتور عوض شود مسدود می‌کنند. فاکتور از رسید GRNI فقط فی/تخفیف/کرایه/تاریخ را می‌پذیرد — تعداد و کالا قفل است</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b> (تخفیف ۱۴۰۵/v370 + تخصیص خالص v372 + فی بدون‌فاکتور v450): در هر جایی که فاکتور برای تخصیص/برگشت لیست می‌شود مبلغ <b>خالص پس از تخفیف تجاری</b> (وجه دریافتنی/پرداختنی) نشان داده می‌شود نه جمع قبل از تخفیف کل؛ دریافت/تخصیص اعتبار هم مانده را از همان خالص می‌سازد. حالت پیش‌فرض «روی فاکتور» — ابتدا مشتری/تأمین‌کننده و سپس فاکتور او؛ <b>فی و تخفیف ردیف از فاکتور مرجع قفل</b> است و <b>سهم تخفیف کل فاکتور</b> متناسب اعمال می‌شود؛ فیلد <b>تخفیف کلی</b> روی سند برگشت هم هست؛ قیمت از همان فاکتور و سقف تعداد = فروخته/خریداری‌شده منهای برگشتی‌های قبلی. در حالت <b>بدون فاکتور</b> فیلد «فی فروش/خرید» و «تخفیف کلی (مبلغ)» با جداکننده هزارگان وارد می‌شوند و هنگام افزودن (ساده یا ماتریس) همان مبلغ کامل ریالی به جدول و جمع پایین می‌رود — دیگر عدد در ویرگول قطع نمی‌شود. جدول اقلام ستون‌های جداگانهٔ <b>رنگ</b> و <b>سایز</b> دارد؛ برای نقش‌های مجاز (مدیر/حسابداری/بهای تولید) ستون <b>برآورد بها</b> و نوار پایین مودال جمع مبلغ برگشت + برآورد بهای تمام‌شده را زنده نشان می‌دهد. <b>برگشت فروش</b> فقط فاکتورهای قطعی <b>معمولی و رسمی</b> را لیست می‌کند (پیش‌فاکتور نیست). <b>برگشت فروش روی فاکتور</b> ماندهٔ همان فاکتور (فاکتورهای باز / تخصیص دریافت) را با جمع خالص+VAT برگشت‌های فعال کم می‌کند — بدون ردیف تسویهٔ جدا؛ بستانکار AR همان سند برگشت است. <b>برگشت خرید روی فاکتور</b> همان منطق را برای فاکتور خرید (پرداختنی / تخصیص پرداخت) اعمال می‌کند — بدون ردیف پرداخت تأمین‌کنندهٔ جعلی؛ بستانکار AP همان سند برگشت است. <b>برگشت بدون فاکتور مرجع</b> (P2c): اعتبار/بدهکار برگشت در حساب طرف مقابل می‌ماند تا با دکمهٔ <b>تخصیص به فاکتور</b> در لیست برگشت‌ها (مدیر/حسابداری) به فاکتورهای باز همان مشتری/تأمین‌کننده وصل شود — <b>بدون ردیف تسویه/پرداخت جعلی</b>؛ فقط ماندهٔ فاکتور کم می‌شود. در تنظیمات «تخصیص خودکار اعتبار برگشت بدون فاکتور» همان کار را پس از ثبت به‌صورت FIFO انجام می‌دهد. فیلد اختیاری <b>کد علت</b> در فرم ثبت برگشت (معیوب، کالای اشتباه، …). در ویرایش فاکتور فروش قطعی، زیر هر ردیف «برگشتی: N» از برگشت‌های لینک‌شده به همان فاکتور دیده می‌شود. <b>برگشت خرید لینک‌شده</b> ماندهٔ همان فاکتور خرید را کم می‌کند. حالت <b>بدون فاکتور</b> برای مدیر/حسابداری همیشه فعال است؛ برای سایر نقش‌ها فقط اگر در تنظیمات «اجازه برگشت بدون فاکتور» روشن باشد — قیمت دستی، بدون سقف فاکتور؛ در این حالت <b>کالا از کاتالوگ کامل</b> (نام/کد) جستجو می‌شود؛ کالای ماتریسی با «افزودن / ماتریس» رنگ×سایز همان انبار را می‌گیرد و <code>variant_id</code> ثبت می‌شود. اگر در تنظیمات «برگشت VAT روی برگشت لینک‌شده» روشن باشد، سهم مالیات فاکتور مرجع در سند معکوس می‌شود (فقط برگشت با فاکتور). در برگشت فروش <b>انبار مقصد</b> و در برگشت خرید بدون فاکتور <b>انبار ردیف</b> قابل انتخاب است (typed انبار؛ پیش‌فرض از فاکتور). بهای تمام‌شدهٔ فروش در ثبت از میانگین کالا/دفتر محاسبه می‌شود؛ پیش‌نمایش UI فقط برآورد است. برگشت فروش <b>📦 رسید انبار</b> برای ورود فیزیکی. دکمهٔ <b>✏️ ویرایش</b> روی برگشت فروش فعال (غیر ابطال‌شده): ابطال کامل اثرات قبلی (JE soft-void، انبار، دفتر مشتری، تخصیص اعتبار) و ثبت مجدد روی همان شماره؛ مشتری قفل است؛ سقف qty در ویرایش خود سند را از جمع برگشتی‌ها کم می‌کند. موجودی و حساب طرف مقابل خودکار</li>
-        <li><b>کاردکس کالا (v502)</b>: مقدار ورود، خروج، مانده و جمع‌ها تا ۳ رقم اعشار است (یارد و متر). مبلغ و بهای واحد ریال صحیح می‌مانند. اول دوره در نوار بالاست؛ سند «موجودی اول دوره (هم‌ترازی کاردکس)» حتی داخل بازهٔ فیلتر <b>اول دوره</b> است نه ورود، و ماندهٔ جاری را از همان عدد می‌سازد (با تیک ممیزی دیگر ورود ۱۲ و مانده ۰ دیده نمی‌شود). اگر سال مالی وسط سال باز شده باشد و بازه از اول تقویم باشد، همان سند در اول دوره می‌نشیند. حواله/مصرف مرحلهٔ جفت‌شده با ابطال از جدول و مانده خارج است. تیک «نمایش ابطال و هم‌ترازی» تاریخچه را نشان می‌دهد؛ ماندهٔ نهایی همان جریان زنده است. خروجی CSV همان عدد ذخیره‌شده را می‌نویسد.</li>
+        <li><b>کاردکس کالا (v508 — یک دفتر واحد)</b>: کاردکس فقط از دفتر موجودی (<code>inventory_ledger</code>) ساخته می‌شود و <b>هر ردیفی که در مانده اثر دارد در جدول دیده می‌شود</b> — هیچ ردیف پنهانی مانده را عوض نمی‌کند و تیک نمایش تاریخچهٔ ابطال از کاردکس حذف شده است. در کاردکس و هر گزارش گردش کالا نمی‌آیند: سند ابطال‌شده و ردیف معکوسش، مراحل <b>کار در جریان</b> (بسته برش WIP، تخلیه WIP — این‌ها در گزارش‌های تولید هستند) و ردیف‌های <b>فقط-بهایی</b> بدون مقدار (تعدیل بهای لایه‌چینی، تطبیق رسید با خالص WIP — در گزارش بهای تمام‌شده). شرح ردیف کوتاه است (مثلاً «فروش T-0009»)؛ رنگ/سایز با دکمهٔ «جزئیات» باز می‌شود. ردیف تعدیل مقدار با عنوان «تعدیل موجودی» دیده می‌شود. اول دوره در نوار بالاست؛ پایان دوره = اول دوره + ورود − خروج. اگر ماندهٔ کاردکس با موجودی انبار فرق کند، کادر قرمز مقدار اختلاف را نشان می‌دهد؛ این اختلاف خودکار «هم‌تراز» نمی‌شود و باید با <b>شمارش انبار</b> و سند تعدیل رفع شود. تعدیل دستی موجودی از کارت کالا هم یک سند «تعدیل دستی موجودی» در دفتر می‌زند. اصلاح فاکتور چندرنگی مقدار کل همهٔ رنگ‌ها را در دفتر و بهای تمام‌شده نگه می‌دارد (فاکتورهای قدیمی ناقص با سند «تکمیل بهای تمام‌شده» اصلاح شدند). مقادیر تا ۳ رقم اعشار (یارد/متر). خروجی CSV همان جدول را می‌نویسد.</li>
         <li><b>انبارها</b>: روش <b>دائمی</b> یا <b>ادواری</b> روی هر انبار (<b>روش ریالی‌کردن</b> جداست و فقط قیمت‌گذاری لایه است). حساب موجودی از <b>نوع انبار</b> (مواد ۱۱۱۰ / بسته‌بندی ۱۱۱۲ / WIP ۱۱۱۱ / محصول ۱۱۰۴ / امانی ۱۱۱۴ / ضایعات ۱۱۱۳) یا فیلد اختیاری <b>حساب موجودی</b> روی همان انبار گرفته می‌شود؛ خرید، رسید کالا (GRNI)، COGS فروش، هزینه حمل و بستن ادواری همین حساب typed را می‌زنند. در ادواری، رسید/حواله فقط تعداد را جابه‌جا می‌کنند و سند ارزش در بستن دوره است؛ فروش از انبار ادواری COGS لحظه‌ای نمی‌زند — همین قانون برای <b>اصلاح فاکتور، مرجوعی فروش و تسویه امانی</b> هم اعمال می‌شود. دکمهٔ <b>دوره‌ها / بازگشایی</b> سند تعدیل دوره را با علت الزامی ابطال می‌کند و موجودی را به مقدار قبل از شمارش برمی‌گرداند (R13). انتقال بین انواع انبار سند جابه‌جایی حساب موجودی می‌زند. <b>اجازه موجودی منفی</b> روی حوالهٔ انبار و <b>فاکتور فروش / فروش فروشگاهی</b> از همان انبار اعمال می‌شود (موجودی می‌تواند منفی شود). فقط یک انبار پیش‌فرض مجاز است.</li>
         <li><b>بچ (Lot)</b>: ثبت بچ و خروج FEFO در حواله (اگر یک بچ کافی باشد). UI سریال کالا مخفی است — چرخهٔ سریال در این نسخه فعال نیست</li>
         <li><b>گزارش جامع انبار (v333)</b>: موجودی فقط از جدول انبار×کالا (بدون fallback به موجودی کل). میانگین بها و ارزش ریالی از <code>average_cost_rial</code> یا بهای تمام‌شدهٔ کالا — هر دو ریال؛ دیگر بهای کاتالوگ را ×۱۰ (تومان قدیمی) نمی‌کند. فیلتر و خروجی CSV/اکسل</li>
@@ -33629,7 +33601,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v503</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v508</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

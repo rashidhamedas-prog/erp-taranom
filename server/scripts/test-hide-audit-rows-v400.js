@@ -19,7 +19,7 @@ function finish() {
 }
 
 const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-ok(appSrc.includes('نمایش ابطال و هم‌ترازی'), 'UI checkbox renamed for kardex audit');
+ok(!appSrc.includes('نمایش ابطال و هم‌ترازی'), 'v508: kardex audit toggle removed');
 ok(appSrc.includes('jdShowAudit') && appSrc.includes('include_audit'), 'journal docs audit toggle');
 {
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
@@ -114,8 +114,8 @@ try {
 
   const audit = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   const aNotes = (audit.lines || []).map((l) => l.description || '');
-  ok(aNotes.some((n) => /هم[\u200c\s]*ترازی|ابطال|معکوس/.test(n)),
-    'audit toggle shows void/align history');
+  ok(!aNotes.some((n) => /هم[\u200c\s]*ترازی|ابطال|معکوس/.test(n)),
+    'v508: no void/align history in kardex (audit flag ignored)');
   ok(Number(ops.closing_qty) === Number(audit.closing_qty),
     'closing qty identical with/without audit rows in the table');
 } finally {

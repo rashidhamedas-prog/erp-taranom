@@ -793,8 +793,8 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     try {
       require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
         createdBy: req.user.id,
-        noteIn: 'موجودی اکسل (هم‌ترازی کاردکس)',
-        noteOut: 'تعدیل اکسل (هم‌ترازی کاردکس)',
+        noteIn: 'موجودی اکسل',
+        noteOut: 'تعدیل اکسل',
       });
     } catch (e) {
       if (db.inTransaction) throw e;
@@ -869,14 +869,36 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
       db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
       db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
         .run(req.params.id, whId);
+      const wsBefore = Number(db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(req.params.id, whId)?.qty) || 0;
       // Absolute override on primary WH so invoice deduction matches header.
       db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
         .run(newStock, req.params.id, whId);
+      // The change itself is the adjustment document (items with movement
+      // history are skipped by reconcileProductStockLedger below).
+      const whDelta = newStock - wsBefore;
+      if (Math.abs(whDelta) > 1e-9) {
+        require('../lib/inventory/ledger').postInventoryMovement(db, {
+          eventType: 'adjustment',
+          productId: Number(req.params.id),
+          warehouseId: whId,
+          qty: whDelta,
+          unitCostRial: avg,
+          sourceType: 'stock_adjust',
+          sourceId: Number(req.params.id),
+          date: require('../jalali').todayJalali(),
+          note: note || 'تعدیل دستی موجودی',
+          createdBy: req.user.id,
+          skipStock: true,
+          updateAvg: false,
+        });
+      }
       // Kardex must reflect the absolute qty (skipStock — stock tables already set).
       require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
         createdBy: req.user.id,
-        noteIn: note || `تعدیل دستی موجودی → ${newStock}`,
-        noteOut: note || `تعدیل دستی موجودی → ${newStock}`,
+        noteIn: note || 'تعدیل دستی موجودی',
+        noteOut: note || 'تعدیل دستی موجودی',
       });
       if (Math.abs(change) > 1e-9) {
         try {

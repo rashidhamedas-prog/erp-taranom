@@ -219,10 +219,75 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
   };
 
   const keys = new Set([...oldAgg.keys(), ...newAgg.keys()]);
+  // inventory_ledger has no variant column: every colour/size row of one
+  // product+warehouse+batch matches the same movements. Such groups must be
+  // settled once on the summed qty, or the first variant swallows the rest.
+  const ledgerKey = (m) => `${m.productId}|${m.warehouseId || 0}|${m.batchId || 0}`;
+  const ledgerGroups = new Map();
+  for (const key of keys) {
+    const meta = newAgg.get(key) || oldAgg.get(key);
+    const lk = ledgerKey(meta);
+    if (!ledgerGroups.has(lk)) ledgerGroups.set(lk, []);
+    ledgerGroups.get(lk).push(key);
+  }
+  const multiVariant = new Set();
+  for (const [lk, ks] of ledgerGroups) {
+    const fabric = ks.some((k) => (newAgg.get(k) || oldAgg.get(k)).isFabric);
+    if (ks.length > 1 && !fabric) multiVariant.add(lk);
+  }
+  for (const lk of multiVariant) {
+    let newTotal = 0;
+    let meta = null;
+    for (const key of ledgerGroups.get(lk)) {
+      const old = oldAgg.get(key);
+      const neu = newAgg.get(key);
+      const m = neu || old;
+      meta = meta || m;
+      const oldQty = old ? old.qty : 0;
+      const newQty = neu ? neu.qty : 0;
+      newTotal += newQty;
+      const delta = oldQty - newQty;
+      if (Math.abs(delta) > 1e-9) {
+        applyStockDelta(db, {
+          productId: m.productId, warehouseId: m.warehouseId,
+          qtyDelta: delta, allowNegative: true,
+        });
+        if (m.variantId) adjustVariant(db, m.variantId, delta);
+      }
+    }
+    markWh(meta.warehouseId);
+    const mvs = takeMovements(unused, { ...meta, variantId: null });
+    if (mvs.length) {
+      if (newTotal <= 1e-9) {
+        for (const mv of mvs) retireAmendedMovement(db, mv);
+      } else {
+        cogsRial += updateMovementQty(db, mvs[0], newTotal, date);
+        for (let i = 1; i < mvs.length; i++) retireAmendedMovement(db, mvs[i]);
+      }
+    } else if (perpetual && newTotal > 1e-9) {
+      const mv = postInventoryMovement(db, {
+        eventType: 'sale',
+        productId: meta.productId,
+        warehouseId: meta.warehouseId,
+        qtyOut: newTotal,
+        sourceType: 'invoice',
+        sourceId: row.id,
+        batchId: meta.batchId || null,
+        date: date || '',
+        note: `فروش ${num}`,
+        createdBy: userId,
+        updateAvg: false,
+        skipStock: true,
+      });
+      cogsRial += Math.round(Number(mv.amount_rial) || 0);
+    }
+  }
+
   for (const key of keys) {
     const old = oldAgg.get(key);
     const neu = newAgg.get(key);
     const meta = neu || old;
+    if (multiVariant.has(ledgerKey(meta))) continue;
     const oldQty = old ? old.qty : 0;
     const newQty = neu ? neu.qty : 0;
     const delta = oldQty - newQty;
