@@ -178,6 +178,28 @@ function createTables(db) {
     );
     CREATE INDEX IF NOT EXISTS ix_lc_doc ON landed_cost_lines(doc_id);
     CREATE INDEX IF NOT EXISTS ix_lc_alloc ON landed_cost_allocations(doc_id);
+
+    CREATE TABLE IF NOT EXISTS fabric_roll_unit_relabels (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id          INTEGER NOT NULL,
+      product_id        INTEGER NOT NULL,
+      old_unit          TEXT DEFAULT '',
+      new_unit          TEXT NOT NULL,
+      old_entry_unit_id INTEGER,
+      old_entry_qty     REAL,
+      old_entry_factor  REAL,
+      entry_reset       INTEGER NOT NULL DEFAULT 0,
+      reason            TEXT NOT NULL DEFAULT '',
+      user_id           INTEGER,
+      created_at        INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at       INTEGER,
+      reversed_by       INTEGER,
+      reverse_reason    TEXT,
+      group_key         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_frur_product ON fabric_roll_unit_relabels(product_id, id);
+    CREATE INDEX IF NOT EXISTS ix_frur_group ON fabric_roll_unit_relabels(group_key);
+    CREATE INDEX IF NOT EXISTS ix_frur_batch ON fabric_roll_unit_relabels(batch_id);
   `);
 }
 

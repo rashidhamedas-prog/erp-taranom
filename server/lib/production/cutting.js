@@ -694,9 +694,41 @@ function isMeterUnit(unit) {
   return require('../uom').isLengthText(unit);
 }
 
+/** بعد واحد انبار کالا؛ بدون کاتالوگ واحدها از نام واحد. */
+function stockUnitDimension(db, prod) {
+  const uom = require('../uom');
+  let row = null;
+  try { row = uom.stockUnitForProduct(db, prod); } catch (_) { row = null; }
+  if (row && row.dimension) return row.dimension;
+  const k = String(prod.unit || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!k) return '';
+  const spec = uom.SPECS.find((s) => s.aliases.some((a) => a.replace(/\s+/g, '') === k));
+  return spec ? spec.dimension : '';
+}
+
+/** کالا در BOM فعال به عملیات مرکز برش وصل است (همان شناسهٔ posting.resolveCuttingCostCenterId). */
+function onActiveBomCuttingOperation(db, productId) {
+  try {
+    return !!db.prepare(`
+      SELECT 1
+      FROM bom_lines bl
+      JOIN bom_headers bh ON bh.id = bl.bom_id
+      JOIN bom_material_assignments ma ON ma.bom_line_id = bl.id
+      JOIN bom_operations o ON o.id = ma.operation_id
+      JOIN cost_centers cc ON cc.id = o.cost_center_id
+      WHERE bl.component_product_id=? AND bh.deleted_at IS NULL AND bh.status='active'
+        AND (cc.code='CC-10' OR cc.name='برش')
+      LIMIT 1
+    `).get(Number(productId));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * پارچهٔ طاقه‌ای = مصرف فقط از لایه‌چینی.
- * واحد کالا طولی باشد، یا طاقه (kind=fabric) داشته باشد — به هر واحدی (متر، یارد، کیلوگرم، مترمربع).
+ * واحد کالا طولی باشد، یا طاقه (kind=fabric) داشته باشد — به هر واحدی (متر، یارد، کیلوگرم، مترمربع)،
+ * یا واحد وزنی/مساحتی داشته باشد و در BOM فعال به عملیات برش وصل باشد (پیش از ورود اولین طاقه).
  * لایه‌چینی به واحد همان طاقه حساب می‌شود (lay-unit.js).
  */
 function isRollFabricProduct(db, productOrId) {
@@ -713,10 +745,10 @@ function isRollFabricProduct(db, productOrId) {
       WHERE product_id=? AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'active') <> 'reversed'
       LIMIT 1
     `).get(Number(prod.id));
-    return !!row;
-  } catch {
-    return false;
-  }
+    if (row) return true;
+  } catch { /* no batches table */ }
+  if (!['mass', 'area'].includes(stockUnitDimension(db, prod))) return false;
+  return onActiveBomCuttingOperation(db, prod.id);
 }
 
 /** برچسب واحد برای پیام: واحد طاقه‌های همین پارچه، وگرنه واحد کالا. */

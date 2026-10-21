@@ -3325,6 +3325,21 @@ function initSyncSchema(db, opts) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v26','1')").run();
     }
+
+    // v27: fabric_roll_unit_relabels (v515 roll unit label repair)
+    const backfillV27 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v27'").get();
+    if (!backfillV27 || backfillV27.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v27 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v27','1')").run();
+    }
   }
 
   // WH-DOC — master warehouse remittance/receipt/transfer documents

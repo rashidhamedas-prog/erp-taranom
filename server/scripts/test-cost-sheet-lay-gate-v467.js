@@ -113,11 +113,16 @@ try {
     VALUES ('LAY-V467',?,?,?,?,'مشکی',1.2,10,12,12.5,12,'{"38":10}',10,3000,37500,1500,0.4,0.1,'posted','v467-lay','1405/07/27',?,?)
   `).run(fg, bomId, whRaw, fabric, adminId, poId);
 
+  const packLedgerId = db.prepare(`
+    INSERT INTO inventory_ledger
+      (tx_no,event_type,product_id,warehouse_id,qty_in,qty_balance,source_type,date,created_by)
+    VALUES ('V467-PACK-LED','production_receipt',?,?,10,10,'cutting_pack','1405/07/27',?)
+  `).run(fg, whFg, adminId).lastInsertRowid;
   db.prepare(`
     INSERT INTO cutting_packs
-      (pack_no,lay_id,product_id,warehouse_id,qty,production_order_id,status,date,created_by,idempotency_key)
-    VALUES ('PACK-V467', (SELECT id FROM cutting_lays WHERE lay_no='LAY-V467'), ?, ?, 10, ?, 'posted', '1405/07/27', ?, 'v467-pack')
-  `).run(fg, whFg, poId, adminId);
+      (pack_no,lay_id,product_id,warehouse_id,qty,production_order_id,status,date,created_by,idempotency_key,ledger_id)
+    VALUES ('PACK-V467', (SELECT id FROM cutting_lays WHERE lay_no='LAY-V467'), ?, ?, 10, ?, 'posted', '1405/07/27', ?, 'v467-pack', ?)
+  `).run(fg, whFg, poId, adminId, packLedgerId);
 
   sheet = reports.costSheet(db, { orderId: poId });
   ok(sheet.data.incomplete === false, 'complete after lay+pack covering produced qty');

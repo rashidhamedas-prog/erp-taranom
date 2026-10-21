@@ -41,8 +41,15 @@ function httpErr(status, message, code) {
   return e;
 }
 
+// Unit text is typed on Arabic and Persian keyboards alike; «کيلو گرم» must equal «کیلوگرم».
 function normKey(v) {
-  return String(v == null ? '' : v).trim().toLowerCase().replace(/\s+/g, '');
+  return String(v == null ? '' : v)
+    .replace(/[\u064A\u0649]/g, '\u06CC')
+    .replace(/\u0643/g, '\u06A9')
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u200B-\u200F\u0640\uFEFF\s]/g, '')
+    .toLowerCase();
 }
 
 function specByCode(code) {
@@ -146,13 +153,13 @@ function getUnit(db, id) {
   return db.prepare('SELECT * FROM units_of_measure WHERE id=?').get(n) || null;
 }
 
+const YARD_KEYS = new Set(['یارد', 'yard', 'yards', 'yd', 'yrd']);
+
 function isLengthText(unit) {
-  const s = String(unit == null ? '' : unit).trim().toLowerCase();
-  const compact = s.replace(/\s+/g, '');
-  if (!s) return false;
-  if (s === 'm' || s === 'meter' || s === 'metre' || s === 'متر' || s === 'mtr' || s.includes('متر')) return true;
-  if (compact === 'یارد' || compact === 'يارد' || s === 'yard' || s === 'yards' || s === 'yd' || s === 'yrd') return true;
-  return false;
+  const k = normKey(unit);
+  if (!k) return false;
+  if (k === 'm' || k === 'meter' || k === 'metre' || k === 'mtr' || k.includes('متر')) return true;
+  return YARD_KEYS.has(k);
 }
 
 function isLengthProduct(db, prod) {
@@ -182,8 +189,7 @@ function lengthTokenForProduct(db, prod) {
     if (row && row.dimension === 'length') return rollUnitToken(row);
     if (row) return '';
   }
-  const s = String(prod.unit || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (s === 'یارد' || s === 'يارد' || s === 'yard' || s === 'yards' || s === 'yd' || s === 'yrd') return 'yd';
+  if (YARD_KEYS.has(normKey(prod.unit))) return 'yd';
   if (isLengthText(prod.unit)) return 'm';
   return '';
 }
@@ -449,6 +455,7 @@ module.exports = {
   DIMENSIONS,
   SPECS,
   bootstrap,
+  normKey,
   matchText,
   getUnit,
   isLengthText,

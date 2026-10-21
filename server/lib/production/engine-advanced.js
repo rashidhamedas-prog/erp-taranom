@@ -2622,7 +2622,8 @@ function resolveCuttingStage(db, orderId) {
     for (const L of lines) {
       const fab = db.prepare(`
         SELECT 1 FROM inventory_batches
-        WHERE product_id=? AND COALESCE(kind,'generic')='fabric' LIMIT 1
+        WHERE product_id=? AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'active') <> 'reversed'
+        LIMIT 1
       `).get(L.product_id);
       const prod = db.prepare('SELECT item_type FROM products WHERE id=?').get(L.product_id);
       if (fab || ['fabric', 'raw_material', 'raw'].includes(String(prod?.item_type || ''))) {

@@ -252,6 +252,8 @@ const SYNCABLE_TABLES = [
   { name: 'cutting_remnant_rules',             upsertKey: 'id' },
   // Payroll loan recovery slices — one row per payslip deduction (append-only)
   { name: 'payroll_loan_recoveries',           upsertKey: 'id' },
+  // v515 roll unit label repair audit (append-only)
+  { name: 'fabric_roll_unit_relabels',         upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -605,6 +607,9 @@ const FK_COLUMNS = [
   ['bom_lines', 'unit_id'],
   ['bom_outputs', 'unit_id'],
   ['inventory_batches', 'entry_unit_id'],
+  ['fabric_roll_unit_relabels', 'batch_id'],
+  ['fabric_roll_unit_relabels', 'product_id'],
+  ['fabric_roll_unit_relabels', 'old_entry_unit_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

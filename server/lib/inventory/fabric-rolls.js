@@ -59,9 +59,28 @@ function liveBatchMeters(db, batchId) {
 }
 
 /**
- * Fabric warehouse_stock is a denormalized cache of Σ live batch meters.
+ * Ledger closing qty of one product in one warehouse.
+ * A reversed row still counts while its posted opposite row exists (net 0);
+ * soft-retired rows (reversed, no posted opposite) count for nothing.
+ */
+function ledgerWarehouseBalance(db, productId, warehouseId) {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(l.qty_in,0) - COALESCE(l.qty_out,0)),0) AS q
+    FROM inventory_ledger l
+    WHERE l.product_id=? AND l.warehouse_id=?
+      AND (COALESCE(l.status,'posted')='posted'
+        OR EXISTS (SELECT 1 FROM inventory_ledger r
+                   WHERE r.reversed_of=l.id AND COALESCE(r.status,'posted')='posted'))
+  `).get(productId, warehouseId);
+  return Number(row && row.q) || 0;
+}
+
+/**
+ * Fabric warehouse_stock is a denormalized cache of Σ live batch meters plus
+ * stock not on any roll (opening balance before roll tracking).
  * Untagged production issues can drain the product bucket while rolls still
- * hold meters — realign the cache from batch ledgers before consume/sale.
+ * hold meters — the cache never drops below Σ rolls, and never below the
+ * ledger either, so untracked stock is not silently erased.
  */
 function syncFabricProductWarehouse(db, productId, warehouseId) {
   const pid = Number(productId);
@@ -73,16 +92,18 @@ function syncFabricProductWarehouse(db, productId, warehouseId) {
       AND COALESCE(kind,'generic') IN ('fabric','attr')
       AND COALESCE(status,'') <> 'reversed'
   `).all(pid, wid);
-  let expected = 0;
+  let rolls = 0;
   for (const b of batches) {
     const live = liveBatchMeters(db, b.id);
-    if (live != null && Number.isFinite(live)) expected += Math.max(0, live);
+    if (live != null && Number.isFinite(live)) rolls += Math.max(0, live);
   }
+  const ledger = ledgerWarehouseBalance(db, pid, wid);
+  const expected = Math.round(Math.max(rolls, ledger) * 1e6) / 1e6;
   const { warehouseQty, ensureWhRow } = require('./ledger');
   ensureWhRow(db, pid, wid);
   const current = warehouseQty(db, pid, wid);
   const delta = expected - current;
-  if (Math.abs(delta) < 1e-6) return { expected, current, delta: 0 };
+  if (Math.abs(delta) < 1e-6) return { expected, current, delta: 0, rolls, ledger };
   db.prepare(
     'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
   ).run(expected, pid, wid);
@@ -90,7 +111,7 @@ function syncFabricProductWarehouse(db, productId, warehouseId) {
     'SELECT COALESCE(SUM(qty),0) AS s FROM warehouse_stock WHERE product_id=?'
   ).get(pid);
   db.prepare('UPDATE products SET stock=? WHERE id=?').run(Number(total.s) || 0, pid);
-  return { expected, current, delta };
+  return { expected, current, delta, rolls, ledger };
 }
 
 function healAllFabricWarehouseStock(db) {
@@ -632,7 +653,8 @@ function attachFabricIdentityOnPurchase(db, {
   // Purchase line qty is already in the product stock unit; label the roll with it.
   const uom = require('../uom');
   const stock = uom.stockUnitForProduct(db, prod);
-  const token = (stock && uom.rollUnitToken(stock)) || 'm';
+  // An uncatalogued unit keeps the product's own text; «m» would mislabel kg / m² fabric.
+  const token = (stock && uom.rollUnitToken(stock)) || String(prod.unit || '').trim() || 'm';
   const batch = createBatch(db, {
     productId: row.product_id,
     warehouseId,

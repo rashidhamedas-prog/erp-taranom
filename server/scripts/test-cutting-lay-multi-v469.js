@@ -75,6 +75,10 @@ try {
       INSERT INTO inventory_batches (batch_no, product_id, warehouse_id, qty_on_hand, qty_received, status, kind, unit, unit_cost_rial, color, width_cm)
       VALUES (?,?,?,?,?,'active','fabric','متر',1000,'شکلاتی',150)
     `).run('LOT-M1', fab, raw.id, 80, 80).lastInsertRowid;
+    const poId = db.prepare(`
+      INSERT INTO production_orders (order_no, product_id, qty_planned, date, status, analysis_type)
+      VALUES ('PO-V469', ?, 22, '1405/07/27', 'released', 'fixed')
+    `).run(a).lastInsertRowid;
 
     const body = {
       marker_length_m: 6,
@@ -84,6 +88,7 @@ try {
       color: 'شکلاتی',
       date: '1405/07/27',
       idempotency_key: 'v469-multi-1',
+      production_order_id: poId,
       outputs: [
         { product_id: a, size_code: 'فری', pieces_per_ply: 2 },
         { product_id: b, size_code: 'فری', pieces_per_ply: 3 },

@@ -86,6 +86,44 @@ router.get('/fabric-rolls/units', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+router.get('/fabric-rolls/relabel-unit/preview', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { previewRollUnitRelabel } = require('../lib/inventory/roll-unit-relabel');
+    res.json(previewRollUnitRelabel(getDB(), Number(req.query.product_id) || 0));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/fabric-rolls/relabel-unit', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { listRollUnitRelabels } = require('../lib/inventory/roll-unit-relabel');
+    res.json(listRollUnitRelabels(getDB(), req.query));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/fabric-rolls/relabel-unit', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { relabelRollUnits } = require('../lib/inventory/roll-unit-relabel');
+    const b = req.body || {};
+    const out = relabelRollUnits(getDB(), Number(b.product_id) || 0, {
+      reason: b.reason,
+      confirm: b.confirm === true || b.confirm === 1 || b.confirm === '1' || b.confirm === 'true',
+    }, req.user);
+    audit(req.user.id, 'update', 'fabric_roll_unit_relabel', out.id,
+      `اصلاح برچسب واحد ${out.count} طاقه کالا #${out.product_id} → ${out.new_unit}: ${String(b.reason || '').trim()}`, req);
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/fabric-rolls/relabel-unit/:id/undo', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { undoRollUnitRelabel } = require('../lib/inventory/roll-unit-relabel');
+    const out = undoRollUnitRelabel(getDB(), req.params.id, { reason: req.body && req.body.reason }, req.user);
+    audit(req.user.id, 'reverse', 'fabric_roll_unit_relabel', out.id,
+      `بازگردانی برچسب واحد ${out.count} طاقه → ${out.restored_unit}: ${String((req.body && req.body.reason) || '').trim()}`, req);
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();

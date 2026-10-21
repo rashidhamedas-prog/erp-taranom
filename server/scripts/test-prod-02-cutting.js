@@ -130,6 +130,8 @@ function gl(code) {
     component_product_id: fabId, qty_per_base: 1.50, scrap_percent: 0,
     line_type: 'material', size_matrix: JSON.stringify(SIZE_MATRIX),
   }, admin.id);
+  db.prepare("INSERT INTO product_sizes (name, code, active, sort_order) VALUES ('38','38',1,1)").run();
+  db.prepare("INSERT INTO product_sizes (name, code, active, sort_order) VALUES ('40','40',1,2)").run();
   bomLib.activateBom(db, bom.id, '1405/01/01', admin.id);
 
   const breakdown = { '38': 2, '40': 2 };
@@ -230,7 +232,7 @@ function gl(code) {
   ok(Math.abs(Number(preview2.data && preview2.data.matrix_meters) - 5.9) < 0.001, 'matrix still 5.9 with thread first', preview2.data);
 
   const full = await api('POST', '/api/production/cutting-lays', {
-    product_id: fgId, warehouse_id: raw.id,
+    product_id: fgId, warehouse_id: raw.id, color: 'مشکی',
     marker_length_m: 2, ply_count: 20, actual_meters: 40,
     size_breakdown: breakdown,
     rolls: [{ batch_id: rec.data.id, meters: 40 }],
