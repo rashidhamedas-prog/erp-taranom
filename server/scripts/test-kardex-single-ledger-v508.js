@@ -182,5 +182,42 @@ ok(led2 === 5, 'amend keeps summed multi-colour qty in ledger (5) got=' + led2);
 const ws2 = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pid2, whA).qty;
 ok(ws2 === 15, 'warehouse moved by the extra unit only (16→15 from 20−4) got=' + ws2);
 
+// Yalda pattern: a bogus align opening (+10) duplicates production; align
+// reconciles (−4) chase a wrong warehouse card (3). Variant book (8) and the
+// ledger's document rows (10 − 2 = 8) agree → align rows reversed, card fixed.
+const pid3 = db.prepare(
+  "INSERT INTO products (name, code, unit, stock, warehouse_id, average_cost_rial, user_id) VALUES ('Yalda','Y508','عدد',3,?,1000,?)"
+).run(whA, adminId).lastInsertRowid;
+db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,3)').run(pid3, whA);
+const v3 = db.prepare('INSERT INTO product_variants (product_id, sku) VALUES (?,?)').run(pid3, 'Y508-1').lastInsertRowid;
+db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,8)').run(v3, whA);
+mv({ eventType: 'opening', productId: pid3, warehouseId: whA, qty: 10, unitCostRial: 1000,
+  sourceType: 'opening_inventory', sourceId: pid3, date: '1405/06/31', note: 'موجودی اول دوره', skipStock: true });
+mv({ eventType: 'production_receipt', productId: pid3, warehouseId: whA, qty: 10, unitCostRial: 1000,
+  sourceType: 'production_receipt', sourceId: 3, date: '1405/07/05', note: 'تولید PO-Y508', skipStock: true });
+mv({ eventType: 'sale', productId: pid3, warehouseId: whA, qtyOut: 2, unitCostRial: 1000,
+  sourceType: 'invoice', sourceId: 999, date: '1405/07/06', note: 'فروش T-Y508', skipStock: true });
+mv({ eventType: 'adjustment', productId: pid3, warehouseId: whA, qty: -4, unitCostRial: 1000,
+  sourceType: 'stock_reconcile', sourceId: pid3, date: '1405/07/07', note: 'هم‌ترازی کاردکس با موجودی انبار', skipStock: true });
+mv({ eventType: 'adjustment', productId: pid3, warehouseId: whA, qty: -11, unitCostRial: 1000,
+  sourceType: 'stock_reconcile', sourceId: pid3, date: '1405/07/08', note: 'هم‌ترازی کاردکس با موجودی انبار', skipStock: true });
+const y0 = buildStockLedger(db, { product_id: pid3 });
+ok(y0.closing_qty === 3 && y0.book_gap_qty === 0, 'Yalda before: ledger chased the wrong card (3)');
+const agreeDry = heal.healAgreedBooks(db, { apply: false });
+// gap 0 here, so force the wrong card to differ from the ledger like production did
+db.prepare('UPDATE warehouse_stock SET qty=2 WHERE product_id=? AND warehouse_id=?').run(pid3, whA);
+const agreeDry2 = heal.healAgreedBooks(db, { apply: false });
+ok(agreeDry.items === 0 && agreeDry2.items === 1 && agreeDry2.align_rows === 3,
+  'agreed-books heal targets only drifted items with variant agreement');
+const ag = heal.healAgreedBooks(db, { apply: true, force: true });
+ok(ag.items === 1 && ag.align_rows === 3, 'agreed-books heal applied');
+const y1 = buildStockLedger(db, { product_id: pid3 });
+ok(y1.closing_qty === 8, 'Yalda after: kardex = documents = variant book (8) got=' + y1.closing_qty);
+ok(y1.book_gap_qty === 0, 'Yalda after: no gap with warehouse card');
+ok(!y1.lines.some((l) => l.is_opening || l.description === 'تعدیل موجودی'), 'bogus opening + align rows gone');
+const ws3 = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pid3, whA).qty;
+ok(ws3 === 8, 'warehouse card corrected to 8');
+ok(heal.healAgreedBooks(db, { apply: true, force: true }).items === 0, 'agreed-books heal idempotent');
+
 console.log(`\n══ Result: ${passed} passed, ${failed} failed ══\n`);
 process.exit(failed ? 1 : 0);

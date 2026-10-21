@@ -2613,6 +2613,12 @@ function initSyncSchema(db, opts) {
       } catch (e) {
         console.warn('⚠ kardex_single_ledger_v508:', e.message);
       }
+      try {
+        const ab = require('./lib/kardex-heal-v508').healAgreedBooks(db, { apply: true });
+        if (ab && !ab.skipped) console.log('✅ kardex_books_agree_v508b:', JSON.stringify(ab));
+      } catch (e) {
+        console.warn('⚠ kardex_books_agree_v508b:', e.message);
+      }
       const dualOpen = retireDuplicateRoleOpeningMirrors(db, { apply: true });
       if (dualOpen && !dualOpen.skipped && (dualOpen.retired || dualOpen.candidates)) {
         console.log('✅ party_dual_open_retire_v507:', JSON.stringify({

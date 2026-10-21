@@ -189,6 +189,98 @@ function healKardexSingleLedger(db, { apply = false, force = false } = {}) {
   return report;
 }
 
+const AGREE_KEY = 'kardex_books_agree_v508b';
+
+function wipWarehouseSet(db) {
+  return new Set(db.prepare(
+    "SELECT id FROM warehouses WHERE kind='wip' OR warehouse_type='wip'"
+  ).all().map((w) => Number(w.id)));
+}
+
+const eq = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-6;
+
+/**
+ * Old boot «هم‌ترازی» posted opening seeds / stock_reconcile rows (no voucher)
+ * to chase a wrong warehouse_stock. Where the variant book — kept independently
+ * by every document — agrees with the ledger's document rows, those align rows
+ * are reversed and warehouse_stock is corrected to the agreed quantity. Items
+ * where the books disagree are left for a stock count (book_gap_qty warning).
+ */
+function findAgreedBookFixes(db) {
+  if (!hasTable(db, 'variant_warehouse_stock') || !hasTable(db, 'product_variants')) return [];
+  const wip = wipWarehouseSet(db);
+  const groups = db.prepare(`
+    SELECT product_id, warehouse_id, SUM(qty_in - qty_out) AS led
+    FROM inventory_ledger WHERE status='posted' AND warehouse_id IS NOT NULL
+    GROUP BY product_id, warehouse_id
+  `).all();
+  const out = [];
+  for (const g of groups) {
+    if (wip.has(Number(g.warehouse_id))) continue;
+    const hasVar = db.prepare('SELECT 1 FROM product_variants WHERE product_id=? LIMIT 1').get(g.product_id);
+    if (!hasVar) continue;
+    const ws = Number(db.prepare(
+      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+    ).get(g.product_id, g.warehouse_id)?.qty) || 0;
+    if (eq(g.led, ws)) continue;
+    const vws = Number(db.prepare(`
+      SELECT COALESCE(SUM(vw.qty),0) AS q FROM variant_warehouse_stock vw
+      JOIN product_variants pv ON pv.id=vw.variant_id
+      WHERE pv.product_id=? AND vw.warehouse_id=?
+    `).get(g.product_id, g.warehouse_id)?.q) || 0;
+    const alignRows = db.prepare(`
+      SELECT * FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=? AND status='posted' AND je_id IS NULL
+        AND COALESCE(reversed_of,0)=0
+        AND (source_type='stock_reconcile'
+             OR (source_type='opening_inventory' AND event_type='opening'))
+      ORDER BY id
+    `).all(g.product_id, g.warehouse_id);
+    const alignNet = alignRows.reduce((s, r) => s + (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0), 0);
+    const docs = (Number(g.led) || 0) - alignNet;
+    if (alignRows.length && eq(docs, vws)) {
+      out.push({ product_id: g.product_id, warehouse_id: g.warehouse_id, ws, target: vws, alignRows });
+    } else if (eq(g.led, vws)) {
+      out.push({ product_id: g.product_id, warehouse_id: g.warehouse_id, ws, target: vws, alignRows: [] });
+    }
+  }
+  return out;
+}
+
+function healAgreedBooks(db, { apply = false, force = false } = {}) {
+  if (process.env.SYNC_ROLE === 'device') return { skipped: true, reason: 'device' };
+  if (!hasTable(db, 'inventory_ledger') || !hasTable(db, 'warehouse_stock')) return { skipped: true };
+  if (apply && !force) {
+    const done = db.prepare('SELECT value FROM settings WHERE key=?').get(AGREE_KEY);
+    if (done && done.value) return { skipped: true, reason: 'done' };
+  }
+  const fixes = findAgreedBookFixes(db);
+  const report = {
+    items: fixes.length,
+    align_rows: fixes.reduce((s, f) => s + f.alignRows.length, 0),
+    ws_delta: fixes.reduce((s, f) => s + (f.target - f.ws), 0),
+  };
+  if (!apply) return { ...report, fixes };
+  const { reverseInventoryMovement } = require('./inventory/ledger');
+  const uid = adminId(db);
+  db.transaction(() => {
+    for (const f of fixes) {
+      for (const r of f.alignRows) {
+        reverseInventoryMovement(db, r.id, {
+          createdBy: uid, date: r.date, note: `ابطال تعدیل بی‌سند (${r.tx_no})`,
+        });
+      }
+      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+        .run(f.target, f.product_id, f.warehouse_id);
+      db.prepare('UPDATE products SET stock = COALESCE(stock,0) + ? WHERE id=?')
+        .run(f.target - f.ws, f.product_id);
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
+      .run(AGREE_KEY, JSON.stringify({ ok: 1, ...report, at: new Date().toISOString() }));
+  })();
+  return report;
+}
+
 /** Ledger closing vs warehouse_stock per physical (non-WIP) product/warehouse. */
 function ledgerWarehouseDrift(db) {
   const wip = new Set(db.prepare(
@@ -220,6 +312,9 @@ module.exports = {
   healKardexSingleLedger,
   findNettingAlignPairs,
   findShortInvoiceLedger,
+  findAgreedBookFixes,
+  healAgreedBooks,
   ledgerWarehouseDrift,
   SETTING_KEY,
+  AGREE_KEY,
 };
