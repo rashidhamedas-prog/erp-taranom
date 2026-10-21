@@ -9,7 +9,7 @@
 - **سلامت تولید (داشبورد، جدا از لاگ):** روی کپی DB تولید H2/C5 (۲ حساب کنترلی)، H3 (۷ کالا stock≠انبار)، H4/C1 (۷ تراکنش posted بدون سند)، H5 (۲۰۱ کالا با موجودی و میانگین صفر) هنوز ناموفق‌اند. این‌ها داده‌اند، نه خطای لاگ، و تسک جدا می‌خواهند.
 - **فایل‌ها:** `lib/payroll/rulings.js`, `lib/production/health-check.js`, `server.js`, `scripts/production-go-live-check.js`, `scripts/test-log-fixes-v517.js` (جدید), `public/{app.js,index.html,sw.js}` (Help «پایش لاگ سرور (v517)»).
 - **تست (ایران، staging `/tmp/st517` = کد تولید + overlay `5c3a9cae..HEAD` + این تغییرات):** `test-log-fixes-v517` ۲۵/۰، `test-production-health` ۱۱/۰، `test-prod-cut-shared` ۵۱/۰، `test-amend-net-delta-v516` ۲۸/۰، `test-sms` ۲۲/۰، `test-sync` ۴۴/۰، `_diag-sync-gaps` mismatches=[]. `test-payroll-snapshot` و `test-erp3-v201` روی کد تمیز تولید هم عیناً همان شکست را دارند (fixture کهنه).
-- **Deploy:** ⏳
+- **Deploy:** ✅ `ca34fe66` — overlay ایران (۹ فایل، بدون reset)؛ بکاپ `backups/pre-v517-20261021-190019.db`؛ `ensure-sharp-runtime` OK؛ `pm2 restart` بدون `--update-env`؛ health=200، `image_engine` sharp 0.33.5؛ SW `erp-taranom-v517` و `app.js?v=517`؛ md5 هر ۹ فایل = کامیت. بعد از بوت در DB تولید: UNIQUE `salary_structures` حذف شد، ۵ ردیف و تریگرهای سینک ins/upd/del سالم‌اند، و هیچ خط خطای جدیدی در `erp-taranom-error-8.log` نیامد.
 
 ### ۱۴۰۵/۰۷/۲۹ — ویرایش فاکتور خرید/فروش نسبت به همان سند صادرشده (تفاوت خالص) (SW v516)
 - **علامت:** ویرایش PO-0002 (دکمه میخی ۱۰۰۰ عدد) بدون تغییر تعداد، هنگام ذخیره خطای «موجودی انبار برای حواله کافی نیست» می‌داد.
