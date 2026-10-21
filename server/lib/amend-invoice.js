@@ -15,7 +15,9 @@ const {
   warehouseUsesPerpetualValuation,
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse, assertWarehouseLines,
 } = require('./sales-document');
-const { applyStockDelta, postInventoryMovement } = require('./inventory/ledger');
+const {
+  applyStockDelta, postInventoryMovement, warehouseQty, allowNegative,
+} = require('./inventory/ledger');
 const { persistInvoicePayPlan } = require('./invoice-payments');
 const { rialToLedger } = require('./money');
 const { resolveCashAccount } = require('../db');
@@ -196,6 +198,48 @@ function zeroMovement(db, mv) {
   retireAmendedMovement(db, mv);
 }
 
+/**
+ * Amend is judged against the invoice as issued: qty this invoice already took is still its own,
+ * so unchanged or reduced lines never need stock. Only the net increase must be on hand.
+ */
+function assertSaleIncreasesCovered(db, oldAgg, newAgg, keys) {
+  const groups = new Map();
+  for (const key of keys) {
+    const old = oldAgg.get(key);
+    const neu = newAgg.get(key);
+    const meta = neu || old;
+    if (meta.isFabric) continue;
+    const gk = `${meta.productId}|${meta.warehouseId || 0}`;
+    if (!groups.has(gk)) {
+      groups.set(gk, {
+        productId: meta.productId, warehouseId: meta.warehouseId,
+        name: (meta.row && meta.row.name) || '', oldQty: 0, newQty: 0,
+      });
+    }
+    const g = groups.get(gk);
+    g.oldQty += old ? old.qty : 0;
+    g.newQty += neu ? neu.qty : 0;
+  }
+  const short = [];
+  for (const g of groups.values()) {
+    const extra = g.newQty - g.oldQty;
+    if (extra <= 1e-9 || !g.warehouseId) continue;
+    if (allowNegative(db, g.warehouseId)) continue;
+    const avail = warehouseQty(db, g.productId, g.warehouseId);
+    if (avail - extra < -1e-9) {
+      const p = db.prepare('SELECT name FROM products WHERE id=?').get(g.productId);
+      const name = g.name || (p && p.name) || `کالا #${g.productId}`;
+      short.push(
+        `«${name}»: افزایش ${extra} نسبت به فاکتور اصلی، ولی موجودی فعلی انبار ${Math.max(0, avail)} است`
+        + ` (حداکثر تعداد قابل ثبت ${g.oldQty + Math.max(0, avail)})`
+      );
+    }
+  }
+  if (short.length) {
+    throw httpErr(409, `موجودی برای افزایش تعداد کافی نیست — ${short.join(' | ')}`, 'E_WH_INSUFFICIENT');
+  }
+}
+
 function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num }) {
   const perpetual = perpetualDocsEnabled(db);
   const oldAgg = aggregateStock(db, parseRows(row.rows), row.warehouse_id);
@@ -219,6 +263,7 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
   };
 
   const keys = new Set([...oldAgg.keys(), ...newAgg.keys()]);
+  assertSaleIncreasesCovered(db, oldAgg, newAgg, keys);
   // inventory_ledger has no variant column: every colour/size row of one
   // product+warehouse+batch matches the same movements. Such groups must be
   // settled once on the summed qty, or the first variant swallows the rest.
@@ -829,7 +874,14 @@ function amendPostedInvoiceInPlace(db, {
   applyHeaderWarehouseToLines(built.rows, firmWh, {
     force: user.role === 'field_sales' || user.role === 'inside_sales',
   });
-  assertWarehouseLines(db, built.rows, firmWh, { requirePositive: true, allowNegativeProduct: true });
+  const heldByBatch = new Map();
+  for (const r of parseRows(row.rows).filter(stockable)) {
+    const bid = r.batch_id ? parseInt(r.batch_id, 10) : 0;
+    if (bid) heldByBatch.set(bid, (heldByBatch.get(bid) || 0) + (Number(r.qty) || 0));
+  }
+  assertWarehouseLines(db, built.rows, firmWh, {
+    requirePositive: true, allowNegativeProduct: true, heldByBatch,
+  });
 
   const stocked = replaceSaleStockInPlace(db, {
     row, newRows: built.rows, headerWh: firmWh,

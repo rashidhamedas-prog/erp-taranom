@@ -8,7 +8,7 @@ const { acct } = require('./coa-map');
 const { rewriteJournalEntry } = require('./ledger');
 const { rialToLedger } = require('./money');
 const {
-  postPurchaseStockMovements, reverseStockBySource, perpetualDocsEnabled,
+  postPurchaseStockMovements, perpetualDocsEnabled,
   allocateFreight, applyFreightToDocTotals, freightChargedToCounterparty,
 } = require('./sales-document');
 const {
@@ -382,62 +382,498 @@ function buildGrniJeLines(db, {
   return { jeLines, delta, provisionalTotal };
 }
 
-function replacePurchaseStock(db, {
-  row, priced, whId, userId, date, num, supplierId,
-}) {
-  if (!row.stock_added) return;
-  if (perpetualDocsEnabled(db)) {
-    reverseStockBySource(db, 'purchase', row.id, {
-      createdBy: userId, date, note: `اصلاح فاکتور خرید ${num} — بازگشت موجودی`,
-    });
-    try {
-      require('./inventory/movement').reverseStockDocument(db, {
-        docType: 'purchase_sku',
-        docId: row.id,
-        userId,
-        note: `اصلاح فاکتور خرید ${num} — بازگشت رنگ×سایز`,
-        applyHeaderStock: false,
+const QTY_EPS = 1e-6;
+
+function stockKeyOf(productId, warehouseId) {
+  return `${Number(productId) || 0}|${Number(warehouseId) || 0}`;
+}
+
+function isFabricLine(db, r, whId) {
+  try {
+    return require('./inventory/fabric-rolls').isFabricPurchaseLine(db, r, whId);
+  } catch (_) {
+    return false;
+  }
+}
+
+function fmtQtyFa(n) {
+  const v = Math.round((Number(n) || 0) * 1000) / 1000;
+  return v.toLocaleString('fa-IR');
+}
+
+function productName(db, productId, fallback) {
+  const p = db.prepare('SELECT name FROM products WHERE id=?').get(productId);
+  return (p && p.name) || fallback || `کالا #${productId}`;
+}
+
+function warehouseName(db, warehouseId) {
+  if (!warehouseId) return 'انبار پیش‌فرض';
+  const w = db.prepare('SELECT name FROM warehouses WHERE id=?').get(warehouseId);
+  return (w && w.name) || `انبار #${warehouseId}`;
+}
+
+/** Posted receipt rows of this purchase, grouped by product×warehouse (signed qty + value). */
+function aggregatePurchaseLedger(db, purchaseId) {
+  const rows = db.prepare(`
+    SELECT * FROM inventory_ledger
+    WHERE source_type='purchase' AND source_id=? AND status='posted' AND COALESCE(reversed_of,0)=0
+    ORDER BY id ASC
+  `).all(purchaseId);
+  const map = new Map();
+  for (const l of rows) {
+    const key = stockKeyOf(l.product_id, l.warehouse_id);
+    if (!map.has(key)) {
+      map.set(key, {
+        key, productId: Number(l.product_id), warehouseId: l.warehouse_id || null,
+        qty: 0, value: 0, rows: [], hasBatch: false,
       });
-    } catch (_) { /* no sku layer */ }
-    postPurchaseStockMovements(db, {
-      rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: row.id,
-      userId, date, note: `خرید ${num}`, supplierId,
-    });
-  } else {
-    const { reverseStockDocument, postStockMovement } = require('./inventory/movement');
-    reverseStockDocument(db, {
-      docType: 'purchase', docId: row.id, userId,
-      note: `اصلاح فاکتور خرید ${num} — بازگشت موجودی`,
-    });
-    let lineIdx = 0;
-    for (const r of priced) {
-      const rowWh = r.warehouse_id || whId;
-      postStockMovement(db, {
-        productId: r.product_id,
-        variantId: r.variant_id || null,
-        warehouseId: rowWh || null,
-        qtyDelta: Number(r.qty) || 0,
-        docType: 'purchase',
-        docId: row.id,
-        docLine: lineIdx,
-        userId,
-        note: `افزودن موجودی از اصلاح فاکتور خرید ${num}`,
-        allowNegative: true,
+    }
+    const g = map.get(key);
+    const qIn = Number(l.qty_in) || 0;
+    const qOut = Number(l.qty_out) || 0;
+    const amt = Math.round(Number(l.amount_rial) || 0);
+    g.qty += qIn - qOut;
+    g.value += qOut > 0 && qIn === 0 ? -amt : amt;
+    g.rows.push(l);
+    if (l.batch_id) g.hasBatch = true;
+  }
+  return map;
+}
+
+function aggregatePricedRows(db, priced, whId) {
+  const map = new Map();
+  for (const r of priced || []) {
+    if (!r || !r.product_id) continue;
+    const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : (whId || null);
+    const key = stockKeyOf(r.product_id, wh);
+    if (!map.has(key)) {
+      map.set(key, {
+        key, productId: Number(r.product_id), warehouseId: wh || null,
+        qty: 0, value: 0, rows: [], fabric: false, name: r.name || '',
       });
-      lineIdx += 1;
-      try {
-        const fabric = require('./inventory/fabric-rolls');
-        if (fabric.isFabricPurchaseLine(db, r, rowWh)) {
-          fabric.attachFabricIdentityOnPurchase(db, {
-            row: r, movement: null, supplierId,
-            user: { id: userId }, date, warehouseId: rowWh, sourceId: row.id,
-          });
-        }
-      } catch (e) {
-        if (e && e.code && String(e.code).startsWith('E_FABRIC')) throw e;
-      }
+    }
+    const g = map.get(key);
+    g.qty += Number(r.qty) || 0;
+    g.value += Math.round(Number(r.amount_rial) || 0);
+    g.rows.push(r);
+    if (isFabricLine(db, r, wh)) g.fabric = true;
+  }
+  return map;
+}
+
+function fabricBatchesOf(db, purchaseId, productId, warehouseId) {
+  return db.prepare(`
+    SELECT * FROM inventory_batches
+    WHERE source_type='purchase' AND source_id=? AND product_id=?
+      AND COALESCE(warehouse_id,0)=COALESCE(?,0)
+      AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'')<>'reversed'
+  `).all(purchaseId, productId, warehouseId || null);
+}
+
+function fabricBatchConsumed(db, batch) {
+  const received = Number(batch.qty_received) || 0;
+  let onHand = Number(batch.qty_on_hand) || 0;
+  try {
+    const live = require('./inventory/fabric-rolls').liveBatchMeters(db, batch.id);
+    if (live != null) onHand = Number(live) || 0;
+  } catch (_) { /* older DBs */ }
+  return received - onHand > QTY_EPS;
+}
+
+function throwConsumedShortages(shortages) {
+  const msg = shortages.map((s) => (
+    `کاهش «${s.name}» در «${s.whName}» ممکن نیست: از ${fmtQtyFa(s.oldQty)} واحد این خرید فقط `
+    + `${fmtQtyFa(Math.max(0, s.available))} واحد در انبار مانده و بقیه مصرف/فروخته شده — `
+    + `حداقل تعداد قابل ثبت ${fmtQtyFa(s.minQty)} است`
+  )).join(' | ');
+  const err = httpErr(409, msg, 'E_AMEND_PURCHASE_CONSUMED');
+  err.shortages = shortages;
+  throw err;
+}
+
+/**
+ * Reductions only: units of this purchase that already left the warehouse cannot be un-received.
+ * Unchanged qty or increases never need stock.
+ */
+function assertReductionsCovered(db, plans) {
+  const { warehouseQty, allowNegative } = require('./inventory/ledger');
+  const shortages = [];
+  const productDelta = new Map();
+  for (const p of plans) {
+    productDelta.set(p.productId, (productDelta.get(p.productId) || 0) + p.dQ);
+  }
+  for (const p of plans) {
+    if (p.dQ >= -QTY_EPS) continue;
+    if (allowNegative(db, p.warehouseId)) continue;
+    const whAvail = warehouseQty(db, p.productId, p.warehouseId);
+    const prod = db.prepare('SELECT stock FROM products WHERE id=?').get(p.productId);
+    const prodAvail = Number(prod && prod.stock) || 0;
+    const whShort = whAvail + p.dQ < -QTY_EPS;
+    const prodShort = prodAvail + (productDelta.get(p.productId) || 0) < -QTY_EPS;
+    if (whShort || prodShort) {
+      const available = whShort ? whAvail : prodAvail;
+      shortages.push({
+        product_id: p.productId,
+        warehouse_id: p.warehouseId,
+        name: productName(db, p.productId, p.name),
+        whName: warehouseName(db, p.warehouseId),
+        oldQty: p.oldQty,
+        newQty: p.newQty,
+        available,
+        minQty: Math.max(0, p.oldQty - Math.max(0, available)),
+      });
     }
   }
+  if (shortages.length) throwConsumedShortages(shortages);
+}
+
+/**
+ * Net-delta sync of an inventory_movements document (variant layer or legacy header).
+ * Deltas use fresh doc_line numbers so void (reverseStockDocument) still reverses them.
+ */
+function syncMovementDoc(db, {
+  docType, docId, desired, applyHeaderStock, userId, note,
+}) {
+  const { postStockMovement } = require('./inventory/movement');
+  const current = db.prepare(`
+    SELECT product_id, variant_id, warehouse_id, SUM(qty_delta) AS q
+    FROM inventory_movements
+    WHERE doc_id=? AND doc_type IN (?, ?)
+    GROUP BY product_id, COALESCE(variant_id,0), COALESCE(warehouse_id,0)
+  `).all(docId, docType, `${docType}_void`);
+  const keyOf = (p, v, w) => `${Number(p) || 0}|${Number(v) || 0}|${Number(w) || 0}`;
+  const merged = new Map();
+  for (const c of current) {
+    if (!applyHeaderStock && !c.variant_id) continue;
+    merged.set(keyOf(c.product_id, c.variant_id, c.warehouse_id), {
+      productId: c.product_id, variantId: c.variant_id || null, warehouseId: c.warehouse_id || null,
+      cur: Number(c.q) || 0, want: 0,
+    });
+  }
+  for (const d of desired) {
+    const k = keyOf(d.productId, d.variantId, d.warehouseId);
+    if (!merged.has(k)) {
+      merged.set(k, {
+        productId: d.productId, variantId: d.variantId || null, warehouseId: d.warehouseId || null,
+        cur: 0, want: 0,
+      });
+    }
+    merged.get(k).want += Number(d.qty) || 0;
+  }
+  let nextLine = Number(db.prepare(`
+    SELECT COALESCE(MAX(doc_line),-1)+1 AS n FROM inventory_movements
+    WHERE doc_id=? AND doc_type IN (?, ?)
+  `).get(docId, docType, `${docType}_void`).n) || 0;
+  for (const m of merged.values()) {
+    const delta = m.want - m.cur;
+    if (Math.abs(delta) <= QTY_EPS) continue;
+    try {
+      postStockMovement(db, {
+        productId: m.productId,
+        variantId: m.variantId,
+        warehouseId: m.warehouseId,
+        qtyDelta: delta,
+        docType,
+        docId,
+        docLine: nextLine,
+        userId,
+        note,
+        allowNegative: true,
+        applyHeaderStock: !!applyHeaderStock,
+        writeStockLog: !!applyHeaderStock,
+      });
+      nextLine += 1;
+    } catch (e) {
+      if (!applyHeaderStock && e && ['E_VARIANT_INACTIVE', 'E_VARIANT_NOT_FOUND'].includes(e.code)) continue;
+      throw e;
+    }
+  }
+}
+
+function variantDesired(db, priced, whId) {
+  const out = [];
+  for (const r of priced || []) {
+    if (!r || !r.product_id || !r.variant_id) continue;
+    const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : (whId || null);
+    if (isFabricLine(db, r, wh)) continue;
+    out.push({ productId: Number(r.product_id), variantId: Number(r.variant_id), warehouseId: wh, qty: Number(r.qty) || 0 });
+  }
+  return out;
+}
+
+/**
+ * Perpetual amend = net delta vs the receipt already on the books.
+ * Unchanged lines post nothing; qty up → extra receipt; qty down → issue (only if still on hand);
+ * price change → value-only revaluation. Fabric rolls are re-created only when untouched.
+ */
+function replacePurchaseStockPerpetual(db, {
+  row, priced, whId, userId, date, num, supplierId,
+}) {
+  const { postInventoryMovement, reverseInventoryMovement } = require('./inventory/ledger');
+  const { bumpOpenLayersValue } = require('./inventory/landed-cost');
+  const { catalogCostFromAvgRial } = require('./inventory/product-unit-cost');
+
+  const oldAgg = aggregatePurchaseLedger(db, row.id);
+  const newAgg = aggregatePricedRows(db, priced, whId);
+  const keys = new Set([...oldAgg.keys(), ...newAgg.keys()]);
+
+  const oldFabricKeys = new Set();
+  for (const r of parseRows(row.rows)) {
+    const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : (row.warehouse_id || null);
+    if (r.product_id && isFabricLine(db, r, wh)) oldFabricKeys.add(stockKeyOf(r.product_id, wh));
+  }
+
+  const plans = [];
+  const fabricRebuild = [];
+  for (const key of keys) {
+    const o = oldAgg.get(key);
+    const n = newAgg.get(key);
+    const meta = n || o;
+    const oldQty = o ? o.qty : 0;
+    const newQty = n ? n.qty : 0;
+    const plan = {
+      key,
+      productId: meta.productId,
+      warehouseId: meta.warehouseId,
+      name: (n && n.name) || '',
+      oldQty,
+      newQty,
+      oldValue: o ? o.value : 0,
+      newValue: n ? n.value : 0,
+      dQ: newQty - oldQty,
+      oldRows: o ? o.rows : [],
+      newRows: n ? n.rows : [],
+    };
+    const fabric = (n && n.fabric) || (o && o.hasBatch) || oldFabricKeys.has(key);
+    const oldLines = o ? o.rows.filter((l) => (Number(l.qty_in) || 0) > 0).length : 0;
+    const sameShape = Math.abs(plan.dQ) <= QTY_EPS && oldLines === (n ? n.rows.length : 0);
+    if (fabric && !sameShape) {
+      const batches = fabricBatchesOf(db, row.id, plan.productId, plan.warehouseId);
+      const used = batches.filter((b) => fabricBatchConsumed(db, b));
+      if (used.length) {
+        throw httpErr(
+          409,
+          `طاقه‌های «${productName(db, plan.productId, plan.name)}» از این خرید برش/مصرف شده‌اند `
+          + `(${used.map((b) => b.batch_no || b.id).join('، ')}) — تغییر متراژ یا تعداد طاقه مجاز نیست؛ `
+          + 'فقط فی، تخفیف، کرایه و تاریخ قابل اصلاح است',
+          'E_AMEND_FABRIC_CONSUMED'
+        );
+      }
+      plan.batches = batches;
+      fabricRebuild.push(plan);
+    } else {
+      plan.fabricSame = fabric;
+      plans.push(plan);
+    }
+  }
+
+  assertReductionsCovered(db, plans);
+
+  const touched = new Map();
+  const touch = (pid) => {
+    if (touched.has(pid)) return touched.get(pid);
+    const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(pid);
+    const t = {
+      stock0: Number(p && p.stock) || 0,
+      avg0: Math.round(Number(p && p.average_cost_rial) || 0),
+      oldValue: 0,
+      newValue: 0,
+      changed: false,
+    };
+    touched.set(pid, t);
+    return t;
+  };
+
+  for (const p of [...plans, ...fabricRebuild]) {
+    const t = touch(p.productId);
+    t.oldValue += p.oldValue;
+    t.newValue += p.newValue;
+  }
+
+  for (const p of fabricRebuild) {
+    touch(p.productId).changed = true;
+    for (const l of p.oldRows) {
+      reverseInventoryMovement(db, l.id, {
+        createdBy: userId, date, note: `اصلاح فاکتور خرید ${num} — جایگزینی طاقه`,
+      });
+    }
+    for (const b of p.batches) {
+      db.prepare(`
+        UPDATE inventory_batches SET status='reversed', qty_on_hand=0, reversed_at=strftime('%s','now')
+        WHERE id=?
+      `).run(b.id);
+    }
+    if (p.newRows.length) {
+      postPurchaseStockMovements(db, {
+        rows: p.newRows, warehouseId: p.warehouseId, sourceType: 'purchase', sourceId: row.id,
+        userId, date, note: `خرید ${num}`, supplierId,
+      });
+    }
+  }
+
+  const ordered = [...plans].sort((a, b) => b.dQ - a.dQ);
+  for (const p of ordered) {
+    let booked = p.oldValue;
+    if (p.dQ > QTY_EPS) {
+      const unit = p.newQty > 0 ? Math.round(p.newValue / p.newQty) : 0;
+      const mv = postInventoryMovement(db, {
+        eventType: 'purchase',
+        productId: p.productId,
+        warehouseId: p.warehouseId,
+        qtyIn: p.dQ,
+        unitCostRial: unit,
+        amountRial: Math.round(unit * p.dQ),
+        sourceType: 'purchase',
+        sourceId: row.id,
+        date,
+        note: `اصلاح فاکتور خرید ${num} — افزایش تعداد`,
+        createdBy: userId,
+        updateAvg: true,
+      });
+      booked += Math.round(Number(mv.amount_rial) || 0);
+      touch(p.productId).changed = true;
+    } else if (p.dQ < -QTY_EPS) {
+      const unit = p.oldQty > 0 ? Math.round(p.oldValue / p.oldQty) : 0;
+      const mv = postInventoryMovement(db, {
+        eventType: 'purchase',
+        productId: p.productId,
+        warehouseId: p.warehouseId,
+        qtyOut: -p.dQ,
+        unitCostRial: unit,
+        amountRial: Math.round(unit * -p.dQ),
+        sourceType: 'purchase',
+        sourceId: row.id,
+        date,
+        note: `اصلاح فاکتور خرید ${num} — کاهش تعداد`,
+        createdBy: userId,
+        updateAvg: false,
+      });
+      booked -= Math.round(Number(mv.amount_rial) || 0);
+      touch(p.productId).changed = true;
+    }
+    const reval = Math.round(p.newValue - booked);
+    if (reval !== 0) {
+      postInventoryMovement(db, {
+        eventType: 'adjustment',
+        productId: p.productId,
+        warehouseId: p.warehouseId,
+        qtyIn: 0,
+        qtyOut: 0,
+        unitCostRial: Math.abs(reval),
+        amountRial: reval,
+        sourceType: 'purchase',
+        sourceId: row.id,
+        date,
+        note: `اصلاح فاکتور خرید ${num} — تعدیل بها`,
+        createdBy: userId,
+        updateAvg: false,
+        skipStock: true,
+        valueOnly: true,
+      });
+      if (reval > 0) {
+        bumpOpenLayersValue(db, {
+          productId: p.productId,
+          warehouseId: p.warehouseId || null,
+          amountRial: reval,
+          sourceType: 'purchase_amend_reval',
+          sourceId: row.id,
+        });
+      }
+      touch(p.productId).changed = true;
+    }
+    if (p.fabricSame && p.newQty > QTY_EPS) {
+      try {
+        db.prepare(`
+          UPDATE inventory_batches SET unit_cost_rial=?
+          WHERE source_type='purchase' AND source_id=? AND product_id=?
+            AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'')<>'reversed'
+        `).run(Math.round(p.newValue / p.newQty), row.id, p.productId);
+      } catch (_) { /* optional columns */ }
+    }
+  }
+
+  // Moving average as if this purchase had always carried the amended qty/value.
+  for (const [pid, t] of touched) {
+    if (!t.changed) continue;
+    const p = db.prepare('SELECT stock FROM products WHERE id=?').get(pid);
+    const stock1 = Number(p && p.stock) || 0;
+    if (stock1 <= QTY_EPS) continue;
+    const target = Math.round(t.stock0 * t.avg0) - t.oldValue + t.newValue;
+    const avg = Math.max(0, Math.round(target / stock1));
+    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
+      .run(avg, catalogCostFromAvgRial(avg), pid);
+  }
+
+  syncMovementDoc(db, {
+    docType: 'purchase_sku',
+    docId: row.id,
+    desired: variantDesired(db, priced, whId),
+    applyHeaderStock: false,
+    userId,
+    note: `اصلاح فاکتور خرید ${num} / رنگ×سایز`,
+  });
+}
+
+/** Legacy (non-perpetual) header stock lives in inventory_movements doc 'purchase'. */
+function replacePurchaseStockLegacy(db, {
+  row, priced, whId, userId, date, num, supplierId,
+}) {
+  const before = new Map();
+  for (const m of db.prepare(`
+    SELECT product_id, warehouse_id, SUM(qty_delta) AS q FROM inventory_movements
+    WHERE doc_id=? AND doc_type IN ('purchase','purchase_void')
+    GROUP BY product_id, COALESCE(warehouse_id,0)
+  `).all(row.id)) {
+    before.set(stockKeyOf(m.product_id, m.warehouse_id), Number(m.q) || 0);
+  }
+  const newAgg = aggregatePricedRows(db, priced, whId);
+  const keys = new Set([...before.keys(), ...newAgg.keys()]);
+  const plans = [];
+  for (const key of keys) {
+    const n = newAgg.get(key);
+    const [pid, wh] = key.split('|').map(Number);
+    const oldQty = before.get(key) || 0;
+    const newQty = n ? n.qty : 0;
+    plans.push({
+      key, productId: pid, warehouseId: wh || null, name: (n && n.name) || '',
+      oldQty, newQty, dQ: newQty - oldQty,
+    });
+  }
+  assertReductionsCovered(db, plans);
+
+  const desired = (priced || []).filter((r) => r && r.product_id).map((r) => ({
+    productId: Number(r.product_id),
+    variantId: r.variant_id ? Number(r.variant_id) : null,
+    warehouseId: r.warehouse_id ? parseInt(r.warehouse_id, 10) : (whId || null),
+    qty: Number(r.qty) || 0,
+  }));
+  syncMovementDoc(db, {
+    docType: 'purchase',
+    docId: row.id,
+    desired,
+    applyHeaderStock: true,
+    userId,
+    note: `اصلاح فاکتور خرید ${num}`,
+  });
+
+  for (const p of plans) {
+    if (p.oldQty > QTY_EPS || p.newQty <= QTY_EPS) continue;
+    const n = newAgg.get(p.key);
+    if (!n || !n.fabric) continue;
+    const fabric = require('./inventory/fabric-rolls');
+    for (const r of n.rows) {
+      fabric.attachFabricIdentityOnPurchase(db, {
+        row: r, movement: null, supplierId,
+        user: { id: userId }, date, warehouseId: p.warehouseId, sourceId: row.id,
+      });
+    }
+  }
+}
+
+function replacePurchaseStock(db, opts) {
+  if (!opts.row.stock_added) return;
+  if (perpetualDocsEnabled(db)) replacePurchaseStockPerpetual(db, opts);
+  else replacePurchaseStockLegacy(db, opts);
 }
 
 function rewriteInvoiceTimePays(db, {

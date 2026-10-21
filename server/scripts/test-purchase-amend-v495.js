@@ -38,7 +38,7 @@ ok(appSrc.includes("api('PUT','/purchases/'+editId"), 'UI save uses PUT on edit'
 ok(appSrc.includes('ویرایش فاکتور خرید'), 'list has edit pencil');
 ok(appSrc.includes('اصلاح در محل روی همان شماره') || appSrc.includes('اصلاح در محل'),
   'help mentions in-place amend');
-ok(swSrc.includes('erp-taranom-v495'), 'SW bumped to v495');
+ok(Number((swSrc.match(/erp-taranom-v(\d+)/) || [])[1]) >= 495, 'SW at v495 or later');
 
 try {
   // eslint-disable-next-line no-new-func

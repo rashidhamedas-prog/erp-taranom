@@ -191,6 +191,7 @@ function applyStockDelta(db, {
     if (whAfter < -1e-9 && !allowNeg) {
       throw invErr('E_NEGATIVE_STOCK', 409, {
         product_id: productId,
+        name: prod.name,
         warehouse_id: warehouseId,
         available: whBefore,
         needed: Math.abs(qtyDelta),
@@ -349,7 +350,7 @@ function postInventoryMovement(db, opts) {
   if (!valueOnly && !noHeader && delta !== 0) {
     db.prepare(
       'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-    ).run(productId, createdBy, delta, note || eventType);
+    ).run(productId, createdBy || 0, delta, note || eventType);
   }
 
   return {

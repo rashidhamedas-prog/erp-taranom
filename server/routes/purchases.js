@@ -491,7 +491,16 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       freightRial, freight_type: ft, allocMethod, storedPayType, userId: req.user.id,
     }))();
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    const payload = { error: e.message, code: e.code };
+    if (e.code === 'E_NEGATIVE_STOCK') {
+      payload.error = `موجودی «${e.name || ''}» برای اصلاح فاکتور خرید کافی نیست`
+        + (e.available != null ? ` (موجود: ${e.available}${e.needed != null ? `، نیاز: ${e.needed}` : ''})` : '');
+      payload.name = e.name;
+      payload.available = e.available;
+      payload.needed = e.needed;
+    }
+    if (Array.isArray(e.shortages)) payload.shortages = e.shortages;
+    return res.status(e.status || 400).json(payload);
   }
 
   audit(req.user.id, 'update', 'purchase', row.id, `اصلاح فاکتور خرید ${row.num} به مبلغ ${final}`);

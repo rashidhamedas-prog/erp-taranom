@@ -172,7 +172,9 @@ function requireFirmHeaderWarehouse(headerWarehouseId) {
   return whId;
 }
 
-function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = true, allowNegativeProduct = false } = {}) {
+function assertWarehouseLines(db, rows, headerWarehouseId, {
+  requirePositive = true, allowNegativeProduct = false, heldByBatch = null,
+} = {}) {
   const productRows = (rows || []).filter((r) => {
     if (r.row_type === 'income') return false;
     if (r.item_kind === 'service') return false;
@@ -213,7 +215,9 @@ function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = t
           throw err;
         }
         const { availableBatchMeters } = require('./inventory/fabric-rolls');
-        const onHand = availableBatchMeters(db, batchId);
+        // Amend: meters this same invoice already took from the roll are still "its own".
+        const held = heldByBatch ? (Number(heldByBatch.get(batchId)) || 0) : 0;
+        const onHand = availableBatchMeters(db, batchId) + held;
         const qty = Number(r.qty) || 0;
         if (requirePositive && qty - onHand > 1e-9) {
           const err = new Error(`متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${qty})`);
