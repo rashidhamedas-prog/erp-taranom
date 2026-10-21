@@ -1686,6 +1686,10 @@ function ensureSharedCutSchema(db) {
   `);
   if (tableExists(db, 'cutting_batches')) {
     ensureColumn(db, 'cutting_batches', 'allocation_basis', "TEXT NOT NULL DEFAULT 'pieces'");
+    // Lay quantities are in the rolls' unit; marker_factor = roll units per 1 marker unit.
+    ensureColumn(db, 'cutting_batches', 'qty_unit', 'TEXT');
+    ensureColumn(db, 'cutting_batches', 'marker_unit', 'TEXT');
+    ensureColumn(db, 'cutting_batches', 'marker_factor', 'REAL');
   }
   if (tableExists(db, 'cutting_batch_outputs')) {
     ensureColumn(db, 'cutting_batch_outputs', 'fabric_std_m', 'REAL NOT NULL DEFAULT 0');
@@ -1693,6 +1697,9 @@ function ensureSharedCutSchema(db) {
   if (tableExists(db, 'cutting_lays')) {
     ensureColumn(db, 'cutting_lays', 'batch_id', 'INTEGER');
     ensureColumn(db, 'cutting_lays', 'extra_journal_id', 'INTEGER');
+    ensureColumn(db, 'cutting_lays', 'qty_unit', 'TEXT');
+    ensureColumn(db, 'cutting_lays', 'marker_unit', 'TEXT');
+    ensureColumn(db, 'cutting_lays', 'marker_factor', 'REAL');
   }
   if (tableExists(db, 'cutting_lay_rolls')) {
     ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');

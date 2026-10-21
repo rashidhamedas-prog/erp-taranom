@@ -97,7 +97,10 @@ ok(yOpt && yOpt.mode === 'convert' && near(yOpt.factor_to_stock, 0.9144), 'yard 
 ok(kOpt && kOpt.mode === 'factor', 'kg needs per-roll factor');
 ok(!info.units.some((u) => u.dimension === 'count'), 'count units not offered');
 const infoKg = uom.fabricReceiptUnits(db, db.prepare('SELECT * FROM products WHERE id=?').get(pKg));
-ok(infoKg.stock_ok === 0 && infoKg.reason, 'kg-stock product blocked with reason');
+ok(infoKg.stock_ok === 1 && infoKg.stock_unit.token === 'kg', 'v514: kg-stock product allowed (lay-up in kg)');
+const pPcs = product('FAB-V511-PCS', 'عدد', unit('PCS').id);
+const infoPcs = uom.fabricReceiptUnits(db, db.prepare('SELECT * FROM products WHERE id=?').get(pPcs));
+ok(infoPcs.stock_ok === 0 && infoPcs.reason, 'count-stock product blocked with reason');
 
 let k = 0;
 function recv(extra) {
@@ -133,9 +136,14 @@ ok(near(legacy.qty_received, 30) && legacy.unit === 'm', 'legacy meters/unit tex
 
 const pcs = unit('PCS');
 expectCode(() => recv({ entry_unit_id: pcs.id, entry_qty: 3, unit_cost_rial: 1 }), 'E_FABRIC_ENTRY_UNIT');
-expectCode(() => receiveFabricRoll(db, {
+const rKg = receiveFabricRoll(db, {
   profile: 'fabric', product_id: pKg, warehouse_id: raw.id, color: 'سفید', width_cm: 150, meters: 10,
   unit_cost_rial: 1000, supplier_id: sup.id, date: '1405/07/29', idempotency_key: 'v512-kg', roll_no: 'V511-KG',
+}, admin);
+ok(near(rKg.qty_received, 10) && rKg.unit === 'kg', 'kg-stock roll kept in kg', rKg.unit);
+expectCode(() => receiveFabricRoll(db, {
+  profile: 'fabric', product_id: pPcs, warehouse_id: raw.id, color: 'سفید', width_cm: 150, meters: 10,
+  unit_cost_rial: 1000, supplier_id: sup.id, date: '1405/07/29', idempotency_key: 'v512-pcs', roll_no: 'V511-PCS',
 }, admin), 'E_FABRIC_STOCK_UNIT');
 
 const up = updateFabricRoll(db, r3.id, {

@@ -33,8 +33,25 @@ router.get('/preview', auth, requirePermission('production', 'view'), (req, res)
       marker_length_m: req.query.marker_length_m,
       ply_count: req.query.ply_count,
       actual_meters: req.query.actual_meters,
+      marker_factor: req.query.marker_factor,
+      width_cm: req.query.width_cm,
+      rolls: String(req.query.batch_ids || '').split(',').filter(Boolean).map((id) => ({ batch_id: id })),
       size_breakdown: breakdown,
       date: req.query.date,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+
+// Unit of the chosen rolls and how the marker converts into it (never throws for a missing factor).
+router.get('/lay-unit', auth, requirePermission('production', 'view'), (req, res) => {
+  try {
+    const { resolveLayUnit } = require('../lib/production/lay-unit');
+    res.json(resolveLayUnit(getDB(), {
+      fabricProductId: req.query.fabric_product_id,
+      batchIds: String(req.query.batch_ids || '').split(',').filter(Boolean),
+      markerFactor: req.query.marker_factor,
+      widthCm: req.query.width_cm,
+      soft: true,
     }));
   } catch (e) { sendErr(res, e); }
 });
@@ -55,6 +72,8 @@ router.get('/rolls', auth, requirePermission('production', 'view'), (req, res) =
       warehouse_id: b.warehouse_id,
       warehouse_code: b.warehouse_code,
       status: b.status,
+      unit: b.unit,
+      unit_label: b.unit_label,
     }));
     sendRow(req, res, { rows });
   } catch (e) { sendErr(res, e); }

@@ -394,6 +394,10 @@ function resolveReceiptProfile(prod, body = {}, db = null) {
     return 'attr';
   }
   if (require('../uom').isLengthProduct(db, prod)) return 'fabric';
+  // A kg / m² fabric that already has rolls keeps receiving rolls.
+  if (db && prod && prod.id) {
+    try { if (require('../production/cutting').isRollFabricProduct(db, prod)) return 'fabric'; } catch (_) { /* no batches table */ }
+  }
   return 'attr';
 }
 
@@ -607,8 +611,8 @@ function isFabricPurchaseLine(db, row, warehouseId) {
   const f = fabricLineFields(row);
   if (f.is_fabric_roll || f.batch_id) return true;
   try {
-    const prod = db.prepare('SELECT unit, unit_id FROM products WHERE id=?').get(row.product_id);
-    return require('../uom').isLengthProduct(db, prod) && warehouseIsRaw(db, warehouseId);
+    const prod = db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(row.product_id);
+    return require('../production/cutting').isRollFabricProduct(db, prod) && warehouseIsRaw(db, warehouseId);
   } catch (_) {
     return false;
   }

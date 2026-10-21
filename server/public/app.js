@@ -12492,7 +12492,10 @@ function fabricReceiptIsMeterUnit(unit){
 function fabricLengthWord(unit){
   const s=String(unit==null?'':unit).trim().toLowerCase().replace(/\s+/g,'');
   if(s==='یارد'||s==='يارد'||s==='yard'||s==='yards'||s==='yd'||s==='yrd') return 'یارد';
-  return 'متر';
+  const named={cm:'سانتی‌متر',kg:'کیلوگرم',kgm:'کیلوگرم',g:'گرم',grm:'گرم',m2:'متر مربع','m²':'متر مربع',mtk:'متر مربع'};
+  if(named[s]) return named[s];
+  if(!s||s==='m'||s==='mtr'||s==='meter'||s==='metre'||s.includes('متر')) return 'متر';
+  return String(unit).trim();
 }
 function fabricRollModal(profile){
   window._fabricIdemKey=newFabricIdemKey();
@@ -13231,11 +13234,12 @@ function cuttingRenderRollPickerExtras(){
     const lossVal=prev.loss!=null && prev.loss!=='' ? prev.loss : '0';
     const extraVal=prev.extra!=null && prev.extra!=='' ? prev.extra : '0';
     const laidVal=prev.laid!=null ? prev.laid : '';
-    const markerM=+el('cl-marker')?.value||0;
+    const markerU=(+el('cl-marker')?.value||0)*cutMarkerFactor();
+    const uw=cutUnitWord();
     wrap.innerHTML='لایه <input type="number" class="cl-roll-plies" min="0" step="1" value="'+esc(String(defPlies||''))+'" style="width:64px"> '
-      +'متر واقعی پهن <input type="number" class="cl-roll-laid" min="0" step="0.01" value="'+esc(String(laidVal))+'" placeholder="'+esc(String(Math.round((+defPlies||0)*markerM*100)/100||'متر'))+'" style="width:84px" title="متری که واقعاً روی میز پهن شد (اندازه‌گیری). خالی = از «متر واقعی مصرف‌شده» کل به نسبت لایه پخش می‌شود"> '
-      +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="'+esc(String(lossVal))+'" placeholder="متر" style="width:70px"> '
-      +'اضافه طاقه <input type="number" class="cl-roll-extra-m" min="0" step="0.001" value="'+esc(String(extraVal))+'" placeholder="متر" style="width:74px" title="متراژی که روی طاقه هست ولی در ماندهٔ دفتر نیست"> '
+      +'پهن واقعی ('+esc(uw)+') <input type="number" class="cl-roll-laid" min="0" step="0.01" value="'+esc(String(laidVal))+'" placeholder="'+esc(String(Math.round((+defPlies||0)*markerU*100)/100||uw))+'" style="width:84px" title="مقداری که واقعاً روی میز پهن شد، به واحد طاقه (اندازه‌گیری یا وزن). خالی = از «مصرف واقعی» کل به نسبت لایه پخش می‌شود"> '
+      +'اتلاف <input type="number" class="cl-roll-loss" min="0" step="0.01" value="'+esc(String(lossVal))+'" placeholder="'+esc(uw)+'" style="width:70px"> '
+      +'اضافه طاقه <input type="number" class="cl-roll-extra-m" min="0" step="0.001" value="'+esc(String(extraVal))+'" placeholder="'+esc(uw)+'" style="width:74px" title="مقداری که روی طاقه هست ولی در ماندهٔ دفتر نیست (به واحد طاقه)"> '
       +'<button type="button" class="btn sm ghost cl-roll-extra-fill">پر کردن کسری</button>';
     lab.appendChild(wrap);
     wrap.querySelector('.cl-roll-extra-fill').addEventListener('click',()=>cuttingFillRollExtra(ch));
@@ -13243,7 +13247,7 @@ function cuttingRenderRollPickerExtras(){
 }
 function cuttingFillRollExtra(ch){
   const lab=ch && ch.parentElement; if(!lab) return;
-  const marker=+el('cl-marker')?.value||0;
+  const marker=(+el('cl-marker')?.value||0)*cutMarkerFactor();
   const plies=+(lab.querySelector('.cl-roll-plies')?.value)||0;
   const loss=+(lab.querySelector('.cl-roll-loss')?.value)||0;
   const laid=+(lab.querySelector('.cl-roll-laid')?.value)||plies*marker;
@@ -13413,7 +13417,7 @@ async function renderCuttingLaysTab(body){
     </div>
     <div id="shared-cut-box"></div>
     <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th>وضعیت محصول</th><th>عملیات</th>
+      <th>شماره</th><th>کالا</th><th>لایه</th><th>مصرف (واحد طاقه)</th><th>ماتریس</th><th>ضایعات</th><th>وضعیت محصول</th><th>عملیات</th>
     </tr></thead><tbody>
     ${showRows.map(r=>{
       const livePack=(r.packs||[]).find(p=>p.status==='posted' && (p.ledger_id||p.journal_id))
@@ -13462,9 +13466,11 @@ async function renderCuttingLaysTab(body){
       const nameCell=(Number(r.is_shared_cut)===1 && (r.shared_product_names||[]).length)
         ? ('<span class="muted">چندمحصول:</span> '+esc((r.shared_product_names||[]).join(' + ')))
         : esc(r.product_name||('#'+r.product_id));
+      const qu=r.qty_unit&&String(r.qty_unit)!=='m'?' <small class="muted">'+esc(fabricLengthWord(r.qty_unit))+'</small>':'';
+      const mu=r.marker_unit&&String(r.marker_unit)!=='m'?' <small class="muted">'+esc(fabricLengthWord(r.marker_unit))+'</small>':'';
       return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+nameCell+'</td>'
-        +'<td class="num">'+fmtQtyFa(r.ply_count||0)+'×'+fmtQtyFa(r.marker_length_m||0)+'</td>'
-        +'<td class="num">'+fmtQtyFa(r.actual_meters||0)+'</td><td class="num">'+fmtQtyFa(r.matrix_meters||0)+'</td>'
+        +'<td class="num">'+fmtQtyFa(r.ply_count||0)+'×'+fmtQtyFa(r.marker_length_m||0)+mu+'</td>'
+        +'<td class="num">'+fmtQtyFa(r.actual_meters||0)+qu+'</td><td class="num">'+fmtQtyFa(r.matrix_meters||0)+'</td>'
         +'<td class="num">'+fmtQtyFa(r.waste_normal_m||0)+' / '+fmtQtyFa(r.waste_abnormal_m||0)+'</td>'
         +'<td>'+packedLbl+'</td><td>'+acts+'</td></tr>';
     }).join('')||('<tr><td colspan="8" class="empty">'+emptyMsg+'</td></tr>')}
@@ -13554,9 +13560,11 @@ async function cuttingLayModal(editId, opts){
     </div>`:''}
     <div class="form-grid">
       <div class="fg" id="cl-single-prod-wrap"><label>کالای دوخته‌شده${window._cutEditId?' (ثابت)':''}</label>${productSelect('cl-prod',prodVal,list)}</div>
-      <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="${lay?esc(String(lay.marker_length_m||2)):'2'}"></div>
+      <div class="fg"><label>طول مارکر (<span id="cl-u-marker">متر</span>)</label><input id="cl-marker" type="number" min="0" step="0.01" value="${lay?esc(String(lay.marker_length_m||2)):'2'}"></div>
       <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="${lay?esc(String(lay.ply_count||10)):'10'}"></div>
-      <div class="fg"><label>متر واقعی مصرف‌شده * ${hlp('عدد اندازه‌گیری‌شده از طاقه (پهن + اتلاف سر و ته). انحراف از فرمول و ضایعات عادی/غیرعادی فقط از همین عدد حساب می‌شود؛ فرم آن را به «مارکر × لایه» تبدیل نمی‌کند. در حالت چندمحصول می‌توانید به‌جایش «متر واقعی پهن» هر طاقه را بزنید.')}</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null&&!lay.batch_id?esc(String(lay.actual_meters)):''}" placeholder="مثلاً ۲۱٫۴" data-csp-input="${CSP.bind('input',function(){cuttingActualHint()})}">
+      <div class="fg" id="cl-factor-wrap" hidden><label id="cl-factor-label" for="cl-factor">هر ۱ متر مارکر چند واحد طاقه است؟</label><input id="cl-factor" type="number" min="0" step="0.0001" value="${lay&&Number(lay.marker_factor)>0&&lay.marker_unit==='m'&&lay.qty_unit&&lay.qty_unit!=='m'?esc(String(lay.marker_factor)):''}" data-csp-input="${CSP.bind('input',function(){cuttingFactorChanged()})}">
+        <small class="muted" id="cl-factor-src" data-csp-style="${CSP.style(`display:block;font-size:11px;margin-top:2px`)}"></small></div>
+      <div class="fg"><label>مصرف واقعی (<span class="cl-u">متر</span>) * ${hlp('عدد اندازه‌گیری‌شده از طاقه، به واحد خود طاقه (پهن + اتلاف سر و ته؛ برای طاقهٔ کیلویی با وزن کردن قبل و بعد). انحراف از فرمول و ضایعات عادی/غیرعادی فقط از همین عدد حساب می‌شود؛ فرم آن را به «مارکر × لایه» تبدیل نمی‌کند. در حالت چندمحصول می‌توانید به‌جایش «پهن واقعی» هر طاقه را بزنید.')}</label><input id="cl-actual" type="number" min="0" step="0.01" value="${lay&&lay.actual_meters!=null&&!lay.batch_id?esc(String(lay.actual_meters)):''}" placeholder="مثلاً ۲۱٫۴" data-csp-input="${CSP.bind('input',function(){cuttingActualHint()})}">
         <small class="muted" id="cl-actual-hint" data-csp-style="${CSP.style(`display:block;font-size:11px;margin-top:2px`)}"></small></div>
       <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="${lay?esc(String(lay.width_cm||150)):'150'}" data-csp-input="${CSP.bind('input',function(){cuttingRefreshRollPicker()})}"></div>
       <div class="fg"><label>رنگ *</label>
@@ -13837,18 +13845,67 @@ function cuttingRenderRollPicker(rows, color, emptyNote){
     if(!(live>0)) return '';
     const w=b.width_cm?(' · عرض '+b.width_cm):'';
     const pat=b.pattern?(' · '+esc(b.pattern)):'';
+    const uw=b.unit_label||fabricLengthWord(b.unit);
     return '<label data-csp-style="'+CSP.style('display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;flex-wrap:wrap')+'">'
-      +'<input type="checkbox" class="cl-roll" data-id="'+b.id+'" data-wh="'+(b.warehouse_id||'')+'" data-max="'+live+'" data-color="'+esc(b.color||'')+'"> '
+      +'<input type="checkbox" class="cl-roll" data-id="'+b.id+'" data-wh="'+(b.warehouse_id||'')+'" data-max="'+live+'" data-color="'+esc(b.color||'')+'" data-unit="'+esc(String(b.unit||''))+'"> '
       +'<span class="mono">'+esc(b.batch_no||('#'+b.id))+'</span> '
       +esc(b.color||'')+pat+w
-      +' — مانده <b>'+fmtQtyFa(live)+'</b> متر'
+      +' — مانده <b>'+fmtQtyFa(live)+'</b> '+esc(uw)
       +(b.product_name?(' <span class="muted">('+esc(b.product_name)+')</span>'):'')
-      +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="متر"></label>';
+      +' <input type="number" class="cl-roll-m" data-csp-style="'+CSP.style('width:90px')+'" min="0" step="0.01" placeholder="'+esc(uw)+'" aria-label="'+esc('مصرف از این طاقه ('+uw+')')+'"></label>';
   }).filter(Boolean).join('');
   cuttingRenderRollPickerExtras();
   document.querySelectorAll('.cl-roll').forEach(ch=>{
-    ch.addEventListener('change',()=>cuttingRenderRollPickerExtras());
+    ch.addEventListener('change',()=>{ cuttingRenderRollPickerExtras(); cuttingRefreshLayUnit(); });
   });
+  cuttingRefreshLayUnit();
+}
+/** واحد لایه = واحد طاقه‌های انتخابی؛ مارکر برای طاقهٔ طولی به همان واحد، برای وزن/مساحت به متر با ضریب. */
+function cutUnitWord(){ return (window._cutLayUnit&&window._cutLayUnit.unit_name)||'متر'; }
+function cutMarkerInUnit(){ return !window._cutLayUnit || Number(window._cutLayUnit.marker_in_unit)!==0; }
+function cutMarkerFactor(){
+  if(cutMarkerInUnit()) return 1;
+  const f=+el('cl-factor')?.value||0;
+  return f>0?f:0;
+}
+async function cuttingRefreshLayUnit(){
+  const checked=[...document.querySelectorAll('.cl-roll:checked')].map(ch=>ch.dataset.id);
+  const first=document.querySelector('.cl-roll');
+  const ids=checked.length?checked:(first?[first.dataset.id]:[]);
+  const qs=new URLSearchParams();
+  if(window._cutFabricProductId) qs.set('fabric_product_id', String(window._cutFabricProductId));
+  if(ids.length) qs.set('batch_ids', ids.join(','));
+  const w=+el('cl-w')?.value||0; if(w>0) qs.set('width_cm', String(w));
+  const f=+el('cl-factor')?.value||0; if(f>0) qs.set('marker_factor', String(f));
+  const src=el('cl-factor-src');
+  try{
+    window._cutLayUnit=await api('GET','/production/cutting-lays/lay-unit?'+qs.toString());
+  }catch(e){
+    if(src) src.textContent='';
+    const hint=el('cl-fabric-hint'); if(hint) hint.textContent=e.message||'واحد طاقه‌ها مشخص نشد';
+    showToast(e.message||'واحد طاقه‌ها مشخص نشد','error');
+    return;
+  }
+  const u=window._cutLayUnit||{};
+  document.querySelectorAll('.cl-u').forEach(s=>{ s.textContent=u.unit_name||'متر'; });
+  if(el('cl-u-marker')) el('cl-u-marker').textContent=u.marker_unit_name||u.unit_name||'متر';
+  const wrap=el('cl-factor-wrap');
+  if(wrap) wrap.hidden=cutMarkerInUnit();
+  if(!cutMarkerInUnit()){
+    const lab=el('cl-factor-label');
+    if(lab) lab.textContent=(u.dimension==='area'?'مساحت هر ۱ متر مارکر':'وزن هر ۱ متر مارکر')+' ('+(u.unit_name||'')+') *';
+    const inp=el('cl-factor');
+    if(inp && !(+inp.value>0) && Number(u.marker_factor)>0) inp.value=String(u.marker_factor);
+    const why={width:'از عرض طاقه حساب شد', roll_receipt:'از ضریب رسید همین طاقه', last_lay:'از لایه‌چینی قبلی همین پارچه', user:'عدد واردشده', missing:'لازم است — مثلاً یک متر را وزن کنید'};
+    if(src) src.textContent=why[u.factor_source]||'';
+  } else if(src){ src.textContent=''; }
+  cuttingRenderRollPickerExtras();
+  cuttingActualHint();
+}
+function cuttingFactorChanged(){
+  const src=el('cl-factor-src'); if(src) src.textContent=+el('cl-factor')?.value>0?'عدد واردشده':'';
+  cuttingRenderRollPickerExtras();
+  cuttingActualHint();
 }
 async function cuttingApplyPo(){
   const id=+el('cl-po')?.value||0;
@@ -13937,11 +13994,14 @@ function cuttingMeasuredActual(rollSum){
 }
 function cuttingActualHint(){
   const box=el('cl-actual-hint'); if(!box) return;
-  const planned=Math.round((+el('cl-marker')?.value||0)*(+el('cl-plies')?.value||0)*1000)/1000;
+  const uw=cutUnitWord();
+  const k=cutMarkerFactor();
+  if(!(k>0)){ box.textContent='برای طاقهٔ «'+uw+'» اول ضریب هر متر مارکر را وارد کنید.'; return; }
+  const planned=Math.round((+el('cl-marker')?.value||0)*k*(+el('cl-plies')?.value||0)*1000)/1000;
   const actual=+el('cl-actual')?.value||0;
-  if(!(actual>0)){ box.textContent='مارکر × لایه = '+fmtQtyFa(planned)+' متر (فقط مرجع؛ جای عدد واقعی را نمی‌گیرد)'; return; }
+  if(!(actual>0)){ box.textContent='مارکر × لایه = '+fmtQtyFa(planned)+' '+uw+' (فقط مرجع؛ جای عدد واقعی را نمی‌گیرد)'; return; }
   const d=Math.round((actual-planned)*1000)/1000;
-  box.textContent='مارکر × لایه '+fmtQtyFa(planned)+' · اختلاف پهن/اتلاف '+(d>0?'+':'')+fmtQtyFa(d)+' متر';
+  box.textContent='مارکر × لایه '+fmtQtyFa(planned)+' · اختلاف پهن/اتلاف '+(d>0?'+':'')+fmtQtyFa(d)+' '+uw;
 }
 function cuttingLayBreakdown(){
   const o={};
@@ -13958,14 +14018,15 @@ async function cuttingLayPreview(){
       const data=await api('POST','/production/cutting-batches/preview',body);
       const outs=(data.outputs||[]).map(o=>('#'+o.product_id+'/'+esc(o.size_code||'')+': '+o.pieces_per_ply+'→'+o.planned_pieces+' قطعه ('+(o.weight||0)+'%)')).join(' · ');
       const short=Number(data.shortfall_m)||0;
-      el('cl-preview').textContent='مارکر × لایه '+fmtQtyFa(data.planned_meters||0)
+      const uw=data.unit_name||cutUnitWord();
+      el('cl-preview').textContent='واحد لایه: '+uw+' · مارکر × لایه '+fmtQtyFa(data.planned_meters||0)
         +' · واقعی (پهن + اتلاف) '+fmtQtyFa(data.actual_meters||0)
         +(Number(data.matrix_meters)>0?(' · استاندارد فرمول '+fmtQtyFa(data.matrix_meters)+' · انحراف '+fmtQtyFa(data.fabric_variance_m||0)):' · استاندارد فرمول پیدا نشد (متر استاندارد هر محصول را وارد کنید)')
         +' · ضایعات عادی '+fmtQtyFa(data.waste_normal_m||0)+' / غیرعادی (۵۲۲۱) '+fmtQtyFa(data.waste_abnormal_m||0)
         +' · پهن '+fmtQtyFa(data.laid_m||0)+' · اضافه طاقه '+fmtQtyFa(data.extra_m||0)+' · برگشت '+fmtQtyFa(data.returned_m||0)+' · ته‌طاقه '+fmtQtyFa(data.remnant_m||0)
         +' · آستانه '+(data.policy&&data.policy.threshold_m!=null?fmtQtyFa(data.policy.threshold_m):'—')
         +(data.balanced?' · تراز OK':' · تراز طاقه برقرار نیست')
-        +(short>0?(' — کسری دفتر '+fmtQtyFa(short)+' متر؛ اگر طاقه واقعاً بلندتر است «پر کردن کسری» یا فیلد اضافه طاقه را بزنید'):'')
+        +(short>0?(' — کسری دفتر '+fmtQtyFa(short)+' '+uw+'؛ اگر طاقه واقعاً بیشتر است «پر کردن کسری» یا فیلد اضافه طاقه را بزنید'):'')
         +(outs?(' | '+outs):'');
       return;
     }
@@ -13973,14 +14034,21 @@ async function cuttingLayPreview(){
     const rollSum=[...document.querySelectorAll('.cl-roll:checked')].reduce((s,ch)=>s+(+(ch.parentElement.querySelector('.cl-roll-m')?.value)||0),0);
     const measured=cuttingMeasuredActual(rollSum);
     const actual=measured>0?measured:undefined;
+    const batchIds=[...document.querySelectorAll('.cl-roll:checked')].map(ch=>ch.dataset.id).join(',');
+    const k=cutMarkerFactor();
     const q='product_id='+encodeURIComponent(el('cl-prod').value)
       +'&marker_length_m='+encodeURIComponent(el('cl-marker').value)
       +'&ply_count='+encodeURIComponent(el('cl-plies').value)
       +(actual!=null?'&actual_meters='+encodeURIComponent(actual):'')
+      +(window._cutFabricProductId?'&fabric_product_id='+encodeURIComponent(window._cutFabricProductId):'')
+      +(batchIds?'&batch_ids='+encodeURIComponent(batchIds):'')
+      +(!cutMarkerInUnit()&&k>0?'&marker_factor='+encodeURIComponent(k):'')
+      +'&width_cm='+encodeURIComponent(+el('cl-w')?.value||0)
       +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
     const p=await api('GET','/production/cutting-lays/preview?'+q);
-    el('cl-preview').textContent=(actual==null?'⚠️ متر واقعی وارد نشده — اعداد زیر فرضی (مارکر × لایه) است · ':'')
-      +'استاندارد فرمول '+fmtQtyFa(p.matrix_meters||0)+' متر · مارکر × لایه '+fmtQtyFa(p.planned_meters||0)
+    const uw=p.unit_name||cutUnitWord();
+    el('cl-preview').textContent=(actual==null?'⚠️ مصرف واقعی وارد نشده — اعداد زیر فرضی (مارکر × لایه) است · ':'')
+      +'واحد لایه: '+uw+' · استاندارد فرمول '+fmtQtyFa(p.matrix_meters||0)+' '+uw+' · مارکر × لایه '+fmtQtyFa(p.planned_meters||0)
       +' · واقعی '+fmtQtyFa(p.actual_meters||0)
       +' · انحراف از فرمول '+fmtQtyFa(Math.round(((p.actual_meters||0)-(p.matrix_meters||0))*1000)/1000)
       +' · ضایعات عادی '+fmtQtyFa(p.waste_normal_m||0)+' / غیرعادی (۵۲۲۱) '+fmtQtyFa(p.waste_abnormal_m||0);
@@ -13996,6 +14064,7 @@ function cuttingBuildSharedBody(){
   if(!color){ showToast('رنگ الزامی است','error'); return null; }
   const marker=+el('cl-marker').value||0;
   if(!(marker>0)){ showToast('طول مارکر نامعتبر است','error'); return null; }
+  if(!(cutMarkerFactor()>0)){ showToast('برای طاقهٔ «'+cutUnitWord()+'» ضریب هر متر مارکر را وارد کنید','error'); el('cl-factor')?.focus(); return null; }
   const rolls=[];
   for(const ch of checked){
     const plies=+(ch.parentElement.querySelector('.cl-roll-plies')?.value);
@@ -14014,7 +14083,7 @@ function cuttingBuildSharedBody(){
   const perRoll=rolls.every(r=>r.laid_m>0);
   if(!perRoll){
     if(!(headerActual>0)){
-      showToast('متر واقعی را وارد کنید: یا «متر واقعی مصرف‌شده» کل، یا «متر واقعی پهن» هر طاقه. بدون آن انحراف و ضایعات صفر می‌شود.','error');
+      showToast('مصرف واقعی ('+cutUnitWord()+') را وارد کنید: یا «مصرف واقعی» کل، یا «پهن واقعی» هر طاقه. بدون آن انحراف و ضایعات صفر می‌شود.','error');
       el('cl-actual')?.focus();
       return null;
     }
@@ -14023,6 +14092,7 @@ function cuttingBuildSharedBody(){
   return {
     actual_meters: perRoll?undefined:headerActual,
     marker_length_m:marker,
+    marker_factor: cutMarkerInUnit()?undefined:cutMarkerFactor(),
     width_cm:+el('cl-w').value||0,
     fabric_product_id:window._cutFabricProductId||undefined,
     color,
@@ -14061,8 +14131,13 @@ async function cuttingLaySave(){
     const rollSum=Math.round(checked.reduce((s,ch)=>s+(+(ch.parentElement.querySelector('.cl-roll-m')?.value)||0),0)*1000)/1000;
     const actual=cuttingMeasuredActual(rollSum);
     if(!(actual>0)){
-      showToast('متر واقعی مصرف‌شده را وارد کنید (عدد اندازه‌گیری‌شده، نه طول مارکر × لایه) — انحراف و ضایعات از همین عدد حساب می‌شود','error');
+      showToast('مصرف واقعی ('+cutUnitWord()+') را وارد کنید (عدد اندازه‌گیری‌شده، نه طول مارکر × لایه) — انحراف و ضایعات از همین عدد حساب می‌شود','error');
       el('cl-actual')?.focus();
+      return;
+    }
+    if(!(cutMarkerFactor()>0)){
+      showToast('برای طاقهٔ «'+cutUnitWord()+'» ضریب هر متر مارکر را وارد کنید','error');
+      el('cl-factor')?.focus();
       return;
     }
     const rolls=[];
@@ -14077,6 +14152,7 @@ async function cuttingLaySave(){
     const payload={
       product_id:+el('cl-prod').value, color:(el('cl-color-extra')?.value||el('cl-color')?.value||'').trim(),
       marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
+      marker_factor: cutMarkerInUnit()?undefined:cutMarkerFactor(),
       actual_meters:actual, width_cm:+el('cl-w').value||0,
       production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
       cost_center_id: el('cl-cc') && el('cl-cc').value ? +el('cl-cc').value : undefined,
@@ -33670,7 +33746,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت مواد (طاقه / ویژگی):</b> منوی انبار ← <b>دریافت مواد</b>. فقط انبار مواد اولیه (WH-RAW). دو پروفایل: <b>پارچه (طاقه)</b> — رنگ اجباری، عرض؛ قابل برش و فروش طاقه‌ای؛ و <b>مواد با ویژگی</b> — مقدار بر اساس واحد کالا. موجودی از دفتر لحظه‌ای است. لایه‌چینی فقط طاقه را می‌بیند</li>
-        <li><b>واحد طاقه (v512):</b> در فرم دریافت طاقه، «واحد دریافت» از همهٔ واحدهای فعال کاتالوگ <b>تنظیمات ← واحدهای اندازه‌گیری</b> انتخاب می‌شود (طول، وزن، مساحت). <b>واحد انبار</b> همیشه واحد کارت کالاست و باید طولی باشد (متر/یارد/سانتی‌متر…)، چون لایه‌چینی طول مصرف می‌کند. واحدهای طولی خودکار با ضریب کاتالوگ تبدیل می‌شوند (مثلاً ۱۰۰ یارد = ۹۱٫۴۴ متر). برای وزن/مساحت باید <b>ضریب همان طاقه</b> را بدهید (مثلاً هر ۱ کیلوگرم = ۴٫۲ متر). پیش‌نمایش زیر فرم مقدار انبار را نشان می‌دهد. مقدار و فی دریافتی روی طاقه می‌ماند و در ویرایش/ابطال همان مبلغ برمی‌گردد. اگر واحد کارت کالا وزنی است (مثلاً کیلوگرم)، دریافت طاقه بسته است تا واحد کالا را طولی کنید. طاقه‌های قدیمی که واحدشان با کارت کالا نمی‌خواند در فهرست با «⚠ واحد» علامت می‌خورند. واحدی که در طاقه استفاده شده قابل حذف از کاتالوگ نیست.</li>
+        <li><b>واحد طاقه (v512):</b> در فرم دریافت طاقه، «واحد دریافت» از همهٔ واحدهای فعال کاتالوگ <b>تنظیمات ← واحدهای اندازه‌گیری</b> انتخاب می‌شود (طول، وزن، مساحت). <b>واحد انبار</b> همیشه واحد کارت کالاست و از v514 می‌تواند طولی، وزنی یا مساحتی باشد (متر/یارد/کیلوگرم/متر مربع…). فقط واحد شمارشی (عدد/جین) برای طاقه بسته است. واحدهای طولی خودکار با ضریب کاتالوگ تبدیل می‌شوند (مثلاً ۱۰۰ یارد = ۹۱٫۴۴ متر). برای وزن/مساحت باید <b>ضریب همان طاقه</b> را بدهید (مثلاً هر ۱ کیلوگرم = ۴٫۲ متر). پیش‌نمایش زیر فرم مقدار انبار را نشان می‌دهد. مقدار و فی دریافتی روی طاقه می‌ماند و در ویرایش/ابطال همان مبلغ برمی‌گردد. طاقه‌های قدیمی که واحدشان با کارت کالا نمی‌خواند در فهرست با «⚠ واحد» علامت می‌خورند. واحدی که در طاقه استفاده شده قابل حذف از کاتالوگ نیست.</li>
+        <li><b>لایه‌چینی به واحد طاقه (v514):</b> لایه‌چینی دیگر فقط «متر» نیست؛ مصرف، ماتریس، ضایعات، «پهن واقعی» هر طاقه و سند PRD-09 همه به <b>واحد خود طاقه‌ها</b> حساب می‌شوند. وقتی طاقه را تیک می‌زنید برچسب فیلدها عوض می‌شود. <b>طاقهٔ طولی</b> (متر/یارد/سانتی‌متر): طول مارکر را هم به همان واحد بزنید، بدون تبدیل. <b>طاقهٔ وزنی/مساحتی</b> (کیلوگرم/متر مربع): مارکر یک طول فیزیکی است و به متر وارد می‌شود. فیلد «هر ۱ متر مارکر = ؟ واحد» ظاهر می‌شود و سیستم پیشنهادش را به این ترتیب پر می‌کند: ضریب رسید طاقه (مثلاً ۱ کیلوگرم = ۴٫۲ متر، یعنی هر متر ≈ ۰٫۲۳۸ کیلوگرم)، پهنای پارچه برای متر مربع، یا ضریب آخرین لایهٔ همان پارچه. همیشه قابل اصلاح است و روی لایه ذخیره می‌شود. همهٔ طاقه‌های یک لایه باید یک واحد داشته باشند (E_CUT_ROLL_UNIT). اگر ضریب وزنی پیدا نشود، ثبت با E_CUT_MARKER_FACTOR متوقف می‌شود. حداقل «تکهٔ قابل‌استفاده» در سیاست ضایعات همچنان به متر است و به واحد طاقه تبدیل می‌شود. پارچه‌ای که طاقه دارد (حتی با واحد کیلوگرم) خروجی برش را به لایه‌چینی می‌برد. پارچهٔ وزنی که هنوز هیچ طاقه‌ای ندارد تا اولین دریافت طاقه، مسیر مواد عادی دارد.</li>
         <li><b>گردش مواد/طاقه (v489)</b>: همان پایهٔ صورت‌حساب — اول دوره، ورود دوره، خروج دوره، جمع پایین جدول، ماندهٔ پایان. پیش‌فرض جفت ابطال (رسید/حواله + معکوس) را نشان نمی‌دهد و ورود/خروج فقط از ردیف‌های زندهٔ همین بازه است، نه از جمع تاریخیِ شامل ابطال. «مانده زنده» جمع دفتر همان طاقه‌هاست. تیک «نمایش ابطال» برای رسیدگی است. بازهٔ تاریخ، اول دوره را از ردیف‌های قبل از «از تاریخ» می‌سازد</li>
         <li><b>ویرایش دریافت مواد (R13):</b> رنگ / طرح / شماره (و عرض برای طاقه) همیشه قابل اصلاح است. تغییر مقدار / بها / تأمین‌کننده فقط وقتی مانده زنده = مقدار دریافتی باشد و ردیف از فاکتور خرید نباشد — سرور اثرات قبلی را معکوس و دوباره ثبت می‌کند. «ابطال» فقط مصرف‌نشده</li>
         <li><b>لایه‌چینی / رسید محصول (v498):</b> تولید → عملیات. سه تب: لایه‌چینی، منتظر PACK، PACK فعال. ویرایش لایه = reverse کامل + ثبت مجدد روی همان شماره. ردیف پوشش‌شده با رسید سفارش هم ویرایش و ابطال می‌شود. ویرایش اختلاف بها را به موجودی می‌برد و تعداد قطعه قفل است. ابطال ردیف را پاک نمی‌کند؛ طاقه و سهم بهای همان لایه از رسید سفارش برمی‌گردد و تعداد محصول می‌ماند. اگر PACK انبار زنده مانده، از تب «PACK فعال» ابطالش کنید (حتی بعد از رسید سفارش) — بعد ویرایش لایه آزاد است. همان متر را در حواله سفارش دوباره نزنید — سیستم قفل می‌کند. <b>برگه بهای تمام‌شده (v467):</b> بدون لایه‌چینی برای سفارش پارچهٔ متری فقط بهای موقت است؛ ضایعات و انحراف برش باید در بها بنشیند</li>
@@ -33862,7 +33939,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاز ۱ بومی (نزدیک GA):</b> Host v0.3 + WPF؛ بستهٔ stage در <code>D:\\proje\\ERP EXE\\native</code>. SW <b>erp-taranom-v254</b></li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v512</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v514</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

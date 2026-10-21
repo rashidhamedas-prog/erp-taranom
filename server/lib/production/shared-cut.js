@@ -14,6 +14,7 @@ const { adjustBatchQty } = require('../inventory/batch-serial');
 const { availableBatchMeters, applyLiveRollQty } = require('../inventory/fabric-rolls');
 const { dr, cr, postEvent, resolveCuttingCostCenterId } = require('./posting');
 const { setting, avgUnitRial } = require('./costing');
+const { resolveLayUnit, markerToUnit, metresToUnit } = require('./lay-unit');
 
 function httpErr(status, message, code, extra) {
   const e = new Error(message);
@@ -328,7 +329,7 @@ function applyMeasuredLaid(rolls, actualMeters, marker) {
   if (!hasHeader) return { rolls: rows, source: 'standard' };
   const total = Number(actualMeters);
   if (!(total > 0) || !Number.isFinite(total)) {
-    throw httpErr(400, 'متر واقعی نامعتبر است', 'E_CUT_ACTUAL');
+    throw httpErr(400, 'مصرف واقعی نامعتبر است', 'E_CUT_ACTUAL');
   }
   const plies = rows.map((r) => Math.max(0, Math.round(Number(r.ply_count) || 0)));
   const sumPlies = plies.reduce((s, n) => s + n, 0);
@@ -426,6 +427,14 @@ function writeLayMeters(db, layId, plan) {
     roundM((Number(plan.actual_meters) || 0) * (Number(plan.normal_waste_pct) || 0) / 100),
     layId
   );
+  if (plan.qty_unit) {
+    db.prepare('UPDATE cutting_lays SET qty_unit=?, marker_unit=?, marker_factor=? WHERE id=?')
+      .run(plan.qty_unit, plan.marker_unit || null, Number(plan.marker_factor) || null, layId);
+    db.prepare(`
+      UPDATE cutting_batches SET qty_unit=?, marker_unit=?, marker_factor=?
+      WHERE id=(SELECT batch_id FROM cutting_lays WHERE id=?)
+    `).run(plan.qty_unit, plan.marker_unit || null, Number(plan.marker_factor) || null, layId);
+  }
 }
 
 /** سهم ریالی مازاد غیرعادی پهن از WIP به ۵۲۲۱ منتقل می‌شود. */
@@ -440,27 +449,52 @@ function splitAbnormalLaid(commonRial, plan) {
 function previewSharedCut(db, body) {
   const marker = Number(body.marker_length_m);
   if (!(marker > 0)) throw httpErr(400, 'قد الگو باید بزرگ‌تر از صفر باشد', 'E_MARKER');
-  const policy = body.policy_snapshot
-    ? { ...body.policy_snapshot, ...remnantThreshold(body.policy_snapshot, marker) }
-    : loadPolicy(db, {
-      marker_length_m: marker,
-      fabric_product_id: body.fabric_product_id,
-      width_cm: body.width_cm,
-      warehouse_id: body.warehouse_id,
-    });
+  const layUnit = resolveLayUnit(db, {
+    fabricProductId: body.fabric_product_id,
+    batchIds: (Array.isArray(body.rolls) ? body.rolls : []).map((r) => r && r.batch_id),
+    markerFactor: body.marker_factor,
+    widthCm: body.width_cm,
+  });
+  // Every quantity below is in the rolls' unit; the marker is converted once here.
+  const markerU = markerToUnit(layUnit, marker);
+  const basePolicy = body.policy_snapshot || loadPolicy(db, {
+    marker_length_m: marker,
+    fabric_product_id: body.fabric_product_id,
+    width_cm: body.width_cm,
+    warehouse_id: body.warehouse_id,
+  });
+  const thresholdU = remnantThreshold({
+    ...basePolicy,
+    min_remnant_m: metresToUnit(layUnit, basePolicy.min_remnant_m),
+  }, markerU);
+  const policy = {
+    ...basePolicy,
+    threshold_m: thresholdU.threshold_m,
+    threshold_unit: layUnit.qty_unit,
+  };
   const tol = Number(setting(db, 'production_roll_balance_tolerance_m', '0.01'));
   const pliesHint = (body.rolls || []).reduce((s, r) => s + Math.round(Number(r.ply_count) || 0), 0);
   const allocation_basis = normalizeAllocationBasis(body.allocation_basis);
   const outputs = normalizeOutputs(body.outputs, pliesHint, { allocation_basis });
-  const measured = applyMeasuredLaid(body.rolls, body.actual_meters, marker);
-  const rolls = previewRolls(measured.rolls, policy, marker, tol);
+  const measured = applyMeasuredLaid(body.rolls, body.actual_meters, markerU);
+  const rolls = previewRolls(measured.rolls, {
+    ...basePolicy,
+    min_remnant_m: metresToUnit(layUnit, basePolicy.min_remnant_m),
+  }, markerU, tol);
   const bad = rolls.filter((r) => !r.equation.ok);
   const meters = sharedLayMeters(db, {
-    rolls, outputs, marker, fabricProductId: body.fabric_product_id, bomId: body.bom_id,
+    rolls, outputs, marker: markerU, fabricProductId: body.fabric_product_id, bomId: body.bom_id,
   });
   return {
     preview: true,
     marker_length_m: marker,
+    marker_in_unit_qty: markerU,
+    qty_unit: layUnit.qty_unit,
+    unit_name: layUnit.unit_name,
+    marker_unit: layUnit.marker_unit,
+    marker_unit_name: layUnit.marker_unit_name,
+    marker_factor: layUnit.marker_factor,
+    factor_source: layUnit.factor_source,
     allocation_basis,
     policy,
     outputs,
@@ -650,7 +684,7 @@ function postSharedCut(db, body, user) {
       const issueM = roundM(roll.laid_m + roll.length_loss_m + roll.remnant_m);
       const extraNeed = roundM(roll.extra_m || 0);
       if (avail + extraNeed + 1e-6 < issueM) {
-        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: batch.id });
+        throw httpErr(409, `مانده طاقه (${plan.unit_name || 'متر'}) کافی نیست`, 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: batch.id });
       }
       const unit = avgUnitRial(db, batch.product_id);
       const surplus = bookRollSurplus(db, {
@@ -989,6 +1023,9 @@ function amendSharedCut(db, id, body, user) {
       throw httpErr(409, 'ابتدا رسید محصول (PACK انبار) را ابطال کنید', 'E_CUT_HAS_PACK');
     }
   }
+  if (body.marker_factor == null && Number(existing.marker_factor) > 0) {
+    body = { ...body, marker_factor: existing.marker_factor };
+  }
   const plan = previewSharedCut(db, body);
   if (!plan.balanced && !body.override_balance) {
     throw httpErr(400, 'تراز طاقه خارج از تلرانس است', 'E_ROLL_BALANCE', { errors: plan.errors });
@@ -1072,7 +1109,7 @@ function amendSharedCut(db, id, body, user) {
       const extraNeed = roundM(roll.extra_m || 0);
       // تسهیم/برگشت روی طاقه در leave قدیمی گاهی از avail بزرگ‌تر می‌شود؛ ملاک مصرف واقعی است
       if (avail + extraNeed + 1e-6 < issueM) {
-        throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: fabBatch.id });
+        throw httpErr(409, `مانده طاقه (${plan.unit_name || 'متر'}) کافی نیست`, 'E_CUT_ROLL_QTY', { avail, need: issueM, extra_m: extraNeed, batch_id: fabBatch.id });
       }
       const unit = avgUnitRial(db, fabBatch.product_id);
       const surplus = bookRollSurplus(db, {

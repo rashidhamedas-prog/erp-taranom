@@ -18,6 +18,7 @@ const {
 const { explodeBom, resolveBom, round6 } = require('./bom');
 const { dr, cr, postEvent, resolveCuttingCostCenterId } = require('./posting');
 const { setting } = require('./costing');
+const { resolveLayUnit, markerToUnit } = require('./lay-unit');
 
 function httpErr(status, message, code, extra) {
   const e = new Error(message);
@@ -695,8 +696,8 @@ function isMeterUnit(unit) {
 
 /**
  * پارچهٔ طاقه‌ای = مصرف فقط از لایه‌چینی.
- * واحد کالا طولی باشد، یا طاقهٔ ثبت‌شده با واحد طولی داشته باشد؛ دریافت طاقه فقط متر/یارد
- * می‌پذیرد، پس کالایی که برچسب «کیلوگرم» دارد ولی طاقهٔ متری دارد هم از طاقه مصرف می‌شود.
+ * واحد کالا طولی باشد، یا طاقه (kind=fabric) داشته باشد — به هر واحدی (متر، یارد، کیلوگرم، مترمربع).
+ * لایه‌چینی به واحد همان طاقه حساب می‌شود (lay-unit.js).
  */
 function isRollFabricProduct(db, productOrId) {
   const uom = require('../uom');
@@ -707,20 +708,34 @@ function isRollFabricProduct(db, productOrId) {
   if (uom.isLengthProduct(db, prod)) return true;
   if (!prod.id) return false;
   try {
-    const rows = db.prepare(`
-      SELECT DISTINCT COALESCE(NULLIF(TRIM(unit),''),'m') AS u FROM inventory_batches
-      WHERE product_id=? AND COALESCE(kind,'generic')='fabric'
-    `).all(Number(prod.id));
-    return rows.some((r) => uom.isLengthToken(db, r.u));
+    const row = db.prepare(`
+      SELECT 1 FROM inventory_batches
+      WHERE product_id=? AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'active') <> 'reversed'
+      LIMIT 1
+    `).get(Number(prod.id));
+    return !!row;
   } catch {
     return false;
   }
 }
 
-/** برچسب واحد برای پیام: واحد کالا اگر طولی است، وگرنه متر طاقه. */
+/** برچسب واحد برای پیام: واحد طاقه‌های همین پارچه، وگرنه واحد کالا. */
 function rollFabricUnitLabel(db, prod) {
-  if (prod && require('../uom').isLengthToken(db, prod.unit)) return prod.unit;
-  return 'متر طاقه';
+  if (!prod) return 'متر';
+  try {
+    if (prod.id) {
+      const b = db.prepare(`
+        SELECT unit FROM inventory_batches
+        WHERE product_id=? AND COALESCE(kind,'generic')='fabric' AND COALESCE(status,'active') <> 'reversed'
+        ORDER BY id DESC LIMIT 1
+      `).get(Number(prod.id));
+      if (b) {
+        const row = require('./lay-unit').unitRowForToken(db, b.unit);
+        return `${row ? row.name : (b.unit || 'متر')} طاقه`;
+      }
+    }
+  } catch (_) { /* fall through */ }
+  return prod.unit || 'متر';
 }
 
 function pickFabricLine(db, lines, preferredProductId) {
@@ -792,10 +807,16 @@ function planCutting(db, body = {}) {
   const sizeBreakdown = parseJson(body.size_breakdown, {}) || {};
   const qtyPieces = Object.values(sizeBreakdown).reduce((s, n) => s + Math.round(Number(n) || 0), 0);
   if (!(qtyPieces > 0)) throw httpErr(400, 'ماتریس سایز حداقل یک عدد می‌خواهد', 'E_CUT_MATRIX');
-  const planned = round6(marker * plies);
+  const layUnit = resolveLayUnit(db, {
+    fabricProductId: body.fabric_product_id,
+    batchIds: (Array.isArray(body.rolls) ? body.rolls : []).map((r) => r && r.batch_id),
+    markerFactor: body.marker_factor,
+    widthCm: body.width_cm,
+  });
+  const planned = round6(markerToUnit(layUnit, marker) * plies);
   const actual = body.actual_meters != null ? Number(body.actual_meters) : planned;
   if (!(actual > 0) || !Number.isFinite(actual)) {
-    throw httpErr(400, 'متر مصرفی نامعتبر است', 'E_CUT_ACTUAL');
+    throw httpErr(400, `مصرف واقعی (${layUnit.unit_name}) نامعتبر است`, 'E_CUT_ACTUAL');
   }
   const date = String(body.date || todayJalali()).trim();
   const { bom, fabricLine, matrixMeters, sizeMatrix } = fabricLineFromBom(db, {
@@ -830,6 +851,11 @@ function planCutting(db, body = {}) {
     fabric_product_id: fabricLine ? fabricLine.product_id : null,
     marker_length_m: marker,
     ply_count: plies,
+    qty_unit: layUnit.qty_unit,
+    unit_name: layUnit.unit_name,
+    marker_unit: layUnit.marker_unit,
+    marker_factor: layUnit.marker_factor,
+    lay_unit: layUnit,
     planned_meters: planned,
     actual_meters: round6(actual),
     matrix_meters: round6(matrixMeters),
@@ -1050,15 +1076,15 @@ function postCuttingLay(db, body, user) {
           marker_length_m, ply_count, width_cm, planned_meters, actual_meters, matrix_meters,
           size_breakdown, size_matrix, qty_pieces, waste_normal_m, waste_abnormal_m, waste_allowed_m,
           unit_cost_rial, amount_rial, waste_amount_rial, status, idempotency_key, date, note, created_by,
-          production_order_id, cost_center_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?,?)
+          production_order_id, cost_center_id, qty_unit, marker_unit, marker_factor
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?,?,?,?,?,?,?)
       `).run(
         layNo, plan.product.id, plan.bom_id, wh.id, plan.fabric_product_id, color,
         plan.marker_length_m, plan.ply_count, widthCm, plan.planned_meters, plan.actual_meters, plan.matrix_meters,
         JSON.stringify(plan.size_breakdown), JSON.stringify(plan.size_matrix), plan.qty_pieces,
         plan.waste_normal_m, plan.waste_abnormal_m, plan.waste_allowed_m,
         unitCost, amount, wasteAmt, key, date, String(body.note || '').trim(), user.id,
-        po ? po.id : null, costCenterId
+        po ? po.id : null, costCenterId, plan.qty_unit, plan.marker_unit, plan.marker_factor
       );
       const id = ins.lastInsertRowid;
       postCuttingLayStockAndJe(db, {
@@ -1164,7 +1190,7 @@ function prepareCuttingLayRolls(db, body, plan) {
   for (const r of rollsIn) {
     const batchId = Number(r.batch_id);
     const meters = Number(r.meters);
-    if (!batchId || !(meters > 0)) throw httpErr(400, 'طاقه یا متر نامعتبر است', 'E_CUT_ROLL');
+    if (!batchId || !(meters > 0)) throw httpErr(400, `طاقه یا مقدار (${plan.unit_name || 'متر'}) نامعتبر است`, 'E_CUT_ROLL');
     const batch = db.prepare("SELECT * FROM inventory_batches WHERE id=? AND COALESCE(kind,'generic')='fabric'").get(batchId);
     if (!batch) throw httpErr(400, 'طاقه پارچه یافت نشد', 'E_CUT_ROLL');
     if (batch.status === 'reversed' || batch.status === 'empty') {
@@ -1185,7 +1211,7 @@ function prepareCuttingLayRolls(db, body, plan) {
     applyLiveRollQty(db, batch);
     const avail = availableBatchMeters(db, batch.id);
     if (avail + 1e-9 < meters) {
-      throw httpErr(409, 'متر طاقه کافی نیست', 'E_CUT_ROLL_QTY', {
+      throw httpErr(409, `مانده طاقه (${plan.unit_name || 'متر'}) کافی نیست`, 'E_CUT_ROLL_QTY', {
         batch_no: batch.batch_no,
         available: avail,
         needed: meters,
@@ -1211,7 +1237,7 @@ function prepareCuttingLayRolls(db, body, plan) {
     }
   }
   if (Math.abs(rollSum - plan.actual_meters) > 0.01) {
-    throw httpErr(400, 'جمع متر طاقه‌ها باید با مصرف واقعی برابر باشد', 'E_CUT_ROLL_SUM', {
+    throw httpErr(400, `جمع مصرف طاقه‌ها (${plan.unit_name || 'متر'}) باید با مصرف واقعی برابر باشد`, 'E_CUT_ROLL_SUM', {
       rolls: rollSum, actual: plan.actual_meters,
     });
   }
@@ -1285,7 +1311,7 @@ function postCuttingLayStockAndJe(db, {
       event: 'PRD-09',
       sourceId: id,
       date,
-      description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} متر`,
+      description: `ضایعات غیرعادی برش ${layNo} — ${plan.waste_abnormal_m} ${plan.unit_name || 'متر'}`,
       createdBy: user.id,
       costCenterId: costCenterId || null,
       warehouseId: wh && wh.id,
@@ -1571,6 +1597,8 @@ function updateCuttingLay(db, id, body, user) {
   }
   const covered = layFgCoveredByOrder(db, row);
   const bodyForPlan = Object.assign({}, body, { product_id: row.product_id });
+  if (bodyForPlan.marker_factor == null && Number(row.marker_factor) > 0) bodyForPlan.marker_factor = row.marker_factor;
+  if (bodyForPlan.width_cm == null && Number(row.width_cm) > 0) bodyForPlan.width_cm = row.width_cm;
   const plan = planCutting(db, bodyForPlan);
   const date = String(body.date || row.date || todayJalali()).trim();
   assertCutPeriodOpen(db, date);
@@ -1643,6 +1671,7 @@ function updateCuttingLay(db, id, body, user) {
         waste_normal_m=?, waste_abnormal_m=?, waste_allowed_m=?,
         unit_cost_rial=?, amount_rial=?, waste_amount_rial=?,
         date=?, note=?, production_order_id=?, cost_center_id=?,
+        qty_unit=?, marker_unit=?, marker_factor=?,
         status='posted', reversed_at=NULL, reversed_by=NULL, reversal_journal_id=NULL
       WHERE id=?
     `).run(
@@ -1655,6 +1684,7 @@ function updateCuttingLay(db, id, body, user) {
       date, String(body.note != null ? body.note : row.note || '').trim(),
       po ? po.id : null,
       costCenterId,
+      plan.qty_unit, plan.marker_unit, plan.marker_factor,
       row.id
     );
 

@@ -45,8 +45,9 @@ db.exec(`
     (70,'نخ دوخت','کیلوگرم',3),
     (80,'Memory Lycra','یارد',6),
     (90,'زیپ','عدد',1);
-  CREATE TABLE inventory_batches (id INTEGER PRIMARY KEY, product_id INTEGER, kind TEXT, unit TEXT);
+  CREATE TABLE inventory_batches (id INTEGER PRIMARY KEY, product_id INTEGER, kind TEXT, unit TEXT, status TEXT);
   INSERT INTO inventory_batches (product_id,kind,unit) VALUES (14,'fabric','m'),(64,'fabric','m'),(70,'attr','کیلوگرم');
+  INSERT INTO inventory_batches (product_id,kind,unit,status) VALUES (90,'fabric','m','reversed');
 `);
 assert.strictEqual(isRollFabricProduct(db, 14), true, 'kg label + metre rolls');
 assert.strictEqual(isRollFabricProduct(db, 64), true, 'arabic-yeh kg label without unit_id + metre rolls');
@@ -56,7 +57,9 @@ assert.strictEqual(isRollFabricProduct(db, 70), false, 'kg attr material stays s
 assert.strictEqual(isRollFabricProduct(db, 90), false, 'count material stays stage issue');
 assert.strictEqual(isRollFabricProduct(db, 999), false, 'missing product');
 ok('yard still roll fabric; kg/count materials without rolls unchanged');
-assert.strictEqual(rollFabricUnitLabel(db, { unit: 'کیلوگرم' }), 'متر طاقه');
+assert.strictEqual(isRollFabricProduct(db, 90), false, 'reversed roll alone does not make roll fabric');
+assert.strictEqual(rollFabricUnitLabel(db, { id: 14, unit: 'کیلوگرم' }), 'متر طاقه');
+assert.strictEqual(rollFabricUnitLabel(db, { id: 70, unit: 'کیلوگرم' }), 'کیلوگرم');
 assert.strictEqual(rollFabricUnitLabel(db, { unit: 'یارد' }), 'یارد');
 ok('messages show the roll unit, not «کیلوگرم»');
 db.close();

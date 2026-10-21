@@ -26,6 +26,8 @@ const SPECS = [
     aliases: ['کیلوگرم', 'کیلو', 'kg', 'kgs', 'kilogram', 'kilograms'] },
   { code: 'G', name: 'گرم', dimension: 'mass', unece: 'GRM', symbol: 'g', factor: 0.001, decimals: 3, reference: 0,
     aliases: ['گرم', 'gr', 'gram', 'grams', 'grm'] },
+  { code: 'M2', name: 'متر مربع', dimension: 'area', unece: 'MTK', symbol: 'm²', factor: 1, decimals: 3, reference: 1,
+    aliases: ['متر مربع', 'مترمربع', 'm2', 'm²', 'sqm', 'mtk'] },
   { code: 'SET', name: 'ست', dimension: 'count', unece: 'SET', symbol: 'ست', factor: null, decimals: 0, reference: 0,
     aliases: ['ست', 'set'] },
   { code: 'PAIR', name: 'جفت', dimension: 'count', unece: 'NPR', symbol: 'جفت', factor: null, decimals: 0, reference: 0,
@@ -209,13 +211,13 @@ const ROLL_ENTRY_DIMENSIONS = ['length', 'mass', 'area'];
 
 /**
  * Units offered on a fabric roll receipt.
- * Stock stays in the product's unit and must be a length unit, because lay-up
- * consumes marker length. Same-dimension units convert by catalog factor;
- * other dimensions (kg, m²) need a per-roll factor typed by the user.
+ * Stock stays in the product's unit (length, mass or area); lay-up consumes
+ * rolls in that same unit (production/lay-unit.js). Same-dimension units
+ * convert by catalog factor; other dimensions need a per-roll factor.
  */
 function fabricReceiptUnits(db, prod) {
   const stock = stockUnitForProduct(db, prod);
-  const stockOk = !!(stock && stock.dimension === 'length' && Number(stock.factor_to_ref) > 0);
+  const stockOk = !!(stock && ROLL_ENTRY_DIMENSIONS.includes(stock.dimension) && Number(stock.factor_to_ref) > 0);
   const rows = db.prepare('SELECT * FROM units_of_measure WHERE COALESCE(is_active,1)=1 ORDER BY dimension, COALESCE(is_reference,0) DESC, id').all();
   const units = rows
     .filter((u) => ROLL_ENTRY_DIMENSIONS.includes(u.dimension || 'count'))
@@ -233,8 +235,8 @@ function fabricReceiptUnits(db, prod) {
       };
     });
   let reason = '';
-  if (!stock) reason = `واحد کالا «${prod && prod.unit || '—'}» در کاتالوگ واحدها نیست. در کارت کالا یک واحد طولی (متر/یارد) انتخاب کنید.`;
-  else if (!stockOk) reason = `واحد انبار این کالا «${stock.name}» است. طاقهٔ برش‌خور باید واحد انبار طولی (متر/یارد) داشته باشد تا لایه‌چینی از آن کم کند. واحد کارت کالا را اصلاح کنید یا از «مواد با ویژگی» استفاده کنید.`;
+  if (!stock) reason = `واحد کالا «${prod && prod.unit || '—'}» در کاتالوگ واحدها نیست. در کارت کالا یک واحد طول، وزن یا مساحت انتخاب کنید.`;
+  else if (!stockOk) reason = `واحد انبار این کالا «${stock.name}» است. طاقه باید واحد انبار طول، وزن یا مساحت (با ضریب کاتالوگ) داشته باشد. واحد کارت کالا را اصلاح کنید یا از «مواد با ویژگی» استفاده کنید.`;
   return {
     stock_unit: stock ? { id: stock.id, code: stock.code, name: stock.name, symbol: stock.symbol || '', dimension: stock.dimension, token: rollUnitToken(stock) } : null,
     stock_ok: stockOk ? 1 : 0,
