@@ -338,10 +338,7 @@ function orderRequiresFabricCutting(db, po) {
     sizeBreakdown: parseJson(po.size_breakdown, {}) || {},
   });
   if (!fabricLine || !fabricLine.product_id) return false;
-  const fabId = Number(fabricLine.product_id);
-  const prod = db.prepare('SELECT unit FROM products WHERE id=?').get(fabId);
-  if (!isMeterUnit(prod && prod.unit)) return false;
-  return true;
+  return isRollFabricProduct(db, Number(fabricLine.product_id));
 }
 
 function cuttingQtyForOrder(db, orderId) {
@@ -655,11 +652,11 @@ function fabricIssueAllowance(db, { productId, orderId } = {}) {
 function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
   const AQ = Number(qty) || 0;
   if (!(AQ > 0) || !productId) return;
-  const lengthProd = db.prepare('SELECT name, unit FROM products WHERE id=?').get(Number(productId));
-  if (lengthProd && isMeterUnit(lengthProd.unit)) {
+  const lengthProd = db.prepare('SELECT id, name, unit, unit_id FROM products WHERE id=?').get(Number(productId));
+  if (lengthProd && isRollFabricProduct(db, lengthProd)) {
     throw httpErr(
       409,
-      `«${lengthProd.name}» پارچهٔ طولی است (${lengthProd.unit}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله یا رسید مستقیم سفارش.`,
+      `«${lengthProd.name}» پارچهٔ طاقه‌ای است (${rollFabricUnitLabel(db, lengthProd)}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله یا رسید مستقیم سفارش.`,
       'E_FABRIC_VIA_CUT',
       { product_id: Number(productId), unit: lengthProd.unit }
     );
@@ -696,6 +693,36 @@ function isMeterUnit(unit) {
   return require('../uom').isLengthText(unit);
 }
 
+/**
+ * پارچهٔ طاقه‌ای = مصرف فقط از لایه‌چینی.
+ * واحد کالا طولی باشد، یا طاقهٔ ثبت‌شده با واحد طولی داشته باشد؛ دریافت طاقه فقط متر/یارد
+ * می‌پذیرد، پس کالایی که برچسب «کیلوگرم» دارد ولی طاقهٔ متری دارد هم از طاقه مصرف می‌شود.
+ */
+function isRollFabricProduct(db, productOrId) {
+  const uom = require('../uom');
+  const prod = productOrId && typeof productOrId === 'object'
+    ? productOrId
+    : db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(Number(productOrId));
+  if (!prod) return false;
+  if (uom.isLengthProduct(db, prod)) return true;
+  if (!prod.id) return false;
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT COALESCE(NULLIF(TRIM(unit),''),'m') AS u FROM inventory_batches
+      WHERE product_id=? AND COALESCE(kind,'generic')='fabric'
+    `).all(Number(prod.id));
+    return rows.some((r) => uom.isLengthText(r.u));
+  } catch {
+    return false;
+  }
+}
+
+/** برچسب واحد برای پیام: واحد کالا اگر طولی است، وگرنه متر طاقه. */
+function rollFabricUnitLabel(db, prod) {
+  if (prod && require('../uom').isLengthText(prod.unit)) return prod.unit;
+  return 'متر طاقه';
+}
+
 function pickFabricLine(db, lines, preferredProductId) {
   const list = Array.isArray(lines) ? lines : [];
   if (!list.length) return null;
@@ -711,7 +738,7 @@ function pickFabricLine(db, lines, preferredProductId) {
     const matrix = parseJson(bl && bl.size_matrix, {}) || {};
     let score = 0;
     if (L.line_kind === 'material') score += 2;
-    if (isMeterUnit(p.unit)) score += 8;
+    if (isRollFabricProduct(db, L.product_id)) score += 8;
     if (Object.keys(matrix).length) score += 6;
     if (String(p.item_type || '') === 'raw') score += 1;
     return { L, score };
@@ -2114,4 +2141,6 @@ module.exports = {
   layFgCoveredByOrder,
   fabricLineFromBom,
   isMeterUnit,
+  isRollFabricProduct,
+  rollFabricUnitLabel,
 };

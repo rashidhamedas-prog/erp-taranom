@@ -31,17 +31,18 @@ const {
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
   cuttingQtyForOrderProduct,
-  isMeterUnit,
+  isRollFabricProduct,
+  rollFabricUnitLabel,
 } = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
 
-/** پارچهٔ طولی (متر/یارد). null اگر این کالا از مسیر طاقه مصرف نمی‌شود. */
+/** پارچهٔ طاقه‌ای (واحد طولی یا طاقهٔ متری/یاردی). null اگر این کالا از مسیر طاقه مصرف نمی‌شود. */
 function lengthFabricProduct(db, productId) {
-  const prod = db.prepare('SELECT id, name, unit FROM products WHERE id=?').get(Number(productId));
-  if (!prod || !isMeterUnit(prod.unit)) return null;
-  return prod;
+  const prod = db.prepare('SELECT id, name, unit, unit_id FROM products WHERE id=?').get(Number(productId));
+  if (!prod || !isRollFabricProduct(db, prod)) return null;
+  return { ...prod, unit_label: rollFabricUnitLabel(db, prod) };
 }
 
 /**
@@ -673,7 +674,7 @@ function backflushStageMaterials(db, {
           product_id: prod.id,
           name: prod.name,
           unit: prod.unit,
-          message: `«${prod.name}» پارچهٔ طولی است (${prod.unit}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله.`,
+          message: `«${prod.name}» پارچهٔ طاقه‌ای است (${rollFabricUnitLabel(db, prod)}). مصرفش فقط با لایه‌چینی و طاقه است، نه حوالهٔ مرحله.`,
         });
       }
       continue;
@@ -2118,7 +2119,7 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
           product_id: prod.id,
           name: prod.name,
           unit: prod.unit,
-          message: `«${prod.name}» پارچهٔ طولی است (${prod.unit}). حوالهٔ مرحله آن را مصرف نمی‌کند. از ثبت خروجی مرحلهٔ برش، لایه‌چینی همین سفارش را ثبت کنید.`,
+          message: `«${prod.name}» پارچهٔ طاقه‌ای است (${rollFabricUnitLabel(db, prod)}). حوالهٔ مرحله آن را مصرف نمی‌کند. از ثبت خروجی مرحلهٔ برش، لایه‌چینی همین سفارش را ثبت کنید.`,
         });
       }
       const resolved = resolveIssueStd(std, L, materials);
