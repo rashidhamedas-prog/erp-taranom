@@ -14,18 +14,27 @@ function dropUniquePersonYear(db) {
   if (!row?.sql) return;
   if (!/UNIQUE\s*\(\s*person_id\s*,\s*fiscal_year\s*\)/i.test(row.sql)) return;
   const tmp = 'salary_structures__multi';
+  // ALTER TABLE … RENAME leaves the name quoted in sqlite_master ("salary_structures").
+  const nameRe = /CREATE TABLE(?: IF NOT EXISTS)?\s+(?:"salary_structures"|`salary_structures`|\[salary_structures\]|salary_structures\b)/i;
+  if (!nameRe.test(row.sql)) {
+    console.error('dropUniquePersonYear salary_structures: unrecognised CREATE TABLE header');
+    return;
+  }
   const createSql = row.sql
-    .replace(/CREATE TABLE(?: IF NOT EXISTS)?\s+salary_structures\b/i, `CREATE TABLE ${tmp}`)
+    .replace(nameRe, `CREATE TABLE ${tmp}`)
     .replace(/,?\s*UNIQUE\s*\(\s*person_id\s*,\s*fiscal_year\s*\)/i, '');
-  const cols = db.prepare('PRAGMA table_info(salary_structures)').all().map(c => c.name);
+  const cols = db.prepare('PRAGMA table_info(salary_structures)').all().map(c => `"${c.name}"`);
   db.exec('PRAGMA foreign_keys=OFF');
   try {
-    db.exec(createSql);
-    db.exec(`INSERT INTO ${tmp} (${cols.join(',')}) SELECT ${cols.join(',')} FROM salary_structures`);
-    db.exec('DROP TABLE salary_structures');
-    db.exec(`ALTER TABLE ${tmp} RENAME TO salary_structures`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_salary_structures_person_year ON salary_structures(person_id, fiscal_year)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_salary_structures_person_eff ON salary_structures(person_id, effective_from, id)`);
+    db.transaction(() => {
+      db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+      db.exec(createSql);
+      db.exec(`INSERT INTO ${tmp} (${cols.join(',')}) SELECT ${cols.join(',')} FROM salary_structures`);
+      db.exec('DROP TABLE salary_structures');
+      db.exec(`ALTER TABLE ${tmp} RENAME TO salary_structures`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_salary_structures_person_year ON salary_structures(person_id, fiscal_year)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_salary_structures_person_eff ON salary_structures(person_id, effective_from, id)`);
+    })();
   } catch (e) {
     try { db.exec(`DROP TABLE IF EXISTS ${tmp}`); } catch (_) {}
     console.error('dropUniquePersonYear salary_structures', e.message);

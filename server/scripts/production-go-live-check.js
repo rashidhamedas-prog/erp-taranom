@@ -86,9 +86,7 @@ const avgZero = db.prepare(`
 `).get()?.c || 0;
 add('AVG_COST', avgZero === 0, avgZero ? `${avgZero} ماده با موجودی و میانگین صفر` : 'OK');
 
-const bad5210 = db.prepare(`
-  SELECT COUNT(*) c FROM journal_lines WHERE account_code IN ('5210','5211')
-`).get()?.c || 0;
+const bad5210 = require('../lib/production/health-check').adr011ViolationLines(db).length;
 add('ADR011', bad5210 === 0, bad5210 ? `${bad5210} سند انحراف مواد` : 'بدون سند 5210/5211');
 
 const fail = checks.filter(c => !c.ok);

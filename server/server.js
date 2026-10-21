@@ -950,9 +950,7 @@ if (!isDevice() && !isDemoMode()) {
         `).get();
         if (closed && Math.abs(accountBalance(db, code)) > 5) fails.push(`مانده ${code}≠۰`);
       }
-      const badMat = db.prepare(`
-        SELECT COUNT(*) c FROM journal_lines WHERE account_code IN ('5210','5211')
-      `).get()?.c || 0;
+      const badMat = require('./lib/production/health-check').adr011ViolationLines(db).length;
       if (badMat > 0) fails.push(`سند انحراف مواد 5210/5211: ${badMat}`);
       const stageXfer = db.prepare(`
         SELECT COUNT(*) c FROM journal_entries
@@ -997,8 +995,10 @@ if (!isDevice() && !isDemoMode()) {
 // 4xx errors carry safe validation messages (fiscal year, balance, ...) and
 // must reach the user; only true 5xx get the generic text.
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-  console.error('unhandled error:', err.message);
-  const status = err.status || 500;
+  const status = err.status || err.statusCode || 500;
+  const where = `${req.method} ${String(req.originalUrl || req.url || '').split('?')[0].slice(0, 160)}`;
+  if (status >= 500) console.error('unhandled error:', where, err.message);
+  else console.warn(`request rejected ${status}:`, where, err.message);
   const msg = (status >= 400 && status < 500 && err.message) ? err.message : 'خطای داخلی سرور';
   res.status(status).json({ error: msg });
 });

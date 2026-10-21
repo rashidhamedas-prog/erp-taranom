@@ -4,7 +4,6 @@
  * accounting-events.md §5 (H1..H5, C1..C7)
  */
 const { acct } = require('../coa-map');
-const close = require('./close');
 
 function runQuery(db, sql, params = []) {
   try {
@@ -23,6 +22,35 @@ function mkCheck(code, name, rows) {
     status: err ? 'error' : (count === 0 ? 'pass' : 'fail'),
     rows: count < 0 ? 0 : count,
   };
+}
+
+// PRD-18 (roll surplus found at cutting) credits 5211 by design; ADR-011 bans
+// only BOM-vs-actual material variance postings, so surplus entries are exempt.
+const ADR011_EXEMPT_SQL = `COALESCE(je.deleted_at, 0) = 0
+  AND COALESCE(je.ref_type, '') NOT LIKE 'cutting_roll_surplus%'`;
+
+function adr011VarianceCodes(db) {
+  return [acct(db, 'coa_var_material_price').code, acct(db, 'coa_var_material_qty').code];
+}
+
+function adr011ViolationLines(db) {
+  return db.prepare(`
+    SELECT jl.entry_id, jl.account_code, je.ref_type FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code IN (?, ?) AND ${ADR011_EXEMPT_SQL}
+  `).all(...adr011VarianceCodes(db));
+}
+
+function adr011Balance(db, code) {
+  const r = db.prepare(`
+    SELECT
+      COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) -
+      COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code = ? AND ${ADR011_EXEMPT_SQL}
+  `).get(code);
+  return Number(r && r.bal) || 0;
 }
 
 function runHealthCheck(db) {
@@ -90,7 +118,8 @@ function runHealthCheck(db) {
     `)),
     mkCheck('C3', 'بدون سند انحراف مواد (ADR-011)', runQuery(db, `
       SELECT jl.entry_id, jl.account_code FROM journal_lines jl
-      WHERE jl.account_code IN (?, ?)
+      JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE jl.account_code IN (?, ?) AND ${ADR011_EXEMPT_SQL}
     `, [varPriceCode, varQtyCode])),
     mkCheck('C4', 'همه اسناد تولیدی تراز', runQuery(db, `
       SELECT je.id, je.voucher_number,
@@ -145,7 +174,7 @@ function runHealthCheck(db) {
   // ADR-011: variance accounts must stay at zero balance
   for (const key of ['coa_var_material_price', 'coa_var_material_qty']) {
     const code = acct(db, key).code;
-    const bal = close.accountBalance(db, code);
+    const bal = adr011Balance(db, code);
     checks.push({
       code: 'ADR',
       name: `مانده ${code} صفر (ADR-011)`,
@@ -158,4 +187,4 @@ function runHealthCheck(db) {
   return { ok, checks, at: new Date().toISOString() };
 }
 
-module.exports = { runHealthCheck };
+module.exports = { runHealthCheck, adr011ViolationLines, adr011Balance };
