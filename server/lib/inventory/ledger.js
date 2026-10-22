@@ -428,6 +428,28 @@ function postInventoryMovement(db, opts) {
     } catch (_) { /* costing module optional during bootstrap */ }
   }
 
+  // v529: never persist qty_out>0 with zero amount (kardex shows stored unit/amount).
+  // Method comes from resolvePolicy (product → warehouse → global) — not hardcoded MA.
+  // Reversals / align seeds / value-only / explicit allowZeroCost stay exempt.
+  if (
+    qtyOut > 0
+    && !valueOnly
+    && !isReversal
+    && !isAlign
+    && !opts.allowZeroCost
+    && Math.round(Number(amount) || 0) <= 0
+  ) {
+    const pname = (stockInfo.product && stockInfo.product.name) || productId;
+    throw invErr('E_ZERO_OUTBOUND_COST', 422, {
+      product_id: productId,
+      name: pname,
+      method,
+      warehouse_id: warehouseId,
+      qty_out: qtyOut,
+      message: `بهای خروجی «${pname}» صفر است (روش ${method}) — ابتدا بهای موجودی/رسید را ثبت کنید یا میانگین را بذر کنید`,
+    });
+  }
+
   const txNo = nextTxNo(db);
   const result = db.prepare(`
     INSERT INTO inventory_ledger (
