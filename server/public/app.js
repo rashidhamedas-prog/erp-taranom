@@ -208,7 +208,9 @@ async function api(method, path, data, isFormData, silent){
       const prodFriendly={
         E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
         E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
-        E_BOM_LOCKED:'فرمول فعال قفل است — نسخه جدید بسازید',
+        E_BOM_LOCKED:'فرمول فعال قفل است — نسخه جدید بسازید (اتصال مواد به عملیات روی فرمول فعال آزاد است)',
+        E_BOM_ASSIGN_LOCKED:'اتصال مواد به عملیات فقط روی فرمول پیش‌نویس یا فعال قابل تغییر است',
+        E_BOM_LINES_UNASSIGNED: j.detail || 'بعضی اقلام فرمول به هیچ عملیاتی وصل نیستند — در تب «مسیر عملیات» هر قلم را به عملیات مصرف‌کننده وصل کنید',
         E_BOM_NOT_DRAFT:'فقط پیش‌نویس قابل ویرایش است',
         E_BOM_SELF_REF:'کالا نمی‌تواند جزء خودش باشد',
         E_BOM_SCRAP_RANGE:'درصد ضایعات باید بین ۰ و ۱۰۰ باشد',
@@ -16194,6 +16196,8 @@ async function prodBomEditModal(id, tab){
   try{ bom=await api('GET','/production/boms/'+id); }catch(e){ showToast(e.message||'خطا','error'); return; }
   const locked=bom.status!=='draft';
   const canBomEdit=!locked && typeof canPerm==='function' && canPerm('production_bom','edit');
+  // v527: اتصال مواد→عملیات فقط «کدام مرحله حواله می‌زند» را عوض می‌کند (نه مقدار/بها) → روی فرمول فعال هم مجاز
+  const canAsgEdit=(bom.status==='draft'||bom.status==='active') && typeof canPerm==='function' && canPerm('production_bom','edit');
   const lines=bom.lines||[];
   window._prodBomEditLines=lines;
   window._prodBomEditBom=bom;
@@ -16254,7 +16258,7 @@ async function prodBomEditModal(id, tab){
       ${lines.map(L=>prodBomLineRowHtml(L, !canBomEdit, bom.product_id, multi)).join('')||(!canBomEdit?`<tr><td colspan="${colCount}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`:'')}
     </tbody></table></div>`;
   } else if(activeTab==='ops'){
-    panel=prodBomOpsPanelHtml(id, ops, !canBomEdit, stageCCs, multi);
+    panel=prodBomOpsPanelHtml(id, ops, !canBomEdit, stageCCs, multi, canAsgEdit);
   } else if(activeTab==='outputs'){
     panel=prodBomOutputsPanelHtml(id, outs, !canBomEdit, bom);
   } else if(activeTab==='cost'){
@@ -16263,7 +16267,7 @@ async function prodBomEditModal(id, tab){
 
   let readyHtml='<div id="pbe-ready" class="muted" data-csp-style="'+CSP.style('margin-bottom:10px;font-size:12px')+'">در حال بررسی مشخصات ضروری…</div>';
   showModal((!canBomEdit?'مشاهده':'ویرایش')+' فرمول '+esc(bom.code||''),`
-    ${locked?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر «نسخه جدید» بسازید.</div>`:''}
+    ${locked?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر اقلام/عملیات «نسخه جدید» بسازید.${canAsgEdit?' <b>اتصال مواد به عملیات</b> (تب «مسیر عملیات») روی فرمول فعال آزاد است؛ فقط تعیین می‌کند کدام مرحله حواله می‌زند.':''}</div>`:''}
     ${!locked&&!canBomEdit?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">👁 فقط مشاهده — مجوز <code>production_bom/edit</code> ندارید.</div>`:''}
     ${readyHtml}
     ${prodBomFgChipsHtml(bom, canBomEdit)}
@@ -16342,9 +16346,11 @@ function prodBomPersonLabel(personId){
   const p=(CACHE.persons||[]).find(x=>Number(x.id)===Number(personId));
   return p?(p.name||p.full_name||('#'+personId)):'#'+personId;
 }
-function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi){
+function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi, canAsgEdit){
   if(stageCCs&&stageCCs.length) window._prodBomStageCCs=stageCCs;
   const canMut=!locked;
+  // v527: اتصال مواد→عملیات روی فرمول فعال هم مجاز است (فقط مرحلهٔ حواله را تعیین می‌کند)
+  const canAsg=canMut||!!canAsgEdit;
   const isMulti=multi!=null?!!multi:!!(window._prodBomFgProducts&&window._prodBomFgProducts.length>1);
   window._prodBomEditOps=ops||[];
   const asgLineOpts=(window._prodBomEditLines||[]).map(L=>`<option value="${L.id}">${esc('#'+(L.line_no??L.id)+' — '+prodBomAsgProdLabel(L.component_product_id)+' ('+(L.qty_per_base??'')+')')}</option>`).join('');
@@ -16390,10 +16396,10 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs, multi){
     </div>
     <div class="prod-step">
       <h4>۲) مواد را به عملیات وصل کنید</h4>
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.6;margin:0 0 8px`)}">اگر عملیات ذخیره نشده باشد، لیست عملیات خالی است. بعد از ذخیرهٔ عملیات، قلم را به همان عملیات وصل کنید تا حوالهٔ مرحله پر شود.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.6;margin:0 0 8px`)}">هر قلم فقط روی مرحله‌ای حواله می‌شود که اینجا به عملیاتش وصل شده باشد؛ قلمِ وصل‌نشده روی <b>هیچ</b> مرحله‌ای نمی‌آید و فعال‌سازی فرمول را می‌بندد (دیگر خودکار به مرحلهٔ اول/برش نمی‌افتد). پارچهٔ طاقه‌ای را به «برش» و بند/زیپ/کش را به دوخت یا بسته‌بندی وصل کنید. روی فرمول فعال هم قابل تغییر است.</p>
       <div id="pbe-assign-box" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">در حال بارگذاری تخصیص‌ها…</div>
-      ${canMut?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
-        <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomBackfillAssignments((id))})}">نگاشت خودکار از مرکز هزینه</button>
+      ${canAsg?`<div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomBackfillAssignments((id))})}">نگاشت خودکار (مرکز هزینه / پارچه→برش)</button>
         <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomReloadAssignments((id))})}">بازنشانی لیست</button>
       </div>
       <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end`)}" id="pbe-assign-form">
@@ -16443,12 +16449,15 @@ async function prodBomReloadAssignments(bomId){
   const canDel=typeof canPerm==='function' && canPerm('production_bom','edit');
   try{
     const data=await api('GET','/production/boms/'+bomId+'/assignments');
-    const rows=(data&&data.rows)||data||[];
+    const rows=(data&&data.rows)||(Array.isArray(data)?data:[]);
+    // v527: اقلام بدون عملیات — روی هیچ مرحله‌ای حواله نمی‌شوند
+    const gaps=(data&&Array.isArray(data.unassigned))?data.unassigned:[];
+    const gapHtml=gaps.length?`<div class="prod-empty" data-csp-style="${CSP.style(`margin:0 0 8px;border-color:#C0392B;color:#C0392B`)}">⚠ به عملیاتی وصل نیست (روی هیچ مرحله‌ای حواله نمی‌شود): ${gaps.map(g=>esc('«'+(g.name||('#'+g.component_product_id))+'»'+(g.line_no!=null?' (قلم '+g.line_no+')':''))).join('، ')}</div>`:'';
     if(!rows.length){
-      box.innerHTML='تخصیصی ثبت نشده — اول عملیات را ذخیره کنید، بعد قلم را وصل کنید یا «نگاشت خودکار» را بزنید.';
+      box.innerHTML=gapHtml+'تخصیصی ثبت نشده — اول عملیات را ذخیره کنید، بعد قلم را وصل کنید یا «نگاشت خودکار» را بزنید.';
       return;
     }
-    box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    box.innerHTML=gapHtml+`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>قلم</th><th>کالا / مقدار</th><th>عملیات</th><th>seq</th><th>حالت</th><th>سهم٪</th>${canDel?'<th></th>':''}
     </tr></thead><tbody>${rows.map(a=>`<tr>
       <td class="num">${esc(String(a.line_no??a.bom_line_id))}</td>
@@ -16477,6 +16486,7 @@ async function prodBomDeleteAssignment(bomId, lineId, opId){
     await api('PUT','/production/boms/'+bomId+'/assignments',{assignments:keep});
     showToast('تخصیص حذف شد');
     await prodBomReloadAssignments(bomId);
+    if(typeof prodBomRefreshReadiness==='function') prodBomRefreshReadiness(bomId);
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 function prodBomAsgProdLabel(pid){
@@ -16504,13 +16514,16 @@ async function prodBomSaveOneAssignment(bomId){
     await api('PUT','/production/boms/'+bomId+'/assignments',{assignments:keep});
     showToast('تخصیص ذخیره شد');
     await prodBomReloadAssignments(bomId);
+    if(typeof prodBomRefreshReadiness==='function') prodBomRefreshReadiness(bomId);
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomBackfillAssignments(bomId){
   try{
     const r=await api('POST','/production/boms/'+bomId+'/assignments/backfill',{});
-    showToast(`نگاشت: ${r.assigned||0} — مبهم: ${(r.ambiguous||[]).length}`);
+    const amb=(r.ambiguous||[]).length;
+    showToast(`نگاشت خودکار: ${r.assigned||0} قلم جدید · ${r.kept||0} قبلی حفظ شد${amb?` · ${amb} قلم مبهم ماند — دستی وصل کنید`:''}`, amb?'error':undefined);
     await prodBomReloadAssignments(bomId);
+    if(typeof prodBomRefreshReadiness==='function') prodBomRefreshReadiness(bomId);
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 function prodBomFillOpForm(o){
@@ -21768,9 +21781,17 @@ async function prodOrderStagesModal(orderId){
   const stages=data.stages||[];
   const PU=window.ProdUI;
   const STATUS_FA={done:'انجام شد',in_progress:'در جریان',pending:'منتظر',blocked:'متوقف',skipped:'رد شده'};
+  // v527: اقلام فرمول(ها) که به هیچ عملیاتی وصل نیستند → روی هیچ مرحله‌ای حواله نمی‌شوند
+  const gaps=Array.isArray(data.material_gaps)?data.material_gaps:[];
+  const canFixBom=typeof canPerm==='function' && canPerm('production_bom','edit');
+  const gapsHtml=gaps.length?`<div class="prod-empty" data-csp-style="${CSP.style(`margin:0 0 10px;border-color:#C0392B;color:#C0392B;text-align:right`)}">
+      ⚠ این اقلام فرمول به هیچ عملیاتی وصل نیستند و روی هیچ مرحله‌ای حواله نمی‌شوند: ${gaps.map(g=>esc('«'+g.name+'»'+(g.bom_code?' ('+g.bom_code+')':''))).join('، ')}.
+      ${canFixBom?[...new Set(gaps.map(g=>g.bom_id))].map(bid=>`<button class="btn sm ghost" type="button" data-csp-style="${CSP.style(`margin-inline-start:6px`)}" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((bid),'ops')})}">اتصال مواد در فرمول ${esc((gaps.find(g=>g.bom_id===bid)||{}).bom_code||('#'+bid))}</button>`).join(''):'از مدیر تولید بخواهید در فرمول (تب مسیر عملیات) وصل کند.'}
+    </div>`:'';
   showModal('مراحل سفارش '+esc(order.order_no||''),`
     <div class="prod-scope">
-    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد. اگر مرحلهٔ برش پارچهٔ طاقه‌ای دارد (واحد متر/یارد، یا طاقهٔ ثبت‌شده حتی اگر واحد کالا کیلو نوشته شده)، «ثبت خروجی» همان فرم لایه‌چینی را برای این سفارش باز می‌کند و پارچه از طاقه مصرف می‌شود. در سفارش چندمحصولی، مرحلهٔ مشترک جمع تعدادها را دارد و مرحلهٔ اختصاصی فقط تعداد همان محصول را؛ تمام شدن مرحلهٔ قبل، تعداد اختصاصی را عوض نمی‌کند.</p>
+    ${gapsHtml}
+    <p class="prod-floor-lead">جریان کار از راست به چپ: شروع → حواله مواد (در صورت نیاز) → ثبت خروجی. مواد فقط روی مرحله‌ای می‌آید که در فرمول به همان عملیات وصل شده باشد؛ قلم وصل‌نشده روی هیچ مرحله‌ای (حتی برش) نمی‌آید. اگر مرحلهٔ برش پارچهٔ طاقه‌ای دارد (واحد متر/یارد، یا طاقهٔ ثبت‌شده حتی اگر واحد کالا کیلو نوشته شده)، «ثبت خروجی» همان فرم لایه‌چینی را برای این سفارش باز می‌کند و پارچه از طاقه مصرف می‌شود. در سفارش چندمحصولی، مرحلهٔ مشترک جمع تعدادها را دارد و مرحلهٔ اختصاصی فقط تعداد همان محصول را؛ تمام شدن مرحلهٔ قبل، تعداد اختصاصی را عوض نمی‌کند.</p>
     ${PU?PU.stageFlow(stages):''}
     <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:12px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>#</th><th>عملیات / مرکز</th><th>تخصیص</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
@@ -22137,9 +22158,13 @@ async function prodStageIssueModal(orderId,stageId){
       ? `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div data-csp-style="${CSP.style(`margin-bottom:8px`)}">این کالاها موجودی دارند ولی بها ندارند. بهای هر واحد (ریال) را بنویسید — سند افتتاحیه ثبت می‌شود و حواله باز می‌شود.</div>${zeroCost.map(L=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:6px 0`)}"><span>${esc(L.name||('#'+L.product_id))}</span><input data-seed-cost="psi" data-pid="${L.product_id}" inputmode="numeric" placeholder="بهای هر واحد" data-csp-style="${CSP.style(`width:140px`)}"></label>`).join('')}<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){seedIssueAvgFrom('psi',function(){prodStageIssueModal(orderId,stageId)})})}">ثبت بها</button></div>`
       : `<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">بهای میانگین صفر است. از حسابداری بخواهید بها را ثبت کند: ${esc(zeroCost.map(L=>L.name||('#'+L.product_id)).join('، '))}</div>`)
     : '';
+  // v527: اقلام بدون عملیات در فرمول — روی هیچ مرحله‌ای (این یکی هم) حواله نمی‌شوند
+  const bomGaps=Array.isArray(tpl.bom_gaps)?tpl.bom_gaps:[];
+  const gapsHint=bomGaps.length?`<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#C0392B;color:#C0392B`)}">⚠ در فرمول به هیچ عملیاتی وصل نیست و اینجا هم نمی‌آید: ${esc(bomGaps.map(g=>'«'+g.name+'»'+(g.bom_code?' ('+g.bom_code+')':'')).join('، '))} — در فرمول → مسیر عملیات وصل کنید (روی فرمول فعال هم مجاز است).</div>`:'';
   showModal('حواله مواد مرحله',`
     <div class="prod-scope">
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
+    ${gapsHint}
     ${layOnly.length?`<div class="prod-empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}">پارچهٔ طولی این مرحله از حواله مصرف نمی‌شود: ${esc(layOnly.map(L=>L.name||('#'+L.product_id)).join('، '))}. از «ثبت خروجی» لایه‌چینی همین سفارش را ثبت کنید.</div>`:''}
     ${!issuable.length?`<div class="prod-empty">${lines.length?'قلمی جز پارچهٔ طولی برای حوالهٔ این مرحله نیست.':esc(hint)}</div>`:zeroHint}
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -34910,6 +34935,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
         <li><b>کسری مواد در مرحله (v462):</b> اگر هنگام «ثبت خروجی» (آنالیز ثابت: حواله خودکار) یا «حواله مواد» (آنالیز متغیر) موجودی یک قلم کمتر از نیاز همان مرحله باشد، برای همان قلم یک کالای دیگر و مقدار پوشش انتخاب کنید. اصل تا سقف موجودی حواله می‌شود و مانده از جایگزین. استاندارد فرمول روی قلم اصلی می‌ماند؛ در پوشش جزئی مقدار استاندارد جایگزین صفر است. اگر پوشش ناقص باشد ثبت انجام نمی‌شود. ابطال مرحله موجودی هر دو کالا را برمی‌گرداند. انحراف همچنان سند حسابداری ندارد.</li>
         <li><b>ابطال مرحله و ثبت دوباره (v523):</b> «ابطال مرحله» فقط اثر همان خروجی را برمی‌گرداند: دستمزد، سربار، ضایعات و تعداد مرحله، و حوالهٔ عادی مواد همان مرحله (موجودی به انبار). سند هر قلم دقیقاً همان سند خودش باطل می‌شود؛ ابطال مرحلهٔ دوم دیگر سربار/حوالهٔ مرحلهٔ اول را باطل نمی‌کند. <b>لایه‌چینی (برش)</b> سند جدا دارد: تا لایه/برش مشترک زنده است، مصرف پارچه‌اش روی سفارش و WIP می‌ماند و بعد از ابطال مرحله، «ثبت خروجی» دوبارهٔ برش همان لایه را مصرف می‌کند (لایه‌چینی دوباره لازم نیست). برای برگرداندن پارچه به انبار، خودِ لایه/برش مشترک را ابطال کنید. <b>آنالیز متغیر:</b> «ثبت خروجی» تا وقتی همهٔ اقلام فرمولِ آن مرحله (به‌جز پارچهٔ طاقه‌ای) حوالهٔ مثبت نداشته باشند، ثبت نمی‌شود؛ فرم خروجی اقلام حواله‌نشده را با دکمهٔ «حواله مواد» نشان می‌دهد و اگر موجودی کم است کالای جایگزین در همان حواله انتخاب می‌شود. لایه‌چینی هم تا آن اقلام حواله نشده‌اند مرحلهٔ برش را خودکار تمام نمی‌کند.</li>
+        <li><b>اتصال سخت‌گیرانهٔ مواد به عملیات — هیچ قلمی خودکار به برش نمی‌افتد (v527):</b> هر قلم فرمولِ مسیردار فقط روی مرحله‌ای حواله می‌شود که در تب «مسیر عملیات → مواد را به عملیات وصل کنید» به عملیاتش وصل شده (یا قدیمی: مرکز هزینهٔ قلم با عملیات یکی باشد). قلمِ وصل‌نشده دیگر به مرحلهٔ اول/برش نمی‌افتد و روی <b>هیچ</b> مرحله‌ای نمی‌آید؛ به‌جایش <b>فعال‌سازی فرمول</b>، <b>آزادسازی سفارش</b> و <b>حواله/نهایی‌سازی</b> با خطای قرمز «این اقلام به هیچ عملیاتی وصل نیستند» بسته می‌شود (قابل waive نیست) و در «مراحل سفارش»، «حواله مواد» و ویرایشگر فرمول هشدار قرمز با دکمهٔ اتصال نشان داده می‌شود. <b>اتصال مواد روی فرمول فعال هم مجاز است</b> (نسخهٔ جدید لازم نیست؛ مقدار و بها عوض نمی‌شود، فقط مرحلهٔ حواله) و در تاریخچهٔ فرمول ثبت می‌شود؛ «نگاشت خودکار» اتصال‌های قبلی را نگه می‌دارد، پارچهٔ طاقه‌ای را به برش می‌برد و بقیه را از مرکز هزینهٔ قلم می‌گیرد. «نسخهٔ جدید»، «کپی» و «ذخیرهٔ اقلام» دیگر اتصال‌ها را گم نمی‌کنند. <b>سفارش چندفرمولی (دو فرمول روی یک سفارش):</b> اقلام هر فرمول با تعداد همان محصول باز می‌شوند (بند ۱ عددی برای ۸۴ هودی + ۸۴ شلوار = ۸۴ روی هر مرحلهٔ اختصاصی، نه ۱۶۸ روی برش) و مرحلهٔ برش مشترک فقط اقلام برشِ هر دو فرمول را می‌گیرد. <b>چندمحصولی تک‌فرمولی:</b> قلم مشترک روی مرحلهٔ اختصاصی هر محصول به نسبت تعداد همان محصول تقسیم می‌شود و قلم اختصاصی فقط به مرحلهٔ همان محصول می‌رود.</li>
         <li><b>انتخاب نوع آنالیز با فرمول مسیر‌دار (v513):</b> اگر فرمول مسیر عملیات دارد یا چندمحصولی است، فقط دو گزینهٔ مرحله‌ای باز است و بین آن‌ها آزادانه انتخاب می‌کنید: «ثابت مرحله‌ای» (مواد هر مرحله به مقدار استاندارد کسر می‌شود) یا «متغیر مرحله‌ای» (مواد هر مرحله با «حواله مواد» و مقدار واقعی). گزینه‌های بدون مرحله پنهان می‌شوند چون مراحل مسیر ساخته نمی‌شوند.</li>
         <li><b>مصرف اضافهٔ مرحله (v513):</b> در «مراحل سفارش» دکمهٔ «مصرف اضافه» برای هر دو آنالیز مرحله‌ای. وقتی در عمل بیش از فرمول مصرف شد (مثلاً ۱۰ زیپ لازم بود ولی زیپ خراب شد و ۲۰ عدد رفت) فقط مقدار اضافه را با دلیل بزنید: قلم معیوب، خطای اپراتور، خرابی دستگاه، دوباره‌کاری، گم‌شدن، مصرف واقعی بیش از فرمول، نمونهٔ QC، تغییر مشخصات، سایر (توضیح الزامی). «عادی» تا سقف درصد ضایعات عادی عملیات (یا تنظیم <code>production_material_extra_normal_pct</code>) روی استاندارد همان قلم در بهای محصول (WIP) می‌ماند و با خروجی مرحله جلو می‌رود؛ مازاد سقف یا دلیل غیرعادی با سند PRD-24 بدهکار ۵۲۲۱ / بستانکار مواد روی مرکز هزینهٔ همان مرحله ثبت می‌شود و بهای محصول را بالا نمی‌برد. انحراف مقدار در گزارش انحراف (memo) دیده می‌شود. ابطال: تا مرحله در جریان است دکمهٔ «ابطال» همان ردیف (مواد به انبار، سند معکوس)؛ بعد از اتمام مرحله «ابطال مرحله» همه را برمی‌گرداند. پارچهٔ طاقه‌ای اینجا نیست؛ مصرف واقعی پارچه با «متر واقعی» لایه‌چینی ثبت می‌شود.</li>
         <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>
@@ -35394,7 +35420,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v526</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v527</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

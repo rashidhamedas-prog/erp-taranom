@@ -198,10 +198,18 @@ expectErr(() => asg.replaceAssignments(db, bomId, [
 ]), 'E_BOM_COMP_COLOR', 'fixed component color without color_id rejected');
 ok(asg.operationIdForLine(db, bomId, lineId) === Number(op1), 'sole assignment wins over legacy');
 
-console.log('Lock — active BOM rejects matrix edits');
+console.log('Lock — active BOM: allowed-variants locked, material→operation links editable (v527)');
 db.prepare("UPDATE bom_headers SET status='active' WHERE id=?").run(bomId);
-expectErr(() => asg.replaceAssignments(db, bomId, []), 'E_BOM_LOCKED', 'assignments locked on active BOM');
+const sameRows = asg.listAssignments(db, bomId).map(a => ({
+  bom_line_id: a.bom_line_id, operation_id: a.operation_id,
+  allocation_mode: a.allocation_mode, share_percent: a.share_percent,
+}));
+ok(asg.replaceAssignments(db, bomId, sameRows, 1).length === 2, 'v527: assignments editable on active BOM');
+ok(!!db.prepare("SELECT 1 FROM bom_change_log WHERE bom_id=? AND change_type='assignments_replace'").get(bomId),
+  'v527: assignment change on active BOM is audited in bom_change_log');
 expectErr(() => asg.replaceAllowedVariants(db, bomId, []), 'E_BOM_LOCKED', 'allowed variants locked on active BOM');
+db.prepare("UPDATE bom_headers SET status='archived' WHERE id=?").run(bomId);
+expectErr(() => asg.replaceAssignments(db, bomId, []), 'E_BOM_ASSIGN_LOCKED', 'v527: archived BOM rejects assignment edits');
 db.prepare("UPDATE bom_headers SET status='draft' WHERE id=?").run(bomId);
 ok(asg.listAssignments(db, bomId).length === 2, 'assignments survived every rejection');
 

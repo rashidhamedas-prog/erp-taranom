@@ -534,7 +534,198 @@ function explodedOrderLines(db, po) {
     forProductId: explodeProductScopeForOrder(db, po),
     qtyByProduct: orderFgQtyMap(db, po),
   });
-  return ex.lines || [];
+  return (ex.lines || []).map(L => ({ ...L, bom_id: Number(po.bom_id), piece_product_id: null }));
+}
+
+/**
+ * v527 — «تکه‌های مواد» سفارش: هر فرمولی که روی سفارش است با تعداد خودش باز می‌شود.
+ *  - سفارش چندفرمولی (v475): یک تکه برای هر ردیف fg_plan (فرمول + محصول + تعداد همان محصول).
+ *    قبلاً فقط bom_id سرفصل با جمع تعداد همهٔ محصولات باز می‌شد (بند کلاه ×168 به‌جای ×84 + ×84
+ *    و اقلام فرمول دوم اصلاً دیده نمی‌شد).
+ *  - سایر سفارش‌ها: همان explode قبلی (یک تکه).
+ * هر قلم bom_id و piece_product_id خودش را دارد تا به مرحلهٔ درست برسد.
+ */
+function orderMaterialPieces(db, po) {
+  const peers = orderBomPeerLines(po);
+  if (!peers) {
+    return po?.bom_id
+      ? [{ bom_id: Number(po.bom_id), product_id: null, qty_by_product: orderFgQtyMap(db, po), lines: explodedOrderLines(db, po) }]
+      : [];
+  }
+  const out = [];
+  for (const line of peers) {
+    const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(line.bom_id);
+    if (!bom) continue;
+    const qtyMain = orderQtyAsMainBase(db, line.bom_id, line.qty_planned, line.product_id);
+    const hasOps = !!db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(line.bom_id);
+    const qtyStart = hasOps ? (Number(backwardQty(db, line.bom_id, qtyMain).qty_start) || qtyMain) : qtyMain;
+    const ex = explodeBom(db, {
+      bomId: line.bom_id,
+      qty: qtyStart,
+      sizeBreakdown: safeJson(po.size_breakdown),
+      color: po.color,
+      priceBasis: 'average',
+      yieldOverride: bom.has_routing ? 100 : null,
+      forProductId: line.product_id,
+    });
+    out.push({
+      bom_id: Number(line.bom_id),
+      product_id: Number(line.product_id),
+      qty_by_product: null,
+      lines: (ex.lines || []).map(L => ({ ...L, bom_id: Number(line.bom_id), piece_product_id: Number(line.product_id) })),
+    });
+  }
+  return out;
+}
+
+/** همهٔ اقلام همهٔ تکه‌ها (برای راهنما/گزارش). */
+function orderMaterialLinesAll(db, po) {
+  const out = [];
+  for (const piece of orderMaterialPieces(db, po)) out.push(...piece.lines);
+  return out;
+}
+
+/**
+ * v527 — اقلام فرمول(های) سفارش که به هیچ عملیاتی وصل نیستند؛ روی هیچ مرحله‌ای حواله نمی‌شوند.
+ * برای سفارش‌های قدیمیِ در جریان فقط هشدار (گیت در فعال‌سازی/آزادسازی/حواله است).
+ */
+function orderMaterialGaps(db, po) {
+  if (!po?.bom_id) return [];
+  const { unassignedBomLines } = require('./bom-assignments');
+  const bomIds = [Number(po.bom_id)];
+  for (const p of orderBomPeerLines(po) || []) {
+    if (!bomIds.includes(Number(p.bom_id))) bomIds.push(Number(p.bom_id));
+  }
+  const out = [];
+  for (const bomId of bomIds) {
+    const bom = db.prepare('SELECT id, code, name FROM bom_headers WHERE id=?').get(bomId);
+    for (const L of unassignedBomLines(db, bomId)) {
+      out.push({ ...L, bom_id: bomId, bom_code: bom?.code || '', bom_name: bom?.name || '' });
+    }
+  }
+  return out;
+}
+
+/** عملیات‌های مسیر یک فرمول که این مرحله آن‌ها را اجرا می‌کند. */
+function stageOperationsForPiece(db, po, stage, piece, peers) {
+  const ops = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq, id').all(piece.bom_id);
+  if (!ops.length) return [];
+  const own = stage.operation_id != null ? ops.find(op => Number(op.id) === Number(stage.operation_id)) : null;
+  if (!peers) {
+    if (own) return [own];
+    // drift: عملیات مرحله از فرمول حذف شده → عملیات هم‌مرکز، فقط اگر مرحلهٔ دیگری آن را اجرا نمی‌کند
+    if (stage.cost_center_id) {
+      const sameCc = ops.find(op => Number(op.cost_center_id) === Number(stage.cost_center_id));
+      if (sameCc) {
+        const taken = db.prepare(`
+          SELECT 1 FROM production_order_stages WHERE order_id=? AND operation_id=? AND id<>? LIMIT 1
+        `).get(po.id, sameCc.id, stage.id);
+        if (!taken) return [sameCc];
+      }
+    }
+    return [];
+  }
+  // چندفرمولی: مرحلهٔ اختصاصی فقط مال فرمول/محصول خودش است
+  if (String(stage.product_scope || 'shared') === 'exclusive') {
+    if (stage.scoped_product_id != null && Number(stage.scoped_product_id) !== Number(piece.product_id)) return [];
+    return own ? [own] : [];
+  }
+  // مرحلهٔ مشترک (برش مشترک): در هر فرمول، عملیات برش همان فرمول
+  if (own) return [own];
+  const stageOp = stage.operation_id != null
+    ? db.prepare('SELECT * FROM bom_operations WHERE id=?').get(stage.operation_id)
+    : null;
+  const isCut = stageOp ? stageIsCutting(db, stageOp) : !!stage.cost_center_id;
+  if (isCut) {
+    const cut = ops.find(op => stageIsCutting(db, op));
+    if (cut) return [cut];
+  }
+  if (stage.cost_center_id) {
+    const sameCc = ops.find(op => Number(op.cost_center_id) === Number(stage.cost_center_id));
+    if (sameCc) return [sameCc];
+  }
+  return [];
+}
+
+/** v527 — اقلام یک تکه که به یک عملیات وصل‌اند (صریح، یا legacy از مرکز هزینهٔ قلم). بدون یتیم. */
+function pieceLinesForOperation(db, piece, op) {
+  const { materialsByOperation } = require('./bom-assignments');
+  const byOp = materialsByOperation(db, piece.bom_id);
+  const byLine = new Map(piece.lines.map(L => [Number(L.bom_line_id), L]));
+  const out = [];
+  const explicitLineIds = new Set();
+  for (const rows of byOp.values()) for (const a of rows) explicitLineIds.add(Number(a.bom_line_id));
+  for (const a of byOp.get(Number(op.id)) || []) {
+    const L = byLine.get(Number(a.bom_line_id));
+    if (!L) continue;
+    out.push({ ...L, qty_final: assignmentSliceQty(L, a), allocation_mode: a.allocation_mode || 'sole' });
+  }
+  // legacy: قلم با stage_cost_center_id و بدون تخصیص صریح → اولین عملیاتِ همان مرکز (یک‌بار حواله)
+  const firstOpOfCc = db.prepare(`
+    SELECT id FROM bom_operations WHERE bom_id=? AND cost_center_id=? ORDER BY seq ASC, id ASC LIMIT 1
+  `).get(piece.bom_id, op.cost_center_id);
+  if (firstOpOfCc && Number(firstOpOfCc.id) === Number(op.id)) {
+    for (const L of piece.lines) {
+      if (explicitLineIds.has(Number(L.bom_line_id))) continue;
+      if (L.stage_cost_center_id == null || L.stage_cost_center_id === '') continue;
+      if (Number(L.stage_cost_center_id) !== Number(op.cost_center_id)) continue;
+      if (out.some(x => Number(x.bom_line_id) === Number(L.bom_line_id))) continue;
+      out.push({ ...L, allocation_mode: 'sole' });
+    }
+  }
+  return out;
+}
+
+/**
+ * v527 — سهم یک قلم روی یک مرحله در سفارش چندمحصولیِ تک‌فرمولی (v418/v427):
+ *  - مرحلهٔ مشترک: همهٔ اقلام با مقدار کامل.
+ *  - مرحلهٔ اختصاصی محصول P: قلم اختصاصی P کامل؛ قلم اختصاصی محصول دیگر صفر؛
+ *    قلم مشترک به نسبت تعداد P از جمع تعدادها (۸۴ از ۱۶۸ → نصف).
+ */
+function scopeLineForStage(L, stage, piece) {
+  if (String(stage.product_scope || 'shared') !== 'exclusive' || stage.scoped_product_id == null) return L;
+  const P = Number(stage.scoped_product_id);
+  const scope = String(L.product_scope || 'shared').toLowerCase();
+  if (scope === 'exclusive') {
+    return Number(L.scoped_product_id) === P ? L : null;
+  }
+  const map = piece.qty_by_product;
+  if (!map) return L;
+  let sum = 0;
+  for (const v of Object.values(map)) sum += Number(v) || 0;
+  const mine = Number(map[P] ?? map[String(P)]) || 0;
+  if (!(sum > 0)) return L;
+  const f = mine / sum;
+  return {
+    ...L,
+    qty_net: round6(num(L.qty_net) * f),
+    qty_gross: round6(num(L.qty_gross) * f),
+    qty_final: round6(num(L.qty_final) * f),
+    amount_rial: Math.round(num(L.amount_rial) * f),
+    split_share: f,
+  };
+}
+
+/** ادغام قلم‌های هم‌کالا روی یک مرحله (مثلاً پارچهٔ مشترک دو فرمول در برش مشترک). */
+function mergeStageLines(lines) {
+  const out = [];
+  const idx = new Map();
+  for (const L of lines) {
+    if (!L) continue;
+    const k = Number(L.product_id);
+    if (idx.has(k)) {
+      const m = out[idx.get(k)];
+      m.qty_net = round6(num(m.qty_net) + num(L.qty_net));
+      m.qty_gross = round6(num(m.qty_gross) + num(L.qty_gross));
+      m.qty_final = round6(num(m.qty_final) + num(L.qty_final));
+      m.amount_rial = Math.round(num(m.amount_rial) + num(L.amount_rial));
+      m.merged_bom_line_ids = [...(m.merged_bom_line_ids || [m.bom_line_id]), L.bom_line_id];
+      continue;
+    }
+    idx.set(k, out.length);
+    out.push({ ...L });
+  }
+  return out;
 }
 
 function assignmentSliceQty(line, assignment) {
@@ -550,78 +741,73 @@ function assignmentSliceQty(line, assignment) {
 }
 
 /**
- * Materials for a shop-floor issue.
- * 1) Explicit operation assignment (sole/shared) when the stage has operation_id.
- * 2) Legacy: earliest stage of the line's cost center.
- * 3) If the formula has lines but nothing is linked, the first stage receives them
- *    so the voucher is not an empty dead-end.
+ * Materials for a shop-floor issue — v527 strict routing.
+ * یک قلم فقط روی مرحله‌ای می‌آید که عملیاتش در فرمول به آن وصل باشد:
+ *  1) تخصیص صریح (sole/shared) به عملیات مرحله — در هر فرمولِ سفارش (چندفرمولی: هر تکه جدا).
+ *  2) legacy: قلم با stage_cost_center_id → اولین عملیاتِ همان مرکز هزینه (یک‌بار حواله).
+ *  3) قلم بدون هیچ‌کدام = «بدون عملیات»؛ به هیچ مرحله‌ای (حتی مرحلهٔ اول) نمی‌رود.
+ *     قبل از v527 این قلم‌ها خودکار به مرحلهٔ اول (برش) می‌افتادند و گیت حوالهٔ v523 برش را می‌بست.
+ *  - مرحلهٔ اختصاصی محصول P (چندمحصولی تک‌فرمولی): قلم مشترک به نسبت تعداد P تقسیم می‌شود.
+ *  - مرحلهٔ بدون operation_id (سفارش‌های قدیمی): فقط legacy مرکز هزینه، بدون یتیم.
  */
 function stageMaterialLines(db, po, stage) {
-  const lines = explodedOrderLines(db, po);
-  const { materialsByOperation } = require('./bom-assignments');
-  const byOp = po.bom_id ? materialsByOperation(db, po.bom_id) : new Map();
+  const pieces = orderMaterialPieces(db, po);
+  if (!pieces.length) return [];
+  const peers = orderBomPeerLines(po);
+  const collected = [];
 
-  if (byOp.size && stage.operation_id != null) {
-    const rows = byOp.get(Number(stage.operation_id)) || [];
-    const byLine = new Map(lines.map(L => [Number(L.bom_line_id), L]));
-    return rows.map(a => {
-      const L = byLine.get(Number(a.bom_line_id));
-      if (!L) return null;
-      return { ...L, qty_final: assignmentSliceQty(L, a) };
-    }).filter(Boolean);
-  }
-
-  if (stageOwnsBomMaterials(db, po, stage)) {
-    const ccLines = lines.filter(L => Number(L.stage_cost_center_id) === Number(stage.cost_center_id));
-    const first = db.prepare(`
-      SELECT id FROM production_order_stages
-      WHERE order_id=? ORDER BY seq ASC, id ASC LIMIT 1
-    `).get(po.id);
-    const orphans = (!byOp.size && first && Number(first.id) === Number(stage.id))
-      ? lines.filter(L => L.stage_cost_center_id == null || L.stage_cost_center_id === '')
-      : [];
-    const merged = [...ccLines];
-    for (const L of orphans) {
-      if (!merged.some(m => Number(m.bom_line_id) === Number(L.bom_line_id))) merged.push(L);
+  if (stage.operation_id == null && !peers) {
+    // سفارش قدیمی بدون operation_id روی مرحله: مالکیت مرکز هزینه (اولین مرحلهٔ آن مرکز)
+    if (!stageOwnsBomMaterials(db, po, stage)) return [];
+    for (const piece of pieces) {
+      for (const L of piece.lines) {
+        if (L.stage_cost_center_id == null || L.stage_cost_center_id === '') continue;
+        if (Number(L.stage_cost_center_id) !== Number(stage.cost_center_id)) continue;
+        collected.push(scopeLineForStage(L, stage, piece));
+      }
     }
-    if (merged.length) return merged;
+    return mergeStageLines(collected);
   }
 
-  const first = db.prepare(`
-    SELECT id FROM production_order_stages
-    WHERE order_id=? ORDER BY seq ASC, id ASC LIMIT 1
-  `).get(po.id);
-  const isFirst = !!(first && Number(first.id) === Number(stage.id));
-  if (!byOp.size && isFirst) {
-    const orphans = lines.filter(L => L.stage_cost_center_id == null || L.stage_cost_center_id === '');
-    if (orphans.length) return orphans;
-    if (lines.length && !lines.some(L => L.stage_cost_center_id != null && L.stage_cost_center_id !== '')) {
-      return lines;
+  for (const piece of pieces) {
+    const ops = stageOperationsForPiece(db, po, stage, piece, peers);
+    for (const op of ops) {
+      for (const L of pieceLinesForOperation(db, piece, op)) {
+        collected.push(scopeLineForStage(L, stage, piece));
+      }
     }
   }
-  return [];
+  return mergeStageLines(collected);
 }
 
 function stageMaterialEmptyHint(db, po, stage) {
-  const lines = explodedOrderLines(db, po);
+  const lines = orderMaterialLinesAll(db, po);
   if (!lines.length) {
     return 'این فرمول قلم مواد ندارد. در فرمول ساخت، تب «اقلام» را پر و ذخیره کنید.';
   }
+  const gaps = orderMaterialGaps(db, po);
+  const parts = [];
   const { materialsByOperation } = require('./bom-assignments');
-  const byOp = po.bom_id ? materialsByOperation(db, po.bom_id) : new Map();
-  if (byOp.size) {
-    const names = [];
-    for (const opId of byOp.keys()) {
+  const bomIds = [...new Set(lines.map(L => Number(L.bom_id)).filter(Boolean))];
+  const names = [];
+  for (const bomId of bomIds) {
+    for (const opId of materialsByOperation(db, bomId).keys()) {
       const op = db.prepare('SELECT seq, operation_name FROM bom_operations WHERE id=?').get(opId);
       names.push((op?.operation_name || ('عملیات ' + opId)) + (op?.seq != null ? ` (${op.seq})` : ''));
     }
-    return 'مواد به این مرحله وصل نیست. وصل شده به: ' + names.join('، ')
-      + '. حواله را روی همان مرحله بزنید، یا در فرمول → مسیر عملیات، ماده را به این عملیات وصل کنید.';
   }
-  if (lines.some(L => L.stage_cost_center_id)) {
-    return 'مواد به مرکز هزینهٔ مرحلهٔ دیگری وصل است. حواله را روی همان مرحله باز کنید.';
+  if (names.length) {
+    parts.push('مواد به این مرحله وصل نیست. وصل شده به: ' + [...new Set(names)].join('، ')
+      + '. حواله را روی همان مرحله بزنید، یا در فرمول → مسیر عملیات، ماده را به این عملیات وصل کنید.');
+  } else if (lines.some(L => L.stage_cost_center_id)) {
+    parts.push('مواد به مرکز هزینهٔ مرحلهٔ دیگری وصل است. حواله را روی همان مرحله باز کنید.');
   }
-  return 'ماده‌ای برای این مرحله پیدا نشد.';
+  if (gaps.length) {
+    parts.push('اقلام بدون عملیات (روی هیچ مرحله‌ای حواله نمی‌شوند): '
+      + gaps.map(g => `«${g.name}»`).join('، ')
+      + '. در فرمول → مسیر عملیات → «مواد را به عملیات وصل کنید» (روی فرمول فعال هم مجاز است).');
+  }
+  return parts.join(' ') || 'ماده‌ای برای این مرحله پیدا نشد.';
 }
 
 function backflushStageMaterials(db, {
@@ -2664,6 +2850,8 @@ function getStageIssueTemplate(db, orderId, stageId) {
     operation_name: stage.operation_name || '',
     lines,
     empty_hint: lines.length ? '' : stageMaterialEmptyHint(db, po, stage),
+    // v527: اقلام فرمول(ها) که به هیچ عملیاتی وصل نیستند — روی هیچ مرحله‌ای حواله نمی‌شوند
+    bom_gaps: orderMaterialGaps(db, po),
   };
 }
 
@@ -2972,6 +3160,10 @@ module.exports = {
   unblockStage,
   reverseStage,
   stageUnissuedMaterialLines,
+  stageMaterialLines,
+  orderMaterialPieces,
+  orderMaterialLinesAll,
+  orderMaterialGaps,
   issueStageMaterials,
   issueStageExtraMaterials,
   voidStageExtraIssue,

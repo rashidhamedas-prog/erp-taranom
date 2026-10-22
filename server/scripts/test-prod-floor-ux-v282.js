@@ -128,16 +128,19 @@ try {
     VALUES (?,?,?,?,?,'pending',0,?)
   `).run(orderId, 30, ccSew, opSew, 'دوخت', adminId).lastInsertRowid;
 
-  // A) No assignments: zipper has null CC — first stage gets unassigned lines; cut gets CC line
+  // A) No assignments: zipper has null CC — v527 strict routing: it lands on NO stage
+  //    (before v527 the first stage silently received it); cut still gets the CC-bound fabric.
   let tpl = adv.getStageIssueTemplate(db, orderId, stCut);
   ok(Array.isArray(tpl.lines) && tpl.lines.some(L => Number(L.product_id) === Number(fabric)),
     'cut stage gets fabric via stage_cost_center');
-  ok(tpl.lines.some(L => Number(L.product_id) === Number(zipper)),
-    'cut stage (first) also gets unassigned zipper when no operation assignments');
+  ok(!tpl.lines.some(L => Number(L.product_id) === Number(zipper)),
+    'v527: cut stage (first) does NOT receive the unassigned zipper');
+  ok(Array.isArray(tpl.bom_gaps) && tpl.bom_gaps.some(g => Number(g.component_product_id) === Number(zipper)),
+    'v527: unassigned zipper reported in bom_gaps');
 
   tpl = adv.getStageIssueTemplate(db, orderId, stSew);
   ok(!tpl.lines.length, 'sew stage empty before assignment');
-  ok(/وصل|مرکز|اولین/i.test(String(tpl.empty_hint || '')), 'empty_hint explains why');
+  ok(/وصل|مرکز|اولین|بدون عملیات/i.test(String(tpl.empty_hint || '')), 'empty_hint explains why');
 
   // B) Explicit operation assignment wins
   db.prepare(`UPDATE bom_headers SET status='draft' WHERE id=?`).run(bomId);

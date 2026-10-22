@@ -1,3 +1,12 @@
+## 2026-10-22 — strict material→operation routing, peer-BOM materials (SW v527)
+
+- Task `PROD-BOM-STRICT-526`, worktree `D:/proje/erp-v527`, branch `fix/v527-bom-strict-assignment` off `origin/main` 3a1bc040 (main checkout was dirty with another assistant's v525 WIP — not touched, not committed).
+- Stale claims: PROD-CUT-MP01 / ACC-BASE-OPS-425 still list `app.js`, `index.html`, `sw.js`, CHANGE-LOG. Reclaimed only for the v527 hunks (error map, BOM editor assignment step, stage/issue gap banners, Help bullet, cache bump). Production-cut files untouched.
+- Root cause on live PO-0019 (peer order BOM-32 + BOM-33, 84/84): versionUp/clone/replaceLines dropped `bom_material_assignments`; `stageMaterialLines` gave orphan lines to the first stage; `explodedOrderLines` exploded only `po.bom_id` with Σqty (168). v523 strict gate then demanded the packaging cord on cutting.
+- Owner decisions (binding): no default stage for unlinked lines (activation/release/issue hard-gated, not waivable; same for packaging and single-op formulas); shared lines on exclusive stages split by stage qty; assignments editable on an active BOM without a new version (audited `assignments_replace`); run `heal-stage-reverse-v523 --apply-lay` after backup.
+- Data fix for PO-0019 (after deploy, after DB backup): `heal-bom-assignments-v527.js --bom=32 --map=<دورس>:op59,<کشبافت>:op59,<بند>:op61 --apply --order=19` and `--bom=33 --map=<دورس>:op62,<کش>:op63,<بند>:op64 --apply --order=19` (line ids read from the dry-run), then `heal-stage-reverse-v523.js --apply-lay --order=19`. Verify: cutting template has no cord, `material_gaps` empty.
+- Local gate: v527 66/0; v523 33/0; bom-matrix 30/0; ~80-test production suite vs baseline → no regression. `test-sync` could not run locally (ports 4101/4102 held by another assistant's Node 22 server.js processes — not killed); run on Iran staging.
+
 ## 2026-10-19 — payroll loan register on process screen (SW v482)
 
 - Stale claim: PROD-CUT-MP01 still lists `app.js`, `index.html`, `sw.js`, `db.js`, `sync/tables.js`, CHANGE-LOG. Reclaimed only for the loan panel, `payroll_loan_recoveries`, backfill v26, and help. Did not edit production-cut files.

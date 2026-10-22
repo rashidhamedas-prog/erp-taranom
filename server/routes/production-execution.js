@@ -179,8 +179,14 @@ router.get('/orders/:id/stages', auth, requirePermission('production', 'view'), 
     if (po && cut) {
       try { coverage = adv.cuttingStageCoverage(db, po, cut); } catch (_) { coverage = null; }
     }
+    // v527: اقلام فرمول(ها) بدون عملیات — به هیچ مرحله‌ای نمی‌رسند؛ در UI هشدار قرمز
+    let gaps = [];
+    if (po) {
+      try { gaps = adv.orderMaterialGaps(db, po); } catch (_) { gaps = []; }
+    }
     return {
       order_id: id,
+      material_gaps: gaps,
       stages: stages.map((s) => (
         coverage && cut && Number(s.id) === Number(cut.id)
           ? { ...s, cut_coverage: coverage }

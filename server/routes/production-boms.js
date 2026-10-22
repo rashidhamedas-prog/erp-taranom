@@ -27,6 +27,9 @@ function bomFaError(e) {
   const name = e && e.extra && e.extra.name;
   const map = {
     E_BOM_LOCKED: 'فرمول فعال قفل است. برای تغییر از «نسخه جدید» استفاده کنید.',
+    E_BOM_ASSIGN_LOCKED: 'اتصال مواد به عملیات فقط روی فرمول پیش‌نویس یا فعال قابل تغییر است (فرمول بایگانی‌شده قفل است).',
+    E_BOM_LINES_UNASSIGNED: (e && e.extra && e.extra.detail)
+      || 'بعضی اقلام فرمول به هیچ عملیاتی وصل نیستند — در تب «مسیر عملیات» هر قلم را به عملیات مصرف‌کننده وصل کنید.',
     E_BOM_SINGLE_PRODUCT: (e && e.extra && e.extra.detail)
       || 'فرمول فقط یک محصول اصلی دارد. چند محصول را در سفارش تولید و لایه‌چینی مشترک تعریف کنید.',
     E_BOM_COMP_TYPE: name
@@ -367,14 +370,19 @@ router.get('/:id/assignments', auth, requirePermission('production_bom', 'view')
   const asg = require('../lib/production/bom-assignments');
   handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: asg.listAssignments(getDB(), Number(req.params.id)),
+    // v527: اقلام بدون عملیات (فقط وقتی فرمول مسیر عملیات دارد)
+    unassigned: asg.unassignedBomLines(getDB(), Number(req.params.id)),
   }));
 });
 
 router.put('/:id/assignments', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   const asg = require('../lib/production/bom-assignments');
-  handle(res, () => applyCostPolicy(getDB(), req.user, {
-    rows: asg.replaceAssignments(getDB(), Number(req.params.id), req.body?.assignments || req.body || []),
-  }));
+  handle(res, () => {
+    const db = getDB();
+    const bomId = Number(req.params.id);
+    const rows = asg.replaceAssignments(db, bomId, req.body?.assignments || req.body || [], req.user.id);
+    return applyCostPolicy(db, req.user, { rows, unassigned: asg.unassignedBomLines(db, bomId) });
+  });
 });
 
 router.get('/:id/allowed-variants', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -393,7 +401,7 @@ router.put('/:id/allowed-variants', auth, requirePermission('production_bom', 'e
 
 router.post('/:id/assignments/backfill', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   const asg = require('../lib/production/bom-assignments');
-  handle(res, () => asg.backfillAssignmentsFromStageCc(getDB(), Number(req.params.id)));
+  handle(res, () => asg.backfillAssignmentsFromStageCc(getDB(), Number(req.params.id), req.user.id));
 });
 
 router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (req, res) => {

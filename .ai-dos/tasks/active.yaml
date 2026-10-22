@@ -1,5 +1,51 @@
 schema_version: 1
 tasks:
+  - id: "PROD-BOM-STRICT-526"
+    title: "Strict material→operation routing; peer-BOM per-formula explode; assignments editable on active BOM (SW v527)"
+    status: "completed"
+    claimed_at: "2026-10-22T12:00:00+03:30"
+    completed_at: "2026-10-22T20:00:00+03:30"
+    review_status: "self-verified (66-assertion harness + baseline suite diff)"
+    security_status: "no new trust boundary; assignments PUT keeps production_bom.edit permission"
+    risk: "high"
+    owner: "cursor:prod-bom-strict-526"
+    roles:
+      orchestrator: "cursor:prod-bom-strict-526"
+      architect: "cursor:prod-bom-strict-526"
+      implementer: "cursor:prod-bom-strict-526"
+      reviewer: "cursor:prod-bom-strict-526"
+      security: "cursor:prod-bom-strict-526"
+    branch: "fix/v527-bom-strict-assignment"
+    worktree: "D:/proje/erp-v527"
+    file_claims: []
+    released_claims:
+      - "server/lib/production/engine-advanced.js"
+      - "server/lib/production/bom.js"
+      - "server/lib/production/bom-assignments.js"
+      - "server/lib/production/product-completeness.js"
+      - "server/routes/production-boms.js"
+      - "server/routes/production-execution.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-bom-strict-assignment-v527.js"
+      - "server/scripts/heal-bom-assignments-v527.js"
+      - "server/scripts/test-order-peer-boms-v475.js"
+      - "server/scripts/test-prod-floor-ux-v282.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "A routed BOM line linked to no operation blocks activate/release/issue with E_BOM_LINES_UNASSIGNED and lands on no stage"
+      - "Peer-BOM order explodes each formula with its own qty; shared cut gets only cutting lines of both formulas; exclusive stage gets its own formula's lines (84 not 168)"
+      - "Assignments editable on an active BOM with bom_change_log audit; archived frozen"
+      - "versionUp/clone/replaceLines preserve assignments"
+      - "PO-0019 cutting output no longer asks for the packaging cord"
+    non_goals:
+      - "Implicit default stage for unlinked lines (owner chose strict)"
+      - "Desktop or Android builds"
+    notes: >-
+      Stale in_progress claims (PROD-CUT-MP01, ACC-BASE-OPS-425) on app.js/index.html/sw.js/CHANGE-LOG
+      were reclaimed only for the v527 hunks; production-cut files untouched. See handoff.md.
+
   - id: "PROD-CUT-MP01"
     title: "Shared multi-product cutting behind production_shared_cut"
     status: "in_progress"

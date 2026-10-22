@@ -8,12 +8,75 @@ const ALLOCATION_MODES = new Set(['sole', 'shared']);
 // same vocabulary as bom.js normalizeColorMode()
 const COMPONENT_COLOR_MODES = new Set(['none', 'inherit_fg', 'fixed']);
 
-/** bom_lines/bom_operations are trigger-locked on active BOMs — assignments follow. */
+/** bom_lines/bom_operations are trigger-locked on active BOMs — allowed-variants follow. */
 function assertBomUnlocked(db, bomId) {
   const bom = db.prepare('SELECT id, status, product_id FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404, { bomId });
   if (bom.status === 'active') throw err('E_BOM_LOCKED', 409, { bomId });
   return bom;
+}
+
+/**
+ * v527 — material→operation links change only WHICH stage issues a line (never qty/cost),
+ * so they stay editable on an active BOM. Archived/deleted formulas are frozen.
+ */
+function assertBomAssignable(db, bomId) {
+  const bom = db.prepare('SELECT id, status, product_id FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(bomId);
+  if (!bom) throw err('E_NOT_FOUND', 404, { bomId });
+  if (!['draft', 'active'].includes(String(bom.status || ''))) {
+    throw err('E_BOM_ASSIGN_LOCKED', 409, { bomId, status: bom.status });
+  }
+  return bom;
+}
+
+/** روش ساده و مستقل از engine: عملیات برش = مرکز CC-10 یا نام «برش». */
+function isCuttingOperation(db, op) {
+  if (!op) return false;
+  if (/برش|\bCUT\b/i.test(String(op.operation_name || ''))) return true;
+  const cc = op.cost_center_id
+    ? db.prepare('SELECT code, name FROM cost_centers WHERE id=?').get(op.cost_center_id)
+    : null;
+  return !!(cc && (String(cc.code) === 'CC-10' || /برش/.test(String(cc.name || ''))));
+}
+
+/**
+ * v527 — strict routing: every BOM line of a routed formula must resolve to one operation
+ * (explicit assignment, or legacy stage_cost_center_id that matches an operation of this BOM).
+ * Returns the lines that resolve to nothing. Empty when the BOM has no operations.
+ */
+function unassignedBomLines(db, bomId) {
+  const hasOps = db.prepare('SELECT 1 FROM bom_operations WHERE bom_id=? LIMIT 1').get(bomId);
+  if (!hasOps) return [];
+  const lines = db.prepare(`
+    SELECT bl.id, bl.line_no, bl.component_product_id, bl.line_type, bl.product_scope,
+           bl.scoped_product_id, bl.stage_cost_center_id, bl.qty_per_base, p.name AS product_name
+    FROM bom_lines bl
+    LEFT JOIN products p ON p.id = bl.component_product_id
+    WHERE bl.bom_id=?
+    ORDER BY bl.line_no, bl.id
+  `).all(bomId);
+  const out = [];
+  for (const L of lines) {
+    if (operationIdForLine(db, bomId, L.id) != null) continue;
+    out.push({
+      bom_line_id: L.id,
+      line_no: L.line_no,
+      component_product_id: L.component_product_id,
+      name: L.product_name || ('#' + L.component_product_id),
+      line_type: L.line_type || 'material',
+      product_scope: L.product_scope || 'shared',
+      scoped_product_id: L.scoped_product_id || null,
+      qty_per_base: L.qty_per_base,
+    });
+  }
+  return out;
+}
+
+function unassignedLinesMessage(rows) {
+  const names = (rows || []).map(r => `«${r.name}»${r.line_no != null ? ` (قلم ${r.line_no})` : ''}`);
+  return 'این اقلام فرمول به هیچ عملیاتی وصل نیستند و روی هیچ مرحله‌ای حواله نمی‌شوند: '
+    + names.join('، ')
+    + '. در تب «مسیر عملیات» → «مواد را به عملیات وصل کنید» هر قلم را به عملیات مصرف‌کننده وصل کنید.';
 }
 
 function listAssignments(db, bomId) {
@@ -81,8 +144,8 @@ function normalizeAssignment(a) {
   return { mode, share, qtyOverride, colorMode, colorId: colorId || null, note: String(a.note || '') };
 }
 
-function replaceAssignments(db, bomId, assignments) {
-  assertBomUnlocked(db, bomId);
+function replaceAssignments(db, bomId, assignments, userId = null) {
+  const bom = assertBomAssignable(db, bomId);
 
   const rows = Array.isArray(assignments) ? assignments : [];
 
@@ -126,9 +189,25 @@ function replaceAssignments(db, bomId, assignments) {
     ) VALUES (?,?,?,?,?,?,?,?,?)
   `);
   db.transaction(() => {
+    const before = db.prepare(`
+      SELECT bom_line_id, operation_id, allocation_mode, share_percent
+      FROM bom_material_assignments WHERE bom_id=? ORDER BY bom_line_id, operation_id
+    `).all(bomId);
     db.prepare('DELETE FROM bom_material_assignments WHERE bom_id=?').run(bomId);
     for (const r of prepared) {
       ins.run(bomId, r.lineId, r.opId, r.mode, r.share, r.qtyOverride, r.colorMode, r.colorId, r.note);
+    }
+    // v527: on an active formula this is a real change of the issue routing — keep an audit trail.
+    if (bom.status === 'active') {
+      try {
+        require('./bom').logBomChange(db, bomId, 'assignments_replace', {
+          entity: 'assignments',
+          before,
+          after: prepared.map(r => ({
+            bom_line_id: r.lineId, operation_id: r.opId, allocation_mode: r.mode, share_percent: r.share,
+          })),
+        }, userId);
+      } catch (_) { /* audit must not block the change itself */ }
     }
   })();
   return listAssignments(db, bomId);
@@ -138,7 +217,8 @@ function replaceAssignments(db, bomId, assignments) {
  * Seed sole assignments from stage_cost_center_id → earliest op in that CC (migration helper).
  * Ambiguous multi-op CCs are skipped (returned in report).
  */
-function backfillAssignmentsFromStageCc(db, bomId) {
+function backfillAssignmentsFromStageCc(db, bomId, userId = null) {
+  assertBomAssignable(db, bomId);
   const ops = db.prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq, id').all(bomId);
   const byCc = new Map();
   for (const op of ops) {
@@ -146,16 +226,34 @@ function backfillAssignmentsFromStageCc(db, bomId) {
     if (!byCc.has(k)) byCc.set(k, []);
     byCc.get(k).push(op);
   }
+  const cutOp = ops.find(op => isCuttingOperation(db, op)) || null;
   const lines = db.prepare('SELECT * FROM bom_lines WHERE bom_id=?').all(bomId);
-  const assignments = [];
+  // v527: keep what is already linked explicitly — backfill only fills the gaps.
+  const existing = listAssignments(db, bomId);
+  const linkedLineIds = new Set(existing.map(a => Number(a.bom_line_id)));
+  const assignments = existing.map(a => ({
+    bom_line_id: a.bom_line_id, operation_id: a.operation_id,
+    allocation_mode: a.allocation_mode || 'sole', share_percent: a.share_percent,
+    qty_override: a.qty_override, component_color_mode: a.component_color_mode,
+    component_color_id: a.component_color_id, note: a.note,
+  }));
   const ambiguous = [];
+  let added = 0;
+  const push = (lineId, opId) => {
+    assignments.push({ bom_line_id: lineId, operation_id: opId, allocation_mode: 'sole' });
+    added += 1;
+  };
+  let isRoll = null;
+  try { isRoll = require('./cutting').isRollFabricProduct; } catch (_) { isRoll = null; }
   for (const L of lines) {
+    if (linkedLineIds.has(Number(L.id))) continue;
     const cc = L.stage_cost_center_id != null ? Number(L.stage_cost_center_id) : null;
     if (cc == null) {
       if (ops.length === 1) {
-        assignments.push({
-          bom_line_id: L.id, operation_id: ops[0].id, allocation_mode: 'sole',
-        });
+        push(L.id, ops[0].id);
+      } else if (cutOp && isRoll && isRoll(db, Number(L.component_product_id))) {
+        // پارچهٔ طاقه‌ای فقط در برش (لایه‌چینی) مصرف می‌شود
+        push(L.id, cutOp.id);
       } else {
         ambiguous.push({ bom_line_id: L.id, reason: 'no_stage_cc' });
       }
@@ -163,17 +261,15 @@ function backfillAssignmentsFromStageCc(db, bomId) {
     }
     const list = byCc.get(cc) || [];
     if (list.length === 1) {
-      assignments.push({
-        bom_line_id: L.id, operation_id: list[0].id, allocation_mode: 'sole',
-      });
+      push(L.id, list[0].id);
     } else if (list.length === 0) {
       ambiguous.push({ bom_line_id: L.id, reason: 'cc_not_in_routing', cc });
     } else {
       ambiguous.push({ bom_line_id: L.id, reason: 'multi_op_cc', cc, ops: list.map(o => o.id) });
     }
   }
-  if (assignments.length) replaceAssignments(db, bomId, assignments);
-  return { assigned: assignments.length, ambiguous };
+  if (added) replaceAssignments(db, bomId, assignments, userId);
+  return { assigned: added, kept: existing.length, ambiguous, unassigned: unassignedBomLines(db, bomId) };
 }
 
 function replaceAllowedVariants(db, bomId, variants) {
@@ -275,4 +371,8 @@ module.exports = {
   backfillAssignmentsFromStageCc,
   operationIdForLine,
   materialsByOperation,
+  assertBomAssignable,
+  unassignedBomLines,
+  unassignedLinesMessage,
+  isCuttingOperation,
 };

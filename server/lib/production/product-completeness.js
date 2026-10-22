@@ -291,6 +291,20 @@ function assessBom(db, bomId, mode = 'activate', opts = {}) {
     }
   }
 
+  // v527 — strict routing: with operations, every line must be linked to the operation that
+  // consumes it. No implicit "first stage" any more; not waivable (it decides WHICH stage issues).
+  {
+    const asg = require('./bom-assignments');
+    const unassigned = asg.unassignedBomLines(db, bomId);
+    if (unassigned.length) {
+      const strict = isStrictMode(mode);
+      const bucket = strict ? hard : soft;
+      pushMissing(bucket, 'E_BOM_LINES_UNASSIGNED', 'assignments',
+        asg.unassignedLinesMessage(unassigned), strict ? 'hard' : 'soft');
+      bucket[bucket.length - 1].lines = unassigned;
+    }
+  }
+
   if (isIssueLike(mode) && bom.status !== 'active') {
     pushMissing(hard, 'E_BOM_NOT_ACTIVE', 'status', 'فرمول سفارش باید فعال باشد');
   }
@@ -349,6 +363,14 @@ function assertOrderReady(db, orderId, mode = 'issue') {
   assertProductReady(db, po.product_id, mode, { waive, role: 'main' });
   if (po.bom_id) {
     assertBomReady(db, po.bom_id, mode, { waive });
+    // v527: چند فرمول روی یک سفارش (v475) — فرمول‌های همتا هم باید آماده باشند.
+    // حالت 'order': سخت‌گیری روی اقلام بدون عملیات/مشخصات، بدون الزام «فعال بودن» (سفارش به
+    // نسخهٔ خودش سنجاق است؛ فعال‌بودن همتا هنگام ایجاد سفارش بررسی شده).
+    const { orderBomPeerLines } = require('./bom');
+    for (const peer of orderBomPeerLines(po) || []) {
+      if (Number(peer.bom_id) === Number(po.bom_id)) continue;
+      assertBomReady(db, peer.bom_id, isIssueLike(mode) ? 'order' : mode, { waive });
+    }
   } else if (mode !== 'product') {
     throw err('E_NO_ACTIVE_BOM', 422);
   }

@@ -1205,15 +1205,50 @@ function replaceLines(db, bomId, lines, userId) {
   return db.transaction(() => {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
     assertDraft(b);
+    // v527: ذخیرهٔ دوبارهٔ اقلام از UI نباید اتصال مواد→عملیات را پاک کند (کلید: جزء/دامنه/گروه).
+    const keptAsg = db.prepare(`
+      SELECT a.operation_id, a.allocation_mode, a.share_percent, a.qty_override,
+             a.component_color_mode, a.component_color_id, a.note,
+             bl.component_product_id, bl.product_scope, bl.scoped_product_id, bl.substitute_group
+      FROM bom_material_assignments a
+      JOIN bom_lines bl ON bl.id = a.bom_line_id
+      WHERE a.bom_id=?
+      ORDER BY a.id
+    `).all(bomId);
     const existing = db.prepare('SELECT id FROM bom_lines WHERE bom_id=?').all(bomId);
     for (const row of existing) {
       db.prepare('DELETE FROM bom_lines WHERE id=? AND bom_id=?').run(row.id, bomId);
     }
+    db.prepare('DELETE FROM bom_material_assignments WHERE bom_id=?').run(bomId);
     const out = [];
     for (const L of lines) {
       out.push(addLine(db, bomId, L, userId, { skipLock: true }));
     }
-    assertBomLineUniqueness(db.prepare('SELECT * FROM bom_lines WHERE bom_id=?').all(bomId));
+    const fresh = db.prepare('SELECT * FROM bom_lines WHERE bom_id=?').all(bomId);
+    assertBomLineUniqueness(fresh);
+    if (keptAsg.length) {
+      const lineByKey = new Map();
+      for (const L of fresh) {
+        const k = assignmentLineKey(L);
+        if (!lineByKey.has(k)) lineByKey.set(k, L.id);
+      }
+      const ins = db.prepare(`
+        INSERT INTO bom_material_assignments (
+          bom_id, bom_line_id, operation_id, allocation_mode, share_percent, qty_override,
+          component_color_mode, component_color_id, note
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+      `);
+      const seen = new Set();
+      for (const a of keptAsg) {
+        const lid = lineByKey.get(assignmentLineKey(a));
+        if (!lid) continue;
+        const pair = `${lid}:${a.operation_id}`;
+        if (seen.has(pair)) continue;
+        seen.add(pair);
+        ins.run(bomId, lid, a.operation_id, a.allocation_mode || 'sole', a.share_percent, a.qty_override,
+          a.component_color_mode || 'none', a.component_color_id, a.note || '');
+      }
+    }
     logBomChange(db, bomId, 'lines_replace', { count: out.length }, userId);
     audit(userId, 'edit', 'bom', bomId, `جایگزینی ${out.length} قلم فرمول`);
     return { ok: true, count: out.length, ids: out.map(x => x.id) };
@@ -1359,6 +1394,60 @@ function copyChildRows(db, table, fromBomId, toBomId) {
   db.prepare(sql).run(toBomId, fromBomId);
 }
 
+function assignmentLineKey(L) {
+  const scope = String(L.product_scope || 'shared').toLowerCase() === 'exclusive' ? 'exclusive' : 'shared';
+  const scoped = scope === 'exclusive' ? (Number(L.scoped_product_id) || 0) : 0;
+  return `${Number(L.component_product_id) || 0}|${scope}|${scoped}|${String(L.substitute_group || '')}`;
+}
+
+/**
+ * v527 — اتصال مواد→عملیات با نسخهٔ جدید/کپی می‌آید.
+ * قبلاً versionUp فقط اقلام/عملیات/خروجی را کپی می‌کرد و تخصیص‌ها بی‌صدا گم می‌شدند؛
+ * نتیجه‌اش «قلم بدون عملیات» بود که موتور آن را به مرحلهٔ اول (برش) می‌انداخت.
+ * نگاشت: قلم با (جزء، دامنه، محصول، گروه جایگزین) و عملیات با seq.
+ */
+function copyAssignmentsRemapped(db, fromBomId, toBomId) {
+  const rows = db.prepare(`
+    SELECT a.*, bl.component_product_id, bl.product_scope, bl.scoped_product_id, bl.substitute_group,
+           op.seq AS op_seq
+    FROM bom_material_assignments a
+    JOIN bom_lines bl ON bl.id = a.bom_line_id
+    JOIN bom_operations op ON op.id = a.operation_id
+    WHERE a.bom_id=?
+    ORDER BY a.id
+  `).all(fromBomId);
+  if (!rows.length) return 0;
+  const lineByKey = new Map();
+  for (const L of db.prepare('SELECT * FROM bom_lines WHERE bom_id=? ORDER BY line_no, id').all(toBomId)) {
+    const k = assignmentLineKey(L);
+    if (!lineByKey.has(k)) lineByKey.set(k, L.id);
+  }
+  const opBySeq = new Map();
+  for (const op of db.prepare('SELECT id, seq FROM bom_operations WHERE bom_id=? ORDER BY seq, id').all(toBomId)) {
+    if (!opBySeq.has(Number(op.seq))) opBySeq.set(Number(op.seq), op.id);
+  }
+  const ins = db.prepare(`
+    INSERT INTO bom_material_assignments (
+      bom_id, bom_line_id, operation_id, allocation_mode, share_percent, qty_override,
+      component_color_mode, component_color_id, note
+    ) VALUES (?,?,?,?,?,?,?,?,?)
+  `);
+  const seen = new Set();
+  let n = 0;
+  for (const a of rows) {
+    const lid = lineByKey.get(assignmentLineKey(a));
+    const oid = opBySeq.get(Number(a.op_seq));
+    if (!lid || !oid) continue;
+    const pair = `${lid}:${oid}`;
+    if (seen.has(pair)) continue;
+    seen.add(pair);
+    ins.run(toBomId, lid, oid, a.allocation_mode || 'sole', a.share_percent, a.qty_override,
+      a.component_color_mode || 'none', a.component_color_id, a.note || '');
+    n += 1;
+  }
+  return n;
+}
+
 function versionUpBom(db, bomId, reason, userId) {
   return db.transaction(() => {
     const old = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -1397,6 +1486,7 @@ function versionUpBom(db, bomId, reason, userId) {
     copyChildRows(db, 'bom_lines', bomId, newId);
     copyChildRows(db, 'bom_operations', bomId, newId);
     copyChildRows(db, 'bom_outputs', bomId, newId);
+    copyAssignmentsRemapped(db, bomId, newId);
     logBomChange(db, newId, 'version_up', { from: bomId, reason }, userId);
     emit(db, 'bom.version_up', { oldBomId: bomId, newBomId: newId, reason });
     audit(userId, 'create', 'bom', newId, `نسخه جدید ${code}`);
@@ -1426,6 +1516,7 @@ function cloneBom(db, bomId, { product_id, name }, userId) {
     copyChildRows(db, 'bom_lines', bomId, newId);
     copyChildRows(db, 'bom_operations', bomId, newId);
     copyChildRows(db, 'bom_outputs', bomId, newId);
+    copyAssignmentsRemapped(db, bomId, newId);
     audit(userId, 'create', 'bom', newId, `کپی فرمول ${code}`);
     return { id: newId, code, version, status: 'draft' };
   })();

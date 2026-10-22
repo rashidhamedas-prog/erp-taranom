@@ -56,10 +56,12 @@ try {
     const bomA = bomFor(a, 'BOM-475A');
     const bomB = bomFor(b, 'BOM-475B');
     for (const id of [bomA, bomB]) {
+      // v527 strict routing: every line of a routed formula must resolve to an operation
+      // (here via the legacy stage_cost_center_id → cutting CC binding).
       db.prepare(`
-        INSERT INTO bom_lines (bom_id, line_no, component_product_id, qty_per_base, line_type)
-        VALUES (?, 1, ?, 1.2, 'material')
-      `).run(id, fabric);
+        INSERT INTO bom_lines (bom_id, line_no, component_product_id, qty_per_base, line_type, stage_cost_center_id)
+        VALUES (?, 1, ?, 1.2, 'material', ?)
+      `).run(id, fabric, cc10);
       db.prepare("UPDATE bom_headers SET status='active' WHERE id=?").run(id);
     }
     const wh = db.prepare('SELECT id FROM warehouses LIMIT 1').get();
