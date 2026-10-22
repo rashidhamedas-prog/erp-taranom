@@ -982,17 +982,28 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
       code: e.code || 'MOADIAN_LOCKED',
     });
   }
+  if (row.status === 'reversed') {
+    return res.status(400).json({ error: 'این فاکتور قبلاً ابطال شده است' });
+  }
+  const activeReturns = db.prepare(
+    "SELECT COUNT(*) AS c FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'"
+  ).get(row.id).c;
+  if (activeReturns > 0) {
+    return res.status(400).json({ error: `این فاکتور ${activeReturns} مرجوعی فروش فعال دارد — ابتدا مرجوعی را ابطال کنید` });
+  }
   try {
-    // When deductStock posted inventory_movements, reverse those first and clear
-    // stock_deducted so voidInvoiceFully does not double-restore header stock.
-    // Legacy / perpetual docs (no inventory_movements) keep void-invoice path.
-    if (row.stock_deducted) {
-      const { reverseStockDocument } = require('../lib/inventory/movement');
-      db.transaction(() => {
+    let result;
+    // Stock reversal + full void are one unit: any failure leaves stock, JE and invoice untouched.
+    db.transaction(() => {
+      // When deductStock posted inventory_movements, reverse those first and clear
+      // stock_deducted so voidInvoiceFully does not double-restore header stock.
+      // Legacy / perpetual docs (no inventory_movements) keep void-invoice path.
+      if (row.stock_deducted) {
         const movCount = db.prepare(
           "SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type='invoice' AND doc_id=?"
         ).get(row.id).c;
         if (movCount > 0) {
+          const { reverseStockDocument } = require('../lib/inventory/movement');
           reverseStockDocument(db, {
             docType: 'invoice',
             docId: row.id,
@@ -1001,15 +1012,14 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
           });
           db.prepare('UPDATE invoices SET stock_deducted=0 WHERE id=?').run(row.id);
         }
-      })();
-    }
-    // Backorder / provisional invoices have stock_deducted=0 → neither block above nor voidInvoiceFully
-    // touches stock: nothing was taken, so nothing is "restored" (no invented on-hand).
-    const result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
-    if (result.restoredToProforma && row.fulfillment_state) {
-      // Un-convert: an active proforma is never committed demand — drop the backorder/provisional label.
-      db.prepare('UPDATE invoices SET fulfillment_state=? WHERE id=?').run(FULFILLMENT_STATES.DEDUCTED, row.id);
-    }
+      }
+      // Backorder / provisional invoices have stock_deducted=0 → nothing was taken, nothing is restored.
+      result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
+      if (result.restoredToProforma && row.fulfillment_state) {
+        // Un-convert: an active proforma is never committed demand — drop the backorder/provisional label.
+        db.prepare('UPDATE invoices SET fulfillment_state=? WHERE id=?').run(FULFILLMENT_STATES.DEDUCTED, row.id);
+      }
+    })();
     res.json({
       ok: true,
       restoredToProforma: result.restoredToProforma,

@@ -398,6 +398,46 @@ router.post('/expenses/:expenseId/reject', auth, repModuleAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+function liveJeIds(db, refType, refId) {
+  return db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type=? AND (ref_id=? OR CAST(ref_id AS TEXT)=?)
+      AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+  `).all(refType, refId, String(refId)).map((r) => r.id);
+}
+
+// R13: void an approved rep expense — reverse JE, offset rep ledger, retire person mirrors.
+router.post('/expenses/:expenseId/void', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  require('../lib/subledger-recon').ensureReconSchemaOnce(db);
+  const row = db.prepare('SELECT * FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(409).json({ error: 'این هزینه قبلاً ابطال شده است', code: 'E_ALREADY_REVERSED' });
+  if (row.status !== 'approved') return res.status(400).json({ error: 'فقط هزینهٔ تأییدشده قابل ابطال است؛ هزینهٔ در انتظار را رد کنید' });
+  const reason = String((req.body && req.body.reason) || '').trim();
+  const { reverseJournalEntry } = require('../lib/void-journal');
+  try {
+    let jeIds = [];
+    db.transaction(() => {
+      jeIds = liveJeIds(db, 'rep_expense', row.id);
+      for (const id of jeIds) {
+        reverseJournalEntry(db, id, { userId: req.user.id, reason: `ابطال هزینه نماینده #${row.id}${reason ? ' — ' + reason : ''}` });
+      }
+      addRepLedger(db, {
+        rep_id: row.rep_id, date: todayJalali(), entry_type: 'expense_void', ref_type: 'rep_expense', ref_id: row.id,
+        description: `برگشت هزینه #${row.id}${reason ? ' — ' + reason : ''}`, debit: 0, credit: row.amount, created_by: req.user.id,
+      });
+      require('../lib/party-ledger-retire').retirePersonLedgerByRef(db, { refTypes: ['rep_expense'], refId: row.id });
+      db.prepare("UPDATE rep_expenses SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
+        .run(req.user.id, row.id);
+    })();
+    audit(req.user.id, 'void', 'rep_expense', row.id, `ابطال هزینه نماینده ${row.amount}${reason ? ' — ' + reason : ''}`);
+    res.json({ ok: true, je_reversed: jeIds });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
 router.get('/expenses/:expenseId/receipt', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT id,rep_id,receipt_file FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
@@ -651,6 +691,42 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
   notifyRep(db, repId, `💰 مساعده ${amt} ریال به حساب شما ثبت شد.`, req.user.id);
   audit(req.user.id, 'create', 'rep_advance', result.lastInsertRowid, `مساعده ${amt}`);
   res.json({ id: result.lastInsertRowid, ok: true });
+});
+
+// R13: void an unsettled advance — reverse JE, offset rep ledger, retire person mirror.
+// settled_amount=amount keeps getAdvanceBalance at zero for the voided row.
+router.post('/:id/advances/:advanceId/void', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  require('../lib/subledger-recon').ensureReconSchemaOnce(db);
+  const row = db.prepare('SELECT * FROM rep_advances WHERE id=? AND rep_id=?').get(+req.params.advanceId, +req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(409).json({ error: 'این مساعده قبلاً ابطال شده است', code: 'E_ALREADY_REVERSED' });
+  if ((Number(row.settled_amount) || 0) > 0.01) {
+    return res.status(409).json({ error: 'این مساعده (بخشی) تسویه شده — ابتدا پرداخت تسویه را ابطال کنید', code: 'E_ADVANCE_SETTLED' });
+  }
+  const reason = String((req.body && req.body.reason) || '').trim();
+  const { reverseJournalEntry } = require('../lib/void-journal');
+  try {
+    let jeIds = [];
+    db.transaction(() => {
+      jeIds = liveJeIds(db, 'rep_advance', row.id);
+      for (const id of jeIds) {
+        reverseJournalEntry(db, id, { userId: req.user.id, reason: `ابطال مساعده نماینده #${row.id}${reason ? ' — ' + reason : ''}` });
+      }
+      addRepLedger(db, {
+        rep_id: row.rep_id, date: todayJalali(), entry_type: 'advance_void', ref_type: 'rep_advance', ref_id: row.id,
+        description: `برگشت مساعده #${row.id}${reason ? ' — ' + reason : ''}`, debit: 0, credit: row.amount, created_by: req.user.id,
+      });
+      require('../lib/party-ledger-retire').retirePersonLedgerByRef(db, { refTypes: ['rep_advance'], refId: row.id });
+      db.prepare(`
+        UPDATE rep_advances SET status='reversed', settled_amount=amount, reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?
+      `).run(req.user.id, row.id);
+    })();
+    audit(req.user.id, 'void', 'rep_advance', row.id, `ابطال مساعده ${row.amount}${reason ? ' — ' + reason : ''}`);
+    res.json({ ok: true, je_reversed: jeIds });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {

@@ -9,19 +9,128 @@
  * Return value: original jeId when this call soft-voided a live entry;
  * null if missing or already voided. No paired reverse voucher id.
  * Business rows keep status='reversed'.
+ *
+ * Exception (v521): an original dated in a closed/locked fiscal year is never
+ * touched — an opposite voucher (ref_type `<orig>_reversal_cv`) is posted in the
+ * open period and linked via reversed_by_je_id / reverses_je_id.
  */
 'use strict';
+
+/** Fiscal year whose [start_date, end_date] contains `date` (latest start wins). */
+function fiscalYearForDate(db, date) {
+  const d = String(date || '').trim();
+  if (!d) return null;
+  let rows;
+  try {
+    rows = db.prepare(`
+      SELECT id, label, start_date, end_date, status, closed_at
+      FROM fiscal_years ORDER BY start_date DESC, id DESC
+    `).all();
+  } catch (_) {
+    return null;
+  }
+  for (const fy of rows) {
+    const s = String(fy.start_date || '');
+    const e = String(fy.end_date || '');
+    if (s && d < s) continue;
+    if (e && d > e) continue;
+    return fy;
+  }
+  return null;
+}
+
+/** Closed/locked fiscal year containing `date`, else null. */
+function closedFiscalYearForDate(db, date) {
+  const fy = fiscalYearForDate(db, date);
+  if (fy && ['closed', 'locked'].includes(String(fy.status || ''))) return fy;
+  return null;
+}
+
+function hasColumn(db, table, column) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  } catch (_) {
+    return false;
+  }
+}
+
+function ensureReversalLinkColumns(db) {
+  if (!hasColumn(db, 'journal_entries', 'reversed_by_je_id')) {
+    db.exec('ALTER TABLE journal_entries ADD COLUMN reversed_by_je_id INTEGER');
+  }
+  if (!hasColumn(db, 'journal_entries', 'reverses_je_id')) {
+    db.exec('ALTER TABLE journal_entries ADD COLUMN reverses_je_id INTEGER');
+  }
+}
+
+function isLiveEntry(db, id) {
+  if (!id) return false;
+  const r = db.prepare('SELECT status, deleted_at FROM journal_entries WHERE id=?').get(id);
+  return !!r && !(Number(r.deleted_at || 0) > 0) && !['reversed', 'void'].includes(String(r.status || ''));
+}
+
+/**
+ * Original lives in a closed/locked year: it stays untouched; an opposite voucher
+ * is posted in the open period and the two are linked (reversed_by_je_id / reverses_je_id).
+ */
+function postClosedPeriodCounterVoucher(db, head, fy, { userId, date, reason } = {}) {
+  ensureReversalLinkColumns(db);
+  const lines = db.prepare(
+    'SELECT * FROM journal_lines WHERE entry_id=? ORDER BY COALESCE(line_no,0), id'
+  ).all(head.id);
+  if (!lines.length) return null;
+  const { jlDebitRial, jlCreditRial } = require('./money');
+  const { postToLedger } = require('./ledger');
+  const { todayJalali } = require('../jalali');
+  const cvDate = date && !closedFiscalYearForDate(db, date) ? date : todayJalali();
+  const swapped = lines.map((l) => ({
+    code: l.account_code,
+    name: l.account_name || l.account_code,
+    debit: jlCreditRial(l) / 10,
+    credit: jlDebitRial(l) / 10,
+    description: l.description || '',
+    detail_account_id: l.detail_account_id || null,
+    cost_center_id: l.cost_center_id || null,
+    project_id: l.project_id || null,
+    tax_type: l.tax_type || null,
+    tafsili2_code: l.tafsili2_code || null,
+  }));
+  const cvId = postToLedger(db, {
+    sourceType: `${head.ref_type || 'journal'}_reversal_cv`,
+    sourceId: head.ref_id != null ? head.ref_id : head.id,
+    date: cvDate,
+    description: `سند معکوس سند #${head.id} (دوره مالی بسته ${fy.label || fy.id})`
+      + (reason ? ` — ${String(reason).slice(0, 120)}` : ''),
+    createdBy: userId || null,
+    lines: swapped,
+    skipCcPolicy: true,
+  });
+  db.prepare('UPDATE journal_entries SET reversed_by_je_id=? WHERE id=?').run(cvId, head.id);
+  db.prepare('UPDATE journal_entries SET reverses_je_id=? WHERE id=?').run(head.id, cvId);
+  return head.id;
+}
 
 function reverseJournalEntry(db, jeId, { userId, date, reason, sourceType } = {}) {
   if (!jeId) return null;
   const origHead = db.prepare(`
-    SELECT id, ref_type, ref_id, description, status, deleted_at
+    SELECT id, entry_date, ref_type, ref_id, description, status, deleted_at
     FROM journal_entries WHERE id=?
   `).get(jeId);
   if (!origHead) return null;
 
   const alreadyDead = Number(origHead.deleted_at || 0) > 0
     || ['reversed', 'void'].includes(String(origHead.status || ''));
+
+  if (!alreadyDead) {
+    if (hasColumn(db, 'journal_entries', 'reversed_by_je_id')) {
+      const link = db.prepare('SELECT reversed_by_je_id FROM journal_entries WHERE id=?').get(jeId);
+      if (link && link.reversed_by_je_id && isLiveEntry(db, link.reversed_by_je_id)) return null;
+    }
+    const closedFy = closedFiscalYearForDate(db, origHead.entry_date);
+    if (closedFy) {
+      return postClosedPeriodCounterVoucher(db, origHead, closedFy, { userId, date, reason });
+    }
+  }
 
   // Soft-void original — never insert a reverse JE.
   const now = Math.floor(Date.now() / 1000);
@@ -169,4 +278,7 @@ module.exports = {
   reverseJournalEntry,
   purgeHistoricalReversalDocs,
   hardDeleteJournalEntry,
+  fiscalYearForDate,
+  closedFiscalYearForDate,
+  ensureReversalLinkColumns,
 };

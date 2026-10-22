@@ -2558,6 +2558,20 @@ function initSyncSchema(db, opts) {
   }
 
   try {
+    require('./lib/inventory/valuation').ensureValuationSchema(db);
+  } catch (e) {
+    console.error('❌ inventory valuation schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
+    require('./lib/subledger-recon').ensureReconSchema(db);
+  } catch (e) {
+    console.error('❌ subledger recon schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
     require('./lib/website-stock-sync').ensureWebsiteStockOutbox(db);
   } catch (e) {
     console.warn('website_stock_outbox schema:', e.message);
@@ -3351,6 +3365,21 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v27','1')").run();
+    }
+
+    // v28: inventory_valuation_buckets + inventory_revaluations (+ lines) — v521
+    const backfillV28 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v28'").get();
+    if (!backfillV28 || backfillV28.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v28 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v28','1')").run();
     }
   }
 

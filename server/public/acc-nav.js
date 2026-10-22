@@ -178,6 +178,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-inv-reservations', icon: '🔒', label: 'رزرو موجودی' },
       { id: 'acc-inv-landed', icon: '🚢', label: 'هزینه حمل (Landed Cost)' },
       { id: 'acc-consignments', icon: '🔄', label: 'کالای امانی' },
+      { id: 'acc-inv-valuation', icon: '⚖️', label: 'ریالی و تعدیل بهای موجودی' },
     ]},
     { title: 'گزارشات', items: [
       { id: 'acc-warehouse-report', icon: '📊', label: 'گزارش جامع انبار' },
@@ -271,6 +272,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-financial-statement', icon: '🏛️', label: 'ترازنامه' },
       { id: 'acc-pl-statement', icon: '📈', label: 'صورت سود و زیان' },
       { id: 'acc-reconciliation', icon: '🔍', label: 'مغایرت‌گیری گردش حساب‌ها' },
+      { id: 'acc-subledger-recon', icon: '🧮', label: 'مغایرت‌گیری زیرسیستم‌ها با دفتر کل' },
       { id: 'acc-vat-return', icon: '🧾', label: 'اظهارنامه ارزش افزوده' },
       { id: 'acc-seasonal-169', icon: '📋', label: 'فصلی ماده ۱۶۹' },
       { id: 'acc-kpi-dashboard', icon: '📈', label: 'داشبورد KPI مالی' },

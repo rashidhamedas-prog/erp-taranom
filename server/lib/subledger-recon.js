@@ -1,0 +1,1302 @@
+'use strict';
+/**
+ * Subledger ↔ GL reconciliation (v521).
+ *
+ * Every check compares an operational book (kardex, party books, bank/cash leaves,
+ * GRNI receipts, asset register …) with the live journal and returns
+ *   { code, name, status, gl_rial, sub_rial, diff_rial, rows_count, sample, fixable, note }.
+ * status: ok | warn (finding) | info (expected / by design) | error (check itself failed).
+ * Money: INTEGER rial. Read-only except applyFix / reverseFix (atomic, audited).
+ */
+
+const { acct } = require('./coa-map');
+const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL, rialToLedger } = require('./money');
+
+const SAMPLE_SIZE = 20;
+const TOLERANCE_RIAL = 10;
+const DEAD_STATUSES = ['reversed', 'void', 'voided', 'cancelled', 'canceled', 'deleted', 'rejected'];
+const DEAD_SQL = `(${DEAD_STATUSES.map((s) => `'${s}'`).join(',')})`;
+const JE_LIVE = "COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')";
+
+const CHECKS = [
+  ['inventory_vs_gl', 'تطبیق ارزش موجودی انبار با دفتر کل'],
+  ['movements_without_je', 'گردش‌های انبار بدون سند حسابداری'],
+  ['documents_without_je', 'اسناد عملیاتی بدون سند حسابداری'],
+  ['je_on_dead_document', 'سند حسابداری زنده روی سند باطل‌شده'],
+  ['document_amount_vs_je', 'مغایرت مبلغ سند عملیاتی با سند حسابداری'],
+  ['party_control', 'تطبیق دفاتر اشخاص با حساب‌های کنترل'],
+  ['cash_bank', 'تطبیق صندوق و بانک با دفتر کل'],
+  ['grni', 'کالای دریافتی فاکتورنشده (GRNI)'],
+  ['fixed_assets', 'تطبیق ثبت دارایی‌های ثابت با دفتر کل'],
+  ['suspense_accounts', 'مانده حساب‌های موقت/معلق'],
+  ['closed_period_changes', 'تغییر اسناد پس از بستن سال مالی'],
+];
+const CHECK_NAMES = new Map(CHECKS);
+
+// ─── schema ────────────────────────────────────────────────────────────────
+function tableExists(db, name) {
+  try {
+    return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  } catch (_) {
+    return false;
+  }
+}
+
+function columns(db, table) {
+  try {
+    return new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function addColumn(db, table, column, definition) {
+  if (!tableExists(db, table)) return;
+  if (!columns(db, table).has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+/** Central-only tables + link columns. Idempotent; parent calls it from db.js initDB. */
+function ensureReconSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS subledger_recon_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      as_of TEXT,
+      result_json TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS subledger_recon_fixes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      target TEXT,
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      je_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'posted',
+      reason TEXT DEFAULT '',
+      detail_json TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at INTEGER,
+      reversed_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS fixed_asset_revaluations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_id INTEGER NOT NULL,
+      date TEXT,
+      old_cost_rial INTEGER NOT NULL DEFAULT 0,
+      new_cost_rial INTEGER NOT NULL DEFAULT 0,
+      surplus_rial INTEGER NOT NULL DEFAULT 0,
+      je_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'posted',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at INTEGER,
+      reversed_by INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_fa_reval_asset ON fixed_asset_revaluations(asset_id, status);
+  `);
+  addColumn(db, 'journal_entries', 'reversed_by_je_id', 'INTEGER');
+  addColumn(db, 'journal_entries', 'reverses_je_id', 'INTEGER');
+  addColumn(db, 'fixed_assets', 'acq_je_id', 'INTEGER');
+  addColumn(db, 'fixed_assets', 'acq_funding', 'TEXT');
+  addColumn(db, 'fixed_assets', 'acq_supplier_id', 'INTEGER');
+  addColumn(db, 'rep_advances', 'status', "TEXT DEFAULT 'posted'");
+  addColumn(db, 'rep_advances', 'reversed_at', 'INTEGER');
+  addColumn(db, 'rep_advances', 'reversed_by', 'INTEGER');
+  addColumn(db, 'rep_expenses', 'reversed_at', 'INTEGER');
+  addColumn(db, 'rep_expenses', 'reversed_by', 'INTEGER');
+}
+
+const _ensured = new WeakSet();
+function ensureReconSchemaOnce(db) {
+  if (_ensured.has(db)) return;
+  ensureReconSchema(db);
+  _ensured.add(db);
+}
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+function setting(db, key, fallback = '') {
+  try {
+    const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    return r && r.value != null ? String(r.value) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function writeAudit(db, userId, action, entity, entityId, detail) {
+  try {
+    db.prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail) VALUES (?,?,?,?,?)')
+      .run(userId || null, action, entity, entityId || null,
+        typeof detail === 'string' ? detail : JSON.stringify(detail || {}));
+  } catch (_) { /* audit must not break a fix */ }
+}
+
+function err(message, status, code, extra) {
+  const e = new Error(message);
+  e.status = status || 400;
+  if (code) e.code = code;
+  if (extra) Object.assign(e, extra);
+  return e;
+}
+
+function dateFilter(col, dateTo) {
+  return dateTo ? ` AND ${col} <= ?` : '';
+}
+
+/** debit−credit (rial) of live lines on `code` and all its hierarchical children. */
+function glBalance(db, codes, dateTo) {
+  const list = [...new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!list.length) return 0;
+  const conds = list.map(() => '(jl.account_code = ? OR jl.account_code LIKE ?)').join(' OR ');
+  const params = [];
+  for (const c of list) params.push(c, `${c}%`);
+  if (dateTo) params.push(dateTo);
+  const r = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS bal
+    FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE ${JE_LIVE} AND (${conds})${dateFilter('je.entry_date', dateTo)}
+  `).get(...params);
+  return Math.round(Number(r && r.bal) || 0);
+}
+
+/** debit−credit of one posting leaf: exact code or legacy `code-…` sub-accounts (bank-recon rule). */
+function glLeafBalance(db, code, dateTo) {
+  const params = [code, `${code}-%`];
+  if (dateTo) params.push(dateTo);
+  const r = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS bal
+    FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE ${JE_LIVE} AND (jl.account_code = ? OR jl.account_code LIKE ?)${dateFilter('je.entry_date', dateTo)}
+  `).get(...params);
+  return Math.round(Number(r && r.bal) || 0);
+}
+
+function codeOf(db, key) {
+  try { return String(acct(db, key).code); } catch (_) { return ''; }
+}
+
+/** Live-JE index for fast "does source X have a live voucher" checks. */
+function buildJeIndex(db) {
+  const keys = new Set();
+  const ids = new Set();
+  const hasLink = columns(db, 'journal_entries').has('reversed_by_je_id');
+  const rows = db.prepare(`
+    SELECT je.id, je.ref_type, je.ref_id${hasLink ? ', je.reversed_by_je_id' : ''}
+    FROM journal_entries je WHERE ${JE_LIVE}
+  `).all();
+  const neutralized = new Set();
+  for (const r of rows) {
+    if (hasLink && r.reversed_by_je_id) neutralized.add(Number(r.id));
+  }
+  for (const r of rows) {
+    if (neutralized.has(Number(r.id))) continue;
+    ids.add(Number(r.id));
+    if (r.ref_type && r.ref_id != null) keys.add(`${r.ref_type}|${r.ref_id}`);
+  }
+  return { keys, ids, has: (t, id) => keys.has(`${t}|${id}`), live: (id) => ids.has(Number(id)) };
+}
+
+function ctxFor(db, opts = {}) {
+  const ctx = { db, dateTo: opts.dateTo || opts.date_to || '', tolerance: Number(opts.tolerance) || TOLERANCE_RIAL };
+  let jeIndex = null;
+  ctx.je = () => { if (!jeIndex) jeIndex = buildJeIndex(db); return jeIndex; };
+  return ctx;
+}
+
+function result(code, fields) {
+  const rows = fields.rows || [];
+  return {
+    code,
+    name: CHECK_NAMES.get(code) || code,
+    status: fields.status || 'ok',
+    gl_rial: fields.gl_rial != null ? Math.round(fields.gl_rial) : null,
+    sub_rial: fields.sub_rial != null ? Math.round(fields.sub_rial) : null,
+    diff_rial: fields.diff_rial != null ? Math.round(fields.diff_rial) : null,
+    rows_count: rows.length,
+    sample: rows.slice(0, SAMPLE_SIZE),
+    fixable: !!fields.fixable,
+    note: fields.note || '',
+    rows,
+  };
+}
+
+// ─── inventory valuation ───────────────────────────────────────────────────
+const WIP_STAGING_EVENTS = new Set(['cutting_pack']);
+
+function signedLedgerAmount(r) {
+  const amt = Math.round(Number(r.amount_rial) || 0);
+  if ((Number(r.qty_in) || 0) > 0) return amt;
+  if ((Number(r.qty_out) || 0) > 0) return -amt;
+  return amt;
+}
+
+/** Live kardex rows: posted, not the posted twin of a reversed original, not WIP staging. */
+function liveLedgerRows(db, dateTo, extraWhere = '', extraParams = []) {
+  if (!tableExists(db, 'inventory_ledger')) return [];
+  const params = [...extraParams];
+  if (dateTo) params.push(dateTo);
+  return db.prepare(`
+    SELECT l.* FROM inventory_ledger l
+    LEFT JOIN inventory_ledger o ON o.id = l.reversed_of
+    WHERE l.status='posted'
+      AND NOT (l.reversed_of IS NOT NULL AND o.status='reversed')
+      ${extraWhere}${dateFilter("COALESCE(l.date,'')", dateTo)}
+  `).all(...params).filter((r) => {
+    const et = String(r.event_type || '');
+    if (WIP_STAGING_EVENTS.has(et)) return false;
+    if (et === 'reversal' && WIP_STAGING_EVENTS.has(String(r.source_type || ''))) return false;
+    return true;
+  });
+}
+
+function inventoryAccountFor(db, warehouseId) {
+  return require('./inventory/ledger').inventoryAccountForWarehouse(db, warehouseId || null);
+}
+
+function warehouseMeta(db) {
+  const out = new Map();
+  if (!tableExists(db, 'warehouses')) return out;
+  const cols = columns(db, 'warehouses');
+  const rows = db.prepare(`
+    SELECT id, name${cols.has('warehouse_type') ? ', warehouse_type' : ''}${cols.has('inventory_system') ? ', inventory_system' : ''}${cols.has('kind') ? ', kind' : ''}
+    FROM warehouses
+  `).all();
+  for (const w of rows) {
+    out.set(Number(w.id), {
+      id: Number(w.id),
+      name: w.name || '',
+      type: w.warehouse_type || '',
+      periodic: String(w.inventory_system || '').toLowerCase() === 'periodic',
+      wip: w.warehouse_type === 'wip' || w.kind === 'wip',
+    });
+  }
+  return out;
+}
+
+function isPeriodicWh(meta, warehouseId) {
+  const w = warehouseId ? meta.get(Number(warehouseId)) : null;
+  return !!(w && w.periodic);
+}
+
+/** Per-warehouse subledger value (rial). Prefers inventory_valuation_buckets for "as of today". */
+function warehouseValues(db, dateTo) {
+  const today = require('../jalali').todayJalali();
+  const useBuckets = tableExists(db, 'inventory_valuation_buckets') && (!dateTo || dateTo >= today);
+  const values = new Map();
+  let source = 'inventory_ledger';
+  if (useBuckets) {
+    source = 'inventory_valuation_buckets';
+    for (const r of db.prepare(`
+      SELECT warehouse_id, COALESCE(SUM(value_rial),0) AS v FROM inventory_valuation_buckets GROUP BY warehouse_id
+    `).all()) {
+      values.set(r.warehouse_id == null ? 0 : Number(r.warehouse_id), Math.round(Number(r.v) || 0));
+    }
+  } else {
+    for (const r of liveLedgerRows(db, dateTo)) {
+      const k = r.warehouse_id == null ? 0 : Number(r.warehouse_id);
+      values.set(k, (values.get(k) || 0) + signedLedgerAmount(r));
+    }
+  }
+  const qtyAvg = new Map();
+  if (tableExists(db, 'warehouse_stock') && tableExists(db, 'products')) {
+    for (const r of db.prepare(`
+      SELECT ws.warehouse_id, COALESCE(SUM(ws.qty * COALESCE(p.average_cost_rial,0)),0) AS v
+      FROM warehouse_stock ws JOIN products p ON p.id = ws.product_id
+      GROUP BY ws.warehouse_id
+    `).all()) {
+      qtyAvg.set(Number(r.warehouse_id), Math.round(Number(r.v) || 0));
+    }
+  }
+  return { values, qtyAvg, source };
+}
+
+function inventoryAccountKeys() {
+  return ['coa_finished_goods', 'coa_inventory', 'coa_raw_materials', 'coa_wip',
+    'coa_packaging_materials', 'coa_scrap_inventory', 'coa_subcontract_inventory'];
+}
+
+function computeInventoryVsGl(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const meta = warehouseMeta(db);
+  const { values, qtyAvg, source } = warehouseValues(db, dateTo);
+  const wipCode = codeOf(db, 'coa_wip');
+  const accounts = new Map();
+  const ensureAcc = (code, name) => {
+    if (!accounts.has(code)) {
+      accounts.set(code, { code, name, sub: 0, periodicSub: 0, warehouses: [] });
+    }
+    return accounts.get(code);
+  };
+  for (const key of inventoryAccountKeys()) {
+    try { const a = acct(db, key); ensureAcc(String(a.code), a.name); } catch (_) { /* unknown key */ }
+  }
+  const whIds = new Set([...meta.keys(), ...values.keys()]);
+  const whRows = [];
+  for (const wid of whIds) {
+    const a = inventoryAccountFor(db, wid || null);
+    const acc = ensureAcc(String(a.code), a.name);
+    const m = meta.get(wid) || { id: wid || null, name: wid ? `#${wid}` : 'بدون انبار', periodic: false, wip: false };
+    const val = values.get(wid) || 0;
+    const row = {
+      level: 'warehouse',
+      id: `wh:${wid || 0}`,
+      account_code: acc.code,
+      warehouse_id: wid || null,
+      warehouse_name: m.name,
+      inventory_system: m.periodic ? 'periodic' : 'perpetual',
+      sub_rial: val,
+      stock_x_avg_rial: qtyAvg.get(wid) || 0,
+    };
+    if (m.periodic) acc.periodicSub += val; else acc.sub += val;
+    acc.warehouses.push(row);
+    whRows.push(row);
+  }
+  const accRows = [];
+  let glTotal = 0, subTotal = 0, worst = 'ok';
+  for (const acc of accounts.values()) {
+    const gl = glBalance(db, [acc.code], dateTo);
+    const sub = acc.sub;
+    const diff = gl - sub;
+    const isWip = acc.code === wipCode;
+    const periodicOnly = acc.warehouses.length > 0 && acc.warehouses.every((w) => w.inventory_system === 'periodic');
+    let status = Math.abs(diff) <= tolerance ? 'ok' : 'warn';
+    let note = '';
+    if (status !== 'ok' && (isWip || periodicOnly)) {
+      status = 'info';
+      note = isWip ? 'کالای در جریان ساخت با سفارش تولید ارزش‌گذاری می‌شود' : 'انبار ادواری — ارزش در بستن دوره ثبت می‌شود';
+    }
+    if (!gl && !sub && !acc.periodicSub) continue;
+    accRows.push({
+      level: 'account', id: acc.code, account_code: acc.code, account_name: acc.name,
+      gl_rial: gl, sub_rial: sub, periodic_sub_rial: acc.periodicSub, diff_rial: diff, status, note,
+      warehouses: acc.warehouses.length,
+    });
+    if (status === 'warn') worst = 'warn';
+    else if (status === 'info' && worst === 'ok') worst = 'info';
+    if (status !== 'info') { glTotal += gl; subTotal += sub; }
+  }
+  accRows.sort((a, b) => Math.abs(b.diff_rial) - Math.abs(a.diff_rial));
+  return { accRows, whRows, glTotal, subTotal, worst, source };
+}
+
+function checkInventoryVsGl(ctx) {
+  const r = computeInventoryVsGl(ctx);
+  return result('inventory_vs_gl', {
+    status: r.worst,
+    gl_rial: r.glTotal,
+    sub_rial: r.subTotal,
+    diff_rial: r.glTotal - r.subTotal,
+    rows: [...r.accRows, ...r.whRows],
+    fixable: r.accRows.some((a) => a.status === 'warn'),
+    note: `منبع ارزش زیرسیستم: ${r.source}`,
+  });
+}
+
+// ─── R2 movements without JE ───────────────────────────────────────────────
+const SOURCE_REF_TYPES = {
+  invoice: ['invoice_cogs'],
+  sales_return: ['sales_return', 'sales_return_cogs', 'sales_returns'],
+  sales_returns: ['sales_return', 'sales_return_cogs', 'sales_returns'],
+  purchase: ['purchase', 'goods_receipt'],
+  purchase_return: ['purchase_return'],
+  landed_cost: ['landed_cost'],
+  stocktaking: ['stocktaking'],
+  manual_adjustment: ['inventory_adjust', 'manual_adjustment'],
+  inventory_adjust: ['inventory_adjust'],
+  stock_adjust: ['stock_adjust'],
+  consignment: ['consignment', 'consignment_ship', 'consignment_cogs', 'consignment_purchase', 'consignment_shortage'],
+  fabric_roll: ['fabric_roll', 'fabric_roll_edit'],
+  warehouse_grni_reval: ['warehouse_grni_reval', 'warehouse_receipt_grni', 'purchase'],
+};
+const ALIGNMENT_SOURCES = new Set(['stock_reconcile', 'opening_inventory', 'opening']);
+const MANUAL_SOURCES = new Set(['', 'manual', 'manual_adjustment', 'inventory_adjust', 'stock_adjust']);
+const PRODUCTION_PREFIXES = ['production', 'cutting', 'order_cost', 'portal_convert'];
+
+function productionLike(st) {
+  return PRODUCTION_PREFIXES.some((p) => st.startsWith(p));
+}
+
+function computeMovementsWithoutJe(ctx) {
+  const { db, dateTo } = ctx;
+  const je = ctx.je();
+  const meta = warehouseMeta(db);
+  const cogsOn = setting(db, 'feature_cogs_voucher', '0') === '1';
+  const prodKeys = new Set();
+  for (const k of je.keys) {
+    const [t] = k.split('|');
+    if (productionLike(t)) prodKeys.add(k.slice(t.length + 1));
+  }
+  let movesByLedger = new Map();
+  if (tableExists(db, 'warehouse_moves')) {
+    const wmCols = columns(db, 'warehouse_moves');
+    if (wmCols.has('ledger_id')) {
+      for (const m of db.prepare(`
+        SELECT id, ledger_id, je_id, type, from_warehouse_id, to_warehouse_id, doc_id FROM warehouse_moves WHERE ledger_id IS NOT NULL
+      `).all()) movesByLedger.set(Number(m.ledger_id), m);
+    }
+  }
+  const docJe = new Map();
+  if (tableExists(db, 'warehouse_docs')) {
+    for (const d of db.prepare('SELECT id, je_id FROM warehouse_docs').all()) docJe.set(Number(d.id), d.je_id);
+  }
+  const rows = [];
+  let total = 0;
+  for (const r of liveLedgerRows(db, dateTo)) {
+    const amt = signedLedgerAmount(r);
+    if (!amt) continue;
+    const st = String(r.source_type || '');
+    if (ALIGNMENT_SOURCES.has(st) || String(r.event_type || '') === 'opening') continue;
+    if (isPeriodicWh(meta, r.warehouse_id)) continue;
+    if (r.je_id && je.live(r.je_id)) continue;
+    let ok = false;
+    let reason = 'no_live_je';
+    if (st === 'warehouse_move' || st === 'warehouse_transfer' || st === 'transfer') {
+      const m = movesByLedger.get(Number(r.id));
+      const jeId = m ? (m.je_id || docJe.get(Number(m.doc_id))) : null;
+      if (jeId && je.live(jeId)) ok = true;
+      else if (m && (m.type === 'transfer' || st === 'warehouse_transfer')) {
+        const a = inventoryAccountFor(db, m.from_warehouse_id).code;
+        const b = inventoryAccountFor(db, m.to_warehouse_id).code;
+        if (a === b) ok = true;
+      }
+    } else if (st === 'invoice' || st === 'sales_return' || st === 'sales_returns') {
+      if (!cogsOn) ok = true;
+      else ok = (SOURCE_REF_TYPES[st] || []).some((t) => je.has(t, r.source_id));
+    } else if (productionLike(st)) {
+      ok = r.source_id != null && prodKeys.has(String(r.source_id));
+      reason = 'no_live_production_je';
+    } else if (MANUAL_SOURCES.has(st)) {
+      ok = je.has('inventory_adjust', r.id) || je.has('stock_adjust', r.id);
+    } else {
+      const cands = SOURCE_REF_TYPES[st] || [st];
+      ok = r.source_id != null && cands.some((t) => je.has(t, r.source_id));
+    }
+    if (r.je_id && !je.live(r.je_id)) { ok = false; reason = 'je_dead'; }
+    if (ok) continue;
+    total += amt;
+    rows.push({
+      id: Number(r.id), tx_no: r.tx_no, date: r.date, event_type: r.event_type,
+      source_type: st, source_id: r.source_id, product_id: r.product_id, warehouse_id: r.warehouse_id,
+      amount_rial: amt, je_id: r.je_id || null, reason,
+      fixable: MANUAL_SOURCES.has(st),
+    });
+  }
+  return { rows, total };
+}
+
+function checkMovementsWithoutJe(ctx) {
+  const r = computeMovementsWithoutJe(ctx);
+  const cogsOn = setting(ctx.db, 'feature_cogs_voucher', '0') === '1';
+  return result('movements_without_je', {
+    status: r.rows.length ? 'warn' : 'ok',
+    sub_rial: r.total,
+    gl_rial: 0,
+    diff_rial: -r.total,
+    rows: r.rows,
+    fixable: r.rows.some((x) => x.fixable),
+    note: cogsOn ? '' : 'سند بهای تمام‌شده فاکتور غیرفعال است — گردش فروش/مرجوعی بررسی نشد',
+  });
+}
+
+// ─── R3 documents without JE ───────────────────────────────────────────────
+function liveDocs(db, table, { amountCols, dateCol = 'date', extraWhere = '' }) {
+  if (!tableExists(db, table)) return [];
+  const cols = columns(db, table);
+  const where = [];
+  if (cols.has('status')) where.push(`COALESCE(status,'posted') NOT IN ${DEAD_SQL}`);
+  if (cols.has('deleted_at')) where.push('COALESCE(deleted_at,0)=0');
+  if (extraWhere) where.push(extraWhere);
+  const present = amountCols.filter((c) => cols.has(c));
+  const amtExpr = present.length > 1
+    ? `COALESCE(${present.map((c) => `NULLIF(${c},0)`).join(', ')}, 0)`
+    : (present[0] || '0');
+  const sel = ['id', `${amtExpr} AS amount`];
+  if (cols.has(dateCol)) sel.push(`${dateCol} AS date`);
+  for (const c of ['num', 'cust_id', 'supplier_id', 'type', 'invoice_id', 'rep_id', 'code', 'acq_je_id', 'status']) {
+    if (cols.has(c) && !sel.includes(c)) sel.push(c);
+  }
+  return db.prepare(`
+    SELECT ${sel.join(', ')} FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}
+  `).all();
+}
+
+function computeDocumentsWithoutJe(ctx) {
+  const { db, dateTo } = ctx;
+  const je = ctx.je();
+  const rows = [];
+  const specs = [
+    { doc: 'invoice', table: 'invoices', amountCols: ['final_rial', 'final'], refs: ['invoice'], extraWhere: "type IN ('normal','final')" },
+    { doc: 'purchase', table: 'purchase_invoices', amountCols: ['final_rial', 'final'], refs: ['purchase'] },
+    { doc: 'sales_return', table: 'sales_returns', amountCols: ['amount_rial', 'amount'], refs: ['sales_return', 'sales_returns'] },
+    { doc: 'purchase_return', table: 'purchase_returns', amountCols: ['amount_rial', 'amount'], refs: ['purchase_return'] },
+    { doc: 'settlement', table: 'settlements', amountCols: ['amount_rial', 'amount'], refs: ['settlement', 'settlements', 'cheque_in', 'opening_cheque', 'pos_receipt'] },
+    { doc: 'supplier_payment', table: 'supplier_payments', amountCols: ['amount_rial', 'amount'], refs: ['supplier_payment'] },
+    { doc: 'expense', table: 'expenses', amountCols: ['amount_rial', 'amount'], refs: ['expense', 'expenses'] },
+    { doc: 'payroll_payment', table: 'payroll_payments', amountCols: ['amount_rial', 'net_rial', 'amount'], refs: ['payroll_payment'] },
+    { doc: 'rep_expense', table: 'rep_expenses', amountCols: ['amount'], refs: ['rep_expense'], extraWhere: "status='approved'" },
+    { doc: 'rep_advance', table: 'rep_advances', amountCols: ['amount'], refs: ['rep_advance'] },
+  ];
+  for (const s of specs) {
+    let docs;
+    try { docs = liveDocs(db, s.table, s); } catch (_) { continue; }
+    for (const d of docs) {
+      if (!(Math.round(Number(d.amount) || 0) > 0)) continue;
+      if (dateTo && d.date && d.date > dateTo) continue;
+      if (s.refs.some((t) => je.has(t, d.id))) continue;
+      rows.push({ id: `${s.doc}:${d.id}`, doc_type: s.doc, doc_id: d.id, num: d.num || null, date: d.date || null, amount_rial: Math.round(Number(d.amount) || 0), severity: 'warn' });
+    }
+  }
+  if (tableExists(db, 'fixed_assets')) {
+    const cols = columns(db, 'fixed_assets');
+    if (cols.has('acq_je_id')) {
+      for (const a of db.prepare("SELECT id, code, cost_rial, purchase_date, acq_je_id FROM fixed_assets WHERE status='active'").all()) {
+        if (a.acq_je_id && je.live(a.acq_je_id)) continue;
+        rows.push({
+          id: `fixed_asset:${a.id}`, doc_type: 'fixed_asset', doc_id: a.id, num: a.code, date: a.purchase_date,
+          amount_rial: Math.round(Number(a.cost_rial) || 0),
+          severity: a.acq_je_id ? 'warn' : 'info',
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+function checkDocumentsWithoutJe(ctx) {
+  const rows = computeDocumentsWithoutJe(ctx);
+  const warn = rows.filter((r) => r.severity === 'warn');
+  return result('documents_without_je', {
+    status: warn.length ? 'warn' : (rows.length ? 'info' : 'ok'),
+    sub_rial: rows.reduce((s, r) => s + r.amount_rial, 0),
+    gl_rial: 0,
+    diff_rial: -warn.reduce((s, r) => s + r.amount_rial, 0),
+    rows,
+    fixable: false,
+    note: rows.length && !warn.length ? 'فقط دارایی‌های قدیمی بدون سند تحصیل (ثبت قبل از v521)' : '',
+  });
+}
+
+// ─── R4 JE on dead document ────────────────────────────────────────────────
+/** ref_type → { table, dead(row, je) , missingIsDead } */
+function deadDocRules(db) {
+  const st = (r) => String((r && r.status) || 'posted').toLowerCase();
+  const statusDead = (r) => DEAD_STATUSES.includes(st(r));
+  const inv = (r) => !r || Number(r.deleted_at || 0) > 0 || statusDead(r) || !['normal', 'final'].includes(String(r.type || ''));
+  return {
+    invoice: { table: 'invoices', dead: inv, missingIsDead: true },
+    invoice_cogs: { table: 'invoices', dead: inv, missingIsDead: true },
+    invoice_ar_reclass: { table: 'invoices', dead: inv, missingIsDead: false },
+    commission_accrual_invoice: { table: 'invoices', dead: inv, missingIsDead: false },
+    purchase: { table: 'purchase_invoices', dead: statusDead, missingIsDead: true },
+    sales_return: { table: 'sales_returns', dead: statusDead, missingIsDead: true },
+    purchase_return: { table: 'purchase_returns', dead: statusDead, missingIsDead: true },
+    settlement: { table: 'settlements', dead: statusDead, missingIsDead: true },
+    supplier_payment: { table: 'supplier_payments', dead: statusDead, missingIsDead: true },
+    rep_expense: { table: 'rep_expenses', dead: (r) => st(r) !== 'approved', missingIsDead: true },
+    rep_advance: { table: 'rep_advances', dead: statusDead, missingIsDead: true },
+    stocktaking: { table: 'stocktaking_sessions', dead: (r) => st(r) !== 'adjusted', missingIsDead: true },
+    landed_cost: { table: 'landed_cost_docs', dead: statusDead, missingIsDead: false },
+    cost_revaluation: { table: 'cost_revaluations', dead: statusDead, missingIsDead: false },
+    production_receipt: { table: 'production_receipts', dead: statusDead, missingIsDead: false },
+    warehouse_receipt_batch: { table: 'warehouse_moves', dead: statusDead, missingIsDead: false },
+    warehouse_issue_batch: { table: 'warehouse_moves', dead: statusDead, missingIsDead: false },
+    warehouse_transfer_batch: { table: 'warehouse_moves', dead: statusDead, missingIsDead: false },
+    warehouse_receipt_grni: { table: 'warehouse_moves', dead: statusDead, missingIsDead: false },
+    inventory_adjust: { table: 'inventory_ledger', dead: statusDead, missingIsDead: true },
+    stock_adjust: { table: 'inventory_ledger', dead: statusDead, missingIsDead: true },
+    inventory_recon_adjust: { table: 'subledger_recon_fixes', dead: statusDead, missingIsDead: true },
+    fixed_asset_acquisition: { table: 'fixed_assets', dead: (r, je) => !r || r.status === 'inactive' || Number(r.acq_je_id || 0) !== Number(je.id), missingIsDead: true },
+    fixed_asset_dispose: { table: 'fixed_assets', dead: (r, je) => !r || Number(r.dispose_je_id || 0) !== Number(je.id), missingIsDead: true },
+  };
+}
+
+function computeJeOnDeadDocument(ctx) {
+  const { db, dateTo } = ctx;
+  const rules = deadDocRules(db);
+  const types = Object.keys(rules);
+  const hasLink = columns(db, 'journal_entries').has('reversed_by_je_id');
+  const ph = types.map(() => '?').join(',');
+  const params = [...types];
+  if (dateTo) params.push(dateTo);
+  const jes = db.prepare(`
+    SELECT je.id, je.entry_date, je.ref_type, je.ref_id, je.description, je.total_debit_rial
+    FROM journal_entries je
+    WHERE ${JE_LIVE} AND je.ref_type IN (${ph})${hasLink ? ' AND je.reversed_by_je_id IS NULL' : ''}
+      ${dateFilter('je.entry_date', dateTo)}
+    ORDER BY je.id
+  `).all(...params);
+  const cache = new Map();
+  const getDoc = (table, id) => {
+    const k = `${table}|${id}`;
+    if (cache.has(k)) return cache.get(k);
+    let row = null;
+    if (tableExists(db, table)) {
+      try { row = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id) || null; } catch (_) { row = null; }
+    }
+    cache.set(k, row);
+    return row;
+  };
+  const rows = [];
+  for (const j of jes) {
+    const rule = rules[j.ref_type];
+    if (!rule || !tableExists(db, rule.table) || j.ref_id == null) continue;
+    const doc = getDoc(rule.table, j.ref_id);
+    if (!doc && !rule.missingIsDead) continue;
+    if (doc && !rule.dead(doc, j)) continue;
+    if (!doc && !rule.missingIsDead) continue;
+    let amount = Math.round(Number(j.total_debit_rial) || 0);
+    if (!amount) {
+      const s = db.prepare(`SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d FROM journal_lines jl WHERE jl.entry_id=?`).get(j.id);
+      amount = Math.round(Number(s && s.d) || 0);
+    }
+    rows.push({
+      id: Number(j.id), je_id: Number(j.id), entry_date: j.entry_date, ref_type: j.ref_type, ref_id: j.ref_id,
+      description: j.description || '', amount_rial: amount,
+      doc_state: doc ? String(doc.status || (Number(doc.deleted_at || 0) > 0 ? 'deleted' : 'posted')) : 'missing',
+    });
+  }
+  return rows;
+}
+
+function checkJeOnDeadDocument(ctx) {
+  const rows = computeJeOnDeadDocument(ctx);
+  return result('je_on_dead_document', {
+    status: rows.length ? 'warn' : 'ok',
+    gl_rial: rows.reduce((s, r) => s + r.amount_rial, 0),
+    sub_rial: 0,
+    diff_rial: rows.reduce((s, r) => s + r.amount_rial, 0),
+    rows,
+    fixable: rows.length > 0,
+  });
+}
+
+// ─── R5 document amount vs JE ──────────────────────────────────────────────
+function jeLinesFor(db, refType, refId) {
+  return db.prepare(`
+    SELECT jl.account_code AS code, ${SQL_JL_DEBIT_RIAL} AS d, ${SQL_JL_CREDIT_RIAL} AS c, je.id AS je_id
+    FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE ${JE_LIVE} AND je.ref_type=? AND je.ref_id=?
+  `).all(refType, refId);
+}
+
+function computeDocumentAmountVsJe(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const rows = [];
+  const je = ctx.je();
+  if (tableExists(db, 'invoices')) {
+    const { receivableAcct } = require('./customer-books');
+    const cols = columns(db, 'invoices');
+    const amt = cols.has('final_rial') ? 'COALESCE(NULLIF(final_rial,0), final)' : 'final';
+    const params = dateTo ? [dateTo] : [];
+    const invs = db.prepare(`
+      SELECT id, num, cust_id, date, ${amt} AS final FROM invoices
+      WHERE type IN ('normal','final') AND COALESCE(deleted_at,0)=0
+        ${cols.has('status') ? `AND COALESCE(status,'posted') NOT IN ${DEAD_SQL}` : ''}${dateFilter('date', dateTo)}
+    `).all(...params);
+    for (const inv of invs) {
+      if (!je.has('invoice', inv.id)) continue;
+      let recv = '';
+      try { recv = String(receivableAcct(db, inv.cust_id).code || ''); } catch (_) { recv = codeOf(db, 'coa_receivable'); }
+      const lines = jeLinesFor(db, 'invoice', inv.id);
+      const ar = lines.filter((l) => String(l.code) === recv).reduce((s, l) => s + Number(l.d || 0), 0);
+      const docAmt = Math.round(Number(inv.final) || 0);
+      if (Math.abs(ar - docAmt) > tolerance) {
+        rows.push({ id: `invoice:${inv.id}`, doc_type: 'invoice', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'ar_debit', doc_rial: docAmt, je_rial: Math.round(ar), diff_rial: Math.round(ar - docAmt) });
+      }
+    }
+    if (setting(db, 'feature_cogs_voucher', '0') === '1' && tableExists(db, 'inventory_ledger')) {
+      const mv = new Map();
+      for (const r of liveLedgerRows(db, dateTo, "AND l.source_type='invoice'")) {
+        const k = Number(r.source_id);
+        mv.set(k, (mv.get(k) || 0) - signedLedgerAmount(r));
+      }
+      for (const inv of invs) {
+        if (!je.has('invoice_cogs', inv.id)) continue;
+        const lines = jeLinesFor(db, 'invoice_cogs', inv.id);
+        const cogs = lines.reduce((s, l) => s + Number(l.d || 0), 0);
+        const movement = Math.round(mv.get(Number(inv.id)) || 0);
+        if (Math.abs(cogs - movement) > tolerance) {
+          rows.push({ id: `invoice_cogs:${inv.id}`, doc_type: 'invoice_cogs', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'cogs_vs_movements', doc_rial: movement, je_rial: Math.round(cogs), diff_rial: Math.round(cogs - movement) });
+        }
+      }
+    }
+  }
+  if (tableExists(db, 'purchase_invoices')) {
+    const cols = columns(db, 'purchase_invoices');
+    const params = dateTo ? [dateTo] : [];
+    const purchases = db.prepare(`
+      SELECT id, num, supplier_id, date, final FROM purchase_invoices
+      WHERE 1=1 ${cols.has('status') ? `AND COALESCE(status,'posted') NOT IN ${DEAD_SQL}` : ''}${dateFilter('date', dateTo)}
+    `).all(...params);
+    const payControl = codeOf(db, 'coa_payable');
+    for (const p of purchases) {
+      if (!je.has('purchase', p.id)) continue;
+      let pay = payControl;
+      try {
+        const s = db.prepare('SELECT coa_code FROM suppliers WHERE id=?').get(p.supplier_id);
+        if (s && s.coa_code) pay = String(s.coa_code);
+      } catch (_) { /* keep control */ }
+      const lines = jeLinesFor(db, 'purchase', p.id);
+      const ap = lines.filter((l) => String(l.code) === pay).reduce((s, l) => s + Number(l.c || 0), 0);
+      const docAmt = Math.round(Number(p.final) || 0);
+      if (Math.abs(ap - docAmt) > tolerance) {
+        rows.push({ id: `purchase:${p.id}`, doc_type: 'purchase', doc_id: p.id, num: p.num, date: p.date, metric: 'ap_credit', doc_rial: docAmt, je_rial: Math.round(ap), diff_rial: Math.round(ap - docAmt) });
+      }
+    }
+  }
+  return rows;
+}
+
+function checkDocumentAmountVsJe(ctx) {
+  const rows = computeDocumentAmountVsJe(ctx);
+  return result('document_amount_vs_je', {
+    status: rows.length ? 'warn' : 'ok',
+    gl_rial: rows.reduce((s, r) => s + r.je_rial, 0),
+    sub_rial: rows.reduce((s, r) => s + r.doc_rial, 0),
+    diff_rial: rows.reduce((s, r) => s + r.diff_rial, 0),
+    rows,
+    fixable: false,
+  });
+}
+
+// ─── R6 party control ──────────────────────────────────────────────────────
+function checkPartyControl(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const controls = ['coa_receivable', 'coa_payable', 'coa_misc_persons'].map((k) => codeOf(db, k)).filter(Boolean);
+  const gl = glBalance(db, controls, dateTo);
+  const rows = [];
+  let sub = 0;
+  let notes = [];
+  if (!dateTo) {
+    try {
+      const pb = require('./party-books');
+      const map = pb.partySignedBalanceDetailMap(db);
+      for (const [pid, info] of map.entries()) {
+        const leaves = (info.leaves && info.leaves.length) ? info.leaves
+          : (info.coa_code ? [{ coa_code: info.coa_code, balance: info.balance, source: info.source }] : []);
+        for (const lf of leaves) {
+          if (!lf.coa_code || !controls.some((c) => String(lf.coa_code).startsWith(c))) continue;
+          sub += Math.round(Number(lf.balance) || 0);
+        }
+        if (pb.partyBooksMismatch(db, info)) {
+          for (const lf of leaves) {
+            if (!lf.coa_code) continue;
+            const g = pb.glSignedForCoa(db, lf.coa_code);
+            if (g == null) continue;
+            const d = Math.round(Number(lf.balance) || 0) - Math.round(g);
+            if (Math.abs(d) <= 2) continue;
+            rows.push({ id: `party:${pid}:${lf.coa_code}`, kind: 'party', party_id: pid, coa_code: lf.coa_code, book_rial: Math.round(Number(lf.balance) || 0), gl_rial: Math.round(g), diff_rial: d, source: lf.source || '' });
+          }
+        }
+      }
+    } catch (e) {
+      notes.push(`party-books: ${e.message}`);
+    }
+  } else {
+    notes.push('مانده دفاتر اشخاص فقط در تاریخ روز محاسبه می‌شود');
+  }
+  try {
+    const cb = require('./customer-books');
+    const list = cb.customerBooksMismatchList(db, { asOf: dateTo || undefined, limit: 1000 });
+    for (const r of list.rows || []) {
+      if (rows.some((x) => x.coa_code === r.coa_code)) continue;
+      rows.push({ id: `customer:${r.id}`, kind: 'customer', customer_id: r.id, name: r.biz, coa_code: r.coa_code, book_rial: r.ledger, gl_rial: r.gl, diff_rial: r.delta });
+    }
+  } catch (e) {
+    notes.push(`customer-books: ${e.message}`);
+  }
+  const diff = dateTo ? null : gl - sub;
+  const status = rows.length || (diff != null && Math.abs(diff) > tolerance) ? 'warn' : 'ok';
+  return result('party_control', {
+    status, gl_rial: gl, sub_rial: dateTo ? null : sub, diff_rial: diff, rows, fixable: false,
+    note: [diff && Math.abs(diff) > tolerance ? 'بخشی از مانده روی حساب کنترل (بدون تفصیلی) ثبت شده است' : '', ...notes].filter(Boolean).join(' | '),
+  });
+}
+
+// ─── R7 cash / bank ────────────────────────────────────────────────────────
+function checkCashBank(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const rows = [];
+  const cashCode = codeOf(db, 'coa_cash_default') || '1101';
+  const bankCode = codeOf(db, 'coa_bank_default') || '1102';
+  let sub = 0;
+  if (tableExists(db, 'banks')) {
+    const { computeBookBalance } = require('./bank-recon');
+    const cols = columns(db, 'banks');
+    for (const b of db.prepare(`SELECT id, name${cols.has('coa_code') ? ', coa_code' : ''} FROM banks`).all()) {
+      const bal = computeBookBalance(db, b.id, dateTo || '');
+      sub += bal;
+      rows.push({ id: `bank:${b.id}`, kind: 'bank', entity_id: b.id, name: b.name, coa_code: b.coa_code || `${bankCode}-${b.id}`, balance_rial: bal, flag: '' });
+    }
+  }
+  if (tableExists(db, 'cash_boxes')) {
+    const cols = columns(db, 'cash_boxes');
+    for (const c of db.prepare(`SELECT id, name${cols.has('coa_code') ? ', coa_code' : ''} FROM cash_boxes`).all()) {
+      const code = c.coa_code || `${cashCode}-${c.id}`;
+      const bal = glLeafBalance(db, code, dateTo);
+      sub += bal;
+      rows.push({ id: `cash:${c.id}`, kind: 'cash_box', entity_id: c.id, name: c.name, coa_code: code, balance_rial: bal, flag: bal < -tolerance ? 'negative_cash' : '' });
+    }
+  }
+  const gl = glBalance(db, [cashCode, bankCode], dateTo);
+  const diff = gl - sub;
+  if (Math.abs(diff) > tolerance) {
+    rows.unshift({ id: 'unallocated', kind: 'control', name: 'مانده روی حساب کنترل بدون صندوق/بانک', coa_code: `${cashCode},${bankCode}`, balance_rial: diff, flag: 'unallocated' });
+  }
+  const flagged = rows.filter((r) => r.flag);
+  return result('cash_bank', {
+    status: flagged.length ? 'warn' : 'ok',
+    gl_rial: gl, sub_rial: sub, diff_rial: diff,
+    rows: [...flagged, ...rows.filter((r) => !r.flag)],
+    fixable: false,
+  });
+}
+
+// ─── R8 GRNI ───────────────────────────────────────────────────────────────
+function checkGrni(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const je = ctx.je();
+  const grniCode = codeOf(db, 'coa_grni') || '2112';
+  const gl = -glBalance(db, [grniCode], dateTo);
+  const rows = [];
+  let sub = 0;
+  if (tableExists(db, 'warehouse_docs')) {
+    const cols = columns(db, 'warehouse_docs');
+    if (cols.has('purchase_invoice_id')) {
+      const params = dateTo ? [dateTo] : [];
+      for (const d of db.prepare(`
+        SELECT wd.id, wd.num, wd.date, wd.amount_rial_total, wd.je_id
+        FROM warehouse_docs wd JOIN journal_entries je ON je.id = wd.je_id
+        WHERE wd.type='receipt' AND COALESCE(wd.status,'posted')<>'reversed'
+          AND wd.purchase_invoice_id IS NULL AND je.ref_type='warehouse_receipt_grni' AND ${JE_LIVE}
+          ${dateFilter('wd.date', dateTo)}
+      `).all(...params)) {
+        const amt = Math.round(Number(d.amount_rial_total) || 0);
+        sub += amt;
+        rows.push({ id: `wh_doc:${d.id}`, kind: 'warehouse_receipt', doc_id: d.id, num: d.num, date: d.date, amount_rial: amt, je_id: d.je_id });
+      }
+    }
+  }
+  if (tableExists(db, 'goods_receipts')) {
+    const piCols = columns(db, 'purchase_invoices');
+    const params = dateTo ? [dateTo] : [];
+    for (const g of db.prepare(`
+      SELECT id, num, date, journal_id FROM goods_receipts
+      WHERE COALESCE(status,'posted') NOT IN ${DEAD_SQL} AND journal_id IS NOT NULL${dateFilter('date', dateTo)}
+    `).all(...params)) {
+      if (!je.live(g.journal_id)) continue;
+      if (piCols.has('goods_receipt_id')) {
+        const inv = db.prepare(`
+          SELECT 1 FROM purchase_invoices WHERE goods_receipt_id=? ${piCols.has('status') ? `AND COALESCE(status,'posted') NOT IN ${DEAD_SQL}` : ''} LIMIT 1
+        `).get(g.id);
+        if (inv) continue;
+      }
+      const c = db.prepare(`
+        SELECT COALESCE(SUM(${SQL_JL_CREDIT_RIAL} - ${SQL_JL_DEBIT_RIAL}),0) v FROM journal_lines jl
+        WHERE jl.entry_id=? AND (jl.account_code=? OR jl.account_code LIKE ?)
+      `).get(g.journal_id, grniCode, `${grniCode}%`);
+      const amt = Math.round(Number(c && c.v) || 0);
+      if (!amt) continue;
+      sub += amt;
+      rows.push({ id: `gr:${g.id}`, kind: 'goods_receipt', doc_id: g.id, num: g.num, date: g.date, amount_rial: amt, je_id: g.journal_id });
+    }
+  }
+  const diff = gl - sub;
+  return result('grni', {
+    status: Math.abs(diff) > tolerance ? 'warn' : 'ok',
+    gl_rial: gl, sub_rial: sub, diff_rial: diff, rows, fixable: false,
+    note: 'مانده بستانکار 2112 در برابر رسیدهای فاکتورنشده',
+  });
+}
+
+// ─── R9 fixed assets ───────────────────────────────────────────────────────
+function checkFixedAssets(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  if (!tableExists(db, 'fixed_assets')) {
+    return result('fixed_assets', { status: 'ok', gl_rial: 0, sub_rial: 0, diff_rial: 0, rows: [], note: 'جدول دارایی ثابت وجود ندارد' });
+  }
+  const cols = columns(db, 'fixed_assets');
+  const assetControl = codeOf(db, 'coa_fixed_assets') || '1201';
+  const accumControl = codeOf(db, 'coa_accumulated_depreciation') || '1202';
+  const assets = db.prepare(`
+    SELECT id, code, name, cost_rial, accumulated_depreciation_rial, coa_asset_code${cols.has('acq_je_id') ? ', acq_je_id' : ''}
+    FROM fixed_assets WHERE status='active'
+  `).all();
+  const subCost = assets.reduce((s, a) => s + Math.round(Number(a.cost_rial) || 0), 0);
+  const subAccum = assets.reduce((s, a) => s + Math.round(Number(a.accumulated_depreciation_rial) || 0), 0);
+  const assetCodes = [...new Set([assetControl, ...assets.map((a) => String(a.coa_asset_code || '')).filter(Boolean)])];
+  const glCost = glBalance(db, assetCodes, dateTo);
+  const glAccum = -glBalance(db, [accumControl], dateTo);
+  const legacy = cols.has('acq_je_id') ? assets.filter((a) => !a.acq_je_id) : assets;
+  const legacyCost = legacy.reduce((s, a) => s + Math.round(Number(a.cost_rial) || 0), 0);
+  const costDiff = glCost - subCost;
+  const accumDiff = glAccum - subAccum;
+  const rows = [
+    { id: 'cost', metric: 'cost', account_code: assetControl, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, legacy_without_je_rial: legacyCost },
+    { id: 'accumulated_depreciation', metric: 'accumulated_depreciation', account_code: accumControl, gl_rial: glAccum, sub_rial: subAccum, diff_rial: accumDiff },
+  ];
+  for (const a of legacy) {
+    rows.push({ id: `asset:${a.id}`, metric: 'legacy_no_acq_je', asset_id: a.id, code: a.code, name: a.name, sub_rial: Math.round(Number(a.cost_rial) || 0) });
+  }
+  let status = 'ok';
+  if (Math.abs(accumDiff) > tolerance) status = 'warn';
+  if (Math.abs(costDiff) > tolerance) {
+    status = (Math.abs(costDiff + legacyCost) <= tolerance && status === 'ok') ? 'info' : 'warn';
+  }
+  return result('fixed_assets', {
+    status, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, rows, fixable: false,
+    note: legacy.length ? `${legacy.length} دارایی قدیمی بدون سند تحصیل` : '',
+  });
+}
+
+// ─── R10 suspense accounts ─────────────────────────────────────────────────
+function checkSuspenseAccounts(ctx) {
+  const { db, dateTo, tolerance } = ctx;
+  const keys = ['coa_adjustment', 'coa_labor_control', 'coa_overhead_control'];
+  const rows = [];
+  let total = 0;
+  for (const k of keys) {
+    const code = codeOf(db, k);
+    if (!code) continue;
+    const bal = glBalance(db, [code], dateTo);
+    if (Math.abs(bal) <= tolerance) continue;
+    total += bal;
+    const params = [code, `${code}%`];
+    if (dateTo) params.push(dateTo);
+    const by = db.prepare(`
+      SELECT je.ref_type AS ref_type, COUNT(DISTINCT je.id) AS n,
+        COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}),0) AS bal
+      FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE ${JE_LIVE} AND (jl.account_code=? OR jl.account_code LIKE ?)${dateFilter('je.entry_date', dateTo)}
+      GROUP BY je.ref_type ORDER BY ABS(bal) DESC LIMIT 10
+    `).all(...params);
+    rows.push({
+      id: code, key: k, account_code: code, balance_rial: bal,
+      by_ref_type: by.map((b) => ({ ref_type: b.ref_type || '', entries: b.n, balance_rial: Math.round(Number(b.bal) || 0) })),
+    });
+  }
+  return result('suspense_accounts', {
+    status: rows.length ? 'warn' : 'ok', gl_rial: total, sub_rial: 0, diff_rial: total, rows, fixable: false,
+  });
+}
+
+// ─── R11 closed period changes ─────────────────────────────────────────────
+function checkClosedPeriodChanges(ctx) {
+  const { db } = ctx;
+  const rows = [];
+  if (!tableExists(db, 'fiscal_years')) return result('closed_period_changes', { status: 'ok', rows });
+  const fys = db.prepare(`
+    SELECT id, label, start_date, end_date, status, closed_at FROM fiscal_years
+    WHERE status IN ('closed','locked') AND COALESCE(closed_at,0) > 0
+  `).all();
+  const jeCols = columns(db, 'journal_entries');
+  for (const fy of fys) {
+    const params = [fy.start_date || '0000/00/00'];
+    let range = 'je.entry_date >= ?';
+    if (fy.end_date) { range += ' AND je.entry_date <= ?'; params.push(fy.end_date); } else {
+      const next = db.prepare('SELECT MIN(start_date) s FROM fiscal_years WHERE start_date > ?').get(fy.start_date || '');
+      if (next && next.s) { range += ' AND je.entry_date < ?'; params.push(next.s); }
+    }
+    params.push(fy.closed_at, fy.closed_at);
+    const sel = ['je.id', 'je.entry_date', 'je.ref_type', 'je.ref_id', 'je.status', 'je.deleted_at', 'je.created_at', 'je.description'];
+    if (jeCols.has('reversed_by_je_id')) sel.push('je.reversed_by_je_id');
+    for (const j of db.prepare(`
+      SELECT ${sel.join(', ')} FROM journal_entries je
+      WHERE ${range} AND (COALESCE(je.created_at,0) > ? OR COALESCE(je.deleted_at,0) > ?)
+      ORDER BY je.id
+    `).all(...params)) {
+      rows.push({
+        id: Number(j.id), je_id: Number(j.id), fiscal_year_id: fy.id, fiscal_year: fy.label,
+        closed_at: fy.closed_at, entry_date: j.entry_date, ref_type: j.ref_type, ref_id: j.ref_id,
+        change: Number(j.deleted_at || 0) > Number(fy.closed_at) ? 'voided_after_close' : 'created_after_close',
+        status: j.status || '', description: j.description || '',
+      });
+    }
+  }
+  return result('closed_period_changes', { status: rows.length ? 'warn' : 'ok', rows, fixable: false });
+}
+
+const RUNNERS = {
+  inventory_vs_gl: checkInventoryVsGl,
+  movements_without_je: checkMovementsWithoutJe,
+  documents_without_je: checkDocumentsWithoutJe,
+  je_on_dead_document: checkJeOnDeadDocument,
+  document_amount_vs_je: checkDocumentAmountVsJe,
+  party_control: checkPartyControl,
+  cash_bank: checkCashBank,
+  grni: checkGrni,
+  fixed_assets: checkFixedAssets,
+  suspense_accounts: checkSuspenseAccounts,
+  closed_period_changes: checkClosedPeriodChanges,
+};
+
+function runOne(ctx, code) {
+  const fn = RUNNERS[code];
+  if (!fn) throw err(`کنترل ناشناخته: ${code}`, 404, 'E_RECON_UNKNOWN_CHECK');
+  const t0 = Date.now();
+  try {
+    const r = fn(ctx);
+    r.ms = Date.now() - t0;
+    return r;
+  } catch (e) {
+    const r = result(code, { status: 'error', rows: [], note: `خطا در اجرای کنترل: ${e.message}` });
+    r.ms = Date.now() - t0;
+    return r;
+  }
+}
+
+function parseChecks(checks) {
+  if (!checks) return CHECKS.map(([c]) => c);
+  const list = Array.isArray(checks) ? checks : String(checks).split(',');
+  return list.map((s) => String(s).trim()).filter((c) => RUNNERS[c]);
+}
+
+/**
+ * Run the reconciliation report.
+ * @returns {{ as_of, ran_at, summary:{ok,warn,error,info}, checks:Array, run_id }}
+ */
+function runRecon(db, opts = {}) {
+  const ctx = ctxFor(db, opts);
+  const codes = parseChecks(opts.checks);
+  const checks = codes.map((c) => {
+    const r = runOne(ctx, c);
+    delete r.rows;
+    return r;
+  });
+  const summary = { ok: 0, warn: 0, error: 0, info: 0 };
+  for (const c of checks) summary[c.status] = (summary[c.status] || 0) + 1;
+  const asOf = ctx.dateTo || require('../jalali').todayJalali();
+  const out = { as_of: asOf, ran_at: Math.floor(Date.now() / 1000), summary, checks };
+  if (opts.persist !== false) {
+    try {
+      ensureReconSchemaOnce(db);
+      out.run_id = Number(db.prepare(
+        'INSERT INTO subledger_recon_runs (as_of, result_json, created_by) VALUES (?,?,?)'
+      ).run(asOf, JSON.stringify(out), opts.userId || null).lastInsertRowid);
+    } catch (_) { /* report still returned */ }
+  }
+  return out;
+}
+
+function lastRun(db) {
+  ensureReconSchemaOnce(db);
+  const r = db.prepare('SELECT id, as_of, result_json, created_by, created_at FROM subledger_recon_runs ORDER BY id DESC LIMIT 1').get();
+  if (!r) return null;
+  let parsed = {};
+  try { parsed = JSON.parse(r.result_json || '{}'); } catch (_) { parsed = {}; }
+  return { ...parsed, run_id: r.id, created_by: r.created_by, created_at: r.created_at };
+}
+
+/** Full rows of one check (paged). */
+function checkRows(db, code, opts = {}) {
+  const ctx = ctxFor(db, opts);
+  const fn = RUNNERS[code];
+  if (!fn) throw err(`کنترل ناشناخته: ${code}`, 404, 'E_RECON_UNKNOWN_CHECK');
+  const r = fn(ctx);
+  const limit = Math.min(2000, Math.max(1, parseInt(opts.limit, 10) || 200));
+  const offset = Math.max(0, parseInt(opts.offset, 10) || 0);
+  return { code, status: r.status, total: r.rows.length, rows: r.rows.slice(offset, offset + limit) };
+}
+
+// ─── fixes ─────────────────────────────────────────────────────────────────
+/**
+ * Inventory value JE: amountRial > 0 = increase (Dr inventory / Cr adjustment), < 0 = decrease.
+ * Returns JE id or null (zero amount / periodic warehouse).
+ */
+function postInventoryValueAdjustmentJe(db, {
+  warehouseId = null, inventoryCode = null, amountRial, date, userId, sourceType, sourceId, description,
+}) {
+  const amt = Math.round(Number(amountRial) || 0);
+  if (!amt) return null;
+  if (warehouseId) {
+    try {
+      if (require('./inventory/periodic-close').isPeriodicWarehouse(db, warehouseId)) return null;
+    } catch (_) { /* column missing → perpetual */ }
+  }
+  let inv;
+  if (inventoryCode) {
+    const row = db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(inventoryCode);
+    inv = row || { code: inventoryCode, name: inventoryCode };
+  } else {
+    inv = inventoryAccountFor(db, warehouseId);
+  }
+  const adj = acct(db, 'coa_adjustment');
+  let cc = null;
+  if (warehouseId) {
+    try { cc = db.prepare('SELECT cost_center_id FROM warehouses WHERE id=?').get(warehouseId)?.cost_center_id || null; } catch (_) { cc = null; }
+  }
+  const v = rialToLedger(Math.abs(amt));
+  const lines = amt > 0
+    ? [
+      { code: inv.code, name: inv.name, debit: v, credit: 0, cost_center_id: cc },
+      { code: adj.code, name: adj.name, debit: 0, credit: v, cost_center_id: cc },
+    ]
+    : [
+      { code: adj.code, name: adj.name, debit: v, credit: 0, cost_center_id: cc },
+      { code: inv.code, name: inv.name, debit: 0, credit: v, cost_center_id: cc },
+    ];
+  const { postToLedger } = require('./ledger');
+  return postToLedger(db, {
+    sourceType, sourceId, date: date || require('../jalali').todayJalali(),
+    description: description || 'تعدیل ارزش موجودی',
+    createdBy: userId || null, lines, costCenterId: cc, warehouseId, skipCcPolicy: true,
+  });
+}
+
+function requireConfirm(opts) {
+  const confirm = opts.confirm === true || opts.confirm === 1 || opts.confirm === '1' || opts.confirm === 'true';
+  const reason = String(opts.reason || '').trim();
+  if (!confirm || reason.length < 3) {
+    throw err('برای ثبت سند اصلاحی تأیید صریح (confirm) و دلیل الزامی است', 400, 'E_RECON_CONFIRM_REQUIRED');
+  }
+  return reason;
+}
+
+function idSet(ids) {
+  return new Set((Array.isArray(ids) ? ids : String(ids || '').split(',')).map((x) => String(x).trim()).filter(Boolean));
+}
+
+function fixJeOnDeadDocument(db, opts) {
+  const ctx = ctxFor(db, opts);
+  const wanted = idSet(opts.ids);
+  const rows = computeJeOnDeadDocument(ctx).filter((r) => !wanted.size || wanted.has(String(r.je_id)));
+  const plan = rows.map((r) => ({ je_id: r.je_id, ref_type: r.ref_type, ref_id: r.ref_id, amount_rial: r.amount_rial, action: 'reverse_je' }));
+  if (opts.dryRun) return { code: 'je_on_dead_document', dry_run: true, plan, applied: [] };
+  const { reverseJournalEntry } = require('./void-journal');
+  const reason = String(opts.reason || 'ابطال سند حسابداری روی سند باطل‌شده (تطبیق زیرسیستم)');
+  const applied = [];
+  db.transaction(() => {
+    for (const p of plan) {
+      const r = reverseJournalEntry(db, p.je_id, { userId: opts.user && opts.user.id, reason });
+      const link = columns(db, 'journal_entries').has('reversed_by_je_id')
+        ? db.prepare('SELECT reversed_by_je_id FROM journal_entries WHERE id=?').get(p.je_id)
+        : null;
+      applied.push({ ...p, result: r ? 'reversed' : 'already_dead', counter_voucher_id: (link && link.reversed_by_je_id) || null });
+      writeAudit(db, opts.user && opts.user.id, 'recon_fix', 'journal_entry', p.je_id,
+        { check: 'je_on_dead_document', ref_type: p.ref_type, ref_id: p.ref_id, reason });
+    }
+  })();
+  return { code: 'je_on_dead_document', dry_run: false, plan, applied };
+}
+
+function fixInventoryVsGl(db, opts) {
+  ensureReconSchemaOnce(db);
+  const ctx = ctxFor(db, opts);
+  const wanted = idSet(opts.ids);
+  const r = computeInventoryVsGl(ctx);
+  const targets = r.accRows.filter((a) => a.status === 'warn' && (!wanted.size || wanted.has(String(a.account_code))));
+  const plan = targets.map((a) => ({
+    account_code: a.account_code, account_name: a.account_name, gl_rial: a.gl_rial, sub_rial: a.sub_rial,
+    adjust_rial: a.sub_rial - a.gl_rial,
+    lines: a.sub_rial - a.gl_rial > 0
+      ? [{ code: a.account_code, side: 'debit' }, { code: codeOf(db, 'coa_adjustment'), side: 'credit' }]
+      : [{ code: codeOf(db, 'coa_adjustment'), side: 'debit' }, { code: a.account_code, side: 'credit' }],
+  }));
+  if (opts.dryRun) return { code: 'inventory_vs_gl', dry_run: true, plan, applied: [] };
+  const reason = requireConfirm(opts);
+  const date = opts.date || require('../jalali').todayJalali();
+  const userId = opts.user && opts.user.id;
+  const applied = [];
+  db.transaction(() => {
+    for (const p of plan) {
+      const fixId = Number(db.prepare(`
+        INSERT INTO subledger_recon_fixes (code, target, amount_rial, reason, detail_json, created_by)
+        VALUES ('inventory_vs_gl', ?, ?, ?, ?, ?)
+      `).run(p.account_code, p.adjust_rial, reason, JSON.stringify({ gl_rial: p.gl_rial, sub_rial: p.sub_rial, date }), userId || null).lastInsertRowid);
+      const jeId = postInventoryValueAdjustmentJe(db, {
+        inventoryCode: p.account_code, amountRial: p.adjust_rial, date, userId,
+        sourceType: 'inventory_recon_adjust', sourceId: fixId,
+        description: `تعدیل تطبیق موجودی با دفتر کل (${p.account_code}) — ${reason.slice(0, 120)}`,
+      });
+      db.prepare('UPDATE subledger_recon_fixes SET je_id=? WHERE id=?').run(jeId, fixId);
+      applied.push({ ...p, fix_id: fixId, je_id: jeId });
+      writeAudit(db, userId, 'recon_fix', 'subledger_recon_fix', fixId,
+        { check: 'inventory_vs_gl', account_code: p.account_code, adjust_rial: p.adjust_rial, je_id: jeId, reason });
+    }
+  })();
+  return { code: 'inventory_vs_gl', dry_run: false, plan, applied };
+}
+
+function fixMovementsWithoutJe(db, opts) {
+  ensureReconSchemaOnce(db);
+  const ctx = ctxFor(db, opts);
+  const wanted = idSet(opts.ids);
+  const rows = computeMovementsWithoutJe(ctx).rows.filter((r) => r.fixable && (!wanted.size || wanted.has(String(r.id))));
+  const plan = rows.map((r) => ({ ledger_id: r.id, source_type: r.source_type, warehouse_id: r.warehouse_id, amount_rial: r.amount_rial, action: 'post_adjustment_je' }));
+  if (opts.dryRun) return { code: 'movements_without_je', dry_run: true, plan, applied: [] };
+  const reason = requireConfirm(opts);
+  const userId = opts.user && opts.user.id;
+  const applied = [];
+  db.transaction(() => {
+    for (const p of plan) {
+      const led = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(p.ledger_id);
+      const refType = p.source_type === 'stock_adjust' ? 'stock_adjust' : 'inventory_adjust';
+      const jeId = postInventoryValueAdjustmentJe(db, {
+        warehouseId: led.warehouse_id, amountRial: p.amount_rial, date: led.date || undefined, userId,
+        sourceType: refType, sourceId: led.id,
+        description: `سند تعدیل موجودی برای گردش ${led.tx_no || led.id} — ${reason.slice(0, 120)}`,
+      });
+      if (jeId) db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?').run(jeId, led.id);
+      applied.push({ ...p, je_id: jeId });
+      writeAudit(db, userId, 'recon_fix', 'inventory_ledger', led.id, { check: 'movements_without_je', je_id: jeId, reason });
+    }
+  })();
+  return { code: 'movements_without_je', dry_run: false, plan, applied };
+}
+
+const FIXERS = {
+  je_on_dead_document: fixJeOnDeadDocument,
+  inventory_vs_gl: fixInventoryVsGl,
+  movements_without_je: fixMovementsWithoutJe,
+};
+
+/**
+ * Apply a fix for one check. dryRun defaults to true.
+ * @param {{ ids?:Array, dryRun?:boolean, confirm?:boolean, reason?:string, user?:{id:number}, dateTo?:string }} opts
+ */
+function applyFix(db, code, opts = {}) {
+  if (!RUNNERS[code]) throw err(`کنترل ناشناخته: ${code}`, 404, 'E_RECON_UNKNOWN_CHECK');
+  const fixer = FIXERS[code];
+  if (!fixer) throw err('این کنترل اصلاح خودکار ندارد — سند مبدأ را بررسی کنید', 400, 'E_RECON_NOT_FIXABLE');
+  const dryRun = !(opts.dryRun === false || opts.dryRun === 0 || opts.dryRun === '0' || opts.dryRun === 'false');
+  return fixer(db, { ...opts, dryRun });
+}
+
+function listFixes(db, { limit } = {}) {
+  ensureReconSchemaOnce(db);
+  const lim = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+  return db.prepare('SELECT * FROM subledger_recon_fixes ORDER BY id DESC LIMIT ?').all(lim);
+}
+
+/** R13: cancel a recon adjustment = void its JE + mark fix reversed (atomic). */
+function reverseFix(db, fixId, { user, reason } = {}) {
+  ensureReconSchemaOnce(db);
+  const fix = db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fixId);
+  if (!fix) throw err('اصلاحیه یافت نشد', 404, 'E_RECON_FIX_NOT_FOUND');
+  if (fix.status === 'reversed') throw err('این اصلاحیه قبلاً ابطال شده است', 409, 'E_RECON_FIX_REVERSED');
+  const { reverseJournalEntry } = require('./void-journal');
+  const userId = user && user.id;
+  db.transaction(() => {
+    if (fix.je_id) reverseJournalEntry(db, fix.je_id, { userId, reason: reason || `ابطال اصلاحیه تطبیق #${fix.id}` });
+    db.prepare("UPDATE subledger_recon_fixes SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
+      .run(userId || null, fix.id);
+    writeAudit(db, userId, 'recon_fix_reverse', 'subledger_recon_fix', fix.id, { je_id: fix.je_id, reason: reason || '' });
+  })();
+  return db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fix.id);
+}
+
+module.exports = {
+  CHECKS,
+  ensureReconSchema,
+  ensureReconSchemaOnce,
+  runRecon,
+  lastRun,
+  checkRows,
+  applyFix,
+  listFixes,
+  reverseFix,
+  postInventoryValueAdjustmentJe,
+  glBalance,
+  MANUAL_SOURCES,
+};

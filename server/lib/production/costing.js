@@ -219,7 +219,7 @@ function findProductionReceiptLedger(db, {
  * Prefer reverseInventoryMovement so the original row becomes status=reversed
  * (operational kardex can hide the pair). Fallback posts a legacy outbound
  * only when the original ledger row cannot be found.
- * prevAvgRial restores the pre-receipt moving average snapshot.
+ * The average is re-computed by value by the ledger reversal (prevAvgRial kept for API compat).
  */
 function reverseReceiptStock(db, {
   productId, warehouseId, qty, unitCostRial, amountRial, prevAvgRial,
@@ -272,12 +272,9 @@ function reverseReceiptStock(db, {
       updateAvg: false,
     });
   }
-  if (prevAvgRial != null) {
-    const prev = Math.round(Number(prevAvgRial) || 0);
-    const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
-    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-      .run(prev, catalogCostFromAvgRial(prev), productId);
-  }
+  // prevAvgRial is ignored: the reversal row re-averages by value inside the ledger.
+  // Restoring the receipt-time snapshot would discard every movement since the receipt.
+  void prevAvgRial;
   return led;
 }
 

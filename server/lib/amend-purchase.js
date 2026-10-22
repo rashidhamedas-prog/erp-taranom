@@ -245,16 +245,7 @@ function reverseGrniRevalsKeepLink(db, purchaseId, userId, reason) {
   for (const led of leds) {
     const share = Math.round(Number(led.amount_rial) || 0);
     if (share) {
-      const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(led.product_id);
-      if (prod) {
-        const stock = Number(prod.stock) || 0;
-        if (stock > 0) {
-          const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-          const newAvg = Math.max(0, Math.round((stock * prevAvg - share) / stock));
-          db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-            .run(newAvg, catalogCostFromAvgRial(newAvg), led.product_id);
-        }
-      }
+      // Header avg is reduced by value when the ledger row is reversed below.
       bumpOpenLayersValue(db, {
         productId: led.product_id,
         warehouseId: led.warehouse_id || null,
@@ -311,16 +302,7 @@ function applyGrniValueVariance(db, {
       skipStock: true,
       valueOnly: true,
     });
-    const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(r.product_id);
-    if (prod) {
-      const stock = Number(prod.stock) || 0;
-      if (stock > 0) {
-        const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-        const newAvg = Math.max(0, Math.round((stock * prevAvg + part) / stock));
-        db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-          .run(newAvg, catalogCostFromAvgRial(newAvg), r.product_id);
-      }
-    }
+    // Header avg already moved by value inside postInventoryMovement (valueOnly row).
     bumpOpenLayersValue(db, {
       productId: r.product_id,
       warehouseId: wh || null,
@@ -793,15 +775,29 @@ function replacePurchaseStockPerpetual(db, {
   }
 
   // Moving average as if this purchase had always carried the amended qty/value.
+  // The rows above already move the header by value; any residual (rounding / fabric
+  // rebuild) is posted as a value-only ledger row — never a raw avg overwrite.
   for (const [pid, t] of touched) {
     if (!t.changed) continue;
-    const p = db.prepare('SELECT stock FROM products WHERE id=?').get(pid);
+    const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(pid);
     const stock1 = Number(p && p.stock) || 0;
     if (stock1 <= QTY_EPS) continue;
     const target = Math.round(t.stock0 * t.avg0) - t.oldValue + t.newValue;
-    const avg = Math.max(0, Math.round(target / stock1));
-    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-      .run(avg, catalogCostFromAvgRial(avg), pid);
+    const current = Math.round(stock1 * Math.round(Number(p.average_cost_rial) || 0));
+    const residual = Math.max(0, target) - current;
+    if (Math.abs(residual) >= Math.max(1, Math.round(stock1))) {
+      require('./inventory/valuation').postValueAdjustment(db, {
+        productId: pid,
+        warehouseId: whId || null,
+        deltaRial: residual,
+        date,
+        sourceType: 'purchase',
+        sourceId: row.id,
+        note: `اصلاح فاکتور خرید ${num} — هم‌ترازی میانگین`,
+        createdBy: userId,
+        eventType: 'adjustment',
+      });
+    }
   }
 
   syncMovementDoc(db, {

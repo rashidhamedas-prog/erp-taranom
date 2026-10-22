@@ -337,12 +337,30 @@ function previewFgAverages(db, { fgShareRial }) {
   });
 }
 
+/**
+ * FG share of the period variance (PRD-23 debits FG) lands on on-hand FG as value-only
+ * ledger rows so header avg, buckets and kardex stay consistent with the GL.
+ * Snapshot keeps old/new avg (+ ledger_id) for reopen preflight.
+ */
 function updateFgAverages(db, { fgShareRial, period }) {
+  const { postValueAdjustment } = require('../inventory/valuation');
   const preview = previewFgAverages(db, { fgShareRial, period });
+  const row = period ? getPeriodRow(db, period) : null;
+  const date = period ? periodEndDate(period, row) : '';
   for (const u of preview) {
-    if (u.delta_rial) {
-      db.prepare('UPDATE products SET average_cost_rial = ? WHERE id = ?').run(u.new_avg_rial, u.product_id);
-    }
+    if (!u.delta_rial) continue;
+    const res = postValueAdjustment(db, {
+      productId: u.product_id,
+      deltaRial: u.delta_rial,
+      date,
+      sourceType: 'production_close_fg',
+      sourceId: row ? row.id : null,
+      note: `تسهیم انحراف دوره ${period || ''} به کالای ساخته‌شده`,
+      eventType: 'cost_adjustment',
+    });
+    u.ledger_id = res.ledger_id;
+    u.unapplied_rial = res.unapplied_rial || 0;
+    if (res.avg_after_rial != null) u.new_avg_rial = res.avg_after_rial;
   }
   return preview;
 }
@@ -783,6 +801,15 @@ function reopenPreflight(db, { period, row, checklist }) {
     const newAvg = Math.round(Number(u.new_avg_rial) || 0);
     const cur = db.prepare('SELECT average_cost_rial FROM products WHERE id = ?').get(pid);
     if (!cur) { drift.push({ kind: 'product', product_id: pid, reason: 'product_missing' }); continue; }
+    let ledgerId = null;
+    if (u.ledger_id) {
+      const lr = db.prepare('SELECT status FROM inventory_ledger WHERE id = ?').get(Number(u.ledger_id));
+      if (!lr || lr.status === 'reversed') {
+        drift.push({ kind: 'product', product_id: pid, reason: 'value_row_missing_or_reversed', ledger_id: u.ledger_id });
+        continue;
+      }
+      ledgerId = Number(u.ledger_id);
+    }
     const curAvg = Math.round(Number(cur.average_cost_rial) || 0);
     if (curAvg !== newAvg) {
       drift.push({
@@ -791,7 +818,7 @@ function reopenPreflight(db, { period, row, checklist }) {
       });
       continue;
     }
-    if (oldAvg !== newAvg) restore.push({ product_id: pid, old_avg_rial: oldAvg, new_avg_rial: newAvg });
+    if (oldAvg !== newAvg || ledgerId) restore.push({ product_id: pid, ledger_id: ledgerId, old_avg_rial: oldAvg, new_avg_rial: newAvg });
   }
 
   if (drift.length) throw err('E_CLOSE_SNAPSHOT_DRIFT', 409, { period, drift });
@@ -820,6 +847,13 @@ function reopen(db, { period, reason, userId }) {
 
     // compare-and-swap: فقط اگر مقدار جاری هنوز همان new_avg_rial باشد برمی‌گردد.
     for (const u of restore) {
+      if (u.ledger_id) {
+        const { reverseInventoryMovement } = require('../inventory/ledger');
+        reverseInventoryMovement(db, u.ledger_id, {
+          createdBy: userId || null, date: revDate, note: `ابطال تسهیم انحراف دوره ${period}`,
+        });
+        continue;
+      }
       const r = db.prepare(
         'UPDATE products SET average_cost_rial = ? WHERE id = ? AND average_cost_rial = ?',
       ).run(u.old_avg_rial, u.product_id, u.new_avg_rial);

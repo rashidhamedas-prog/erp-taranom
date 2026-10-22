@@ -34,13 +34,17 @@ function softVoidInsteadOfReversalVoucher(db, opts) {
   const baseType = sourceType.replace(/_reversal$/, '');
   const { reverseJournalEntry, hardDeleteJournalEntry } = require('./void-journal');
 
-  // Drop any leftover reverse vouchers for this source (legacy pairs).
+  const { closedFiscalYearForDate } = require('./void-journal');
+  // Drop any leftover reverse vouchers for this source (legacy pairs) — never inside a closed year.
   if (sourceId != null) {
     const leftover = db.prepare(`
-      SELECT id FROM journal_entries
+      SELECT id, entry_date FROM journal_entries
       WHERE ref_type=? AND ref_id=? AND COALESCE(deleted_at,0)=0
     `).all(sourceType, sourceId);
-    for (const row of leftover) hardDeleteJournalEntry(db, row.id);
+    for (const row of leftover) {
+      if (closedFiscalYearForDate(db, row.entry_date)) continue;
+      hardDeleteJournalEntry(db, row.id);
+    }
   }
 
   if (sourceId == null || !baseType) return null;
@@ -199,7 +203,7 @@ function rewriteJournalEntry(db, opts) {
   } = opts;
 
   const existing = db.prepare(`
-    SELECT id FROM journal_entries
+    SELECT id, entry_date FROM journal_entries
     WHERE ref_type=? AND ref_id=?
       AND COALESCE(deleted_at,0)=0
       AND COALESCE(status,'posted') NOT IN ('reversed','void')
@@ -207,6 +211,16 @@ function rewriteJournalEntry(db, opts) {
     LIMIT 1
   `).get(sourceType, sourceId);
   if (!existing) return null;
+
+  const closedOld = require('./void-journal').closedFiscalYearForDate(db, existing.entry_date);
+  if (closedOld) {
+    const err = new Error(
+      `سند #${existing.id} در سال مالی بسته (${closedOld.label || closedOld.id}) است — ویرایش مجاز نیست؛ سند را ابطال و دوباره ثبت کنید`
+    );
+    err.status = 422;
+    err.code = 'E_CLOSED_PERIOD';
+    throw err;
+  }
 
   const fyCheck = assertFiscalYearWritable(db, date);
   if (!fyCheck.ok) {

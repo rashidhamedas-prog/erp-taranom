@@ -254,6 +254,9 @@ const SYNCABLE_TABLES = [
   { name: 'payroll_loan_recoveries',           upsertKey: 'id' },
   // v515 roll unit label repair audit (append-only)
   { name: 'fabric_roll_unit_relabels',         upsertKey: 'id' },
+  { name: 'inventory_valuation_buckets',       upsertKey: 'product_id:warehouse_id', compositeKeys: ['product_id', 'warehouse_id'] },
+  { name: 'inventory_revaluations',            upsertKey: 'id' },
+  { name: 'inventory_revaluation_lines',       upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -610,6 +613,11 @@ const FK_COLUMNS = [
   ['fabric_roll_unit_relabels', 'batch_id'],
   ['fabric_roll_unit_relabels', 'product_id'],
   ['fabric_roll_unit_relabels', 'old_entry_unit_id'],
+  ['inventory_valuation_buckets', 'product_id'],
+  ['inventory_valuation_buckets', 'warehouse_id'],
+  ['inventory_revaluation_lines', 'revaluation_id'],
+  ['inventory_revaluation_lines', 'product_id'],
+  ['inventory_revaluation_lines', 'warehouse_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

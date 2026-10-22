@@ -16,6 +16,8 @@ const {
 } = require('../lib/inventory/reservation');
 const { createLandedCostDoc, allocateAndPost, voidLandedCost } = require('../lib/inventory/landed-cost');
 const { recalculateMovingAverageFromLayers } = require('../lib/inventory/costing');
+const { reverseJournalEntry } = require('../lib/void-journal');
+const { postInventoryValueAdjustmentJe, MANUAL_SOURCES } = require('../lib/subledger-recon');
 
 function sendErr(res, e) {
   const status = e.status || 400;
@@ -53,19 +55,37 @@ router.get('/kardex/:productId', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// Only manual adjustments are reversed from the kardex; document-born rows go through their source document.
 router.post('/ledger/:id/reverse', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
+    const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(+req.params.id);
+    if (!row) return res.status(404).json({ error: 'تراکنش انبار یافت نشد', code: 'E_LEDGER_NOT_FOUND' });
+    const st = String(row.source_type || '');
+    if (!MANUAL_SOURCES.has(st)) {
+      return res.status(409).json({
+        error: 'برای ابطال این ردیف سند مبدأ را ابطال کنید',
+        code: 'E_REVERSE_VIA_SOURCE',
+        source_type: st,
+        source_id: row.source_id,
+      });
+    }
     let rev;
     db.transaction(() => {
-      rev = reverseInventoryMovement(db, +req.params.id, {
+      rev = reverseInventoryMovement(db, row.id, {
         createdBy: req.user.id,
         date: req.body.date || todayJalali(),
         note: req.body.note,
       });
+      if (row.je_id) {
+        reverseJournalEntry(db, row.je_id, {
+          userId: req.user.id,
+          reason: `ابطال تعدیل انبار ${row.tx_no || row.id}`,
+        });
+      }
     })();
     audit(req.user.id, 'reverse', 'inventory_ledger', req.params.id, 'معکوس تراکنش انبار');
-    res.json(rev);
+    res.json({ ...rev, je_reversed: row.je_id || null });
   } catch (e) { sendErr(res, e); }
 });
 
@@ -365,23 +385,37 @@ router.post('/adjust', auth, adminOrAccounting, (req, res) => {
     const { product_id, warehouse_id, qty, reason, date, unit_cost_rial } = req.body;
     if (!product_id || !qty || !reason) return res.status(400).json({ error: 'کالا، تعداد و دلیل الزامی است' });
     const db = getDB();
+    const whId = warehouse_id ? +warehouse_id : null;
+    const d = date || todayJalali();
     let led;
+    let jeId = null;
     db.transaction(() => {
       led = postInventoryMovement(db, {
         eventType: 'adjustment',
         productId: +product_id,
-        warehouseId: warehouse_id ? +warehouse_id : null,
+        warehouseId: whId,
         qty: +qty,
         unitCostRial: unit_cost_rial,
-        sourceType: 'manual_adjustment',
+        sourceType: 'inventory_adjust',
         sourceId: null,
-        date: date || todayJalali(),
+        date: d,
         note: reason,
         createdBy: req.user.id,
       });
+      const signed = (Number(led.qty_in) || 0) > 0 ? led.amount_rial : -led.amount_rial;
+      jeId = postInventoryValueAdjustmentJe(db, {
+        warehouseId: whId,
+        amountRial: signed,
+        date: d,
+        userId: req.user.id,
+        sourceType: 'inventory_adjust',
+        sourceId: led.id,
+        description: `تعدیل دستی موجودی ${led.tx_no} — ${String(reason).slice(0, 120)}`,
+      });
+      db.prepare('UPDATE inventory_ledger SET source_id=?, je_id=? WHERE id=?').run(led.id, jeId, led.id);
     })();
     audit(req.user.id, 'create', 'inventory_adjustment', led.id, reason);
-    res.json(led);
+    res.json({ ...led, je_id: jeId });
   } catch (e) { sendErr(res, e); }
 });
 

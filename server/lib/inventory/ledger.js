@@ -20,21 +20,11 @@ function allowNegative(db, warehouseId) {
     || setting(db, 'production_allow_negative_stock', '0') === '1';
 }
 
+/** Effective costing method (v521: delegates to valuation policy — product > warehouse > global by precedence). */
 function costingMethod(db, opts = {}) {
-  const scope = setting(db, 'costing_scope', 'global');
-  if (scope === 'per-product' && opts.productId) {
-    const p = db.prepare('SELECT costing_method FROM products WHERE id=?').get(opts.productId);
-    if (p?.costing_method) return p.costing_method;
-  }
-  if ((scope === 'per-warehouse' || scope === 'per-product') && opts.warehouseId) {
-    const w = db.prepare('SELECT costing_method FROM warehouses WHERE id=?').get(opts.warehouseId);
-    if (w?.costing_method) return w.costing_method;
-  }
-  if (opts.productId) {
-    const p = db.prepare('SELECT costing_method FROM products WHERE id=?').get(opts.productId);
-    if (p?.costing_method && p.costing_method !== 'moving_average') return p.costing_method;
-  }
-  return setting(db, 'inventory_costing_method', 'moving_average');
+  return require('./valuation').resolvePolicy(db, {
+    productId: opts.productId, warehouseId: opts.warehouseId,
+  }).method;
 }
 
 function nextTxNo(db) {
@@ -209,21 +199,41 @@ function applyStockDelta(db, {
   return { qtyBefore, qtyAfter: stockStored, avgBefore, product: prod };
 }
 
-/**
- * Update moving average on inbound. amountRial = total value of inbound qty.
- */
-function applyMovingAverageIn(db, productId, qtyIn, amountRial, qtyBefore, avgBefore) {
-  const amt = Math.round(Number(amountRial) || 0);
-  const q = Number(qtyIn) || 0;
-  const prevVal = Math.round(qtyBefore * avgBefore);
-  const newQty = qtyBefore + q;
-  let newAvg = avgBefore;
-  if (newQty > 0) newAvg = Math.round((prevVal + amt) / newQty);
+function writeHeaderAvg(db, productId, avg) {
   const { catalogCostFromAvgRial } = require('./product-unit-cost');
   db.prepare(`
     UPDATE products SET average_cost_rial=?, cost=? WHERE id=?
-  `).run(newAvg, catalogCostFromAvgRial(newAvg), productId);
-  return newAvg;
+  `).run(avg, catalogCostFromAvgRial(avg), productId);
+}
+
+/**
+ * Update moving average on inbound. amountRial = total value of inbound qty.
+ * On-hand ≤ 0 → new avg = inbound unit (negative balances never blend); the
+ * mis-costed value of the negative balance is returned as trueup for the queue.
+ */
+function applyMovingAverageIn(db, productId, qtyIn, amountRial, qtyBefore, avgBefore) {
+  const V = require('./valuation');
+  const st = V.headerState(qtyBefore, avgBefore);
+  const { trueup } = V.stIn(st, qtyIn, amountRial);
+  writeHeaderAvg(db, productId, st.avg);
+  return { avg: st.avg, trueup };
+}
+
+function isReversalEvent(eventType, reversedOf) {
+  const et = String(eventType || '');
+  return et === 'reversal' || et.endsWith('_reversal') || reversedOf != null;
+}
+
+/** Outbound rows whose amount is a specific historical value (not the current avg). */
+function isValueBasedOutbound(eventType, reversedOf) {
+  return isReversalEvent(eventType, reversedOf) || String(eventType || '') === 'purchase';
+}
+
+function isAlignSeedOpts(eventType, sourceType, note) {
+  const st = String(sourceType || '');
+  if (st === 'opening_inventory' || st === 'stock_reconcile' || String(eventType || '') === 'opening') return true;
+  const noteFa = String(note || '').replace(/\u200c/g, '').replace(/ي/g, 'ی');
+  return /هم[\u200c\s]*ترازی\s*کاردکس/.test(noteFa) || /^موجودی اول دوره/.test(noteFa);
 }
 
 /**
@@ -284,31 +294,73 @@ function postInventoryMovement(db, opts) {
     };
   }
 
+  const V = require('./valuation');
+  const policy = V.resolvePolicy(db, { productId, warehouseId });
+  const method = policy.method;
+  const isReversal = isReversalEvent(eventType, reversedOf);
+  const valueBasedOut = qtyOut > 0 && !valueOnly && isValueBasedOutbound(eventType, reversedOf);
+  const isAlign = isAlignSeedOpts(eventType, sourceType, note);
+
   let unit = Math.round(Number(unitCostRial) || 0);
   if (!unit) unit = stockInfo.avgBefore;
   let amount = amountRial != null
     ? Math.round(Number(amountRial) || 0)
     : Math.round(unit * (qtyIn || qtyOut));
 
+  // Warehouse-level AVCO: default-costed outbound takes the source bucket average.
+  if (qtyOut > 0 && !valueOnly && !valueBasedOut && !warehouseOnly && warehouseId
+    && policy.level === 'warehouse' && method === 'moving_average') {
+    const callerUnit = Math.round(Number(unitCostRial) || 0);
+    const defaultUnit = !callerUnit || callerUnit === stockInfo.avgBefore;
+    const defaultAmount = amountRial == null
+      || Math.round(Number(amountRial) || 0) === Math.round((callerUnit || stockInfo.avgBefore) * qtyOut);
+    if (defaultUnit && defaultAmount) {
+      const b = V.getBucket(db, productId, warehouseId);
+      if (b && Number(b.qty) > 1e-9 && Number(b.avg_rial) > 0) {
+        unit = Math.round(Number(b.avg_rial));
+        amount = Math.round(unit * qtyOut);
+      }
+    }
+  }
+
   let avgAfter = stockInfo.avgBefore;
+  let headerTrueup = 0;
+  let valueApplied = null;
+  let valueUnapplied = 0;
   if (updateAvg && qtyIn > 0 && !noHeader) {
-    avgAfter = applyMovingAverageIn(
+    const r = applyMovingAverageIn(
       db, productId, qtyIn, amount, stockInfo.qtyBefore, stockInfo.avgBefore
     );
+    avgAfter = r.avg;
+    headerTrueup = r.trueup;
+  } else if (valueBasedOut && !noHeader) {
+    // Reversal of an inbound (or amend qty decrease): re-average by value, not by snapshot.
+    const st = V.headerState(stockInfo.qtyBefore, stockInfo.avgBefore);
+    V.stOut(st, qtyOut, amount);
+    if (st.avg !== stockInfo.avgBefore) writeHeaderAvg(db, productId, st.avg);
+    avgAfter = st.avg;
+  } else if (valueOnly && !warehouseOnly && opts.applyValue !== false) {
+    const d = opts.applyValueRial != null ? Math.round(Number(opts.applyValueRial) || 0) : amount;
+    const st = V.headerState(stockInfo.qtyBefore, stockInfo.avgBefore);
+    valueApplied = V.stValue(st, d);
+    valueUnapplied = d - valueApplied;
+    if (st.avg !== stockInfo.avgBefore) writeHeaderAvg(db, productId, st.avg);
+    avgAfter = st.avg;
   } else if (!skipStock) {
     const p2 = db.prepare('SELECT average_cost_rial FROM products WHERE id=?').get(productId);
     avgAfter = Math.round(Number(p2?.average_cost_rial) || stockInfo.avgBefore);
   }
 
   // FIFO / specific cost layers (optional path)
-  const method = costingMethod(db, { productId, warehouseId });
+  let layerInId = null;
   if (method !== 'moving_average' && !noHeader) {
     const { applyCostLayerIn, applyCostLayerOut } = require('./costing');
     if (qtyIn > 0) {
-      applyCostLayerIn(db, {
+      const layer = applyCostLayerIn(db, {
         productId, warehouseId, batchId, qty: qtyIn, unitCostRial: unit,
         amountRial: amount, sourceType, sourceId,
       });
+      layerInId = layer && layer.id;
     }
     if (qtyOut > 0) {
       const layered = applyCostLayerOut(db, {
@@ -321,10 +373,11 @@ function postInventoryMovement(db, opts) {
     // Still record a layer for audit / future FIFO switch
     try {
       const { applyCostLayerIn } = require('./costing');
-      applyCostLayerIn(db, {
+      const layer = applyCostLayerIn(db, {
         productId, warehouseId, batchId, qty: qtyIn, unitCostRial: unit,
         amountRial: amount, sourceType, sourceId,
       });
+      layerInId = layer && layer.id;
     } catch (_) { /* costing module optional during bootstrap */ }
   }
 
@@ -345,6 +398,28 @@ function postInventoryMovement(db, opts) {
 
   const ledgerId = result.lastInsertRowid;
 
+  if (layerInId) {
+    try {
+      db.prepare('UPDATE inventory_cost_layers SET ledger_id=? WHERE id=? AND ledger_id IS NULL').run(ledgerId, layerInId);
+    } catch (_) { /* legacy layer table */ }
+  }
+
+  // Valuation buckets (per product×warehouse) follow every row, WIP staging included.
+  const bucketRes = V.applyLedgerRowToBuckets(db, {
+    id: ledgerId, product_id: productId, warehouse_id: warehouseId,
+    qty_in: qtyIn, qty_out: qtyOut, amount_rial: amount,
+  });
+  if (valueOnly && valueApplied != null) V.recordValueApplied(db, ledgerId, valueApplied, valueUnapplied);
+  V.afterMovementPosted(db, {
+    ledgerId, productId, warehouseId, eventType, sourceType, sourceId, date,
+    qtyIn, amount, method, level: policy.level,
+    headerTrueup, bucketTrueup: bucketRes.trueup, unappliedRial: valueUnapplied,
+    warehouseOnly, isReversal, isAlign, valueOnly,
+    qtyBefore: policy.level === 'warehouse'
+      ? (bucketRes.bucket ? bucketRes.bucket.qty - qtyIn + qtyOut : 0)
+      : stockInfo.qtyBefore,
+  });
+
   // Keep legacy stock_logs in sync for old kardex consumers.
   // skipStock (opening/backfill) must not invent a second kardex row.
   if (!valueOnly && !noHeader && delta !== 0) {
@@ -364,6 +439,8 @@ function postInventoryMovement(db, opts) {
     unit_cost_rial: unit,
     amount_rial: amount,
     avg_cost_after_rial: avgAfter,
+    value_applied_rial: valueApplied,
+    value_unapplied_rial: valueUnapplied,
   };
 }
 
@@ -385,7 +462,14 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     || /هم[\u200c\s]*ترازی\s*کاردکس/.test(noteFa)
     || /^موجودی اول دوره/.test(noteFa);
   const skip = skipStock === true || valueOnly || alignSeed;
+  // Value-only reversal removes exactly what reached the header (by value, never a snapshot).
+  let applyValueRial;
+  if (valueOnly) {
+    const applied = require('./valuation').valueAppliedFor(db, row.id);
+    applyValueRial = -(applied != null ? applied : Math.round(Number(row.amount_rial) || 0));
+  }
   const rev = postInventoryMovement(db, {
+    applyValueRial,
     eventType: 'reversal',
     productId: row.product_id,
     warehouseId: row.warehouse_id,

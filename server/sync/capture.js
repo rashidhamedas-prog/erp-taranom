@@ -56,6 +56,7 @@ const PATH_TABLE_MAP = [
   ['/api/accounting/sales-returns', 'sales_returns'],
   ['/api/accounting/invoices', 'invoices'],
   ['/api/accounting/repair-ar-tafsili', 'journal_entries'],
+  ['/api/accounting/subledger-recon', 'journal_entries'],
   ['/api/accounting/vouchers/drafts', 'voucher_drafts'],
   ['/api/accounting/vouchers/templates', 'journal_templates'],
   ['/api/accounting/vouchers', 'journal_entries'],
@@ -136,7 +137,13 @@ const PATH_TABLE_MAP = [
   ['/api/production/user-cost-centers', 'user_cost_centers'],
   ['/api/production/close', 'production_period_close'],
   ['/api/production', 'production_runs'],
-  // Inventory — specific before generic
+  // Inventory — specific before generic (inventory-valuation must precede any bare '/api/inventory')
+  ['/api/inventory-valuation/revaluations', 'inventory_revaluations'],
+  ['/api/inventory-valuation/rules', 'inventory_revaluation_rules'],
+  ['/api/inventory-valuation/queue', 'inventory_valuation_queue'],
+  ['/api/inventory-valuation/auto', 'inventory_revaluations'],
+  ['/api/inventory-valuation/policy', 'settings'],
+  ['/api/inventory-valuation', 'inventory_valuation_buckets'],
   ['/api/inventory/fabric-rolls/relabel-unit', 'fabric_roll_unit_relabels'],
   ['/api/inventory/fabric-rolls', 'inventory_batches'],
   ['/api/inventory/batches', 'inventory_batches'],

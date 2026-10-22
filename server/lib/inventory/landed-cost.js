@@ -146,12 +146,7 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
           message: 'هزینه حمل فقط روی موجودی باقیمانده سرمایه می‌شود (IAS 2)',
         });
       }
-      const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-      const newAvg = Math.round((stock * prevAvg + share) / stock);
-      const { catalogCostFromAvgRial } = require('./product-unit-cost');
-      db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-        .run(newAvg, catalogCostFromAvgRial(newAvg), a.product_id);
-
+      // Header avg moves by value inside postInventoryMovement (valueOnly row below).
       bumpOpenLayersValue(db, {
         productId: a.product_id,
         warehouseId: a.warehouse_id || null,
@@ -226,16 +221,9 @@ function voidLandedCost(db, docId, { createdBy = null, reason = '' } = {}) {
     for (const a of allocs) {
       const share = Math.round(Number(a.allocated_rial) || 0);
       if (share <= 0) continue;
-      const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(a.product_id);
+      const prod = db.prepare('SELECT id FROM products WHERE id=?').get(a.product_id);
       if (!prod) continue;
-      const stock = Number(prod.stock) || 0;
-      if (stock > 0) {
-        const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-        const newAvg = Math.max(0, Math.round((stock * prevAvg - share) / stock));
-        const { catalogCostFromAvgRial } = require('./product-unit-cost');
-        db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-          .run(newAvg, catalogCostFromAvgRial(newAvg), a.product_id);
-      }
+      // Header avg is reduced by value when the ledger row below is reversed.
       bumpOpenLayersValue(db, {
         productId: a.product_id,
         warehouseId: a.warehouse_id || null,

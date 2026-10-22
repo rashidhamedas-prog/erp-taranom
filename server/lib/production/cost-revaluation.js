@@ -244,11 +244,24 @@ function postRevaluation(db, opts = {}, user) {
         L.delta_inventory_rial, L.cost_source || ''
       );
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
+      // Average moves by value through a value-only ledger row (kardex + buckets stay
+      // consistent); std/last cost are catalog fields and are set directly.
+      if (L.delta_inventory_rial) {
+        require('../inventory/valuation').postValueAdjustment(db, {
+          productId: L.product_id,
+          deltaRial: L.delta_inventory_rial,
+          date,
+          sourceType: 'cost_revaluation',
+          sourceId: revId,
+          note: `تعدیل بها #${revId}`,
+          createdBy: userId,
+          eventType: 'cost_adjustment',
+          emptyUnitRial: L.new_unit_cost_rial,
+        });
+      }
       db.prepare(`
-        UPDATE products SET
-          average_cost_rial=?, cost=?, last_prod_cost_rial=?, std_cost_rial=?
-        WHERE id=?
-      `).run(L.new_unit_cost_rial, L.new_unit_cost_rial, L.new_unit_cost_rial, L.new_unit_cost_rial, L.product_id);
+        UPDATE products SET last_prod_cost_rial=?, std_cost_rial=? WHERE id=?
+      `).run(L.new_unit_cost_rial, L.new_unit_cost_rial, L.product_id);
       applyPricingFromCost(db, L.product_id, L.new_unit_cost_rial);
 
       if (L.delta_inventory_rial !== 0) {
@@ -323,17 +336,37 @@ function reverseRevaluation(db, revaluationId, user) {
 
   const lines = db.prepare('SELECT * FROM cost_revaluation_lines WHERE revaluation_id=?').all(id);
   db.transaction(() => {
+    // Average comes back by value (reverse the value-only rows), not by snapshot.
+    const { reverseInventoryMovement } = require('../inventory/ledger');
+    const valueRows = db.prepare(`
+      SELECT id FROM inventory_ledger
+      WHERE source_type='cost_revaluation' AND source_id=? AND status='posted'
+        AND COALESCE(qty_in,0)=0 AND COALESCE(qty_out,0)=0
+    `).all(id);
+    for (const r of valueRows) {
+      reverseInventoryMovement(db, r.id, { createdBy: user?.id || null, note: `ابطال تعدیل بها #${id}` });
+    }
     for (const L of lines) {
       db.prepare(`
         UPDATE products SET
-          average_cost_rial=?, cost=?, last_prod_cost_rial=?,
+          last_prod_cost_rial=?,
           price=?, price_rial=?, retail_price=?, retail_price_rial=?
         WHERE id=?
       `).run(
-        L.old_unit_cost_rial, L.old_unit_cost_rial, L.old_unit_cost_rial,
+        L.old_unit_cost_rial,
         L.old_wholesale_rial, L.old_wholesale_rial, L.old_retail_rial, L.old_retail_rial,
         L.product_id
       );
+      const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(L.product_id);
+      const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
+      let avgNow = Math.round(Number(p?.average_cost_rial) || 0);
+      // Undo the value-neutral seed done at post time when the header had zero on-hand.
+      if (Math.abs(Number(p?.stock) || 0) < 1e-9 && avgNow === Math.round(Number(L.new_unit_cost_rial) || 0)) {
+        avgNow = Math.round(Number(L.old_unit_cost_rial) || 0);
+        db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?').run(avgNow, L.product_id);
+      }
+      db.prepare('UPDATE products SET cost=? WHERE id=?')
+        .run(avgNow > 0 ? catalogCostFromAvgRial(avgNow) : L.old_unit_cost_rial, L.product_id);
     }
     if (head.je_id) {
       reverseJournalEntry(db, head.je_id, {

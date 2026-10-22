@@ -138,6 +138,8 @@ const ACC_ITEMS = {
   'acc-trial-balance': { apis: ['/api/accounting/trial-balance'] },
   'acc-financial-statement': { apis: ['/api/accounting/balance-sheet'] },
   'acc-reconciliation': { apis: ['/api/accounting/general-ledger', '/api/accounting/account-dashboard'] },
+  'acc-subledger-recon': { apis: ['/api/accounting/subledger-recon'] },
+  'acc-inv-valuation': { apis: ['/api/inventory-valuation'], readApis: ['/api/warehouses', '/api/products', '/api/product-categories'] },
   'acc-vat-return': { apis: ['/api/moadian'] },
   'acc-seasonal-169': { apis: ['/api/moadian'] },
   'acc-kpi-dashboard': { apis: ['/api/accounting/overview'] },

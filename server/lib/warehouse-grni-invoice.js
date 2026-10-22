@@ -177,15 +177,9 @@ function applyValueVariance(db, {
 }) {
   const share = Math.round(Number(deltaRial) || 0);
   if (!share) return null;
-  const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(productId);
+  const prod = db.prepare('SELECT id FROM products WHERE id=?').get(productId);
   if (!prod) return null;
-  const stock = Number(prod.stock) || 0;
-  if (stock > 0) {
-    const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-    const newAvg = Math.max(0, Math.round((stock * prevAvg + share) / stock));
-    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-      .run(newAvg, catalogCostFromAvgRial(newAvg), productId);
-  }
+  // Header avg moves by value inside postInventoryMovement (valueOnly row below).
   bumpOpenLayersValue(db, {
     productId,
     warehouseId: warehouseId || null,
@@ -380,16 +374,7 @@ function unlinkWarehouseGrniOnPurchaseVoid(db, purchaseId, { userId = null, reas
   for (const led of leds) {
     const share = Math.round(Number(led.amount_rial) || 0);
     if (share) {
-      const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(led.product_id);
-      if (prod) {
-        const stock = Number(prod.stock) || 0;
-        if (stock > 0) {
-          const prevAvg = Math.round(Number(prod.average_cost_rial) || 0);
-          const newAvg = Math.max(0, Math.round((stock * prevAvg - share) / stock));
-          db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-            .run(newAvg, catalogCostFromAvgRial(newAvg), led.product_id);
-        }
-      }
+      // Header avg is reduced by value when the ledger row is reversed below.
       bumpOpenLayersValue(db, {
         productId: led.product_id,
         warehouseId: led.warehouse_id || null,

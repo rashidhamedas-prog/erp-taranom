@@ -599,6 +599,7 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms-module', require('./routes/sms-module'));
 app.use('/api/reps', require('./routes/rep-management'));
+app.use('/api/accounting/subledger-recon', require('./routes/subledger-recon'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/ledgers', require('./routes/ledgers'));
 app.use('/api/suppliers', require('./routes/suppliers'));
@@ -618,6 +619,7 @@ app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/inventory', require('./routes/inventory'));
+app.use('/api/inventory-valuation', require('./routes/inventory-valuation'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/fx', require('./routes/fx'));
 app.use('/api/person-positions', require('./routes/person-positions'));
@@ -981,6 +983,14 @@ if (!isDevice() && !isDemoMode()) {
       const n = autoApproveStalePortalReviews(getDB());
       if (n) console.log(`🏭 portal auto-approve reviews: ${n}`);
     } catch (e) { console.error('cron portal-review error:', e.message); }
+  });
+
+  // Hourly: scheduled inventory revaluation rules (daily/weekly/monthly due check inside)
+  cron.schedule('35 * * * *', () => {
+    try {
+      const r = require('./lib/inventory/revaluation').maybeRunScheduledRules(getDB());
+      if (r && r.runs && r.runs.length) console.log('⚖️ inventory auto-reval:', JSON.stringify(r.runs.map((x) => [x.rule_id, x.decision])));
+    } catch (e) { console.error('cron inventory auto-reval:', e.message); }
   });
 
   cron.schedule('*/5 * * * *', async () => {

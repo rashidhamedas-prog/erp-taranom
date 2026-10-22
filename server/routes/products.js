@@ -879,7 +879,7 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
       // history are skipped by reconcileProductStockLedger below).
       const whDelta = newStock - wsBefore;
       if (Math.abs(whDelta) > 1e-9) {
-        require('../lib/inventory/ledger').postInventoryMovement(db, {
+        const led = require('../lib/inventory/ledger').postInventoryMovement(db, {
           eventType: 'adjustment',
           productId: Number(req.params.id),
           warehouseId: whId,
@@ -893,6 +893,20 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
           skipStock: true,
           updateAvg: false,
         });
+        // GL follows the kardex value change (qtyΔ × avg): Dr/Cr inventory ↔ adjustment account.
+        const amt = Math.round(Number(led && led.amount_rial) || 0);
+        if (led && amt) {
+          const jeId = require('../lib/subledger-recon').postInventoryValueAdjustmentJe(db, {
+            warehouseId: whId,
+            amountRial: whDelta > 0 ? amt : -amt,
+            date: require('../jalali').todayJalali(),
+            userId: req.user.id,
+            sourceType: 'stock_adjust',
+            sourceId: led.id,
+            description: `تعدیل موجودی کالا ${prod.name || prod.id} — ${led.tx_no}`,
+          });
+          if (jeId) db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?').run(jeId, led.id);
+        }
       }
       // Kardex must reflect the absolute qty (skipStock — stock tables already set).
       require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {

@@ -341,10 +341,7 @@ function applyReceiptToWipNet(db, orderId, userId) {
     db.prepare('UPDATE production_receipts SET amount_rial=?, unit_cost_rial=? WHERE id=?')
       .run(nextAmt, nextUnit, receipt.id);
     if (invShare && onHand > 0) {
-      const prevAvg = num(prod.average_cost_rial);
-      const newAvg = Math.max(0, Math.round((onHand * prevAvg + invShare) / onHand));
-      db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
-        .run(newAvg, catalogCostFromAvgRial(newAvg), receipt.product_id);
+      // Header avg moves by value inside postInventoryMovement (valueOnly row).
       postInventoryMovement(db, {
         eventType: 'production_receipt',
         productId: receipt.product_id,
