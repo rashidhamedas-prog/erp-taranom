@@ -71,15 +71,20 @@ function healProductMa(productId) {
     ORDER BY COALESCE(date,''), id
   `).all(productId);
 
-  // Method check uses each zero-out's warehouse (product inherit → warehouse → global).
-  const zeroWh = new Set();
+  // Method check: warehouses with zero outs OR prior v529 tags (for reheal).
+  const candidateWh = new Set();
   for (const r of rows) {
     if (r.reversed_of) continue;
-    if ((Number(r.qty_out) || 0) > 0 && Math.round(Number(r.amount_rial) || 0) <= 0) {
-      zeroWh.add(r.warehouse_id || null);
-    }
+    if ((Number(r.qty_out) || 0) <= 0) continue;
+    const zeroAmt = Math.round(Number(r.amount_rial) || 0) <= 0;
+    const tagged = /\[v529/.test(String(r.note || ''));
+    if (zeroAmt || tagged) candidateWh.add(r.warehouse_id || null);
   }
-  const methods = [...zeroWh].map((wid) => ({
+  if (!candidateWh.size) {
+    report.products.push({ product_id: productId, code: p.code, name: p.name, fixes: 0 });
+    return;
+  }
+  const methods = [...candidateWh].map((wid) => ({
     warehouse_id: wid,
     method: resolvePolicy(db, { productId, warehouseId: wid || undefined }).method,
   }));
