@@ -458,7 +458,11 @@ function softDeleteVariant(db, id) {
   return { ok: true, id: Number(id) };
 }
 
-/** Live pack = count of in-stock SKU cells (not a cartesian fill of missing cells). */
+/**
+ * Live pack (v528): complete colors × style sizes.
+ * A color is complete only when every active style size has stock > 0 for that color.
+ * Incomplete colors leave the pack entirely (not partial SKU fill).
+ */
 function packSizeFor(db, productId) {
   const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(productId);
   const fallback = Math.max(1, Number(product && product.pack_size) || 1);
@@ -472,20 +476,48 @@ function packSizeFor(db, productId) {
     return {
       pack_size: fallback,
       pack_size_auto: fallback,
+      full_packs_count: 0,
+      complete_colors: 0,
       live_colors: 0,
       live_sizes: 0,
       has_matrix: 0,
     };
   }
-  const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
-  const colors = new Set(live.map((v) => v.color_id || v.color_name).filter(Boolean));
-  const sizes = new Set(live.map((v) => v.size_id || v.size_name).filter(Boolean));
-  const auto = live.length ? live.length : fallback;
+  const sizeIds = [...new Set(variants.map((v) => v.size_id).filter(Boolean))];
+  const colorIds = [...new Set(variants.map((v) => v.color_id).filter(Boolean))];
+  const stockByKey = new Map(
+    variants.map((v) => [`${Number(v.color_id)}:${Number(v.size_id)}`, Number(v.stock) || 0])
+  );
+  const completeColorIds = colorIds.filter((cid) =>
+    sizeIds.length > 0
+    && sizeIds.every((sid) => (stockByKey.get(`${Number(cid)}:${Number(sid)}`) || 0) > 0)
+  );
+  if (!completeColorIds.length || !sizeIds.length) {
+    return {
+      pack_size: fallback,
+      pack_size_auto: fallback,
+      full_packs_count: 0,
+      complete_colors: 0,
+      live_colors: 0,
+      live_sizes: 0,
+      has_matrix: 1,
+    };
+  }
+  const completeSet = new Set(completeColorIds.map(Number));
+  const cellQtys = [];
+  for (const cid of completeColorIds) {
+    for (const sid of sizeIds) {
+      cellQtys.push(Math.max(0, Math.floor(stockByKey.get(`${Number(cid)}:${Number(sid)}`) || 0)));
+    }
+  }
+  const fullPacks = cellQtys.length ? Math.min(...cellQtys) : 0;
   return {
     pack_size: fallback,
-    pack_size_auto: auto,
-    live_colors: colors.size,
-    live_sizes: sizes.size,
+    pack_size_auto: completeColorIds.length * sizeIds.length,
+    full_packs_count: fullPacks,
+    complete_colors: completeColorIds.length,
+    live_colors: completeColorIds.length,
+    live_sizes: sizeIds.length,
     has_matrix: 1,
   };
 }

@@ -8055,6 +8055,8 @@ async function prodModal(id){
   }
   window._prodModalProduct = p;
   window._prodMatrixWhId = Number(p.warehouse_id)||window._prodMatrixWhId||0;
+  window._prodSkuSticky = { productId: id ? Number(id) : 0, primed: false, colorIds: [], sizeOrder: [], tab: 'here' };
+  window._prodSkuReadOnly = !(typeof isAdmin==='function' && isAdmin()) && !(ME && ME.role==='accounting');
   const cats=CACHE.productCategories||[];
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -8086,7 +8088,7 @@ async function prodModal(id){
       <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:22px`)}"><input type="checkbox" id="p-is-manufactured" ${Number(p.is_manufactured)===1?'checked':''}> کالای ساختنی (سفارش تولید / نیمه‌ساخته مجاز در BOM)</label></div>
       <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start;line-height:1.7`)}"><input type="checkbox" id="p-website-stock-push" ${productWebsiteStockPushOn(p)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:4px`)}"> <span>ارسال موجودی این کالا به سایت ${hlp('اگر خاموش باشد، موجودی همین کالا به فروشگاه فرستاده نمی‌شود. موجودی داخل ERP، فاکتور و انبار عوض نمی‌شود. عددی که قبلاً روی سایت نوشته شده تا روشن کردن دوبارهٔ این تیک همان‌جا می‌ماند و صفر نمی‌شود.')}</span></label></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
-      <div class="fg"><label>تعداد در پک ${hlp('اگر ماتریس رنگ×سایز ساخته شود، پک فروش زنده = تعداد SKUهای با موجودی واقعی (نه ضرب دکارتی رنگ×سایز خالی). این عدد فقط وقتی ماتریس نیست استفاده می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>تعداد در پک ${hlp('فقط وقتی ماتریس رنگ×سایز نیست استفاده می‌شود. با ماتریس، پک زنده = رنگ‌های کامل × سایزها (رنگی که حتی یک سایزش صفر باشد از پک خارج می‌شود) و تعداد پک کامل = حداقل موجودی همان خانه‌ها.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
       <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
       <div class="fg full" id="p-variants-wrap">
         <label>SKU مدل × رنگ × سایز ${hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
@@ -8140,8 +8142,8 @@ async function prodModal(id){
       ${productExtraFieldsHtml(p)}
       ${id?`<div class="fg full" id="p-prod-ready"><span class="muted">بررسی مشخصات ضروری تولید…</span></div>`:''}
     </div></div>
-    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+    <div class="modal-foot">${window._prodSkuReadOnly?'':`<button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>`}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">${window._prodSkuReadOnly?'بستن':'انصراف'}</button></div>`);
   bindProductImageInstantUpload(id||0);
   setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
@@ -8202,11 +8204,190 @@ function prodPreserveColorIds(vars){
   const shown=prodMatrixColorIds(vars);
   return [...prodLiveColorIds(vars)].filter(id=>!shown.has(id));
 }
-async function loadProdSkuChips(productId){
+/** All color/size ids already on the style (including zero-stock cells). */
+function prodStyleColorIds(vars){
+  return new Set((vars||[]).filter(v=>v&&Number(v.is_default)!==1&&v.active!==0).map(v=>Number(v.color_id)).filter(Boolean));
+}
+function prodStyleSizeIds(vars){
+  return new Set((vars||[]).filter(v=>v&&Number(v.is_default)!==1&&v.active!==0).map(v=>Number(v.size_id)).filter(Boolean));
+}
+function prodSkuCanMutate(){
+  return !window._prodSkuReadOnly;
+}
+function prodColorSwatchHex(c){
+  const hex=safeCssHex(c&&(c.hex||c.color_hex));
+  if(hex) return hex;
+  const name=String(c&&c.name||'');
+  let h=0;
+  for(let i=0;i<name.length;i++) h=((h<<5)-h)+name.charCodeAt(i)|0;
+  const hue=Math.abs(h)%360;
+  return `hsl(${hue} 42% 62%)`;
+}
+function prodColorSimilarityPairs(colors){
+  const list=(colors||[]).filter(c=>c&&c.name);
+  const pairs=[];
+  const seen=new Set();
+  for(let i=0;i<list.length;i++){
+    for(let j=i+1;j<list.length;j++){
+      if(Number(list[i].id)===Number(list[j].id)) continue;
+      if(typeof colorsMatch==='function' && colorsMatch(list[i].name, list[j].name)){
+        const a=String(list[i].name), b=String(list[j].name);
+        if(a===b) continue;
+        const key=[a,b].sort().join('|');
+        if(seen.has(key)) continue;
+        seen.add(key);
+        pairs.push([list[i], list[j]]);
+      }
+    }
+  }
+  return pairs;
+}
+function prodFaNameSort(a,b){
+  return String(a.name||'').localeCompare(String(b.name||''),'fa',{sensitivity:'base',numeric:true});
+}
+function ensureProdSkuSticky(productId, styleVars, sizesCatalog){
+  const pid=Number(productId)||0;
+  let st=window._prodSkuSticky;
+  if(!st || Number(st.productId)!==pid){
+    st={ productId:pid, primed:false, colorIds:[], sizeOrder:[], tab:'here' };
+    window._prodSkuSticky=st;
+  }
+  if(st.primed) return st;
+  const styleColors=[...prodStyleColorIds(styleVars)];
+  const styleSizes=[...prodStyleSizeIds(styleVars)];
+  if(styleColors.length || styleSizes.length){
+    st.colorIds=styleColors;
+    const catOrder=(sizesCatalog||[]).map(s=>Number(s.id));
+    st.sizeOrder=styleSizes.slice().sort((a,b)=>{
+      const ia=catOrder.indexOf(a), ib=catOrder.indexOf(b);
+      return (ia<0?9999:ia)-(ib<0?9999:ib);
+    });
+  }else{
+    st.colorIds=[...prodMatrixColorIds(styleVars)];
+    st.sizeOrder=[...prodStyleSizeIds(styleVars)];
+  }
+  st.primed=true;
+  return st;
+}
+function syncProdSkuStickyFromDom(){
+  const st=window._prodSkuSticky||(window._prodSkuSticky={productId:0,primed:true,colorIds:[],sizeOrder:[],tab:'here'});
+  st.colorIds=[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean);
+  const fromOrder=[...document.querySelectorAll('#p-size-order [data-size-id]')].map(n=>Number(n.getAttribute('data-size-id'))).filter(Boolean);
+  const checked=new Set([...document.querySelectorAll('.p-chip-size:checked')].map(n=>Number(n.value)).filter(Boolean));
+  st.sizeOrder=fromOrder.length?fromOrder.filter(id=>checked.has(id)):[...checked];
+  return st;
+}
+function onProdSkuChipChange(){
+  syncProdSkuStickyFromDom();
+  renderProdStockGrid();
+  renderProdPackLiveCard();
+}
+function moveProdSizeOrder(sizeId, dir){
+  if(!prodSkuCanMutate()) return;
+  const st=syncProdSkuStickyFromDom();
+  const arr=st.sizeOrder.slice();
+  const i=arr.indexOf(Number(sizeId));
+  if(i<0) return;
+  const j=i+dir;
+  if(j<0||j>=arr.length) return;
+  const t=arr[i]; arr[i]=arr[j]; arr[j]=t;
+  st.sizeOrder=arr;
+  const productId=Number(window._prodSkuSticky&&window._prodSkuSticky.productId)||0;
+  loadProdSkuChips(productId, { keepSticky:true, skipDomSync:true });
+}
+function setProdSkuTab(tab){
+  const st=window._prodSkuSticky||(window._prodSkuSticky={});
+  st.tab=tab==='other'?'other':'here';
+  const here=el('p-sku-tab-here');
+  const other=el('p-sku-tab-other');
+  const bHere=el('p-sku-tabbtn-here');
+  const bOther=el('p-sku-tabbtn-other');
+  if(here) here.style.display=st.tab==='here'?'':'none';
+  if(other) other.style.display=st.tab==='other'?'':'none';
+  if(bHere) bHere.classList.toggle('active', st.tab==='here');
+  if(bOther) bOther.classList.toggle('active', st.tab==='other');
+}
+function computeProdCompletePack(colors, sizes, qtyOf){
+  const sizeIds=(sizes||[]).map(s=>Number(s.id)).filter(Boolean);
+  const complete=[];
+  const incomplete=[];
+  (colors||[]).forEach(c=>{
+    const cid=Number(c.id);
+    if(!cid||!sizeIds.length) return;
+    const ok=sizeIds.every(sid=>(Number(qtyOf(cid,sid))||0)>0);
+    if(ok) complete.push(c); else incomplete.push(c);
+  });
+  const unit=complete.length && sizeIds.length ? complete.length*sizeIds.length : 0;
+  let fullPacks=0;
+  if(unit){
+    const mins=[];
+    complete.forEach(c=>{
+      sizeIds.forEach(sid=>mins.push(Math.max(0, Math.floor(Number(qtyOf(c.id,sid))||0))));
+    });
+    fullPacks=mins.length?Math.min(...mins):0;
+  }
+  return { complete, incomplete, unit, fullPacks, sizeCount:sizeIds.length };
+}
+function refreshProdMatrixRowStatus(){
+  const wrap=el('p-stock-matrix-wrap'); if(!wrap) return;
+  const {colors,sizes}=selectedProdChips();
+  if(!colors.length||!sizes.length) return;
+  const qtyOf=(cid,sid)=>{
+    const cell=wrap.querySelector(`.p-stock-cell[data-color="${cid}"][data-size="${sid}"]`);
+    return cell?Math.max(0, Math.round(parseQty(cell.value,0))):0;
+  };
+  const pack=computeProdCompletePack(colors, sizes, qtyOf);
+  const incompleteIds=new Set(pack.incomplete.map(c=>Number(c.id)));
+  colors.forEach(c=>{
+    const row=wrap.querySelector(`.p-stock-cell[data-color="${c.id}"]`)?.closest('tr');
+    if(!row) return;
+    const miss=incompleteIds.has(Number(c.id));
+    row.classList.toggle('prod-matrix-incomplete', miss);
+    const st=row.querySelector('.prod-matrix-status');
+    if(st) st.textContent=miss?'ناقص':'کامل';
+  });
+}
+function renderProdPackLiveCard(){
+  const card=el('p-pack-live-card'); if(!card) return;
+  const {colors,sizes}=selectedProdChips();
+  const vars=window._prodStyleVariants||[];
+  const qtyOf=(cid,sid)=>{
+    const cell=document.querySelector(`.p-stock-cell[data-color="${cid}"][data-size="${sid}"]`);
+    if(cell) return Math.max(0, Math.round(parseQty(cell.value,0)));
+    const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
+    return v&&v.stock!=null?Number(v.stock):0;
+  };
+  if(!colors.length || !sizes.length){
+    card.innerHTML=`<div class="prod-pack-card muted">برای محاسبهٔ پک زنده حداقل یک رنگ و یک سایز را انتخاب کنید.</div>`;
+    return;
+  }
+  const pack=computeProdCompletePack(colors, sizes, qtyOf);
+  const incompleteNote=pack.incomplete.length
+    ? `<div class="prod-pack-miss">رنگ ناقص (از پک خارج): ${pack.incomplete.map(c=>esc(c.name)).join('، ')}</div>`
+    : `<div class="prod-pack-ok">همهٔ رنگ‌های انتخاب‌شده در همهٔ سایزها موجودی دارند.</div>`;
+  card.innerHTML=`
+    <div class="prod-pack-card">
+      <div class="prod-pack-title">پک زنده (رنگ کامل × سایز)</div>
+      <div class="prod-pack-stats">
+        <div><span class="prod-pack-n">${fmt(pack.unit||0)}</span><span>قطعه در هر پک</span></div>
+        <div><span class="prod-pack-n">${fmt(pack.complete.length)}</span><span>رنگ کامل</span></div>
+        <div><span class="prod-pack-n">${fmt(pack.sizeCount)}</span><span>سایز</span></div>
+        <div><span class="prod-pack-n">${fmt(pack.fullPacks)}</span><span>پک کامل موجود</span></div>
+      </div>
+      <div class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.8;margin-top:6px')}">
+        اگر یک سایز از یک رنگ صفر شود، کل آن رنگ از پک خارج می‌شود.
+        ${pack.unit?` مثال: ${fmt(pack.complete.length)}×${fmt(pack.sizeCount)} = ${fmt(pack.unit)} ؛ تعداد پک = حداقل موجودی خانه‌های کامل.` : ''}
+      </div>
+      ${incompleteNote}
+    </div>`;
+}
+async function loadProdSkuChips(productId, opts){
+  opts=opts||{};
   const box=el('p-sku-chips'); if(!box) return;
   let colors=[], sizes=[], style=null;
   try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
   try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
+  colors=colors.slice().sort(prodFaNameSort);
   await ensureWarehouses();
   const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
   const prod=window._prodModalProduct||{};
@@ -8219,51 +8400,184 @@ async function loadProdSkuChips(productId){
     }catch(_){ style=null; }
   }
   const styleVars=(style&&style.variants)||[];
-  const matrixColorIds=prodMatrixColorIds(styleVars);
   const preserveColorIds=prodPreserveColorIds(styleVars);
   window._prodPreserveColorIds=preserveColorIds;
-  const keepColorIds=new Set([...matrixColorIds, ...preserveColorIds]);
-  const usedC=matrixColorIds;
-  const usedS=new Set(styleVars.filter(v=>keepColorIds.has(Number(v.color_id))).map(v=>Number(v.size_id)).filter(Boolean));
-  const packHint=style&&style.pack_size_auto?`پک زنده فعلی: ${fmt(style.pack_size_auto)} قطعه (${fmt(style.live_colors||0)} رنگ / ${fmt(style.live_sizes||0)} سایز با موجودی)`:'';
-  window._prodStyleVariants=(style&&style.variants)||[];
+  window._prodStyleVariants=styleVars;
   window._prodStockByWh=(style&&style.stock_by_warehouse)||[];
-  const byWhHtml=(window._prodStockByWh||[]).length
-    ? `<div class="muted" data-csp-style="${CSP.style('font-size:12px;margin:6px 0;line-height:1.8')}">تفکیک عددی انبارها: ${(window._prodStockByWh).map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`
+  window._prodColorCatalog=colors;
+  window._prodSizeCatalog=sizes;
+
+  const st=opts.keepSticky && window._prodSkuSticky && window._prodSkuSticky.primed
+    ? window._prodSkuSticky
+    : ensureProdSkuSticky(productId, styleVars, sizes);
+  if(opts.keepSticky && !opts.skipDomSync) syncProdSkuStickyFromDom();
+  const usedC=new Set((st.colorIds||[]).map(Number));
+  const usedS=new Set((st.sizeOrder||[]).map(Number));
+  // ensure sizeOrder only checked ids; append newly checked later via DOM
+  const sizeOrder=(st.sizeOrder||[]).filter(id=>usedS.has(Number(id)));
+  sizes.filter(s=>usedS.has(Number(s.id)) && !sizeOrder.includes(Number(s.id))).forEach(s=>sizeOrder.push(Number(s.id)));
+  st.sizeOrder=sizeOrder;
+
+  const ro=!prodSkuCanMutate();
+  const dis=ro?' disabled':'';
+  const colorQ=String(el('p-color-search')?.value||st._colorQ||'').trim();
+  st._colorQ=colorQ;
+  const filteredColors=colorQ
+    ? colors.filter(c=>String(c.name||'').includes(colorQ) || String(c.code||'').includes(colorQ))
+    : colors;
+  const simPairs=prodColorSimilarityPairs(colors);
+  const simHtml=simPairs.length
+    ? `<div class="prod-sim-warn">⚠️ نام‌های شبیه در کاتالوگ رنگ: ${simPairs.slice(0,8).map(p=>`<b>${esc(p[0].name)}</b> ≈ <b>${esc(p[1].name)}</b>`).join(' · ')}${simPairs.length>8?' …':''}. قبل از انتخاب، از «کالا ← رنگ‌ها» یکی را نگه دارید تا موجودی/گزارش قاطی نشود.</div>`
     : '';
-  const whSel=whs.length?`<div class="fg" data-csp-style="${CSP.style('margin:8px 0')}"><label>انبار برای موجودی رنگ×سایز ${hlp('اعداد ماتریس فقط موجودی همین انبار است (مثلاً انبار کیمیا جدا از انبار محصول). با عوض کردن انبار، جدول همان انبار را نشان می‌دهد.')}</label>
-    <select id="p-matrix-wh" data-csp-change="${CSP.bind('change',function(){onProdMatrixWarehouseChange((productId||0))})}">
+
+  const byWhHtml=(window._prodStockByWh||[]).length
+    ? `<div class="muted prod-sku-bywh">تفکیک عددی انبارها: ${(window._prodStockByWh).map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`
+    : '';
+  const whSel=whs.length?`<div class="fg prod-sku-wh"><label>انبار برای موجودی رنگ×سایز ${hlp('اعداد ماتریس فقط موجودی همین انبار است. تعویض انبار تیک رنگ/سایز را عوض نمی‌کند؛ فقط اعداد جدول را تازه می‌کند. می‌توانید برای هر انبار رنگ کم/زیاد کنید.')}</label>
+    <select id="p-matrix-wh"${dis} data-csp-change="${CSP.bind('change',function(){onProdMatrixWarehouseChange((productId||0))})}">
       ${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(defaultWh)?'selected':''}>${esc(w.name)}</option>`).join('')}
     </select></div>`:'';
+
+  const colorChips=filteredColors.length?filteredColors.map(c=>{
+    const on=usedC.has(Number(c.id));
+    const hex=prodColorSwatchHex(c);
+    return `<label class="prod-color-chip${on?' is-on':''}" title="${esc(c.name)}">
+      <input type="checkbox" class="p-chip-color" value="${c.id}" data-name="${esc(c.name)}" ${on?'checked':''}${dis}>
+      <span class="var-swatch" data-csp-style="${CSP.style(`background:${hex}`)}"></span>
+      <span class="prod-color-name">${esc(c.name)}</span>
+    </label>`;
+  }).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>';
+
+  const sizeChecks=sizes.length?sizes.map(s=>{
+    const on=usedS.has(Number(s.id));
+    return `<label class="prod-size-chip${on?' is-on':''}">
+      <input type="checkbox" class="p-chip-size" value="${s.id}" data-name="${esc(s.name)}" ${on?'checked':''}${dis}>
+      <span>${esc(s.name)}</span>
+    </label>`;
+  }).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>';
+
+  const orderedSizes=sizeOrder.map(id=>sizes.find(s=>Number(s.id)===Number(id))).filter(Boolean);
+  const orderHtml=orderedSizes.length?orderedSizes.map((s,idx)=>`
+    <div class="prod-size-ord" data-size-id="${s.id}">
+      <span class="prod-size-ord-label">${esc(s.name)}</span>
+      ${ro?'':`<span class="prod-size-ord-btns">
+        <button type="button" class="btn sm ghost" title="بالاتر" ${idx===0?'disabled':''} data-csp-click="${CSP.bind('click',function(){moveProdSizeOrder(Number(s.id),-1)})}">▲</button>
+        <button type="button" class="btn sm ghost" title="پایین‌تر" ${idx===orderedSizes.length-1?'disabled':''} data-csp-click="${CSP.bind('click',function(){moveProdSizeOrder(Number(s.id),1)})}">▼</button>
+      </span>`}
+    </div>`).join(''):'<span class="muted">سایز انتخاب‌شده‌ای برای ترتیب نیست</span>';
+
+  const preserveRows=preserveColorIds.map(id=>{
+    const c=colors.find(x=>Number(x.id)===Number(id));
+    const name=c?c.name:('#'+id);
+    const globalQty=(styleVars||[]).filter(v=>Number(v.color_id)===Number(id)).reduce((s,v)=>s+prodVariantGlobalQty(v),0);
+    return `<div class="prod-other-row">
+      <span class="var-swatch" data-csp-style="${CSP.style(`background:${prodColorSwatchHex(c||{name})}`)}"></span>
+      <b>${esc(name)}</b>
+      <span class="muted">موجودی سراسری ≈ ${fmt(globalQty)} — در این انبار صفر/غایب</span>
+      ${ro?'':`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){includeProdPreserveColor(Number(id))})}">افزودن به این کالا</button>`}
+    </div>`;
+  }).join('');
+
+  const tab=st.tab==='other'?'other':'here';
+  const catalogLinks=`<div class="prod-sku-links">
+    <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-product-colors');closeModal()})}">🎨 مدیریت رنگ‌ها</button>
+    <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-product-sizes');closeModal()})}">📐 مدیریت سایزها</button>
+  </div>`;
+
   box.innerHTML=`
-    <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU و موجودی هر خانه ساخته می‌شود. رنگی که در انبار انتخاب‌شده در همهٔ سایزها صفر است تیک نمی‌خورد و ردیف ندارد. اگر همان رنگ در انبار دیگر موجودی داشته باشد، با عوض کردن انبار دیده می‌شود و ذخیرهٔ این انبار آن را پاک نمی‌کند. رنگی که در همهٔ انبارها صفر شود از کالا برداشته می‌شود؛ در فهرست رنگ‌ها می‌ماند و با تیک دوباره برمی‌گردد.')}</label>
-    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-color" value="${c.id}" ${usedC.has(Number(c.id))?'checked':''}> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>'}</div>
-    <label>سایزهای این کالا</label>
-    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0`)}">${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-size" value="${s.id}" ${usedS.has(Number(s.id))?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>'}</div>
-    ${whSel}${byWhHtml}
-    ${packHint?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">${esc(packHint)}${style&&style.warehouse_name?' — نمایش: '+esc(style.warehouse_name):''}</div>`:''}
-    <div id="p-stock-matrix-wrap"></div>`;
+    <div class="prod-sku-panel">
+      <div class="prod-sku-head">
+        <div>
+          <div class="prod-sku-title">رنگ و سایز این کالا ${hlp('با ذخیره، از رنگ×سایز انتخاب‌شده ماتریس SKU ساخته می‌شود. تعویض انبار تیک‌ها را عوض نمی‌کند. رنگی که فقط در انبار دیگر موجودی دارد در تب «انبارهای دیگر» است و ذخیرهٔ این انبار آن را پاک نمی‌کند.')}</div>
+          ${ro?'<div class="muted" style="font-size:12px;margin-top:4px">نمایش فقط‌خواندنی — برای ویرایش نقش مدیر یا حسابداری لازم است.</div>':''}
+        </div>
+        ${catalogLinks}
+      </div>
+      <div class="inv-chip-tabs prod-sku-tabs">
+        <button type="button" id="p-sku-tabbtn-here" class="inv-chip ${tab==='here'?'active':''}" data-csp-click="${CSP.bind('click',function(){setProdSkuTab('here')})}">این انبار</button>
+        <button type="button" id="p-sku-tabbtn-other" class="inv-chip ${tab==='other'?'active':''}" data-csp-click="${CSP.bind('click',function(){setProdSkuTab('other')})}">انبارهای دیگر${preserveColorIds.length?` (${fmt(preserveColorIds.length)})`:''}</button>
+      </div>
+      <div id="p-sku-tab-here" style="${tab==='here'?'':'display:none'}">
+        ${simHtml}
+        <div class="prod-sku-section">
+          <div class="prod-sku-section-h">
+            <label>رنگ‌ها <span class="muted">(الفبایی)</span></label>
+            <input id="p-color-search" type="search" placeholder="جستجوی رنگ…" value="${esc(colorQ)}"${dis}
+              data-csp-input="${CSP.bind('input',function(){const st2=window._prodSkuSticky||{};st2._colorQ=el('p-color-search')?.value||'';loadProdSkuChips(productId||0,{keepSticky:true})})}">
+          </div>
+          <div class="prod-color-grid">${colorChips}</div>
+        </div>
+        <div class="prod-sku-section">
+          <label>سایزها — انتخاب</label>
+          <div class="prod-size-grid">${sizeChecks}</div>
+          <label data-csp-style="${CSP.style('margin-top:10px;display:block')}">ترتیب سایز روی این کالا ${hlp('ترتیب ستون‌های ماتریس و ترتیب ذخیره‌شده در سبک کالا. ▲▼ جابه‌جا می‌کند.')}</label>
+          <div id="p-size-order" class="prod-size-order">${orderHtml}</div>
+        </div>
+        ${whSel}${byWhHtml}
+        <div id="p-pack-live-card"></div>
+        <div id="p-stock-matrix-wrap"></div>
+      </div>
+      <div id="p-sku-tab-other" style="${tab==='other'?'':'display:none'}">
+        <div class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.8;margin-bottom:10px')}">رنگ‌هایی که در انبار فعلی موجودی ندارند ولی در انبار دیگر مانده دارند. ذخیرهٔ این انبار آن‌ها را حذف نمی‌کند.</div>
+        ${preserveRows||'<div class="muted">رنگی با موجودی فقط در انبار دیگر نیست.</div>'}
+      </div>
+    </div>`;
   box.querySelectorAll('.p-chip-color,.p-chip-size').forEach(inp=>{
-    inp.addEventListener('change', ()=>renderProdStockGrid());
+    inp.addEventListener('change', ()=>{
+      if(inp.classList.contains('p-chip-size') && inp.checked){
+        const st2=window._prodSkuSticky||{};
+        const id=Number(inp.value);
+        if(id && !(st2.sizeOrder||[]).includes(id)) (st2.sizeOrder=st2.sizeOrder||[]).push(id);
+      }
+      onProdSkuChipChange();
+      if(inp.classList.contains('p-chip-size')) loadProdSkuChips(productId||0,{keepSticky:true});
+    });
   });
+  setProdSkuTab(tab);
   renderProdStockGrid();
+  renderProdPackLiveCard();
+}
+function includeProdPreserveColor(colorId){
+  if(!prodSkuCanMutate()) return;
+  const st=window._prodSkuSticky||(window._prodSkuSticky={colorIds:[],sizeOrder:[],primed:true,tab:'here'});
+  const id=Number(colorId);
+  if(id && !(st.colorIds||[]).includes(id)) st.colorIds=[...(st.colorIds||[]), id];
+  st.tab='here';
+  loadProdSkuChips(Number(st.productId)||0, {keepSticky:true});
 }
 async function onProdMatrixWarehouseChange(productId){
+  syncProdSkuStickyFromDom();
   window._prodMatrixWhId=Number(el('p-matrix-wh')?.value||0)||0;
-  if(productId) await loadProdSkuChips(productId);
+  if(productId) await loadProdSkuChips(productId, {keepSticky:true});
   if(productId) await refreshProdVariantsPanel(productId);
 }
 function selectedProdChips(){
-  return {
-    colors:[...document.querySelectorAll('.p-chip-color:checked')].map(n=>({id:+n.value, name:(n.parentElement?.textContent||'').trim()})),
-    sizes:[...document.querySelectorAll('.p-chip-size:checked')].map(n=>({id:+n.value, name:(n.parentElement?.textContent||'').trim()}))
-  };
+  const colors=[...document.querySelectorAll('.p-chip-color:checked')].map(n=>({
+    id:+n.value,
+    name:n.dataset.name||(n.parentElement?.querySelector('.prod-color-name')?.textContent||'').trim()
+  }));
+  const orderEls=[...document.querySelectorAll('#p-size-order [data-size-id]')];
+  let sizes;
+  if(orderEls.length){
+    sizes=orderEls.map(n=>{
+      const id=+n.getAttribute('data-size-id');
+      const inp=document.querySelector(`.p-chip-size[value="${id}"]`);
+      return { id, name:(inp&&inp.dataset.name)||(n.querySelector('.prod-size-ord-label')?.textContent||'').trim() };
+    }).filter(s=>s.id && document.querySelector(`.p-chip-size[value="${s.id}"]:checked`));
+  }else{
+    sizes=[...document.querySelectorAll('.p-chip-size:checked')].map(n=>({
+      id:+n.value,
+      name:n.dataset.name||(n.parentElement?.textContent||'').trim()
+    }));
+  }
+  return { colors, sizes };
 }
 function renderProdStockGrid(){
   const wrap=el('p-stock-matrix-wrap'); if(!wrap) return;
   const {colors,sizes}=selectedProdChips();
   const stockFg=el('p-stock-fg')||el('p-stock')?.closest('.fg');
   const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0))?.name||'';
+  const ro=!prodSkuCanMutate();
   if(colors.length && sizes.length){
     if(stockFg) stockFg.style.display='none';
     const vars=window._prodStyleVariants||[];
@@ -8271,14 +8585,40 @@ function renderProdStockGrid(){
       const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
       return v&&v.stock!=null?v.stock:0;
     };
-    wrap.innerHTML=`<label>موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. جمع خانه‌های همهٔ انبارها موجودی کل کالا می‌شود. رنگی که در این انبار صفر است ردیف ندارد. موجودی همان رنگ در انبار دیگر با ذخیرهٔ این فرم پاک نمی‌شود.')}</label>
-      <div class="tbl-wrap tbl-fit"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
-      <tbody>${colors.map(c=>`<tr><th>${esc(c.name)}</th>${sizes.map(s=>`<td><input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(qtyOf(c.id,s.id))}" data-csp-style="${CSP.style(`width:88px`)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ با ذخیره، همین جدول فقط روی انبار انتخاب‌شده نوشته می‌شود و موجودی انبارهای دیگر دست‌نخورده می‌ماند.</div>`;
+    const pack=computeProdCompletePack(colors, sizes, qtyOf);
+    const incompleteIds=new Set(pack.incomplete.map(c=>Number(c.id)));
+    wrap.innerHTML=`
+      <div class="prod-matrix-head">
+        <label>ماتریس موجودی رنگ × سایز${whName?' — '+esc(whName):''} ${hlp('هر خانه تعداد همان ترکیب در انبار انتخاب‌شده است. با ذخیره فقط همین انبار نوشته می‌شود؛ انبارهای دیگر دست‌نخورده می‌مانند.')}</label>
+      </div>
+      <div class="tbl-wrap tbl-fit prod-matrix-wrap"><table class="tbl prod-matrix-tbl">
+        <thead><tr><th>رنگ \\ سایز</th>${sizes.map(s=>`<th>${esc(s.name)}</th>`).join('')}<th>وضعیت</th></tr></thead>
+        <tbody>${colors.map(c=>{
+          const miss=incompleteIds.has(Number(c.id));
+          return `<tr class="${miss?'prod-matrix-incomplete':''}">
+            <th><span class="var-swatch" data-csp-style="${CSP.style(`background:${prodColorSwatchHex(c)};vertical-align:middle;margin-left:6px`)}"></span>${esc(c.name)}</th>
+            ${sizes.map(s=>{
+              const q=qtyOf(c.id,s.id);
+              const zero=!(Number(q)>0);
+              return `<td><input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${ro?'disabled':''}></td>`;
+            }).join('')}
+            <td class="prod-matrix-status muted">${miss?'ناقص':'کامل'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.8`)}">موجودی کلی مخفی شد؛ ذخیره فقط انبار انتخاب‌شده را می‌نویسد.</div>`;
+    wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        inp.classList.toggle('is-zero', !(Number(parseQty(inp.value,0))>0));
+        refreshProdMatrixRowStatus();
+        renderProdPackLiveCard();
+      });
+    });
   }else{
     if(stockFg) stockFg.style.display='';
-    wrap.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-top:6px`)}">برای موجودی تفکیکی حداقل یک رنگ و یک سایز را تیک بزنید.</div>`;
+    wrap.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-top:6px`)}">برای موجودی تفکیکی حداقل یک رنگ و یک سایز را انتخاب کنید.</div>`;
   }
+  renderProdPackLiveCard();
 }
 function collectProdStockCells(){
   const map=new Map();
@@ -8686,11 +9026,13 @@ async function saveProduct(id){
     }
   }
   const savedId = (saved && (saved.id || saved.product_id)) || id || 0;
+  const chips=typeof selectedProdChips==='function'?selectedProdChips():{colors:[],sizes:[]};
   const color_ids=[...new Set([
-    ...[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean),
+    ...(chips.colors||[]).map(c=>Number(c.id)).filter(Boolean),
     ...(window._prodPreserveColorIds||[]).map(Number).filter(Boolean)
   ])];
-  const size_ids=[...document.querySelectorAll('.p-chip-size:checked')].map(n=>Number(n.value)).filter(Boolean);
+  // ترتیب سایز از نوار ترتیب مودال (product_style_sizes.sort_order)
+  const size_ids=(chips.sizes||[]).map(s=>Number(s.id)).filter(Boolean);
   if(savedId && color_ids.length && size_ids.length){
     try{
       await api('POST','/product-variants/generate-matrix',{ product_id:Number(savedId), color_ids, size_ids, auto_barcode:true });
@@ -34700,7 +35042,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است؛ اگر اعشار دیدید از دفتر حرکات انبار به همان عدد ذخیره‌شده برمی‌گردد. هر دو جدول فرم، موجودی همان انبار انتخاب‌شده را نشان می‌دهند. جدول‌ها ردیف کامل را بدون نوار غلطک داخلی نشان می‌دهند. پک فروش زنده = فقط همان ترکیب‌های رنگ×سایز فعال با موجودی واقعی (بدون ساختن خانهٔ خالی). رنگی که در انبار انتخاب‌شده در همهٔ سایزها صفر است در جدول همین فرم ردیف ندارد. اگر در انبار دیگر موجودی داشته باشد، با عوض کردن انبار دیده می‌شود و ذخیرهٔ این انبار آن را پاک نمی‌کند. رنگی که در همهٔ انبارها صفر شود، آن رنگ از تیک‌ها و جدول همین کالا حذف می‌شود؛ رنگ در فهرست رنگ‌ها می‌ماند و با تیک دوباره و موجودی برمی‌گردد. فاکتور قبلی پاک نمی‌شود. برای <b>همه نقش‌ها</b>، افزودن کالای ماتریسی به سبد <b>یک پک زنده</b> را خودکار می‌گذارد (هر رنگ×سایز موجود qty=۱). ویرایش رنگ/سایز از داخل سبد است. هر کالا در سبد و پیش‌نمایش فاکتور یک ردیف است و زیر نام، رنگ‌ها و سایزبندی نوشته می‌شود. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>SKU پوشاک (v528):</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در مودال افزودن/ویرایش کالا: جستجوی رنگ، swatch، ترتیب الفبایی، ترتیب سایز با ▲▼، تب «انبارهای دیگر»، هشدار نام‌های شبیه (مثل سرمه‌ای/سورمه ای)، و ماتریس موجودی با وضعیت کامل/ناقص. تعویض انبار <b>تیک رنگ/سایز را عوض نمی‌کند</b>. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است. <b>پک زنده</b> = رنگ‌های کامل × سایزها (اگر یک سایز از یک رنگ صفر شود کل آن رنگ از پک خارج می‌شود) و <b>تعداد پک کامل</b> = حداقل موجودی همان خانه‌ها. ذخیرهٔ این انبار رنگِ زنده‌ی انبار دیگر را پاک نمی‌کند. تعریف ماتریس فقط مدیر/حسابدار است (نقش مشاهده = فقط‌خواندنی). API: <code>/api/product-variants</code>. اگر در کاتالوگ <code>hex</code> ثبت شده باشد همان swatch نشان داده می‌شود</li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>جستجوی کالا (کش سراسری):</b> فیلتر/سرچ در صفحهٔ کالاها فقط همان جدول را محدود می‌کند؛ کاتالوگ کامل برای فاکتور، خرید، BOM و پیکرها جدا نگه داشته می‌شود و با سرچ قبلی (مثلاً «آفاق») آلوده نمی‌شود</li>
         <li><b>انتخاب مشتری در فاکتور/پیگیری:</b> قبل از باز شدن فرم، لیست مشتریان قابل‌مشاهدهٔ همان کاربر (مالک یا assigned_to) از سرور بارگذاری می‌شود — حتی اگر هنوز صفحهٔ مشتریان را باز نکرده باشید</li>
@@ -35074,7 +35416,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>موجودی و انبار</h5><ul>
         <li>اگر رنگ و سایز تیک بخورد، موجودی از فیلد تکی به <b>ماتریس رنگ×سایز</b> می‌رود؛ جمع خانه‌ها موجودی کالاست</li>
-        <li><b>پک زنده</b> = فقط SKUهای فعال با موجودی در انبار انتخاب‌شده (منبع: API سرور). خانهٔ رنگ×سایز بدون موجودی یا بدون تیک در ماتریس به فاکتور اضافه نمی‌شود. اتمام یک رنگ در همهٔ سایزها و همهٔ انبارها همان رنگ را از پک برمی‌دارد. در فرم یک انبار، رنگی که در همان انبار صفر است ردیف ندارد و موجودی انبار دیگر سر جایش می‌ماند</li>
+        <li><b>پک زنده (v528)</b> = رنگ‌های کامل × سایزهای سبک در انبار انتخاب‌شده (منبع API). رنگی که حتی یک سایزش صفر باشد کامل نیست و از پک خارج می‌شود؛ تعداد پک کامل = حداقل موجودی خانه‌های کامل. تعویض انبار در مودال کالا تیک‌ها را sticky نگه می‌دارد؛ رنگ فقط‌در‌انبار‌دیگر در تب جدا دیده می‌شود و با ذخیرهٔ این انبار پاک نمی‌شود</li>
         <li>برداشتن تیک رنگ (مثل مشکی) آن ترکیب‌ها را غیرفعال می‌کند؛ با ذخیره دوباره تیک، همان SKU زنده می‌شود — رنگ لغوشده در پک باقی نمی‌ماند</li>
         <li>موجودی کم با هشدار قرمز نمایش داده می‌شود</li>
         <li>انتقال و موجودی انبارها از منوی انبار حسابداری</li>

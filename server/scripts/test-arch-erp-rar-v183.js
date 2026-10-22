@@ -40,14 +40,14 @@ const matrix = generateMatrix(db, {
 });
 ok('matrix 4 SKUs', matrix.created.length === 4);
 const packAll = packSizeFor(db, prod.lastInsertRowid);
-ok('live pack = 4 stocked SKUs', packAll.pack_size_auto === 4 && packAll.live_colors === 2 && packAll.live_sizes === 2);
+ok('live pack = 2×2 complete colors', packAll.pack_size_auto === 4 && packAll.live_colors === 2 && packAll.live_sizes === 2);
 
 const one = db.prepare(`
   SELECT id FROM product_variants WHERE product_id=? AND is_default=0 AND active=1 LIMIT 1
 `).get(prod.lastInsertRowid);
 adjustVariantStock(db, one.id, 0, 'set');
 const packLive = packSizeFor(db, prod.lastInsertRowid);
-ok('zero-stock SKU leaves pack_size_auto (siblings remain)', packLive.pack_size_auto === 3);
+ok('zero-stock SKU drops whole color from pack (1×2=2)', packLive.pack_size_auto === 2);
 
 const { postChequeInReceipt, isOpeningCheque } = require('../lib/cheque-party-books');
 const { acct } = require('../lib/coa-map');

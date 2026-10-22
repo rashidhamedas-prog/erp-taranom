@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * v439 — Live pack SoT: pack_size_auto = stocked SKU count (not cartesian fill);
- * unchecked zero-stock SKUs deactivate; expandLivePack modes; inactive blocked.
+ * v439 (+v528 complete-color): live pack = complete colors × sizes;
+ * a color with any zero size drops entirely; unchecked SKUs deactivate; modes intact.
  */
 'use strict';
 
@@ -132,10 +132,12 @@ applyStockMatrix(db, productId, [
 ], { warehouse_id: 1 });
 
 const pack = packSizeFor(db, productId);
-ok(pack.pack_size_auto === 3, 'pack_size_auto = 3 stocked SKUs (not 2×2=4)', pack);
+ok(pack.pack_size_auto === 2, 'pack_size_auto = 1 complete color × 2 sizes (black incomplete)', pack);
+ok(pack.full_packs_count === 3, 'full_packs_count = min(5,3) for pink', pack);
 
 const live = expandLivePack(db, productId, 1, { mode: 'live' });
-ok(live.lines.length === 3 && live.pack_size_auto === 3, 'expandLivePack live = 3 lines', live);
+ok(live.lines.length === 2 && live.pack_size_auto === 2, 'expandLivePack live = pink only (2 lines)', live);
+ok(live.full_packs_count === 3, 'live full_packs_count = 3', live);
 ok(live.has_matrix === 1 && live.matrix_sku_count === 4, 'has_matrix with 4 active SKUs', live);
 
 const defined = expandLivePack(db, productId, 1, { mode: 'defined' });
@@ -154,7 +156,8 @@ const blackActive = db.prepare(`
 ok(blackActive === 0, 'uncheck deactivates zero-stock black SKUs too', blackActive);
 
 const liveAfter = expandLivePack(db, productId, 1, { mode: 'live' });
-ok(liveAfter.lines.length === 2 && liveAfter.pack_size_auto === 2, 'live pack after uncheck = pink only', liveAfter);
+ok(liveAfter.lines.length === 2 && liveAfter.pack_size_auto === 2, 'live pack after uncheck = pink only (2×1)', liveAfter);
+ok(liveAfter.full_packs_count === 3, 'full packs after uncheck still min(5,3)=3', liveAfter);
 
 const definedAfter = expandLivePack(db, productId, 1, { mode: 'defined' });
 ok(definedAfter.lines.length === 2, 'defined pack never re-adds unchecked black', definedAfter.lines.length);

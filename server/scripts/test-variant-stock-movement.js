@@ -226,12 +226,12 @@ ok(
 );
 
 const live = expandLivePack(db, matrixId, whId);
-ok(Array.isArray(live.lines) && live.lines.length === 4, 'live-pack ۴ SKU زنده', live.lines && live.lines.length);
+ok(Array.isArray(live.lines) && live.lines.length === 4, 'live-pack ۴ SKU زنده (۲ رنگ کامل)', live.lines && live.lines.length);
 ok(live.pack_size_auto === 4 && live.live_colors === 2 && live.live_sizes === 2,
-  'pack_size_auto = lines.length (stocked SKUs)',
+  'pack_size_auto = complete_colors × sizes',
   `auto=${live.pack_size_auto} c=${live.live_colors} s=${live.live_sizes}`);
 
-// Sell one SKU to zero → live pack shrinks
+// Sell one SKU to zero → that color leaves the pack entirely (sibling size drops too)
 db.transaction(() => {
   postStockMovement(db, {
     productId: matrixId, variantId: soldVariant, warehouseId: whId, qtyDelta: -10,
@@ -239,7 +239,8 @@ db.transaction(() => {
   });
 })();
 const live2 = expandLivePack(db, matrixId, whId);
-ok(live2.lines.length === 3, 'پس از صفر شدن یک SKU، live-pack=3', live2.lines.length);
+ok(live2.lines.length === 2 && live2.pack_size_auto === 2,
+  'پس از صفر شدن یک SKU، رنگ ناقص از پک خارج → ۲ خط', live2);
 
 db.close();
 try { fs.unlinkSync(testDb); } catch (_) {}

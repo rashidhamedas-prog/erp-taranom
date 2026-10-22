@@ -482,38 +482,93 @@ function expandLivePack(db, productId, warehouseId, opts) {
     ? db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?')
     : null;
 
-  const lines = [];
+  // Stock every active matrix SKU (warehouse-scoped when warehouse_id given).
+  const stocked = [];
   for (const v of variants) {
     let skuStock = round3(Number(v.stock) || 0);
     if (useWh) {
       const row = vwsGet.get(v.variant_id, whId);
       skuStock = row ? round3(Number(row.qty) || 0) : 0;
     }
-    if (mode === 'live' && skuStock <= 0) continue;
-    lines.push({
+    stocked.push({
       variant_id: v.variant_id,
       color_id: v.color_id,
       size_id: v.size_id,
       color_name: v.color_name || '',
       size_name: v.size_name || '',
-      qty: 1,
       sku_stock: skuStock,
     });
   }
 
+  const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(pid);
+  const fallback = Math.max(1, Number(product && product.pack_size) || 1);
+  const sizeIds = [...new Set(stocked.map((v) => v.size_id).filter(Boolean))];
+  const colorIds = [...new Set(stocked.map((v) => v.color_id).filter(Boolean))];
+  const stockByKey = new Map(
+    stocked.map((v) => [`${Number(v.color_id)}:${Number(v.size_id)}`, Number(v.sku_stock) || 0])
+  );
+
+  /**
+   * Live pack (v528): a color is "complete" only when every style size has stock > 0.
+   * Incomplete colors drop entirely from the pack. Unit size = complete_colors × sizes.
+   * full_packs_count = min floor(qty) across those cells.
+   * defined mode: all active SKUs (for receive/edit), pack_size_auto = line count.
+   */
+  let lines = [];
+  let packSizeAuto;
+  let fullPacks = 0;
+  let completeColorIds = [];
+
+  if (mode === 'defined') {
+    lines = stocked.map((v) => ({
+      variant_id: v.variant_id,
+      color_id: v.color_id,
+      size_id: v.size_id,
+      color_name: v.color_name,
+      size_name: v.size_name,
+      qty: 1,
+      sku_stock: v.sku_stock,
+    }));
+    packSizeAuto = lines.length ? lines.length : fallback;
+    if (lines.length) {
+      const mins = lines.map((l) => Math.max(0, Math.floor(Number(l.sku_stock) || 0)));
+      fullPacks = mins.length ? Math.min(...mins) : 0;
+    }
+  } else {
+    completeColorIds = colorIds.filter((cid) =>
+      sizeIds.length > 0
+      && sizeIds.every((sid) => (stockByKey.get(`${Number(cid)}:${Number(sid)}`) || 0) > 0)
+    );
+    const completeSet = new Set(completeColorIds.map(Number));
+    lines = stocked
+      .filter((v) => completeSet.has(Number(v.color_id)) && sizeIds.includes(v.size_id))
+      .map((v) => ({
+        variant_id: v.variant_id,
+        color_id: v.color_id,
+        size_id: v.size_id,
+        color_name: v.color_name,
+        size_name: v.size_name,
+        qty: 1,
+        sku_stock: v.sku_stock,
+      }));
+    if (completeColorIds.length && sizeIds.length) {
+      packSizeAuto = completeColorIds.length * sizeIds.length;
+      const mins = lines.map((l) => Math.max(0, Math.floor(Number(l.sku_stock) || 0)));
+      fullPacks = mins.length ? Math.min(...mins) : 0;
+    } else {
+      packSizeAuto = fallback;
+      fullPacks = 0;
+    }
+  }
+
   const colors = new Set(lines.map((l) => l.color_id || l.color_name).filter(Boolean));
   const sizes = new Set(lines.map((l) => l.size_id || l.size_name).filter(Boolean));
-  let packSizeAuto;
-  if (!lines.length) {
-    const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(pid);
-    packSizeAuto = Math.max(1, Number(product && product.pack_size) || 1);
-  } else {
-    packSizeAuto = lines.length;
-  }
 
   return {
     lines,
     pack_size_auto: packSizeAuto,
+    full_packs_count: fullPacks,
+    complete_colors: mode === 'live' ? completeColorIds.length : colors.size,
     live_colors: colors.size,
     live_sizes: sizes.size,
     has_matrix: variants.length > 0 ? 1 : 0,
