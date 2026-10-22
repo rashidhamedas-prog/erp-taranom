@@ -287,20 +287,15 @@ function postInventoryMovement(db, opts) {
   const delta = qtyIn - qtyOut;
   // WIP staging never touches the header: no products.stock, no average, no cost layer, no kardex row.
   const noHeader = !!skipStock || !!warehouseOnly;
-  let stockInfo = { qtyBefore: 0, qtyAfter: 0, avgBefore: 0, product: null };
-  if (!skipStock && !valueOnly) {
-    stockInfo = applyStockDelta(db, {
-      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative, warehouseOnly,
-    });
-  } else {
-    const p = getProduct(db, productId);
-    stockInfo = {
-      qtyBefore: Number(p.stock) || 0,
-      qtyAfter: Number(p.stock) || 0,
-      avgBefore: Math.round(Number(p.average_cost_rial) || 0),
-      product: p,
-    };
-  }
+
+  // Snapshot first (no mutation) so zero-cost outbound can fail before stock changes.
+  const prodSnap = getProduct(db, productId);
+  let stockInfo = {
+    qtyBefore: Number(prodSnap.stock) || 0,
+    qtyAfter: Number(prodSnap.stock) || 0,
+    avgBefore: Math.round(Number(prodSnap.average_cost_rial) || 0),
+    product: prodSnap,
+  };
 
   const V = require('./valuation');
   const policy = V.resolvePolicy(db, { productId, warehouseId });
@@ -370,6 +365,48 @@ function postInventoryMovement(db, opts) {
     }
   }
 
+  // v529: never persist qty_out>0 with zero amount — fail BEFORE stock mutation when
+  // we already know cost is zero (MA from resolvePolicy, or FIFO/specific with no layers
+  // and zero header avg). Method is never hardcoded to moving_average.
+  if (
+    qtyOut > 0
+    && !valueOnly
+    && !isReversal
+    && !isAlign
+    && !opts.allowZeroCost
+    && Math.round(Number(amount) || 0) <= 0
+  ) {
+    let knownZero = method === 'moving_average';
+    if (!knownZero && method !== 'moving_average' && !noHeader) {
+      try {
+        const hasLayer = db.prepare(`
+          SELECT 1 AS ok FROM inventory_cost_layers
+          WHERE product_id=? AND status='open' AND qty_remaining>0
+            AND (? IS NULL OR warehouse_id=? OR warehouse_id IS NULL)
+          LIMIT 1
+        `).get(productId, warehouseId, warehouseId);
+        knownZero = !hasLayer;
+      } catch (_) { knownZero = true; }
+    }
+    if (knownZero) {
+      const pname = (stockInfo.product && stockInfo.product.name) || productId;
+      throw invErr('E_ZERO_OUTBOUND_COST', 422, {
+        product_id: productId,
+        name: pname,
+        method,
+        warehouse_id: warehouseId,
+        qty_out: qtyOut,
+        message: `بهای خروجی «${pname}» صفر است (روش ${method}) — ابتدا بهای موجودی/رسید را ثبت کنید یا میانگین را بذر کنید`,
+      });
+    }
+  }
+
+  if (!skipStock && !valueOnly) {
+    stockInfo = applyStockDelta(db, {
+      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative, warehouseOnly,
+    });
+  }
+
   let avgAfter = stockInfo.avgBefore;
   let headerTrueup = 0;
   let valueApplied = null;
@@ -398,7 +435,7 @@ function postInventoryMovement(db, opts) {
     avgAfter = Math.round(Number(p2?.average_cost_rial) || stockInfo.avgBefore);
   }
 
-  // FIFO / specific cost layers (optional path)
+  // FIFO / specific cost layers (optional path) — after stock, same as before v529.
   let layerInId = null;
   if (method !== 'moving_average' && !noHeader) {
     const { applyCostLayerIn, applyCostLayerOut } = require('./costing');
@@ -428,9 +465,7 @@ function postInventoryMovement(db, opts) {
     } catch (_) { /* costing module optional during bootstrap */ }
   }
 
-  // v529: never persist qty_out>0 with zero amount (kardex shows stored unit/amount).
-  // Method comes from resolvePolicy (product → warehouse → global) — not hardcoded MA.
-  // Reversals / align seeds / value-only / explicit allowZeroCost stay exempt.
+  // Belt-and-suspenders after FIFO layer consume (layers with unit 0).
   if (
     qtyOut > 0
     && !valueOnly

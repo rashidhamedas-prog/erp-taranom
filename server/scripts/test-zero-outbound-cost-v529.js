@@ -43,15 +43,27 @@ if (!db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c) rebuildBase
 const uid = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()?.id || 1;
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('inventory_costing_method','moving_average')").run();
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('inventory_valuation_level','product')").run();
+db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('inventory_allow_negative','1')").run();
 
-const whId = db.prepare("INSERT INTO warehouses (name, warehouse_type, costing_method) VALUES ('FG','finished_goods','moving_average')")
+const whId = db.prepare("INSERT INTO warehouses (name, warehouse_type, costing_method, allow_negative) VALUES ('FG','finished_goods','moving_average',1)")
   .run().lastInsertRowid;
 const pid = db.prepare(`
   INSERT INTO products (user_id,name,code,stock,average_cost_rial,cost,unit,warehouse_id)
-  VALUES (?,?,?,?,0,0,'عدد',?)
-`).run(uid, 'کاپشن تست صفر', 'Z-529', 0, whId).lastInsertRowid;
+  VALUES (?,?,?,0,0,0,'عدد',?)
+`).run(uid, 'کاپشن تست صفر', 'Z-529', whId).lastInsertRowid;
 
-console.log('\n1) sale with zero avg must throw E_ZERO_OUTBOUND_COST');
+console.log('\n1) sale with zero avg must throw E_ZERO_OUTBOUND_COST (no stock mutation)');
+// Seed qty with zero value so we are not blocked by negative-stock triggers.
+db.prepare('UPDATE products SET stock=5, average_cost_rial=0 WHERE id=?').run(pid);
+try {
+  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,5)')
+    .run(pid, whId);
+} catch (_) {
+  try {
+    db.prepare('UPDATE warehouse_stock SET qty=5 WHERE product_id=? AND warehouse_id=?').run(pid, whId);
+  } catch (__) { /* optional */ }
+}
+const stockBefore = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(pid).stock) || 0;
 let code = null;
 try {
   L.postInventoryMovement(db, {
@@ -59,8 +71,10 @@ try {
     sourceType: 'invoice', sourceId: 1, date: '1405/07/10', createdBy: uid,
     updateAvg: false, allowNegative: true,
   });
-} catch (e) { code = e.code; }
+} catch (e) { code = e.code || e.message; }
 ok(code === 'E_ZERO_OUTBOUND_COST', 'blocks zero-cost sale', code);
+const stockAfter = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(pid).stock) || 0;
+ok(stockAfter === stockBefore, 'stock unchanged after rejected sale', { stockBefore, stockAfter });
 
 console.log('\n2) after valued receipt, sale gets amount');
 L.postInventoryMovement(db, {
@@ -84,12 +98,9 @@ const z = L.postInventoryMovement(db, {
 ok(Math.round(z.amount_rial) === 0, 'allowZeroCost permits zero', z.amount_rial);
 
 console.log('\n4) heal chronological assigns cost to legacy zero row');
-// Simulate legacy zero row that slipped in (bypass gate via allowZeroCost already done).
-// Add another valued inbound later with earlier date so heal by date fixes the zero sale.
 const zeroRow = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(z.id);
 ok(zeroRow && Math.round(zeroRow.amount_rial) === 0, 'legacy zero exists');
 
-// Run heal logic inline (same as script for one product)
 const rows = db.prepare(`
   SELECT id, date, event_type, qty_in, qty_out, amount_rial, reversed_of
   FROM inventory_ledger WHERE product_id=? AND status='posted' ORDER BY COALESCE(date,''), id
@@ -121,8 +132,9 @@ ok(Math.round(healed.amount_rial) === 1000000, 'healed amount 1×avg', healed);
 console.log('\n5) FIFO product: gate still fires when layers empty and avg 0');
 const fifoId = db.prepare(`
   INSERT INTO products (user_id,name,code,stock,average_cost_rial,cost,unit,costing_method,warehouse_id)
-  VALUES (?,?,?,?,0,0,'عدد','fifo',?)
+  VALUES (?,?,?,0,0,0,'عدد','fifo',?)
 `).run(uid, 'FIFO تست', 'F-529', whId).lastInsertRowid;
+db.prepare('UPDATE products SET stock=3 WHERE id=?').run(fifoId);
 let fifoCode = null;
 try {
   L.postInventoryMovement(db, {
@@ -130,7 +142,7 @@ try {
     sourceType: 'invoice', sourceId: 3, date: '1405/07/14', createdBy: uid,
     updateAvg: false, allowNegative: true,
   });
-} catch (e) { fifoCode = e.code; }
+} catch (e) { fifoCode = e.code || e.message; }
 ok(fifoCode === 'E_ZERO_OUTBOUND_COST', 'FIFO empty layers also blocked', fifoCode);
 
 finish();
