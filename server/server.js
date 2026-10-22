@@ -619,6 +619,7 @@ app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/inventory', require('./routes/inventory'));
+if (isDevice()) app.use('/api/inventory-valuation', require('./middleware/device-online-relay'));
 app.use('/api/inventory-valuation', require('./routes/inventory-valuation'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/fx', require('./routes/fx'));
@@ -986,7 +987,7 @@ if (!isDevice() && !isDemoMode()) {
   });
 
   // Hourly: scheduled inventory revaluation rules (daily/weekly/monthly due check inside)
-  cron.schedule('35 * * * *', () => {
+  cron.schedule('*/5 * * * *', () => {
     try {
       const r = require('./lib/inventory/revaluation').maybeRunScheduledRules(getDB());
       if (r && r.runs && r.runs.length) console.log('⚖️ inventory auto-reval:', JSON.stringify(r.runs.map((x) => [x.rule_id, x.decision])));
@@ -998,6 +999,15 @@ if (!isDevice() && !isDemoMode()) {
       const { processScheduledSms } = require('./routes/sms-module');
       await processScheduledSms(getDB());
     } catch (e) { console.error('cron sms-scheduled error:', e.message); }
+  });
+
+  // v522 nightly subledger↔GL reconciliation: per-minute tick, runs once per day at/after
+  // settings.subledger_recon_nightly_time (default 02:00); bell to admin + accounting.
+  cron.schedule('* * * * *', () => {
+    try {
+      const r = require('./lib/subledger-recon').maybeRunNightlyRecon(getDB());
+      if (r && r.ran) console.log('🧮 nightly subledger recon:', JSON.stringify({ run_id: r.run_id, summary: r.summary }));
+    } catch (e) { console.error('cron subledger-recon-nightly error:', e.message); }
   });
 }
 

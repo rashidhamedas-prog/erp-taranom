@@ -275,6 +275,10 @@ function postInventoryMovement(db, opts) {
   if (qtyIn < 0 || qtyOut < 0) throw invErr('E_INV_QTY', 400);
   const valueOnly = !!opts.valueOnly;
   if (qtyIn === 0 && qtyOut === 0 && !valueOnly) throw invErr('E_INV_QTY_ZERO', 400);
+  // v522 monthly valuation lock: value-only postings dated in a closed month are rejected.
+  if (valueOnly && reversedOf == null && date) {
+    require('./period-lock').assertPeriodOpen(db, date, 'تعدیل ارزش موجودی');
+  }
 
   const delta = qtyIn - qtyOut;
   // WIP staging never touches the header: no products.stock, no average, no cost layer, no kardex row.
@@ -307,18 +311,41 @@ function postInventoryMovement(db, opts) {
     ? Math.round(Number(amountRial) || 0)
     : Math.round(unit * (qtyIn || qtyOut));
 
-  // Warehouse-level AVCO: default-costed outbound takes the source bucket average.
+  // v522 pool AVCO: default-costed outbound takes the pool rate of its (product, warehouse):
+  // separate warehouse pool → bucket avg; shared pool in a mixed product → Σvalue/Σqty of
+  // shared buckets; pure shared → header avg. Transfers carry this source rate to the destination.
+  let poolPriced = false;
   if (qtyOut > 0 && !valueOnly && !valueBasedOut && !warehouseOnly && warehouseId
-    && policy.level === 'warehouse' && method === 'moving_average') {
+    && method === 'moving_average') {
     const callerUnit = Math.round(Number(unitCostRial) || 0);
     const defaultUnit = !callerUnit || callerUnit === stockInfo.avgBefore;
     const defaultAmount = amountRial == null
       || Math.round(Number(amountRial) || 0) === Math.round((callerUnit || stockInfo.avgBefore) * qtyOut);
     if (defaultUnit && defaultAmount) {
-      const b = V.getBucket(db, productId, warehouseId);
-      if (b && Number(b.qty) > 1e-9 && Number(b.avg_rial) > 0) {
-        unit = Math.round(Number(b.avg_rial));
+      const pr = V.poolRate(db, productId, warehouseId);
+      if (pr.unit != null) {
+        unit = pr.unit;
         amount = Math.round(unit * qtyOut);
+        poolPriced = unit !== stockInfo.avgBefore;
+      }
+    }
+  }
+
+  // v522 closed month: a back-dated external receipt enters at the current pool rate; the
+  // difference vs its document cost is parked for approval. The returned amount_rial stays
+  // the document cost so callers' JEs are unchanged; the parking JE moves the difference.
+  const bookAmount = amount;
+  let parkedRial = 0;
+  if (qtyIn > 0 && !valueOnly && !isReversal && !noHeader && updateAvg && !isAlign
+    && method === 'moving_average' && CLOSED_RECEIPT_EVENTS.has(String(eventType || '')) && date
+    && require('./period-lock').isValueLocked(db, date)) {
+    const poolUnit = closedReceiptPoolUnit(db, { productId, warehouseId, stockInfo });
+    if (poolUnit != null) {
+      const poolAmount = Math.round(poolUnit * qtyIn);
+      if (poolAmount !== amount) {
+        parkedRial = amount - poolAmount;
+        amount = poolAmount;
+        unit = poolUnit;
       }
     }
   }
@@ -409,6 +436,13 @@ function postInventoryMovement(db, opts) {
     id: ledgerId, product_id: productId, warehouse_id: warehouseId,
     qty_in: qtyIn, qty_out: qtyOut, amount_rial: amount,
   });
+  if (poolPriced && !noHeader && eventType !== 'transfer_out') {
+    const synced = V.syncHeaderAvgFromBuckets(db, productId);
+    if (synced != null) {
+      avgAfter = synced;
+      db.prepare('UPDATE inventory_ledger SET avg_cost_after_rial=? WHERE id=?').run(synced, ledgerId);
+    }
+  }
   if (valueOnly && valueApplied != null) V.recordValueApplied(db, ledgerId, valueApplied, valueUnapplied);
   V.afterMovementPosted(db, {
     ledgerId, productId, warehouseId, eventType, sourceType, sourceId, date,
@@ -428,6 +462,14 @@ function postInventoryMovement(db, opts) {
     ).run(productId, createdBy || 0, delta, note || eventType);
   }
 
+  let parkedApproval = null;
+  if (parkedRial) {
+    parkedApproval = require('./value-approval').parkReceiptDifference(db, {
+      sourceType, sourceId, ledgerId, productId, warehouseId, qtyIn,
+      diffRial: parkedRial, date, createdBy, note,
+    });
+  }
+
   return {
     id: ledgerId,
     tx_no: txNo,
@@ -436,18 +478,51 @@ function postInventoryMovement(db, opts) {
     qty_in: qtyIn,
     qty_out: qtyOut,
     qty_balance: stockInfo.qtyAfter,
-    unit_cost_rial: unit,
-    amount_rial: amount,
+    unit_cost_rial: parkedRial ? (qtyIn > 0 ? Math.round(bookAmount / qtyIn) : unit) : unit,
+    amount_rial: parkedRial ? bookAmount : amount,
+    ledger_amount_rial: amount,
+    value_parked_rial: parkedRial,
+    value_approval_id: parkedApproval ? parkedApproval.id : null,
     avg_cost_after_rial: avgAfter,
     value_applied_rial: valueApplied,
     value_unapplied_rial: valueUnapplied,
   };
 }
 
+const CLOSED_RECEIPT_EVENTS = new Set(['purchase', 'receipt', 'production_receipt']);
+
+/** Pool rate a closed-month receipt enters at; null = nothing to protect (empty pool / periodic). */
+function closedReceiptPoolUnit(db, { productId, warehouseId, stockInfo }) {
+  try {
+    if (warehouseId && require('./periodic-close').isPeriodicWarehouse(db, warehouseId)) return null;
+  } catch (_) { /* periodic module optional */ }
+  const V = require('./valuation');
+  const lv = V.levelFor(db, productId, warehouseId || null);
+  let qty;
+  let unit;
+  if (lv.level === 'warehouse' && warehouseId) {
+    const b = V.getBucket(db, productId, warehouseId);
+    qty = Number(b && b.qty) || 0;
+    unit = Math.round(Number(b && b.avg_rial) || 0);
+  } else {
+    const pools = V.productPools(db, productId);
+    if (pools.mode === 'mixed') {
+      const st = V.sharedPoolState(db, productId, pools);
+      qty = st.qty;
+      unit = st.avg_rial;
+    } else {
+      qty = Number(stockInfo.qtyBefore) || 0;
+      unit = Math.round(Number(stockInfo.avgBefore) || 0);
+    }
+  }
+  if (!(qty > 1e-9) || !(unit > 0)) return null;
+  return unit;
+}
+
 /**
  * Reverse a posted ledger row (R12). Creates opposite movement + marks original reversed.
  */
-function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipStock } = {}) {
+function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipStock, keepDate = false } = {}) {
   const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
   if (!row) throw invErr('E_LEDGER_NOT_FOUND', 404);
   if (row.status === 'reversed') throw invErr('E_ALREADY_REVERSED', 409);
@@ -468,6 +543,8 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     const applied = require('./valuation').valueAppliedFor(db, row.id);
     applyValueRial = -(applied != null ? applied : Math.round(Number(row.amount_rial) || 0));
   }
+  let revDate = date || row.date;
+  if (valueOnly && revDate && !keepDate) revDate = require('./period-lock').firstOpenDate(db, revDate);
   const rev = postInventoryMovement(db, {
     applyValueRial,
     eventType: 'reversal',
@@ -483,7 +560,7 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     batchId: row.batch_id,
     serialId: row.serial_id,
     reversedOf: row.id,
-    date: date || row.date,
+    date: revDate,
     note: note || `معکوس ${row.tx_no}`,
     createdBy,
     updateAvg: !valueOnly && !skip,
@@ -493,6 +570,9 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
   });
 
   db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(row.id);
+  if ((Number(row.qty_in) || 0) > 0) {
+    require('./value-approval').onLedgerReversed(db, row.id, { createdBy, note: note || `معکوس ${row.tx_no}` });
+  }
   return rev;
 }
 

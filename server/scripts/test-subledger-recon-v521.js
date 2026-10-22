@@ -113,7 +113,7 @@ async function main() {
     const keys = ['code', 'name', 'status', 'gl_rial', 'sub_rial', 'diff_rial', 'rows_count', 'sample', 'fixable', 'note'];
     for (const c of run.checks) {
       ok(keys.every((k) => k in c), `check ${c.code} has full shape`);
-      ok(['ok', 'warn', 'error', 'info'].includes(c.status), `check ${c.code} status valid (${c.status})`, c.note);
+      ok(['ok', 'warn', 'error', 'info', 'rounding'].includes(c.status), `check ${c.code} status valid (${c.status})`, c.note);
       ok(c.status !== 'error', `check ${c.code} did not throw`, c.note);
       ok(Array.isArray(c.sample) && c.sample.length <= 20, `check ${c.code} sample ≤ 20`);
     }

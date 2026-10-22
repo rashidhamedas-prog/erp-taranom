@@ -115,7 +115,12 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
   const ctrAcct = acct(db, counterpartAcctKey);
   const shareByWh = [];
 
+  let approval = null;
   db.transaction(() => {
+    const gate = require('./value-approval').begin(db, {
+      sourceType: 'landed_cost', sourceId: docId, date: date || doc.date, createdBy,
+      label: `هزینه حمل ${doc.doc_no}`,
+    });
     db.prepare('DELETE FROM landed_cost_allocations WHERE doc_id=?').run(docId);
     const ins = db.prepare(`
       INSERT INTO landed_cost_allocations
@@ -139,6 +144,16 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
 
       const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(a.product_id);
       if (!prod) throw invErr('E_PRODUCT_NOT_FOUND', 404, { productId: a.product_id });
+      // v522: part of the received qty already issued → park the whole change for approval.
+      if (gate.gate({
+        productId: a.product_id, warehouseId: a.warehouse_id || null, refQty: Number(a.qty) || 0,
+        deltaRial: share, note: `هزینه حمل ${doc.doc_no}`,
+      })) {
+        ins.run(docId, a.product_id, a.warehouse_id || null, Number(a.qty) || 0,
+          Math.round(Number(a.base_value_rial) || 0), share, null);
+        results.push({ product_id: a.product_id, allocated_rial: share, ledger_id: null, pending_approval: true });
+        continue;
+      }
       const stock = Number(prod.stock) || 0;
       if (stock <= 0) {
         throw invErr('E_LC_NO_STOCK', 422, {
@@ -182,14 +197,21 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
       shareByWh.push({ warehouseId: a.warehouse_id || null, amountRial: share });
     }
 
+    const gatedRial = gate.gatedTotal();
     let invGroups = inventoryAmountLinesByWarehouse(db, shareByWh);
-    if (!invGroups.length) {
+    if (!invGroups.length && total - gatedRial !== 0) {
       const fb = inventoryAccountForWarehouse(db, null);
-      invGroups = [{ code: fb.code, name: fb.name, amountRial: total }];
+      invGroups = [{ code: fb.code, name: fb.name, amountRial: total - gatedRial }];
     }
     const jeLines = invGroups.map((g) => ({
       code: g.code, name: g.name, debit: g.amountRial / 10, credit: 0, description: 'تسهیم هزینه حمل',
     }));
+    if (gatedRial) {
+      jeLines.push({
+        code: gate.clearing.code, name: gate.clearing.name, debit: gatedRial / 10, credit: 0,
+        description: 'هزینه حمل — در انتظار تأیید تغییر بها',
+      });
+    }
     jeLines.push({
       code: ctrAcct.code, name: ctrAcct.name, debit: 0, credit: total / 10, description: 'بدهی هزینه حمل',
     });
@@ -205,9 +227,14 @@ function allocateAndPost(db, docId, allocations, { createdBy, counterpartAcctKey
     db.prepare("UPDATE landed_cost_docs SET status='posted', je_id=? WHERE id=?").run(jeId, docId);
     db.prepare('UPDATE inventory_ledger SET je_id=? WHERE source_type=? AND source_id=?')
       .run(jeId, 'landed_cost', docId);
+    approval = gate.finish();
   })();
 
-  return { doc: db.prepare('SELECT * FROM landed_cost_docs WHERE id=?').get(docId), allocations: results };
+  return {
+    doc: db.prepare('SELECT * FROM landed_cost_docs WHERE id=?').get(docId),
+    allocations: results,
+    value_approval: approval ? { id: approval.id, doc_no: approval.doc_no, total_delta_rial: approval.total_delta_rial } : null,
+  };
 }
 
 function voidLandedCost(db, docId, { createdBy = null, reason = '' } = {}) {
@@ -217,10 +244,12 @@ function voidLandedCost(db, docId, { createdBy = null, reason = '' } = {}) {
   if (doc.status !== 'posted') throw invErr('E_LC_NOT_POSTED', 409);
 
   db.transaction(() => {
+    require('./value-approval').cancelForSource(db, 'landed_cost', docId, { id: createdBy },
+      reason || `ابطال هزینه حمل ${doc.doc_no}`);
     const allocs = db.prepare('SELECT * FROM landed_cost_allocations WHERE doc_id=?').all(docId);
     for (const a of allocs) {
       const share = Math.round(Number(a.allocated_rial) || 0);
-      if (share <= 0) continue;
+      if (share <= 0 || a.ledger_id == null) continue;
       const prod = db.prepare('SELECT id FROM products WHERE id=?').get(a.product_id);
       if (!prod) continue;
       // Header avg is reduced by value when the ledger row below is reversed.

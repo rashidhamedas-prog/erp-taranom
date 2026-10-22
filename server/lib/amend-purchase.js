@@ -203,25 +203,39 @@ function updatePurchaseSupplierLedger(db, {
 }
 
 function buildDirectPurchaseJeLines(db, {
-  supplierId, whId, priced, netBeforeVat, vatAmount, final,
+  supplierId, whId, priced, netBeforeVat, vatAmount, final, gate = null,
 }) {
   const vatRec = acct(db, 'coa_vat_receivable');
   const payable = payableAcct(db, supplierId);
-  let invGroups = inventoryAmountLinesByWarehouse(db, priced.map((r) => ({
-    warehouseId: r.warehouse_id || whId,
-    amountRial: r.amount_rial,
-  })));
+  // v522: price change parked for approval moves from inventory to the clearing account.
+  const gatedLines = gate ? gate.lines : [];
+  const gatedRial = gatedLines.reduce((s, l) => s + l.delta, 0);
+  let invGroups = inventoryAmountLinesByWarehouse(db, [
+    ...priced.map((r) => ({ warehouseId: r.warehouse_id || whId, amountRial: r.amount_rial })),
+    ...gatedLines.map((l) => ({ warehouseId: l.warehouseId || whId, amountRial: -l.delta })),
+  ]);
+  const invTarget = Math.round(netBeforeVat) - gatedRial;
   if (!invGroups.length) {
     const fallback = inventoryAccountForWarehouse(db, whId);
-    invGroups = [{ code: fallback.code, name: fallback.name, amountRial: netBeforeVat }];
+    invGroups = [{ code: fallback.code, name: fallback.name, amountRial: invTarget }];
   } else {
     const sumInv = invGroups.reduce((s, g) => s + g.amountRial, 0);
-    const drift = Math.round(netBeforeVat) - sumInv;
+    const drift = invTarget - sumInv;
     if (drift !== 0) invGroups[invGroups.length - 1].amountRial += drift;
   }
-  const jLines = invGroups.map((g) => ({
-    code: g.code, name: g.name, debit: rialToLedger(g.amountRial), credit: 0,
+  const jLines = invGroups.filter((g) => g.amountRial).map((g) => ({
+    code: g.code, name: g.name,
+    debit: g.amountRial > 0 ? rialToLedger(g.amountRial) : 0,
+    credit: g.amountRial < 0 ? rialToLedger(-g.amountRial) : 0,
   }));
+  if (gatedRial) {
+    jLines.push({
+      code: gate.clearing.code, name: gate.clearing.name,
+      debit: gatedRial > 0 ? rialToLedger(gatedRial) : 0,
+      credit: gatedRial < 0 ? rialToLedger(-gatedRial) : 0,
+      description: 'تغییر بهای خرید — در انتظار تأیید',
+    });
+  }
   if (vatAmount > 0) {
     jLines.push({
       code: vatRec.code, name: vatRec.name,
@@ -263,7 +277,7 @@ function reverseGrniRevalsKeepLink(db, purchaseId, userId, reason) {
 }
 
 function applyGrniValueVariance(db, {
-  rows, provisionalTotal, delta, purchaseId, warehouseId, date, userId, jeId,
+  rows, provisionalTotal, delta, purchaseId, warehouseId, date, userId, jeId, gate = null,
 }) {
   if (!delta) return;
   const { postInventoryMovement } = require('./inventory/ledger');
@@ -285,6 +299,10 @@ function applyGrniValueVariance(db, {
     left -= part;
     if (!part) continue;
     const wh = r.warehouse_id || warehouseId;
+    if (gate && gate.gate({
+      productId: r.product_id, warehouseId: wh || null, refQty: Number(r.qty) || 0,
+      deltaRial: part, note: `GRNI → فاکتور خرید #${purchaseId}`,
+    })) continue;
     postInventoryMovement(db, {
       eventType: 'adjustment',
       productId: r.product_id,
@@ -321,12 +339,23 @@ function applyGrniValueVariance(db, {
 
 function buildGrniJeLines(db, {
   supplierId, warehouseId, provisionalTotal, netBeforeVat, vatAmount, final, costCenterId, supplierName,
+  gate = null,
 }) {
   const grni = acct(db, 'coa_grni');
   const ap = payableAcct(db, supplierId);
   const invAcct = inventoryAccountForWarehouse(db, warehouseId);
-  const delta = netBeforeVat - provisionalTotal;
+  const fullDelta = netBeforeVat - provisionalTotal;
+  const gatedRial = gate ? gate.gatedTotal() : 0;
+  const delta = fullDelta - gatedRial;
   const jeLines = [];
+  if (gatedRial) {
+    jeLines.push({
+      code: gate.clearing.code, name: gate.clearing.name,
+      debit: gatedRial > 0 ? rialToLedger(gatedRial) : 0,
+      credit: gatedRial < 0 ? rialToLedger(-gatedRial) : 0,
+      description: 'مابه‌التفاوت بها — در انتظار تأیید تغییر بها',
+    });
+  }
   if (provisionalTotal > 0) {
     jeLines.push({
       code: grni.code, name: grni.name,
@@ -361,7 +390,7 @@ function buildGrniJeLines(db, {
     debit: 0, credit: rialToLedger(final),
     description: `بدهی تأمین‌کننده ${supplierName || ''}`,
   });
-  return { jeLines, delta, provisionalTotal };
+  return { jeLines, delta: fullDelta, provisionalTotal };
 }
 
 const QTY_EPS = 1e-6;
@@ -589,7 +618,7 @@ function variantDesired(db, priced, whId) {
  * price change → value-only revaluation. Fabric rolls are re-created only when untouched.
  */
 function replacePurchaseStockPerpetual(db, {
-  row, priced, whId, userId, date, num, supplierId,
+  row, priced, whId, userId, date, num, supplierId, gate = null,
 }) {
   const { postInventoryMovement, reverseInventoryMovement } = require('./inventory/ledger');
   const { bumpOpenLayersValue } = require('./inventory/landed-cost');
@@ -734,7 +763,14 @@ function replacePurchaseStockPerpetual(db, {
       touch(p.productId).changed = true;
     }
     const reval = Math.round(p.newValue - booked);
-    if (reval !== 0) {
+    if (reval !== 0 && gate && gate.gate({
+      productId: p.productId, warehouseId: p.warehouseId || null, refQty: p.newQty,
+      deltaRial: reval, note: `اصلاح فاکتور خرید ${num}`,
+    })) {
+      const t = touch(p.productId);
+      t.gated = (t.gated || 0) + reval;
+      t.changed = true;
+    } else if (reval !== 0) {
       postInventoryMovement(db, {
         eventType: 'adjustment',
         productId: p.productId,
@@ -779,10 +815,11 @@ function replacePurchaseStockPerpetual(db, {
   // rebuild) is posted as a value-only ledger row — never a raw avg overwrite.
   for (const [pid, t] of touched) {
     if (!t.changed) continue;
+    if (gate && gate.closed) continue; // closed month: the whole value change waits for approval
     const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(pid);
     const stock1 = Number(p && p.stock) || 0;
     if (stock1 <= QTY_EPS) continue;
-    const target = Math.round(t.stock0 * t.avg0) - t.oldValue + t.newValue;
+    const target = Math.round(t.stock0 * t.avg0) - t.oldValue + t.newValue - (t.gated || 0);
     const current = Math.round(stock1 * Math.round(Number(p.average_cost_rial) || 0));
     const residual = Math.max(0, target) - current;
     if (Math.abs(residual) >= Math.max(1, Math.round(stock1))) {
@@ -952,9 +989,19 @@ function amendPostedPurchaseInPlace(db, {
   const includeFreight = freightChargedToCounterparty(freight_type);
   const priced = buildInventoryValuationRows(built.rows, discAmt, includeFreight);
 
+  // v522: a previous parked/decided price change is fully undone; the amend re-evaluates it.
+  const VAP = require('./inventory/value-approval');
+  VAP.cancelForSource(db, 'purchase', row.id, { id: userId }, `اصلاح فاکتور خرید ${row.num}`);
+  // Closed-month receipt differences are re-evaluated too (ledger keeps the pool value → reval).
+  VAP.cancelForSource(db, 'receipt:purchase', row.id, { id: userId }, `اصلاح فاکتور خرید ${row.num}`);
+  const valueGate = VAP.begin(db, {
+    sourceType: 'purchase', sourceId: row.id, date: entryDate, createdBy: userId,
+    label: `اصلاح بهای فاکتور خرید ${row.num}`,
+  });
+
   if (!isGrni) {
     replacePurchaseStock(db, {
-      row, priced, whId: headerWh, userId, date: entryDate, num: row.num, supplierId,
+      row, priced, whId: headerWh, userId, date: entryDate, num: row.num, supplierId, gate: valueGate,
     });
   }
 
@@ -977,7 +1024,18 @@ function amendPostedPurchaseInPlace(db, {
     }
     reverseGrniRevalsKeepLink(db, row.id, userId, `اصلاح فاکتور خرید ${row.num}`);
     const sup = db.prepare('SELECT name FROM suppliers WHERE id=?').get(supplierId);
-    const { jeLines, delta } = buildGrniJeLines(db, {
+    applyGrniValueVariance(db, {
+      rows: built.rows,
+      provisionalTotal,
+      delta: netBeforeVat - provisionalTotal,
+      purchaseId: row.id,
+      warehouseId: headerWh || row.warehouse_id,
+      date: entryDate,
+      userId,
+      jeId: null,
+      gate: valueGate,
+    });
+    const { jeLines } = buildGrniJeLines(db, {
       supplierId,
       warehouseId: headerWh || row.warehouse_id,
       provisionalTotal,
@@ -986,6 +1044,7 @@ function amendPostedPurchaseInPlace(db, {
       final,
       costCenterId: ccId,
       supplierName: (sup && sup.name) || '',
+      gate: valueGate,
     });
     jeId = rewriteJournalEntry(db, {
       sourceType: 'purchase', sourceId: row.id,
@@ -996,19 +1055,13 @@ function amendPostedPurchaseInPlace(db, {
       lines: jeLines,
     });
     if (!jeId) throw httpErr(409, 'سند خرید این فاکتور پیدا نشد', 'E_AMEND_PURCHASE_JE');
-    applyGrniValueVariance(db, {
-      rows: built.rows,
-      provisionalTotal,
-      delta,
-      purchaseId: row.id,
-      warehouseId: headerWh || row.warehouse_id,
-      date: entryDate,
-      userId,
-      jeId,
-    });
+    db.prepare(`
+      UPDATE inventory_ledger SET je_id=?
+      WHERE source_type='warehouse_grni_reval' AND source_id=? AND COALESCE(status,'posted')='posted'
+    `).run(jeId, row.id);
   } else {
     const jLines = buildDirectPurchaseJeLines(db, {
-      supplierId, whId: headerWh, priced, netBeforeVat, vatAmount, final,
+      supplierId, whId: headerWh, priced, netBeforeVat, vatAmount, final, gate: valueGate,
     });
     jeId = rewriteJournalEntry(db, {
       sourceType: 'purchase', sourceId: row.id,
@@ -1024,6 +1077,8 @@ function amendPostedPurchaseInPlace(db, {
   updatePurchaseSupplierLedger(db, {
     supplierId, date: entryDate, invId: row.id, num: row.num, final, userId,
   });
+
+  const valueApproval = valueGate.finish();
 
   persistPurchasePayPlan(db, row.id, payPlan, b);
   if (!isGrni) {
@@ -1064,7 +1119,10 @@ function amendPostedPurchaseInPlace(db, {
     row.id
   );
 
-  return { id: row.id, journal_id: jeId, amended: true, grni: !!isGrni };
+  return {
+    id: row.id, journal_id: jeId, amended: true, grni: !!isGrni,
+    value_approval: valueApproval ? { id: valueApproval.id, doc_no: valueApproval.doc_no, total_delta_rial: valueApproval.total_delta_rial } : null,
+  };
 }
 
 module.exports = {

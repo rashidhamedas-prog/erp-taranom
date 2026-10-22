@@ -1,17 +1,16 @@
 // Sub-ledger ↔ GL reconciliation (R1–R11) — mounted at /api/accounting/subledger-recon.
-// Reads: admin/accounting. Fixes: admin/accounting role only (no delegation), central server only.
+// Reads: admin/accounting/delegated view. Mutations (v522): canDo acc_subledger_recon
+// edit (apply fix) / delete (reverse fix), central server only. Nightly settings: admin.
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth, adminOrAccounting, centralOnlyStrict } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnlyStrict } = require('../middleware/auth');
+const { requireCan } = require('../lib/rbac');
 const recon = require('../lib/subledger-recon');
 
-function strictRole(req, res, next) {
-  if (req.user && (req.user.role === 'admin' || req.user.role === 'accounting')) return next();
-  return res.status(403).json({ error: 'دسترسی ندارید' });
-}
-
 function sendErr(res, e) {
-  res.status(e.status || 500).json({ error: e.message || 'خطای تطبیق', code: e.code });
+  const body = { error: e.message || 'خطای تطبیق', code: e.code };
+  if (e.gl_shortfall_rial != null) { body.gl_shortfall_rial = e.gl_shortfall_rial; body.total_rial = e.total_rial; }
+  res.status(e.status || 500).json(body);
 }
 
 function dbReady() {
@@ -26,7 +25,23 @@ function dateToParam(v) {
 }
 
 const read = [auth, adminOrAccounting, centralOnlyStrict];
-const write = [auth, strictRole, centralOnlyStrict];
+const applyFix = [auth, requireCan('acc_subledger_recon', 'edit'), centralOnlyStrict];
+const reverseFix = [auth, requireCan('acc_subledger_recon', 'delete'), centralOnlyStrict];
+
+router.get('/nightly', ...read, (req, res) => {
+  try { res.json(recon.nightlySettings(dbReady())); } catch (e) { sendErr(res, e); }
+});
+
+router.put('/nightly', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json(recon.saveNightlySettings(dbReady(), { enabled: b.enabled, time: b.time }, { userId: req.user && req.user.id }));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/nightly/run', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try { res.json(recon.runNightlyRecon(dbReady())); } catch (e) { sendErr(res, e); }
+});
 
 router.get('/', ...read, (req, res) => {
   try {
@@ -58,7 +73,7 @@ router.get('/fixes', ...read, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
-router.post('/fixes/:id/reverse', ...write, (req, res) => {
+router.post('/fixes/:id/reverse', ...reverseFix, (req, res) => {
   try {
     const fix = recon.reverseFix(dbReady(), +req.params.id, {
       user: req.user,
@@ -79,7 +94,7 @@ router.get('/:code/rows', ...read, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
-router.post('/:code/fix', ...write, (req, res) => {
+router.post('/:code/fix', ...applyFix, (req, res) => {
   try {
     const b = req.body || {};
     const out = recon.applyFix(dbReady(), req.params.code, {
@@ -87,6 +102,7 @@ router.post('/:code/fix', ...write, (req, res) => {
       dryRun: b.dry_run === undefined ? true : b.dry_run,
       confirm: b.confirm,
       reason: b.reason,
+      force: b.force,
       date: dateToParam(b.date) || undefined,
       dateTo: dateToParam(b.date_to),
       user: req.user,

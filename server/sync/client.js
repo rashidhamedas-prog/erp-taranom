@@ -1642,7 +1642,54 @@ async function changePasswordOnCentral(username, oldPass, newPass) {
   return { ok: true };
 }
 
+// ---- Synchronous online-only relay (v522) ----
+// Forwards one request to central /api/sync/relay-now (signed, fresh nonce) and
+// returns central's status + body. Never touches the outbox. Network failure or a
+// missing pairing → { offline: true } so callers answer 503 E_ONLINE_REQUIRED.
+async function relayNow({ method, path: reqPath, userId, body, timeoutMs = 60000 }) {
+  const { buildRelayEnvelope } = require('./relay-now');
+  const db = getDB();
+  if (!isPaired(db)) return { ok: false, offline: true, reason: 'not_paired' };
+  const cfg = getConfig(db);
+  let privateKey = null;
+  try { privateKey = getSecret(db, 'device_signing_private_key'); } catch { privateKey = null; }
+  if (!privateKey) return { ok: false, offline: true, reason: 'no_signing_key' };
+  if (!state.online) {
+    try {
+      const r = await fetchWithTimeout(cfg.centralUrl.replace(/\/$/, '') + '/api/system/time', {}, 3000);
+      state.online = r.ok;
+    } catch { state.online = false; }
+    if (!state.online) return { ok: false, offline: true, reason: 'offline' };
+  }
+  const envelope = buildRelayEnvelope(privateKey, {
+    deviceId: Number(cfg.deviceId), userId, method, path: reqPath, body: method === 'GET' ? {} : body,
+  });
+  const payload = JSON.stringify(envelope);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let r;
+    try {
+      r = await fetchWithTimeout(cfg.centralUrl + '/api/sync/relay-now', {
+        method: 'POST', headers: deviceHeaders(cfg), body: payload,
+      }, timeoutMs);
+    } catch (e) {
+      // Same signed envelope on retry: central returns the stored outcome instead of re-posting.
+      if (attempt === 0 && method !== 'GET' && !(e && e.name === 'AbortError')) continue;
+      state.online = false;
+      return { ok: false, offline: true, reason: 'network', error: networkErrorMessage(e, 'رله به سرور مرکزی') };
+    }
+    const out = await r.json().catch(() => ({}));
+    return { ok: true, status: r.status, body: out, relayResult: r.headers.get('x-relay-result') || null };
+  }
+  return { ok: false, offline: true, reason: 'network' };
+}
+
+/** Fire-and-forget pull after a relayed mutation so local read tables refresh. */
+function syncSoon() {
+  setTimeout(() => { syncNow().catch(() => {}); }, 0);
+}
+
 module.exports = {
+  relayNow, syncSoon,
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
   setCentralUrl, resetPairing, migrateLegacyCentralUrl, normalizeCentralUrl, assertCentralUrlAllowed,
   upgradeHttpCentralUrl, CANONICAL_CENTRAL_URL,

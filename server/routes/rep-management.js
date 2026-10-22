@@ -5,6 +5,7 @@ const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
+const { requireCan } = require('../lib/rbac');
 const { todayJalali } = require('../jalali');
 const {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, buildRepLedgerView, buildRepStatement,
@@ -407,7 +408,7 @@ function liveJeIds(db, refType, refId) {
 }
 
 // R13: void an approved rep expense — reverse JE, offset rep ledger, retire person mirrors.
-router.post('/expenses/:expenseId/void', auth, adminOrAccounting, (req, res) => {
+router.post('/expenses/:expenseId/void', auth, requireCan('acc_reps', 'delete'), (req, res) => {
   const db = getDB();
   require('../lib/subledger-recon').ensureReconSchemaOnce(db);
   const row = db.prepare('SELECT * FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
@@ -695,7 +696,7 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
 
 // R13: void an unsettled advance — reverse JE, offset rep ledger, retire person mirror.
 // settled_amount=amount keeps getAdvanceBalance at zero for the voided row.
-router.post('/:id/advances/:advanceId/void', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/advances/:advanceId/void', auth, requireCan('acc_reps', 'delete'), (req, res) => {
   const db = getDB();
   require('../lib/subledger-recon').ensureReconSchemaOnce(db);
   const row = db.prepare('SELECT * FROM rep_advances WHERE id=? AND rep_id=?').get(+req.params.advanceId, +req.params.id);

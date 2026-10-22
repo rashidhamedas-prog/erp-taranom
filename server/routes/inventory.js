@@ -387,8 +387,11 @@ router.post('/adjust', auth, adminOrAccounting, (req, res) => {
     const db = getDB();
     const whId = warehouse_id ? +warehouse_id : null;
     const d = date || todayJalali();
+    const VA = require('../lib/inventory/value-accounts');
+    const reasonCode = VA.normReason(req.body.reason_code);
     let led;
     let jeId = null;
+    let counter = null;
     db.transaction(() => {
       led = postInventoryMovement(db, {
         eventType: 'adjustment',
@@ -403,6 +406,13 @@ router.post('/adjust', auth, adminOrAccounting, (req, res) => {
         createdBy: req.user.id,
       });
       const signed = (Number(led.qty_in) || 0) > 0 ? led.amount_rial : -led.amount_rial;
+      // v522: with reason_code → counter-account by stage + reason; without → legacy adjustment account.
+      if (reasonCode) {
+        const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
+        counter = VA.adjustCounterAccount(db, {
+          inventoryCode: inventoryAccountForWarehouse(db, whId).code, reasonCode,
+        });
+      }
       jeId = postInventoryValueAdjustmentJe(db, {
         warehouseId: whId,
         amountRial: signed,
@@ -410,12 +420,14 @@ router.post('/adjust', auth, adminOrAccounting, (req, res) => {
         userId: req.user.id,
         sourceType: 'inventory_adjust',
         sourceId: led.id,
-        description: `تعدیل دستی موجودی ${led.tx_no} — ${String(reason).slice(0, 120)}`,
+        description: `تعدیل دستی موجودی ${led.tx_no} — ${reasonCode ? VA.ADJUST_REASONS[reasonCode] + ' — ' : ''}${String(reason).slice(0, 120)}`,
+        counterCode: counter ? counter.code : null,
+        counterName: counter ? counter.name : null,
       });
       db.prepare('UPDATE inventory_ledger SET source_id=?, je_id=? WHERE id=?').run(led.id, jeId, led.id);
     })();
     audit(req.user.id, 'create', 'inventory_adjustment', led.id, reason);
-    res.json({ ...led, je_id: jeId });
+    res.json({ ...led, je_id: jeId, reason_code: reasonCode, counter_account: counter });
   } catch (e) { sendErr(res, e); }
 });
 

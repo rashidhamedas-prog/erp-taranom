@@ -224,6 +224,12 @@ function postRevaluation(db, opts = {}, user) {
       userId
     );
     const revId = head.lastInsertRowid;
+    // v522: closed inventory month → value effect parked for approval; the JE
+    // below still debits inventory and the parking JE moves the gated part to clearing.
+    const valueGate = require('../inventory/value-approval').begin(db, {
+      sourceType: 'cost_revaluation', sourceId: revId, date, createdBy: userId,
+      label: `تعدیل بهای تولید #${revId}`,
+    });
     const insLine = db.prepare(`
       INSERT INTO cost_revaluation_lines
         (revaluation_id, product_id, qty_on_hand,
@@ -246,7 +252,14 @@ function postRevaluation(db, opts = {}, user) {
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
       // Average moves by value through a value-only ledger row (kardex + buckets stay
       // consistent); std/last cost are catalog fields and are set directly.
-      if (L.delta_inventory_rial) {
+      const invAcc = inventoryAccountForProduct(db, prod);
+      // qty_on_hand is the current stock (not a past receipt), so only a closed month gates.
+      const parked = !!L.delta_inventory_rial && valueGate.closed && valueGate.gate({
+        productId: L.product_id, warehouseId: null, refQty: Number(L.qty_on_hand) || 0,
+        deltaRial: L.delta_inventory_rial, inventoryCode: invAcc.code, inventoryName: invAcc.name,
+        note: `تعدیل بهای تولید #${revId}`,
+      });
+      if (L.delta_inventory_rial && !parked) {
         require('../inventory/valuation').postValueAdjustment(db, {
           productId: L.product_id,
           deltaRial: L.delta_inventory_rial,
@@ -266,7 +279,8 @@ function postRevaluation(db, opts = {}, user) {
 
       if (L.delta_inventory_rial !== 0) {
         const inv = inventoryAccountForProduct(db, prod);
-        const abs = Math.abs(L.delta_inventory_rial);
+        // postToLedger lines are toman; delta_inventory_rial is rial.
+        const abs = Math.abs(L.delta_inventory_rial) / 10;
         if (L.delta_inventory_rial > 0) {
           jeLines.push({
             code: inv.code, name: inv.name, debit: abs, credit: 0,
@@ -319,8 +333,9 @@ function postRevaluation(db, opts = {}, user) {
     } else {
       db.prepare('UPDATE cost_revaluations SET posted_at=strftime(\'%s\',\'now\') WHERE id=?').run(revId);
     }
+    const approval = valueGate.finish({ park: true });
 
-    return db.prepare('SELECT * FROM cost_revaluations WHERE id=?').get(revId);
+    return { ...db.prepare('SELECT * FROM cost_revaluations WHERE id=?').get(revId), value_approval_id: approval ? approval.id : null };
   })();
 
   const lines = db.prepare('SELECT * FROM cost_revaluation_lines WHERE revaluation_id=?').all(result.id);
@@ -336,6 +351,7 @@ function reverseRevaluation(db, revaluationId, user) {
 
   const lines = db.prepare('SELECT * FROM cost_revaluation_lines WHERE revaluation_id=?').all(id);
   db.transaction(() => {
+    require('../inventory/value-approval').cancelForSource(db, 'cost_revaluation', id, user || null, `ابطال تعدیل بها #${id}`);
     // Average comes back by value (reverse the value-only rows), not by snapshot.
     const { reverseInventoryMovement } = require('../inventory/ledger');
     const valueRows = db.prepare(`

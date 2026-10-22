@@ -69,5 +69,43 @@
 
 ## ۵) غیرهدف این موج
 - استهلاک/بازارزیابی کامل دارایی ثابت فراتر از سند تحصیل و ابطال بازارزیابی.
-- بستن رسمی دوره‌های انبار با قفل تاریخ جدا از سال مالی.
+- بستن رسمی دوره‌های انبار با قفل تاریخ جدا از سال مالی. *(در v522 انجام شد — بخش ۶.۶)*
 - بیلد APK/EXE.
+
+## ۶) v522 — تکمیل موتور ارزش‌گذاری (تصمیم‌های ۱–۹ مالک)
+
+### ۶.۱ سطح ارزش‌گذاری لایه‌ای + استخر مشترک
+- ستون `valuation_level` (`''`=پیروی، `product`=مشترک، `warehouse`=مستقل) روی `products`، `product_categories`، `warehouses`. حل: کالا ← گروه ← انبار ← تنظیم سراسری (`resolveLevel`).
+- `productPools(pid)`: `product` (همه مشترک) | `warehouse` (همه مستقل) | `mixed`. در mixed، انبارهای مشترک کلید استخر 0 دارند (`sharedPoolState`)، مستقل‌ها سطل خودشان. نرخ خروجی پیش‌فرض دفتر = `poolRate`. هدر کالا همچنان میانگین کل شرکت (`syncHeaderAvgFromBuckets`).
+- تغییر سطح فقط رو به جلو + audit؛ صف بازبینی ساخته نمی‌شود.
+- `last_purchase` هر استخر/انبار (`lastPurchaseUnitForPool`). انتقال با نرخ مبدأ.
+
+### ۶.۲ تغییر بها بعد از فروش → سند تأیید
+- جدول‌ها: `inventory_value_approvals` (شماره `IVA-` از `allocateNumber('inv_value_approval')`، status pending|approved|rejected|cancelled، `decision_je_id`, `reopen_count`) و `inventory_value_approval_lines` (ref/sold/wip/in_stock qty، delta، سهم‌ها، `ledger_ids_json`).
+- مبدأها: هزینهٔ حمل (`landed-cost.js`)، فاکتور GRNI (`warehouse-grni-invoice.js`)، اصلاح خرید در جا (`amend-purchase.js`). `VAP.begin().gate({productId,warehouseId,refQty,deltaRial})`: sold = refQty − موجودی استخر؛ اگر >0 → پارک: سمت JE به `coa_value_change_clearing` (1120) و ردیف ارزش اعمال نمی‌شود.
+- تأیید: تفکیک در لحظهٔ تصمیم دوباره محاسبه می‌شود (ولی فروش‌رفته کمتر از لحظهٔ پارک نمی‌شود) → موجودی/COGS/WIP. رد: کل → `coa_price_variance` (6117). ابطال تصمیم (R13) همهٔ ردیف‌ها و سند را برمی‌گرداند. ابطال سند مبدأ → `cancelForSource`.
+- اعلان `value_change_approval` به admin+accounting. روی دستگاه (SYNC_ROLE=device) gate غیرفعال است.
+- خارج از دامنه: `production/cost-revaluation.js` هنوز gate ندارد.
+
+### ۶.۳ بستن دورهٔ تولید
+- `updateFgAverages` فقط بین محصولاتِ تولیدشده در دوره (`producedInPeriod`، خالص برگشت‌ها، وزن ارزش؛ fallback مقدار) پخش می‌کند؛ سهم فروش‌رفته → COGS (`fg_sold_to_cogs_rial` در allocation). اگر هیچ تولیدی نباشد رفتار قدیمی.
+
+### ۶.۴ زمان‌بندی قواعد
+- `schedule_json` `{mode,weekdays(0=شنبه..6),monthdays(شمسی، clamp به طول ماه),hour,minute}` + `last_run_slot`. cron هر ۵ دقیقه (`*/5 * * * *`)؛ اسلات `YYYY/MM/DD HH:MM` تکرار نمی‌شود. migration از `schedule` قدیمی (`migrateRuleSchedulesV522`).
+
+### ۶.۵ حساب طرف تعدیل دستی
+- `reason_code` اختیاری در `POST /api/inventory/adjust` و `PATCH /api/products/:id/stock`؛ نگاشت تنظیم `inventory_adjust_reason_accounts` (دلیل → کد، و پیش‌فرض مرحله materials/wip/goods) و fallback `coa_inventory_shortage_surplus` (6118). بدون دلیل → `coa_adjustment` قدیمی.
+
+### ۶.۶ قفل ماهانه
+- `inventory_period_locks` (کلید `period` = `YYYY/MM`، status closed|open، closed_by/at، reopened_by/at، reason). `GET /api/inventory-valuation/periods`، `POST /periods/:y/:m/close|reopen` (یا `/periods/:period/...`)، دلیل اجباری، فقط مدیر (`acc_inv_period_lock/approve`).
+- **تصمیم مالک (follow-up v522):** ماه بسته اسناد را مسدود نمی‌کند؛ فقط **اثر ریالی** نیاز به تأیید دارد. خرید/فروش/رسید با تاریخ ماه بسته عادی ثبت می‌شود (تعداد + سند عادی خودش)، ولی هر اثر ارزشی — تعدیل ارزش (`postValueAdjustment`)، هزینهٔ حمل، اصلاح قیمت خرید، مابه‌التفاوت GRNI، سهم بستن دورهٔ تولید، تعدیل بهای تولید (`cost-revaluation`) و ارزش رسید ورودی گذشته‌تاریخ — خودکار اعمال نمی‌شود: سند `inventory_value_approvals` با `reason='closed_period'` ساخته می‌شود، سهم سند مبدأ در «تعدیل بهای در انتظار تأیید» (`coa_value_change_clearing`) پارک می‌شود و admin+accounting اعلان می‌گیرند. `VAP.begin` در ماه بسته همهٔ خطوط غیرصفر را gate می‌کند (`closed=true`).
+- **رسید ورودی گذشته‌تاریخ (ساده‌ترین درمان صحیح):** فقط برای `purchase|receipt|production_receipt` با میانگین متحرک و استخر دارای موجودی مثبت: تعداد با **نرخ فعلی استخر** وارد می‌شود (میانگین تغییر نمی‌کند)، مابه‌التفاوت (بهای سند − نرخ استخر) در سند تأیید پارک می‌شود با JE پارک جدا (بدهکار clearing / بستانکار موجودی، علامت‌دار). `amount_rial` برگشتی همان بهای سند است تا JE فراخوان‌ها دست نخورد؛ `ledger_amount_rial` / `value_parked_rial` / `value_approval_id` اضافه شد. انبار periodic یا استخر خالی → پارک نمی‌شود (رسید خودش نرخ را می‌سازد). خطوط همان مبدأ/تاریخ در یک سند `receipt:<sourceType>` جمع می‌شوند. معکوس‌شدن ردیف رسید → `onLedgerReversed`: تصمیم (اگر بود) برگردانده، خط و JE پارک ابطال، و در نبود خط فعال سند `cancelled` (R13).
+- **تأیید:** `post_date_mode: 'original'|'next_open'` (پیش‌فرض original؛ روی سند ذخیره می‌شود). original → ردیف ارزش و JE تصمیم با تاریخ اصلی سند داخل ماه بسته، **بدون بازکردن قفل** (`PL.withLockBypass`)؛ next_open → اولین روز اولین ماه باز بعد از آن (`nextOpenMonthFirst`). رد → clearing به «انحراف بها» (`coa_price_variance`)، نرخ ثابت. بازگشایی تصمیم ردیف‌ها را با همان تاریخ (`keepDate`) معکوس می‌کند — حتی داخل ماه بسته. اسناد `after_sale` بدون mode رفتار قبلی (تاریخ body/امروز + بررسی قفل) را دارند.
+- تعدیل بهای دستی IRV (و تعدیل مستقیم ارزش بیرون از gate، مثل cutting/order-cost-reconcile) در ماه بسته همچنان 422 `E_INV_PERIOD_LOCKED` تا بازگشایی. قواعد خودکار و ردیف‌های معکوس عادی با `firstOpenDate` به اولین روز ماه باز منتقل می‌شوند.
+- `cost-revaluation`: فقط در ماه بسته gate می‌شود (qty_on_hand موجودی فعلی است، مفهوم «بعد از فروش» ندارد). رفع باگ واحد: مبلغ JE قبلاً ریال را به‌عنوان تومان ثبت می‌کرد (×۱۰) — اکنون `/10`.
+
+### ۶.۷ دسترسی
+- تنها نقطهٔ کنترل `requireValuationAction(req, action)` در `routes/inventory-valuation.js`: view=هر کاربر واردشده؛ post/approve/policy/reverse → `rbac.canDo(user,'acc_inv_valuation', create|approve|edit|delete)`؛ period_lock → `acc_inv_period_lock/approve`. همهٔ mutationها `centralOnlyStrict`.
+
+### ۶.۸ سینک
+- append: `inventory_value_approvals`، `inventory_value_approval_lines`، `inventory_period_locks` (upsertKey `period`) + `FK_COLUMNS` + `sync_seq_backfill_v29`. `PATH_TABLE_MAP`: `/api/inventory-valuation/approvals`، `/api/inventory-valuation/periods` قبل از عام. دستگاه فقط می‌خواند.

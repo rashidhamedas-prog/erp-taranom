@@ -208,8 +208,35 @@ function computeRepCommission(db, repId, { from, to } = {}) {
   };
 }
 
+function hasColumn(db, table, col) {
+  try { return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col); } catch (_) { return false; }
+}
+
+/** v522: ids of voided rep expenses / advances (their rep_ledger original + reversal rows net to zero). */
+function voidedRepDocIds(db, repId) {
+  const out = { expense: new Set(), advance: new Set() };
+  try {
+    for (const r of db.prepare("SELECT id FROM rep_expenses WHERE rep_id=? AND status='reversed'").all(repId)) out.expense.add(Number(r.id));
+  } catch (_) { /* table optional */ }
+  if (hasColumn(db, 'rep_advances', 'status')) {
+    for (const r of db.prepare("SELECT id FROM rep_advances WHERE rep_id=? AND status='reversed'").all(repId)) out.advance.add(Number(r.id));
+  }
+  return out;
+}
+
+function hideVoidedRepDocRows(rows, voided) {
+  return (rows || []).filter((e) => {
+    const id = Number(e.ref_id);
+    if (e.ref_type === 'rep_expense' && voided.expense.has(id)) return false;
+    if (e.ref_type === 'rep_advance' && voided.advance.has(id)) return false;
+    return true;
+  });
+}
+
 function getAdvanceBalance(db, repId, { from, to } = {}) {
+  // Voided advances carry settled_amount=amount, so excluding them leaves `remaining` unchanged.
   let sql = `SELECT COALESCE(SUM(amount),0) s, COALESCE(SUM(settled_amount),0) settled FROM rep_advances WHERE rep_id=?`;
+  if (hasColumn(db, 'rep_advances', 'status')) sql += " AND COALESCE(status,'posted')<>'reversed'";
   const p = [repId];
   if (from) { sql += ' AND date>=?'; p.push(from); }
   if (to) { sql += ' AND date<=?'; p.push(to); }
@@ -258,7 +285,10 @@ function buildRepLedgerView(db, repId, { from, to } = {}) {
   if (to) { manSql += ' AND date<=?'; manParams.push(to); }
   manSql += ' ORDER BY date DESC, id DESC LIMIT 500';
   const { hideVoidedRepLedgerRows } = require('./party-ledger-retire');
-  const manual = hideVoidedRepLedgerRows(db, db.prepare(manSql).all(...manParams));
+  const manual = hideVoidedRepDocRows(
+    hideVoidedRepLedgerRows(db, db.prepare(manSql).all(...manParams)),
+    voidedRepDocIds(db, repId)
+  );
 
   return {
     rep: u,
@@ -302,7 +332,16 @@ function buildRepStatement(db, repId, { from, to } = {}) {
 
   const advs = db.prepare(`SELECT * FROM rep_advances WHERE rep_id=?${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
   for (const a of advs) {
+    if (a.status === 'reversed') {
+      entries.push({ date: a.date, type: 'advance_voided', type_label: 'مساعده (ابطال‌شده)', description: [a.note, `مبلغ ${a.amount} ابطال شد`].filter(Boolean).join(' — '), debit: 0, credit: 0, voided: true, original_amount: a.amount, reference: `#${a.id}` });
+      continue;
+    }
     entries.push({ date: a.date, type: 'advance', type_label: 'مساعده', description: a.note || '', debit: a.amount, credit: 0, reference: `#${a.id}` });
+  }
+
+  const voidedExps = db.prepare(`SELECT * FROM rep_expenses WHERE rep_id=? AND status='reversed'${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
+  for (const e of voidedExps) {
+    entries.push({ date: e.date, type: 'expense_voided', type_label: `${EXPENSE_CATEGORIES[e.category] || 'هزینه'} (ابطال‌شده)`, description: [e.description, `مبلغ ${e.amount} ابطال شد`].filter(Boolean).join(' — '), debit: 0, credit: 0, voided: true, original_amount: e.amount, reference: `#${e.id}` });
   }
 
   for (const m of view.manualEntries) {

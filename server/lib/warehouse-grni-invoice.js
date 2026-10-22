@@ -260,6 +260,40 @@ function invoiceWarehouseGrni(db, body, user) {
     const ap = payableAcct(db, supplierId);
     const invAcct = inventoryAccountForWarehouse(db, warehouseId);
     const delta = netBeforeVat - provisionalTotal;
+    // Value-only reval per product (allocate delta by provisional share or equal qty)
+    const parts = [];
+    if (delta !== 0) {
+      const baseSum = provisionalTotal > 0
+        ? provisionalTotal
+        : rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+      let left = delta;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        let part;
+        if (i === rows.length - 1) {
+          part = left;
+        } else if (provisionalTotal > 0) {
+          part = Math.round(delta * ((Number(r.provisional_rial) || 0) / baseSum));
+        } else {
+          part = Math.round(delta * ((Number(r.qty) || 0) / baseSum));
+        }
+        left -= part;
+        parts.push({ r, part });
+      }
+    }
+    // v522: price difference on already-issued qty → whole line parked for approval (clearing).
+    const gate = require('./inventory/value-approval').begin(db, {
+      sourceType: 'purchase', sourceId: invId, date, createdBy: user.id,
+      label: `مابه‌التفاوت فاکتور خرید ${num}`,
+    });
+    for (const p of parts) {
+      p.gated = gate.gate({
+        productId: p.r.product_id, warehouseId: p.r.warehouse_id || warehouseId,
+        refQty: Number(p.r.qty) || 0, deltaRial: p.part, note: `GRNI → فاکتور ${num}`,
+      });
+    }
+    const gatedRial = gate.gatedTotal();
+    const invDelta = delta - gatedRial;
     const jeLines = [];
     // Clear provisional GRNI at receipt valuation
     if (provisionalTotal > 0) {
@@ -269,19 +303,27 @@ function invoiceWarehouseGrni(db, body, user) {
         description: 'تسویه GRNI رسید انبار',
       });
     }
-    if (delta > 0) {
+    if (invDelta > 0) {
       jeLines.push({
         code: invAcct.code, name: invAcct.name,
-        debit: rialToLedger(delta), credit: 0,
+        debit: rialToLedger(invDelta), credit: 0,
         description: 'مابه‌التفاوت بهای فاکتور نسبت به رسید',
         cost_center_id: costCenterId,
       });
-    } else if (delta < 0) {
+    } else if (invDelta < 0) {
       jeLines.push({
         code: invAcct.code, name: invAcct.name,
-        debit: 0, credit: rialToLedger(-delta),
+        debit: 0, credit: rialToLedger(-invDelta),
         description: 'مابه‌التفاوت بهای فاکتور نسبت به رسید',
         cost_center_id: costCenterId,
+      });
+    }
+    if (gatedRial) {
+      jeLines.push({
+        code: gate.clearing.code, name: gate.clearing.name,
+        debit: gatedRial > 0 ? rialToLedger(gatedRial) : 0,
+        credit: gatedRial < 0 ? rialToLedger(-gatedRial) : 0,
+        description: 'مابه‌التفاوت بها — در انتظار تأیید تغییر بها',
       });
     }
     if (vatAmount > 0) {
@@ -307,27 +349,13 @@ function invoiceWarehouseGrni(db, body, user) {
       lines: jeLines,
     });
 
-    // Value-only reval per product (allocate delta by provisional share or equal qty)
-    if (delta !== 0) {
-      const baseSum = provisionalTotal > 0
-        ? provisionalTotal
-        : rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
-      let left = delta;
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        let part;
-        if (i === rows.length - 1) {
-          part = left;
-        } else if (provisionalTotal > 0) {
-          part = Math.round(delta * ((Number(r.provisional_rial) || 0) / baseSum));
-        } else {
-          part = Math.round(delta * ((Number(r.qty) || 0) / baseSum));
-        }
-        left -= part;
+    if (parts.length) {
+      for (const p of parts) {
+        if (p.gated) continue;
         applyValueVariance(db, {
-          productId: r.product_id,
-          warehouseId: r.warehouse_id || warehouseId,
-          deltaRial: part,
+          productId: p.r.product_id,
+          warehouseId: p.r.warehouse_id || warehouseId,
+          deltaRial: p.part,
           purchaseId: invId,
           date,
           userId: user.id,
@@ -338,6 +366,7 @@ function invoiceWarehouseGrni(db, body, user) {
         WHERE source_type='warehouse_grni_reval' AND source_id=?
       `).run(jeId, invId);
     }
+    gate.finish();
 
     // Supplier books
     try {
@@ -366,6 +395,10 @@ function invoiceWarehouseGrni(db, body, user) {
  * Caller already reverses the purchase JE when stock_added=0.
  */
 function unlinkWarehouseGrniOnPurchaseVoid(db, purchaseId, { userId = null, reason = '' } = {}) {
+  require('./inventory/value-approval').cancelForSource(db, 'purchase', purchaseId, { id: userId },
+    reason || `ابطال فاکتور خرید #${purchaseId}`);
+  require('./inventory/value-approval').cancelForSource(db, 'receipt:purchase', purchaseId, { id: userId },
+    reason || `ابطال فاکتور خرید #${purchaseId}`);
   const docs = db.prepare('SELECT id FROM warehouse_docs WHERE purchase_invoice_id=?').all(purchaseId);
   const leds = db.prepare(`
     SELECT id, product_id, warehouse_id, amount_rial FROM inventory_ledger

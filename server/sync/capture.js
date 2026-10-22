@@ -143,6 +143,8 @@ const PATH_TABLE_MAP = [
   ['/api/inventory-valuation/queue', 'inventory_valuation_queue'],
   ['/api/inventory-valuation/auto', 'inventory_revaluations'],
   ['/api/inventory-valuation/policy', 'settings'],
+  ['/api/inventory-valuation/approvals', 'inventory_value_approvals'],
+  ['/api/inventory-valuation/periods', 'inventory_period_locks'],
   ['/api/inventory-valuation', 'inventory_valuation_buckets'],
   ['/api/inventory/fabric-rolls/relabel-unit', 'fabric_roll_unit_relabels'],
   ['/api/inventory/fabric-rolls', 'inventory_batches'],
@@ -290,6 +292,7 @@ function diffSequences(before, after) {
 }
 
 function captureMiddleware(req, res, next) {
+  if (require('./relay-now').bypassCapture(req)) return next(); // v522: online-only relay to central — never queued locally
   const method = req.method;
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return next();
   if (!req.path.startsWith('/api/')) return next();

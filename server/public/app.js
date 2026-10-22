@@ -3053,6 +3053,7 @@ async function initSyncUI(){
     SYNC_STATUS = await fetchSyncStatus();
     if(!SYNC_STATUS || SYNC_STATUS.role!=='device') return;
     SYNC_MODE = true;
+    try{ ivalInstallOnlineGuard(); }catch(_){}
     _lastDataVersion = SYNC_STATUS.data_version;
     renderSyncBadge();
     bindOnlineFirstSync();
@@ -8110,6 +8111,7 @@ async function prodModal(id){
           <option value="fifo" ${p.costing_method==='fifo'?'selected':''}>FIFO</option>
           <option value="specific" ${p.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
         </select><div id="p-costing-eff" class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}"></div>${ivalPolicyHintLater('p-costing-eff','product',id)}</div>
+      ${ivalLevelFieldHtml('p-val-level',p.valuation_level,'گروه کالا / انبار / سراسری')}
       <div class="fg full"><label>تصاویر کالا ${hlp('چند تصویر را یک‌جا انتخاب کنید — به گالری اضافه می‌شوند و عکس قبلی پاک نمی‌شود. تصویر اولِ ثبت‌شده به‌عنوان اصلی است.')}</label>
         <input id="p-image" type="file" accept="image/*" multiple></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
@@ -8642,6 +8644,7 @@ async function saveProduct(id){
   fd.append('barcode',el('p-barcode')?.value||'');
   fd.append('warehouse_id',el('p-warehouse')?.value||'');
   fd.append('costing_method',el('p-costing')?.value||'');
+  if(el('p-val-level')) fd.append('valuation_level',el('p-val-level').value||'');
   fd.append('note',el('p-note').value);
   if(usesExtendedCoa()){
     fd.append('full_name',el('p-full_name')?.value||'');
@@ -9485,6 +9488,14 @@ const RBAC_RES_FA={
   bank_reconciliation:'مغایرت‌گیری بانکی'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
+/* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
+const RBAC_ACC_ACTION_HINTS={
+  'acc-inv-valuation':'ایجاد = ثبت تعدیل بها · تأیید = تأیید/رد تغییر ارزش · ویرایش = سیاست و قوانین ارزش‌گذاری · حذف = ابطال سند',
+  'acc-subledger-recon':'ویرایش = اعمال اصلاح · حذف = ابطال اصلاحیه',
+  'acc-reps':'حذف = ابطال هزینهٔ تأییدشده و مساعدهٔ نماینده',
+  'acc-inv-period-lock':'تأیید = قفل/بازکردن دورهٔ ارزش‌گذاری موجودی'
+};
+const RBAC_ACC_EXTRA_AFTER={'acc-inv-valuation':[{id:'acc-inv-period-lock',label:'قفل دورهٔ ارزش‌گذاری موجودی'}]};
 function rbacActionBoxes(resource, actions, permissions, label){
   return actions.map(a=>{
     const on=permissions[resource]&&permissions[resource][a];
@@ -9500,10 +9511,12 @@ function rbacAccountingPanelHtml(actions, permissions){
       if(!res||!it) return;
       const note=RBAC_ADMIN_ONLY_NAV.has(it.id)?' <span class="muted">فقط مدیر سیستم اجرا می‌کند</span>':'';
       const subBit=sub?`<span class="muted">${esc(sub)} · </span>`:'';
+      const hint=RBAC_ACC_ACTION_HINTS[it.id]?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(RBAC_ACC_ACTION_HINTS[it.id])}</div>`:'';
       rows.push(`<div class="rbac-acc-item" data-acc-item data-acc-label="${esc(it.label||'')}">
-        <div>${subBit}<b>${esc(it.label||it.id)}</b>${note}</div>
+        <div>${subBit}<b>${esc(it.label||it.id)}</b>${note}${hint}</div>
         <div class="rbac-acc-actions">${rbacActionBoxes(res, actions, permissions, it.label||it.id)}</div>
       </div>`);
+      (RBAC_ACC_EXTRA_AFTER[it.id]||[]).forEach(x=>push(x, sub));
     };
     (sec.items||[]).forEach(it=>push(it,''));
     (sec.subgroups||[]).forEach(sg=>(sg.items||[]).forEach(it=>push(it, sg.title)));
@@ -9621,6 +9634,7 @@ async function openRbacMatrix(userId){
       <div data-csp-style="${CSP.style(`margin:0 0 12px;display:flex;flex-wrap:wrap;gap:8px`)}">
         <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){rbacGrantInvoiceFull()})}">✅ دسترسی کامل فاکتور (مشاهده/ایجاد/ویرایش/خروجی)</button>
         <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){rbacGrantAll()})}">دسترسی کامل همه بخش‌ها</button>
+        ${data.role&&data.role!=='admin'?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openRbacRoleDefaults(data.role)})}">⚙️ پیش‌فرض نقش «${esc(RBAC_ROLE_FA[data.role]||data.role)}»</button>`:''}
       </div>
       ${rbacAccountingPanelHtml(actions, permissions)}
       <h4 data-csp-style="${CSP.style(`margin:16px 0 8px`)}">سایر بخش‌ها</h4>
@@ -9653,6 +9667,43 @@ async function saveRbacMatrix(userId){
     try{ buildNav(); }catch(_){}
   }
   showToast('دسترسی‌ها ذخیره شد'); closeModal();
+}
+/* v522 — پیش‌فرض دسترسی هر نقش (settings.role_permission_defaults)؛ تیک کاربر روی آن اولویت دارد */
+const RBAC_ROLE_FA={accounting:'حسابدار',sales_manager:'مدیر فروش',field_sales:'فروشنده میدانی',inside_sales:'فروش تلفنی',distribution_office:'دفتر پخش',store_retail:'صندوق فروشگاه',production_manager:'مدیر تولید',production_operator:'اپراتور تولید',unit_manager:'مدیر واحد',department_manager:'مدیر بخش'};
+async function openRbacRoleDefaults(role){
+  const data=await api('GET','/rbac/role-defaults/'+encodeURIComponent(role));
+  if(!data) return;
+  const { resources, actions, permissions } = data;
+  const general=(resources||[]).filter(r=>r!=='accounting' && !String(r).startsWith('acc_'));
+  const rows=general.map(r=>`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
+    const on=permissions[r]&&permissions[r][a];
+    return `<td data-csp-style="${CSP.style(`text-align:center`)}"><input type="checkbox" data-r="${esc(r)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
+  }).join('')}</tr>`).join('');
+  const changed=Object.keys(data.overrides||{}).length;
+  openModal(`<div class="modal-head"><h3>⚙️ پیش‌فرض دسترسی نقش — ${esc(RBAC_ROLE_FA[role]||role)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body" id="rbacMatrix">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">این تیک‌ها برای همهٔ کاربران این نقش است؛ تیکی که برای یک کاربر جداگانه ذخیره شده، بر پیش‌فرض نقش اولویت دارد. مدیر سیستم همیشه همهٔ دسترسی‌ها را دارد.${changed?` (${fmtQtyFa(changed)} بخش با پیش‌فرض کد فرق دارد)`:''}</p>
+      ${rbacAccountingPanelHtml(actions, permissions)}
+      <h4 data-csp-style="${CSP.style(`margin:16px 0 8px`)}">سایر بخش‌ها</h4>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${esc(RBAC_ACT_FA[a]||a)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveRbacRoleDefaults(role)})}">💾 ذخیره پیش‌فرض نقش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  bindRbacMatrix();
+}
+async function saveRbacRoleDefaults(role){
+  const perms={};
+  document.querySelectorAll('#modalRoot input[data-r]').forEach(cb=>{
+    const r=cb.dataset.r, a=cb.dataset.a;
+    if(!perms[r]) perms[r]={};
+    perms[r][a]=cb.checked;
+  });
+  await api('PUT','/rbac/role-defaults/'+encodeURIComponent(role),{permissions:perms});
+  if(ME && ME.role===role){
+    try{ USER_PERMS = await api('GET','/rbac/me')||{}; }catch{ /* keep previous */ }
+    try{ buildNav(); }catch(_){}
+  }
+  showToast('پیش‌فرض نقش ذخیره شد'); closeModal();
 }
 async function fiscalRollover(){
   const label=el('fy-label')?.value?.trim(), start=el('fy-start')?.value?.trim(), end=el('fy-end')?.value?.trim();
@@ -14672,6 +14723,7 @@ async function warehouseModal(id){
         <option value="fifo" ${w.costing_method==='fifo'?'selected':''}>FIFO</option>
         <option value="specific" ${w.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
       </select><div id="wh-costing-eff" class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}"></div></div>
+      ${ivalLevelFieldHtml('wh-val-level',w.valuation_level,'تنظیم سراسری')}
       <div class="fg"><label>روش ثبت موجودی ${hlp('دائمی: سند بهای تمام‌شده در همان فروش. ادواری: فقط تعداد جابه‌جا می‌شود و ارزش در بستن دوره ثبت می‌شود. اصلاح فاکتور، مرجوعی و تسویه امانی هم همین قانون را رعایت می‌کنند.')}</label><select id="wh-inv-sys">
         <option value="perpetual" ${(w.inventory_system||'perpetual')!=='periodic'?'selected':''}>دائمی (Perpetual)</option>
         <option value="periodic" ${w.inventory_system==='periodic'?'selected':''}>ادواری (Periodic)</option>
@@ -14714,6 +14766,7 @@ async function saveWarehouse(id){
     is_default:el('wh-default')?.checked?1:0,
     allow_negative:el('wh-neg')?.checked?1:0,
     costing_method:el('wh-costing')?.value||null,
+    valuation_level:el('wh-val-level')?el('wh-val-level').value||'':undefined,
     inventory_system:el('wh-inv-sys')?.value||'perpetual',
     inventory_coa_code:(el('wh-inv-coa')?.value||'').trim()||null
   };
@@ -18986,6 +19039,32 @@ async function ivalPolicyHint(boxId,kind,productId){
 }
 function ivalPolicyHintLater(boxId,kind,productId){ setTimeout(()=>ivalPolicyHint(boxId,kind,productId),0); return ''; }
 function ivalCanEdit(){ return isAdmin() || ME.role==='accounting'; }
+/* v522: روی دستگاه، عملیات ارزش‌گذاری فقط آنلاین (رلهٔ همزمان به مرکز). هر دکمهٔ ثبت/پیش‌نمایش با data-ival-mut */
+const IVAL_OFFLINE_TIP='فقط با اتصال به سرور';
+function ivalIsOfflineDevice(){ return !!(SYNC_MODE && SYNC_STATUS && (!SYNC_STATUS.paired || !SYNC_STATUS.online)); }
+function ivalApplyOnlineGuard(root){
+  const off=ivalIsOfflineDevice();
+  (root||document).querySelectorAll('[data-ival-mut]').forEach(b=>{
+    if(off){
+      if(!b.hasAttribute('data-ival-off')){ b.setAttribute('data-ival-off',b.disabled?'1':'0'); b.dataset.ivalTitle=b.title||''; }
+      b.disabled=true; b.title=IVAL_OFFLINE_TIP;
+    }else if(b.hasAttribute('data-ival-off')){
+      b.disabled=b.getAttribute('data-ival-off')==='1'; b.title=b.dataset.ivalTitle||''; b.removeAttribute('data-ival-off');
+    }
+  });
+}
+function ivalInstallOnlineGuard(){
+  if(window._ivalGuardOn) return; window._ivalGuardOn=true;
+  document.addEventListener('click',function(e){
+    const b=e.target&&e.target.closest&&e.target.closest('[data-ival-mut]');
+    if(b&&ivalIsOfflineDevice()){ e.preventDefault(); e.stopImmediatePropagation(); showToast('این عملیات فقط با اتصال به سرور مرکزی ممکن است','error'); }
+  },true);
+  let t=null;
+  try{ new MutationObserver(()=>{ if(t||!ivalIsOfflineDevice()) return; t=setTimeout(()=>{ t=null; ivalApplyOnlineGuard(); },50); }).observe(document.body,{childList:true,subtree:true}); }catch(_){}
+  setInterval(()=>ivalApplyOnlineGuard(),2000);
+  window.addEventListener('online',()=>ivalApplyOnlineGuard());
+  window.addEventListener('offline',()=>ivalApplyOnlineGuard());
+}
 function ivalWhName(id){
   if(!id) return 'همهٔ انبارها';
   const w=(CACHE.warehouses||[]).find(x=>Number(x.id)===Number(id));
@@ -19009,7 +19088,7 @@ async function renderInvValuationTab(body){
   const canEdit=ivalCanEdit();
   const pane=window._ivalPane||'reval';
   const whOpts=(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('');
-  const tabs=[['policy','⚙️ مبنای ریالی'],['reval','⚖️ تعدیل بها'],['rules','🤖 قواعد اتومات'],['queue','🕒 صف تغییرات'],['buckets','🏭 ارزش در انبارها']];
+  const tabs=[['policy','⚙️ مبنای ریالی'],['reval','⚖️ تعدیل بها'],['approvals','✅ تأیید تغییر بها'],['rules','🤖 قواعد اتومات'],['queue','🕒 صف تغییرات'],['buckets','🏭 ارزش در انبارها'],['locks','🔒 قفل ماهانه']];
   body.innerHTML=`
   <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
     <div class="panel-body" data-csp-style="${CSP.style(`line-height:1.9;font-size:12.5px`)}">
@@ -19028,6 +19107,8 @@ async function renderInvValuationTab(body){
   if(pane==='rules') return ivalRulesPane(box,canEdit,whOpts);
   if(pane==='queue') return ivalQueuePane(box,canEdit);
   if(pane==='buckets') return ivalBucketsPane(box);
+  if(pane==='approvals') return ivalApprovalsPane(box,canEdit);
+  if(pane==='locks') return ivalLocksPane(box);
   return ivalRevalPane(box,canEdit,whOpts);
 }
 async function ivalPolicyPane(box,canEdit){
@@ -19054,7 +19135,7 @@ async function ivalPolicyPane(box,canEdit){
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-top:8px`)}">
       ارزش هر کالا در هر انبار همیشه جدا نگه‌داری می‌شود؛ تغییر سطح فقط تعیین می‌کند نرخ خروجی از کدام میانگین خوانده شود و داده‌ای از بین نمی‌رود.
     </div>
-    ${canEdit?`<div data-csp-style="${CSP.style(`margin-top:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){ivalPolicySave()})}">💾 ذخیره مبنا</button></div>`:''}
+    ${canEdit?`<div data-csp-style="${CSP.style(`margin-top:12px`)}"><button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalPolicySave()})}">💾 ذخیره مبنا</button></div>`:''}
     <div class="panel" data-csp-style="${CSP.style(`margin-top:14px`)}"><div class="panel-head"><h4>بررسی مبنای مؤثر یک کالا</h4></div><div class="panel-body">
       <div class="form-grid">
         <div class="fg"><label>کالا</label><input id="ival-eff-prod" list="ival-products" placeholder="کد یا نام"></div>
@@ -19063,7 +19144,40 @@ async function ivalPolicyPane(box,canEdit){
       </div>
       <div id="ival-eff-out" class="oh-preview" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>
     </div></div>
+    ${ivalReasonPanelHtml(p.adjust_reason_accounts,canEdit)}
   </div></div>`;
+}
+/* v522: حساب مقابل تعدیل دستی بر اساس مرحله + دلیل */
+const IVAL_ADJ_REASON_FA={shortage:'کسری',surplus:'اضافی',wastage:'ضایعات',damage:'خرابی / آسیب',count_correction:'اصلاح شمارش',other:'سایر'};
+function ivalAdjustReasonSelect(id){
+  return `<select id="${id}"><option value="">— بدون دلیل (حساب تعدیل عمومی) —</option>${Object.entries(IVAL_ADJ_REASON_FA).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select>`;
+}
+function ivalLevelFieldHtml(id,value,scopeFa){
+  const v=value==='product'||value==='warehouse'?value:'';
+  return `<div class="fg"><label>سطح ارزش‌گذاری ${hlp('مشترک: همهٔ انبارها یک میانگین/استخر بها دارند. مستقل: هر انبار میانگین جداگانه دارد. پیروی: از سطح بالاتر (کالا ← گروه کالا ← انبار ← تنظیم سراسری) گرفته می‌شود. تغییر فقط روی خروجی‌های بعدی اثر دارد و در گزارش ممیزی ثبت می‌شود.')}</label>
+    <select id="${id}">
+      <option value="" ${!v?'selected':''}>پیروی (${esc(scopeFa)})</option>
+      <option value="product" ${v==='product'?'selected':''}>مشترک بین انبارها</option>
+      <option value="warehouse" ${v==='warehouse'?'selected':''}>مستقل برای هر انبار</option>
+    </select></div>`;
+}
+function ivalReasonPanelHtml(ra,canEdit){
+  if(!ra) return '';
+  const sd=ra.stage_defaults||{}, map=ra.mapping||{};
+  const accName=a=>a?`${esc(a.code)} — ${esc(a.name||'')}`:'—';
+  return `<div class="panel" data-csp-style="${CSP.style(`margin-top:14px`)}"><div class="panel-head"><h4>حساب مقابل تعدیل دستی موجودی ${hlp('وقتی در تعدیل دستی «دلیل» انتخاب شود، طرف مقابل سند بر اساس مرحلهٔ کالا تعیین می‌شود: مواد → کسری و اضافات انبار، کالای در جریان ساخت → سربار، کالای ساخته‌شده/بازرگانی → بهای تمام‌شده. برای هر دلیل می‌توانید حساب اختصاصی بگذارید.')}</h4></div><div class="panel-body">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">پیش‌فرض مرحله‌ای — مواد: <b>${accName(sd.materials)}</b> · در جریان ساخت: <b>${accName(sd.wip)}</b> · ساخته‌شده/بازرگانی: <b>${accName(sd.goods)}</b><br>
+      حساب واسط تغییر بها: <b>${accName(ra.clearing_account)}</b> · حساب رد تغییر بها: <b>${accName(ra.price_variance_account)}</b></div>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:8px`)}">
+      ${Object.entries(IVAL_ADJ_REASON_FA).map(([k,l])=>`<div class="fg"><label>${l}</label><input class="ival-reason-acc" data-reason="${k}" value="${esc(map[k]||'')}" placeholder="خالی = پیش‌فرض مرحله" ${canEdit?'':'disabled'}></div>`).join('')}
+    </div>
+    ${canEdit?`<div data-csp-style="${CSP.style(`margin-top:10px`)}"><button class="btn secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalReasonSave()})}">💾 ذخیره حساب‌های دلیل</button></div>`:''}
+  </div></div>`;
+}
+async function ivalReasonSave(){
+  const m={};
+  document.querySelectorAll('.ival-reason-acc').forEach(i=>{ const v=String(i.value||'').trim(); if(v) m[i.dataset.reason]=v; });
+  try{ await api('PUT','/inventory-valuation/policy',{adjust_reason_accounts:m}); showToast('حساب‌های دلیل تعدیل ذخیره شد'); }catch(e){}
 }
 async function ivalPolicySave(){
   const body={level:el('ival-level').value, method_global:el('ival-method').value, precedence:el('ival-prec').value};
@@ -19078,9 +19192,10 @@ async function ivalEffective(){
   try{
     const r=await api('GET','/inventory-valuation/effective?product_id='+pid+(wh?'&warehouse_id='+wh:''))||{};
     const pol=r.policy||{}, b=r.bucket||{};
-    const srcFa={header:'میانگین کل شرکت',bucket:'میانگین همین انبار',cost_layers:'لایه‌های بها (FIFO/ویژه)'};
+    const srcFa={header:'میانگین کل شرکت',bucket:'میانگین همین انبار',shared_pool:'میانگین استخر مشترک انبارها',cost_layers:'لایه‌های بها (FIFO/ویژه)'};
     out.innerHTML=`روش مؤثر: <b>${esc(IVAL_METHOD_FA[pol.method]||pol.method||'—')}</b> (منبع: ${esc(IVAL_SRC_FA[pol.method_source]||pol.method_source||'—')})
-      — سطح: <b>${esc(IVAL_LEVEL_FA[pol.level]||pol.level||'—')}</b><br>
+      — سطح: <b>${esc(IVAL_LEVEL_FA[pol.level]||pol.level||'—')}</b>${pol.level_source?` (از ${esc(IVAL_SRC_FA[pol.level_source]||({category:'گروه کالا'})[pol.level_source]||pol.level_source)})`:''}
+      ${r.pool_mode==='mixed'?` · <span class="tag t-followup">استخر ترکیبی: برخی انبارها مشترک، برخی مستقل</span>`:''}<br>
       میانگین کالا (کل شرکت): <b>${ivalMoney(r.product?.average_cost_rial)}</b>
       ${wh?` — در این انبار: مقدار ${fmtQtyFa(b.qty||0)}، ارزش ${ivalMoney(b.value_rial)}، میانگین <b>${ivalMoney(b.avg_rial)}</b>`:''}<br>
       نرخ خروجی بعدی: <b>${ivalMoney(r.effective_outbound_unit_rial)}</b> (${esc(srcFa[r.effective_outbound_source]||r.effective_outbound_source||'')})
@@ -19112,8 +19227,8 @@ async function ivalRevalPane(box,canEdit,whOpts){
   const today=todayJalali();
   box.innerHTML=`<div class="panel"><div class="panel-head"><h4>تعدیل بهای موجودی — همهٔ انبارها</h4>
     <div class="oh-actions">
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){ivalPreview()})}">پیش‌نمایش</button>
-      ${canEdit?`<button class="btn" data-csp-click="${CSP.bind('click',function(){ivalPost()})}">ثبت تعدیل</button>`:''}
+      <button class="btn secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalPreview()})}">پیش‌نمایش</button>
+      ${canEdit?`<button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalPost()})}">ثبت تعدیل</button>`:''}
     </div></div>
   <div class="panel-body">
     <div class="form-grid">
@@ -19195,7 +19310,7 @@ async function ivalHistLoad(){
       <td>${h.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':'<span class="tag t-done">ثبت‌شده</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ivalShow(h.id)})}">جزئیات</button>
-        ${h.status==='posted'&&canEdit?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){ivalReverse(h.id)})}">ابطال</button>`:''}
+        ${h.status==='posted'&&canEdit?`<button class="btn sm red" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalReverse(h.id)})}">ابطال</button>`:''}
       </td>
     </tr>`).join('')}
     </tbody></table></div>`;
@@ -19220,9 +19335,9 @@ async function ivalRulesPane(box,canEdit,whOpts){
   const parseArr=v=>{ if(Array.isArray(v)) return v; try{ return JSON.parse(v||'[]')||[]; }catch(_){ return []; } };
   box.innerHTML=`<div class="panel"><div class="panel-head"><h4>قواعد تعدیل اتومات (قابل شخصی‌سازی)</h4>
     <div class="oh-actions">
-      ${canEdit?`<button class="btn" data-csp-click="${CSP.bind('click',function(){ivalRuleModal(0)})}">＋ قاعدهٔ جدید</button>
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){ivalAutoRun(true)})}">اجرای آزمایشی</button>
-      <button class="btn orange" data-csp-click="${CSP.bind('click',function(){ivalAutoRun(false)})}">اجرای همین حالا</button>`:''}
+      ${canEdit?`<button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalRuleModal(0)})}">＋ قاعدهٔ جدید</button>
+      <button class="btn secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalAutoRun(true)})}">اجرای آزمایشی</button>
+      <button class="btn orange" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalAutoRun(false)})}">اجرای همین حالا</button>`:''}
     </div></div>
   <div class="panel-body">
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">هر قاعده تعیین می‌کند کدام رویدادها (سند گذشته‌تاریخ، هزینهٔ حمل بعد از فروش، جبران موجودی منفی، …)، برای کدام انبار/گروه/کالا، با چه مبنایی و از چه آستانه‌ای به‌صورت خودکار تعدیل شوند. بالای آستانه: اگر عمل «بررسی» باشد در صف می‌ماند تا حسابدار تأیید کند.</p>
@@ -19239,12 +19354,12 @@ async function ivalRulesPane(box,canEdit,whOpts){
       <td>${esc(whs)}</td>
       <td class="mono">${r.threshold_rial?ivalMoney(r.threshold_rial):'—'} / ${r.threshold_pct?fmt(r.threshold_pct)+'٪':'—'}</td>
       <td>${r.action==='review'?'بررسی بالای آستانه':'ثبت خودکار'}</td>
-      <td>${esc(schedFa[r.schedule]||r.schedule||'—')}</td>
+      <td>${esc(schedFa[r.schedule]||r.schedule||'—')}${(()=>{ const s=r.schedule_obj; if(!s||s.mode==='none') return ''; const wdFa=['ش','ی','د','س','چ','پ','ج']; const p2=n=>String(n).padStart(2,'0'); return `<div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${s.mode==='weekly'?esc((s.weekdays||[]).map(i=>wdFa[i]).join('،'))+' ':''}${s.mode==='monthly'?esc((s.monthdays||[]).join('،'))+' ':''}${p2(s.hour||0)}:${p2(s.minute||0)}</div>`; })()}</td>
       <td class="mono">${r.last_run_at?esc(new Date(Number(r.last_run_at)*1000).toLocaleString('fa-IR')):'—'}</td>
       <td>${r.enabled?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">${canEdit?`
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ivalRuleModal(r.id)})}">ویرایش</button>
-        <button class="btn sm secondary" data-csp-click="${CSP.bind('click',function(){ivalRuleToggle(r.id)})}">${r.enabled?'غیرفعال':'فعال'}</button>`:''}</td>
+        <button class="btn sm ghost" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalRuleModal(r.id)})}">ویرایش</button>
+        <button class="btn sm secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalRuleToggle(r.id)})}">${r.enabled?'غیرفعال':'فعال'}</button>`:''}</td>
     </tr>`;}).join('')||'<tr><td colspan="10" class="empty">قاعده‌ای تعریف نشده</td></tr>'}
     </tbody></table></div>
     <div id="ival-auto-out" class="oh-preview" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>
@@ -19259,6 +19374,9 @@ async function ivalRuleModal(id){
   const whSel=new Set(parseArr(r.warehouse_ids_json||r.warehouse_ids).map(Number));
   const catSel=new Set(parseArr(r.category_ids_json||r.category_ids).map(Number));
   const cats=CACHE.productCategories||CACHE.productCats||[];
+  let sch=r.schedule_obj;
+  if(!sch||typeof sch!=='object'){ try{ sch=JSON.parse(r.schedule_json||'null'); }catch(_){ sch=null; } }
+  if(!sch||typeof sch!=='object'){ const m=r.schedule||'none'; sch={mode:m,weekdays:m==='weekly'?[0]:[],monthdays:m==='monthly'?[1]:[],hour:1,minute:0}; }
   const prodNames=parseArr(r.product_ids_json||r.product_ids).map(pid=>{ const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid)); return p?((p.code?p.code+' — ':'')+p.name):String(pid); }).join('، ');
   showModal(id?'ویرایش قاعدهٔ تعدیل اتومات':'قاعدهٔ تعدیل اتومات جدید',`
     <div class="form-grid">
@@ -19276,9 +19394,19 @@ async function ivalRuleModal(id){
       </select></div>
       <div class="fg"><label>آستانهٔ مبلغ (ریال)</label><input id="ivr-th-rial" class="money" inputmode="numeric" value="${moneyInit(r.threshold_rial||0)}"></div>
       <div class="fg"><label>آستانهٔ درصد تغییر نرخ</label><input id="ivr-th-pct" type="number" step="0.1" value="${esc(r.threshold_pct||0)}"></div>
-      <div class="fg"><label>زمان‌بندی</label><select id="ivr-sched">
-        ${[['none','فقط با رویداد/دستی'],['daily','روزانه'],['weekly','هفتگی'],['monthly','ماهانه']].map(([k,l])=>`<option value="${k}" ${(r.schedule||'none')===k?'selected':''}>${l}</option>`).join('')}
+      <div class="fg"><label>زمان‌بندی</label><select id="ivr-sched" data-csp-change="${CSP.bind('change',function(){ivalSchedUi()})}">
+        ${[['none','فقط با رویداد/دستی'],['daily','روزانه'],['weekly','هفتگی'],['monthly','ماهانه']].map(([k,l])=>`<option value="${k}" ${(sch.mode||'none')===k?'selected':''}>${l}</option>`).join('')}
       </select></div>
+      <div class="fg" id="ivr-time-wrap"><label>ساعت اجرا</label><div data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;direction:ltr`)}">
+        <input id="ivr-hour" type="number" min="0" max="23" value="${esc(sch.hour??1)}" data-csp-style="${CSP.style(`width:64px`)}"> :
+        <input id="ivr-minute" type="number" min="0" max="59" step="5" value="${esc(sch.minute??0)}" data-csp-style="${CSP.style(`width:64px`)}"></div></div>
+      <div class="fg full" id="ivr-wd-wrap"><label>روزهای هفته</label>
+        <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px`)}">
+        ${['شنبه','یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه'].map((l,i)=>`<label data-csp-style="${CSP.style(`font-weight:400`)}"><input type="checkbox" class="ivr-wd" value="${i}" ${(sch.weekdays||[]).includes(i)?'checked':''}> ${l}</label>`).join('')}
+        </div></div>
+      <div class="fg full" id="ivr-md-wrap"><label>روزهای ماه شمسی (مثلاً ۱، ۱۵، ۳۱ — ۳۱ در ماه کوتاه = روز آخر)</label>
+        <input id="ivr-mdays" value="${esc((sch.monthdays||[]).join(', '))}" placeholder="1, 15"></div>
+      <div class="fg full muted" data-csp-style="${CSP.style(`font-size:11.5px`)}">زمان‌بند هر ۵ دقیقه بررسی می‌کند؛ هر نوبت (روز + ساعت) فقط یک‌بار اجرا می‌شود حتی اگر سرور ری‌استارت شود.${r.last_run_slot?` آخرین نوبت اجراشده: <span class="mono">${esc(r.last_run_slot)}</span>`:''}</div>
       <div class="fg"><label><input type="checkbox" id="ivr-enabled" ${r.enabled?'checked':''}> فعال</label></div>
       <div class="fg full"><label>انبارها (خالی = همه)</label>
         <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px`)}">
@@ -19292,8 +19420,27 @@ async function ivalRuleModal(id){
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(){ivalRuleSave(id)})}">💾 ذخیره</button>
+      <button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalRuleSave(id)})}">💾 ذخیره</button>
     </div>`);
+  ivalSchedUi();
+}
+function ivalSchedUi(){
+  const m=el('ivr-sched')?.value||'none';
+  const show=(id,on)=>{ const x=el(id); if(x) x.style.display=on?'':'none'; };
+  show('ivr-time-wrap',m!=='none');
+  show('ivr-wd-wrap',m==='weekly');
+  show('ivr-md-wrap',m==='monthly');
+}
+function ivalScheduleBody(){
+  const mode=el('ivr-sched')?.value||'none';
+  const faDig=s=>String(s||'').replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+  return {
+    mode,
+    weekdays:[...document.querySelectorAll('.ivr-wd')].filter(x=>x.checked).map(x=>Number(x.value)),
+    monthdays:faDig(el('ivr-mdays')?.value).split(/[,،\s]+/).map(x=>parseInt(x,10)).filter(n=>n>=1&&n<=31),
+    hour:parseInt(faDig(el('ivr-hour')?.value),10)||0,
+    minute:parseInt(faDig(el('ivr-minute')?.value),10)||0,
+  };
 }
 async function ivalRuleSave(id){
   const name=(el('ivr-name')?.value||'').trim();
@@ -19301,7 +19448,10 @@ async function ivalRuleSave(id){
   const checked=cls=>[...document.querySelectorAll('.'+cls)].filter(x=>x.checked).map(x=>x.value);
   const triggers=checked('ivr-trig');
   if(!triggers.length){ showToast('حداقل یک رویداد فعال‌کننده انتخاب کنید','error'); return; }
-  const body={
+  const schedule_json=ivalScheduleBody();
+  if(schedule_json.mode==='weekly'&&!schedule_json.weekdays.length){ showToast('حداقل یک روز هفته انتخاب کنید','error'); return; }
+  if(schedule_json.mode==='monthly'&&!schedule_json.monthdays.length){ showToast('حداقل یک روز ماه وارد کنید','error'); return; }
+  const body={ schedule_json,
     name, triggers, basis:el('ivr-basis').value, action:el('ivr-action').value,
     threshold_rial:moneyVal('ivr-th-rial')||0, threshold_pct:Number(el('ivr-th-pct').value)||0,
     schedule:el('ivr-sched').value, enabled:el('ivr-enabled').checked?1:0,
@@ -19333,6 +19483,112 @@ async function ivalAutoRun(dry){
     if(!dry) ivalHistLoad();
   }catch(e){ if(out) out.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
 }
+/* v522: تأیید تغییر بها (تغییر بها بعد از فروش/مصرف) */
+const IVAL_APPR_ST_FA={pending:'در انتظار تأیید',approved:'تأییدشده',rejected:'ردشده',cancelled:'لغو (ابطال سند مبدأ)'};
+const IVAL_APPR_SRC_FA={landed_cost:'هزینه حمل',purchase:'فاکتور خرید / اصلاح خرید',production_close:'بستن دورهٔ تولید',cost_revaluation:'تعدیل بهای تولید','receipt:purchase':'رسید خرید (قفل دوره)','receipt:warehouse_move':'رسید انبار (قفل دوره)'};
+const IVAL_APPR_REASON_FA={closed_period:'قفل دوره',after_sale:'بعد از فروش'};
+function ivalApprReasonTag(r){ return r==='closed_period'?'<span class="tag t-cancel">🔒 قفل دوره</span>':'<span class="tag t-followup">بعد از فروش</span>'; }
+async function ivalApprovalsPane(box,canEdit){
+  const st=window._ivalApprSt||'pending';
+  let rows=[];
+  try{ const r=await api('GET','/inventory-valuation/approvals?status='+st); rows=r?.rows||[]; }catch(e){ box.innerHTML=`<div class="oh-warn">${esc(e.message||'خطا')}</div>`; return; }
+  box.innerHTML=`<div class="panel"><div class="panel-head"><h4>تأیید تغییر بها</h4>
+    <div class="oh-actions"><select data-csp-change="${CSP.bind('change',function(event){window._ivalApprSt=event.target.value;ivalApprovalsPane(box,canEdit)})}">
+      ${[['pending','در انتظار'],['approved','تأییدشده'],['rejected','ردشده'],['cancelled','لغوشده'],['all','همه']].map(([k,l])=>`<option value="${k}" ${st===k?'selected':''}>${l}</option>`).join('')}
+    </select></div></div>
+  <div class="panel-body">
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">«بعد از فروش»: وقتی بهای کالایی (هزینه حمل، اصلاح فی خرید، مابه‌التفاوت فاکتور GRNI، تعدیل بهای تولید) تغییر کند و بخشی از همان کالا قبلاً فروخته یا به تولید داده شده باشد. «قفل دوره»: سند (خرید، رسید، هزینه حمل، اصلاح، بستن دورهٔ تولید) با تاریخ ماه قفل‌شده ثبت شده؛ مقدار و سند حسابداری عادی ثبت می‌شود ولی اثر ریالی آن روی میانگین منتظر تأیید است (رسید با میانگین فعلی وارد می‌شود و مابه‌التفاوت پارک می‌شود). در هر دو حالت تغییر اعمال نمی‌شود و مبلغ در حساب «تعدیل بهای در انتظار تأیید» می‌ماند. تأیید: سهم موجود → موجودی، سهم فروش‌رفته → بهای تمام‌شده، سهم مصرف تولید → کالای در جریان ساخت. رد: کل مبلغ → «انحراف بها» و نرخ کالا تغییر نمی‌کند. هر تصمیم با «ابطال تصمیم» کامل برگشت می‌خورد.</p>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>شماره</th><th>تاریخ</th><th>علت</th><th>منبع</th><th>مبلغ تغییر</th><th>ردیف</th><th>وضعیت</th><th></th>
+    </tr></thead><tbody>
+    ${rows.map(a=>`<tr>
+      <td class="mono">${esc(a.doc_no||('#'+a.id))}</td>
+      <td class="mono">${esc(a.date||'')}</td>
+      <td>${ivalApprReasonTag(a.reason)}</td>
+      <td>${esc(a.source_label||IVAL_APPR_SRC_FA[a.source_type]||a.source_type||'')}</td>
+      <td class="num">${ivalMoney(a.total_delta_rial)}</td>
+      <td class="num">${fmtQtyFa(a.line_count||0)}</td>
+      <td>${esc(IVAL_APPR_ST_FA[a.status]||a.status||'')}${a.reopen_count?` <span class="muted">(بازگشایی ${fmtQtyFa(a.reopen_count)})</span>`:''}</td>
+      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ivalApprovalShow(a.id,box,canEdit)})}">جزئیات</button></td>
+    </tr>`).join('')||'<tr><td colspan="8" class="empty">موردی نیست</td></tr>'}
+    </tbody></table></div>
+  </div></div>`;
+}
+async function ivalApprovalShow(id,box,canEdit){
+  let a;
+  try{ a=await api('GET','/inventory-valuation/approvals/'+id); }catch(e){ return; }
+  if(!a) return;
+  const pend=a.status==='pending';
+  const rows=(a.lines||[]).map(l=>{
+    const s=pend&&l.current_split?l.current_split:l;
+    return `<tr><td><b>${esc(l.product_code||'')}</b> ${esc(l.product_name||('#'+l.product_id))}</td><td>${esc(l.warehouse_name||ivalWhName(l.warehouse_id))}</td>
+      <td class="num">${fmtQtyFa(l.ref_qty||0)}</td><td class="num">${fmtQtyFa(s.in_stock_qty||0)}</td><td class="num">${fmtQtyFa(Math.max(0,(s.sold_qty||0)-(s.wip_qty||0)))}</td><td class="num">${fmtQtyFa(s.wip_qty||0)}</td>
+      <td class="num">${ivalMoney(l.delta_rial)}</td>
+      <td class="num">${pend?'—':ivalMoney(l.inv_share_rial)} / ${pend?'—':ivalMoney(l.cogs_share_rial)} / ${pend?'—':ivalMoney(l.wip_share_rial)}</td></tr>`;
+  }).join('');
+  showModal(`تأیید تغییر بها ${esc(a.doc_no||'')}`,`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">${ivalApprReasonTag(a.reason)} ${esc(a.source_label||'')} — تاریخ سند <span class="mono">${esc(a.date||'')}</span>${a.period_locked?' (ماه قفل)':''} — مبلغ کل <b>${ivalMoney(a.total_delta_rial)}</b> — وضعیت: <b>${esc(IVAL_APPR_ST_FA[a.status]||a.status)}</b>${a.decision_date?` — ثبت تصمیم: <span class="mono">${esc(a.decision_date)}</span>${a.post_date_mode==='original'?' (تاریخ اصلی)':a.post_date_mode==='next_open'?' (اولین روز ماه باز)':''}`:''}${a.decision_note?' — '+esc(a.decision_note):''}</div>
+    <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>کالا</th><th>انبار</th><th>مقدار رسید</th><th>موجود</th><th>فروش‌رفته</th><th>مصرف تولید</th><th>تغییر بها</th><th>سهم موجودی / فروش / تولید</th>
+    </tr></thead><tbody>${rows||emptyRow(8)}</tbody></table></div>
+    ${pend?'<div class="muted" data-csp-style="'+CSP.style('font-size:11.5px;margin-top:6px')+'">تفکیک موجود/فروش‌رفته با وضعیت لحظهٔ تأیید دوباره محاسبه می‌شود.</div>':''}
+    ${canEdit?`<div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
+      ${a.reason==='closed_period'?`<div class="fg full"><label>تاریخ ثبت اثر ریالی ${hlp('تاریخ اصلی: ردیف ارزش و سند در همان ماه قفل ثبت می‌شود بدون بازکردن قفل (این تأیید مجوز همین سند است). اولین روز ماه باز: در روز اول اولین ماه باز بعد از آن ثبت می‌شود.')}</label>
+        <select id="ivap-mode"><option value="original">تاریخ اصلی (${esc(a.date||'')})</option><option value="next_open">اولین روز ماه باز (${esc(a.next_open_date||'')})</option></select></div>`
+      :`<div class="fg"><label>تاریخ تصمیم</label><input id="ivap-date" value="${esc(todayJalali())}"></div>`}
+      <div class="fg full"><label>توضیح / دلیل</label><input id="ivap-note" placeholder="${pend?'اختیاری':'برای ابطال تصمیم الزامی است'}"></div>
+    </div>
+    <div data-csp-style="${CSP.style(`margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
+      ${pend?`<button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalApprovalAct(id,'approve',box,canEdit)})}">✅ تأیید و تسهیم</button>
+      <button class="btn orange" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalApprovalAct(id,'reject',box,canEdit)})}">✖ رد (انحراف بها)</button>`:''}
+      ${a.status==='approved'||a.status==='rejected'?`<button class="btn secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalApprovalAct(id,'reopen',box,canEdit)})}">↩ ابطال تصمیم</button>`:''}
+    </div>`:''}`);
+}
+async function ivalApprovalAct(id,action,box,canEdit){
+  const note=String(el('ivap-note')?.value||'').trim();
+  const date=String(el('ivap-date')?.value||'').trim();
+  const mode=el('ivap-mode')?.value||'';
+  if(action==='reopen' && note.length<3){ showToast('دلیل ابطال تصمیم را بنویسید','error'); return; }
+  const msg={approve:'تغییر بها تأیید و بین موجودی/بهای تمام‌شده/تولید تسهیم شود؟',reject:'تغییر بها رد و به «انحراف بها» برده شود؟',reopen:'تصمیم ابطال و سند به حالت «در انتظار» برگردد؟'}[action];
+  if(!confirm(msg)) return;
+  try{
+    await api('POST',`/inventory-valuation/approvals/${id}/${action}`,action==='reopen'?{reason:note}:(mode?{post_date_mode:mode,note}:{date,note}));
+    closeModal(); showToast('انجام شد'); ivalApprovalsPane(box,canEdit);
+  }catch(e){}
+}
+/* v522: قفل ماهانهٔ ارزش‌گذاری موجودی */
+async function ivalLocksPane(box){
+  let rows=[];
+  try{ const r=await api('GET','/inventory-valuation/periods'); rows=r?.rows||[]; }catch(e){ box.innerHTML=`<div class="oh-warn">${esc(e.message||'خطا')}</div>`; return; }
+  const admin=isAdmin();
+  const cur=String(todayJalali()).slice(0,7);
+  box.innerHTML=`<div class="panel"><div class="panel-head"><h4>قفل ماهانهٔ ارزش‌گذاری موجودی</h4></div><div class="panel-body">
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">با بستن یک ماه، هیچ تعدیل بها، تجدید ارزیابی، هزینهٔ حمل یا تصمیم تأیید بها با تاریخ داخل آن ماه ثبت نمی‌شود. قواعد خودکار و برگشت‌ها به اولین روز ماه باز منتقل می‌شوند. فروش و خرید عادی در این نسخه مسدود نمی‌شوند. فقط مدیر می‌تواند ماه را ببندد یا باز کند (با ثبت دلیل).</p>
+    ${admin?`<div class="form-grid">
+      <div class="fg"><label>ماه (۱۴۰۵/۰۷)</label><input id="ival-lock-period" value="${esc(cur)}"></div>
+      <div class="fg full"><label>دلیل *</label><input id="ival-lock-reason" placeholder="مثلاً: پایان شمارش و تأیید مدیر مالی"></div>
+      <div class="fg"><label>&nbsp;</label><div data-csp-style="${CSP.style(`display:flex;gap:6px`)}">
+        <button class="btn" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalLockAct('close',box)})}">🔒 بستن ماه</button>
+        <button class="btn secondary" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalLockAct('reopen',box)})}">🔓 بازکردن</button></div></div>
+    </div>`:''}
+    <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>ماه</th><th>وضعیت</th><th>بسته‌شده توسط</th><th>بازشده توسط</th><th>آخرین دلیل</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="mono">${esc(r.period)}</td><td>${r.status==='closed'?'<span class="tag t-cancel">بسته</span>':'<span class="tag t-done">باز</span>'}</td>
+      <td>${esc(r.closed_by_name||'')}${r.closed_at?' — '+esc(new Date(Number(r.closed_at)*1000).toLocaleDateString('fa-IR')):''}</td>
+      <td>${esc(r.reopened_by_name||'')}${r.reopened_at?' — '+esc(new Date(Number(r.reopened_at)*1000).toLocaleDateString('fa-IR')):''}</td>
+      <td>${esc(r.reason||'')}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">هیچ ماهی بسته نشده</td></tr>'}
+    </tbody></table></div>
+  </div></div>`;
+}
+async function ivalLockAct(action,box){
+  const period=String(el('ival-lock-period')?.value||'').trim().replace(/-/g,'/');
+  const reason=String(el('ival-lock-reason')?.value||'').trim();
+  if(!/^\d{4}\/\d{2}$/.test(period)){ showToast('ماه را به صورت ۱۴۰۵/۰۷ وارد کنید','error'); return; }
+  if(reason.length<3){ showToast('دلیل الزامی است','error'); return; }
+  if(!confirm(action==='close'?`ماه ${period} در ارزش‌گذاری قفل شود؟`:`قفل ماه ${period} باز شود؟`)) return;
+  try{ await api('POST',`/inventory-valuation/periods/${period}/${action}`,{reason}); showToast('انجام شد'); ivalLocksPane(box); }catch(e){}
+}
 async function ivalQueuePane(box,canEdit){
   const st=window._ivalQueueSt||'pending';
   let rows=[];
@@ -19357,7 +19613,7 @@ async function ivalQueuePane(box,canEdit){
       <td class="num">${q.amount_rial?ivalMoney(q.amount_rial):'—'}</td>
       <td class="mono">${esc((q.source_type||'')+(q.source_id?' #'+q.source_id:''))}</td>
       <td>${esc(stFa[q.status]||q.status||'')}</td>
-      <td>${q.status==='pending'&&canEdit?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ivalQueueIgnore(q.id,box,canEdit)})}">نادیده</button>`:''}</td>
+      <td>${q.status==='pending'&&canEdit?`<button class="btn sm ghost" data-ival-mut data-csp-click="${CSP.bind('click',function(){ivalQueueIgnore(q.id,box,canEdit)})}">نادیده</button>`:''}</td>
     </tr>`).join('')||'<tr><td colspan="8" class="empty">موردی نیست</td></tr>'}
     </tbody></table></div>
   </div></div>`;
@@ -19392,7 +19648,8 @@ async function ivalBucketsLoad(){
 /* ============================================================
    مغایرت‌گیری زیرسیستم‌ها با سیستم مالی (v521)
 ============================================================ */
-const SLR_STATUS_TAG={ok:'<span class="tag t-done">هم‌تراز</span>',warn:'<span class="tag t-followup">هشدار</span>',error:'<span class="tag t-cancel">مغایرت</span>',info:'<span class="tag">اطلاع</span>'};
+const SLR_STATUS_TAG={ok:'<span class="tag t-done">هم‌تراز</span>',warn:'<span class="tag t-followup">هشدار</span>',error:'<span class="tag t-cancel">مغایرت</span>',info:'<span class="tag">اطلاع</span>',rounding:'<span class="tag t-new" title="اختلاف فقط ناشی از گرد کردن تومان↔ریال است">اختلاف گرد کردن</span>'};
+function slrCan(action){ return canPerm('acc_subledger_recon',action); }
 async function renderSubledgerReconTab(body){
   const asOf=window._slrAsOf||todayJalali();
   body.innerHTML=`<div class="panel"><div class="panel-head"><h4>🔍 مغایرت‌گیری زیرسیستم‌ها با دفتر کل</h4>
@@ -19402,12 +19659,15 @@ async function renderSubledgerReconTab(body){
     </div></div>
   <div class="panel-body">
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">هر بررسی، مانده یا اسناد یک زیرسیستم (انبار، اشخاص، بانک و صندوق، دارایی ثابت، کالای در راه، …) را با دفتر کل مقایسه می‌کند.
-    اصلاح فقط با سند تعدیلی یا ابطال/ثبت مجدد انجام می‌شود؛ هیچ ردیفی حذف نمی‌شود.</p>
+    اصلاح فقط با سند تعدیلی یا ابطال/ثبت مجدد انجام می‌شود؛ هیچ ردیفی حذف نمی‌شود.
+    هر اختلاف غیرصفر (حتی ۱ ریال) نشان داده می‌شود؛ اختلافی که کاملاً با باقی‌ماندهٔ تبدیل تومان↔ریال توضیح داده شود با برچسب «اختلاف گرد کردن» جدا می‌شود.</p>
+    <div id="slr-nightly" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}"></div>
     <div id="slr-out">برای دیدن آخرین نتیجه صبر کنید...</div>
   </div></div>
   <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>اصلاحیه‌های ثبت‌شده</h4></div>
     <div class="panel-body"><div id="slr-fixes" class="muted">...</div></div></div>`;
   slrFixesLoad();
+  slrNightlyLoad();
   try{
     const last=await api('GET','/accounting/subledger-recon/last');
     if(last && last.checks) slrRender(last); else el('slr-out').innerHTML='هنوز اجرا نشده.';
@@ -19426,7 +19686,7 @@ function slrRender(r){
   const out=el('slr-out'); if(!out) return;
   window._slrLast=r;
   const s=r.summary||{};
-  out.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">تا تاریخ ${esc(r.as_of||'')} — هم‌تراز ${fmtQtyFa(s.ok||0)} · هشدار ${fmtQtyFa(s.warn||0)} · مغایرت ${fmtQtyFa(s.error||0)} · اطلاع ${fmtQtyFa(s.info||0)}</div>
+  out.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px`)}">تا تاریخ ${esc(r.as_of||'')} — هم‌تراز ${fmtQtyFa(s.ok||0)} · هشدار ${fmtQtyFa(s.warn||0)} · مغایرت ${fmtQtyFa(s.error||0)} · اختلاف گرد کردن ${fmtQtyFa(s.rounding||0)} · اطلاع ${fmtQtyFa(s.info||0)}</div>
   <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12.5px`)}"><thead><tr>
     <th>بررسی</th><th>وضعیت</th><th>دفتر کل</th><th>زیرسیستم</th><th>اختلاف</th><th>ردیف</th><th>توضیح</th><th></th>
   </tr></thead><tbody>
@@ -19437,7 +19697,7 @@ function slrRender(r){
     <td class="num">${c.sub_rial!=null?fmt(c.sub_rial):'—'}</td>
     <td class="num" data-csp-style="${CSP.style(`${Math.abs(Number(c.diff_rial)||0)>0?'color:var(--red);font-weight:700':''}`)}">${c.diff_rial!=null?fmt(c.diff_rial):'—'}</td>
     <td class="num">${fmtQtyFa(c.rows_count||0)}</td>
-    <td data-csp-style="${CSP.style(`font-size:11.5px;max-width:320px`)}">${esc(c.note||'')}</td>
+    <td data-csp-style="${CSP.style(`font-size:11.5px;max-width:320px`)}">${esc(c.note||'')}${Number(c.rounding_rial)?`<div class="muted">گرد کردن: ${fmt(c.rounding_rial)} (سقف توضیح‌پذیر ${fmt(c.rounding_bound_rial||0)})</div>`:''}</td>
     <td>${(c.rows_count||0)>0?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){slrRows(c.code,c.name,!!c.fixable)})}">ریز</button>`:''}</td>
   </tr>`).join('')||emptyRow(8)}
   </tbody></table></div>`;
@@ -19448,7 +19708,7 @@ async function slrRows(code,name,fixable){
     const r=await api('GET','/accounting/subledger-recon/'+encodeURIComponent(code)+'/rows?limit=300'+(d?'&date_to='+encodeURIComponent(d):''))||{};
     const rows=r.rows||[];
     const cols=rows.length?Object.keys(rows[0]).filter(k=>!/^_/.test(k)).slice(0,10):[];
-    const canFix=fixable && ivalCanEdit();
+    const canFix=fixable && slrCan('edit');
     window._slrRows={code,rows};
     showModal('ریز مغایرت — '+(name||code),`
       <div class="muted" data-csp-style="${CSP.style(`margin-bottom:6px`)}">${fmtQtyFa(r.total||rows.length)} ردیف</div>
@@ -19477,20 +19737,59 @@ async function slrFix(dry){
   if(!dry && !reason){ showToast('علت اصلاح الزامی است','error'); return; }
   if(!dry && !confirm('اصلاح با سند تعدیلی/ابطال ثبت شود؟')) return;
   const out=el('slr-fix-out');
-  try{
-    const r=await api('POST','/accounting/subledger-recon/'+encodeURIComponent(st.code)+'/fix',{ids,dry_run:!!dry,confirm:!dry,reason})||{};
+  const send=async(force)=>{
+    const r=await api('POST','/accounting/subledger-recon/'+encodeURIComponent(st.code)+'/fix',{ids,dry_run:!!dry,confirm:!dry,reason,force:!!force})||{};
     const acts=dry?(r.plan||[]):(r.applied||[]);
-    out.innerHTML=`${dry?'پیش‌نمایش':'انجام شد'} — ${fmtQtyFa(acts.length)} مورد<br>${acts.slice(0,30).map(a=>{
-      const what=SLR_ACTION_FA[a.action]||a.action||(a.adjust_rial!=null?'سند تعدیل حساب انبار':'');
-      const ref=a.account_code?('حساب '+a.account_code):a.je_id?('سند #'+a.je_id):a.ledger_id?('ردیف کاردکس #'+a.ledger_id):'';
-      const amt=a.adjust_rial!=null?a.adjust_rial:a.amount_rial;
+    const sm=r.summary?`<div class="muted">تاریخ سند ${esc(r.summary.date||'')} · ${fmtQtyFa(r.summary.assets||0)} دارایی · جمع ${fmt(r.summary.total_rial||0)} ریال · کسری دفتر کل ${fmt(r.summary.gl_shortfall_rial||0)} ریال</div>`:'';
+    out.innerHTML=`${dry?'پیش‌نمایش':'انجام شد'} — ${fmtQtyFa(acts.length)} مورد${sm}<br>${acts.slice(0,30).map(a=>{
+      const what=SLR_ACTION_FA[a.action]||a.action||(a.adjust_rial!=null?'سند تعدیل حساب انبار':(a.total_rial!=null?'سند افتتاحیه یکجا':''));
+      const ref=a.asset_id?('دارایی '+(a.code||('#'+a.asset_id))+' → حساب '+(a.account_code||'')):a.account_code?('حساب '+a.account_code):a.je_id?('سند #'+a.je_id):a.ledger_id?('ردیف کاردکس #'+a.ledger_id):'';
+      const amt=a.adjust_rial!=null?a.adjust_rial:(a.cost_rial!=null?a.cost_rial:(a.total_rial!=null?a.total_rial:a.amount_rial));
       return esc(`${what} ${ref}`)+(amt!=null?` — ${fmt(amt)} ریال`:'')+(a.result?` (${esc(a.result)})`:'');
     }).join('<br>')}`;
     if(!dry){ showToast('اصلاح ثبت شد'); slrRun(); slrFixesLoad(); }
-  }catch(e){ if(out) out.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+  };
+  try{ await send(false); }
+  catch(e){
+    if(e&&e.code==='E_RECON_FA_GL_COVERED'&&!dry&&confirm((e.message||'')+'\n\nبا وجود این، سند افتتاحیه ثبت شود؟')){
+      try{ await send(true); }catch(e2){ if(out) out.innerHTML=`<span class="oh-warn">${esc(e2.message||'خطا')}</span>`; }
+      return;
+    }
+    if(out) out.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`;
+  }
 }
-const SLR_FIX_ID={je_on_dead_document:'je_id',inventory_vs_gl:'account_code',movements_without_je:'id'};
-const SLR_ACTION_FA={reverse_je:'ابطال سند',post_adjustment_je:'ثبت سند گردش',adjust_inventory_account:'سند تعدیل حساب انبار'};
+const SLR_FIX_ID={je_on_dead_document:'je_id',inventory_vs_gl:'account_code',movements_without_je:'id',fixed_assets:'asset_id'};
+const SLR_ACTION_FA={reverse_je:'ابطال سند',post_adjustment_je:'ثبت سند گردش',adjust_inventory_account:'سند تعدیل حساب انبار',opening_voucher:'افتتاحیه دارایی'};
+async function slrNightlyLoad(){
+  const box=el('slr-nightly'); if(!box) return;
+  try{
+    const s=await api('GET','/accounting/subledger-recon/nightly',null,false,true)||{};
+    const info=`تطبیق شبانه: ${s.enabled?'فعال':'غیرفعال'} · ساعت ${esc(s.time||'02:00')}${s.last_date?` · آخرین اجرا ${esc(s.last_date)}`:''} — نتیجه به زنگولهٔ مدیر و حسابداری می‌رود.`;
+    if(!isAdmin()){ box.textContent=info.replace(/<[^>]+>/g,''); return; }
+    box.innerHTML=`${info}
+      <label data-csp-style="${CSP.style(`margin-inline-start:10px`)}"><input type="checkbox" id="slr-n-en" ${s.enabled?'checked':''}> فعال</label>
+      <input id="slr-n-time" value="${esc(s.time||'02:00')}" data-csp-style="${CSP.style(`width:70px`)}" placeholder="02:00" aria-label="ساعت اجرای شبانه">
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){slrNightlySave()})}">ذخیره</button>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){slrNightlyRunNow()})}">اجرای شبانه همین حالا</button>`;
+  }catch(_){ box.textContent=''; }
+}
+async function slrNightlySave(){
+  const time=(el('slr-n-time')?.value||'').trim();
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)){ showToast('ساعت را به شکل HH:MM وارد کنید','error'); return; }
+  try{
+    await api('PUT','/accounting/subledger-recon/nightly',{enabled:!!el('slr-n-en')?.checked,time});
+    showToast('تنظیم تطبیق شبانه ذخیره شد'); slrNightlyLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function slrNightlyRunNow(){
+  try{
+    const r=await api('POST','/accounting/subledger-recon/nightly/run',{})||{};
+    showToast('تطبیق اجرا و اعلان ثبت شد'+(r.failing&&r.failing.length?` — ${r.failing.length} کنترل ناموفق`:''));
+    slrNightlyLoad();
+    const last=await api('GET','/accounting/subledger-recon/last');
+    if(last&&last.checks) slrRender(last);
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
 async function slrFixesLoad(){
   const box=el('slr-fixes'); if(!box) return;
   try{
@@ -19500,7 +19799,7 @@ async function slrFixesLoad(){
     box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>#</th><th>بررسی</th><th>هدف</th><th>مبلغ</th><th>سند</th><th>علت</th><th>وضعیت</th><th></th></tr></thead><tbody>
       ${rows.map(f=>`<tr><td class="num">${f.id}</td><td class="mono">${esc(f.code)}</td><td>${esc(f.target||'')}</td><td class="num">${fmt(f.amount_rial||0)}</td><td class="num">${f.je_id?'#'+f.je_id:'—'}</td><td>${esc(f.reason||'')}</td>
         <td>${f.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':'<span class="tag t-done">ثبت‌شده</span>'}</td>
-        <td>${f.status!=='reversed'&&ivalCanEdit()?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){slrFixReverse(f.id)})}">ابطال</button>`:''}</td></tr>`).join('')}
+        <td>${f.status!=='reversed'&&slrCan('delete')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){slrFixReverse(f.id)})}">ابطال</button>`:''}</td></tr>`).join('')}
     </tbody></table></div>`;
   }catch(e){ box.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
 }
@@ -27370,6 +27669,7 @@ async function productGroupModal(id, parentHint){
         ${list.filter(x=>x.id!==id && x.code!==0).map(x=>`<option value="${x.id}" ${String(parentVal)==String(x.id)?'selected':''}>${esc(x.name)}${x.parent_id?' (زیرگروه)':''}</option>`).join('')}</select></div>
       <div class="fg full">${typeof settToggle==='function'?settToggle('prg-shared', g.is_shared!==0,'اجازه نمایش به سایر کاربران','اگر خاموش باشد فقط ایجادکننده، مدیر و حسابدار می‌بینند'):`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}"><input id="prg-shared" type="checkbox" data-csp-style="${CSP.style(`width:auto`)}" ${g.is_shared!==0?'checked':''}> اجازه نمایش به سایر کاربران</label>`}</div>
       ${moayanAcctHtml('prg','حساب معین این گروه کالا — اختیاری؛ فقط حساب برگ. تغییر نگاشت روی اسناد قبلی اثر ندارد.')}
+      ${ivalLevelFieldHtml('prg-val-level',g.valuation_level,'انبار / سراسری')}
       <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductGroup((id||0))})}">ذخیره</button>
@@ -27382,6 +27682,7 @@ async function saveProductGroup(id){
   const name=el('prg-name').value.trim();
   if(!name){ showToast('نام گروه الزامی است','error'); return; }
   const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked,coa_code:el('prg-account-code')?.value||''};
+  if(el('prg-val-level')) data.valuation_level=el('prg-val-level').value||'';
   try{
     if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
     CACHE.productCategories=null; CACHE.productCats=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false; clearPageCache();
@@ -30349,6 +30650,7 @@ async function loadRepDetail(id){
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repCommissionRulesModal((id),(ledger.rep.name))})}">📐 قوانین</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repCommissionTiersModal((id),(ledger.rep.name))})}">📊 پله‌ای</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repReportsModal((id),(ledger.rep.name))})}">📋 گزارشات</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repDocsVoidModal((id),(ledger.rep.name))})}">🧾 هزینه‌ها و مساعده‌ها</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repAdjustModal((id))})}">✏️ تعدیل</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repExportExcel((id))})}">📥 ${T('اکسل')}</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){repExportPdf((id))})}">🖨️ ${T('پی‌دی‌اف')}</button>
@@ -30375,6 +30677,47 @@ async function loadRepDetail(id){
         </tbody></table></div>
       </div>
     </div>`;
+}
+/* v522 — هزینه‌های تأییدشده و مساعده‌های نماینده با ابطال (R13) */
+const REP_DOC_STATUS_FA={approved:'<span class="tag t-done">تأییدشده</span>',pending:'<span class="tag t-followup">در انتظار</span>',rejected:'<span class="tag">ردشده</span>',reversed:'<span class="tag t-cancel">ابطال‌شده</span>',posted:'<span class="tag t-done">ثبت‌شده</span>'};
+async function repDocsVoidModal(repId,repName){
+  const [exps,advs,catsRaw]=await Promise.all([
+    api('GET','/reps/'+repId+'/expenses').catch(()=>[]),
+    api('GET','/reps/'+repId+'/advances').catch(()=>[]),
+    api('GET','/reps/expense-categories').catch(()=>({}))
+  ]);
+  const cats=normalizeRepExpenseCats(catsRaw||{});
+  const canVoid=canPerm('acc_reps','delete');
+  const expRows=(exps||[]).filter(e=>e.status==='approved'||e.status==='reversed');
+  const advStatus=a=>a.status==='reversed'?'reversed':'posted';
+  const advOpen=a=>Math.max(0,(Number(a.amount)||0)-(Number(a.settled_amount)||0));
+  showModal('🧾 هزینه‌ها و مساعده‌های '+esc(repName||''),`
+    <h4 data-csp-style="${CSP.style(`margin:0 0 6px`)}">هزینه‌های تأییدشده</h4>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>#</th><th>دسته</th><th>مبلغ</th><th>تاریخ</th><th>شرح</th><th>وضعیت</th><th></th></tr></thead><tbody>
+    ${expRows.map(e=>`<tr data-csp-style="${CSP.style(e.status==='reversed'?'opacity:.6':'')}"><td class="num">${e.id}</td><td>${esc(cats[e.category]||e.category||'')}</td><td class="mono">${fmt(e.amount)}</td><td class="mono">${escDate(e.date)}</td><td class="muted">${esc(e.description||'-')}</td>
+      <td>${REP_DOC_STATUS_FA[e.status]||esc(e.status||'')}</td>
+      <td>${canVoid&&e.status==='approved'?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){repVoidDoc('expense',repId,e.id,repName)})}">ابطال</button>`:''}</td></tr>`).join('')||emptyRow(7)}
+    </tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin:14px 0 6px`)}">مساعده‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>#</th><th>مبلغ</th><th>تسویه‌شده</th><th>مانده</th><th>تاریخ</th><th>یادداشت</th><th>وضعیت</th><th></th></tr></thead><tbody>
+    ${(advs||[]).map(a=>`<tr data-csp-style="${CSP.style(advStatus(a)==='reversed'?'opacity:.6':'')}"><td class="num">${a.id}</td><td class="mono">${fmt(a.amount)}</td><td class="mono">${advStatus(a)==='reversed'?'—':fmt(a.settled_amount||0)}</td><td class="mono">${advStatus(a)==='reversed'?'—':fmt(advOpen(a))}</td><td class="mono">${escDate(a.date)}</td><td class="muted">${esc(a.note||'-')}</td>
+      <td>${REP_DOC_STATUS_FA[advStatus(a)]}</td>
+      <td>${canVoid&&advStatus(a)!=='reversed'&&!(Number(a.settled_amount)>0)?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){repVoidDoc('advance',repId,a.id,repName)})}">ابطال</button>`:(advStatus(a)!=='reversed'&&Number(a.settled_amount)>0?'<span class="muted" title="ابتدا پرداخت تسویه را ابطال کنید">تسویه‌شده</span>':'')}</td></tr>`).join('')||emptyRow(8)}
+    </tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:11.5px;margin-top:8px;line-height:1.8`)}">ابطال، سند حسابداری را برمی‌گرداند و در دفتر نماینده ردیف برگشت می‌زند؛ هیچ ردیفی حذف نمی‌شود. مساعده‌ای که (بخشی) تسویه شده تا ابطال پرداخت تسویه قابل ابطال نیست.</p>`,true);
+}
+async function repVoidDoc(kind,repId,docId,repName){
+  const reason=prompt(kind==='expense'?'علت ابطال هزینهٔ نماینده:':'علت ابطال مساعده:');
+  if(reason==null) return;
+  if(!reason.trim()){ showToast('علت ابطال الزامی است','error'); return; }
+  try{
+    const url=kind==='expense'?'/reps/expenses/'+docId+'/void':'/reps/'+repId+'/advances/'+docId+'/void';
+    await api('POST',url,{reason:reason.trim()});
+    showToast(kind==='expense'?'هزینه ابطال شد':'مساعده ابطال شد');
+    closeModal();
+    repDocsVoidModal(repId,repName);
+    if(typeof loadRepDetail==='function') loadRepDetail(repId);
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function repPendingExpensesModal(){
   const rows=await api('GET','/reps/expenses/pending')||[];
@@ -34486,8 +34829,17 @@ helpSec('🔑','لایسنس و entitlement',`
           <b>قواعد اتومات</b>: هر قاعده رویدادها، انبارها، گروه‌ها/کالاها، مبنا، آستانهٔ مبلغ و درصد، عمل (ثبت خودکار یا بررسی حسابدار بالای آستانه) و زمان‌بندی (روزانه/هفتگی/ماهانه) را مشخص می‌کند؛ «اجرای آزمایشی» چیزی ثبت نمی‌کند.
           <b>ارزش در انبارها</b>: مقدار، ارزش و میانگین هر کالا در هر انبار.
           رفع ریشهٔ «میانگین غلط انبار محصول»: موجودی منفی دیگر میانگین بی‌معنی نمی‌سازد (ورودی بعدی با نرخ خودش و اختلاف در صف)، ابطال ورودی بر اساس ارزش (نه بازگرداندن عدد قدیمی) میانگین را اصلاح می‌کند، و بستن دورهٔ تولید دیگر انحراف یک سفارش را روی همهٔ محصولات پخش نمی‌کند.</li>
+        <li><b>ارزش‌گذاری موجودی — تکمیل (v522)</b>:
+          <b>سطح ارزش‌گذاری لایه‌ای</b>: در فرم کالا، گروه کالا و انبار فیلد «سطح ارزش‌گذاری» هست: «مشترک بین انبارها» (یک میانگین برای همهٔ انبارها)، «مستقل برای هر انبار» یا «پیروی». اولویت: کالا ← گروه کالا ← انبار ← تنظیم سراسری. اگر بعضی انبارها مستقل و بقیه مشترک باشند، انبارهای مشترک یک استخر بها دارند و انبار مستقل میانگین خودش را؛ انتقال با نرخ مبدأ می‌رود. تغییر سطح فقط روی خروجی‌های بعدی اثر دارد و در گزارش ممیزی ثبت می‌شود. «آخرین نرخ خرید» هم از همان استخر/انبار گرفته می‌شود.
+          <b>تأیید تغییر بها</b> (تب «✅ تأیید تغییر بها»): اگر هزینهٔ حمل، اصلاح فی خرید یا مابه‌التفاوت فاکتور GRNI بهای کالایی را عوض کند که بخشی از آن فروخته یا به تولید رفته، نرخ کالا عوض نمی‌شود و مبلغ به حساب «تعدیل بهای در انتظار تأیید» (۱۱۲۰) می‌رود و به مدیر و حسابدار اعلان می‌شود. «تأیید»: سهم موجود → موجودی (نرخ میانگین اصلاح می‌شود)، سهم فروش‌رفته → بهای تمام‌شدهٔ فروش، سهم مصرف تولید → کالای در جریان ساخت. «رد»: کل مبلغ → «انحراف بها» (۶۱۱۷). «ابطال تصمیم» همه را برمی‌گرداند و سند به حالت در انتظار می‌رود؛ ابطال سند مبدأ (خرید/هزینهٔ حمل) سند تأیید باز را لغو می‌کند.
+          <b>بستن دورهٔ تولید</b>: تعدیل میانگین محصول فقط بین محصولاتی پخش می‌شود که در همان دوره تولید شده‌اند (به نسبت ارزش)؛ سهم آنچه از همان تولید فروخته شده به بهای تمام‌شدهٔ فروش می‌رود، نه به میانگین موجودی.
+          <b>زمان‌بندی قواعد اتومات</b>: روزانه، هفتگی (چند روز هفته) یا ماهانه (چند روز ماه شمسی؛ ۳۱ در ماه کوتاه یعنی روز آخر) با ساعت و دقیقه. زمان‌بند هر ۵ دقیقه بررسی می‌کند و هر نوبت فقط یک‌بار اجرا می‌شود (حتی بعد از ری‌استارت).
+          <b>قفل ماهانه</b> (تب «🔒 قفل ماهانه»، فقط مدیر با ثبت دلیل): خرید، فروش، رسید، هزینهٔ حمل، اصلاح خرید و بستن دورهٔ تولید با تاریخ ماه بسته <b>ثبت می‌شوند</b> (مقدار و سند حسابداری عادی)، ولی هر اثر ریالی روی میانگین آن ماه خودکار اعمال نمی‌شود: یک سند «تأیید تغییر بها» با علت «🔒 قفل دوره» ساخته می‌شود، مبلغ در «تعدیل بهای در انتظار تأیید» می‌ماند و به مدیر و حسابدار اعلان می‌شود. رسید برگشت‌تاریخ با میانگین فعلی همان استخر وارد می‌شود و مابه‌التفاوت نرخ رسید با میانگین پارک می‌شود. در پنجرهٔ تأیید «تاریخ ثبت» را انتخاب کنید: <i>تاریخ اصلی</i> (ثبت داخل همان ماه قفل بدون بازکردن قفل — تأیید، مجوز همان سند است) یا <i>اولین روز ماه باز</i>. رد: مبلغ به «انحراف بها» و نرخ تغییر نمی‌کند. «ابطال تصمیم» همه را کامل برمی‌گرداند (حتی اگر داخل ماه قفل ثبت شده باشد) و ابطال سند مبدأ، سند تأیید را لغو می‌کند. تجدید ارزیابی دستی (IRV) و تعدیل مستقیم ارزش در ماه بسته همچنان رد می‌شود (E_INV_PERIOD_LOCKED) تا ماه باز شود؛ قواعد خودکار و برگشت‌ها به اولین روز ماه باز منتقل می‌شوند.
+          <b>حساب طرف تعدیل دستی</b>: در تب «مبنای ریالی» جدول «دلیل تعدیل ← حساب» هست (کسری/اضافی انبار، ضایعات، آسیب‌دیدگی، اصلاح شمارش، سایر). اگر نگاشت خالی باشد، بر اساس مرحلهٔ انبار (مواد/در جریان ساخت/کالا) از حساب «کسری و اضافی انبار» (۶۱۱۸) استفاده می‌شود. تعدیل بدون دلیل مثل قبل به حساب تعدیل عمومی می‌رود.
+          <b>دسترسی</b>: ثبت تعدیل، تأیید/رد، سیاست و قواعد، ابطال و قفل ماه هرکدام تیک جدا در دسترسی کاربر دارند. <b>دستگاه‌ها (ویندوز/اندروید)</b>: همهٔ عملیات ارزش‌گذاری وقتی دستگاه به سرور وصل است مستقیم و همزمان روی سرور مرکزی (با دادهٔ مرکزی و امضای دستگاه) اجرا می‌شود و در صف همگام‌سازی نمی‌رود؛ اگر دستگاه آفلاین باشد دکمه‌های ثبت/پیش‌نمایش غیرفعال‌اند («فقط با اتصال به سرور») و فقط مشاهدهٔ دادهٔ محلی ممکن است.</li>
         <li><b>مغایرت‌گیری زیرسیستم‌ها با دفتر کل (v521)</b> (حسابداری → گزارشات): با یک دکمه، موجودی هر حساب انبار، گردش‌های کالای بی‌سند، اسناد بی‌سند حسابداری، سند زنده روی سند عملیاتی باطل‌شده، اختلاف مبلغ سند با فاکتور، دفاتر اشخاص با حساب کنترل، بانک و صندوق، کالای در راه (GRNI)، دارایی ثابت، حساب‌های معلق و تغییر در دورهٔ بسته را با دفتر کل مقایسه می‌کند. هر ردیف «ریز» دارد؛ اصلاح فقط با سند تعدیلی دارای علت یا ابطال/ثبت مجدد انجام می‌شود و پیش‌نمایش پیش‌فرض است. اتصال دوطرفه: تعدیل دستی موجودی حالا سند دارد و ابطالش سند را هم باطل می‌کند؛ برگشت ردیف کاردکس فقط برای ردیف دستی مجاز است و بقیه باید از سند مبدأ ابطال شوند؛ حذف فاکتور اتمیک شد؛ ابطال سندی که در سال مالی بسته است به‌جای دست‌کاری سال بسته، سند معکوس با تاریخ امروز صادر می‌کند.</li>
         <li><b>تکمیل اتصال مالی (v521):</b> در «مغایرت‌گیری» جدول «اصلاحیه‌های ثبت‌شده» هر سند تعدیلی را با علت نشان می‌دهد و دکمهٔ «ابطال» آن را با سند معکوس برمی‌گرداند. تغییر دستی موجودی کالا (ویرایش موجودی) سند تعدیل به نرخ میانگین می‌زند. ویرایش سندی که تاریخش در سال مالی بسته است رد می‌شود (E_CLOSED_PERIOD). <b>دارایی ثابت جدید</b> «منبع تأمین» دارد: افتتاحیه (پیش‌فرض، برای دارایی موجود از قبل)، صندوق، بانک، خرید نسیه از تأمین‌کننده (دفتر تأمین‌کننده هم ثبت می‌شود) یا «بدون سند» وقتی سند تحصیل جدا زده شده؛ غیرفعال‌کردن دارایی سند تحصیلش را ابطال می‌کند. ابطال هزینه و علی‌الحساب نماینده (API) سند و دفاتر را برمی‌گرداند؛ علی‌الحساب تسویه‌شده قابل ابطال نیست.</li>
+        <li><b>مغایرت‌گیری شبانه، بدون رواداری و دسترسی ریز (v522):</b> مغایرت‌گیری هر شب (پیش‌فرض ساعت ۰۲:۰۰ به وقت سرور، روی سرور مرکزی) خودکار اجرا می‌شود و خلاصه‌اش با تعداد سالم/هشدار/خطا/گرد کردن و نام کنترل‌های ناموفق در زنگولهٔ مدیر و حسابدار می‌آید؛ روشن/خاموش و ساعتش در همان تب «مغایرت‌گیری» (فقط مدیر) قابل تغییر است و دکمهٔ «اجرای اکنون» هم دارد. <b>هیچ رواداری‌ای باقی نمانده</b>: هر اختلافی حتی ۱ ریال نشان داده می‌شود؛ فقط اختلافی که از حد «گرد کردن» (جمع ناهمخوانی ستون ریال و تومان سطرهای سند به‌اضافهٔ کسر ریال در دفاتر فرعی) بیشتر نباشد با برچسب جداگانهٔ «اختلاف گرد کردن» و شمارش جدا نمایش داده می‌شود؛ اگر هیچ منبع گرد کردنی نباشد، ۱ ریال هم هشدار واقعی است. <b>دارایی ثابت بدون سند تحصیل:</b> در کنترل «دارایی ثابت» اصلاح «سند افتتاحیه یکجا» هست — یک سند به تاریخ اول سال مالی جاری (بدهکار حساب هر دارایی، بستانکار افتتاحیه، فقط بهای تمام‌شده بدون استهلاک انباشته)؛ پیش‌نمایش پیش‌فرض است و اگر دفتر کل از قبل آن مبلغ را دارد، برای جلوگیری از ثبت دوباره تأیید جدا می‌خواهد. ابطال این اصلاحیه سند را باطل و پیوند دارایی‌ها را برمی‌گرداند؛ غیرفعال‌کردن یک دارایی فقط سهم همان دارایی را با سند برگشت جدا برمی‌گرداند. <b>ابطال هزینه/مساعدهٔ نماینده</b> حالا در صفحهٔ نماینده دکمهٔ «🧾 هزینه‌ها و مساعده‌ها» دارد (علت اجباری)؛ در صورت‌حساب نماینده ردیف ابطال‌شده با برچسب «ابطال‌شده» و مبلغ صفر می‌آید و مانده تغییر نمی‌کند. <b>دسترسی‌ها:</b> در پنجرهٔ دسترسی کاربر، «ارزش‌گذاری موجودی» تیک‌های جدا دارد (ایجاد = ثبت تعدیل، تأیید = تأیید/رد، ویرایش = سیاست و قوانین، حذف = ابطال سند) و «قفل دورهٔ ارزش‌گذاری» ردیف جدا؛ «مغایرت‌گیری» ویرایش = اعمال اصلاح و حذف = ابطال اصلاحیه؛ ابطال هزینه/مساعدهٔ نماینده با تیک «حذف» نمایندگان. پیش‌فرض: مدیر همه؛ حسابدار همه به‌جز قفل دوره و ویرایش سیاست ارزش‌گذاری. دکمهٔ «⚙️ پیش‌فرض نقش» پیش‌فرض هر نقش را برای همهٔ کاربرانش تغییر می‌دهد و تیک جداگانهٔ هر کاربر بر آن مقدم است.</li>
         <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
@@ -34689,7 +35041,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v521</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v524</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

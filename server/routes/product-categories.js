@@ -61,6 +61,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   try {
     db.prepare("DELETE FROM settings WHERE key='product_categories_user_cleared'").run();
   } catch (_) { /* ignore */ }
+  if (req.body.valuation_level !== undefined) {
+    try { require('../lib/inventory/valuation').setLayerLevel(db, 'product_categories', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+  }
   audit(req.user.id, 'create', 'product_category', result.lastInsertRowid, `ساخت دسته ${name}`);
   res.json(db.prepare('SELECT * FROM product_categories WHERE id=?').get(result.lastInsertRowid));
 });
@@ -80,6 +83,9 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       parent_id != null ? (parent_id ? parseInt(parent_id) : null) : row.parent_id,
       description ?? row.description,
       shared, nextCoa.coa_code, req.params.id);
+  if (req.body.valuation_level !== undefined) {
+    try { require('../lib/inventory/valuation').setLayerLevel(db, 'product_categories', Number(req.params.id), req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+  }
   audit(req.user.id, 'update', 'product_category', req.params.id, `ویرایش دسته ${name || row.name}`);
   res.json({ ok: true });
 });

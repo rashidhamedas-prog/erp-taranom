@@ -134,13 +134,17 @@ try {
   const a2 = await api('PUT', `/api/purchases/${poId}`, poBody([{ product_id: button, qty: 1000, price: 32000 }]));
   ok(a2.status === 200, 'price-only amend succeeds', a2.text);
   ok(whQty(button) === 300, 'price-only amend keeps qty', whQty(button));
-  const valRow = db.prepare(`
-    SELECT amount_rial FROM inventory_ledger
-    WHERE source_type='purchase' AND source_id=? AND status='posted' AND qty_in=0 AND qty_out=0
+  // v522: 700 of the 1000 were already issued → the whole +2,000,000 waits for approval;
+  // approval books the on-hand share (300/1000) to inventory and the issued share to COGS.
+  const appr = db.prepare(`
+    SELECT * FROM inventory_value_approvals WHERE source_type='purchase' AND source_id=? AND status='pending'
   `).get(poId);
-  ok(valRow && Number(valRow.amount_rial) === 2000000, 'value-only revaluation +2,000,000', valRow && valRow.amount_rial);
+  ok(appr && Number(appr.total_delta_rial) === 2000000, 'value change +2,000,000 parked for approval', appr);
+  const avgParked = Number(db.prepare('SELECT average_cost_rial a FROM products WHERE id=?').get(button).a);
+  ok(avgParked === avgBefore, 'avg unchanged while pending', `${avgBefore}→${avgParked}`);
+  if (appr) require('../lib/inventory/value-approval').approve(db, appr.id, { id: admin.id, role: 'admin' }, {});
   const avgAfter = Number(db.prepare('SELECT average_cost_rial a FROM products WHERE id=?').get(button).a);
-  ok(avgAfter === Math.round((300 * avgBefore + 2000000) / 300), 'avg absorbs price delta on remaining stock',
+  ok(avgAfter === Math.round((300 * avgBefore + 600000) / 300), 'approve: avg absorbs on-hand share (600,000)',
     `${avgBefore}→${avgAfter}`);
 
   // ── Reduce within what is still on hand ──

@@ -257,6 +257,10 @@ const SYNCABLE_TABLES = [
   { name: 'inventory_valuation_buckets',       upsertKey: 'product_id:warehouse_id', compositeKeys: ['product_id', 'warehouse_id'] },
   { name: 'inventory_revaluations',            upsertKey: 'id' },
   { name: 'inventory_revaluation_lines',       upsertKey: 'id' },
+  // v522 value-change approvals + monthly valuation lock (decided on central; devices read)
+  { name: 'inventory_value_approvals',         upsertKey: 'id' },
+  { name: 'inventory_value_approval_lines',    upsertKey: 'id' },
+  { name: 'inventory_period_locks',            upsertKey: 'period' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -618,6 +622,10 @@ const FK_COLUMNS = [
   ['inventory_revaluation_lines', 'revaluation_id'],
   ['inventory_revaluation_lines', 'product_id'],
   ['inventory_revaluation_lines', 'warehouse_id'],
+  ['inventory_value_approvals', 'decision_je_id'],
+  ['inventory_value_approval_lines', 'approval_id'],
+  ['inventory_value_approval_lines', 'product_id'],
+  ['inventory_value_approval_lines', 'warehouse_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

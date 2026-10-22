@@ -43,6 +43,70 @@ function todayJalali() {
   }
 }
 
+/* ───────────── v522 schedule_json ─────────────
+ * {mode: none|daily|weekly|monthly, weekdays: [0..6] (0 = شنبه), monthdays: [1..31] (روز شمسی),
+ *  hour: 0..23, minute: 0..59}. Slot = «تاریخ شمسی HH:MM» of the scheduled run; a rule runs at
+ * most once per slot (last_run_slot). Monthday beyond month length → last day of month.
+ */
+const SCHEDULE_MODES = ['none', 'daily', 'weekly', 'monthly'];
+
+function legacySchedule(s) {
+  const m = SCHEDULE_MODES.includes(String(s)) ? String(s) : 'none';
+  if (m === 'none') return { mode: 'none', weekdays: [], monthdays: [], hour: 1, minute: 0 };
+  return { mode: m, weekdays: m === 'weekly' ? [0] : [], monthdays: m === 'monthly' ? [1] : [], hour: 1, minute: 0 };
+}
+
+function normalizeSchedule(input, fallbackLegacy = 'none') {
+  let s = input;
+  if (typeof s === 'string') {
+    const t = s.trim();
+    if (!t) s = null;
+    else if (SCHEDULE_MODES.includes(t)) return legacySchedule(t);
+    else { try { s = JSON.parse(t); } catch (_) { throw revErr('E_RULE_SCHEDULE', 400, 'زمان‌بندی قاعده نامعتبر است'); } }
+  }
+  if (!s || typeof s !== 'object') return legacySchedule(fallbackLegacy);
+  const mode = String(s.mode || 'none');
+  if (!SCHEDULE_MODES.includes(mode)) throw revErr('E_RULE_SCHEDULE', 400, 'حالت زمان‌بندی نامعتبر است');
+  const ints = (arr, lo, hi) => [...new Set((Array.isArray(arr) ? arr : String(arr || '').split(','))
+    .map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n >= lo && n <= hi))].sort((a, b) => a - b);
+  const hour = Math.min(23, Math.max(0, parseInt(s.hour, 10) || 0));
+  const minute = Math.min(59, Math.max(0, parseInt(s.minute, 10) || 0));
+  const out = { mode, weekdays: ints(s.weekdays, 0, 6), monthdays: ints(s.monthdays, 1, 31), hour, minute };
+  if (mode === 'weekly' && !out.weekdays.length) throw revErr('E_RULE_SCHEDULE', 400, 'برای زمان‌بندی هفتگی حداقل یک روز هفته انتخاب کنید');
+  if (mode === 'monthly' && !out.monthdays.length) throw revErr('E_RULE_SCHEDULE', 400, 'برای زمان‌بندی ماهانه حداقل یک روز ماه انتخاب کنید');
+  if (mode !== 'weekly') out.weekdays = [];
+  if (mode !== 'monthly') out.monthdays = [];
+  return out;
+}
+
+/** Slot key for `now` (Date, server local time) or null when nothing is due yet today. */
+function slotFor(schedule, now = new Date()) {
+  const s = schedule && typeof schedule === 'object' ? schedule : legacySchedule(schedule);
+  if (!s || s.mode === 'none') return null;
+  const J = require('../../jalali');
+  const [jy, jm, jd] = J.g2j(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  if (s.mode === 'weekly') {
+    const wd = (now.getDay() + 1) % 7;
+    if (!s.weekdays.includes(wd)) return null;
+  } else if (s.mode === 'monthly') {
+    const dim = J.daysInJalaliMonth(jy, jm);
+    const hit = s.monthdays.some((d) => Math.min(d, dim) === jd);
+    if (!hit) return null;
+  }
+  const mins = now.getHours() * 60 + now.getMinutes();
+  if (mins < s.hour * 60 + s.minute) return null;
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${jy}/${p2(jm)}/${p2(jd)} ${p2(s.hour)}:${p2(s.minute)}`;
+}
+
+/** One-time migration: legacy `schedule` text → schedule_json (central boot). */
+function migrateRuleSchedulesV522(db) {
+  const rows = db.prepare("SELECT id, schedule, schedule_json FROM inventory_revaluation_rules WHERE schedule_json IS NULL OR schedule_json=''").all();
+  const up = db.prepare('UPDATE inventory_revaluation_rules SET schedule_json=? WHERE id=?');
+  for (const r of rows) up.run(JSON.stringify(legacySchedule(r.schedule)), r.id);
+  return rows.length;
+}
+
 function parseIds(v) {
   if (v == null || v === '') return [];
   const arr = Array.isArray(v) ? v : String(v).split(',');
@@ -82,37 +146,50 @@ function productsInScope(db, body) {
   return db.prepare(`SELECT * FROM products WHERE ${where.join(' OR ')} ORDER BY id`).all(...params);
 }
 
-function lastPurchaseUnit(db, productId) {
-  const r = db.prepare(`
-    SELECT unit_cost_rial FROM inventory_ledger
-    WHERE product_id=? AND status='posted' AND event_type IN ('purchase','receipt')
-      AND qty_in>0 AND unit_cost_rial>0
-    ORDER BY COALESCE(date,'') DESC, id DESC LIMIT 1
-  `).get(productId);
-  return r ? Math.round(Number(r.unit_cost_rial) || 0) : 0;
+/** v522: last purchase of the same pool (warehouse pool → that warehouse; shared → shared warehouses). */
+function lastPurchaseUnit(db, productId, warehouseId = null) {
+  return V.lastPurchaseUnitForPool(db, productId, warehouseId || null);
 }
 
-/** On-hand keys to revalue: product level → header; warehouse level → buckets. */
+/**
+ * On-hand keys to revalue per pool: pure shared → header (key 0); separate → buckets;
+ * mixed → key 0 = shared pool aggregate + one key per separate-warehouse bucket.
+ */
 function onHandKeys(db, product, level, warehouseIds) {
-  if (level === 'product') {
+  const pools = V.productPools(db, product.id);
+  const mode = pools.mode;
+  void level;
+  if (mode === 'product') {
     const q = Number(product.stock) || 0;
     if (q <= 1e-9) return [];
-    return [{ warehouse_id: 0, qty: q, avg: Math.round(Number(product.average_cost_rial) || 0) }];
+    if (warehouseIds.length && !warehouseIds.some((w) => pools.shared.has(w))) return [];
+    return [{ warehouse_id: 0, pool: 'shared', qty: q, avg: Math.round(Number(product.average_cost_rial) || 0) }];
   }
   const wip = new Set();
   try {
     for (const w of db.prepare("SELECT id FROM warehouses WHERE kind='wip' OR warehouse_type='wip'").all()) wip.add(Number(w.id));
   } catch (_) { /* old schema */ }
-  return db.prepare('SELECT * FROM inventory_valuation_buckets WHERE product_id=? AND qty>0 ORDER BY warehouse_id')
-    .all(product.id)
-    .filter((b) => (warehouseIds.length ? warehouseIds.includes(Number(b.warehouse_id)) : !wip.has(Number(b.warehouse_id))))
-    .map((b) => ({ warehouse_id: Number(b.warehouse_id) || 0, qty: Number(b.qty) || 0, avg: Math.round(Number(b.avg_rial) || 0) }));
+  const out = [];
+  if (mode === 'mixed' && (!warehouseIds.length || warehouseIds.some((w) => pools.shared.has(w)))) {
+    const st = V.sharedPoolState(db, product.id, pools);
+    if (st.qty > 1e-9) {
+      const firstShared = [...pools.shared].find((k) => k && !wip.has(k)) || null;
+      out.push({ warehouse_id: 0, pool: 'shared', qty: st.qty, avg: st.avg_rial, purchase_wh: firstShared });
+    }
+  }
+  for (const b of db.prepare('SELECT * FROM inventory_valuation_buckets WHERE product_id=? AND qty>0 ORDER BY warehouse_id').all(product.id)) {
+    const k = Number(b.warehouse_id) || 0;
+    if (mode === 'mixed' && !pools.separate.has(k)) continue;
+    if (warehouseIds.length ? !warehouseIds.includes(k) : wip.has(k)) continue;
+    out.push({ warehouse_id: k, pool: 'warehouse', qty: Number(b.qty) || 0, avg: Math.round(Number(b.avg_rial) || 0), purchase_wh: k || null });
+  }
+  return out;
 }
 
-function newUnitFor(db, basis, product, oldUnit, body, date) {
+function newUnitFor(db, basis, product, oldUnit, body, date, key) {
   if (basis === 'manual_unit') return Math.round(Number(body.unit_cost_rial) || 0);
   if (basis === 'percent') return Math.max(0, Math.round(oldUnit * (1 + (Number(body.percent) || 0) / 100)));
-  if (basis === 'last_purchase') return lastPurchaseUnit(db, product.id);
+  if (basis === 'last_purchase') return lastPurchaseUnit(db, product.id, key ? key.purchase_wh : null);
   if (basis === 'std_rollup') {
     const { computeNewUnitCost } = require('../production/cost-revaluation');
     return Math.round(Number(computeNewUnitCost(db, product, String(date).slice(0, 7)).unit_cost_rial) || 0);
@@ -149,8 +226,14 @@ function preview(db, body = {}) {
   const mode = body.mode === 'auto' ? 'auto' : 'manual';
   const basis = String(body.basis || 'replay');
   if (!BASES.has(basis)) throw revErr('E_BASIS', 400, 'مبنای تجدید ارزیابی نامعتبر است');
-  const date = String(body.date || todayJalali()).trim();
+  let date = String(body.date || todayJalali()).trim();
   if (!validDate(date)) throw revErr('E_DATE', 400, 'تاریخ باید به صورت ۱۴۰۵/۰۷/۰۱ باشد');
+  // v522 monthly lock: manual docs inside a closed month are rejected; auto/replay move forward.
+  const PL = require('./period-lock');
+  if (PL.isPeriodLocked(db, date)) {
+    if (mode === 'auto') date = PL.firstOpenDate(db, date);
+    else PL.assertPeriodOpen(db, date, 'سند تجدید ارزیابی');
+  }
   const dateFrom = String(body.date_from || '').trim();
   if (dateFrom && !validDate(dateFrom)) throw revErr('E_DATE', 400, 'تاریخ شروع باید به صورت ۱۴۰۵/۰۷/۰۱ باشد');
   const level = V.getLevel(db);
@@ -181,18 +264,19 @@ function preview(db, body = {}) {
         const fds = pending.map((q) => String(q.from_date || '')).filter(Boolean).sort();
         from = pending.some((q) => !q.from_date) ? '' : (fds[0] || '');
       }
+      const pmode = V.productPools(db, p.id).mode;
       const r = V.previewReplay(db, {
         productId: p.id,
-        warehouseId: level === 'warehouse' && warehouseIds.length === 1 ? warehouseIds[0] : null,
+        warehouseId: pmode !== 'product' && warehouseIds.length === 1 ? warehouseIds[0] : null,
         fromDate: from,
       });
       if (r.skipped) continue;
       const linesBefore = lines.length;
       for (const k of r.keys) {
-        if (level === 'warehouse' && warehouseIds.length && !warehouseIds.includes(k.warehouse_id)) continue;
+        if (pmode === 'warehouse' && warehouseIds.length && !warehouseIds.includes(k.warehouse_id)) continue;
         const own = r.lines.filter((l) => l.bucket_key === k.warehouse_id);
-        const transferIn = level === 'warehouse'
-          ? r.lines.filter((l) => l.event_type === 'transfer_out' && l.counter_warehouse_id === k.warehouse_id)
+        const transferIn = pmode !== 'product'
+          ? r.lines.filter((l) => l.event_type === 'transfer_out' && l.counter_pool_key === k.warehouse_id)
           : [];
         let invDelta = 0;
         let counterDelta = 0;
@@ -223,7 +307,8 @@ function preview(db, body = {}) {
           })),
         });
         for (const q of pending) {
-          if (level === 'product' || Number(q.warehouse_id) === k.warehouse_id) queueIds.add(q.id);
+          if (pmode === 'product' || Number(q.warehouse_id) === k.warehouse_id
+            || (k.warehouse_id === 0 && pmode === 'mixed')) queueIds.add(q.id);
         }
       }
       if (lines.length === linesBefore) for (const q of pending) noopQueueIds.add(q.id);
@@ -244,7 +329,7 @@ function preview(db, body = {}) {
     }
     for (const p of products) {
       for (const k of onHandKeys(db, p, level, warehouseIds)) {
-        const newUnit = newUnitFor(db, basis, p, k.avg, body, date);
+        const newUnit = newUnitFor(db, basis, p, k.avg, body, date, k);
         if (basis !== 'manual_unit' && !(newUnit > 0)) continue;
         const delta = Math.round((newUnit - k.avg) * k.qty);
         if (!delta) continue;
@@ -356,7 +441,7 @@ function post(db, body = {}, user) {
       if (L.header_delta_rial) {
         const res = V.postValueAdjustment(db, {
           productId: L.product_id,
-          warehouseId: pv.level === 'warehouse' && L.warehouse_id ? L.warehouse_id : null,
+          warehouseId: L.warehouse_id || null,
           deltaRial: L.header_delta_rial,
           date: pv.date,
           sourceType: pv.basis === 'replay' ? SRC_REPLAY : SRC_MANUAL,
@@ -502,7 +587,11 @@ function normalizeRule(body, existing = {}) {
   if (!RULE_BASES.has(basis)) throw revErr('E_RULE_BASIS', 400, 'مبنای قاعده نامعتبر است');
   const action = String(pick('action', 'review'));
   if (!['auto_post', 'review'].includes(action)) throw revErr('E_RULE_ACTION', 400, 'اقدام قاعده باید auto_post یا review باشد');
-  const schedule = String(pick('schedule', 'none'));
+  let scheduleObj;
+  if (body.schedule_json !== undefined) scheduleObj = normalizeSchedule(body.schedule_json);
+  else if (body.schedule !== undefined) scheduleObj = normalizeSchedule(body.schedule);
+  else scheduleObj = normalizeSchedule(existing.schedule_json || null, existing.schedule || 'none');
+  const schedule = scheduleObj.mode;
   if (!(schedule in RULE_SCHEDULES)) throw revErr('E_RULE_SCHEDULE', 400, 'زمان‌بندی قاعده نامعتبر است');
   const idsJson = (k, jsonKey) => JSON.stringify(body[k] !== undefined ? parseIds(body[k]) : parseJsonIds(existing[jsonKey]));
   const thresholdRial = Math.max(0, Math.round(Number(pick('threshold_rial', 0)) || 0));
@@ -526,6 +615,7 @@ function normalizeRule(body, existing = {}) {
     percent: percent == null || percent === '' ? null : Number(percent),
     action,
     schedule,
+    schedule_json: JSON.stringify(scheduleObj),
   };
 }
 
@@ -539,6 +629,9 @@ function ruleOut(r) {
     warehouse_ids: j(r.warehouse_ids_json),
     category_ids: j(r.category_ids_json),
     product_ids: j(r.product_ids_json),
+    schedule_obj: (() => {
+      try { return normalizeSchedule(r.schedule_json || null, r.schedule || 'none'); } catch (_) { return legacySchedule(r.schedule); }
+    })(),
   };
 }
 
@@ -560,11 +653,11 @@ function createRule(db, body = {}, user) {
   const id = db.prepare(`
     INSERT INTO inventory_revaluation_rules
       (name, enabled, triggers_json, basis, warehouse_ids_json, category_ids_json, product_ids_json,
-       threshold_rial, threshold_pct, percent, action, schedule, created_by, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%s','now'))
+       threshold_rial, threshold_pct, percent, action, schedule, schedule_json, created_by, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%s','now'))
   `).run(
     r.name, r.enabled, r.triggers_json, r.basis, r.warehouse_ids_json, r.category_ids_json, r.product_ids_json,
-    r.threshold_rial, r.threshold_pct, r.percent, r.action, r.schedule, user?.id || null
+    r.threshold_rial, r.threshold_pct, r.percent, r.action, r.schedule, r.schedule_json, user?.id || null
   ).lastInsertRowid;
   return getRule(db, id);
 }
@@ -577,11 +670,11 @@ function updateRule(db, id, body = {}) {
   db.prepare(`
     UPDATE inventory_revaluation_rules SET
       name=?, enabled=?, triggers_json=?, basis=?, warehouse_ids_json=?, category_ids_json=?, product_ids_json=?,
-      threshold_rial=?, threshold_pct=?, percent=?, action=?, schedule=?, updated_at=strftime('%s','now')
+      threshold_rial=?, threshold_pct=?, percent=?, action=?, schedule=?, schedule_json=?, updated_at=strftime('%s','now')
     WHERE id=?
   `).run(
     r.name, r.enabled, r.triggers_json, r.basis, r.warehouse_ids_json, r.category_ids_json, r.product_ids_json,
-    r.threshold_rial, r.threshold_pct, r.percent, r.action, r.schedule, existing.id
+    r.threshold_rial, r.threshold_pct, r.percent, r.action, r.schedule, r.schedule_json, existing.id
   );
   return getRule(db, existing.id);
 }
@@ -701,16 +794,23 @@ function runAutoRules(db, { dryRun = true, ruleId = null, user = null, onlyDue =
  * Scheduler hook (central only). Due = daily/weekly/monthly since last_run_at.
  * Event-trigger rules with schedule 'none' run on every tick when matching queue rows exist.
  */
-function maybeRunScheduledRules(db, { nowSec } = {}) {
+function maybeRunScheduledRules(db, { nowSec, now: nowDate } = {}) {
   if (process.env.SYNC_ROLE === 'device') return { skipped: 'device' };
   if (!V.ready(db)) return { skipped: 'no_schema' };
-  const now = Number(nowSec) || Math.floor(Date.now() / 1000);
+  const now = nowDate instanceof Date ? nowDate : new Date((Number(nowSec) || Math.floor(Date.now() / 1000)) * 1000);
+  const slots = new Map();
   const due = (rule) => {
-    const interval = RULE_SCHEDULES[rule.schedule] || 0;
-    if (!interval) return rule.basis === 'replay' && rule.triggers.some((t) => t !== 'schedule');
-    return !rule.last_run_at || now - Number(rule.last_run_at) >= interval;
+    const sch = rule.schedule_obj || legacySchedule(rule.schedule);
+    if (sch.mode === 'none') return rule.basis === 'replay' && rule.triggers.some((t) => t !== 'schedule');
+    const slot = slotFor(sch, now);
+    if (!slot || slot === rule.last_run_slot) return false;
+    slots.set(rule.id, slot);
+    return true;
   };
-  return runAutoRules(db, { dryRun: false, onlyDue: due });
+  const out = runAutoRules(db, { dryRun: false, onlyDue: due });
+  const up = db.prepare('UPDATE inventory_revaluation_rules SET last_run_slot=? WHERE id=?');
+  for (const [id, slot] of slots) up.run(slot, id);
+  return { ...out, slots: Object.fromEntries(slots) };
 }
 
 module.exports = {
@@ -726,6 +826,9 @@ module.exports = {
   toggleRule,
   runAutoRules,
   maybeRunScheduledRules,
+  normalizeSchedule,
+  slotFor,
+  migrateRuleSchedulesV522,
   revaluationCounterAccount,
   AUTO_SEMANTICS,
   BASES,

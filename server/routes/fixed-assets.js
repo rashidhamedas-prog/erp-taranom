@@ -197,9 +197,12 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   if (activeReval > 0) {
     return res.status(400).json({ error: 'این دارایی تجدید ارزیابی فعال دارد — ابتدا تجدید ارزیابی را ابطال کنید', code: 'E_FA_ACTIVE_REVALUATION' });
   }
+  let releaseJeId = null;
   try {
     db.transaction(() => {
-      if (row.acq_je_id) {
+      // v522: the combined opening voucher (recon fix) covers many assets — counter-post only this one.
+      releaseJeId = require('../lib/subledger-recon').releaseFixedAssetOpening(db, row, { userId: req.user.id });
+      if (row.acq_je_id && !releaseJeId) {
         reverseJournalEntry(db, row.acq_je_id, {
           userId: req.user.id,
           reason: `ابطال تحصیل دارایی ${row.code}`,
@@ -216,7 +219,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   audit(req.user.id, 'deactivate', 'fixed_asset', row.id, `غیرفعال‌سازی ${row.code}`);
-  res.json({ ok: true, acq_je_reversed: row.acq_je_id || null });
+  res.json({ ok: true, acq_je_reversed: releaseJeId ? null : (row.acq_je_id || null), opening_release_je_id: releaseJeId });
 });
 
 // Void dispose — restore active + reverse dispose JE

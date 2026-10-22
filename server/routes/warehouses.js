@@ -161,6 +161,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       invCoa
     );
   })();
+  if (req.body.valuation_level !== undefined) {
+    try { require('../lib/inventory/valuation').setLayerLevel(db, 'warehouses', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+  }
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
   res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
 });
@@ -211,6 +214,9 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       nextInvCoa,
       req.params.id
     );
+    if (req.body.valuation_level !== undefined) {
+      require('../lib/inventory/valuation').setLayerLevel(db, 'warehouses', Number(req.params.id), req.body.valuation_level, { userId: req.user.id });
+    }
   })();
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
   res.json({ ok: true });

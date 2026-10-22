@@ -6,6 +6,7 @@
 //   GET  /api/sync/pull       — incremental row changes + tombstones since a sequence
 //   GET  /api/sync/row        — fetch one current row (conflict-resolution restore)
 //   POST /api/sync/replay-multipart — relay a file-carrying op (product image, voucher attachment)
+//   POST /api/sync/relay-now  — synchronous signed online-only relay (/api/inventory-valuation only)
 //
 // DEVICE role (SYNC_ROLE=device):
 //   GET  /api/sync/status     — pairing/online/pending/conflict state for the UI
@@ -483,6 +484,11 @@ if (!isDevice()) {
       return res.status(502).json({ error: 'بازپخش داخلی فایل ناموفق بود' });
     }
   });
+
+  // ---- Synchronous online-only relay (v522): inventory-valuation ops from devices ----
+  // Signed relay envelope (kind=relay_now, ts/nonce freshness), hard path allow-list,
+  // loopback replay as the acting user. See sync/relay-now.js + docs/OFFLINE-SYNC.md.
+  router.post('/relay-now', deviceAuth, require('../sync/relay-now').createRelayNowHandler());
 
   function redactPulledRow(tableName, row) {
   if (!row || tableName !== 'settings' || !isSecretSetting(row.key) || !row.value) return row || null;

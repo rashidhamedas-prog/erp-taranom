@@ -311,9 +311,61 @@ function previewEntries(db, variances, allocation) {
   return entries;
 }
 
-function previewFgAverages(db, { fgShareRial }) {
+/** v522: FG produced in the period (posted production receipts, net of reversals). */
+function producedInPeriod(db, period) {
+  if (!period) return [];
+  const row = getPeriodRow(db, period);
+  const start = row?.start_date || `${period}/01`;
+  const end = periodEndDate(period, row);
+  try {
+    return db.prepare(`
+      SELECT l.product_id, p.name, p.stock, p.average_cost_rial,
+        SUM(COALESCE(l.qty_in,0)) AS qty, SUM(COALESCE(l.amount_rial,0)) AS value
+      FROM inventory_ledger l JOIN products p ON p.id = l.product_id
+      WHERE l.event_type = 'production_receipt' AND COALESCE(l.status,'posted') = 'posted'
+        AND l.reversed_of IS NULL AND COALESCE(l.qty_in,0) > 0
+        AND COALESCE(l.date,'') >= ? AND COALESCE(l.date,'') <= ?
+        AND NOT EXISTS (SELECT 1 FROM inventory_ledger r WHERE r.reversed_of = l.id AND COALESCE(r.status,'posted')='posted')
+      GROUP BY l.product_id
+      HAVING SUM(COALESCE(l.qty_in,0)) > 0
+    `).all(start, end);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * v522: the FG share is spread only over products produced in this period (by produced
+ * value, else qty). Per product: produced qty still on hand → inventory (value row);
+ * the sold part → COGS (cogs_rial, shifted into PRD-23 before posting).
+ * No production receipts in the period → legacy spread over all on-hand FG.
+ */
+function previewFgAverages(db, { fgShareRial, period }) {
   const share = Math.round(Number(fgShareRial) || 0);
   if (!share) return [];
+
+  const produced = producedInPeriod(db, period);
+  if (produced.length) {
+    const valSum = produced.reduce((s, p) => s + Math.max(0, Number(p.value) || 0), 0);
+    const qtySum = produced.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+    let left = share;
+    return produced.map((p, i) => {
+      const q = Number(p.qty) || 0;
+      const portion = valSum > 0 ? Math.max(0, Number(p.value) || 0) / valSum : (qtySum > 0 ? q / qtySum : 1 / produced.length);
+      const part = i === produced.length - 1 ? left : Math.round(share * portion);
+      left -= part;
+      const stock = Math.max(0, Number(p.stock) || 0);
+      const inStockQty = Math.min(q, stock);
+      const delta = q > 0 ? Math.round(part * (inStockQty / q)) : 0;
+      const oldAvg = Math.round(Number(p.average_cost_rial) || 0);
+      const newAvg = stock > 0 ? Math.round((stock * oldAvg + delta) / stock) : oldAvg;
+      return {
+        product_id: p.product_id, name: p.name, produced_qty: q, in_stock_qty: inStockQty,
+        share_rial: part, delta_rial: delta, cogs_rial: part - delta,
+        old_avg_rial: oldAvg, new_avg_rial: newAvg, basis: 'produced_in_period',
+      };
+    });
+  }
 
   const products = db.prepare(`
     SELECT id, name, stock, average_cost_rial
@@ -342,9 +394,9 @@ function previewFgAverages(db, { fgShareRial }) {
  * ledger rows so header avg, buckets and kardex stay consistent with the GL.
  * Snapshot keeps old/new avg (+ ledger_id) for reopen preflight.
  */
-function updateFgAverages(db, { fgShareRial, period }) {
+function updateFgAverages(db, { fgShareRial, period, plan = null }) {
   const { postValueAdjustment } = require('../inventory/valuation');
-  const preview = previewFgAverages(db, { fgShareRial, period });
+  const preview = plan || previewFgAverages(db, { fgShareRial, period });
   const row = period ? getPeriodRow(db, period) : null;
   const date = period ? periodEndDate(period, row) : '';
   for (const u of preview) {
@@ -649,6 +701,31 @@ function execute(db, { period, method, userId, date }) {
       ? enrichPct(checklist.labor_allocation_base)
       : laborBaseFromOh(ohBase, laborApplied || ohBase.total_rial);
     const allocation = buildAllocation(variances, ohBase, laborBase, useMethod);
+    // v522: FG share of products already sold goes straight to COGS in PRD-23.
+    let fgPlan = previewFgAverages(db, { fgShareRial: allocation.total.fg_rial, period });
+    // v522: inventory month closed → the whole FG share is parked for approval (PRD-23 keeps
+    // debiting FG; a parking JE moves it to clearing; approval splits stock/COGS later).
+    const fgGate = require('../inventory/value-approval').begin(db, {
+      sourceType: 'production_close', sourceId: row.id, date: endDate, createdBy: userId,
+      label: `بستن دورهٔ تولید ${period} — سهم کالای ساخته‌شده`,
+    });
+    if (fgGate.closed) {
+      const fgAcc = acct(db, 'coa_finished_goods');
+      for (const u of fgPlan) {
+        const part = u.share_rial != null ? Math.round(Number(u.share_rial) || 0) : Math.round(Number(u.delta_rial) || 0);
+        fgGate.gate({
+          productId: u.product_id, warehouseId: null, refQty: Number(u.produced_qty) || 0, deltaRial: part,
+          inventoryCode: fgAcc.code, inventoryName: fgAcc.name, note: `تسهیم انحراف دوره ${period}`,
+        });
+      }
+      fgPlan = [];
+    }
+    const soldShift = fgPlan.reduce((s, u) => s + (Number(u.cogs_rial) || 0), 0);
+    if (soldShift) {
+      allocation.total.fg_rial -= soldShift;
+      allocation.total.cogs_rial += soldShift;
+      allocation.fg_sold_to_cogs_rial = soldShift;
+    }
 
     const journal_entries = [];
     const closeId = row.id;
@@ -678,7 +755,9 @@ function execute(db, { period, method, userId, date }) {
     });
     if (j23) journal_entries.push({ event: 'PRD-23', ...j23 });
 
-    const fgUpdates = updateFgAverages(db, { fgShareRial: allocation.total.fg_rial, period });
+    const fgUpdates = fgGate.closed ? [] : updateFgAverages(db, { fgShareRial: allocation.total.fg_rial, period, plan: fgPlan });
+    const fgApproval = fgGate.finish({ park: true });
+    if (fgApproval) allocation.fg_value_approval_id = fgApproval.id;
 
     assertControlsZero(db, { period, asOfDate: endDate });
 
@@ -709,6 +788,7 @@ function execute(db, { period, method, userId, date }) {
         ...checklist,
         journal_entries: journal_entries.map(j => ({ event: j.event, je_id: j.je_id })),
         fg_avg_updates: fgUpdates,
+        fg_value_approval_id: fgApproval ? fgApproval.id : null,
       }),
       row.id,
     );
@@ -837,6 +917,8 @@ function reopen(db, { period, reason, userId }) {
 
     // کل snapshot قبل از هر تغییری بررسی می‌شود؛ هیچ تغییر جزئی مجاز نیست.
     const { jeIds, restore } = reopenPreflight(db, { period, row, checklist });
+    require('../inventory/value-approval').cancelForSource(db, 'production_close', row.id, { id: userId || null },
+      `بازگشایی دورهٔ تولید ${period}: ${cleanReason}`);
 
     const revDate = todayJalali();
     const reversals = [];
@@ -996,6 +1078,8 @@ module.exports = {
   allocationBase,
   prorateVariance,
   updateFgAverages,
+  previewFgAverages,
+  producedInPeriod,
   assertControlsZero,
   accountBalance,
   listPeriods,

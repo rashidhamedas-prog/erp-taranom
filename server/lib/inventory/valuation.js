@@ -10,6 +10,11 @@
  * - previewReplay(): recompute outbound costs in (date,id) order from a date.
  *
  * Money: INTEGER rial. GL is never posted here — revaluation.js owns JEs.
+ *
+ * v522: valuation level resolves per (product, warehouse): product → category → warehouse →
+ * global. Warehouses resolving 'product' share one pool (rate = Σvalue/Σqty of their
+ * buckets); 'warehouse' ones keep their own bucket average. products.average_cost_rial
+ * stays the company-wide average.
  */
 
 const BUCKET_EPS = 1e-9;
@@ -173,6 +178,17 @@ function ensureValuationSchema(db, opts = {}) {
   `);
   ensureColumn(db, 'inventory_revaluations', 'preview_hash', 'TEXT');
   ensureColumn(db, 'inventory_revaluation_rules', 'percent', 'REAL');
+  // v522: per-layer valuation level (NULL = inherit) + customizable rule schedule
+  for (const t of ['products', 'product_categories', 'warehouses']) {
+    if (tableExists(db, t)) ensureColumn(db, t, 'valuation_level', 'TEXT');
+  }
+  ensureColumn(db, 'inventory_revaluation_rules', 'schedule_json', 'TEXT');
+  ensureColumn(db, 'inventory_revaluation_rules', 'last_run_slot', 'TEXT');
+  require('./period-lock').ensurePeriodLockSchema(db);
+  require('./value-approval').ensureValueApprovalSchema(db);
+  if (!isDeviceRole() && opts.migrate !== false) {
+    try { require('./revaluation').migrateRuleSchedulesV522(db); } catch (_) { /* first boot */ }
+  }
 
   if (!isDeviceRole() && opts.migrate !== false) migratePolicyV521(db);
 
@@ -235,6 +251,173 @@ function getLevel(db) {
   return setting(db, 'inventory_valuation_level', 'product') === 'warehouse' ? 'warehouse' : 'product';
 }
 
+function normLevel(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'product' || s === 'warehouse' ? s : '';
+}
+
+function colValue(db, sql, id) {
+  try { return db.prepare(sql).get(id) || null; } catch (_) { return null; }
+}
+
+/**
+ * v522: effective valuation level for one (product, warehouse) pair.
+ * product → category (walks up to 5 parents) → warehouse → global setting. NULL = inherit.
+ * 'product' = shared company pool; 'warehouse' = separate pool for that warehouse.
+ */
+function levelFor(db, productId, warehouseId) {
+  if (productId) {
+    const p = colValue(db, 'SELECT valuation_level, category_id FROM products WHERE id=?', productId);
+    const pl = normLevel(p && p.valuation_level);
+    if (pl) return { level: pl, source: 'product' };
+    let catId = p && p.category_id;
+    for (let i = 0; catId && i < 6; i++) {
+      const c = colValue(db, 'SELECT valuation_level, parent_id FROM product_categories WHERE id=?', catId);
+      if (!c) break;
+      const cl = normLevel(c.valuation_level);
+      if (cl) return { level: cl, source: 'category', category_id: catId };
+      catId = c.parent_id;
+    }
+  }
+  if (warehouseId) {
+    const w = colValue(db, 'SELECT valuation_level FROM warehouses WHERE id=?', warehouseId);
+    const wl = normLevel(w && w.valuation_level);
+    if (wl) return { level: wl, source: 'warehouse' };
+  }
+  return { level: getLevel(db), source: 'global' };
+}
+
+/**
+ * Pool layout of one product over all warehouses (+ bucket keys incl. 0 = no warehouse).
+ * mode: 'product' (all shared → header avg), 'warehouse' (all separate), 'mixed'.
+ */
+function productPools(db, productId) {
+  const keys = new Set([0]);
+  try { for (const w of db.prepare('SELECT id FROM warehouses').all()) keys.add(Number(w.id)); } catch (_) { /* old schema */ }
+  try {
+    for (const b of db.prepare('SELECT warehouse_id FROM inventory_valuation_buckets WHERE product_id=?').all(productId)) {
+      keys.add(Number(b.warehouse_id) || 0);
+    }
+  } catch (_) { /* not ready */ }
+  const shared = new Set();
+  const separate = new Set();
+  for (const k of keys) {
+    if (!k) continue;
+    if (levelFor(db, productId, k).level === 'warehouse') separate.add(k);
+    else shared.add(k);
+  }
+  let mode = 'mixed';
+  if (!separate.size && !shared.size) mode = levelFor(db, productId, null).level;
+  else if (!separate.size) mode = 'product';
+  else if (!shared.size) mode = 'warehouse';
+  // Rows without a warehouse belong to the shared pool (or to themselves in pure warehouse mode).
+  if (mode === 'warehouse') separate.add(0); else shared.add(0);
+  return { mode, shared, separate };
+}
+
+/** Shared-pool totals over non-WIP buckets that resolve to 'product'. */
+function sharedPoolState(db, productId, pools) {
+  const pp = pools || productPools(db, productId);
+  const wip = wipWarehouseIds(db);
+  let q = 0;
+  let v = 0;
+  for (const b of db.prepare('SELECT warehouse_id, qty, value_rial FROM inventory_valuation_buckets WHERE product_id=?').all(productId)) {
+    const k = Number(b.warehouse_id) || 0;
+    if (!pp.shared.has(k) || wip.has(k)) continue;
+    q += Number(b.qty) || 0;
+    v += Math.round(Number(b.value_rial) || 0);
+  }
+  return { qty: q, value_rial: v, avg_rial: q > BUCKET_EPS ? Math.max(0, Math.round(v / q)) : 0 };
+}
+
+/**
+ * Outbound rate for a (product, warehouse) under AVCO.
+ * Returns { unit|null, source: 'header'|'bucket'|'shared_pool', level, mode }.
+ * unit=null means "use the header average" (pure product mode or empty pool).
+ */
+function poolRate(db, productId, warehouseId) {
+  const lv = levelFor(db, productId, warehouseId || null);
+  if (lv.level === 'warehouse' && warehouseId) {
+    const b = getBucket(db, productId, warehouseId);
+    if (b && Number(b.qty) > BUCKET_EPS && Number(b.avg_rial) > 0) {
+      return { unit: Math.round(Number(b.avg_rial)), source: 'bucket', level: 'warehouse', level_source: lv.source };
+    }
+    return { unit: null, source: 'header', level: 'warehouse', level_source: lv.source };
+  }
+  const pools = productPools(db, productId);
+  if (pools.mode === 'product') return { unit: null, source: 'header', level: 'product', level_source: lv.source, mode: pools.mode };
+  const st = sharedPoolState(db, productId, pools);
+  if (st.qty > BUCKET_EPS && st.avg_rial > 0) {
+    return { unit: st.avg_rial, source: 'shared_pool', level: 'product', level_source: lv.source, mode: pools.mode, pool: st };
+  }
+  return { unit: null, source: 'header', level: 'product', level_source: lv.source, mode: pools.mode };
+}
+
+/** Keep products.average_cost_rial = company-wide average when pool rates diverge from it. */
+function syncHeaderAvgFromBuckets(db, productId) {
+  try {
+    const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(productId);
+    const stock = Number(p && p.stock) || 0;
+    if (stock <= BUCKET_EPS) return null;
+    const wip = wipWarehouseIds(db);
+    let q = 0;
+    let v = 0;
+    for (const b of db.prepare('SELECT warehouse_id, qty, value_rial FROM inventory_valuation_buckets WHERE product_id=?').all(productId)) {
+      if (wip.has(Number(b.warehouse_id))) continue;
+      q += Number(b.qty) || 0;
+      v += Math.round(Number(b.value_rial) || 0);
+    }
+    if (Math.abs(q - stock) > 1e-6 || q <= BUCKET_EPS) return null;
+    const avg = Math.max(0, Math.round(v / q));
+    if (avg === Math.round(Number(p.average_cost_rial) || 0)) return avg;
+    const { catalogCostFromAvgRial } = require('./product-unit-cost');
+    db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?').run(avg, catalogCostFromAvgRial(avg), productId);
+    return avg;
+  } catch (_) { return null; }
+}
+
+/** Last purchase unit of the same pool (warehouse pool → that warehouse; shared → shared warehouses). */
+function lastPurchaseUnitForPool(db, productId, warehouseId) {
+  const lv = levelFor(db, productId, warehouseId || null);
+  let where = '';
+  const params = [productId];
+  if (lv.level === 'warehouse' && warehouseId) {
+    where = ' AND warehouse_id=?';
+    params.push(warehouseId);
+  } else {
+    const pools = productPools(db, productId);
+    if (pools.mode === 'mixed') {
+      const ids = [...pools.separate].filter((k) => k > 0);
+      if (ids.length) {
+        where = ` AND COALESCE(warehouse_id,0) NOT IN (${ids.map(() => '?').join(',')})`;
+        params.push(...ids);
+      }
+    }
+  }
+  const r = db.prepare(`
+    SELECT unit_cost_rial FROM inventory_ledger
+    WHERE product_id=? AND status='posted' AND event_type IN ('purchase','receipt')
+      AND qty_in>0 AND unit_cost_rial>0 AND reversed_of IS NULL${where}
+    ORDER BY COALESCE(date,'') DESC, id DESC LIMIT 1
+  `).get(...params);
+  return r ? Math.round(Number(r.unit_cost_rial) || 0) : 0;
+}
+
+/** Forward-only edit of a layer's valuation_level; enqueues a review row when buckets exist. */
+function setLayerLevel(db, table, id, value, { userId } = {}) {
+  if (!['products', 'product_categories', 'warehouses'].includes(table)) return null;
+  const next = normLevel(value) || null;
+  const cur = colValue(db, `SELECT valuation_level FROM ${table} WHERE id=?`, id);
+  if (!cur) return null;
+  const prev = normLevel(cur.valuation_level) || null;
+  if (prev === next) return { changed: false, level: next };
+  db.prepare(`UPDATE ${table} SET valuation_level=? WHERE id=?`).run(next, id);
+  try {
+    require('../../db').audit(userId || null, 'update', 'valuation_level', id, `${table}#${id}: ${prev || 'inherit'} → ${next || 'inherit'} (فقط رو به جلو)`);
+  } catch (_) { /* optional */ }
+  return { changed: true, level: next, previous: prev };
+}
+
 function getPrecedence(db) {
   const p = setting(db, 'costing_method_precedence', '');
   if (p === 'warehouse_first' || p === 'product_first') return p;
@@ -246,7 +429,9 @@ function getPrecedence(db) {
  * "inherit" (same as NULL). Only fifo/specific on a product are explicit overrides.
  */
 function resolvePolicy(db, { productId, warehouseId } = {}) {
-  const level = getLevel(db);
+  const globalLevel = getLevel(db);
+  const lv = (productId || warehouseId) ? levelFor(db, productId, warehouseId) : { level: globalLevel, source: 'global' };
+  const level = lv.level;
   const precedence = getPrecedence(db);
   const globalMethod = normMethod(setting(db, 'inventory_costing_method', 'moving_average')) || 'moving_average';
   let pm = '';
@@ -272,7 +457,10 @@ function resolvePolicy(db, { productId, warehouseId } = {}) {
   for (const [src, m] of order) {
     if (m) { method = m; source = src; break; }
   }
-  return { level, method, method_source: source, precedence, global_method: globalMethod };
+  return {
+    level, level_source: lv.source, global_level: globalLevel,
+    method, method_source: source, precedence, global_method: globalMethod,
+  };
 }
 
 function getPolicy(db) {
@@ -697,10 +885,22 @@ function postValueAdjustment(db, {
     }
   }
   if (!invPart) return out;
+  let targetWh = warehouseId || null;
+  if (!targetWh) {
+    // Mixed pools: a warehouse-less value change belongs to the shared pool only.
+    const pools = productPools(db, productId);
+    if (pools.mode === 'mixed') {
+      const wip = wipWarehouseIds(db);
+      const best = db.prepare(`
+        SELECT warehouse_id FROM inventory_valuation_buckets WHERE product_id=? AND qty>0 ORDER BY qty DESC, warehouse_id
+      `).all(productId).map((b) => Number(b.warehouse_id) || 0).find((k) => k && pools.shared.has(k) && !wip.has(k));
+      if (best) targetWh = best;
+    }
+  }
   const led = postInventoryMovement(db, {
     eventType,
     productId,
-    warehouseId: warehouseId || null,
+    warehouseId: targetWh,
     qtyIn: 0,
     qtyOut: 0,
     unitCostRial: Math.abs(invPart),
@@ -797,14 +997,39 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
     SELECT * FROM inventory_ledger WHERE product_id=? ORDER BY COALESCE(date,''), id
   `).all(pid);
   const statusById = new Map(all.map((r) => [r.id, r.status]));
+  // v522: pool key per row — shared pool = 0, separate warehouse pool = its id.
+  const pools = productPools(db, pid);
+  const mode = pools.mode;
+  const poolKey = (wid) => {
+    const k = whKey(wid);
+    if (mode === 'product') return 0;
+    if (mode === 'warehouse') return k;
+    return pools.separate.has(k) ? k : 0;
+  };
+  const pk0 = (r) => `${r.source_type || ''}|${r.source_id == null ? '' : r.source_id}`;
+  const pairOf = new Map();
+  {
+    const ins = all.filter((r) => r.event_type === 'transfer_in');
+    const used = new Set();
+    for (const o of all) {
+      if (o.event_type !== 'transfer_out') continue;
+      const m = ins.find((x) => !used.has(x.id) && pk0(x) === pk0(o) && x.id > o.id
+        && Math.abs((Number(x.qty_in) || 0) - (Number(o.qty_out) || 0)) < 1e-6);
+      if (m) { used.add(m.id); pairOf.set(o.id, m); pairOf.set(m.id, o); }
+    }
+  }
   const rows = all.filter((r) => {
     if (String(r.status || '') !== 'posted') return false;
     if (r.reversed_of && statusById.get(r.reversed_of) === 'reversed') return false;
     if (String(r.source_type || '') === REPLAY_SELF_SOURCE) return false;
-    if (level === 'product') {
-      if (isWarehouseOnlyRow(r)) return false;
-      const et = String(r.event_type || '');
-      if (et === 'transfer_out' || et === 'transfer_in') return false;
+    if (mode === 'warehouse') return true;
+    if (isWarehouseOnlyRow(r) && poolKey(r.warehouse_id) === 0) return false;
+    const et = String(r.event_type || '');
+    if (et === 'transfer_out' || et === 'transfer_in') {
+      if (mode === 'product') return false;
+      const other = pairOf.get(r.id);
+      // Transfer inside the shared pool does not move pool value.
+      if (poolKey(r.warehouse_id) === 0 && (!other || poolKey(other.warehouse_id) === 0)) return false;
     }
     return true;
   });
@@ -824,7 +1049,7 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
 
   const states = new Map();
   const stFor = (r) => {
-    const k = level === 'product' ? 0 : whKey(r.warehouse_id);
+    const k = poolKey(r.warehouse_id);
     if (!states.has(k)) states.set(k, newState());
     return { k, st: states.get(k) };
   };
@@ -839,7 +1064,7 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
 
     if (!qIn && !qOut) {
       if (!effAmt) continue;
-      if (level === 'product' || r.warehouse_id) {
+      if (mode !== 'warehouse' || r.warehouse_id) {
         stValue(stFor(r).st, effAmt);
       } else {
         for (const p of spreadValue(states, effAmt, wipIds)) {
@@ -855,7 +1080,9 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
       let inAmt = effAmt;
       if (et === 'transfer_in') {
         const list = outByPair.get(pairKey(r)) || [];
-        const pair = list.find((o) => !consumedOut.has(o.id) && Math.abs((Number(o.qty_out) || 0) - qIn) < 1e-6);
+        const pref = pairOf.get(r.id);
+        const pair = (pref && !consumedOut.has(pref.id) && list.includes(pref)) ? pref
+          : list.find((o) => !consumedOut.has(o.id) && Math.abs((Number(o.qty_out) || 0) - qIn) < 1e-6);
         if (pair) {
           consumedOut.add(pair.id);
           if (newAmountByOutId.has(pair.id)) inAmt = newAmountByOutId.get(pair.id);
@@ -897,12 +1124,12 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
       if (d) {
         let counter;
         let counterWh = null;
+        let counterPool = null;
         if (et === 'transfer_out') {
-          const list = outByPair.get(pairKey(r)) || [];
-          void list;
-          const dest = rows.find((x) => x.event_type === 'transfer_in' && pairKey(x) === pairKey(r)
+          const dest = pairOf.get(r.id) || rows.find((x) => x.event_type === 'transfer_in' && pairKey(x) === pairKey(r)
             && Math.abs((Number(x.qty_in) || 0) - qOut) < 1e-6);
           counterWh = dest ? dest.warehouse_id : null;
+          counterPool = dest ? poolKey(dest.warehouse_id) : null;
           counter = inventoryAccountForWarehouse(db, counterWh);
         } else {
           counter = acct(db, counterKeyForEvent(et));
@@ -914,6 +1141,7 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
           old_amount_rial: effAmt, new_amount_rial: recomputed, delta_rial: d,
           counter_code: counter.code, counter_name: counter.name,
           counter_warehouse_id: counterWh ? whKey(counterWh) : null,
+          counter_pool_key: counterPool,
           inventory_code: inv.code, inventory_name: inv.name, bucket_key: k,
         });
       }
@@ -924,7 +1152,23 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
 
   // On-hand correction per key: replayed state vs actual header/bucket.
   const keys = [];
-  if (level === 'product') {
+  if (mode === 'mixed') {
+    const buckets = loadBucketMap(db, pid);
+    const sh = sharedPoolState(db, pid, pools);
+    const shared = newState(sh.qty, sh.value_rial, sh.avg_rial);
+    const sepKeys = new Set([...pools.separate].filter((k) => buckets.has(k) || states.has(k)));
+    const list = [[0, shared], ...[...sepKeys].sort((a, b) => a - b).map((k) => [k, buckets.get(k) || newState()])];
+    for (const [k, b] of list) {
+      if (warehouseId && k !== poolKey(warehouseId)) continue;
+      const st = states.get(k) || newState();
+      const targetV = b.q > BUCKET_EPS ? Math.round(b.q * (st.q > BUCKET_EPS ? st.avg : b.avg)) : b.v;
+      keys.push({
+        warehouse_id: k, pool: k ? 'warehouse' : 'shared', qty_on_hand: b.q, replay_qty: st.q, replay_value_rial: st.v,
+        old_unit_rial: b.avg, new_unit_rial: st.q > BUCKET_EPS ? st.avg : b.avg,
+        actual_value_rial: b.v, target_value_rial: targetV, onhand_delta_rial: targetV - b.v,
+      });
+    }
+  } else if (mode === 'product') {
     const st = states.get(0) || newState();
     const Q = Number(product.stock) || 0;
     const actualAvg = Math.round(Number(product.average_cost_rial) || 0);
@@ -951,10 +1195,12 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
       });
     }
   }
-  if (warehouseId && level === 'warehouse') {
-    const wk = whKey(warehouseId);
-    base.lines = base.lines.filter((l) => l.warehouse_id === wk || l.counter_warehouse_id === wk);
+  if (warehouseId && mode !== 'product') {
+    const wk = poolKey(warehouseId);
+    base.lines = base.lines.filter((l) => l.bucket_key === wk || l.counter_pool_key === wk);
   }
+  base.mode = mode;
+  base.level = mode;
   base.keys = keys;
   base.adjust_total_rial = base.lines.reduce((s, l) => s + l.delta_rial, 0);
   base.onhand_delta_rial = keys.reduce((s, k) => s + k.onhand_delta_rial, 0);
@@ -979,12 +1225,19 @@ function explainEffective(db, { productId, warehouseId = null } = {}) {
   const headerAvg = Math.round(Number(p.average_cost_rial) || 0);
   let outboundUnit = headerAvg;
   let outboundSource = 'header';
-  if (policy.level === 'warehouse' && policy.method === 'moving_average' && bucket && Number(bucket.qty) > BUCKET_EPS) {
-    outboundUnit = Math.round(Number(bucket.avg_rial) || 0);
-    outboundSource = 'bucket';
-  } else if (policy.method !== 'moving_average') {
+  const pools = productPools(db, pid);
+  if (policy.method !== 'moving_average') {
     outboundSource = 'cost_layers';
+  } else if (wid) {
+    const pr = poolRate(db, pid, wid);
+    if (pr.unit != null) { outboundUnit = pr.unit; outboundSource = pr.source; }
   }
+  const levelChain = {
+    product: (() => { try { return normLevel(db.prepare('SELECT valuation_level FROM products WHERE id=?').get(pid)?.valuation_level) || null; } catch (_) { return null; } })(),
+    warehouse: wid ? ((() => { try { return normLevel(db.prepare('SELECT valuation_level FROM warehouses WHERE id=?').get(wid)?.valuation_level) || null; } catch (_) { return null; } })()) : null,
+    global: getLevel(db),
+  };
+  const sharedState = pools.mode === 'mixed' ? sharedPoolState(db, pid, pools) : null;
   const pending = db.prepare(
     "SELECT COUNT(*) c FROM inventory_valuation_queue WHERE product_id=? AND status='pending'"
   ).get(pid).c;
@@ -1005,6 +1258,11 @@ function explainEffective(db, { productId, warehouseId = null } = {}) {
     effective_outbound_unit_rial: outboundUnit,
     effective_outbound_source: outboundSource,
     pending_queue: Number(pending) || 0,
+    pool_mode: pools.mode,
+    shared_warehouse_ids: [...pools.shared].filter((k) => k),
+    separate_warehouse_ids: [...pools.separate].filter((k) => k),
+    shared_pool: sharedState,
+    level_chain: levelChain,
   };
 }
 
@@ -1037,6 +1295,14 @@ module.exports = {
   isAlignRow,
   whKey,
   getLevel,
+  normLevel,
+  levelFor,
+  productPools,
+  sharedPoolState,
+  poolRate,
+  syncHeaderAvgFromBuckets,
+  lastPurchaseUnitForPool,
+  setLayerLevel,
   QUEUE_REASONS,
   REPLAY_SELF_SOURCE,
   ADJUSTABLE_OUT_EVENTS,

@@ -575,6 +575,9 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     const cm = String(req.body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
   }
+  if (req.body.valuation_level !== undefined) {
+    try { require('../lib/inventory/valuation').setLayerLevel(db, 'products', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+  }
   {
     const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
     if (req.body.item_type != null && String(req.body.item_type).trim()) {
@@ -732,6 +735,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     const cm = String(body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
   }
+  if (bodyHas(body, 'valuation_level')) {
+    try { require('../lib/inventory/valuation').setLayerLevel(db, 'products', Number(req.params.id), body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+  }
   // Production master-data fields (BOM / MRP / costing)
   if (bodyHas(body, 'item_type')) {
     const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
@@ -832,6 +838,9 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const { stock, note } = req.body;
   if (stock === undefined) return res.status(400).json({ error: 'موجودی الزامی است' });
   const db = getDB();
+  const VA = require('../lib/inventory/value-accounts');
+  let reasonCode;
+  try { reasonCode = VA.normReason(req.body.reason_code); } catch (e) { return res.status(400).json({ error: e.message, code: e.code }); }
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
   const newStock = parseStockQty(stock, {
@@ -896,6 +905,11 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
         // GL follows the kardex value change (qtyΔ × avg): Dr/Cr inventory ↔ adjustment account.
         const amt = Math.round(Number(led && led.amount_rial) || 0);
         if (led && amt) {
+          const counter = reasonCode
+            ? VA.adjustCounterAccount(db, {
+              inventoryCode: require('../lib/inventory/ledger').inventoryAccountForWarehouse(db, whId).code, reasonCode,
+            })
+            : null;
           const jeId = require('../lib/subledger-recon').postInventoryValueAdjustmentJe(db, {
             warehouseId: whId,
             amountRial: whDelta > 0 ? amt : -amt,
@@ -903,7 +917,9 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
             userId: req.user.id,
             sourceType: 'stock_adjust',
             sourceId: led.id,
-            description: `تعدیل موجودی کالا ${prod.name || prod.id} — ${led.tx_no}`,
+            description: `تعدیل موجودی کالا ${prod.name || prod.id} — ${led.tx_no}${reasonCode ? ' — ' + VA.ADJUST_REASONS[reasonCode] : ''}`,
+            counterCode: counter ? counter.code : null,
+            counterName: counter ? counter.name : null,
           });
           if (jeId) db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?').run(jeId, led.id);
         }

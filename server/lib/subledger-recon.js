@@ -5,15 +5,24 @@
  * Every check compares an operational book (kardex, party books, bank/cash leaves,
  * GRNI receipts, asset register …) with the live journal and returns
  *   { code, name, status, gl_rial, sub_rial, diff_rial, rows_count, sample, fixable, note }.
- * status: ok | warn (finding) | info (expected / by design) | error (check itself failed).
+ * status: ok | warn (finding) | rounding (v522: only toman↔rial rounding artefacts) |
+ *         info (expected / by design) | error (check itself failed).
  * Money: INTEGER rial. Read-only except applyFix / reverseFix (atomic, audited).
+ *
+ * v522 zero tolerance: every non-zero difference is reported. A difference D is
+ * classified `rounding` only when 0 < |D| ≤ B, where B (rounding_bound_rial) is the
+ * sum of documented conversion residues of the rows behind the comparison:
+ *   - journal line side: |debit_rial − round(debit_toman×10)| (and the credit twin) for
+ *     lines carrying both columns that disagree by 1…9 rial (less than one toman);
+ *   - subledger side: |amount − round(amount)| of fractional-rial rows (kardex, buckets,
+ *     party books, asset register).
+ * B = 0 ⇒ any non-zero D is a real difference (warn). See INV-VAL-ADR-008 §v522.
  */
 
 const { acct } = require('./coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL, rialToLedger } = require('./money');
 
 const SAMPLE_SIZE = 20;
-const TOLERANCE_RIAL = 10;
 const DEAD_STATUSES = ['reversed', 'void', 'voided', 'cancelled', 'canceled', 'deleted', 'rejected'];
 const DEAD_SQL = `(${DEAD_STATUSES.map((s) => `'${s}'`).join(',')})`;
 const JE_LIVE = "COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')";
@@ -100,6 +109,7 @@ function ensureReconSchema(db) {
   addColumn(db, 'fixed_assets', 'acq_je_id', 'INTEGER');
   addColumn(db, 'fixed_assets', 'acq_funding', 'TEXT');
   addColumn(db, 'fixed_assets', 'acq_supplier_id', 'INTEGER');
+  addColumn(db, 'fixed_assets', 'acq_release_je_id', 'INTEGER');
   addColumn(db, 'rep_advances', 'status', "TEXT DEFAULT 'posted'");
   addColumn(db, 'rep_advances', 'reversed_at', 'INTEGER');
   addColumn(db, 'rep_advances', 'reversed_by', 'INTEGER');
@@ -176,6 +186,70 @@ function codeOf(db, key) {
   try { return String(acct(db, key).code); } catch (_) { return ''; }
 }
 
+// ─── v522 rounding classification ──────────────────────────────────────────
+const SQL_SIDE_RESIDUE = (r, t) => `(CASE WHEN COALESCE(jl.${r},0)<>0 AND COALESCE(jl.${t},0)<>0
+    AND jl.${r} <> jl.${t} AND ABS(jl.${r} - ROUND(jl.${t}*10)) BETWEEN 1 AND 9
+    THEN ABS(jl.${r} - ROUND(jl.${t}*10)) ELSE 0 END)`;
+const SQL_JL_ROUND_RESIDUE = `(${SQL_SIDE_RESIDUE('debit_rial', 'debit')} + ${SQL_SIDE_RESIDUE('credit_rial', 'credit')})`;
+
+/** Σ toman↔rial residues of live lines on `codes` (hierarchical) — or exact leaf with leaf:true. */
+function glRoundingBound(db, codes, dateTo, { leaf = false } = {}) {
+  const list = [...new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!list.length) return 0;
+  const conds = list.map(() => '(jl.account_code = ? OR jl.account_code LIKE ?)').join(' OR ');
+  const params = [];
+  for (const c of list) params.push(c, leaf ? `${c}-%` : `${c}%`);
+  if (dateTo) params.push(dateTo);
+  try {
+    const r = db.prepare(`
+      SELECT COALESCE(SUM(${SQL_JL_ROUND_RESIDUE}), 0) AS b
+      FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE ${JE_LIVE} AND (${conds})${dateFilter('je.entry_date', dateTo)}
+    `).get(...params);
+    return Number(r && r.b) || 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+/** Residue of one journal line row carrying dr/cr (rial) and dt/ct (toman). */
+function lineResidue(l) {
+  let s = 0;
+  for (const [r, t] of [[l.dr, l.dt], [l.cr, l.ct]]) {
+    const R = Number(r) || 0;
+    const T = Number(t) || 0;
+    if (!R || !T || R === T) continue;
+    const d = Math.abs(R - Math.round(T * 10));
+    if (d >= 1 && d <= 9) s += d;
+  }
+  return s;
+}
+
+function frac(v) {
+  const n = Number(v) || 0;
+  return Math.abs(n - Math.round(n));
+}
+
+/** 'ok' (D=0) | 'rounding' (0<|D|≤B) | 'real'. Zero tolerance: B=0 ⇒ real. */
+function classifyDiff(diff, bound) {
+  const d = Math.round(Number(diff) || 0);
+  if (!d) return 'ok';
+  const b = Math.ceil(Number(bound) || 0);
+  return b > 0 && Math.abs(d) <= b ? 'rounding' : 'real';
+}
+
+const STATUS_RANK = { ok: 0, info: 1, rounding: 2, warn: 3, error: 4 };
+function worstStatus(...list) {
+  let w = 'ok';
+  for (const s of list) if ((STATUS_RANK[s] || 0) > (STATUS_RANK[w] || 0)) w = s;
+  return w;
+}
+
+/** Map a classification to a row/check status. */
+function statusOfClass(cls) {
+  return cls === 'real' ? 'warn' : cls;
+}
+
 /** Live-JE index for fast "does source X have a live voucher" checks. */
 function buildJeIndex(db) {
   const keys = new Set();
@@ -198,7 +272,7 @@ function buildJeIndex(db) {
 }
 
 function ctxFor(db, opts = {}) {
-  const ctx = { db, dateTo: opts.dateTo || opts.date_to || '', tolerance: Number(opts.tolerance) || TOLERANCE_RIAL };
+  const ctx = { db, dateTo: opts.dateTo || opts.date_to || '' };
   let jeIndex = null;
   ctx.je = () => { if (!jeIndex) jeIndex = buildJeIndex(db); return jeIndex; };
   return ctx;
@@ -213,6 +287,8 @@ function result(code, fields) {
     gl_rial: fields.gl_rial != null ? Math.round(fields.gl_rial) : null,
     sub_rial: fields.sub_rial != null ? Math.round(fields.sub_rial) : null,
     diff_rial: fields.diff_rial != null ? Math.round(fields.diff_rial) : null,
+    rounding_rial: Math.round(Number(fields.rounding_rial) || 0),
+    rounding_bound_rial: Math.ceil(Number(fields.rounding_bound_rial) || 0),
     rows_count: rows.length,
     sample: rows.slice(0, SAMPLE_SIZE),
     fixable: !!fields.fixable,
@@ -308,7 +384,22 @@ function warehouseValues(db, dateTo) {
       qtyAvg.set(Number(r.warehouse_id), Math.round(Number(r.v) || 0));
     }
   }
-  return { values, qtyAvg, source };
+  const fracByWh = new Map();
+  const addFrac = (sql) => {
+    try {
+      for (const r of db.prepare(sql).all()) {
+        const k = r.warehouse_id == null ? 0 : Number(r.warehouse_id);
+        fracByWh.set(k, (fracByWh.get(k) || 0) + (Number(r.f) || 0));
+      }
+    } catch (_) { /* optional columns */ }
+  };
+  if (useBuckets) {
+    addFrac('SELECT warehouse_id, SUM(ABS(value_rial - ROUND(value_rial))) AS f FROM inventory_valuation_buckets GROUP BY warehouse_id');
+  }
+  if (tableExists(db, 'inventory_ledger')) {
+    addFrac("SELECT warehouse_id, SUM(ABS(amount_rial - ROUND(amount_rial))) AS f FROM inventory_ledger WHERE status='posted' GROUP BY warehouse_id");
+  }
+  return { values, qtyAvg, source, fracByWh };
 }
 
 function inventoryAccountKeys() {
@@ -317,14 +408,14 @@ function inventoryAccountKeys() {
 }
 
 function computeInventoryVsGl(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const meta = warehouseMeta(db);
-  const { values, qtyAvg, source } = warehouseValues(db, dateTo);
+  const { values, qtyAvg, source, fracByWh } = warehouseValues(db, dateTo);
   const wipCode = codeOf(db, 'coa_wip');
   const accounts = new Map();
   const ensureAcc = (code, name) => {
     if (!accounts.has(code)) {
-      accounts.set(code, { code, name, sub: 0, periodicSub: 0, warehouses: [] });
+      accounts.set(code, { code, name, sub: 0, periodicSub: 0, subFrac: 0, warehouses: [] });
     }
     return accounts.get(code);
   };
@@ -348,36 +439,39 @@ function computeInventoryVsGl(ctx) {
       sub_rial: val,
       stock_x_avg_rial: qtyAvg.get(wid) || 0,
     };
-    if (m.periodic) acc.periodicSub += val; else acc.sub += val;
+    if (m.periodic) acc.periodicSub += val; else { acc.sub += val; acc.subFrac += fracByWh.get(wid) || 0; }
     acc.warehouses.push(row);
     whRows.push(row);
   }
   const accRows = [];
-  let glTotal = 0, subTotal = 0, worst = 'ok';
+  let glTotal = 0, subTotal = 0, worst = 'ok', roundingTotal = 0, boundTotal = 0;
   for (const acc of accounts.values()) {
     const gl = glBalance(db, [acc.code], dateTo);
     const sub = acc.sub;
     const diff = gl - sub;
     const isWip = acc.code === wipCode;
     const periodicOnly = acc.warehouses.length > 0 && acc.warehouses.every((w) => w.inventory_system === 'periodic');
-    let status = Math.abs(diff) <= tolerance ? 'ok' : 'warn';
-    let note = '';
-    if (status !== 'ok' && (isWip || periodicOnly)) {
+    const bound = diff ? glRoundingBound(db, [acc.code], dateTo) + acc.subFrac : 0;
+    const cls = classifyDiff(diff, bound);
+    let status = statusOfClass(cls);
+    let note = cls === 'rounding' ? 'اختلاف گرد کردن تومان↔ریال' : '';
+    if (cls === 'real' && (isWip || periodicOnly)) {
       status = 'info';
       note = isWip ? 'کالای در جریان ساخت با سفارش تولید ارزش‌گذاری می‌شود' : 'انبار ادواری — ارزش در بستن دوره ثبت می‌شود';
     }
     if (!gl && !sub && !acc.periodicSub) continue;
     accRows.push({
       level: 'account', id: acc.code, account_code: acc.code, account_name: acc.name,
-      gl_rial: gl, sub_rial: sub, periodic_sub_rial: acc.periodicSub, diff_rial: diff, status, note,
+      gl_rial: gl, sub_rial: sub, periodic_sub_rial: acc.periodicSub, diff_rial: diff, status, diff_class: cls,
+      rounding_bound_rial: Math.ceil(bound), note,
       warehouses: acc.warehouses.length,
     });
-    if (status === 'warn') worst = 'warn';
-    else if (status === 'info' && worst === 'ok') worst = 'info';
-    if (status !== 'info') { glTotal += gl; subTotal += sub; }
+    worst = worstStatus(worst, status);
+    if (status === 'rounding') roundingTotal += diff;
+    if (status !== 'info') { glTotal += gl; subTotal += sub; boundTotal += bound; }
   }
   accRows.sort((a, b) => Math.abs(b.diff_rial) - Math.abs(a.diff_rial));
-  return { accRows, whRows, glTotal, subTotal, worst, source };
+  return { accRows, whRows, glTotal, subTotal, worst, source, roundingTotal, boundTotal };
 }
 
 function checkInventoryVsGl(ctx) {
@@ -387,6 +481,8 @@ function checkInventoryVsGl(ctx) {
     gl_rial: r.glTotal,
     sub_rial: r.subTotal,
     diff_rial: r.glTotal - r.subTotal,
+    rounding_rial: r.roundingTotal,
+    rounding_bound_rial: r.boundTotal,
     rows: [...r.accRows, ...r.whRows],
     fixable: r.accRows.some((a) => a.status === 'warn'),
     note: `منبع ارزش زیرسیستم: ${r.source}`,
@@ -608,6 +704,8 @@ function deadDocRules(db) {
     inventory_recon_adjust: { table: 'subledger_recon_fixes', dead: statusDead, missingIsDead: true },
     fixed_asset_acquisition: { table: 'fixed_assets', dead: (r, je) => !r || r.status === 'inactive' || Number(r.acq_je_id || 0) !== Number(je.id), missingIsDead: true },
     fixed_asset_dispose: { table: 'fixed_assets', dead: (r, je) => !r || Number(r.dispose_je_id || 0) !== Number(je.id), missingIsDead: true },
+    fixed_asset_opening_recon: { table: 'subledger_recon_fixes', dead: statusDead, missingIsDead: true },
+    fixed_asset_opening_release: { table: 'fixed_assets', dead: (r, je) => !r || Number(r.acq_release_je_id || 0) !== Number(je.id), missingIsDead: true },
   };
 }
 
@@ -674,14 +772,24 @@ function checkJeOnDeadDocument(ctx) {
 // ─── R5 document amount vs JE ──────────────────────────────────────────────
 function jeLinesFor(db, refType, refId) {
   return db.prepare(`
-    SELECT jl.account_code AS code, ${SQL_JL_DEBIT_RIAL} AS d, ${SQL_JL_CREDIT_RIAL} AS c, je.id AS je_id
+    SELECT jl.account_code AS code, ${SQL_JL_DEBIT_RIAL} AS d, ${SQL_JL_CREDIT_RIAL} AS c, je.id AS je_id,
+      jl.debit_rial AS dr, jl.credit_rial AS cr, jl.debit AS dt, jl.credit AS ct
     FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
     WHERE ${JE_LIVE} AND je.ref_type=? AND je.ref_id=?
   `).all(refType, refId);
 }
 
+/** Push a document-vs-JE row when the diff is non-zero, labelled rounding|real. */
+function pushAmountRow(rows, fields, lines, docRaw) {
+  const diff = Math.round(fields.je_rial - fields.doc_rial);
+  if (!diff) return;
+  const bound = (lines || []).reduce((s, l) => s + lineResidue(l), 0) + frac(docRaw);
+  const cls = classifyDiff(diff, bound);
+  rows.push({ ...fields, diff_rial: diff, diff_class: cls, status: statusOfClass(cls), rounding_bound_rial: Math.ceil(bound) });
+}
+
 function computeDocumentAmountVsJe(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const rows = [];
   const je = ctx.je();
   if (tableExists(db, 'invoices')) {
@@ -698,12 +806,10 @@ function computeDocumentAmountVsJe(ctx) {
       if (!je.has('invoice', inv.id)) continue;
       let recv = '';
       try { recv = String(receivableAcct(db, inv.cust_id).code || ''); } catch (_) { recv = codeOf(db, 'coa_receivable'); }
-      const lines = jeLinesFor(db, 'invoice', inv.id);
-      const ar = lines.filter((l) => String(l.code) === recv).reduce((s, l) => s + Number(l.d || 0), 0);
+      const lines = jeLinesFor(db, 'invoice', inv.id).filter((l) => String(l.code) === recv);
+      const ar = lines.reduce((s, l) => s + Number(l.d || 0), 0);
       const docAmt = Math.round(Number(inv.final) || 0);
-      if (Math.abs(ar - docAmt) > tolerance) {
-        rows.push({ id: `invoice:${inv.id}`, doc_type: 'invoice', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'ar_debit', doc_rial: docAmt, je_rial: Math.round(ar), diff_rial: Math.round(ar - docAmt) });
-      }
+      pushAmountRow(rows, { id: `invoice:${inv.id}`, doc_type: 'invoice', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'ar_debit', doc_rial: docAmt, je_rial: Math.round(ar) }, lines, inv.final);
     }
     if (setting(db, 'feature_cogs_voucher', '0') === '1' && tableExists(db, 'inventory_ledger')) {
       const mv = new Map();
@@ -715,10 +821,9 @@ function computeDocumentAmountVsJe(ctx) {
         if (!je.has('invoice_cogs', inv.id)) continue;
         const lines = jeLinesFor(db, 'invoice_cogs', inv.id);
         const cogs = lines.reduce((s, l) => s + Number(l.d || 0), 0);
-        const movement = Math.round(mv.get(Number(inv.id)) || 0);
-        if (Math.abs(cogs - movement) > tolerance) {
-          rows.push({ id: `invoice_cogs:${inv.id}`, doc_type: 'invoice_cogs', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'cogs_vs_movements', doc_rial: movement, je_rial: Math.round(cogs), diff_rial: Math.round(cogs - movement) });
-        }
+        const movRaw = mv.get(Number(inv.id)) || 0;
+        const movement = Math.round(movRaw);
+        pushAmountRow(rows, { id: `invoice_cogs:${inv.id}`, doc_type: 'invoice_cogs', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'cogs_vs_movements', doc_rial: movement, je_rial: Math.round(cogs) }, lines, movRaw);
       }
     }
   }
@@ -737,21 +842,33 @@ function computeDocumentAmountVsJe(ctx) {
         const s = db.prepare('SELECT coa_code FROM suppliers WHERE id=?').get(p.supplier_id);
         if (s && s.coa_code) pay = String(s.coa_code);
       } catch (_) { /* keep control */ }
-      const lines = jeLinesFor(db, 'purchase', p.id);
-      const ap = lines.filter((l) => String(l.code) === pay).reduce((s, l) => s + Number(l.c || 0), 0);
+      const lines = jeLinesFor(db, 'purchase', p.id).filter((l) => String(l.code) === pay);
+      const ap = lines.reduce((s, l) => s + Number(l.c || 0), 0);
       const docAmt = Math.round(Number(p.final) || 0);
-      if (Math.abs(ap - docAmt) > tolerance) {
-        rows.push({ id: `purchase:${p.id}`, doc_type: 'purchase', doc_id: p.id, num: p.num, date: p.date, metric: 'ap_credit', doc_rial: docAmt, je_rial: Math.round(ap), diff_rial: Math.round(ap - docAmt) });
-      }
+      pushAmountRow(rows, { id: `purchase:${p.id}`, doc_type: 'purchase', doc_id: p.id, num: p.num, date: p.date, metric: 'ap_credit', doc_rial: docAmt, je_rial: Math.round(ap) }, lines, p.final);
     }
   }
   return rows;
 }
 
+/** Check-level status + rounding totals from rows carrying `status` / `diff_rial`. */
+function rowsRollup(rows) {
+  let status = 'ok', rounding = 0, bound = 0;
+  for (const r of rows) {
+    status = worstStatus(status, r.status || 'warn');
+    if (r.status === 'rounding') rounding += Math.round(Number(r.diff_rial != null ? r.diff_rial : r.balance_rial) || 0);
+    bound += Number(r.rounding_bound_rial) || 0;
+  }
+  return { status, rounding, bound };
+}
+
 function checkDocumentAmountVsJe(ctx) {
   const rows = computeDocumentAmountVsJe(ctx);
+  const roll = rowsRollup(rows);
   return result('document_amount_vs_je', {
-    status: rows.length ? 'warn' : 'ok',
+    status: roll.status,
+    rounding_rial: roll.rounding,
+    rounding_bound_rial: roll.bound,
     gl_rial: rows.reduce((s, r) => s + r.je_rial, 0),
     sub_rial: rows.reduce((s, r) => s + r.doc_rial, 0),
     diff_rial: rows.reduce((s, r) => s + r.diff_rial, 0),
@@ -762,11 +879,12 @@ function checkDocumentAmountVsJe(ctx) {
 
 // ─── R6 party control ──────────────────────────────────────────────────────
 function checkPartyControl(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const controls = ['coa_receivable', 'coa_payable', 'coa_misc_persons'].map((k) => codeOf(db, k)).filter(Boolean);
   const gl = glBalance(db, controls, dateTo);
   const rows = [];
   let sub = 0;
+  let subFrac = 0;
   let notes = [];
   if (!dateTo) {
     try {
@@ -778,16 +896,17 @@ function checkPartyControl(ctx) {
         for (const lf of leaves) {
           if (!lf.coa_code || !controls.some((c) => String(lf.coa_code).startsWith(c))) continue;
           sub += Math.round(Number(lf.balance) || 0);
+          subFrac += frac(lf.balance);
         }
-        if (pb.partyBooksMismatch(db, info)) {
-          for (const lf of leaves) {
-            if (!lf.coa_code) continue;
-            const g = pb.glSignedForCoa(db, lf.coa_code);
-            if (g == null) continue;
-            const d = Math.round(Number(lf.balance) || 0) - Math.round(g);
-            if (Math.abs(d) <= 2) continue;
-            rows.push({ id: `party:${pid}:${lf.coa_code}`, kind: 'party', party_id: pid, coa_code: lf.coa_code, book_rial: Math.round(Number(lf.balance) || 0), gl_rial: Math.round(g), diff_rial: d, source: lf.source || '' });
-          }
+        for (const lf of leaves) {
+          if (!lf.coa_code || !lf.source || lf.source === 'opening') continue;
+          const g = pb.glSignedForCoa(db, lf.coa_code);
+          if (g == null) continue;
+          const d = Math.round(Number(lf.balance) || 0) - Math.round(g);
+          if (!d) continue;
+          const bound = glRoundingBound(db, [lf.coa_code], dateTo, { leaf: true }) + frac(lf.balance) + frac(g);
+          const cls = classifyDiff(d, bound);
+          rows.push({ id: `party:${pid}:${lf.coa_code}`, kind: 'party', party_id: pid, coa_code: lf.coa_code, book_rial: Math.round(Number(lf.balance) || 0), gl_rial: Math.round(g), diff_rial: d, diff_class: cls, status: statusOfClass(cls), rounding_bound_rial: Math.ceil(bound), source: lf.source || '' });
         }
       }
     } catch (e) {
@@ -801,22 +920,39 @@ function checkPartyControl(ctx) {
     const list = cb.customerBooksMismatchList(db, { asOf: dateTo || undefined, limit: 1000 });
     for (const r of list.rows || []) {
       if (rows.some((x) => x.coa_code === r.coa_code)) continue;
-      rows.push({ id: `customer:${r.id}`, kind: 'customer', customer_id: r.id, name: r.biz, coa_code: r.coa_code, book_rial: r.ledger, gl_rial: r.gl, diff_rial: r.delta });
+      const d = Math.round(Number(r.delta) || 0);
+      if (!d) continue;
+      const bound = r.coa_code ? glRoundingBound(db, [r.coa_code], dateTo, { leaf: true }) + frac(r.ledger) + frac(r.gl) : 0;
+      const cls = classifyDiff(d, bound);
+      rows.push({ id: `customer:${r.id}`, kind: 'customer', customer_id: r.id, name: r.biz, coa_code: r.coa_code, book_rial: r.ledger, gl_rial: r.gl, diff_rial: d, diff_class: cls, status: statusOfClass(cls), rounding_bound_rial: Math.ceil(bound) });
     }
   } catch (e) {
     notes.push(`customer-books: ${e.message}`);
   }
   const diff = dateTo ? null : gl - sub;
-  const status = rows.length || (diff != null && Math.abs(diff) > tolerance) ? 'warn' : 'ok';
+  const roll = rowsRollup(rows);
+  let status = roll.status;
+  let rounding = roll.rounding;
+  let aggCls = 'ok';
+  if (diff) {
+    aggCls = classifyDiff(diff, glRoundingBound(db, controls, dateTo) + subFrac);
+    status = worstStatus(status, statusOfClass(aggCls));
+    if (aggCls === 'rounding' && !rows.length) rounding = diff;
+  }
   return result('party_control', {
     status, gl_rial: gl, sub_rial: dateTo ? null : sub, diff_rial: diff, rows, fixable: false,
-    note: [diff && Math.abs(diff) > tolerance ? 'بخشی از مانده روی حساب کنترل (بدون تفصیلی) ثبت شده است' : '', ...notes].filter(Boolean).join(' | '),
+    rounding_rial: rounding, rounding_bound_rial: roll.bound,
+    note: [
+      aggCls === 'real' ? 'بخشی از مانده روی حساب کنترل (بدون تفصیلی) ثبت شده است' : '',
+      aggCls === 'rounding' ? 'اختلاف کل فقط گرد کردن تومان↔ریال است' : '',
+      ...notes,
+    ].filter(Boolean).join(' | '),
   });
 }
 
 // ─── R7 cash / bank ────────────────────────────────────────────────────────
 function checkCashBank(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const rows = [];
   const cashCode = codeOf(db, 'coa_cash_default') || '1101';
   const bankCode = codeOf(db, 'coa_bank_default') || '1102';
@@ -836,17 +972,27 @@ function checkCashBank(ctx) {
       const code = c.coa_code || `${cashCode}-${c.id}`;
       const bal = glLeafBalance(db, code, dateTo);
       sub += bal;
-      rows.push({ id: `cash:${c.id}`, kind: 'cash_box', entity_id: c.id, name: c.name, coa_code: code, balance_rial: bal, flag: bal < -tolerance ? 'negative_cash' : '' });
+      rows.push({ id: `cash:${c.id}`, kind: 'cash_box', entity_id: c.id, name: c.name, coa_code: code, balance_rial: bal, flag: bal < 0 ? 'negative_cash' : '' });
     }
   }
   const gl = glBalance(db, [cashCode, bankCode], dateTo);
   const diff = gl - sub;
-  if (Math.abs(diff) > tolerance) {
-    rows.unshift({ id: 'unallocated', kind: 'control', name: 'مانده روی حساب کنترل بدون صندوق/بانک', coa_code: `${cashCode},${bankCode}`, balance_rial: diff, flag: 'unallocated' });
+  let rounding = 0;
+  let bound = 0;
+  if (diff) {
+    bound = glRoundingBound(db, [cashCode, bankCode], dateTo);
+    const cls = classifyDiff(diff, bound);
+    if (cls === 'rounding') rounding = diff;
+    rows.unshift({
+      id: 'unallocated', kind: 'control', name: cls === 'rounding' ? 'اختلاف گرد کردن تومان↔ریال' : 'مانده روی حساب کنترل بدون صندوق/بانک',
+      coa_code: `${cashCode},${bankCode}`, balance_rial: diff, flag: cls === 'rounding' ? 'rounding' : 'unallocated',
+      diff_class: cls, rounding_bound_rial: Math.ceil(bound),
+    });
   }
   const flagged = rows.filter((r) => r.flag);
+  const status = flagged.some((r) => r.flag !== 'rounding') ? 'warn' : (flagged.length ? 'rounding' : 'ok');
   return result('cash_bank', {
-    status: flagged.length ? 'warn' : 'ok',
+    status, rounding_rial: rounding, rounding_bound_rial: bound,
     gl_rial: gl, sub_rial: sub, diff_rial: diff,
     rows: [...flagged, ...rows.filter((r) => !r.flag)],
     fixable: false,
@@ -855,7 +1001,7 @@ function checkCashBank(ctx) {
 
 // ─── R8 GRNI ───────────────────────────────────────────────────────────────
 function checkGrni(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const je = ctx.je();
   const grniCode = codeOf(db, 'coa_grni') || '2112';
   const gl = -glBalance(db, [grniCode], dateTo);
@@ -903,8 +1049,11 @@ function checkGrni(ctx) {
     }
   }
   const diff = gl - sub;
+  const bound = diff ? glRoundingBound(db, [grniCode], dateTo) : 0;
+  const cls = classifyDiff(diff, bound);
   return result('grni', {
-    status: Math.abs(diff) > tolerance ? 'warn' : 'ok',
+    status: statusOfClass(cls),
+    rounding_rial: cls === 'rounding' ? diff : 0, rounding_bound_rial: bound,
     gl_rial: gl, sub_rial: sub, diff_rial: diff, rows, fixable: false,
     note: 'مانده بستانکار 2112 در برابر رسیدهای فاکتورنشده',
   });
@@ -912,7 +1061,7 @@ function checkGrni(ctx) {
 
 // ─── R9 fixed assets ───────────────────────────────────────────────────────
 function checkFixedAssets(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   if (!tableExists(db, 'fixed_assets')) {
     return result('fixed_assets', { status: 'ok', gl_rial: 0, sub_rial: 0, diff_rial: 0, rows: [], note: 'جدول دارایی ثابت وجود ندارد' });
   }
@@ -932,27 +1081,153 @@ function checkFixedAssets(ctx) {
   const legacyCost = legacy.reduce((s, a) => s + Math.round(Number(a.cost_rial) || 0), 0);
   const costDiff = glCost - subCost;
   const accumDiff = glAccum - subAccum;
+  const costBound = costDiff ? glRoundingBound(db, assetCodes, dateTo) + assets.reduce((s, a) => s + frac(a.cost_rial), 0) : 0;
+  const accumBound = accumDiff ? glRoundingBound(db, [accumControl], dateTo) + assets.reduce((s, a) => s + frac(a.accumulated_depreciation_rial), 0) : 0;
+  const accumCls = classifyDiff(accumDiff, accumBound);
+  // Legacy assets without acquisition voucher explain −legacyCost of the cost diff (info);
+  // what is left over is classified on its own.
+  const costRest = legacy.length ? costDiff + legacyCost : costDiff;
+  const costCls = classifyDiff(costRest, costBound);
+  const costStatus = costCls === 'ok' ? (costDiff ? 'info' : 'ok') : statusOfClass(costCls);
   const rows = [
-    { id: 'cost', metric: 'cost', account_code: assetControl, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, legacy_without_je_rial: legacyCost },
-    { id: 'accumulated_depreciation', metric: 'accumulated_depreciation', account_code: accumControl, gl_rial: glAccum, sub_rial: subAccum, diff_rial: accumDiff },
+    { id: 'cost', metric: 'cost', account_code: assetControl, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, legacy_without_je_rial: legacyCost, status: costStatus, diff_class: costCls, rounding_bound_rial: Math.ceil(costBound) },
+    { id: 'accumulated_depreciation', metric: 'accumulated_depreciation', account_code: accumControl, gl_rial: glAccum, sub_rial: subAccum, diff_rial: accumDiff, status: statusOfClass(accumCls), diff_class: accumCls, rounding_bound_rial: Math.ceil(accumBound) },
   ];
+  const candidates = new Set(fixedAssetOpeningCandidates(db).map((a) => Number(a.id)));
   for (const a of legacy) {
-    rows.push({ id: `asset:${a.id}`, metric: 'legacy_no_acq_je', asset_id: a.id, code: a.code, name: a.name, sub_rial: Math.round(Number(a.cost_rial) || 0) });
+    rows.push({ id: `asset:${a.id}`, metric: 'legacy_no_acq_je', asset_id: a.id, code: a.code, name: a.name, sub_rial: Math.round(Number(a.cost_rial) || 0), fixable: candidates.has(Number(a.id)) });
   }
-  let status = 'ok';
-  if (Math.abs(accumDiff) > tolerance) status = 'warn';
-  if (Math.abs(costDiff) > tolerance) {
-    status = (Math.abs(costDiff + legacyCost) <= tolerance && status === 'ok') ? 'info' : 'warn';
-  }
+  const status = worstStatus(costStatus, statusOfClass(accumCls));
   return result('fixed_assets', {
-    status, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, rows, fixable: false,
-    note: legacy.length ? `${legacy.length} دارایی قدیمی بدون سند تحصیل` : '',
+    status, gl_rial: glCost, sub_rial: subCost, diff_rial: costDiff, rows, fixable: candidates.size > 0,
+    rounding_rial: (costCls === 'rounding' ? costRest : 0) + (accumCls === 'rounding' ? accumDiff : 0),
+    rounding_bound_rial: costBound + accumBound,
+    note: legacy.length ? `${legacy.length} دارایی قدیمی بدون سند تحصیل — اصلاح «سند افتتاحیه یکجا» در دسترس است` : '',
   });
+}
+
+// ─── v522 fixed-asset opening voucher (one-off) ────────────────────────────
+/** Active assets with cost and no live acquisition voucher (acq_je_id dead/null, no live fixed_asset_acquisition JE). */
+function fixedAssetOpeningCandidates(db) {
+  if (!tableExists(db, 'fixed_assets') || !columns(db, 'fixed_assets').has('acq_je_id')) return [];
+  const je = buildJeIndex(db);
+  return db.prepare("SELECT * FROM fixed_assets WHERE status='active' ORDER BY id").all().filter((a) => (
+    Math.round(Number(a.cost_rial) || 0) > 0
+    && !(a.acq_je_id && je.live(a.acq_je_id))
+    && !je.has('fixed_asset_acquisition', a.id)
+  ));
+}
+
+function fixedAssetAccount(db, asset) {
+  const code = asset.coa_asset_code || codeOf(db, 'coa_fixed_assets') || '1201';
+  return db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(code) || acct(db, 'coa_fixed_assets');
+}
+
+/** First day of the active fiscal year; today when that date is in a closed year. */
+function fiscalYearStartDate(db) {
+  const today = require('../jalali').todayJalali();
+  let start = '';
+  try {
+    const activeId = setting(db, 'active_fiscal_year_id', '');
+    const fy = (activeId && db.prepare('SELECT start_date FROM fiscal_years WHERE id=?').get(Number(activeId)))
+      || db.prepare("SELECT start_date FROM fiscal_years WHERE status='open' ORDER BY id DESC LIMIT 1").get();
+    start = (fy && fy.start_date) || '';
+  } catch (_) { start = ''; }
+  if (!/^\d{4}\/\d{2}\/\d{2}$/.test(start) || start > today) start = `${today.slice(0, 4)}/01/01`;
+  try {
+    if (require('./void-journal').closedFiscalYearForDate(db, start)) start = today;
+  } catch (_) { /* helper optional */ }
+  return start;
+}
+
+function fixFixedAssets(db, opts) {
+  ensureReconSchemaOnce(db);
+  const wanted = idSet(opts.ids);
+  const assets = fixedAssetOpeningCandidates(db).filter((a) => !wanted.size || wanted.has(String(a.id)) || wanted.has(`asset:${a.id}`));
+  const date = fiscalYearStartDate(db);
+  const opening = acct(db, 'coa_opening_balance');
+  const plan = assets.map((a) => {
+    const acc = fixedAssetAccount(db, a);
+    return { asset_id: a.id, code: a.code, name: a.name, cost_rial: Math.round(Number(a.cost_rial) || 0), account_code: acc.code, action: 'opening_voucher' };
+  });
+  const total = plan.reduce((s, p) => s + p.cost_rial, 0);
+  const fa = computeFixedAssetGap(db);
+  const summary = { date, assets: plan.length, total_rial: total, credit_account: opening.code, gl_shortfall_rial: fa.shortfall };
+  if (opts.dryRun) return { code: 'fixed_assets', dry_run: true, plan, applied: [], summary };
+  const reason = requireConfirm(opts);
+  if (!plan.length) return { code: 'fixed_assets', dry_run: false, plan, applied: [], summary };
+  const force = opts.force === true || opts.force === 1 || opts.force === '1' || opts.force === 'true';
+  if (!force && fa.shortfall < total) {
+    throw err('دفتر کل حساب دارایی ثابت از قبل بخشی از این بها را دارد — ثبت افتتاحیه دوباره‌شماری می‌کند (برای ثبت اجباری force)', 409,
+      'E_RECON_FA_GL_COVERED', { gl_shortfall_rial: fa.shortfall, total_rial: total });
+  }
+  const userId = opts.user && opts.user.id;
+  const applied = [];
+  db.transaction(() => {
+    const fixId = Number(db.prepare(`
+      INSERT INTO subledger_recon_fixes (code, target, amount_rial, reason, detail_json, created_by)
+      VALUES ('fixed_assets', ?, ?, ?, ?, ?)
+    `).run(`${plan.length} دارایی`, total, reason, JSON.stringify({
+      date, credit_account: opening.code,
+      assets: assets.map((a, i) => ({ ...plan[i], prev_acq_je_id: a.acq_je_id || null, prev_acq_funding: a.acq_funding || null })),
+    }), userId || null).lastInsertRowid);
+    const lines = plan.map((p) => ({
+      code: p.account_code, name: fixedAssetAccount(db, { coa_asset_code: p.account_code }).name,
+      debit: rialToLedger(p.cost_rial), credit: 0, description: `افتتاحیه دارایی ${p.code} — ${p.name}`,
+    }));
+    lines.push({ code: opening.code, name: opening.name, debit: 0, credit: rialToLedger(total), description: 'سرمایه افتتاحیه دارایی‌های ثابت' });
+    const { postToLedger } = require('./ledger');
+    const jeId = postToLedger(db, {
+      sourceType: 'fixed_asset_opening_recon', sourceId: fixId, date,
+      description: `سند افتتاحیه یکجای دارایی‌های ثابت بدون سند تحصیل (${plan.length} مورد) — ${reason.slice(0, 120)}`,
+      createdBy: userId || null, lines, skipCcPolicy: true,
+    });
+    db.prepare('UPDATE subledger_recon_fixes SET je_id=? WHERE id=?').run(jeId, fixId);
+    const upd = db.prepare("UPDATE fixed_assets SET acq_je_id=?, acq_funding='opening', acq_supplier_id=NULL, acq_release_je_id=NULL WHERE id=?");
+    for (const p of plan) upd.run(jeId, p.asset_id);
+    applied.push({ fix_id: fixId, je_id: jeId, assets: plan.length, total_rial: total, date });
+    writeAudit(db, userId, 'recon_fix', 'subledger_recon_fix', fixId,
+      { check: 'fixed_assets', je_id: jeId, assets: plan.map((p) => p.asset_id), total_rial: total, reason });
+  })();
+  return { code: 'fixed_assets', dry_run: false, plan, applied, summary };
+}
+
+/** GL cost shortfall vs register (active assets) — the most an opening voucher may add. */
+function computeFixedAssetGap(db) {
+  const assets = db.prepare("SELECT cost_rial, coa_asset_code FROM fixed_assets WHERE status='active'").all();
+  const control = codeOf(db, 'coa_fixed_assets') || '1201';
+  const codes = [...new Set([control, ...assets.map((a) => String(a.coa_asset_code || '')).filter(Boolean)])];
+  const sub = assets.reduce((s, a) => s + Math.round(Number(a.cost_rial) || 0), 0);
+  const gl = glBalance(db, codes, '');
+  return { gl, sub, shortfall: Math.max(0, sub - gl) };
+}
+
+/** Per-asset counter-voucher when one asset of a combined opening voucher is deactivated. */
+function releaseFixedAssetOpening(db, asset, { userId } = {}) {
+  ensureReconSchemaOnce(db);
+  if (!asset || !asset.acq_je_id) return null;
+  const je = db.prepare('SELECT id, ref_type FROM journal_entries WHERE id=?').get(asset.acq_je_id);
+  if (!je || je.ref_type !== 'fixed_asset_opening_recon') return null;
+  const cost = Math.round(Number(asset.cost_rial) || 0);
+  if (cost <= 0) return null;
+  const opening = acct(db, 'coa_opening_balance');
+  const acc = fixedAssetAccount(db, asset);
+  const { postToLedger } = require('./ledger');
+  const jeId = postToLedger(db, {
+    sourceType: 'fixed_asset_opening_release', sourceId: asset.id, date: require('../jalali').todayJalali(),
+    description: `برگشت افتتاحیه دارایی ${asset.code} (غیرفعال‌سازی)`, createdBy: userId || null, skipCcPolicy: true,
+    lines: [
+      { code: opening.code, name: opening.name, debit: rialToLedger(cost), credit: 0 },
+      { code: acc.code, name: acc.name, debit: 0, credit: rialToLedger(cost) },
+    ],
+  });
+  db.prepare('UPDATE fixed_assets SET acq_release_je_id=? WHERE id=?').run(jeId, asset.id);
+  return jeId;
 }
 
 // ─── R10 suspense accounts ─────────────────────────────────────────────────
 function checkSuspenseAccounts(ctx) {
-  const { db, dateTo, tolerance } = ctx;
+  const { db, dateTo } = ctx;
   const keys = ['coa_adjustment', 'coa_labor_control', 'coa_overhead_control'];
   const rows = [];
   let total = 0;
@@ -960,7 +1235,9 @@ function checkSuspenseAccounts(ctx) {
     const code = codeOf(db, k);
     if (!code) continue;
     const bal = glBalance(db, [code], dateTo);
-    if (Math.abs(bal) <= tolerance) continue;
+    if (!bal) continue;
+    const bound = glRoundingBound(db, [code], dateTo);
+    const cls = classifyDiff(bal, bound);
     total += bal;
     const params = [code, `${code}%`];
     if (dateTo) params.push(dateTo);
@@ -972,12 +1249,14 @@ function checkSuspenseAccounts(ctx) {
       GROUP BY je.ref_type ORDER BY ABS(bal) DESC LIMIT 10
     `).all(...params);
     rows.push({
-      id: code, key: k, account_code: code, balance_rial: bal,
+      id: code, key: k, account_code: code, balance_rial: bal, diff_class: cls, status: statusOfClass(cls), rounding_bound_rial: Math.ceil(bound),
       by_ref_type: by.map((b) => ({ ref_type: b.ref_type || '', entries: b.n, balance_rial: Math.round(Number(b.bal) || 0) })),
     });
   }
+  const roll = rowsRollup(rows);
   return result('suspense_accounts', {
-    status: rows.length ? 'warn' : 'ok', gl_rial: total, sub_rial: 0, diff_rial: total, rows, fixable: false,
+    status: roll.status, gl_rial: total, sub_rial: 0, diff_rial: total, rows, fixable: false,
+    rounding_rial: roll.rounding, rounding_bound_rial: roll.bound,
   });
 }
 
@@ -1064,7 +1343,7 @@ function runRecon(db, opts = {}) {
     delete r.rows;
     return r;
   });
-  const summary = { ok: 0, warn: 0, error: 0, info: 0 };
+  const summary = { ok: 0, warn: 0, error: 0, info: 0, rounding: 0 };
   for (const c of checks) summary[c.status] = (summary[c.status] || 0) + 1;
   const asOf = ctx.dateTo || require('../jalali').todayJalali();
   const out = { as_of: asOf, ran_at: Math.floor(Date.now() / 1000), summary, checks };
@@ -1106,6 +1385,7 @@ function checkRows(db, code, opts = {}) {
  */
 function postInventoryValueAdjustmentJe(db, {
   warehouseId = null, inventoryCode = null, amountRial, date, userId, sourceType, sourceId, description,
+  counterCode = null, counterName = null,
 }) {
   const amt = Math.round(Number(amountRial) || 0);
   if (!amt) return null;
@@ -1121,7 +1401,10 @@ function postInventoryValueAdjustmentJe(db, {
   } else {
     inv = inventoryAccountFor(db, warehouseId);
   }
-  const adj = acct(db, 'coa_adjustment');
+  // v522: manual adjustments pass a stage/reason counter account; default stays coa_adjustment.
+  const adj = counterCode
+    ? (db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(counterCode) || { code: counterCode, name: counterName || counterCode })
+    : acct(db, 'coa_adjustment');
   let cc = null;
   if (warehouseId) {
     try { cc = db.prepare('SELECT cost_center_id FROM warehouses WHERE id=?').get(warehouseId)?.cost_center_id || null; } catch (_) { cc = null; }
@@ -1249,6 +1532,7 @@ const FIXERS = {
   je_on_dead_document: fixJeOnDeadDocument,
   inventory_vs_gl: fixInventoryVsGl,
   movements_without_je: fixMovementsWithoutJe,
+  fixed_assets: fixFixedAssets,
 };
 
 /**
@@ -1278,12 +1562,111 @@ function reverseFix(db, fixId, { user, reason } = {}) {
   const { reverseJournalEntry } = require('./void-journal');
   const userId = user && user.id;
   db.transaction(() => {
+    if (fix.code === 'fixed_assets') unlinkFixedAssetOpening(db, fix, { userId, reason });
     if (fix.je_id) reverseJournalEntry(db, fix.je_id, { userId, reason: reason || `ابطال اصلاحیه تطبیق #${fix.id}` });
     db.prepare("UPDATE subledger_recon_fixes SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
       .run(userId || null, fix.id);
     writeAudit(db, userId, 'recon_fix_reverse', 'subledger_recon_fix', fix.id, { je_id: fix.je_id, reason: reason || '' });
   })();
   return db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fix.id);
+}
+
+/** R13 for the opening fix: void per-asset release vouchers, restore previous acquisition links. */
+function unlinkFixedAssetOpening(db, fix, { userId, reason } = {}) {
+  let detail = {};
+  try { detail = JSON.parse(fix.detail_json || '{}'); } catch (_) { detail = {}; }
+  const { reverseJournalEntry } = require('./void-journal');
+  for (const a of detail.assets || []) {
+    const row = db.prepare('SELECT id, acq_je_id, acq_release_je_id FROM fixed_assets WHERE id=?').get(a.asset_id);
+    if (!row || Number(row.acq_je_id || 0) !== Number(fix.je_id || -1)) continue;
+    if (row.acq_release_je_id) {
+      reverseJournalEntry(db, row.acq_release_je_id, { userId, reason: reason || `ابطال اصلاحیه تطبیق #${fix.id}` });
+    }
+    db.prepare('UPDATE fixed_assets SET acq_je_id=?, acq_funding=?, acq_release_je_id=NULL WHERE id=?')
+      .run(a.prev_acq_je_id || null, a.prev_acq_funding || null, row.id);
+  }
+}
+
+// ─── v522 nightly reconciliation ───────────────────────────────────────────
+const NIGHTLY_KEYS = {
+  enabled: 'subledger_recon_nightly_enabled',
+  time: 'subledger_recon_nightly_time',
+  lastDate: 'subledger_recon_nightly_last_date',
+  lastRunId: 'subledger_recon_nightly_last_run_id',
+};
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function putSetting(db, key, value) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(key, value == null ? '' : String(value));
+}
+
+function nightlySettings(db) {
+  const time = setting(db, NIGHTLY_KEYS.time, '02:00');
+  return {
+    enabled: setting(db, NIGHTLY_KEYS.enabled, '1') !== '0',
+    time: TIME_RE.test(time) ? time : '02:00',
+    last_date: setting(db, NIGHTLY_KEYS.lastDate, '') || null,
+    last_run_id: Number(setting(db, NIGHTLY_KEYS.lastRunId, '')) || null,
+  };
+}
+
+function saveNightlySettings(db, { enabled, time } = {}, { userId } = {}) {
+  if (time != null && !TIME_RE.test(String(time))) {
+    throw err('ساعت اجرای شبانه نامعتبر است (HH:MM)', 400, 'E_RECON_NIGHTLY_TIME');
+  }
+  db.transaction(() => {
+    if (enabled != null) putSetting(db, NIGHTLY_KEYS.enabled, enabled === false || enabled === 0 || enabled === '0' ? '0' : '1');
+    if (time != null) putSetting(db, NIGHTLY_KEYS.time, String(time));
+  })();
+  const s = nightlySettings(db);
+  writeAudit(db, userId, 'update', 'subledger_recon_nightly', null, { enabled: s.enabled, time: s.time });
+  return s;
+}
+
+function failingCheckNames(run) {
+  return (run.checks || []).filter((c) => c.status === 'warn' || c.status === 'error').map((c) => c.name || c.code);
+}
+
+/** Run + persist + always notify admin/accounting (bell). */
+function runNightlyRecon(db, { date } = {}) {
+  ensureReconSchemaOnce(db);
+  const day = date || require('../jalali').todayJalali();
+  const run = runRecon(db, { persist: true });
+  const s = run.summary || {};
+  const failing = failingCheckNames(run);
+  const parts = [`سالم ${s.ok || 0}`, `هشدار ${s.warn || 0}`, `خطا ${s.error || 0}`, `گرد کردن ${s.rounding || 0}`, `اطلاع ${s.info || 0}`];
+  const body = `${parts.join(' · ')}${failing.length ? ` — کنترل‌های ناموفق: ${failing.join('، ')}` : ' — همهٔ کنترل‌ها بدون مغایرت واقعی'}`;
+  let notificationId = null;
+  try {
+    const before = db.prepare('SELECT COALESCE(MAX(id),0) m FROM app_notifications').get().m;
+    require('./notifications').notifyRoles(db, {
+      kind: 'subledger_recon_nightly', entity_type: 'subledger_recon_run', entity_id: run.run_id || null,
+      title: `تطبیق شبانهٔ زیرسیستم‌ها با دفتر کل — ${day}`, body, target_roles: ['admin', 'accounting'],
+    });
+    const row = db.prepare('SELECT MAX(id) m FROM app_notifications').get();
+    notificationId = row && row.m > before ? row.m : null;
+  } catch (_) { /* bell is best effort; run is persisted */ }
+  if (run.run_id) putSetting(db, NIGHTLY_KEYS.lastRunId, run.run_id);
+  return { run_id: run.run_id || null, summary: run.summary, failing, notification_id: notificationId, date: day };
+}
+
+/**
+ * Cron tick: runs once per Jalali day at/after the configured time (catches up later the
+ * same day if the server was down). The day is claimed before running so a crash cannot loop.
+ */
+function maybeRunNightlyRecon(db, { now, force = false } = {}) {
+  const s = nightlySettings(db);
+  if (!force && !s.enabled) return { ran: false, reason: 'disabled' };
+  const d = now instanceof Date ? now : new Date();
+  const { g2j } = require('../jalali');
+  const [jy, jm, jd] = g2j(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const day = `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (!force && hhmm < s.time) return { ran: false, reason: 'not_yet', time: s.time };
+  if (!force && s.last_date === day) return { ran: false, reason: 'already_ran', date: day };
+  putSetting(db, NIGHTLY_KEYS.lastDate, day);
+  return { ran: true, ...runNightlyRecon(db, { date: day }) };
 }
 
 module.exports = {
@@ -1299,4 +1682,14 @@ module.exports = {
   postInventoryValueAdjustmentJe,
   glBalance,
   MANUAL_SOURCES,
+  // v522
+  classifyDiff,
+  glRoundingBound,
+  fixedAssetOpeningCandidates,
+  releaseFixedAssetOpening,
+  NIGHTLY_KEYS,
+  nightlySettings,
+  saveNightlySettings,
+  runNightlyRecon,
+  maybeRunNightlyRecon,
 };

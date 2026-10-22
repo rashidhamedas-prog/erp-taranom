@@ -1,6 +1,7 @@
 // Granular RBAC — default matrix by role + per-user overrides in user_permissions.
 const {
   ACC_SECTION_RESOURCES, isAccSectionResource, accSectionDefault, LEGACY_PARENTS,
+  ACC_CAPABILITY_RESOURCES, capabilityDefault, resourceForNav,
 } = require('./accounting-access');
 
 const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export'];
@@ -15,7 +16,10 @@ const RESOURCES = [
   'portal', 'budgeting', 'bank_reconciliation',
   // Accounting shell sections (append-only). Master gate remains `accounting`.
   ...ACC_SECTION_RESOURCES,
+  // v522 capability resources without a menu page (append-only)
+  ...ACC_CAPABILITY_RESOURCES,
 ];
+const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
 const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false };
@@ -242,20 +246,72 @@ const DEFAULT_ROLE_PERMISSIONS = {
   },
 };
 
-function fillRoleDefaults(role) {
+/**
+ * v522 role-level overrides edited by admin: settings key `role_permission_defaults`,
+ * JSON { role: { resource: { action: bool } } }. Layering: code defaults → role overrides →
+ * per-user user_permissions rows.
+ */
+const ROLE_DEFAULTS_KEY = 'role_permission_defaults';
+
+function getRoleOverrides(db) {
+  if (!db) return {};
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(ROLE_DEFAULTS_KEY);
+    const parsed = row && row.value ? JSON.parse(row.value) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+/** Sanitise + persist role overrides (admin keeps everything; unknown keys dropped). */
+function saveRoleOverrides(db, overrides) {
+  const clean = {};
+  for (const [role, res] of Object.entries(overrides || {})) {
+    if (role === 'admin' || !DEFAULT_ROLE_PERMISSIONS[role] || !res || typeof res !== 'object') continue;
+    for (const [resource, flags] of Object.entries(res)) {
+      if (!RESOURCES.includes(resource) || !flags || typeof flags !== 'object') continue;
+      for (const action of ACTIONS) {
+        if (flags[action] === undefined) continue;
+        if (!clean[role]) clean[role] = {};
+        if (!clean[role][resource]) clean[role][resource] = {};
+        clean[role][resource][action] = !!flags[action];
+      }
+    }
+  }
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(ROLE_DEFAULTS_KEY, JSON.stringify(clean));
+  return clean;
+}
+
+function codeRoleDefaults(role) {
   const base = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.field_sales;
   const out = {};
   for (const r of RESOURCES) {
     if (base[r]) out[r] = { ...base[r] };
     else if (isAccSectionResource(r)) out[r] = accSectionDefault(role, r);
+    else if (CAPABILITY_SET.has(r)) out[r] = capabilityDefault(role, r);
     else out[r] = { ...VIEW_ONLY };
+  }
+  return out;
+}
+
+function fillRoleDefaults(role, db) {
+  const out = codeRoleDefaults(role);
+  if (role === 'admin') return out;
+  const mine = getRoleOverrides(db)[role] || {};
+  for (const [resource, flags] of Object.entries(mine)) {
+    if (!out[resource]) continue;
+    for (const action of ACTIONS) {
+      if (flags && flags[action] !== undefined) out[resource][action] = !!flags[action];
+    }
   }
   return out;
 }
 
 function getUserPermissions(db, userId, role) {
   const rows = db.prepare('SELECT resource, action, allowed FROM user_permissions WHERE user_id=?').all(userId);
-  const perms = fillRoleDefaults(role);
+  const perms = fillRoleDefaults(role, db);
   for (const row of rows) {
     if (!perms[row.resource]) perms[row.resource] = { ...VIEW_ONLY };
     if (ACTIONS.includes(row.action)) perms[row.resource][row.action] = !!row.allowed;
@@ -274,6 +330,30 @@ function hasPermission(db, user, resource, action) {
     if (perms[section] && perms[section][action]) return true;
   }
   return false;
+}
+
+/**
+ * v522 single capability check: admin → always; others → role defaults (code + admin
+ * overrides) then per-user grants/denials. `resource` may be a menu id ('acc-inv-valuation')
+ * or a resource ('acc_inv_valuation').
+ */
+function canDo(user, resource, action, db) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (!ACTIONS.includes(action)) return false;
+  const res = String(resource || '').startsWith('acc-') ? resourceForNav(resource) : String(resource || '');
+  if (!res) return false;
+  const handle = db || require('../db').getDB();
+  return hasPermission(handle, user, res, action);
+}
+
+/** Express middleware form of canDo. */
+function requireCan(resource, action) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+    if (canDo(req.user, resource, action)) return next();
+    return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_PERMISSION', resource, action });
+  };
 }
 
 function isManagerRole(role) {
@@ -343,4 +423,6 @@ module.exports = {
   ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS,
   getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults, applyLegacyGrants,
   assertMakerChecker, assertBranchScope, applyBranchScopeSql,
+  // v522
+  canDo, requireCan, codeRoleDefaults, getRoleOverrides, saveRoleOverrides, ROLE_DEFAULTS_KEY,
 };

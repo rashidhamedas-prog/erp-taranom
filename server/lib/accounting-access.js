@@ -164,6 +164,7 @@ const ACC_ITEMS = {
   'acc-payroll-employees': { apis: ['/api/payroll'], legacy: 'payroll' },
   'acc-payroll-structures': { apis: ['/api/payroll'], legacy: 'payroll' },
   'acc-payroll-tax': { apis: ['/api/payroll'], legacy: 'payroll' },
+  'acc-payroll-labor': { apis: ['/api/payroll'], legacy: 'payroll' },
   'acc-payroll-periods': { apis: ['/api/payroll'], legacy: 'payroll' },
   'acc-payroll-processing': { apis: ['/api/payroll'], legacy: 'payroll' },
   'acc-payroll': { apis: ['/api/payroll'], legacy: 'payroll' },
@@ -228,8 +229,34 @@ function isAccSectionResource(resource) {
   return ACC_SECTION_RESOURCE_SET.has(resource);
 }
 
+/**
+ * v522 capability flags inside existing sections (no new menu ids):
+ *   acc_inv_valuation: view · create=post revaluation · approve=approve/reject value change ·
+ *                      edit=valuation policy & rules · delete=reverse valuation docs · export
+ *   acc_subledger_recon: view · edit=apply fix · delete=reverse fix · export
+ *   acc_reps: delete=void approved rep expense / rep advance
+ * The accounting role gets every flag except valuation-policy edit (and period lock,
+ * which is the separate capability resource `acc_inv_period_lock`, flag `approve`).
+ */
+const ACCOUNTING_ROLE_SECTION_EXCEPTIONS = {
+  acc_inv_valuation: { edit: false },
+};
+
+/** Capability resources that are not menu pages (shown as extra rows in the permissions panel). */
+const ACC_CAPABILITY_RESOURCES = ['acc_inv_period_lock'];
+const ACC_CAPABILITY_DEFAULTS = {
+  acc_inv_period_lock: {
+    accounting: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+  },
+};
+
+function capabilityDefault(role, resource) {
+  const byRole = ACC_CAPABILITY_DEFAULTS[resource] || {};
+  return { ...NONE_FLAGS, ...(byRole[role] || {}) };
+}
+
 function accSectionDefault(role, resource) {
-  if (role === 'accounting') return { ...ALL_FLAGS };
+  if (role === 'accounting') return { ...ALL_FLAGS, ...(ACCOUNTING_ROLE_SECTION_EXCEPTIONS[resource] || {}) };
   const navId = NAV_BY_RESOURCE[resource];
   if (role === 'sales_manager' && navId && SALES_MANAGER_ACC_NAVIDS.has(navId)) return { ...MANAGER_FLAGS };
   return { ...NONE_FLAGS };
@@ -307,6 +334,8 @@ module.exports = {
   resourceForNav,
   isAccSectionResource,
   accSectionDefault,
+  ACC_CAPABILITY_RESOURCES,
+  capabilityDefault,
   matchAccAccess,
   matchAccResources,
   flagsAllowMethod,
