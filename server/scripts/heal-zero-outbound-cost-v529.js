@@ -138,7 +138,11 @@ function healProductMa(productId) {
       const avg = qty > 1e-9
         ? Math.max(0, Math.round(value / qty))
         : Math.round(Number(p.average_cost_rial) || 0);
-      if (amt <= 0 && avg > 0 && rowMethod === 'moving_average' && maWh.has(whKey)) {
+      const wasV529 = /\[v529/.test(String(r.note || ''));
+      // صفر، یا ردیف قبلیِ ترمیم‌شده با میانگین WIP-آلوده که باید با replay بدون cutting_pack اصلاح شود
+      const needsFix = avg > 0 && rowMethod === 'moving_average' && maWh.has(whKey)
+        && (amt <= 0 || (wasV529 && Math.abs(amt - Math.round(avg * qOut)) > 1));
+      if (needsFix) {
         const newAmt = Math.round(avg * qOut);
         const newUnit = Math.round(newAmt / qOut);
         fixes.push({
@@ -154,6 +158,7 @@ function healProductMa(productId) {
           new_unit_cost_rial: newUnit,
           avg_used: avg,
           method: rowMethod,
+          reheal: wasV529 && amt > 0,
         });
         amt = newAmt;
       }
@@ -188,13 +193,14 @@ function healProductMa(productId) {
     sample: fixes.slice(0, 8),
   });
 
-  // Aggregate sale fixes by invoice → COGS delta
+  // Aggregate sale fixes by invoice → COGS delta (net of old→new for reheals)
   const byInv = new Map();
   for (const f of fixes) {
     if (f.source_type !== 'invoice' || f.event_type !== 'sale') continue;
     const k = Number(f.source_id);
     if (!k) continue;
-    byInv.set(k, (byInv.get(k) || 0) + f.new_amount_rial);
+    const delta = f.new_amount_rial - (Number(f.old_amount_rial) || 0);
+    byInv.set(k, (byInv.get(k) || 0) + delta);
   }
   for (const [invId, added] of byInv) {
     const inv = db.prepare('SELECT id,num,date,warehouse_id FROM invoices WHERE id=?').get(invId);
@@ -205,7 +211,7 @@ function healProductMa(productId) {
       WHERE source_type='invoice' AND source_id=? AND event_type='sale'
         AND status='posted' AND reversed_of IS NULL
     `).get(invId).v) || 0;
-    // After apply, ledTotal includes new amounts; before apply use old+added
+    // After apply, ledTotal includes new amounts; before apply use old+netDelta
     const target = APPLY ? ledTotal : (ledTotal + added);
     const posted = cogsPostedRial(invId);
     const need = Math.max(0, target - posted);
@@ -243,8 +249,12 @@ function main() {
     SELECT DISTINCT l.product_id AS id
     FROM inventory_ledger l
     WHERE l.status='posted' AND l.reversed_of IS NULL
-      AND l.qty_out>0 AND COALESCE(l.amount_rial,0)=0
+      AND l.qty_out>0
       AND l.event_type IN ('sale','transfer_out','issue','material_issue','production_issue')
+      AND (
+        COALESCE(l.amount_rial,0)=0
+        OR COALESCE(l.note,'') LIKE '%[v529%'
+      )
   `;
   const params = [];
   if (onlyProduct) {
