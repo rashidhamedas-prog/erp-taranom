@@ -101,19 +101,28 @@ function healProductMa(productId) {
     methods.filter((m) => m.method === 'moving_average').map((m) => m.warehouse_id)
   );
 
+  // WIP / بسته برش در کاردکس فروش‌پذیر نیست — ورودشان میانگین زمانی FG را خراب می‌کند.
+  const SKIP_EVENTS = new Set([
+    'cutting_pack', 'wip_issue', 'wip_receipt', 'wip_transfer',
+  ]);
+
   let qty = 0;
   let value = 0;
   const fixes = [];
 
   for (const r of rows) {
     if (r.reversed_of) continue;
+    const et = String(r.event_type || '');
+    if (SKIP_EVENTS.has(et)) continue;
+
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
     let amt = Math.round(Number(r.amount_rial) || 0);
 
     if (!qIn && !qOut) {
-      // value-only: adjust running value
+      // value-only (مثلاً تطبیق بهای رسید): فقط ارزش در گردش
       value += amt;
+      if (qty > 1e-9 && value < 0) value = 0;
       continue;
     }
 
@@ -126,7 +135,9 @@ function healProductMa(productId) {
     if (qOut > 0) {
       const whKey = r.warehouse_id || null;
       const rowMethod = resolvePolicy(db, { productId, warehouseId: whKey || undefined }).method;
-      const avg = qty > 1e-9 ? Math.max(0, Math.round(value / qty)) : Math.round(Number(p.average_cost_rial) || 0);
+      const avg = qty > 1e-9
+        ? Math.max(0, Math.round(value / qty))
+        : Math.round(Number(p.average_cost_rial) || 0);
       if (amt <= 0 && avg > 0 && rowMethod === 'moving_average' && maWh.has(whKey)) {
         const newAmt = Math.round(avg * qOut);
         const newUnit = Math.round(newAmt / qOut);
