@@ -380,6 +380,8 @@ function applyReceiptToWipNet(db, orderId, userId) {
  * Value side of a change to posted production receipts (receipt align, covered lay delta).
  * shares: [{ receipt, share }] — receipt amounts are already updated by the caller.
  *  Open month: unsold part → FG value row, sold part → COGS (JE lines returned; WIP side is the caller's).
+ *  v526: when any sold share posts to COGS in an open month, notify admin+accounting (no approval queue —
+ *  owner decision: post directly but announce).
  *  Closed inventory month (v525): the whole change → «تعدیل بهای در انتظار تأیید» + ONE closed_period
  *  approval doc per source; approval/rejection follows value-approval.js.
  * Earlier approval docs of the same source are cancelled first (decisions undone, R13) and their
@@ -422,6 +424,8 @@ function routeReceiptValueChange(db, {
       inv: c.inventory_code ? { code: c.inventory_code, name: c.inventory_name || fg.name } : fg,
     });
   }
+  let soldCogsRial = 0;
+  let soldProducts = 0;
   for (const it of items) {
     if (gate.closed) {
       gate.gate({
@@ -440,6 +444,10 @@ function routeReceiptValueChange(db, {
     const cogsShare = it.delta - invShare;
     push(it.inv, invShare);
     push(cogs, cogsShare);
+    if (cogsShare) {
+      soldCogsRial += cogsShare;
+      soldProducts += 1;
+    }
     if (invShare && onHand > 0) {
       // Header avg moves by value inside postInventoryMovement (valueOnly row).
       postInventoryMovement(db, {
@@ -462,7 +470,20 @@ function routeReceiptValueChange(db, {
     }
   }
   const approval = gate.finish({ park: false });
-  return { lines: mergeLines(lines), approval, carried_rial: carry.total };
+  // Open month + sold share: post directly (owner) but announce in the bell.
+  if (!gate.closed && soldCogsRial) {
+    try {
+      require('../notifications').notifyRoles(db, {
+        kind: 'value_change_auto_cogs',
+        entity_type: sourceType,
+        entity_id: sourceId,
+        title: `تعدیل بها با سهم فروش‌رفته — ${label}`,
+        body: `${soldProducts} کالا؛ ${Math.abs(soldCogsRial).toLocaleString('fa-IR')} ریال از تغییر بها مستقیم به بهای تمام‌شدهٔ فروش رفت (ماه باز — بدون صف تأیید).`,
+        target_roles: ['admin', 'accounting'],
+      });
+    } catch (_) { /* never block posting on notification failure */ }
+  }
+  return { lines: mergeLines(lines), approval, carried_rial: carry.total, sold_cogs_rial: soldCogsRial };
 }
 
 function mergeLines(lines) {

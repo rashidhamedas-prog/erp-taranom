@@ -466,10 +466,11 @@ function originalIssueUnitRial(db, invoiceId, productId) {
 
 /**
  * Sales return restores stock (qtyIn) via perpetual ledger.
- * v525: dated in a closed inventory month → the qty enters at the current pool average and the
- * difference vs the original issue cost (invoice sale rows; else the line cost) is parked in ONE
- * closed_period approval doc for the return. Returned amount_rial stays the document cost so the
- * return JE (Dr inventory / Cr COGS) is unchanged; the parking JE moves the difference to clearing.
+ * Open month (v526): qty enters at the original invoice issue unit cost (else the line cost) so
+ * the return reverses the same rate that left — no approval queue.
+ * Closed month (v525): qty enters at the current pool average; the difference vs the original
+ * issue cost is parked in ONE closed_period approval doc. Returned amount_rial stays the document
+ * cost so the return JE (Dr inventory / Cr COGS) is unchanged; the parking JE moves the difference.
  */
 function postSaleReturnStockMovements(db, {
   rows, warehouseId, sourceType, sourceId, userId, date, note, invoiceId = null,
@@ -501,11 +502,12 @@ function postSaleReturnStockMovements(db, {
         allowNegative: true,
       });
     }
+    const issueUnit = originalIssueUnitRial(db, invoiceId, r.product_id);
     let entryUnit = unitCost;
     let docUnit = null;
     if (closed && qty > 0) {
       const VAP = require('./inventory/value-approval');
-      const du = originalIssueUnitRial(db, invoiceId, r.product_id) || unitCost;
+      const du = issueUnit || unitCost;
       const poolUnit = VAP.closedInboundPoolUnit(db, r.product_id, whId);
       if (du > 0 && poolUnit != null && poolUnit !== du) {
         entryUnit = poolUnit;
@@ -513,6 +515,9 @@ function postSaleReturnStockMovements(db, {
       } else if (du > 0) {
         entryUnit = du;
       }
+    } else if (qty > 0 && issueUnit > 0) {
+      // Open month: always reverse at the rate that left (owner decision v526).
+      entryUnit = issueUnit;
     }
     let mv = postInventoryMovement(db, {
       eventType: 'sale_return',
