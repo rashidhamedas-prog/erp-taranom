@@ -317,35 +317,19 @@ function postAllocation(db, { closeId, date, userId, allocation }) {
   });
 }
 
+/**
+ * فقط همان سند jeId باطل می‌شود. چند سند تولید ref مشترک دارند (سربار/حوالهٔ همهٔ مراحل
+ * با ref_id=سفارش)؛ ابطال از مسیر ref همهٔ مراحل را با هم باطل می‌کرد.
+ */
 function reverseEvent(db, { jeId, reason, userId, date }) {
-  const orig = db.prepare(`
-    SELECT jl.*, je.ref_type, je.ref_id, je.description
-    FROM journal_lines jl
-    JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE jl.entry_id = ?
-    ORDER BY jl.line_no, jl.id
-  `).all(jeId);
-  if (!orig.length) throw err('E_NOT_FOUND', 404);
-
-  const revDate = date || todayJalali();
-  return postToLedger(db, {
-    sourceType: (orig[0].ref_type || 'production') + '_reversal',
-    sourceId: orig[0].ref_id,
-    date: revDate,
-    description: `ابطال — ${orig[0].description || ''} — ${reason || ''}`,
-    createdBy: userId,
-    lines: orig.map(l => ({
-      code: l.account_code,
-      name: l.account_name,
-      debit: (Number(l.credit_rial) || Math.round((Number(l.credit) || 0) * 10)) / 10,
-      credit: (Number(l.debit_rial) || Math.round((Number(l.debit) || 0) * 10)) / 10,
-      description: `ابطال — ${l.description || ''}`,
-      detail_account_id: l.detail_account_id || null,
-      cost_center_id: l.cost_center_id || null,
-      project_id: l.project_id || null,
-      tax_type: l.tax_type || null,
-      tafsili2_code: l.tafsili2_code || null,
-    })),
+  const head = db.prepare('SELECT id, ref_type FROM journal_entries WHERE id=?').get(jeId);
+  if (!head) throw err('E_NOT_FOUND', 404);
+  const { reverseJournalEntry } = require('../void-journal');
+  return reverseJournalEntry(db, head.id, {
+    userId,
+    date: date || todayJalali(),
+    reason: reason || '',
+    sourceType: (head.ref_type || 'production') + '_reversal',
   });
 }
 

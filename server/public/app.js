@@ -311,6 +311,7 @@ async function api(method, path, data, isFormData, silent){
           : (j.detail || 'کالای جایگزین‌شده در فرمول نیست یا نامعتبر است'),
         E_ISSUE_EMPTY:'حواله باید حداقل یک قلم داشته باشد',
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
+        E_STAGE_MATERIAL_NOT_ISSUED: j.detail || 'همهٔ اقلام فرمول این مرحله هنوز حواله نشده — اول «حواله مواد» بزنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
         E_WIP_NOT_ZERO:'مانده WIP سفارش صفر نیست — «اصلاح بها» ستون‌ها را با اسناد یکی می‌کند و در صورت نیاز رسید را با خالص WIP تطبیق می‌دهد.',
@@ -21391,8 +21392,17 @@ async function prodStageOutputModal(orderId,stageId,qtyIn,scopeLabel){
     return;
   }
   const whId=Number(tpl&&tpl.warehouse_raw_id)||0;
-  const shortLines=(tpl&&tpl.lines||[]).filter(L=>Number(L.stock_short)===1);
-  const shortHtml=shortLines.length?(`
+  const isVar=tpl&&tpl.analysis_type==='variable_adv';
+  const unissued=isVar?(tpl.unissued||[]):[];
+  const shortLines=isVar?[]:(tpl&&tpl.lines||[]).filter(L=>Number(L.stock_short)===1);
+  const unissuedHtml=unissued.length?`
+    <div id="pso-unissued" class="prod-empty" data-csp-style="${CSP.style(`margin:10px 0;border-color:#C0392B;color:#C0392B`)}">
+      این اقلام فرمولِ مرحله هنوز حواله نشده و تا حواله نشوند خروجی ثبت نمی‌شود:
+      <b>${unissued.map(m=>esc(m.name)+' ('+fmtQtyFa(m.qty_standard)+')').join('، ')}</b>.
+      اگر موجودی کم است، در همان «حواله مواد» کالای جایگزین انتخاب کنید.
+      <div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){prodStageIssueModal(orderId,stageId)})}">حواله مواد</button></div>
+    </div>`:'';
+  const shortHtml=unissuedHtml+(shortLines.length?(`
     <div class="prod-empty" data-csp-style="${CSP.style(`margin:10px 0;border-color:#C0392B;color:#C0392B`)}">موجودی انبار مواد برای حوالهٔ این مرحله کم است. برای هر قلم کسری یک کالای دیگر انتخاب کنید تا جمع اصل (تا سقف موجود) و جایگزین برابر نیاز شود. استاندارد فرمول روی قلم اصلی می‌ماند.</div>
     <div id="pso-shorts">${shortLines.map((L,i)=>{
       const need=Number(L.qty_actual!=null?L.qty_actual:L.qty_standard)||0;
@@ -21402,7 +21412,7 @@ async function prodStageOutputModal(orderId,stageId,qtyIn,scopeLabel){
         '<div><b>'+esc(L.name||('#'+L.product_id))+'</b> <span style="color:#C0392B">موجود '+stock+' / نیاز '+need+'</span></div>'+
         prodStageAltBlock('pso', i, whId, shortfall)+
       '</div>';
-    }).join('')}</div>`):'';
+    }).join('')}</div>`):'');
   showModal('ثبت خروجی مرحله',`
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${scopeLabel?esc(scopeLabel)+' — ':''}ورودی مرحله: ${toFa(qi)} — جمع خروجی+ضایعات+دوباره‌کاری باید برابر ورودی باشد. این عدد فقط همین مرحله است.</p>
     <input type="hidden" id="pso-qty-in" value="${qi}">
@@ -21441,11 +21451,11 @@ function prodStageOutputBalance(qi){
   const out=+el('pso-out')?.value||0, wn=+el('pso-wn')?.value||0, wa=+el('pso-wa')?.value||0, rw=+el('pso-rw')?.value||0;
   const sum=out+wn+wa+rw;
   const qtyOk=Math.abs(sum-(+qi||0))<0.0001;
-  const altOk=prodStageShortCovered('pso');
+  const altOk=prodStageShortCovered('pso') && !el('pso-unissued');
   const bal=el('pso-bal');
   if(bal){
     const qtyTxt=qtyOk?('✓ تراز صحیح ('+sum+')'):('⚠ جمع='+sum+' ≠ ورودی '+qi);
-    bal.textContent=qtyTxt+(altOk?'':' — کسری مواد با کالای جایگزین کامل نشده');
+    bal.textContent=qtyTxt+(altOk?'':(el('pso-unissued')?' — اول حوالهٔ مواد این مرحله':' — کسری مواد با کالای جایگزین کامل نشده'));
     bal.style.color=(qtyOk&&altOk)?'inherit':'var(--state-danger,#C0392B)';
   }
   const btn=el('pso-btn'); if(btn) btn.disabled=!(qtyOk&&altOk);
@@ -21502,7 +21512,8 @@ async function prodStageIssueModal(orderId,stageId){
         const stock=L.stock_available!=null?Number(L.stock_available):null;
         const shortfall=short&&stock!=null?Math.max(0, Math.round((need-stock)*1000)/1000):0;
         const scopeChip=L.product_scope?` <span class="po-chip${L.product_scope==='exclusive'?' is-ex':''}">${esc(L.product_scope==='exclusive'?('اختصاصی'+(L.scoped_product_name?' · '+L.scoped_product_name:'')):'مشترک')}</span>`:'';
-        const shortNote=short?(' <span style="color:#C0392B">(کسری انبار: موجود '+(stock??'—')+' / نیاز '+need+')</span>'):'';
+        const shortNote=(short?(' <span style="color:#C0392B">(کسری انبار: موجود '+(stock??'—')+' / نیاز '+need+')</span>'):'')
+          +(Number(L.issued_qty)>0?(' <span class="muted">(قبلاً حواله‌شده: '+fmtQtyFa(L.issued_qty)+')</span>'):'');
         const alt=short?prodStageAltBlock('psi', i, whId, shortfall):'';
         return `<tr class="psi-row"${short?` psi-alt="${i}"`:''} data-pid="${L.product_id}" data-pname="${esc(L.name||'')}" data-sq="${L.qty_standard}" data-need="${need}" data-stock="${stock!=null?stock:''}" data-avg-ok="${lineAvgOk(L)?1:0}">
         <td>${esc(L.name||('#'+L.product_id))}${scopeChip}${!lineAvgOk(L)?' <span class="muted">(بدون بها)</span>':''}${shortNote}${alt}</td>
@@ -34215,6 +34226,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
         <li><b>کسری مواد در مرحله (v462):</b> اگر هنگام «ثبت خروجی» (آنالیز ثابت: حواله خودکار) یا «حواله مواد» (آنالیز متغیر) موجودی یک قلم کمتر از نیاز همان مرحله باشد، برای همان قلم یک کالای دیگر و مقدار پوشش انتخاب کنید. اصل تا سقف موجودی حواله می‌شود و مانده از جایگزین. استاندارد فرمول روی قلم اصلی می‌ماند؛ در پوشش جزئی مقدار استاندارد جایگزین صفر است. اگر پوشش ناقص باشد ثبت انجام نمی‌شود. ابطال مرحله موجودی هر دو کالا را برمی‌گرداند. انحراف همچنان سند حسابداری ندارد.</li>
+        <li><b>ابطال مرحله و ثبت دوباره (v523):</b> «ابطال مرحله» فقط اثر همان خروجی را برمی‌گرداند: دستمزد، سربار، ضایعات و تعداد مرحله، و حوالهٔ عادی مواد همان مرحله (موجودی به انبار). سند هر قلم دقیقاً همان سند خودش باطل می‌شود؛ ابطال مرحلهٔ دوم دیگر سربار/حوالهٔ مرحلهٔ اول را باطل نمی‌کند. <b>لایه‌چینی (برش)</b> سند جدا دارد: تا لایه/برش مشترک زنده است، مصرف پارچه‌اش روی سفارش و WIP می‌ماند و بعد از ابطال مرحله، «ثبت خروجی» دوبارهٔ برش همان لایه را مصرف می‌کند (لایه‌چینی دوباره لازم نیست). برای برگرداندن پارچه به انبار، خودِ لایه/برش مشترک را ابطال کنید. <b>آنالیز متغیر:</b> «ثبت خروجی» تا وقتی همهٔ اقلام فرمولِ آن مرحله (به‌جز پارچهٔ طاقه‌ای) حوالهٔ مثبت نداشته باشند، ثبت نمی‌شود؛ فرم خروجی اقلام حواله‌نشده را با دکمهٔ «حواله مواد» نشان می‌دهد و اگر موجودی کم است کالای جایگزین در همان حواله انتخاب می‌شود. لایه‌چینی هم تا آن اقلام حواله نشده‌اند مرحلهٔ برش را خودکار تمام نمی‌کند.</li>
         <li><b>انتخاب نوع آنالیز با فرمول مسیر‌دار (v513):</b> اگر فرمول مسیر عملیات دارد یا چندمحصولی است، فقط دو گزینهٔ مرحله‌ای باز است و بین آن‌ها آزادانه انتخاب می‌کنید: «ثابت مرحله‌ای» (مواد هر مرحله به مقدار استاندارد کسر می‌شود) یا «متغیر مرحله‌ای» (مواد هر مرحله با «حواله مواد» و مقدار واقعی). گزینه‌های بدون مرحله پنهان می‌شوند چون مراحل مسیر ساخته نمی‌شوند.</li>
         <li><b>مصرف اضافهٔ مرحله (v513):</b> در «مراحل سفارش» دکمهٔ «مصرف اضافه» برای هر دو آنالیز مرحله‌ای. وقتی در عمل بیش از فرمول مصرف شد (مثلاً ۱۰ زیپ لازم بود ولی زیپ خراب شد و ۲۰ عدد رفت) فقط مقدار اضافه را با دلیل بزنید: قلم معیوب، خطای اپراتور، خرابی دستگاه، دوباره‌کاری، گم‌شدن، مصرف واقعی بیش از فرمول، نمونهٔ QC، تغییر مشخصات، سایر (توضیح الزامی). «عادی» تا سقف درصد ضایعات عادی عملیات (یا تنظیم <code>production_material_extra_normal_pct</code>) روی استاندارد همان قلم در بهای محصول (WIP) می‌ماند و با خروجی مرحله جلو می‌رود؛ مازاد سقف یا دلیل غیرعادی با سند PRD-24 بدهکار ۵۲۲۱ / بستانکار مواد روی مرکز هزینهٔ همان مرحله ثبت می‌شود و بهای محصول را بالا نمی‌برد. انحراف مقدار در گزارش انحراف (memo) دیده می‌شود. ابطال: تا مرحله در جریان است دکمهٔ «ابطال» همان ردیف (مواد به انبار، سند معکوس)؛ بعد از اتمام مرحله «ابطال مرحله» همه را برمی‌گرداند. پارچهٔ طاقه‌ای اینجا نیست؛ مصرف واقعی پارچه با «متر واقعی» لایه‌چینی ثبت می‌شود.</li>
         <li><b>بهای میانگین صفر (v284):</b> اگر کالا موجودی دارد ولی بها ندارد، حسابدار همان‌جا در حواله «بهای هر واحد» را می‌نویسد و «ثبت بها» را می‌زند — سند افتتاحیه (بدهکار موجودی / بستانکار تراز افتتاحیه) ثبت می‌شود و حواله باز می‌شود. اپراتور تولید فقط پیام «از حسابداری بخواهید» را می‌بیند. ساخت کالا یا اکسل با موجودی و بدون بها دیگر پذیرفته نمی‌شود.</li>

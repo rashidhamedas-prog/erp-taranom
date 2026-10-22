@@ -2250,7 +2250,13 @@ function purgeOrder(db, orderId, userId, reason = '') {
           ORDER BY seq DESC, id DESC LIMIT 1
         `).get(orderId);
         if (!last) break;
-        adv.reverseStage(db, { orderId, stageId: last.id, reason: why, userId });
+        const layIssueIds = db.prepare(`
+          SELECT id FROM production_material_issues
+          WHERE stage_id=? AND status='posted' AND issue_type='cutting_lay'
+        `).all(last.id).map(r => r.id);
+        adv.reverseStage(db, {
+          orderId, stageId: last.id, reason: why, userId, releaseLayIssueIds: layIssueIds,
+        });
       }
     }
 

@@ -771,6 +771,45 @@ function sumStageIssued(db, stageId) {
   return { matRial: total - pkg, pkgRial: pkg, total };
 }
 
+/**
+ * آنالیز متغیر: اقلام فرمول این مرحله (به‌جز پارچهٔ طاقه‌ای که با لایه‌چینی می‌آید) که هنوز
+ * حوالهٔ مثبت ندارند. حوالهٔ کالای جایگزین (substitute_of_product_id) هم پوشش حساب می‌شود.
+ */
+function stageUnissuedMaterialLines(db, po, stage) {
+  const lines = stageMaterialLines(db, po, stage)
+    .filter(L => num(L.qty_final) > 0 && !lengthFabricProduct(db, L.product_id));
+  if (!lines.length) return [];
+  const rows = db.prepare(`
+    SELECT product_id, substitute_of_product_id FROM production_material_issues
+    WHERE order_id=? AND stage_id=? AND status='posted' AND qty_actual > 0
+      AND COALESCE(issue_type,'') NOT IN ('extra','cutting_lay')
+  `).all(po.id, stage.id);
+  const covered = new Set();
+  for (const r of rows) {
+    covered.add(Number(r.product_id));
+    if (r.substitute_of_product_id) covered.add(Number(r.substitute_of_product_id));
+  }
+  const out = [];
+  for (const L of lines) {
+    const pid = Number(L.product_id);
+    if (covered.has(pid) || out.some(x => x.product_id === pid)) continue;
+    const name = db.prepare('SELECT name FROM products WHERE id=?').get(pid)?.name || ('#' + pid);
+    out.push({ product_id: pid, name, qty_standard: num(L.qty_final) });
+  }
+  return out;
+}
+
+function assertStageMaterialsIssued(db, po, stage) {
+  const missing = stageUnissuedMaterialLines(db, po, stage);
+  if (!missing.length) return;
+  throw err('E_STAGE_MATERIAL_NOT_ISSUED', 422, {
+    missing,
+    detail: 'این اقلام فرمول مرحله هنوز حواله نشده: '
+      + missing.map(m => `«${m.name}» (${m.qty_standard})`).join('، ')
+      + '. اول «حواله مواد» را بزنید؛ اگر موجودی کم است، در همان حواله کالای جایگزین انتخاب کنید.',
+  });
+}
+
 /** مصرف اضافهٔ عادی همین مرحله (در WIP)؛ در آنالیز ثابت به بهای خروجی مرحله اضافه می‌شود. */
 function sumStageExtraNormal(db, stageId) {
   const r = db.prepare(`
@@ -894,6 +933,7 @@ function postStageCore(db, {
         db.prepare(`
           UPDATE production_material_issues SET je_id=?
           WHERE order_id=? AND stage_id=? AND je_id IS NULL AND status='posted'
+            AND COALESCE(issue_type,'')<>'cutting_lay'
         `).run(je1.je_id, orderId, stageId);
       }
     }
@@ -907,11 +947,17 @@ function postStageCore(db, {
       WHERE stage_id=? AND status='posted' AND COALESCE(issue_type,'')<>'extra'
     `).get(stageId);
     if (hasBomLines && (issued.total < 1 || !num(regular?.n))) throw err('E_NO_MATERIAL_ISSUED', 422);
+    if (po.analysis_type === 'variable_adv') assertStageMaterialsIssued(db, po, stage);
     matRial = issued.matRial;
     pkgRial = issued.pkgRial;
   }
   // ثابت: backflush فقط استاندارد است؛ مصرف اضافهٔ عادیِ ثبت‌شده در طول مرحله هم با قطعه جلو می‌رود.
   const extraNormalRial = mode === 'fixed' ? sumStageExtraNormal(db, stageId) : 0;
+  // ثابت: پارچهٔ لایهٔ زنده (memo بدون JE) در backflush نیست ولی در WIP سفارش هست.
+  const layMemoRial = mode === 'fixed' ? Math.round(num(db.prepare(`
+    SELECT COALESCE(SUM(amount_rial),0) s FROM production_material_issues
+    WHERE stage_id=? AND status='posted' AND issue_type='cutting_lay'
+  `).get(stageId)?.s)) : 0;
 
   const laborRial = stageLabor(db, op || {}, qtyIn, period);
   let laborMethod = op?.labor_method || 'piece';
@@ -1044,7 +1090,7 @@ function postStageCore(db, {
   }
 
   const costIn = Math.round(num(stage.material_in_rial));
-  const materialAdded = matRial + pkgRial + extraNormalRial;
+  const materialAdded = matRial + pkgRial + extraNormalRial + layMemoRial;
   const costGross = costIn + materialAdded + laborRial + ohTotal + subcontractRial;
   const costPerIn = qtyIn > 0 ? costGross / qtyIn : 0;
 
@@ -1862,22 +1908,29 @@ function resetDownstreamStages(db, orderId, afterSeq) {
     if (st.status === 'done') continue;
     const cross = origin && stageScopeKey(st) !== stageScopeKey(origin);
     const qty = cross && num(st.qty_planned_in) > 0 ? num(st.qty_planned_in) : 0;
+    // حواله‌های posted این مرحله باطل نمی‌شوند؛ بهایشان روی مرحله بماند.
+    const keptMat = sumStageIssued(db, st.id).total;
     db.prepare(`
       UPDATE production_order_stages SET
         qty_in=?, material_in_rial=0,
         qty_out=0, qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
-        material_added_rial=0, labor_rial=0, overhead_rial=0, subcontract_rial=0,
+        material_added_rial=?, labor_rial=0, overhead_rial=0, subcontract_rial=0,
         waste_abnormal_rial=0, scrap_credit_rial=0, cost_out_rial=0, unit_cost_out_rial=0,
         driver_qty=0, status='pending', started_at=NULL, ended_at=NULL
       WHERE id=?
-    `).run(qty, st.id);
+    `).run(qty, keptMat, st.id);
   }
 }
 
 /**
  * PRD-99 stage reversal — only the last completed stage (R12: reverse, not delete).
  */
-function reverseStage(db, { orderId, stageId, reason, userId, date }) {
+/**
+ * releaseLayIssueIds: فقط از مسیر ابطال/ویرایش لایه‌چینی؛ ردیف‌های cutting_lay همان لایه.
+ * در ابطال دستی مرحله، لایهٔ زنده (موجودی پارچه + JE) دست نمی‌خورد، پس ردیفش هم posted می‌ماند
+ * تا بهای پارچه در WIP سفارش بماند و ثبت دوبارهٔ خروجی همان لایه را مصرف کند.
+ */
+function reverseStage(db, { orderId, stageId, reason, userId, date, releaseLayIssueIds = [] }) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
     if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
@@ -1946,10 +1999,14 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     `).all(stageId);
     for (const l of labs) if (l.je_id) jeIds.push(l.je_id);
 
+    const issuedBefore = sumStageIssued(db, stageId);
+    const releaseLay = new Set((releaseLayIssueIds || []).map(Number));
     const issues = db.prepare(`
       SELECT * FROM production_material_issues WHERE stage_id=? AND status='posted'
-    `).all(stageId);
-    for (const i of issues) if (i.je_id) jeIds.push(i.je_id);
+    `).all(stageId).filter(i => String(i.issue_type || '') !== 'cutting_lay' || releaseLay.has(Number(i.id)));
+    for (const i of issues) {
+      if (i.je_id && String(i.issue_type || '') !== 'cutting_lay') jeIds.push(i.je_id);
+    }
 
     const reversedJeIds = [];
     const seen = new Set();
@@ -1968,7 +2025,8 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
         UPDATE production_labor_entries SET reversed_je_id=?, status='reversed' WHERE je_id=?
       `).run(revId, jeId);
       db.prepare(`
-        UPDATE production_material_issues SET reversed_je_id=?, status='reversed' WHERE je_id=?
+        UPDATE production_material_issues SET reversed_je_id=?, status='reversed'
+        WHERE je_id=? AND COALESCE(issue_type,'')<>'cutting_lay'
       `).run(revId, jeId);
       db.prepare(`
         UPDATE production_subcontract SET status='reversed' WHERE je_id=?
@@ -1976,7 +2034,7 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     }
 
     for (const i of issues) {
-      // cutting_lay: موجودی و JE مال لایه‌چینی است — فقط برچسب ابطال؛ voidCuttingLay موجودی را برمی‌گرداند
+      // cutting_lay در حال ابطال: موجودی و JE مال لایه‌چینی است — فقط برچسب؛ voidCuttingLay موجودی را برمی‌گرداند
       if (String(i.issue_type || '') === 'cutting_lay') {
         db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
         continue;
@@ -2026,21 +2084,21 @@ function reverseStage(db, { orderId, stageId, reason, userId, date }) {
     }
     retirePersonLaborForEntries(db, labs);
 
-    const issued = sumStageIssued(db, stageId);
+    const issuedAfter = sumStageIssued(db, stageId);
     const matAdded = Math.round(num(stage.material_added_rial));
-    const matRial = issued.total ? issued.matRial : matAdded;
-    const pkgRial = issued.total ? issued.pkgRial : 0;
+    const matRial = issuedBefore.total ? issuedBefore.matRial - issuedAfter.matRial : matAdded;
+    const pkgRial = issuedBefore.total ? issuedBefore.pkgRial - issuedAfter.pkgRial : 0;
 
     resetDownstreamStages(db, orderId, stage.seq);
 
     db.prepare(`
       UPDATE production_order_stages SET
         qty_out=0, qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
-        material_added_rial=0, labor_rial=0, overhead_rial=0, subcontract_rial=0,
+        material_added_rial=?, labor_rial=0, overhead_rial=0, subcontract_rial=0,
         waste_abnormal_rial=0, scrap_credit_rial=0, cost_out_rial=0, unit_cost_out_rial=0,
         driver_qty=0, status='in_progress', ended_at=NULL
       WHERE id=?
-    `).run(stageId);
+    `).run(issuedAfter.total, stageId);
 
     db.prepare(`
       UPDATE production_orders SET
@@ -2541,6 +2599,12 @@ function listStageExtraIssues(db, orderId, stageId) {
 function getStageIssueTemplate(db, orderId, stageId) {
   const po = getOrder(db, orderId);
   const stage = getStage(db, orderId, stageId);
+  const issuedQtyOf = (pid) => num(db.prepare(`
+    SELECT COALESCE(SUM(qty_actual),0) q FROM production_material_issues
+    WHERE order_id=? AND stage_id=? AND status='posted'
+      AND COALESCE(issue_type,'') NOT IN ('extra','cutting_lay')
+      AND (product_id=? OR substitute_of_product_id=?)
+  `).get(orderId, stageId, pid, pid)?.q);
   const lines = stageMaterialLines(db, po, stage).map(L => {
     const prod = db.prepare('SELECT id, name, average_cost_rial, std_cost_rial FROM products WHERE id=?').get(L.product_id);
     const avg = Math.round(Number(prod?.average_cost_rial) || 0);
@@ -2562,6 +2626,7 @@ function getStageIssueTemplate(db, orderId, stageId) {
       stock_available: stockAvail,
       stock_short: viaLay ? 0 : (needQty > 0 && stockAvail + 1e-9 < needQty ? 1 : 0),
       via_cutting_lay: viaLay,
+      issued_qty: viaLay ? 0 : issuedQtyOf(L.product_id),
       std_cost_rial: Math.round(Number(L.unit_cost_rial) || Number(prod?.std_cost_rial) || 0),
       average_cost_rial: avg,
       // R11-safe gate (not stripped): operators without cost view still see zero-avg block
@@ -2591,6 +2656,8 @@ function getStageIssueTemplate(db, orderId, stageId) {
   return {
     order_id: orderId,
     stage_id: stageId,
+    analysis_type: po.analysis_type,
+    unissued: po.analysis_type === 'variable_adv' ? stageUnissuedMaterialLines(db, po, stage) : [],
     warehouse_raw_id: po.warehouse_raw_id || null,
     qty_in: stage.qty_in,
     cut_lay,
@@ -2634,6 +2701,12 @@ function resolveCuttingStage(db, orderId) {
   return stages[0];
 }
 
+/** هم‌ارز layIssueNoteMatchers در cutting.js — LAY-10 نباید LAY-100 را بگیرد. */
+function layNoteGlobs(layNo, layId) {
+  const tag = layNo || ('#' + layId);
+  return [`*${tag}[^0-9]*`, `*${tag}`];
+}
+
 /**
  * اتصال لایه‌چینی به مرحلهٔ برش: حوالهٔ منطقی (بدون JE دوباره) + تکمیل مرحله + دست‌به‌دست بعدی.
  * Caller باید داخل تراکنش باشد. JE پارچه فقط از cutting_lay است.
@@ -2662,12 +2735,13 @@ function applyCuttingLayToStage(db, {
 
   const healOrderCost = () => applyDocumentCosts(db, orderId);
 
+  const [layGlobMid, layGlobEnd] = layNoteGlobs(layNo, layId);
   const already = db.prepare(`
     SELECT id FROM production_material_issues
     WHERE stage_id=? AND order_id=? AND issue_type='cutting_lay'
-      AND note LIKE ? AND status='posted'
+      AND (note GLOB ? OR note GLOB ?) AND status='posted'
     LIMIT 1
-  `).get(stage.id, orderId, `%${layNo || ('#' + layId)}%`);
+  `).get(stage.id, orderId, layGlobMid, layGlobEnd);
   if (already) {
     db.prepare('UPDATE cutting_lays SET stage_id=? WHERE id=?').run(stage.id, layId);
     healOrderCost();
@@ -2769,6 +2843,28 @@ function applyCuttingLayToStage(db, {
     };
   }
 
+  const unissued = po.analysis_type === 'variable_adv' ? stageUnissuedMaterialLines(db, po, stage) : [];
+  if (unissued.length) {
+    db.prepare(`
+      UPDATE production_order_stages SET
+        material_added_rial = COALESCE(material_added_rial,0) + ?
+      WHERE id=?
+    `).run(amount, stage.id);
+    healOrderCost();
+    return {
+      ok: true,
+      stage_id: stage.id,
+      status: 'in_progress',
+      completed: false,
+      lay_qty: cov.lay_qty,
+      need: cov.need,
+      unissued,
+      message: 'برش کامل است ولی اقلام دیگر این مرحله حواله نشده: '
+        + unissued.map(m => `«${m.name}»`).join('، ')
+        + ' — بعد از «حواله مواد»، «ثبت خروجی» مرحله را بزنید.',
+    };
+  }
+
   const planned = num(stage.qty_planned_in) > 0 ? num(stage.qty_planned_in) : cov.need;
   if (planned > 0 && Math.abs(num(stage.qty_in) - planned) > 0.01) {
     db.prepare('UPDATE production_order_stages SET qty_in=? WHERE id=?').run(planned, stage.id);
@@ -2820,20 +2916,22 @@ function unlinkCuttingLayFromStage(db, {
   if (!stageId) return { ok: false, skipped: true, reason: 'no_stage_link' };
 
   const stage = getStage(db, orderId, stageId);
+  const [layGlobMid, layGlobEnd] = layNoteGlobs(layNo, layId);
   const mi = db.prepare(`
     SELECT * FROM production_material_issues
     WHERE stage_id=? AND order_id=? AND issue_type='cutting_lay'
-      AND status='posted' AND note LIKE ?
-  `).all(stageId, orderId, `%${layNo || ('#' + layId)}%`);
+      AND status='posted' AND (note GLOB ? OR note GLOB ?)
+  `).all(stageId, orderId, layGlobMid, layGlobEnd);
 
   if (stage.status === 'done') {
-    // ابطال مرحله (دستمزد/سربار + mi برچسبی؛ موجودی پارچه را دست نمی‌زند)
+    // ابطال مرحله (دستمزد/سربار + mi برچسبی همین لایه؛ موجودی پارچه را دست نمی‌زند)
     reverseStage(db, {
       orderId,
       stageId,
       reason: `ابطال لایه‌چینی ${layNo || layId}`,
       userId,
       date: date || todayJalali(),
+      releaseLayIssueIds: mi.map(i => i.id),
     });
   } else {
     for (const i of mi) {
@@ -2873,6 +2971,7 @@ module.exports = {
   blockStage,
   unblockStage,
   reverseStage,
+  stageUnissuedMaterialLines,
   issueStageMaterials,
   issueStageExtraMaterials,
   voidStageExtraIssue,
