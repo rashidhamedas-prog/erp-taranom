@@ -53,16 +53,6 @@ const pid = db.prepare(`
 `).run(uid, 'کاپشن تست صفر', 'Z-529', whId).lastInsertRowid;
 
 console.log('\n1) sale with zero avg must throw E_ZERO_OUTBOUND_COST (no stock mutation)');
-// Seed qty with zero value so we are not blocked by negative-stock triggers.
-db.prepare('UPDATE products SET stock=5, average_cost_rial=0 WHERE id=?').run(pid);
-try {
-  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,5)')
-    .run(pid, whId);
-} catch (_) {
-  try {
-    db.prepare('UPDATE warehouse_stock SET qty=5 WHERE product_id=? AND warehouse_id=?').run(pid, whId);
-  } catch (__) { /* optional */ }
-}
 const stockBefore = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(pid).stock) || 0;
 let code = null;
 try {
