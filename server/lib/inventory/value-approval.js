@@ -19,6 +19,8 @@
  * whose own JE already hit inventory use finish({park:true}) → parking JE Dr clearing / Cr
  * inventory. Approve: post_date_mode 'original' (document date, lock bypassed for this doc
  * only) | 'next_open' (first day of the next open month).
+ * v525: withSourceGroup → one doc per multi-line source (warehouse doc); cancelForSourceCarry →
+ * incremental sources (cutting-lay delta, receipt align) re-route their un-applied change.
  */
 const VA = require('./value-accounts');
 
@@ -93,6 +95,9 @@ function ensureValueApprovalSchema(db) {
   addCol('inventory_value_approval_lines', 'ledger_ref_id', 'INTEGER');
   addCol('inventory_value_approval_lines', 'park_je_id', 'INTEGER');
   addCol('inventory_value_approval_lines', 'inventory_name', 'TEXT');
+  // v525: explicit counter account (manual stock adjustment): approve = clearing ↔ this account, whole amount.
+  addCol('inventory_value_approval_lines', 'counter_code', 'TEXT');
+  addCol('inventory_value_approval_lines', 'counter_name', 'TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS ix_inv_val_appr_lines_led ON inventory_value_approval_lines(ledger_ref_id)');
 }
 
@@ -223,14 +228,14 @@ function insertLines(db, approvalId, lines) {
   const ins = db.prepare(`
     INSERT INTO inventory_value_approval_lines
       (approval_id, product_id, warehouse_id, ref_qty, sold_qty, wip_qty, in_stock_qty, delta_rial,
-       inventory_code, inventory_name, note, ledger_ref_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       inventory_code, inventory_name, note, ledger_ref_id, counter_code, counter_name)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `);
   return lines.map((l) => {
     const inv = lineInventoryAccount(db, l);
     return ins.run(approvalId, l.productId, l.warehouseId || null, l.plan.ref_qty, l.plan.sold_qty, l.plan.wip_qty,
       l.plan.in_stock_qty, l.delta, inv.code, inv.name || null, String(l.note || '').slice(0, 200),
-      l.ledgerRefId || null).lastInsertRowid;
+      l.ledgerRefId || null, l.counterCode || null, l.counterCode ? (l.counterName || null) : null).lastInsertRowid;
   });
 }
 
@@ -290,31 +295,97 @@ function createApproval(db, { sourceType, sourceId, date, createdBy, label, note
 }
 
 /**
+ * v525: a multi-line source document (warehouse doc, …) wraps its postings so every parked
+ * receipt difference lands in ONE approval doc keyed by the document, not one per ledger row.
+ * Synchronous, same transaction (like withLockBypass).
+ */
+const sourceGroups = [];
+function withSourceGroup(group, fn) {
+  sourceGroups.push(group || null);
+  try { return fn(); } finally { sourceGroups.pop(); }
+}
+function currentSourceGroup() {
+  const g = sourceGroups.length ? sourceGroups[sourceGroups.length - 1] : null;
+  return g && g.sourceType && g.sourceId != null ? g : null;
+}
+
+/**
+ * Rate a closed-month inbound row of (product, warehouse) enters at: the current average of
+ * the pool that warehouse belongs to. null = nothing to protect (empty pool, periodic, WIP).
+ */
+function closedInboundPoolUnit(db, productId, warehouseId) {
+  const V = require('./valuation');
+  try {
+    if (warehouseId && require('./periodic-close').isPeriodicWarehouse(db, warehouseId)) return null;
+  } catch (_) { /* periodic module optional */ }
+  if (warehouseId && isWipWarehouse(db, warehouseId)) return null;
+  const lv = V.levelFor(db, productId, warehouseId || null);
+  let qty;
+  let unit;
+  if (lv.level === 'warehouse' && warehouseId) {
+    const b = V.getBucket(db, productId, warehouseId);
+    qty = Number(b && b.qty) || 0;
+    unit = Math.round(Number(b && b.avg_rial) || 0);
+  } else {
+    const pools = V.productPools(db, productId);
+    if (pools.mode === 'mixed') {
+      const st = V.sharedPoolState(db, productId, pools);
+      qty = st.qty;
+      unit = st.avg_rial;
+    } else {
+      const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(productId);
+      qty = Number(p && p.stock) || 0;
+      unit = Math.round(Number(p && p.average_cost_rial) || 0);
+    }
+  }
+  if (!(qty > 1e-9) || !(unit > 0)) return null;
+  return unit;
+}
+
+function isWipWarehouse(db, warehouseId) {
+  try {
+    return !!db.prepare("SELECT 1 FROM warehouses WHERE id=? AND (kind='wip' OR warehouse_type='wip')").get(warehouseId);
+  } catch (_) {
+    try { return !!db.prepare("SELECT 1 FROM warehouses WHERE id=? AND warehouse_type='wip'").get(warehouseId); } catch (__) { return false; }
+  }
+}
+
+/** Pool identity of (product, warehouse): its own bucket for warehouse level, else the shared pool. */
+function poolKeyOf(db, productId, warehouseId) {
+  const lv = require('./valuation').levelFor(db, productId, warehouseId || null);
+  if (lv.level === 'warehouse' && warehouseId) return `w:${Number(warehouseId)}`;
+  return 'shared';
+}
+
+/**
  * Back-dated inbound receipt into a closed month (called by postInventoryMovement):
  * qty entered at the current pool rate; the receipt-vs-pool difference is parked here
  * (one doc per source document, one line per ledger row) with its own parking JE.
  */
 function parkReceiptDifference(db, {
-  sourceType, sourceId, ledgerId, productId, warehouseId, qtyIn, diffRial, date, createdBy, note,
+  sourceType, sourceId, ledgerId, productId, warehouseId, qtyIn, diffRial, date, createdBy, note, label: labelIn,
 }) {
   const delta = Math.round(Number(diffRial) || 0);
   if (!delta) return null;
-  const srcType = `receipt:${sourceType || 'inventory'}`;
+  const grp = currentSourceGroup();
+  const srcType = grp ? grp.sourceType : `receipt:${sourceType || 'inventory'}`;
+  const srcId = grp ? grp.sourceId : sourceId;
   const line = {
     productId, warehouseId: warehouseId || null, refQty: qtyIn, delta, ledgerRefId: ledgerId,
     note: note || 'رسید با تاریخ ماه قفل‌شده',
     plan: closedPlan(db, { productId, warehouseId, refQty: qtyIn }),
   };
-  let head = sourceId != null ? db.prepare(`
+  let head = srcId != null ? db.prepare(`
     SELECT * FROM inventory_value_approvals
     WHERE source_type=? AND source_id=? AND status='pending' AND reason='closed_period' AND date=?
     ORDER BY id DESC LIMIT 1
-  `).get(srcType, sourceId, date) : null;
+  `).get(srcType, srcId, date) : null;
   if (!head) {
     const clearing = VA.clearingAccount(db);
-    const label = `رسید ${sourceType || ''} #${sourceId || ledgerId} — مابه‌التفاوت نرخ رسید با میانگین (قفل دوره)`;
+    const label = (grp && grp.label) || labelIn
+      || `رسید ${sourceType || ''} #${sourceId || ledgerId} — مابه‌التفاوت نرخ رسید با میانگین (قفل دوره)`;
     const doc = createApproval(db, {
-      sourceType: srcType, sourceId: sourceId != null ? sourceId : null, date, createdBy, label,
+      sourceType: srcType, sourceId: srcId != null ? srcId : null, date, createdBy, label,
       lines: [line], clearing, reason: 'closed_period', park: true,
     });
     return doc;
@@ -404,6 +475,14 @@ function approve(db, id, user, body = {}) {
         inv_share_rial=?, cogs_share_rial=?, wip_share_rial=?, ledger_ids_json=? WHERE id=?
     `);
     for (const l of activeLines(db, head.id)) {
+      if (l.counter_code) {
+        // Manual adjustment: qty already moved; nothing sold/in-stock to split — whole amount to its counter account.
+        const d = Math.round(Number(l.delta_rial) || 0);
+        pushNet(je, { code: l.counter_code, name: l.counter_name || '' }, d, 'تأیید تغییر بها — حساب مقابل تعدیل');
+        pushNet(je, clearing, -d, 'تسویه تعدیل بهای در انتظار تأیید');
+        upd.run(0, 0, 0, 0, 0, 0, '[]', l.id);
+        continue;
+      }
       const rq = Number(l.ref_qty) || 0;
       // No reference qty (closed-month change without a receipt qty): all to on-hand stock.
       const g = rq > 1e-9
@@ -563,22 +642,48 @@ function reopen(db, id, user, { reason } = {}) {
 
 /** Source voided or re-amended: undo decisions and cancel its approval docs (inside caller tx). */
 function cancelForSource(db, sourceType, sourceId, user, reason) {
+  return cancelSourceDocs(db, sourceType, sourceId, user, reason).count;
+}
+
+/**
+ * v525 — incremental sources (covered cutting-lay delta, order receipt align) post their
+ * parked change straight to clearing (finish({park:false})) and never reverse that JE.
+ * On their next amend/void the docs are cancelled (decisions undone, R13) and the still
+ * un-applied lines are handed back so the caller re-routes them: closed month → into its
+ * new approval doc (clearing balance kept); open month → clearing → inventory/COGS now.
+ * Lines carried by a parking JE are fully reversed here and never carried.
+ */
+function cancelForSourceCarry(db, sourceType, sourceId, user, reason) {
+  return cancelSourceDocs(db, sourceType, sourceId, user, reason);
+}
+
+function cancelSourceDocs(db, sourceType, sourceId, user, reason) {
+  const empty = { count: 0, lines: [], total: 0 };
   try {
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_value_approvals'").get()) return 0;
-  } catch (_) { return 0; }
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_value_approvals'").get()) return empty;
+  } catch (_) { return empty; }
   const docs = db.prepare(`
     SELECT * FROM inventory_value_approvals WHERE source_type=? AND source_id=? AND status IN ('pending','approved','rejected')
   `).all(sourceType, sourceId);
+  const why = reason || 'ابطال/اصلاح سند مبدأ';
+  const carried = [];
   for (const head of docs) {
-    if (head.status !== 'pending') reopenInTx(db, head, user, reason || 'ابطال/اصلاح سند مبدأ');
+    if (head.status !== 'pending') reopenInTx(db, head, user, why);
     const lines = activeLines(db, head.id);
-    reverseParkJes(db, lines, user, reason || 'ابطال/اصلاح سند مبدأ');
+    reverseParkJes(db, lines, user, why);
+    for (const l of lines) {
+      if (!l.park_je_id && Math.round(Number(l.delta_rial) || 0)) carried.push(l);
+    }
     db.prepare("UPDATE inventory_value_approval_lines SET status='cancelled' WHERE approval_id=?").run(head.id);
     db.prepare(`
       UPDATE inventory_value_approvals SET status='cancelled', decision_note=?, updated_at=strftime('%s','now') WHERE id=?
-    `).run(String(reason || 'ابطال/اصلاح سند مبدأ').slice(0, 200), head.id);
+    `).run(String(why).slice(0, 200), head.id);
   }
-  return docs.length;
+  return {
+    count: docs.length,
+    lines: carried,
+    total: carried.reduce((s, l) => s + Math.round(Number(l.delta_rial) || 0), 0),
+  };
 }
 
 function audit(user, action, id, detail) {
@@ -634,6 +739,9 @@ module.exports = {
   planGate,
   begin,
   parkReceiptDifference,
+  withSourceGroup,
+  closedInboundPoolUnit,
+  poolKeyOf,
   onLedgerReversed,
   REASONS,
   POST_DATE_MODES,
@@ -641,6 +749,7 @@ module.exports = {
   reject,
   reopen,
   cancelForSource,
+  cancelForSourceCarry,
   list,
   get,
   SOURCE_TYPE: SRC,

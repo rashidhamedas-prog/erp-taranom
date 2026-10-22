@@ -36,6 +36,18 @@ const {
   decideSaleFulfillment, isBackorderRequested, isProvisionalRequest,
 } = require('../lib/inventory/available-to-promise');
 const { runWithSaleContext, consumeOpenReservationsForSale } = require('../lib/inventory/reservation');
+const shortageErr = require('../lib/inventory/shortage-error');
+
+/** v525: ATP rows stay in atp_shortages (legacy clients); every stock error also gets uniform `shortages`. */
+function shortagePayload(db, e, payload) {
+  const code = String((e && e.code) || '');
+  if (Array.isArray(e && e.shortages) && /^E_(ATP|BACKORDER)_/.test(code)) payload.atp_shortages = e.shortages;
+  try {
+    const list = shortageErr.fromError(db, e);
+    if (list.length) payload.shortages = list;
+  } catch (_) { /* enrichment only */ }
+  return payload;
+}
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -769,7 +781,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))
       : (e.message || 'خطا در ثبت فاکتور');
     const payload = { error: msg, code: e.code };
-    if (Array.isArray(e.shortages)) payload.atp_shortages = e.shortages;
+    shortagePayload(db, e, payload);
     return res.status(e.status || 400).json(payload);
   }
 
@@ -933,7 +945,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
         used_warehouses: amended.usedWarehouses || [],
       }));
     } catch (e) {
-      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+      return res.status(e.status || 400).json(shortagePayload(db, e, { error: e.message, code: e.code }));
     }
   }
 
@@ -1185,7 +1197,7 @@ router.post('/:id/convert', auth, (req, res) => {
     })();
   } catch (e) {
     const payload = { error: e.message, code: e.code };
-    if (Array.isArray(e.shortages)) payload.atp_shortages = e.shortages;
+    shortagePayload(db, e, payload);
     return res.status(e.status || 400).json(payload);
   }
   audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);

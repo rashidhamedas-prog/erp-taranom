@@ -1627,7 +1627,7 @@ function expandShortageAlternates(db, materials, whId) {
     }
     const cover = Math.min(altQtyReq, shortfall);
     if (primaryIssue + cover + 1e-9 < AQ) {
-      throw err('E_NEGATIVE_STOCK', 409, {
+      const extra = {
         product_id: L.product_id,
         warehouse_id: whId || null,
         name: prim.name,
@@ -1636,7 +1636,10 @@ function expandShortageAlternates(db, materials, whId) {
         shortfall,
         alternate_cover: cover,
         detail: 'کسری با کالای جایگزین کامل پوشش داده نشد',
-      });
+      };
+      throw require('../inventory/shortage-error').attach(err('E_NEGATIVE_STOCK', 409, extra), db, [
+        { product_id: L.product_id, warehouse_id: whId || null, available: avail, needed: AQ, shortfall: round6(AQ - primaryIssue - cover) },
+      ]);
     }
     const reason = String(L.reason || '').trim() ||
       `تأمین کسری از کالای جایگزین «${alt.name}» به‌مقدار ${cover}` +

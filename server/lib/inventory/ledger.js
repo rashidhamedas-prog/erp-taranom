@@ -59,6 +59,10 @@ function isWarehouseOnlyRow(row) {
   return event === 'reversal' && WAREHOUSE_ONLY_EVENTS.has(String(row.source_type || ''));
 }
 
+function shortageAttach(e, db, rows) {
+  return require('./shortage-error').attach(e, db, rows);
+}
+
 function invErr(code, status, extra) {
   const e = new Error(code);
   e.code = code;
@@ -159,12 +163,12 @@ function applyStockDelta(db, {
   if (warehouseOnly && !warehouseId) throw invErr('E_INV_WAREHOUSE_REQUIRED', 400, { product_id: productId });
 
   if (!warehouseOnly && qtyAfter < -1e-9 && !allowNeg) {
-    throw invErr('E_NEGATIVE_STOCK', 409, {
+    throw shortageAttach(invErr('E_NEGATIVE_STOCK', 409, {
       product_id: productId,
       name: prod.name,
       available: qtyBefore,
       needed: Math.abs(qtyDelta),
-    });
+    }), db, [{ product_id: productId, warehouse_id: warehouseId || null, available: qtyBefore, needed: Math.abs(qtyDelta) }]);
   }
 
   const stockStored = warehouseOnly
@@ -179,13 +183,13 @@ function applyStockDelta(db, {
     const whBefore = warehouseQty(db, productId, warehouseId);
     const whAfter = whBefore + qtyDelta;
     if (whAfter < -1e-9 && !allowNeg) {
-      throw invErr('E_NEGATIVE_STOCK', 409, {
+      throw shortageAttach(invErr('E_NEGATIVE_STOCK', 409, {
         product_id: productId,
         name: prod.name,
         warehouse_id: warehouseId,
         available: whBefore,
         needed: Math.abs(qtyDelta),
-      });
+      }), db, [{ product_id: productId, warehouse_id: warehouseId, available: whBefore, needed: Math.abs(qtyDelta) }]);
     }
     const whStored = allowNeg ? whAfter : Math.max(0, whAfter);
     db.prepare(
@@ -349,6 +353,22 @@ function postInventoryMovement(db, opts) {
       }
     }
   }
+  // v525 closed month, outbound mirror: a back-dated purchase return leaves at the pool rate so
+  // the pool average is untouched; doc-vs-pool difference parked (delta = pool − doc, so the
+  // parking JE Dr inventory / Cr clearing restores what the return JE over-credited).
+  if (qtyOut > 0 && !valueOnly && !isReversal && !noHeader && !warehouseOnly && updateAvg && !isAlign
+    && method === 'moving_average' && CLOSED_RETURN_EVENTS.has(String(eventType || '')) && date
+    && require('./period-lock').isValueLocked(db, date)) {
+    const poolUnit = closedReceiptPoolUnit(db, { productId, warehouseId, stockInfo });
+    if (poolUnit != null) {
+      const poolAmount = Math.round(poolUnit * qtyOut);
+      if (poolAmount !== amount) {
+        parkedRial = poolAmount - amount;
+        amount = poolAmount;
+        unit = poolUnit;
+      }
+    }
+  }
 
   let avgAfter = stockInfo.avgBefore;
   let headerTrueup = 0;
@@ -465,8 +485,9 @@ function postInventoryMovement(db, opts) {
   let parkedApproval = null;
   if (parkedRial) {
     parkedApproval = require('./value-approval').parkReceiptDifference(db, {
-      sourceType, sourceId, ledgerId, productId, warehouseId, qtyIn,
+      sourceType, sourceId, ledgerId, productId, warehouseId, qtyIn: qtyIn || qtyOut,
       diffRial: parkedRial, date, createdBy, note,
+      label: qtyOut > 0 ? `${sourceType || 'خروج'} #${sourceId || ledgerId} — مابه‌التفاوت نرخ سند با میانگین استخر (قفل دوره)` : undefined,
     });
   }
 
@@ -490,6 +511,8 @@ function postInventoryMovement(db, opts) {
 }
 
 const CLOSED_RECEIPT_EVENTS = new Set(['purchase', 'receipt', 'production_receipt']);
+// sale_return parks in sales-document.js; transfer_in is parked by its caller (pool-to-pool only).
+const CLOSED_RETURN_EVENTS = new Set(['purchase_return']);
 
 /** Pool rate a closed-month receipt enters at; null = nothing to protect (empty pool / periodic). */
 function closedReceiptPoolUnit(db, { productId, warehouseId, stockInfo }) {
@@ -570,7 +593,7 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
   });
 
   db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(row.id);
-  if ((Number(row.qty_in) || 0) > 0) {
+  if ((Number(row.qty_in) || 0) > 0 || CLOSED_RETURN_EVENTS.has(String(row.event_type || ''))) {
     require('./value-approval').onLedgerReversed(db, row.id, { createdBy, note: note || `معکوس ${row.tx_no}` });
   }
   return rev;

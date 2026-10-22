@@ -103,6 +103,8 @@ router.post('/:code/fix', ...applyFix, (req, res) => {
       confirm: b.confirm,
       reason: b.reason,
       force: b.force,
+      counterAccount: b.counter_account,
+      counterAccounts: b.counter_accounts,
       date: dateToParam(b.date) || undefined,
       dateTo: dateToParam(b.date_to),
       user: req.user,

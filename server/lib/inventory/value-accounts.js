@@ -73,6 +73,19 @@ function ensureAccount(db, key) {
   return accountRow(db, code) || { code, name: def.name };
 }
 
+/** v525 read-only twin of ensureAccount (previews must not write): never creates the account. */
+function peekAccount(db, key) {
+  const def = DEFS[key];
+  if (!def) throw new Error('value-accounts: unknown key ' + key);
+  const mapped = accountRow(db, setting(db, key));
+  if (mapped) return mapped;
+  try {
+    const byName = db.prepare('SELECT code, name FROM chart_of_accounts WHERE name=? AND COALESCE(is_active,1)=1 ORDER BY code LIMIT 1').get(def.name);
+    if (byName) return byName;
+  } catch (_) { /* old schema */ }
+  return { code: def.code, name: def.name, pending: true };
+}
+
 const clearingAccount = (db) => ensureAccount(db, 'coa_value_change_clearing');
 const priceVarianceAccount = (db) => ensureAccount(db, 'coa_price_variance');
 const shortageSurplusAccount = (db) => ensureAccount(db, 'coa_inventory_shortage_surplus');
@@ -113,9 +126,9 @@ function stageOfInventoryCode(db, code) {
   return 'goods';
 }
 
-function stageDefaultAccount(db, stage) {
+function stageDefaultAccount(db, stage, peek = false) {
   if (stage === 'wip') return acct(db, 'coa_overhead_control');
-  if (stage === 'materials') return shortageSurplusAccount(db);
+  if (stage === 'materials') return peek ? peekAccount(db, 'coa_inventory_shortage_surplus') : shortageSurplusAccount(db);
   return acct(db, 'coa_cogs');
 }
 
@@ -124,14 +137,14 @@ function stageDefaultAccount(db, stage) {
  * reason mapped in settings → that account; else stage default by the inventory account.
  * Returns { code, name, stage, reason_code, source: 'reason'|'stage' }.
  */
-function adjustCounterAccount(db, { inventoryCode, reasonCode } = {}) {
+function adjustCounterAccount(db, { inventoryCode, reasonCode, peek = false } = {}) {
   const stage = stageOfInventoryCode(db, inventoryCode);
   const reason = ADJUST_REASONS[reasonCode] ? reasonCode : null;
   if (reason) {
     const mapped = accountRow(db, getReasonAccounts(db)[reason]);
     if (mapped) return { ...mapped, stage, reason_code: reason, source: 'reason' };
   }
-  const a = stageDefaultAccount(db, stage);
+  const a = stageDefaultAccount(db, stage, peek);
   return { code: a.code, name: a.name, stage, reason_code: reason, source: 'stage' };
 }
 
@@ -146,6 +159,7 @@ function normReason(v) {
 
 module.exports = {
   ensureAccount,
+  peekAccount,
   clearingAccount,
   priceVarianceAccount,
   shortageSurplusAccount,

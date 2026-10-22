@@ -116,6 +116,13 @@ function personDetailId(db, personId) {
   return da?.id || null;
 }
 
+/** v525: uniform shortage payload (code E_INSUFFICIENT_STOCK + shortages[]) on portal stock errors. */
+function portalShortage(e, db, productId, warehouseId, available, needed) {
+  return require('../lib/inventory/shortage-error').attach(e, db, [{
+    product_id: productId, warehouse_id: warehouseId, available, needed,
+  }]);
+}
+
 function stockErrPersian(e, whName) {
   if (e.code === 'E_NEGATIVE_STOCK' || (e.available != null && e.needed != null)) {
     return `موجودی انبار ${whName || ''} کافی نیست (موجود: ${e.available ?? e.message}، نیاز: ${e.needed ?? ''})`.trim();
@@ -189,7 +196,7 @@ function assertDeptUnlocked(db, param, deptId) {
   return { dept, log };
 }
 
-function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, note, date }) {
+function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, note, date, paramId = null, paramLabel = '' }) {
   const q = parseQty(qty);
   if (!q || q <= 0) throw new Error('تعداد انتقال معتبر نیست');
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
@@ -201,7 +208,7 @@ function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, n
   if (available < q) {
     const e = new Error(stockErrPersian({ available, needed: q }, fromWarehouse.name));
     e.status = 400;
-    throw e;
+    throw portalShortage(e, db, productId, fromWh, available, q);
   }
   const d = date || todayJalali();
   const unit = Math.round(Number(product.average_cost_rial) || 0);
@@ -217,19 +224,46 @@ function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, n
     createdBy: userId,
     updateAvg: false,
   });
+  // v525 closed inventory month, different destination pool: enter at the destination pool rate
+  // and park the source-rate difference — one approval doc per portal parameter (like warehouse-docs).
+  const VAP = require('../lib/inventory/value-approval');
+  let inAmount = Math.round(Number(ledOut.amount_rial) || 0);
+  let inUnit = unit;
+  let transferPark = 0;
+  if (require('../lib/inventory/period-lock').isValueLocked(db, d)
+    && VAP.poolKeyOf(db, productId, fromWh) !== VAP.poolKeyOf(db, productId, toWh)) {
+    const destUnit = VAP.closedInboundPoolUnit(db, productId, toWh);
+    if (destUnit != null && Math.round(destUnit * q) !== inAmount) {
+      transferPark = inAmount - Math.round(destUnit * q);
+      inAmount = Math.round(destUnit * q);
+      inUnit = destUnit;
+    }
+  }
   const ledIn = postInventoryMovement(db, {
     eventType: 'transfer_in',
     productId,
     warehouseId: toWh,
     qty: q,
-    unitCostRial: unit,
-    amountRial: ledOut.amount_rial,
+    unitCostRial: inUnit,
+    amountRial: inAmount,
     sourceType: 'portal_transfer',
     date: d,
     note: note || `ورود انتقال از ${fromWarehouse.name}`,
     createdBy: userId,
     updateAvg: false,
   });
+  if (transferPark) {
+    const group = paramId != null ? {
+      sourceType: 'portal_param',
+      sourceId: paramId,
+      label: `انتقال پورتال ${paramLabel || paramId} — مابه‌التفاوت نرخ مبدأ با میانگین مقصد (قفل دوره)`,
+    } : null;
+    VAP.withSourceGroup(group, () => VAP.parkReceiptDifference(db, {
+      sourceType: 'portal_transfer', sourceId: null, ledgerId: ledIn.id,
+      productId, warehouseId: toWh, qtyIn: q, diffRial: transferPark, date: d,
+      createdBy: userId, note: 'انتقال پورتال با تاریخ ماه قفل‌شده — مابه‌التفاوت نرخ مبدأ با میانگین مقصد',
+    }));
+  }
   const move = db.prepare(`
     INSERT INTO warehouse_moves
       (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
@@ -625,9 +659,9 @@ router.post('/parameters', auth, requirePermission('portal', 'create'), (req, re
         const avail = warehouseQty(db, it.product_id, srcWh);
         if (avail < it.quantity) {
           const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(srcWh);
-          throw Object.assign(new Error(
+          throw portalShortage(Object.assign(new Error(
             `موجودی انبار ${wh?.name || ''} کافی نیست (موجود: ${avail}، نیاز: ${it.quantity})`
-          ), { status: 400 });
+          ), { status: 400 }), db, it.product_id, srcWh, avail, it.quantity);
         }
       }
       const num = allocateNumber(db, 'op_parameter', 'P');
@@ -661,6 +695,8 @@ router.post('/parameters', auth, requirePermission('portal', 'create'), (req, re
           userId: req.user.id,
           note: `پارامتر ${num} — ورود به بخش ${firstDept.name}`,
           date: d,
+          paramId,
+          paramLabel: num,
         });
       }
     })();
@@ -939,9 +975,9 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
     const avail = warehouseQty(db, inPid, whId);
     if (avail < qty) {
       const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId);
-      throw Object.assign(new Error(
+      throw portalShortage(Object.assign(new Error(
         `موجودی انبار ${wh?.name || ''} کافی نیست (موجود: ${avail}، نیاز: ${qty})`
-      ), { status: 400 });
+      ), { status: 400 }), db, inPid, whId, avail, qty);
     }
     const d = todayJalali();
     const unit = Math.round(Number(inProd.average_cost_rial) || 0);
@@ -1068,6 +1104,8 @@ router.post('/parameters/:id/dept/:deptId/complete', auth, requirePermission('po
             userId: req.user.id,
             note: `پارامتر ${param.num || param.id} — انتقال به ${next.name}`,
             date: d,
+            paramId: param.id,
+            paramLabel: param.num || '',
           });
         }
       }
@@ -1154,8 +1192,11 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
   const avail = warehouseQty(db, srcPid, lastDept.warehouse_id);
   if (avail < qty) {
+    const se = portalShortage(new Error(''), db, srcPid, lastDept.warehouse_id, avail, qty);
     return res.status(400).json({
       error: `موجودی انبار ${lastDept.name} کافی نیست (موجود: ${avail}، نیاز: ${qty})`,
+      code: se.code,
+      shortages: se.shortages,
     });
   }
   const costs = Array.isArray(extra_costs) ? extra_costs : [];
@@ -1172,6 +1213,8 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
         userId: req.user.id,
         note: `خروجی نهایی پارامتر ${param.num || param.id}`,
         date: d,
+        paramId: param.id,
+        paramLabel: param.num || '',
       });
       if (hasTable(db, 'op_parameter_extra_costs')) {
         const insCost = db.prepare(`
@@ -1415,3 +1458,4 @@ router.put('/access', auth, centralOnly, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+module.exports.transferBetweenWarehouses = transferBetweenWarehouses; // test hook (v525)

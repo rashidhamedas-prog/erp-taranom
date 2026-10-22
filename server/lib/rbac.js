@@ -66,6 +66,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     portal: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
     budgeting: ACC_FULL,
     bank_reconciliation: ACC_FULL,
+    // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
+    // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },
   sales_manager: {
     customers: SALES_CRUD,

@@ -214,6 +214,7 @@ function postSalesReturnEffects(db, {
       userId,
       date: date || todayJalali(),
       note: note || `برگشت از فروش #${retId}`,
+      invoiceId: invoiceId || null,
     });
     if (stocked.costRial > 0) {
       cost = stocked.costRial;

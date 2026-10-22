@@ -6,7 +6,8 @@
  *  - manual value-only postings (IRV revaluation, direct value adjustment) → 422 E_INV_PERIOD_LOCKED;
  *  - automatic/replay postings and reversals are moved forward to the first open day;
  *  - ordinary documents (purchases, sales, receipts, landed cost, amendments, production
- *    close) still post their qty + document JE, but their VALUE effect is parked in an
+ *    close; v525: covered cutting-lay delta, order receipt align, sales returns, inbound
+ *    warehouse transfers) still post their qty + document JE, but their VALUE effect is parked in an
  *    approval doc (reason 'closed_period', see value-approval.js). Approving it posts at
  *    the original date (withLockBypass) or the first day of the next open month.
  */

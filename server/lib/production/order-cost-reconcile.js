@@ -312,55 +312,29 @@ function applyReceiptToWipNet(db, orderId, userId) {
     }
   }
 
-  const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
   const { postToLedger } = require('../ledger');
-  const { postInventoryMovement } = require('../inventory/ledger');
   const { dr, cr } = require('./posting');
   const { todayJalali } = require('../../jalali');
   const date = po.actual_end || po.date || todayJalali();
-  const lines = [];
 
   for (const { receipt, share } of shares) {
     if (!share) continue;
-    const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(receipt.product_id);
-    const onHand = Math.max(0, Number(prod && prod.stock) || 0);
-    const receiptQty = Number(receipt.qty) || 0;
-    const unsold = receiptQty > 0 ? Math.min(1, onHand / receiptQty) : (onHand > 0 ? 1 : 0);
-    const invShare = Math.round(share * unsold);
-    const cogsShare = share - invShare;
-    const pushSide = (key, amount) => {
-      if (!amount) return;
-      const abs = Math.abs(amount);
-      lines.push(amount > 0 ? dr(db, key, abs) : cr(db, key, abs));
-    };
-    pushSide('coa_finished_goods', invShare);
-    pushSide('coa_cogs', cogsShare);
     const nextAmt = num(receipt.amount_rial) + share;
     const qty = Number(receipt.qty) || 0;
     const nextUnit = qty > 0 ? Math.round(nextAmt / qty) : num(receipt.unit_cost_rial);
     db.prepare('UPDATE production_receipts SET amount_rial=?, unit_cost_rial=? WHERE id=?')
       .run(nextAmt, nextUnit, receipt.id);
-    if (invShare && onHand > 0) {
-      // Header avg moves by value inside postInventoryMovement (valueOnly row).
-      postInventoryMovement(db, {
-        eventType: 'production_receipt',
-        productId: receipt.product_id,
-        warehouseId: receipt.warehouse_id,
-        qtyIn: 0,
-        qtyOut: 0,
-        unitCostRial: Math.abs(invShare),
-        amountRial: invShare,
-        sourceType: 'order_cost_receipt_align',
-        sourceId: po.id,
-        date,
-        note: `تطبیق رسید با خالص WIP — ${po.order_no}`,
-        createdBy: userId || po.created_by || 1,
-        updateAvg: false,
-        skipStock: true,
-        valueOnly: true,
-      });
-    }
   }
+  const routed = routeReceiptValueChange(db, {
+    sourceType: 'order_cost_receipt_align',
+    sourceId: po.id,
+    label: `تطبیق رسید با خالص WIP — ${po.order_no}`,
+    eventNote: `تطبیق رسید با خالص WIP — ${po.order_no}`,
+    shares,
+    date,
+    userId: userId || po.created_by || 1,
+  });
+  const lines = routed.lines.slice();
   if (gap > 0) lines.push(cr(db, 'coa_wip', gap, po.coa_wip_tafsili || null));
   else lines.push(dr(db, 'coa_wip', -gap, po.coa_wip_tafsili || null));
 
@@ -398,7 +372,109 @@ function applyReceiptToWipNet(db, orderId, userId) {
     receipt_delta_rial: gap,
     receipts_touched: true,
     journal_touched: true,
+    value_approval_id: routed.approval ? routed.approval.id : null,
   });
+}
+
+/**
+ * Value side of a change to posted production receipts (receipt align, covered lay delta).
+ * shares: [{ receipt, share }] — receipt amounts are already updated by the caller.
+ *  Open month: unsold part → FG value row, sold part → COGS (JE lines returned; WIP side is the caller's).
+ *  Closed inventory month (v525): the whole change → «تعدیل بهای در انتظار تأیید» + ONE closed_period
+ *  approval doc per source; approval/rejection follows value-approval.js.
+ * Earlier approval docs of the same source are cancelled first (decisions undone, R13) and their
+ * un-applied change is re-routed with this posting — so one source never has two live docs.
+ */
+function routeReceiptValueChange(db, {
+  sourceType, sourceId, label, eventNote, shares, date, userId,
+}) {
+  const VAP = require('../inventory/value-approval');
+  const VA = require('../inventory/value-accounts');
+  const { acct } = require('../coa-map');
+  const { postInventoryMovement } = require('../inventory/ledger');
+  const fg = acct(db, 'coa_finished_goods');
+  const cogs = acct(db, 'coa_cogs');
+  const clearing = VA.clearingAccount(db);
+  const lines = [];
+  const push = (acc, amount, description) => {
+    const a = num(amount);
+    if (!a) return;
+    lines.push({
+      code: acc.code, name: acc.name,
+      debit: a > 0 ? a / 10 : 0, credit: a < 0 ? -a / 10 : 0,
+      description: description || label,
+    });
+  };
+  const gate = VAP.begin(db, { sourceType, sourceId, date, createdBy: userId, label });
+  const carry = VAP.cancelForSourceCarry(db, sourceType, sourceId, { id: userId }, `ثبت مجدد — ${label}`);
+  const items = [];
+  for (const { receipt, share } of shares || []) {
+    if (!num(share)) continue;
+    items.push({
+      productId: receipt.product_id, warehouseId: receipt.warehouse_id || null,
+      refQty: Number(receipt.qty) || 0, delta: num(share), fromClearing: false, inv: fg,
+    });
+  }
+  for (const c of carry.lines) {
+    items.push({
+      productId: c.product_id, warehouseId: c.warehouse_id || null, refQty: Number(c.ref_qty) || 0,
+      delta: num(c.delta_rial), fromClearing: true,
+      inv: c.inventory_code ? { code: c.inventory_code, name: c.inventory_name || fg.name } : fg,
+    });
+  }
+  for (const it of items) {
+    if (gate.closed) {
+      gate.gate({
+        productId: it.productId, warehouseId: it.warehouseId, refQty: it.refQty, deltaRial: it.delta,
+        inventoryCode: it.inv.code, inventoryName: it.inv.name, note: eventNote || label,
+      });
+      // A carried line already sits in clearing; a new share goes there now.
+      if (!it.fromClearing) push(clearing, it.delta, 'تغییر بها در انتظار تأیید (قفل دوره)');
+      continue;
+    }
+    if (it.fromClearing) push(clearing, -it.delta, 'تسویه تعدیل بهای در انتظار تأیید');
+    const prod = db.prepare('SELECT stock FROM products WHERE id=?').get(it.productId);
+    const onHand = Math.max(0, Number(prod && prod.stock) || 0);
+    const unsold = it.refQty > 0 ? Math.min(1, onHand / it.refQty) : (onHand > 0 ? 1 : 0);
+    const invShare = Math.round(it.delta * unsold);
+    const cogsShare = it.delta - invShare;
+    push(it.inv, invShare);
+    push(cogs, cogsShare);
+    if (invShare && onHand > 0) {
+      // Header avg moves by value inside postInventoryMovement (valueOnly row).
+      postInventoryMovement(db, {
+        eventType: 'production_receipt',
+        productId: it.productId,
+        warehouseId: it.warehouseId,
+        qtyIn: 0,
+        qtyOut: 0,
+        unitCostRial: Math.abs(invShare),
+        amountRial: invShare,
+        sourceType,
+        sourceId,
+        date,
+        note: eventNote || label,
+        createdBy: userId,
+        updateAvg: false,
+        skipStock: true,
+        valueOnly: true,
+      });
+    }
+  }
+  const approval = gate.finish({ park: false });
+  return { lines: mergeLines(lines), approval, carried_rial: carry.total };
+}
+
+function mergeLines(lines) {
+  const by = new Map();
+  for (const l of lines) {
+    const cur = by.get(l.code) || { code: l.code, name: l.name, net: 0, description: l.description };
+    cur.net += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+    by.set(l.code, cur);
+  }
+  return [...by.values()].filter((l) => Math.abs(l.net) > 1e-9).map((l) => ({
+    code: l.code, name: l.name, debit: l.net > 0 ? l.net : 0, credit: l.net < 0 ? -l.net : 0, description: l.description,
+  }));
 }
 
 /**
@@ -457,6 +533,7 @@ module.exports = {
   applyDocumentCosts,
   applyReceiptToWipNet,
   reconcileOrderCosts,
+  routeReceiptValueChange,
   wipEffectiveAbnormalWasteRial,
   classicLayWasteRial,
   sharedLayWasteRial,

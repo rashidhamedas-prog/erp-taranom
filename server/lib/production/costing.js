@@ -51,13 +51,14 @@ function issueFromStock(db, {
     ? getWhQty(db, productId, warehouseId)
     : (Number(prod.stock) || 0);
   if (avail + 1e-9 < q && !allowNegative(db)) {
-    throw err('E_NEGATIVE_STOCK', 409, {
+    const extra = {
       product_id: productId,
       warehouse_id: warehouseId || null,
       name: prod.name,
       available: avail,
       needed: q,
-    });
+    };
+    throw require('../inventory/shortage-error').attach(err('E_NEGATIVE_STOCK', 409, extra), db, [extra]);
   }
 
   const unit = avgUnitRial(db, productId);

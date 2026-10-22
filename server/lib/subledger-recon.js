@@ -284,6 +284,7 @@ function result(code, fields) {
     code,
     name: CHECK_NAMES.get(code) || code,
     status: fields.status || 'ok',
+    sub_status: fields.sub_status || null,
     gl_rial: fields.gl_rial != null ? Math.round(fields.gl_rial) : null,
     sub_rial: fields.sub_rial != null ? Math.round(fields.sub_rial) : null,
     diff_rial: fields.diff_rial != null ? Math.round(fields.diff_rial) : null,
@@ -523,21 +524,33 @@ function computeMovementsWithoutJe(ctx) {
     const [t] = k.split('|');
     if (productionLike(t)) prodKeys.add(k.slice(t.length + 1));
   }
-  let movesByLedger = new Map();
+  const movesByLedger = new Map();
+  const movesById = new Map();
   if (tableExists(db, 'warehouse_moves')) {
     const wmCols = columns(db, 'warehouse_moves');
-    if (wmCols.has('ledger_id')) {
-      for (const m of db.prepare(`
-        SELECT id, ledger_id, je_id, type, from_warehouse_id, to_warehouse_id, doc_id FROM warehouse_moves WHERE ledger_id IS NOT NULL
-      `).all()) movesByLedger.set(Number(m.ledger_id), m);
+    const sel = ['id', 'type', 'from_warehouse_id', 'to_warehouse_id']
+      .concat(['ledger_id', 'je_id', 'doc_id'].filter((c) => wmCols.has(c)));
+    for (const m of db.prepare(`SELECT ${sel.join(', ')} FROM warehouse_moves`).all()) {
+      movesById.set(Number(m.id), m);
+      if (m.ledger_id != null) movesByLedger.set(Number(m.ledger_id), m);
     }
   }
   const docJe = new Map();
   if (tableExists(db, 'warehouse_docs')) {
     for (const d of db.prepare('SELECT id, je_id FROM warehouse_docs').all()) docJe.set(Number(d.id), d.je_id);
   }
+  const accCache = new Map();
+  const accOf = (wid) => {
+    const k = wid == null ? 0 : Number(wid);
+    if (!accCache.has(k)) accCache.set(k, String(inventoryAccountFor(db, wid || null).code));
+    return accCache.get(k);
+  };
+  const isTransferSt = (st) => st === 'warehouse_move' || st === 'warehouse_transfer' || st === 'transfer';
   const rows = [];
-  let total = 0;
+  const unmatched = [];
+  const softMatched = [];
+  const orphanTransfer = [];
+  const intraTransfers = new Set();
   for (const r of liveLedgerRows(db, dateTo)) {
     const amt = signedLedgerAmount(r);
     if (!amt) continue;
@@ -546,21 +559,27 @@ function computeMovementsWithoutJe(ctx) {
     if (isPeriodicWh(meta, r.warehouse_id)) continue;
     if (r.je_id && je.live(r.je_id)) continue;
     let ok = false;
+    let soft = false;
     let reason = 'no_live_je';
-    if (st === 'warehouse_move' || st === 'warehouse_transfer' || st === 'transfer') {
-      const m = movesByLedger.get(Number(r.id));
+    if (isTransferSt(st)) {
+      // Outbound leg is warehouse_moves.ledger_id; both legs carry source_id = move id.
+      const m = movesByLedger.get(Number(r.id)) || (r.source_id != null ? movesById.get(Number(r.source_id)) : null);
       const jeId = m ? (m.je_id || docJe.get(Number(m.doc_id))) : null;
       if (jeId && je.live(jeId)) ok = true;
       else if (m && (m.type === 'transfer' || st === 'warehouse_transfer')) {
-        const a = inventoryAccountFor(db, m.from_warehouse_id).code;
-        const b = inventoryAccountFor(db, m.to_warehouse_id).code;
-        if (a === b) ok = true;
+        if (accOf(m.from_warehouse_id) === accOf(m.to_warehouse_id)) { ok = true; intraTransfers.add(`m${m.id}`); }
+      } else if (!m) {
+        orphanTransfer.push({ r, amt, st });
+        continue;
       }
     } else if (st === 'invoice' || st === 'sales_return' || st === 'sales_returns') {
       if (!cogsOn) ok = true;
       else ok = (SOURCE_REF_TYPES[st] || []).some((t) => je.has(t, r.source_id));
     } else if (productionLike(st)) {
+      // Strong: a JE of the same source type. Soft: any production JE with that ref id
+      // (ids collide across production tables — soft matches may still pair net-zero below).
       ok = r.source_id != null && prodKeys.has(String(r.source_id));
+      soft = ok && !je.has(st, r.source_id);
       reason = 'no_live_production_je';
     } else if (MANUAL_SOURCES.has(st)) {
       ok = je.has('inventory_adjust', r.id) || je.has('stock_adjust', r.id);
@@ -568,30 +587,93 @@ function computeMovementsWithoutJe(ctx) {
       const cands = SOURCE_REF_TYPES[st] || [st];
       ok = r.source_id != null && cands.some((t) => je.has(t, r.source_id));
     }
-    if (r.je_id && !je.live(r.je_id)) { ok = false; reason = 'je_dead'; }
-    if (ok) continue;
-    total += amt;
+    if (r.je_id && !je.live(r.je_id)) { ok = false; soft = false; reason = 'je_dead'; }
+    if (ok) {
+      if (soft) softMatched.push({ r, amt, st });
+      continue;
+    }
+    unmatched.push({ r, amt, st, reason });
+  }
+
+  // Transfer legs without a move row: same source + product, same inventory account, net zero → OK.
+  const tGroups = new Map();
+  for (const x of orphanTransfer) {
+    const k = `${x.st}|${x.r.source_id == null ? `l${x.r.id}` : x.r.source_id}|${x.r.product_id}`;
+    if (!tGroups.has(k)) tGroups.set(k, []);
+    tGroups.get(k).push(x);
+  }
+  for (const [k, g] of tGroups.entries()) {
+    const accs = new Set(g.map((x) => accOf(x.r.warehouse_id)));
+    const net = g.reduce((s, x) => s + x.amt, 0);
+    if (g.length >= 2 && accs.size === 1 && net === 0) { intraTransfers.add(k); continue; }
+    for (const x of g) unmatched.push({ ...x, reason: 'transfer_without_move' });
+  }
+
+  // Net-zero pairs: an unmatched row cancelled by an opposite row of the same product, inventory
+  // account and family (e.g. a production issue and its return, both without vouchers).
+  const qtyOf = (r) => (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+  const family = (st) => (productionLike(st) ? 'production' : st);
+  const consumed = new Set();
+  const netZero = [];
+  const findPartner = (u, pool) => pool.find((c) => !consumed.has(c.r.id) && c.r.id !== u.r.id
+    && Number(c.r.product_id) === Number(u.r.product_id)
+    && accOf(c.r.warehouse_id) === accOf(u.r.warehouse_id)
+    && family(c.st) === family(u.st)
+    && c.amt === -u.amt
+    && Math.abs(qtyOf(c.r) + qtyOf(u.r)) < 1e-9);
+  const ordered = [...unmatched].sort((a, b) => a.r.id - b.r.id);
+  for (const u of ordered) {
+    if (consumed.has(u.r.id)) continue;
+    const p = findPartner(u, ordered) || findPartner(u, softMatched);
+    if (!p) continue;
+    consumed.add(u.r.id);
+    consumed.add(p.r.id);
+    netZero.push([u, p]);
+  }
+
+  let total = 0;
+  for (const u of unmatched) {
+    if (consumed.has(u.r.id)) continue;
+    const r = u.r;
+    total += u.amt;
     rows.push({
       id: Number(r.id), tx_no: r.tx_no, date: r.date, event_type: r.event_type,
-      source_type: st, source_id: r.source_id, product_id: r.product_id, warehouse_id: r.warehouse_id,
-      amount_rial: amt, je_id: r.je_id || null, reason,
-      fixable: MANUAL_SOURCES.has(st),
+      source_type: u.st, source_id: r.source_id, product_id: r.product_id, warehouse_id: r.warehouse_id,
+      amount_rial: u.amt, je_id: r.je_id || null, reason: u.reason, status: 'warn',
+      fixable: MANUAL_SOURCES.has(u.st),
     });
   }
-  return { rows, total };
+  for (const [a, b] of netZero) {
+    for (const x of [a, b]) {
+      if (!unmatched.includes(x)) continue;
+      const r = x.r;
+      rows.push({
+        id: Number(r.id), tx_no: r.tx_no, date: r.date, event_type: r.event_type,
+        source_type: x.st, source_id: r.source_id, product_id: r.product_id, warehouse_id: r.warehouse_id,
+        amount_rial: x.amt, je_id: r.je_id || null, reason: 'net_zero_pair', status: 'info',
+        pair_ledger_id: Number((x === a ? b : a).r.id), fixable: false,
+      });
+    }
+  }
+  return { rows, total, intraTransfers: intraTransfers.size, netZeroPairs: netZero.length };
 }
 
 function checkMovementsWithoutJe(ctx) {
   const r = computeMovementsWithoutJe(ctx);
   const cogsOn = setting(ctx.db, 'feature_cogs_voucher', '0') === '1';
+  const real = r.rows.filter((x) => x.status !== 'info');
   return result('movements_without_je', {
-    status: r.rows.length ? 'warn' : 'ok',
+    status: real.length ? 'warn' : (r.rows.length ? 'info' : 'ok'),
     sub_rial: r.total,
     gl_rial: 0,
     diff_rial: -r.total,
-    rows: r.rows,
-    fixable: r.rows.some((x) => x.fixable),
-    note: cogsOn ? '' : 'سند بهای تمام‌شده فاکتور غیرفعال است — گردش فروش/مرجوعی بررسی نشد',
+    rows: [...real, ...r.rows.filter((x) => x.status === 'info')],
+    fixable: real.some((x) => x.fixable),
+    note: [
+      cogsOn ? '' : 'سند بهای تمام‌شده فاکتور غیرفعال است — گردش فروش/مرجوعی بررسی نشد',
+      r.intraTransfers ? `${r.intraTransfers} انتقال بین انبارهای هم‌حساب — نیاز به سند ندارد` : '',
+      r.netZeroPairs ? `${r.netZeroPairs} جفت گردش بی‌سند که یکدیگر را خنثی می‌کنند (خالص صفر) — اطلاع` : '',
+    ].filter(Boolean).join(' | '),
   });
 }
 
@@ -609,7 +691,7 @@ function liveDocs(db, table, { amountCols, dateCol = 'date', extraWhere = '' }) 
     : (present[0] || '0');
   const sel = ['id', `${amtExpr} AS amount`];
   if (cols.has(dateCol)) sel.push(`${dateCol} AS date`);
-  for (const c of ['num', 'cust_id', 'supplier_id', 'type', 'invoice_id', 'rep_id', 'code', 'acq_je_id', 'status']) {
+  for (const c of ['num', 'cust_id', 'supplier_id', 'type', 'invoice_id', 'rep_id', 'code', 'acq_je_id', 'status', 'journal_id', 'je_id', 'payroll_record_id']) {
     if (cols.has(c) && !sel.includes(c)) sel.push(c);
   }
   return db.prepare(`
@@ -629,17 +711,45 @@ function computeDocumentsWithoutJe(ctx) {
     { doc: 'settlement', table: 'settlements', amountCols: ['amount_rial', 'amount'], refs: ['settlement', 'settlements', 'cheque_in', 'opening_cheque', 'pos_receipt'] },
     { doc: 'supplier_payment', table: 'supplier_payments', amountCols: ['amount_rial', 'amount'], refs: ['supplier_payment'] },
     { doc: 'expense', table: 'expenses', amountCols: ['amount_rial', 'amount'], refs: ['expense', 'expenses'] },
-    { doc: 'payroll_payment', table: 'payroll_payments', amountCols: ['amount_rial', 'net_rial', 'amount'], refs: ['payroll_payment'] },
+    // payroll_payment JEs carry ref_id = payroll_record_id; the payment row stores journal_id.
+    { doc: 'payroll_payment', table: 'payroll_payments', amountCols: ['amount_rial', 'net_rial', 'amount'], refs: ['payroll_payment'], altRef: (d) => [['payroll_payment', d.payroll_record_id]] },
     { doc: 'rep_expense', table: 'rep_expenses', amountCols: ['amount'], refs: ['rep_expense'], extraWhere: "status='approved'" },
     { doc: 'rep_advance', table: 'rep_advances', amountCols: ['amount'], refs: ['rep_advance'] },
   ];
+  // POS (کارتخوان) settlements: the voucher is the pos_receipt JE (pos_receipts.settlement_id → journal_id).
+  const posJeBySettlement = new Map();
+  if (tableExists(db, 'pos_receipts')) {
+    const pc = columns(db, 'pos_receipts');
+    if (pc.has('settlement_id') && pc.has('journal_id')) {
+      for (const p of db.prepare(`
+        SELECT id, settlement_id, journal_id FROM pos_receipts
+        WHERE settlement_id IS NOT NULL${pc.has('status') ? " AND COALESCE(status,'open') NOT IN ('reversed','void')" : ''}
+      `).all()) {
+        const k = Number(p.settlement_id);
+        if (!posJeBySettlement.has(k)) posJeBySettlement.set(k, []);
+        posJeBySettlement.get(k).push({ receipt_id: p.id, journal_id: p.journal_id });
+      }
+    }
+  }
+  const matchedBy = (s, d) => {
+    if (s.refs.some((t) => je.has(t, d.id))) return 'ref';
+    for (const col of ['journal_id', 'je_id']) {
+      if (d[col]) return je.live(d[col]) ? col : null;
+    }
+    if (s.altRef && s.altRef(d).some(([t, id]) => id != null && je.has(t, id))) return 'alt_ref';
+    if (s.doc === 'settlement') {
+      const recs = posJeBySettlement.get(Number(d.id)) || [];
+      if (recs.some((p) => (p.journal_id && je.live(p.journal_id)) || je.has('pos_receipt', p.receipt_id))) return 'pos_receipt';
+    }
+    return null;
+  };
   for (const s of specs) {
     let docs;
     try { docs = liveDocs(db, s.table, s); } catch (_) { continue; }
     for (const d of docs) {
       if (!(Math.round(Number(d.amount) || 0) > 0)) continue;
       if (dateTo && d.date && d.date > dateTo) continue;
-      if (s.refs.some((t) => je.has(t, d.id))) continue;
+      if (matchedBy(s, d)) continue;
       rows.push({ id: `${s.doc}:${d.id}`, doc_type: s.doc, doc_id: d.id, num: d.num || null, date: d.date || null, amount_rial: Math.round(Number(d.amount) || 0), severity: 'warn' });
     }
   }
@@ -772,11 +882,19 @@ function checkJeOnDeadDocument(ctx) {
 // ─── R5 document amount vs JE ──────────────────────────────────────────────
 function jeLinesFor(db, refType, refId) {
   return db.prepare(`
-    SELECT jl.account_code AS code, ${SQL_JL_DEBIT_RIAL} AS d, ${SQL_JL_CREDIT_RIAL} AS c, je.id AS je_id,
+    SELECT jl.id AS line_id, jl.account_code AS code, ${SQL_JL_DEBIT_RIAL} AS d, ${SQL_JL_CREDIT_RIAL} AS c, je.id AS je_id,
       jl.debit_rial AS dr, jl.credit_rial AS cr, jl.debit AS dt, jl.credit AS ct
     FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
     WHERE ${JE_LIVE} AND je.ref_type=? AND je.ref_id=?
   `).all(refType, refId);
+}
+
+const AR_RECLASS_REF_TYPES = ['ar_control_reclass'];
+/** Live control→leaf reclass lines whose voucher points at journal line `lineId`. */
+function reclassLinesFor(db, lineId) {
+  const out = [];
+  for (const t of AR_RECLASS_REF_TYPES) out.push(...jeLinesFor(db, t, lineId));
+  return out;
 }
 
 /** Push a document-vs-JE row when the diff is non-zero, labelled rounding|real. */
@@ -802,14 +920,31 @@ function computeDocumentAmountVsJe(ctx) {
       WHERE type IN ('normal','final') AND COALESCE(deleted_at,0)=0
         ${cols.has('status') ? `AND COALESCE(status,'posted') NOT IN ${DEAD_SQL}` : ''}${dateFilter('date', dateTo)}
     `).all(...params);
+    const control = codeOf(db, 'coa_receivable');
     for (const inv of invs) {
       if (!je.has('invoice', inv.id)) continue;
       let recv = '';
-      try { recv = String(receivableAcct(db, inv.cust_id).code || ''); } catch (_) { recv = codeOf(db, 'coa_receivable'); }
-      const lines = jeLinesFor(db, 'invoice', inv.id).filter((l) => String(l.code) === recv);
-      const ar = lines.reduce((s, l) => s + Number(l.d || 0), 0);
+      try { recv = String(receivableAcct(db, inv.cust_id).code || ''); } catch (_) { recv = control; }
+      const all = jeLinesFor(db, 'invoice', inv.id);
+      const lines = all.filter((l) => String(l.code) === recv);
+      let ar = lines.reduce((s, l) => s + Number(l.d || 0), 0);
+      // v390/v424: a control-account (1103) invoice line later moved to the customer leaf by an
+      // ar_control_reclass voucher (ref_id = that journal line id) counts toward the leaf.
+      const reclassJes = [];
+      if (recv && control && recv !== control) {
+        for (const cl of all.filter((l) => String(l.code) === control && l.line_id)) {
+          for (const rl of reclassLinesFor(db, cl.line_id).filter((l) => String(l.code) === recv)) {
+            ar += Number(rl.d || 0) - Number(rl.c || 0);
+            lines.push(rl);
+            if (!reclassJes.includes(rl.je_id)) reclassJes.push(rl.je_id);
+          }
+        }
+      }
       const docAmt = Math.round(Number(inv.final) || 0);
-      pushAmountRow(rows, { id: `invoice:${inv.id}`, doc_type: 'invoice', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'ar_debit', doc_rial: docAmt, je_rial: Math.round(ar) }, lines, inv.final);
+      pushAmountRow(rows, {
+        id: `invoice:${inv.id}`, doc_type: 'invoice', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'ar_debit',
+        doc_rial: docAmt, je_rial: Math.round(ar), ...(reclassJes.length ? { reclass_je_ids: reclassJes } : {}),
+      }, lines, inv.final);
     }
     if (setting(db, 'feature_cogs_voucher', '0') === '1' && tableExists(db, 'inventory_ledger')) {
       const mv = new Map();
@@ -972,7 +1107,11 @@ function checkCashBank(ctx) {
       const code = c.coa_code || `${cashCode}-${c.id}`;
       const bal = glLeafBalance(db, code, dateTo);
       sub += bal;
-      rows.push({ id: `cash:${c.id}`, kind: 'cash_box', entity_id: c.id, name: c.name, coa_code: code, balance_rial: bal, flag: bal < 0 ? 'negative_cash' : '' });
+      rows.push({
+        id: `cash:${c.id}`, kind: 'cash_box', entity_id: c.id, name: c.name, coa_code: code, balance_rial: bal,
+        flag: bal < 0 ? 'negative_cash' : '',
+        ...(bal < 0 ? { status: 'warn', sub_status: 'negative_cash', label: 'صندوق منفی', diff_rial: 0 } : {}),
+      });
     }
   }
   const gl = glBalance(db, [cashCode, bankCode], dateTo);
@@ -990,12 +1129,20 @@ function checkCashBank(ctx) {
     });
   }
   const flagged = rows.filter((r) => r.flag);
+  const negative = flagged.filter((r) => r.flag === 'negative_cash');
+  const reconDiff = flagged.some((r) => r.flag === 'unallocated');
   const status = flagged.some((r) => r.flag !== 'rounding') ? 'warn' : (flagged.length ? 'rounding' : 'ok');
+  // Negative cash is an operational signal, not a recon difference: diff stays as computed (0
+  // when every box is on its own leaf) and the check carries sub_status «صندوق منفی».
+  const subStatus = negative.length && !reconDiff ? 'negative_cash' : null;
   return result('cash_bank', {
-    status, rounding_rial: rounding, rounding_bound_rial: bound,
+    status, sub_status: subStatus, rounding_rial: rounding, rounding_bound_rial: bound,
     gl_rial: gl, sub_rial: sub, diff_rial: diff,
     rows: [...flagged, ...rows.filter((r) => !r.flag)],
     fixable: false,
+    note: negative.length
+      ? `صندوق منفی: ${negative.map((r) => `${r.name || r.coa_code} (${Math.round(r.balance_rial).toLocaleString('en-US')} ریال)`).join('، ')}${reconDiff ? '' : ' — اختلاف تطبیق صفر است'}`
+      : '',
   });
 }
 
@@ -1463,21 +1610,93 @@ function fixJeOnDeadDocument(db, opts) {
   return { code: 'je_on_dead_document', dry_run: false, plan, applied };
 }
 
+// v525: the inventory fix never defaults to 9999 — the user picks a counter account per fix.
+const COUNTER_SUGGESTIONS = [
+  ['coa_opening_balance', '3102', 'اصلاح موجودی افتتاحیه'],
+  [null, '6118', 'کسری و اضافات انبار'],
+  [null, '6108', 'کسری و ضایعات انبار'],
+  ['coa_cogs', '5101', 'بهای تمام‌شدهٔ فروش'],
+  ['coa_raw_materials', '1110', 'جابه‌جایی بین حساب‌های موجودی'],
+  ['coa_wip', '1111', 'مصرف بی‌حواله در تولید'],
+];
+
+/** Codes a recon fix may never use as its counter side (suspense / control accounts). */
+function forbiddenCounterCodes(db) {
+  const out = new Set(['9999']);
+  for (const k of ['coa_adjustment', 'coa_labor_control', 'coa_overhead_control']) {
+    const c = codeOf(db, k);
+    if (c) out.add(String(c));
+  }
+  return out;
+}
+
+function counterSuggestions(db, exclude = []) {
+  const { isPostableCode } = require('./coa-map');
+  const seen = new Set();
+  const out = [];
+  for (const [key, fallback, hint] of COUNTER_SUGGESTIONS) {
+    const code = String((key && codeOf(db, key)) || fallback);
+    if (seen.has(code) || exclude.includes(code)) continue;
+    seen.add(code);
+    const row = db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(code);
+    if (!row || !isPostableCode(db, code)) continue;
+    out.push({ code: row.code, name: row.name, hint });
+  }
+  return out;
+}
+
+/** Validate a user-chosen counter account; throws 400 with a Persian message. */
+function resolveCounterAccount(db, code, targetCode) {
+  const c = String(code || '').trim();
+  if (!c) throw err('حساب طرف مقابل سند اصلاحی را انتخاب کنید (۹۹۹۹ پیش‌فرض نیست)', 400, 'E_RECON_COUNTER_REQUIRED');
+  if (forbiddenCounterCodes(db).has(c) || c.startsWith('9999')) {
+    throw err(`حساب ${c} حساب معلق/کنترل است و نمی‌تواند طرف سند اصلاح موجودی باشد`, 400, 'E_RECON_COUNTER_FORBIDDEN');
+  }
+  if (targetCode && c === String(targetCode)) {
+    throw err(`حساب طرف مقابل نمی‌تواند همان حساب موجودی ${c} باشد`, 400, 'E_RECON_COUNTER_FORBIDDEN');
+  }
+  const row = db.prepare('SELECT code, name, is_active FROM chart_of_accounts WHERE code=?').get(c);
+  if (!row || row.is_active === 0) throw err(`حساب ${c} در سرفصل‌ها نیست یا غیرفعال است`, 400, 'E_RECON_COUNTER_INVALID');
+  if (!require('./coa-map').isPostableCode(db, c)) {
+    throw err(`حساب ${c} زیرحساب دارد و قابل ثبت نیست — یک حساب معین/تفصیلی انتخاب کنید`, 400, 'E_RECON_COUNTER_INVALID');
+  }
+  return { code: row.code, name: row.name };
+}
+
 function fixInventoryVsGl(db, opts) {
   ensureReconSchemaOnce(db);
   const ctx = ctxFor(db, opts);
   const wanted = idSet(opts.ids);
   const r = computeInventoryVsGl(ctx);
   const targets = r.accRows.filter((a) => a.status === 'warn' && (!wanted.size || wanted.has(String(a.account_code))));
-  const plan = targets.map((a) => ({
-    account_code: a.account_code, account_name: a.account_name, gl_rial: a.gl_rial, sub_rial: a.sub_rial,
-    adjust_rial: a.sub_rial - a.gl_rial,
-    lines: a.sub_rial - a.gl_rial > 0
-      ? [{ code: a.account_code, side: 'debit' }, { code: codeOf(db, 'coa_adjustment'), side: 'credit' }]
-      : [{ code: codeOf(db, 'coa_adjustment'), side: 'debit' }, { code: a.account_code, side: 'credit' }],
-  }));
-  if (opts.dryRun) return { code: 'inventory_vs_gl', dry_run: true, plan, applied: [] };
+  const perAccount = opts.counterAccounts && typeof opts.counterAccounts === 'object' ? opts.counterAccounts : {};
+  const counterFor = (code) => String(perAccount[code] || opts.counterAccount || '').trim();
+  const plan = targets.map((a) => {
+    const adjust = a.sub_rial - a.gl_rial;
+    let counter = null;
+    let counterError = null;
+    const chosen = counterFor(a.account_code);
+    if (chosen) {
+      try { counter = resolveCounterAccount(db, chosen, a.account_code); } catch (e) { counterError = { code: e.code, error: e.message }; }
+    }
+    const cc = counter ? counter.code : null;
+    return {
+      account_code: a.account_code, account_name: a.account_name, gl_rial: a.gl_rial, sub_rial: a.sub_rial,
+      adjust_rial: adjust,
+      counter_account: cc, counter_name: counter ? counter.name : null, counter_error: counterError,
+      lines: adjust > 0
+        ? [{ code: a.account_code, side: 'debit', amount_rial: adjust }, { code: cc, side: 'credit', amount_rial: adjust }]
+        : [{ code: cc, side: 'debit', amount_rial: -adjust }, { code: a.account_code, side: 'credit', amount_rial: -adjust }],
+    };
+  });
+  const counter_suggestions = counterSuggestions(db, targets.map((a) => String(a.account_code)));
+  const counter_required = plan.some((p) => !p.counter_account);
+  if (opts.dryRun) return { code: 'inventory_vs_gl', dry_run: true, plan, applied: [], counter_required, counter_suggestions };
   const reason = requireConfirm(opts);
+  for (const p of plan) {
+    if (p.counter_error) throw err(p.counter_error.error, 400, p.counter_error.code);
+    if (!p.counter_account) resolveCounterAccount(db, '', p.account_code);
+  }
   const date = opts.date || require('../jalali').todayJalali();
   const userId = opts.user && opts.user.id;
   const applied = [];
@@ -1486,11 +1705,12 @@ function fixInventoryVsGl(db, opts) {
       const fixId = Number(db.prepare(`
         INSERT INTO subledger_recon_fixes (code, target, amount_rial, reason, detail_json, created_by)
         VALUES ('inventory_vs_gl', ?, ?, ?, ?, ?)
-      `).run(p.account_code, p.adjust_rial, reason, JSON.stringify({ gl_rial: p.gl_rial, sub_rial: p.sub_rial, date }), userId || null).lastInsertRowid);
+      `).run(p.account_code, p.adjust_rial, reason, JSON.stringify({ gl_rial: p.gl_rial, sub_rial: p.sub_rial, date, counter_account: p.counter_account }), userId || null).lastInsertRowid);
       const jeId = postInventoryValueAdjustmentJe(db, {
         inventoryCode: p.account_code, amountRial: p.adjust_rial, date, userId,
         sourceType: 'inventory_recon_adjust', sourceId: fixId,
-        description: `تعدیل تطبیق موجودی با دفتر کل (${p.account_code}) — ${reason.slice(0, 120)}`,
+        counterCode: p.counter_account, counterName: p.counter_name,
+        description: `تعدیل تطبیق موجودی با دفتر کل (${p.account_code} ↔ ${p.counter_account}) — ${reason.slice(0, 120)}`,
       });
       db.prepare('UPDATE subledger_recon_fixes SET je_id=? WHERE id=?').run(jeId, fixId);
       applied.push({ ...p, fix_id: fixId, je_id: jeId });
@@ -1625,7 +1845,8 @@ function saveNightlySettings(db, { enabled, time } = {}, { userId } = {}) {
 }
 
 function failingCheckNames(run) {
-  return (run.checks || []).filter((c) => c.status === 'warn' || c.status === 'error').map((c) => c.name || c.code);
+  return (run.checks || []).filter((c) => c.status === 'warn' || c.status === 'error')
+    .map((c) => `${c.name || c.code}${c.sub_status === 'negative_cash' ? ' (صندوق منفی)' : ''}`);
 }
 
 /** Run + persist + always notify admin/accounting (bell). */

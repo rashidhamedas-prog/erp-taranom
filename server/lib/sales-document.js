@@ -250,7 +250,7 @@ function assertWarehouseLines(db, rows, headerWarehouseId, {
       );
       err.status = 409;
       err.code = 'E_WH_INSUFFICIENT';
-      throw err;
+      throw require('./inventory/shortage-error').attach(err, db, [{ product_id: r.product_id, warehouse_id: effWh, available: avail, needed: qty }]);
     }
   }
 }
@@ -450,12 +450,33 @@ function postPurchaseStockMovements(db, {
   return { movements };
 }
 
-/** Sales return restores stock (qtyIn) via perpetual ledger. */
+/** Average issue cost (rial/unit) of a product on the invoice's live sale rows; null if none. */
+function originalIssueUnitRial(db, invoiceId, productId) {
+  if (!invoiceId || !productId) return null;
+  const r = db.prepare(`
+    SELECT COALESCE(SUM(qty_out),0) AS q, COALESCE(SUM(amount_rial),0) AS a FROM inventory_ledger
+    WHERE source_type='invoice' AND source_id=? AND product_id=? AND event_type='sale'
+      AND status='posted' AND reversed_of IS NULL AND qty_out>0
+  `).get(invoiceId, productId);
+  const q = Number(r && r.q) || 0;
+  if (!(q > 1e-9)) return null;
+  const unit = Math.round((Number(r.a) || 0) / q);
+  return unit > 0 ? unit : null;
+}
+
+/**
+ * Sales return restores stock (qtyIn) via perpetual ledger.
+ * v525: dated in a closed inventory month → the qty enters at the current pool average and the
+ * difference vs the original issue cost (invoice sale rows; else the line cost) is parked in ONE
+ * closed_period approval doc for the return. Returned amount_rial stays the document cost so the
+ * return JE (Dr inventory / Cr COGS) is unchanged; the parking JE moves the difference to clearing.
+ */
 function postSaleReturnStockMovements(db, {
-  rows, warehouseId, sourceType, sourceId, userId, date, note,
+  rows, warehouseId, sourceType, sourceId, userId, date, note, invoiceId = null,
 }) {
   const movements = [];
   let costRial = 0;
+  const closed = !!date && require('./inventory/period-lock').isValueLocked(db, date);
   for (const r of rows || []) {
     if (!r.product_id) continue;
     const whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : warehouseId;
@@ -480,12 +501,26 @@ function postSaleReturnStockMovements(db, {
         allowNegative: true,
       });
     }
-    const mv = postInventoryMovement(db, {
+    let entryUnit = unitCost;
+    let docUnit = null;
+    if (closed && qty > 0) {
+      const VAP = require('./inventory/value-approval');
+      const du = originalIssueUnitRial(db, invoiceId, r.product_id) || unitCost;
+      const poolUnit = VAP.closedInboundPoolUnit(db, r.product_id, whId);
+      if (du > 0 && poolUnit != null && poolUnit !== du) {
+        entryUnit = poolUnit;
+        docUnit = du;
+      } else if (du > 0) {
+        entryUnit = du;
+      }
+    }
+    let mv = postInventoryMovement(db, {
       eventType: 'sale_return',
       productId: r.product_id,
       warehouseId: whId,
       qtyIn: qty,
-      unitCostRial: unitCost || undefined,
+      unitCostRial: entryUnit || undefined,
+      amountRial: docUnit != null ? Math.round(entryUnit * qty) : undefined,
       sourceType,
       sourceId,
       batchId: batchId || undefined,
@@ -494,6 +529,24 @@ function postSaleReturnStockMovements(db, {
       createdBy: userId,
       updateAvg: true,
     });
+    if (docUnit != null) {
+      const docAmount = Math.round(docUnit * qty);
+      const diff = docAmount - Math.round(Number(mv.amount_rial) || 0);
+      const parked = require('./inventory/value-approval').parkReceiptDifference(db, {
+        sourceType, sourceId, ledgerId: mv.id, productId: r.product_id, warehouseId: whId,
+        qtyIn: qty, diffRial: diff, date, createdBy: userId,
+        note: 'برگشت از فروش با تاریخ ماه قفل‌شده — مابه‌التفاوت بهای فروش با میانگین',
+        label: `برگشت از فروش #${sourceId} — مابه‌التفاوت بهای فروش با میانگین (قفل دوره)`,
+      });
+      mv = {
+        ...mv,
+        unit_cost_rial: docUnit,
+        amount_rial: docAmount,
+        ledger_amount_rial: mv.amount_rial,
+        value_parked_rial: diff,
+        value_approval_id: parked ? parked.id : null,
+      };
+    }
     movements.push(mv);
     costRial += Math.round(Number(mv.amount_rial) || 0);
     if (batchId && qty > 0) {

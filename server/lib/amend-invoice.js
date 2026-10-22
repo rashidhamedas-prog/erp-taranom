@@ -221,6 +221,7 @@ function assertSaleIncreasesCovered(db, oldAgg, newAgg, keys) {
     g.newQty += neu ? neu.qty : 0;
   }
   const short = [];
+  const shortRows = [];
   for (const g of groups.values()) {
     const extra = g.newQty - g.oldQty;
     if (extra <= 1e-9 || !g.warehouseId) continue;
@@ -233,10 +234,12 @@ function assertSaleIncreasesCovered(db, oldAgg, newAgg, keys) {
         `«${name}»: افزایش ${extra} نسبت به فاکتور اصلی، ولی موجودی فعلی انبار ${Math.max(0, avail)} است`
         + ` (حداکثر تعداد قابل ثبت ${g.oldQty + Math.max(0, avail)})`
       );
+      shortRows.push({ product_id: g.productId, warehouse_id: g.warehouseId, available: avail, needed: extra });
     }
   }
   if (short.length) {
-    throw httpErr(409, `موجودی برای افزایش تعداد کافی نیست — ${short.join(' | ')}`, 'E_WH_INSUFFICIENT');
+    throw require('./inventory/shortage-error').attach(
+      httpErr(409, `موجودی برای افزایش تعداد کافی نیست — ${short.join(' | ')}`, 'E_WH_INSUFFICIENT'), db, shortRows);
   }
 }
 

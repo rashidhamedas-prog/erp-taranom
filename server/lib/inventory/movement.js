@@ -17,6 +17,10 @@ function movErr(code, status, message) {
   return e;
 }
 
+function shortErr(db, message, row) {
+  return require('./shortage-error').attach(movErr('E_NEGATIVE_STOCK', 409, message), db, [row]);
+}
+
 function tableExists(db, name) {
   return !!db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
@@ -266,7 +270,10 @@ function postStockMovement(db, opts) {
     }
     const nextVar = round3((Number(v.stock) || 0) + qtyDelta);
     if (nextVar < -1e-9 && !allowNegative) {
-      throw movErr('E_NEGATIVE_STOCK', 409, 'موجودی واریانت کافی نیست');
+      throw shortErr(db, 'موجودی واریانت کافی نیست', {
+        product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
+        available: Number(v.stock) || 0, needed: Math.abs(qtyDelta),
+      });
     }
     try {
       require('../product-variants').adjustVariantStock(db, variantId, qtyDelta, 'delta');
@@ -284,7 +291,10 @@ function postStockMovement(db, opts) {
       const whBefore = round3(Number(cur && cur.qty) || 0);
       const whAfter = round3(whBefore + qtyDelta);
       if (whAfter < -1e-9 && !allowNegative) {
-        throw movErr('E_NEGATIVE_STOCK', 409, 'موجودی واریانت×انبار کافی نیست');
+        throw shortErr(db, 'موجودی واریانت×انبار کافی نیست', {
+          product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
+          available: whBefore, needed: Math.abs(qtyDelta),
+        });
       }
       db.prepare(
         'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
@@ -297,7 +307,10 @@ function postStockMovement(db, opts) {
     if (!prod) throw movErr('E_PRODUCT_NOT_FOUND', 404, 'کالا یافت نشد');
     const nextStock = round3((Number(prod.stock) || 0) + qtyDelta);
     if (nextStock < -1e-9 && !allowNegative) {
-      throw movErr('E_NEGATIVE_STOCK', 409, 'موجودی کالا کافی نیست');
+      throw shortErr(db, 'موجودی کالا کافی نیست', {
+        product_id: productId, warehouse_id: warehouseId,
+        available: Number(prod.stock) || 0, needed: Math.abs(qtyDelta),
+      });
     }
     db.prepare('UPDATE products SET stock=? WHERE id=?').run(
       allowNegative ? nextStock : Math.max(0, nextStock), productId
@@ -311,7 +324,10 @@ function postStockMovement(db, opts) {
       const whBefore = round3(Number(ws && ws.qty) || 0);
       const whAfter = round3(whBefore + qtyDelta);
       if (whAfter < -1e-9 && !allowNegative) {
-        throw movErr('E_NEGATIVE_STOCK', 409, 'موجودی انبار کافی نیست');
+        throw shortErr(db, 'موجودی انبار کافی نیست', {
+          product_id: productId, warehouse_id: warehouseId,
+          available: whBefore, needed: Math.abs(qtyDelta),
+        });
       }
       db.prepare(
         'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'

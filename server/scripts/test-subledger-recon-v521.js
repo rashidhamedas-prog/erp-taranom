@@ -185,7 +185,7 @@ async function main() {
     const noConfirm = await call('POST', '/api/accounting/subledger-recon/inventory_vs_gl/fix', { dry_run: false });
     ok(noConfirm.status === 400 && noConfirm.body.code === 'E_RECON_CONFIRM_REQUIRED', 'real fix requires confirm+reason', noConfirm.body);
     const fixed = await call('POST', '/api/accounting/subledger-recon/inventory_vs_gl/fix', {
-      dry_run: false, confirm: true, reason: 'اصلاح اختلاف تست',
+      dry_run: false, confirm: true, reason: 'اصلاح اختلاف تست', counter_account: acct(db, 'coa_opening_balance').code,
     });
     ok(fixed.status === 200 && fixed.body.applied.length >= 1 && fixed.body.applied[0].je_id, 'fix posts adjustment JE', fixed.body);
     const fixJe = fixed.body.applied && fixed.body.applied[0] && db.prepare('SELECT * FROM journal_entries WHERE id=?').get(fixed.body.applied[0].je_id);

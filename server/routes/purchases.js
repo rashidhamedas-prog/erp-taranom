@@ -499,7 +499,10 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       payload.available = e.available;
       payload.needed = e.needed;
     }
-    if (Array.isArray(e.shortages)) payload.shortages = e.shortages;
+    try {
+      const list = require('../lib/inventory/shortage-error').fromError(db, e);
+      if (list.length) payload.shortages = list;
+    } catch (_) { /* enrichment only */ }
     return res.status(e.status || 400).json(payload);
   }
 
@@ -1029,6 +1032,21 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
   db.transaction(() => {
     const { buildPurchaseReturnJournalLines, costItemsFromLedger } = require('../lib/returns-posting');
     let costItems = costItemsFromLedger(db, 'purchase_return', row.id);
+    // v525 closed month: the ledger row left at the pool rate; the JE credited the document cost.
+    // Reverse the document cost (the parking JE is reversed by the ledger reversal hook).
+    try {
+      const parked = db.prepare(`
+        SELECT l.warehouse_id, SUM(al.delta_rial) AS d FROM inventory_value_approval_lines al
+        JOIN inventory_ledger l ON l.id = al.ledger_ref_id
+        WHERE l.source_type='purchase_return' AND l.source_id=? AND l.status='posted'
+          AND COALESCE(al.status,'active')='active' AND al.park_je_id IS NOT NULL
+        GROUP BY l.warehouse_id
+      `).all(row.id);
+      for (const p of parked) {
+        const it = costItems.find((c) => (c.warehouseId || null) === (p.warehouse_id || null));
+        if (it) it.amountRial -= Math.round(Number(p.d) || 0);
+      }
+    } catch (_) { /* no approval tables on old DBs */ }
     if (!costItems.length) {
       const invRows = JSON.parse(row.rows || '[]');
       const parentInv = row.purchase_invoice_id

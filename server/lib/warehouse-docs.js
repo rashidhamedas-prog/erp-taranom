@@ -26,6 +26,12 @@ function parseVariantId(body) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Issue/transfer pre-check failure with the exact structured shortage row (v525). */
+function whShortage(db, product, row) {
+  const e = Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${row.available})`), { status: 400 });
+  return require('./inventory/shortage-error').attach(e, db, [row]);
+}
+
 function availableForIssue(db, productId, warehouseId, variantId) {
   if (variantId) return variantWarehouseQty(db, variantId, warehouseId);
   return warehouseQty(db, productId, warehouseId);
@@ -263,6 +269,14 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
   let totalAmountRial = 0;
   let qtyTotal = 0;
   let lineIdx = 0;
+  // v525 closed inventory month: every parked rate difference of this document → ONE approval doc.
+  const VAP = require('./inventory/value-approval');
+  const valueClosed = require('./inventory/period-lock').isValueLocked(db, date);
+  const valueGroup = {
+    sourceType: 'warehouse_doc',
+    sourceId: docId,
+    label: `سند انبار ${num} — مابه‌التفاوت نرخ با میانگین استخر (قفل دوره)`,
+  };
 
   for (const line of lines) {
     const product_id = parseInt(line.product_id, 10);
@@ -286,14 +300,14 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       const explicitUnitCost = Math.round(Number(line.unit_cost_rial) || (
         Number(line.amount_rial) > 0 ? Number(line.amount_rial) / qty : 0
       ));
-      const led = postInventoryMovement(db, {
+      const led = VAP.withSourceGroup(valueGroup, () => postInventoryMovement(db, {
         eventType: 'receipt', productId: product_id, warehouseId: toWh, qty,
         unitCostRial: explicitUnitCost > 0 ? explicitUnitCost : Math.round(Number(product.average_cost_rial) || 0),
         batchId: batchId || null,
         sourceType: 'warehouse_move', date,
         note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
         createdBy: user.id,
-      });
+      }));
       const r = db.prepare(`
         INSERT INTO warehouse_moves
           (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status,doc_id,line_no,variant_id)
@@ -313,7 +327,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     } else if (type === 'issue') {
       const available = availableForIssue(db, product_id, fromWh, variantId);
       if (available < qty && !allowNegative(db, fromWh)) {
-        throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+        throw whShortage(db, product, { product_id, variant_id: variantId, warehouse_id: fromWh, available, needed: qty });
       }
       // Auto FEFO: if no batch chosen but one generic lot covers the qty, use earliest expiry.
       let issueBatchId = batchId;
@@ -351,7 +365,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     } else {
       const available = availableForIssue(db, product_id, fromWh, variantId);
       if (available < qty && !allowNegative(db, fromWh)) {
-        throw Object.assign(new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`), { status: 400 });
+        throw whShortage(db, product, { product_id, variant_id: variantId, warehouse_id: fromWh, available, needed: qty });
       }
       const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
       const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
@@ -361,11 +375,31 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         unitCostRial: unit, sourceType: 'warehouse_transfer', date,
         note: `خروج انتقال به ${toWarehouse?.name}`, createdBy: user.id, updateAvg: false,
       });
+      // Closed month, different destination pool: enter at the destination pool rate; the
+      // source-rate difference is parked (approval moves it into the destination pool).
+      let inAmount = Math.round(Number(ledOut.amount_rial) || 0);
+      let inUnit = unit;
+      let transferPark = 0;
+      if (valueClosed && VAP.poolKeyOf(db, product_id, fromWh) !== VAP.poolKeyOf(db, product_id, toWh)) {
+        const destUnit = VAP.closedInboundPoolUnit(db, product_id, toWh);
+        if (destUnit != null && Math.round(destUnit * qty) !== inAmount) {
+          transferPark = inAmount - Math.round(destUnit * qty);
+          inAmount = Math.round(destUnit * qty);
+          inUnit = destUnit;
+        }
+      }
       const ledIn = postInventoryMovement(db, {
         eventType: 'transfer_in', productId: product_id, warehouseId: toWh, qty,
-        unitCostRial: unit, amountRial: ledOut.amount_rial, sourceType: 'warehouse_transfer', date,
+        unitCostRial: inUnit, amountRial: inAmount, sourceType: 'warehouse_transfer', date,
         note: `ورود انتقال از ${fromWarehouse?.name}`, createdBy: user.id, updateAvg: false,
       });
+      if (transferPark) {
+        VAP.withSourceGroup(valueGroup, () => VAP.parkReceiptDifference(db, {
+          sourceType: 'warehouse_transfer', sourceId: null, ledgerId: ledIn.id,
+          productId: product_id, warehouseId: toWh, qtyIn: qty, diffRial: transferPark, date,
+          createdBy: user.id, note: 'انتقال با تاریخ ماه قفل‌شده — مابه‌التفاوت نرخ مبدأ با میانگین مقصد',
+        }));
+      }
       const r = db.prepare(`
         INSERT INTO warehouse_moves
           (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status,doc_id,line_no,variant_id)
@@ -521,6 +555,8 @@ function voidWarehouseDocInTx(db, docId, user, { reason } = {}) {
   for (const m of moves) {
     voidOneMoveInTx(db, m, user.id);
   }
+  require('./inventory/value-approval').cancelForSource(db, 'warehouse_doc', Number(docId), user,
+    reason || `ابطال سند انبار ${doc.num || ('#' + docId)}`);
 
   const jeId = doc.je_id || (moves.find((m) => m.je_id) || {}).je_id;
   if (jeId) {

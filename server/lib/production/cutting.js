@@ -1485,7 +1485,32 @@ function absorbCoveredLayDelta(db, {
     }
   }
 
-  if (!deltaNet) return { delta_net_rial: 0 };
+  const { routeReceiptValueChange } = require('./order-cost-reconcile');
+  const { postToLedger } = require('../ledger');
+  const valueSrc = {
+    sourceType: 'cutting_lay_fg_delta',
+    sourceId: lay.id,
+    label: `تعدیل بهای لایه‌چینی ${layTag}`,
+    date,
+    userId: user.id,
+    eventNote: `تعدیل بهای لایه‌چینی ${layTag}`,
+  };
+  if (!deltaNet) {
+    // An earlier delta of this lay may still sit in an approval doc: re-route it (R13).
+    const routed = routeReceiptValueChange(db, { ...valueSrc, shares: [] });
+    if (routed.lines.length) {
+      postToLedger(db, {
+        sourceType: 'cutting_lay_fg_delta',
+        sourceId: lay.id,
+        date,
+        description: `تعدیل بهای محصول پس از ویرایش ${layTag}`,
+        createdBy: user.id,
+        costCenterId: lay.cost_center_id || null,
+        lines: routed.lines,
+      });
+    }
+    return { delta_net_rial: 0, value_approval_id: routed.approval ? routed.approval.id : null };
+  }
 
   const receipts = db.prepare(`
     SELECT * FROM production_receipts
@@ -1515,50 +1540,17 @@ function absorbCoveredLayDelta(db, {
     }
   }
 
-  const { catalogCostFromAvgRial } = require('../inventory/product-unit-cost');
-  const { postToLedger } = require('../ledger');
-  const lines = [];
   for (const { receipt, share } of shares) {
     if (!share) continue;
-    const prod = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(receipt.product_id);
-    const onHand = Math.max(0, Number(prod && prod.stock) || 0);
-    const receiptQty = Number(receipt.qty) || 0;
-    const unsold = receiptQty > 0 ? Math.min(1, onHand / receiptQty) : (onHand > 0 ? 1 : 0);
-    const invShare = Math.round(share * unsold);
-    const cogsShare = share - invShare;
-    const pushSide = (key, amount) => {
-      if (!amount) return;
-      const abs = Math.abs(amount);
-      lines.push(amount > 0 ? dr(db, key, abs) : cr(db, key, abs));
-    };
-    pushSide('coa_finished_goods', invShare);
-    pushSide('coa_cogs', cogsShare);
     const nextAmt = Math.round(Number(receipt.amount_rial) || 0) + share;
     const qty = Number(receipt.qty) || 0;
     const nextUnit = qty > 0 ? Math.round(nextAmt / qty) : Math.round(Number(receipt.unit_cost_rial) || 0);
     db.prepare('UPDATE production_receipts SET amount_rial=?, unit_cost_rial=? WHERE id=?')
       .run(nextAmt, nextUnit, receipt.id);
-    if (invShare && onHand > 0) {
-      // Header avg moves by value inside postInventoryMovement (valueOnly row).
-      postInventoryMovement(db, {
-        eventType: 'production_receipt',
-        productId: receipt.product_id,
-        warehouseId: receipt.warehouse_id,
-        qtyIn: 0,
-        qtyOut: 0,
-        unitCostRial: Math.abs(invShare),
-        amountRial: invShare,
-        sourceType: 'cutting_lay_fg_delta',
-        sourceId: lay.id,
-        date,
-        note: `تعدیل بهای لایه‌چینی ${layTag}`,
-        createdBy: user.id,
-        updateAvg: false,
-        skipStock: true,
-        valueOnly: true,
-      });
-    }
   }
+  // Value side: open month → FG value row + COGS; closed inventory month → clearing + approval.
+  const routed = routeReceiptValueChange(db, { ...valueSrc, shares });
+  const lines = routed.lines.slice();
   if (deltaNet > 0) lines.push(cr(db, 'coa_wip', deltaNet, po.coa_wip_tafsili || null));
   else lines.push(dr(db, 'coa_wip', -deltaNet, po.coa_wip_tafsili || null));
 
@@ -1590,7 +1582,7 @@ function absorbCoveredLayDelta(db, {
   require('./order-cost-reconcile').applyDocumentCosts(db, po.id);
   db.prepare('UPDATE production_orders SET total_cost_rial=?, unit_cost_rial=? WHERE id=?')
     .run(Math.round(Number(sum && sum.s) || 0), unit, po.id);
-  return { delta_net_rial: deltaNet };
+  return { delta_net_rial: deltaNet, value_approval_id: routed.approval ? routed.approval.id : null };
 }
 
 /**

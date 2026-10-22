@@ -55,8 +55,18 @@ router.get('/kardex/:productId', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// v525: voiding a manual adjustment needs acc_warehouse_ops:delete (admin always); other manual rows keep adminOrAccounting.
+function reverseGate(req, res, next) {
+  const row = getDB().prepare('SELECT source_type FROM inventory_ledger WHERE id=?').get(+req.params.id);
+  if (row && row.source_type === 'inventory_adjust') {
+    if (require('../lib/inventory/manual-adjust').canVoidAdjust(req.user, getDB())) return next();
+    return res.status(403).json({ error: 'برای ابطال تعدیل موجودی دسترسی لازم است', code: 'E_PERMISSION' });
+  }
+  return adminOrAccounting(req, res, next);
+}
+
 // Only manual adjustments are reversed from the kardex; document-born rows go through their source document.
-router.post('/ledger/:id/reverse', auth, adminOrAccounting, (req, res) => {
+router.post('/ledger/:id/reverse', auth, reverseGate, (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(+req.params.id);
@@ -72,6 +82,14 @@ router.post('/ledger/:id/reverse', auth, adminOrAccounting, (req, res) => {
     }
     let rev;
     db.transaction(() => {
+      if (st === 'inventory_adjust' && row.reversed_of == null) {
+        // v525: + variant×warehouse layer and closed-month approval doc (R13).
+        rev = require('../lib/inventory/manual-adjust').reverseAdjustInTx(db, row, req.user, {
+          date: req.body.date || todayJalali(),
+          note: req.body.note || `ابطال تعدیل انبار ${row.tx_no || row.id}`,
+        });
+        return;
+      }
       rev = reverseInventoryMovement(db, row.id, {
         createdBy: req.user.id,
         date: req.body.date || todayJalali(),
@@ -379,55 +397,52 @@ router.post('/seed-avg-cost', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
-// Manual adjustment via ledger (requires reason)
-router.post('/adjust', auth, adminOrAccounting, (req, res) => {
+// ---- v525 manual stock adjustment (تعدیل موجودی) ----
+// Gate: admin, or rbac acc_warehouse_ops:create (accounting has it by role default; a bare
+// storekeeper/sales user gets 403 unless granted). Void: :delete — see reverseGate.
+const MA = require('../lib/inventory/manual-adjust');
+function requireAdjust(req, res, next) {
+  if (MA.canAdjustStock(req.user, getDB())) return next();
+  return res.status(403).json({ error: 'برای تعدیل موجودی دسترسی لازم است', code: 'E_PERMISSION' });
+}
+
+router.get('/adjust/meta', auth, (req, res) => {
+  const db = getDB();
+  const VA = require('../lib/inventory/value-accounts');
+  res.json({
+    can_adjust: MA.canAdjustStock(req.user, db),
+    can_void: MA.canVoidAdjust(req.user, db),
+    can_override_cost: MA.canOverrideCost(req.user, db),
+    reasons: VA.ADJUST_REASONS,
+  });
+});
+
+// Read-only (no writes; not captured into the device outbox — see sync/capture.js BLOCKLIST).
+router.post('/adjust/preview', auth, requireAdjust, (req, res) => {
   try {
-    const { product_id, warehouse_id, qty, reason, date, unit_cost_rial } = req.body;
-    if (!product_id || !qty || !reason) return res.status(400).json({ error: 'کالا، تعداد و دلیل الزامی است' });
+    res.json(MA.planAdjust(getDB(), req.body || {}, req.user, { peek: true }));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/adjust/recent', auth, requireAdjust, (req, res) => {
+  try {
+    res.json({ rows: MA.listRecent(getDB(), {
+      limit: req.query.limit, productId: req.query.product_id, warehouseId: req.query.warehouse_id,
+    }) });
+  } catch (e) { sendErr(res, e); }
+});
+
+// Manual adjustment via ledger. New UI sends mode + reason_code (required); legacy callers
+// (API / old devices) keep { product_id, qty, reason } with optional reason_code.
+// Counter account: value-accounts.adjustCounterAccount (stage + reason) inside MA.planAdjust.
+router.post('/adjust', auth, requireAdjust, (req, res) => {
+  try {
     const db = getDB();
-    const whId = warehouse_id ? +warehouse_id : null;
-    const d = date || todayJalali();
-    const VA = require('../lib/inventory/value-accounts');
-    const reasonCode = VA.normReason(req.body.reason_code);
-    let led;
-    let jeId = null;
-    let counter = null;
-    db.transaction(() => {
-      led = postInventoryMovement(db, {
-        eventType: 'adjustment',
-        productId: +product_id,
-        warehouseId: whId,
-        qty: +qty,
-        unitCostRial: unit_cost_rial,
-        sourceType: 'inventory_adjust',
-        sourceId: null,
-        date: d,
-        note: reason,
-        createdBy: req.user.id,
-      });
-      const signed = (Number(led.qty_in) || 0) > 0 ? led.amount_rial : -led.amount_rial;
-      // v522: with reason_code → counter-account by stage + reason; without → legacy adjustment account.
-      if (reasonCode) {
-        const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
-        counter = VA.adjustCounterAccount(db, {
-          inventoryCode: inventoryAccountForWarehouse(db, whId).code, reasonCode,
-        });
-      }
-      jeId = postInventoryValueAdjustmentJe(db, {
-        warehouseId: whId,
-        amountRial: signed,
-        date: d,
-        userId: req.user.id,
-        sourceType: 'inventory_adjust',
-        sourceId: led.id,
-        description: `تعدیل دستی موجودی ${led.tx_no} — ${reasonCode ? VA.ADJUST_REASONS[reasonCode] + ' — ' : ''}${String(reason).slice(0, 120)}`,
-        counterCode: counter ? counter.code : null,
-        counterName: counter ? counter.name : null,
-      });
-      db.prepare('UPDATE inventory_ledger SET source_id=?, je_id=? WHERE id=?').run(led.id, jeId, led.id);
-    })();
-    audit(req.user.id, 'create', 'inventory_adjustment', led.id, reason);
-    res.json({ ...led, je_id: jeId, reason_code: reasonCode, counter_account: counter });
+    const body = req.body || {};
+    const out = MA.postAdjust(db, body, req.user, { requireReason: body.mode != null && body.mode !== '' });
+    audit(req.user.id, 'create', 'inventory_adjustment', out.id,
+      `${out.tx_no} ${out.reason_label || ''} Δ${out.delta_qty} ${String(body.note || body.reason || '').slice(0, 120)}`.trim());
+    res.json(out);
   } catch (e) { sendErr(res, e); }
 });
 

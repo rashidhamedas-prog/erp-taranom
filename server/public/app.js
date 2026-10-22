@@ -342,7 +342,7 @@ async function api(method, path, data, isFormData, silent){
         || 'خطا رخ داد';
       if(!silent){
         if(r.status===429) showToast(j.error || 'تعداد درخواست‌ها زیاد است — کمی صبر کنید','error');
-        else showToast(friendlyMsg,'error');
+        else if(!(typeof stockShortageOffer==='function' && stockShortageOffer(j, { method, path, data, isFormData, message: friendlyMsg }))) showToast(friendlyMsg,'error');
       }
       const err=new Error(friendlyMsg); err.code=code; err.status=r.status; err.payload=j; throw err;
     }
@@ -12120,6 +12120,17 @@ function _kardexOpenSource(refType, refId){
   if(typeof openAccTradeDoc==='function'){ openAccTradeDoc(refType, refId); return; }
   toast(refType+' #'+refId);
 }
+/** v525: اقدام ردیف کاردکس — ابطال تعدیل دستی، یا تعدیل موجودی همان کالا در انبار ردیف. */
+function kardexAdjustRowActions(l, productId){
+  if(!l || l.is_opening || typeof canStockAdjust!=='function' || !canStockAdjust()) return '';
+  const reload=()=>loadItemKardex(productId);
+  if(l.source_type==='inventory_adjust' && !l.is_group && l.status!=='reversed' && l.event_type==='adjustment'){
+    if(!canStockAdjustVoid()) return '';
+    return ` <button type="button" class="btn sm ghost" title="ابطال این تعدیل (برگشت کامل)" data-csp-click="${CSP.bind('click',function(){stockAdjustVoid(l.id, l.tx_no, { product_id:productId, onDone:reload })})}">⛔</button>`;
+  }
+  const wh=l.warehouse_id||_kardexState.warehouse_id||null;
+  return ` <button type="button" class="btn sm ghost" title="تعدیل موجودی این کالا${l.warehouse_name?(' در '+esc(l.warehouse_name)):''}" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({ product_id:productId, warehouse_id:wh, onDone:reload })})}">⚖️</button>`;
+}
 
 async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
@@ -12149,7 +12160,7 @@ async function loadItemKardex(productId){
         unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
         user_name:l.user_name||'', status:l.status||'posted', is_opening:!!l.is_opening,
         ref_type:l.ref_type, ref_id:l.ref_id, source_type:l.source_type, source_id:l.source_id,
-        warehouse_only:!!l.warehouse_only,
+        warehouse_only:!!l.warehouse_only, warehouse_id:l.warehouse_id||null,
         is_group:!!l.is_group, detail_count:l.detail_count||0, details:l.details||null
       })),
       source:'inventory_ledger'
@@ -12173,6 +12184,10 @@ async function loadItemKardex(productId){
         )} ${unit}
           ${_kardexState.warehouse_id?' · محدودهٔ انبار انتخاب‌شده':''}
         </span>
+        ${canStockAdjust()?`<span data-csp-style="${CSP.style(`display:flex;gap:6px;margin-inline-start:auto`)}">
+          <button class="btn sm purple" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">⚖️ تعدیل موجودی</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🧾 تعدیل‌ها</button>
+        </span>`:''}
       </div>
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
         ${kpi('اول دوره', d.opening_qty)}
@@ -12223,7 +12238,7 @@ async function loadItemKardex(productId){
           <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(l.running_balance||0)}</td>
           ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut)?fmt(l.unit_cost_rial):'-'}</td>
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
-          <td class="muted">${esc(l.user_name||'-')}</td>
+          <td class="muted">${esc(l.user_name||'-')}${kardexAdjustRowActions(l, productId)}</td>
         </tr>${detailRows}`;
         }).join('')||`<tr><td colspan="10" class="empty">${
           Number(d.product?.stock||0)>0
@@ -14814,6 +14829,8 @@ async function renderWarehouseOpsTab(body){
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){warehouseReceiptModal()})}">⬇️ رسید انبار</button>
       <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){warehouseIssueModal()})}">⬆️ حواله انبار</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseTransferModal()})}">🔄 انتقال بین انبارها</button>
+      ${canStockAdjust()?`<button class="btn purple" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({})})}">⚖️ تعدیل موجودی</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({})})}">🧾 تعدیل‌های اخیر</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>تاریخ</th><th>شماره سند</th><th>نوع</th><th>از انبار</th><th>به انبار</th><th>خطوط</th><th>جمع تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
@@ -19099,6 +19116,8 @@ async function renderInvValuationTab(body){
   </div>
   <div class="tabs" data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px`)}">
     ${tabs.map(([k,l])=>`<button class="btn ${pane===k?'':'ghost'} sm" data-csp-click="${CSP.bind('click',function(){window._ivalPane=k;renderInvValuationTab(body)})}">${l}</button>`).join('')}
+    ${canStockAdjust()?`<button class="btn purple sm" data-ival-mut data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({ivalMut:true})})}">⚖️ تعدیل موجودی (تعداد)</button>
+    <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({})})}">🧾 تعدیل‌های اخیر</button>`:''}
   </div>
   <div id="ival-pane"></div>
   <datalist id="ival-products">${ivalProductOptions()}</datalist>`;
@@ -19151,6 +19170,310 @@ async function ivalPolicyPane(box,canEdit){
 const IVAL_ADJ_REASON_FA={shortage:'کسری',surplus:'اضافی',wastage:'ضایعات',damage:'خرابی / آسیب',count_correction:'اصلاح شمارش',other:'سایر'};
 function ivalAdjustReasonSelect(id){
   return `<select id="${id}"><option value="">— بدون دلیل (حساب تعدیل عمومی) —</option>${Object.entries(IVAL_ADJ_REASON_FA).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select>`;
+}
+/* ── v525: تعدیل موجودی (در لحظهٔ خطای کسری + دکمهٔ مستقل) ──
+ * سرور: POST /inventory/adjust/preview (فقط‌خواندنی، بیرون از صف سینک) و POST /inventory/adjust با mode + reason_code.
+ * لایهٔ جدا (#stockAdjRoot) تا فرم/مودال جاری که خطا داده بسته نشود و «تکرار عملیات» همان را دوباره بزند. */
+const SADJ_STAGE_FA={materials:'مواد اولیه',wip:'کالای در جریان ساخت',goods:'کالای ساخته‌شده / بازرگانی'};
+let _sadj=null;
+let _sadjLastBtn=null;
+document.addEventListener('click',function(ev){
+  const b=ev.target&&ev.target.closest?ev.target.closest('button,.btn'):null;
+  if(b && !b.closest('#stockAdjRoot')) _sadjLastBtn={el:b,at:Date.now()};
+},true);
+function canStockAdjust(){
+  return !!ME && canPerm('acc_warehouse_ops','create');
+}
+function canStockAdjustVoid(){
+  return !!ME && canPerm('acc_warehouse_ops','delete');
+}
+function sadjRoot(){
+  let root=document.getElementById('stockAdjRoot');
+  if(!root){ root=document.createElement('div'); root.id='stockAdjRoot'; document.body.appendChild(root); }
+  return root;
+}
+function sadjLayer(html, lg){
+  const root=sadjRoot();
+  const top=isNestedModalOpen();
+  root.innerHTML=`<div class="overlay open" id="stockAdjOverlay" data-csp-style="${CSP.style(`z-index:${top?12500:2500} !important`)}">
+    <div class="modal ${lg?'lg':''}">${html}</div></div>`;
+  document.body.classList.add('has-overlay');
+  if(!top){ try{ attachDatepickers(root); }catch(_){} }
+  return root;
+}
+function closeStockAdjust(){
+  const root=document.getElementById('stockAdjRoot');
+  if(root) root.innerHTML='';
+  _sadj=null;
+  syncOverlayBodyClass();
+}
+/** از api(): خطای کسری با shortages[] → اعلان با دکمهٔ «تعدیل موجودی» برای هر ردیف. true = اعلان نمایش داده شد. */
+function stockShortageOffer(j, ctx){
+  try{
+    if(!j || !Array.isArray(j.shortages) || !j.shortages.length) return false;
+    if(String(ctx&&ctx.path||'').startsWith('/inventory/adjust')) return false;
+    _sadj={ shortages:j.shortages.slice(0,30), message:ctx&&ctx.message||j.error||'', ctx:ctx||{}, done:{}, retried:false,
+      can:canStockAdjust(),
+      btn:(_sadjLastBtn && Date.now()-_sadjLastBtn.at<20000)?_sadjLastBtn.el:null };
+    sadjRenderNotice();
+    return true;
+  }catch(_){ return false; }
+}
+function sadjRenderNotice(){
+  const s=_sadj; if(!s) return;
+  const anyDone=Object.keys(s.done).length>0;
+  const rows=s.shortages.map((r,i)=>{
+    const done=s.done[i];
+    const label=esc(r.product_name||('کالا #'+r.product_id))+(r.variant_label?` <span class="muted">(${esc(r.variant_label)})</span>`:'');
+    return `<tr>
+      <td>${label}</td>
+      <td class="muted">${esc(r.warehouse_name||'—')}</td>
+      <td class="mono">${r.available_qty!=null?fmtQtyFa(r.available_qty):'—'}</td>
+      <td class="mono">${r.required_qty!=null?fmtQtyFa(r.required_qty):'—'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${r.shortfall_qty!=null?fmtQtyFa(r.shortfall_qty):'—'} ${esc(r.unit||'')}</td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">${done
+        ?`<span data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">✅ ${esc(done.je_no?('سند '+done.je_no):'ثبت شد')}</span>`
+        :(s.can?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(){sadjFromShortage(i)})}">⚖️ تعدیل موجودی</button>`:'<span class="muted">—</span>')}</td>
+    </tr>`;
+  }).join('');
+  sadjLayer(`<div class="modal-head"><h3>⚠️ موجودی کافی نیست</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeStockAdjust()})}">×</button></div>
+    <div class="modal-body">
+      <div class="oh-warn" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.9`)}">${esc(s.message||'موجودی کافی نیست')}</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">${s.can
+        ?`اگر موجودی واقعی انبار بیشتر از عدد سیستم است، همین‌جا تعدیل موجودی ثبت کنید (با دلیل و سند حسابداری)؛ بعد از تعدیل همهٔ ردیف‌ها، عملیات قبلی خودکار یک بار دوباره اجرا می‌شود.
+        اگر کالا واقعاً نیست، این پنجره را ببندید و تعداد را اصلاح کنید.`
+        :`<b data-csp-style="${CSP.style(`color:var(--red)`)}">برای تعدیل موجودی دسترسی لازم است.</b> اگر موجودی واقعی بیشتر است به انباردار/حسابدار دارای دسترسی «عملیات انبار — ایجاد» اطلاع دهید؛ وگرنه تعداد را اصلاح کنید.`}
+      </div>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+        <th>کالا</th><th>انبار</th><th>موجود</th><th>نیاز</th><th>کسری</th><th class="no-sort"></th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      ${s.can&&anyDone&&!s.retried?`<button class="btn green" data-csp-click="${CSP.bind('click',function(){sadjRetry()})}">🔁 تکرار عملیات</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeStockAdjust()})}">بستن</button>
+    </div>`, true);
+}
+function sadjFromShortage(i){
+  const s=_sadj; if(!s) return;
+  const r=s.shortages[i]; if(!r) return;
+  openStockAdjustModal({
+    product_id:r.product_id, warehouse_id:r.warehouse_id, variant_id:r.variant_id,
+    mode:'delta', qty:r.shortfall_qty!=null?r.shortfall_qty:'', reason_code:'count_correction',
+    back:true,
+    onDone:(res)=>{
+      if(_sadj!==s) return;
+      s.done[i]=res||{};
+      // همهٔ ردیف‌ها تعدیل شد → یک بار تکرار خودکار (کسری دوباره = اعلان تازه، بدون حلقه).
+      if(s.shortages.every((_,k)=>s.done[k]) && sadjCanRetry(s)) sadjRetry();
+      else sadjRenderNotice();
+    },
+  });
+}
+function sadjCanRetry(s){
+  const c=(s&&s.ctx)||{};
+  return !!((s&&s.btn&&s.btn.isConnected&&!s.btn.disabled) || (c.method&&c.path));
+}
+async function sadjRetry(){
+  const s=_sadj; if(!s || s.retried) return;
+  s.retried=true;
+  const btn=s.btn;
+  closeStockAdjust();
+  if(btn && btn.isConnected && !btn.disabled){ btn.click(); return; }
+  const c=s.ctx||{};
+  if(!c.method || !c.path){ showToast('تعدیل ثبت شد — عملیات قبلی را دوباره انجام دهید','error'); return; }
+  try{
+    await api(c.method, c.path, c.data, c.isFormData);
+    showToast('✅ عملیات قبلی بعد از تعدیل با موفقیت انجام شد');
+    if(typeof refreshCurrentRoute==='function') refreshCurrentRoute();
+  }catch(_){ /* خطا را api() نشان داده؛ کسری دوباره → اعلان تازه */ }
+}
+/**
+ * فرم تعدیل موجودی. opts: product_id, warehouse_id, variant_id, mode('delta'|'count'), qty, reason_code,
+ * note, onDone(result), back (بازگشت به اعلان کسری), ivalMut (دکمهٔ ثبت با data-ival-mut).
+ */
+async function openStockAdjustModal(opts){
+  opts=opts||{};
+  if(!canStockAdjust()){ showToast('برای تعدیل موجودی دسترسی لازم است','error'); return; }
+  await Promise.all([ensureWarehouses().catch(()=>[]), ensureProductsCache().catch(()=>[])]);
+  const prods=CACHE.allProducts||[];
+  const p0=opts.product_id?prods.find(x=>String(x.id)===String(opts.product_id)):null;
+  const pLabel=p=>(p.code?p.code+' — ':'')+p.name;
+  const whs=(CACHE.warehouses||[]).filter(w=>w && w.active!==0);
+  const mode=opts.mode==='count'?'count':'delta';
+  const reasonSel=ivalAdjustReasonSelect('sadj-reason').replace(/<option value="">[^<]*<\/option>/,'<option value="">— دلیل را انتخاب کنید —</option>');
+  const st={ mode, matrixFor:null, timer:null, seq:0, plan:null };
+  const goBack=()=>{ if(opts.back && _sadj) sadjRenderNotice(); else closeStockAdjust(); };
+  sadjLayer(`<div class="modal-head"><h3>⚖️ تعدیل موجودی</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){goBack()})}">×</button></div>
+    <div class="modal-body">
+      <datalist id="sadj-products">${prods.map(p=>`<option value="${esc(pLabel(p))}"></option>`).join('')}</datalist>
+      <div class="form-grid">
+        <div class="fg full"><label>کالا *</label><input id="sadj-prod" list="sadj-products" placeholder="کد یا نام کالا" value="${p0?esc(pLabel(p0)):''}"></div>
+        <div class="fg"><label>انبار</label><select id="sadj-wh"><option value="">— کل کالا (بدون انبار) —</option>${whs.map(w=>`<option value="${w.id}" ${String(opts.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg" id="sadj-var-wrap" data-csp-style="${CSP.style('display:none')}"><label>رنگ / سایز *</label><select id="sadj-var"><option value="">—</option></select></div>
+        <div class="fg"><label>موجودی فعلی</label><div id="sadj-cur" class="mono" data-csp-style="${CSP.style(`padding:8px 0;font-weight:700`)}">—</div></div>
+        <div class="fg full"><label>نوع تعدیل</label>
+          <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
+            <button type="button" class="btn sm ${mode==='count'?'':'ghost'}" id="sadj-m-count" data-csp-click="${CSP.bind('click',function(){sadjSetMode('count')})}">🔢 تعداد شمارش‌شده</button>
+            <button type="button" class="btn sm ${mode==='delta'?'':'ghost'}" id="sadj-m-delta" data-csp-click="${CSP.bind('click',function(){sadjSetMode('delta')})}">± کم و زیاد</button>
+          </div></div>
+        <div class="fg"><label id="sadj-qty-lbl">${mode==='count'?'تعداد شمارش‌شده':'تغییر تعداد (+ اضافه / − کسر)'}</label><input id="sadj-qty" type="number" step="any" value="${opts.qty!=null?esc(String(opts.qty)):''}"></div>
+        <div class="fg"><label>دلیل *</label>${reasonSel}</div>
+        <div class="fg" id="sadj-cost-wrap" data-csp-style="${CSP.style('display:none')}"><label>بهای واحد اضافی (ریال)</label><input id="sadj-cost" type="number" min="0" step="1" placeholder="بهای میانگین"></div>
+        <div class="fg"><label>تاریخ</label><input id="sadj-date" ${isNestedModalOpen()?'':'data-jdate'} value="${esc(todayJalali())}"></div>
+        <div class="fg full"><label>توضیح</label><input id="sadj-note" maxlength="300" value="${esc(opts.note||'')}" placeholder="مثلاً: شمارش قفسهٔ ۳"></div>
+      </div>
+      <div id="sadj-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px;line-height:1.9;font-size:12.5px`)}"><span class="muted">کالا، تعداد و دلیل را وارد کنید تا اثر حسابداری نمایش داده شود.</span></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn green" id="sadj-save" ${opts.ivalMut?'data-ival-mut':''} data-csp-click="${CSP.bind('click',function(){sadjSubmit()})}">✅ ثبت تعدیل</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){goBack()})}">${opts.back?'بازگشت':'انصراف'}</button>
+    </div>`, true);
+  if(opts.reason_code && el('sadj-reason')) el('sadj-reason').value=opts.reason_code;
+  if(opts.ivalMut && typeof ivalApplyOnlineGuard==='function') ivalApplyOnlineGuard(sadjRoot());
+  const productId=()=>{
+    const raw=String(el('sadj-prod')?.value||'').trim();
+    if(!raw) return null;
+    const p=prods.find(x=>pLabel(x)===raw||String(x.code||'')===raw||String(x.id)===raw);
+    return p?p.id:null;
+  };
+  const body=()=>({
+    product_id:productId(), warehouse_id:el('sadj-wh')?.value||null, variant_id:el('sadj-var')?.value||null,
+    mode:st.mode, qty:el('sadj-qty')?.value, reason_code:el('sadj-reason')?.value||'',
+    unit_cost_rial:(el('sadj-cost-wrap') && el('sadj-cost-wrap').style.display!=='none' && el('sadj-cost')?.value!=='')?el('sadj-cost').value:undefined,
+    date:el('sadj-date')?.value||'', note:el('sadj-note')?.value||'',
+  });
+  async function loadVariants(pid, wh){
+    const key=pid+'|'+(wh||'');
+    if(st.matrixFor===key) return;
+    st.matrixFor=key;
+    const sel=el('sadj-var'); if(!sel) return;
+    try{
+      const d=await api('GET','/product-variants/style/'+pid+(wh?('?warehouse_id='+wh):''),null,false,true);
+      const vs=(d&&d.variants||[]).filter(v=>!v.is_default && v.active!==0);
+      sel.innerHTML='<option value="">— انتخاب کنید —</option>'+vs.map(v=>{
+        const lb=[v.color_name,v.size_name].filter(Boolean).join(' / ')||v.sku||('#'+v.id);
+        return `<option value="${v.id}" ${String(opts.variant_id||'')===String(v.id)?'selected':''}>${esc(lb)} — ${fmtQtyFa(v.stock||0)}</option>`;
+      }).join('');
+    }catch(_){ sel.innerHTML='<option value="">—</option>'; }
+  }
+  function renderPlan(pl){
+    const box=el('sadj-preview'); if(!box) return;
+    if(el('sadj-cur')) el('sadj-cur').textContent=fmtQtyFa(pl.current_qty)+' '+(pl.unit||'');
+    const varWrap=el('sadj-var-wrap');
+    if(varWrap){ varWrap.style.display=pl.matrix?'':'none'; if(pl.matrix) loadVariants(pl.product_id, pl.warehouse_id); }
+    const costWrap=el('sadj-cost-wrap');
+    if(costWrap){
+      costWrap.style.display=(pl.delta_qty>0 && pl.can_override_cost)?'':'none';
+      if(el('sadj-cost')) el('sadj-cost').placeholder=fmt(pl.live_rate_rial||0)+' (میانگین)';
+    }
+    const d=Number(pl.delta_qty)||0;
+    const v=Number(pl.value_rial)||0;
+    box.innerHTML=`
+      <div>موجودی: <b class="mono">${fmtQtyFa(pl.current_qty)}</b> ← <b class="mono">${fmtQtyFa(pl.new_qty)}</b>
+        (<b class="mono" data-csp-style="${CSP.style(`color:${d<0?'var(--red)':'var(--green)'}`)}">${d>0?'+':''}${fmtQtyFa(d)}</b> ${esc(pl.unit||'')})</div>
+      ${d?`<div>بهای واحد: <b class="mono">${fmt(pl.unit_cost_rial||0)}</b> ریال · اثر ریالی: <b class="mono">${fmt(Math.abs(v))}</b> ریال ${v<0?'(کاهش موجودی)':'(افزایش موجودی)'}</div>`:''}
+      <div>حساب موجودی: <b>${esc(pl.inventory_account?.code||'')} ${esc(pl.inventory_account?.name||'')}</b></div>
+      <div>حساب مقابل: <b>${esc(pl.counter_account?.code||'')} ${esc(pl.counter_account?.name||'')}</b>
+        <span class="muted">· مرحله: ${esc(SADJ_STAGE_FA[pl.stage]||pl.stage||'—')}</span></div>
+      ${pl.period_locked?`<div class="oh-warn" data-csp-style="${CSP.style(`margin-top:6px`)}">🔒 ماه بسته است؛ اثر ریالی برای تأیید می‌رود (تا تأیید، طرف مقابل سند در «تعدیل بهای در انتظار تأیید» می‌ماند).</div>`:''}
+      ${(pl.warnings||[]).filter(w=>!/^ماه بسته است/.test(w)).map(w=>`<div data-csp-style="${CSP.style(`color:#b45309`)}">⚠ ${esc(w)}</div>`).join('')}`;
+  }
+  async function refresh(){
+    const b=body();
+    const box=el('sadj-preview'); if(!box) return;
+    if(!b.product_id){ box.innerHTML='<span class="muted">کالا را از فهرست انتخاب کنید.</span>'; if(el('sadj-cur')) el('sadj-cur').textContent='—'; return; }
+    const q=b.qty===''||b.qty==null?0:b.qty;
+    const my=++st.seq;
+    try{
+      const pl=await api('POST','/inventory/adjust/preview',{...b, qty:q, reason_code:b.reason_code||undefined},false,true);
+      if(my!==st.seq || !el('sadj-preview')) return;
+      st.plan=pl; renderPlan(pl);
+    }catch(e){
+      if(my!==st.seq || !el('sadj-preview')) return;
+      box.innerHTML=`<span data-csp-style="${CSP.style(`color:var(--red)`)}">${esc(e.message||'خطا در پیش‌نمایش')}</span>`;
+    }
+  }
+  const schedule=()=>{ clearTimeout(st.timer); st.timer=setTimeout(refresh,300); };
+  ['sadj-prod','sadj-wh','sadj-var','sadj-qty','sadj-reason','sadj-cost','sadj-date','sadj-note'].forEach(id=>{
+    const x=el(id); if(!x) return;
+    x.addEventListener('input',schedule); x.addEventListener('change',schedule);
+  });
+  window.sadjSetMode=function(m){
+    st.mode=m==='count'?'count':'delta';
+    el('sadj-m-count')?.classList.toggle('ghost',st.mode!=='count');
+    el('sadj-m-delta')?.classList.toggle('ghost',st.mode!=='delta');
+    if(el('sadj-qty-lbl')) el('sadj-qty-lbl').textContent=st.mode==='count'?'تعداد شمارش‌شده':'تغییر تعداد (+ اضافه / − کسر)';
+    if(st.mode==='count' && st.plan && el('sadj-qty') && el('sadj-qty').value==='') el('sadj-qty').value=String(st.plan.current_qty);
+    schedule();
+  };
+  window.sadjSubmit=async function(){
+    const b=body();
+    if(!b.product_id){ showToast('کالا را از فهرست انتخاب کنید','error'); return; }
+    if(b.qty===''||b.qty==null||!Number.isFinite(Number(b.qty))){ showToast('تعداد را وارد کنید','error'); return; }
+    if(!b.reason_code){ showToast('دلیل تعدیل الزامی است','error'); el('sadj-reason')?.focus(); return; }
+    if(st.plan && st.plan.matrix && !b.variant_id){ showToast('رنگ / سایز را انتخاب کنید','error'); return; }
+    const btn=el('sadj-save'); if(btn) btn.disabled=true;
+    try{
+      const r=await api('POST','/inventory/adjust',b,false,true);
+      const ctr=r.value_approval?r.counter_account:(r.posted_counter_account||r.counter_account);
+      showToast(`تعدیل ${r.tx_no||''} ثبت شد — سند ${r.je_no||'—'}${ctr?` · حساب مقابل ${ctr.code} ${ctr.name}`:''}${r.value_approval?` · اثر ریالی در انتظار تأیید (${r.value_approval.doc_no||''})`:''}`);
+      const back=opts.back && _sadj;
+      if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
+      if(!back) closeStockAdjust();
+    }catch(e){
+      showToast(e.message||'ثبت تعدیل ناموفق بود','error');
+      const box=el('sadj-preview');
+      if(box) box.insertAdjacentHTML('afterbegin',`<div data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">✖ ${esc(e.message||'خطا')}</div>`);
+      if(btn) btn.disabled=false;
+    }
+  };
+  if(opts.product_id) refresh();
+}
+/** تعدیل‌های دستی اخیر + ابطال کامل (R13). */
+async function openStockAdjustRecent(opts){
+  opts=opts||{};
+  const q=new URLSearchParams({ limit:'100' });
+  if(opts.product_id) q.set('product_id',String(opts.product_id));
+  if(opts.warehouse_id) q.set('warehouse_id',String(opts.warehouse_id));
+  let rows=[];
+  try{ rows=(await api('GET','/inventory/adjust/recent?'+q.toString())||{}).rows||[]; }catch(_){ return; }
+  const apprFa={pending:'در انتظار تأیید',approved:'تأیید شد',rejected:'رد شد',cancelled:'لغو'};
+  sadjLayer(`<div class="modal-head"><h3>🧾 تعدیل‌های دستی موجودی</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeStockAdjust()})}">×</button></div>
+    <div class="modal-body"><div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>تاریخ</th><th>شماره</th><th>کالا</th><th>انبار</th><th>تغییر</th><th>مبلغ (ریال)</th><th>سند</th><th>وضعیت</th><th>ثبت‌کننده</th><th class="no-sort"></th>
+    </tr></thead><tbody>${rows.map(r=>{
+      const dq=Number(r.delta_qty)||0;
+      const voided=r.status==='reversed';
+      return `<tr ${voided?`data-csp-style="${CSP.style(`opacity:.55`)}"`:''}>
+        <td class="mono">${escDate(r.date)}</td>
+        <td class="mono">${esc(r.tx_no||('#'+r.id))}</td>
+        <td>${esc(r.product_name||'')}</td>
+        <td class="muted">${esc(r.warehouse_name||'—')}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:${dq<0?'var(--red)':'var(--green)'}`)}">${dq>0?'+':''}${fmtQtyFa(dq)}</td>
+        <td class="mono">${fmt(Math.round(Number(r.amount_rial)||0))}</td>
+        <td class="mono">${esc(r.je_no||'—')}</td>
+        <td>${voided?'⛔ ابطال‌شده':(r.value_approval?esc(apprFa[r.value_approval.status]||r.value_approval.status):'ثبت شد')}</td>
+        <td class="muted">${esc(r.user_name||'—')}</td>
+        <td>${voided||!canStockAdjustVoid()?'':`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){stockAdjustVoid(r.id, r.tx_no, opts)})}">⛔ ابطال</button>`}</td>
+      </tr>`;
+    }).join('')||emptyRow(10)}</tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11.5px;margin-top:8px;line-height:1.8`)}">ابطال = برگشت کامل: موجودی (و رنگ/سایز)، سند حسابداری و سند تأیید ماه بسته با هم برمی‌گردند. حذف فیزیکی انجام نمی‌شود.</div></div>
+    <div class="modal-foot">
+      ${canStockAdjust()?`<button class="btn" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({product_id:opts.product_id, warehouse_id:opts.warehouse_id, onDone:opts.onDone})})}">⚖️ تعدیل جدید</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeStockAdjust()})}">بستن</button>
+    </div>`, true);
+}
+async function stockAdjustVoid(id, txNo, opts){
+  if(!confirm(`تعدیل ${txNo||('#'+id)} ابطال شود؟ موجودی و سند حسابداری آن کامل برمی‌گردد.`)) return;
+  try{
+    await api('POST','/inventory/ledger/'+id+'/reverse',{ note:`ابطال تعدیل انبار ${txNo||id}` });
+    showToast('تعدیل ابطال شد');
+    if(opts && typeof opts.onDone==='function'){ try{ opts.onDone(null); }catch(_){} }
+    openStockAdjustRecent(opts);
+  }catch(_){ /* پیام را api() نشان داده */ }
 }
 function ivalLevelFieldHtml(id,value,scopeFa){
   const v=value==='product'||value==='warehouse'?value:'';
@@ -19692,7 +20015,7 @@ function slrRender(r){
   </tr></thead><tbody>
   ${(r.checks||[]).map(c=>`<tr>
     <td><b>${esc(c.name||c.code)}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:10.5px`)}">${esc(c.code)}</div></td>
-    <td>${SLR_STATUS_TAG[c.status]||esc(c.status||'')}</td>
+    <td>${c.sub_status==='negative_cash'?'<span class="tag t-followup" title="مانده منفی صندوق — هشدار عملیاتی، نه اختلاف تطبیق">صندوق منفی</span>':(SLR_STATUS_TAG[c.status]||esc(c.status||''))}</td>
     <td class="num">${c.gl_rial!=null?fmt(c.gl_rial):'—'}</td>
     <td class="num">${c.sub_rial!=null?fmt(c.sub_rial):'—'}</td>
     <td class="num" data-csp-style="${CSP.style(`${Math.abs(Number(c.diff_rial)||0)>0?'color:var(--red);font-weight:700':''}`)}">${c.diff_rial!=null?fmt(c.diff_rial):'—'}</td>
@@ -19719,13 +20042,25 @@ async function slrRows(code,name,fixable){
       </tbody></table></div>
       ${canFix?`<div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
         <div class="fg full"><label>علت اصلاح (الزامی برای سند تعدیلی)</label><input id="slr-reason"></div>
+        ${code==='inventory_vs_gl'?`<div class="fg"><label>حساب طرف مقابل (الزامی — ۹۹۹۹ مجاز نیست)</label><select id="slr-counter"><option value="">— انتخاب کنید —</option>${SLR_COUNTER_DEFAULTS.map(([c,n])=>`<option value="${esc(c)}">${esc(c+' — '+n)}</option>`).join('')}</select></div>
+        <div class="fg"><label>یا کد حساب دیگر</label><input id="slr-counter-other" class="mono" placeholder="مثلاً 6108" aria-label="کد حساب طرف مقابل"></div>`:''}
       </div>
       <div data-csp-style="${CSP.style(`display:flex;gap:8px;justify-content:flex-end;margin-top:8px`)}">
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){slrFix(true)})}">پیش‌نمایش اصلاح</button>
         <button class="btn orange" data-csp-click="${CSP.bind('click',function(){slrFix(false)})}">اعمال اصلاح</button>
       </div><div id="slr-fix-out" class="oh-preview" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>`:''}`);
     el('slr-all')?.addEventListener('change',e=>document.querySelectorAll('.slr-pick').forEach(c=>{c.checked=e.target.checked;}));
+    if(canFix && code==='inventory_vs_gl') slrCounterLoad();
   }catch(e){}
+}
+const SLR_COUNTER_DEFAULTS=[['3102','تراز افتتاحیه'],['6118','کسری و اضافات انبار'],['6108','کسری و ضایعات انبار'],['5101','بهای تمام‌شدهٔ فروش'],['1110','موجودی مواد اولیه'],['1111','کالای در جریان ساخت']];
+async function slrCounterLoad(){
+  try{
+    const r=await api('POST','/accounting/subledger-recon/inventory_vs_gl/fix',{dry_run:true},false,true)||{};
+    const sel=el('slr-counter'); const list=r.counter_suggestions||[];
+    if(!sel||!list.length) return;
+    sel.innerHTML='<option value="">— انتخاب کنید —</option>'+list.map(s=>`<option value="${esc(s.code)}">${esc(s.code+' — '+s.name+(s.hint?' ('+s.hint+')':''))}</option>`).join('');
+  }catch(_){ /* keep defaults */ }
 }
 async function slrFix(dry){
   const st=window._slrRows||{}; const picks=[...document.querySelectorAll('.slr-pick')].filter(c=>c.checked).map(c=>st.rows[+c.value]);
@@ -19735,17 +20070,22 @@ async function slrFix(dry){
   if(!ids.length){ showToast('شناسهٔ ردیف‌های انتخابی پیدا نشد','error'); return; }
   const reason=(el('slr-reason')?.value||'').trim();
   if(!dry && !reason){ showToast('علت اصلاح الزامی است','error'); return; }
-  if(!dry && !confirm('اصلاح با سند تعدیلی/ابطال ثبت شود؟')) return;
+  const counter=st.code==='inventory_vs_gl'?((el('slr-counter-other')?.value||'').trim()||(el('slr-counter')?.value||'')):'';
+  if(st.code==='inventory_vs_gl' && !dry && !counter){ showToast('حساب طرف مقابل سند اصلاحی را انتخاب کنید','error'); return; }
+  if(!dry && !confirm('اصلاح با سند تعدیلی/ابطال ثبت شود؟'+(counter?`\nطرف مقابل: حساب ${counter}`:''))) return;
   const out=el('slr-fix-out');
   const send=async(force)=>{
-    const r=await api('POST','/accounting/subledger-recon/'+encodeURIComponent(st.code)+'/fix',{ids,dry_run:!!dry,confirm:!dry,reason,force:!!force})||{};
+    const payload={ids,dry_run:!!dry,confirm:!dry,reason,force:!!force};
+    if(counter) payload.counter_account=counter;
+    const r=await api('POST','/accounting/subledger-recon/'+encodeURIComponent(st.code)+'/fix',payload)||{};
     const acts=dry?(r.plan||[]):(r.applied||[]);
     const sm=r.summary?`<div class="muted">تاریخ سند ${esc(r.summary.date||'')} · ${fmtQtyFa(r.summary.assets||0)} دارایی · جمع ${fmt(r.summary.total_rial||0)} ریال · کسری دفتر کل ${fmt(r.summary.gl_shortfall_rial||0)} ریال</div>`:'';
     out.innerHTML=`${dry?'پیش‌نمایش':'انجام شد'} — ${fmtQtyFa(acts.length)} مورد${sm}<br>${acts.slice(0,30).map(a=>{
       const what=SLR_ACTION_FA[a.action]||a.action||(a.adjust_rial!=null?'سند تعدیل حساب انبار':(a.total_rial!=null?'سند افتتاحیه یکجا':''));
       const ref=a.asset_id?('دارایی '+(a.code||('#'+a.asset_id))+' → حساب '+(a.account_code||'')):a.account_code?('حساب '+a.account_code):a.je_id?('سند #'+a.je_id):a.ledger_id?('ردیف کاردکس #'+a.ledger_id):'';
       const amt=a.adjust_rial!=null?a.adjust_rial:(a.cost_rial!=null?a.cost_rial:(a.total_rial!=null?a.total_rial:a.amount_rial));
-      return esc(`${what} ${ref}`)+(amt!=null?` — ${fmt(amt)} ریال`:'')+(a.result?` (${esc(a.result)})`:'');
+      const ctr=a.adjust_rial!=null?(a.counter_account?` ↔ طرف ${esc(a.counter_account+(a.counter_name?' '+a.counter_name:''))}`:(a.counter_error?` <span class="oh-warn">${esc(a.counter_error.error||'')}</span>`:' <span class="oh-warn">(حساب طرف انتخاب نشده)</span>')):'';
+      return esc(`${what} ${ref}`)+(amt!=null?` — ${fmt(amt)} ریال`:'')+ctr+(a.result?` (${esc(a.result)})`:'');
     }).join('<br>')}`;
     if(!dry){ showToast('اصلاح ثبت شد'); slrRun(); slrFixesLoad(); }
   };
@@ -34680,6 +35020,18 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>از دست رفته</b> فقط با دلیل باخت</li>
       </ul>
       <div class="tip">کشیدن کارت کانبان پس از تأیید در سرور ذخیره می‌شود. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد.</div>`),
+    helpSec('⚖️','تعدیل موجودی (کسری/اضافی) — v525',`
+      <ul>
+        <li><b>در لحظهٔ خطا:</b> هر جا (فاکتور فروش، حوالهٔ انبار، حوالهٔ مواد، تبدیل پیش‌فاکتور، …) پیام «موجودی کافی نیست» بیاید، برای کاربر مجاز پنجره‌ای با جدول کالا/انبار/موجود/نیاز/کسری باز می‌شود. دکمهٔ «⚖️ تعدیل موجودی» هر ردیف فرم تعدیل را با «کم و زیاد» به اندازهٔ کسری و دلیل «اصلاح شمارش» پر می‌کند. <b>تکرار خودکار:</b> وقتی همهٔ ردیف‌های کسری تعدیل شد، همان عملیات قبلی (همان دکمه یا همان درخواست) خودکار <b>فقط یک بار</b> دوباره اجرا می‌شود؛ موفق ← پیام موفقیت، کسری دوباره ← همین پنجره با فهرست تازه (حلقه ندارد). «🔁 تکرار عملیات» فقط وقتی دیده می‌شود که بخشی از ردیف‌ها تعدیل شده یا تکرار خودکار ممکن نبوده. فرم/سند اصلی بسته نمی‌شود. کاربر بدون دسترسی همان جدول کسری را می‌بیند با پیام «برای تعدیل موجودی دسترسی لازم است» و بدون دکمهٔ تعدیل.</li>
+        <li><b>دکمهٔ مستقل:</b> «⚖️ تعدیل موجودی» و «🧾 تعدیل‌های اخیر» در «عملیات انبار»، بالای کاردکس کالا (و ⚖️ کنار هر ردیف کاردکس) و در «ریالی و تعدیل بهای موجودی».</li>
+        <li><b>فرم:</b> کالا، انبار، رنگ/سایز (برای کالای ماتریسی الزامی)، نوع «🔢 تعداد شمارش‌شده» (سیستم اختلاف را حساب می‌کند) یا «± کم و زیاد»، <b>دلیل (الزامی)</b>، تاریخ شمسی و توضیح. پیش‌نمایش زنده: موجودی فعلی ← جدید، بهای واحد، اثر ریالی، حساب موجودی، حساب مقابل و مرحله — پیش‌نمایش هیچ چیزی ثبت نمی‌کند و در صف همگام‌سازی دستگاه نمی‌رود.</li>
+        <li><b>حساب مقابل:</b> دلیلی که در «مبنای ریالی ← حساب مقابل تعدیل دستی» حساب اختصاصی دارد همان حساب؛ وگرنه بر اساس مرحله: مواد ← «کسری و اضافات انبار» (۶۱۱۸)، کالای در جریان ساخت ← سربار، کالای ساخته‌شده/بازرگانی ← بهای تمام‌شده.</li>
+        <li><b>بها:</b> کسری با نرخ زندهٔ خروجی خارج می‌شود. اضافی پیش‌فرض با بهای میانگین وارد می‌شود؛ تغییر بهای واحد اضافی فقط با دسترسی «ارزش‌گذاری موجودی — ایجاد».</li>
+        <li><b>ماه بسته:</b> تعداد عادی ثبت می‌شود ولی طرف مقابل سند به «تعدیل بهای در انتظار تأیید» می‌رود و یک سند در «تأیید تغییر بها» ساخته می‌شود. <b>تأیید ← همان حساب مقابل دلیل/مرحله</b> (مثلاً «کسری و اضافات انبار» ۶۱۱۸ برای مواد) برای کل مبلغ — نه بهای تمام‌شده؛ رد ← انحراف بها؛ ابطال تصمیم همه را برمی‌گرداند.</li>
+        <li><b>دسترسی (سرور هم کنترل می‌کند):</b> ثبت، پیش‌نمایش و فهرست تعدیل‌ها ← مدیر یا «عملیات انبار — ایجاد»؛ ابطال تعدیل ← «عملیات انبار — حذف». نقش حسابدار این دو را به‌طور پیش‌فرض دارد؛ انباردار/فروش بدون این دسترسی خطای ۴۰۳ می‌گیرد و دکمه‌ها را نمی‌بیند. از «مدیریت کاربران ← دسترسی‌ها» قابل اعطا/سلب است.</li>
+        <li><b>برگشت از خرید در ماه بسته:</b> تعداد عادی کم می‌شود ولی با نرخ میانگین استخر خارج می‌شود تا میانگین تغییر نکند؛ مابه‌التفاوت با بهای سند، برای هر برگشت یک سند «تأیید تغییر بها (قفل دوره)» می‌سازد. ابطال برگشت، آن سند را هم لغو می‌کند. انتقال پورتال تولید بین دو استخر در ماه بسته هم برای هر پارامتر یک سند تأیید می‌سازد.</li>
+        <li><b>ابطال (R13):</b> از «🧾 تعدیل‌های اخیر» یا ⛔ کنار ردیف کاردکس — موجودی (و رنگ/سایز)، سند حسابداری و سند تأیید ماه بسته با هم برمی‌گردند؛ حذف فیزیکی ندارد.</li>
+      </ul>`),
     helpSec('🛍️','محصولات و موجودی',`
       <p>صفحه <b>محصولات در ERP فقط برای مشاهده و فیلتر</b> است. افزودن، ویرایش، حذف و دسته‌بندی فقط از <b>ماژول حسابداری → کالاها</b> انجام می‌شود.</p>
       <h5>مشاهده در ERP</h5><ul>
@@ -34834,12 +35186,13 @@ helpSec('🔑','لایسنس و entitlement',`
           <b>تأیید تغییر بها</b> (تب «✅ تأیید تغییر بها»): اگر هزینهٔ حمل، اصلاح فی خرید یا مابه‌التفاوت فاکتور GRNI بهای کالایی را عوض کند که بخشی از آن فروخته یا به تولید رفته، نرخ کالا عوض نمی‌شود و مبلغ به حساب «تعدیل بهای در انتظار تأیید» (۱۱۲۰) می‌رود و به مدیر و حسابدار اعلان می‌شود. «تأیید»: سهم موجود → موجودی (نرخ میانگین اصلاح می‌شود)، سهم فروش‌رفته → بهای تمام‌شدهٔ فروش، سهم مصرف تولید → کالای در جریان ساخت. «رد»: کل مبلغ → «انحراف بها» (۶۱۱۷). «ابطال تصمیم» همه را برمی‌گرداند و سند به حالت در انتظار می‌رود؛ ابطال سند مبدأ (خرید/هزینهٔ حمل) سند تأیید باز را لغو می‌کند.
           <b>بستن دورهٔ تولید</b>: تعدیل میانگین محصول فقط بین محصولاتی پخش می‌شود که در همان دوره تولید شده‌اند (به نسبت ارزش)؛ سهم آنچه از همان تولید فروخته شده به بهای تمام‌شدهٔ فروش می‌رود، نه به میانگین موجودی.
           <b>زمان‌بندی قواعد اتومات</b>: روزانه، هفتگی (چند روز هفته) یا ماهانه (چند روز ماه شمسی؛ ۳۱ در ماه کوتاه یعنی روز آخر) با ساعت و دقیقه. زمان‌بند هر ۵ دقیقه بررسی می‌کند و هر نوبت فقط یک‌بار اجرا می‌شود (حتی بعد از ری‌استارت).
-          <b>قفل ماهانه</b> (تب «🔒 قفل ماهانه»، فقط مدیر با ثبت دلیل): خرید، فروش، رسید، هزینهٔ حمل، اصلاح خرید و بستن دورهٔ تولید با تاریخ ماه بسته <b>ثبت می‌شوند</b> (مقدار و سند حسابداری عادی)، ولی هر اثر ریالی روی میانگین آن ماه خودکار اعمال نمی‌شود: یک سند «تأیید تغییر بها» با علت «🔒 قفل دوره» ساخته می‌شود، مبلغ در «تعدیل بهای در انتظار تأیید» می‌ماند و به مدیر و حسابدار اعلان می‌شود. رسید برگشت‌تاریخ با میانگین فعلی همان استخر وارد می‌شود و مابه‌التفاوت نرخ رسید با میانگین پارک می‌شود. در پنجرهٔ تأیید «تاریخ ثبت» را انتخاب کنید: <i>تاریخ اصلی</i> (ثبت داخل همان ماه قفل بدون بازکردن قفل — تأیید، مجوز همان سند است) یا <i>اولین روز ماه باز</i>. رد: مبلغ به «انحراف بها» و نرخ تغییر نمی‌کند. «ابطال تصمیم» همه را کامل برمی‌گرداند (حتی اگر داخل ماه قفل ثبت شده باشد) و ابطال سند مبدأ، سند تأیید را لغو می‌کند. تجدید ارزیابی دستی (IRV) و تعدیل مستقیم ارزش در ماه بسته همچنان رد می‌شود (E_INV_PERIOD_LOCKED) تا ماه باز شود؛ قواعد خودکار و برگشت‌ها به اولین روز ماه باز منتقل می‌شوند.
+          <b>قفل ماهانه</b> (تب «🔒 قفل ماهانه»، فقط مدیر با ثبت دلیل): خرید، فروش، رسید، هزینهٔ حمل، اصلاح خرید و بستن دورهٔ تولید با تاریخ ماه بسته <b>ثبت می‌شوند</b> (مقدار و سند حسابداری عادی)، ولی هر اثر ریالی روی میانگین آن ماه خودکار اعمال نمی‌شود: یک سند «تأیید تغییر بها» با علت «🔒 قفل دوره» ساخته می‌شود، مبلغ در «تعدیل بهای در انتظار تأیید» می‌ماند و به مدیر و حسابدار اعلان می‌شود. رسید برگشت‌تاریخ با میانگین فعلی همان استخر وارد می‌شود و مابه‌التفاوت نرخ رسید با میانگین پارک می‌شود. همین‌طور (v525): ویرایش/ابطال برش پوشش‌داده‌شده و هم‌ترازی بهای رسید سفارش، برگشت از فروش (ورود با میانگین فعلی؛ تفاوت با بهای صدور اصلی پارک می‌شود) و انتقال بین انبار با استخر متفاوت (ورود با میانگین مقصد) دیگر خطا نمی‌دهند — اثر ریالی هر سند مبدأ در <b>یک</b> سند تأیید جمع می‌شود. در پنجرهٔ تأیید «تاریخ ثبت» را انتخاب کنید: <i>تاریخ اصلی</i> (ثبت داخل همان ماه قفل بدون بازکردن قفل — تأیید، مجوز همان سند است) یا <i>اولین روز ماه باز</i>. رد: مبلغ به «انحراف بها» و نرخ تغییر نمی‌کند. «ابطال تصمیم» همه را کامل برمی‌گرداند (حتی اگر داخل ماه قفل ثبت شده باشد) و ابطال سند مبدأ، سند تأیید را لغو می‌کند. تجدید ارزیابی دستی (IRV) و تعدیل مستقیم ارزش در ماه بسته همچنان رد می‌شود (E_INV_PERIOD_LOCKED) تا ماه باز شود؛ قواعد خودکار و برگشت‌ها به اولین روز ماه باز منتقل می‌شوند.
           <b>حساب طرف تعدیل دستی</b>: در تب «مبنای ریالی» جدول «دلیل تعدیل ← حساب» هست (کسری/اضافی انبار، ضایعات، آسیب‌دیدگی، اصلاح شمارش، سایر). اگر نگاشت خالی باشد، بر اساس مرحلهٔ انبار (مواد/در جریان ساخت/کالا) از حساب «کسری و اضافی انبار» (۶۱۱۸) استفاده می‌شود. تعدیل بدون دلیل مثل قبل به حساب تعدیل عمومی می‌رود.
           <b>دسترسی</b>: ثبت تعدیل، تأیید/رد، سیاست و قواعد، ابطال و قفل ماه هرکدام تیک جدا در دسترسی کاربر دارند. <b>دستگاه‌ها (ویندوز/اندروید)</b>: همهٔ عملیات ارزش‌گذاری وقتی دستگاه به سرور وصل است مستقیم و همزمان روی سرور مرکزی (با دادهٔ مرکزی و امضای دستگاه) اجرا می‌شود و در صف همگام‌سازی نمی‌رود؛ اگر دستگاه آفلاین باشد دکمه‌های ثبت/پیش‌نمایش غیرفعال‌اند («فقط با اتصال به سرور») و فقط مشاهدهٔ دادهٔ محلی ممکن است.</li>
         <li><b>مغایرت‌گیری زیرسیستم‌ها با دفتر کل (v521)</b> (حسابداری → گزارشات): با یک دکمه، موجودی هر حساب انبار، گردش‌های کالای بی‌سند، اسناد بی‌سند حسابداری، سند زنده روی سند عملیاتی باطل‌شده، اختلاف مبلغ سند با فاکتور، دفاتر اشخاص با حساب کنترل، بانک و صندوق، کالای در راه (GRNI)، دارایی ثابت، حساب‌های معلق و تغییر در دورهٔ بسته را با دفتر کل مقایسه می‌کند. هر ردیف «ریز» دارد؛ اصلاح فقط با سند تعدیلی دارای علت یا ابطال/ثبت مجدد انجام می‌شود و پیش‌نمایش پیش‌فرض است. اتصال دوطرفه: تعدیل دستی موجودی حالا سند دارد و ابطالش سند را هم باطل می‌کند؛ برگشت ردیف کاردکس فقط برای ردیف دستی مجاز است و بقیه باید از سند مبدأ ابطال شوند؛ حذف فاکتور اتمیک شد؛ ابطال سندی که در سال مالی بسته است به‌جای دست‌کاری سال بسته، سند معکوس با تاریخ امروز صادر می‌کند.</li>
         <li><b>تکمیل اتصال مالی (v521):</b> در «مغایرت‌گیری» جدول «اصلاحیه‌های ثبت‌شده» هر سند تعدیلی را با علت نشان می‌دهد و دکمهٔ «ابطال» آن را با سند معکوس برمی‌گرداند. تغییر دستی موجودی کالا (ویرایش موجودی) سند تعدیل به نرخ میانگین می‌زند. ویرایش سندی که تاریخش در سال مالی بسته است رد می‌شود (E_CLOSED_PERIOD). <b>دارایی ثابت جدید</b> «منبع تأمین» دارد: افتتاحیه (پیش‌فرض، برای دارایی موجود از قبل)، صندوق، بانک، خرید نسیه از تأمین‌کننده (دفتر تأمین‌کننده هم ثبت می‌شود) یا «بدون سند» وقتی سند تحصیل جدا زده شده؛ غیرفعال‌کردن دارایی سند تحصیلش را ابطال می‌کند. ابطال هزینه و علی‌الحساب نماینده (API) سند و دفاتر را برمی‌گرداند؛ علی‌الحساب تسویه‌شده قابل ابطال نیست.</li>
         <li><b>مغایرت‌گیری شبانه، بدون رواداری و دسترسی ریز (v522):</b> مغایرت‌گیری هر شب (پیش‌فرض ساعت ۰۲:۰۰ به وقت سرور، روی سرور مرکزی) خودکار اجرا می‌شود و خلاصه‌اش با تعداد سالم/هشدار/خطا/گرد کردن و نام کنترل‌های ناموفق در زنگولهٔ مدیر و حسابدار می‌آید؛ روشن/خاموش و ساعتش در همان تب «مغایرت‌گیری» (فقط مدیر) قابل تغییر است و دکمهٔ «اجرای اکنون» هم دارد. <b>هیچ رواداری‌ای باقی نمانده</b>: هر اختلافی حتی ۱ ریال نشان داده می‌شود؛ فقط اختلافی که از حد «گرد کردن» (جمع ناهمخوانی ستون ریال و تومان سطرهای سند به‌اضافهٔ کسر ریال در دفاتر فرعی) بیشتر نباشد با برچسب جداگانهٔ «اختلاف گرد کردن» و شمارش جدا نمایش داده می‌شود؛ اگر هیچ منبع گرد کردنی نباشد، ۱ ریال هم هشدار واقعی است. <b>دارایی ثابت بدون سند تحصیل:</b> در کنترل «دارایی ثابت» اصلاح «سند افتتاحیه یکجا» هست — یک سند به تاریخ اول سال مالی جاری (بدهکار حساب هر دارایی، بستانکار افتتاحیه، فقط بهای تمام‌شده بدون استهلاک انباشته)؛ پیش‌نمایش پیش‌فرض است و اگر دفتر کل از قبل آن مبلغ را دارد، برای جلوگیری از ثبت دوباره تأیید جدا می‌خواهد. ابطال این اصلاحیه سند را باطل و پیوند دارایی‌ها را برمی‌گرداند؛ غیرفعال‌کردن یک دارایی فقط سهم همان دارایی را با سند برگشت جدا برمی‌گرداند. <b>ابطال هزینه/مساعدهٔ نماینده</b> حالا در صفحهٔ نماینده دکمهٔ «🧾 هزینه‌ها و مساعده‌ها» دارد (علت اجباری)؛ در صورت‌حساب نماینده ردیف ابطال‌شده با برچسب «ابطال‌شده» و مبلغ صفر می‌آید و مانده تغییر نمی‌کند. <b>دسترسی‌ها:</b> در پنجرهٔ دسترسی کاربر، «ارزش‌گذاری موجودی» تیک‌های جدا دارد (ایجاد = ثبت تعدیل، تأیید = تأیید/رد، ویرایش = سیاست و قوانین، حذف = ابطال سند) و «قفل دورهٔ ارزش‌گذاری» ردیف جدا؛ «مغایرت‌گیری» ویرایش = اعمال اصلاح و حذف = ابطال اصلاحیه؛ ابطال هزینه/مساعدهٔ نماینده با تیک «حذف» نمایندگان. پیش‌فرض: مدیر همه؛ حسابدار همه به‌جز قفل دوره و ویرایش سیاست ارزش‌گذاری. دکمهٔ «⚙️ پیش‌فرض نقش» پیش‌فرض هر نقش را برای همهٔ کاربرانش تغییر می‌دهد و تیک جداگانهٔ هر کاربر بر آن مقدم است.</li>
+        <li><b>مغایرت‌گیری دقیق‌تر (v525):</b> اصلاح «تطبیق ارزش موجودی با دفتر کل» دیگر هرگز به‌طور پیش‌فرض به ۹۹۹۹ «اصلاحات و تعدیلات» نمی‌رود: باید <b>حساب طرف مقابل</b> را خودتان انتخاب کنید (مثلاً ۳۱۰۲ تراز افتتاحیه، ۶۱۰۸/۶۱۱۸ کسری و اضافات انبار، ۵۱۰۱ بهای تمام‌شده، ۱۱۱۰/۱۱۱۱)؛ بدون آن اعمال اصلاح رد می‌شود و حساب‌های معلق/کنترل (۹۹۹۹، ۵۲۰۱، ۵۲۰۲) و حساب غیرقابل‌ثبت پذیرفته نمی‌شوند. پیش‌نمایش برای هر حساب انبار مبلغ و طرف سند را جدا نشان می‌دهد. صندوقی که ماندهٔ منفی دارد در کنترل «صندوق و بانک» با برچسب جداگانهٔ <b>«صندوق منفی»</b> و نام و مبلغ صندوق می‌آید و اختلاف تطبیق صفر می‌ماند (هشدار عملیاتی است، نه مغایرت). هشدارهای کاذب حذف شد: تسویهٔ کارتخوانی و پرداخت حقوق که سند دارند، انتقال بین دو انبار هم‌حساب، جفت گردش بی‌سندی که یکدیگر را خنثی می‌کنند (به‌صورت «اطلاع») و فاکتوری که روی حساب کنترل ثبت و بعد با سند انتقال به تفصیلی مشتری برده شده.</li>
         <li><b>رزرو موجودی</b>: قفل نرم؛ با فروش قطعی مصرف و با لغو سفارش آزاد می‌شود. سفارش CRM دیگر سربرگ موجودی را جدا کم نمی‌کند</li>
         <li><b>گزارش رنگ و سایز</b>: موجودی لحظه‌ای هر رنگ و سایز، جدا از بازهٔ تاریخ حسابداری. چهار نما دارد: خلاصه، ماتریس، شکستگی سایز (رنگی که بعضی سایزهایش تمام شده) و جدول. ستون‌های جدول را می‌توانید خاموش کنید و همان فیلتر و ستون‌ها را با نام ذخیره کنید. خروجی CSV همان نمای روی صفحه است. ماتریس و شکستگی، فیلتر سایز را کنار می‌گذارند تا جای خالی پنهان نشود. خانهٔ صفر در ماتریس یعنی آن سایز در انبارهای همین فیلتر موجودی ندارد</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b> به‌صورت <b>سند تجمیعی</b> (شماره WH) ثبت می‌شوند — در لیست یک ردیف per سند با تعداد خطوط و جمع تعداد دیده می‌شود، نه هر قلم جدا. برای رسید، <b>نوع طرف حساب</b> را انتخاب کنید: تعدیل (۹۹۹۹)، افتتاحیه (۳۱۰۲)، یا رسید تأمین‌کننده بدون فاکتور GRNI (۲۱۱۲). <b>خرید با فاکتور</b> را از فاکتور خرید / رسید کالا بزنید تا موجودی دوبار بدهکار نشود. هر انبار یک <b>مرکز هزینه</b> دارد؛ رسید و حواله همان مرکز را روی هر دو سطر سند می‌گذارند و انتقال، بدهکار را به مرکز مقصد و بستانکار را به مرکز مبدأ می‌دهد. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. کالای ماتریسی به پک زندهٔ <b>همان انبار مبدأ</b> شکسته می‌شود. با عوض کردن انبار مبدأ، خطوط کالا پاک می‌شود. <b>مشاهده</b> جزئیات اقلام را نشان می‌دهد؛ دکمهٔ <b>📦 چاپ</b> برگهٔ A4/A5 حواله/رسید/انتقال (جدول کالا + امضا، بدون مبلغ) را برای انباردار باز می‌کند. <b>ویرایش</b> سند قبلی را کامل ابطال و سند جدید صادر می‌کند (R13). مدیر/حسابداری می‌تواند کل سند را با ⛔ <b>ابطال</b> برگرداند (موجودی + سند حسابداری). اسناد ابطال‌شده از لیست خارج می‌شوند</li>
@@ -35041,7 +35394,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v524</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v525</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -35237,6 +35590,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('⚖️','موجودی کافی نیست',`
+      <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
     helpSec('📏','واحد روی فاکتور',`
       <p>واحد هر ردیف فاکتور همان واحد کالاست. عدد و جفت و ست را نمی‌شود خرد کرد. متر و یارد و کیلو اعشار دارند و در کاردکس، فهرست کالا و گزارش انبار تا ۳ رقم دیده می‌شوند؛ مبلغ ریال صحیح می‌ماند. اگر واحد کالا اشتباه است، از مدیر بخواهید در فرم کالا آن را از فهرست واحدها عوض کند؛ خود فاکتور واحد جدا نمی‌سازد.</p>`),
     helpSec('✂️','ضایعات لایه‌چینی',`

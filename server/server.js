@@ -146,6 +146,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 const { refDocResponseMiddleware } = require('./lib/ref-doc-sanitize');
 app.use('/api', refDocResponseMiddleware);
+app.use('/api', require('./lib/inventory/shortage-error').requestScope);
 app.use((req, res, next) => {
   try {
     const xo = require('./lib/excel-origin');
