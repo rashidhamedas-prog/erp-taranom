@@ -2030,6 +2030,105 @@ function customerBooksMismatchList(db, { asOf, limit } = {}) {
   return { count: out.length, rows: out.slice(0, max) };
 }
 
+/**
+ * Dual-role parties (customer + employee/marketer) often have AR leaf empty
+ * while payroll/loan/incentive live on the person leaf (1106…). Customer
+ * statement must stay AR-only; surface a hint so UI can open party turnover.
+ */
+function customerPartyAltHint(db, customerId) {
+  const cust = db.prepare(
+    'SELECT id, biz, party_id, coa_code FROM customers WHERE id=?'
+  ).get(customerId);
+  if (!cust || !cust.party_id) return null;
+  const party = db.prepare(
+    'SELECT id, full_name, party_roles, coa_code FROM parties WHERE id=?'
+  ).get(cust.party_id);
+  if (!party) return null;
+  let roles = [];
+  try {
+    const raw = party.party_roles;
+    roles = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+  } catch (_) {
+    roles = [];
+  }
+  roles = roles.map((r) => String(r || '').toLowerCase()).filter(Boolean);
+  const person = db.prepare(
+    'SELECT id, name, coa_code FROM persons WHERE party_id=? ORDER BY id LIMIT 1'
+  ).get(cust.party_id);
+  let personLedgerLive = 0;
+  let personJeLive = 0;
+  let openLoan = 0;
+  let payrollLive = 0;
+  if (person) {
+    try {
+      const { personLedgerAliveSql } = require('./person-ledger-money');
+      const alive = personLedgerAliveSql(db);
+      personLedgerLive = Number(
+        db.prepare(
+          `SELECT COUNT(*) AS n FROM person_ledger pl WHERE pl.person_id=? AND (${alive})`
+        ).get(person.id).n
+      ) || 0;
+    } catch (_) {
+      personLedgerLive = Number(
+        db.prepare(
+          `SELECT COUNT(*) AS n FROM person_ledger
+           WHERE person_id=? AND COALESCE(deleted_at,0)=0`
+        ).get(person.id).n
+      ) || 0;
+    }
+    if (person.coa_code) {
+      personJeLive = Number(
+        db.prepare(
+          `SELECT COUNT(*) AS n FROM journal_lines jl
+           JOIN journal_entries je ON je.id=jl.entry_id
+           WHERE jl.account_code=? AND ${JE_BALANCE}`
+        ).get(person.coa_code).n
+      ) || 0;
+    }
+    try {
+      openLoan = Number(
+        db.prepare(
+          `SELECT COUNT(*) AS n FROM payroll_loans
+           WHERE person_id=? AND COALESCE(status,'open') NOT IN ('reversed','void','closed','paid')`
+        ).get(person.id).n
+      ) || 0;
+    } catch (_) { /* optional table */ }
+    try {
+      payrollLive = Number(
+        db.prepare(
+          `SELECT COUNT(*) AS n FROM payroll_records
+           WHERE person_id=? AND COALESCE(status,'') NOT IN ('reversed','void')`
+        ).get(person.id).n
+      ) || 0;
+    } catch (_) { /* optional */ }
+  }
+  const hasPersonActivity = personLedgerLive > 0 || personJeLive > 0 || openLoan > 0 || payrollLive > 0;
+  const isStaff = roles.includes('employee') || roles.includes('marketer') || roles.includes('rep');
+  if (!isStaff && !hasPersonActivity) return null;
+  const roleFa = [];
+  if (roles.includes('customer')) roleFa.push('مشتری');
+  if (roles.includes('supplier')) roleFa.push('تأمین‌کننده');
+  if (roles.includes('employee')) roleFa.push('کارمند');
+  if (roles.includes('marketer') || roles.includes('rep')) roleFa.push('بازاریاب');
+  return {
+    party_id: Number(party.id),
+    party_name: party.full_name || cust.biz || '',
+    roles,
+    role_labels: roleFa,
+    customer_coa: cust.coa_code || null,
+    person_id: person ? Number(person.id) : null,
+    person_coa: person && person.coa_code ? person.coa_code : null,
+    has_person_activity: hasPersonActivity,
+    person_ledger_live: personLedgerLive,
+    person_je_live: personJeLive,
+    open_loan: openLoan,
+    payroll_live: payrollLive,
+    message: hasPersonActivity
+      ? 'این طرف‌حساب نقش کارمند/بازاریاب هم دارد. حقوق، وام، مساعده و انگیزه روی حساب شخص (۱۱۰۶) ثبت می‌شود، نه روی صورت‌حساب مطالبات مشتری (۱۱۰۳). برای دیدن همان گردش از «گردش شخص» استفاده کنید.'
+      : 'این طرف‌حساب نقش کارمند/بازاریاب هم دارد. صورت‌حساب مشتری فقط مطالبات فروش (فاکتور/دریافت/چک) را نشان می‌دهد.',
+  };
+}
+
 module.exports = {
   IMMEDIATE_PAY,
   isImmediatePay,
@@ -2068,6 +2167,7 @@ module.exports = {
   repairSettlementsMissingLeafJe,
   ensureCustomerBooksRepaired,
   customerBooksMismatchList,
+  customerPartyAltHint,
   resolveCustomerIdFromArJe,
   isFirmSale,
   AR_CONTROL_RECLASS,

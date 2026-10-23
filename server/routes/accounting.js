@@ -106,7 +106,7 @@ function escapeHtml(value) {
 const {
   attachMissingInvoiceRows, stmtEntryType, hideVoidedBookRows, glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance, canonicalCustomerFold, ensureCustomerBooksRepaired,
-  reclassifyControlArToCustomerLeaf, customerBooksMismatchList,
+  reclassifyControlArToCustomerLeaf, customerBooksMismatchList, customerPartyAltHint,
 } = require('../lib/customer-books');
 const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
 
@@ -315,6 +315,8 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
   const hasGl = gl.gl_account_code != null && gl.gl_closing_rial != null;
   const closing = periodClose;
   const books_mismatch = hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledger_closing)) > 1;
+  let party_hint = null;
+  try { party_hint = customerPartyAltHint(db, customerId); } catch (_) { party_hint = null; }
   return {
     customer, entries,
     opening,
@@ -322,6 +324,7 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     ledger_opening,
     ledger_closing,
     books_mismatch,
+    party_hint,
     source: hasGl && !books_mismatch ? 'aligned' : 'customer_ledger',
     ...gl,
   };
