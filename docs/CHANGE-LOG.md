@@ -4,8 +4,8 @@
 - **اصلاح بک‌اند:** `firmSaleAliveSql` در `sales-document.js`؛ `/admin/stats/overview` و `/admin/dashboard` و `/api/dashboard/{summary,kpis,charts,alerts}` روی face + alive؛ overview فیلدهای `totalRevenueAll` / `totalInvoicesAll` / `periodActive`؛ lowStock از OH انبار؛ جدول کارشناس فقط نقش‌های فروش (+فعالیت).
 - **UI:** بنر راهنما وقتی بازه فروش خالی است ولی کل غیرصفر است + دکمهٔ «نمایش همه» / «ماه قبل»؛ هیرو فروش کل بازه با زیرعنوان کل.
 - **فایل‌ها:** `lib/sales-document.js`, `routes/{admin,dashboard}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-home-dash-kpi-v530.js`, CHANGE-LOG, Help.
-- **تست:** `test-home-dash-kpi-v530` (استاتیک محلی ۱۷؛ DB روی ایران)؛ `test-sms` ۲۲/۰؛ `test-sync` روی ایران.
-- **Deploy:** ⏳
+- **تست:** `test-home-dash-kpi-v530` ۲۳/۰ روی ایران؛ `test-sms` ۲۲/۰؛ `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `9cf1e87a` — overlay ایران (SW `erp-taranom-v530` / `?v=530`)؛ health=200؛ `image_engine` sharp 0.33.5.
 
 ### ۱۴۰۵/۰۸/۰۱ — v529: گیت خروج بدون بها در کاردکس + ترمیم زمانی میانگین (روش از resolvePolicy)
 - **مشکل:** در کاردکس، خروجی‌هایی با تعداد >۰ ولی فی/مبلغ ۰ دیده می‌شد (نمونه: فروش یلدا قبل از رسیدهای تولید با تاریخ عقب‌تر؛ میانگین لحظهٔ ثبت صفر بود و UI همان `amount_rial` ذخیره‌شده را نشان می‌دهد).

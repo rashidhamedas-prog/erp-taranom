@@ -84,16 +84,19 @@ db.prepare('INSERT INTO products (id, stock, stock_alert, name) VALUES (2, 0, 5,
 db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (1, 1, 2)').run();
 db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (2, 1, 20)').run();
 
-const lowStock = db.prepare(`
-  SELECT COUNT(*) c FROM products p
+const lowIds = db.prepare(`
+  SELECT p.id FROM products p
   WHERE COALESCE((SELECT SUM(ws.qty) FROM warehouse_stock ws WHERE ws.product_id=p.id), 0)
         <= COALESCE(p.stock_alert, 5)
-`).get().c;
-ok(lowStock === 1, 'lowStock uses warehouse_stock (product 1 OH=2 ≤ alert 5; product 2 OH=20)');
+  ORDER BY p.id
+`).all().map((r) => r.id);
+ok(lowIds.length === 1 && lowIds[0] === 1, 'lowStock WH flags product 1 (OH=2 ≤ alert 5), not product 2 (OH=20)');
 
-const legacyStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=COALESCE(stock_alert,5)').get().c;
-ok(legacyStock === 1, 'legacy products.stock flags product 2 (stock 0) only');
-ok(lowStock !== legacyStock, 'WH-based lowStock diverges from products.stock mirror');
+const legacyIds = db.prepare(
+  'SELECT id FROM products WHERE stock<=COALESCE(stock_alert,5) ORDER BY id'
+).all().map((r) => r.id);
+ok(legacyIds.length === 1 && legacyIds[0] === 2, 'legacy products.stock flags product 2 (stock 0) only');
+ok(String(lowIds) !== String(legacyIds), 'WH-based lowStock set diverges from products.stock mirror');
 
 db.prepare(
   `INSERT INTO invoices (id,user_id,cust_id,type,date,final,final_rial,deleted_at,status)
