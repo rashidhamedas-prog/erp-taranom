@@ -6,7 +6,8 @@
 
 const { j2g } = require('../jalali');
 const { partySignedBalanceDetailMap, glSignedForCoa, partyBooksMismatch } = require('./party-books');
-const { firmSaleTypeSql } = require('./sales-document');
+const { firmSaleAliveSql } = require('./sales-document');
+const { customerArExposureRial, resolvePartyCreditLimitRial } = require('./party-credit');
 
 const ROLE_LABELS = {
   customer: 'مشتری',
@@ -64,48 +65,81 @@ function agingBucket(days) {
   return 'b90plus';
 }
 
-/** Oldest unpaid firm-invoice age (days) per customer_id — FIFO vs settlements */
-function customerAgingDaysMap(db) {
+/**
+ * FIFO aging per customer (rial remaining after settlement pool) — same math as /adv-reports/aging.
+ * Returns Map<custId, { oldest_days, b0_30, b31_60, b61_90, b90plus, total }>.
+ */
+function customerAgingFifoMap(db) {
   const map = new Map();
   if (!tableExists(db, 'customers') || !tableExists(db, 'invoices')) return map;
-  let customers;
+
+  let invoices = [];
   try {
-    customers = db.prepare('SELECT id FROM customers').all();
+    invoices = db.prepare(`
+      SELECT cust_id, id, date, COALESCE(NULLIF(final_rial,0), ROUND(final), 0) AS final_rial
+      FROM invoices
+      WHERE ${firmSaleAliveSql()}
+      ORDER BY cust_id ASC, date ASC, id ASC
+    `).all();
   } catch (_) {
     return map;
   }
-  for (const c of customers) {
-    const invoices = db.prepare(`
-      SELECT id, date, COALESCE(NULLIF(final_rial,0), ROUND(final), 0) AS final_rial
-      FROM invoices
-      WHERE cust_id=? AND ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0
-      ORDER BY date ASC, id ASC
-    `).all(c.id);
-    if (!invoices.length) continue;
-    let settledPool = 0;
-    try {
-      settledPool = db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0), ROUND(amount), 0)), 0) AS s
-        FROM settlements
-        WHERE cust_id=? AND COALESCE(status,'posted')<>'reversed'
-      `).get(c.id).s;
-    } catch (_) {
-      settledPool = 0;
+
+  const settled = new Map();
+  try {
+    for (const r of db.prepare(`
+      SELECT cust_id,
+             COALESCE(SUM(COALESCE(NULLIF(amount_rial,0), ROUND(amount), 0)), 0) AS s
+      FROM settlements
+      WHERE COALESCE(status,'posted')<>'reversed'
+      GROUP BY cust_id
+    `).all()) {
+      settled.set(Number(r.cust_id), Number(r.s) || 0);
     }
-    let oldestDays = null;
-    for (const inv of invoices) {
-      let remaining = Number(inv.final_rial) || 0;
-      if (settledPool > 0) {
-        const applied = Math.min(settledPool, remaining);
-        remaining -= applied;
-        settledPool -= applied;
-      }
-      if (remaining <= 0.01) continue;
-      const age = daysSinceJalali(inv.date);
-      if (oldestDays == null || age > oldestDays) oldestDays = age;
+  } catch (_) { /* */ }
+
+  let curCust = null;
+  let pool = 0;
+  let oldestDays = null;
+  let buckets = emptyAging();
+
+  const flush = (cid) => {
+    if (cid == null) return;
+    if ((buckets.total || 0) > 0.01 || oldestDays != null) {
+      map.set(cid, {
+        oldest_days: oldestDays,
+        b0_30: buckets.b0_30,
+        b31_60: buckets.b31_60,
+        b61_90: buckets.b61_90,
+        b90plus: buckets.b90plus,
+        total: buckets.total,
+      });
     }
-    if (oldestDays != null) map.set(Number(c.id), oldestDays);
+  };
+
+  for (const inv of invoices) {
+    const cid = Number(inv.cust_id);
+    if (cid !== curCust) {
+      flush(curCust);
+      curCust = cid;
+      pool = settled.get(cid) || 0;
+      oldestDays = null;
+      buckets = emptyAging();
+    }
+    let remaining = Number(inv.final_rial) || 0;
+    if (pool > 0) {
+      const applied = Math.min(pool, remaining);
+      remaining -= applied;
+      pool -= applied;
+    }
+    if (remaining <= 0.01) continue;
+    const age = daysSinceJalali(inv.date);
+    if (oldestDays == null || age > oldestDays) oldestDays = age;
+    const b = agingBucket(age);
+    buckets[b] += remaining;
+    buckets.total += remaining;
   }
+  flush(curCust);
   return map;
 }
 
@@ -148,10 +182,10 @@ function nextActionFor(r) {
   if (r.books_mismatch) {
     return { code: 'reconcile', label: 'تطبیق دفتر اشخاص با تفصیلی' };
   }
-  if (r.aging_bucket === 'b90plus' && r.balance_rial > 0) {
+  if ((Number(r.aging_b90plus) || 0) > 0 || (r.aging_bucket === 'b90plus' && (Number(r.aging_total_rial) || 0) > 0)) {
     return { code: 'collect_overdue', label: 'وصول مطالبات دیرکرد ۹۰+ روز' };
   }
-  if (r.aging_days != null && r.aging_days > 60 && r.balance_rial > 0) {
+  if (r.aging_days != null && r.aging_days > 60 && (Number(r.aging_total_rial) || r.balance_rial > 0)) {
     return { code: 'follow_up', label: 'پیگیری وصول (۶۰+ روز)' };
   }
   if (r.balance_rial > 0) {
@@ -200,9 +234,14 @@ function summarizeParties(rows) {
     if (r.books_mismatch) mismatchCount += 1;
     if (r.risk_level === 'high') highRiskCount += 1;
     else if (r.risk_level === 'medium') mediumRiskCount += 1;
-    if (r.aging_bucket && r.balance_rial > 0) {
-      aging[r.aging_bucket] += r.debit_rial;
-      aging.total += r.debit_rial;
+    // پیری = ماندهٔ واقعی FIFO فاکتور (نه کل debit شخص)
+    const aTot = Number(r.aging_total_rial) || 0;
+    if (aTot > 0) {
+      aging.b0_30 += Number(r.aging_b0_30) || 0;
+      aging.b31_60 += Number(r.aging_b31_60) || 0;
+      aging.b61_90 += Number(r.aging_b61_90) || 0;
+      aging.b90plus += Number(r.aging_b90plus) || 0;
+      aging.total += aTot;
     }
   }
   return {
@@ -239,7 +278,7 @@ function buildPartyControlDashboard(db, query = {}) {
         over_credit_count: 0,
         mismatch_count: 0,
       },
-      by_role: {},
+      by_role: [],
       aging: emptyAging(),
       parties: [],
       worklist: [],
@@ -249,7 +288,7 @@ function buildPartyControlDashboard(db, query = {}) {
   }
 
   const balDetail = partySignedBalanceDetailMap(db);
-  const agingByCust = customerAgingDaysMap(db);
+  const agingByCust = customerAgingFifoMap(db);
 
   const custLink = new Map();
   const supLink = new Map();
@@ -319,22 +358,34 @@ function buildPartyControlDashboard(db, query = {}) {
     const leaf = info.coa_code || p.coa_code || null;
     const glBal = leaf ? glSignedForCoa(db, leaf) : null;
     const booksMismatch = partyBooksMismatch(db, info);
-    const creditLimit = Math.round(Number(p.credit_limit) || 0);
     const debitSide = balance > 0 ? balance : 0;
     const creditSide = balance < 0 ? -balance : 0;
-    const creditUsed = roles.includes('customer') ? Math.max(0, balance) : 0;
+
+    const custId = custLink.get(id) || null;
+    const supId = supLink.get(id) || null;
+
+    // سقف اعتبار = همان SoT گیت فروش (party-credit)؛ نه ماندهٔ خالص چندنقشی
+    let creditLimit = Math.round(Number(p.credit_limit) || 0);
+    let creditUsed = 0;
+    if (custId) {
+      try {
+        creditLimit = resolvePartyCreditLimitRial(db, custId);
+        creditUsed = customerArExposureRial(db, custId);
+      } catch (_) {
+        creditUsed = roles.includes('customer') ? Math.max(0, balance) : 0;
+      }
+    } else if (roles.includes('customer')) {
+      creditUsed = Math.max(0, balance);
+    }
     const overCredit = creditLimit > 0 && creditUsed > creditLimit;
     const utilPct = creditLimit > 0
       ? Math.round((creditUsed / creditLimit) * 1000) / 10
       : null;
 
-    const custId = custLink.get(id) || null;
-    const supId = supLink.get(id) || null;
-    let ageDays = null;
-    if (custId && agingByCust.has(custId) && balance > 0) {
-      ageDays = agingByCust.get(custId);
-    }
-    const bucket = ageDays != null ? agingBucket(ageDays) : null;
+    const fifo = custId ? agingByCust.get(custId) : null;
+    const ageDays = fifo && fifo.oldest_days != null ? fifo.oldest_days : null;
+    const agingTotal = fifo ? (Number(fifo.total) || 0) : 0;
+    const bucket = ageDays != null && agingTotal > 0 ? agingBucket(ageDays) : null;
     const expertId = resolveExpertId(p.user_id, custExpertByParty.get(id));
     const expertName = expertId ? (expertNameById.get(expertId) || ('#' + expertId)) : '';
 
@@ -374,14 +425,19 @@ function buildPartyControlDashboard(db, query = {}) {
       balance_coa_code: leaf,
       aging_days: ageDays,
       aging_bucket: bucket,
+      aging_b0_30: fifo ? (Number(fifo.b0_30) || 0) : 0,
+      aging_b31_60: fifo ? (Number(fifo.b31_60) || 0) : 0,
+      aging_b61_90: fifo ? (Number(fifo.b61_90) || 0) : 0,
+      aging_b90plus: fifo ? (Number(fifo.b90plus) || 0) : 0,
+      aging_total_rial: agingTotal,
       linked_customer_id: custId,
       linked_supplier_id: supId,
       expert_id: expertId,
       expert_name: expertName,
       risk_score: riskScore,
-      risk_level: overCredit || (bucket === 'b90plus' && balance > 0)
+      risk_level: overCredit || (bucket === 'b90plus' && agingTotal > 0)
         ? 'high'
-        : (booksMismatch || (ageDays != null && ageDays > 60) ? 'medium' : 'ok'),
+        : (booksMismatch || (ageDays != null && ageDays > 60 && agingTotal > 0) ? 'medium' : 'ok'),
       primary_role: primaryRole(roles),
     });
   }
@@ -441,7 +497,11 @@ function buildPartyControlDashboard(db, query = {}) {
   else if (risk === 'high') filtered = filtered.filter((r) => r.risk_level === 'high');
   else if (risk === 'medium') filtered = filtered.filter((r) => r.risk_level === 'medium' || r.risk_level === 'high');
   if (agingBucketFilter && ['b0_30', 'b31_60', 'b61_90', 'b90plus'].includes(agingBucketFilter)) {
-    filtered = filtered.filter((r) => r.aging_bucket === agingBucketFilter && r.balance_rial > 0);
+    filtered = filtered.filter((r) => {
+      const key = 'aging_' + agingBucketFilter;
+      const bucketAmt = Number(r[key]) || 0;
+      return bucketAmt > 0 || (r.aging_bucket === agingBucketFilter && (Number(r.aging_total_rial) || 0) > 0);
+    });
   }
 
   const sorter = {
@@ -543,7 +603,7 @@ function buildPartyControlDashboard(db, query = {}) {
     generated_at: Date.now(),
     health_score,
     unit: 'rial',
-    version: 533,
+    version: 534,
     kpis: {
       parties_total: all.length,
       parties_in_scope: scope.length,
@@ -585,4 +645,10 @@ function buildPartyControlDashboard(db, query = {}) {
   };
 }
 
-module.exports = { buildPartyControlDashboard, ROLE_LABELS, primaryRole, nextActionFor };
+module.exports = {
+  buildPartyControlDashboard,
+  ROLE_LABELS,
+  primaryRole,
+  nextActionFor,
+  customerAgingFifoMap,
+};

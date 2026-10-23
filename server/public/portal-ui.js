@@ -2602,7 +2602,10 @@
     const id = Number(partyId) || 0;
     if (!id || typeof showPartyTurnover !== 'function') return;
     const roleSel = (document.getElementById('pcRole') || {}).value || '';
-    const role = roleHint || roleSel || undefined;
+    let role = roleHint || roleSel || undefined;
+    if (role && !['customer', 'supplier', 'person'].includes(String(role))) {
+      role = 'person'; // employee / shareholder / other → دفتر شخص
+    }
     const ok = role && ['customer', 'supplier', 'person'].includes(String(role)) ? role : undefined;
     showPartyTurnover(id, name || ('#' + id), ok);
   }
