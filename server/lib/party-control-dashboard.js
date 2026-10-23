@@ -132,6 +132,37 @@ function parseExpertFilter(raw) {
   return null;
 }
 
+function primaryRole(roles) {
+  const order = ['customer', 'supplier', 'employee', 'rep', 'shareholder', 'person', 'other'];
+  const list = Array.isArray(roles) ? roles : [];
+  for (const r of order) {
+    if (list.includes(r)) return r;
+  }
+  return list[0] || 'other';
+}
+
+function nextActionFor(r) {
+  if (r.over_credit) {
+    return { code: 'credit_limit', label: 'بررسی سقف اعتبار / پیگیری وصول' };
+  }
+  if (r.books_mismatch) {
+    return { code: 'reconcile', label: 'تطبیق دفتر اشخاص با تفصیلی' };
+  }
+  if (r.aging_bucket === 'b90plus' && r.balance_rial > 0) {
+    return { code: 'collect_overdue', label: 'وصول مطالبات دیرکرد ۹۰+ روز' };
+  }
+  if (r.aging_days != null && r.aging_days > 60 && r.balance_rial > 0) {
+    return { code: 'follow_up', label: 'پیگیری وصول (۶۰+ روز)' };
+  }
+  if (r.balance_rial > 0) {
+    return { code: 'collect', label: 'پیگیری دریافت' };
+  }
+  if (r.balance_rial < 0) {
+    return { code: 'pay', label: 'بررسی پرداخت بدهی' };
+  }
+  return { code: 'review', label: 'بازبینی کارت شخص' };
+}
+
 function summarizeParties(rows) {
   const byRole = {};
   const aging = emptyAging();
@@ -141,17 +172,24 @@ function summarizeParties(rows) {
   let overCreditCount = 0;
   let overCreditRial = 0;
   let mismatchCount = 0;
+  let highRiskCount = 0;
+  let mediumRiskCount = 0;
   for (const r of rows) {
     const roles = r.party_roles && r.party_roles.length ? r.party_roles : ['other'];
+    // شمارش سمت‌ها برای فیلتر؛ مبلغ فقط روی سمت اصلی تا جمع سمت‌ها دوبل نشود
+    const moneyRole = primaryRole(roles);
     for (const role of roles) {
       if (!byRole[role]) {
         byRole[role] = { role, label: ROLE_LABELS[role] || role, count: 0, debit_rial: 0, credit_rial: 0, with_balance: 0 };
       }
       byRole[role].count += 1;
-      byRole[role].debit_rial += r.debit_rial;
-      byRole[role].credit_rial += r.credit_rial;
       if (r.balance_rial !== 0) byRole[role].with_balance += 1;
     }
+    if (!byRole[moneyRole]) {
+      byRole[moneyRole] = { role: moneyRole, label: ROLE_LABELS[moneyRole] || moneyRole, count: 0, debit_rial: 0, credit_rial: 0, with_balance: 0 };
+    }
+    byRole[moneyRole].debit_rial += r.debit_rial;
+    byRole[moneyRole].credit_rial += r.credit_rial;
     if (r.balance_rial !== 0) withBal += 1;
     totalDebit += r.debit_rial;
     totalCredit += r.credit_rial;
@@ -160,12 +198,17 @@ function summarizeParties(rows) {
       overCreditRial += (Number(r.credit_used_rial) || 0) - (Number(r.credit_limit_rial) || 0);
     }
     if (r.books_mismatch) mismatchCount += 1;
+    if (r.risk_level === 'high') highRiskCount += 1;
+    else if (r.risk_level === 'medium') mediumRiskCount += 1;
     if (r.aging_bucket && r.balance_rial > 0) {
       aging[r.aging_bucket] += r.debit_rial;
       aging.total += r.debit_rial;
     }
   }
-  return { byRole, aging, totalDebit, totalCredit, withBal, overCreditCount, overCreditRial, mismatchCount };
+  return {
+    byRole, aging, totalDebit, totalCredit, withBal,
+    overCreditCount, overCreditRial, mismatchCount, highRiskCount, mediumRiskCount,
+  };
 }
 
 function buildPartyControlDashboard(db, query = {}) {
@@ -174,11 +217,13 @@ function buildPartyControlDashboard(db, query = {}) {
   const roleFilter = String(q.role || '').toLowerCase().trim();
   const side = String(q.side || 'all').toLowerCase(); // debit | credit | all
   const balanceMode = String(q.balance || 'nonzero').toLowerCase(); // nonzero | zero | all
-  const risk = String(q.risk || 'all').toLowerCase(); // over_credit | mismatch | high | all
+  const risk = String(q.risk || 'all').toLowerCase(); // over_credit | mismatch | high | medium | all
+  const agingBucketFilter = String(q.aging_bucket || q.aging || '').toLowerCase().trim(); // b0_30|b31_60|b61_90|b90plus
   const groupId = q.party_group_id ? parseInt(q.party_group_id, 10) : null;
   const positionId = q.position_id ? parseInt(q.position_id, 10) : null;
   const sort = String(q.sort || 'balance_abs').toLowerCase();
   const lim = Math.min(500, Math.max(20, parseInt(q.limit, 10) || 200));
+  const worklistLim = Math.min(50, Math.max(10, parseInt(q.worklist_limit, 10) || 25));
   const expertFilter = parseExpertFilter(q.expert_id != null && q.expert_id !== '' ? q.expert_id : q.expert);
 
   if (!tableExists(db, 'parties')) {
@@ -337,6 +382,7 @@ function buildPartyControlDashboard(db, query = {}) {
       risk_level: overCredit || (bucket === 'b90plus' && balance > 0)
         ? 'high'
         : (booksMismatch || (ageDays != null && ageDays > 60) ? 'medium' : 'ok'),
+      primary_role: primaryRole(roles),
     });
   }
 
@@ -368,6 +414,8 @@ function buildPartyControlDashboard(db, query = {}) {
   const overCreditCount = summary.overCreditCount;
   const overCreditRial = summary.overCreditRial;
   const mismatchCount = summary.mismatchCount;
+  const highRiskCount = summary.highRiskCount;
+  const mediumRiskCount = summary.mediumRiskCount;
 
   // Filters for table/worklist (expert already narrowed KPI scope)
   let filtered = scope.slice();
@@ -391,6 +439,10 @@ function buildPartyControlDashboard(db, query = {}) {
   if (risk === 'over_credit') filtered = filtered.filter((r) => r.over_credit);
   else if (risk === 'mismatch') filtered = filtered.filter((r) => r.books_mismatch);
   else if (risk === 'high') filtered = filtered.filter((r) => r.risk_level === 'high');
+  else if (risk === 'medium') filtered = filtered.filter((r) => r.risk_level === 'medium' || r.risk_level === 'high');
+  if (agingBucketFilter && ['b0_30', 'b31_60', 'b61_90', 'b90plus'].includes(agingBucketFilter)) {
+    filtered = filtered.filter((r) => r.aging_bucket === agingBucketFilter && r.balance_rial > 0);
+  }
 
   const sorter = {
     balance_abs: (a, b) => Math.abs(b.balance_rial) - Math.abs(a.balance_rial),
@@ -403,30 +455,54 @@ function buildPartyControlDashboard(db, query = {}) {
   filtered.sort(sorter[sort] || sorter.balance_abs);
 
   const parties = filtered.slice(0, lim);
-  const worklist = filtered
-    .filter((r) => r.balance_rial !== 0 && (r.over_credit || r.books_mismatch || r.risk_level !== 'ok' || Math.abs(r.balance_rial) > 0))
+
+  // Worklist = صف اقدام (نه کپی کامل جدول): ریسک/اختلاف/سقف/دیرکرد، سپس بزرگ‌ترین مانده‌ها
+  const actionable = filtered.filter((r) => r.balance_rial !== 0 && (
+    r.over_credit || r.books_mismatch || r.risk_level === 'high' || r.risk_level === 'medium'
+    || (r.aging_days != null && r.aging_days >= 60)
+  ));
+  const workSrc = (actionable.length ? actionable : filtered.filter((r) => r.balance_rial !== 0))
     .slice()
-    .sort((a, b) => b.risk_score - a.risk_score)
-    .slice(0, 25)
-    .map((r) => ({
+    .sort((a, b) => b.risk_score - a.risk_score || Math.abs(b.balance_rial) - Math.abs(a.balance_rial));
+  const worklist = workSrc.slice(0, worklistLim).map((r) => {
+    const act = nextActionFor(r);
+    return {
       id: r.id,
       name: r.name,
+      person_code: r.person_code,
+      coa_code: r.coa_code,
       balance_rial: r.balance_rial,
+      debit_rial: r.debit_rial,
+      credit_rial: r.credit_rial,
       risk_score: r.risk_score,
       risk_level: r.risk_level,
       over_credit: r.over_credit,
       books_mismatch: r.books_mismatch,
       aging_days: r.aging_days,
       aging_bucket: r.aging_bucket,
+      credit_limit_rial: r.credit_limit_rial,
+      credit_used_rial: r.credit_used_rial,
+      credit_util_pct: r.credit_util_pct,
       party_roles: r.party_roles,
+      role_labels: r.role_labels,
+      primary_role: r.primary_role,
       expert_id: r.expert_id,
       expert_name: r.expert_name,
-      next_action: r.over_credit
-        ? 'بررسی سقف اعتبار / پیگیری وصول'
-        : (r.books_mismatch
-          ? 'تطبیق دفتر اشخاص با تفصیلی'
-          : (r.balance_rial > 0 ? 'پیگیری دریافت' : 'بررسی پرداخت بدهی')),
-    }));
+      linked_customer_id: r.linked_customer_id,
+      linked_supplier_id: r.linked_supplier_id,
+      next_action: act.label,
+      next_action_code: act.code,
+    };
+  });
+
+  const topDebtors = scope
+    .filter((r) => r.balance_rial > 0)
+    .slice()
+    .sort((a, b) => b.balance_rial - a.balance_rial);
+  const top5Debit = topDebtors.slice(0, 5).reduce((s, r) => s + r.balance_rial, 0);
+  const concentrationPct = totalDebit > 0
+    ? Math.round((top5Debit / totalDebit) * 1000) / 10
+    : 0;
 
   const alerts = [];
   if (overCreditCount) {
@@ -435,6 +511,7 @@ function buildPartyControlDashboard(db, query = {}) {
       title: 'عبور از سقف اعتبار',
       detail: `${overCreditCount} شخص از سقف عبور کرده‌اند (مازاد ${overCreditRial.toLocaleString('fa-IR')} ریال)`,
       action_nav: 'acc-party-control-dashboard',
+      action_filter: { risk: 'over_credit', balance: 'nonzero' },
     });
   }
   if (mismatchCount) {
@@ -443,6 +520,7 @@ function buildPartyControlDashboard(db, query = {}) {
       title: 'اختلاف دفتر و تفصیلی',
       detail: `${mismatchCount} شخص ماندهٔ زنده با دفتر کل تفصیلی یکی نیست`,
       action_nav: 'acc-party-control-dashboard',
+      action_filter: { risk: 'mismatch', balance: 'all' },
     });
   }
   if (aging.b90plus > 0) {
@@ -450,7 +528,8 @@ function buildPartyControlDashboard(db, query = {}) {
       severity: 'warn',
       title: 'مطالبات دیرکرد ۹۰+ روز',
       detail: `${aging.b90plus.toLocaleString('fa-IR')} ریال در سبد ۹۰ روز به بالا`,
-      action_nav: 'acc-receivables',
+      action_nav: 'acc-party-control-dashboard',
+      action_filter: { aging_bucket: 'b90plus', side: 'debit', balance: 'nonzero' },
     });
   }
 
@@ -464,6 +543,7 @@ function buildPartyControlDashboard(db, query = {}) {
     generated_at: Date.now(),
     health_score,
     unit: 'rial',
+    version: 533,
     kpis: {
       parties_total: all.length,
       parties_in_scope: scope.length,
@@ -475,6 +555,11 @@ function buildPartyControlDashboard(db, query = {}) {
       over_credit_count: overCreditCount,
       over_credit_rial: overCreditRial,
       mismatch_count: mismatchCount,
+      high_risk_count: highRiskCount,
+      medium_risk_count: mediumRiskCount,
+      aging_90_rial: aging.b90plus || 0,
+      top5_debtor_share_pct: concentrationPct,
+      worklist_count: worklist.length,
     },
     by_role: Object.values(byRole).sort((a, b) => (b.debit_rial + b.credit_rial) - (a.debit_rial + a.credit_rial)),
     aging,
@@ -483,12 +568,21 @@ function buildPartyControlDashboard(db, query = {}) {
     alerts,
     experts,
     unassigned_count: unassignedCount,
+    concentration: {
+      top5_debit_rial: top5Debit,
+      top5_share_pct: concentrationPct,
+      top_debtors: topDebtors.slice(0, 5).map((r) => ({
+        id: r.id, name: r.name, balance_rial: r.balance_rial, expert_name: r.expert_name,
+      })),
+    },
     filters: {
       search, role: roleFilter || 'all', side, balance: balanceMode, risk,
+      aging_bucket: agingBucketFilter || '',
       expert_id: expertFilter == null ? '' : expertFilter,
       party_group_id: groupId, position_id: positionId, sort, limit: lim,
+      worklist_limit: worklistLim,
     },
   };
 }
 
-module.exports = { buildPartyControlDashboard, ROLE_LABELS };
+module.exports = { buildPartyControlDashboard, ROLE_LABELS, primaryRole, nextActionFor };

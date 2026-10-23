@@ -2175,42 +2175,123 @@ body.erp-demo-mode{padding-top:32px}
   .sp-dash .sp-profit-op{display:none}
 }
 
-/* ===== داشبورد کنترل حساب اشخاص ===== */
-.pc-dash .pc-filter-bar input[type=search]{font-family:inherit}
+/* ===== داشبورد کنترل حساب اشخاص (v533) ===== */
+.pc-dash{
+  --pc-age-0:rgba(34,197,94,.75);
+  --pc-age-1:rgba(234,179,8,.8);
+  --pc-age-2:rgba(249,115,22,.85);
+  --pc-age-3:rgba(239,68,68,.9);
+}
+.pc-dash .pc-hero{align-items:center}
+.pc-dash .pc-hero-text .trsy-lead{max-width:48ch}
+.pc-dash .pc-filter-bar{
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:10px 12px;border-radius:14px;border:1px solid var(--border);
+  background:var(--card);position:sticky;top:0;z-index:4;
+  box-shadow:0 1px 0 rgba(0,0,0,.03)
+}
+.pc-dash .pc-filter-input,
+.pc-dash .pc-filter-select{
+  padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;
+  font:inherit;font-size:12px;background:var(--well,#fff);color:var(--text);min-width:0
+}
+.pc-dash .pc-filter-input{flex:1 1 180px;min-width:160px;font-family:inherit}
+.pc-dash .pc-filter-select{flex:0 1 138px}
+.pc-dash .pc-quick-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:-4px}
+.pc-dash .pc-chip-btn{
+  appearance:none;border:1px solid var(--border);background:var(--card);color:var(--text);
+  border-radius:999px;padding:5px 12px;font:inherit;font-size:11px;font-weight:600;cursor:pointer
+}
+.pc-dash .pc-chip-btn:hover{border-color:var(--green);background:rgba(26,92,56,.06)}
+.pc-dash .pc-chip-btn.active{border-color:rgba(26,92,56,.45);background:rgba(26,92,56,.1);color:var(--green)}
+.pc-dash .pc-chip-btn b{margin-right:4px}
+.pc-dash .pc-kpi-grid{
+  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:4px
+}
+.pc-dash .pc-kpi{cursor:default;min-height:92px;border-inline-start:3px solid transparent}
+.pc-dash .pc-kpi-debit{border-inline-start-color:var(--red)}
+.pc-dash .pc-kpi-credit{border-inline-start-color:var(--green)}
+.pc-dash .pc-kpi-click{cursor:pointer}
+.pc-dash .pc-kpi .kpi-val{font-size:clamp(15px,1.6vw,20px);letter-spacing:-.02em;line-height:1.25}
+.pc-dash .pc-kpi .kpi-label{font-size:11px;font-weight:600}
+.pc-dash .pc-meta{margin-bottom:2px}
 .pc-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .pc-aging{display:flex;flex-direction:column;gap:10px}
 .pc-aging-track{
-  display:flex;height:14px;border-radius:999px;overflow:hidden;background:var(--well);border:1px solid var(--border)
+  display:flex;height:16px;border-radius:999px;overflow:hidden;background:var(--well);border:1px solid var(--border)
 }
-.pc-aging-track>i{display:block;height:100%;min-width:0}
-.pc-aging-legend{
-  display:flex;flex-wrap:wrap;gap:8px 14px;font-size:11px;color:var(--muted)
+.pc-aging-seg{
+  display:block;height:100%;min-width:0;border:0;padding:0;cursor:pointer;transition:filter .15s ease
 }
-.pc-aging-legend b{color:var(--text);margin-left:4px}
+.pc-aging-seg:hover{filter:brightness(.92)}
+.pc-aging-legend{display:flex;flex-wrap:wrap;gap:6px 10px}
+.pc-aging-leg{
+  display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--card);
+  border-radius:999px;padding:4px 10px;font:inherit;font-size:11px;color:var(--muted);cursor:pointer
+}
+.pc-aging-leg:hover{border-color:var(--green);color:var(--text)}
+.pc-aging-leg i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.pc-aging-leg b{color:var(--text)}
 .pc-role-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .pc-chip{
   display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;
   font-size:10px;font-weight:700;background:rgba(26,92,56,.08);color:var(--text);border:1px solid var(--border)
 }
 .pc-chip-pos{background:rgba(59,130,246,.08)}
-.pc-chip-warn{background:rgba(245,158,11,.14);color:#92400e;border-color:rgba(245,158,11,.35);margin-top:4px}
-.pc-util{
-  height:5px;border-radius:999px;background:var(--well);overflow:hidden;margin-top:4px;min-width:72px
-}
+.pc-chip-warn{background:rgba(245,158,11,.14);color:#92400e;border-color:rgba(245,158,11,.35);margin-top:2px}
+.pc-util{height:5px;border-radius:999px;background:var(--well);overflow:hidden;margin-top:4px;min-width:72px}
 .pc-util>i{display:block;height:100%;border-radius:999px}
-.pc-alerts{display:flex;flex-direction:column;gap:8px}
+.pc-alerts{display:flex;flex-direction:column;gap:8px;margin-bottom:4px}
 .pc-alert{
-  display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;
   padding:10px 12px;border-radius:12px;border:1px solid var(--border);font-size:12px
 }
+.pc-alert-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .pc-alert-warn{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.35);color:#92400e}
 .pc-alert-fail{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.35);color:#991b1b}
-.pc-role-row{cursor:pointer}
-.pc-role-row:hover{background:rgba(26,92,56,.05)}
+.pc-role-row,.pc-party-row{cursor:pointer}
+.pc-role-row:hover,.pc-party-row:hover,.pc-work-row:hover{background:rgba(26,92,56,.05)}
+.pc-panel-primary{border-color:rgba(26,92,56,.28);box-shadow:0 0 0 3px rgba(26,92,56,.05)}
+.pc-panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.pc-panel-hint{font-size:11px;margin-right:8px}
+.pc-tbl-wrap{padding:0;overflow:auto;max-height:min(52vh,520px)}
+.pc-table thead th{position:sticky;top:0;z-index:1;background:var(--card);box-shadow:0 1px 0 var(--border)}
+.pc-work-table .pc-work-rank{width:36px;color:var(--muted);font-size:11px}
+.pc-work-row.pc-risk-high{box-shadow:inset 3px 0 0 var(--red)}
+.pc-work-row.pc-risk-medium{box-shadow:inset 3px 0 0 #f59e0b}
+.pc-row-meta{font-size:11px;color:var(--muted);line-height:1.5;margin-top:2px}
+.pc-next{font-size:12px;line-height:1.55;max-width:28ch}
+.pc-actions{white-space:nowrap;display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-start}
+.pc-num-debit{color:var(--red);font-weight:600}
+.pc-num-credit{color:var(--green);font-weight:600}
+.pc-footnote{font-size:11px;margin:8px 0 0;line-height:1.7}
+.pc-loading,.pc-empty{padding:18px 14px;text-align:center;color:var(--muted);font-size:13px}
+.pc-empty-error{color:var(--text)}
+.pc-empty-error b{display:block;margin-bottom:6px;color:#991b1b}
+.pc-health-meter{height:10px;border-radius:999px;background:var(--well);overflow:hidden;border:1px solid var(--border);margin-bottom:12px}
+.pc-health-meter>i{display:block;height:100%;border-radius:999px}
+.pc-health-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pc-health-stats>div{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--well);font-size:12px
+}
+.pc-health-stats span{color:var(--muted)}
+.pc-credit-line{font-size:11px}
+@media (max-width:1200px){
+  .pc-dash .pc-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
 @media (max-width:900px){
   .pc-grid-2{grid-template-columns:1fr}
-  .pc-dash .pc-filter-bar input[type=search],
-  .pc-dash .pc-filter-bar select{min-width:0;flex:1 1 140px}
+  .pc-dash .pc-kpi-grid{grid-template-columns:1fr 1fr}
+  .pc-dash .pc-filter-input,
+  .pc-dash .pc-filter-select{flex:1 1 140px}
+  .pc-tbl-wrap{max-height:none}
+}
+@media (max-width:560px){
+  .pc-dash .pc-kpi-grid{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  .pc-aging-seg,.pc-dash .pc-chip-btn,.pc-dash .pc-kpi{transition:none}
 }
 
 /* ===== داشبورد نقدینگی بانک و صندوق (treasury) ===== */

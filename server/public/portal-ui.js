@@ -2553,6 +2553,17 @@
     return 'var(--text)';
   }
 
+  /** نمایش فشردهٔ ارقام بزرگ برای KPI (ریال) */
+  function pcFmtCompact(n) {
+    const raw = Number(n) || 0;
+    const sign = raw < 0 ? '−' : '';
+    const v = Math.abs(raw);
+    if (v >= 1e12) return sign + (Math.round(v / 1e10) / 100).toLocaleString('fa-IR') + ' هزارمیلیارد';
+    if (v >= 1e9) return sign + (Math.round(v / 1e7) / 100).toLocaleString('fa-IR') + ' میلیارد';
+    if (v >= 1e6) return sign + (Math.round(v / 1e4) / 100).toLocaleString('fa-IR') + ' میلیون';
+    return sign + fmt(v);
+  }
+
   function pcRiskChip(level) {
     const map = {
       high: { cls: 'trsy-fail', label: 'بحرانی' },
@@ -2563,49 +2574,96 @@
     return `<span class="trsy-chip ${m.cls}">${m.label}</span>`;
   }
 
+  function pcSetFilter(map) {
+    const g = (id) => document.getElementById(id);
+    if (!map) return;
+    if (map.risk != null && g('pcRisk')) g('pcRisk').value = map.risk;
+    if (map.side != null && g('pcSide')) g('pcSide').value = map.side;
+    if (map.balance != null && g('pcBalance')) g('pcBalance').value = map.balance;
+    if (map.role != null && g('pcRole')) g('pcRole').value = map.role;
+    if (Object.prototype.hasOwnProperty.call(map, 'aging_bucket') && g('pcAging')) {
+      g('pcAging').value = map.aging_bucket || '';
+    } else if (g('pcAging') && (map.risk != null || map.role != null)) {
+      g('pcAging').value = '';
+    }
+    if (map.sort != null && g('pcSort')) g('pcSort').value = map.sort;
+    if (map.expert_id != null && g('pcExpert')) g('pcExpert').value = String(map.expert_id);
+    loadPartyControlDashboard();
+  }
+
+  function pcOpenCard(partyId) {
+    const id = Number(partyId) || 0;
+    if (!id) { go('acc-parties'); return; }
+    if (typeof partyModal === 'function') partyModal(id);
+    else go('acc-parties');
+  }
+
+  function pcOpenTurnover(partyId, name, roleHint) {
+    const id = Number(partyId) || 0;
+    if (!id || typeof showPartyTurnover !== 'function') return;
+    const roleSel = (document.getElementById('pcRole') || {}).value || '';
+    const role = roleHint || roleSel || undefined;
+    const ok = role && ['customer', 'supplier', 'person'].includes(String(role)) ? role : undefined;
+    showPartyTurnover(id, name || ('#' + id), ok);
+  }
+
+  function pcOpenStatement(custId) {
+    const cid = Number(custId) || 0;
+    if (!cid) { go('acc-statement'); return; }
+    try { if (typeof stmtCustId !== 'undefined') stmtCustId = cid; } catch (_) { /* */ }
+    go('acc-statement');
+  }
+
   function pcAgingBar(aging) {
     const a = aging || {};
     const total = Math.max(1, Number(a.total) || 0);
     const parts = [
-      { key: 'b0_30', label: '۰–۳۰', color: 'rgba(34,197,94,.7)', v: a.b0_30 || 0 },
-      { key: 'b31_60', label: '۳۱–۶۰', color: 'rgba(234,179,8,.75)', v: a.b31_60 || 0 },
-      { key: 'b61_90', label: '۶۱–۹۰', color: 'rgba(249,115,22,.8)', v: a.b61_90 || 0 },
-      { key: 'b90plus', label: '۹۰+', color: 'rgba(239,68,68,.85)', v: a.b90plus || 0 },
+      { key: 'b0_30', label: '۰–۳۰', color: 'var(--pc-age-0)', v: a.b0_30 || 0 },
+      { key: 'b31_60', label: '۳۱–۶۰', color: 'var(--pc-age-1)', v: a.b31_60 || 0 },
+      { key: 'b61_90', label: '۶۱–۹۰', color: 'var(--pc-age-2)', v: a.b61_90 || 0 },
+      { key: 'b90plus', label: '۹۰+', color: 'var(--pc-age-3)', v: a.b90plus || 0 },
     ];
     return `
       <div class="pc-aging">
-        <div class="pc-aging-track">${parts.map((p) => {
+        <div class="pc-aging-track" role="img" aria-label="پیری مطالبات">${parts.map((p) => {
           const w = Math.max(0, Math.round((p.v / total) * 1000) / 10);
-          return `<i title="${p.label}: ${fmt(p.v)}" data-csp-style="${CSP.style(`width:${w}%;background:${p.color}`)}"></i>`;
+          if (!w && !p.v) return '';
+          return `<button type="button" class="pc-aging-seg" title="${p.label}: ${fmt(p.v)}"
+            data-csp-style="${CSP.style(`width:${Math.max(w, p.v ? 2 : 0)}%;background:${p.color}`)}"
+            data-csp-click="${CSP.bind('click', function () { pcSetFilter({ aging_bucket: p.key, side: 'debit', balance: 'nonzero' }); })}"></button>`;
         }).join('')}</div>
         <div class="pc-aging-legend">${parts.map((p) => `
-          <span><b>${p.label}</b> ${fmt(p.v)}</span>`).join('')}</div>
+          <button type="button" class="pc-aging-leg" data-csp-click="${CSP.bind('click', function () { pcSetFilter({ aging_bucket: p.key, side: 'debit', balance: 'nonzero' }); })}">
+            <i data-csp-style="${CSP.style(`background:${p.color}`)}"></i>
+            <b>${p.label}</b>
+            <span class="mono">${pcFmtCompact(p.v)}</span>
+          </button>`).join('')}</div>
       </div>`;
   }
 
   async function renderPartyControlDashboardTab(body) {
     body.innerHTML = `
       <div class="trsy-wrap pc-dash">
-        <div class="trsy-hero">
-          <div>
-            <div class="trsy-kicker">اشخاص · کنترل حساب ۲۰۲۶</div>
+        <div class="trsy-hero pc-hero">
+          <div class="pc-hero-text">
+            <div class="trsy-kicker">حسابداری · کنترل حساب</div>
             <h3 class="trsy-title">داشبورد کنترل حساب اشخاص</h3>
-            <p class="trsy-lead">مانده زنده = زیردفتر + افتتاحیه (یک‌بار روی برگ کنترل)؛ تأمین از دفتر تأمین؛ اختلاف فقط وقتی همان برگه با تفصیلی یکی نباشد — پیری، سقف اعتبار و فهرست اقدام.</p>
+            <p class="trsy-lead">مانده زنده party-books · صف اقدام اولویت‌دار · پیری FIFO · سقف اعتبار</p>
           </div>
           <div class="trsy-hero-actions">
-            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">↻ بروزرسانی</button>
-            <button class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">اطلاعات اشخاص</button>
-            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-receivables'); })}">مطالبات</button>
-            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-statement'); })}">صورت‌حساب</button>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">↻ بروزرسانی</button>
+            <button type="button" class="btn sm" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">اشخاص</button>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-receivables'); })}">مطالبات</button>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { exportPartyControlCsv(); })}">CSV</button>
           </div>
         </div>
-        <div class="sp-filter-bar pc-filter-bar" id="pcDashFilters">
-          <input id="pcSearch" type="search" placeholder="جستجو نام / تلفن / کد / تفصیلی…" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:180px;flex:1 1 160px`)}" />
-          <select id="pcExpert" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:150px`)}">
+        <div class="pc-filter-bar" id="pcDashFilters">
+          <input id="pcSearch" class="pc-filter-input" type="search" placeholder="جستجو نام / تلفن / کد / تفصیلی…" autocomplete="off" />
+          <select id="pcExpert" class="pc-filter-select" title="کارشناس">
             <option value="">همه کارشناسان</option>
             <option value="none">بدون کارشناس</option>
           </select>
-          <select id="pcRole" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+          <select id="pcRole" class="pc-filter-select" title="سمت">
             <option value="">همه سمت‌ها</option>
             <option value="customer">مشتری</option>
             <option value="supplier">تأمین‌کننده</option>
@@ -2613,23 +2671,31 @@
             <option value="shareholder">سهامدار</option>
             <option value="other">سایر</option>
           </select>
-          <select id="pcSide" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:110px`)}">
+          <select id="pcSide" class="pc-filter-select" title="سمت مانده">
             <option value="all">بدهکار و بستانکار</option>
             <option value="debit">فقط بدهکار</option>
             <option value="credit">فقط بستانکار</option>
           </select>
-          <select id="pcBalance" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:110px`)}">
+          <select id="pcBalance" class="pc-filter-select" title="مانده">
             <option value="nonzero">فقط مانده‌دار</option>
             <option value="all">همه</option>
             <option value="zero">مانده صفر</option>
           </select>
-          <select id="pcRisk" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+          <select id="pcRisk" class="pc-filter-select" title="ریسک">
             <option value="all">همه ریسک‌ها</option>
             <option value="high">بحرانی</option>
+            <option value="medium">توجه+</option>
             <option value="over_credit">عبور از سقف</option>
             <option value="mismatch">اختلاف دفتر</option>
           </select>
-          <select id="pcSort" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:120px`)}">
+          <select id="pcAging" class="pc-filter-select" title="پیری">
+            <option value="">همه سطل‌های پیری</option>
+            <option value="b0_30">۰–۳۰ روز</option>
+            <option value="b31_60">۳۱–۶۰ روز</option>
+            <option value="b61_90">۶۱–۹۰ روز</option>
+            <option value="b90plus">۹۰+ روز</option>
+          </select>
+          <select id="pcSort" class="pc-filter-select" title="مرتب‌سازی">
             <option value="balance_abs">مرتب: بزرگ‌ترین مانده</option>
             <option value="risk">مرتب: ریسک</option>
             <option value="aging">مرتب: پیری</option>
@@ -2637,20 +2703,38 @@
             <option value="name">مرتب: نام</option>
             <option value="balance">مرتب: مانده امضاشده</option>
           </select>
-          <button class="btn sm" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">اعمال</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">اعمال</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () {
+            ['pcSearch','pcExpert','pcRole','pcSide','pcBalance','pcRisk','pcAging','pcSort'].forEach(function (id) {
+              const el = document.getElementById(id);
+              if (!el) return;
+              if (id === 'pcSide') el.value = 'all';
+              else if (id === 'pcBalance') el.value = 'nonzero';
+              else if (id === 'pcRisk') el.value = 'all';
+              else if (id === 'pcSort') el.value = 'balance_abs';
+              else el.value = '';
+            });
+            loadPartyControlDashboard();
+          })}">پاک‌کردن</button>
         </div>
-        <div id="pcDashBody"><div class="muted">در حال بارگذاری داشبورد کنترل اشخاص…</div></div>
+        <div class="pc-quick-chips" id="pcQuickChips"></div>
+        <div id="pcDashBody"><div class="pc-loading">در حال بارگذاری داشبورد کنترل اشخاص…</div></div>
       </div>`;
     const searchEl = document.getElementById('pcSearch');
     if (searchEl) {
+      let t = null;
       searchEl.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Enter') loadPartyControlDashboard();
+        if (ev.key === 'Enter') { ev.preventDefault(); loadPartyControlDashboard(); }
+      });
+      searchEl.addEventListener('input', function () {
+        clearTimeout(t);
+        t = setTimeout(function () { loadPartyControlDashboard(); }, 420);
       });
     }
-    const expertEl = document.getElementById('pcExpert');
-    if (expertEl) {
-      expertEl.addEventListener('change', function () { loadPartyControlDashboard(); });
-    }
+    ['pcExpert', 'pcRole', 'pcSide', 'pcBalance', 'pcRisk', 'pcAging', 'pcSort'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', function () { loadPartyControlDashboard(); });
+    });
     await loadPartyControlDashboard();
   }
 
@@ -2672,7 +2756,7 @@
   async function loadPartyControlDashboard() {
     const box = document.getElementById('pcDashBody');
     if (!box) return;
-    box.innerHTML = '<div class="muted">در حال بارگذاری داشبورد کنترل اشخاص…</div>';
+    box.innerHTML = '<div class="pc-loading">در حال بارگذاری داشبورد کنترل اشخاص…</div>';
     const qp = [];
     const g = (id) => document.getElementById(id);
     const search = (g('pcSearch') && g('pcSearch').value) || '';
@@ -2681,20 +2765,23 @@
     const side = (g('pcSide') && g('pcSide').value) || 'all';
     const balance = (g('pcBalance') && g('pcBalance').value) || 'nonzero';
     const risk = (g('pcRisk') && g('pcRisk').value) || 'all';
+    const agingBucket = (g('pcAging') && g('pcAging').value) || '';
     const sort = (g('pcSort') && g('pcSort').value) || 'balance_abs';
     if (search) qp.push('search=' + encodeURIComponent(search));
     if (expert) qp.push('expert_id=' + encodeURIComponent(expert));
     if (role) qp.push('role=' + encodeURIComponent(role));
     if (side) qp.push('side=' + encodeURIComponent(side));
     if (balance) qp.push('balance=' + encodeURIComponent(balance));
-    if (risk) qp.push('risk=' + encodeURIComponent(risk));
+    if (risk && risk !== 'all') qp.push('risk=' + encodeURIComponent(risk));
+    if (agingBucket) qp.push('aging_bucket=' + encodeURIComponent(agingBucket));
     if (sort) qp.push('sort=' + encodeURIComponent(sort));
     qp.push('limit=300');
     let d = {};
     try {
       d = await api('GET', '/adv-reports/party-control-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
     } catch (e) {
-      box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
+      box.innerHTML = `<div class="pc-empty pc-empty-error"><b>خواندن داشبورد ناموفق بود</b><p>${esc((e && e.message) || 'خطای شبکه')}</p>
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click', function () { loadPartyControlDashboard(); })}">تلاش دوباره</button></div>`;
       return;
     }
     window._pcDashLast = d;
@@ -2703,71 +2790,98 @@
     const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
     const health = Number(d.health_score) || 0;
     const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
+
+    const chips = document.getElementById('pcQuickChips');
+    if (chips) {
+      chips.innerHTML = [
+        { label: 'بحرانی', filter: { risk: 'high', balance: 'nonzero' }, n: k.high_risk_count },
+        { label: 'سقف اعتبار', filter: { risk: 'over_credit', balance: 'nonzero' }, n: k.over_credit_count },
+        { label: 'اختلاف دفتر', filter: { risk: 'mismatch', balance: 'all' }, n: k.mismatch_count },
+        { label: 'پیری ۹۰+', filter: { aging_bucket: 'b90plus', side: 'debit', balance: 'nonzero' }, n: null },
+        { label: 'فقط بدهکار', filter: { side: 'debit', balance: 'nonzero' }, n: null },
+      ].map((c) => `<button type="button" class="pc-chip-btn${(risk === 'high' && c.filter.risk === 'high') || (risk === c.filter.risk) || (agingBucket && c.filter.aging_bucket === agingBucket) ? ' active' : ''}"
+        data-csp-click="${CSP.bind('click', function () { pcSetFilter(c.filter); })}">${esc(c.label)}${c.n != null ? ` <b>${fmt(c.n)}</b>` : ''}</button>`).join('');
+    }
+
     const alertsHtml = (d.alerts || []).length
       ? `<div class="pc-alerts">${(d.alerts || []).map((a) => `
           <div class="pc-alert ${a.severity === 'fail' ? 'pc-alert-fail' : 'pc-alert-warn'}">
-            <b>${esc(a.title || '')}</b>
-            <span>${esc(a.detail || '')}</span>
-            ${a.action_nav ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go(a.action_nav); })}">باز کردن</button>` : ''}
+            <div class="pc-alert-body"><b>${esc(a.title || '')}</b><span>${esc(a.detail || '')}</span></div>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () {
+              if (a.action_filter) pcSetFilter(a.action_filter);
+              else if (a.action_nav) go(a.action_nav);
+            })}">نمایش موارد</button>
           </div>`).join('')}</div>`
       : '';
 
     const roleRows = (d.by_role || []).map((r) => `
       <tr class="pc-role-row" data-csp-click="${CSP.bind('click', function () {
-        const sel = document.getElementById('pcRole');
-        if (sel) { sel.value = r.role || ''; loadPartyControlDashboard(); }
+        pcSetFilter({ role: r.role || '', balance: 'nonzero' });
       })}">
         <td><b>${esc(r.label || r.role || '')}</b></td>
         <td class="mono">${fmt(r.count || 0)}</td>
         <td class="mono">${fmt(r.with_balance || 0)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(r.debit_rial || 0)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(r.credit_rial || 0)}</td>
+        <td class="mono pc-num-debit">${pcFmtCompact(r.debit_rial || 0)}</td>
+        <td class="mono pc-num-credit">${pcFmtCompact(r.credit_rial || 0)}</td>
       </tr>`).join('') || emptyRow(5);
 
-    const workRows = (d.worklist || []).map((w) => `
-      <tr>
-        <td><b>${esc(w.name)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc((w.party_roles || []).join(' · '))}${w.expert_name ? ' · کارشناس ' + esc(w.expert_name) : ''}</div></td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(w.balance_rial)}`)}">${fmt(w.balance_rial || 0)}</td>
-        <td>${pcRiskChip(w.risk_level)}${w.aging_days != null ? ` <span class="muted mono">${fmt(w.aging_days)} روز</span>` : ''}</td>
-        <td data-csp-style="${CSP.style(`font-size:12px`)}">${esc(w.next_action || '')}</td>
-        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(w.id, w.name, (document.getElementById('pcRole') || {}).value || undefined); })}">گردش</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-parties'); })}">کارت</button>
+    const workRows = (d.worklist || []).map((w, idx) => `
+      <tr class="pc-work-row pc-risk-${esc(w.risk_level || 'ok')}">
+        <td class="pc-work-rank mono">${fmt(idx + 1)}</td>
+        <td>
+          <b>${esc(w.name)}</b>
+          <div class="pc-row-meta">${esc((w.role_labels || w.party_roles || []).join(' · '))}${w.expert_name ? ' · ' + esc(w.expert_name) : ''}${w.coa_code ? ' · ' + esc(w.coa_code) : ''}</div>
         </td>
-      </tr>`).join('') || emptyRow(5);
+        <td class="mono pc-bal" data-csp-style="${CSP.style(`color:${pcMoneyTone(w.balance_rial)}`)}" title="${fmt(w.balance_rial || 0)}">${pcFmtCompact(w.balance_rial || 0)}</td>
+        <td>${pcRiskChip(w.risk_level)}${w.aging_days != null ? ` <span class="muted mono">${fmt(w.aging_days)}د</span>` : ''}${w.books_mismatch ? ' <span class="pc-chip pc-chip-warn">اختلاف</span>' : ''}${w.over_credit ? ' <span class="pc-chip pc-chip-warn">سقف</span>' : ''}</td>
+        <td class="pc-next">${esc(w.next_action || '')}</td>
+        <td class="pc-actions">
+          <button type="button" class="btn sm blue" data-csp-click="${CSP.bind('click', function () { pcOpenTurnover(w.id, w.name, w.primary_role); })}">گردش</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { pcOpenCard(w.id); })}">کارت</button>
+          ${w.linked_customer_id
+            ? `<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { pcOpenStatement(w.linked_customer_id); })}">صورت‌حساب</button>`
+            : ''}
+        </td>
+      </tr>`).join('') || `<tr><td colspan="6"><div class="pc-empty">موردی در صف اقدام با فیلتر فعلی نیست.</div></td></tr>`;
+
+    const conc = d.concentration || {};
+    const concRows = (conc.top_debtors || []).map((t, i) => `
+      <tr class="pc-party-row" data-csp-click="${CSP.bind('click', function () { pcOpenTurnover(t.id, t.name); })}">
+        <td class="mono">${fmt(i + 1)}</td>
+        <td><b>${esc(t.name)}</b>${t.expert_name ? `<div class="pc-row-meta">${esc(t.expert_name)}</div>` : ''}</td>
+        <td class="mono pc-num-debit">${pcFmtCompact(t.balance_rial || 0)}</td>
+      </tr>`).join('') || emptyRow(3);
 
     const partyRows = (d.parties || []).map((p) => `
       <tr class="pc-party-row">
         <td>
           <b>${esc(p.name)}</b>
-          <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(p.person_code || '')}${p.city ? ' · ' + esc(p.city) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}${p.expert_name ? ' · کارشناس ' + esc(p.expert_name) : ''}</div>
+          <div class="pc-row-meta">${esc(p.person_code || '')}${p.city ? ' · ' + esc(p.city) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}${p.expert_name ? ' · ' + esc(p.expert_name) : ''}</div>
           <div class="pc-role-chips">${(p.role_labels || []).map((x) => `<span class="pc-chip">${esc(x)}</span>`).join('')}${p.position_name ? `<span class="pc-chip pc-chip-pos">${esc(p.position_name)}</span>` : ''}</div>
         </td>
         <td class="mono muted">${esc(p.coa_code || '—')}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(p.balance_rial)}`)}">${fmt(p.balance_rial || 0)}</td>
-        <td class="mono">${fmt(p.debit_rial || 0)}</td>
-        <td class="mono">${fmt(p.credit_rial || 0)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${pcMoneyTone(p.balance_rial)}`)}" title="${fmt(p.balance_rial || 0)}">${pcFmtCompact(p.balance_rial || 0)}</td>
+        <td class="mono pc-num-debit" title="${fmt(p.debit_rial || 0)}">${pcFmtCompact(p.debit_rial || 0)}</td>
+        <td class="mono pc-num-credit" title="${fmt(p.credit_rial || 0)}">${pcFmtCompact(p.credit_rial || 0)}</td>
         <td>
           ${p.credit_limit_rial > 0
-            ? `<div class="mono">${fmt(p.credit_used_rial || 0)} / ${fmt(p.credit_limit_rial)}</div>
+            ? `<div class="mono pc-credit-line">${pcFmtCompact(p.credit_used_rial || 0)} / ${pcFmtCompact(p.credit_limit_rial)}</div>
                <div class="pc-util"><i data-csp-style="${CSP.style(`width:${Math.min(100, p.credit_util_pct || 0)}%;background:${p.over_credit ? 'var(--red)' : 'var(--green)'}`)}"></i></div>
-               <div class="muted" data-csp-style="${CSP.style(`font-size:10px`)}">${fmt(p.credit_util_pct || 0)}٪${p.over_credit ? ' · عبور' : ''}</div>`
+               <div class="pc-row-meta">${fmt(p.credit_util_pct || 0)}٪${p.over_credit ? ' · عبور' : ''}</div>`
             : '<span class="muted">نامحدود</span>'}
         </td>
         <td>${p.aging_days != null ? `<span class="mono">${fmt(p.aging_days)}</span> روز` : '—'}
           ${p.books_mismatch ? '<div class="pc-chip pc-chip-warn">اختلاف دفتر</div>' : ''}
         </td>
         <td>${pcRiskChip(p.risk_level)}</td>
-        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm blue" data-csp-click="${CSP.bind('click', function () { if (typeof showPartyTurnover === 'function') showPartyTurnover(p.id, p.name, (document.getElementById('pcRole') || {}).value || undefined); })}">گردش</button>
+        <td class="pc-actions">
+          <button type="button" class="btn sm blue" data-csp-click="${CSP.bind('click', function () { pcOpenTurnover(p.id, p.name, p.primary_role); })}">گردش</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { pcOpenCard(p.id); })}">کارت</button>
           ${p.linked_customer_id
-            ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () {
-                if (typeof stmtCustId !== 'undefined') { try { stmtCustId = p.linked_customer_id; } catch (_) {} }
-                go('acc-statement');
-              })}">صورت‌حساب</button>`
+            ? `<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { pcOpenStatement(p.linked_customer_id); })}">صورت‌حساب</button>`
             : ''}
         </td>
-      </tr>`).join('') || emptyRow(9);
+      </tr>`).join('') || `<tr><td colspan="9"><div class="pc-empty">ردیفی با فیلتر فعلی یافت نشد.</div></td></tr>`;
 
     const fDeb = Number(k.total_debit_rial) || 0;
     const fCred = Number(k.total_credit_rial) || 0;
@@ -2776,94 +2890,114 @@
     const footBal = (d.parties || []).reduce((s, r) => s + (Number(r.balance_rial) || 0), 0);
 
     box.innerHTML = `
-      <div class="trsy-meta">
-        <span class="inv-badge moadian-approved">🟢 مانده زنده party-books</span>
+      <div class="trsy-meta pc-meta">
+        <span class="trsy-chip trsy-ok">مانده زنده</span>
         <span>بروزرسانی: ${esc(liveAt)}</span>
-        <span class="trsy-chip ${healthCls}">سلامت کنترل ${fmt(health)}٪</span>
-        <span>نمایش ${fmt((d.parties || []).length)} از ${fmt(k.parties_filtered || 0)} فیلترشده · کل اشخاص ${fmt(k.parties_total || 0)}${expert ? ' · محدوده کارشناس ' + fmt(k.parties_in_scope || 0) : ''}</span>
+        <span class="trsy-chip ${healthCls}">سلامت ${fmt(health)}٪</span>
+        <span>نمایش ${fmt((d.parties || []).length)} از ${fmt(k.parties_filtered || 0)} · کل ${fmt(k.parties_total || 0)}${expert ? ' · کارشناس ' + fmt(k.parties_in_scope || 0) : ''}</span>
       </div>
       ${alertsHtml}
 
-      <div class="rep-kpi-grid trsy-kpi">
-        <div class="rep-kpi-card">
-          <div class="kpi-icon">📥</div>
+      <div class="pc-kpi-grid trsy-kpi">
+        <div class="rep-kpi-card pc-kpi pc-kpi-debit" title="${fmt(fDeb)}">
           <div class="kpi-label">جمع بدهکار</div>
-          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(fDeb)}</div>
-          <div class="kpi-sub">ریال · اشخاص بدهکار به ما</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${pcFmtCompact(fDeb)}</div>
+          <div class="kpi-sub">ریال · مطالبات از اشخاص</div>
         </div>
-        <div class="rep-kpi-card">
-          <div class="kpi-icon">📤</div>
+        <div class="rep-kpi-card pc-kpi pc-kpi-credit" title="${fmt(fCred)}">
           <div class="kpi-label">جمع بستانکار</div>
-          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(fCred)}</div>
-          <div class="kpi-sub">ریال · بدهی ما به اشخاص</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${pcFmtCompact(fCred)}</div>
+          <div class="kpi-sub">ریال · بدهی ما</div>
         </div>
-        <div class="rep-kpi-card">
-          <div class="kpi-icon">⚖️</div>
+        <div class="rep-kpi-card pc-kpi" title="${fmt(k.net_signed_rial || 0)}">
           <div class="kpi-label">مانده خالص</div>
-          <div class="kpi-val" data-csp-style="${CSP.style(`color:${pcMoneyTone(k.net_signed_rial)}`)}">${fmt(k.net_signed_rial || 0)}</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${pcMoneyTone(k.net_signed_rial)}`)}">${pcFmtCompact(k.net_signed_rial || 0)}</div>
           <div class="kpi-sub">${fmt(k.parties_with_balance || 0)} شخص مانده‌دار</div>
         </div>
-        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () {
-          const sel = document.getElementById('pcRisk');
-          if (sel) { sel.value = 'over_credit'; loadPartyControlDashboard(); }
-        })}">
-          <div class="kpi-icon">🚨</div>
-          <div class="kpi-label">عبور از سقف اعتبار</div>
+        <div class="rep-kpi-card pc-kpi pc-kpi-click" data-csp-click="${CSP.bind('click', function () { pcSetFilter({ risk: 'over_credit', balance: 'nonzero' }); })}">
+          <div class="kpi-label">عبور از سقف</div>
           <div class="kpi-val">${fmt(k.over_credit_count || 0)}</div>
-          <div class="kpi-sub">مازاد ${fmt(k.over_credit_rial || 0)} ریال</div>
+          <div class="kpi-sub">مازاد ${pcFmtCompact(k.over_credit_rial || 0)}</div>
         </div>
-        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () {
-          const sel = document.getElementById('pcRisk');
-          if (sel) { sel.value = 'mismatch'; loadPartyControlDashboard(); }
-        })}">
-          <div class="kpi-icon">🧩</div>
-          <div class="kpi-label">اختلاف دفتر / تفصیلی</div>
+        <div class="rep-kpi-card pc-kpi pc-kpi-click" data-csp-click="${CSP.bind('click', function () { pcSetFilter({ risk: 'mismatch', balance: 'all' }); })}">
+          <div class="kpi-label">اختلاف دفتر</div>
           <div class="kpi-val">${fmt(k.mismatch_count || 0)}</div>
           <div class="kpi-sub">نیازمند تطبیق</div>
+        </div>
+        <div class="rep-kpi-card pc-kpi pc-kpi-click" title="سهم ۵ بدهکار بزرگ از کل بدهکار" data-csp-click="${CSP.bind('click', function () { pcSetFilter({ side: 'debit', balance: 'nonzero', sort: 'balance_abs' }); })}">
+          <div class="kpi-label">تمرکز مطالبات</div>
+          <div class="kpi-val">${fmt(k.top5_debtor_share_pct || 0)}٪</div>
+          <div class="kpi-sub">۵ بدهکار بزرگ · ۹۰+ ${pcFmtCompact(k.aging_90_rial || 0)}</div>
+        </div>
+      </div>
+
+      <div class="panel pc-panel-primary">
+        <div class="panel-h pc-panel-h">
+          <div><b>صف اقدام امروز</b><span class="muted pc-panel-hint">اولویت ریسک × مانده × پیری · ${fmt((d.worklist || []).length)} مورد</span></div>
+        </div>
+        <div class="panel-body pc-tbl-wrap">
+          <table class="data pc-table pc-work-table"><thead><tr>
+            <th>#</th><th>شخص</th><th>مانده</th><th>ریسک</th><th>اقدام پیشنهادی</th><th></th>
+          </tr></thead><tbody>${workRows}</tbody></table>
         </div>
       </div>
 
       <div class="pc-grid-2">
         <div class="panel">
-          <div class="panel-h"><b>پیری مطالبات مشتری (FIFO)</b></div>
+          <div class="panel-h"><b>پیری مطالبات (FIFO)</b><span class="muted pc-panel-hint">کلیک روی سطل = فیلتر</span></div>
           <div class="panel-body">
             ${pcAgingBar(d.aging)}
-            <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:8px 0 0`)}">سطل‌های پیری فقط برای ماندهٔ بدهکار مشتریان (فاکتور رسمی/معمولی منهای تسویه) است.</p>
+            <p class="muted pc-footnote">سطل‌ها برای ماندهٔ بدهکار مشتریان (فاکتور منهای تسویه) است.</p>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-h"><b>تفکیک بر اساس سمت</b><span class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-right:8px`)}">کلیک = فیلتر</span></div>
-          <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
-            <table class="data"><thead><tr>
+          <div class="panel-h"><b>تفکیک سمت</b><span class="muted pc-panel-hint">مبلغ روی سمت اصلی · کلیک = فیلتر</span></div>
+          <div class="panel-body pc-tbl-wrap">
+            <table class="data pc-table"><thead><tr>
               <th>سمت</th><th>تعداد</th><th>مانده‌دار</th><th>بدهکار</th><th>بستانکار</th>
             </tr></thead><tbody>${roleRows}</tbody></table>
           </div>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-h"><b>فهرست اقدام (Worklist)</b><span class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-right:8px`)}">اولویت‌بندی ریسک × مانده × پیری</span></div>
-        <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
-          <table class="data"><thead><tr>
-            <th>شخص</th><th>مانده</th><th>ریسک</th><th>اقدام پیشنهادی</th><th></th>
-          </tr></thead><tbody>${workRows}</tbody></table>
+      <div class="pc-grid-2">
+        <div class="panel">
+          <div class="panel-h"><b>۵ بدهکار بزرگ</b><span class="muted pc-panel-hint">${fmt(conc.top5_share_pct || 0)}٪ از مطالبات</span></div>
+          <div class="panel-body pc-tbl-wrap">
+            <table class="data pc-table"><thead><tr>
+              <th>#</th><th>شخص</th><th>مانده</th>
+            </tr></thead><tbody>${concRows}</tbody></table>
+          </div>
+        </div>
+        <div class="panel pc-health-panel">
+          <div class="panel-h"><b>وضعیت کنترل</b></div>
+          <div class="panel-body">
+            <div class="pc-health-meter"><i data-csp-style="${CSP.style(`width:${Math.min(100, health)}%;background:${health >= 85 ? 'var(--green)' : (health >= 60 ? '#f59e0b' : 'var(--red)')}`)}"></i></div>
+            <div class="pc-health-stats">
+              <div><span>بحرانی</span><b>${fmt(k.high_risk_count || 0)}</b></div>
+              <div><span>توجه</span><b>${fmt(k.medium_risk_count || 0)}</b></div>
+              <div><span>صف اقدام</span><b>${fmt(k.worklist_count || 0)}</b></div>
+              <div><span>بدون کارشناس</span><b>${fmt(d.unassigned_count || 0)}</b></div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="panel">
-        <div class="panel-h"><b>جدول کنترل حساب</b>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { exportPartyControlCsv(); })}">CSV</button>
+        <div class="panel-h pc-panel-h">
+          <div><b>جدول کنترل حساب</b><span class="muted pc-panel-hint">جمع صفحه روی فیلتر فعلی</span></div>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { exportPartyControlCsv(); })}">خروجی CSV</button>
         </div>
-        <div class="panel-body" data-csp-style="${CSP.style(`padding:0;overflow:auto`)}">
-          <table class="data" id="pcControlTable"><thead><tr>
+        <div class="panel-body pc-tbl-wrap">
+          <table class="data pc-table" id="pcControlTable"><thead><tr>
             <th>شخص / سمت</th><th>تفصیلی</th><th>مانده</th><th>بدهکار</th><th>بستانکار</th><th>سقف اعتبار</th><th>پیری</th><th>ریسک</th><th>عملیات</th>
           </tr></thead>
           <tbody>${partyRows}</tbody>
           <tfoot><tr>
             <td colspan="2"><b>جمع صفحه</b></td>
-            <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:${pcMoneyTone(footBal)}`)}"><b>${fmt(footBal)}</b></td>
-            <td class="mono"><b>${fmt(footDeb)}</b></td>
-            <td class="mono"><b>${fmt(footCred)}</b></td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:${pcMoneyTone(footBal)}`)}"><b title="${fmt(footBal)}">${pcFmtCompact(footBal)}</b></td>
+            <td class="mono"><b title="${fmt(footDeb)}">${pcFmtCompact(footDeb)}</b></td>
+            <td class="mono"><b title="${fmt(footCred)}">${pcFmtCompact(footCred)}</b></td>
             <td colspan="4"></td>
           </tr></tfoot>
           </table>

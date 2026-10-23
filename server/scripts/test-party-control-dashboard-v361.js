@@ -90,7 +90,7 @@ ok(dash.aging && typeof dash.aging.total === 'number', 'aging block present');
 ok(typeof dash.health_score === 'number', 'health_score numeric');
 
 const src = fs.readFileSync(path.join(__dirname, '../lib/party-control-dashboard.js'), 'utf8');
-ok(src.includes('partySignedBalanceMap'), 'uses party-books');
+ok(src.includes('partySignedBalanceDetailMap') || src.includes('partySignedBalanceMap'), 'uses party-books');
 ok(src.includes('buildPartyControlDashboard'), 'exports builder');
 
 const routeSrc = fs.readFileSync(path.join(__dirname, '../routes/adv-reports.js'), 'utf8');
