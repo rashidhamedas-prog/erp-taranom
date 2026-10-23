@@ -23,6 +23,15 @@ function firmSaleTypeSql(alias = '') {
 }
 
 /**
+ * Firm sale that still counts for KPIs / revenue (not soft-deleted, not reversed).
+ * Void paths set both status='reversed' and deleted_at; keep both for defense-in-depth.
+ */
+function firmSaleAliveSql(alias = '') {
+  const p = alias ? `${alias}.` : '';
+  return `${firmSaleTypeSql(alias)} AND COALESCE(${p}deleted_at,0)=0 AND COALESCE(${p}status,'posted')<>'reversed'`;
+}
+
+/**
  * Commission base: firm + approved.
  * Normal invoices are auto-approved on create; final needs explicit approve.
  */
@@ -680,6 +689,7 @@ module.exports = {
   ALL_TYPES,
   FIRM_SALE_TYPE_SQL,
   firmSaleTypeSql,
+  firmSaleAliveSql,
   commissionEligibleSql,
   normalizeInvoiceType,
   isFirmSale,

@@ -3,9 +3,14 @@ const { getDB } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { rialToToman } = require('../lib/money');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
-const { firmSaleTypeSql } = require('../lib/sales-document');
+const { firmSaleAliveSql } = require('../lib/sales-document');
+const { sqlInvoiceFaceRial } = require('../lib/invoice-face-amount');
 const { canonicalCustomerFold, customerSignedBalanceMap } = require('../lib/customer-books');
 const { scopeUserId, customerVisibilitySql } = require('../lib/customer-scope');
+const FACE = sqlInvoiceFaceRial();
+const FIRM_ALIVE = firmSaleAliveSql();
+const FIRM_ALIVE_I = firmSaleAliveSql('i');
+const FACE_I = sqlInvoiceFaceRial('i');
 
 function ok(data, message = '') {
   return { success: true, data, message };
@@ -35,16 +40,16 @@ router.get('/summary', auth, (req, res) => {
   try {
     if (companyWide) {
       todaySales = db.prepare(
-        `SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND date=? AND COALESCE(deleted_at,0)=0`
+        `SELECT COALESCE(SUM(${FACE}),0) s FROM invoices WHERE ${FIRM_ALIVE} AND date=?`
       ).get(today)?.s || 0;
       todayPurchases = db.prepare('SELECT COALESCE(SUM(total),0) s FROM purchase_invoices WHERE date=?').get(today)?.s || 0;
     } else {
       // Scope by customer ownership (not invoice issuer alone)
       todaySales = db.prepare(`
-        SELECT COALESCE(SUM(i.final),0) s
+        SELECT COALESCE(SUM(${FACE_I}),0) s
         FROM invoices i
         JOIN customers c ON c.id = i.cust_id
-        WHERE ${firmSaleTypeSql('i')} AND i.date=? AND COALESCE(i.deleted_at,0)=0
+        WHERE ${FIRM_ALIVE_I} AND i.date=?
           AND ${customerVisibilitySql('c')}
       `).get(today, uid, uid)?.s || 0;
     }
@@ -85,7 +90,9 @@ router.get('/kpis', auth, adminOrAccounting, (req, res) => {
   }
   const db = getDB();
   const monthPrefix = require('../jalali').todayJalali().slice(0, 7);
-  const monthSales = db.prepare(`SELECT COALESCE(SUM(final),0) s, COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()} AND date LIKE ? AND COALESCE(deleted_at,0)=0`).get(monthPrefix + '%');
+  const monthSales = db.prepare(
+    `SELECT COALESCE(SUM(${FACE}),0) s, COUNT(*) c FROM invoices WHERE ${FIRM_ALIVE} AND date LIKE ?`
+  ).get(monthPrefix + '%');
 
   const balMap = customerSignedBalanceMap(db);
   const debtors = db.prepare('SELECT id, biz FROM customers').all()
@@ -117,7 +124,16 @@ router.get('/alerts', auth, adminOrAccounting, (req, res) => {
   } catch (_) { /* */ }
 
   try {
-    const lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock <= COALESCE(stock_alert,5)').get()?.c;
+    let lowStock;
+    try {
+      lowStock = db.prepare(`
+        SELECT COUNT(*) c FROM products p
+        WHERE COALESCE((SELECT SUM(ws.qty) FROM warehouse_stock ws WHERE ws.product_id=p.id), 0)
+              <= COALESCE(p.stock_alert, 5)
+      `).get()?.c;
+    } catch (_) {
+      lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock <= COALESCE(stock_alert,5)').get()?.c;
+    }
     if (lowStock) alerts.push({ type: 'low_stock', count: lowStock, message: `${lowStock} کالا زیر حد هشدار` });
   } catch (_) { /* */ }
 
@@ -138,8 +154,8 @@ router.get('/charts/sales-trend', auth, adminOrAccounting, (req, res) => {
   const range = req.query.range || '30d';
   const days = range === '12m' ? 365 : range === '90d' ? 90 : 30;
   const rows = db.prepare(`
-    SELECT date, COALESCE(SUM(final),0) total
-    FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0
+    SELECT date, COALESCE(SUM(${FACE}),0) total
+    FROM invoices WHERE ${FIRM_ALIVE}
     GROUP BY date ORDER BY date DESC LIMIT ?
   `).all(days);
   res.json(ok({ range, points: rows.reverse() }));

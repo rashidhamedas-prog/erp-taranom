@@ -6,9 +6,17 @@ const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
-const { firmSaleTypeSql } = require('../lib/sales-document');
+const { firmSaleAliveSql } = require('../lib/sales-document');
+const { sqlInvoiceFaceRial } = require('../lib/invoice-face-amount');
 const { applyCustomerBalances } = require('../lib/customer-books');
 const ALLOWED_ROLES = new Set(Object.keys(DEFAULT_ROLE_PERMISSIONS));
+/** Roles shown on home «عملکرد کارشناسان» (plus anyone with customers/sales/open fups). */
+const DASH_BOARD_ROLES = new Set([
+  'salesperson', 'field_sales', 'inside_sales', 'distribution_office',
+  'sales_manager', 'store_retail',
+]);
+const FACE = sqlInvoiceFaceRial();
+const FIRM_ALIVE = firmSaleAliveSql();
 
 function jalaliDayBounds(jStr) {
   const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(String(jStr || '').trim());
@@ -221,7 +229,7 @@ router.get('/dashboard', auth, adminOrAccounting, (req, res) => {
     ? ` AND date >= '${sf || ''}' AND date <= '${st || '9999'}'`
     : '';
   const periodActive = !!(sf || st);
-  const users = db.prepare("SELECT id,name,username FROM users WHERE active=1").all();
+  const users = db.prepare('SELECT id,name,username,role FROM users WHERE active=1').all();
   // Ownership: user_id OR assigned_to (same visibility rule as CRM)
   const custMap = {};
   for (const c of db.prepare('SELECT user_id, assigned_to FROM customers').all()) {
@@ -236,30 +244,42 @@ router.get('/dashboard', auth, adminOrAccounting, (req, res) => {
   const periodCustMap = Object.fromEntries(
     db.prepare(
       `SELECT user_id, COUNT(DISTINCT cust_id) c FROM invoices
-       WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause}
+       WHERE ${FIRM_ALIVE}${dateClause}
        GROUP BY user_id`
     ).all().map((r) => [r.user_id, r.c])
   );
   const salesMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(
+      `SELECT user_id, COALESCE(SUM(${FACE}),0) s FROM invoices
+       WHERE ${FIRM_ALIVE}${dateClause} GROUP BY user_id`
+    ).all().map((r) => [r.user_id, r.s])
   );
   const fupMap = Object.fromEntries(
     db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
   );
-  const stats = users.map(u => ({
-    ...u,
-    custCount: periodActive ? (periodCustMap[u.id] || 0) : (custMap[u.id] || 0),
-    custCountOwned: custMap[u.id] || 0,
-    custCountPeriod: periodCustMap[u.id] || 0,
-    totalSales: salesMap[u.id] || 0,
-    totalDebt: 0,
-    openFup: fupMap[u.id] || 0,
-    periodActive
-  }));
+  const stats = users
+    .map((u) => ({
+      ...u,
+      custCount: periodActive ? (periodCustMap[u.id] || 0) : (custMap[u.id] || 0),
+      custCountOwned: custMap[u.id] || 0,
+      custCountPeriod: periodCustMap[u.id] || 0,
+      totalSales: salesMap[u.id] || 0,
+      totalDebt: 0,
+      openFup: fupMap[u.id] || 0,
+      periodActive,
+    }))
+    .filter((u) =>
+      DASH_BOARD_ROLES.has(u.role)
+      || (u.custCountOwned > 0)
+      || (u.totalSales > 0)
+      || (u.openFup > 0)
+      || (u.custCountPeriod > 0)
+    )
+    .sort((a, b) => (b.totalSales - a.totalSales) || (b.custCountOwned - a.custCountOwned) || String(a.name || '').localeCompare(String(b.name || ''), 'fa'));
   res.json(stats);
 });
 
-// Aggregate overview across ALL users (revenue from firm invoices)
+// Aggregate overview across ALL users (revenue from firm invoices — same face as sales-purchase dash)
 router.get('/stats/overview', auth, adminOrAccounting, (req, res) => {
   const { scopeUserId } = require('../lib/customer-scope');
   if (scopeUserId(req) != null) {
@@ -268,19 +288,53 @@ router.get('/stats/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(req.query.from), st = safeDate(req.query.to);
-  const dateClause = sf || st
+  const periodActive = !!(sf || st);
+  const dateClause = periodActive
     ? ` AND date >= '${sf || ''}' AND date <= '${st || '9999'}'`
     : '';
   const totalCustomers = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
-  const notDeleted = ` AND COALESCE(deleted_at,0)=0`;
-  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().s;
-  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().c;
-  const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${notDeleted}${dateClause}`).get().c
+  const sumFace = (extra) =>
+    db.prepare(`SELECT COALESCE(SUM(${FACE}),0) s FROM invoices WHERE ${FIRM_ALIVE}${extra || ''}`).get().s;
+  const countFirm = (extra) =>
+    db.prepare(`SELECT COUNT(*) c FROM invoices WHERE ${FIRM_ALIVE}${extra || ''}`).get().c;
+  const totalRevenue = sumFace(dateClause);
+  const totalRevenueAll = periodActive ? sumFace('') : totalRevenue;
+  const totalInvoices = countFirm(dateClause);
+  const totalInvoicesAll = periodActive ? countFirm('') : totalInvoices;
+  const proformaAlive = `type='proforma' AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted')<>'reversed'`;
+  const totalProforma = db.prepare(
+    `SELECT COUNT(*) c FROM invoices WHERE ${proformaAlive}${dateClause}`
+  ).get().c;
   const totalProducts = db.prepare('SELECT COUNT(*) c FROM products').get().c;
   const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE status='open'").get().c;
-  const lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=COALESCE(stock_alert,5)').get().c;
-  res.json({ totalCustomers, totalRevenue, totalInvoices, totalProforma, totalProducts, openFollowups, lowStock,
-             totalOrders: 0, totalPaid: 0, totalDebt: 0 });
+  // SoT: company on-hand from warehouse_stock (products.stock is a denormalized mirror)
+  let lowStock;
+  try {
+    lowStock = db.prepare(`
+      SELECT COUNT(*) c FROM products p
+      WHERE COALESCE((SELECT SUM(ws.qty) FROM warehouse_stock ws WHERE ws.product_id=p.id), 0)
+            <= COALESCE(p.stock_alert, 5)
+    `).get().c;
+  } catch (_) {
+    lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=COALESCE(stock_alert,5)').get().c;
+  }
+  res.json({
+    totalCustomers,
+    totalRevenue,
+    totalRevenueAll,
+    totalInvoices,
+    totalInvoicesAll,
+    totalProforma,
+    totalProducts,
+    openFollowups,
+    lowStock,
+    periodActive,
+    periodFrom: sf || null,
+    periodTo: st || null,
+    totalOrders: 0,
+    totalPaid: 0,
+    totalDebt: 0,
+  });
 });
 
 // Data for a specific salesperson (admin)
