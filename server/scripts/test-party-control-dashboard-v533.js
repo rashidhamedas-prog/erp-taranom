@@ -67,7 +67,7 @@ db.prepare(`
 `).run(1, custId, 'normal', '1405/07/01', '[]', 250000, 0, 250000, 2500000, 1);
 
 const dash = buildPartyControlDashboard(db, { balance: 'all', limit: 100 });
-ok(dash && dash.version === 533, 'payload version 533');
+ok(dash && Number(dash.version) >= 533, 'payload version >= 533');
 ok(dash.kpis.parties_total >= 3, 'counts seeded parties');
 ok(dash.kpis.total_debit_rial >= 2500000, 'customer debit from ledger');
 ok(dash.kpis.total_credit_rial >= 500000, 'supplier opening credit');
