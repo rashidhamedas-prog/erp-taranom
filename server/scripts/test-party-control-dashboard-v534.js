@@ -37,9 +37,9 @@ db.prepare(`
 const partyCust = db.prepare('SELECT id FROM parties WHERE person_code=?').get('P-C1').id;
 
 db.prepare(`
-  INSERT INTO customers (user_id, biz, owner, city, phone, type, status, party_id, credit_limit)
-  VALUES (?,?,?,?,?,?,?,?,?)
-`).run(1, 'فروشگاه پیری', 'مالک', 'مشهد', '09120000001', 'بوتیک', 'active', partyCust, 0);
+  INSERT INTO customers (user_id, biz, owner, city, phone, type, status, party_id)
+  VALUES (?,?,?,?,?,?,?,?)
+`).run(1, 'فروشگاه پیری', 'مالک', 'مشهد', '09120000001', 'بوتیک', 'active', partyCust);
 const custId = db.prepare('SELECT id FROM customers WHERE party_id=?').get(partyCust).id;
 
 // دو فاکتور زنده: قدیم ۲M + جدید ۱M؛ تسویه ۱٫۵M → باقی ۰٫۵ روی قدیم + ۱ روی جدید
