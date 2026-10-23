@@ -3725,38 +3725,17 @@ async function renderDashContent(){
     const pending = window._pendingActions || [];
     const custCol = periodOn ? 'مشتریان (بازه)' : 'مشتریان';
     const salesCol = periodOn ? 'فروش (بازه)' : 'فروش';
-    const revAll = Number(ov.totalRevenueAll != null ? ov.totalRevenueAll : ov.totalRevenue) || 0;
-    const invAll = Number(ov.totalInvoicesAll != null ? ov.totalInvoicesAll : ov.totalInvoices) || 0;
-    const periodEmptySales = periodOn && !(Number(ov.totalRevenue) || 0) && !(Number(ov.totalInvoices) || 0);
-    const periodHint = periodEmptySales
-      ? `<div class="panel" data-csp-style="${CSP.style(`border-color:var(--orange);background:var(--orange-light,#fff8f0)`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px;line-height:1.7`)}">
-          در بازهٔ <b>${esc(dashDateFrom||'…')} — ${esc(dashDateTo||'…')}</b> هنوز فاکتور قطعی ثبت نشده؛ صفر بودن فروش/فاکتور به‌خاطر فیلتر بازه است (مثلاً اول ماه جاری از ۱ تا امروز همان یک روز است).
-          مانده مشتریان و پیگیری باز از زیرسیستم زنده می‌آیند و به بازه وابسته نیستند.
-          ${revAll?` فروش کل بدون فیلتر: <b class="mono">${fmt(revAll)}</b> ریال (${fmt(invAll)} فاکتور).`:''}
-          <button class="btn sm" data-csp-style="${CSP.style(`margin-inline-start:8px`)}" data-csp-click="${CSP.bind('click',function(event){applyDashPreset('all')})}">نمایش همه</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){applyDashPreset('lastMonth')})}">ماه قبل</button>
-        </div></div>`
-      : '';
-    const boardRows = (board||[]);
-    const boardBody = boardRows.length
-      ? boardRows.map(u=>`<tr>
-              <td data-label="کارشناس">${esc(u.name)}</td>
-              <td data-label="${esc(custCol)}">${fmt(u.custCount)}</td>
-              <td data-label="${esc(salesCol)}" class="mono">${fmt(u.totalSales)}</td>
-              <td data-label="پیگیری باز">${fmt(u.openFup)}</td></tr>`).join('')
-      : `<tr><td colspan="4" class="muted" data-csp-style="${CSP.style(`text-align:center;padding:16px`)}">${periodEmptySales?'در این بازه فروشی برای کارشناس ثبت نشده — «همه» یا «ماه قبل» را ببینید.':'کارشناس فعالی با مشتری/فروش/پیگیری نیست.'}</td></tr>`;
     body.innerHTML = `
       <div class="dash-hero">
         <div class="dash-hero-kicker">خانه · داشبورد</div>
         <h2 class="dash-hero-title">خلاصهٔ عملیاتی شرکت</h2>
-        <p class="dash-hero-lead">فروش از فاکتور قطعی زنده، مطالبات از دفتر مشتری، موجودی کم از انبار — برای جزئیات کارت‌ها و جدول‌های پایین را ببینید.</p>
+        <p class="dash-hero-lead">فروش، مطالبات و کار باز — برای جزئیات کارت‌ها و جدول‌های پایین را ببینید.</p>
         <div class="dash-hero-metrics">
-          <div class="dash-hero-metric"><div class="lbl">فروش کل${periodOn?' · بازه':''}</div><div class="val">${fmt(ov.totalRevenue)}</div>${periodOn&&revAll!==Number(ov.totalRevenue)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">کل: ${fmt(revAll)}</div>`:''}</div>
+          <div class="dash-hero-metric"><div class="lbl">فروش کل</div><div class="val">${fmt(ov.totalRevenue)}</div></div>
           <div class="dash-hero-metric"><div class="lbl">مانده خالص</div><div class="val">${fmt(balT.netAbs)}</div></div>
           <div class="dash-hero-metric"><div class="lbl">پیگیری باز</div><div class="val">${fmt(ov.openFollowups)}</div></div>
         </div>
       </div>
-      ${periodHint}
       ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){pollNotifications().then(()=>renderDashContent())})}">بروز</button></div>
         <div class="panel-body">${pending.slice(0,8).map(a=>`<div class="pending-action-item" data-csp-click="${CSP.bind('click',function(event){pendingActionClick(`${String((a.route||'') ?? '')}`,`${String((a.entity_type||'') ?? '')}`,(a.entity_id||0))})}">
@@ -3780,7 +3759,11 @@ async function renderDashContent(){
         <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack">
             <thead><tr><th>کارشناس</th><th data-col-kind="qty">${custCol}</th><th data-col-kind="money">${salesCol}</th><th data-col-kind="qty">پیگیری باز</th></tr></thead>
-            <tbody>${boardBody}</tbody>
+            <tbody>${(board||[]).map(u=>`<tr>
+              <td data-label="کارشناس">${esc(u.name)}</td>
+              <td data-label="${esc(custCol)}">${fmt(u.custCount)}</td>
+              <td data-label="${esc(salesCol)}" class="mono">${fmt(u.totalSales)}</td>
+              <td data-label="پیگیری باز">${fmt(u.openFup)}</td></tr>`).join('')||emptyRow(4)}</tbody>
           </table>
         </div>
       </div>
@@ -35201,7 +35184,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>`),
     helpSec('📊','داشبورد',`
       <p>داشبورد نمای زنده از وضعیت کسب‌وکار است. <b>فروش کل</b> و شمار فاکتور/پیش‌فاکتور با فیلتر بازه به‌روز می‌شوند (فاکتور قطعی = معمولی + رسمی، غیر ابطال‌شده؛ مبلغ = صورت فاکتور ریالی مثل داشبورد فروش/خرید). <b>مانده مشتریان</b> همیشه زنده از دفتر مشتری/تفصیلی است و به فیلتر بازه وابسته نیست. <b>موجودی کم</b> از جمع موجودی انبارها (<code>warehouse_stock</code>) در برابر حد هشدار کالا محاسبه می‌شود. برای کارشناس حضوری/تلفنی فقط «مشتریان من»؛ آمار سراسری مخصوص مدیر و حسابداری است.</p>
-      <div class="tip">دکمه ↻ / «زنده» و هر بار ورود به داشبورد، اعداد را دوباره از سرور می‌خواند (کش HTML داشبورد خاموش است). اگر در «ماه جاری» فروش ۰ دیدید ولی مانده میلیاردی است، معمولاً در همان بازه هنوز فاکتوری ثبت نشده (مثلاً اول ماه از ۱ تا امروز یک روز است) — بنر راهنما و دکمهٔ «نمایش همه» / «ماه قبل» را ببینید (v530).</div>
+      <div class="tip">دکمه ↻ / «زنده» و هر بار ورود به داشبورد، اعداد را دوباره از سرور می‌خواند (کش HTML داشبورد خاموش است).</div>
       <h5>امکانات</h5><ul>
         <li>آمار مشتریان، کالاها، پیگیری باز و موجودی کم (سراسری / زنده از زیرسیستم مربوط)</li>
         <li>جدول عملکرد کارشناس: نقش‌های فروش + کسانی که مشتری/فروش/پیگیری دارند؛ در بازه، ستون مشتریان = مشتری با فروش قطعی در بازه؛ فروش = جمع صورت فاکتور همان بازه؛ پیگیری باز = زنده</li>
@@ -35784,7 +35767,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v530</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v531</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

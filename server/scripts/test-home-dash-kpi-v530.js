@@ -30,7 +30,7 @@ const adminSrc = fs.readFileSync(path.join(__dirname, '../routes/admin.js'), 'ut
 ok(adminSrc.includes('sqlInvoiceFaceRial'), 'admin overview uses face helper');
 ok(adminSrc.includes('firmSaleAliveSql'), 'admin overview uses alive helper');
 ok(adminSrc.includes('warehouse_stock'), 'admin lowStock uses warehouse_stock');
-ok(adminSrc.includes('totalRevenueAll'), 'overview exposes totalRevenueAll for period empty hint');
+ok(adminSrc.includes('totalRevenueAll'), 'overview still exposes totalRevenueAll (API only)');
 ok(adminSrc.includes('DASH_BOARD_ROLES'), 'expert board filters sales-ish roles');
 
 const dashSrc = fs.readFileSync(path.join(__dirname, '../routes/dashboard.js'), 'utf8');
@@ -39,11 +39,11 @@ ok(dashSrc.includes('firmSaleAliveSql'), 'dashboard uses alive SQL');
 ok(dashSrc.includes('warehouse_stock'), 'dashboard alerts lowStock uses warehouse_stock');
 
 const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-ok(appSrc.includes('totalRevenueAll'), 'home UI reads totalRevenueAll');
-ok(appSrc.includes("applyDashPreset('all')"), 'empty-period hint offers «همه»');
-ok(appSrc.includes('v530'), 'Help mentions v530 period-zero hint');
-ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v530'), 'SW v530');
-ok(fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8').includes('app.js?v=530'), 'index asset ?v=530');
+ok(!appSrc.includes('فروش کل بدون فیلتر'), 'home UI has no all-time sales banner text');
+ok(!/کل:\s*\$\{fmt\(revAll\)\}/.test(appSrc) && !appSrc.includes('کل: ${fmt(revAll)}'), 'home hero has no «کل:» subtitle');
+ok(!appSrc.includes('periodHint'), 'periodHint banner removed from home dash');
+ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v531'), 'SW v531');
+ok(fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8').includes('app.js?v=531'), 'index asset ?v=531');
 
 let Database;
 try {
