@@ -4,8 +4,8 @@
 - **بک‌اند (`lib/party-control-dashboard.js`):** فیلتر `aging_bucket` / `medium`؛ worklist واقعی با `next_action_code` و لینک مشتری؛ KPI تمرکز ۵ بدهکار بزرگ + شمار ریسک؛ alerts با `action_filter`؛ مبلغ `by_role` فقط روی سمت اصلی؛ `version:533`.
 - **فرانت (`portal-ui.js` + `app.css`):** فیلتر sticky، چیپ سریع، KPI شش‌ستونه با رقم فشرده، صف اقدام اول، پیری قابل‌کلیک، تمرکز مطالبات، سلامت کنترل؛ `کارت`→`partyModal`؛ گردش/صورت‌حساب مستقیم.
 - **فایل‌ها:** `lib/party-control-dashboard.js`, `public/{portal-ui.js,app.css,app.js,index.html,sw.js}`, `scripts/test-party-control-dashboard-v533.js`, اصلاح assert v361، CHANGE-LOG، Help.
-- **تست:** محلی parse `portal-ui` OK + `test-sms` ۲۲/۰؛ sqlite روی Node ۲۴ ویندوز bind ندارد → v533/sms/sync روی ایران.
-- **Deploy:** ⏳
+- **تست (ایران):** `test-party-control-dashboard-v533` ۲۶/۰؛ `test-sms` ۲۲/۰؛ `test-sync` ۴۴/۰. محلی: parse `portal-ui` OK؛ sqlite Node۲۴ ویندوز bind ندارد.
+- **Deploy:** ✅ `fe92f9f0` — overlay ایران (۹ فایل)؛ `ensure-sharp-runtime` OK؛ `pm2 restart` بدون `--update-env`؛ health=200، `image_engine` sharp 0.33.5؛ SW `erp-taranom-v533` / `portal-ui.js?v=533` / `app.css?v=533`؛ md5 همه = کامیت.
 
 ### ۱۴۰۵/۰۸/۰۱ — v532: صورت‌حساب مشتری خالی برای کارمندِ دارای نقش مشتری — راهنمای نقش دوگانه (SW v532)
 - **علائم:** کاربر در «صورت‌حساب مشتری» برای محبوبه قاسمی مانده/گردش صفر می‌دید و تصور می‌کرد زیرسیستم‌ها به مالی وصل نیستند.
