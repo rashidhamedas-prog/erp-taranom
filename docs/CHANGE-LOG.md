@@ -2,7 +2,8 @@
 - **ریشه (audit پس از v533):** سطل پیری کل `debit_rial` شخص را در سطل «قدیمی‌ترین فاکتور» می‌ریخت (نه ماندهٔ FIFO)؛ `credit_used` از ماندهٔ خالص چندنقشی بود نه `customer_ledger`/`party-credit`.
 - **اصلاح:** `customerAgingFifoMap` (هم‌تراز `/aging` + `firmSaleAliveSql`، یک‌بار query)؛ KPI/فیلتر پیری از مبالغ سطل؛ سقف/مصرف از `resolvePartyCreditLimitRial` + `customerArExposureRial`؛ `by_role` خالی = `[]`؛ گردش نقش‌های غیرمشتری/تأمین → `person`.
 - **فایل‌ها:** `lib/party-control-dashboard.js`, `public/{portal-ui,app,index,sw}`, `scripts/test-party-control-dashboard-v534.js`, Help، CHANGE-LOG.
-- **تست/Deploy:** ⏳ روی ایران.
+- **تست (ایران):** v534 ۱۶/۰؛ v533 ۲۶/۰؛ sms ۲۲/۰؛ sync ۴۴/۰.
+- **Deploy:** ✅ `e8e8fad6` (+ تست‌ها `9aedce82`) — overlay؛ SW `erp-taranom-v534` / `?v=534`؛ health=200.
 
 ### ۱۴۰۵/۰۸/۰۱ — v533: بازطراحی داشبورد کنترل حساب اشخاص (UI کارمحور + بک‌اند غنی) (SW v533)
 - **درخواست:** داشبورد «کنترل حساب اشخاص» از نظر UI ریختگی داشت و بک‌اند/اکشن‌ها ناقص بود؛ نیاز به داشبورد حرفه‌ای ۲۰۲۶.
