@@ -3,7 +3,8 @@
 - **ریشه (پروب تولید):** party `#110` نقش‌های `customer+employee`؛ مشتری `#86` برگ مطالبات `110301000016` بدون هیچ `customer_ledger`/فاکتور/JE؛ شخص `#11` برگ `110601000110` با JE حقوق/پرداخت ۷۵۶/۷۵۸ و وام روی ۱۱۱۹. صورت‌حساب مشتری عمداً فقط AR است — اتصال مالی قطع نیست؛ صفحهٔ اشتباه برای حقوق/وام.
 - **اصلاح:** `customerPartyAltHint` + فیلد `party_hint` در `buildStatement`؛ UI بنر نقش‌ها + دکمهٔ «گردش شخص» و پیام خالی هدفمند. Help + SW v532. تست `test-stmt-party-hint-v532.js`.
 - **فایل‌ها:** `lib/customer-books.js`, `routes/accounting.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-stmt-party-hint-v532.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست (ایران):** v532 ۱۱/۰؛ `test-sms` ۲۲/۰؛ `test-sync` ۴۴/۰.
+- **Deploy:** ✅ `2ac577a9` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200؛ `image_engine` sharp 0.33.5؛ SW `erp-taranom-v532` / `?v=532`.
 
 ### ۱۴۰۵/۰۸/۰۱ — v531: حذف بنر راهنما و زیرعنوان «کل» از داشبورد خانه (SW v531)
 - **درخواست:** کاربر بنر توضیح صفر بازه و متن «کل: …» زیر فروش هیرو را اضافهٔ ناخواسته دانست و خواست حذف شوند.
