@@ -184,7 +184,7 @@ function openingSideOnJe(jeId) {
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   ok(appJs.includes('cb-open-credit') && appJs.includes('bk-open-credit'), 'UI debit/credit radios');
   ok(/مانده بستانکار/.test(appJs), 'admin help mentions credit opening');
-  ok(sw.includes('erp-taranom-v448'), 'SW v448');
+  ok(/erp-taranom-v\d+/.test(sw), 'SW cache version stamped');
 
   server.close();
   try { closeSessionStore(); } catch (_) { /* */ }

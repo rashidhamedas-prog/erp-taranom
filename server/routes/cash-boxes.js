@@ -4,22 +4,21 @@ const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
-const { todayJalali, addDaysToJalali } = require('../jalali');
+const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
 // Unrestricted cash box management — opening upsert mirrors parties (signed + retire duplicates).
 
+/** Opening JE date = active FY start (same as bank/party). Never day-before: FY gate rejects it. */
 function fiscalOpeningDate(db) {
   const fy = getActiveFiscalYear(db);
   return (fy && fy.start_date) || todayJalali();
 }
 
-/** صندوق کیمیا: تاریخ مانده = روز قبل از شروع سال مالی (برای سال از ۱ مهر = ۳۱ شهریور). */
-function cashOpeningDate(db, box) {
-  const start = fiscalOpeningDate(db);
-  if (box && /کیمیا/.test(String(box.name || ''))) return addDaysToJalali(start, -1);
-  return start;
+/** @deprecated alias — all cash boxes use FY start; name-based exceptions removed (v538). */
+function cashOpeningDate(db, _box) {
+  return fiscalOpeningDate(db);
 }
 
 function collectCashOpeningJournalIds(db, boxId) {
