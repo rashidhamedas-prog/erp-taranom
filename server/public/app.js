@@ -5455,7 +5455,7 @@ async function _openInvBuilder(id){
       set('inv-cheque-info', ch.cheque_info);
     }
   }
-  toggleInvPayFields();
+  finalizeInvPayHydrate(inv);
   hardenFormAutofill(el('modalRoot'));
   const whSel = el('inv-warehouse');
   if (whSel && !whSel.dataset.whBound) {
@@ -5476,7 +5476,11 @@ async function _openInvBuilder(id){
     });
   }
   syncInvTypeDependentFields(false);
-  if((invCart||[]).some(r=>r && (r.batch_id||r.is_fabric_roll))) ensureInvoiceLiveRolls().then(()=>{ if(el('cartRows')) renderCart(); });
+  if((invCart||[]).some(r=>r && (r.batch_id||r.is_fabric_roll))) ensureInvoiceLiveRolls().then(()=>{
+    if(el('cartRows')) renderCart();
+    // renderCart recreates #inv-receipt-live — re-apply stored payment amounts/ledger (v539).
+    if(inv) finalizeInvPayHydrate(inv);
+  });
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
@@ -6796,13 +6800,10 @@ function hydrateInvPayRows(inv){
       }
       return row;
     });
-    // On edit, always expose multi-stage UI so an extra receipt can be appended.
-    const m=el('inv-multi'); if(m) m.checked=true;
   }else{
     const liveRows=invPayRowsFromLiveReceipts(inv);
     if(liveRows.length){
       invPayRows=liveRows;
-      const m=el('inv-multi'); if(m) m.checked=true;
     }else if(inv.pay_type && inv.pay_type!=='credit' && Number(inv.pay_amount_rial)>0){
       invPayRows=[{
         amount:String(inv.pay_amount_rial||''),
@@ -6811,8 +6812,31 @@ function hydrateInvPayRows(inv){
         cash_box_id:inv.cash_box_id||null,
         terminal_id:inv.pos_terminal_id||null
       }];
-      if(inv.id || window._invBuilderId){
-        const m=el('inv-multi'); if(m) m.checked=true;
+    }
+  }
+  // v539: multi UI only when genuinely multi-stage — single POS/cash/bank stays on the simple amount field
+  // so edit opens with visible numbers (no credit↔POS toggle required).
+  const multiNeeded = (inv.pay_type==='mixed')
+    || (invPayRows.length>1)
+    || (invPayRows.length===1 && inv.pay_type==='mixed');
+  const m=el('inv-multi');
+  if(m) m.checked=!!multiNeeded;
+  if(!multiNeeded && invPayRows.length===1){
+    const one=invPayRows[0];
+    const amt=parseInvMoney(one.amount);
+    const payInp=el('inv-pay-amount');
+    if(payInp && amt>0){
+      payInp.value=typeof moneyInit==='function'?moneyInit(amt):String(amt);
+      payInp.dataset.userEdited='1';
+      if(typeof ensureMoneyField==='function') ensureMoneyField(payInp);
+    }
+    if(one.pay_type==='cash' && one.cash_box_id && el('inv-cashbox')) el('inv-cashbox').value=String(one.cash_box_id);
+    if((one.pay_type==='bank_transfer'||one.pay_type==='bank') && one.bank_id && el('inv-bank')) el('inv-bank').value=String(one.bank_id);
+    if(one.pay_type==='cheque'){
+      const face=el('inv-cheque-face');
+      if(face && amt>0){
+        face.value=typeof moneyInit==='function'?moneyInit(amt):String(amt);
+        if(typeof ensureMoneyField==='function') ensureMoneyField(face);
       }
     }
   }
@@ -6820,6 +6844,15 @@ function hydrateInvPayRows(inv){
   else if(invPayRows.some(r=>r.pay_type==='pos_card'&&r.terminal_id)){
     const ps=el('inv-pos'); if(ps) ps.value=String(invPayRows.find(r=>r.terminal_id).terminal_id);
   }
+}
+/** After cart/pay DOM is ready: keep payment section open and ledger in sync with stored receipts. */
+function finalizeInvPayHydrate(inv){
+  if(!inv) return;
+  const sec=el('inv-sec-pay');
+  const pt=el('inv-pay-type')?.value || inv.pay_type || '';
+  if(sec && pt && pt!=='credit') sec.open=true;
+  toggleInvPayFields();
+  if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -35340,7 +35373,8 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
         <li>پس از افزودن پک زنده، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را با فیلتر «همه» باز می‌کند؛ تعداد هر رنگ×سایز کاملاً دستی است (صفر = حذف؛ اجبار زوج نیست). ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
         <li><b>کاردکس / گردش کالا (v506):</b> حواله یا فاکتور چندرنگ به‌صورت <b>یک ردیف مادر</b> دیده می‌شود؛ دکمه «جزئیات» با کلیک دوم بسته می‌شود و جمع جزییات با سطر مادر یکی است (ماتریس فاکتور دیگر مقدار دفتر را باد نمی‌کند). سند «موجودی اول دوره (هم‌ترازی کاردکس)» فقط برای کالای بدون گردش واقعی ساخته می‌شود؛ روی بوت، هم‌ترازی‌های یتیم ابطال نرم می‌شوند تا گزارش‌ها باد نمانند. موجودی کارت فاکتور با انبار انتخاب‌شده است.</li>
-        <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
+        <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>. مبلغ نهایی، تخفیف مبلغی، معافیت مالیات و طرح دریافت ذخیره‌شدهٔ پیش‌فاکتور حفظ می‌شود (بدون محاسبهٔ دوبارهٔ مالیات روی پیش‌فاکتور معاف).</li>
+        <li>ویرایش فاکتور: بخش <b>پرداخت و دریافت</b> با باز شدن فرم باز است و مبلغ/مقصد ذخیره‌شده (کارتخوان، نقد، …) از همان ابتدا دیده می‌شود؛ برای دیدن عدد لازم نیست نوع پرداخت را عوض کنید.</li>
         <li><b>ترتیب لیست (v393):</b> صفحهٔ فاکتور و «فاکتورهای فروش» همیشه بر اساس <b>تاریخ صدور</b> نزولی نسبت به امروز مرتب می‌شوند (جدیدترین بالا). شماره فاکتور معیار سورت پیش‌فرض نیست؛ با تاریخ یکسان، شناسهٔ بالاتر بالاتر می‌آید.</li>
       </ul>
       <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
@@ -35809,7 +35843,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v538</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v539</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -36095,7 +36129,8 @@ function renderSalesGuide(){
         <li>محصولات را از کاتالوگ جستجو و اضافه کنید. برای کارشناس حضوری/تلفنی، کالای رنگ‌دار به‌صورت <b>پک کامل</b> خودکار وارد سبد می‌شود و هر کالا یک ردیف با رنگ‌ها و سایزبندی زیر نام است؛ ویرایش رنگ از سبد. مدیر هنگام افزودن می‌تواند رنگ را انتخاب کند. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است و همان وضعیت معاف/مشمول و مبلغ تخفیف پیش‌فاکتور را نگه می‌دارد</li>
+        <li>در ویرایش، مبلغ دریافت ثبت‌شده کنار نوع پرداخت از همان ابتدا پر است (بدون نیاز به تغییر نسیه↔کارتخوان)</li>
         <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
         <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. کارتخوان‌های فعال همین‌جا می‌آیند، حتی اگر منوی تعریف دستگاه را نداشته باشید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
         <li>مرکز هزینه روی فاکتور فروش اختیاری است. اگر انتخاب شود، همان مرکز روی سطرهای سند فروش می‌نشیند</li>

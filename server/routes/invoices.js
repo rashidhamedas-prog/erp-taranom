@@ -1068,8 +1068,17 @@ router.post('/:id/convert', auth, (req, res) => {
   }
 
   const rows = JSON.parse(inv.rows || '[]');
+  // Preserve proforma pricing policy on convert (v539): same vat_exempt + disc_amt as create/amend.
+  // Without this, exempt/normal proformas were recalculated with default VAT → final jumped ~+10%.
   const built = { rows, subtotal: inv.subtotal };
-  const totals = calcDocTotals(db, built, inv.disc || 0);
+  const convertVatExempt = !!Number(inv.vat_exempt);
+  const convertDiscAmt = (inv.disc_amt != null && inv.disc_amt !== '')
+    ? Math.max(0, Math.round(Number(inv.disc_amt) || 0))
+    : null;
+  const totals = calcDocTotals(db, built, inv.disc || 0, {
+    vatExempt: convertVatExempt,
+    ...(convertDiscAmt != null ? { discAmt: convertDiscAmt } : {}),
+  });
   const freightAdj = applyFreightToDocTotals(totals, inv.freight_amount, inv.freight_type);
   totals.final = freightAdj.final;
   totals.netBeforeVat = freightAdj.netBeforeVat;
@@ -1151,9 +1160,9 @@ router.post('/:id/convert', auth, (req, res) => {
         }
       }
 
-      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,fulfillment_state=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
+      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,fulfillment_state=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,disc_amt=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
         .run(targetType, stockDeducted, fulfillmentState, totals.final, totals.vatAmount, totals.vatRate,
-          Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
+          Math.round(totals.final), Math.round(totals.vatAmount), totals.discAmt, convertWhId, JSON.stringify(rows), inv.id);
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
       postInvoiceCustomerLedger(db, {
