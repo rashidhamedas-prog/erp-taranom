@@ -4,9 +4,9 @@
 - **بهترین‌روش:** حفظ سیاست مالیات/تخفیف پیش‌فاکتور هنگام convert (هم‌تراز create/amend؛ مرجع: proforma→invoice VAT treatment). UI: حالت تک‌روش = فیلد مبلغ ساده با عدد ذخیره‌شده از فریم اول؛ multi فقط وقتی واقعاً چندمرحله.
 - **اصلاح:** convert با `vat_exempt`+`disc_amt`؛ UPDATE `disc_amt`؛ `finalizeInvPayHydrate`؛ heal `heal-convert-vat-exempt-v539.js` برای فاکتورهای خراب‌شده. Help + تست.
 - **فایل‌ها:** `routes/invoices.js`, `public/{app.js,index.html,sw.js}`, `scripts/{test,heal}-convert-vat-exempt-v539.js`, CHANGE-LOG.
-- **تست (ایران):** convert-vat static+math ۱۰/۰ + API پس از اصلاح schema؛ sms ۲۲/۰؛ heal T-0042 VAT + full POS.
-- **Heal تولید:** T-0042 `final 216707920→197000000`؛ سپس کارتخوان `59.2M→197M` (مانده ۰).
-- **Deploy:** ✅ `0faf3bbb` — overlay ایران؛ SW `erp-taranom-v539` / `?v=539`؛ health=200، sharp 0.33.5.
+- **تست (ایران):** convert-vat-exempt v539 **۱۷/۰**؛ sms ۲۲/۰.
+- **Heal تولید:** T-0042 `final 216707920→197000000`؛ سپس کارتخوان `59.2M→197M` → `settled=197M`، `balance_due=0`.
+- **Deploy:** ✅ `4cfcece0` — overlay ایران؛ SW `erp-taranom-v539` / `?v=539`؛ health=200، sharp 0.33.5.
 
 ### ۱۴۰۵/۰۸/۰۲ — v538: افتتاحیهٔ صندوق (کیمیا) روی شروع سال مالی — بدون خطای FY و بدون سند تکراری (SW v538)
 - **علائم:** ویرایش موجودی اول دورهٔ صندوق «کیمیا» با خطای «تاریخ سند قبل از شروع سال مالی فعال است» شکست می‌خورد.
