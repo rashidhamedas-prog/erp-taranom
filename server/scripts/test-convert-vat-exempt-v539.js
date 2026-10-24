@@ -78,7 +78,7 @@ ok(good.final === 197_000_000 && good.vatAmount === 0, 'fix path: exempt+discAmt
     db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
 
     const whId = db.prepare(`
-      INSERT INTO warehouses (code, name, warehouse_type, is_active, allow_negative)
+      INSERT INTO warehouses (code, name, warehouse_type, active, allow_negative)
       VALUES ('WH-V539', 'انبار تست v539', 'finished_goods', 1, 1)
     `).run().lastInsertRowid;
 

@@ -12,13 +12,22 @@ const path = require('path');
 const APPLY = process.argv.includes('--apply');
 
 if (!process.env.DB_PATH) {
-  // Production default on Iran VPS when run from app root; local uses env or server default.
-  const cand = path.join(__dirname, '..', 'data', 'erp.db');
-  try {
-    require('fs').accessSync(cand);
-    process.env.DB_PATH = cand;
-  } catch (_) { /* db.js default */ }
+  // Prefer production crm.db next to server/; never invent an empty data/erp.db.
+  const fs = require('fs');
+  const cands = [
+    path.join(__dirname, '..', 'crm.db'),
+    path.join(__dirname, '..', 'data', 'erp.db'),
+  ];
+  for (const cand of cands) {
+    try {
+      if (fs.existsSync(cand) && fs.statSync(cand).size > 10_000) {
+        process.env.DB_PATH = cand;
+        break;
+      }
+    } catch (_) { /* next */ }
+  }
 }
+console.log('heal DB_PATH=', process.env.DB_PATH || '(db.js default)');
 
 const { initDB, getDB } = require('../db');
 initDB();
@@ -32,13 +41,17 @@ const { recomputeInvoiceSettledBalances } = require('../lib/invoice-payments');
 const rows = db.prepare(`
   SELECT * FROM invoices
   WHERE COALESCE(converted,0)=1
-    AND COALESCE(vat_exempt,0)=1
     AND COALESCE(deleted_at,0)=0
     AND COALESCE(status,'active')<>'reversed'
     AND (
-      COALESCE(vat_amount,0)>0 OR COALESCE(vat_amount_rial,0)>0
-      OR ABS(COALESCE(final_rial, final) - (COALESCE(subtotal,0) - COALESCE(disc_amt,0) + CASE
-           WHEN COALESCE(freight_type,'')='buyer' THEN COALESCE(freight_amount,0) ELSE 0 END)) > 1
+      /* classic: exempt flag kept but VAT applied on convert */
+      (COALESCE(vat_exempt,0)=1 AND (COALESCE(vat_amount,0)>0 OR COALESCE(vat_amount_rial,0)>0))
+      /* or final ≈ (subtotal−disc)×1.1 while disc_amt suggests exempt face */
+      OR (
+        ABS(COALESCE(final_rial, final)
+          - ROUND((COALESCE(subtotal,0) - COALESCE(disc_amt,0)) * 1.1)) < 50
+        AND COALESCE(vat_amount,0) > 0
+      )
     )
 `).all();
 
