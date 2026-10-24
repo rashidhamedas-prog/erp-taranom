@@ -3,7 +3,8 @@
 - **ریشه (پروب ایران):** party `#128` نقش `customer+employee`؛ برگ شخص `110601000123` چهار سند «پرداخت به شخص»؛ برگ AR مشتری `110301000017` فقط فاکتور T-0041 (۱۵٫۱۲M). همان چهار ردیف `manual_voucher` امروز به `customer_ledger` کپی شده بود. `retireUnmatched` چون JE زنده بود (روی برگ دیگر) ردیف را نگه می‌داشت؛ `sqlCustomerLedgerLive` هم فقط زنده بودن JE را می‌دید نه برگ مشتری؛ fallback به `parties.coa_code` برای entity بدون برگ، دفترها را روی یک برگ قاطی می‌کرد.
 - **اصلاح:** (۱) بازنشستگی `wrong_leaf` برای `manual_voucher` وقتی سند روی برگ این دفتر نیست؛ (۲) heal پیوسته روی همهٔ برگ‌های دارای دفتر نقش (نه فقط shared)؛ (۳) بدون fallback `party.coa` در `booksForPartyCode`/`afterPartyBookInsert`؛ (۴) ماندهٔ زندهٔ مشتری فقط با خط JE روی `customers.coa_code`؛ (۵) `mirrorManualVoucherToCustomers` فقط وقتی خط سند به برگ مشتری می‌خورد. Help + تست `test-books-cross-leaf-v536.js`.
 - **فایل‌ها:** `lib/party-leaf-sync.js`, `lib/customer-books.js`, `routes/accounting.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-books-cross-leaf-v536.js`, CHANGE-LOG.
-- **Deploy:** ⏳
+- **تست (ایران):** v536 ۱۷/۰؛ v519 ۵۹/۰؛ sms ۲۲/۰؛ sync ۴۴/۰.
+- **Deploy:** ✅ `6a9436ba` — overlay ایران؛ بکاپ `backups/pre-v536-books-1792844728.db`؛ پس از restart heal خودکار ردیف‌های wrong_leaf مهدیزاده را برداشت (`m89_mv=0`، مانده مشتری=۱۵٬۱۲۰٬۰۰۰=T-0041)؛ `books_mismatch=false`؛ led=gl display ۱۰٬۸۴۹٬۳۸۳٬۴۲۰؛ health=200؛ SW `erp-taranom-v536` / `?v=536`.
 
 ### ۱۴۰۵/۰۸/۰۲ — v535: مرکز هزینه کارمزد/کسری در تسویه دسته‌ای کارتخوان (SW v535)
 - **علائم:** با روشن بودن «الزام مرکز هزینه روی هزینه‌ها»، تسویه دسته‌ای با کارمزد > ۰ خطای «مرکز هزینه برای حساب ۶۱۱۴ الزامی است» می‌داد؛ در فرم فیلد مرکز هزینه نبود.
