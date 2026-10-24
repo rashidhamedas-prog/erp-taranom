@@ -2,8 +2,8 @@
 - **بافت (skill-top / کامل):** اجرای `docs/Production/cursor-prompt.md`؛ ماژول تولید از قبل در `lib/production/schema.js` پیاده بود. روی ایران `test-production-schema` ۱۳/۱۵ — سه شکست شناخته‌شده.
 - **اصلاح:** تست ایندکس‌های `ux_bom_*_live` (جایگزین unique سراسری برای soft-delete)؛ TS-14 بدون قفل عدد ۲۳ (≥۲۳ و برابر seed)؛ `return_credit_allocations.amount_rial` از REAL→INTEGER + rebuild بوت. Help P0.
 - **فایل‌ها:** `scripts/test-production-schema.js`, `db.js`, `public/{app.js,index.html,sw.js}`, CHANGE-LOG.
-- **تست (ایران):** `test-production-schema` ۱۵/۰؛ sms/sync پس از deploy.
-- **Deploy:** ⏳
+- **تست (ایران):** `test-production-schema` ۱۶/۰ (TS-08a/b جدا)؛ `test-sms` ۲۲/۰؛ `test-sync` harness pairing flake (توکن B) — خارج از دامنهٔ P0، مثل گزارش‌های قبلی.
+- **Deploy:** ✅ `4c611338` — overlay ایران؛ SW `erp-taranom-v541` / `?v=541`؛ health=200، sharp 0.33.5.
 
 ### ۱۴۰۵/۰۸/۰۲ — v540: مبلغ پرداخت در ویرایش فاکتور دیگر با race CSP مخفی نمی‌ماند (SW v540)
 - **علائم/ریشه (تحقیق follow-up v539):** `data-csp-style="display:none"` روی wrapهای پرداخت؛ MutationObserver CSP بعد از turn اول دوباره `display:none` می‌گذارد و `toggleInvPayFields` را خنثی می‌کند → مبلغ فقط بعد از تغییر دستی نسیه↔کارتخوان دیده می‌شد.
