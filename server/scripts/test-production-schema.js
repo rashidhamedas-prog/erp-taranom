@@ -17,7 +17,8 @@ const EXPECTED_PREFIX = [
 ];
 
 const EXPECTED_INDEXES = [
-  'ux_bom_code', 'ux_bom_prod_ver', 'ix_bom_product_status',
+  // soft-delete: unique only on live rows (deleted_at IS NULL) — see ensureBomLiveUniqueIndexes
+  'ux_bom_code_live', 'ux_bom_prod_ver_live', 'ix_bom_product_status',
   'ix_bomline_bom', 'ix_bomline_comp', 'ux_bomop', 'ix_bomout', 'ix_bomlog',
   'ux_ccrate', 'ux_ohw',
   'ux_po_no', 'ix_po_status', 'ix_po_prod', 'ix_po_period', 'ix_po_so',
@@ -186,12 +187,12 @@ try {
   ok('TS-13 coa-map ۲۰ کلید', allOk && PROD_COA_KEYS.length === 20, bad.join(', '));
 }
 
-// ── TS-14: 23 settings ──
+// ── TS-14: production settings (base ≥23; extras for cutting/remnant allowed) ──
 {
   const keys = Object.keys(PRODUCTION_SETTINGS);
   const found = keys.filter(k => db.prepare('SELECT 1 FROM settings WHERE key=?').get(k));
-  ok('TS-14 Settings (۲۳)', found.length === 23 && keys.length === 23,
-    `expected 23 · found ${found.length} · defined ${keys.length}`);
+  ok('TS-14 Settings تولید', found.length === keys.length && keys.length >= 23,
+    `defined=${keys.length} · seeded=${found.length}`);
 }
 
 // ── TS-15: views ──

@@ -1953,7 +1953,7 @@ function initSyncSchema(db, opts) {
     side TEXT NOT NULL,
     return_id INTEGER NOT NULL,
     invoice_id INTEGER NOT NULL,
-    amount_rial REAL NOT NULL DEFAULT 0,
+    amount_rial INTEGER NOT NULL DEFAULT 0,
     status TEXT DEFAULT 'posted',
     note TEXT DEFAULT '',
     user_id INTEGER,
@@ -1961,6 +1961,36 @@ function initSyncSchema(db, opts) {
     reversed_at INTEGER,
     reversed_by INTEGER
   )`);
+  // Legacy CREATE used REAL — rebuild so pragma type is INTEGER (R1 / TS-07)
+  try {
+    const rcaType = db.prepare('PRAGMA table_info(return_credit_allocations)').all()
+      .find(c => c.name === 'amount_rial');
+    if (rcaType && String(rcaType.type || '').toUpperCase() !== 'INTEGER') {
+      db.exec(`
+        CREATE TABLE return_credit_allocations__rial (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          side TEXT NOT NULL,
+          return_id INTEGER NOT NULL,
+          invoice_id INTEGER NOT NULL,
+          amount_rial INTEGER NOT NULL DEFAULT 0,
+          status TEXT DEFAULT 'posted',
+          note TEXT DEFAULT '',
+          user_id INTEGER,
+          created_at INTEGER DEFAULT (strftime('%s','now')),
+          reversed_at INTEGER,
+          reversed_by INTEGER
+        );
+        INSERT INTO return_credit_allocations__rial
+          (id, side, return_id, invoice_id, amount_rial, status, note, user_id, created_at, reversed_at, reversed_by)
+          SELECT id, side, return_id, invoice_id, CAST(ROUND(COALESCE(amount_rial,0)) AS INTEGER),
+                 status, note, user_id, created_at, reversed_at, reversed_by
+          FROM return_credit_allocations;
+        DROP TABLE return_credit_allocations;
+        ALTER TABLE return_credit_allocations__rial RENAME TO return_credit_allocations;
+      `);
+      console.log('✅ return_credit_allocations.amount_rial → INTEGER');
+    }
+  } catch (e) { console.warn('return_credit_allocations rial type:', e.message); }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_rca_side_return ON return_credit_allocations(side, return_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_rca_side_invoice ON return_credit_allocations(side, invoice_id)`);
   ensureColumn(db, 'incentive_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");

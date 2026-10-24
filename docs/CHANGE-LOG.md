@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۸/۰۲ — v541: P0 schema تست سبز — ایندکس live BOM + INTEGER تخصیص برگشت + Settings پویا (SW v541)
+- **بافت (skill-top / کامل):** اجرای `docs/Production/cursor-prompt.md`؛ ماژول تولید از قبل در `lib/production/schema.js` پیاده بود. روی ایران `test-production-schema` ۱۳/۱۵ — سه شکست شناخته‌شده.
+- **اصلاح:** تست ایندکس‌های `ux_bom_*_live` (جایگزین unique سراسری برای soft-delete)؛ TS-14 بدون قفل عدد ۲۳ (≥۲۳ و برابر seed)؛ `return_credit_allocations.amount_rial` از REAL→INTEGER + rebuild بوت. Help P0.
+- **فایل‌ها:** `scripts/test-production-schema.js`, `db.js`, `public/{app.js,index.html,sw.js}`, CHANGE-LOG.
+- **تست (ایران):** `test-production-schema` ۱۵/۰؛ sms/sync پس از deploy.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۲ — v540: مبلغ پرداخت در ویرایش فاکتور دیگر با race CSP مخفی نمی‌ماند (SW v540)
 - **علائم/ریشه (تحقیق follow-up v539):** `data-csp-style="display:none"` روی wrapهای پرداخت؛ MutationObserver CSP بعد از turn اول دوباره `display:none` می‌گذارد و `toggleInvPayFields` را خنثی می‌کند → مبلغ فقط بعد از تغییر دستی نسیه↔کارتخوان دیده می‌شد.
 - **اصلاح:** `clearInvPayCspDisplayLocks` + re-toggle با `queueMicrotask` / double-rAF / `setTimeout(0)` داخل `finalizeInvPayHydrate`. Help + SW bump.
