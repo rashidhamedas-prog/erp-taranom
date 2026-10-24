@@ -6845,14 +6845,30 @@ function hydrateInvPayRows(inv){
     const ps=el('inv-pos'); if(ps) ps.value=String(invPayRows.find(r=>r.terminal_id).terminal_id);
   }
 }
+/** Pay wraps ship with data-csp-style=display:none; CSP MutationObserver re-applies that AFTER
+ *  the open turn — wiping toggleInvPayFields. Strip attrs + deferred re-toggle (v540 / research). */
+function clearInvPayCspDisplayLocks(){
+  ['inv-pay-amt-wrap','inv-bank-wrap','inv-cashbox-wrap','inv-pos-fg','inv-multi-wrap','inv-multi-block','inv-checkcat-wrap','chequeFields'].forEach(id=>{
+    const n=el(id); if(n) n.removeAttribute('data-csp-style');
+  });
+}
 /** After cart/pay DOM is ready: keep payment section open and ledger in sync with stored receipts. */
 function finalizeInvPayHydrate(inv){
   if(!inv) return;
   const sec=el('inv-sec-pay');
   const pt=el('inv-pay-type')?.value || inv.pay_type || '';
   if(sec && pt && pt!=='credit') sec.open=true;
+  clearInvPayCspDisplayLocks();
   toggleInvPayFields();
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
+  const rerun=function(){
+    clearInvPayCspDisplayLocks();
+    toggleInvPayFields();
+    if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
+  };
+  try{ if(typeof queueMicrotask==='function') queueMicrotask(rerun); }catch(_){}
+  try{ requestAnimationFrame(function(){ requestAnimationFrame(rerun); }); }catch(_){ setTimeout(rerun,0); }
+  setTimeout(rerun,0);
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -35843,7 +35859,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v539</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v540</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -36130,7 +36146,7 @@ function renderSalesGuide(){
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور، معمولی یا رسمی. پیش‌فاکتور و معمولی پیش‌فرض <b>معاف از مالیات</b>اند؛ رسمی پیش‌فرض <b>مشمول</b> است. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است و همان وضعیت معاف/مشمول و مبلغ تخفیف پیش‌فاکتور را نگه می‌دارد</li>
-        <li>در ویرایش، مبلغ دریافت ثبت‌شده کنار نوع پرداخت از همان ابتدا پر است (بدون نیاز به تغییر نسیه↔کارتخوان)</li>
+        <li>در ویرایش، مبلغ دریافت ثبت‌شده کنار نوع پرداخت از همان ابتدا پر و دیده می‌شود (قفل CSP روی display برداشته می‌شود؛ بدون نیاز به تغییر نسیه↔کارتخوان)</li>
         <li>ویرایش پیش‌فاکتور و معمولی همان سند را عوض می‌کند — سند جدید یا سند معکوس ساخته نمی‌شود. فاکتور رسمی از این فرم ذخیره نمی‌شود و باید ابطال شود</li>
         <li>نوع پرداخت، مبلغ، صندوق، بانک، کارتخوان، چک و کرایه را در همین فرم ببینید و پر کنید. کارتخوان‌های فعال همین‌جا می‌آیند، حتی اگر منوی تعریف دستگاه را نداشته باشید. انبار مبدأ از حساب شما قفل است (همان انبار تخصیص‌یافته) و در بنر فروش بازاریاب هم دیده می‌شود</li>
         <li>مرکز هزینه روی فاکتور فروش اختیاری است. اگر انتخاب شود، همان مرکز روی سطرهای سند فروش می‌نشیند</li>
