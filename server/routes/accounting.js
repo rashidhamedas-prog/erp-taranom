@@ -2210,6 +2210,9 @@ function mirrorManualVoucherToCustomers(db, user, opts) {
   const { createLedgerEntry } = require('../db');
   const { refreshCustomerBalanceFromLedger } = require('../lib/opening-post');
   const seen = new Set();
+  const lineCodes = new Set(
+    (opts.lines || []).map((l) => (l && l.code != null ? String(l.code).trim() : '')).filter(Boolean)
+  );
   const post = (customerId, debit, credit, lineDesc) => {
     const key = customerId + ':' + debit + ':' + credit + ':' + (lineDesc || '');
     if (seen.has(key)) return;
@@ -2226,11 +2229,17 @@ function mirrorManualVoucherToCustomers(db, user, opts) {
     });
     refreshCustomerBalanceFromLedger(db, customerId);
   };
+  // v536: only mirror onto a customer book when the voucher actually hits that
+  // customer's leaf. Dual-role person payments (Dr person 1106…) must not inflate AR.
   for (const p of opts.personPostings || []) {
-    const person = db.prepare('SELECT party_id, name FROM persons WHERE id=?').get(p.person_id);
+    const person = db.prepare('SELECT party_id, name, coa_code FROM persons WHERE id=?').get(p.person_id);
     if (!person || !person.party_id) continue;
-    const custs = db.prepare('SELECT id FROM customers WHERE party_id=?').all(person.party_id);
-    for (const c of custs) post(c.id, p.debit, p.credit, p.description || person.name);
+    const custs = db.prepare('SELECT id, coa_code FROM customers WHERE party_id=?').all(person.party_id);
+    for (const c of custs) {
+      const coa = c.coa_code ? String(c.coa_code).trim() : '';
+      if (!coa || !lineCodes.has(coa)) continue;
+      post(c.id, p.debit, p.credit, p.description || person.name);
+    }
   }
   for (const line of opts.lines || []) {
     if (!line.code) continue;

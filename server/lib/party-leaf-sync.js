@@ -10,10 +10,11 @@
  *   - reconcileLeaf() matches live GL leaf lines ↔ book rows, inserts the missing
  *     mirror and retires the stale one (pre-amend amount, voided document,
  *     duplicate copy). Nothing is written to the journal.
- *   - A row is retired only when it is foreign to its book (a purchase row inside a
- *     customer book, an invoice row inside a supplier book, …) or anchored to a
- *     journal entry that is no longer alive (manual_voucher). Native rows belong
- *     to their own module and its R13 retire helpers; they are never deleted here.
+ *   - A row is retired when it is foreign to its book (a purchase row inside a
+ *     customer book, …), or a journal-anchored projection (manual_voucher) whose
+ *     JE is dead **or alive only on another leaf** (v536: dual-role person
+ *     payment must not inflate the customer AR book). Native rows belong to
+ *     their own module and its R13 retire helpers; they are never deleted here.
  *   - Hooks: every post/rewrite (ledger.js), every role-book insert/update
  *     (afterPartyBookInsert), every void (void-journal.js), the books heal
  *     (ensureCustomerBooksRepaired) and boot run the same reconcile, so a
@@ -235,8 +236,6 @@ function loadBookRows(db, kind, entityId) {
 }
 
 function booksForPartyCode(db, partyId, code) {
-  const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(partyId);
-  const partyCoa = party && party.coa_code ? String(party.coa_code) : '';
   const books = [];
   const consider = (kind, table) => {
     if (!tableExists(db, table)) return;
@@ -247,8 +246,11 @@ function booksForPartyCode(db, partyId, code) {
       return;
     }
     for (const ent of entities) {
-      const leaf = ent.coa_code ? String(ent.coa_code) : partyCoa;
-      if (leaf !== String(code)) continue;
+      // v536: never inherit party.coa_code for an entity without its own leaf —
+      // dual-role parties keep separate AR/AP/person leaves; falling back to the
+      // header coa pulled person payments onto the customer AR book.
+      const leaf = ent.coa_code ? String(ent.coa_code).trim() : '';
+      if (!leaf || leaf !== String(code)) continue;
       const ledger = kind === 'person' ? 'person_ledger' : (kind === 'supplier' ? 'supplier_ledger' : 'customer_ledger');
       if (!tableExists(db, ledger)) continue;
       books.push({
@@ -354,6 +356,25 @@ function journalEntryAlive(db, jeId) {
   }
 }
 
+/** Live JE that actually posts a line on this leaf (not merely alive elsewhere). */
+function journalEntryAliveOnLeaf(db, jeId, leafCode) {
+  const id = Number(jeId);
+  const code = leafCode != null ? String(leafCode).trim() : '';
+  if (!id || !code || !tableExists(db, 'journal_entries') || !tableExists(db, 'journal_lines')) {
+    return false;
+  }
+  try {
+    return !!db.prepare(`
+      SELECT 1 FROM journal_entries je
+      JOIN journal_lines jl ON jl.entry_id = je.id
+      WHERE je.id=? AND jl.account_code=? AND ${JE_ALIVE}
+      LIMIT 1
+    `).get(id, code);
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Is the document itself still alive in the journal — on any account?
  * A payment to a party that reached another leaf of the same party (supplier
@@ -422,12 +443,15 @@ function deleteBookRow(db, book, row) {
  *                       or duplicate copy)
  * Kept on purpose: a projection whose document is alive but whose current amount has
  * not reached this book yet (amend in flight — the follow-up hook retires it), and a
- * projection whose journal entry is alive on another leaf of the same party
- * (needs a GL reclass, never a silent delete).
+ * non-voucher projection whose journal entry is alive on another leaf of the same
+ * party (supplier_payment on person book — GL reclass, never a silent delete).
+ * Journal-anchored rows (manual_voucher) MUST post on this leaf; otherwise they are
+ * cross-leaf pollution (v536 dual-role person payment → customer AR).
  */
 function retireUnmatched(db, books, glLines, info) {
   let retired = 0;
   const actions = [];
+  const leaf = info && info.code != null ? String(info.code) : '';
   for (const book of books) {
     for (let i = 0; i < book.rows.length; i++) {
       if (book.used.has(i)) continue;
@@ -436,8 +460,9 @@ function retireUnmatched(db, books, glLines, info) {
       if (!isProjectionRow(book.kind, row)) continue;
       let reason;
       if (JOURNAL_ANCHORED_REFS.has(String(row.ref_type || ''))) {
-        if (journalEntryAlive(db, row.ref_id)) continue;
-        reason = 'journal_dead';
+        if (leaf && journalEntryAliveOnLeaf(db, row.ref_id, leaf)) continue;
+        if (!leaf && journalEntryAlive(db, row.ref_id)) continue;
+        reason = journalEntryAlive(db, row.ref_id) ? 'wrong_leaf' : 'journal_dead';
       } else {
         const refLive = glLines.some((gl) => sameRef(gl, row));
         if (!refLive) {
@@ -557,35 +582,44 @@ function leafCodes(db) {
   return [...codes];
 }
 
-/** Leaves carrying more than one role book (the only place a mirror can exist). */
-function sharedLeafCodes(db) {
-  if (!tableExists(db, 'parties')) return [];
-  const partyCoa = new Map();
-  try {
-    for (const p of db.prepare("SELECT id, coa_code FROM parties WHERE COALESCE(coa_code,'')<>''").all()) {
-      partyCoa.set(Number(p.id), String(p.coa_code).trim());
-    }
-  } catch (_) { /* optional */ }
+/**
+ * Count role entities that explicitly own each leaf (no party.coa fallback — v536).
+ * shared = 2+ roles on the same code (sibling mirrors). any = ≥1 (solo heal for wrong_leaf).
+ */
+function leafRoleCounts(db) {
   const kindsByCode = new Map();
-  const scan = (kind, table) => {
+  if (!tableExists(db, 'parties')) return kindsByCode;
+  const scan = (table) => {
     if (!tableExists(db, table)) return;
     let rows = [];
     try {
-      rows = db.prepare(`SELECT id, party_id, coa_code FROM ${table} WHERE party_id IS NOT NULL`).all();
+      rows = db.prepare(`
+        SELECT coa_code FROM ${table}
+        WHERE party_id IS NOT NULL AND COALESCE(coa_code,'')<>''
+      `).all();
     } catch (_) {
       return;
     }
     for (const r of rows) {
-      const code = r.coa_code ? String(r.coa_code).trim() : (partyCoa.get(Number(r.party_id)) || '');
+      const code = String(r.coa_code).trim();
       if (!code) continue;
-      if (!kindsByCode.has(code)) kindsByCode.set(code, 0);
-      kindsByCode.set(code, kindsByCode.get(code) + 1);
+      kindsByCode.set(code, (kindsByCode.get(code) || 0) + 1);
     }
   };
-  scan('person', 'persons');
-  scan('supplier', 'suppliers');
-  scan('customer', 'customers');
-  return [...kindsByCode.entries()].filter(([, n]) => n > 1).map(([code]) => code);
+  scan('persons');
+  scan('suppliers');
+  scan('customers');
+  return kindsByCode;
+}
+
+/** Leaves carrying more than one role book (sibling mirrors). */
+function sharedLeafCodes(db) {
+  return [...leafRoleCounts(db).entries()].filter(([, n]) => n > 1).map(([code]) => code);
+}
+
+/** Every leaf owned by at least one role book — continuous heal retires wrong_leaf here. */
+function roleBookLeafCodes(db) {
+  return [...leafRoleCounts(db).keys()];
 }
 
 function backfillPartyLeafBooks(db) {
@@ -609,14 +643,18 @@ function backfillPartyLeafBooks(db) {
 }
 
 /**
- * Continuous reconcile of every shared leaf (boot + books heal).
+ * Continuous reconcile of party role leaves (boot + books heal).
+ * Default = every leaf with ≥1 role book (v536: solo AR must retire cross-leaf
+ * manual_voucher pollution). Pass sharedOnly:true for the pre-v536 scope.
  * Central only — devices receive the result through sync tombstones.
  */
 function reconcileAllPartyLeafBooks(db, opts) {
   const o = opts || {};
   if (process.env.SYNC_ROLE === 'device' && !o.force) return { skipped: true, reason: 'device' };
   if (!tableExists(db, 'parties')) return { skipped: true, reason: 'no-parties' };
-  const codes = o.allLeaves ? leafCodes(db) : sharedLeafCodes(db);
+  const codes = o.allLeaves
+    ? leafCodes(db)
+    : (o.sharedOnly ? sharedLeafCodes(db) : roleBookLeafCodes(db));
   const summary = { leaves: 0, inserted: 0, retired: 0, actions: [] };
   const run = () => {
     for (const code of codes) {
@@ -734,8 +772,9 @@ function afterPartyBookInsert(db, spec) {
   if (!tableExists(db, table)) return { copied: 0, retired: 0 };
   const ent = db.prepare(`SELECT party_id, coa_code FROM ${table} WHERE id=?`).get(Number(spec.entityId));
   if (!ent || !ent.party_id) return { copied: 0, retired: 0 };
-  const party = db.prepare('SELECT coa_code FROM parties WHERE id=?').get(Number(ent.party_id));
-  const code = (ent.coa_code || (party && party.coa_code) || '').trim();
+  // v536: require the entity's own leaf — do not fall back to parties.coa_code
+  // (dual-role header often points at AR while person payments live on 1106…).
+  const code = (ent.coa_code || '').trim();
   if (!code) return { copied: 0, retired: 0 };
   if (uniquePartyForCode(db, code) !== Number(ent.party_id)) return { copied: 0, retired: 0 };
   const books = booksForPartyCode(db, Number(ent.party_id), code);
@@ -797,6 +836,9 @@ module.exports = {
   reconcileAllPartyLeafBooks,
   retireProjectionsForJournalEntry,
   sharedLeafCodes,
+  roleBookLeafCodes,
+  booksForPartyCode,
+  journalEntryAliveOnLeaf,
   isProjectionRow,
   FOREIGN_REFS,
   JOURNAL_ANCHORED_REFS,

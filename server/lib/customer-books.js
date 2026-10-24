@@ -116,9 +116,14 @@ function sqlCustomerLedgerLive(alias) {
       )
     )
     AND NOT (
+      -- v536: manual_voucher is live on the customer book only when the JE posts
+      -- on that customer's own leaf (person payments on 1106… must not inflate AR).
       ${a}.ref_type='manual_voucher' AND NOT EXISTS (
         SELECT 1 FROM journal_entries _je
+        JOIN journal_lines _jl ON _jl.entry_id=_je.id
+        JOIN customers _cu ON _cu.id=${a}.customer_id
         WHERE _je.id=${a}.ref_id
+          AND _jl.account_code=_cu.coa_code
           AND COALESCE(_je.deleted_at,0)=0
           AND COALESCE(_je.status,'posted') NOT IN ('reversed','void')
       )
@@ -128,7 +133,8 @@ function sqlCustomerLedgerLive(alias) {
 
 function liveForeignRefKeys(db) {
   const keys = new Set();
-  const jeIds = new Set();
+  /** manual_voucher JE id → Set of account_code leaves it posts on (v536). */
+  const voucherLeaves = new Map();
   let ok = true;
   try {
     const rows = db.prepare(`
@@ -140,13 +146,29 @@ function liveForeignRefKeys(db) {
     for (const r of rows) {
       const rt = String(r.ref_type || '');
       const fam = rt === 'purchase_invoice' ? 'purchase' : rt;
-      if (rt === 'manual_voucher') jeIds.add(Number(r.id));
+      if (rt === 'manual_voucher') voucherLeaves.set(Number(r.id), new Set());
       if (r.ref_id != null) keys.add(`${fam}|${Number(r.ref_id)}`);
+    }
+    if (voucherLeaves.size) {
+      const leafRows = db.prepare(`
+        SELECT jl.entry_id AS id, jl.account_code AS code
+        FROM journal_lines jl
+        JOIN journal_entries je ON je.id=jl.entry_id
+        WHERE je.ref_type='manual_voucher'
+          AND COALESCE(je.deleted_at,0)=0
+          AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+          AND COALESCE(jl.account_code,'')<>''
+      `).all();
+      for (const lr of leafRows) {
+        const id = Number(lr.id);
+        if (!voucherLeaves.has(id)) voucherLeaves.set(id, new Set());
+        voucherLeaves.get(id).add(String(lr.code));
+      }
     }
   } catch (_) {
     ok = false; // journal optional on ancient DBs — do not hide anything blindly
   }
-  return { keys, jeIds, ok };
+  return { keys, voucherLeaves, ok };
 }
 
 const STMT_REF_ALIAS = {
@@ -280,7 +302,19 @@ function hideVoidedBookRows(db, rows) {
       const fam = rt === 'purchase_invoice' ? 'purchase' : rt;
       if (!foreign.keys.has(`${fam}|${refId}`)) return false;
     }
-    if (foreign.ok && rt === 'manual_voucher' && !foreign.jeIds.has(refId)) return false;
+    if (foreign.ok && rt === 'manual_voucher') {
+      const leaves = foreign.voucherLeaves && foreign.voucherLeaves.get(refId);
+      if (!leaves || !leaves.size) return false;
+      const custCoa = e.coa_code != null
+        ? String(e.coa_code)
+        : (() => {
+          try {
+            const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(Number(e.customer_id));
+            return c && c.coa_code ? String(c.coa_code) : '';
+          } catch (_) { return ''; }
+        })();
+      if (!custCoa || !leaves.has(custCoa)) return false;
+    }
     if (CHEQUE_BOOK_REFS.has(rt) && reversedCheques.has(refId)) return false;
     // Opening cheque = notes/equity JE only — never a live customer receipt credit.
     if (rt === 'cheque_in' && openingCheques.has(refId)) return false;
