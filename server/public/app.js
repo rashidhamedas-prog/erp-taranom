@@ -27548,14 +27548,29 @@ async function voidPosReceipt(id){
   if(!confirm('ابطال این دریافت؟ سند حسابداری و اثر فاکتور برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
   try{ await api('POST','/pos/receipts/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
 }
-function posBatchModal(){
+function posBatchExpenseRial(){
+  const fee=Math.round(+(String(el('posb-fee')?.value||'').replace(/[^\d.]/g,''))||0);
+  const short=Math.round(+(String(el('posb-short')?.value||'').replace(/[^\d.]/g,''))||0);
+  return {fee, short, expense:fee+short};
+}
+function syncPosBatchFeeCcVisibility(){
+  const fg=el('posb-fee-cc-fg');
+  if(!fg) return;
+  const {expense}=posBatchExpenseRial();
+  fg.style.display=expense>0?'':'none';
+  if(expense<=0 && el('posb-fee-cc')) el('posb-fee-cc').value='';
+}
+async function posBatchModal(){
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   openModal(`<div class="modal-head"><h3>تسویه دسته‌ای کارتخوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
       <div class="form-grid">
         <div class="fg"><label>تاریخ *</label><input id="posb-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg"><label>ناخالص ${moneyColLabel()} *</label><input id="posb-gross" type="text" inputmode="numeric" class="money"></div>
-        <div class="fg"><label>کارمزد ${moneyColLabel()}</label><input id="posb-fee" type="text" inputmode="numeric" class="money" value="0"></div>
-        <div class="fg"><label>کسری ${moneyColLabel()}</label><input id="posb-short" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>کارمزد ${moneyColLabel()}</label><input id="posb-fee" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){syncPosBatchFeeCcVisibility()})}"></div>
+        <div class="fg"><label>کسری ${moneyColLabel()}</label><input id="posb-short" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){syncPosBatchFeeCcVisibility()})}"></div>
+        <div class="fg" id="posb-fee-cc-fg" data-csp-style="${CSP.style(`display:none`)}"><label>مرکز هزینه کارمزد/کسری ${hlp('وقتی کارمزد (۶۱۱۴) یا کسری (۶۱۰۲) بزرگ‌تر از صفر است و در تنظیمات «الزام مرکز هزینه روی هزینه‌ها» روشن باشد، این مرکز اجباری است و روی هر دو سطر هزینه می‌نشیند.')}</label>
+          <select id="posb-fee-cc">${payFeeCcOptionsHtml()}</select></div>
         <div class="fg full"><label>شماره واریز / پیگیری</label><input id="posb-ref" class="mono"></div>
         <div class="fg full"><label>یادداشت</label><input id="posb-note"></div>
       </div>
@@ -27564,6 +27579,7 @@ function posBatchModal(){
     </div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosBatch()})}">✅ تأیید و تسویه</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  syncPosBatchFeeCcVisibility();
   (async()=>{
     let open=[];
     try{ open=await api('GET','/pos/receipts?open=1')||[]; }catch(e){}
@@ -27579,14 +27595,20 @@ function posBatchModal(){
 }
 async function savePosBatch(){
   const gross_rial=Math.round(+(String(el('posb-gross').value).replace(/[^\d.]/g,''))||0);
-  const fee_rial=Math.round(+(String(el('posb-fee').value).replace(/[^\d.]/g,''))||0);
-  const shortage_rial=Math.round(+(String(el('posb-short').value).replace(/[^\d.]/g,''))||0);
+  const {fee:fee_rial, short:shortage_rial, expense}=posBatchExpenseRial();
+  const fee_cost_center_id=+el('posb-fee-cc')?.value||null;
   const receipt_ids=[...document.querySelectorAll('.posb-rec:checked')].map(x=>+x.value).filter(Boolean);
   if(!gross_rial){ showToast('مبلغ ناخالص الزامی است','error'); return; }
   if(!receipt_ids.length){ showToast('حداقل یک دریافت باز را انتخاب کنید','error'); return; }
+  if(expense>0 && isExpenseCcRequired() && !fee_cost_center_id){
+    showToast('مرکز هزینه برای کارمزد یا کسری الزامی است','error');
+    syncPosBatchFeeCcVisibility();
+    return;
+  }
   try{
     await api('POST','/pos/batches',{
       date:el('posb-date').value, gross_rial, fee_rial, shortage_rial,
+      fee_cost_center_id: expense>0 ? fee_cost_center_id : null,
       receipt_ids, ref:el('posb-ref').value.trim(), note:el('posb-note').value.trim(),
       idempotency_key:'pos-b-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
     });
@@ -35779,7 +35801,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v534</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v535</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -35961,7 +35983,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>تعریف پایانه:</b> نام، شماره پایانه یکتا، شناسه پذیرنده اختیاری، و <b>بانک فعال</b> از فهرست (نام + شماره حساب). بدون بانک فعال ذخیره نمی‌شود. حذف فیزیکی نیست — غیرفعال می‌شود.</li>
         <li><b>دریافت:</b> مبلغ به حساب <b>وجوه در راه کارتخوان</b> می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه اعمال می‌شود؛ بدون فاکتور/مشتری بستانکار فروش است.</li>
-        <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد و کسری هزینه جدا. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
+        <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد (۶۱۱۴) و کسری (۶۱۰۲) هزینه جدا. اگر کارمزد یا کسری بیشتر از صفر باشد، فیلد <b>مرکز هزینه کارمزد/کسری</b> ظاهر می‌شود و با روشن بودن «الزام مرکز هزینه روی هزینه‌ها» اجباری است؛ همان مرکز روی هر دو سطر هزینه می‌نشیند. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
         <li><b>گزارش کارتخوان:</b> منوی بانک و صندوق ← گزارشات. فیلتر تاریخ، پایانه، بانک، وضعیت و «فقط مغایرت». جمع مانده باز با حساب <b>وجوه در راه</b> و خالص تسویه با سند بانک باید صفر اختلاف باشد. اگر یک دسته چند پایانه داشته باشد، فیلتر پایانه سهم همان پایانه از سند تسویه را می‌سنجد (نه کل دسته). جدول حداکثر ۸۰۰ دریافت / ۵۰۰ دسته نشان می‌دهد ولی جمع‌ها و آشتی دفتر کامل است. خروجی CSV همان جمع‌ها را می‌نویسد.</li>
         <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
         <li><b>انتخاب هنگام فاکتور و تسویه:</b> فهرست دستگاه‌های <b>فعال</b> برای کسی است که اجازهٔ ثبت فاکتور یا تسویهٔ مشتری را دارد (از جمله دفتر پخش و کارشناس فروش). این فهرست جدا از منوی تعریف دستگاه است و شناسهٔ پذیرنده را نشان نمی‌دهد. اگر دستگاه فعال باشد و در فاکتور نیاید، صفحه را یک‌بار نو کنید.</li>

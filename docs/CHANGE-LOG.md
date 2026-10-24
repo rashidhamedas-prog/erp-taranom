@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۸/۰۲ — v535: مرکز هزینه کارمزد/کسری در تسویه دسته‌ای کارتخوان (SW v535)
+- **علائم:** با روشن بودن «الزام مرکز هزینه روی هزینه‌ها»، تسویه دسته‌ای با کارمزد > ۰ خطای «مرکز هزینه برای حساب ۶۱۱۴ الزامی است» می‌داد؛ در فرم فیلد مرکز هزینه نبود.
+- **ریشه:** `settleBatch` سطرهای هزینه ۶۱۱۴ (کارمزد) و ۶۱۰۲ (کسری) را بدون `cost_center_id` به ledger می‌فرستاد؛ `assertExpenseLinesHaveCostCenter` بلاک می‌کرد. الگوی `fee_cost_center_id` برای کارمزد بانکی ۶۱۱۵ (v401) عمداً POS را پوشش نداده بود.
+- **اصلاح:** ستون `pos_settlement_batches.fee_cost_center_id` + stamp روی هر دو سطر هزینه؛ UI فیلد «مرکز هزینه کارمزد/کسری» وقتی کارمزد یا کسری > ۰؛ اجباری فقط با سیاست روشن؛ `FK_COLUMNS` برای سینک؛ Help + تست `test-pos-batch-fee-cc-v535.js`.
+- **فایل‌ها:** `lib/pos.js`, `sync/tables.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-pos-batch-fee-cc-v535.js`, CHANGE-LOG, Help.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۱ — v534: پیری FIFO واقعی + سقف اعتبار از party-credit در کنترل اشخاص (SW v534)
 - **ریشه (audit پس از v533):** سطل پیری کل `debit_rial` شخص را در سطل «قدیمی‌ترین فاکتور» می‌ریخت (نه ماندهٔ FIFO)؛ `credit_used` از ماندهٔ خالص چندنقشی بود نه `customer_ledger`/`party-credit`.
 - **اصلاح:** `customerAgingFifoMap` (هم‌تراز `/aging` + `firmSaleAliveSql`، یک‌بار query)؛ KPI/فیلتر پیری از مبالغ سطل؛ سقف/مصرف از `resolvePartyCreditLimitRial` + `customerArExposureRial`؛ `by_role` خالی = `[]`؛ گردش نقش‌های غیرمشتری/تأمین → `person`.

@@ -465,6 +465,7 @@ const FK_COLUMNS = [
   ['pos_settlement_batches', 'terminal_id'],
   ['pos_settlement_batches', 'bank_id'],
   ['pos_settlement_batches', 'journal_id'],
+  ['pos_settlement_batches', 'fee_cost_center_id'],
   ['pos_settlement_items', 'batch_id'],
   ['pos_settlement_items', 'receipt_id'],
   // PROD-STITCH-P5 (append-only)

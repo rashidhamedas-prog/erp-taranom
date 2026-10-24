@@ -107,7 +107,8 @@ function initPosSchema(db, ensureColumn) {
       created_at INTEGER DEFAULT (strftime('%s','now')),
       reversed_at INTEGER,
       reversed_by INTEGER,
-      reversal_journal_id INTEGER
+      reversal_journal_id INTEGER,
+      fee_cost_center_id INTEGER
     );
     CREATE TABLE IF NOT EXISTS pos_settlement_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,6 +127,8 @@ function initPosSchema(db, ensureColumn) {
     ensureColumn(db, 'pos_receipts', 'reversal_journal_id', 'INTEGER');
     ensureColumn(db, 'pos_settlement_batches', 'idempotency_key', 'TEXT');
     ensureColumn(db, 'pos_settlement_batches', 'reversal_journal_id', 'INTEGER');
+    // CC for 6114 fee + 6102 shortage expense lines (same column as bank-fee pattern).
+    ensureColumn(db, 'pos_settlement_batches', 'fee_cost_center_id', 'INTEGER');
   }
 
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_terminals_terminal_id ON pos_terminals(terminal_id)'); }
@@ -638,17 +641,33 @@ function settleBatch(db, body, user) {
     ? Number(body.terminal_id)
     : (terminalIds.length === 1 ? terminalIds[0] : null);
 
+  // Expense lines (6114 fee / 6102 shortage) need CC when require_cc_on_expense=1.
+  const { parseFeeCostCenterInput } = require('./payment-bank-fee');
+  const { assertExpenseDocumentCostCenter } = require('./cost-center-policy');
+  let feeCcId = null;
+  try {
+    feeCcId = assertExpenseDocumentCostCenter(db, {
+      cost_center_id: parseFeeCostCenterInput(body) || body.cost_center_id || null,
+      amount: fee + shortage,
+    });
+  } catch (e) {
+    if (e && e.code === 'CC_REQUIRED_ON_EXPENSE') {
+      throw httpErr(422, 'مرکز هزینه برای کارمزد یا کسری کارتخوان الزامی است', 'E_POS_FEE_CC_REQUIRED');
+    }
+    throw e;
+  }
+
   const out = db.transaction(() => {
     let batchId;
     try {
       batchId = db.prepare(`
         INSERT INTO pos_settlement_batches
           (terminal_id, date, gross_rial, fee_rial, shortage_rial, net_rial, bank_id,
-           status, idempotency_key, ref, note, created_by)
-        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?)
+           status, idempotency_key, ref, note, created_by, fee_cost_center_id)
+        VALUES (?,?,?,?,?,?,?,'posted',?,?,?,?,?)
       `).run(
         headerTerminalId, date, gross, fee, shortage, net, bank.id,
-        key, String(body.ref || '').trim(), String(body.note || '').trim(), user.id
+        key, String(body.ref || '').trim(), String(body.note || '').trim(), user.id, feeCcId
       ).lastInsertRowid;
     } catch (e) {
       if (/UNIQUE/i.test(e.message)) throw httpErr(409, 'این تسویه قبلاً ثبت شده است', 'E_POS_IDEMPOTENT');
@@ -667,8 +686,18 @@ function settleBatch(db, body, user) {
 
     const lines = [];
     if (net > 0) lines.push({ code: bankAcct.code, name: bankAcct.name, debit: rialToLedger(net), credit: 0 });
-    if (fee > 0) lines.push({ code: feeAcct.code, name: feeAcct.name, debit: rialToLedger(fee), credit: 0 });
-    if (shortage > 0) lines.push({ code: shortageAcct.code, name: shortageAcct.name, debit: rialToLedger(shortage), credit: 0 });
+    if (fee > 0) {
+      lines.push({
+        code: feeAcct.code, name: feeAcct.name, debit: rialToLedger(fee), credit: 0,
+        cost_center_id: feeCcId || null,
+      });
+    }
+    if (shortage > 0) {
+      lines.push({
+        code: shortageAcct.code, name: shortageAcct.name, debit: rialToLedger(shortage), credit: 0,
+        cost_center_id: feeCcId || null,
+      });
+    }
     lines.push({ code: inTransit.code, name: inTransit.name, debit: 0, credit: rialToLedger(gross) });
 
     const { postToLedger } = ledgerApi();
@@ -678,6 +707,7 @@ function settleBatch(db, body, user) {
       date,
       description: `تسویه کارتخوان — ناخالص ${gross.toLocaleString('fa-IR')} ریال`,
       createdBy: user.id,
+      costCenterId: feeCcId || null,
       lines,
     });
     db.prepare('UPDATE pos_settlement_batches SET journal_id=? WHERE id=?').run(journalId, batchId);
