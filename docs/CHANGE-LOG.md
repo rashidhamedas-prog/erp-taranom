@@ -2,7 +2,8 @@
 - **علائم/ریشه (تحقیق follow-up v539):** `data-csp-style="display:none"` روی wrapهای پرداخت؛ MutationObserver CSP بعد از turn اول دوباره `display:none` می‌گذارد و `toggleInvPayFields` را خنثی می‌کند → مبلغ فقط بعد از تغییر دستی نسیه↔کارتخوان دیده می‌شد.
 - **اصلاح:** `clearInvPayCspDisplayLocks` + re-toggle با `queueMicrotask` / double-rAF / `setTimeout(0)` داخل `finalizeInvPayHydrate`. Help + SW bump.
 - **فایل‌ها:** `public/{app.js,index.html,sw.js}`, CHANGE-LOG.
-- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v540` / `?v=540`.
+- **تست (ایران):** sms ۲۲/۰؛ sync ۴۴/۰.
+- **Deploy:** ✅ `f8d860ca` — overlay ایران؛ SW `erp-taranom-v540` / `?v=540`؛ health=200، sharp 0.33.5.
 
 ### ۱۴۰۵/۰۸/۰۲ — v539: تبدیل پیش‌فاکتور معاف دیگر VAT نمی‌زند + hydrate مبلغ پرداخت در ویرایش (SW v539)
 - **علائم:** پیش‌فاکتور ~۱۹۷M با تخفیف ۶۰۰k و کارتخوان کامل (مانده ۰) بعد از تبدیل به معمولی → مبلغ لیست ~۲۱۶٬۷۰۷٬۹۲۰؛ در ویرایش فقط «کارتخوان» دیده می‌شد و اعداد بعد از نسیه↔کارتخوان ظاهر می‌شدند.
