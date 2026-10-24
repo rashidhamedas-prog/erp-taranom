@@ -4,8 +4,8 @@
 - **تحلیل (skill-top / کامل):** الگوی بانک/شخص و تست‌های v379/v448 = تاریخ = `start_date` سال مالی فعال + upsert یک JE (`cash_opening`). بهترین‌روش مرجع (RoboSystems day-before) با گیت FY این پروژه ناسازگار است؛ خواستهٔ کاربر و یکپارچگی کد → **حذف استثنای نام‌محور** و یکسان‌سازی با بانک/شخص.
 - **اصلاح:** `cashOpeningDate` همیشه `fiscalOpeningDate` (شروع FY)؛ ویرایش مبلغ همان JE را rewrite می‌کند؛ یتیم‌ها retire می‌شوند. Help/فرم دیگر «روز قبل» نمی‌گویند.
 - **فایل‌ها:** `routes/cash-boxes.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-cash-opening-kimia-fy-v538.js`, به‌روز `test-books-receipt-excel-v433` / `test-cash-opening-credit-v448`, CHANGE-LOG.
-- **تست:** محلی parse `app.js` OK؛ v433 منبع ۱۱/۰؛ sms ۲۲/۰؛ sqlite Node۲۴ ویندوز bind ندارد → v538/v448/sync روی ایران.
-- **Deploy:** ⏳
+- **تست (ایران):** v538 ۲۴/۰؛ v448 ۲۹/۰؛ v379 ۳۱/۰؛ sms ۲۲/۰؛ sync ۴۴/۰.
+- **Deploy:** ✅ `968795c0` — overlay ایران؛ `pm2 restart` بدون `--update-env`؛ health=200، `image_engine` sharp 0.33.5؛ SW `erp-taranom-v538` / `?v=538`.
 
 ### ۱۴۰۵/۰۸/۰۲ — v537: کلیک اعلان تطبیق شبانه صفحهٔ مغایرت‌گیری را باز می‌کند (SW v537)
 - **علائم:** اعلان زنگوله «تطبیق شبانهٔ زیرسیستم‌ها با دفتر کل» (سالم/هشدار/خطا + نام کنترل‌های ناموفق) با کلیک هیچ صفحه‌ای باز نمی‌کرد؛ فقط resolve می‌شد.
