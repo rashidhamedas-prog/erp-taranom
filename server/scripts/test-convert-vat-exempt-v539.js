@@ -92,8 +92,8 @@ ok(good.final === 197_000_000 && good.vatAmount === 0, 'fix path: exempt+discAmt
     `).run(admin.id, leaf).lastInsertRowid;
 
     const prodId = db.prepare(`
-      INSERT INTO products (name, code, price, stock, active, vat_class)
-      VALUES ('کالای v539', 'SKU-V539', 25500000, 100, 1, 'exempt')
+      INSERT INTO products (name, code, price, stock, vat_class)
+      VALUES ('کالای v539', 'SKU-V539', 25500000, 100, 'exempt')
     `).run().lastInsertRowid;
 
     try {
