@@ -12,19 +12,23 @@ console.log('\n══ P1 BOM Tests ══\n');
 const { db, cleanup } = freshDb();
 
 function seedProducts() {
-  const run = (name, avg, type, mfg, stock = 1000) => {
+  // v422: activate BOM برای FG/semi بدون code → E_SPEC_CODE (سخت)
+  let seq = 0;
+  const run = (name, avg, type, mfg, stock = 1000, unit = 'عدد') => {
+    seq += 1;
+    const code = `P1-${String(seq).padStart(3, '0')}`;
     const id = db.prepare(`
-      INSERT INTO products (user_id, name, price, stock)
-      VALUES (1,?,?,?)
-    `).run(name, 0, stock).lastInsertRowid;
+      INSERT INTO products (user_id, name, price, stock, code, unit)
+      VALUES (1,?,?,?,?,?)
+    `).run(name, 0, stock, code, unit).lastInsertRowid;
     db.prepare(`UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=? WHERE id=?`)
       .run(avg, type, mfg, id);
     return id;
   };
   const p101 = run('مانتو کتان ترمه — سبز', 0, 'finished', 1, 0);
   const p102 = run('شومیز ساتن', 0, 'finished', 1, 0);
-  const p201 = run('پارچه کتان ۱۴۰', 950000, 'raw', 0, 620);
-  const p202 = run('آستر ساده', 180000, 'raw', 0, 80);
+  const p201 = run('پارچه کتان ۱۴۰', 950000, 'raw', 0, 620, 'متر');
+  const p202 = run('آستر ساده', 180000, 'raw', 0, 80, 'متر');
   const p203 = run('نخ دوخت', 85000, 'raw', 0, 100);
   const p204 = run('دکمه چوبی', 12000, 'raw', 0, 100);
   const p205 = run('لیبل ترنم', 6000, 'packaging', 0, 100);
@@ -38,9 +42,9 @@ function seedProducts() {
   const pDiaB = run('diamond-B', 100000, 'semi', 1, 0);
   const pDiaC = run('diamond-C', 100000, 'semi', 1, 0);
   const pDiaD = run('diamond-D', 100000, 'semi', 1, 0);
-  const pFab1 = run('پارچه سبز', 900000, 'raw', 0, 10);
-  const pFab2 = run('پارچه یشمی', 880000, 'raw', 0, 5000);
-  const pFab3 = run('پارچه آبی', 870000, 'raw', 0, 5000);
+  const pFab1 = run('پارچه سبز', 900000, 'raw', 0, 10, 'متر');
+  const pFab2 = run('پارچه یشمی', 880000, 'raw', 0, 5000, 'متر');
+  const pFab3 = run('پارچه آبی', 870000, 'raw', 0, 5000, 'متر');
   return {
     p101, p102, p201, p202, p203, p204, p205, p206, pA, pB,
     pCycRoot, pCycB, pCycC, pDiaA, pDiaB, pDiaC, pDiaD, pFab1, pFab2, pFab3,
@@ -51,6 +55,19 @@ const P = seedProducts();
 const adminId = 1;
 const SIZE_BREAKDOWN = { '38': 30, '40': 60, '42': 80, '44': 70, '46': 40, '48': 20 };
 const SIZE_MATRIX = { '38': 1.45, '40': 1.50, '42': 1.55, '44': 1.60, '46': 1.70, '48': 1.80 };
+
+// ماتریس سایز روی قلم BOM → بدون سایز سراسری فعال‌سازی با E_SPEC_FG_SIZE رد می‌شود
+{
+  let ord = 0;
+  const ins = db.prepare(
+    'INSERT INTO product_sizes (name, code, active, sort_order) VALUES (?,?,1,?)'
+  );
+  for (const sz of Object.keys(SIZE_MATRIX)) {
+    ord += 1;
+    const exists = db.prepare('SELECT 1 FROM product_sizes WHERE code=?').get(sz);
+    if (!exists) ins.run(sz, sz, ord);
+  }
+}
 
 function makeLines(fabricId) {
   return [
