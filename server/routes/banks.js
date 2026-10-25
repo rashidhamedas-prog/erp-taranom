@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { allocTafsili, releaseTafsili, acct } = require('../lib/coa-map');
 const { getDB, audit, syncBankAccount } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali } = require('../jalali');
@@ -192,7 +192,7 @@ function repairBankOpeningIfNeeded(db, bank, userId) {
   return db.prepare('SELECT * FROM banks WHERE id=?').get(bank.id) || bank;
 }
 
-router.get('/', auth, (req, res) => {
+router.get('/', auth, requirePermission('banks', 'view'), (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM banks ORDER BY name').all());
 });

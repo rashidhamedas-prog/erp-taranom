@@ -39,7 +39,7 @@ router.post('/estimates', auth, requirePermission('production', 'create'), (req,
   handle(res, () => saveEstimate(getDB(), req.body || {}, req.user.id), req);
 });
 
-router.post('/run', auth, requirePermission('production', 'view'), (req, res) => {
+router.post('/run', auth, requirePermission('production', 'create'), (req, res) => {
   handle(res, () => mrpRun(getDB(), {
     horizonDays: req.body?.horizon_days || req.query.horizon_days,
     date: req.body?.date || req.query.date,

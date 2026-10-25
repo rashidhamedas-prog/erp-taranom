@@ -1,5 +1,55 @@
 schema_version: 1
 tasks:
+  - id: "AUDIT-8A-RBAC-GUARDS"
+    title: "Audit wave 8A — server RBAC guards (#84,#95–#98,#101); no push/deploy"
+    status: "in_progress"
+    claimed_at: "2026-10-25T18:00:00+03:30"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:audit-8a-rbac"
+    roles:
+      orchestrator: "cursor:audit-8a-rbac"
+      architect: "cursor:audit-8a-rbac"
+      implementer: "cursor:audit-8a-rbac"
+      reviewer: "unassigned"
+      security: "unassigned"
+    branch: "ai/AUDIT-8A-rbac-guards"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/rbac.js"
+      - "server/db.js"
+      - "server/routes/customers.js"
+      - "server/routes/orders.js"
+      - "server/routes/rfq.js"
+      - "server/routes/banks.js"
+      - "server/routes/production-mrp.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/package.json"
+      - "server/scripts/test-audit-8a-rbac-guards.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+    acceptance_criteria:
+      - "prod_op and store_retail get 403 on POST customers/orders/rfq and GET banks"
+      - "admin and accounting unchanged for those endpoints"
+      - "MRP /run requires production:create"
+      - "Non-financial roles lose default view on backup/users/journal_vouchers/payroll/moadian"
+      - "copyUsersInto missing role → field_sales not admin"
+      - "Non-manager without branch_id fail-closed on assertBranchScope"
+      - "test:audit-8a green with explicit DB_PATH under .tmp-test-artifacts"
+      - "No push, merge to main, or Iran deploy (user override of auto-commit-deploy)"
+    non_goals:
+      - "8L menu alignment / GET customers scope for store (#120)"
+      - "Moadian wiring"
+      - "Push/merge/deploy"
+    notes: >-
+      Reclaimed stale shared claims on app.js/index.html/sw.js/CHANGE-LOG/db.js from
+      PROD-CUT-MP01 and ACC-BASE-OPS-425 (idle since 2026-10-18) for 8A hunks only.
+      Source: C:/Users/surface/Downloads/erp.md prompt 8A. Local commit only.
+
   - id: "PROD-BOM-STRICT-526"
     title: "Strict material→operation routing; peer-BOM per-formula explode; assignments editable on active BOM (SW v527)"
     status: "completed"

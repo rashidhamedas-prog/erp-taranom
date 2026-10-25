@@ -18,8 +18,14 @@ const RESOURCES = [
   ...ACC_SECTION_RESOURCES,
   // v522 capability resources without a menu page (append-only)
   ...ACC_CAPABILITY_RESOURCES,
+  // Audit 8A — append-only: explicit gates (were auth-only or VIEW_ONLY fallback)
+  'banks', 'orders', 'rfq',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
+/** Resources that must not silently default to view for every role (audit #96 / 8A). */
+const CLOSED_DEFAULT_NONE = new Set([
+  'backup', 'users', 'journal_vouchers', 'payroll', 'moadian', 'settings', 'banks', 'orders', 'rfq',
+]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
 const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false };
@@ -66,6 +72,13 @@ const DEFAULT_ROLE_PERMISSIONS = {
     portal: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
     budgeting: ACC_FULL,
     bank_reconciliation: ACC_FULL,
+    banks: VIEW_ONLY,
+    orders: SALES_CRUD,
+    rfq: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    journal_vouchers: ACC_FULL,
+    payroll: ACC_FULL,
+    fixed_assets: ACC_FULL,
+    moadian: VIEW_ONLY,
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },
@@ -78,8 +91,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
     ai: ALL,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
@@ -88,6 +101,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_cost: { ...NONE },
     production_close: { ...NONE },
     production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+    banks: NONE,
+    orders: { ...SALES_CRUD, approve: true },
+    rfq: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
   },
   field_sales: {
     customers: SALES_CRUD,
@@ -98,8 +114,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: VIEW_ONLY,
@@ -108,6 +124,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_cost: { ...NONE },
     production_close: { ...NONE },
     production_reports: { ...NONE },
+    banks: NONE,
+    orders: SALES_CRUD,
+    rfq: NONE,
   },
   inside_sales: {
     customers: SALES_CRUD,
@@ -118,8 +137,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: VIEW_ONLY,
@@ -128,6 +147,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_cost: { ...NONE },
     production_close: { ...NONE },
     production_reports: { ...NONE },
+    banks: NONE,
+    orders: SALES_CRUD,
+    rfq: NONE,
   },
   distribution_office: {
     customers: VIEW_ONLY,
@@ -138,8 +160,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
@@ -148,6 +170,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_cost: { ...NONE },
     production_close: { ...NONE },
     production_reports: { ...NONE },
+    banks: NONE,
+    orders: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
+    rfq: NONE,
   },
   /** صندوق فروشگاهی — فروش قطعی تک‌فروشی (نه پیش‌فاکتور نماینده) */
   store_retail: {
@@ -159,8 +184,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
@@ -169,6 +194,9 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_cost: { ...NONE },
     production_close: { ...NONE },
     production_reports: { ...NONE },
+    banks: NONE,
+    orders: NONE,
+    rfq: NONE,
   },
   production_manager: {
     customers: VIEW_ONLY,
@@ -179,11 +207,14 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+    banks: NONE,
+    orders: NONE,
+    rfq: NONE,
     ...PROD_MGR,
   },
   production_operator: {
@@ -195,11 +226,14 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+    banks: NONE,
+    orders: NONE,
+    rfq: NONE,
     ...PROD_OP,
   },
   unit_manager: {
@@ -212,11 +246,14 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+    banks: NONE,
+    orders: NONE,
+    rfq: NONE,
     portal: { view: true, create: true, edit: true, delete: false, approve: true, export: false },
     production: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
     production_bom: VIEW_ONLY,
@@ -234,11 +271,14 @@ const DEFAULT_ROLE_PERMISSIONS = {
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
     settings: NONE,
-    backup: VIEW_ONLY,
-    users: VIEW_ONLY,
+    backup: NONE,
+    users: NONE,
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+    banks: NONE,
+    orders: NONE,
+    rfq: NONE,
     portal: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
     production: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
     production_bom: VIEW_ONLY,
@@ -293,7 +333,7 @@ function codeRoleDefaults(role) {
     if (base[r]) out[r] = { ...base[r] };
     else if (isAccSectionResource(r)) out[r] = accSectionDefault(role, r);
     else if (CAPABILITY_SET.has(r)) out[r] = capabilityDefault(role, r);
-    else out[r] = { ...VIEW_ONLY };
+    else out[r] = CLOSED_DEFAULT_NONE.has(r) ? { ...NONE } : { ...VIEW_ONLY };
   }
   return out;
 }
@@ -362,6 +402,11 @@ function isManagerRole(role) {
   return role === 'admin' || role === 'sales_manager';
 }
 
+/** OPEN-DECISION (audit 8A #98): roles allowed unrestricted when users.branch_id is null. */
+function isBranchUnscopedRole(role) {
+  return role === 'admin' || role === 'accounting' || role === 'sales_manager';
+}
+
 function sodErr(message) {
   const e = new Error(message);
   e.status = 403;
@@ -386,12 +431,19 @@ function branchScopeErr(message) {
   return e;
 }
 
-/** Staff ACL is branch-scoped via users.branch_id. Admin is unrestricted. */
+/**
+ * Staff ACL is branch-scoped via users.branch_id.
+ * OPEN-DECISION (audit 8A #98): admin/accounting/sales_manager without branch stay
+ * company-wide; other roles without branch_id are fail-closed (not unrestricted).
+ */
 function assertBranchScope(user, rowBranchId) {
   if (!user) throw branchScopeErr('ورود لازم است');
   if (user.role === 'admin') return;
   const mine = user.branch_id != null ? Number(user.branch_id) : null;
-  if (mine == null) return;
+  if (mine == null) {
+    if (isBranchUnscopedRole(user.role)) return;
+    throw branchScopeErr('شعبه برای نقش شما تعریف نشده است');
+  }
   if (rowBranchId == null) return;
   if (Number(rowBranchId) !== mine) {
     throw branchScopeErr('این رکورد خارج از شعبه شماست');
@@ -401,8 +453,11 @@ function assertBranchScope(user, rowBranchId) {
 function applyBranchScopeSql(user, alias) {
   if (!user || user.role === 'admin') return { sql: '', params: [] };
   const mine = user.branch_id != null ? Number(user.branch_id) : null;
-  if (mine == null) return { sql: '', params: [] };
   const col = alias ? `${alias}.branch_id` : 'branch_id';
+  if (mine == null) {
+    if (isBranchUnscopedRole(user.role)) return { sql: '', params: [] };
+    return { sql: ' AND 1=0', params: [] };
+  }
   return { sql: ` AND (${col} IS NULL OR ${col}=?)`, params: [mine] };
 }
 
@@ -422,8 +477,8 @@ function applyLegacyGrants(perms) {
 }
 
 module.exports = {
-  ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS,
-  getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults, applyLegacyGrants,
+  ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS, CLOSED_DEFAULT_NONE,
+  getUserPermissions, hasPermission, isManagerRole, isBranchUnscopedRole, fillRoleDefaults, applyLegacyGrants,
   assertMakerChecker, assertBranchScope, applyBranchScopeSql,
   // v522
   canDo, requireCan, codeRoleDefaults, getRoleOverrides, saveRoleOverrides, ROLE_DEFAULTS_KEY,

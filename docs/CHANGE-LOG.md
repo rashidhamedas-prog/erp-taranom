@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۳ — v544: گارد RBAC سمت سرور — ممیزی 8A (#84/#95–#98/#101) (SW v544)
+- **منبع:** `erp.md` پرامپت 8A؛ skill-top استاندارد؛ **بدون push/merge/deploy** (لغو صریح auto-commit-deploy در سند).
+- **وضعیت پیش‌نیاز:** پرامپت‌های 1A–4B و 7D در این ریپو به‌صورت فایل جدا نبودند؛ نزدیک‌ترین موج باز و تأییدشده با گیت 8A بود (`POST /customers` فقط `auth`).
+- **تغییر:** `requirePermission` روی POST customers/orders/rfq، GET banks، MRP `/run` با `production:create`؛ منابع append-only `banks`/`orders`/`rfq`؛ حذف VIEW پیش‌فرض backup/users/journal_vouchers/payroll/moadian برای نقش‌های غیرمالی؛ `copyUsersInto` بدون نقش → `field_sales`؛ شعبه بدون `branch_id` برای غیرمدیر fail-closed (OPEN-DECISION: accounting/sales_manager معاف).
+- **فایل‌ها:** `lib/rbac.js`, `db.js`, `routes/{customers,orders,rfq,banks,production-mrp}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8a-rbac-guards.js`, `package.json` (`test:audit-8a`), CHANGE-LOG، Help.
+- **تست:** فقط با `DB_PATH` زیر `.tmp-test-artifacts` (نه `crm*.db`).
+- **Deploy:** ⏸ محلی — عمداً بدون merge/push/Iran (طبق دستور ایمنی سند).
+
 ### ۱۴۰۵/۰۸/۰۲ — v543: ماتریس تکی/پک ناقص وقتی پک کامل ممکن نیست (SW v543)
 - **بافت (skill-top / کامل):** پرامپت `cursor-fix-prompt-v2`؛ RCA «شنل افسون» با toast بن‌بست «هیچ رنگ/سایز موجودی…» در حالی که تکی موجود بود.
 - **تصمیم‌ها:** قیمت تکی = `variant.price_rial` اگر >۰ وگرنه قیمت استایل (نه ÷pack_size — چون پک کامل امروز N×قیمت استایل می‌زند). قفل منفی = تریگر شرطی VWS + `UPDATE … AND qty>=?` + `transaction().immediate()` روی ایجاد فاکتور.

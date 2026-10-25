@@ -3,7 +3,7 @@ const { ensureCustomerTafsili } = require('../lib/party-tafsili');
 const { getDB, audit, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -127,7 +127,7 @@ router.get('/', auth, (req, res) => {
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام فروشگاه الزامی است' });

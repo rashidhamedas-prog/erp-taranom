@@ -84,6 +84,17 @@ function initDBOn(database, opts) {
   initDB(database, opts || {});
 }
 
+/**
+ * Audit 8A #97: never promote a blank role to admin when copying users into a company DB.
+ * OPEN-DECISION least privilege = field_sales + warn.
+ */
+function resolveCopiedUserRole(role, username) {
+  const r = role != null ? String(role).trim() : '';
+  if (r) return r;
+  console.warn(`[copyUsersInto] missing role for user ${username || '?'} → field_sales`);
+  return 'field_sales';
+}
+
 /** Copy login users (same password hashes) into a freshly-inited company DB. */
 function copyUsersInto(targetDb, sourceDb) {
   if (!sourceDb || !targetDb) return 0;
@@ -106,7 +117,7 @@ function copyUsersInto(targetDb, sourceDb) {
               commission_cash=?, commission_cheque=?, must_change_password=?
             WHERE id=?
           `).run(
-            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.name, u.password, resolveCopiedUserRole(u.role, u.username), u.phone || null,
             u.active == null ? 1 : u.active,
             u.commission_cash || 0, u.commission_cheque || 0, mustVal,
             existing.id
@@ -117,7 +128,7 @@ function copyUsersInto(targetDb, sourceDb) {
               commission_cash=?, commission_cheque=?
             WHERE id=?
           `).run(
-            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.name, u.password, resolveCopiedUserRole(u.role, u.username), u.phone || null,
             u.active == null ? 1 : u.active,
             u.commission_cash || 0, u.commission_cheque || 0,
             existing.id
@@ -129,7 +140,7 @@ function copyUsersInto(targetDb, sourceDb) {
             commission_cash, commission_cheque, must_change_password)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.name, u.username, u.password, resolveCopiedUserRole(u.role, u.username), u.phone || null,
           u.active == null ? 1 : u.active,
           u.commission_cash || 0, u.commission_cheque || 0, mustVal
         );
@@ -139,7 +150,7 @@ function copyUsersInto(targetDb, sourceDb) {
             commission_cash, commission_cheque)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.name, u.username, u.password, resolveCopiedUserRole(u.role, u.username), u.phone || null,
           u.active == null ? 1 : u.active,
           u.commission_cash || 0, u.commission_cheque || 0
         );

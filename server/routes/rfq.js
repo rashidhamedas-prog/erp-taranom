@@ -1,7 +1,7 @@
 'use strict';
 const router = require('express').Router();
 const { getDB, audit, allocateNumber, isDevice } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { assertMakerChecker, assertBranchScope, applyBranchScopeSql } = require('../lib/rbac');
 
@@ -57,7 +57,7 @@ router.get('/:id', auth, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, requirePermission('rfq', 'create'), (req, res) => {
   try {
     const kind = req.body.kind === 'purchase' ? 'purchase' : 'sales';
     if (kind === 'purchase' && req.user.role !== 'admin' && req.user.role !== 'accounting') {

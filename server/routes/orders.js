@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, requirePermission } = require('../middleware/auth');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const {
   createReservation, releaseReservation, releaseBySource,
@@ -38,7 +38,7 @@ router.get('/', auth, (req, res) => {
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, requirePermission('orders', 'create'), (req, res) => {
   const { cust_id, product_id, date, type, qty, total, paid, pay, deliver, status, note, warehouse_id } = req.body;
   if (!cust_id || !total) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();

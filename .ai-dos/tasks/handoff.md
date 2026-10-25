@@ -1,3 +1,11 @@
+## 2026-10-25 — Audit 8A RBAC server guards (SW v544) — local only
+
+- Task `AUDIT-8A-RBAC-GUARDS` on branch `ai/AUDIT-8A-rbac-guards`. Source: Downloads/erp.md.
+- Reclaimed stale shared public/CHANGE-LOG/db.js claims from PROD-CUT-MP01 / ACC-BASE-OPS-425 for 8A hunks only.
+- User safety block: no push, no merge to main, no Iran deploy.
+- Next in erp.md order after 8A: 8B (validators + idempotency). 7D still blocked without sandbox `logs/r5`.
+- Gate: `npm run test:audit-8a` with `DB_PATH=server/.tmp-test-artifacts/wave-test-8a.db`.
+
 ## 2026-10-22 — strict material→operation routing, peer-BOM materials (SW v527)
 
 - Task `PROD-BOM-STRICT-526`, worktree `D:/proje/erp-v527`, branch `fix/v527-bom-strict-assignment` off `origin/main` 3a1bc040 (main checkout was dirty with another assistant's v525 WIP — not touched, not committed).
