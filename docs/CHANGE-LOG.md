@@ -3,8 +3,8 @@
 - **سرور:** `lib/invoice-totals.js` جدید (`parseMoneyRial`, `computeInvoiceTotals` ریال صحیح)؛ `buildRows`: اگر `price>0` از کلاینت آمد حفظ می‌شود؛ پیام‌ها `مبلغ پرداخت (X) از مبلغ سند (Y) بیشتر است`. بدون تغییر اسکیما.
 - **کلاینت:** آینهٔ totals؛ `amountTouched`؛ تک‌پرداخت دست‌نخورده همگام با payable؛ دستی+مازاد → کلَمپ+هشدار زرد؛ چندمرحله‌ای بدون auto + ذخیره غیرفعال؛ highlight+scroll؛ تعریف `lineVatClassExempt`/`invoiceVatRatePct`.
 - **فایل‌ها:** `lib/{invoice-totals,cash-on-document,invoice-payments}.js`, `routes/invoices.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-invoice-pay-totals-v546.js`, Help، CHANGE-LOG.
-- **تست:** `test-invoice-pay-totals-v546`؛ sms/sync روی ایران پس از deploy.
-- **Deploy:** ⏳
+- **تست (ایران):** `test-invoice-pay-totals-v546` ۵۴/۰؛ `test-sms` ۲۲/۰؛ `test-sync` harness flake (خارج از دامنه).
+- **Deploy:** ✅ `04766504` — overlay ایران؛ pm2 restart بدون `--update-env`؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v547` / `?v=547`.
 
 ### ۱۴۰۵/۰۸/۰۳ — v546: کالای جدید — یکتایی/EAN/قفل موجودی اولیه (ممیزی 8C) (SW v546)
 - **منبع:** `erp.md` پرامپت 8C (بک‌اند؛ UI صفحهٔ ۷بخشی بدون UX-PROPOSAL معوق).
