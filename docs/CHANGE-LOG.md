@@ -1,7 +1,7 @@
 ### ۱۴۰۵/۰۸/۰۴ — v552b: tip کامل main روی ایران + هم‌ترازی `app.css?v=552`
 - **بافت:** شاخهٔ `ui/new-product-form-redesign` از قبل روی `main` merge بود (PR #41). درخواست: merge+deploy کامل. ایران روی checkout قدیمی/کثیف بود؛ بدون `reset --hard`، archive tip روی درخت استخراج شد.
-- **فایل‌ها:** `public/index.html` (`app.css?v=552` هم‌تراز SW/app.js)، CHANGE-LOG، اسکریپت `_deploy-main-tip-full-v552.py`.
-- **Deploy:** ⏳
+- **فایل‌ها:** `public/index.html` (`app.css?v=552` هم‌تراز SW/app.js)، CHANGE-LOG، اسکریپت `_deploy-main-tip-full-v552.py`؛ تعمیر تست `test-pack-matrix-partial-v543.js` (shebang + cache at-least).
+- **Deploy:** ✅ `fbcd223b` — tip-full overlay ایران (بدون reset --hard / بدون fetch HTTPS روی VPS)؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v552` / `app.js?v=552` + `app.css?v=552`؛ sms ۲۲/۰؛ pack-matrix ۳۵/۰؛ complete-pack ۱۶/۰.
 
 ### ۱۴۰۵/۰۸/۰۴ — v552: بازطراحی UI فرم «کالای جدید» (بدون تغییر منطق) (SW v552)
 - **منبع:** `SPEC-new-product.md`؛ PR #41 → merge `d71b2449` روی `main` (تأیید حامد).
