@@ -785,6 +785,14 @@ function postProductOpeningInventory(db, {
   const opening = acct(db, 'coa_opening_balance');
   const amtToman = rialToLedger(totalRial);
   const openingDate = date || fiscalOpeningDate(db);
+  // Audit 8C / #103 — refuse opening stock into a closed inventory month
+  try {
+    const { assertPeriodOpen } = require('./inventory/period-lock');
+    assertPeriodOpen(db, openingDate, 'موجودی اول دوره محصول');
+  } catch (e) {
+    if (e && e.code === 'E_INV_PERIOD_LOCKED') throw e;
+    throw e;
+  }
 
   const entryId = postToLedger(db, {
     sourceType: 'opening_inventory',

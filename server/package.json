@@ -38,6 +38,7 @@
     "test:secret-settings": "node scripts/test-secret-settings-security.js",
     "test:audit-8a": "node scripts/test-audit-8a-rbac-guards.js",
     "test:audit-8b": "node scripts/test-audit-8b-validators-idempotency.js",
+    "test:audit-8c": "node scripts/test-audit-8c-product-master.js",
     "audit:gate": "node scripts/check-audit-waivers.js",
     "qa:admin": "node ../scripts/qa/run-admin-qa.js",
     "qa:roles": "node ../scripts/qa/run-all-roles-qa.js",

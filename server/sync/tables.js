@@ -261,6 +261,8 @@ const SYNCABLE_TABLES = [
   { name: 'inventory_value_approvals',         upsertKey: 'id' },
   { name: 'inventory_value_approval_lines',    upsertKey: 'id' },
   { name: 'inventory_period_locks',            upsertKey: 'period' },
+  // Audit 8C — per-product unit conversions (append-only)
+  { name: 'product_unit_conversions',          upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -627,6 +629,9 @@ const FK_COLUMNS = [
   ['inventory_value_approval_lines', 'approval_id'],
   ['inventory_value_approval_lines', 'product_id'],
   ['inventory_value_approval_lines', 'warehouse_id'],
+  ['product_unit_conversions', 'product_id'],
+  ['product_unit_conversions', 'from_unit_id'],
+  ['product_unit_conversions', 'to_unit_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

@@ -96,6 +96,13 @@ router.delete('/colors/:id', auth, adminOrAccounting, (req, res) => {
     const db = getDB();
     ensureSchema(db);
     const id = parseInt(req.params.id, 10);
+    const { colorInUse } = require('../lib/product-master');
+    if (colorInUse(db, id)) {
+      return res.status(409).json({
+        error: 'این رنگ در واریانت فعال استفاده شده و قابل حذف نیست',
+        code: 'E_COLOR_IN_USE',
+      });
+    }
     db.prepare('UPDATE product_colors SET active=0 WHERE id=?').run(id);
     res.json({ ok: true, id });
   } catch (e) { sendErr(res, e); }
@@ -150,6 +157,13 @@ router.delete('/sizes/:id', auth, adminOrAccounting, (req, res) => {
     const db = getDB();
     ensureSchema(db);
     const id = parseInt(req.params.id, 10);
+    const { sizeInUse } = require('../lib/product-master');
+    if (sizeInUse(db, id)) {
+      return res.status(409).json({
+        error: 'این سایز در واریانت فعال استفاده شده و قابل حذف نیست',
+        code: 'E_SIZE_IN_USE',
+      });
+    }
     db.prepare('UPDATE product_sizes SET active=0 WHERE id=?').run(id);
     res.json({ ok: true, id });
   } catch (e) { sendErr(res, e); }

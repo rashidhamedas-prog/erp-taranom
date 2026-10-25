@@ -1,11 +1,15 @@
+### ۱۴۰۵/۰۸/۰۳ — v546: کالای جدید — یکتایی/EAN/قفل موجودی اولیه (ممیزی 8C) (SW v546)
+- **منبع:** `erp.md` پرامپت 8C (بک‌اند؛ UI صفحهٔ ۷بخشی بدون UX-PROPOSAL معوق).
+- **تغییر:** `lib/product-master.js`؛ UNIQUE جزئی code/barcode/sku (+heal تکراری)؛ رد منفی و EAN-13؛ حذف رنگ/سایز در-استفاده ۴۰۹؛ `assertPeriodOpen` روی opening؛ ستون‌های tax_basket_code/iran_product_id/status؛ جدول `product_unit_conversions` + sync append + backfill v30.
+- **فایل‌ها:** `lib/{product-master,opening-post}.js`, `db.js`, `sync/tables.js`, `routes/{products,product-variants}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8c-product-master.js`, package.json، Help، CHANGE-LOG.
+- **Deploy:** ⏳ پس از commit/push.
+
 ### ۱۴۰۵/۰۸/۰۳ — v545: اعتبارسنجی + idempotency (۸B) و swAtLeast (۷D) (SW v545)
-- **منبع:** ادامهٔ `erp.md` بعد از 8A؛ **بدون push/merge/deploy**.
-- **۸B:** `public/validators.js` + `lib/validators.js` (کد ملی/اقتصادی/پستی/موبایل/ایمیل/جلالی)؛ `client_request_id` اجباری روی POST customers/invoices/settlements/account-receipts با ایندکس partial UNIQUE؛ UI کلید یکتا می‌فرستد؛ PUT مشتری فقط فیلدهای عوض‌شده را اعتبارسنجی می‌کند.
-- **۷D سبک:** `scripts/lib/sw-at-least.js` + تبدیل پین‌های دقیق SW در تست‌های قدیمی به `swAtLeast(min)`.
-- **فایل‌ها:** `lib/{validators,client-request-id}.js`, `public/validators.js`, `db.js`, `routes/{customers,invoices,accounting}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8b-validators-idempotency.js`, `scripts/lib/sw-at-least.js`, تست‌های پین SW، `package.json` (`test:audit-8b`), Help، CHANGE-LOG.
-- **تست:** `DB_PATH` زیر `.tmp-test-artifacts`؛ HTTP نیمه‌کاره روی Node بدون ABI better-sqlite3 → skip.
-- **Commit محلی:** `19a8bf8b` روی `ai/AUDIT-8A-rbac-guards` (بدون push).
-- **Deploy:** ⏸ محلی — عمداً بدون merge/push/Iran.
+- **منبع:** ادامهٔ `erp.md` بعد از 8A؛ سپس با دستور کاربر push+deploy فعال شد.
+- **۸B:** `public/validators.js` + `lib/validators.js`؛ `client_request_id` اجباری روی POST customers/invoices/settlements/account-receipts؛ PUT مشتری فقط فیلدهای عوض‌شده.
+- **۷D سبک:** `swAtLeast` برای پین SW تست‌های قدیمی.
+- **Commit:** `19a8bf8b` / stamp `5acc9f1e` روی `main`.
+- **Deploy:** ✅ `5acc9f1e` — overlay ایران؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v545`؛ test:audit-8a روی ایران ۵۸/۲ (رفع شد با client_request_id در تست)؛ test:audit-8b ۲۵ pass (HTTP start flake).
 
 ### ۱۴۰۵/۰۸/۰۳ — v544: گارد RBAC سمت سرور — ممیزی 8A (#84/#95–#98/#101) (SW v544)
 - **منبع:** `erp.md` پرامپت 8A؛ skill-top استاندارد؛ **بدون push/merge/deploy** (لغو صریح auto-commit-deploy در سند).

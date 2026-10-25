@@ -501,6 +501,12 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
+  try {
+    const { validateProductCreateFields } = require('../lib/product-master');
+    validateProductCreateFields(db, req.body || {});
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   let catName = category || '';
   let catId = category_id || null;
   if (catId) {
@@ -531,6 +537,16 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
       error: 'موجودی اول دوره بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
       code: 'E_OPENING_COST_REQUIRED',
     });
+  }
+  if (stockOpen > 0 && openingUnit > 0) {
+    try {
+      const { fiscalOpeningDate } = require('../lib/opening-post');
+      const { assertPeriodOpen } = require('../lib/inventory/period-lock');
+      assertPeriodOpen(db, fiscalOpeningDate(db), 'موجودی اول دوره محصول');
+    } catch (e) {
+      if (e && e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+      throw e;
+    }
   }
   const result = db.prepare(
     `INSERT INTO products (
@@ -642,6 +658,12 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   const body = req.body || {};
   const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode,
     full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code, tax_stuff_id } = body;
+  try {
+    const { validateProductUpdateFields } = require('../lib/product-master');
+    validateProductUpdateFields(db, body, Number(req.params.id));
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 
   let catName = prod.category || '';
   let catId = prod.category_id;

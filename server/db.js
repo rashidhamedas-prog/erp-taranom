@@ -2291,6 +2291,50 @@ function initSyncSchema(db, opts) {
       ON settlements(client_request_id)
       WHERE client_request_id IS NOT NULL AND length(trim(client_request_id))>0`);
   } catch (e) { console.error('settlements client_request index:', e.message); }
+
+  // Audit 8C — product master uniqueness + tax columns (no moadian wiring)
+  ensureColumn(db, 'products', 'tax_basket_code', 'TEXT');
+  ensureColumn(db, 'products', 'iran_product_id', 'TEXT');
+  ensureColumn(db, 'products', 'status', "TEXT DEFAULT 'active'");
+  try {
+    const healDup = (table, col) => {
+      const dups = db.prepare(`
+        SELECT ${col} AS v FROM ${table}
+        WHERE ${col} IS NOT NULL AND length(trim(${col}))>0
+        GROUP BY ${col} HAVING COUNT(*)>1
+      `).all();
+      for (const d of dups) {
+        const rows = db.prepare(`SELECT id FROM ${table} WHERE ${col}=? ORDER BY id`).all(d.v);
+        for (const extra of rows.slice(1)) {
+          db.prepare(`UPDATE ${table} SET ${col}=? WHERE id=?`).run(`${d.v}-D${extra.id}`, extra.id);
+        }
+      }
+    };
+    healDup('products', 'code');
+    healDup('products', 'barcode');
+    if (tableExists(db, 'product_variants')) healDup('product_variants', 'sku');
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_code_unique
+      ON products(code) WHERE code IS NOT NULL AND length(trim(code))>0`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode_unique
+      ON products(barcode) WHERE barcode IS NOT NULL AND length(trim(barcode))>0`);
+    if (tableExists(db, 'product_variants')) {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_product_variants_sku_unique
+        ON product_variants(sku) WHERE sku IS NOT NULL AND length(trim(sku))>0`);
+    }
+  } catch (e) { console.error('product unique indexes 8C:', e.message); }
+  db.exec(`CREATE TABLE IF NOT EXISTS product_unit_conversions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    from_unit_id INTEGER,
+    to_unit_id INTEGER,
+    factor REAL NOT NULL DEFAULT 1,
+    note TEXT DEFAULT '',
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    sync_seq INTEGER
+  )`);
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_puc_product ON product_unit_conversions(product_id)`);
+  } catch (_) { /* */ }
   try {
     db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
   } catch (_) { /* ignore */ }
@@ -3460,6 +3504,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v29','1')").run();
+    }
+    // v30: product_unit_conversions (audit 8C)
+    const backfillV30 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v30'").get();
+    if (!backfillV30 || backfillV30.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v30 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v30','1')").run();
     }
   }
 

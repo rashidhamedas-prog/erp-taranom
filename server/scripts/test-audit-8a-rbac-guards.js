@@ -246,12 +246,12 @@ function assertRouteWired(rel, needle, label) {
     const accTok = await makeUser('accounting', 'qa8a_acc');
     const fsTok = await makeUser('field_sales', 'qa8a_fs');
 
-    const custBody = { biz: 'تست ۸A', phone: '09120000001', city: 'مشهد' };
+    const custBody = { biz: 'تست ۸A', phone: '09120000001', city: 'مشهد', client_request_id: '8a-' + Date.now() };
     ok('prod_op POST /customers → 403', (await req(PORT, 'POST', '/customers', custBody, prodTok)).status === 403);
     ok('store POST /customers → 403', (await req(PORT, 'POST', '/customers', custBody, storeTok)).status === 403);
-    const fsCust = await req(PORT, 'POST', '/customers', { ...custBody, biz: 'تست ۸A فروش' }, fsTok);
+    const fsCust = await req(PORT, 'POST', '/customers', { ...custBody, biz: 'تست ۸A فروش', client_request_id: '8a-fs-' + Date.now() }, fsTok);
     ok('field_sales POST /customers allow', fsCust.status < 400, 'status=' + fsCust.status);
-    const accCust = await req(PORT, 'POST', '/customers', { ...custBody, biz: 'تست ۸A حسابدار' }, accTok);
+    const accCust = await req(PORT, 'POST', '/customers', { ...custBody, biz: 'تست ۸A حسابدار', client_request_id: '8a-acc-' + Date.now() }, accTok);
     ok('accounting POST /customers allow', accCust.status < 400, 'status=' + accCust.status);
 
     const orderBody = { cust_id: fsCust.body?.id || accCust.body?.id || 1, total: 1000, qty: 1 };
