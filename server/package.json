@@ -38,6 +38,7 @@
     "test:secret-settings": "node scripts/test-secret-settings-security.js",
     "test:audit-7a": "node scripts/test-audit-7a-dash-metrics.js",
     "test:7a-supplier-leaf": "node scripts/test-7a-supplier-per-leaf.js",
+    "test:store-qs-qa": "node scripts/test-store-quick-sale-qa-2026-10.js",
     "test:audit-7b": "node scripts/test-audit-7b-recon.js",
     "test:audit-7c": "node scripts/test-audit-7c-regressions.js",
     "test:audit-8a": "node scripts/test-audit-8a-rbac-guards.js",

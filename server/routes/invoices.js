@@ -213,17 +213,29 @@ function enrichRowsProductCodes(db, rows) {
 }
 
 function buildRows(db, inputRows, canDiscount) {
+  const { requirePositiveQty } = require('../lib/round3');
+  const { requiresIntegerQty, isIntegerQty } = require('../lib/inventory/qty-policy');
   const out = [];
   let subtotal = 0;
   for (const r of (inputRows || [])) {
     const rowType = r.row_type === 'income' ? 'income' : 'product';
     const description = String(r.description || '').trim();
-    const qty = Math.max(0.001, parseQty(r.qty, 1));
+    let qty;
+    try {
+      qty = requirePositiveQty(r.qty, 1);
+    } catch (e) {
+      if (e && e.code === 'E_QTY_INVALID') throw e;
+      const err = new Error('تعداد نامعتبر است — باید عددی بزرگ‌تر از صفر باشد');
+      err.status = 400;
+      err.code = 'E_QTY_INVALID';
+      throw err;
+    }
     let price = 0;
     let name = '';
     let pid = null;
     let incomeCoa = null;
     let productCode = '';
+    let prodUnit = '';
 
     if (rowType === 'income') {
       name = String(r.name || r.description || 'درآمد/خدمات').trim() || 'درآمد/خدمات';
@@ -235,6 +247,7 @@ function buildRows(db, inputRows, canDiscount) {
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
       if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
       name = prod.name;
+      prodUnit = String(prod.unit || r.unit || '').trim();
       price = prod.price;
       if (r.price !== undefined && r.price !== null && r.price !== '') {
         price = parseFloat(r.price) || 0;
@@ -251,14 +264,41 @@ function buildRows(db, inputRows, canDiscount) {
           if (serverPrice > 0) price = serverPrice;
         } catch (_) { /* keep client/style price */ }
       }
+      if (requiresIntegerQty(db, pid, prodUnit || r.unit) && !isIntegerQty(qty)) {
+        const err = new Error(`تعداد برای واحد شمارشی «${prodUnit || 'عدد'}» باید عدد صحیح باشد`);
+        err.status = 400;
+        err.code = 'E_QTY_INVALID';
+        throw err;
+      }
+      if (requiresIntegerQty(db, pid, prodUnit || r.unit)) qty = Math.round(qty);
     }
 
-    const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
-    const discAmountIn = canDiscount ? Math.max(0, Math.round(parseFloat(r.disc_amount) || 0)) : 0;
+    // Accept disc | disc_pct and disc_amount | disc_amt (UI store-quick uses disc_pct/disc_amt).
+    const rawDiscPct = parseFloat(r.disc != null && r.disc !== '' ? r.disc : r.disc_pct);
+    const rawDiscAmt = Math.round(parseFloat(
+      r.disc_amount != null && r.disc_amount !== '' ? r.disc_amount
+        : (r.disc_amt != null && r.disc_amt !== '' ? r.disc_amt : 0)
+    ) || 0);
+    if (canDiscount) {
+      if (Number.isFinite(rawDiscPct) && (rawDiscPct < 0 || rawDiscPct > 100)) {
+        const err = new Error('درصد تخفیف ردیف باید بین ۰ تا ۱۰۰ باشد');
+        err.status = 400;
+        err.code = 'E_DISC_RANGE';
+        throw err;
+      }
+    }
+    const disc = canDiscount ? Math.min(100, Math.max(0, Number.isFinite(rawDiscPct) ? rawDiscPct : 0)) : 0;
+    const discAmountIn = canDiscount ? Math.max(0, rawDiscAmt) : 0;
     const gross = qty * price;
     const discPctAmt = Math.round(gross * disc / 100);
     // تخفیف ردیف یک‌بار: مبلغ و درصد هم‌ترازند — مبلغ اولویت دارد، وگرنه از درصد
     const discAmt = discAmountIn > 0 ? discAmountIn : discPctAmt;
+    if (canDiscount && discAmt > Math.round(gross) + 0.5) {
+      const err = new Error('مبلغ تخفیف ردیف نمی‌تواند از مبلغ ناخالص ردیف بیشتر باشد');
+      err.status = 400;
+      err.code = 'E_DISC_RANGE';
+      throw err;
+    }
     const discAmount = discAmt;
     const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
@@ -534,7 +574,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   let requestKey;
   let entryDate;
   try {
-    requestKey = requireClientRequestId(req.body);
+    requestKey = requireClientRequestId(req.body, { headers: req.headers });
     entryDate = assertJalaliDocDate(date, 'تاریخ فاکتور') || require('../jalali').todayJalali();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -548,12 +588,43 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   try { built = buildRows(db, rows, canDiscount); }
-  catch (e) { return res.status(400).json({ error: e.message }); }
+  catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 
-  const discPct = parseFloat(disc) || 0;
+  const discPctRaw = parseFloat(disc);
+  let discPct = Number.isFinite(discPctRaw) ? discPctRaw : 0;
   const discAmtOverride = (req.body && req.body.disc_amt != null && req.body.disc_amt !== '')
-    ? Math.max(0, Math.round(Number(req.body.disc_amt) || 0))
+    ? Math.round(Number(req.body.disc_amt) || 0)
     : null;
+  // H1: store_retail may not set header discount
+  if (req.user.role === 'store_retail') {
+    const wantsHdrDisc = (Number.isFinite(discPctRaw) && discPctRaw !== 0)
+      || (discAmtOverride != null && discAmtOverride !== 0);
+    if (wantsHdrDisc) {
+      return res.status(403).json({
+        error: 'نقش فروشگاهی مجاز به تخفیف سرفاکتور نیست',
+        code: 'E_STORE_DISC_FORBIDDEN',
+      });
+    }
+  }
+  if (canDiscount) {
+    if (discPct < 0 || discPct > 100) {
+      return res.status(400).json({
+        error: 'درصد تخفیف باید بین ۰ تا ۱۰۰ باشد',
+        code: 'E_DISC_RANGE',
+      });
+    }
+    if (discAmtOverride != null && discAmtOverride < 0) {
+      return res.status(400).json({
+        error: 'مبلغ تخفیف نمی‌تواند منفی باشد',
+        code: 'E_DISC_RANGE',
+      });
+    }
+  }
+  const discPctEffective = canDiscount ? discPct : 0;
+  const discAmtOverrideEffective = canDiscount ? discAmtOverride : null;
+  discPct = discPctEffective;
   let invType;
   try { invType = normalizeInvoiceType(type || 'proforma'); }
   catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
@@ -569,7 +640,17 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const vatFlag = (vat_exempt === undefined || vat_exempt === null)
     ? defaultVatExempt(invType)
     : resolveVatExemptFlag(invType, vat_exempt);
-  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vatFlag, discAmt: discAmtOverride });
+  if (canDiscount && discAmtOverrideEffective != null
+    && discAmtOverrideEffective > Math.round(Number(built.subtotal) || 0)) {
+    return res.status(400).json({
+      error: 'مبلغ تخفیف کل نمی‌تواند از جمع اقلام بیشتر باشد',
+      code: 'E_DISC_RANGE',
+    });
+  }
+  const totals = calcDocTotals(db, built, discPctEffective, {
+    vatExempt: !!vatFlag,
+    discAmt: discAmtOverrideEffective,
+  });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);

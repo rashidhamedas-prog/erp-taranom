@@ -4,8 +4,15 @@
  * Partial UNIQUE indexes are created in db.js (WHERE NOT NULL).
  */
 
-function requireClientRequestId(body, { optional } = {}) {
-  const key = String((body && body.client_request_id) || '').trim().slice(0, 80);
+function requireClientRequestId(body, { optional, headers } = {}) {
+  let key = String((body && body.client_request_id) || '').trim();
+  if (!key && headers) {
+    const h = headers;
+    key = String(
+      h['idempotency-key'] || h['Idempotency-Key'] || h['IDEMPOTENCY-KEY'] || ''
+    ).trim();
+  }
+  key = key.slice(0, 80);
   if (!key) {
     if (optional) return null;
     const e = new Error('شناسهٔ یکتای درخواست (client_request_id) الزامی است');

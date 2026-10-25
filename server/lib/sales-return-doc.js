@@ -84,18 +84,26 @@ function buildSalesReturnLines(db, {
   let costAmount = 0;
   const { productUnitCostRial } = require('./inventory/product-unit-cost');
 
+  const { requirePositiveQty } = require('./round3');
   for (const r of (rows || [])) {
     const pid = parseInt(r.product_id, 10);
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
     if (!prod) continue;
-    let qty = Math.max(0.001, parseQty(r.qty, 1));
+    let qty;
+    try {
+      qty = requirePositiveQty(r.qty, 1);
+    } catch (e) {
+      if (e && e.code === 'E_QTY_INVALID') throw e;
+      throw httpErr(400, 'تعداد نامعتبر است', 'E_QTY_INVALID');
+    }
     let price;
     let disc = 0;
     let discAmt = 0;
     let lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
     let origLine = null;
+    let key = null;
     if (invoiceLineMap) {
-      const key = r.variant_id ? `v:${r.variant_id}` : `p:${pid}`;
+      key = r.variant_id ? `v:${r.variant_id}` : `p:${pid}`;
       origLine = invoiceLineMap[key] || invoiceLineMap[`p:${pid}`];
       if (!origLine) {
         throw httpErr(400, `کالای ${prod.name} در این فاکتور وجود ندارد`, 'E_SR_LINE');
@@ -136,6 +144,14 @@ function buildSalesReturnLines(db, {
       color_name: (origLine && (origLine.color_name || origLine.color)) || r.color_name || '',
       size_name: (origLine && origLine.size_name) || r.size_name || '',
     });
+    // C2/C3: accumulate within this request so duplicate keys cannot exceed max.
+    if (key) {
+      alreadyReturnedMap[key] = (alreadyReturnedMap[key] || 0) + qty;
+      const pKey = `p:${pid}`;
+      if (key !== pKey) {
+        alreadyReturnedMap[pKey] = (alreadyReturnedMap[pKey] || 0) + qty;
+      }
+    }
   }
   if (!built.length) throw httpErr(400, 'حداقل یک ردیف لازم است', 'E_SR_ROWS');
 

@@ -122,8 +122,8 @@ function postToLedger(db, opts) {
   const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,
-    debit: tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit),
-    credit: tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit),
+    debit: Math.round(tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit)),
+    credit: Math.round(tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit)),
     description: l.description || '',
     detail_account_id: l.detail_account_id || null,
     cost_center_id: l.cost_center_id || null,
@@ -243,8 +243,8 @@ function rewriteJournalEntry(db, opts) {
   const normalized = stamped.map(l => ({
     code: l.code,
     name: l.name,
-    debit: tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit),
-    credit: tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit),
+    debit: Math.round(tomanToRial(l.debit_toman != null ? l.debit_toman : l.debit)),
+    credit: Math.round(tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit)),
     description: l.description || '',
     detail_account_id: l.detail_account_id || null,
     cost_center_id: l.cost_center_id || null,

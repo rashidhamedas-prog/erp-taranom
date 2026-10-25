@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۸/۰۴ — v555: QA فروش سریع فروشگاهی (C1–L5) (SW v555)
+- **منبع:** پرامپت `fix/store-quick-sale-qa-2026-10`؛ TDD روی DB موقت (`ERP_TEST_ISOLATION=1`)؛ بدون touch production / بدون auto-deploy.
+- **C1:** UI `disc`/`disc_amount` هم‌تراز سرور؛ `buildRows` هر دو نام (`disc`|`disc_pct`, `disc_amount`|`disc_amt`) را می‌پذیرد؛ `E_STORE_TOTAL_MISMATCH` اگر جمع پرداخت ≠ final.
+- **C2/C3:** جمع qty برگشتی per key در `store.js` + به‌روز کردن `alreadyReturnedMap` داخل حلقهٔ `sales-return-doc`.
+- **H1–H4:** تخفیف سرفاکتور برای `store_retail` → 403؛ قیمت خرده‌فروشی اجباری؛ idempotency (`client_request_id` / `Idempotency-Key`)؛ `E_DISC_RANGE`.
+- **M1–M6:** ارقام فارسی در `parseQty`؛ `E_QTY_INVALID`؛ qty صحیح برای واحد شمارشی؛ تراکنش اتمیک برگشت/تعویض + `createInvoiceSync`؛ پرداخت ترکیبی واقعی؛ `by-barcode` روی `product_variants`.
+- **L1–L5:** خطای شبکه جدا؛ RBAC فقط `allowStoreRole`؛ گرد کردن مبالغ JE؛ VAT در `storeQsFinal`.
+- **فایل‌ها:** `lib/{round3,store-quick-sale,sales-return-doc,client-request-id,ledger}.js`, `routes/{store,invoices,products}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-store-quick-sale-qa-2026-10.js`, `package.json`, Help، CHANGE-LOG.
+- **تست:** `test:store-qs-qa` ۴۵/۰؛ sms ۲۲/۰؛ store-v387 ۳۰/۰.
+- **Deploy:** ⏸ PR باز — merge فقط پس از CI سبز + تأیید کاربر؛ بدون deploy خودکار.
+
 ### ۱۴۰۵/۰۸/۰۴ — v554: پرداختنی برگ‌به‌برگ تأمین‌کننده (خارج از ۲۱۰۱ هم) (SW v554)
 - **منبع:** درخواست `fix/7a-supplier-per-leaf`؛ ادامهٔ ممیزی 7A — هشدار کاذب books_mismatch_ap برای تأمین‌کنندگان با `coa_code` زیر ۱۱۰۶۰۱ (≈۳٫۹۶ میلیارد در داده واقعی).
 - **تغییر:** `lib/gl-metrics.js` → `supplierBooksByLeaf` / `supplierBooksMismatchList` / `supplierPayableGrossByLeaf`؛ overview: `books_mismatch_ap` = هر تأمین‌کننده با |ledger−gl|>۱؛ فیلدهای جدید `books_mismatch_suppliers` (+count)؛ `totalPayable`/`supplierAdvances` = برگ‌های ۲۱۰۱ ∪ برگ تأمین‌کننده‌های خارج از ۲۱۰۱؛ برگ دوطرفه از `customerAdvances` حذف می‌شود. `payable_delta` و بقیهٔ payload حفظ.
