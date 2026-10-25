@@ -1,10 +1,10 @@
 ### ۱۴۰۵/۰۸/۰۴ — v552: بازطراحی UI فرم «کالای جدید» (بدون تغییر منطق) (SW v552)
-- **منبع:** `SPEC-new-product.md`؛ شاخهٔ `ui/new-product-form-redesign`؛ PR بدون merge/deploy (تأیید حامد).
+- **منبع:** `SPEC-new-product.md`؛ PR #41 → merge `d71b2449` روی `main` (تأیید حامد).
 - **تغییر UI فقط:** مودال کالا در شش کارت (پایه / قیمت / رنگ‌سایز / موجودی / تصاویر / توضیحات) با کلاس scoped `.prod-form-v2`؛ نوار ذخیرهٔ چسبان؛ خلاصه/خطای درون‌خطی نمایشی؛ چیپ رنگ با محدودیت ۱۲+لینک «همه»؛ خلاصهٔ زنده N×M=K و «محاسبهٔ خودکار» پک.
 - **عمداً دست‌نخورده:** `saveProduct` / `saveProdVariantStocks` / کلیدها و ترتیب FormData / همهٔ idهای فیلد.
 - **فایل‌ها:** `public/{app.js,prod-form-v2.css,index.html,sw.js}`، `e2e/{capture-new-product-ui.js,new-product-formdata.spec.js,new-product-a11y.spec.js,fixtures/new-product-formdata.snapshot.json}`، `docs/screenshots/new-product/*`، Help، CHANGE-LOG.
-- **تست:** FormData snapshot برابر اصل؛ axe بدون critical/serious روی مودال؛ parse `app.js`.
-- **Deploy:** ⏸ منتظر تأیید حامد — بدون deploy خودکار.
+- **تست:** FormData snapshot برابر اصل؛ axe بدون critical/serious روی مودال؛ parse `app.js`؛ sms محلی ۲۲/۰.
+- **Deploy:** ✅ `d71b2449` — Iran pull/overlay؛ health=200؛ SW `erp-taranom-v552` / `app.js?v=552`.
 
 ### ۱۴۰۵/۰۸/۰۳ — v551: ممیزی 7C — سبز کردن تست‌های قرمز حسابداری شناخته‌شده (SW v551)
 - **منبع:** پرامپت AUDIT-7C (شاخهٔ `ai/AUDIT-7C-red-regressions`)؛ یافته‌های #78–#82؛ rebase روی main پس از 8D.
