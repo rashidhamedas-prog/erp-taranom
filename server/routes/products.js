@@ -731,6 +731,18 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     const rp = Math.round(parseFloat(body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
   }
+  if (bodyHas(body, 'full_pack_mode')) {
+    try {
+      const cols = db.prepare('PRAGMA table_info(products)').all();
+      if (cols.some((c) => c.name === 'full_pack_mode')) {
+        const raw = body.full_pack_mode;
+        const mode = (raw == null || String(raw).trim() === '')
+          ? null
+          : (String(raw).trim().toLowerCase() === 'optional' ? 'optional' : 'required');
+        db.prepare('UPDATE products SET full_pack_mode=? WHERE id=?').run(mode, req.params.id);
+      }
+    } catch (_) { /* column may be absent before migration */ }
+  }
   if (bodyHas(body, 'costing_method')) {
     const cm = String(body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);

@@ -308,7 +308,21 @@ router.get('/live-pack/:productId', auth, (req, res) => {
       ? parseInt(req.query.warehouse_id, 10)
       : null;
     const mode = String(req.query.mode || 'live').toLowerCase() === 'defined' ? 'defined' : 'live';
-    res.json(expandLivePack(db, productId, warehouseId, { mode }));
+    const pack = expandLivePack(db, productId, warehouseId, { mode });
+    try {
+      const {
+        resolveFullPackMode, canSellPartialPack,
+      } = require('../lib/inventory/full-pack-settings');
+      const fullPackMode = resolveFullPackMode(db, productId);
+      pack.full_pack_mode = fullPackMode;
+      pack.can_sell_partial = canSellPartialPack(fullPackMode, req.user);
+    } catch (_) {
+      pack.full_pack_mode = 'required';
+      pack.can_sell_partial = !!(req.user && (
+        req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager'
+      ));
+    }
+    res.json(pack);
   } catch (e) { sendErr(res, e); }
 });
 

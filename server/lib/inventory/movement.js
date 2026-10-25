@@ -9,6 +9,7 @@ const {
   allocateIntegers,
   healApparelIntegerStock,
 } = require('./qty-policy');
+const { unitPriceRialForVariant } = require('./pack-unit-price');
 
 function movErr(code, status, message) {
   const e = new Error(message || code);
@@ -296,9 +297,25 @@ function postStockMovement(db, opts) {
           available: whBefore, needed: Math.abs(qtyDelta),
         });
       }
-      db.prepare(
-        'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
-      ).run(allowNegative ? whAfter : Math.max(0, whAfter), variantId, warehouseId);
+      // Deduct path: atomic conditional UPDATE when negative stock is forbidden.
+      if (qtyDelta < 0 && !allowNegative) {
+        const need = round3(Math.abs(qtyDelta));
+        const r = db.prepare(`
+          UPDATE variant_warehouse_stock
+          SET qty = qty - ?
+          WHERE variant_id=? AND warehouse_id=? AND qty >= ?
+        `).run(need, variantId, warehouseId, need);
+        if (!r.changes) {
+          throw shortErr(db, 'موجودی واریانت×انبار کافی نیست', {
+            product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
+            available: whBefore, needed: need,
+          });
+        }
+      } else {
+        db.prepare(
+          'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
+        ).run(allowNegative ? whAfter : Math.max(0, whAfter), variantId, warehouseId);
+      }
     }
   }
 
@@ -459,12 +476,19 @@ function expandLivePack(db, productId, warehouseId, opts) {
     has_matrix: 0,
     matrix_sku_count: 0,
     mode,
+    matrix: [],
+    stocked_sku_count: 0,
+    stocked_qty: 0,
+    incomplete_colors: [],
+    leftover_singles_qty: 0,
+    full_packs_count: 0,
   });
   if (!pid) return empty();
   if (!tableExists(db, 'product_variants')) return empty();
 
   const variants = db.prepare(`
     SELECT pv.id AS variant_id, pv.color_id, pv.size_id, pv.stock,
+      pv.price, pv.price_rial,
       pc.name AS color_name, ps.name AS size_name
     FROM product_variants pv
     LEFT JOIN product_colors pc ON pc.id = pv.color_id
@@ -564,6 +588,56 @@ function expandLivePack(db, productId, warehouseId, opts) {
   const colors = new Set(lines.map((l) => l.color_id || l.color_name).filter(Boolean));
   const sizes = new Set(lines.map((l) => l.size_id || l.size_name).filter(Boolean));
 
+  // Full sellable matrix (all active SKUs) — for partial-pack picker; does not change `lines`.
+  const matrix = stocked.map((v) => ({
+    variant_id: v.variant_id,
+    color_id: v.color_id,
+    color_name: v.color_name,
+    size_id: v.size_id,
+    size_name: v.size_name,
+    qty: Math.max(0, Math.floor(Number(v.sku_stock) || 0)),
+    sku_stock: v.sku_stock,
+    unit_price_rial: unitPriceRialForVariant(db, pid, v.variant_id),
+  }));
+
+  const stockedSkus = matrix.filter((m) => (Number(m.sku_stock) || 0) > 0);
+  const stocked_sku_count = stockedSkus.length;
+  const stocked_qty = stockedSkus.reduce(
+    (a, m) => a + Math.max(0, Math.floor(Number(m.sku_stock) || 0)),
+    0
+  );
+
+  // incomplete_colors: colors that have at least one size with stock but miss another style size
+  const incomplete_colors = [];
+  if (sizeIds.length && colorIds.length) {
+    for (const cid of colorIds) {
+      const missing = sizeIds.filter(
+        (sid) => (stockByKey.get(`${Number(cid)}:${Number(sid)}`) || 0) <= 0
+      );
+      const anyStock = sizeIds.some(
+        (sid) => (stockByKey.get(`${Number(cid)}:${Number(sid)}`) || 0) > 0
+      );
+      if (anyStock && missing.length) {
+        const sample = stocked.find((s) => Number(s.color_id) === Number(cid));
+        const missingNames = missing.map((sid) => {
+          const hit = stocked.find((s) => Number(s.size_id) === Number(sid));
+          return hit ? hit.size_name : String(sid);
+        });
+        incomplete_colors.push({
+          color_id: cid,
+          color_name: (sample && sample.color_name) || '',
+          missing_sizes: missingNames,
+        });
+      }
+    }
+  }
+
+  // leftover_singles_qty (m on card) = SKU stock not covered by complete full packs.
+  // covered = full_packs_count × pack_size_auto when a complete pack exists; else 0.
+  const packUnit = lines.length && fullPacks > 0 ? packSizeAuto : 0;
+  const covered = packUnit > 0 ? fullPacks * packUnit : 0;
+  const leftover_singles_qty = Math.max(0, stocked_qty - covered);
+
   return {
     lines,
     pack_size_auto: packSizeAuto,
@@ -574,6 +648,11 @@ function expandLivePack(db, productId, warehouseId, opts) {
     has_matrix: variants.length > 0 ? 1 : 0,
     matrix_sku_count: variants.length,
     mode,
+    matrix,
+    stocked_sku_count,
+    stocked_qty,
+    incomplete_colors,
+    leftover_singles_qty,
   };
 }
 

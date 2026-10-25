@@ -2582,6 +2582,11 @@ function initSyncSchema(db, opts) {
 
   try {
     require('./lib/inventory/movement').ensureInventorySchema(db);
+    try {
+      require('./lib/inventory/pack-matrix-schema').ensurePackMatrixSchema(db);
+    } catch (e) {
+      console.warn('[boot] pack-matrix-schema:', e && e.message);
+    }
   } catch (e) {
     console.error('❌ inventory movements schema init failed:', e.message);
     throw e;

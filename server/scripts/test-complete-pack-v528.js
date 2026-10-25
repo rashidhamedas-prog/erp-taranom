@@ -28,8 +28,11 @@ const appCss = fs.readFileSync(path.join(root, 'public/app.css'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 
-ok(sw.includes("erp-taranom-v528"), 'SW cache v528');
-ok(indexHtml.includes('app.js?v=528') && indexHtml.includes('app.css?v=528'), 'asset ?v=528');
+const swVer = (sw.match(/erp-taranom-v(\d+)/) || [])[1];
+const jsVer = (indexHtml.match(/app\.js\?v=(\d+)/) || [])[1];
+const cssVer = (indexHtml.match(/app\.css\?v=(\d+)/) || [])[1];
+ok(Number(swVer) >= 528, 'SW cache >= v528', swVer);
+ok(Number(jsVer) >= 528 && Number(cssVer) >= 528, 'asset ?v >= 528', { jsVer, cssVer });
 ok(appJs.includes('computeProdCompletePack') && appJs.includes('renderProdPackLiveCard'), 'modal pack helpers');
 ok(appJs.includes('_prodSkuSticky') && appJs.includes('keepSticky'), 'sticky warehouse selection');
 ok(appJs.includes('prodColorSimilarityPairs') && appJs.includes('colorsMatch'), 'similarity warn uses colorsMatch');

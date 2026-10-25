@@ -782,6 +782,7 @@ function variantLineSummary(db, productId, warehouseId) {
     return {
       line: '', colors: [], sizes: [], live_colors: 0, live_sizes: 0, has_matrix: 0,
       warehouse_id: null, stock_scope: 'none',
+      full_packs_count: 0, leftover_singles_qty: 0, stocked_qty: 0,
     };
   }
   let variants = [];
@@ -812,6 +813,24 @@ function variantLineSummary(db, productId, warehouseId) {
   const sizes = [...new Set(live.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
   const sizesDisp = [...new Set(sizes.map((z) => displaySizeName(z)).filter(Boolean))];
   const line = [colors.length ? colors.join('، ') : '', sizesDisp.length ? sizesDisp.join(' ') : ''].filter(Boolean).join(' · ');
+
+  let full_packs_count = Number(pack.full_packs_count) || 0;
+  let leftover_singles_qty = 0;
+  let stocked_qty = 0;
+  if (scoped) {
+    try {
+      const { expandLivePack } = require('../inventory/movement');
+      const lp = expandLivePack(db, productId, whId, { mode: 'live' });
+      full_packs_count = Number(lp.full_packs_count) || 0;
+      leftover_singles_qty = Number(lp.leftover_singles_qty) || 0;
+      stocked_qty = Number(lp.stocked_qty) || 0;
+    } catch (_) { /* keep packSizeFor globals */ }
+  } else {
+    stocked_qty = live.reduce((a, v) => a + Math.max(0, Math.floor(Number(v.stock) || 0)), 0);
+    const packUnit = Number(pack.pack_size_auto) || 0;
+    leftover_singles_qty = Math.max(0, stocked_qty - (full_packs_count * packUnit));
+  }
+
   return {
     line,
     colors,
@@ -821,6 +840,9 @@ function variantLineSummary(db, productId, warehouseId) {
     has_matrix: 1,
     warehouse_id: scoped ? whId : null,
     stock_scope: scoped ? 'warehouse' : 'global',
+    full_packs_count,
+    leftover_singles_qty,
+    stocked_qty,
   };
 }
 

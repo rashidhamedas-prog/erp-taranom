@@ -42,7 +42,9 @@ const ALLOWED_KEYS = [
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',
   'invoice_paper_size', 'invoice_thermal_width', 'invoice_customize',
-  'session_absolute_hours', 'session_idle_hours', 'twofa_required_roles'
+  'session_absolute_hours', 'session_idle_hours', 'twofa_required_roles',
+  // Invoice matrix: full pack required|optional (default required + matrix fallback)
+  'sales.full_pack_mode'
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which

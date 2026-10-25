@@ -236,6 +236,15 @@ function buildRows(db, inputRows, canDiscount) {
         price = parseFloat(r.price) || 0;
       }
       productCode = resolveProductCode(db, r, prod);
+      // Matrix SKU: recompute unit price server-side (do not trust client).
+      const earlyVariantId = r.variant_id ? parseInt(r.variant_id, 10) : null;
+      if (earlyVariantId) {
+        try {
+          const { unitPriceRialForVariant } = require('../lib/inventory/pack-unit-price');
+          const serverPrice = unitPriceRialForVariant(db, pid, earlyVariantId);
+          if (serverPrice > 0) price = serverPrice;
+        } catch (_) { /* keep client/style price */ }
+      }
     }
 
     const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
@@ -775,7 +784,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       } catch (e) { console.error('crm invoice stage:', e.message); }
 
       return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [], fulfillment };
-    })();
+    }).immediate();
   } catch (e) {
     const msg = e.code === 'E_NEGATIVE_STOCK'
       ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))

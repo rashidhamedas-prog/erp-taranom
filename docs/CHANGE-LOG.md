@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۲ — v543: ماتریس تکی/پک ناقص وقتی پک کامل ممکن نیست (SW v543)
+- **بافت (skill-top / کامل):** پرامپت `cursor-fix-prompt-v2`؛ RCA «شنل افسون» با toast بن‌بست «هیچ رنگ/سایز موجودی…» در حالی که تکی موجود بود.
+- **تصمیم‌ها:** قیمت تکی = `variant.price_rial` اگر >۰ وگرنه قیمت استایل (نه ÷pack_size — چون پک کامل امروز N×قیمت استایل می‌زند). قفل منفی = تریگر شرطی VWS + `UPDATE … AND qty>=?` + `transaction().immediate()` روی ایجاد فاکتور.
+- **سرور:** `expandLivePack` فیلدهای `matrix` / `stocked_qty` / `incomplete_colors` / `leftover_singles_qty`؛ تنظیم `sales.full_pack_mode` + override کالا؛ `pack-matrix-schema` up/down؛ CLI `scripts/pack-matrix-migrate.js`.
+- **کلاینت:** fallback مودال ماتریس از `openInvVariantSplitModal`؛ کارت «پک کامل: n / تکی موجود: m»؛ Help + تنظیمات فاکتور.
+- **فایل‌ها:** `lib/inventory/{movement,pack-unit-price,full-pack-settings,pack-matrix-schema}.js`, `routes/{product-variants,invoices,products,settings}.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-pack-matrix-partial-v543.js`, `scripts/pack-matrix-migrate.js`, CHANGE-LOG.
+- **تست:** محلی قرارداد UI سبز (sqlite روی Node24 ویندوز SKIP)؛ ایران بعد از deploy: `test-pack-matrix-partial-v543` + `test-complete-pack-v528` + sms/sync.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۲ — v542: P1 BOM تست سبز — seed کد کالا + سایز سراسری برای ماتریس (SW v542)
 - **بافت:** ادامه skill-top بعد از P0؛ `test-production-bom` روی ایران ۱۵→۱۷→۲۹ با شکست آبشاری از `E_SPEC_CODE` سپس `E_SPEC_FG_SIZE`.
 - **اصلاح:** seed تست P1 برای FG/semi کد یکتا + واحد؛ seed `product_sizes` برای کلیدهای ماتریس سایز. Help: پیش‌نیاز کد کالا و سایز برای فعال‌سازی BOM دارای ماتریس.
