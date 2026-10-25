@@ -3,7 +3,7 @@
 - **سیاست:** `assertMakerChecker` دیگر admin را مستثنی نمی‌کند — خودتأییدی برای همه نقش‌ها ممنوع؛ بدون `sod_override`. Alias: `requireDifferentApprover`.
 - **مسیرها:** ثبت پیش‌نویس سند (`/vouchers/drafts/:id/post`)، تأیید فاکتور انگیزه، فعال‌سازی BOM، تأیید پرداخت/هزینهٔ نماینده، تأیید تغییر بها؛ RFQ/PO/GRNI از قبل بودند و اکنون admin هم بلاک می‌شود.
 - **فایل‌ها:** `lib/rbac.js`, `routes/{accounting,rep-management,production-boms}.js`, `lib/inventory/value-approval.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8d-sod.js`, `package.json`, Help، CHANGE-LOG.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `04b45f1a` — overlay ایران؛ health=200؛ SW `erp-taranom-v550`؛ test:audit-8d ۲۳/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۳ — v549: تطبیق چک/حقوق/مالیات/WIP + E_NO_PAYABLE_LEAF (ممیزی 7B) (SW v549)
 - **منبع:** erp.md پرامپت 7B (شاخهٔ ai/AUDIT-7B-recon-checks).
