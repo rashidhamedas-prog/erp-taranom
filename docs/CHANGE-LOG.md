@@ -3,8 +3,8 @@
 - **تغییر UI فقط:** صفحهٔ `store-quick-sale` با اسکوپ `.pos-v2` — دوستونی، هدر چسبان، ScanBar، سبد با استپر/Undo، تعلیق localStorage، پنل پرداخت شیشه‌ای، میانبرهای F2–F10، فیش حرارتی؛ توکن‌ها از PR #41؛ الهام بصری 21st بدون نصب React/Tailwind.
 - **عمداً دست‌نخورده:** `storeQsCheckout` / `storeQsBuildPaySplits` / `storeQsSaleRows` و سه bodyی POST؛ قرارداد API؛ ترکیبی همچنان ۵۰/۵۰. «کارت» و «کارت‌به‌کارت» UI با tooltip به‌زودی.
 - **فایل‌ها:** `public/{pos-v2.css,app.js,index.html,sw.js}`، `e2e/{store-quick-payload.spec.js,store-quick-a11y.spec.js,fixtures/store-quick-payload.snapshot.json}`، Help، CHANGE-LOG.
-- **تست:** parse `app.js`؛ builders intact؛ sms؛ e2e payload/axe در صورت سرور محلی.
-- **Deploy:** ⏳ پس از commit/merge.
+- **تست:** parse `app.js`؛ builders intact؛ sms ۲۲/۰؛ e2e payload/axe آماده (نیاز سرور محلی).
+- **Deploy:** ✅ `16ad01ce` — overlay ایران (pos-v2.css + app/index/sw + CHANGE-LOG)؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v553` / `app.js?v=553` + `pos-v2.css?v=553`؛ sms ۲۲/۰. PR #42 merged.
 
 ### ۱۴۰۵/۰۸/۰۴ — v552b: tip کامل main روی ایران + هم‌ترازی `app.css?v=552`
 - **بافت:** شاخهٔ `ui/new-product-form-redesign` از قبل روی `main` merge بود (PR #41). درخواست: merge+deploy کامل. ایران روی checkout قدیمی/کثیف بود؛ بدون `reset --hard`، archive tip روی درخت استخراج شد.
