@@ -5,7 +5,7 @@
 - **رفع perf (v557):** `Promise.allSettled` برای journey؛ TTL ۲۰ث + invalidate بعد از mutate؛ reuse یک‌بارمصرف `orderRows`؛ عدم retry روی خطای قطعی SQL در `net-resilience.js`.
 - **تست:** `test:hotfix-ambiguous-status` ۳۸/۰؛ `test-sms` ۲۲/۰؛ parse `app.js` OK.
 - **فایل‌ها:** `lib/production/engine.js`, `routes/inventory.js`, `public/{app.js,index.html,sw.js,net-resilience.js}`, `scripts/test-hotfix-ambiguous-status.js`, Help، CHANGE-LOG.
-- **Deploy:** ⏳ در حال merge+ایران.
+- **Deploy:** ✅ `3aab4344` (merge PR #46) — overlay ایران + `pm2 restart` بدون `--update-env`؛ health/ready=200، sharp 0.33.5؛ SW `erp-taranom-v557` / `app.js?v=557` + `net-resilience.js?v=557`؛ test:hotfix-ambiguous-status ۳۸/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۴ — v556: Hotfix `ambiguous column name: status` در سفارش‌های تولید (SW v556)
 - **منبع:** پرامپت `prompt-fix-ambiguous-status.md`؛ شاخهٔ `hotfix/prod-orders-ambiguous-status`؛ ابتدا بدون merge (تأیید حامد)؛ با v557 کامل شد و deploy شد.
