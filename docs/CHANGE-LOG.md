@@ -2,7 +2,7 @@
 - **منبع:** erp.md پرامپت 7B (شاخهٔ ai/AUDIT-7B-recon-checks).
 - **تغییر:** `subledger-recon` چهار کنترل جدید `cheques` / `payroll` / `vat` / `wip`؛ `failingCheckNames` همان‌ها را در اعلان شبانه می‌آورد. افتتاحیهٔ طرف‌حساب و امانی دیگر به‌صورت بی‌صدا به `coa_misc_persons` نمی‌روند — خطای `E_NO_PAYABLE_LEAF` (۴۲۲). تست temp-DB + dry-run فقط‌خواندنی.
 - **فایل‌ها:** `lib/{subledger-recon,customer-books,consignments}.js`, `scripts/{test-audit-7b-recon,dry-run-misclassified-payable}.js`, `package.json` (`test:audit-7b`), `public/{app.js,index.html,sw.js}`, Help، CHANGE-LOG.
-- **Deploy:** ⏳ — commit محلی؛ push/deploy توسط هماهنگ‌کنندهٔ والد.
+- **Deploy:** ✅ `12c7f550` — overlay ایران؛ health=200؛ SW `erp-taranom-v549`؛ test:audit-7b ۳۰/۰ روی VPS؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۳ — v548: داشبورد حسابداری — پرداختنی/دریافتنی ناخالص per-leaf و تراز آزمایشی (ممیزی 7A) (SW v548)
 - **منبع:** erp.md پرامپت 7A (شاخهٔ ai/AUDIT-7A-dash-metrics).
