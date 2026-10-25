@@ -460,8 +460,10 @@ function approve(db, id, user, body = {}) {
   const { acct } = require('../coa-map');
   const { inventoryAccountForWarehouse } = require('./ledger');
   const PL = require('./period-lock');
+  const { assertMakerChecker } = require('../rbac');
   db.transaction(() => {
     const head = loadPending(db, id);
+    assertMakerChecker(user, head.created_by);
     const dd = decisionDate(db, head, body);
     const date = dd.date;
     const run = (fn) => (dd.bypass ? PL.withLockBypass(fn) : fn());

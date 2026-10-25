@@ -414,14 +414,25 @@ function sodErr(message) {
   return e;
 }
 
-/** Segregation of duties / maker-checker / sod_ — creator cannot approve the same document. */
+/**
+ * Segregation of duties / maker-checker (ممیزی ۸D).
+ * سازنده همان سند را تأیید/ثبت قطعی نمی‌کند — حتی نقش admin (بدون override).
+ * Alias: requireDifferentApprover(createdBy, approverUserId) با شکل دوآرگومانی user/createdBy.
+ */
 function assertMakerChecker(user, createdByUserId) {
   if (!user) throw sodErr('ورود لازم است');
-  if (user.role === 'admin') return;
-  if (createdByUserId == null) return;
+  if (createdByUserId == null || createdByUserId === '') return;
   if (Number(createdByUserId) === Number(user.id)) {
     throw sodErr('سازنده نمی‌تواند همان سند را تأیید کند (segregation / maker-checker)');
   }
+}
+
+/** همان assertMakerChecker — نام خوانا برای مسیرهای approve/post. */
+function requireDifferentApprover(createdByUserId, approverUserOrId) {
+  const user = (approverUserOrId && typeof approverUserOrId === 'object')
+    ? approverUserOrId
+    : { id: approverUserOrId };
+  return assertMakerChecker(user, createdByUserId);
 }
 
 function branchScopeErr(message) {
@@ -479,7 +490,7 @@ function applyLegacyGrants(perms) {
 module.exports = {
   ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS, CLOSED_DEFAULT_NONE,
   getUserPermissions, hasPermission, isManagerRole, isBranchUnscopedRole, fillRoleDefaults, applyLegacyGrants,
-  assertMakerChecker, assertBranchScope, applyBranchScopeSql,
+  assertMakerChecker, requireDifferentApprover, assertBranchScope, applyBranchScopeSql,
   // v522
   canDo, requireCan, codeRoleDefaults, getRoleOverrides, saveRoleOverrides, ROLE_DEFAULTS_KEY,
 };

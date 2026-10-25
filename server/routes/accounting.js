@@ -87,6 +87,7 @@ const { reverseSettlementInTx } = require('../lib/void-settlement');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
+const { assertMakerChecker } = require('../lib/rbac');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const {
@@ -1229,45 +1230,50 @@ router.post('/invoices/:id/cancel', auth, adminOrAccounting, imageUpload.single(
   }
 });
 
-// Approve invoice for commission
+// Approve invoice for commission — SoD: سازنده (user_id) ≠ تأییدکننده
 router.post('/invoices/:id/approve', auth, adminOrAccounting, async (req, res) => {
-  const db = getDB();
-  const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
-  if (!inv) return res.status(404).json({ error: 'یافت نشد' });
-  if (inv.type !== 'final') return res.status(400).json({ error: 'فقط فاکتور رسمی قابل تأیید است' });
-  db.transaction(() => {
-    db.prepare('UPDATE invoices SET approved=1, approved_at=?, approved_by=? WHERE id=?')
-      .run(Math.floor(Date.now() / 1000), req.user.id, inv.id);
-    recordCommissionAccrual(db, inv, req.user.id);
-  })();
-  audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req);
+  try {
+    const db = getDB();
+    const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+    if (!inv) return res.status(404).json({ error: 'یافت نشد' });
+    if (inv.type !== 'final') return res.status(400).json({ error: 'فقط فاکتور رسمی قابل تأیید است' });
+    assertMakerChecker(req.user, inv.user_id);
+    db.transaction(() => {
+      db.prepare('UPDATE invoices SET approved=1, approved_at=?, approved_by=? WHERE id=?')
+        .run(Math.floor(Date.now() / 1000), req.user.id, inv.id);
+      recordCommissionAccrual(db, inv, req.user.id);
+    })();
+    audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req);
 
-  // Rubika: send invoice summary (image can follow via /rubika endpoint)
-  let rubika = { skipped: true };
-  try {
-    const { sendRubikaText, invoiceSummaryText } = require('../lib/rubika');
-    const cust = inv.cust_id ? db.prepare('SELECT biz,owner FROM customers WHERE id=?').get(inv.cust_id) : null;
-    rubika = await sendRubikaText(db, invoiceSummaryText(inv, cust?.biz || cust?.owner || ''));
+    // Rubika: send invoice summary (image can follow via /rubika endpoint)
+    let rubika = { skipped: true };
+    try {
+      const { sendRubikaText, invoiceSummaryText } = require('../lib/rubika');
+      const cust = inv.cust_id ? db.prepare('SELECT biz,owner FROM customers WHERE id=?').get(inv.cust_id) : null;
+      rubika = await sendRubikaText(db, invoiceSummaryText(inv, cust?.biz || cust?.owner || ''));
+    } catch (e) {
+      rubika = { ok: false, reason: e.message };
+    }
+    try {
+      const cust = inv.cust_id ? db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(inv.cust_id) : null;
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'invoice.approved', {
+        phone: cust?.mobile || cust?.phone,
+        name: cust?.owner || cust?.biz,
+        biz: cust?.biz,
+        amount: inv.final,
+        num: inv.num,
+        date: inv.date,
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
+    res.json({ ok: true, rubika });
   } catch (e) {
-    rubika = { ok: false, reason: e.message };
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در تأیید فاکتور', code: e.code });
   }
-  try {
-    const cust = inv.cust_id ? db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(inv.cust_id) : null;
-    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
-    setImmediate(() => dispatchSmsEvent(db, 'invoice.approved', {
-      phone: cust?.mobile || cust?.phone,
-      name: cust?.owner || cust?.biz,
-      biz: cust?.biz,
-      amount: inv.final,
-      num: inv.num,
-      date: inv.date,
-      party_group_id: cust?.party_group_id,
-      user_id: cust?.user_id,
-      created_by: req.user.id,
-      user: req.user.name,
-    }));
-  } catch (_) {}
-  res.json({ ok: true, rubika });
 });
 
 // Upload invoice image to Rubika after approval (client html2canvas)
@@ -2650,36 +2656,40 @@ router.delete('/vouchers/drafts/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 // Posting a draft runs it through the exact same validation/posting path as
-// a normal voucher, then removes the draft — this is the "review, then
-// confirm" step that stands in for a full approval workflow.
+// a normal voucher, then removes the draft — maker-checker (۸D): سازنده ≠ ثبت‌کننده.
 router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
-  if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
-  const lines = JSON.parse(draft.lines_json || '[]');
-  const built = validateAndBuildVoucherLines(db, lines);
-  if (built.error) return res.status(400).json({ error: built.error, code: built.code });
-  const entryId = db.transaction(() => {
-    const entryId = postToLedger(db, {
-      sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
-      description: draft.description || 'سند دستی', createdBy: req.user.id,
-      voucherType: 'manual',
-      lines: built.cleanLines.map(l => ({
-        ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
-      })),
-    });
-    if (draft.cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(draft.cost_center_id, entryId);
-    for (const p of built.personPostings) {
-      createPersonLedgerEntry(db, {
-        person_id: p.person_id, date: draft.date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
-        description: p.description || draft.description || 'سند دستی', debit: p.debit, credit: p.credit, user_id: req.user.id
+  try {
+    const db = getDB();
+    const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
+    if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
+    assertMakerChecker(req.user, draft.created_by);
+    const lines = JSON.parse(draft.lines_json || '[]');
+    const built = validateAndBuildVoucherLines(db, lines);
+    if (built.error) return res.status(400).json({ error: built.error, code: built.code });
+    const entryId = db.transaction(() => {
+      const entryId = postToLedger(db, {
+        sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
+        description: draft.description || 'سند دستی', createdBy: req.user.id,
+        voucherType: 'manual',
+        lines: built.cleanLines.map(l => ({
+          ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
+        })),
       });
-    }
-    db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(req.params.id);
-    return entryId;
-  })();
-  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند از پیش‌نویس: ${draft.description || ''}`);
-  res.json({ id: entryId, ok: true });
+      if (draft.cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(draft.cost_center_id, entryId);
+      for (const p of built.personPostings) {
+        createPersonLedgerEntry(db, {
+          person_id: p.person_id, date: draft.date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
+          description: p.description || draft.description || 'سند دستی', debit: p.debit, credit: p.credit, user_id: req.user.id
+        });
+      }
+      db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(req.params.id);
+      return entryId;
+    })();
+    audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند از پیش‌نویس: ${draft.description || ''}`);
+    res.json({ id: entryId, ok: true });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در ثبت پیش‌نویس', code: e.code });
+  }
 });
 
 const VOIDABLE_VOUCHER_TYPES = new Set(['manual_voucher', 'account_payment', 'account_receipt']);

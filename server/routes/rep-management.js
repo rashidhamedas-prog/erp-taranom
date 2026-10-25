@@ -5,7 +5,7 @@ const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
-const { requireCan } = require('../lib/rbac');
+const { requireCan, assertMakerChecker } = require('../lib/rbac');
 const { todayJalali } = require('../jalali');
 const {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, buildRepLedgerView, buildRepStatement,
@@ -220,21 +220,26 @@ router.post('/payments', auth, repImageUpload.single('receipt'), (req, res) => {
 });
 
 router.post('/payments/:id/approve', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const row = db.prepare(`
-    SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
-    LEFT JOIN customers c ON p.cust_id=c.id WHERE p.id=?
-  `).get(+req.params.id);
-  if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.status !== 'pending') return res.json({ ok: true, status: row.status });
-  const settlementId = db.transaction(() => {
-    const sid = applyRepPaymentAsSettlement(db, row, req.user.id);
-    db.prepare("UPDATE rep_payment_submissions SET status='approved',settlement_id=?,approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
-      .run(sid, req.user.id, row.id);
-    return sid;
-  })();
-  audit(req.user.id, 'approve', 'rep_payment', row.id, `تأیید پرداخت میدانی → تسویه #${settlementId}`);
-  res.json({ ok: true, settlement_id: settlementId });
+  try {
+    const db = getDB();
+    const row = db.prepare(`
+      SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
+      LEFT JOIN customers c ON p.cust_id=c.id WHERE p.id=?
+    `).get(+req.params.id);
+    if (!row) return res.status(404).json({ error: 'یافت نشد' });
+    if (row.status !== 'pending') return res.json({ ok: true, status: row.status });
+    assertMakerChecker(req.user, row.created_by != null ? row.created_by : row.rep_id);
+    const settlementId = db.transaction(() => {
+      const sid = applyRepPaymentAsSettlement(db, row, req.user.id);
+      db.prepare("UPDATE rep_payment_submissions SET status='approved',settlement_id=?,approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
+        .run(sid, req.user.id, row.id);
+      return sid;
+    })();
+    audit(req.user.id, 'approve', 'rep_payment', row.id, `تأیید پرداخت میدانی → تسویه #${settlementId}`);
+    res.json({ ok: true, settlement_id: settlementId });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در تأیید پرداخت', code: e.code });
+  }
 });
 
 router.post('/payments/:id/reject', auth, adminOrAccounting, (req, res) => {
@@ -341,6 +346,11 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
   const row = db.prepare('SELECT e.*, u.name as rep_name FROM rep_expenses e JOIN users u ON e.rep_id=u.id WHERE e.id=?').get(+req.params.expenseId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'approved') return res.json({ ok: true });
+  try {
+    assertMakerChecker(req.user, row.created_by != null ? row.created_by : row.rep_id);
+  } catch (e) {
+    return res.status(e.status || 403).json({ error: e.message || 'خطا در تأیید هزینه', code: e.code });
+  }
   const { pay_type, bank_id, cash_box_id } = req.body;
   db.transaction(() => {
     db.prepare("UPDATE rep_expenses SET status='approved',approved_by=?,approved_at=strftime('%s','now') WHERE id=?").run(req.user.id, row.id);

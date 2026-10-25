@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۸/۰۳ — v550: تفکیک وظایف / maker-checker (ممیزی 8D) (SW v550)
+- **منبع:** erp.md پرامپت 8D (شاخهٔ `ai/AUDIT-8D-sod`). rebase روی main پس از 7B.
+- **سیاست:** `assertMakerChecker` دیگر admin را مستثنی نمی‌کند — خودتأییدی برای همه نقش‌ها ممنوع؛ بدون `sod_override`. Alias: `requireDifferentApprover`.
+- **مسیرها:** ثبت پیش‌نویس سند (`/vouchers/drafts/:id/post`)، تأیید فاکتور انگیزه، فعال‌سازی BOM، تأیید پرداخت/هزینهٔ نماینده، تأیید تغییر بها؛ RFQ/PO/GRNI از قبل بودند و اکنون admin هم بلاک می‌شود.
+- **فایل‌ها:** `lib/rbac.js`, `routes/{accounting,rep-management,production-boms}.js`, `lib/inventory/value-approval.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8d-sod.js`, `package.json`, Help، CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۳ — v549: تطبیق چک/حقوق/مالیات/WIP + E_NO_PAYABLE_LEAF (ممیزی 7B) (SW v549)
 - **منبع:** erp.md پرامپت 7B (شاخهٔ ai/AUDIT-7B-recon-checks).
 - **تغییر:** `subledger-recon` چهار کنترل جدید `cheques` / `payroll` / `vat` / `wip`؛ `failingCheckNames` همان‌ها را در اعلان شبانه می‌آورد. افتتاحیهٔ طرف‌حساب و امانی دیگر به‌صورت بی‌صدا به `coa_misc_persons` نمی‌روند — خطای `E_NO_PAYABLE_LEAF` (۴۲۲). تست temp-DB + dry-run فقط‌خواندنی.

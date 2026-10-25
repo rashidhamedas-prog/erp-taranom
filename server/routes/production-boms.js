@@ -6,6 +6,7 @@ const bom = require('../lib/production/bom');
 const adv = require('../lib/production/bom-advanced');
 const completeness = require('../lib/production/product-completeness');
 const { applyCostPolicy } = require('../lib/production/access');
+const { assertMakerChecker } = require('../lib/rbac');
 
 function handle(res, fn) {
   try {
@@ -73,6 +74,7 @@ function bomFaError(e) {
     E_SPEC_CODE: 'کد کالا برای محصول ساختنی الزامی است.',
     E_SPEC_COST: 'بهای مواد صفر است — حواله/نهایی‌سازی بدون بها مجاز نیست.',
     E_BOM_NOT_ACTIVE: 'فرمول سفارش باید فعال باشد.',
+    E_SOD_MAKER_CHECKER: 'سازنده نمی‌تواند همان فرمول را فعال کند (تفکیک وظایف / maker-checker).',
   };
   if (map[code]) return map[code];
   if (/UNIQUE constraint failed: bom_headers\.product_id/i.test(String(e && e.message || ''))) {
@@ -246,7 +248,19 @@ router.post('/:id/activate', auth, requirePermission('production_bom', 'approve'
   if (req.user.role === 'accounting') {
     return res.status(403).json({ error: 'حسابدار نمی‌تواند فرمول را فعال کند', code: 'E_FORBIDDEN' });
   }
-  handle(res, () => bom.activateBom(getDB(), Number(req.params.id), req.body?.valid_from, req.user.id));
+  handle(res, () => {
+    const db = getDB();
+    const bomId = Number(req.params.id);
+    const row = db.prepare('SELECT id, created_by, status FROM bom_headers WHERE id=?').get(bomId);
+    if (!row) {
+      const e = new Error('E_NOT_FOUND');
+      e.code = 'E_NOT_FOUND';
+      e.status = 404;
+      throw e;
+    }
+    assertMakerChecker(req.user, row.created_by);
+    return bom.activateBom(db, bomId, req.body?.valid_from, req.user.id);
+  });
 });
 
 router.post('/:id/deactivate', auth, requirePermission('production_bom', 'approve'), (req, res) => {
