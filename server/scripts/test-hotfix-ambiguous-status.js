@@ -167,6 +167,21 @@ function ok(cond, label, extra) {
   const invSrc = fs.readFileSync(path.join(__dirname, '../routes/inventory.js'), 'utf8');
   ok(/l\.status='posted'/.test(invSrc), 'inventory ledger qualifies l.status');
 
+  // v557 perf guards — parallel journey + no SQL retry storm
+  const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  ok(/Promise\.allSettled\(/.test(appSrc) && /fetchProdJourneyState/.test(appSrc),
+    'app.js fetchProdJourneyState uses Promise.allSettled');
+  ok(/PROD_JOURNEY_TTL_MS/.test(appSrc) && /ordersFresh/.test(appSrc),
+    'app.js journey TTL + one-shot orderRows reuse');
+  const netSrc = fs.readFileSync(path.join(__dirname, '../public/net-resilience.js'), 'utf8');
+  ok(/isDeterministicServerErrorBody/.test(netSrc) && /ambiguous column/.test(netSrc),
+    'net-resilience skips retry on deterministic SQL 500');
+  const NetResilience = require('../public/net-resilience.js');
+  ok(NetResilience.isDeterministicServerErrorBody('ambiguous column name: status'),
+    'det-body detects ambiguous column');
+  ok(!NetResilience.isDeterministicServerErrorBody('سرور موقتاً در دسترس نیست'),
+    'det-body ignores generic transient text');
+
   server.close();
   try { closeSessionStore(); } catch (_) {}
   try { closeDB(); } catch (_) {}
