@@ -8,7 +8,7 @@
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
 const { todayJalali } = require('../jalali');
-const { moneyRial, resolveCashPaid } = require('./cash-on-document');
+const { moneyRial, resolveCashPaid, fmtRial } = require('./cash-on-document');
 
 const SPLIT_TYPES = new Set(['cash', 'bank', 'bank_transfer', 'cheque', 'pos_card']);
 
@@ -184,9 +184,11 @@ function assertSplits(splits, finalAmt) {
   let sum = 0;
   splits.forEach((s) => { sum += s.amount; });
   if (sum - finalAmt > 0.5) {
-    const e = new Error('جمع مبالغ پرداخت از مبلغ فاکتور بیشتر است');
+    const e = new Error(`جمع مبالغ پرداخت (${fmtRial(sum)}) از مبلغ سند (${fmtRial(finalAmt)}) بیشتر است`);
     e.status = 400;
     e.code = 'E_PAY_SPLIT_OVER';
+    e.paid = sum;
+    e.final = finalAmt;
     throw e;
   }
   splits.forEach((s, i) => {

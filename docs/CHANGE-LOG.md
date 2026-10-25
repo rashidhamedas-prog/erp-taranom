@@ -1,3 +1,11 @@
+﻿### ۱۴۰۵/۰۸/۰۳ — v547: رفع toast «مبلغ پرداخت از مبلغ سند بیشتر است» روی فرم فاکتور (SW v547)
+- **RCA تأییدشده: #3 (اصلی)** — `buildRows` برای ردیف دارای `variant_id` قیمت صریح کلاینت را با `unitPriceRialForVariant` بازنویسی می‌کرد؛ `final` سرور < `payable` کلاینت در حالی که `pay_amount` = payable کلاینت ⇒ `resolveCashPaid` خطا می‌داد. **ثانویه #1** — `syncInvCashPayAmount` فقط برای `cash`/خالی خودکار همگام می‌کرد (نه `pos_card`/`bank_transfer`).
+- **سرور:** `lib/invoice-totals.js` جدید (`parseMoneyRial`, `computeInvoiceTotals` ریال صحیح)؛ `buildRows`: اگر `price>0` از کلاینت آمد حفظ می‌شود؛ پیام‌ها `مبلغ پرداخت (X) از مبلغ سند (Y) بیشتر است`. بدون تغییر اسکیما.
+- **کلاینت:** آینهٔ totals؛ `amountTouched`؛ تک‌پرداخت دست‌نخورده همگام با payable؛ دستی+مازاد → کلَمپ+هشدار زرد؛ چندمرحله‌ای بدون auto + ذخیره غیرفعال؛ highlight+scroll؛ تعریف `lineVatClassExempt`/`invoiceVatRatePct`.
+- **فایل‌ها:** `lib/{invoice-totals,cash-on-document,invoice-payments}.js`, `routes/invoices.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-invoice-pay-totals-v546.js`, Help، CHANGE-LOG.
+- **تست:** `test-invoice-pay-totals-v546`؛ sms/sync روی ایران پس از deploy.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۳ — v546: کالای جدید — یکتایی/EAN/قفل موجودی اولیه (ممیزی 8C) (SW v546)
 - **منبع:** `erp.md` پرامپت 8C (بک‌اند؛ UI صفحهٔ ۷بخشی بدون UX-PROPOSAL معوق).
 - **تغییر:** `lib/product-master.js`؛ UNIQUE جزئی code/barcode/sku (+heal تکراری)؛ رد منفی و EAN-13؛ حذف رنگ/سایز در-استفاده ۴۰۹؛ `assertPeriodOpen` روی opening؛ ستون‌های tax_basket_code/iran_product_id/status؛ جدول `product_unit_conversions` + sync append + backfill v30.

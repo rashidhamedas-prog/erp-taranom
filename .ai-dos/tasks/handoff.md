@@ -1,3 +1,10 @@
+## 2026-10-25 — invoice pay > document bugfix (SW v546)
+
+- Worktree `D:/proje/erp-taranom-invpay-v546`, branch `fix/inv-pay-over-document-v546` off `origin/main` 5acc9f1e. Main checkout (`ai/AUDIT-8A-rbac-guards`, dirty audit WIP) untouched.
+- Reclaimed for this bugfix only (hunks, not whole files): `server/public/app.js` (renderCart/syncInvCashPayAmount/saveInvoice + Help), `server/routes/invoices.js` (`buildRows` price rule only), `server/lib/cash-on-document.js`, `server/lib/invoice-payments.js` (error messages), `server/public/{app.css,index.html,sw.js}`, CHANGE-LOG. AUDIT-8B claims on the same files are not edited beyond these hunks.
+- RCA #3 (primary): `buildRows` overwrote client price via `unitPriceRialForVariant`; secondary #1: `syncInvCashPayAmount` only synced `cash`/empty.
+- Gate: `node server/scripts/test-invoice-pay-totals-v546.js` (54/0). `test-sync` / sqlite-backed tests need a better-sqlite3 binding for this Node (24) — not runnable locally.
+
 ## 2026-10-25 — Audit 8B + 7D swAtLeast (SW v545) — local only
 
 - Same branch `ai/AUDIT-8A-rbac-guards`. Tasks `AUDIT-8B-VALIDATORS-IDEM` + `AUDIT-7D-SW-AT-LEAST`.

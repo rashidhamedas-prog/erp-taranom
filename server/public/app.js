@@ -1,4 +1,4 @@
-if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
+﻿if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
 /* ============================================================
    STATE & API
 ============================================================ */
@@ -5330,7 +5330,9 @@ async function _openInvBuilder(id){
               ${inv&&inv.pay_type==='mixed'?`<option value="mixed" selected>چندمرحله‌ای (ثبت‌شده)</option>`:''}
             </select></div>
             <div class="fg" id="inv-pay-amt-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>مبلغ این پرداخت (ریال) ${hlp('پیش‌فرض = مبلغ قابل پرداخت فاکتور و قابل اصلاح است. کمتر از کل یعنی بقیه در حساب مشتری می‌ماند.')}</label>
-              <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';if(typeof renderInvCashRemainder==='function')renderInvCashRemainder();if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}">
+              <input id="inv-pay-amount" type="text" inputmode="numeric" class="money" value="${moneyInit(inv&&inv.pay_amount_rial?inv.pay_amount_rial:0)}" placeholder="مبلغ واریزی" ${inv&&Number(inv.pay_amount_rial)>0?'data-user-edited="1"':''} data-csp-input="${CSP.bind('input',function(){this.dataset.userEdited='1';invPayClearNotes();if(typeof renderInvCashRemainder==='function')renderInvCashRemainder();if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}">
+              <div id="inv-pay-warn" class="inv-pay-warn" role="status" hidden></div>
+              <div id="inv-pay-err" class="inv-field-err-msg" role="alert" hidden></div>
               <div id="inv-pay-remain" class="pay-remain muted" aria-live="polite"></div></div>
             <div class="fg" id="inv-bank-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>واریز به حساب بانکی</label><select id="inv-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('inv')})}">
               <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.bank_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
@@ -5350,6 +5352,7 @@ async function _openInvBuilder(id){
               <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
                 <th>مبلغ (ریال)</th><th>نوع</th><th>مقصد</th><th></th>
               </tr></thead><tbody id="invPayRowsBody"></tbody></table></div>
+              <div id="inv-multi-err" class="inv-field-err-msg" role="alert" hidden></div>
               <div id="invPayChequeCards"></div>
               <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){invPayAddRow();renderInvPayRows()})}">➕ مرحله دیگر</button>
             </div>
@@ -6406,29 +6409,18 @@ function renderCart(){
     }).join('')}</tbody></table>`;
   }
   const linesDiscTotal = showLineDisc ? invCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
-  const subtotal = invCartSubtotalAfterLineDisc(invCart);
+  // v547: subtotal/vat/payable فقط از computeInvoiceTotals (همان فرمول سرور) — بدون محاسبهٔ موازی
+  const subtotal = invTotalsFor(0, true).subtotal;
   const discAmtEl=el('inv-disc-amt');
   let discAmt = discAmtEl ? Math.max(0,Math.round(Number(discAmtEl.value)||0)) : 0;
   let disc = +(el('inv-disc')?.value||0);
   if(discAmtEl && !discAmt && disc){ discAmt=Math.round(subtotal*disc/100); discAmtEl.value=discAmt; }
   else if(discAmtEl && discAmt && subtotal>0){ disc=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el('inv-disc'); if(pe && document.activeElement!==pe) pe.value=disc; }
-  const chargedFreight = freightSeller ? 0 : freight;
   const vatExempt = !!(el('inv-vat-exempt')&&el('inv-vat-exempt').checked);
-  let vatAmount = 0;
-  let vatRate = 0;
-  if(!vatExempt){
-    vatRate = invoiceVatRatePct();
-    let taxable = 0;
-    invCart.forEach(r=>{
-      const gross=(Number(r.qty)||0)*(Number(r.price)||0);
-      const net=Math.max(0, gross-(showLineDisc?lineDiscApplied(r):0));
-      if(!lineVatClassExempt(r)) taxable += net;
-    });
-    if(subtotal>0 && discAmt>0) taxable = Math.round(taxable * (1 - discAmt/subtotal));
-    else taxable = Math.max(0, taxable);
-    vatAmount = Math.round(taxable * vatRate / 100);
-  }
-  const final = subtotal-discAmt+vatAmount+chargedFreight;
+  const tot = invTotalsFor(discAmt, false);
+  const vatAmount = tot.vatAmount;
+  const vatRate = tot.vatRate;
+  const final = tot.payable;
   window._invLastFinal = final;
   if(typeof syncInvCashPayAmount==='function') syncInvCashPayAmount();
   const cartTotEl=el('cartTot');
@@ -6447,6 +6439,99 @@ function renderCart(){
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
   if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
   try{ bindNumFit(el('cartRows')); }catch(_){}
+}
+/* ───── v547: محاسبهٔ یکپارچهٔ مبلغ قابل پرداخت (آینهٔ server/lib/invoice-totals.js) ───── */
+function parseMoneyRial(v, opts){
+  const strict=!!(opts&&opts.strict);
+  const bad=function(msg){ if(!strict) return 0; throw new Error(msg||'مبلغ نامعتبر است'); };
+  if(v==null||v==='') return 0;
+  if(typeof v==='number'){
+    if(!Number.isFinite(v)) return bad('مبلغ نامعتبر است');
+    if(v<0) return bad('مبلغ نمی‌تواند منفی باشد');
+    return Math.round(v);
+  }
+  const s=String(v)
+    .replace(/[۰-۹]/g,function(d){return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d));})
+    .replace(/[٠-٩]/g,function(d){return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d));})
+    .replace(/[٫]/g,'.')
+    .replace(/[,٬،\s\u00a0\u200c\u200f\u200e]/g,'');
+  if(s==='') return 0;
+  if(!/^-?\d+(\.\d+)?$/.test(s)) return bad('مبلغ نامعتبر است: '+String(v));
+  const n=Number(s);
+  if(!Number.isFinite(n)) return bad('مبلغ نامعتبر است');
+  if(n<0) return bad('مبلغ نمی‌تواند منفی باشد');
+  return Math.round(n);
+}
+function computeInvoiceTotals(p){
+  const o=p||{};
+  const items=Array.isArray(o.items)?o.items:[];
+  const lineExempt=typeof o.lineIsVatExempt==='function'?o.lineIsVatExempt:function(){return false;};
+  const n0=function(v){const n=Number(v);return Number.isFinite(n)?n:0;};
+  let subtotal=0, taxable=0;
+  items.forEach(function(it){
+    const gross=n0(it.qty)*n0(it.price);
+    const amtIn=Math.max(0,Math.round(n0(it.disc_amount!=null?it.disc_amount:it.disc_amt)));
+    const pct=Math.min(100,Math.max(0,n0(it.disc)));
+    const lineDisc=amtIn>0?amtIn:Math.round(gross*pct/100);
+    const net=Math.max(0,Math.round(gross-lineDisc));
+    subtotal+=net;
+    if(!lineExempt(it)) taxable+=net;
+  });
+  const hasOverride=o.discAmt!=null&&o.discAmt!=='';
+  const discAmt=hasOverride?Math.max(0,Math.round(n0(o.discAmt))):Math.round(subtotal*n0(o.discPct)/100);
+  let vatAmount=0, vatRate=0;
+  if(!o.vatExempt){
+    vatRate=(o.vatRate!=null&&o.vatRate!=='')?n0(o.vatRate):10;
+    let base=taxable;
+    if(subtotal>0&&discAmt>0) base=Math.round(base*(1-discAmt/subtotal)); else base=Math.max(0,base);
+    vatAmount=Math.round(base*vatRate/100);
+  }
+  const freight=Math.max(0,Math.round(n0(o.freightAmount)));
+  const freightCharged=(freight>0&&!freightTypeIsSeller(o.freightType))?freight:0;
+  const payable=Math.max(0,subtotal-discAmt+vatAmount+freightCharged);
+  return {subtotal:subtotal,discAmt:discAmt,vatAmount:vatAmount,vatRate:vatRate,freightCharged:freightCharged,payable:payable};
+}
+function lineVatClassExempt(r){
+  if(!r||r.row_type==='income'||!r.product_id) return false;
+  const p=typeof findInvProduct==='function'?findInvProduct(r.product_id):null;
+  const vc=p&&p.vat_class;
+  return vc==='exempt'||vc==='zero-rated';
+}
+function invoiceVatRatePct(){
+  const n=parseFloat(((typeof CACHE!=='undefined'&&CACHE.settings)||{}).vat_rate);
+  return Number.isFinite(n)?n:10;
+}
+/** مجموع فاکتور فعلی فرم؛ discAmt صریح (ریال). subtotalOnly=true → فقط جمع ردیف‌ها (بدون مالیات). */
+function invTotalsFor(discAmt, subtotalOnly){
+  const showLineDisc=canAccounting();
+  const items=invCart.map(function(r){
+    return Object.assign({},r,{disc:showLineDisc?r.disc:0,disc_amount:showLineDisc?r.disc_amount:0,disc_amt:0});
+  });
+  return computeInvoiceTotals({
+    items:items,
+    discAmt:discAmt,
+    vatExempt:subtotalOnly?true:!!(el('inv-vat-exempt')&&el('inv-vat-exempt').checked),
+    vatRate:invoiceVatRatePct(),
+    freightAmount:subtotalOnly?0:(typeof moneyVal==='function'?moneyVal('inv-freight'):0),
+    freightType:el('inv-freight-type')?.value||'',
+    lineIsVatExempt:lineVatClassExempt
+  });
+}
+function invPayClearNotes(){
+  ['inv-pay-warn','inv-pay-err','inv-multi-err'].forEach(function(id){
+    const n=el(id); if(n){ n.hidden=true; n.textContent=''; }
+  });
+  document.querySelectorAll('.inv-field-err').forEach(function(n){ n.classList.remove('inv-field-err'); });
+}
+/** خطای درون‌خطی کنار فیلد + اسکرول/فوکوس (علاوه بر toast). */
+function invPayFieldError(fieldEl, msgId, msg){
+  const box=el(msgId);
+  if(box){ box.textContent=msg; box.hidden=false; }
+  if(fieldEl){
+    fieldEl.classList.add('inv-field-err');
+    try{ fieldEl.scrollIntoView({block:'center',behavior:'smooth'}); }catch(_){}
+    try{ fieldEl.focus(); }catch(_){}
+  }
 }
 let invPayRows=[];
 function parseInvMoney(v){
@@ -6477,14 +6562,70 @@ function syncInvCashPayAmount(){
     return;
   }
   const final=Number(window._invLastFinal)||0;
-  if(!inp.dataset.userEdited){
-    const empty=!parseInvMoney(inp.value);
-    if(pt==='cash' || empty){
-      inp.value = typeof moneyInit==='function'?moneyInit(final):String(final);
-      if(typeof ensureMoneyField==='function') ensureMoneyField(inp);
+  // v547: تک‌پرداخت و دست‌نخورده → همیشه برابر قابل پرداخت (همهٔ انواع فوری از جمله pos_card / bank_transfer).
+  // دستی‌شده و بیش از سقف → به سقف فاکتور اصلاح + هشدار زرد غیرمسدودکننده.
+  const touched=!!inp.dataset.userEdited;
+  const setAmt=function(n){
+    inp.value = typeof moneyInit==='function'?moneyInit(n):String(n);
+    if(typeof ensureMoneyField==='function') ensureMoneyField(inp);
+  };
+  if(!touched){
+    if(invPayAmountRial()!==final) setAmt(final);
+  }else{
+    const cur=invPayAmountRial();
+    if(cur>final){
+      setAmt(final);
+      const w=el('inv-pay-warn');
+      if(w){ w.textContent='مبلغ پرداخت به سقف فاکتور اصلاح شد'; w.hidden=false; }
+      inp.classList.remove('inv-field-err');
+      const er=el('inv-pay-err'); if(er){ er.hidden=true; er.textContent=''; }
     }
   }
   renderInvCashRemainder();
+}
+/** اعتبارسنجی زندهٔ پرداخت (v547): تک‌پرداخت به سقف کلَمپ می‌شود؛ چندمرحله‌ای هرگز خودکار تغییر نمی‌کند. */
+function invPayValidateState(payable){
+  const multi=!!el('inv-multi')?.checked || el('inv-pay-type')?.value==='mixed';
+  const pt=el('inv-pay-type')?.value;
+  if(multi){
+    let sum=0; const overIdx=[];
+    (invPayRows||[]).forEach(function(r,i){
+      const a=parseMoneyRial(r.amount);
+      sum+=a;
+      if(sum>payable && a>0) overIdx.push(i);
+    });
+    if(sum>payable) return {ok:false,multi:true,paid:sum,over:sum-payable,overIdx:overIdx};
+    return {ok:true,multi:true,paid:sum};
+  }
+  if(pt && pt!=='credit' && pt!=='mixed'){
+    const amt=pt==='cheque'?parseMoneyRial(el('inv-cheque-face')?.value):invPayAmountRial();
+    if(amt>payable) return {ok:false,multi:false,paid:amt,over:amt-payable};
+    return {ok:true,multi:false,paid:amt};
+  }
+  return {ok:true,multi:false,paid:0};
+}
+/** فعال/غیرفعال کردن ذخیره + خطای درون‌خطی برای چندمرحله‌ای. */
+function invPayRefreshGuard(){
+  const payable=Number(window._invLastFinal)||0;
+  const st=invPayValidateState(payable);
+  const saveBtns=[el('inv-save-btn')].concat(Array.prototype.slice.call(document.querySelectorAll('#inv-mobile-bar button')));
+  const block=!st.ok && st.multi;
+  saveBtns.forEach(function(b){ if(b){ b.disabled=block; b.title=block?'جمع پرداخت‌ها از مبلغ فاکتور بیشتر است':''; } });
+  const err=el('inv-multi-err');
+  const body=el('invPayRowsBody');
+  if(body) body.querySelectorAll('tr').forEach(function(tr){
+    const inp=tr.querySelector('input[data-k="amount"]'); if(inp) inp.classList.remove('inv-field-err');
+  });
+  if(block){
+    if(err){
+      err.textContent='جمع پرداخت‌ها ('+fmt(st.paid)+') از مبلغ فاکتور ('+fmt(payable)+') بیشتر است؛ '+fmt(st.over)+' ریال اضافه — مبلغ ردیف‌ها را کم کنید.';
+      err.hidden=false;
+    }
+    if(body) (st.overIdx||[]).forEach(function(i){
+      const tr=body.querySelector('tr[data-i="'+i+'"]'); const inp=tr&&tr.querySelector('input[data-k="amount"]');
+      if(inp) inp.classList.add('inv-field-err');
+    });
+  }else if(err){ err.hidden=true; err.textContent=''; }
 }
 function renderInvCashRemainder(){
   const hint=el('inv-pay-remain');
@@ -6567,6 +6708,10 @@ function collectLiveInvReceipts(){
   return { final, rows };
 }
 function renderInvReceiptLedger(){
+  try{ renderInvReceiptLedgerCore(); }
+  finally{ try{ invPayRefreshGuard(); }catch(_){} }
+}
+function renderInvReceiptLedgerCore(){
   const box=el('inv-receipt-live');
   if(!box) return;
   const { final, rows }=collectLiveInvReceipts();
@@ -6679,7 +6824,7 @@ function renderInvPayRows(){
   const body=el('invPayRowsBody'); if(!body) return;
   if(!invPayRows.length) invPayRows=[{amount:'',pay_type:'cash'}];
   body.innerHTML=invPayRows.map((r,i)=>`<tr data-i="${i}">
-    <td><input class="money" data-k="amount" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].amount=this.value;if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value;if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></td>
+    <td><input class="money" data-k="amount" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-input="${CSP.bind('input',function(){invPayRows[(i)].amount=this.value;invPayRows[(i)].amountTouched=true;this.dataset.userEdited='1';if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}" data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].amount=this.value;invPayRows[(i)].amountTouched=true;this.dataset.userEdited='1';if(typeof renderInvReceiptLedger==='function')renderInvReceiptLedger()})}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(){invPayRows[(i)].pay_type=this.value;if(this.value==='cheque')invPayEnsureChequeDefaults(invPayRows[(i)]);renderInvPayRows()})}">
       <option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option>
       <option value="bank_transfer" ${(r.pay_type==='bank_transfer'||r.pay_type==='bank')?'selected':''}>واریز بانکی</option>
@@ -7010,6 +7155,10 @@ async function saveInvoice(id){
     return;
   }
   try{ if(typeof renderCart==='function') renderCart(); }catch(_){}
+  // v547: مبلغ قابل پرداخت لحظهٔ ثبت دوباره با همان فرمول سرور محاسبه می‌شود (نه فقط مقدار کش‌شده)
+  const discAmtForTotals=Math.max(0, Math.round(Number(el('inv-disc-amt')?.value)||0));
+  const payableNow=invTotalsFor(discAmtForTotals,false).payable;
+  window._invLastFinal=payableNow;
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
@@ -7023,9 +7172,20 @@ async function saveInvoice(id){
     if(stagedRows>splits.length){
       showToast('مبلغ همهٔ مراحل دریافت را وارد کنید (مرحلهٔ بدون مبلغ ذخیره نمی‌شود)','error'); return;
     }
-    const splitSum=splits.reduce((a,s)=>a+(Number(s.amount)||0),0);
-    const chkFinal=Number(window._invLastFinal)||0;
-    if(splitSum>chkFinal){ showToast('جمع دریافت‌ها نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
+    const splitSum=splits.reduce((a,s)=>a+parseMoneyRial(s.amount),0);
+    const chkFinal=payableNow;
+    if(splitSum>chkFinal){
+      const msg='جمع دریافت‌ها ('+fmt(splitSum)+') از مبلغ فاکتور ('+fmt(chkFinal)+') بیشتر است';
+      const body=el('invPayRowsBody');
+      const firstOver=(function(){
+        let run=0;
+        for(let i=0;i<(invPayRows||[]).length;i++){ run+=parseMoneyRial(invPayRows[i].amount); if(run>chkFinal) return i; }
+        return -1;
+      })();
+      const inp=body&&firstOver>=0?body.querySelector('tr[data-i="'+firstOver+'"] input[data-k="amount"]'):null;
+      invPayFieldError(inp||el('inv-multi-block'),'inv-multi-err',msg);
+      showToast(msg,'error'); return;
+    }
     if(splits.some(s=>s.pay_type==='pos_card' && !s.terminal_id)){ showToast('برای هر قسط کارتخوان، دستگاه را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='cash' && !s.cash_box_id)){ showToast('برای هر قسط نقد، صندوق را انتخاب کنید','error'); return; }
     if(splits.some(s=>s.pay_type==='bank_transfer' && !s.bank_id)){ showToast('برای هر قسط واریز، بانک را انتخاب کنید','error'); return; }
@@ -7069,9 +7229,13 @@ async function saveInvoice(id){
     if(!(faceAmt>0)){ showToast('مبلغ این فقره چک (ریال) را وارد کنید','error'); return; }
   }
   if(!splits && pay_type && pay_type!=='credit'){
-    const chkAmt=pay_type==='cheque'?parseInvMoney(el('inv-cheque-face')?.value):invPayAmountRial();
-    const chkFinal=Number(window._invLastFinal)||0;
-    if(chkAmt>chkFinal){ showToast('مبلغ دریافت نمی‌تواند از مبلغ فاکتور بیشتر باشد','error'); return; }
+    const chkAmt=pay_type==='cheque'?parseMoneyRial(el('inv-cheque-face')?.value):invPayAmountRial();
+    const chkFinal=payableNow;
+    if(chkAmt>chkFinal){
+      const msg='مبلغ پرداخت ('+fmt(chkAmt)+') از مبلغ فاکتور ('+fmt(chkFinal)+') بیشتر است';
+      invPayFieldError(pay_type==='cheque'?el('inv-cheque-face'):el('inv-pay-amount'),'inv-pay-err',msg);
+      showToast(msg,'error'); return;
+    }
   }
   const discAmtSave=Math.max(0, Math.round(Number(el('inv-disc-amt')?.value)||0));
   const salesProformaOnlySave = typeof isSalesProformaOnlyRole==='function' && isSalesProformaOnlyRole(ME?.role);
@@ -35368,6 +35532,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر رویداد اقتصادی یک‌بار دیده می‌شود (کارتخوان: ردیف POS و settlement لینک‌شده ادغام می‌شوند). صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
         <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
+        <li><b>مبلغ پرداخت و سقف فاکتور (v547):</b> مبلغ «قابل پرداخت» با یک فرمول واحد (ردیف‌ها − تخفیف + مالیات + کرایهٔ عهدهٔ خریدار) در مرورگر و سرور محاسبه می‌شود. در تک‌پرداخت، تا دست‌نخورده بودن مبلغ، با هر تغییر فاکتور (همهٔ روش‌های فوری از جمله کارتخوان و واریز) خودکار هم‌گام می‌شود؛ مبلغ دستی بیش از سقف به سقف اصلاح و هشدار زرد غیرمسدودکننده نشان داده می‌شود. در چندمرحله‌ای هیچ تغییر خودکاری نیست؛ مازاد = خطای کنار فیلد و غیرفعال شدن ذخیره. اگر فی صریح در ردیف ارسال شود، سرور برای کالای ماتریسی آن را بازنویسی نمی‌کند (فقط فیِ خالی/۰ از ماتریس پر می‌شود). پیام سرور: «مبلغ پرداخت (X) از مبلغ سند (Y) بیشتر است».</li>
         <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
         <li><b>رنگ/سایز در فاکتور:</b> در ویرایش فاکتور هم موجودی مودال رنگ/سایز فقط انبار همان ردیف است؛ نام انبار در توضیح مودال می‌آید. بدون انبار ردیف مودال باز نمی‌شود. چیپ‌های رنگ/سایز و خلاصهٔ picker هم از <code>/summaries?warehouse_id=</code> انبار انتخاب‌شده می‌آیند (نه موجودی سراسری).</li>
         <li><b>پک کامل / تکی (v543):</b> «افزودن پک» فقط رنگ‌های کامل را می‌فروشد. اگر پک کامل ممکن نباشد ولی تکی موجود باشد، ماتریس رنگ×سایز باز می‌شود (نه toast بن‌بست). کارت کالا «پک کامل: n / تکی موجود: m» را نشان می‌دهد. تنظیم سراسری در تنظیمات→قالب فاکتور→«پک کامل»؛ پیش‌فرض اجباری است. قیمت تکی = قیمت واریانت اگر پر باشد، وگرنه قیمت استایل (تقسیم بر pack_size نمی‌شود).</li>
@@ -36008,7 +36173,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v546</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v547</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -36231,6 +36396,7 @@ function renderSalesGuide(){
       <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v500</b> است. آدرس سرور مرکزی: <span dir="ltr">https://erptaranom.com</span>. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">در لایه‌چینی، رنگ ماتریس و رنگ طاقه با فاصله و نیم‌فاصله یکی حساب می‌شوند («سرمه‌ای» = «سورمه ای»). اگر طاقه واقعاً نباشد، پیام می‌گوید علت رنگ است یا عرض یا نبودِ طاقه برای پارچهٔ فرمول. با سفارش انتخاب‌شده، جستجوی کالای دوخته‌شده فقط محصولات همان سفارش را می‌آورد (v487).</div>
       <div class="tip">سفارش تولید چندمحصولی در حسابداری ساخته می‌شود. مرحلهٔ مشترک جمع تعداد مدل‌ها را می‌گیرد و مرحلهٔ اختصاصی فقط تعداد همان مدل را. در نهایی‌سازی، رنگ×سایز هر مدل جدول خودش را دارد و با تعداد رسید همان مدل جمع می‌شود. اگر در ثبت خروجی مرحله موجودی یک ماده کم باشد، همان‌جا کالای جایگزین برای کسری انتخاب می‌شود. روی مرحلهٔ برش با پارچهٔ متری یا یاردی، «ثبت خروجی» لایه‌چینی همان سفارش را باز می‌کند. جزئیات در راهنمای مدیر است.</div>
+      <div class="tip">مبلغ پرداخت فاکتور (v547): در پرداخت تک‌مرحله‌ای تا وقتی خودتان مبلغ را عوض نکرده‌اید، با هر تغییر قیمت/تعداد/تخفیف/مالیات/کرایه خودکار برابر «قابل پرداخت» می‌ماند (نقد، کارتخوان و واریز). اگر مبلغ را دستی بزنید و از سقف فاکتور بیشتر شود، به سقف اصلاح می‌شود و یک هشدار زرد می‌بینید. در پرداخت چندمرحله‌ای مبلغ هیچ‌وقت خودکار عوض نمی‌شود؛ اگر جمع از فاکتور بیشتر باشد، دکمهٔ ذخیره تا اصلاح غیرفعال است. پیام خطای سرور هر دو مبلغ را نشان می‌دهد.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
       <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>

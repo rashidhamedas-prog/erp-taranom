@@ -2501,3 +2501,9 @@ body.erp-demo-mode{padding-top:32px}
 @media(prefers-reduced-motion:reduce){
   .dash-hero,.acc-dash-hero,.acc-quick-grid .btn{transition:none}
 }
+
+/* v546 — هشدار/خطای مبلغ پرداخت فاکتور */
+.inv-pay-warn{margin-block-start:4px;padding:6px 10px;border-radius:8px;background:#fff8db;border:1px solid #f0d24a;color:#7a5b00;font-size:12px;line-height:1.7}
+.inv-pay-warn[hidden],.inv-field-err-msg[hidden]{display:none}
+.inv-field-err-msg{margin-block-start:4px;color:var(--red);font-size:12px;font-weight:600;line-height:1.7}
+input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!important;box-shadow:0 0 0 2px rgba(220,38,38,.18)}

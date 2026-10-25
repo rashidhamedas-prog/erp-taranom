@@ -239,10 +239,12 @@ function buildRows(db, inputRows, canDiscount) {
       if (r.price !== undefined && r.price !== null && r.price !== '') {
         price = parseFloat(r.price) || 0;
       }
+      const clientPriceGiven = (parseFloat(r.price) || 0) > 0;
       productCode = resolveProductCode(db, r, prod);
-      // Matrix SKU: recompute unit price server-side (do not trust client).
+      // Matrix SKU: قیمت سرور فقط وقتی قیمت کلاینت خالی/۰ است (v546: قیمت صریح کلاینت
+      // overwrite نمی‌شود؛ وگرنه final سرور < payable کلاینت و پرداخت «بیش از سند» می‌شد).
       const earlyVariantId = r.variant_id ? parseInt(r.variant_id, 10) : null;
-      if (earlyVariantId) {
+      if (earlyVariantId && !clientPriceGiven) {
         try {
           const { unitPriceRialForVariant } = require('../lib/inventory/pack-unit-price');
           const serverPrice = unitPriceRialForVariant(db, pid, earlyVariantId);

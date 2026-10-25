@@ -20,6 +20,11 @@ function moneyRial(v) {
   return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
 }
 
+/** نمایش ریال با جداکنندهٔ هزارگان (v546: پیام خطا هر دو مبلغ را نشان می‌دهد). */
+function fmtRial(n) {
+  return Math.round(Number(n) || 0).toLocaleString('en-US');
+}
+
 function normalizePayType(pt) {
   const t = String(pt || '').trim();
   if (t === 'bank') return 'bank_transfer';
@@ -44,9 +49,11 @@ function resolveCashPaid(body, invoiceFinal) {
   if (declared != null && declared > 0) paid = declared;
   else if (isImmediatePayType(payType)) paid = final;
   if (paid > final + 0.5) {
-    const e = new Error('مبلغ پرداخت از مبلغ سند بیشتر است');
+    const e = new Error(`مبلغ پرداخت (${fmtRial(paid)}) از مبلغ سند (${fmtRial(final)}) بیشتر است`);
     e.status = 400;
     e.code = 'E_CASH_OVER_INVOICE';
+    e.paid = paid;
+    e.final = final;
     throw e;
   }
   return { paid, remainder: Math.max(0, final - paid), payType };
@@ -63,6 +70,7 @@ function assertCashBoxRequired(payType, cashBoxId) {
 
 module.exports = {
   moneyRial,
+  fmtRial,
   resolveCashPaid,
   assertCashBoxRequired,
   isImmediatePayType,

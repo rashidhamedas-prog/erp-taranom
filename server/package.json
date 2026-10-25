@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "erp-taranom",
   "version": "3.0.0",
   "description": "ERP پوشاک ترنم - نسخه ۳",
@@ -39,6 +39,7 @@
     "test:audit-8a": "node scripts/test-audit-8a-rbac-guards.js",
     "test:audit-8b": "node scripts/test-audit-8b-validators-idempotency.js",
     "test:audit-8c": "node scripts/test-audit-8c-product-master.js",
+    "test:invoice-pay-v546": "node scripts/test-invoice-pay-totals-v546.js",
     "audit:gate": "node scripts/check-audit-waivers.js",
     "qa:admin": "node ../scripts/qa/run-admin-qa.js",
     "qa:roles": "node ../scripts/qa/run-all-roles-qa.js",
