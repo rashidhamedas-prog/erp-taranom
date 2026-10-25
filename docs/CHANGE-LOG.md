@@ -4,6 +4,7 @@
 - **۷D سبک:** `scripts/lib/sw-at-least.js` + تبدیل پین‌های دقیق SW در تست‌های قدیمی به `swAtLeast(min)`.
 - **فایل‌ها:** `lib/{validators,client-request-id}.js`, `public/validators.js`, `db.js`, `routes/{customers,invoices,accounting}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8b-validators-idempotency.js`, `scripts/lib/sw-at-least.js`, تست‌های پین SW، `package.json` (`test:audit-8b`), Help، CHANGE-LOG.
 - **تست:** `DB_PATH` زیر `.tmp-test-artifacts`؛ HTTP نیمه‌کاره روی Node بدون ABI better-sqlite3 → skip.
+- **Commit محلی:** `19a8bf8b` روی `ai/AUDIT-8A-rbac-guards` (بدون push).
 - **Deploy:** ⏸ محلی — عمداً بدون merge/push/Iran.
 
 ### ۱۴۰۵/۰۸/۰۳ — v544: گارد RBAC سمت سرور — ممیزی 8A (#84/#95–#98/#101) (SW v544)
