@@ -4,7 +4,7 @@
 - **عمداً دست‌نخورده:** `saveProduct` / `saveProdVariantStocks` / کلیدها و ترتیب FormData / همهٔ idهای فیلد.
 - **فایل‌ها:** `public/{app.js,prod-form-v2.css,index.html,sw.js}`، `e2e/{capture-new-product-ui.js,new-product-formdata.spec.js,new-product-a11y.spec.js,fixtures/new-product-formdata.snapshot.json}`، `docs/screenshots/new-product/*`، Help، CHANGE-LOG.
 - **تست:** FormData snapshot برابر اصل؛ axe بدون critical/serious روی مودال؛ parse `app.js`؛ sms محلی ۲۲/۰.
-- **Deploy:** ✅ `d71b2449` — Iran pull/overlay؛ health=200؛ SW `erp-taranom-v552` / `app.js?v=552`.
+- **Deploy:** ✅ `759fc98f` (merge PR #41 = `d71b2449`) — overlay ایران تأییدشده؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v552` / `app.js?v=552` + `prod-form-v2.css`؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۳ — v551: ممیزی 7C — سبز کردن تست‌های قرمز حسابداری شناخته‌شده (SW v551)
 - **منبع:** پرامپت AUDIT-7C (شاخهٔ `ai/AUDIT-7C-red-regressions`)؛ یافته‌های #78–#82؛ rebase روی main پس از 8D.
