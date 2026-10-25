@@ -3,7 +3,7 @@
 - **تغییر:** lib/gl-metrics.js → glControlGrossByLeaf؛ overview: totalPayable ناخالص، supplierAdvances، customerAdvances، unbalanced_count، books_mismatch_ap؛ فروش خالص با asOf و کسر برگشت؛ تراز آزمایشی JE_ALIVE + approved/posted.
 - **OPEN-DECISION:** status شامل posted؛ trialBalanced وابسته به unbalanced_count؛ customerAdvances از GL 1103.
 - **فایل‌ها:** lib/gl-metrics.js, routes/accounting.js, public/{app.js,index.html,sw.js}, scripts/test-audit-7a-dash-metrics.js, package.json، Help، CHANGE-LOG.
-- **Deploy:** ⏳ پس از merge.
+- **Deploy:** ✅ 8eed1d7c — overlay ایران؛ health=200؛ SW erp-taranom-v548؛ test:audit-7a ۲۸/۰؛ sms ۲۲/۰.
 
 ﻿### ۱۴۰۵/۰۸/۰۳ — v547: رفع toast «مبلغ پرداخت از مبلغ سند بیشتر است» روی فرم فاکتور (SW v547)
 - **RCA تأییدشده: #3 (اصلی)** — `buildRows` برای ردیف دارای `variant_id` قیمت صریح کلاینت را با `unitPriceRialForVariant` بازنویسی می‌کرد؛ `final` سرور < `payable` کلاینت در حالی که `pay_amount` = payable کلاینت ⇒ `resolveCashPaid` خطا می‌داد. **ثانویه #1** — `syncInvCashPayAmount` فقط برای `cash`/خالی خودکار همگام می‌کرد (نه `pos_card`/`bank_transfer`).
