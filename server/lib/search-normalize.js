@@ -29,9 +29,27 @@ function escapeLike(s) {
   return String(s || '').replace(/([\\%_])/g, '\\$1');
 }
 
-/** SQL expression that loosely normalizes a text column for matching. */
+/** SQL expression that loosely normalizes a text column for matching.
+ * Kept in sync with normalizeSearchText (yeh/kaf, alef forms, heh/teh, zwnj, digits). */
 function sqlNormExpr(col) {
-  return `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(${col},'')),'ي','ی'),'ى','ی'),'ك','ک'),'(',' '),')',' ')`;
+  let e = `LOWER(COALESCE(${col},''))`;
+  const reps = [
+    ["ي", "ی"], ["ى", "ی"], ["ك", "ک"],
+    ["آ", "ا"], ["أ", "ا"], ["إ", "ا"],
+    ["ۀ", "ه"], ["ة", "ه"], ["ؤ", "و"],
+    ["(", " "], [")", " "],
+  ];
+  for (const [from, to] of reps) {
+    e = `REPLACE(${e},'${from}','${to}')`;
+  }
+  e = `REPLACE(${e}, char(8204), '')`;
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  for (let i = 0; i < 10; i++) {
+    e = `REPLACE(${e},'${fa[i]}','${i}')`;
+    e = `REPLACE(${e},'${ar[i]}','${i}')`;
+  }
+  return e;
 }
 
 /**
@@ -84,6 +102,7 @@ module.exports = {
   normalizeSearchText,
   searchTokens,
   escapeLike,
+  sqlNormExpr,
   sqlTokenSearch,
   textMatchesQuery,
 };

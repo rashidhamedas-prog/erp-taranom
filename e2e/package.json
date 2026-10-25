@@ -7,6 +7,7 @@
     "test:critical": "playwright test login.spec.js critical-paths.spec.js",
     "test:new-product": "playwright test new-product-formdata.spec.js new-product-a11y.spec.js",
     "test:pos-v2": "playwright test store-quick-payload.spec.js store-quick-a11y.spec.js",
+    "test:pos-v2-qa": "playwright test store-quick-pos-v2-qa.spec.js store-quick-search.spec.js store-quick-images.spec.js store-quick-payload.spec.js",
     "capture:new-product": "node capture-new-product-ui.js"
   },
   "devDependencies": {
