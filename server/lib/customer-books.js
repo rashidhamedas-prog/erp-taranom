@@ -636,10 +636,13 @@ function parsePartyRoles(party) {
   return Array.isArray(roles) ? roles : [];
 }
 
+/**
+ * Opening-balance destination leaf for a party (audit 7B / #77).
+ * Customer → its AR leaf; non-customer → supplier payable tafsili (ensureSupplierTafsili).
+ * Never silently falls back to coa_misc_persons / coa_receivable: throws E_NO_PAYABLE_LEAF (422).
+ */
 function resolveOpeningDestAccount(db, partyId) {
   const recv = acct(db, 'coa_receivable');
-  let misc;
-  try { misc = acct(db, 'coa_misc_persons'); } catch (_) { misc = recv; }
   const party = partyId ? db.prepare('SELECT * FROM parties WHERE id=?').get(partyId) : null;
   if (party?.legacy_table === 'customers' && party.legacy_id) {
     const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(party.legacy_id);
@@ -653,8 +656,20 @@ function resolveOpeningDestAccount(db, partyId) {
     if (a) return a;
   }
   const roles = parsePartyRoles(party || {});
-  if (!roles.includes('customer')) return misc;
-  return null;
+  if (roles.includes('customer')) return null;
+  const { ensureSupplierTafsili } = require('./party-tafsili');
+  const supplier = partyId
+    ? db.prepare('SELECT id FROM suppliers WHERE party_id=? ORDER BY id LIMIT 1').get(partyId)
+    : null;
+  if (supplier) {
+    const code = ensureSupplierTafsili(db, supplier.id);
+    const a = code ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(code) : null;
+    if (a) return a;
+  }
+  const e = new Error(`حساب تفصیلی پرداختنی برای طرف حساب #${partyId || '—'} وجود ندارد — تأمین‌کننده/تفصیلی بسازید`);
+  e.status = 422;
+  e.code = 'E_NO_PAYABLE_LEAF';
+  throw e;
 }
 
 function repairOpeningControlToTafsili(db) {
@@ -677,7 +692,16 @@ function repairOpeningControlToTafsili(db) {
       LIMIT 1
     `).get(row.id);
     if (already) continue;
-    const dest = resolveOpeningDestAccount(db, row.ref_id);
+    let dest;
+    try {
+      dest = resolveOpeningDestAccount(db, row.ref_id);
+    } catch (e) {
+      if (e && e.code === 'E_NO_PAYABLE_LEAF') {
+        console.warn(`⚠️ opening_reclass je#${row.id} skipped: ${e.message}`);
+        continue;
+      }
+      throw e;
+    }
     if (!dest || dest.code === recv.code) continue;
     const net = Math.round(Number(row.debit_rial) || 0) - Math.round(Number(row.credit_rial) || 0);
     if (!net) continue;
@@ -2206,4 +2230,6 @@ module.exports = {
   isFirmSale,
   AR_CONTROL_RECLASS,
   CUSTOMER_FOREIGN_REFS,
+  // audit 7B — payable leaf (throws E_NO_PAYABLE_LEAF; no silent misc fallback)
+  resolveOpeningDestAccount,
 };

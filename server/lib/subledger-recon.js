@@ -39,6 +39,11 @@ const CHECKS = [
   ['fixed_assets', 'تطبیق ثبت دارایی‌های ثابت با دفتر کل'],
   ['suspense_accounts', 'مانده حساب‌های موقت/معلق'],
   ['closed_period_changes', 'تغییر اسناد پس از بستن سال مالی'],
+  // audit 7B (append-only — order drives the nightly run)
+  ['cheques', 'تطبیق چک‌ها (اسناد دریافتنی/پرداختنی/در جریان وصول) با دفتر کل'],
+  ['payroll', 'تطبیق حقوق، بیمه و مالیات حقوق با دفتر کل'],
+  ['vat', 'تطبیق مالیات بر ارزش افزوده فاکتورها با دفتر کل'],
+  ['wip', 'تطبیق کالای در جریان ساخت سفارش‌های باز با دفتر کل'],
 ];
 const CHECK_NAMES = new Map(CHECKS);
 
@@ -193,18 +198,19 @@ const SQL_SIDE_RESIDUE = (r, t) => `(CASE WHEN COALESCE(jl.${r},0)<>0 AND COALES
 const SQL_JL_ROUND_RESIDUE = `(${SQL_SIDE_RESIDUE('debit_rial', 'debit')} + ${SQL_SIDE_RESIDUE('credit_rial', 'credit')})`;
 
 /** Σ toman↔rial residues of live lines on `codes` (hierarchical) — or exact leaf with leaf:true. */
-function glRoundingBound(db, codes, dateTo, { leaf = false } = {}) {
+function glRoundingBound(db, codes, dateTo, { leaf = false, dateFrom = '' } = {}) {
   const list = [...new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean))];
   if (!list.length) return 0;
   const conds = list.map(() => '(jl.account_code = ? OR jl.account_code LIKE ?)').join(' OR ');
   const params = [];
   for (const c of list) params.push(c, leaf ? `${c}-%` : `${c}%`);
+  if (dateFrom) params.push(dateFrom);
   if (dateTo) params.push(dateTo);
   try {
     const r = db.prepare(`
       SELECT COALESCE(SUM(${SQL_JL_ROUND_RESIDUE}), 0) AS b
       FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
-      WHERE ${JE_LIVE} AND (${conds})${dateFilter('je.entry_date', dateTo)}
+      WHERE ${JE_LIVE} AND (${conds})${dateFrom ? ' AND je.entry_date >= ?' : ''}${dateFilter('je.entry_date', dateTo)}
     `).get(...params);
     return Number(r && r.b) || 0;
   } catch (_) {
@@ -1443,6 +1449,410 @@ function checkClosedPeriodChanges(ctx) {
   return result('closed_period_changes', { status: rows.length ? 'warn' : 'ok', rows, fixable: false });
 }
 
+// ─── audit 7B: cheques / payroll / VAT / WIP ───────────────────────────────
+/**
+ * Shared shape for the 7B checks. Every comparison row carries
+ *   { id, label, account_code, gl_rial, sub_rial, diff_rial, diff_class, status, rounding_bound_rial, total }
+ * `total:true` rows feed the check totals; the others (per-period / per-order detail) only drive status.
+ */
+function glVsSubRow(db, { id, label, codes, sign = 1, sub, subFrac = 0, dateTo, netSign = 1, extra = {} }) {
+  const gl = Math.round(sign * glBalance(db, codes, dateTo));
+  const subR = Math.round(Number(sub) || 0);
+  const diff = gl - subR;
+  const bound = diff ? glRoundingBound(db, codes, dateTo) + (Number(subFrac) || 0) : 0;
+  const cls = classifyDiff(diff, bound);
+  return {
+    id, label, account_code: codes.join(','), gl_rial: gl, sub_rial: subR, diff_rial: diff,
+    diff_class: cls, status: statusOfClass(cls), rounding_bound_rial: Math.ceil(bound),
+    net_sign: netSign, total: true, ...extra,
+  };
+}
+
+/** gl-only rows when the subledger cannot be evaluated as of a past date. */
+function glOnlyRows(db, specs, dateTo) {
+  return specs.map((s) => ({
+    id: s.id, label: s.label, account_code: s.codes.join(','),
+    gl_rial: Math.round((s.sign || 1) * glBalance(db, s.codes, dateTo)),
+    sub_rial: null, diff_rial: null, status: 'info', total: false,
+  }));
+}
+
+function compareResult(code, rows, { note = '', fixable = false } = {}) {
+  const totals = rows.filter((r) => r.total);
+  const roll = rowsRollup(totals);
+  const all = rowsRollup(rows);
+  const gl = totals.reduce((s, r) => s + (Number(r.gl_rial) || 0) * (r.net_sign || 1), 0);
+  const sub = totals.reduce((s, r) => s + (Number(r.sub_rial) || 0) * (r.net_sign || 1), 0);
+  return result(code, {
+    status: all.status, gl_rial: gl, sub_rial: sub, diff_rial: gl - sub, rows, fixable,
+    rounding_rial: roll.rounding, rounding_bound_rial: roll.bound, note,
+  });
+}
+
+const AS_OF_NOTE = 'مانده زیرسیستم فقط در تاریخ روز محاسبه می‌شود (وضعیت چرخهٔ فعلی)';
+
+// ── cheques ────────────────────────────────────────────────────────────────
+function checkCheques(ctx) {
+  const { db, dateTo } = ctx;
+  if (!tableExists(db, 'cheque_records')) {
+    return result('cheques', { status: 'ok', gl_rial: 0, sub_rial: 0, diff_rial: 0, rows: [], note: 'جدول چک وجود ندارد' });
+  }
+  const cols = columns(db, 'cheque_records');
+  const lc = cols.has('lifecycle_status') ? "TRIM(COALESCE(lifecycle_status,''))" : "''";
+  const live = cols.has('record_status') ? "COALESCE(record_status,'posted')<>'reversed'" : '1=1';
+  const registered = `${lc} IN ('','registered','in_hand','pending')`;
+  const openingOut = cols.has('journal_entry_id') ? ` OR (${registered} AND COALESCE(journal_entry_id,0)>0)` : '';
+  // Account codes follow acct()/coa_* settings (LEGACY defaults 1109 / 1116 / 2109).
+  const specs = [
+    {
+      id: 'in_hand', label: 'چک‌های دریافتی نزد صندوق ↔ اسناد دریافتنی',
+      codes: [codeOf(db, 'coa_cheques_receivable') || '1109'], sign: 1,
+      where: `direction='in' AND ${registered}`,
+    },
+    {
+      id: 'in_collection', label: 'چک‌های واگذارشده به بانک ↔ اسناد در جریان وصول',
+      codes: [codeOf(db, 'coa_cheques_in_collection') || '1116'], sign: 1,
+      where: `direction='in' AND ${lc}='in_collection'`,
+    },
+    {
+      id: 'issued', label: 'چک‌های پرداختنی صادرشده ↔ اسناد پرداختنی',
+      codes: [codeOf(db, 'coa_cheques_payable') || '2109'], sign: -1,
+      where: `direction='out' AND (${lc} IN ('issued','expensed')${openingOut})`,
+    },
+  ];
+  if (dateTo) {
+    return result('cheques', {
+      status: 'info', rows: glOnlyRows(db, specs, dateTo), note: AS_OF_NOTE,
+    });
+  }
+  const rows = specs.map((s) => {
+    const a = db.prepare(`
+      SELECT COUNT(*) AS n, COALESCE(SUM(ROUND(amount)),0) AS s, COALESCE(SUM(ABS(amount - ROUND(amount))),0) AS f
+      FROM cheque_records WHERE ${live} AND (${s.where})
+    `).get();
+    return glVsSubRow(db, {
+      id: s.id, label: s.label, codes: s.codes, sign: s.sign, sub: a.s, subFrac: a.f, dateTo,
+      extra: { cheques: Number(a.n) || 0 },
+    });
+  });
+  return compareResult('cheques', rows, {
+    note: 'نزد صندوق↔۱۱۰۹، واگذارشده↔۱۱۱۶، صادرشده/خرج‌شده (و اول دورهٔ ثبت‌شده)↔۲۱۰۹',
+  });
+}
+
+// ── payroll ────────────────────────────────────────────────────────────────
+function checkPayroll(ctx) {
+  const { db, dateTo } = ctx;
+  const payableKey = codeOf(db, 'coa_payroll_payable') || '2104';
+  const liabilities = [
+    { id: 'sso', label: 'بیمه تأمین اجتماعی پرداختنی', key: 'coa_sso_payable', fallback: '2105', kind: 'sso' },
+    { id: 'unemployment', label: 'بیمه بیکاری پرداختنی', key: 'coa_unemployment_payable', fallback: '2113', kind: 'unemployment' },
+    { id: 'tax', label: 'مالیات حقوق پرداختنی', key: 'coa_payroll_tax_payable', fallback: '2106', kind: 'tax' },
+  ].map((l) => ({ ...l, code: codeOf(db, l.key) || l.fallback }));
+  if (!tableExists(db, 'payroll_records')) {
+    return result('payroll', { status: 'ok', gl_rial: 0, sub_rial: 0, diff_rial: 0, rows: [], note: 'جدول حقوق وجود ندارد' });
+  }
+  if (dateTo) {
+    return result('payroll', {
+      status: 'info', note: AS_OF_NOTE,
+      rows: glOnlyRows(db, [
+        { id: 'net_payable', label: 'حقوق پرداختنی', codes: [payableKey], sign: -1 },
+        ...liabilities.map((l) => ({ id: l.id, label: l.label, codes: [l.code], sign: -1 })),
+      ], dateTo),
+    });
+  }
+  const { expectedPayrollRial, personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
+  const { resolvePersonPayableAccount } = require('./payroll/person-account');
+  const rc = columns(db, 'payroll_records');
+  const liveWhere = rc.has('status') ? `WHERE COALESCE(status,'posted') NOT IN ${DEAD_SQL}` : '';
+  const recs = db.prepare(`SELECT * FROM payroll_records ${liveWhere}`).all();
+  const liveRec = new Set(recs.map((r) => Number(r.id)));
+
+  const paidBy = new Map();
+  const livePay = new Set();
+  if (tableExists(db, 'payroll_payments')) {
+    const pc = columns(db, 'payroll_payments');
+    const payWhere = pc.has('status') ? "WHERE COALESCE(status,'posted')<>'reversed'" : '';
+    for (const p of db.prepare(`SELECT id, payroll_record_id, amount_rial FROM payroll_payments ${payWhere}`).all()) {
+      if (!liveRec.has(Number(p.payroll_record_id))) continue;
+      livePay.add(Number(p.id));
+      paidBy.set(Number(p.payroll_record_id), (paidBy.get(Number(p.payroll_record_id)) || 0) + Math.round(Number(p.amount_rial) || 0));
+    }
+  }
+
+  const rows = [];
+  const detail = [];
+  let unpaid = 0;
+  const payableCodes = new Set([payableKey]);
+  const personCache = new Map();
+  const personOf = (id) => {
+    if (!personCache.has(id)) {
+      let p = null;
+      if (tableExists(db, 'persons')) { try { p = db.prepare('SELECT * FROM persons WHERE id=?').get(id) || null; } catch (_) { p = null; } }
+      personCache.set(id, p);
+    }
+    return personCache.get(id);
+  };
+  const sso = { employeeAndBase: 0, unemployment: 0, tax: 0 };
+  for (const r of recs) {
+    const total = expectedPayrollRial(r) + Math.round(Number(r.arrears_rial) || 0);
+    let paid = paidBy.get(Number(r.id)) || 0;
+    if (!paid && Number(r.paid) === 1 && r.payment_journal_id) paid = total; // legacy single-shot payment
+    const rem = Math.max(0, total - paid);
+    unpaid += rem;
+    let leaf = payableKey;
+    try {
+      const acc = resolvePersonPayableAccount(db, personOf(r.person_id));
+      if (acc && acc.code) leaf = String(acc.code);
+    } catch (_) { leaf = payableKey; }
+    payableCodes.add(leaf);
+    if (rem > 0) {
+      detail.push({
+        id: `payroll:${r.id}`, kind: 'unpaid_record', payroll_record_id: r.id, person_id: r.person_id,
+        period_label: r.period_label || '', date: r.date || null, net_rial: total, paid_rial: paid,
+        amount_rial: rem, account_code: leaf, status: 'info', total: false,
+      });
+    }
+    if (String(r.settlement_mode || 'labor') === 'manual_exempt') continue;
+    const emp = Math.round(Number(r.sso_employee_rial) || 0);
+    const unemp = Math.round(Number(r.sso_unemployment_rial) || 0);
+    let base = Math.round(Number(r.sso_employer_base_rial) || 0);
+    const employer = Math.round(Number(r.sso_employer_rial) || 0);
+    if (!base && !unemp && employer) base = Math.round(employer * 2000 / 2300); // pre-2113 accrual split
+    sso.employeeAndBase += emp + base;
+    sso.unemployment += unemp;
+    sso.tax += Math.round(Number(r.income_tax_rial) || 0);
+  }
+  // Prefix-dedupe: glBalance is hierarchical, so a child leaf is already inside its parent.
+  const list = [...payableCodes];
+  const gl = list.filter((c) => !list.some((o) => o !== c && c.startsWith(o)));
+
+  rows.push(glVsSubRow(db, {
+    id: 'net_payable', label: 'حقوق پرداخت‌نشده (لیست حقوق) ↔ حقوق پرداختنی', codes: gl, sign: -1, sub: unpaid, dateTo,
+    extra: { records_unpaid: detail.length },
+  }));
+
+  if (tableExists(db, 'person_ledger')) {
+    const alive = personLedgerAliveSql(db);
+    let book = 0;
+    for (const l of db.prepare(`
+      SELECT * FROM person_ledger pl WHERE ${alive} AND pl.ref_type IN ('payroll','payroll_payment')
+    `).all()) {
+      const isAccrual = l.ref_type === 'payroll';
+      if (isAccrual ? !liveRec.has(Number(l.ref_id)) : !livePay.has(Number(l.ref_id))) continue;
+      const amt = personLedgerLineRial(db, l);
+      book += (Number(amt.credit) || 0) - (Number(amt.debit) || 0);
+    }
+    rows.push(glVsSubRow(db, {
+      id: 'person_ledger', label: 'دفتر اشخاص (حقوق) ↔ حقوق پرداختنی', codes: gl, sign: -1, sub: book, dateTo,
+    }));
+  }
+
+  const remit = new Map();
+  if (tableExists(db, 'payroll_remittances')) {
+    for (const r of db.prepare(`
+      SELECT kind, COALESCE(SUM(amount_rial),0) AS s FROM payroll_remittances
+      WHERE COALESCE(status,'posted')<>'reversed' GROUP BY kind
+    `).all()) remit.set(String(r.kind), Math.round(Number(r.s) || 0));
+  }
+  const accrued = { sso: sso.employeeAndBase, unemployment: sso.unemployment, tax: sso.tax };
+  for (const l of liabilities) {
+    rows.push(glVsSubRow(db, {
+      id: l.id, label: `${l.label} ↔ تعهد حقوق منهای واریز`, codes: [l.code], sign: -1,
+      sub: accrued[l.kind] - (remit.get(l.kind) || 0), dateTo,
+      extra: { accrued_rial: accrued[l.kind], remitted_rial: remit.get(l.kind) || 0 },
+    }));
+  }
+  rows.push(...detail);
+  return compareResult('payroll', rows, {
+    note: 'حقوق پرداختنی/دفتر اشخاص با برگ‌های حقوق زنده؛ بیمه/مالیات = تعهد برگ‌ها − واریزهای ثبت‌شده',
+  });
+}
+
+// ── VAT ────────────────────────────────────────────────────────────────────
+const VAT_DOC_REFS = ['invoice', 'sales_return', 'sales_returns', 'purchase', 'purchase_return'];
+
+function vatAmountExpr(cols, alias = '') {
+  const p = alias ? `${alias}.` : '';
+  const hasRial = cols.has('vat_amount_rial');
+  const hasAmt = cols.has('vat_amount');
+  if (hasRial && hasAmt) return `COALESCE(NULLIF(${p}vat_amount_rial,0), ROUND(${p}vat_amount), 0)`;
+  if (hasAmt) return `ROUND(${p}vat_amount)`;
+  if (hasRial) return `${p}vat_amount_rial`;
+  return '0';
+}
+
+/** Jalali date → period key; quarter label `YYYY-Qn`. */
+function quarterKey(date) {
+  const m = /^(\d{4})\/(\d{2})\//.exec(String(date || ''));
+  if (!m) return 'undated';
+  return `${m[1]}-Q${Math.ceil(Number(m[2]) / 3)}`;
+}
+
+function quarterRange(key) {
+  const m = /^(\d{4})-Q([1-4])$/.exec(key);
+  if (!m) return null;
+  const y = m[1];
+  const q = Number(m[2]);
+  const m1 = String((q - 1) * 3 + 1).padStart(2, '0');
+  const m3 = String(q * 3).padStart(2, '0');
+  return { from: `${y}/${m1}/01`, to: `${y}/${m3}/31` };
+}
+
+/** Σ VAT of live documents grouped by quarter (rial). */
+function vatDocFlows(db, table, { where = [], dateCol = 'date' }, dateTo) {
+  const out = new Map();
+  if (!tableExists(db, table)) return out;
+  const cols = columns(db, table);
+  if (!cols.has('vat_amount') && !cols.has('vat_amount_rial')) return out;
+  const conds = [...where];
+  if (cols.has('status')) conds.push(`COALESCE(status,'posted') NOT IN ${DEAD_SQL}`);
+  if (cols.has('deleted_at')) conds.push('COALESCE(deleted_at,0)=0');
+  const params = [];
+  if (dateTo) { conds.push(`${dateCol} <= ?`); params.push(dateTo); }
+  const sql = `SELECT ${dateCol} AS d, ${vatAmountExpr(cols)} AS v FROM ${table}${conds.length ? ` WHERE ${conds.join(' AND ')}` : ''}`;
+  for (const r of db.prepare(sql).all(...params)) {
+    const k = quarterKey(r.d);
+    out.set(k, (out.get(k) || 0) + Math.round(Number(r.v) || 0));
+  }
+  return out;
+}
+
+function glQuarterFlows(db, code, dateTo, { documentOnly = false, otherOnly = false } = {}) {
+  const out = new Map();
+  const params = [code, `${code}%`];
+  let refCond = '';
+  if (documentOnly || otherOnly) {
+    refCond = ` AND COALESCE(je.ref_type,'') ${otherOnly ? 'NOT IN' : 'IN'} (${VAT_DOC_REFS.map((r) => `'${r}'`).join(',')})`;
+  }
+  if (dateTo) params.push(dateTo);
+  for (const r of db.prepare(`
+    SELECT je.entry_date AS d, ${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL} AS bal
+    FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE ${JE_LIVE} AND (jl.account_code = ? OR jl.account_code LIKE ?)${refCond}${dateFilter('je.entry_date', dateTo)}
+  `).all(...params)) {
+    const k = quarterKey(r.d);
+    out.set(k, (out.get(k) || 0) + Math.round(Number(r.bal) || 0));
+  }
+  return out;
+}
+
+function sumMap(m) {
+  let s = 0;
+  for (const v of m.values()) s += v;
+  return s;
+}
+
+function checkVat(ctx) {
+  const { db, dateTo } = ctx;
+  const outCode = codeOf(db, 'coa_vat_payable') || '2103';
+  const inCode = codeOf(db, 'coa_vat_receivable') || '1108';
+  const reverseOn = !['0', 'false', 'no', 'off'].includes(setting(db, 'returns_reverse_vat', '1').trim().toLowerCase());
+  const saleWhere = tableExists(db, 'invoices') && columns(db, 'invoices').has('type') ? ["type IN ('normal','final')"] : [];
+  const sales = vatDocFlows(db, 'invoices', { where: saleWhere }, dateTo);
+  const salesRet = reverseOn ? vatDocFlows(db, 'sales_returns', {}, dateTo) : new Map();
+  const purch = vatDocFlows(db, 'purchase_invoices', {}, dateTo);
+  const purchRet = reverseOn ? vatDocFlows(db, 'purchase_returns', {}, dateTo) : new Map();
+  const net = (a, b) => {
+    const m = new Map(a);
+    for (const [k, v] of b) m.set(k, (m.get(k) || 0) - v);
+    return m;
+  };
+  const sides = [
+    {
+      id: 'vat_output', label: 'مالیات فروش (فاکتور − برگشت) ↔ مالیات بر ارزش افزوده پرداختنی', code: outCode, sign: -1, netSign: 1,
+      sub: net(sales, salesRet), glFlow: glQuarterFlows(db, outCode, dateTo, { documentOnly: true }),
+      other: glQuarterFlows(db, outCode, dateTo, { otherOnly: true }),
+    },
+    {
+      id: 'vat_input', label: 'مالیات خرید (فاکتور − برگشت) ↔ مالیات بر ارزش افزوده دریافتنی', code: inCode, sign: 1, netSign: -1,
+      sub: net(purch, purchRet), glFlow: glQuarterFlows(db, inCode, dateTo, { documentOnly: true }),
+      other: glQuarterFlows(db, inCode, dateTo, { otherOnly: true }),
+    },
+  ];
+  const rows = [];
+  const periodRows = [];
+  for (const s of sides) {
+    rows.push(glVsSubRow(db, {
+      id: s.id, label: s.label, codes: [s.code], sign: s.sign, sub: sumMap(s.sub), dateTo, netSign: s.netSign,
+      extra: {
+        // GL movement from vouchers that are not VAT documents (settlement/manual/subcontract) — explains a diff.
+        non_document_gl_rial: Math.round(s.sign * sumMap(s.other)),
+      },
+    }));
+    // By-quarter flows: document VAT vs GL movement posted from VAT-document vouchers.
+    const keys = new Set([...s.sub.keys(), ...s.glFlow.keys()]);
+    for (const k of [...keys].sort()) {
+      const range = quarterRange(k);
+      const gl = Math.round(s.sign * (s.glFlow.get(k) || 0));
+      const sub = Math.round(s.sub.get(k) || 0);
+      const diff = gl - sub;
+      const bound = diff && range ? glRoundingBound(db, [s.code], range.to, { dateFrom: range.from }) : 0;
+      const cls = classifyDiff(diff, bound);
+      periodRows.push({
+        id: `${s.id}:${k}`, label: `${s.label} — ${k}`, account_code: s.code, period: k, kind: 'period',
+        gl_rial: gl, sub_rial: sub, diff_rial: diff, diff_class: cls, status: statusOfClass(cls),
+        rounding_bound_rial: Math.ceil(bound), total: false,
+      });
+    }
+  }
+  rows.push(...periodRows);
+  return compareResult('vat', rows, {
+    note: 'خالص: مالیات فروش − مالیات خرید؛ ردیف‌های فصلی گردش اسناد را با گردش سندهای فاکتور/برگشت مقایسه می‌کنند',
+  });
+}
+
+// ── WIP ────────────────────────────────────────────────────────────────────
+const WIP_OPEN_STATUSES = ['released', 'in_progress', 'completed'];
+
+function checkWip(ctx) {
+  const { db, dateTo } = ctx;
+  const code = codeOf(db, 'coa_wip') || '1111';
+  const spec = { id: 'wip_total', label: 'مانده WIP سفارش‌های باز ↔ کالای در جریان ساخت', codes: [code], sign: 1 };
+  if (dateTo) return result('wip', { status: 'info', rows: glOnlyRows(db, [spec], dateTo), note: AS_OF_NOTE });
+  const detail = [];
+  let sub = 0;
+  if (tableExists(db, 'production_orders')) {
+    const { wipResidualFromDocs } = require('./production/order-cost-reconcile');
+    const orders = db.prepare(`
+      SELECT id, order_no, status FROM production_orders
+      WHERE status IN (${WIP_OPEN_STATUSES.map((s) => `'${s}'`).join(',')}, 'closed') ORDER BY id
+    `).all();
+    for (const o of orders) {
+      let residual = 0;
+      try {
+        residual = Math.round(wipResidualFromDocs(db, o.id));
+      } catch (e) {
+        detail.push({
+          id: `order:${o.id}`, kind: 'error', order_id: o.id, order_no: o.order_no, order_status: o.status,
+          amount_rial: 0, status: 'warn', total: false, note: `خطا در محاسبهٔ WIP: ${e.message}`,
+        });
+        continue;
+      }
+      if (o.status === 'closed') {
+        if (Math.abs(residual) > 5) {
+          detail.push({
+            id: `order:${o.id}`, kind: 'closed_order_residual', order_id: o.id, order_no: o.order_no, order_status: o.status,
+            amount_rial: residual, status: 'warn', total: false,
+          });
+        }
+        continue;
+      }
+      sub += residual;
+      if (residual) {
+        detail.push({
+          id: `order:${o.id}`, kind: 'open_order', order_id: o.id, order_no: o.order_no, order_status: o.status,
+          amount_rial: residual, status: 'info', total: false,
+        });
+      }
+    }
+  }
+  const rows = [glVsSubRow(db, { ...spec, sub, dateTo, extra: { open_orders: detail.filter((d) => d.kind === 'open_order').length } }), ...detail];
+  return compareResult('wip', rows, {
+    note: 'مانده WIP سفارش‌های باز (هزینه‌های ورودی − رسید/ضایعات) در برابر حساب کالای در جریان ساخت',
+  });
+}
+
 const RUNNERS = {
   inventory_vs_gl: checkInventoryVsGl,
   movements_without_je: checkMovementsWithoutJe,
@@ -1455,6 +1865,10 @@ const RUNNERS = {
   fixed_assets: checkFixedAssets,
   suspense_accounts: checkSuspenseAccounts,
   closed_period_changes: checkClosedPeriodChanges,
+  cheques: checkCheques,
+  payroll: checkPayroll,
+  vat: checkVat,
+  wip: checkWip,
 };
 
 function runOne(ctx, code) {
@@ -1913,4 +2327,11 @@ module.exports = {
   saveNightlySettings,
   runNightlyRecon,
   maybeRunNightlyRecon,
+  failingCheckNames,
+  // audit 7B
+  checkCheques,
+  checkPayroll,
+  checkVat,
+  checkWip,
+  ctxFor,
 };

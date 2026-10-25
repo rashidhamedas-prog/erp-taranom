@@ -53,12 +53,50 @@ function inventoryAcct(db, warehouseId) {
   }
 }
 
-function payableAcct(db, person) {
-  try {
-    const { resolvePersonPayableAccount } = require('./payroll/person-account');
-    if (person) return resolvePersonPayableAccount(db, person);
-  } catch (_) { /* fall through */ }
-  try { return acct(db, 'coa_payable'); } catch (_) { return acct(db, 'coa_misc_persons'); }
+function chartRow(db, code) {
+  const c = code == null ? '' : String(code).trim();
+  if (!c) return null;
+  return db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(c) || null;
+}
+
+/**
+ * Payable leaf of the consignor (audit 7B / #77): NEVER silently fall back to the
+ * payroll/misc/AP control account. Order: person leaf → linked supplier tafsili
+ * (ensureSupplierTafsili) → party tafsili (non-customer parties) → throw E_NO_PAYABLE_LEAF (422).
+ * `allocate:false` (preview) never writes to the chart: it returns a placeholder instead.
+ */
+function payableAcct(db, person, { allocate = true } = {}) {
+  const noLeaf = () => httpErr(
+    422,
+    `برای ${(person && person.name) || 'این شخص'} حساب تفصیلی پرداختنی (تأمین‌کننده) وجود ندارد — ابتدا تأمین‌کننده/تفصیلی بسازید`,
+    'E_NO_PAYABLE_LEAF',
+  );
+  if (!person) throw noLeaf();
+  const own = chartRow(db, person.coa_code);
+  if (own) return own;
+  if (!person.party_id) throw noLeaf();
+  const { ensureSupplierTafsili, ensurePartyTafsili, parseRoles } = require('./party-tafsili');
+  const supplier = db.prepare('SELECT id, coa_code FROM suppliers WHERE party_id=? ORDER BY id LIMIT 1').get(person.party_id);
+  if (supplier) {
+    if (!allocate) {
+      return chartRow(db, supplier.coa_code) || { code: 'AUTO-TAFSILI', name: 'تفصیلی پرداختنی (هنگام ثبت ساخته می‌شود)' };
+    }
+    const row = chartRow(db, ensureSupplierTafsili(db, supplier.id));
+    if (row) return row;
+    throw noLeaf();
+  }
+  const party = db.prepare('SELECT id, coa_code, party_roles, party_type FROM parties WHERE id=?').get(person.party_id);
+  if (party) {
+    const roles = parseRoles(party.party_roles, party.party_type);
+    if (!roles.includes('customer')) {
+      if (!allocate) {
+        return chartRow(db, party.coa_code) || { code: 'AUTO-TAFSILI', name: 'تفصیلی پرداختنی (هنگام ثبت ساخته می‌شود)' };
+      }
+      const row = chartRow(db, ensurePartyTafsili(db, party.id));
+      if (row) return row;
+    }
+  }
+  throw noLeaf();
 }
 
 function consignCarryAcct(db) {
@@ -267,17 +305,17 @@ function createSaleInvoice(db, { user, customer, row, product, date, note }) {
   return { invId, jeId, num };
 }
 
-function purchaseLines(db, warehouseId, amt, person) {
+function purchaseLines(db, warehouseId, amt, person, opts) {
   const L = rialToLedger(amt);
   const inv = inventoryAcct(db, warehouseId);
-  const pay = payableAcct(db, person);
+  const pay = payableAcct(db, person, opts);
   return [
     { code: inv.code, name: inv.name, debit: L, credit: 0, description: 'خرید قطعی امانی' },
     { code: pay.code, name: pay.name, debit: 0, credit: L, description: 'خرید قطعی امانی' },
   ];
 }
 
-function shortageLines(db, row, amt, person) {
+function shortageLines(db, row, amt, person, opts) {
   const L = rialToLedger(amt);
   const exp = expenseAcct(db);
   if (row.direction === 'out') {
@@ -288,7 +326,7 @@ function shortageLines(db, row, amt, person) {
       { code: inv.code, name: inv.name, debit: 0, credit: L, description: 'کسری کالای امانی' },
     ];
   }
-  const pay = payableAcct(db, person);
+  const pay = payableAcct(db, person, opts);
   return [
     { code: exp.code, name: exp.name, debit: L, credit: 0, description: 'کسری امانی دریافتی' },
     { code: pay.code, name: pay.name, debit: 0, credit: L, description: 'کسری امانی دریافتی' },
@@ -658,7 +696,7 @@ function settleEffects(db, row, path, body, user) {
     return {
       stockDelta: { product_id: row.product_id, warehouse_id: row.warehouse_id, qty: row.qty, eventType: 'receipt' },
       invoice: false,
-      journal: purchaseLines(db, row.warehouse_id, amt, person),
+      journal: purchaseLines(db, row.warehouse_id, amt, person, { allocate: !(body && body.preview) }),
       nextStatus: 'purchased',
       product,
       amt,
@@ -674,7 +712,7 @@ function settleEffects(db, row, path, body, user) {
     return {
       stockDelta: null,
       invoice: false,
-      journal: shortageLines(db, row, lossAmt, person),
+      journal: shortageLines(db, row, lossAmt, person, { allocate: !(body && body.preview) }),
       nextStatus: 'shortage',
       product,
       amt: lossAmt,
@@ -1021,4 +1059,6 @@ module.exports = {
   warehouseQty,
   unitPriceRialFrom,
   SETTLE_PATHS,
+  // audit 7B — consignor payable leaf (throws E_NO_PAYABLE_LEAF; no silent misc/AP fallback)
+  payableAcct,
 };
