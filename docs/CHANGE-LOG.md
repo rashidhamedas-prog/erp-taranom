@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۸/۰۵ — v558: POS v2 QA regressions (B1–B18) — بدون merge/deploy خودکار
+- **منبع:** `prompt-pos-v2-fix.md` + ultra-debug؛ شاخهٔ `fix/pos-v2-qa-regressions`؛ **merge و deploy ایران انجام نشد** (دستور پرامپت).
+- **B1:** بازگردانی `storeQsLoadRefInvoices` / `storeQsSelectRefInvoice` (حذف‌شده در #42)؛ شکست بارگذاری → `mode=sale`.
+- **B2/CSP:** حذف `style=`/`onclick`/`onerror` خام از رندر POS؛ کلاس‌های `pos-v2.css` + `data-csp-*`.
+- **B3–B14/B5–B9:** نشانگر تب RTL با `getBoundingClientRect`؛ regex `/^F\d+$/`؛ F4 فوکوس مشتری؛ Shift+F8 resume؛ تم از `crm_theme`؛ مخفی‌کردن کارت بدون پشتیبانی بک‌اند؛ انبار از `pos_v2_wh`؛ بارکد تنوع → `variant_id` مستقیم؛ Enter لیست زنده بدون مودال.
+- **B12/B13/B15–B18:** کلاس جدا قیمت/تخفیف سطری/کل + آپدیت فوری؛ تصویر `prodImgUrl` + placeholder؛ جستجو با debounce ۲۵۰ms فقط روی `input`، Abort/seq، `warehouse_id`+`include_zero`+`for=pos`، رتبهٔ مرتبطی کلاینت.
+- **بک‌اند (flag):** `sqlNormExpr` هم‌تراز `normalizeSearchText`؛ فیلتر `for=pos` در `routes/products.js` (بدون ستون DB جدید).
+- **فایل‌ها:** `public/{app.js,pos-v2.css,index.html,sw.js}`، `lib/search-normalize.js`، `routes/products.js`، `scripts/test-search-normalize-pos-v2.js`، `e2e/store-quick-{pos-v2-qa,search,images}.spec.js`، Help، CHANGE-LOG.
+- **تست:** `test:search-norm-pos`؛ parse `app.js`؛ payload snapshot دست‌نخورده؛ e2e آمادهٔ سرور محلی.
+- **Deploy:** ⏳ عمداً نگه‌داشته — پس از تأیید PR.
+
 ### ۱۴۰۵/۰۸/۰۴ — v557: تولید — رفع ریشه ambiguous status + شتاب باز شدن (SW v557)
 - **منبع:** skill-top عمق کامل (کاربر: ریشهٔ toast + کندی بخش تولید؛ نه فقط سطح خطا).
 - **RCA:** `products.status` (v546) + `listOrders` با `LEFT JOIN products` و WHERE بدون alias → ۵۰۰؛ NetResilience چهار بار GET را retry می‌کرد (≥۳ث backoff)؛ `fetchProdJourneyState` پنج API را سریالی می‌گرفت و لیست سفارش دوباره fetch می‌شد. ایران روی v555 مانده بود (PR #46 / v556 بدون merge).

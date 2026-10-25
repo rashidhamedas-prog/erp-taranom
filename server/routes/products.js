@@ -153,6 +153,12 @@ router.get('/', auth, (req, res) => {
     where.push("(p.approval_status IS NULL OR p.approval_status='' OR p.approval_status='approved')");
   }
 
+  // POS catalog scope (flagged backend change for store quick-sale search)
+  if (String(req.query.for || '') === 'pos') {
+    where.push("(p.item_type IS NULL OR p.item_type='' OR p.item_type!='raw')");
+    where.push("(p.status IS NULL OR p.status='' OR p.status='active')");
+  }
+
   const warehouseId = parseInt(req.query.warehouse_id, 10);
   if (warehouseId) {
     const includeZero = String(req.query.include_zero || '') === '1';
