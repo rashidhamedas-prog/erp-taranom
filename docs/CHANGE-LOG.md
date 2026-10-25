@@ -4,8 +4,8 @@
 - **سرور:** `expandLivePack` فیلدهای `matrix` / `stocked_qty` / `incomplete_colors` / `leftover_singles_qty`؛ تنظیم `sales.full_pack_mode` + override کالا؛ `pack-matrix-schema` up/down؛ CLI `scripts/pack-matrix-migrate.js`.
 - **کلاینت:** fallback مودال ماتریس از `openInvVariantSplitModal`؛ کارت «پک کامل: n / تکی موجود: m»؛ Help + تنظیمات فاکتور.
 - **فایل‌ها:** `lib/inventory/{movement,pack-unit-price,full-pack-settings,pack-matrix-schema}.js`, `routes/{product-variants,invoices,products,settings}.js`, `db.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-pack-matrix-partial-v543.js`, `scripts/pack-matrix-migrate.js`, CHANGE-LOG.
-- **تست:** محلی قرارداد UI سبز (sqlite روی Node24 ویندوز SKIP)؛ ایران بعد از deploy: `test-pack-matrix-partial-v543` + `test-complete-pack-v528` + sms/sync.
-- **Deploy:** ⏳
+- **تست (ایران):** `test-pack-matrix-partial-v543` ۳۵/۰؛ `test-complete-pack-v528` ۱۶/۰؛ sms ۲۲/۰؛ sync ۴۴/۰.
+- **Deploy:** ✅ `e581efc7` — overlay ایران؛ pm2 restart بدون `--update-env`؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v543` / `?v=543`.
 
 ### ۱۴۰۵/۰۸/۰۲ — v542: P1 BOM تست سبز — seed کد کالا + سایز سراسری برای ماتریس (SW v542)
 - **بافت:** ادامه skill-top بعد از P0؛ `test-production-bom` روی ایران ۱۵→۱۷→۲۹ با شکست آبشاری از `E_SPEC_CODE` سپس `E_SPEC_FG_SIZE`.
