@@ -1,5 +1,49 @@
 schema_version: 1
 tasks:
+  - id: "AUDIT-7C-RED-REGRESSIONS"
+    title: "Audit wave 7C — turn known red accounting regressions green; no merge/deploy"
+    status: "completed"
+    claimed_at: "2026-10-25T21:10:00+03:30"
+    completed_at: "2026-10-25T21:40:00+03:30"
+    review_status: "PENDING"
+    security_status: "n/a"
+    risk: "medium"
+    owner: "cursor:audit-7c"
+    roles:
+      orchestrator: "cursor:audit-7c"
+      architect: "cursor:audit-7c"
+      implementer: "cursor:audit-7c"
+      reviewer: "unassigned"
+      security: "unassigned"
+    branch: "ai/AUDIT-7C-red-regressions"
+    worktree: "/workspace"
+    file_claims:
+      - "server/lib/production/cutting.js"
+      - "server/routes/cheque-records.js"
+      - "server/scripts/test-cheque-books-v339.js"
+      - "server/scripts/test-cheque-resend-softvoid-v496.js"
+      - "server/scripts/test-cheque-opening-bounce-v186.js"
+      - "server/scripts/test-payroll-accounting.js"
+      - "server/scripts/test-settlement-leaf-je-v351.js"
+      - "server/scripts/test-audit-7c-regressions.js"
+      - "server/package.json"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+    acceptance_criteria:
+      - "2–5 highest-value deterministic red accounting tests green"
+      - "test:audit-7c harness exits non-zero on failure"
+      - "No merge to main; no Iran deploy"
+    non_goals:
+      - "7D mass SW-pin GL suite (#83)"
+      - "Merge/deploy"
+    notes: >-
+      Root fix: postedPackForLay any posted PACK. Tests aligned to v497 redeposit,
+      opening upsert seed, SSO child exempt, retire books. Harness 6/0 on Node 22.
+
   - id: "AUDIT-8B-VALIDATORS-IDEM"
     title: "Audit wave 8B — validators + client_request_id idempotency; no push/deploy"
     status: "completed"

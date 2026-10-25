@@ -57,6 +57,7 @@ function softVoidChequeJe(db, jeId, { userId, date, reason, sourceType, failMsg 
       code: 'E_CHEQUE_LIFECYCLE',
     });
   }
+  // both OK for resend: live soft-void or already-voided bounce JE (idempotent).
   reverseJournalEntry(db, jeId, { userId, date, reason, sourceType });
   const after = db.prepare('SELECT status, deleted_at FROM journal_entries WHERE id=?').get(jeId);
   const voided = after

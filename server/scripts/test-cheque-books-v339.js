@@ -110,14 +110,21 @@ db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
   }
   const OPEN = 2_000_000;
   const PHANTOM = 750_000;
+  // Self-seed party + live opening JE so ensureCustomerBooksRepaired (Pass C)
+  // does not delete the books opening as a stale mirror (audit #78 / v424 heal).
+  const { upsertPartyOpening } = require('../lib/opening-post');
+  const partyId = db.prepare(`
+    INSERT INTO parties (person_code, party_type, party_roles, full_name, phone, is_active, biz)
+    VALUES ('P-V339-1', 'customer', 'customer', 'مشتری v339-1', '09153333901', 1, 'مشتری v339-1')
+  `).run().lastInsertRowid;
   const custId = db.prepare(`
-    INSERT INTO customers (user_id, biz, owner, phone, status)
-    VALUES (?, 'مشتری v339-1', 'اول دوره', '09153333901', 'active')
-  `).run(admin.id).lastInsertRowid;
-  db.prepare(`
-    INSERT INTO customer_ledger (customer_id, date, entry_type, ref_type, description, debit, credit, user_id)
-    VALUES (?, '1405/01/01', 'opening', 'opening', 'مانده اول دوره', ?, 0, ?)
-  `).run(custId, OPEN, admin.id);
+    INSERT INTO customers (user_id, biz, owner, phone, status, party_id)
+    VALUES (?, 'مشتری v339-1', 'اول دوره', '09153333901', 'active', ?)
+  `).run(admin.id, partyId).lastInsertRowid;
+  upsertPartyOpening(db, partyId, OPEN, admin.id, {
+    dateOverride: '1405/01/01',
+    description: 'مانده اول دوره — تست v339',
+  });
 
   const chqId = db.prepare(`
     INSERT INTO cheque_records

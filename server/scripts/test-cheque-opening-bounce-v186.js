@@ -157,14 +157,16 @@ function jeNetRial(accountCode, sourceType, sourceId) {
   ok(r.status === 200 && r.data && r.data.lifecycle_status === 'cleared', 'resend restores cleared', r.data && r.data.error);
   r = await api('GET', '/api/accounting/statement/' + custId);
   ok(Math.abs(Number(r.data.closing) - closeBefore) <= 1, 'resend removes bounce from statement', r.data.closing);
-  const bounceRev = db.prepare(`
+  // v373+: reverseChequeLedgerByRef retires (no hollow entry_type=reversal rows).
+  const bounceLive = db.prepare(`
     SELECT 1 AS ok FROM customer_ledger
-    WHERE customer_id=? AND ref_type='cheque_bounce' AND ref_id=? AND entry_type='reversal'
+    WHERE customer_id=? AND ref_type='cheque_bounce' AND ref_id=?
+      AND COALESCE(entry_type,'') NOT IN ('reversal')
   `).get(custId, chequeId);
-  ok(!!bounceRev, 'resend reverses bounce ledger');
+  ok(!bounceLive, 'resend reverses bounce ledger');
 
   const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-  ok(appJs.includes('به بدهی طرف حساب در صورت‌حساب اضافه می‌شود'), 'bounce confirm mentions statement');
+  ok(appJs.includes('مبلغ به بدهی طرف حساب در صورت‌حساب برمی‌گردد'), 'bounce confirm mentions statement');
   ok(appJs.includes('برگشت مبلغ را به بدهی صورت‌حساب'), 'opening tab hint');
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   ok(swAtLeast(sw, 241), 'SW cache bumped');

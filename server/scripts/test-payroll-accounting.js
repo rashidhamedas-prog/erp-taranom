@@ -4,7 +4,15 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const testDb = path.join(__dirname, 'payroll-accounting-test.db');
+const artDir = path.join(__dirname, '..', '.tmp-test-artifacts');
+fs.mkdirSync(artDir, { recursive: true });
+const testDb = process.env.DB_PATH && /\.tmp-test-artifacts/i.test(process.env.DB_PATH)
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(artDir, 'payroll-accounting-test.db');
+if (/^crm.*\.db$/i.test(path.basename(testDb))) {
+  console.error('FATAL: refuse crm*.db');
+  process.exit(1);
+}
 for (const suffix of ['', '-wal', '-shm']) {
   try { fs.unlinkSync(testDb + suffix); } catch { /* absent */ }
 }
@@ -63,11 +71,13 @@ const calculation = calculatePayroll({
     insurance_exempt_rial: 0, tax_exemption_rial: 0, other_deductions_rial: 0,
   },
 });
+// Child allowance is auto SSO-exempt (ماده ۹۱ / بخشنامه) — 7M × 7% = 490k vs legacy fixture.
 assert.strictEqual(calculation.gross_earnings_rial, 357090904);
-assert.strictEqual(calculation.sso_employee_rial, 24996363);
-assert.strictEqual(calculation.sso_employer_rial, 82130908);
-assert.strictEqual(calculation.income_tax_rial, 13209454);
-assert.strictEqual(calculation.net_pay_rial, 318885087);
+assert.strictEqual(calculation.insurance_exempt_rial, 7000000, 'child allowance auto SSO-exempt');
+assert.strictEqual(calculation.sso_employee_rial, 24506363);
+assert.strictEqual(calculation.sso_employer_rial, 80520908);
+assert.strictEqual(calculation.income_tax_rial, 13258454);
+assert.strictEqual(calculation.net_pay_rial, 319326087);
 assert.strictEqual(calculateProgressiveTax(250000000, brackets), 5000000);
 
 const journalId = db.transaction(() => postToLedger(db, {

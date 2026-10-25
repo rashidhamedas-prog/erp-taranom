@@ -191,7 +191,8 @@ ok(booksSrc.includes('repairSettlementsMissingLeafJe'), 'continuous leaf JE repa
 
 const voidSrc = fs.readFileSync(path.join(__dirname, '../lib/void-settlement.js'), 'utf8');
 ok(!voidSrc.includes('reversalId = null;\n    }'), 'void no longer swallows JE errors');
-ok(voidSrc.includes('if (already) return 0'), 'multi-row books reverse uses early return');
+// v373+: reverseSettlementBooks retires by ref (idempotent) instead of hollow reverse + early return.
+ok(voidSrc.includes('retireCustomerLedgerByRef'), 'multi-row books reverse uses ledger retire');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 ok(/erp-taranom-v(351|352|[3-9]\d{2,})/.test(sw), 'SW v351+');

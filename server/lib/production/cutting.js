@@ -198,9 +198,11 @@ function layNetWipRial(lay) {
 }
 
 function postedPackForLay(db, layId) {
+  // Any live posted PACK blocks lay void/amend — including WIP stubs without
+  // ledger_id yet (audit #81 / test-cutting-lay-covered-void-v468).
   return db.prepare(`
     SELECT * FROM cutting_packs
-    WHERE lay_id=? AND status='posted' AND ledger_id IS NOT NULL
+    WHERE lay_id=? AND COALESCE(status,'posted')='posted'
     ORDER BY id DESC LIMIT 1
   `).get(Number(layId));
 }

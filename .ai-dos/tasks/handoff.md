@@ -1,3 +1,13 @@
+## 2026-10-25 — Audit 7C red accounting regressions (SW v551) — no merge/deploy
+
+- Branch `ai/AUDIT-7C-red-regressions` off `origin/main` (v548 tip). Task `AUDIT-7C-RED-REGRESSIONS`.
+- Canvas findings #78–#82: cheque phantom/opening, soft-void resend, payroll SSO fixture, live PACK void, settlement books retire.
+- Root cause fixed: `postedPackForLay` required `ledger_id` → any `status=posted` PACK now blocks lay void (#81).
+- Tests rewritten to self-seed / match current policy (v497 redeposit, v373 retire, child SSO-exempt).
+- Gate: `DB_PATH=server/.tmp-test-artifacts/wave-test-7c.db npm --prefix server run test:audit-7c` → 6/0; `test-sms` 22/0.
+- User safety: no merge to main, no Iran deploy.
+- Left red intentionally: #83 GL suite / SW-pin mass (7D); sync harness pairing flake.
+
 ## 2026-10-25 — invoice pay > document bugfix (SW v546)
 
 - Worktree `D:/proje/erp-taranom-invpay-v546`, branch `fix/inv-pay-over-document-v546` off `origin/main` 5acc9f1e. Main checkout (`ai/AUDIT-8A-rbac-guards`, dirty audit WIP) untouched.

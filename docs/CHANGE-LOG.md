@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۳ — v551: ممیزی 7C — سبز کردن تست‌های قرمز حسابداری شناخته‌شده (SW v551)
+- **منبع:** پرامپت AUDIT-7C (شاخهٔ `ai/AUDIT-7C-red-regressions`)؛ یافته‌های #78–#82؛ rebase روی main پس از 8D.
+- **رفع ریشه:** `postedPackForLay` هر PACK با `status=posted` را قفل می‌کند (نه فقط `ledger_id`؛ #81). کامنت soft-void چک برای idempotent resend.
+- **هم‌ترازی تست با سیاست فعلی:** fixture افتتاحیهٔ v339 با `upsertPartyOpening`؛ v496 با redeposit→`cleared` (v497)؛ v186 retire به‌جای hollow reversal + متن UI؛ payroll با معافیت بیمهٔ حق اولاد (−۴۹۰k)؛ v351 با `retireCustomerLedgerByRef`.
+- **هارنس:** `scripts/test-audit-7c-regressions.js` + `npm run test:audit-7c` (DB فقط زیر `.tmp-test-artifacts`).
+- **فایل‌ها:** `lib/production/cutting.js`, `routes/cheque-records.js`, `scripts/test-{cheque-books-v339,cheque-resend-softvoid-v496,cheque-opening-bounce-v186,payroll-accounting,settlement-leaf-je-v351,audit-7c-regressions}.js`, `package.json`, `public/{app.js,index.html,sw.js}`, CHANGE-LOG، Help.
+- **عمداً خارج از دامنه:** #83 (۴۲ تست GL / SW — موج 7D)؛ flaky sync pairing.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۳ — v550: تفکیک وظایف / maker-checker (ممیزی 8D) (SW v550)
 - **منبع:** erp.md پرامپت 8D (شاخهٔ `ai/AUDIT-8D-sod`). rebase روی main پس از 7B.
 - **سیاست:** `assertMakerChecker` دیگر admin را مستثنی نمی‌کند — خودتأییدی برای همه نقش‌ها ممنوع؛ بدون `sod_override`. Alias: `requireDifferentApprover`.

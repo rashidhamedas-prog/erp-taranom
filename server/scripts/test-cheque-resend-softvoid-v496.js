@@ -165,11 +165,12 @@ function req(app, method, url, body, token) {
 
   r = await req(app, 'POST', `/api/cheque-records/${id}/resend`, { date: '1405/07/14' }, token);
   ok(r.status === 200 && r.data && r.data.ok, 'resend succeeds under soft-void', r.data);
-  ok(r.data.lifecycle_status === 'in_collection', 'resend restores in_collection', r.data);
+  // v497+: resend = soft-void bounce then redeposit clear (lifecycle ends cleared).
+  ok(r.data.lifecycle_status === 'cleared', 'resend redeposits as cleared (v497)', r.data);
 
-  const after = db.prepare('SELECT lifecycle_status, bounced_je_id FROM cheque_records WHERE id=?').get(id);
-  ok(after && after.lifecycle_status === 'in_collection' && !after.bounced_je_id,
-    'row cleared bounce pointer', after);
+  const after = db.prepare('SELECT lifecycle_status, bounced_je_id, cleared_je_id FROM cheque_records WHERE id=?').get(id);
+  ok(after && after.lifecycle_status === 'cleared' && !after.bounced_je_id && after.cleared_je_id,
+    'row cleared bounce pointer + new clear JE', after);
 
   const je = db.prepare('SELECT status, deleted_at FROM journal_entries WHERE id=?').get(row.bounced_je_id);
   ok(je && (je.status === 'reversed' || Number(je.deleted_at) > 0), 'bounce JE soft-voided', je);
