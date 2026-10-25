@@ -1,0 +1,22 @@
+{
+  "walkin_cash": {
+    "pay_type": "cash",
+    "disc": 0,
+    "store_quick": true,
+    "sales_channel": "store_quick",
+    "type": "normal",
+    "rows_shape": ["product_id", "name", "code", "unit", "qty", "unit_price", "price", "disc_pct", "disc_amt", "variant_id", "color_id", "size_id", "color_name", "size_name", "warehouse_id"],
+    "pay_splits_shape": [{ "pay_type": "cash", "amount_from": "final", "cash_box_id": true }]
+  },
+  "registered_card_disc": {
+    "pay_type": "pos_card",
+    "disc": 10,
+    "pay_splits_shape": [{ "pay_type": "pos_card", "amount_from": "final", "terminal_id": true }]
+  },
+  "exchange_collect": {
+    "endpoint": "/store/quick-exchange",
+    "has_return_rows": true,
+    "sale_pay_when_collect": true
+  },
+  "mixed_split_rule": "floor(final/2) + rest — unchanged by UI"
+}
