@@ -16,6 +16,7 @@ const {
   parseVoucherAmount, normalizeDocType, sanitizeTemplateLine, nextNumericCode, coaStructureLocked,
 } = require('../lib/voucher-guards');
 const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
+const { glControlGrossByLeaf, unbalancedEntryCount, JE_APPROVED } = require('../lib/gl-metrics');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -169,29 +170,6 @@ function assertPostableAccount(db, code) {
   return { acc };
 }
 
-function glPrefixBalanceRial(db, prefix, { asOf, debitNormal } = {}) {
-  const params = [String(prefix || '') + '%'];
-  let asOfSql = '';
-  if (asOf) {
-    asOfSql = ' AND je.entry_date <= ?';
-    params.push(asOf);
-  }
-  const row = db.prepare(`
-    SELECT
-      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
-      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
-    FROM journal_lines jl
-    JOIN journal_entries je ON jl.entry_id = je.id
-    WHERE jl.account_code LIKE ?
-      AND ${JE_ALIVE}
-      ${asOfSql}
-  `).get(...params);
-  const debit = Number(row.debit || 0);
-  const credit = Number(row.credit || 0);
-  const signed = debitNormal ? (debit - credit) : (credit - debit);
-  return { debit, credit, signed, display: Math.max(0, signed) };
-}
-
 function glCustomerCoaSummary(db, customerId, { from, to } = {}) {
   const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(customerId);
   if (!c || !c.coa_code) {
@@ -330,6 +308,35 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
   };
 }
 
+/**
+ * Audit 7A: «فروش خالص» = firm invoices − live sales returns; settled = live settlements.
+ * Both honor the as-of cutoff. Optional rep scope (uid) limits to visible customers.
+ */
+function salesNetTotals(db, { asOf, uid } = {}) {
+  const vis = uid != null ? customerVisibilitySql('c') : null;
+  const join = (col) => (vis ? `JOIN customers c ON c.id=${col}` : '');
+  const visSql = vis ? ` AND ${vis}` : '';
+  const visParams = uid != null ? [uid, uid] : [];
+  const dateSql = (alias) => (asOf ? ` AND ${alias}.date <= ?` : '');
+  const dateP = asOf ? [asOf] : [];
+  const gross = Number(db.prepare(`
+    SELECT COALESCE(SUM(i.final),0) s FROM invoices i ${join('i.cust_id')}
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${dateSql('i')}${visSql}
+  `).get(...dateP, ...visParams).s) || 0;
+  let returns = 0;
+  try {
+    returns = Number(db.prepare(`
+      SELECT COALESCE(SUM(r.amount),0) s FROM sales_returns r ${join('r.cust_id')}
+      WHERE COALESCE(r.status,'posted')<>'reversed'${dateSql('r')}${visSql}
+    `).get(...dateP, ...visParams).s) || 0;
+  } catch (_) { returns = 0; }
+  const totalSettled = Number(db.prepare(`
+    SELECT COALESCE(SUM(s.amount),0) s FROM settlements s ${join('s.cust_id')}
+    WHERE COALESCE(s.status,'posted')<>'reversed'${dateSql('s')}${visSql}
+  `).get(...dateP, ...visParams).s) || 0;
+  return { totalInvoicedGross: gross, salesReturns: returns, totalInvoiced: gross - returns, totalSettled };
+}
+
 // Overview stats for accounting dashboard
 // Company-wide KPIs only for admin/accounting (scopeUserId=null).
 // sales_manager / delegated users get AR scoped to their customers only.
@@ -345,16 +352,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
 
   if (uid != null) {
     const vis = customerVisibilitySql('c');
-    const totalInvoiced = db.prepare(`
-      SELECT COALESCE(SUM(i.final),0) s FROM invoices i
-      JOIN customers c ON c.id=i.cust_id
-      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND ${vis}
-    `).get(uid, uid).s;
-    const totalSettled = db.prepare(`
-      SELECT COALESCE(SUM(s.amount),0) s FROM settlements s
-      JOIN customers c ON c.id=s.cust_id
-      WHERE COALESCE(s.status,'posted')<>'reversed' AND ${vis}
-    `).get(uid, uid).s;
+    const sn = salesNetTotals(db, { asOf, uid });
+    const { totalInvoiced, totalSettled } = sn;
     const pendingApproval = db.prepare(`
       SELECT COUNT(*) c FROM invoices i
       JOIN customers c ON c.id=i.cust_id
@@ -367,6 +366,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     `).get(uid, uid).c;
     return res.json({
       totalInvoiced, totalSettled,
+      totalInvoicedGross: sn.totalInvoicedGross,
+      salesReturns: sn.salesReturns,
       outstanding,
       creditorBalance,
       creditorBalanceLedger: creditorBalance,
@@ -374,6 +375,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       trialBalanced: null,
       totalPayable: null,
       totalPayableLedger: null,
+      supplierAdvances: null,
+      customerAdvances: null,
+      books_mismatch_ap: false,
       totalReceivable,
       receivables_gross_debit: totalReceivable,
       receivables_gross_credit: creditorBalance,
@@ -388,19 +392,27 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     });
   }
 
-  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0`).get().s;
-  const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
+  const sn = salesNetTotals(db, { asOf });
+  const { totalInvoiced, totalSettled } = sn;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0 AND COALESCE(deleted_at,0)=0").get().c;
   const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1 AND COALESCE(deleted_at,0)=0").get().c;
+  // Audit 7A: live (JE_ALIVE) + approved only; per-entry imbalance counted separately.
   const tb = db.prepare(`
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-  `).get();
-  const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
+    WHERE ${JE_ALIVE} AND ${JE_APPROVED}${asOf ? ' AND je.entry_date <= ?' : ''}
+  `).get(...(asOf ? [asOf] : []));
+  const unbalanced_count = unbalancedEntryCount(db, { to: asOf || null });
+  const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1 && unbalanced_count === 0;
 
+  // Audit 7A: per-leaf gross payable (a supplier advance never offsets another's payable).
   const payableCode = coaAcct(db, 'coa_payable').code;
-  const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
+  const payFold = glControlGrossByLeaf(db, payableCode, { asOf, debitNormal: false });
+  const totalPayable = payFold.gross;
+  const supplierAdvances = payFold.contra;
+  const recvCode = coaAcct(db, 'coa_receivable').code;
+  const customerAdvances = glControlGrossByLeaf(db, recvCode, { asOf, debitNormal: true }).contra;
   const recvGl = glCustomersTafsiliBalance(db, { asOf });
   const ledTaf = customerLedgerTafsiliBalance(db, { asOf });
   const outstandingLedger = ledTaf.display;
@@ -415,9 +427,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
              COUNT(*) AS n
       FROM (
         SELECT supplier_id, COALESCE(SUM(credit)-SUM(debit),0) AS bal
-        FROM supplier_ledger GROUP BY supplier_id
+        FROM supplier_ledger${asOf ? ' WHERE date <= ?' : ''} GROUP BY supplier_id
       )
-    `).get();
+    `).get(...(asOf ? [asOf] : []));
     totalPayableLedger = Number(sl.payable) || 0;
     hasSupplierLedger = Number(sl.n) > 0;
   } catch (_) { /* table may be empty/absent on older DBs */ }
@@ -442,6 +454,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const mismatchLedAr = Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1;
   const mismatchLedCr = Math.abs(Number(creditorLedger) - Number(recvGl.creditor)) > 1;
   const booksMismatch = mismatchAr || mismatchCr || mismatchLedAr || mismatchLedCr;
+  // Audit 7A: AP integrity — legacy supplier book (gross) vs GL gross payable.
+  const booksMismatchAp = Math.abs(Number(totalPayableLedger) - Number(totalPayable)) > 1;
   // v519: the alarm names the customers whose book differs from their own leaf.
   let mismatchCustomers = { count: 0, rows: [] };
   if (booksMismatch) {
@@ -459,6 +473,12 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     pendingApproval, approvedCount, trialBalanced,
     totalPayable,
     totalPayableLedger,
+    totalPayableNet: payFold.net,
+    supplierAdvances,
+    customerAdvances,
+    unbalanced_count,
+    totalInvoicedGross: sn.totalInvoicedGross,
+    salesReturns: sn.salesReturns,
     totalReceivable,
     receivables_gross_debit: totalReceivable,
     receivables_gross_credit: creditorBalance,
@@ -469,7 +489,10 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     asOf: asOf || null,
     pendingSettlements,
     books_mismatch: booksMismatch,
+    books_mismatch_ap: booksMismatchAp,
     books_mismatch_detail: {
+      payable: booksMismatchAp,
+      payable_delta: Math.round(Number(totalPayableLedger) - Number(totalPayable)),
       receivable: mismatchAr,
       creditor: mismatchCr,
       unique_coa_receivable: mismatchLedAr,
@@ -2866,17 +2889,20 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
 router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
-  const sf = safeDate(from), st = safeDate(to);
-  const dateWhere = (sf || st) ? `WHERE je.entry_date >= '${sf || ''}' AND je.entry_date <= '${st || '9999'}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
+  const sf = safeJalaliDate(from), st = safeJalaliDate(to);
+  const tbWhere = [JE_ALIVE, JE_APPROVED];
+  const tbParams = [];
+  if (sf) { tbWhere.push('je.entry_date >= ?'); tbParams.push(sf); }
+  if (st) { tbWhere.push('je.entry_date <= ?'); tbParams.push(st); }
   const rows = db.prepare(`
     SELECT jl.account_code, jl.account_name,
       COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) as total_debit, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) as total_credit
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-    ${dateWhere}
+    WHERE ${tbWhere.join(' AND ')}
     GROUP BY jl.account_code, jl.account_name
     ORDER BY jl.account_code
-  `).all();
+  `).all(...tbParams);
+  const unbalanced_count = unbalancedEntryCount(db, { from: sf, to: st });
   const coaMap = {};
   db.prepare('SELECT code,type FROM chart_of_accounts').all().forEach(a => { coaMap[a.code] = a.type; });
   let totalDebit = 0, totalCredit = 0;
@@ -2894,7 +2920,11 @@ router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
     r.credit_balance = Math.max(0, -net);
     totalDebit += r.debit_balance; totalCredit += r.credit_balance;
   });
-  res.json({ rows, totalDebit, totalCredit, balanced: Math.abs(totalDebit - totalCredit) < 1 });
+  res.json({
+    rows, totalDebit, totalCredit,
+    unbalanced_count,
+    balanced: Math.abs(totalDebit - totalCredit) < 1 && unbalanced_count === 0,
+  });
 });
 
 // ============================================================

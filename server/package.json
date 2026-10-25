@@ -36,6 +36,7 @@
     "backup:verify": "node scripts/verify-backup.js",
     "backup:weekly-drill": "node scripts/weekly-backup-drill.js",
     "test:secret-settings": "node scripts/test-secret-settings-security.js",
+    "test:audit-7a": "node scripts/test-audit-7a-dash-metrics.js",
     "test:audit-8a": "node scripts/test-audit-8a-rbac-guards.js",
     "test:audit-8b": "node scripts/test-audit-8b-validators-idempotency.js",
     "test:audit-8c": "node scripts/test-audit-8c-product-master.js",

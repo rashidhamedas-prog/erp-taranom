@@ -10978,6 +10978,10 @@ ROUTES['acc-dash'] = async function(){
   const recv = Number(ov.totalReceivable != null ? ov.totalReceivable : ov.outstanding)||0;
   const cred = Number(ov.creditorBalance)||0;
   const cutoffLabel=accDateTo||'آخرین سند (همه)';
+  const booksMismatchAp=!!ov.books_mismatch_ap;
+  const supAdv=Number(ov.supplierAdvances)||0;
+  const custAdv=Number(ov.customerAdvances)||0;
+  const unbalCnt=Number(ov.unbalanced_count)||0;
   const booksMismatch=!!ov.books_mismatch;
   const mm=ov.books_mismatch_detail||{};
   const mismatchBits=[];
@@ -10986,6 +10990,7 @@ ROUTES['acc-dash'] = async function(){
   if(mm.creditor||Math.abs(Number(cred)-Number(ov.creditorBalanceGl||0))>1)
     mismatchBits.push(`بستانکار دفتر مشتری ${fmt(cred)} با تفصیلی ${fmt(ov.creditorBalanceGl||0)}`);
   const mismatchText=mismatchBits.length?mismatchBits.join('؛ '):`مانده دفتر مشتری (${fmt(recv)}) با دفتر کل تفصیلی (${fmt(ov.totalReceivableGl||0)}) یکی نیست`;
+  const mismatchApText=`پرداختنی دفتر تأمین‌کننده (${fmt(ov.totalPayableLedger||0)}) با دفتر کل (${fmt(totalPayable)}) یکی نیست`;
   // v519: integrity alarm — books are projections of the journal and are reconciled on
   // boot, on every post/void and on every read of this page; this panel should never show.
   const mmCust=Array.isArray(ov.books_mismatch_customers)?ov.books_mismatch_customers:[];
@@ -11011,17 +11016,20 @@ ROUTES['acc-dash'] = async function(){
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">دفتر مشتری تا ${esc(cutoffLabel)}</span>
     </div>
+    ${booksMismatchAp?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#dc2626`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#7f1d1d;font-size:13px`)}"><div><b>خطای یکپارچگی دفاتر (پرداختنی)</b> — ${esc(mismatchApText)}. دفتر تأمین‌کننده باید تصویر سند دوطرفه باشد؛ ردیف یک‌طرفه یا ثبت قدیمی را بررسی کنید و در صورت ماندن هشدار به پشتیبانی اطلاع دهید (ممیزی 7A).</div></div></div>`:''}
     ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#dc2626`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#7f1d1d;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between`)}"><div><div><b>خطای یکپارچگی دفاتر</b> — ${esc(mismatchText)}. دفتر مشتری باید عیناً تصویر سند دوطرفه باشد؛ این اختلاف یعنی ردیفی یک‌طرفه ثبت یا ویرایش شده است. سرور هنگام بوت، هر ثبت/ابطال و هر بار نمایش این صفحه دفاتر را با سند هم‌تراز می‌کند؛ اگر هشدار ماند «ترمیم دفاتر» را بزنید و در صورت باقی‌ماندن به پشتیبانی اطلاع دهید (v536).</div>${mmCustHtml}</div>${isAdmin()?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){repairArTafsiliFromDash()})}">ترمیم دفاتر</button>`:''}</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards bento-hero">
-      ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
+      ${statCard('g','🧾',fmt(ov.totalInvoiced),'فروش خالص (فاکتور رسمی − برگشت) (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
       ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان — دفتر مشتری (ت)')}
       ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان — دفتر مشتری (ت)'):''}
-      ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
+      ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان — ناخالص (ت)')}
+      ${statCard('b','💳',fmt(supAdv),'پیش‌پرداخت به تأمین‌کنندگان (ت)')}
+      ${custAdv?statCard('g','📥',fmt(custAdv),'پیش‌دریافت مشتریان — دفتر کل (ت)'):''}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
-      ${statCard(tbBalanced?'g':'r','⚖️',tbBalanced?'متوازن ✓':'نامتوازن!','وضعیت تراز آزمایشی')}
+      ${statCard(tbBalanced?'g':'r','⚖️',tbBalanced?'متوازن ✓':'نامتوازن!','وضعیت تراز آزمایشی'+(unbalCnt?` — ${fmt(unbalCnt)} سند نامتوازن`:''))}
     </div>
     ${(pendingRep||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px;border-color:#fde68a`)}">
       <div class="panel-head"><h4>⏳ تسویه‌های میدانی منتظر تأیید (${pendingRep.length})</h4>
@@ -26787,7 +26795,7 @@ async function renderTrialBalanceTab(body){
       <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(d.totalCredit||0)}</td>
     </tr></tfoot></table></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;padding:12px 16px;border-radius:10px;background:${d.balanced?'#f0fdf4':'#fef2f2'};border:1px solid ${d.balanced?'#bbf7d0':'#fecaca'};color:${d.balanced?'var(--green)':'var(--red)'};font-weight:700`)}">
-      ${d.balanced?'✓ تراز آزمایشی متوازن است':'✗ تراز آزمایشی نامتوازن است — بررسی لازم است'}
+      ${d.balanced?'✓ تراز آزمایشی متوازن است':'✗ تراز آزمایشی نامتوازن است — بررسی لازم است'}${Number(d.unbalanced_count)>0?` (${fmt(d.unbalanced_count)} سند با بدهکار≠بستانکار)`:''}
     </div>`;
 }
 
@@ -36048,6 +36056,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ایجاد فاکتور، مشتری، تسویه و دریافت حسابی با <b>client_request_id</b> یکتا است — دوبار کلیک همان سند را برمی‌گرداند نه ردیف دوم.</li>
         <li>موبایل تکراری مشتری را بلاک نمی‌کند؛ فقط هشدار می‌دهد.</li>
       </ul>
+      <h5>داشبورد حسابداری — پرداختنی/دریافتنی ناخالص و تراز (ممیزی ۷A / SW v548)</h5>
+      <ul>
+        <li><b>پرداختنی</b> = جمع مانده بستانکار هر تأمین‌کننده جدا از هم (ناخالص)؛ پیش‌پرداخت به تأمین‌کننده (مانده بدهکار) در کارت جدا «پیش‌پرداخت تأمین‌کنندگان» می‌آید و با پرداختنی دیگران خنثی نمی‌شود. پیش‌دریافت مشتریان هم کارت جدا دارد.</li>
+        <li>کارت <b>فروش خالص</b> = فاکتورهای رسمی − برگشت از فروش؛ «تسویه‌شده» و فروش هر دو تا تاریخ انتخابی (asOf) محاسبه می‌شوند.</li>
+        <li><b>تراز آزمایشی</b> فقط اسناد زندهٔ تأییدشده را می‌شمارد (ابطال/پیش‌نویس حذف)؛ اگر سندی بدهکار≠بستانکار باشد، «تعداد سند نامتوازن» نشان داده می‌شود و تراز «نامتوازن» می‌شود.</li>
+        <li>اگر پرداختنی دفتر تأمین‌کننده با دفتر کل یکی نباشد، همان بنر خطای یکپارچگی (مثل دریافتنی) برای پرداختنی نمایش داده می‌شود.</li>
+      </ul>
       <h5>کالای جدید — یکتایی و موجودی اولیه (ممیزی ۸C / SW v546)</h5>
       <ul>
         <li>کد کالا و بارکد یکتا هستند؛ بارکد ۱۳رقمی باید EAN-13 معتبر باشد؛ قیمت/موجودی/بها منفی رد می‌شود.</li>
@@ -36173,7 +36188,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v547</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v548</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
