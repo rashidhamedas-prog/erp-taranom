@@ -1,4 +1,3 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v543 — Partial pack matrix: expandLivePack matrix fields, unit price A+,
@@ -6,6 +5,7 @@ const { swAtLeast } = require('./lib/sw-at-least');
  */
 'use strict';
 
+const { swAtLeast } = require('./lib/sw-at-least');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -27,8 +27,8 @@ const appJs = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 
-ok(swAtLeast(sw, 543), 'SW v543');
-ok(indexHtml.includes('app.js?v=543'), 'app.js ?v=543');
+ok(swAtLeast(sw, 543), 'SW v543+');
+ok((() => { const m = indexHtml.match(/app\.js\?v=(\d+)/); return m && Number(m[1]) >= 543; })(), 'app.js ?v=543+');
 ok(appJs.includes('openPartialPackMatrix') && appJs.includes('stocked_qty'), 'client partial matrix helpers');
 ok(appJs.includes('پک کامل:') && appJs.includes('تکی موجود:'), 'picker pack meta label');
 ok(appJs.includes('sales.full_pack_mode') || appJs.includes('s-sales_full_pack_mode'), 'settings UI full_pack_mode');
