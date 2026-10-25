@@ -11756,6 +11756,9 @@ ROUTES['acc-dash'] = async function(){
   const mmCust=Array.isArray(ov.books_mismatch_customers)?ov.books_mismatch_customers:[];
   const mmCustCount=Number(ov.books_mismatch_customers_count||mmCust.length)||0;
   const mmCustHtml=mmCust.length?`<div data-csp-style="${CSP.style(`margin-top:6px;display:flex;flex-wrap:wrap;gap:6px`)}">${mmCust.map(c=>`<a href="#customers" class="chip" data-csp-style="${CSP.style(`font-size:12px;background:#fff7ed;border:1px solid #fdba74;border-radius:999px;padding:2px 10px;color:#9a3412;text-decoration:none`)}" title="دفتر مشتری ${fmt(c.ledger)} / دفتر کل ${fmt(c.gl)}">${esc(c.biz||('#'+c.id))} <b>${c.delta>0?'+':'−'}${fmt(Math.abs(c.delta))}</b></a>`).join('')}${mmCustCount>mmCust.length?`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">و ${fmt(mmCustCount-mmCust.length)} مشتری دیگر</span>`:''}</div>`:'';
+  const mmSup=Array.isArray(ov.books_mismatch_suppliers)?ov.books_mismatch_suppliers:[];
+  const mmSupCount=Number(ov.books_mismatch_suppliers_count||mmSup.length)||0;
+  const mmSupHtml=mmSup.length?`<div data-csp-style="${CSP.style(`margin-top:6px;display:flex;flex-wrap:wrap;gap:6px`)}">${mmSup.map(s=>`<a href="#suppliers" class="chip" data-csp-style="${CSP.style(`font-size:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:999px;padding:2px 10px;color:#7f1d1d;text-decoration:none`)}" title="دفتر تأمین‌کننده ${fmt(s.ledger)} / دفتر کل ${fmt(s.gl)}">${esc(s.name||('#'+s.id))} <b>${s.delta>0?'+':'−'}${fmt(Math.abs(s.delta))}</b></a>`).join('')}${mmSupCount>mmSup.length?`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">و ${fmt(mmSupCount-mmSup.length)} تأمین‌کننده دیگر</span>`:''}</div>`:'';
   el('view').innerHTML=`
     <div class="acc-dash-shell">
     <div class="acc-dash-hero">
@@ -11776,7 +11779,7 @@ ROUTES['acc-dash'] = async function(){
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">دفتر مشتری تا ${esc(cutoffLabel)}</span>
     </div>
-    ${booksMismatchAp?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#dc2626`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#7f1d1d;font-size:13px`)}"><div><b>خطای یکپارچگی دفاتر (پرداختنی)</b> — ${esc(mismatchApText)}. دفتر تأمین‌کننده باید تصویر سند دوطرفه باشد؛ ردیف یک‌طرفه یا ثبت قدیمی را بررسی کنید و در صورت ماندن هشدار به پشتیبانی اطلاع دهید (ممیزی 7A).</div></div></div>`:''}
+    ${booksMismatchAp?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#dc2626`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#7f1d1d;font-size:13px`)}"><div><b>خطای یکپارچگی دفاتر (پرداختنی)</b> — ${esc(mismatchApText)}. مقایسه برگ‌به‌برگ است؛ تأمین‌کنندگانی که دفترشان با تفصیلی خودشان یکی نیست در چیپ‌های زیر آمده‌اند. ردیف یک‌طرفه یا سند روی برگ شخص دیگر را بررسی کنید (ممیزی 7A / per-leaf).</div>${mmSupHtml}</div></div>`:''}
     ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#dc2626`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#7f1d1d;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between`)}"><div><div><b>خطای یکپارچگی دفاتر</b> — ${esc(mismatchText)}. دفتر مشتری باید عیناً تصویر سند دوطرفه باشد؛ این اختلاف یعنی ردیفی یک‌طرفه ثبت یا ویرایش شده است. سرور هنگام بوت، هر ثبت/ابطال و هر بار نمایش این صفحه دفاتر را با سند هم‌تراز می‌کند؛ اگر هشدار ماند «ترمیم دفاتر» را بزنید و در صورت باقی‌ماندن به پشتیبانی اطلاع دهید (v536).</div>${mmCustHtml}</div>${isAdmin()?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){repairArTafsiliFromDash()})}">ترمیم دفاتر</button>`:''}</div></div>`:''}
     ${dashAlerts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px`)}">${dashAlerts.map(a=>`<div>${esc(a.message)}</div>`).join('')}</div></div>`:''}
     <div class="cards bento-hero">
@@ -36809,12 +36812,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ایجاد فاکتور، مشتری، تسویه و دریافت حسابی با <b>client_request_id</b> یکتا است — دوبار کلیک همان سند را برمی‌گرداند نه ردیف دوم.</li>
         <li>موبایل تکراری مشتری را بلاک نمی‌کند؛ فقط هشدار می‌دهد.</li>
       </ul>
-      <h5>داشبورد حسابداری — پرداختنی/دریافتنی ناخالص و تراز (ممیزی ۷A / SW v548+)</h5>
+      <h5>داشبورد حسابداری — پرداختنی/دریافتنی ناخالص و تراز (ممیزی ۷A / SW v554+)</h5>
       <ul>
-        <li><b>پرداختنی</b> = جمع مانده بستانکار هر تأمین‌کننده جدا از هم (ناخالص)؛ پیش‌پرداخت به تأمین‌کننده (مانده بدهکار) در کارت جدا «پیش‌پرداخت تأمین‌کنندگان» می‌آید و با پرداختنی دیگران خنثی نمی‌شود. پیش‌دریافت مشتریان هم کارت جدا دارد.</li>
+        <li><b>پرداختنی</b> = جمع مانده بستانکار هر برگ تأمین‌کننده جدا از هم (ناخالص)، شامل برگ‌های زیر ۲۱۰۱ و برگ تأمین‌کنندگانی که تفصیلی‌شان بیرون از ۲۱۰۱ است (مثلاً ۱۱۰۶۰۱)؛ پیش‌پرداخت (مانده بدهکار) در کارت جدا می‌آید و با پرداختنی دیگران خنثی نمی‌شود.</li>
+        <li>هشدار پرداختنی برگ‌به‌برگ است: اگر دفتر یک تأمین‌کننده با تفصیلی خودش (|دفتر−کل|&gt;۱) فرق داشته باشد، نامش در چیپ بنر قرمز می‌آید — جمع کل دیگر هشدار کاذب برای تأمین‌کنندگان ۱۱۰۶۰۱ نمی‌سازد.</li>
+        <li>برگ دوطرفه (همان تفصیلی برای مشتری و تأمین‌کننده) فقط یک‌بار در پرداختنی/پیش‌پرداخت شمرده می‌شود و دوباره در پیش‌دریافت مشتریان نمی‌آید.</li>
         <li>کارت <b>فروش خالص</b> = فاکتورهای رسمی − برگشت از فروش؛ «تسویه‌شده» و فروش هر دو تا تاریخ انتخابی (asOf) محاسبه می‌شوند.</li>
         <li><b>تراز آزمایشی</b> فقط اسناد زندهٔ تأییدشده را می‌شمارد (ابطال/پیش‌نویس حذف)؛ اگر سندی بدهکار≠بستانکار باشد، «تعداد سند نامتوازن» نشان داده می‌شود و تراز «نامتوازن» می‌شود.</li>
-        <li>اگر پرداختنی دفتر تأمین‌کننده با دفتر کل یکی نباشد، همان بنر خطای یکپارچگی (مثل دریافتنی) برای پرداختنی نمایش داده می‌شود.</li>
       </ul>
       <h5>تطبیق چک / حقوق / مالیات / WIP (ممیزی ۷B / SW v549)</h5>
       <ul>
@@ -36960,7 +36964,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v553</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v554</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
