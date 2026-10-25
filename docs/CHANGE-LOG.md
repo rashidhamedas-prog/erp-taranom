@@ -4,7 +4,7 @@
 - **UI:** چیپ تأمین‌کنندگان مغایر در بنر قرمز پرداختنی (مثل مشتری‌ها).
 - **فایل‌ها:** `lib/gl-metrics.js`, `routes/accounting.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-7a-supplier-per-leaf.js`, `scripts/test-{audit-7a-dash-metrics,party-books-turnover-v362}.js`, `package.json`, Help، CHANGE-LOG.
 - **تست:** `test-7a-supplier-per-leaf` ۳۱/۰؛ audit-7a ۲۹/۰؛ party-books v362 ۲۰/۰؛ sms ۲۲/۰؛ asOf stitch سبز. بدون migration / بدون نوشتن روی DB واقعی.
-- **Deploy:** ⏸ PR باز — عمداً بدون merge/deploy (دستور کاربر).
+- **Deploy:** ✅ `91f42905` — overlay ایران (gl-metrics + accounting + app/index/sw + tests + CHANGE-LOG)؛ health=200، sharp 0.33.5؛ SW `erp-taranom-v554` / `app.js?v=554`؛ test-7a-supplier-per-leaf ۳۱/۰؛ sms ۲۲/۰. PR #43 merged.
 
 ### ۱۴۰۵/۰۸/۰۴ — v553: بازطراحی UI فروش سریع فروشگاهی (POS v2) (SW v553)
 - **منبع:** `prompt-pos-redesign.md`؛ skill-top عمق کامل؛ دستور کاربر: merge+push+deploy (برخلاف بند merge ممنوع در پرامپت).
