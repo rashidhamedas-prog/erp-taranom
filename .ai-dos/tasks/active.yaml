@@ -2,7 +2,8 @@ schema_version: 1
 tasks:
   - id: "AUDIT-8A-RBAC-GUARDS"
     title: "Audit wave 8A — server RBAC guards (#84,#95–#98,#101); no push/deploy"
-    status: "in_progress"
+    status: "completed"
+    completed_at: "2026-10-25T18:30:00+03:30"
     claimed_at: "2026-10-25T18:00:00+03:30"
     review_status: "PENDING"
     security_status: "PENDING"
