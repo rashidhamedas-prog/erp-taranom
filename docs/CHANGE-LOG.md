@@ -5,7 +5,7 @@
 - **هارنس:** `scripts/test-audit-7c-regressions.js` + `npm run test:audit-7c` (DB فقط زیر `.tmp-test-artifacts`).
 - **فایل‌ها:** `lib/production/cutting.js`, `routes/cheque-records.js`, `scripts/test-{cheque-books-v339,cheque-resend-softvoid-v496,cheque-opening-bounce-v186,payroll-accounting,settlement-leaf-je-v351,audit-7c-regressions}.js`, `package.json`, `public/{app.js,index.html,sw.js}`, CHANGE-LOG، Help.
 - **عمداً خارج از دامنه:** #83 (۴۲ تست GL / SW — موج 7D)؛ flaky sync pairing.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `98b1197a` — overlay ایران؛ health=200؛ SW `erp-taranom-v551`؛ test:audit-7c ۶/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۳ — v550: تفکیک وظایف / maker-checker (ممیزی 8D) (SW v550)
 - **منبع:** erp.md پرامپت 8D (شاخهٔ `ai/AUDIT-8D-sod`). rebase روی main پس از 7B.
