@@ -1,0 +1,108 @@
+{
+  "generatedAt": "2026-10-25T21:00:29.019Z",
+  "source": "original-prodModal-before-ui-redesign",
+  "fill": {
+    "name": "کالای تست بازطراحی UI",
+    "code": "K-UI-TEST-001",
+    "barcode": "2000000000014",
+    "price": "100000",
+    "retail": "150000",
+    "cost": "80000",
+    "stock": "10",
+    "stock_alert": "2",
+    "colors": "2",
+    "pack_size": "6",
+    "note": "یادداشت تست فرم کالای جدید",
+    "category": "دسته تست"
+  },
+  "entries": [
+    {
+      "key": "name",
+      "value": "کالای تست بازطراحی UI"
+    },
+    {
+      "key": "category",
+      "value": "دسته تست"
+    },
+    {
+      "key": "category_id",
+      "value": ""
+    },
+    {
+      "key": "code",
+      "value": "K-UI-TEST-001"
+    },
+    {
+      "key": "price",
+      "value": "100000"
+    },
+    {
+      "key": "retail_price",
+      "value": "150000"
+    },
+    {
+      "key": "cost",
+      "value": "80000"
+    },
+    {
+      "key": "stock",
+      "value": "10"
+    },
+    {
+      "key": "stock_alert",
+      "value": "2"
+    },
+    {
+      "key": "unit_id",
+      "value": "1"
+    },
+    {
+      "key": "unit",
+      "value": "عدد"
+    },
+    {
+      "key": "item_type",
+      "value": "finished"
+    },
+    {
+      "key": "is_manufactured",
+      "value": "0"
+    },
+    {
+      "key": "website_stock_push",
+      "value": "1"
+    },
+    {
+      "key": "colors",
+      "value": "2"
+    },
+    {
+      "key": "pack_size",
+      "value": "6"
+    },
+    {
+      "key": "full_pack_mode",
+      "value": ""
+    },
+    {
+      "key": "barcode",
+      "value": "2000000000014"
+    },
+    {
+      "key": "warehouse_id",
+      "value": ""
+    },
+    {
+      "key": "costing_method",
+      "value": ""
+    },
+    {
+      "key": "valuation_level",
+      "value": ""
+    },
+    {
+      "key": "note",
+      "value": "یادداشت تست فرم کالای جدید"
+    }
+  ]
+}
