@@ -105,6 +105,11 @@
     }
   }
 
+  /** SQLite / schema / constraint errors are deterministic — retry only wastes time. */
+  function isDeterministicServerErrorBody(text) {
+    return /ambiguous column|no such (table|column)|SQLITE_|FOREIGN KEY constraint|UNIQUE constraint|CHECK constraint|NOT NULL constraint/i.test(String(text || ''));
+  }
+
   async function fetchWithRetry(url, opts, policy) {
     const attempts = (policy && policy.attempts) || 5;
     const mode = (policy && policy.mode) || 'login';
@@ -115,9 +120,16 @@
         const r = await fetchOnce(url, opts, policy);
         lastRes = r;
         if (r.ok) return r;
-        const retry = mode === 'login'
+        let retry = mode === 'login'
           ? shouldRetryLogin(r.status, false)
           : (mode === 'get' && isTransientStatus(r.status) && r.status !== 429);
+        // v557: do not retry deterministic 500s (e.g. ambiguous column name)
+        if (retry && mode === 'get' && Number(r.status) === 500) {
+          try {
+            const peek = await r.clone().text();
+            if (isDeterministicServerErrorBody(peek)) retry = false;
+          } catch (_) { /* keep retry */ }
+        }
         if (!retry || i === attempts - 1) return r;
       } catch (e) {
         lastTransport = e;
@@ -146,6 +158,7 @@
 
   return {
     isTransientStatus,
+    isDeterministicServerErrorBody,
     classifyTransportError,
     classifyHttpFailure,
     retryDelayMs,

@@ -15066,7 +15066,7 @@ function sharedCutToggle(){
       if(!confirm('ثبت برش مشترک؟ حواله فقط متر پهن‌شده و اتلاف است. برگشت روی همان طاقه می‌ماند.')) return;
       const posted=await api('POST','/production/cutting-batches',Object.assign({},window._scLast,{idempotency_key:newCutIdemKey()}));
       showToast('برش '+((posted&&posted.batch_no)||'')+' ثبت شد');
-      loadAccTab('cutting-lays');
+      reloadProdAccTab('cutting-lays');
     }catch(e){ showToast(e.message||'خطا','error'); }
   };
 }
@@ -15118,7 +15118,7 @@ async function renderCuttingLaysTab(body){
       ${tabBtn('active-pack','📦 PACK فعال', activePackRows.length)}
       ${view==='lays'?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>`:''}
       ${view==='lays' && (CACHE.settings||{}).production_shared_cut==='1'?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){sharedCutToggle()})}">برنامهٔ برش مشترک</button>`:''}
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('cutting-lays')})}">🔄</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){reloadProdAccTab('cutting-lays')})}">🔄</button>
     </div>
     <div id="shared-cut-box"></div>
     <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -15206,7 +15206,7 @@ function cuttingReturnAfterPost(toast){
   closeModal();
   if(toast) showToast(toast);
   if(back){ prodOrderStagesModal(back); return; }
-  loadAccTab('cutting-lays');
+  reloadProdAccTab('cutting-lays');
 }
 async function cuttingLayModal(editId, opts){
   window._cutEditId=editId?Number(editId):null;
@@ -15879,7 +15879,7 @@ async function voidCuttingLayRow(id, covered){
     ? 'ابطال این لایه‌چینی؟ ردیف پاک نمی‌شود. طاقه و سند همین لایه برمی‌گردد و فقط سهم بهای همین لایه از رسید سفارش کم می‌شود. تعداد محصول و مراحل بعدی باز نمی‌شوند.'
     : 'ابطال این لایه‌چینی؟ ردیف پاک نمی‌شود. موجودی طاقه و سند برمی‌گردد. اگر PACK مستقیم دارد اول آن را ابطال کنید.';
   if(!confirm(msg)) return;
-  try{ await api('POST','/production/cutting-lays/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('cutting-lays'); }
+  try{ await api('POST','/production/cutting-lays/'+id+'/void',{reason:'ابطال از گزارش'}); reloadProdAccTab('cutting-lays'); }
   catch(e){}
 }
 function newPackIdemKey(){
@@ -15911,7 +15911,7 @@ async function voidCuttingPackRow(layId){
     showToast('PACK ابطال شد — اکنون ویرایش لایه‌چینی آزاد است');
     window._cuttingLaysView='lays';
     try{ sessionStorage.setItem('cuttingLaysView','lays'); }catch(_){}
-    loadAccTab('cutting-lays');
+    reloadProdAccTab('cutting-lays');
   }catch(e){}
 }
 async function cuttingPackPrint(layId){
@@ -17475,7 +17475,7 @@ async function renderProductionBomsTab(body){
     <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       ${canBomCreate?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateModal()})}">➕ فرمول جدید</button>`:''}
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-boms')})}">🔄 تازه‌سازی</button>
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){reloadProdAccTab('production-boms')})}">🔄 تازه‌سازی</button>
       <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: ماژول حسابداری → سایدبار «تولید» → اطلاعات پایه → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">ویرایشگر چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با <code>production_cost/view</code>). پیش‌نویس را مستقیم ویرایش/حذف کنید؛ فرمول <b>فعال</b> قفل است — ویرایش از «نسخه جدید»، حذف منطقی از «بایگانی» با چک وابستگی.</p>
@@ -18553,7 +18553,7 @@ async function prodBomActivate(id){
   if(!confirm('فعال‌سازی این فرمول؟ پس از فعال شدن قفل می‌شود.')) return;
   try{
     await api('POST','/production/boms/'+id+'/activate',{valid_from});
-    showToast('فرمول فعال شد'); closeModal(); loadAccTab('production-boms');
+    showToast('فرمول فعال شد'); closeModal(); reloadProdAccTab('production-boms');
   }catch(e){
     const extra=(e.payload&&e.payload.missing)||(e.missing)||[];
     const tip=Array.isArray(extra)&&extra.length?('\n• '+extra.slice(0,5).map(m=>m.message_fa||m.code).join('\n• ')):'';
@@ -18565,7 +18565,7 @@ async function prodBomApplyRouting(id){
     await api('POST','/production/boms/'+id+'/apply-routing-template',{});
     showToast('مسیر عملیات پیش‌فرض اعمال شد');
     if(el('activeModal')) await prodBomEditModal(id,'ops');
-    else loadAccTab('production-boms');
+    else reloadProdAccTab('production-boms');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodBomDelete(id){
@@ -18645,7 +18645,7 @@ async function prodBomRemoveConfirm(id, mode){
       showToast('فرمول بایگانی شد');
     }
     closeModal();
-    loadAccTab('production-boms');
+    reloadProdAccTab('production-boms');
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomDeactivateGate(id){
@@ -18666,7 +18666,7 @@ async function prodBomDeactivateGate(id){
   try{
     await api('POST','/production/boms/'+id+'/deactivate',{});
     showToast('فرمول غیرفعال شد (پیش‌نویس)');
-    loadAccTab('production-boms');
+    reloadProdAccTab('production-boms');
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
 async function prodBomVersionUp(id){
@@ -18792,10 +18792,23 @@ function prodJourneyTryEnter(target){
   else if(typeof alert==='function') alert(msg);
   return false;
 }
-async function prodJourneyEnsureState(){
-  // همیشه تازه — جلوگیری از قفل کاذب بعد از فعال‌سازی BOM / آزادسازی سفارش / لایه‌چینی
+const PROD_JOURNEY_TTL_MS=20000;
+async function prodJourneyEnsureState(opts){
+  // کش کوتاه ۲۰ث — جهش بین صفحات تولید؛ force بعد از mutate (BOM/سفارش/لایه)
+  const force=!!(opts&&opts.force);
   const period=window._prodDashPeriod||todayJalali().slice(0,7);
+  const cached=window._prodJourneyState;
+  if(!force && cached && cached.period===period && (Date.now()-(cached.fetchedAt||0))<PROD_JOURNEY_TTL_MS){
+    return cached;
+  }
   return fetchProdJourneyState(period);
+}
+function prodJourneyInvalidate(){
+  window._prodJourneyState=null;
+}
+function reloadProdAccTab(tab){
+  prodJourneyInvalidate();
+  return loadAccTab(tab);
 }
 async function prodJourneyGoRoute(route){
   try{ await prodJourneyEnsureState(); }catch(_){}
@@ -18840,12 +18853,23 @@ async function prodJourneyRouteEnter(target, renderFn){
   return renderFn();
 }
 async function fetchProdJourneyState(period){
-  let dash=null, lays=null, orders=null, boms=null, kanban=null;
-  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(_){ dash=null; }
-  try{ lays=await api('GET','/production/cutting-lays'); }catch(_){ lays={rows:[]}; }
-  try{ orders=await api('GET','/production/orders'); }catch(_){ orders={rows:[]}; }
-  try{ boms=await api('GET','/production/boms'); }catch(_){ boms={rows:[]}; }
-  try{ kanban=await api('GET','/production/reports/kanban'); }catch(_){ kanban=null; }
+  // v557: موازی — پنج GET مستقل؛ خطای یکی بقیه را بلاک نکند
+  const settled=await Promise.allSettled([
+    api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)),
+    api('GET','/production/cutting-lays'),
+    api('GET','/production/orders?limit=200'),
+    api('GET','/production/boms'),
+    api('GET','/production/reports/kanban'),
+  ]);
+  const val=(i, fb)=>{
+    const s=settled[i];
+    return (s && s.status==='fulfilled') ? s.value : fb;
+  };
+  const dash=val(0, null);
+  const lays=val(1, {rows:[]})||{rows:[]};
+  const orders=val(2, {rows:[]})||{rows:[]};
+  const boms=val(3, {rows:[]})||{rows:[]};
+  const kanban=val(4, null);
   const k=dash?.data?.kpis||{};
   const orderRows=Array.isArray(orders)?orders:(orders.rows||[]);
   const openOrders=(dash?.data?.open_orders||[]).length || orderRows.filter(o=>o.status!=='closed'&&o.status!=='cancelled'&&o.status!=='completed').length;
@@ -18895,7 +18919,11 @@ async function fetchProdJourneyState(period){
     const priorOk=steps.slice(0, packIdx).every(s=>s.done);
     if(priorOk && !steps[packIdx].done) nextIdx=packIdx;
   }
-  return prodJourneyRemember({ dash, k, openOrders, releasedOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows, metrics, stageStrip });
+  return prodJourneyRemember({
+    period, fetchedAt: Date.now(), ordersFresh: true,
+    dash, k, openOrders, releasedOrders, activeBoms, pendingPack,
+    steps, nextIdx, orderRows, layRows, metrics, stageStrip,
+  });
 }
 /** نوار پیشرفت مراحل BOM برای سفارش‌های پیشرفته باز */
 function buildProdStageStrip(orderRows, allStages){
@@ -19297,7 +19325,7 @@ async function renderProductionDashboardTab(body){
 }
 function prodDashLoad(){
   window._prodDashPeriod=el('pd-period')?.value||todayJalali().slice(0,7);
-  loadAccTab('production-dashboard');
+  reloadProdAccTab('production-dashboard');
 }
 
 async function renderProductionCloseTab(body){
@@ -21792,7 +21820,17 @@ function prodStageScopeHtml(s){
 async function renderProductionOrdersTab(body){
   let data={rows:[]};
   const showVoid=!!window._prodOrdersShowVoided;
-  try{ data=await api('GET','/production/orders?limit=200'+(showVoid?'&include_voided=1':''))||{rows:[]}; }catch(e){ data={rows:[]}; }
+  // v557: یک‌بارمصرف از journey — تازه‌سازی/mutate دوباره از API می‌خواند
+  const j=window._prodJourneyState;
+  const reuse=!showVoid && j && j.ordersFresh && Array.isArray(j.orderRows)
+    && j.period===(window._prodDashPeriod||todayJalali().slice(0,7))
+    && (Date.now()-(j.fetchedAt||0))<PROD_JOURNEY_TTL_MS;
+  if(reuse){
+    data={rows:j.orderRows};
+    j.ordersFresh=false;
+  }else{
+    try{ data=await api('GET','/production/orders?limit=200'+(showVoid?'&include_voided=1':''))||{rows:[]}; }catch(e){ data={rows:[]}; }
+  }
   const rows=data.rows||[];
   const PU=window.ProdUI;
   const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(v||0)+' ریال':'—');
@@ -21801,9 +21839,9 @@ async function renderProductionOrdersTab(body){
     <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateModal()})}">➕ سفارش جدید</button>
-      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-orders')})}">🔄 تازه‌سازی</button>
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){reloadProdAccTab('production-orders')})}">🔄 تازه‌سازی</button>
       <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodOrdersPurgeSelected()})}">حذف کامل انتخاب‌شده‌ها</button>
-      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){window._prodOrdersShowVoided=!window._prodOrdersShowVoided;loadAccTab('production-orders')})}">${showVoid?'پنهان کردن حذف‌شده‌ها':'نمایش حذف‌شده‌ها'}</button>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){window._prodOrdersShowVoided=!window._prodOrdersShowVoided;reloadProdAccTab('production-orders')})}">${showVoid?'پنهان کردن حذف‌شده‌ها':'نمایش حذف‌شده‌ها'}</button>
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:-4px 0 10px;line-height:1.7`)}">حذف کامل سند و موجودی را برمی‌گرداند و ردیف را از لیست برمی‌دارد. ردیف در دفتر می‌ماند. سفارش طاقه‌دار: رسید انبار محصول فقط بعد از لایه‌چینی + PACK.</p>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
@@ -22657,7 +22695,7 @@ async function prodOrderCreateSave(){
   if(waive) body.completeness_waive_reason=waive;
   try{
     await api('POST','/production/orders',body);
-    closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
+    closeModal(); showToast('سفارش ایجاد شد'); reloadProdAccTab('production-orders');
   }catch(e){ /* toast already shown by api() with friendly message */ }
 }
 /**
@@ -22743,7 +22781,7 @@ async function prodOrderEditJointSave(id, orderProductId){
   if(btn) btn.disabled=true;
   try{
     await api('PUT','/production/orders/'+id, body);
-    closeModal(); showToast('سفارش به‌روز شد'); loadAccTab('production-orders');
+    closeModal(); showToast('سفارش به‌روز شد'); reloadProdAccTab('production-orders');
   }catch(e){
     showToast(prodOrderErrMsg(e),'error');
     if(btn) btn.disabled=false;
@@ -22797,20 +22835,20 @@ async function prodOrderEditSave(id, hasMatrix){
   if(btn) btn.disabled=true;
   try{
     await api('PUT','/production/orders/'+id, body);
-    closeModal(); showToast('سفارش به‌روز شد'); loadAccTab('production-orders');
+    closeModal(); showToast('سفارش به‌روز شد'); reloadProdAccTab('production-orders');
   }catch(e){
     showToast(prodOrderErrMsg(e),'error');
     if(btn) btn.disabled=false;
   }
 }
 async function prodOrderRelease(id){
-  try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('production-orders'); }
+  try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); reloadProdAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodOrderCancel(id){
   const reason=prompt('دلیل لغو پیش‌نویس:');
   if(reason==null) return;
-  try{ await api('POST','/production/orders/'+id+'/cancel',{reason}); showToast('لغو شد'); loadAccTab('production-orders'); }
+  try{ await api('POST','/production/orders/'+id+'/cancel',{reason}); showToast('لغو شد'); reloadProdAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodOrderPurge(id){
@@ -22820,7 +22858,7 @@ async function prodOrderPurge(id){
   try{
     await api('POST','/production/orders/'+id+'/purge',{reason:String(reason).trim()});
     showToast('از لیست حذف شد');
-    loadAccTab('production-orders');
+    reloadProdAccTab('production-orders');
   }catch(e){ showToast(prodOrderErrMsg(e),'error'); }
 }
 async function prodOrdersPurgeSelected(){
@@ -22835,18 +22873,18 @@ async function prodOrdersPurgeSelected(){
     catch(e){ fail=prodOrderErrMsg(e); break; }
   }
   showToast(fail?(okN+' مورد حذف شد — '+fail):(okN+' سفارش از لیست حذف شد'), fail?'error':'ok');
-  loadAccTab('production-orders');
+  reloadProdAccTab('production-orders');
 }
 async function prodOrderReverse(id){
   const reason=prompt('دلیل ابطال با سند معکوس:');
   if(reason==null) return;
   if(!confirm('ابطال سفارش با سند معکوس؟ (حذف فیزیکی انجام نمی‌شود)')) return;
-  try{ await api('POST','/production/orders/'+id+'/reverse',{reason:reason||''}); showToast('ابطال شد'); loadAccTab('production-orders'); }
+  try{ await api('POST','/production/orders/'+id+'/reverse',{reason:reason||''}); showToast('ابطال شد'); reloadProdAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodOrderReopen(id){
   if(!confirm('بازگشایی سفارش بسته‌شده (بازگشت به تکمیل‌شده)؟')) return;
-  try{ await api('POST','/production/orders/'+id+'/reopen',{}); showToast('بازگشایی شد'); loadAccTab('production-orders'); }
+  try{ await api('POST','/production/orders/'+id+'/reopen',{}); showToast('بازگشایی شد'); reloadProdAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 function prodReconcileBucketRows(preview){
@@ -22908,14 +22946,14 @@ async function prodOrderReconcileCostSave(id){
     if(left<=5) showToast('اصلاح بها انجام شد. حالا بستن را بزنید.');
     else if(result.receipts_touched) showToast('رسید تطبیق شد ولی مانده هنوز صفر نیست — برگه بها را بررسی کنید.','error');
     else showToast(result.applied?'ستون‌ها یکی شد؛ مانده از رسید است و تطبیق ممکن نشد.':'چیزی برای اعمال نبود.','error');
-    loadAccTab('production-orders');
+    reloadProdAccTab('production-orders');
   }catch(e){
     showToast(e.message||'خطا','error');
     if(btn) btn.disabled=false;
   }
 }
 async function prodOrderClose(id){
-  try{ await api('POST','/production/orders/'+id+'/close',{}); showToast('بسته شد'); loadAccTab('production-orders'); }
+  try{ await api('POST','/production/orders/'+id+'/close',{}); showToast('بسته شد'); reloadProdAccTab('production-orders'); }
   catch(e){ /* toast از api — residual/E_WIP_NOT_ZERO */ }
 }
 async function prodOrderReceiptModal(id){
@@ -22991,7 +23029,7 @@ async function prodOrderReceiptSave(id, forcePartial){
     });
     closeModal();
     showToast('ثبت شد — بهای واحد '+fmt(r.costs?.unit_cost_rial||0)+' ریال');
-    loadAccTab('production-orders');
+    reloadProdAccTab('production-orders');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
@@ -23277,7 +23315,7 @@ async function prodOrderIssueSave(id){
   if(!materials.length){ showToast('قلمی برای حواله نمانده — پارچه در لایه‌چینی مصرف شده','error'); return; }
   try{
     await api('POST','/production/orders/'+id+'/issue',{date:el('pim-date').value,materials});
-    closeModal(); showToast('حواله ثبت شد'); loadAccTab('production-orders');
+    closeModal(); showToast('حواله ثبت شد'); reloadProdAccTab('production-orders');
   }catch(e){ /* toast از api */ }
 }
 
@@ -23788,7 +23826,7 @@ async function prodOrderFinalizePost(orderId, qtyGood, variant_lines, outputs){
   closeModal();
   const nRec=(r.receipts||[]).length;
   showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال'+(nRec>1?' · '+toFa(nRec)+' رسید FG':''));
-  loadAccTab('production-orders');
+  reloadProdAccTab('production-orders');
 }
 function prodOrderFinalizeOutputsFromDom(order){
   const plan=order.fg_plan||[];
@@ -36484,6 +36522,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <br>مسیر ۲ (با سفارش): PACK فقط WIP؛ finalize یک‌بار FG. دستمزد/سربار سفارش جداست و دوبار بستانکار نمی‌شود.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
         <li><b>خانه تولید (v409):</b> ورود پیش‌فرض = <b>داشبورد تولید</b> — KPI + مسیر ۶مرحله‌ای قفل‌شونده + <b>نوار پیشرفت مراحل BOM</b> per سفارش پیشرفته + دو کارت «برش/PACK» و «مراحل BOM». مرحله ۴ = تکمیل واقعی مرحله (حواله+خروجی+JE)، نه in_progress ناشی از آزادسازی. بدون تکمیل مرحلهٔ قبل، کلیک کارت/میانبر/منو مسدود است (v382+v409). API داشبورد بدون <code>period</code> ماه جلالی جاری را می‌گیرد.</li>
+        <li><b>Hotfix v556 / perf v557 — لیست و باز شدن تولید:</b> بعد از افزودن <code>products.status</code> (v546)، فیلتر وضعیت روی <code>GET /api/production/orders</code> بدون alias ستون مبهم می‌شد (toast «ambiguous column name: status» + لیست خالی روی همهٔ صفحات مسیر). فیلترها به <code>po.status</code> / <code>po.product_id</code> / <code>po.period_label</code> محدود شدند؛ دفتر انبار هم <code>l.status</code>. در v557 پیش‌بار مسیر تولید پنج API را موازی می‌گیرد، کش کوتاه ۲۰ث دارد، لیست سفارش از همان پاسخ یک‌بار مصرف می‌شود، و GET دیگر روی خطای قطعی SQL (مثل ambiguous column) چهار بار retry نمی‌کند.</li>
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV. برگه بها (<code>cost-sheet</code>) با <code>order_id</code> است نه دوره.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
@@ -37029,7 +37068,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v554</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v557</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

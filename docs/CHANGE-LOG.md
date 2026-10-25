@@ -1,3 +1,20 @@
+### ۱۴۰۵/۰۸/۰۴ — v557: تولید — رفع ریشه ambiguous status + شتاب باز شدن (SW v557)
+- **منبع:** skill-top عمق کامل (کاربر: ریشهٔ toast + کندی بخش تولید؛ نه فقط سطح خطا).
+- **RCA:** `products.status` (v546) + `listOrders` با `LEFT JOIN products` و WHERE بدون alias → ۵۰۰؛ NetResilience چهار بار GET را retry می‌کرد (≥۳ث backoff)؛ `fetchProdJourneyState` پنج API را سریالی می‌گرفت و لیست سفارش دوباره fetch می‌شد. ایران روی v555 مانده بود (PR #46 / v556 بدون merge).
+- **رفع SQL (از v556):** `po.status` / `po.product_id` / `po.period_label`؛ `l.status` در inventory ledger؛ تست `test:hotfix-ambiguous-status`.
+- **رفع perf (v557):** `Promise.allSettled` برای journey؛ TTL ۲۰ث + invalidate بعد از mutate؛ reuse یک‌بارمصرف `orderRows`؛ عدم retry روی خطای قطعی SQL در `net-resilience.js`.
+- **تست:** `test:hotfix-ambiguous-status` ۳۸/۰؛ `test-sms` ۲۲/۰؛ parse `app.js` OK.
+- **فایل‌ها:** `lib/production/engine.js`, `routes/inventory.js`, `public/{app.js,index.html,sw.js,net-resilience.js}`, `scripts/test-hotfix-ambiguous-status.js`, Help، CHANGE-LOG.
+- **Deploy:** ⏳ در حال merge+ایران.
+
+### ۱۴۰۵/۰۸/۰۴ — v556: Hotfix `ambiguous column name: status` در سفارش‌های تولید (SW v556)
+- **منبع:** پرامپت `prompt-fix-ambiguous-status.md`؛ شاخهٔ `hotfix/prod-orders-ambiguous-status`؛ ابتدا بدون merge (تأیید حامد)؛ با v557 کامل شد و deploy شد.
+- **ریشه:** از v546 ستون `products.status` اضافه شد؛ `listOrders` در `engine.js` با `LEFT JOIN products` شرط‌های WHERE را بدون alias (`status=?` و …) می‌ساخت → `GET /api/production/orders` خطای ۵۰۰؛ `prodJourneyRouteEnter` روی همهٔ صفحات تولید toast خطا + لیست خالی.
+- **رفع:** qualify به `po.status` / `po.product_id` / `po.period_label`؛ COUNT از `production_orders po`. اسکن JOIN+WHERE پویا: همان کلاس باگ در `GET /api/inventory/ledger` (`l.status='posted'`). بقیهٔ production/BOM/reports از قبل alias داشتند.
+- **تست:** `test:hotfix-ambiguous-status` ۳۳/۰؛ `test-sms` ۲۲/۰؛ parse `app.js` OK.
+- **فایل‌ها:** `lib/production/engine.js`, `routes/inventory.js`, `scripts/test-hotfix-ambiguous-status.js`, `package.json`, `public/{app.js,index.html,sw.js}`, Help، CHANGE-LOG.
+- **Deploy:** → ادامه در v557.
+
 ### ۱۴۰۵/۰۸/۰۴ — v555: QA فروش سریع فروشگاهی (C1–L5) (SW v555)
 - **منبع:** پرامپت `fix/store-quick-sale-qa-2026-10`؛ TDD روی DB موقت (`ERP_TEST_ISOLATION=1`)؛ بدون touch production / بدون auto-deploy.
 - **C1:** UI `disc`/`disc_amount` هم‌تراز سرور؛ `buildRows` هر دو نام (`disc`|`disc_pct`, `disc_amount`|`disc_amt`) را می‌پذیرد؛ `E_STORE_TOTAL_MISMATCH` اگر جمع پرداخت ≠ final.
