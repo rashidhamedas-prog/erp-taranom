@@ -2322,10 +2322,11 @@ function attachListFgPlan(db, row) {
 function listOrders(db, { status, productId, period, page = 1, limit = 50, includeVoided = false } = {}) {
   const where = ['1=1'];
   const params = [];
-  if (status) { where.push('status=?'); params.push(status); }
-  if (!includeVoided && status !== 'voided') where.push("IFNULL(status,'')!='voided'");
-  if (productId) { where.push('product_id=?'); params.push(productId); }
-  if (period) { where.push('period_label=?'); params.push(period); }
+  // Qualify po.* — products.status (v546+) makes bare status ambiguous on the JOIN.
+  if (status) { where.push('po.status=?'); params.push(status); }
+  if (!includeVoided && status !== 'voided') where.push("IFNULL(po.status,'')!='voided'");
+  if (productId) { where.push('po.product_id=?'); params.push(productId); }
+  if (period) { where.push('po.period_label=?'); params.push(period); }
   const lim = Math.min(Number(limit) || 50, 200);
   const off = (Math.max(Number(page) || 1, 1) - 1) * lim;
   const rows = db.prepare(`
@@ -2341,7 +2342,7 @@ function listOrders(db, { status, productId, period, page = 1, limit = 50, inclu
     attachListFgPlan(db, row);
   }
   const total = db.prepare(`
-    SELECT COUNT(*) c FROM production_orders WHERE ${where.join(' AND ')}
+    SELECT COUNT(*) c FROM production_orders po WHERE ${where.join(' AND ')}
   `).get(...params).c;
   return { rows, total, page: Number(page) || 1, limit: lim };
 }

@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۴ — v556: Hotfix `ambiguous column name: status` در سفارش‌های تولید (SW v556)
+- **منبع:** پرامپت `prompt-fix-ambiguous-status.md`؛ شاخهٔ `hotfix/prod-orders-ambiguous-status`؛ بدون merge/deploy خودکار (تأیید حامد).
+- **ریشه:** از v546 ستون `products.status` اضافه شد؛ `listOrders` در `engine.js` با `LEFT JOIN products` شرط‌های WHERE را بدون alias (`status=?` و …) می‌ساخت → `GET /api/production/orders` خطای ۵۰۰؛ `prodJourneyRouteEnter` روی همهٔ صفحات تولید toast خطا + لیست خالی.
+- **رفع:** qualify به `po.status` / `po.product_id` / `po.period_label`؛ COUNT از `production_orders po`. اسکن JOIN+WHERE پویا: همان کلاس باگ در `GET /api/inventory/ledger` (`l.status='posted'`). بقیهٔ production/BOM/reports از قبل alias داشتند.
+- **تست:** `test:hotfix-ambiguous-status` ۳۳/۰ (RED قبل از fix: `ambiguous column name: status`؛ GREEN بعد از fix)؛ `test-sms` ۲۲/۰؛ parse `app.js` OK. `test-sync` روی tip فعلی main به‌خاطر seed walk-in فروشگاهی (v555) شکست پیش‌موجود دارد — خارج از دامنهٔ این hotfix.
+- **فایل‌ها:** `lib/production/engine.js`, `routes/inventory.js`, `scripts/test-hotfix-ambiguous-status.js`, `package.json`, `public/{app.js,index.html,sw.js}`, Help، CHANGE-LOG.
+- **Deploy:** ⏸ PR باز — عمداً بدون merge/deploy (دستور پرامپت).
+
 ### ۱۴۰۵/۰۸/۰۴ — v555: QA فروش سریع فروشگاهی (C1–L5) (SW v555)
 - **منبع:** پرامپت `fix/store-quick-sale-qa-2026-10`؛ TDD روی DB موقت (`ERP_TEST_ISOLATION=1`)؛ بدون touch production / بدون auto-deploy.
 - **C1:** UI `disc`/`disc_amount` هم‌تراز سرور؛ `buildRows` هر دو نام (`disc`|`disc_pct`, `disc_amount`|`disc_amt`) را می‌پذیرد؛ `E_STORE_TOTAL_MISMATCH` اگر جمع پرداخت ≠ final.
