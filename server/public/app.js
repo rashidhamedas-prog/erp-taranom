@@ -8360,6 +8360,250 @@ function productWebsiteStockPushOn(p){
   if(v==null || v==='') return true;
   return v===true || v===1 || v==='1' || v==='true';
 }
+function pfv2Hlp(tip){
+  const t=String(tip||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  return ` <button type="button" class="pfv2-hlp" aria-label="راهنما" title="${t}">?</button>`;
+}
+function pfv2Ean13Ok(code){
+  const d=toEnDigits(String(code||'')).replace(/\D/g,'');
+  if(d.length!==13) return {ok:false, len:d.length};
+  let sum=0;
+  for(let i=0;i<12;i++) sum += Number(d[i]) * (i%2===0?1:3);
+  const check=(10-(sum%10))%10;
+  return {ok:check===Number(d[12]), len:13};
+}
+function pfv2ParseNonNegInt(raw){
+  const t=toEnDigits(String(raw||'')).trim();
+  if(t==='' ) return {empty:true};
+  if(!/^\d+$/.test(t)) return {bad:true};
+  return {n:parseInt(t,10)};
+}
+function pfv2MoneyOk(id){
+  const e=el(id); if(!e) return true;
+  const raw=toEnDigits(String(e.value||'')).replace(/[^\d.]/g,'');
+  if(raw==='' ) return true;
+  if(!/^\d+(\.\d+)?$/.test(raw)) return false;
+  return Number(raw)>=0;
+}
+function pfv2SetFieldMsg(id, msg, kind){
+  const inp=el(id); if(!inp) return;
+  const wrap=inp.closest('.pfv2-field, .fg')||inp.parentElement;
+  if(!wrap) return;
+  const errId=id+'-err';
+  let err=document.getElementById(errId);
+  if(!err){
+    err=document.createElement('p');
+    err.id=errId;
+    err.className='pfv2-field-error';
+    err.setAttribute('role','alert');
+    wrap.appendChild(err);
+  }
+  const warnId=id+'-warn';
+  let warn=document.getElementById(warnId);
+  if(!warn){
+    warn=document.createElement('p');
+    warn.id=warnId;
+    warn.className='pfv2-field-warn';
+    wrap.appendChild(warn);
+  }
+  if(!msg){
+    wrap.classList.remove('is-invalid');
+    inp.removeAttribute('aria-invalid');
+    const desc=(inp.getAttribute('aria-describedby')||'').split(/\s+/).filter(x=>x && x!==errId && x!==warnId);
+    if(desc.length) inp.setAttribute('aria-describedby', desc.join(' ')); else inp.removeAttribute('aria-describedby');
+    err.hidden=true; err.textContent='';
+    warn.hidden=true; warn.textContent='';
+    return;
+  }
+  if(kind==='warn'){
+    wrap.classList.remove('is-invalid');
+    inp.removeAttribute('aria-invalid');
+    warn.hidden=false; warn.textContent='⚠ '+msg;
+    err.hidden=true; err.textContent='';
+    const desc=new Set(((inp.getAttribute('aria-describedby')||'')+' '+warnId).trim().split(/\s+/).filter(Boolean));
+    inp.setAttribute('aria-describedby', [...desc].join(' '));
+  }else{
+    wrap.classList.add('is-invalid');
+    inp.setAttribute('aria-invalid','true');
+    err.hidden=false; err.textContent='⚠ '+msg;
+    warn.hidden=true; warn.textContent='';
+    const desc=new Set(((inp.getAttribute('aria-describedby')||'')+' '+errId).trim().split(/\s+/).filter(Boolean));
+    inp.setAttribute('aria-describedby', [...desc].join(' '));
+  }
+}
+function prodFormV2ValidateField(id){
+  const inp=el(id); if(!inp) return null;
+  if(id==='p-name'){
+    if(!String(inp.value||'').trim()){
+      pfv2SetFieldMsg(id,'نام کالا را وارد کنید.','error');
+      return {id, blocking:true, msg:'نام کالا را وارد کنید.', label:'نام کالا'};
+    }
+    pfv2SetFieldMsg(id,null); return null;
+  }
+  if(id==='p-barcode'){
+    const v=String(inp.value||'').trim();
+    if(!v){ pfv2SetFieldMsg(id,null); return null; }
+    const r=pfv2Ean13Ok(v);
+    if(r.len!==13){
+      const msg='بارکد باید ۱۳ رقم باشد؛ '+r.len+' رقم وارد شده.';
+      pfv2SetFieldMsg(id,msg,'warn'); return {id, blocking:false, msg, label:'بارکد'};
+    }
+    if(!r.ok){
+      const msg='رقم کنترل بارکد درست نیست.';
+      pfv2SetFieldMsg(id,msg,'warn'); return {id, blocking:false, msg, label:'بارکد'};
+    }
+    pfv2SetFieldMsg(id,null); return null;
+  }
+  if(id==='p-price'||id==='p-retail'||id==='p-cost'){
+    if(!pfv2MoneyOk(id)){
+      const msg='قیمت را فقط با عدد وارد کنید (ریال).';
+      pfv2SetFieldMsg(id,msg,'warn'); return {id, blocking:false, msg, label:id};
+    }
+    pfv2SetFieldMsg(id,null);
+    if(id==='p-retail'||id==='p-cost'||id==='p-price'){
+      const retail=moneyVal('p-retail'), cost=moneyVal('p-cost'), price=moneyVal('p-price');
+      if(el('p-retail') && el('p-cost') && retail>0 && cost>0 && retail<cost){
+        pfv2SetFieldMsg('p-retail','قیمت تک از بهای تمام‌شده کمتر است.','warn');
+      }
+      if(el('p-price') && el('p-retail') && price>0 && retail>0 && price>retail){
+        pfv2SetFieldMsg('p-price','قیمت عمده از قیمت تک بیشتر است؛ مطمئن هستید؟','warn');
+      }
+    }
+    return null;
+  }
+  if(id==='p-stock'||id==='p-alert'){
+    const r=pfv2ParseNonNegInt(inp.value);
+    if(r.bad || (r.n!=null && r.n<0)){
+      const msg='موجودی باید عدد صحیح و نامنفی باشد.';
+      pfv2SetFieldMsg(id,msg,'warn'); return {id, blocking:false, msg, label:id};
+    }
+    pfv2SetFieldMsg(id,null); return null;
+  }
+  if(id==='p-pack_size'){
+    const r=pfv2ParseNonNegInt(inp.value);
+    if(r.bad || r.empty || (r.n!=null && r.n<1)){
+      const msg='تعداد در پک دست‌کم ۱ است.';
+      pfv2SetFieldMsg(id,msg,'warn'); return {id, blocking:false, msg, label:'تعداد در پک'};
+    }
+    pfv2SetFieldMsg(id,null); return null;
+  }
+  return null;
+}
+function prodFormV2ValidateAll(opts){
+  opts=opts||{};
+  const ids=['p-name','p-barcode','p-price','p-retail','p-cost','p-stock','p-alert','p-pack_size'];
+  const issues=[];
+  ids.forEach(id=>{ const r=prodFormV2ValidateField(id); if(r) issues.push(r); });
+  const box=el('pfv2-error-summary');
+  const list=el('pfv2-error-list');
+  const status=el('pfv2-save-status');
+  const blocking=issues.filter(x=>x.blocking);
+  const show=issues;
+  if(box && list){
+    if(!show.length){ box.hidden=true; list.innerHTML=''; }
+    else{
+      box.hidden=false;
+      list.innerHTML=show.map(x=>`<li><a href="#${esc(x.id)}" data-csp-click="${CSP.bind('click',function(event){event.preventDefault(); const n=el('${x.id}'); if(n){ n.focus(); n.scrollIntoView({block:'center'}); }})}">${esc(x.label||x.id)}: ${esc(x.msg)}</a></li>`).join('');
+      if(opts.focusSummary) try{ box.focus(); }catch(_){}
+    }
+  }
+  document.querySelectorAll('.pfv2-nav-link').forEach(a=>{
+    const sec=a.getAttribute('data-section');
+    const has=show.some(i=>{
+      const map={base:['p-name','p-barcode','p-code'], price:['p-price','p-retail','p-cost'], color:['p-pack_size'], stock:['p-stock','p-alert'], images:[], notes:[]};
+      return (map[sec]||[]).includes(i.id);
+    });
+    a.classList.toggle('has-error', !!has);
+    const badge=a.querySelector('.pfv2-nav-err');
+    if(badge) badge.hidden=!has;
+  });
+  if(status){
+    if(blocking.length||show.length){
+      status.innerHTML=`<a href="#pfv2-error-summary">${fmt(show.length)} خطا — مشاهده</a>`;
+    }else{
+      status.textContent='تغییرات ذخیره نشده';
+    }
+  }
+  return { issues:show, blocking };
+}
+async function prodFormV2Save(id){
+  const btn=el('pfv2-save-btn');
+  const v=prodFormV2ValidateAll({focusSummary:true});
+  // فقط نام خالی مسدودکننده است؛ saveProduct همان منطق فعلی را اجرا می‌کند
+  if(btn){
+    btn.setAttribute('aria-busy','true');
+    btn.disabled=true;
+    const prev=btn.textContent;
+    btn.textContent='در حال ذخیره…';
+    try{ await saveProduct(id||0); }
+    finally{
+      if(btn){ btn.removeAttribute('aria-busy'); btn.disabled=false; btn.textContent=prev||'ذخیره'; }
+    }
+    return;
+  }
+  await saveProduct(id||0);
+}
+function syncProdPackSummaryFromChips(opts){
+  opts=opts||{};
+  const {colors,sizes}=typeof selectedProdChips==='function'?selectedProdChips():{colors:[],sizes:[]};
+  const n=colors.length, m=sizes.length, k=n*m;
+  const sum=el('pfv2-pack-summary');
+  if(sum){
+    sum.textContent=n||m ? (fmt(n)+' رنگ × '+fmt(m)+' سایز = '+fmt(k)+' عدد در پک') : 'رنگ و سایزی انتخاب نشده';
+  }
+  const cEl=el('p-colors');
+  if(cEl && (opts.forceColors || !window._prodPackColorsManual)){
+    if(n>0) cEl.value=String(n);
+  }
+  if(opts.writePack && el('p-pack_size') && k>0){
+    el('p-pack_size').value=String(Math.max(1,k));
+    window._prodPackAuto=true;
+  }
+}
+function autoCalcProdPackSize(){
+  syncProdPackSummaryFromChips({writePack:true, forceColors:true});
+  prodFormV2ValidateField('p-pack_size');
+  showToast('تعداد در پک از رنگ×سایز محاسبه شد');
+}
+function bindProdFormV2(productId){
+  const root=document.querySelector('.prod-form-v2');
+  if(!root) return;
+  ['p-name','p-barcode','p-price','p-retail','p-cost','p-stock','p-alert','p-pack_size'].forEach(id=>{
+    const n=el(id); if(!n) return;
+    n.addEventListener('blur', ()=>prodFormV2ValidateField(id));
+    n.addEventListener('input', ()=>{
+      if(n.getAttribute('aria-invalid')==='true' || document.getElementById(id+'-warn')) prodFormV2ValidateField(id);
+      const st=el('pfv2-save-status'); if(st && !st.querySelector('a')) st.textContent='تغییرات ذخیره نشده';
+    });
+  });
+  const pack=el('p-pack_size');
+  if(pack){
+    pack.addEventListener('input', ()=>{ window._prodPackAuto=false; window._prodPackColorsManual=false; });
+  }
+  const colors=el('p-colors');
+  if(colors){
+    colors.addEventListener('input', ()=>{ window._prodPackColorsManual=true; });
+  }
+  const drop=el('pfv2-dropzone');
+  const file=el('p-image');
+  if(drop && file){
+    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('is-dragover'); }));
+    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('is-dragover'); }));
+    drop.addEventListener('drop', e=>{
+      const files=e.dataTransfer && e.dataTransfer.files;
+      if(!files || !files.length) return;
+      try{
+        const dt=new DataTransfer();
+        [...files].forEach(f=>dt.items.add(f));
+        file.files=dt.files;
+        file.dispatchEvent(new Event('change',{bubbles:true}));
+      }catch(_){}
+    });
+  }
+  syncProdPackSummaryFromChips();
+  prodFormV2ValidateAll();
+}
+
 async function prodModal(id){
   await loadLiveWarehousesForAccess();
   await ensureProductCategories(true);
@@ -8383,104 +8627,182 @@ async function prodModal(id){
   window._prodMatrixWhId = Number(p.warehouse_id)||window._prodMatrixWhId||0;
   window._prodSkuSticky = { productId: id ? Number(id) : 0, primed: false, colorIds: [], sizeOrder: [], tab: 'here' };
   window._prodSkuReadOnly = !(typeof isAdmin==='function' && isAdmin()) && !(ME && ME.role==='accounting');
+  window._prodPackAuto = false;
+  window._prodPackColorsManual = false;
   const cats=CACHE.productCategories||[];
+  const titleText=id?'ویرایش کالا':'کالای جدید';
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام کالا * ${hlp('نام کامل کالا همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
-      <div class="fg"><label>دسته‌بندی ${hlp('از لیست دسته‌های تعریف‌شده انتخاب کنید — یا از دکمه «دسته‌بندی‌ها» دسته جدید بسازید.')}</label>
-        <select id="p-cat-id"><option value="">— بدون دسته / متن آزاد —</option>
-          ${cats.map(c=>`<option value="${c.id}" ${p.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
-        </select></div>
-      <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
-      <div class="fg"><label>کد کالا ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
-      <div class="fg"><label>قیمت فروش عمده (ریال) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
-      <div class="fg"><label>قیمت فروش تک (ریال) ${hlp('قیمت خرده‌فروشی — از فرمول قیمت‌گذاری تولید هم قابل پر شدن خودکار است.')}</label><input id="p-retail" type="text" inputmode="numeric" class="money" value="${moneyInit(p.retail_price||p.retail_price_rial||0)}"></div>
-      <div class="fg"><label>بهای تمام‌شده (ریال) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
-      <div class="fg" id="p-stock-fg"><label>موجودی کلی ${hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" type="number" step="0.001" inputmode="decimal" value="${p.stock!=null?p.stock:0}"></div>
-      <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
-      <div class="fg"><label>واحد ${hlp('از کاتالوگ واحدها انتخاب می‌شود. عدد و ست و جفت صحیح می‌مانند. متر و یارد و کیلو اعشار دارند. موجودی در همین واحد نگه داشته می‌شود.')}</label>${uomSelectHtml('p-unit-id', p.unit_id, p.unit||'عدد')}</div>
-      <div class="fg"><label>طبقه‌بندی تولید ${hlp('برای اجزاء BOM باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشد. محصول نهایی دوخته‌شده = محصول نهایی + تیک ساختنی.')}</label>
-        <select id="p-item_type">
-          <option value="finished" ${(p.item_type||'finished')==='finished'?'selected':''}>محصول نهایی</option>
-          <option value="raw" ${p.item_type==='raw'?'selected':''}>مواد اولیه</option>
-          <option value="packaging" ${p.item_type==='packaging'?'selected':''}>بسته‌بندی</option>
-          <option value="semi" ${p.item_type==='semi'?'selected':''}>نیمه‌ساخته</option>
-          <option value="material" ${p.item_type==='material'?'selected':''}>مواد مصرفی</option>
-          <option value="scrap" ${p.item_type==='scrap'?'selected':''}>ضایعات</option>
-          <option value="service" ${p.item_type==='service'?'selected':''}>خدمت</option>
-        </select>
+    <div class="prod-form-v2">
+    <div class="modal-head"><h3>${titleText}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}" aria-label="بستن">×</button></div>
+    <div class="modal-body">
+      <div id="pfv2-error-summary" class="pfv2-error-summary" role="alert" tabindex="-1" hidden>
+        <h2>مشکلات فرم</h2>
+        <ul id="pfv2-error-list"></ul>
       </div>
-      <div class="fg"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:22px`)}"><input type="checkbox" id="p-is-manufactured" ${Number(p.is_manufactured)===1?'checked':''}> کالای ساختنی (سفارش تولید / نیمه‌ساخته مجاز در BOM)</label></div>
-      <div class="fg full"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start;line-height:1.7`)}"><input type="checkbox" id="p-website-stock-push" ${productWebsiteStockPushOn(p)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:4px`)}"> <span>ارسال موجودی این کالا به سایت ${hlp('اگر خاموش باشد، موجودی همین کالا به فروشگاه فرستاده نمی‌شود. موجودی داخل ERP، فاکتور و انبار عوض نمی‌شود. عددی که قبلاً روی سایت نوشته شده تا روشن کردن دوبارهٔ این تیک همان‌جا می‌ماند و صفر نمی‌شود.')}</span></label></div>
-      <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
-      <div class="fg"><label>تعداد در پک ${hlp('فقط وقتی ماتریس رنگ×سایز نیست استفاده می‌شود. با ماتریس، پک زنده = رنگ‌های کامل × سایزها (رنگی که حتی یک سایزش صفر باشد از پک خارج می‌شود) و تعداد پک کامل = حداقل موجودی همان خانه‌ها.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
-      <div class="fg"><label>پک کامل ${hlp('خالی = تنظیم سراسری (تنظیمات فاکتور). اجباری: فقط پک کامل مگر ناقص باشد و ماتریس باز شود. اختیاری: ماتریس آزادتر.')}</label>
-        <select id="p-full_pack_mode">
-          <option value="" ${!p.full_pack_mode?'selected':''}>پیش‌فرض سیستم</option>
-          <option value="required" ${p.full_pack_mode==='required'?'selected':''}>اجباری</option>
-          <option value="optional" ${p.full_pack_mode==='optional'?'selected':''}>اختیاری</option>
-        </select></div>
-      <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
-      <div class="fg full" id="p-variants-wrap">
-        <label>SKU مدل × رنگ × سایز ${hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
-        ${id?`<div id="p-variants-panel" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">در حال بارگذاری واریانت‌ها...</div>
-        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:8px`)}">
-          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){openProdVariantMatrixModal((id))})}">➕ ساخت ماتریس رنگ×سایز</button>
-          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){refreshProdVariantsPanel((id))})}">🔄 بروزرسانی</button>
-          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-colors');closeModal()})}">🎨 رنگ‌ها</button>
-          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-sizes');closeModal()})}">📐 سایزها</button>
-        </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">رنگ و سایز را بالا تیک بزنید؛ با ذخیره، ماتریس SKU ساخته می‌شود.</div>`}
-      </div>
-      <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
-        <div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}">
-          <input id="p-barcode" dir="ltr" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" data-csp-style="${CSP.style(`flex:1`)}">
-          ${id&&!p.barcode?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){genBarcode((id))})}" title="تولید خودکار بارکد">⚡ تولید</button>`:''}
-          ${id&&p.barcode?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeLabels((id))})}" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
-        </div></div>
-      <div class="fg"><label>انبار اصلی ${hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
-        <select id="p-warehouse">${warehouseOptionsHtml(p.warehouse_id,'— انتخاب انبار —')}</select></div>
-      <div class="fg"><label>روش ریالی‌کردن کالا ${hlp('اگر خالی باشد از روش انبار یا تنظیمات سراسری پیروی می‌کند. اولویت کالا/انبار و سطح ارزش‌گذاری در «انبار ← ریالی و تعدیل بهای موجودی ← مبنای ریالی» تعیین می‌شود.')}</label>
-        <select id="p-costing">
-          <option value="" ${!p.costing_method?'selected':''}>پیروی از انبار / سراسری</option>
-          <option value="moving_average" ${p.costing_method==='moving_average'?'selected':''}>میانگین موزون</option>
-          <option value="fifo" ${p.costing_method==='fifo'?'selected':''}>FIFO</option>
-          <option value="specific" ${p.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
-        </select><div id="p-costing-eff" class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px;line-height:1.7`)}"></div>${ivalPolicyHintLater('p-costing-eff','product',id)}</div>
-      ${ivalLevelFieldHtml('p-val-level',p.valuation_level,'گروه کالا / انبار / سراسری')}
-      <div class="fg full"><label>تصاویر کالا ${hlp('چند تصویر را یک‌جا انتخاب کنید — به گالری اضافه می‌شوند و عکس قبلی پاک نمی‌شود. تصویر اولِ ثبت‌شده به‌عنوان اصلی است.')}</label>
-        <input id="p-image" type="file" accept="image/*" multiple></div>
-      <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
-      <div class="fg full">
-        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px`)}">پیش‌نمایش تصاویر — کلیک برای آلبوم کامل</div>
-        <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}" id="p-img-preview">
-        ${(()=>{
-          const gallery=productImageList(p);
-          if(!gallery.length) return '<span class="muted">تصویری ثبت نشده</span>';
-          return gallery.map((fn,i)=>{
-            const row=(p.images||[]).find(im=>(im.filename||im)===fn);
-            const iid=row&&row.id?row.id:0;
-            const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((id||0))})}">
-              ${prodImgTag(fn,'class=\"prod-thumb\"')}
-              ${iid&&id?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;left:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(id))})}">×</button>`:''}
-              ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;left:4px`)}">اصلی</span>`:''}
-            </div>`;
-          }).join('');
-        })()}
+      <div class="pfv2-shell">
+        <nav class="pfv2-nav" aria-label="بخش‌های فرم کالا">
+          <a class="pfv2-nav-link" href="#pfv2-sec-base" data-section="base">اطلاعات پایه <span class="pfv2-nav-err" hidden>● خطا</span></a>
+          <a class="pfv2-nav-link" href="#pfv2-sec-price" data-section="price">قیمت عمده/تک <span class="pfv2-nav-err" hidden>● خطا</span></a>
+          <a class="pfv2-nav-link" href="#pfv2-sec-color" data-section="color">رنگ و سایز <span class="pfv2-nav-err" hidden>● خطا</span></a>
+          <a class="pfv2-nav-link" href="#pfv2-sec-stock" data-section="stock">موجودی <span class="pfv2-nav-err" hidden>● خطا</span></a>
+          <a class="pfv2-nav-link" href="#pfv2-sec-images" data-section="images">تصاویر <span class="pfv2-nav-err" hidden>● خطا</span></a>
+          <a class="pfv2-nav-link" href="#pfv2-sec-notes" data-section="notes">توضیحات <span class="pfv2-nav-err" hidden>● خطا</span></a>
+        </nav>
+        <div class="pfv2-main">
+          <section class="pfv2-card" id="pfv2-sec-base" aria-labelledby="pfv2-h-base">
+            <h2 class="pfv2-card-title" id="pfv2-h-base">اطلاعات پایه</h2>
+            <p class="pfv2-card-desc">نام، دسته، کد و مشخصات اصلی کالا.</p>
+            <div class="pfv2-grid">
+              <div class="fg full pfv2-field pfv2-span-all"><label for="p-name">نام کالا <span class="pfv2-req" aria-hidden="true">*</span><span class="pfv2-sr-only">(الزامی)</span> ${pfv2Hlp('نام کامل کالا همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}" aria-required="true"></div>
+              <div class="fg pfv2-field"><label for="p-cat-id">دسته‌بندی ${pfv2Hlp('از لیست دسته‌های تعریف‌شده انتخاب کنید — یا از دکمه «دسته‌بندی‌ها» دسته جدید بسازید.')}</label>
+                <select id="p-cat-id"><option value="">— بدون دسته / متن آزاد —</option>
+                  ${cats.map(c=>`<option value="${c.id}" ${p.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+                </select></div>
+              <div class="fg pfv2-field"><label for="p-code">کد کالا ${pfv2Hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار" inputmode="text"></div>
+              <div class="fg pfv2-field"><label for="p-cat">دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
+              <div class="fg pfv2-field"><label for="p-barcode">بارکد (EAN-13) ${pfv2Hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
+                <div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}">
+                  <input id="p-barcode" dir="ltr" inputmode="numeric" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" data-csp-style="${CSP.style(`flex:1`)}">
+                  ${id&&!p.barcode?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){genBarcode((id))})}" title="تولید خودکار بارکد">⚡ تولید</button>`:''}
+                  ${id&&p.barcode?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openBarcodeLabels((id))})}" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
+                </div></div>
+              <div class="fg pfv2-field"><label for="p-unit-id">واحد ${pfv2Hlp('از کاتالوگ واحدها انتخاب می‌شود. عدد و ست و جفت صحیح می‌مانند. متر و یارد و کیلو اعشار دارند. موجودی در همین واحد نگه داشته می‌شود.')}</label>${uomSelectHtml('p-unit-id', p.unit_id, p.unit||'عدد')}</div>
+              <div class="fg pfv2-field"><label for="p-item_type">طبقه‌بندی تولید ${pfv2Hlp('برای اجزاء BOM باید مواد اولیه/بسته‌بندی/نیمه‌ساخته باشد. محصول نهایی دوخته‌شده = محصول نهایی + تیک ساختنی.')}</label>
+                <select id="p-item_type">
+                  <option value="finished" ${(p.item_type||'finished')==='finished'?'selected':''}>محصول نهایی</option>
+                  <option value="raw" ${p.item_type==='raw'?'selected':''}>مواد اولیه</option>
+                  <option value="packaging" ${p.item_type==='packaging'?'selected':''}>بسته‌بندی</option>
+                  <option value="semi" ${p.item_type==='semi'?'selected':''}>نیمه‌ساخته</option>
+                  <option value="material" ${p.item_type==='material'?'selected':''}>مواد مصرفی</option>
+                  <option value="scrap" ${p.item_type==='scrap'?'selected':''}>ضایعات</option>
+                  <option value="service" ${p.item_type==='service'?'selected':''}>خدمت</option>
+                </select>
+              </div>
+              <div class="fg pfv2-field"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:22px`)}"><input type="checkbox" id="p-is-manufactured" ${Number(p.is_manufactured)===1?'checked':''}> کالای ساختنی (سفارش تولید / نیمه‌ساخته مجاز در BOM)</label></div>
+              ${coaCodeFieldHtml('product', id, p.coa_code)}
+            </div>
+          </section>
+
+          <section class="pfv2-card" id="pfv2-sec-price" aria-labelledby="pfv2-h-price">
+            <h2 class="pfv2-card-title" id="pfv2-h-price">قیمت عمده/تک</h2>
+            <p class="pfv2-card-desc">قیمت فروش، بهای تمام‌شده و روش ریالی.</p>
+            <div class="pfv2-grid">
+              <div class="fg pfv2-field"><label for="p-price">قیمت فروش عمده (ریال) ${pfv2Hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
+              <div class="fg pfv2-field"><label for="p-retail">قیمت فروش تک (ریال) ${pfv2Hlp('قیمت خرده‌فروشی — از فرمول قیمت‌گذاری تولید هم قابل پر شدن خودکار است.')}</label><input id="p-retail" type="text" inputmode="numeric" class="money" value="${moneyInit(p.retail_price||p.retail_price_rial||0)}"></div>
+              <div class="fg pfv2-field"><label for="p-cost">بهای تمام‌شده (ریال) ${pfv2Hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
+              <div class="fg pfv2-field"><label for="p-costing">روش ریالی‌کردن کالا ${pfv2Hlp('اگر خالی باشد از روش انبار یا تنظیمات سراسری پیروی می‌کند. اولویت کالا/انبار و سطح ارزش‌گذاری در «انبار ← ریالی و تعدیل بهای موجودی ← مبنای ریالی» تعیین می‌شود.')}</label>
+                <select id="p-costing">
+                  <option value="" ${!p.costing_method?'selected':''}>پیروی از انبار / سراسری</option>
+                  <option value="moving_average" ${p.costing_method==='moving_average'?'selected':''}>میانگین موزون</option>
+                  <option value="fifo" ${p.costing_method==='fifo'?'selected':''}>FIFO</option>
+                  <option value="specific" ${p.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
+                </select><div id="p-costing-eff" class="muted" data-csp-style="${CSP.style(`font-size:14px;margin-top:4px;line-height:1.7`)}"></div>${ivalPolicyHintLater('p-costing-eff','product',id)}</div>
+              ${ivalLevelFieldHtml('p-val-level',p.valuation_level,'گروه کالا / انبار / سراسری')}
+              <div class="fg full pfv2-extra pfv2-span-all">${productExtraFieldsHtml(p)}</div>
+            </div>
+          </section>
+
+          <section class="pfv2-card" id="pfv2-sec-color" aria-labelledby="pfv2-h-color">
+            <h2 class="pfv2-card-title" id="pfv2-h-color">رنگ و سایز</h2>
+            <p class="pfv2-card-desc">انتخاب رنگ/سایز، پک زنده و ماتریس SKU.</p>
+            <div class="pfv2-grid">
+              <div class="fg pfv2-field"><label for="p-colors">تعداد رنگ ${pfv2Hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" inputmode="numeric" value="${p.colors!=null?p.colors:1}"></div>
+              <div class="fg pfv2-field"><label for="p-pack_size">تعداد در پک ${pfv2Hlp('فقط وقتی ماتریس رنگ×سایز نیست استفاده می‌شود. با ماتریس، پک زنده = رنگ‌های کامل × سایزها (رنگی که حتی یک سایزش صفر باشد از پک خارج می‌شود) و تعداد پک کامل = حداقل موجودی همان خانه‌ها.')}</label>
+                <input id="p-pack_size" type="number" min="1" inputmode="numeric" value="${p.pack_size!=null?p.pack_size:1}">
+                <div class="pfv2-pack-actions"><button type="button" class="pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){autoCalcProdPackSize()})}">محاسبهٔ خودکار</button></div>
+              </div>
+              <div class="fg"><label for="p-full_pack_mode">پک کامل ${pfv2Hlp('خالی = تنظیم سراسری (تنظیمات فاکتور). اجباری: فقط پک کامل مگر ناقص باشد و ماتریس باز شود. اختیاری: ماتریس آزادتر.')}</label>
+                <select id="p-full_pack_mode">
+                  <option value="" ${!p.full_pack_mode?'selected':''}>پیش‌فرض سیستم</option>
+                  <option value="required" ${p.full_pack_mode==='required'?'selected':''}>اجباری</option>
+                  <option value="optional" ${p.full_pack_mode==='optional'?'selected':''}>اختیاری</option>
+                </select></div>
+              <div class="pfv2-pack-summary" id="pfv2-pack-summary" aria-live="polite">رنگ و سایزی انتخاب نشده</div>
+              <div class="fg full pfv2-span-all" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
+              <div class="fg full pfv2-span-all" id="p-variants-wrap">
+                <label>SKU مدل × رنگ × سایز ${pfv2Hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
+                ${id?`<div id="p-variants-panel" class="muted" data-csp-style="${CSP.style(`font-size:14px;margin-top:6px`)}">در حال بارگذاری واریانت‌ها...</div>
+                <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:8px`)}">
+                  <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){openProdVariantMatrixModal((id))})}">➕ ساخت ماتریس رنگ×سایز</button>
+                  <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){refreshProdVariantsPanel((id))})}">🔄 بروزرسانی</button>
+                  <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-colors');closeModal()})}">🎨 رنگ‌ها</button>
+                  <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-sizes');closeModal()})}">📐 سایزها</button>
+                </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:14px;margin-top:6px`)}">رنگ و سایز را بالا تیک بزنید؛ با ذخیره، ماتریس SKU ساخته می‌شود.</div>`}
+              </div>
+            </div>
+          </section>
+
+          <section class="pfv2-card" id="pfv2-sec-stock" aria-labelledby="pfv2-h-stock">
+            <h2 class="pfv2-card-title" id="pfv2-h-stock">موجودی</h2>
+            <p class="pfv2-card-desc">موجودی کلی، هشدار، انبار و ارسال به سایت.</p>
+            <div class="pfv2-grid">
+              <div class="fg pfv2-field" id="p-stock-fg"><label for="p-stock">موجودی کلی ${pfv2Hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" type="number" step="0.001" inputmode="numeric" value="${p.stock!=null?p.stock:0}"><div class="muted" id="pfv2-stock-matrix-hint" hidden>از جمع ماتریس محاسبه می‌شود</div></div>
+              <div class="fg pfv2-field"><label for="p-alert">هشدار موجودی ${pfv2Hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" inputmode="numeric" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
+              <div class="fg pfv2-field"><label for="p-warehouse">انبار اصلی ${pfv2Hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
+                <select id="p-warehouse">${warehouseOptionsHtml(p.warehouse_id,'— انتخاب انبار —')}</select></div>
+              <div class="fg pfv2-field"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start;line-height:1.7`)}"><input type="checkbox" id="p-website-stock-push" ${productWebsiteStockPushOn(p)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:4px`)}"> <span>ارسال موجودی این کالا به سایت ${pfv2Hlp('اگر خاموش باشد، موجودی همین کالا به فروشگاه فرستاده نمی‌شود. موجودی داخل ERP، فاکتور و انبار عوض نمی‌شود. عددی که قبلاً روی سایت نوشته شده تا روشن کردن دوبارهٔ این تیک همان‌جا می‌ماند و صفر نمی‌شود.')}</span></label></div>
+              ${id?`<div class="fg full pfv2-span-all" id="p-prod-ready"><span class="muted">بررسی مشخصات ضروری تولید…</span></div>`:''}
+            </div>
+          </section>
+
+          <section class="pfv2-card" id="pfv2-sec-images" aria-labelledby="pfv2-h-images">
+            <h2 class="pfv2-card-title" id="pfv2-h-images">تصاویر</h2>
+            <p class="pfv2-card-desc">گالری تصاویر کالا؛ تصویر اول به‌عنوان اصلی است.</p>
+            <div class="pfv2-grid">
+              <div class="fg full pfv2-span-all">
+                <label for="p-image">تصاویر کالا ${pfv2Hlp('چند تصویر را یک‌جا انتخاب کنید — به گالری اضافه می‌شوند و عکس قبلی پاک نمی‌شود. تصویر اولِ ثبت‌شده به‌عنوان اصلی است.')}</label>
+                <div class="pfv2-drop" id="pfv2-dropzone" tabindex="0">
+                  <div>تصاویر را اینجا رها کنید یا انتخاب کنید</div>
+                  <input id="p-image" type="file" accept="image/*" multiple aria-label="انتخاب تصاویر کالا">
+                </div>
+              </div>
+              <div class="fg full pfv2-span-all">
+                <div class="muted" data-csp-style="${CSP.style(`font-size:14px;margin-bottom:6px`)}">پیش‌نمایش تصاویر — کلیک برای آلبوم کامل</div>
+                <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}" id="p-img-preview">
+                ${(()=>{
+                  const gallery=productImageList(p);
+                  if(!gallery.length) return '<span class="muted">تصویری ثبت نشده</span>';
+                  return gallery.map((fn,i)=>{
+                    const row=(p.images||[]).find(im=>(im.filename||im)===fn);
+                    const iid=row&&row.id?row.id:0;
+                    const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+                    return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((id||0))})}">
+                      ${prodImgTag(fn,'class=\"prod-thumb\"')}
+                      ${iid&&id?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(id))})}">×</button>`:''}
+                      ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;inset-inline-start:4px`)}">اصلی</span>`:''}
+                    </div>`;
+                  }).join('');
+                })()}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="pfv2-card" id="pfv2-sec-notes" aria-labelledby="pfv2-h-notes">
+            <h2 class="pfv2-card-title" id="pfv2-h-notes">توضیحات</h2>
+            <p class="pfv2-card-desc">یادداشت آزاد درباره جنس، سایزبندی و رنگ‌بندی.</p>
+            <div class="pfv2-grid">
+              <div class="fg full pfv2-field pfv2-span-all"><label for="p-note">یادداشت ${pfv2Hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note" rows="4">${esc(p.note||'')}</textarea></div>
+            </div>
+          </section>
         </div>
       </div>
-      ${coaCodeFieldHtml('product', id, p.coa_code)}
-      ${productExtraFieldsHtml(p)}
-      ${id?`<div class="fg full" id="p-prod-ready"><span class="muted">بررسی مشخصات ضروری تولید…</span></div>`:''}
-    </div></div>
-    <div class="modal-foot">${window._prodSkuReadOnly?'':`<button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>`}
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">${window._prodSkuReadOnly?'بستن':'انصراف'}</button></div>`);
+    </div>
+    <div class="modal-foot pfv2-savebar">
+      <div class="pfv2-save-status" id="pfv2-save-status">تغییرات ذخیره نشده</div>
+      <div class="pfv2-savebar-actions">
+        ${window._prodSkuReadOnly?'':`<button type="button" class="btn primary" id="pfv2-save-btn" data-csp-click="${CSP.bind('click',function(event){prodFormV2Save((id||0))})}">ذخیره</button>`}
+        <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">${window._prodSkuReadOnly?'بستن':'انصراف'}</button>
+      </div>
+    </div>
+    </div>`);
   bindProductImageInstantUpload(id||0);
   setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProductProductionReady(id); }catch(_){} }, 0);
+  setTimeout(()=>{ try{ bindProdFormV2(id||0); }catch(_){} }, 0);
 }
+
 async function refreshProductProductionReady(productId){
   const box=el('p-prod-ready');
   if(!box||!productId) return;
@@ -8613,6 +8935,7 @@ function onProdSkuChipChange(){
   syncProdSkuStickyFromDom();
   renderProdStockGrid();
   renderProdPackLiveCard();
+  try{ syncProdPackSummaryFromChips(); }catch(_){}
 }
 function moveProdSizeOrder(sizeId, dir){
   if(!prodSkuCanMutate()) return;
@@ -8765,24 +9088,29 @@ async function loadProdSkuChips(productId, opts){
   const byWhHtml=(window._prodStockByWh||[]).length
     ? `<div class="muted prod-sku-bywh">تفکیک عددی انبارها: ${(window._prodStockByWh).map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ')}</div>`
     : '';
-  const whSel=whs.length?`<div class="fg prod-sku-wh"><label>انبار برای موجودی رنگ×سایز ${hlp('اعداد ماتریس فقط موجودی همین انبار است. تعویض انبار تیک رنگ/سایز را عوض نمی‌کند؛ فقط اعداد جدول را تازه می‌کند. می‌توانید برای هر انبار رنگ کم/زیاد کنید.')}</label>
+  const whSel=whs.length?`<div class="fg prod-sku-wh"><label for="p-matrix-wh">انبار برای موجودی رنگ×سایز ${hlp('اعداد ماتریس فقط موجودی همین انبار است. تعویض انبار تیک رنگ/سایز را عوض نمی‌کند؛ فقط اعداد جدول را تازه می‌کند. می‌توانید برای هر انبار رنگ کم/زیاد کنید.')}</label>
     <select id="p-matrix-wh"${dis} data-csp-change="${CSP.bind('change',function(){onProdMatrixWarehouseChange((productId||0))})}">
       ${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(defaultWh)?'selected':''}>${esc(w.name)}</option>`).join('')}
     </select></div>`:'';
 
-  const colorChips=filteredColors.length?filteredColors.map(c=>{
+  const showAll=!!(st._showAllColors || colorQ);
+  const selectedColors=filteredColors.filter(c=>usedC.has(Number(c.id)));
+  const restColors=filteredColors.filter(c=>!usedC.has(Number(c.id)));
+  const limitedColors=showAll?filteredColors:[...selectedColors, ...restColors.slice(0,12)];
+  const hiddenCount=Math.max(0, filteredColors.length - limitedColors.length);
+  const colorChips=filteredColors.length?limitedColors.map(c=>{
     const on=usedC.has(Number(c.id));
     const hex=prodColorSwatchHex(c);
-    return `<label class="prod-color-chip${on?' is-on':''}" title="${esc(c.name)}">
+    return `<label class="prod-color-chip${on?' is-on':''}" title="${esc(c.name)}" ${ro?'aria-disabled="true"':''}>
       <input type="checkbox" class="p-chip-color" value="${c.id}" data-name="${esc(c.name)}" ${on?'checked':''}${dis}>
       <span class="var-swatch" data-csp-style="${CSP.style(`background:${hex}`)}"></span>
       <span class="prod-color-name">${esc(c.name)}</span>
     </label>`;
-  }).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>';
+  }).join('') + (hiddenCount?`<button type="button" class="pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){const st2=window._prodSkuSticky||{};st2._showAllColors=true;loadProdSkuChips(productId||0,{keepSticky:true})})}">همهٔ رنگ‌ها (${fmt(filteredColors.length)})</button>`: (!showAll && filteredColors.length>12 ? `<button type="button" class="pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){const st2=window._prodSkuSticky||{};st2._showAllColors=true;loadProdSkuChips(productId||0,{keepSticky:true})})}">همهٔ رنگ‌ها (${fmt(filteredColors.length)})</button>` : '')):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>';
 
   const sizeChecks=sizes.length?sizes.map(s=>{
     const on=usedS.has(Number(s.id));
-    return `<label class="prod-size-chip${on?' is-on':''}">
+    return `<label class="prod-size-chip${on?' is-on':''}" ${ro?'aria-disabled="true"':''}>
       <input type="checkbox" class="p-chip-size" value="${s.id}" data-name="${esc(s.name)}" ${on?'checked':''}${dis}>
       <span>${esc(s.name)}</span>
     </label>`;
@@ -8868,6 +9196,7 @@ async function loadProdSkuChips(productId, opts){
   setProdSkuTab(tab);
   renderProdStockGrid();
   renderProdPackLiveCard();
+  try{ syncProdPackSummaryFromChips(); }catch(_){ }
 }
 function includeProdPreserveColor(colorId){
   if(!prodSkuCanMutate()) return;
@@ -8912,6 +9241,8 @@ function renderProdStockGrid(){
   const ro=!prodSkuCanMutate();
   if(colors.length && sizes.length){
     if(stockFg) stockFg.style.display='none';
+    const hint=el('pfv2-stock-matrix-hint'); if(hint) hint.hidden=false;
+    const stockInp=el('p-stock'); if(stockInp){ stockInp.readOnly=true; stockInp.title='از جمع ماتریس محاسبه می‌شود'; }
     const vars=window._prodStyleVariants||[];
     const qtyOf=(cid,sid)=>{
       const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
@@ -20173,7 +20504,7 @@ async function stockAdjustVoid(id, txNo, opts){
 }
 function ivalLevelFieldHtml(id,value,scopeFa){
   const v=value==='product'||value==='warehouse'?value:'';
-  return `<div class="fg"><label>سطح ارزش‌گذاری ${hlp('مشترک: همهٔ انبارها یک میانگین/استخر بها دارند. مستقل: هر انبار میانگین جداگانه دارد. پیروی: از سطح بالاتر (کالا ← گروه کالا ← انبار ← تنظیم سراسری) گرفته می‌شود. تغییر فقط روی خروجی‌های بعدی اثر دارد و در گزارش ممیزی ثبت می‌شود.')}</label>
+  return `<div class="fg"><label for="${esc(id)}">سطح ارزش‌گذاری ${hlp('مشترک: همهٔ انبارها یک میانگین/استخر بها دارند. مستقل: هر انبار میانگین جداگانه دارد. پیروی: از سطح بالاتر (کالا ← گروه کالا ← انبار ← تنظیم سراسری) گرفته می‌شود. تغییر فقط روی خروجی‌های بعدی اثر دارد و در گزارش ممیزی ثبت می‌شود.')}</label>
     <select id="${id}">
       <option value="" ${!v?'selected':''}>پیروی (${esc(scopeFa)})</option>
       <option value="product" ${v==='product'?'selected':''}>مشترک بین انبارها</option>
@@ -33201,9 +33532,9 @@ function custExtraFieldsHtml(c){
 function productExtraFieldsHtml(p){
   if(!usesExtendedCoa()) return '';
   p=p||{};
-  return `<div class="fg full" data-csp-style="${CSP.style(`border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px`)}">
-    <div data-csp-style="${CSP.style(`font-weight:600;color:var(--purple);margin-bottom:8px`)}">📋 فیلدهای تکمیلی (کالا)</div>
-    <div class="form-grid">
+  return `<details class="pfv2-extra-details" open>
+    <summary>اطلاعات حسابداری تکمیلی</summary>
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}">
       <div class="fg"><label>کد عملیاتی</label><input id="p-op_code" dir="ltr" class="mono" value="${esc(p.op_code||'')}" readonly></div>
       <div class="fg"><label>نام کامل کالا</label><input id="p-full_name" value="${esc(p.full_name||'')}"></div>
       <div class="fg"><label>نوع کالا</label><input id="p-product_type" value="${esc(p.product_type||'')}"></div>
@@ -33215,7 +33546,7 @@ function productExtraFieldsHtml(p){
       <div class="fg"><label>مکان کالا</label><input id="p-location" value="${esc(p.location||'')}"></div>
       <div class="fg"><label>کد پیامکی</label><input id="p-sms_code" value="${esc(p.sms_code||'')}"></div>
     </div>
-  </div>`;
+  </details>`;
 }
 function bankExtraFieldsHtml(b){
   b=b||{};
@@ -36076,6 +36407,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>موجودی اول دوره در ماه قفل‌شدهٔ انبار ثبت نمی‌شود (E_INV_PERIOD_LOCKED).</li>
         <li>ستون‌های <code>tax_basket_code</code> و <code>iran_product_id</code> فقط ذخیره می‌شوند — بدون اتصال مودیان.</li>
       </ul>
+      <h5>فرم کالای جدید — بازطراحی UI (SW v552)</h5>
+      <ul>
+        <li>مودال افزودن/ویرایش کالا در شش کارت است: اطلاعات پایه، قیمت عمده/تک، رنگ و سایز، موجودی، تصاویر، توضیحات.</li>
+        <li>نوار ذخیره چسبان پایین فرم همان ذخیرهٔ قبلی را صدا می‌زند؛ منطق و payload عوض نشده است.</li>
+        <li>اعتبارسنجی نام خالی همچنان مسدودکننده است؛ بقیهٔ قواعد (بارکد EAN، قیمت، پک، …) فقط هشدار نمایشی هستند.</li>
+        <li>خلاصهٔ زندهٔ «N رنگ × M سایز = K عدد در پک» و لینک «محاسبهٔ خودکار» برای <code>تعداد در پک</code> اضافه شده؛ ویرایش دستی پک حفظ می‌شود.</li>
+      </ul>
       <h5>تفکیک وظایف / maker-checker (ممیزی ۸D / SW v550)</h5>
       <ul>
         <li>سازندهٔ یک سند <b>نمی‌تواند</b> همان سند را تأیید یا ثبت قطعی کند — حتی نقش مدیر سیستم. کد خطا: <code>E_SOD_MAKER_CHECKER</code> (۴۰۳).</li>
@@ -36201,7 +36539,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v551</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v552</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
