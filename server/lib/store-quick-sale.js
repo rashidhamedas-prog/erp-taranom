@@ -157,7 +157,13 @@ function retailUnitPriceRial(prod) {
   return Math.round(Number(prod.price_rial || prod.price) || 0);
 }
 
-function applyRetailRowDefaults(db, rows) {
+/**
+ * Apply retail defaults. When forceRetail (store_retail), ignore client unit_price
+ * unless opts.allowPriceOverride (admin/accounting price-change permission).
+ */
+function applyRetailRowDefaults(db, rows, opts) {
+  const forceRetail = !!(opts && opts.forceRetail);
+  const allowOverride = !!(opts && opts.allowPriceOverride);
   return (Array.isArray(rows) ? rows : []).map((r) => {
     if (!r || r.row_type === 'income') return r;
     const pid = parseInt(r.product_id, 10);
@@ -166,8 +172,14 @@ function applyRetailRowDefaults(db, rows) {
       'SELECT id, retail_price_rial, retail_price, price_rial, price, name, code, barcode, unit FROM products WHERE id=?'
     ).get(pid);
     if (!prod) return r;
+    const retail = retailUnitPriceRial(prod);
     const sent = Math.round(Number(r.unit_price != null ? r.unit_price : r.price) || 0);
-    const unit = sent > 0 ? sent : retailUnitPriceRial(prod);
+    let unit;
+    if (forceRetail && !allowOverride) {
+      unit = retail > 0 ? retail : (sent > 0 ? sent : 0);
+    } else {
+      unit = sent > 0 ? sent : retail;
+    }
     return {
       ...r,
       name: r.name || prod.name,
@@ -297,7 +309,11 @@ function prepareStoreQuickSaleBody(db, user, body) {
   }
   const whId = resolveStoreWarehouseId(db, user, b);
   b.warehouse_id = whId;
-  b.rows = applyRetailRowDefaults(db, b.rows);
+  const role = user && user.role;
+  b.rows = applyRetailRowDefaults(db, b.rows, {
+    forceRetail: isStoreRetailRole(role),
+    allowPriceOverride: role === 'admin' || role === 'accounting',
+  });
   for (const r of b.rows) {
     if (r && r.row_type !== 'income') r.warehouse_id = whId;
   }
@@ -323,6 +339,33 @@ function prepareStoreQuickSaleBody(db, user, body) {
   return b;
 }
 
+/**
+ * Quick-sale: payment sum must equal server final (no silent AR from mismatch).
+ * Explicit credit pay_type without splits is allowed for non-walk-in customers.
+ */
+function assertStorePaymentMatchesFinal(body, finalAmt, opts) {
+  const exchangeCredit = moneyRial((opts && opts.exchangeCreditRial) || 0);
+  const final = moneyRial(finalAmt);
+  const expect = Math.max(0, final - Math.min(exchangeCredit, final));
+  const headerPt = String((body && body.pay_type) || '').toLowerCase();
+  const explicitCredit = CREDITISH.has(headerPt)
+    && !(Array.isArray(body.pay_splits) && body.pay_splits.length);
+  if (explicitCredit) return;
+  if (expect <= 0) return;
+  const plan = resolveInvoicePayments(body || {}, expect);
+  const paid = (plan.splits || []).reduce((a, s) => a + moneyRial(s.amount), 0);
+  if (Math.abs(moneyRial(paid) - expect) > 0.5) {
+    const e = new Error(
+      `جمع پرداخت (${moneyRial(paid)}) با مبلغ نهایی فاکتور (${expect}) هم‌خوان نیست`
+    );
+    e.status = 400;
+    e.code = 'E_STORE_TOTAL_MISMATCH';
+    e.paid = moneyRial(paid);
+    e.final = expect;
+    throw e;
+  }
+}
+
 function assertStoreQuickSaleRules(db, user, body, ctx) {
   const b = body || {};
   assertFirmStoreType(ctx && ctx.invType);
@@ -336,6 +379,9 @@ function assertStoreQuickSaleRules(db, user, body, ctx) {
   if (locksStoreWarehouse(user && user.role)) {
     resolveStoreWarehouseId(db, user, b);
   }
+  assertStorePaymentMatchesFinal(b, ctx && ctx.final, {
+    exchangeCreditRial: ctx && ctx.exchangeCreditRial,
+  });
   assertWalkinSettlement(db, custId, b, ctx && ctx.final, {
     exchangeCreditRial: ctx && ctx.exchangeCreditRial,
   });
@@ -526,6 +572,11 @@ function bootstrapStoreSale(db, user) {
       "SELECT id, name FROM cash_boxes WHERE COALESCE(active,1)=1 ORDER BY name"
     ).all();
   } catch (_) { cashBoxes = []; }
+  let vatRate = 10;
+  try {
+    const { getVatRate } = require('./vat');
+    vatRate = getVatRate(db);
+  } catch (_) { /* default */ }
   return {
     channel: STORE_CHANNEL,
     walkin_customer_id: walkinId,
@@ -538,6 +589,7 @@ function bootstrapStoreSale(db, user) {
     cash_box: cashBox,
     cash_boxes: cashBoxes,
     locks_cash_box: locksStoreCashBox(user && user.role),
+    vat_rate: vatRate,
   };
 }
 
@@ -734,6 +786,7 @@ module.exports = {
   resolveStoreCashBoxId,
   prepareStoreQuickSaleBody,
   assertStoreQuickSaleRules,
+  assertStorePaymentMatchesFinal,
   assertWalkinSettlement,
   bootstrapStoreSale,
   scalePaySplitsToNet,

@@ -7510,8 +7510,18 @@ function storeQsSubtotal(){
 }
 function storeQsFinal(){
   const sub = storeQsSubtotal();
-  const disc = Math.max(0, Math.min(100, Number(_storeQs.discPct)||0));
-  return Math.max(0, Math.round(sub * (1 - disc/100)));
+  const discPct = Math.max(0, Math.min(100, Number(_storeQs.discPct)||0));
+  const discAmt = Math.round(sub * discPct / 100);
+  const netBeforeVat = Math.max(0, sub - discAmt);
+  // L5: mirror server calcDocTotals for type=final (VAT on taxable base).
+  const invType = String(_storeQs.invType || 'normal');
+  if(invType !== 'final') return netBeforeVat;
+  const vatRate = Number((_storeQs.boot && _storeQs.boot.vat_rate) != null
+    ? _storeQs.boot.vat_rate
+    : (CACHE.settings && CACHE.settings.vat_rate)) || 10;
+  if(!(vatRate > 0) || (_storeQs.vatExempt)) return netBeforeVat;
+  const vatAmount = Math.round(netBeforeVat * vatRate / 100);
+  return netBeforeVat + vatAmount;
 }
 function storeQsReturnGross(){
   return (_storeQs.returnLines||[]).reduce((a,ln)=>{
@@ -7670,10 +7680,23 @@ function storeQsAddProduct(p, qty){
 async function storeQsLookupScan(code){
   const c=String(code||'').trim();
   if(!c) return;
+  let networkErr=false;
   try{
     const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c));
-    if(p&&p.id){ storeQsAddProduct(p,1); return; }
-  }catch(_){}
+    if(p&&p.id){
+      if(p.variant_id) p._scanVariantId=p.variant_id;
+      storeQsAddProduct(p,1);
+      return;
+    }
+  }catch(e){
+    const st=e&&(e.status||e.statusCode);
+    if(st && st!==404){ networkErr=true; }
+    else if(!st){ networkErr=true; }
+  }
+  if(networkErr){
+    showToast('خطای شبکه — دوباره تلاش کنید','error');
+    return;
+  }
   try{
     const list=listRows(await api('GET','/products?search='+encodeURIComponent(c)+'&limit=20'));
     if(list&&list.length===1){ storeQsAddProduct(list[0],1); return; }
@@ -7682,7 +7705,10 @@ async function storeQsLookupScan(code){
         <div class="modal-body">${list.slice(0,12).map(p=>`<button class="btn ghost" data-csp-style="${CSP.style(`display:block;width:100%;text-align:right;margin-bottom:6px`)}" data-csp-click="${CSP.bind('click',function(){closeModal();storeQsAddProduct(p,1)})}">${esc(p.name)} <span class="muted mono">${esc(p.code||p.barcode||'')}</span> — ${fmt(storeQsRetailPrice(p))}</button>`).join('')}</div>`);
       return;
     }
-  }catch(_){}
+  }catch(e){
+    showToast('خطای شبکه — دوباره تلاش کنید','error');
+    return;
+  }
   showToast('کالا یافت نشد: '+c,'error');
 }
 
@@ -8012,11 +8038,11 @@ function storeQsRenderLines(){
       </td>
       <td><input type="text" inputmode="numeric" class="money pos-disc-input" style="width:100px" value="${moneyInit(ln.unit_price)}" data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
       <td><div class="pos-stepper" onclick="event.stopPropagation()">
-        <button type="button" aria-label="کاهش" data-csp-click="${CSP.bind('click',function(){_storeQs.lines[idx].qty=Math.max(1,(Number(_storeQs.lines[idx].qty)||1)-1);_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">−</button>
-        <input data-pos-qty="${idx}" type="number" min="1" step="1" inputmode="numeric" value="${esc(String(ln.qty))}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
-        <button type="button" aria-label="افزایش" data-csp-click="${CSP.bind('click',function(){_storeQs.lines[idx].qty=(Number(_storeQs.lines[idx].qty)||0)+1;_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">+</button>
+        <button type="button" aria-label="کاهش" data-csp-click="${CSP.bind('click',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);_storeQs.lines[idx].qty=Math.max(cont?0.001:1,(Number(_storeQs.lines[idx].qty)||1)-(cont?0.1:1));_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">−</button>
+        <input data-pos-qty="${idx}" type="number" min="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" step="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" inputmode="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'decimal':'numeric'}" value="${esc(String(ln.qty))}" data-csp-change="${CSP.bind('change',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);const q=cont?Math.max(0.001,parseQty(this.value,1)):Math.max(1,Math.round(Number(this.value)||1));_storeQs.lines[idx].qty=q;_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
+        <button type="button" aria-label="افزایش" data-csp-click="${CSP.bind('click',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);_storeQs.lines[idx].qty=(Number(_storeQs.lines[idx].qty)||0)+(cont?0.1:1);_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">+</button>
       </div></td>
-      <td><input class="pos-disc-input" type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody({keepFocus:true});})}"></td>
+      <td>${ME.role==='store_retail'?'—':`<input class="pos-disc-input" type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody({keepFocus:true});})}">`}</td>
       <td class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
       <td><button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px;min-width:36px" aria-label="حذف" data-csp-click="${CSP.bind('click',function(ev){ev.stopPropagation();storeQsRemoveLine(idx,true);})}">🗑</button></td>
     </tr>`;
@@ -8167,16 +8193,29 @@ function storeQsRenderBody(opts){
       <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="false" disabled title="به‌زودی" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('card_transfer');})}">کارت‌به‌کارت</button>
       <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='credit'?'true':'false'}" ${isWalkin?'disabled title="برای مشتری نقدی مجاز نیست"':''} data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('credit');})}">اعتبار</button>
     </div>
-    <button type="button" class="pos-pay-chip" style="width:100%;margin-bottom:8px" role="checkbox" aria-checked="${_storeQs.payType==='mixed'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('mixed');})}">ترکیبی نقد+پوز (۵۰/۵۰ — قرارداد فعلی)</button>
+    <button type="button" class="pos-pay-chip" style="width:100%;margin-bottom:8px" role="checkbox" aria-checked="${_storeQs.payType==='mixed'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('mixed');})}">ترکیبی نقد+پوز</button>
     <select id="storeQsPay" hidden aria-hidden="true"><option value="${esc(_storeQs.payType)}" selected></option></select>
-    ${_storeQs.payType==='cash'?`<div class="pos-pay-row"><span>نقد</span>
+    ${_storeQs.payType==='cash'?`<div class="pos-pay-row"><span>نقد / مبلغ دریافتی</span>
       <input type="text" inputmode="numeric" class="money" value="${moneyInit(tendered)}" aria-label="مبلغ نقد دریافتی"
         data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiCashTendered=Math.max(0,parseInt(raw||'0',10)||0);storeQsRenderBody({keepFocus:true});})}">
       <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" data-csp-click="${CSP.bind('click',function(){storeQsFillRemainCash();})}">باقیمانده را پر کن</button>
     </div>`:''}
-    ${_storeQs.payType==='mixed'?`<div class="pos-pay-row"><span>نقد (نیمه)</span><b class="mono">${fmt(mixedHalf)}</b></div>
-      <div class="pos-pay-row"><span>پوز (نیمه)</span><b class="mono">${fmt(mixedRest)}</b></div>
-      <div class="muted" style="font-size:11px">مبالغ ترکیبی در سرور فعلاً ۵۰/۵۰ ثابت است؛ UI فقط همان را نشان می‌دهد.</div>`:''}
+    ${_storeQs.payType==='mixed'?(()=>{
+      const mCash=Math.round(Number(_storeQs.uiMixedCash!=null?_storeQs.uiMixedCash:mixedHalf));
+      const mCard=Math.round(Number(_storeQs.uiMixedCard!=null?_storeQs.uiMixedCard:(collectAmt-mCash)));
+      const remMix=Math.max(0, collectAmt-(mCash+mCard));
+      const changeMix=Math.max(0,(mCash+mCard)-collectAmt);
+      return `<div class="pos-pay-row"><span>نقد</span>
+        <input type="text" inputmode="numeric" class="money" value="${moneyInit(mCash)}" aria-label="مبلغ نقد ترکیبی"
+          data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiMixedCash=Math.max(0,parseInt(raw||'0',10)||0);if(_storeQs.uiMixedCard==null)_storeQs.uiMixedCard=Math.max(0,collectAmt-_storeQs.uiMixedCash);storeQsRenderBody({keepFocus:true});})}">
+      </div>
+      <div class="pos-pay-row"><span>پوز</span>
+        <input type="text" inputmode="numeric" class="money" value="${moneyInit(mCard)}" aria-label="مبلغ پوز ترکیبی"
+          data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiMixedCard=Math.max(0,parseInt(raw||'0',10)||0);storeQsRenderBody({keepFocus:true});})}">
+      </div>
+      <div class="pos-pay-row"><span>باقیمانده ترکیبی</span><b class="mono">${fmt(remMix)}</b></div>
+      <div class="pos-pay-row"><span>پول خرد ترکیبی</span><b class="mono">${fmt(changeMix)}</b></div>`;
+    })():''}
     ${_storeQs.payType==='pos_card'?`<div class="pos-pay-row"><span>پوز</span><b class="mono">${fmt(collectAmt)}</b></div>`:''}
     <div class="pos-progress ${change>0?'is-over':''}" aria-hidden="true"><span style="width:${Math.min(100,pct*100)}%;transform:none"></span></div>
     <div class="pos-pay-row"><span>باقیمانده</span><b class="mono">${fmt(_storeQs.payType==='cash'?Math.max(0,collectAmt-tendered):0)}</b></div>
@@ -8267,10 +8306,10 @@ function storeQsRenderBody(opts){
           <div class="pos-card-title">جمع</div>
           <div class="pos-totals-row"><span>جمع اقلام</span><b class="mono">${fmt(subtotal+lineDisc)}</b></div>
           <div class="pos-totals-row"><span>تخفیف سطری</span><b class="mono" style="color:var(--pos-success)">−${fmt(lineDisc)}</b></div>
-          <div class="pos-totals-row"><span>تخفیف کل <kbd class="pos-kbd">F6</kbd></span>
+          ${ME.role==='store_retail'?'':`<div class="pos-totals-row"><span>تخفیف کل <kbd class="pos-kbd">F6</kbd></span>
             <span><input id="storeQsDisc" class="pos-disc-input" type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" aria-label="تخفیف کل درصد"
               data-csp-change="${CSP.bind('change',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody({keepFocus:true});})}"> ٪ <b class="mono" style="color:var(--pos-success)">−${fmt(hdrDisc)}</b></span>
-          </div>
+          </div>`}
           <div class="pos-totals-due">
             <span class="muted">${esc(dueLabel)}</span>
             <strong id="storeQsFinalLbl" aria-live="polite">${fmt(dueShow)} <span class="pos-unit-muted">ریال</span></strong>
@@ -8348,12 +8387,22 @@ function storeQsBuildPaySplits(finalAmt){
   } else if(payType==='mixed'){
     if(!(finalAmt>0)) return { pay_splits:[], cashBoxId, terminalId, payType };
     if(!cashBoxId||!terminalId){ showToast('صندوق و کارتخوان را انتخاب کنید','error'); return null; }
-    const half=Math.floor(finalAmt/2);
-    const rest=finalAmt-half;
-    if(!(half>0&&rest>0)){ showToast('برای پرداخت ترکیبی مبلغ را بررسی کنید','error'); return null; }
+    let cashAmt=Math.round(Number(_storeQs.uiMixedCash!=null?_storeQs.uiMixedCash:0));
+    let cardAmt=Math.round(Number(_storeQs.uiMixedCard!=null?_storeQs.uiMixedCard:0));
+    if(!(cashAmt>0) && !(cardAmt>0)){
+      cashAmt=Math.floor(finalAmt/2);
+      cardAmt=finalAmt-cashAmt;
+    }
+    if(cashAmt+cardAmt!==finalAmt){
+      // Prefer cash input; fill remainder to card
+      if(cashAmt>0 && cashAmt<finalAmt) cardAmt=finalAmt-cashAmt;
+      else if(cardAmt>0 && cardAmt<finalAmt) cashAmt=finalAmt-cardAmt;
+      else { cashAmt=Math.floor(finalAmt/2); cardAmt=finalAmt-cashAmt; }
+    }
+    if(!(cashAmt>0&&cardAmt>0)){ showToast('برای پرداخت ترکیبی مبلغ نقد و پوز را وارد کنید','error'); return null; }
     pay_splits=[
-      { pay_type:'cash', amount:half, cash_box_id:cashBoxId },
-      { pay_type:'pos_card', amount:rest, terminal_id:terminalId },
+      { pay_type:'cash', amount:cashAmt, cash_box_id:cashBoxId },
+      { pay_type:'pos_card', amount:cardAmt, terminal_id:terminalId },
     ];
   } else if(payType==='credit'){
     pay_splits=[];
@@ -8362,23 +8411,30 @@ function storeQsBuildPaySplits(finalAmt){
 }
 function storeQsSaleRows(){
   const wh=storeQsWhId();
-  return _storeQs.lines.map(ln=>({
-    product_id:ln.product_id,
-    name:ln.name,
-    code:ln.code,
-    unit:ln.unit,
-    qty:Number(ln.qty)||1,
-    unit_price:Math.round(Number(ln.unit_price)||0),
-    price:Math.round(Number(ln.unit_price)||0),
-    disc_pct:Number(ln.disc_pct)||0,
-    disc_amt:Math.round(Number(ln.disc_amt)||0),
-    variant_id:ln.variant_id||null,
-    color_id:ln.color_id||null,
-    size_id:ln.size_id||null,
-    color_name:ln.color_name||'',
-    size_name:ln.size_name||'',
-    warehouse_id:ln.warehouse_id||wh,
-  }));
+  return _storeQs.lines.map(ln=>{
+    const discPct=Number(ln.disc_pct)||0;
+    const discAmt=Math.round(Number(ln.disc_amt)||0);
+    return {
+      product_id:ln.product_id,
+      name:ln.name,
+      code:ln.code,
+      unit:ln.unit,
+      qty:Number(ln.qty)||1,
+      unit_price:Math.round(Number(ln.unit_price)||0),
+      price:Math.round(Number(ln.unit_price)||0),
+      // C1: align with server buildRows (disc / disc_amount); keep aliases
+      disc:discPct,
+      disc_pct:discPct,
+      disc_amount:discAmt,
+      disc_amt:discAmt,
+      variant_id:ln.variant_id||null,
+      color_id:ln.color_id||null,
+      size_id:ln.size_id||null,
+      color_name:ln.color_name||'',
+      size_name:ln.size_name||'',
+      warehouse_id:ln.warehouse_id||wh,
+    };
+  });
 }
 async function storeQsCheckout(){
   if(_storeQs.busy) return;
@@ -8413,6 +8469,12 @@ async function storeQsCheckout(){
   const whId=storeQsWhId();
   if(!whId){ showToast('انبار فروش را انتخاب کنید','error'); return; }
 
+  if(!_storeQs.clientRequestId){
+    _storeQs.clientRequestId=(typeof newClientRequestId==='function')
+      ? newClientRequestId('sqs')
+      : ('sqs-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10));
+  }
+  const cartIdem=_storeQs.clientRequestId;
   _storeQs.busy=true;
   storeQsRenderBody();
   try{
@@ -8433,6 +8495,7 @@ async function storeQsCheckout(){
         warehouse_id:whId,
         refund_cash_box_id:tender.cashBoxId||_storeQs.cashBoxId||boot.cash_box_id||null,
         refund:true,
+        client_request_id:cartIdem,
       };
       const out=await api('POST','/store/quick-return', body);
       let msg='برگشت کامل ثبت شد';
@@ -8479,7 +8542,9 @@ async function storeQsCheckout(){
           pay_type:payTypeOut,
           cash_box_id:tender.cashBoxId,
           pay_splits:(collectAmt>0&&payTypeOut!=='credit')?tender.pay_splits:undefined,
+          client_request_id:cartIdem,
         },
+        client_request_id:cartIdem,
       };
       const out=await api('POST','/store/quick-exchange', body);
       const inv=out&&out.invoice;
@@ -8513,11 +8578,13 @@ async function storeQsCheckout(){
         pay_type:tender.payType==='credit'?'credit':(tender.pay_splits[0]&&tender.pay_splits[0].pay_type)||'cash',
         cash_box_id:tender.cashBoxId,
         pay_splits:tender.payType==='credit'?undefined:tender.pay_splits,
+        client_request_id:cartIdem,
       };
       const inv=await api('POST','/store/quick-sale', body);
       showToast('فروش ثبت شد: '+(inv.num||''));
       _storeQs.lines=[];
       _storeQs.discPct=0;
+      _storeQs.clientRequestId=null;
       _storeQs.custId=walkinId;
       storeQsRenderBody();
       if(inv&&inv.id&&typeof printInvoice==='function'){
@@ -36610,16 +36677,14 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). <b>UI نسخهٔ v553 (pos-v2):</b> چیدمان دوستونی، پنل پرداخت چسبان، میانبرهای صفحه‌کلید — بدون تغییر قرارداد API/حسابداری.</p>
+      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). <b>QA v555:</b> هم‌ترازی تخفیف ردیف با سرور، رد نسیه خاموش، idempotency سبد، پرداخت ترکیبی واقعی، اتمیک بودن برگشت/تعویض.</p>
       <ul>
-        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه مشتری واقعی انتخاب کنید. دکمهٔ «افزودن سریع» همان مودال مشتری است</li>
-        <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند</li>
-        <li>اسکن/جستجو با فوکوس دائم (<kbd>F2</kbd>)؛ نتایج کالا در گرید؛ کالای ماتریسی همان مودال رنگ/سایز قبلی</li>
-        <li>سبد: استپر تعداد، تخفیف سطر ٪، حذف با Undo؛ <b>تعلیق فاکتور</b> (<kbd>F8</kbd>) تا ۵ سبد در localStorage همان صندوق (بدون ارسال به سرور)</li>
-        <li>پرداخت: نقد / پوز / ترکیبی ۵۰/۵۰ / اعتبار (نسیه برای غیرنقدی). «کارت» و «کارت‌به‌کارت» فعلاً <b>به‌زودی</b> (بدون تغییر API). باقیمانده و پول خرد فقط برای نقد در UI</li>
-        <li>میانبرها: <kbd>F3</kbd> تعویض، <kbd>F4</kbd> مشتری، <kbd>F6</kbd> تخفیف کل، <kbd>F9</kbd> پرداخت، <kbd>F10</kbd> ثبت، <kbd>Ctrl+P</kbd> فیش حرارتی ۸۰mm — دکمهٔ <b>?</b> فهرست کامل</li>
-        <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است</li>
-        <li><b>تعویض / برگشت+فروش:</b> فاکتور قطعی مرجع → اقلام قابل‌برگشت؛ سبد جایگزین اختیاری؛ دریافت / استرداد / برابر / فقط‌برگشت — همان توابع ذخیرهٔ قبلی</li>
+        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — باید کامل نقد/پوز تسویه شود؛ جمع پرداخت ≠ مبلغ نهایی ← خطای <code>E_STORE_TOTAL_MISMATCH</code></li>
+        <li>نقش فروشگاهی: تخفیف سرفاکتور مخفی/ممنوع؛ قیمت ارسالی نادیده و قیمت خرده‌فروشی اعمال می‌شود</li>
+        <li>هر سبد یک <code>client_request_id</code> دارد — دوبار ثبت همان فاکتور را برمی‌گرداند</li>
+        <li>پرداخت ترکیبی: ورود مبلغ نقد و پوز + نمایش باقیمانده/پول خرد (نه فقط ۵۰/۵۰ ثابت)</li>
+        <li>اسکن: خطای شبکه جدا از «کالا یافت نشد»؛ بارکد رنگ/سایز هم پشتیبانی می‌شود</li>
+        <li>برگشت/تعویض: چند سطر روی یک کلید موجودی را جمع می‌زند؛ کل عملیات یک تراکنش است</li>
         <li>ابطال همان مسیر R13 است؛ حذف فیزیکی نیست</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -37271,13 +37336,13 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی (POS v2)</b> است: اسکن بارکد، سبد، پرداخت نقد/پوز، ثبت فاکتور قطعی. تعویض و برگشت هم از همین صفحه است.</p>
+      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی (POS v2 / QA v555)</b> است: اسکن بارکد، سبد، پرداخت نقد/پوز، ثبت فاکتور قطعی. تعویض و برگشت هم از همین صفحه است.</p>
       <ul>
-        <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ برای نسیه مشتری واقعی بگذارید. مشتری نقدی باید کامل نقد/کارت تسویه شود</li>
-        <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فقط تراکنش‌های خودتان را می‌بینید</li>
-        <li>انبار و صندوق از پروفایل قفل است؛ میانبرها با دکمهٔ <b>?</b> (مثلاً F2 اسکن، F8 تعلیق، F10 ثبت)</li>
-        <li>تعلیق فاکتور روی همین دستگاه می‌ماند (تا ۵ عدد) و به سرور نمی‌رود</li>
-        <li>تعویض: فاکتور قبلی → برگشت کامل یا تعداد دستی → اختیاری جایگزین → دریافت/استرداد/برابر. ابطال = R13</li>
+        <li>مشتری نقدی باید کامل نقد/پوز تسویه شود؛ تخفیف کل برای نقش فروشگاهی نیست</li>
+        <li>پرداخت ترکیبی: مبلغ نقد و پوز را جدا وارد کنید؛ باقیمانده و پول خرد را ببینید</li>
+        <li>اگر شبکه قطع باشد پیام «خطای شبکه» می‌آید، نه «کالا یافت نشد»</li>
+        <li>انبار و صندوق از پروفایل قفل است؛ میانبرها با دکمهٔ <b>?</b></li>
+        <li>تعویض/برگشت اتمیک است؛ ابطال = R13</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. اگر پک کامل نباشد ولی موجودی تکی باشد، ماتریس رنگ×سایز برای انتخاب تکی باز می‌شود. کارت کالا «پک کامل / تکی موجود» را نشان می‌دهد. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>

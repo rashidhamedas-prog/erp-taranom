@@ -8,7 +8,6 @@ const { auth, requirePermission } = require('../middleware/auth');
 const {
   prepareStoreQuickSaleBody,
   bootstrapStoreSale,
-  isStoreQuickRequest,
   prepareExchangeSaleBody,
   postStoreExchangeRefund,
   resolveStoreCashBoxId,
@@ -38,36 +37,70 @@ function invokeInvoiceCreate(req, res, next) {
   return invoicesRouter.handle(req, res, next);
 }
 
+/**
+ * Sync invoice create (same as captureInvoiceCreate, without Promise).
+ * Safe to call inside db.transaction — nested invoice txn becomes a savepoint.
+ */
+function createInvoiceSync(req) {
+  let result = null;
+  let error = null;
+  const fakeRes = {
+    statusCode: 200,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      if (this.statusCode >= 400) {
+        const err = new Error((payload && (payload.error || payload.message)) || 'خطای ثبت فاکتور');
+        err.status = this.statusCode;
+        err.code = payload && payload.code;
+        err.payload = payload;
+        error = err;
+      } else {
+        result = payload;
+      }
+    },
+  };
+  const invoicesRouter = require('./invoices');
+  const fakeReq = Object.create(req);
+  fakeReq.url = '/';
+  fakeReq.method = 'POST';
+  fakeReq.body = req.body;
+  invoicesRouter.handle(fakeReq, fakeRes, (err) => {
+    if (err) error = err;
+  });
+  if (error) throw error;
+  return result;
+}
+
 /** Capture JSON from invoices router without ending the HTTP response early. */
 function captureInvoiceCreate(req) {
-  return new Promise((resolve, reject) => {
-    const fakeRes = {
-      statusCode: 200,
-      status(code) {
-        this.statusCode = code;
-        return this;
-      },
-      json(payload) {
-        if (this.statusCode >= 400) {
-          const err = new Error((payload && (payload.error || payload.message)) || 'خطای ثبت فاکتور');
-          err.status = this.statusCode;
-          err.code = payload && payload.code;
-          err.payload = payload;
-          reject(err);
-        } else {
-          resolve(payload);
-        }
-      },
-    };
-    const invoicesRouter = require('./invoices');
-    const fakeReq = Object.create(req);
-    fakeReq.url = '/';
-    fakeReq.method = 'POST';
-    fakeReq.body = req.body;
-    invoicesRouter.handle(fakeReq, fakeRes, (err) => {
-      if (err) reject(err);
-    });
-  });
+  return Promise.resolve().then(() => createInvoiceSync(req));
+}
+
+/** Preflight: accumulate return qty per key against max_returnable. */
+function assertReturnRowsWithinAvail(returnRows, availMap, codes) {
+  const claimed = {};
+  for (const r of returnRows) {
+    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
+    const a = availMap[k] || availMap[`p:${r.product_id}`];
+    if (!a) {
+      const err = new Error(codes.lineMsg || 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست');
+      err.status = 400;
+      err.code = codes.lineCode;
+      throw err;
+    }
+    claimed[k] = (claimed[k] || 0) + Number(r.qty);
+    if (claimed[k] > Number(a.max_returnable)) {
+      const err = new Error(
+        `حداکثر قابل برگشت برای ${a.name || 'کالا'}: ${a.max_returnable}`
+      );
+      err.status = 400;
+      err.code = codes.qtyCode;
+      throw err;
+    }
+  }
 }
 
 function rollbackExchange(db, user, { returnId, invoiceId }) {
@@ -103,7 +136,7 @@ router.get('/bootstrap', auth, requirePermission('invoices', 'create'), (req, re
 /** Firm invoices for a customer — available to store roles (for exchange ref picker). */
 router.get('/customer-firm-invoices/:custId', auth, requirePermission('invoices', 'create'), (req, res) => {
   try {
-    if (!allowStoreRole(req.user) && !isStoreQuickRequest(req.body, req.user.role)) {
+    if (!allowStoreRole(req.user)) {
       return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_STORE_FORBIDDEN' });
     }
     const db = getDB();
@@ -146,7 +179,8 @@ router.get('/exchange-available/:invoiceId', auth, requirePermission('invoices',
 router.post('/quick-sale', auth, requirePermission('invoices', 'create'), (req, res, next) => {
   const db = getDB();
   try {
-    if (!isStoreQuickRequest(req.body, req.user.role) && !allowStoreRole(req.user)) {
+    // L2: body.store_quick must NOT grant access — role only
+    if (!allowStoreRole(req.user)) {
       return res.status(403).json({ error: 'دسترسی به فروش سریع فروشگاهی ندارید', code: 'E_STORE_FORBIDDEN' });
     }
     req.body = prepareStoreQuickSaleBody(db, req.user, req.body || {});
@@ -162,7 +196,7 @@ router.post('/quick-sale', auth, requirePermission('invoices', 'create'), (req, 
  */
 router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req, res) => {
   const db = getDB();
-  if (!allowStoreRole(req.user) && !isStoreQuickRequest(req.body, req.user.role)) {
+  if (!allowStoreRole(req.user)) {
     return res.status(403).json({ error: 'دسترسی به برگشت فروشگاهی ندارید', code: 'E_STORE_FORBIDDEN' });
   }
   const body = req.body || {};
@@ -192,21 +226,14 @@ router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req
     const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
     availMap[k] = r;
   }
-  for (const r of returnRows) {
-    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
-    const a = availMap[k] || availMap[`p:${r.product_id}`];
-    if (!a) {
-      return res.status(400).json({
-        error: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
-        code: 'E_STORE_RETURN_LINE',
-      });
-    }
-    if (Number(r.qty) > Number(a.max_returnable)) {
-      return res.status(400).json({
-        error: `حداکثر قابل برگشت برای ${a.name || 'کالا'}: ${a.max_returnable}`,
-        code: 'E_STORE_RETURN_QTY',
-      });
-    }
+  try {
+    assertReturnRowsWithinAvail(returnRows, availMap, {
+      lineCode: 'E_STORE_RETURN_LINE',
+      qtyCode: 'E_STORE_RETURN_QTY',
+      lineMsg: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
   let refundCashBoxId = null;
@@ -218,55 +245,52 @@ router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
-  let retOut = null;
-  let refund = null;
   try {
-    retOut = createSalesReturn(db, {
-      cust_id: custId,
-      invoice_id: invoiceId,
-      date: body.date || todayJalali(),
-      note: body.return_note || body.note || 'برگشت کامل فروشگاهی',
-      reason_code: body.reason_code || 'store_full_return',
-      rows: returnRows,
-      warehouse_id: body.warehouse_id || null,
-    }, req.user);
-
-    const retRow = db.prepare(
-      'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
-    ).get(retOut.id);
-    const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
-
-    const doRefund = body.refund !== false && body.refund !== 0 && body.refund !== '0';
-    if (doRefund && returnGross > 0) {
-      refund = postStoreExchangeRefund(db, {
-        custId,
-        amountRial: returnGross,
-        cashBoxId: refundCashBoxId,
-        userId: req.user.id,
+    const out = db.transaction(() => {
+      const retOut = createSalesReturn(db, {
+        cust_id: custId,
+        invoice_id: invoiceId,
         date: body.date || todayJalali(),
-        note: `استرداد برگشت کامل فروشگاهی — برگشت #${retOut.id}`,
-        returnId: retOut.id,
-        exchangeKey: `ret-${retOut.id}`,
-      });
-    }
+        note: body.return_note || body.note || 'برگشت کامل فروشگاهی',
+        reason_code: body.reason_code || 'store_full_return',
+        rows: returnRows,
+        warehouse_id: body.warehouse_id || null,
+      }, req.user);
 
-    return res.json({
-      ok: true,
-      return_id: retOut.id,
-      return_gross: returnGross,
-      refund_rial: refund ? refund.amount_rial : 0,
-      settlement_case: 'return_only',
-      invoice: null,
-      refund,
-    });
+      const retRow = db.prepare(
+        'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
+      ).get(retOut.id);
+      const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
+
+      let refund = null;
+      const doRefund = body.refund !== false && body.refund !== 0 && body.refund !== '0';
+      if (doRefund && returnGross > 0) {
+        refund = postStoreExchangeRefund(db, {
+          custId,
+          amountRial: returnGross,
+          cashBoxId: refundCashBoxId,
+          userId: req.user.id,
+          date: body.date || todayJalali(),
+          note: `استرداد برگشت کامل فروشگاهی — برگشت #${retOut.id}`,
+          returnId: retOut.id,
+          exchangeKey: `ret-${retOut.id}`,
+        });
+      }
+      return {
+        ok: true,
+        return_id: retOut.id,
+        return_gross: returnGross,
+        refund_rial: refund ? refund.amount_rial : 0,
+        settlement_case: 'return_only',
+        invoice: null,
+        refund,
+      };
+    })();
+    return res.json(out);
   } catch (e) {
-    if (retOut && retOut.id) {
-      try { voidSalesReturn(db, retOut.id, req.user); } catch (_) { /* best-effort */ }
-    }
     return res.status(e.status || 400).json({
       error: e.message || 'خطا در ثبت برگشت کامل',
       code: e.code || 'E_STORE_RETURN_FAIL',
-      return_id: retOut && retOut.id,
     });
   }
 });
@@ -280,9 +304,9 @@ router.post('/quick-return', auth, requirePermission('invoices', 'create'), (req
  *   refund_cash_box_id?
  * }
  */
-router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), async (req, res) => {
+router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), (req, res) => {
   const db = getDB();
-  if (!allowStoreRole(req.user) && !isStoreQuickRequest(req.body, req.user.role)) {
+  if (!allowStoreRole(req.user)) {
     return res.status(403).json({ error: 'دسترسی به تعویض فروشگاهی ندارید', code: 'E_STORE_FORBIDDEN' });
   }
   const body = req.body || {};
@@ -317,21 +341,14 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
     const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
     availMap[k] = r;
   }
-  for (const r of returnRows) {
-    const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
-    const a = availMap[k] || availMap[`p:${r.product_id}`];
-    if (!a) {
-      return res.status(400).json({
-        error: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
-        code: 'E_STORE_EXCHANGE_LINE',
-      });
-    }
-    if (Number(r.qty) > Number(a.max_returnable)) {
-      return res.status(400).json({
-        error: `حداکثر قابل برگشت برای ${a.name || 'کالا'}: ${a.max_returnable}`,
-        code: 'E_STORE_EXCHANGE_QTY',
-      });
-    }
+  try {
+    assertReturnRowsWithinAvail(returnRows, availMap, {
+      lineCode: 'E_STORE_EXCHANGE_LINE',
+      qtyCode: 'E_STORE_EXCHANGE_QTY',
+      lineMsg: 'کالای برگشتی در فاکتور مرجع قابل برگشت نیست',
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
   const salePrepPreview = prepareStoreQuickSaleBody(db, req.user, {
@@ -367,131 +384,125 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), as
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
-  let retOut = null;
-  let inv = null;
-  let prepared = null;
-  let refund = null;
-
   try {
-    retOut = createSalesReturn(db, {
-      cust_id: custId,
-      invoice_id: invoiceId,
-      date: body.date || saleIn.date || todayJalali(),
-      note: body.return_note || body.note || 'تعویض فروشگاهی',
-      reason_code: body.reason_code || 'exchange',
-      rows: returnRows,
-      // Prefer original invoice/line WH inside createSalesReturn; do not force store WH.
-      warehouse_id: body.warehouse_id || null,
-    }, req.user);
+    const out = db.transaction(() => {
+      const retOut = createSalesReturn(db, {
+        cust_id: custId,
+        invoice_id: invoiceId,
+        date: body.date || saleIn.date || todayJalali(),
+        note: body.return_note || body.note || 'تعویض فروشگاهی',
+        reason_code: body.reason_code || 'exchange',
+        rows: returnRows,
+        warehouse_id: body.warehouse_id || null,
+      }, req.user);
 
-    const retRow = db.prepare(
-      'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
-    ).get(retOut.id);
-    const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
+      const retRow = db.prepare(
+        'SELECT id, amount, vat_amount, cust_id FROM sales_returns WHERE id=?'
+      ).get(retOut.id);
+      const returnGross = moneyRial(retRow.amount) + moneyRial(retRow.vat_amount);
 
-    prepared = prepareExchangeSaleBody(db, req.user, {
-      ...saleIn,
-      cust_id: custId,
-      store_quick: true,
-      sales_channel: 'store_quick',
-      type: saleIn.type || 'normal',
-      date: saleIn.date || body.date || todayJalali(),
-      note: (saleIn.note || '') || `تعویض فروشگاهی ← برگشت #${retOut.id}`,
-    }, returnGross);
+      const prepared = prepareExchangeSaleBody(db, req.user, {
+        ...saleIn,
+        cust_id: custId,
+        store_quick: true,
+        sales_channel: 'store_quick',
+        type: saleIn.type || 'normal',
+        date: saleIn.date || body.date || todayJalali(),
+        note: (saleIn.note || '') || `تعویض فروشگاهی ← برگشت #${retOut.id}`,
+      }, returnGross);
 
-    // Exact refund may differ from estimate — ensure cash box if refund now
-    if (prepared.refundRial > 0 && !(refundCashBoxId > 0)) {
-      refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
-        cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || prepared.body.cash_box_id,
-      });
-    }
-
-    req.body = prepared.body;
-    inv = await captureInvoiceCreate(req);
-
-    // Re-settle against actual invoice final (estimate can drift with VAT/rounding).
-    const actualFinal = moneyRial(
-      inv && (inv.final_rial != null ? inv.final_rial : inv.final)
-    );
-    const actualSettle = computeExchangeSettlement(actualFinal, returnGross);
-    prepared.netCollect = actualSettle.netCollect;
-    prepared.refundRial = actualSettle.refundRial;
-    prepared.exchangeCreditRial = actualSettle.exchangeCreditRial;
-    prepared.saleFinal = actualSettle.saleFinal;
-    prepared.settlementCase = actualSettle.settlementCase;
-    if (prepared.body && prepared.body._store_exchange) {
-      prepared.body._store_exchange = {
-        ...prepared.body._store_exchange,
-        sale_final: actualSettle.saleFinal,
-        net_collect: actualSettle.netCollect,
-        refund_rial: actualSettle.refundRial,
-        exchange_credit_rial: actualSettle.exchangeCreditRial,
-        settlement_case: actualSettle.settlementCase,
-      };
-    }
-
-    let creditAlloc = null;
-    if (actualSettle.exchangeCreditRial > 0 && inv && inv.id) {
-      creditAlloc = applyStoreExchangeCreditAllocation(db, {
-        returnId: retOut.id,
-        invoiceId: inv.id,
-        amountRial: actualSettle.exchangeCreditRial,
-        userId: req.user.id,
-        note: `اعتبار تعویض — برگشت #${retOut.id} → فاکتور ${inv.num || inv.id}`,
-      });
-      if (creditAlloc && inv) {
-        inv.balance_due = creditAlloc.balance_due;
-        inv.settled_amount = creditAlloc.settled_amount;
-      }
-    }
-
-    if (actualSettle.refundRial > 0) {
-      if (!(refundCashBoxId > 0)) {
-        refundCashBoxId = resolveStoreCashBoxId(db, req.user, {
+      let cashId = refundCashBoxId;
+      if (prepared.refundRial > 0 && !(cashId > 0)) {
+        cashId = resolveStoreCashBoxId(db, req.user, {
           cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || prepared.body.cash_box_id,
         });
       }
-      refund = postStoreExchangeRefund(db, {
-        custId,
-        amountRial: actualSettle.refundRial,
-        cashBoxId: refundCashBoxId || prepared.body.cash_box_id,
-        userId: req.user.id,
-        date: body.date || todayJalali(),
-        note: `استرداد تعویض — برگشت #${retOut.id} / فاکتور ${inv.num || inv.id}`,
-        returnId: retOut.id,
-        exchangeKey: `ex-${retOut.id}-${inv.id}`,
-      });
-    }
 
-    // Stash for response
-    prepared._creditAlloc = creditAlloc;
+      req.body = prepared.body;
+      // M4: sync create inside this transaction (not async router hop)
+      const inv = createInvoiceSync(req);
+
+      const actualFinal = moneyRial(
+        inv && (inv.final_rial != null ? inv.final_rial : inv.final)
+      );
+      const actualSettle = computeExchangeSettlement(actualFinal, returnGross);
+      prepared.netCollect = actualSettle.netCollect;
+      prepared.refundRial = actualSettle.refundRial;
+      prepared.exchangeCreditRial = actualSettle.exchangeCreditRial;
+      prepared.saleFinal = actualSettle.saleFinal;
+      prepared.settlementCase = actualSettle.settlementCase;
+      prepared.returnGross = returnGross;
+      if (prepared.body && prepared.body._store_exchange) {
+        prepared.body._store_exchange = {
+          ...prepared.body._store_exchange,
+          sale_final: actualSettle.saleFinal,
+          net_collect: actualSettle.netCollect,
+          refund_rial: actualSettle.refundRial,
+          exchange_credit_rial: actualSettle.exchangeCreditRial,
+          settlement_case: actualSettle.settlementCase,
+        };
+      }
+
+      let creditAlloc = null;
+      if (actualSettle.exchangeCreditRial > 0 && inv && inv.id) {
+        creditAlloc = applyStoreExchangeCreditAllocation(db, {
+          returnId: retOut.id,
+          invoiceId: inv.id,
+          amountRial: actualSettle.exchangeCreditRial,
+          userId: req.user.id,
+          note: `اعتبار تعویض — برگشت #${retOut.id} → فاکتور ${inv.num || inv.id}`,
+        });
+        if (creditAlloc && inv) {
+          inv.balance_due = creditAlloc.balance_due;
+          inv.settled_amount = creditAlloc.settled_amount;
+        }
+      }
+
+      let refund = null;
+      if (actualSettle.refundRial > 0) {
+        if (!(cashId > 0)) {
+          cashId = resolveStoreCashBoxId(db, req.user, {
+            cash_box_id: body.refund_cash_box_id || saleIn.cash_box_id || prepared.body.cash_box_id,
+          });
+        }
+        refund = postStoreExchangeRefund(db, {
+          custId,
+          amountRial: actualSettle.refundRial,
+          cashBoxId: cashId || prepared.body.cash_box_id,
+          userId: req.user.id,
+          date: body.date || todayJalali(),
+          note: `استرداد تعویض — برگشت #${retOut.id} / فاکتور ${inv.num || inv.id}`,
+          returnId: retOut.id,
+          exchangeKey: `ex-${retOut.id}-${inv.id}`,
+        });
+      }
+
+      return {
+        ok: true,
+        return_id: retOut.id,
+        return_gross: prepared.returnGross,
+        invoice: inv,
+        net_collect: prepared.netCollect,
+        refund_rial: prepared.refundRial,
+        settlement_case: prepared.settlementCase,
+        exchange_credit_rial: prepared.exchangeCreditRial,
+        credit_allocation: creditAlloc || null,
+        refund,
+        exchange: prepared.body._store_exchange || null,
+      };
+    })();
+    return res.json(out);
   } catch (e) {
-    const rb = rollbackExchange(db, req.user, {
-      returnId: retOut && retOut.id,
-      invoiceId: inv && inv.id,
-    });
     return res.status(e.status || 400).json({
       error: e.message || 'خطا در ثبت تعویض',
       code: e.code || 'E_STORE_EXCHANGE_FAIL',
-      rollback: rb,
-      return_id: retOut && retOut.id,
-      invoice_id: inv && inv.id,
     });
   }
-
-  res.json({
-    ok: true,
-    return_id: retOut.id,
-    return_gross: prepared.returnGross,
-    invoice: inv,
-    net_collect: prepared.netCollect,
-    refund_rial: prepared.refundRial,
-    settlement_case: prepared.settlementCase,
-    exchange_credit_rial: prepared.exchangeCreditRial,
-    credit_allocation: prepared._creditAlloc || null,
-    refund,
-    exchange: prepared.body._store_exchange || null,
-  });
 });
 
 module.exports = router;
+module.exports._test = {
+  allowStoreRole,
+  assertReturnRowsWithinAvail,
+  createInvoiceSync,
+};

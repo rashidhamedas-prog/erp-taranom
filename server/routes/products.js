@@ -235,19 +235,45 @@ router.get('/categories', auth, (req, res) => {
 // Lookup by barcode or product code — used by the invoice builder camera scanner
 router.get('/by-barcode/:code', auth, (req, res) => {
   const db = getDB();
-  const code = String(req.params.code || '').trim();
+  const { normalizeDigits } = require('../lib/round3');
+  const raw = String(req.params.code || '').trim();
+  const code = normalizeDigits(raw).trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
   const where = ['(p.barcode=? OR p.code=?)'];
   const params = [code, code];
   addProductGroupVisibility(req.user, where, params);
   addCatalogAclFilter(db, req.user, where, params);
-  const row = db.prepare(`
+  let row = db.prepare(`
     SELECT p.* FROM products p
     LEFT JOIN product_categories pc ON pc.id=p.category_id
     WHERE ${where.join(' AND ')}
   `).get(...params);
+  let variantId = null;
+  if (!row) {
+    try {
+      const v = db.prepare(`
+        SELECT v.id AS variant_id, v.product_id, v.barcode AS variant_barcode, v.sku
+        FROM product_variants v
+        WHERE v.barcode=? OR v.sku=?
+        LIMIT 1
+      `).get(code, code);
+      if (v && v.product_id) {
+        variantId = Number(v.variant_id) || null;
+        const where2 = ['p.id=?'];
+        const params2 = [v.product_id];
+        addProductGroupVisibility(req.user, where2, params2);
+        addCatalogAclFilter(db, req.user, where2, params2);
+        row = db.prepare(`
+          SELECT p.* FROM products p
+          LEFT JOIN product_categories pc ON pc.id=p.category_id
+          WHERE ${where2.join(' AND ')}
+        `).get(...params2);
+      }
+    } catch (_) { /* variants table optional */ }
+  }
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   row.images = listProductImages(db, row.id);
+  if (variantId) row.variant_id = variantId;
   res.json(applyCatalogCostPolicy(db, req.user, row));
 });
 
