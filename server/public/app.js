@@ -7472,6 +7472,11 @@ let _storeQs = {
   mode: 'sale', warehouseId: null,
   refInvoiceId: null, refInvoice: null, refInvoices: [],
   availableRows: [], availableDisc: null,
+  /* UI-only (pos-v2) — never sent to API */
+  selectedLineIdx: -1, searchResults: [], searchBusy: false, resultFocus: 0,
+  uiCashTendered: null, holdNote: '', lastInvId: null, preferThermalPrint: true,
+  sheetOpen: false, undoLine: null, undoTimer: null, keysBound: false,
+  scanBurstAt: 0, scanBurstLen: 0,
 };
 
 function storeQsCanOpen(){
@@ -7680,113 +7685,416 @@ async function storeQsLookupScan(code){
   }catch(_){}
   showToast('کالا یافت نشد: '+c,'error');
 }
+
+/* ---------- POS v2 UI helpers (payload builders untouched) ---------- */
+function storeQsPersistPref(key, val){
+  try{ localStorage.setItem(key, String(val==null?'':val)); }catch(_e){}
+}
+function storeQsHeldKey(){
+  const id=Number(_storeQs.cashBoxId||(_storeQs.boot&&_storeQs.boot.cash_box_id)||0)||0;
+  return 'pos_v2_held_'+id;
+}
+function storeQsLoadHeld(){
+  try{
+    const raw=localStorage.getItem(storeQsHeldKey());
+    const arr=raw?JSON.parse(raw):[];
+    return Array.isArray(arr)?arr.slice(0,20):[];
+  }catch(_){ return []; }
+}
+function storeQsSaveHeld(list){
+  try{ localStorage.setItem(storeQsHeldKey(), JSON.stringify((list||[]).slice(0,20))); }catch(_){}
+}
+function storeQsHoldCart(){
+  if(!(_storeQs.lines||[]).length && !(_storeQs.returnLines||[]).length){
+    storeQsUiToast('سبد خالی است','error'); return;
+  }
+  const list=storeQsLoadHeld();
+  if(list.length>=5){ storeQsUiToast('حداکثر ۵ فاکتور معلق','error'); return; }
+  list.unshift({
+    id:'h'+Date.now().toString(36),
+    at:Date.now(),
+    note:String(_storeQs.holdNote||'').slice(0,80),
+    custId:_storeQs.custId,
+    discPct:_storeQs.discPct,
+    payType:_storeQs.payType,
+    mode:_storeQs.mode,
+    lines:JSON.parse(JSON.stringify(_storeQs.lines||[])),
+    returnLines:JSON.parse(JSON.stringify(_storeQs.returnLines||[])),
+    availableRows:JSON.parse(JSON.stringify(_storeQs.availableRows||[])),
+    refInvoiceId:_storeQs.refInvoiceId,
+    refInvoice:_storeQs.refInvoice,
+    availableDisc:_storeQs.availableDisc,
+  });
+  storeQsSaveHeld(list);
+  _storeQs.lines=[]; _storeQs.returnLines=[]; _storeQs.availableRows=[];
+  _storeQs.refInvoiceId=null; _storeQs.refInvoice=null; _storeQs.availableDisc=null;
+  _storeQs.discPct=0; _storeQs.selectedLineIdx=-1;
+  storeQsUiToast('فاکتور معلق شد');
+  storeQsRenderBody();
+}
+function storeQsResumeHeld(hid){
+  const list=storeQsLoadHeld();
+  const ix=list.findIndex(h=>h.id===hid);
+  if(ix<0) return;
+  const h=list[ix];
+  list.splice(ix,1);
+  storeQsSaveHeld(list);
+  _storeQs.lines=h.lines||[];
+  _storeQs.returnLines=h.returnLines||[];
+  _storeQs.availableRows=h.availableRows||[];
+  _storeQs.custId=h.custId||_storeQs.custId;
+  _storeQs.discPct=h.discPct||0;
+  _storeQs.payType=h.payType||'cash';
+  _storeQs.mode=h.mode||'sale';
+  _storeQs.refInvoiceId=h.refInvoiceId||null;
+  _storeQs.refInvoice=h.refInvoice||null;
+  _storeQs.availableDisc=h.availableDisc||null;
+  _storeQs.selectedLineIdx=_storeQs.lines.length?0:-1;
+  storeQsUiToast('فاکتور ازسرگیری شد');
+  storeQsRenderBody();
+}
+function storeQsUiToast(msg, kind){
+  const host=document.querySelector('.pos-v2 .pos-toasts');
+  if(!host){ showToast(msg, kind); return; }
+  while(host.children.length>=3) host.removeChild(host.firstChild);
+  const t=document.createElement('div');
+  t.className='pos-toast';
+  t.setAttribute('role', kind==='error'?'alert':'status');
+  t.textContent=String(msg||'');
+  host.appendChild(t);
+  setTimeout(function(){ try{ t.remove(); }catch(_){} }, 4500);
+}
+function storeQsRemoveLine(idx, withUndo){
+  const ln=_storeQs.lines[idx];
+  if(!ln) return;
+  _storeQs.lines.splice(idx,1);
+  if(_storeQs.selectedLineIdx>=_storeQs.lines.length) _storeQs.selectedLineIdx=_storeQs.lines.length-1;
+  if(withUndo){
+    if(_storeQs.undoTimer) clearTimeout(_storeQs.undoTimer);
+    _storeQs.undoLine={ idx, ln:JSON.parse(JSON.stringify(ln)) };
+    const host=document.querySelector('.pos-v2 .pos-toasts');
+    if(host){
+      while(host.children.length>=3) host.removeChild(host.firstChild);
+      const t=document.createElement('div');
+      t.className='pos-toast';
+      t.setAttribute('role','status');
+      t.innerHTML='سطر حذف شد <button type="button" class="pos-btn pos-btn-ghost" style="min-height:32px;margin-inline-start:8px">بازگردانی</button>';
+      const btn=t.querySelector('button');
+      btn.addEventListener('click', function(){
+        const u=_storeQs.undoLine;
+        if(!u) return;
+        _storeQs.lines.splice(Math.min(u.idx,_storeQs.lines.length),0,u.ln);
+        _storeQs.undoLine=null;
+        storeQsRenderBody();
+      });
+      host.appendChild(t);
+      _storeQs.undoTimer=setTimeout(function(){ _storeQs.undoLine=null; try{t.remove();}catch(_){} }, 5000);
+    }
+  }
+  storeQsRenderBody();
+}
+function storeQsSetPayType(pt){
+  const walkinId=Number((_storeQs.boot&&_storeQs.boot.walkin_customer_id)||0);
+  const custId=Number(_storeQs.custId||walkinId||0);
+  if(pt==='credit' && custId===walkinId){
+    storeQsUiToast('نسیه برای مشتری نقدی مجاز نیست','error'); return;
+  }
+  if(pt==='bank_card' || pt==='card_transfer'){
+    storeQsUiToast('این روش به‌زودی','error'); return;
+  }
+  _storeQs.payType=pt;
+  if(pt==='cash') _storeQs.uiCashTendered=null;
+  storeQsRenderBody();
+}
+function storeQsFillRemainCash(){
+  const due=(_storeQs.mode==='exchange')?Math.max(0,storeQsNetDue()):storeQsFinal();
+  _storeQs.uiCashTendered=due;
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsCheckoutGateReason(){
+  const mode=_storeQs.mode||'sale';
+  const boot=_storeQs.boot||{};
+  const walkinId=Number(boot.walkin_customer_id||0);
+  const custId=Number(_storeQs.custId||walkinId||0);
+  if(mode==='exchange'){
+    if(!_storeQs.refInvoiceId) return 'فاکتور مرجع را انتخاب کنید';
+    storeQsSyncReturnLines();
+    if(!(_storeQs.returnLines||[]).length) return 'تعداد برگشتی را وارد کنید';
+  } else if(!(_storeQs.lines||[]).length){
+    return 'سبد فروش خالی است — بارکد را اسکن کنید یا F2';
+  }
+  const returnOnly=mode==='exchange' && !_storeQs.lines.length && _storeQs.returnLines.length>0;
+  const finalAmt=storeQsFinal();
+  if(!returnOnly && !(finalAmt>0) && mode!=='exchange') return 'مبلغ فاکتور نامعتبر است';
+  const netDue=mode==='exchange'?storeQsNetDue():finalAmt;
+  const collectAmt=returnOnly?0:Math.max(0, netDue);
+  const settleCase=returnOnly?'refund':(mode==='exchange'?storeQsSettlementCase():'sale');
+  const needsCash=_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
+  const cashId=Number(_storeQs.cashBoxId||boot.cash_box_id||0);
+  if(needsCash && !cashId && collectAmt>=0){
+    if(mode==='exchange'&&(settleCase==='refund'||returnOnly)) return 'برای استرداد، صندوق الزامی است';
+    if(_storeQs.payType==='cash'||_storeQs.payType==='mixed') return 'صندوق را انتخاب کنید';
+  }
+  if((_storeQs.payType==='pos_card'||_storeQs.payType==='mixed') && collectAmt>0 && !Number(_storeQs.terminalId||0))
+    return 'کارتخوان را انتخاب کنید';
+  if((mode==='sale'||(mode==='exchange'&&collectAmt>0))&&_storeQs.payType==='credit'&&custId===walkinId)
+    return 'مشتری نقدی باید کامل نقد/کارت تسویه شود';
+  if(!storeQsWhId()) return 'انبار فروش را انتخاب کنید';
+  return '';
+}
+function storeQsAnimateNumber(elNode, from, to){
+  if(!elNode) return;
+  const reduce=window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const end=Math.round(Number(to)||0);
+  if(reduce){ elNode.textContent=fmt(end); return; }
+  const start=Math.round(Number(from)||0);
+  const t0=performance.now();
+  const dur=400;
+  function frame(now){
+    const p=Math.min(1,(now-t0)/dur);
+    const e=1-Math.pow(1-p,3);
+    elNode.textContent=fmt(Math.round(start+(end-start)*e));
+    if(p<1) requestAnimationFrame(frame);
+    else elNode.textContent=fmt(end);
+  }
+  requestAnimationFrame(frame);
+}
+async function storeQsLiveSearch(q){
+  const term=String(q||'').trim();
+  _storeQs.scanQ=term;
+  if(term.length<1){ _storeQs.searchResults=[]; storeQsRenderBody({keepFocus:true}); return; }
+  _storeQs.searchBusy=true;
+  try{
+    const list=listRows(await api('GET','/products?search='+encodeURIComponent(term)+'&limit=12'));
+    _storeQs.searchResults=list||[];
+    _storeQs.resultFocus=0;
+  }catch(_){ _storeQs.searchResults=[]; }
+  _storeQs.searchBusy=false;
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsOnScanInputKey(e){
+  const now=Date.now();
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const v=e.target.value;
+    const burst=_storeQs.scanBurstLen>=4 && (now-_storeQs.scanBurstAt)<120;
+    _storeQs.scanBurstAt=0; _storeQs.scanBurstLen=0;
+    storeQsLookupScan(v);
+    e.target.value=''; _storeQs.scanQ=''; _storeQs.searchResults=[];
+    const field=e.target.closest('.pos-scan-field');
+    if(field){ field.classList.remove('pos-scan-ok'); void field.offsetWidth; field.classList.add('pos-scan-ok'); }
+    return;
+  }
+  if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+    if(!_storeQs.scanBurstAt || now-_storeQs.scanBurstAt>80){ _storeQs.scanBurstAt=now; _storeQs.scanBurstLen=1; }
+    else { _storeQs.scanBurstLen++; _storeQs.scanBurstAt=now; }
+  }
+  if(_storeQs._searchTimer) clearTimeout(_storeQs._searchTimer);
+  _storeQs._searchTimer=setTimeout(function(){ storeQsLiveSearch(e.target.value); }, 220);
+}
+function storeQsBindKeys(){
+  if(_storeQs.keysBound) return;
+  _storeQs.keysBound=true;
+  document.addEventListener('keydown', storeQsGlobalKey, true);
+}
+function storeQsUnbindKeys(){
+  if(!_storeQs.keysBound) return;
+  _storeQs.keysBound=false;
+  document.removeEventListener('keydown', storeQsGlobalKey, true);
+}
+function storeQsPageActive(){
+  return !!(el('storeQsBody') && document.querySelector('.pos-v2'));
+}
+function storeQsGlobalKey(e){
+  if(!storeQsPageActive()) return;
+  const tag=(e.target&&e.target.tagName||'').toLowerCase();
+  const typing=tag==='input'||tag==='textarea'||tag==='select'||(e.target&&e.target.isContentEditable);
+  const fk=/^Fd+$/.test(e.key);
+  if(typing && !fk && e.key!=='Escape' && !(e.ctrlKey&&(e.key==='Enter'||e.key==='p'||e.key==='P'||e.key==='k'||e.key==='K'))) return;
+  const prevent=()=>{ e.preventDefault(); e.stopPropagation(); };
+  if(e.key==='F2'){ prevent(); const i=el('storeQsScan'); if(i){ i.focus(); i.select(); } return; }
+  if(e.key==='F3'){ prevent(); _storeQs.mode='exchange'; storeQsLoadRefInvoices().then(()=>storeQsRenderBody()); return; }
+  if(e.key==='F4'){ prevent(); const c=document.querySelector('#storeQsCust, [data-cust-search]#storeQsCust, .pos-v2 .cust-search input'); const box=el('storeQsCust'); if(box){ try{ box.focus(); }catch(_){} } const inp=document.querySelector('.pos-v2 input[placeholder*="موبایل"], .pos-v2 .cust-si-input, #storeQsCust'); if(inp) try{inp.focus();}catch(_){} return; }
+  if(e.key==='F6'){ prevent(); const d=el('storeQsDisc'); if(d){ d.focus(); d.select(); } return; }
+  if(e.key==='F7'){ prevent(); const idx=_storeQs.selectedLineIdx; if(idx>=0){ const q=document.querySelector('[data-pos-qty="'+idx+'"]'); if(q){ q.focus(); q.select(); } } return; }
+  if(e.key==='F8'){ prevent(); if(e.shiftKey){ const list=storeQsLoadHeld(); if(!list.length) storeQsUiToast('معلقی نیست'); else storeQsRenderBody(); } else storeQsHoldCart(); return; }
+  if(e.key==='F9'){ prevent(); const p=document.querySelector('.pos-glass, #posPayPanel'); if(p) p.scrollIntoView({behavior:'smooth',block:'nearest'}); _storeQs.sheetOpen=true; storeQsRenderBody(); return; }
+  if(e.key==='F10' || (e.ctrlKey && e.key==='Enter')){ prevent(); if(!storeQsCheckoutGateReason()) storeQsCheckout(); else storeQsUiToast(storeQsCheckoutGateReason(),'error'); return; }
+  if(e.ctrlKey && (e.key==='p'||e.key==='P')){ prevent(); if(_storeQs.lastInvId) printInvoice(_storeQs.lastInvId,'THERMAL','thermal'); else storeQsPrintCartReceipt(); return; }
+  if(e.ctrlKey && (e.key==='k'||e.key==='K')){ prevent(); const dlg=el('posCmdPalette'); if(dlg&&dlg.showModal) dlg.showModal(); return; }
+  if(e.key==='?' && !typing){ prevent(); const dlg=el('posHelpKeys'); if(dlg&&dlg.showModal) dlg.showModal(); return; }
+  if(e.key==='Escape'){ prevent(); _storeQs.sheetOpen=false; const dlg=el('posHelpKeys'); if(dlg&&dlg.open) dlg.close(); const cmd=el('posCmdPalette'); if(cmd&&cmd.open) cmd.close(); const i=el('storeQsScan'); if(i) i.focus(); storeQsRenderBody({keepFocus:true}); return; }
+  if(!typing && (e.key==='+' || e.key==='=')){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0&&_storeQs.lines[i]){ _storeQs.lines[i].qty=(Number(_storeQs.lines[i].qty)||0)+1; storeQsRenderBody(); } return; }
+  if(!typing && (e.key==='-' || e.key==='_')){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0&&_storeQs.lines[i]){ _storeQs.lines[i].qty=Math.max(1,(Number(_storeQs.lines[i].qty)||1)-1); storeQsRenderBody(); } return; }
+  if(!typing && e.key==='Delete'){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0) storeQsRemoveLine(i,true); return; }
+  if(!typing && e.key==='ArrowDown'){ prevent(); if(_storeQs.searchResults.length){ _storeQs.resultFocus=Math.min(_storeQs.searchResults.length-1,(_storeQs.resultFocus||0)+1); storeQsRenderBody({keepFocus:true}); } else if(_storeQs.lines.length){ _storeQs.selectedLineIdx=Math.min(_storeQs.lines.length-1,Math.max(0,_storeQs.selectedLineIdx)+1); storeQsRenderBody({keepFocus:true}); } return; }
+  if(!typing && e.key==='ArrowUp'){ prevent(); if(_storeQs.searchResults.length){ _storeQs.resultFocus=Math.max(0,(_storeQs.resultFocus||0)-1); storeQsRenderBody({keepFocus:true}); } else if(_storeQs.lines.length){ _storeQs.selectedLineIdx=Math.max(0,(_storeQs.selectedLineIdx<=0?0:_storeQs.selectedLineIdx-1)); storeQsRenderBody({keepFocus:true}); } return; }
+  if(!typing && e.key==='Enter' && _storeQs.searchResults.length){ prevent(); const p=_storeQs.searchResults[_storeQs.resultFocus||0]; if(p) storeQsPickVariantThenAdd(p); return; }
+}
+function storeQsPrintCartReceipt(invMeta){
+  let host=document.getElementById('posReceiptPrint');
+  if(!host){ host=document.createElement('div'); host.id='posReceiptPrint'; host.className='pos-receipt-print'; document.body.appendChild(host); }
+  const lines=_storeQs.lines||[];
+  const finalAmt=storeQsFinal();
+  const num=(invMeta&&(invMeta.num||invMeta.id))||'—';
+  host.innerHTML=`<div style="text-align:center;font-weight:800;margin-bottom:8px">پوشاک ترنم</div>
+    <div style="text-align:center;margin-bottom:8px">فیش فروش ${esc(String(num))}<br>${esc(typeof todayJalali==='function'?todayJalali():'')}</div>
+    <hr>
+    ${lines.map(ln=>{
+      const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
+      return `<div style="margin:6px 0"><b>${esc(ln.name)}</b> ${varLbl?'('+esc(varLbl)+')':''}<br>
+        ${fmtQtyFa(ln.qty)} × ${fmt(ln.unit_price)} ${ln.disc_pct?`تخفیف ${esc(String(ln.disc_pct))}%`:''}<br>
+        <b>${fmt(storeQsLineTotal(ln))}</b></div>`;
+    }).join('')}
+    <hr>
+    <div>تخفیف کل: ${esc(String(_storeQs.discPct||0))}%</div>
+    <div style="font-size:16px;font-weight:800;margin-top:6px">قابل پرداخت: ${fmt(finalAmt)}</div>
+    <div style="margin-top:6px">روش: ${esc(_storeQs.payType||'')}</div>
+    <div style="text-align:center;margin-top:12px">سپاس از خرید شما</div>`;
+  window.print();
+}
+function storeQsSyncTabIndicator(){
+  const tabs=document.querySelector('.pos-v2 .pos-tabs');
+  const ind=document.querySelector('.pos-v2 .pos-tabs-indicator');
+  if(!tabs||!ind) return;
+  const active=tabs.querySelector('.pos-tab[aria-selected="true"]');
+  if(!active) return;
+  ind.style.width=active.offsetWidth+'px';
+  ind.style.transform='translateX('+active.offsetLeft+'px)';
+}
+function storeQsQuickAddCustomer(){
+  if(typeof custModal==='function') custModal();
+  else go('customers');
+}
+function storeQsEnsurePrintHook(){
+  if(window.__posPrintHooked) return;
+  window.__posPrintHooked=true;
+  const orig=printInvoice;
+  printInvoice=async function(id, paper, template){
+    try{ if(id) _storeQs.lastInvId=id; }catch(_){}
+    if(_storeQs.preferThermalPrint && storeQsPageActive() && !paper){
+      return orig(id, 'THERMAL', 'thermal');
+    }
+    return orig(id, paper, template);
+  };
+}
+
 function storeQsRenderLines(){
   if(!_storeQs.lines.length){
     const exchangeHint=(_storeQs.mode||'sale')==='exchange'
-      ? 'سبد جایگزین خالی است — برای برگشت کامل + استرداد وجه فقط اقلام برگشتی را انتخاب و ثبت کنید'
-      : 'بارکد را اسکن کنید یا نام/کد کالا را جستجو کنید';
-    return `<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">${exchangeHint}</div>`;
+      ? 'سبد جایگزین خالی است — برای برگشت کامل فقط اقلام برگشتی را انتخاب کنید'
+      : 'سبد خالی است — بارکد را اسکن کنید یا F2';
+    return `<div class="pos-empty">
+      <div class="pos-empty-icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6h15l-1.5 9h-12z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M6 6L5 3H2"/></svg>
+      </div>
+      <div><b>${exchangeHint}</b></div>
+      <div class="muted" style="margin-top:6px">جستجو با نام/کد یا اسکنر · میانبر <kbd class="pos-kbd">F2</kbd></div>
+    </div>`;
   }
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>کالا</th><th>تعداد</th><th data-col-kind="money">فی</th><th>تخفیف٪</th><th data-col-kind="money">جمع</th><th class="no-sort"></th>
+  const nItems=_storeQs.lines.length;
+  const nQty=_storeQs.lines.reduce((a,l)=>a+(Number(l.qty)||0),0);
+  return `<div class="pos-card-title"><span>سبد فروش (${fmtQtyFa(nItems)} قلم، ${fmtQtyFa(nQty)} عدد)</span>
+    <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" data-csp-click="${CSP.bind('click',function(){storeQsHoldCart();})}">تعلیق <kbd class="pos-kbd">F8</kbd></button>
+  </div>
+  <div class="tbl-wrap"><table class="pos-cart-table"><thead><tr>
+    <th>#</th><th>کالا / سایز / رنگ</th><th>فی</th><th>تعداد</th><th>تخفیف٪</th><th>جمع</th><th></th>
   </tr></thead><tbody>${_storeQs.lines.map((ln,idx)=>{
     const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
-    return `<tr>
-    <td data-label="کالا"><b>${esc(ln.name)}</b>
-      <div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div></td>
-    <td data-label="تعداد"><input type="number" min="1" step="1" value="${esc(String(ln.qty))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);storeQsRenderBody({keepFocus:true});})}"></td>
-    <td data-label="فی"><input type="text" inputmode="numeric" class="money" value="${moneyInit(ln.unit_price)}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\d]/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
-    <td data-label="تخفیف٪"><input type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-style="${CSP.style(`width:72px`)}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody({keepFocus:true});})}"></td>
-    <td data-label="جمع" class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
-    <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines.splice(idx,1);storeQsRenderBody();})}">✕</button></td>
-  </tr>`;
+    const stock=ln.stock!=null?Number(ln.stock):null;
+    const low=stock!=null && Number(ln.qty)>stock;
+    const sel=_storeQs.selectedLineIdx===idx?' is-selected':'';
+    return `<tr class="pos-cart-row${sel}" data-csp-click="${CSP.bind('click',function(){_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
+      <td>${fmtQtyFa(idx+1)}</td>
+      <td><b>${esc(ln.name)}</b>
+        <div class="muted mono" style="font-size:11px">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div>
+        ${low?`<div class="pos-stock-warn" role="status">موجودی ناکافی (موجود: ${fmtQtyFa(stock)})</div>`:''}
+      </td>
+      <td><input type="text" inputmode="numeric" class="money pos-disc-input" style="width:100px" value="${moneyInit(ln.unit_price)}" data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
+      <td><div class="pos-stepper" onclick="event.stopPropagation()">
+        <button type="button" aria-label="کاهش" data-csp-click="${CSP.bind('click',function(){_storeQs.lines[idx].qty=Math.max(1,(Number(_storeQs.lines[idx].qty)||1)-1);_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">−</button>
+        <input data-pos-qty="${idx}" type="number" min="1" step="1" inputmode="numeric" value="${esc(String(ln.qty))}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].qty=Math.max(1,Number(this.value)||1);_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
+        <button type="button" aria-label="افزایش" data-csp-click="${CSP.bind('click',function(){_storeQs.lines[idx].qty=(Number(_storeQs.lines[idx].qty)||0)+1;_storeQs.selectedLineIdx=idx;storeQsRenderBody();})}">+</button>
+      </div></td>
+      <td><input class="pos-disc-input" type="number" min="0" max="100" step="0.1" value="${esc(String(ln.disc_pct||0))}" data-csp-change="${CSP.bind('change',function(){_storeQs.lines[idx].disc_pct=Math.max(0,Math.min(100,Number(this.value)||0));storeQsRenderBody({keepFocus:true});})}"></td>
+      <td class="mono"><b>${fmt(storeQsLineTotal(ln))}</b></td>
+      <td><button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px;min-width:36px" aria-label="حذف" data-csp-click="${CSP.bind('click',function(ev){ev.stopPropagation();storeQsRemoveLine(idx,true);})}">🗑</button></td>
+    </tr>`;
   }).join('')}</tbody></table></div>`;
 }
 function storeQsRenderReturnLines(){
   const rows=_storeQs.availableRows||[];
   if(!_storeQs.refInvoiceId){
-    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">ابتدا فاکتور مرجع را انتخاب کنید</div>`;
+    return `<div class="pos-empty" style="padding:16px">ابتدا فاکتور مرجع را انتخاب کنید</div>`;
   }
   if(!rows.length){
-    return `<div class="empty" data-csp-style="${CSP.style(`padding:12px`)}">همه اقلام این فاکتور قبلاً برگشت شده‌اند یا قابل برگشت نیست</div>`;
+    return `<div class="pos-empty" style="padding:16px">همه اقلام این فاکتور قبلاً برگشت شده‌اند</div>`;
   }
   const returnGross=storeQsReturnGross();
-  return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin:6px 0`)}">
-      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsSetAllReturnMax();})}">برگشت کامل</button>
-      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){storeQsClearReturns();})}">پاک کردن برگشتی</button>
-      <span class="muted" data-csp-style="${CSP.style(`align-self:center`)}">جمع برگشت (تقریبی): <b class="mono">${fmt(returnGross)}</b></span>
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">
+      <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" data-csp-click="${CSP.bind('click',function(){storeQsSetAllReturnMax();})}">برگشت کامل</button>
+      <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" data-csp-click="${CSP.bind('click',function(){storeQsClearReturns();})}">پاک کردن برگشتی</button>
+      <span class="muted" style="align-self:center">جمع برگشت: <b class="mono" style="color:var(--pos-danger)">${fmt(returnGross)}</b></span>
     </div>
-    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-      <th>کالا</th><th>فروخته</th><th>برگشتی قبل</th><th>قابل</th><th data-col-kind="money">فی</th><th data-col-kind="money">خالص واحد</th><th>تعداد برگشت</th><th data-col-kind="money">جمع</th>
+    <div class="tbl-wrap"><table class="pos-cart-table" style="font-size:13px"><thead><tr>
+      <th>کالا</th><th>فروخته</th><th>برگشتی قبل</th><th>قابل</th><th>فی</th><th>خالص</th><th>تعداد برگشت</th><th>جمع</th>
     </tr></thead><tbody>${rows.map((r,idx)=>{
       const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(r.color_name||r.color, r.size_name):'';
       const max=Number(r.max_returnable)||0;
       const qty=Math.max(0, Math.min(max, Number(r.qty_return)||0));
       const net=Math.round(Number(r.net_unit!=null?r.net_unit:r.price)||0);
       const tot=Math.round(qty*net);
-      return `<tr>
-        <td><b>${esc(r.name||'')}</b><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">${varLbl?esc(varLbl):''}</div></td>
+      return `<tr class="pos-cart-row" style="${qty>0?'background:var(--pos-danger-50)':''}">
+        <td><b>${esc(r.name||'')}</b><div class="muted mono" style="font-size:11px">${varLbl?esc(varLbl):''}</div></td>
         <td class="mono">${fmtQtyFa(r.qty)}</td>
         <td class="mono">${fmtQtyFa(r.already_returned||0)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(max)}</td>
+        <td class="mono" style="font-weight:700">${fmtQtyFa(max)}</td>
         <td class="mono">${fmt(r.price)}</td>
         <td class="mono">${fmt(net)}</td>
-        <td><input type="number" min="0" max="${max}" step="1" value="${esc(String(qty))}" data-csp-style="${CSP.style(`width:72px`)}"
-          data-csp-change="${CSP.bind('change',function(){
-            const v=Math.max(0, Math.min(max, Number(this.value)||0));
-            _storeQs.availableRows[idx].qty_return=v;
-            storeQsSyncReturnLines();
-            storeQsRenderBody({keepFocus:true});
-          })}"></td>
-        <td class="mono"><b>${fmt(tot)}</b></td>
+        <td><div class="pos-stepper">
+          <button type="button" data-csp-click="${CSP.bind('click',function(){_storeQs.availableRows[idx].qty_return=Math.max(0,(Number(_storeQs.availableRows[idx].qty_return)||0)-1);storeQsSyncReturnLines();storeQsRenderBody({keepFocus:true});})}">−</button>
+          <input type="number" min="0" max="${max}" step="1" value="${esc(String(qty))}"
+            data-csp-change="${CSP.bind('change',function(){
+              const v=Math.max(0, Math.min(max, Number(this.value)||0));
+              _storeQs.availableRows[idx].qty_return=v;
+              storeQsSyncReturnLines();
+              storeQsRenderBody({keepFocus:true});
+            })}">
+          <button type="button" data-csp-click="${CSP.bind('click',function(){_storeQs.availableRows[idx].qty_return=Math.min(max,(Number(_storeQs.availableRows[idx].qty_return)||0)+1);storeQsSyncReturnLines();storeQsRenderBody({keepFocus:true});})}">+</button>
+        </div></td>
+        <td class="mono"><b style="color:var(--pos-danger)">−${fmt(tot)}</b></td>
       </tr>`;
     }).join('')}</tbody></table></div>
     ${(_storeQs.availableDisc&&_storeQs.availableDisc.hdr_disc_remaining>0)
-      ? `<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">تخفیف کل باقیمانده فاکتور مرجع: ${fmt(_storeQs.availableDisc.hdr_disc_remaining)} — در سرور روی مبلغ برگشت اعمال می‌شود</div>`
+      ? `<div class="muted" style="font-size:11px;margin-top:4px">تخفیف کل باقیمانده فاکتور مرجع: ${fmt(_storeQs.availableDisc.hdr_disc_remaining)}</div>`
       : ''}`;
 }
-async function storeQsLoadRefInvoices(){
-  const custId=Number(_storeQs.custId||0);
-  _storeQs.refInvoices=[];
-  _storeQs.refInvoiceId=null;
-  _storeQs.refInvoice=null;
-  _storeQs.returnLines=[];
-  _storeQs.availableRows=[];
-  _storeQs.availableDisc=null;
-  if(!(custId>0)) return;
-  try{
-    const rows=listRows(await api('GET','/store/customer-firm-invoices/'+custId));
-    _storeQs.refInvoices=rows||[];
-  }catch(_){
-    try{
-      const rows=listRows(await api('GET','/invoices'));
-      _storeQs.refInvoices=(rows||[]).filter(i=>{
-        if(Number(i.cust_id)!==custId) return false;
-        if(i.deleted_at) return false;
-        const t=String(i.type||'');
-        return t==='normal'||t==='final';
-      }).slice(0,40);
-    }catch(__){ _storeQs.refInvoices=[]; }
+function storeQsRenderResults(){
+  if(_storeQs.searchBusy){
+    return `<div class="pos-results"><div class="pos-skel"></div><div class="pos-skel"></div></div>`;
   }
-}
-async function storeQsSelectRefInvoice(id){
-  _storeQs.refInvoiceId=Number(id)||null;
-  _storeQs.returnLines=[];
-  _storeQs.availableRows=[];
-  _storeQs.availableDisc=null;
-  if(!_storeQs.refInvoiceId){ _storeQs.refInvoice=null; storeQsRenderBody(); return; }
-  const custId=Number(_storeQs.custId||(_storeQs.boot&&_storeQs.boot.walkin_customer_id)||0);
-  try{
-    const pack=await api('GET','/store/exchange-available/'+_storeQs.refInvoiceId+(custId?('?cust_id='+custId):''));
-    _storeQs.refInvoice=pack.invoice||null;
-    _storeQs.availableDisc=pack.discount||null;
-    _storeQs.availableRows=(pack.rows||[]).map(r=>({ ...r, qty_return:0 }));
-    storeQsSyncReturnLines();
-  }catch(e){
-    showToast((e&&(e.error||e.message))||'خطا در بارگذاری اقلام قابل برگشت','error');
-    _storeQs.refInvoice=null;
+  const list=_storeQs.searchResults||[];
+  if(!list.length){
+    if((_storeQs.scanQ||'').trim()) return `<div class="pos-empty" style="padding:16px" role="status">کالا یافت نشد</div>`;
+    return '';
   }
-  storeQsRenderBody();
+  return `<div class="pos-results" role="listbox" aria-label="نتایج کالا">${list.map((p,i)=>{
+    const price=storeQsRetailPrice(p);
+    const active=(_storeQs.resultFocus||0)===i?' is-active':'';
+    const oos=Number(p.stock)===0?' is-oos':'';
+    const img=(p.image_url||p.thumb_url||'/logo.png');
+    return `<button type="button" role="option" aria-selected="${active?'true':'false'}" class="pos-prod${active}${oos}" data-csp-click="${CSP.bind('click',function(){storeQsPickVariantThenAdd(p);})}">
+      <img class="pos-prod-thumb" src="${esc(img)}" alt="" loading="lazy" onerror="this.src='/logo.png'">
+      <div class="pos-prod-body">
+        <div class="pos-prod-name">${esc(p.name||'')}</div>
+        <div class="muted mono" style="font-size:11px">${esc(p.code||p.barcode||'')}</div>
+        <div class="pos-prod-price">${fmt(price)} <span class="pos-unit-muted">ریال</span></div>
+        <div class="pos-chips">
+          <span class="pos-chip" aria-disabled="${Number(p.stock)<=0?'true':'false'}">موجودی ${fmtQtyFa(p.stock!=null?p.stock:'—')}</span>
+        </div>
+      </div>
+    </button>`;
+  }).join('')}</div>`;
 }
 function storeQsRenderBody(opts){
   opts=opts||{};
@@ -7797,6 +8105,13 @@ function storeQsRenderBody(opts){
   const custId=Number(_storeQs.custId||walkinId||0);
   const isWalkin=custId===walkinId;
   const finalAmt=storeQsFinal();
+  const subtotal=storeQsSubtotal();
+  const lineDisc=Math.max(0, (_storeQs.lines||[]).reduce((a,ln)=>{
+    const qty=Number(ln.qty)||0; const price=Math.round(Number(ln.unit_price)||0);
+    const raw=Math.round(qty*price);
+    return a+(raw-storeQsLineTotal(ln));
+  },0));
+  const hdrDisc=Math.max(0, subtotal-finalAmt);
   const returnGross=storeQsReturnGross();
   const netDue=storeQsNetDue();
   const mode=_storeQs.mode||'sale';
@@ -7808,9 +8123,8 @@ function storeQsRenderBody(opts){
   const termOpts=(CACHE.posTerminalChoices||[]).map(t=>`<option value="${t.id}" ${Number(_storeQs.terminalId)===Number(t.id)?'selected':''}>${esc(t.name||t.terminal_id||('#'+t.id))}</option>`).join('');
   const whId=storeQsWhId();
   const whSelect=locksWh||!storeQsCanChangeWh()
-    ? `<input value="${esc((boot.warehouse&&boot.warehouse.name)||ME.sales_warehouse_name||warehouseNameById(whId)||'—')}" readonly>
-        ${locksWh?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی انبار فروش کاربر</div>`:''}`
-    : `<select id="storeQsWh" data-csp-change="${CSP.bind('change',function(){_storeQs.warehouseId=Number(this.value)||null;})}">
+    ? `<input value="${esc((boot.warehouse&&boot.warehouse.name)||ME.sales_warehouse_name||warehouseNameById(whId)||'—')}" readonly>`
+    : `<select id="storeQsWh" data-csp-change="${CSP.bind('change',function(){_storeQs.warehouseId=Number(this.value)||null;storeQsPersistPref('pos_v2_wh',_storeQs.warehouseId);})}">
         <option value="">— انتخاب انبار —</option>
         ${whList.map(w=>`<option value="${w.id}" ${Number(whId)===Number(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
       </select>`;
@@ -7824,83 +8138,179 @@ function storeQsRenderBody(opts){
     else if(settleCase==='even') checkoutLbl='ثبت تعویض برابر';
     else checkoutLbl='ثبت تعویض + دریافت';
   }
-  let netLabel;
-  if(mode!=='exchange'){
-    netLabel=`<span class="muted">قابل پرداخت</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(finalAmt)}</div>`;
-  } else if(returnOnly||settleCase==='refund'){
-    netLabel=`<span class="muted">${returnOnly?'استرداد کامل به مشتری':'مابه‌التفاوت — استرداد به مشتری'}</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--orange)`)}">${fmt(returnOnly?returnGross:Math.abs(netDue))}</div>`;
-  } else if(settleCase==='collect'){
-    netLabel=`<span class="muted">مابه‌التفاوت — دریافت از مشتری</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800`)}">${fmt(netDue)}</div>`;
-  } else {
-    netLabel=`<span class="muted">تعویض برابر — بدون دریافت/استرداد</span><div id="storeQsFinalLbl" data-csp-style="${CSP.style(`font-size:1.6rem;font-weight:800;color:var(--green)`)}">۰</div>`;
-  }
+  const dueShow=mode!=='exchange'?finalAmt:(returnOnly||settleCase==='refund')?(returnOnly?returnGross:Math.abs(netDue)):(settleCase==='collect'?netDue:0);
+  const dueLabel=mode!=='exchange'?'قابل پرداخت':(returnOnly||settleCase==='refund')?(returnOnly?'استرداد کامل':'مابه‌التفاوت — استرداد'):(settleCase==='collect'?'مابه‌التفاوت — دریافت':'تعویض برابر');
+  const gate=storeQsCheckoutGateReason();
+  const collectAmt=returnOnly?0:Math.max(0, mode==='exchange'?netDue:finalAmt);
+  const tendered=Number(_storeQs.uiCashTendered!=null?_storeQs.uiCashTendered:(_storeQs.payType==='cash'?collectAmt:0));
+  const remain=Math.max(0, collectAmt-(_storeQs.payType==='credit'?0:(_storeQs.payType==='mixed'?collectAmt:(_storeQs.payType==='pos_card'?collectAmt:tendered))));
+  // UI progress: for API-mapped types, treat selected method as covering collectAmt
+  const paidUi=_storeQs.payType==='credit'?0:collectAmt;
+  const change=(_storeQs.payType==='cash' && tendered>collectAmt)?(tendered-collectAmt):0;
+  const pct=collectAmt>0?Math.min(1.25, paidUi/collectAmt):0;
+  const held=storeQsLoadHeld();
+  const showCash=_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
+  const showTerm=_storeQs.payType==='pos_card'||_storeQs.payType==='mixed';
+  const mixedHalf=Math.floor(collectAmt/2);
+  const mixedRest=collectAmt-mixedHalf;
+
+  const payPanel=`<div class="pos-glass" id="posPayPanel">
+    <div class="pos-card-title"><span>پرداخت <kbd class="pos-kbd">F9</kbd></span>
+      <label style="font-weight:500;font-size:12px;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" ${_storeQs.preferThermalPrint?'checked':''} data-csp-change="${CSP.bind('change',function(){_storeQs.preferThermalPrint=!!this.checked;})}"> چاپ حرارتی خودکار
+      </label>
+    </div>
+    <div class="pos-pay-grid" role="group" aria-label="روش پرداخت">
+      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='cash'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('cash');})}">نقد</button>
+      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="false" disabled title="به‌زودی" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('bank_card');})}">کارت</button>
+      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='pos_card'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('pos_card');})}">پوز</button>
+      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="false" disabled title="به‌زودی" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('card_transfer');})}">کارت‌به‌کارت</button>
+      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='credit'?'true':'false'}" ${isWalkin?'disabled title="برای مشتری نقدی مجاز نیست"':''} data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('credit');})}">اعتبار</button>
+    </div>
+    <button type="button" class="pos-pay-chip" style="width:100%;margin-bottom:8px" role="checkbox" aria-checked="${_storeQs.payType==='mixed'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('mixed');})}">ترکیبی نقد+پوز (۵۰/۵۰ — قرارداد فعلی)</button>
+    <select id="storeQsPay" hidden aria-hidden="true"><option value="${esc(_storeQs.payType)}" selected></option></select>
+    ${_storeQs.payType==='cash'?`<div class="pos-pay-row"><span>نقد</span>
+      <input type="text" inputmode="numeric" class="money" value="${moneyInit(tendered)}" aria-label="مبلغ نقد دریافتی"
+        data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiCashTendered=Math.max(0,parseInt(raw||'0',10)||0);storeQsRenderBody({keepFocus:true});})}">
+      <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" data-csp-click="${CSP.bind('click',function(){storeQsFillRemainCash();})}">باقیمانده را پر کن</button>
+    </div>`:''}
+    ${_storeQs.payType==='mixed'?`<div class="pos-pay-row"><span>نقد (نیمه)</span><b class="mono">${fmt(mixedHalf)}</b></div>
+      <div class="pos-pay-row"><span>پوز (نیمه)</span><b class="mono">${fmt(mixedRest)}</b></div>
+      <div class="muted" style="font-size:11px">مبالغ ترکیبی در سرور فعلاً ۵۰/۵۰ ثابت است؛ UI فقط همان را نشان می‌دهد.</div>`:''}
+    ${_storeQs.payType==='pos_card'?`<div class="pos-pay-row"><span>پوز</span><b class="mono">${fmt(collectAmt)}</b></div>`:''}
+    <div class="pos-progress ${change>0?'is-over':''}" aria-hidden="true"><span style="width:${Math.min(100,pct*100)}%;transform:none"></span></div>
+    <div class="pos-pay-row"><span>باقیمانده</span><b class="mono">${fmt(_storeQs.payType==='cash'?Math.max(0,collectAmt-tendered):0)}</b></div>
+    <div class="pos-pay-row"><span>پول خرد</span><b class="mono">${fmt(change)}</b></div>
+    ${showCash?`<div class="fg" style="margin-top:10px"><label for="storeQsCash">صندوق *</label>
+      ${cashSelectLocked
+        ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
+           <div class="muted" style="font-size:11px;margin-top:4px">قفل روی صندوق فروش کاربر</div>`
+        : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;storeQsPersistPref('pos_v2_cash_box',_storeQs.cashBoxId);storeQsRenderBody({keepFocus:true});})}"><option value="">—</option>${cashOpts}</select>`}
+    </div>`:''}
+    ${showTerm?`<div class="fg" style="margin-top:10px"><label for="storeQsTerm">کارتخوان *</label>
+      <select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select>
+    </div>`:''}
+    <div style="margin-top:14px">
+      <button type="button" class="pos-btn pos-btn-primary" ${_storeQs.busy||gate?'disabled':''} aria-busy="${_storeQs.busy?'true':'false'}"
+        data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">✔ ${esc(checkoutLbl)} <kbd class="pos-kbd">F10</kbd></button>
+      <div class="pos-block-reason" role="alert" aria-live="polite">${gate?esc(gate):''}</div>
+    </div>
+    <div class="pos-actions">
+      <button type="button" class="pos-btn" data-csp-click="${CSP.bind('click',function(){ if(_storeQs.lastInvId) printInvoice(_storeQs.lastInvId,'THERMAL','thermal'); else storeQsPrintCartReceipt(); })}">چاپ فیش</button>
+      <button type="button" class="pos-btn pos-btn-danger" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];(_storeQs.availableRows||[]).forEach(function(r){r.qty_return=0;});_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;_storeQs.selectedLineIdx=-1;storeQsRenderBody();})}">پاک کردن سبد</button>
+    </div>
+  </div>`;
 
   box.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:10px;gap:8px`)}">
-      <button class="btn sm ${mode==='sale'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){_storeQs.mode='sale';storeQsRenderBody();})}">فروش</button>
-      <button class="btn sm ${mode==='exchange'?'':'ghost'}" data-csp-click="${CSP.bind('click',async function(){_storeQs.mode='exchange';await storeQsLoadRefInvoices();storeQsRenderBody();})}">تعویض / برگشت+فروش</button>
-    </div>
-    <div class="card" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <div class="fg full"><label>اسکن / جستجوی کالا ${mode==='exchange'?'(جایگزین)':''}</label>
-        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-          <input id="storeQsScan" class="search" placeholder="بارکد یا نام کالا + Enter" value="${esc(_storeQs.scanQ||'')}" data-csp-style="${CSP.style(`flex:1;min-width:220px`)}"
-            data-csp-keydown="${CSP.bind('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _storeQs.scanQ=this.value; storeQsLookupScan(this.value); this.value=''; _storeQs.scanQ=''; } })}">
-          <button class="btn" data-csp-click="${CSP.bind('click',function(){ const i=el('storeQsScan'); storeQsLookupScan(i&&i.value); if(i) i.value=''; })}">افزودن</button>
-          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ openBarcodeScanner(async c=>{ storeQsLookupScan(c); }); })}">📷 اسکن</button>
-        </div>
+    <header class="pos-header">
+      <h2 class="pos-header-title">فروش سریع فروشگاهی</h2>
+      <div class="pos-tabs" role="tablist" aria-label="حالت فروش">
+        <span class="pos-tabs-indicator" aria-hidden="true"></span>
+        <button type="button" class="pos-tab" role="tab" aria-selected="${mode==='sale'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){_storeQs.mode='sale';storeQsRenderBody();})}">فروش</button>
+        <button type="button" class="pos-tab" role="tab" aria-selected="${mode==='exchange'?'true':'false'}" data-csp-click="${CSP.bind('click',async function(){_storeQs.mode='exchange';await storeQsLoadRefInvoices();storeQsRenderBody();})}">تعویض / برگشت+فروش <kbd class="pos-kbd">F3</kbd></button>
       </div>
-    </div>
-    ${mode==='exchange'?`<div class="card" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <div class="fg"><label>فاکتور مرجع برگشت *</label>
-        <select id="storeQsRefInv" data-csp-change="${CSP.bind('change',function(){storeQsSelectRefInvoice(this.value);})}">
-          <option value="">— انتخاب فاکتور مشتری —</option>
-          ${(_storeQs.refInvoices||[]).map(i=>`<option value="${i.id}" ${Number(_storeQs.refInvoiceId)===Number(i.id)?'selected':''}>${esc(i.num||('#'+i.id))} — ${esc(i.date||'')} — ${fmt(i.final||i.final_rial||0)}</option>`).join('')}
-        </select>
-        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برگشت فقط روی فاکتور قطعی همان مشتری؛ فی و تخفیف ردیف از فاکتور قفل است. تعداد را تا سقف «قابل» وارد کنید.</div>
-      </div>
-      <div data-csp-style="${CSP.style(`margin-top:8px`)}"><b>اقلام برگشتی</b></div>
-      ${storeQsRenderReturnLines()}
-    </div>`:''}
-    <div data-csp-style="${CSP.style(`margin-bottom:6px`)}"><b>${mode==='exchange'?'سبد فروش جایگزین (اختیاری — خالی = فقط برگشت+استرداد)':'سبد فروش'}</b></div>
-    ${storeQsRenderLines()}
-    <div class="card" data-csp-style="${CSP.style(`margin-top:12px`)}">
-      <div class="grid2">
-        <div class="fg"><label>مشتری ${hlp('پیش‌فرض: مشتری نقدی فروشگاه. برای نسیه/چک مشتری واقعی انتخاب کنید.')}</label>
-          ${custSelect('storeQsCust', custId)}
-          ${isWalkin?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">walk-in — تسویه کامل نقد/کارت الزامی است</div>`:''}
-        </div>
-        <div class="fg"><label>انبار</label>${whSelect}</div>
-        <div class="fg"><label>تخفیف کل ٪</label>
-          <input type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" data-csp-change="${CSP.bind('change',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody({keepFocus:true});})}">
-        </div>
-        <div class="fg"><label>نوع پرداخت</label>
-          <select id="storeQsPay" data-csp-change="${CSP.bind('change',function(){_storeQs.payType=this.value; storeQsRenderBody();})}">
-            <option value="cash" ${_storeQs.payType==='cash'?'selected':''}>نقد</option>
-            <option value="pos_card" ${_storeQs.payType==='pos_card'?'selected':''}>کارتخوان</option>
-            <option value="mixed" ${_storeQs.payType==='mixed'?'selected':''}>ترکیبی نقد+کارت</option>
-            ${!isWalkin?`<option value="credit" ${_storeQs.payType==='credit'?'selected':''}>نسیه (مانده مشتری)</option>`:''}
-          </select>
-        </div>
-        ${_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly))?`<div class="fg"><label>صندوق *</label>
+      <div class="pos-header-meta">
+        <label>صندوق
           ${cashSelectLocked
-            ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
-               <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">قفل روی صندوق فروش کاربر${(settleCase==='refund'||returnOnly)?' — برای استرداد':''}</div>`
-            : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;})}"><option value="">—</option>${cashOpts}</select>`}
+            ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>`
+            : `<select aria-label="صندوق" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;storeQsPersistPref('pos_v2_cash_box',_storeQs.cashBoxId);storeQsRenderBody();})}"><option value="">—</option>${cashOpts}</select>`}
+        </label>
+        <label>انبار ${whSelect}</label>
+        <button type="button" class="pos-btn pos-btn-ghost" style="min-height:36px" title="راهنمای میانبرها" data-csp-click="${CSP.bind('click',function(){const d=el('posHelpKeys'); if(d&&d.showModal) d.showModal();})}">?</button>
+      </div>
+    </header>
+    <div class="pos-shell">
+      <div class="pos-main">
+        <div class="pos-card">
+          <div class="pos-scan">
+            <div class="pos-scan-field">
+              <span aria-hidden="true">🔍</span>
+              <input id="storeQsScan" type="search" autocomplete="off" placeholder="بارکد / نام کالا …" value="${esc(_storeQs.scanQ||'')}"
+                aria-label="جستجو یا اسکن کالا"
+                data-csp-keydown="${CSP.bind('keydown',function(e){ storeQsOnScanInputKey(e); })}"
+                data-csp-input="${CSP.bind('input',function(e){ if(_storeQs._searchTimer) clearTimeout(_storeQs._searchTimer); const v=this.value; _storeQs._searchTimer=setTimeout(function(){ storeQsLiveSearch(v); }, 220); })}">
+              <kbd class="pos-kbd">F2</kbd>
+            </div>
+            <button type="button" class="pos-btn pos-btn-primary" style="width:auto;min-height:52px" data-csp-click="${CSP.bind('click',function(){ const i=el('storeQsScan'); storeQsLookupScan(i&&i.value); if(i){ i.value=''; _storeQs.scanQ=''; } })}">افزودن</button>
+            <button type="button" class="pos-btn" data-csp-click="${CSP.bind('click',function(){ openBarcodeScanner(async c=>{ storeQsLookupScan(c); }); })}">📷 اسکن</button>
+          </div>
+          <div style="margin-top:12px">${storeQsRenderResults()}</div>
+        </div>
+        ${mode==='exchange'?`<div class="pos-card">
+          <div class="pos-card-title">فاکتور مرجع برگشت *</div>
+          <select id="storeQsRefInv" data-csp-change="${CSP.bind('change',function(){storeQsSelectRefInvoice(this.value);})}">
+            <option value="">— انتخاب فاکتور مشتری —</option>
+            ${(_storeQs.refInvoices||[]).map(i=>`<option value="${i.id}" ${Number(_storeQs.refInvoiceId)===Number(i.id)?'selected':''}>${esc(i.num||('#'+i.id))} — ${esc(i.date||'')} — ${fmt(i.final||i.final_rial||0)}</option>`).join('')}
+          </select>
+          <div style="margin-top:10px"><b>اقلام برگشتی</b></div>
+          ${storeQsRenderReturnLines()}
         </div>`:''}
-        ${_storeQs.payType==='pos_card'||_storeQs.payType==='mixed'?`<div class="fg"><label>کارتخوان *</label><select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select></div>`:''}
-      </div>
-      <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px`)}">
-        <div>${netLabel}
-          ${mode==='exchange'?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px`)}">${returnOnly
-            ? ('برگشت '+fmt(returnGross)+' · استرداد کامل از صندوق')
-            : ('فروش '+fmt(finalAmt)+' − برگشت '+fmt(returnGross)+(settleCase==='even'?' · برابر':settleCase==='collect'?' · مشتری می‌پردازد':' · استرداد'))}</div>`:''}
-        </div>
-        <div data-csp-style="${CSP.style(`display:flex;gap:8px`)}">
-          <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];(_storeQs.availableRows||[]).forEach(function(r){r.qty_return=0;});_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;storeQsRenderBody();})}">پاک کردن سبد</button>
-          <button class="btn green" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${checkoutLbl}</button>
+        <div class="pos-card">
+          ${storeQsRenderLines()}
+          ${held.length?`<div class="pos-card-title" style="margin-top:14px">فاکتورهای معلق</div>
+            <div class="pos-held">${held.slice(0,5).map(h=>{
+              const n=(h.lines||[]).length;
+              const t=new Date(h.at||Date.now());
+              const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
+              return `<button type="button" class="pos-held-chip" data-csp-click="${CSP.bind('click',function(){storeQsResumeHeld(h.id);})}">#${esc(h.id.slice(-3))} ${esc(hh)} ${fmtQtyFa(n)}قلم ↩</button>`;
+            }).join('')}</div>`:''}
         </div>
       </div>
-    </div>`;
+      <aside class="pos-side">
+        <div class="pos-card">
+          <div class="pos-card-title">مشتری <kbd class="pos-kbd">F4</kbd></div>
+          ${custSelect('storeQsCust', custId)}
+          ${isWalkin?`<div class="muted" style="font-size:11px;margin-top:6px" role="status">مشتری نقدی فروشگاه — تسویه کامل نقد/کارت الزامی است</div>`:''}
+          <button type="button" class="pos-btn pos-btn-ghost" style="margin-top:10px;width:100%" data-csp-click="${CSP.bind('click',function(){storeQsQuickAddCustomer();})}">+ افزودن سریع مشتری</button>
+        </div>
+        <div class="pos-card">
+          <div class="pos-card-title">جمع</div>
+          <div class="pos-totals-row"><span>جمع اقلام</span><b class="mono">${fmt(subtotal+lineDisc)}</b></div>
+          <div class="pos-totals-row"><span>تخفیف سطری</span><b class="mono" style="color:var(--pos-success)">−${fmt(lineDisc)}</b></div>
+          <div class="pos-totals-row"><span>تخفیف کل <kbd class="pos-kbd">F6</kbd></span>
+            <span><input id="storeQsDisc" class="pos-disc-input" type="number" min="0" max="100" value="${esc(String(_storeQs.discPct||0))}" aria-label="تخفیف کل درصد"
+              data-csp-change="${CSP.bind('change',function(){_storeQs.discPct=Math.max(0,Math.min(100,Number(this.value)||0)); storeQsRenderBody({keepFocus:true});})}"> ٪ <b class="mono" style="color:var(--pos-success)">−${fmt(hdrDisc)}</b></span>
+          </div>
+          <div class="pos-totals-due">
+            <span class="muted">${esc(dueLabel)}</span>
+            <strong id="storeQsFinalLbl" aria-live="polite">${fmt(dueShow)} <span class="pos-unit-muted">ریال</span></strong>
+          </div>
+          ${mode==='exchange'?`<div class="muted" style="font-size:12px;margin-top:6px">${returnOnly
+            ? ('برگشت '+fmt(returnGross)+' · استرداد از صندوق')
+            : ('فروش '+fmt(finalAmt)+' − برگشت '+fmt(returnGross))}</div>`:''}
+        </div>
+        <div class="pos-side-desktop-pay ${_storeQs.sheetOpen?'is-sheet-open':''}" id="posPayMount">${payPanel}</div>
+      </aside>
+    </div>
+    <div class="pos-mobile-bar" aria-label="نوار پرداخت موبایل">
+      <div class="pos-due">${fmt(dueShow)}</div>
+      <button type="button" class="pos-btn pos-btn-primary" style="width:auto;min-width:120px" data-csp-click="${CSP.bind('click',function(){_storeQs.sheetOpen=true;storeQsRenderBody();})}">پرداخت</button>
+    </div>
+    <div class="pos-sheet-backdrop ${_storeQs.sheetOpen?'is-open':''}" data-csp-click="${CSP.bind('click',function(){_storeQs.sheetOpen=false;storeQsRenderBody();})}"></div>
+    <dialog id="posHelpKeys" class="pos-help-dialog">
+      <div class="pos-card-title">میانبرهای صفحه‌کلید <button type="button" class="pos-btn pos-btn-ghost" style="min-height:32px" data-csp-click="${CSP.bind('click',function(){el('posHelpKeys').close();})}">بستن</button></div>
+      <ul>
+        <li><span>فوکوس اسکنر</span><kbd class="pos-kbd">F2</kbd></li>
+        <li><span>تب تعویض</span><kbd class="pos-kbd">F3</kbd></li>
+        <li><span>مشتری</span><kbd class="pos-kbd">F4</kbd></li>
+        <li><span>تخفیف کل</span><kbd class="pos-kbd">F6</kbd></li>
+        <li><span>ویرایش تعداد</span><kbd class="pos-kbd">F7</kbd></li>
+        <li><span>تعلیق / معلق‌ها</span><kbd class="pos-kbd">F8</kbd> / Shift+F8</li>
+        <li><span>پنل پرداخت</span><kbd class="pos-kbd">F9</kbd></li>
+        <li><span>ثبت فروش</span><kbd class="pos-kbd">F10</kbd></li>
+        <li><span>چاپ فیش</span><kbd class="pos-kbd">Ctrl+P</kbd></li>
+      </ul>
+    </dialog>
+    <dialog id="posCmdPalette" class="pos-help-dialog">
+      <div class="pos-card-title">فرمان سریع</div>
+      <ul>
+        <li><button type="button" class="pos-btn" style="width:100%" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();storeQsHoldCart();})}">تعلیق فاکتور</button></li>
+        <li><button type="button" class="pos-btn" style="width:100%" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();_storeQs.mode='exchange';storeQsLoadRefInvoices().then(()=>storeQsRenderBody());})}">تعویض / برگشت</button></li>
+        <li><button type="button" class="pos-btn" style="width:100%" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();storeQsPrintCartReceipt();})}">چاپ فیش</button></li>
+        <li><button type="button" class="pos-btn pos-btn-danger" style="width:100%" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();_storeQs.lines=[];storeQsRenderBody();})}">پاک کردن سبد</button></li>
+      </ul>
+    </dialog>`;
+
   try{ initCustSearches(box); }catch(_){}
   const cs=el('storeQsCust');
   if(cs){
@@ -7912,10 +8322,16 @@ function storeQsRenderBody(opts){
       storeQsRenderBody();
     }, { once:true });
   }
+  // ensure cash select in header mirrors id when payment panel hidden cash duplicate
+  if(!el('storeQsCash') && showCash && !cashSelectLocked){
+    /* header select without id is fine; BuildPaySplits falls back to _storeQs.cashBoxId */
+  }
+  requestAnimationFrame(function(){ storeQsSyncTabIndicator(); });
   if(!opts.keepFocus){
     setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
   }
 }
+
 function storeQsBuildPaySplits(finalAmt){
   const payType=_storeQs.payType||'cash';
   const cashBoxId=Number((el('storeQsCash')&&el('storeQsCash').value)||_storeQs.cashBoxId||(_storeQs.boot&&_storeQs.boot.cash_box_id)||0)||null;
@@ -8117,13 +8533,18 @@ async function storeQsCheckout(){
 }
 
 ROUTES['store-quick-sale'] = async function(){
+  storeQsUnbindKeys();
   if(!storeQsCanOpen()){
     el('view').innerHTML = '<div class="empty">دسترسی به فروش سریع فروشگاهی ندارید</div>';
     return;
   }
-  el('view').innerHTML = `<div class="page-head"><h2>🏪 فروش سریع فروشگاهی</h2>
-    <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.7`)}">فروش و تعویض تک‌فروشی — فاکتور قطعی با کسر/برگشت موجودی و سند حسابداری</p></div>
-    <div id="storeQsBody"><div class="empty">در حال بارگذاری…</div></div>`;
+  storeQsEnsurePrintHook();
+  storeQsBindKeys();
+  const theme = localStorage.getItem('pos_v2_theme') || '';
+  el('view').innerHTML = `<div class="pos-v2" ${theme?('data-theme="'+esc(theme)+'"'):''}>
+    <div class="pos-toasts" aria-live="polite"></div>
+    <div id="storeQsBody"><div class="pos-card"><div class="pos-skel"></div><div class="pos-skel" style="margin-top:12px"></div></div></div>
+  </div>`;
   try{
     const [boot, boxes, pos] = await Promise.all([
       api('GET','/store/bootstrap'),
@@ -8142,6 +8563,12 @@ ROUTES['store-quick-sale'] = async function(){
     _storeQs.boot = boot || {};
     _storeQs.custId = Number(boot && boot.walkin_customer_id) || 0;
     _storeQs.warehouseId = Number(boot && boot.warehouse_id) || Number(ME.sales_warehouse_id)||null;
+    try{
+      const prefCash=localStorage.getItem('pos_v2_cash_box');
+      const prefWh=localStorage.getItem('pos_v2_wh');
+      if(prefCash) _storeQs.cashBoxId=Number(prefCash)||_storeQs.cashBoxId;
+      if(prefWh && storeQsCanChangeWh()) _storeQs.warehouseId=Number(prefWh)||_storeQs.warehouseId;
+    }catch(_){}
     if(boot && boot.cash_box_id){
       _storeQs.cashBoxId = Number(boot.cash_box_id);
     } else if(!_storeQs.cashBoxId && CACHE.cashBoxes.length){
@@ -8153,9 +8580,10 @@ ROUTES['store-quick-sale'] = async function(){
     }
     storeQsRenderBody();
   }catch(e){
-    el('storeQsBody').innerHTML = `<div class="empty">${esc((e&&e.message)||'خطا در بارگذاری صندوق')}</div>`;
+    el('storeQsBody').innerHTML = `<div class="pos-empty" role="alert">${esc((e&&e.message)||'خطا در بارگذاری صندوق')}</div>`;
   }
 };
+
 
 /* ============================================================
    PRODUCTS (admin)  /  CATALOG (salesperson)
@@ -36179,24 +36607,17 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). نسخهٔ v411: تعویض کامل با همهٔ سناریوهای مابه‌التفاوت.</p>
+      <p>منوی <b>فروش سریع فروشگاهی</b> برای فروش مستقیم تک‌فروشی در فروشگاه است (نقش <b>فروشگاهی</b> و میانبر برای مدیر / حسابدار / دفتر پخش). <b>UI نسخهٔ v553 (pos-v2):</b> چیدمان دوستونی، پنل پرداخت چسبان، میانبرهای صفحه‌کلید — بدون تغییر قرارداد API/حسابداری.</p>
       <ul>
-        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه یا چک مشتری واقعی انتخاب کنید</li>
-        <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند. در impersonation فیلتر روی کاربر مؤثر نشست است</li>
-        <li>کالای ماتریسی قبل از افزودن به سبد، فقط <b>رنگ و سایز تعریف‌شدهٔ فعال</b> را از سرور می‌پرسد (نه رنگ حذف‌شده)</li>
-        <li>در سبد می‌توانید <b>فی</b> و <b>تخفیف سطر ٪</b> را ویرایش کنید (جداکننده هزارگان حفظ می‌شود؛ روی blur ذخیره می‌شود)؛ قیمت پیش‌فرض از خرده‌فروشی است</li>
-        <li>پرداخت: نقد / کارتخوان / ترکیبی؛ کانال <code>store_quick</code>؛ ثبت = فاکتور معمولی + موجودی + سند حسابداری</li>
-        <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است؛ مدیر می‌تواند در فاکتور تغییر دهد</li>
-        <li><b>تعویض / برگشت+فروش:</b> فاکتور قطعی مرجع → جدول اقلام قابل‌برگشت با فی قفل؛ دکمهٔ <b>برگشت کامل</b> همه را تا سقف می‌گیرد. سبد جایگزین اختیاری است.
-          <ul>
-            <li>فروش گران‌تر → دریافت مابه‌التفاوت</li>
-            <li>برگشت گران‌تر (با فروش جایگزین) → استرداد مابه‌التفاوت از صندوق</li>
-            <li>برابر → بدون دریافت/استرداد</li>
-            <li><b>فقط برگشت (بدون سبد جایگزین):</b> «ثبت برگشت کامل + استرداد وجه» — برگشت از فروش + استرداد کامل مبلغ از صندوق</li>
-          </ul>
-          چندقلم در یک ثبت؛ اگر نیمهٔ فروش شکست بخورد برگشت جبران (rollback) می‌شود</li>
-        <li>ابطال همان مسیر ابطال فاکتور / برگشت (R13) است؛ حذف فیزیکی نیست. ابطال برگشت فروشگاهی، JE استرداد صندوق (store_exchange_refund) را هم soft-void می‌کند</li>
-        <li>فی سبد: خالی‌گذاشتن فیلد قیمت قبلی را نگه می‌دارد؛ فوکوس اسکن بعد از ویرایش سبد دزدیده نمی‌شود</li>
+        <li>پیش‌فرض مشتری: <b>مشتری نقدی فروشگاه</b> — جستجوی نام/موبایل فعال است؛ برای نسیه مشتری واقعی انتخاب کنید. دکمهٔ «افزودن سریع» همان مودال مشتری است</li>
+        <li><b>حریم تراکنش (v395):</b> برای «مشتری نقدی فروشگاه» هر کاربر غیرمدیر/حسابدار فقط فاکتور، تسویه، برگشت و تاریخچه‌ای را می‌بیند که <b>خودش</b> ثبت کرده؛ مدیر و حسابداری همه را می‌بینند</li>
+        <li>اسکن/جستجو با فوکوس دائم (<kbd>F2</kbd>)؛ نتایج کالا در گرید؛ کالای ماتریسی همان مودال رنگ/سایز قبلی</li>
+        <li>سبد: استپر تعداد، تخفیف سطر ٪، حذف با Undo؛ <b>تعلیق فاکتور</b> (<kbd>F8</kbd>) تا ۵ سبد در localStorage همان صندوق (بدون ارسال به سرور)</li>
+        <li>پرداخت: نقد / پوز / ترکیبی ۵۰/۵۰ / اعتبار (نسیه برای غیرنقدی). «کارت» و «کارت‌به‌کارت» فعلاً <b>به‌زودی</b> (بدون تغییر API). باقیمانده و پول خرد فقط برای نقد در UI</li>
+        <li>میانبرها: <kbd>F3</kbd> تعویض، <kbd>F4</kbd> مشتری، <kbd>F6</kbd> تخفیف کل، <kbd>F9</kbd> پرداخت، <kbd>F10</kbd> ثبت، <kbd>Ctrl+P</kbd> فیش حرارتی ۸۰mm — دکمهٔ <b>?</b> فهرست کامل</li>
+        <li>در تعریف کاربر، <b>انبار فروش</b> و <b>صندوق فروش</b> را تنظیم کنید — برای نقش فروشگاهی هر دو قفل است</li>
+        <li><b>تعویض / برگشت+فروش:</b> فاکتور قطعی مرجع → اقلام قابل‌برگشت؛ سبد جایگزین اختیاری؛ دریافت / استرداد / برابر / فقط‌برگشت — همان توابع ذخیرهٔ قبلی</li>
+        <li>ابطال همان مسیر R13 است؛ حذف فیزیکی نیست</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -36539,7 +36960,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v552</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v553</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -36846,13 +37267,13 @@ function renderSalesGuide(){
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
-      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی</b> است: اسکن بارکد، سبد، پرداخت نقد/کارت، ثبت فاکتور قطعی. تعویض، برگشت کامل و استرداد وجه هم از همین صفحه است.</p>
+      <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی (POS v2)</b> است: اسکن بارکد، سبد، پرداخت نقد/پوز، ثبت فاکتور قطعی. تعویض و برگشت هم از همین صفحه است.</p>
       <ul>
-        <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ جستجوی مشتری کار می‌کند؛ برای نسیه مشتری واقعی بگذارید</li>
-        <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فروشگاه فقط تراکنش‌های خودتان را در لیست فاکتور، تاریخچه و چاپ می‌بینید — فروش همکارانتان دیده نمی‌شود</li>
-        <li>انبار و صندوق فروش از پروفایل شما قفل است — اگر خطا دیدید با مدیر هماهنگ کنید</li>
-        <li>فی سطر را دستی عوض کنید؛ اگر فیلد را خالی رها کنید قیمت قبلی می‌ماند (صفر اتفاقی نمی‌شود)</li>
-        <li>تعویض: فاکتور قبلی → «برگشت کامل» یا تعداد دستی → اختیاری کالای جایگزین → دریافت / استرداد / برابر. بدون جایگزین = برگشت کامل + استرداد وجه از صندوق. ابطال برگشت، استرداد صندوق را هم برمی‌گرداند (R13)</li>
+        <li>مشتری پیش‌فرض «مشتری نقدی فروشگاه» است؛ برای نسیه مشتری واقعی بگذارید. مشتری نقدی باید کامل نقد/کارت تسویه شود</li>
+        <li><b>حریم فروش حضوری:</b> روی مشتری نقدی فقط تراکنش‌های خودتان را می‌بینید</li>
+        <li>انبار و صندوق از پروفایل قفل است؛ میانبرها با دکمهٔ <b>?</b> (مثلاً F2 اسکن، F8 تعلیق، F10 ثبت)</li>
+        <li>تعلیق فاکتور روی همین دستگاه می‌ماند (تا ۵ عدد) و به سرور نمی‌رود</li>
+        <li>تعویض: فاکتور قبلی → برگشت کامل یا تعداد دستی → اختیاری جایگزین → دریافت/استرداد/برابر. ابطال = R13</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. اگر پک کامل نباشد ولی موجودی تکی باشد، ماتریس رنگ×سایز برای انتخاب تکی باز می‌شود. کارت کالا «پک کامل / تکی موجود» را نشان می‌دهد. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>
