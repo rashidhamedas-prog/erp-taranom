@@ -16,7 +16,10 @@ const {
   parseVoucherAmount, normalizeDocType, sanitizeTemplateLine, nextNumericCode, coaStructureLocked,
 } = require('../lib/voucher-guards');
 const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
-const { glControlGrossByLeaf, unbalancedEntryCount, JE_APPROVED } = require('../lib/gl-metrics');
+const {
+  glControlGrossByLeaf, supplierPayableGrossByLeaf, supplierBooksMismatchList,
+  dualPartySupplierCustomerLeaves, unbalancedEntryCount, JE_APPROVED,
+} = require('../lib/gl-metrics');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -379,6 +382,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       supplierAdvances: null,
       customerAdvances: null,
       books_mismatch_ap: false,
+      books_mismatch_suppliers: [],
+      books_mismatch_suppliers_count: 0,
       totalReceivable,
       receivables_gross_debit: totalReceivable,
       receivables_gross_credit: creditorBalance,
@@ -407,13 +412,18 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const unbalanced_count = unbalancedEntryCount(db, { to: asOf || null });
   const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1 && unbalanced_count === 0;
 
-  // Audit 7A: per-leaf gross payable (a supplier advance never offsets another's payable).
+  // Audit 7A / fix supplier-per-leaf: payable = leaves under 2101 + supplier leaves
+  // outside that prefix (e.g. 110601…); each leaf once. Dual customer+supplier leaves
+  // stay on the AP fold and are excluded from customerAdvances so مطالبات is not double-counted.
   const payableCode = coaAcct(db, 'coa_payable').code;
-  const payFold = glControlGrossByLeaf(db, payableCode, { asOf, debitNormal: false });
+  const payFold = supplierPayableGrossByLeaf(db, payableCode, { asOf });
   const totalPayable = payFold.gross;
   const supplierAdvances = payFold.contra;
   const recvCode = coaAcct(db, 'coa_receivable').code;
-  const customerAdvances = glControlGrossByLeaf(db, recvCode, { asOf, debitNormal: true }).contra;
+  const dualLeaves = dualPartySupplierCustomerLeaves(db);
+  const customerAdvances = glControlGrossByLeaf(db, recvCode, {
+    asOf, debitNormal: true, excludeCodes: dualLeaves,
+  }).contra;
   const recvGl = glCustomersTafsiliBalance(db, { asOf });
   const ledTaf = customerLedgerTafsiliBalance(db, { asOf });
   const outstandingLedger = ledTaf.display;
@@ -455,8 +465,14 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const mismatchLedAr = Math.abs(Number(outstandingLedger) - Number(recvGl.display)) > 1;
   const mismatchLedCr = Math.abs(Number(creditorLedger) - Number(recvGl.creditor)) > 1;
   const booksMismatch = mismatchAr || mismatchCr || mismatchLedAr || mismatchLedCr;
-  // Audit 7A: AP integrity — legacy supplier book (gross) vs GL gross payable.
-  const booksMismatchAp = Math.abs(Number(totalPayableLedger) - Number(totalPayable)) > 1;
+  // Fix 7A supplier-per-leaf: AP integrity = any supplier whose own ledger ≠ own leaf GL.
+  let mismatchSuppliers = { count: 0, rows: [] };
+  try {
+    mismatchSuppliers = supplierBooksMismatchList(db, { asOf, limit: 8 });
+  } catch (e) {
+    console.error('books mismatch suppliers drill-down:', e.message);
+  }
+  const booksMismatchAp = Number(mismatchSuppliers.count) > 0;
   // v519: the alarm names the customers whose book differs from their own leaf.
   let mismatchCustomers = { count: 0, rows: [] };
   if (booksMismatch) {
@@ -503,6 +519,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     },
     books_mismatch_customers: mismatchCustomers.rows,
     books_mismatch_customers_count: mismatchCustomers.count,
+    books_mismatch_suppliers: mismatchSuppliers.rows,
+    books_mismatch_suppliers_count: mismatchSuppliers.count,
     scoped: false,
   });
 });

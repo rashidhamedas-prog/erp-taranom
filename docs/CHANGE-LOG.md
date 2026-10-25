@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۴ — v554: پرداختنی برگ‌به‌برگ تأمین‌کننده (خارج از ۲۱۰۱ هم) (SW v554)
+- **منبع:** درخواست `fix/7a-supplier-per-leaf`؛ ادامهٔ ممیزی 7A — هشدار کاذب books_mismatch_ap برای تأمین‌کنندگان با `coa_code` زیر ۱۱۰۶۰۱ (≈۳٫۹۶ میلیارد در داده واقعی).
+- **تغییر:** `lib/gl-metrics.js` → `supplierBooksByLeaf` / `supplierBooksMismatchList` / `supplierPayableGrossByLeaf`؛ overview: `books_mismatch_ap` = هر تأمین‌کننده با |ledger−gl|>۱؛ فیلدهای جدید `books_mismatch_suppliers` (+count)؛ `totalPayable`/`supplierAdvances` = برگ‌های ۲۱۰۱ ∪ برگ تأمین‌کننده‌های خارج از ۲۱۰۱؛ برگ دوطرفه از `customerAdvances` حذف می‌شود. `payable_delta` و بقیهٔ payload حفظ.
+- **UI:** چیپ تأمین‌کنندگان مغایر در بنر قرمز پرداختنی (مثل مشتری‌ها).
+- **فایل‌ها:** `lib/gl-metrics.js`, `routes/accounting.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-7a-supplier-per-leaf.js`, `scripts/test-{audit-7a-dash-metrics,party-books-turnover-v362}.js`, `package.json`, Help، CHANGE-LOG.
+- **تست:** `test-7a-supplier-per-leaf` ۳۱/۰؛ audit-7a ۲۹/۰؛ party-books v362 ۲۰/۰؛ sms ۲۲/۰؛ asOf stitch سبز. بدون migration / بدون نوشتن روی DB واقعی.
+- **Deploy:** ⏸ PR باز — عمداً بدون merge/deploy (دستور کاربر).
+
 ### ۱۴۰۵/۰۸/۰۴ — v553: بازطراحی UI فروش سریع فروشگاهی (POS v2) (SW v553)
 - **منبع:** `prompt-pos-redesign.md`؛ skill-top عمق کامل؛ دستور کاربر: merge+push+deploy (برخلاف بند merge ممنوع در پرامپت).
 - **تغییر UI فقط:** صفحهٔ `store-quick-sale` با اسکوپ `.pos-v2` — دوستونی، هدر چسبان، ScanBar، سبد با استپر/Undo، تعلیق localStorage، پنل پرداخت شیشه‌ای، میانبرهای F2–F10، فیش حرارتی؛ توکن‌ها از PR #41؛ الهام بصری 21st بدون نصب React/Tailwind.

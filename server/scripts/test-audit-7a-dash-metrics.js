@@ -147,10 +147,11 @@ const appSrc = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const pkg = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 
-ok('overview uses glControlGrossByLeaf', /glControlGrossByLeaf\(db, payableCode/.test(accSrc));
+ok('overview uses supplierPayableGrossByLeaf for AP', /supplierPayableGrossByLeaf\(db, payableCode/.test(accSrc));
 ok('glPrefixBalanceRial removed', !/glPrefixBalanceRial/.test(accSrc));
 ok('overview returns supplierAdvances/customerAdvances/books_mismatch_ap',
   /supplierAdvances,/.test(accSrc) && /customerAdvances,/.test(accSrc) && /books_mismatch_ap:/.test(accSrc));
+ok('overview returns books_mismatch_suppliers', /books_mismatch_suppliers:/.test(accSrc));
 ok('overview returns unbalanced_count', /unbalanced_count,/.test(accSrc));
 ok('trial-balance route uses JE_ALIVE + JE_APPROVED',
   /const tbWhere = \[JE_ALIVE, JE_APPROVED\]/.test(accSrc));
