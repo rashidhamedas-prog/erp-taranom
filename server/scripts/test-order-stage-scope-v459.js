@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v459 — مراحل سفارش چندمحصولی از دامنهٔ عملیات BOM
  * Run: node server/scripts/test-order-stage-scope-v459.js
@@ -27,7 +28,7 @@ ok(appJs.includes('prodOrderPreviewStages') && appJs.includes('po-stage-plan'), 
 ok(appJs.includes('برنامه محصولات این اجرای مشترک'), 'UI fg plan kept');
 ok(appJs.includes('مرحلهٔ مشترک جمع تعداد'), 'UI explains shared qty');
 ok(appJs.includes('سفارش چندمحصولی — اجرای مشترک (v420/v423/v459/v460/v461/v463)'), 'Help v463');
-ok(swSrc.includes('erp-taranom-v464'), 'SW v464');
+ok(swAtLeast(swSrc, 464), 'SW v464');
 ok(idxSrc.includes('app.js?v=464') && idxSrc.includes('prod-ui.css?v=464'), 'index v464');
 ok(advSrc.includes('planScopedStageQtys') && advSrc.includes('handoffNextStage'), 'release uses scoped plan');
 ok(advSrc.includes('qtyByProduct: orderFgQtyMap'), 'issue/reserve uses per-product qty');

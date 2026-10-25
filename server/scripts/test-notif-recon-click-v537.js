@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v537: nightly recon notification must open acc-subledger-recon from notifClick;
@@ -33,7 +34,7 @@ console.log('\n[1] notifClick routes nightly recon to report page');
 
 console.log('\n[2] Help + SW stamp v537');
 {
-  ok(/erp-taranom-v537/.test(swJs), 'sw cache v537');
+  ok(swAtLeast(swJs, 537), 'sw cache v537');
   ok(/app\.js\?v=537/.test(indexHtml), 'index app.js?v=537');
   ok(/با زدن همان اعلان/.test(appJs), 'Help mentions bell click opens recon');
 }

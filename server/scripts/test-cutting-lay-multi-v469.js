@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v469 — چندمحصول روی یک مارکر: وزن خودکار، ابطال از لایه‌چینی، UI helpers در app.js.
  * Run: node server/scripts/test-cutting-lay-multi-v469.js
@@ -17,7 +18,7 @@ ok(appSrc.includes('قطعه در مارکر'), 'pieces-in-marker copy');
 ok(appSrc.includes('amendSharedCut') || appSrc.includes('ویرایش چندمحصول') || appSrc.includes('cutting-batches/'), 'shared edit path');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes("erp-taranom-v471") || sw.includes("erp-taranom-v469"), 'SW v469+ lineage');
+ok(swAtLeast(sw, 471) || swAtLeast(sw, 469), 'SW v469+ lineage');
 
 const schema = fs.readFileSync(path.join(__dirname, '../lib/production/schema.js'), 'utf8');
 ok(schema.includes("production_shared_cut: '1'"), 'default flag on');

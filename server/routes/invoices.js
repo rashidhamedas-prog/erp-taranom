@@ -37,6 +37,10 @@ const {
 } = require('../lib/inventory/available-to-promise');
 const { runWithSaleContext, consumeOpenReservationsForSale } = require('../lib/inventory/reservation');
 const shortageErr = require('../lib/inventory/shortage-error');
+const { assertJalaliDocDate } = require('../lib/validators');
+const {
+  requireClientRequestId, findByClientRequestId, isUniqueClientRequestConflict,
+} = require('../lib/client-request-id');
 
 /** v525: ATP rows stay in atp_shortages (legacy clients); every stock error also gets uniform `shortages`. */
 function shortagePayload(db, e, payload) {
@@ -525,6 +529,20 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
+  let requestKey;
+  let entryDate;
+  try {
+    requestKey = requireClientRequestId(req.body);
+    entryDate = assertJalaliDocDate(date, 'تاریخ فاکتور') || require('../jalali').todayJalali();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  {
+    const priorInv = findByClientRequestId(db, 'invoices', requestKey);
+    if (priorInv) {
+      return res.json({ ...priorInv, rows: (() => { try { return JSON.parse(priorInv.rows || '[]'); } catch { return []; } })(), idempotent_replay: true });
+    }
+  }
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
   try { built = buildRows(db, rows, canDiscount); }
@@ -556,7 +574,6 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
   let { subtotal, discAmt, vatAmount, vatRate } = totals;
   let { final, netBeforeVat } = freightAdj;
-  const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
   let payPlan;
   try {
@@ -669,8 +686,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       const result = db.prepare(
         `INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,
           seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign,
-          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,moadian_invoice_type)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,moadian_invoice_type,client_request_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(ownerUserId, cust_id, num, invType, entryDate, note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
@@ -679,7 +696,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             0, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
             allocMethod, vatFlag, ccId,
-            parseInt(moadian_invoice_type, 10) || 1);
+            parseInt(moadian_invoice_type, 10) || 1, requestKey);
       const invId = result.lastInsertRowid;
       const stockMeta = { docId: invId, custId: cust_id };
       let saleCogsRial = 0;
@@ -786,6 +803,16 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [], fulfillment };
     }).immediate();
   } catch (e) {
+    if (isUniqueClientRequestConflict(e)) {
+      const again = findByClientRequestId(db, 'invoices', requestKey);
+      if (again) {
+        return res.json({
+          ...again,
+          rows: (() => { try { return JSON.parse(again.rows || '[]'); } catch { return []; } })(),
+          idempotent_replay: true,
+        });
+      }
+    }
     const msg = e.code === 'E_NEGATIVE_STOCK'
       ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))
       : (e.message || 'خطا در ثبت فاکتور');

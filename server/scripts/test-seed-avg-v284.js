@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
@@ -15,7 +16,7 @@ ok(/seedIssueAvgFrom/.test(app), 'seed helper exists');
 ok(/data-seed-cost="psi"/.test(app) && /data-seed-cost="pim"/.test(app), 'both issue modals offer cost inputs');
 ok(/از حسابداری بخواهید/.test(app), 'operator copy without cost fields');
 ok(/بهای میانگین صفر \(v284\)/.test(app), 'help v284');
-ok(/erp-taranom-v284/.test(sw), 'SW v284');
+ok(swAtLeast(sw, 284), 'SW v284');
 ok(/opening_inventory/.test(seed) && /average_cost_rial/.test(seed), 'seed posts opening and sets avg');
 ok(/COALESCE\(average_cost_rial,0\)=0/.test(open), 'opening inventory writes avg when zero');
 ok(/موجودی اول دوره بدون بها/.test(quick), 'quick-create rejects stock without cost');

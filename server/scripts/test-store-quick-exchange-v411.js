@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * تعویض فروشگاهی v411 — سناریوهای مابه‌التفاوت + UI/API wiring.
  * Run: node server/scripts/test-store-quick-exchange-v411.js
@@ -239,7 +240,7 @@ const captureSrc = fs.readFileSync(path.join(root, 'sync/capture.js'), 'utf8');
 ok(captureSrc.includes("'/api/store/quick-exchange', 'invoices'"), 'capture map');
 
 const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v413'), 'SW v413');
+ok(swAtLeast(swSrc, 413), 'SW v413');
 
 const idxSrc = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 ok(idxSrc.includes('app.js?v=413'), 'index app.js?v=413');

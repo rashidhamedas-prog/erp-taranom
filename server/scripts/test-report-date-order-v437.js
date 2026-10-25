@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Reports follow document date, and party turnover exposes debit/credit/closing.
  * Run: node server/scripts/test-report-date-order-v437.js
@@ -30,7 +31,7 @@ ok(/totalDebit/.test(read('lib/report-order.js')), 'totals helper names totalDeb
 ok(/ORDER BY cl\.date ASC, cl\.created_at ASC, cl\.id ASC/.test(accounting), 'statement SQL is document date');
 ok(/sortReportRows\(ledgerTagged/.test(accounting), 'statement re-sorts before running balance');
 ok(/مانده نهایی:/.test(app) && /جمع بدهکار/.test(app) && /جمع بستانکار/.test(app), 'turnover modal shows debit, credit, and final balance');
-ok(/erp-taranom-v439/.test(sw), 'SW cache v439');
+ok(swAtLeast(sw, 439), 'SW cache v439');
 ok(/app\.js\?v=439/.test(index), 'index.html app.js?v=439');
 
 ok(reportDateKey('1405/7/2') === '14050702', 'unpadded jalali normalizes');

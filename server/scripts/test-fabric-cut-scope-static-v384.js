@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /** Static gates for v384 — no better-sqlite3 required */
 const fs = require('fs');
 const path = require('path');
@@ -32,7 +33,7 @@ ok(opening.includes('skipLedger'), 'opening-post skipLedger');
 ok(app.includes('همین سفارش/کالای دوخته'), 'UI scoped lock hint');
 ok(app.includes('کسری انبار'), 'UI stock short');
 ok(/E_NEGATIVE_STOCK:[\s\S]*موجود:/.test(app), 'E_NEGATIVE_STOCK shows موجود');
-ok(sw.includes('erp-taranom-v384'), 'SW v384');
+ok(swAtLeast(sw, 384), 'SW v384');
 ok(html.includes('app.js?v=384'), 'index app v384');
 ok(app.includes('v384 قفل پارچه فقط برای همین سفارش'), 'Help v384');
 

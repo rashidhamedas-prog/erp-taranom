@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v240: invoice/catalog variant chips + summaries scoped to warehouse.
  * Backend: variantLineSummary(db, productId, warehouseId) + GET /summaries?warehouse_id=
@@ -87,7 +88,7 @@ ok(
   'clearInvVarSumCache resets _invVarSum'
 );
 
-ok(/erp-taranom-v240/.test(sw), 'SW erp-taranom-v240');
+ok(swAtLeast(sw, 240), 'SW erp-taranom-v240');
 
 // ── 3) Optional sqlite: variantLineSummary WH scoping ────────────────────
 console.log('\n── sqlite variantLineSummary ──');

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v474 — سربار کارگاه یک‌بار روی تعداد تمام‌شده؛ دفتر توزیع داخل بها نیست.
  * Run: node server/scripts/test-plant-overhead-v474.js
@@ -13,7 +14,7 @@ const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const ohSrc = fs.readFileSync(path.join(root, 'lib/production/overhead.js'), 'utf8');
 const advSrc = fs.readFileSync(path.join(root, 'lib/production/bom-advanced.js'), 'utf8');
 
-ok('SW v474', sw.includes('erp-taranom-v474'));
+ok('SW v474', swAtLeast(sw, 474));
 ok('plant filter is workshop', ohSrc.includes("entity='workshop'"));
 ok('roll-up adds plant once', advSrc.includes('سربار سراسری کارگاه'));
 ok('Help v474', appSrc.includes('سربار سراسری کارگاه (v474)'));

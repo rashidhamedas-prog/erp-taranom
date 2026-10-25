@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * فروش سریع فروشگاهی v383 — RBAC + walk-in rules + static wiring.
  * Run: node server/scripts/test-store-quick-sale-v383.js
@@ -174,7 +175,7 @@ const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 ok(serverSrc.includes('/api/store'), 'server mounts /api/store');
 
 const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v383'), 'SW v383');
+ok(swAtLeast(swSrc, 383), 'SW v383');
 
 const experts = require('../lib/sales-experts');
 ok(experts.SALES_EXPERT_ROLES.includes('store_retail'), 'sales-experts includes store_retail');

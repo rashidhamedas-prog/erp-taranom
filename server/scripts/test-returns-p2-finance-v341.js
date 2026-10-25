@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * RETURNS P2-finance — linked sales return reduces invoice settled/open balance.
@@ -25,7 +26,7 @@ const paySrc = readUtf8(path.join(root, 'lib', 'invoice-payments.js'));
 
 console.log('-- returns P2-finance v341/v342 --');
 
-ok(/erp-taranom-v342/.test(sw), 'SW cache v342');
+ok(swAtLeast(sw, 342), 'SW cache v342');
 ok(/app\.js\?v=342/.test(idx), 'index.html app.js?v=342');
 ok(paySrc.includes('function sumLinkedSalesReturnsGrossRial'), 'sumLinkedSalesReturnsGrossRial defined');
 ok(/paidReturns\s*=\s*sumLinkedSalesReturnsGrossRial/.test(paySrc), 'recompute adds linked returns');

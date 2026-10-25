@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static + light lib gates for BOM edit/delete with dependency preview (v385).
  * Run: node server/scripts/test-bom-ops-v385.js
@@ -46,7 +47,7 @@ ok('UI Help v385', app.includes('ویرایش و حذف حرفه‌ای فهرس
 ok('UI prod-bom-ops cluster', app.includes('prod-bom-ops'));
 
 ok('CSS dep box', css.includes('.prod-bom-dep-box'));
-ok('SW v385', sw.includes('erp-taranom-v385'));
+ok('SW v385', swAtLeast(sw, 385));
 ok('index app.js?v=385', idx.includes('app.js?v=385'));
 ok('index prod-ui.css?v=385', idx.includes('prod-ui.css?v=385'));
 

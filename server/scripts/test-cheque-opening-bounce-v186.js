@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v186 — bouncing an opening receivable cheque debits customer tafsili
  * so the statement closing increases by the cheque amount.
@@ -166,7 +167,7 @@ function jeNetRial(accountCode, sourceType, sourceId) {
   ok(appJs.includes('به بدهی طرف حساب در صورت‌حساب اضافه می‌شود'), 'bounce confirm mentions statement');
   ok(appJs.includes('برگشت مبلغ را به بدهی صورت‌حساب'), 'opening tab hint');
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(sw.includes('erp-taranom-v241'), 'SW cache bumped');
+  ok(swAtLeast(sw, 241), 'SW cache bumped');
 
   try { new Function(appJs); ok('app.js parses', true); }
   catch (e) { ok('app.js parses', false, e.message); }

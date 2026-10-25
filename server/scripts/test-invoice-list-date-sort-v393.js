@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Invoice list default sort by issue date DESC (v393).
  * Run: node server/scripts/test-invoice-list-date-sort-v393.js
@@ -32,7 +33,7 @@ ok(!/ORDER BY i\.created_at DESC/.test(routesSrc), 'API list no longer uses crea
 ok(/function sortInvoicesByIssueDateDesc/.test(appSrc), 'client helper sortInvoicesByIssueDateDesc exists');
 ok(/rows=sortInvoicesByIssueDateDesc\(rows\)/.test(appSrc), 'renderInvTable uses date sort');
 ok(/sortInvoicesByIssueDateDesc\(CACHE\.invoices\.filter/.test(appSrc), 'acc sales list uses date sort');
-ok(/erp-taranom-v393/.test(swSrc), 'SW cache v393');
+ok(swAtLeast(swSrc, 393), 'SW cache v393');
 ok(/app\.js\?v=393/.test(indexSrc), 'index.html app.js?v=393');
 
 // Screenshot scenario: T-0022 dated 07/02 must not float above 07/21 when created_at is newer.

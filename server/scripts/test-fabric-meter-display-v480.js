@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 const fs = require('fs');
 const path = require('path');
 const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
@@ -13,7 +14,7 @@ ok(/fmtQtyFa\(r\.marker_length_m/.test(app), 'lay marker uses decimal display');
 ok(!/fmt\(r\.marker_length_m/.test(app), 'lay marker no longer uses money fmt');
 ok(/fmtQtyFa\(live\)/.test(app), 'roll live balance uses decimal display');
 ok(/fmtQtyFa\(r\.actual_meters/.test(app), 'consumed meters decimal');
-ok(/erp-taranom-v480/.test(sw), 'SW v480');
+ok(swAtLeast(sw, 480), 'SW v480');
 new Function(app);
 ok(true, 'app.js parses');
 function round3(n) { return Math.round(Number(n) * 1000) / 1000; }

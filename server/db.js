@@ -2272,6 +2272,25 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'settlements', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'created_by', 'INTEGER');
+  // Audit 8B — idempotent creates (partial UNIQUE; NULL allowed for legacy rows)
+  ensureColumn(db, 'invoices', 'client_request_id', 'TEXT');
+  ensureColumn(db, 'customers', 'client_request_id', 'TEXT');
+  ensureColumn(db, 'settlements', 'client_request_id', 'TEXT');
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_client_request
+      ON invoices(client_request_id)
+      WHERE client_request_id IS NOT NULL AND length(trim(client_request_id))>0`);
+  } catch (e) { console.error('invoices client_request index:', e.message); }
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_client_request
+      ON customers(client_request_id)
+      WHERE client_request_id IS NOT NULL AND length(trim(client_request_id))>0`);
+  } catch (e) { console.error('customers client_request index:', e.message); }
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_settlements_client_request
+      ON settlements(client_request_id)
+      WHERE client_request_id IS NOT NULL AND length(trim(client_request_id))>0`);
+  } catch (e) { console.error('settlements client_request index:', e.message); }
   try {
     db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
   } catch (_) { /* ignore */ }

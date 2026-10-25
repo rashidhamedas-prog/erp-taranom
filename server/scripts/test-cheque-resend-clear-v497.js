@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v497 — resend after bounce posts NEW clear JE on chosen date/bank.
  * Run: node server/scripts/test-cheque-resend-clear-v497.js
@@ -35,7 +36,7 @@ ok(/تاریخ وصول/.test(appJs) && /cresend-date/.test(appJs), 'UI resend c
 ok(/bank_id/.test(appJs) && /cheque-records\/'\+id\+'\/resend'/.test(appJs), 'UI posts bank_id');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v497/.test(sw), 'SW v497');
+ok(swAtLeast(sw, 497), 'SW v497');
 
 let db;
 try {

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * account-receipts / account-payments mirror into customer/person books + void reverse.
  * Run: node server/scripts/test-account-voucher-books-v296.js
@@ -151,7 +152,7 @@ ok(accountingSrc.includes('account_receipt_reversal') || accountingSrc.includes(
   'void reverses account voucher books');
 
 const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v296'), 'SW v296');
+ok(swAtLeast(swSrc, 296), 'SW v296');
 const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
 ok(idx.includes('app.js?v=296'), 'index cache-bust v296');
 

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Cheque dashboards (داشبورد چک + گزارش دسته) — SW v244
  * Run: node server/scripts/test-cheque-dashboards-v244.js
@@ -117,7 +118,7 @@ const empty = buildChequeDashboard(db, null, null);
 ok(empty && empty.kpis && typeof empty.kpis.recv_open_rial === 'number', 'never throw empty dates');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v244'), 'SW v244');
+ok(swAtLeast(sw, 244), 'SW v244');
 
 console.log('\nPassed', passed, 'assertions');
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* */ }

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v384 — fabric cut lock scoped to PO/FG (not global fabric SKU).
  * Reproduces PO-0009 (آبان) false-lock from یلدا lays totaling 239.626m.
@@ -219,7 +220,7 @@ const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(app.includes('موجود:'), 'E_NEGATIVE_STOCK shows available');
 ok(app.includes('همین سفارش/کالای دوخته'), 'cut hint scoped copy');
 ok(app.includes('کسری انبار'), 'stock_short UI note');
-ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v384'), 'SW v384');
+ok(swAtLeast(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8'), 384), 'SW v384');
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (failed) process.exit(1);

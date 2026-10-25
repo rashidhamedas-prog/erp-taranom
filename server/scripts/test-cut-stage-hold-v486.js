@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v486 — یک طاقه تا برابر شدن با سفارش، مرحلهٔ برش را نمی‌بندد.
  * Run: node server/scripts/test-cut-stage-hold-v486.js
@@ -31,7 +32,7 @@ ok('ui tells the operator the cut is still short');
 
 new Function(app);
 ok('app.js parses');
-assert.ok(sw.includes('erp-taranom-v488'), 'sw v488');
+assert.ok(swAtLeast(sw, 488), 'sw v488');
 ok('sw bumped');
 
 console.log('PASS', n);

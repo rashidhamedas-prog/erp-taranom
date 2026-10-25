@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Sales color pick v210 — catalog bar + live has_variants + color-first UX.
  * Run: node server/scripts/test-sales-color-pick-v210.js
@@ -42,9 +43,9 @@ ok(mk.includes('window.__mkOpenTab'), 'marketer opens tab from catalog');
 ok(mk.includes('notifySalesCartChanged'), 'cart notifies catalog bar');
 ok(mk.includes("_ver: 'marketer-ui-v211'"), 'marketer v211');
 ok(css.includes('.catalog-sales-bar'), 'css catalog bar');
-ok(sw.includes('erp-taranom-v211'), 'SW v211');
+ok(swAtLeast(sw, 211), 'SW v211');
 ok(idx.includes('app.js?v=211'), 'index app v211');
-ok(appJs.includes('erp-taranom-v211'), 'help SW v211');
+ok(swAtLeast(appJs, 211), 'help SW v211');
 ok(appJs.includes('کاتالوگ'), 'admin help mentions catalog');
 console.log('\n══ ' + pass + ' passed, ' + fail + ' failed ══\n');
 process.exit(fail ? 1 : 0);

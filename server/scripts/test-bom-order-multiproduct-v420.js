@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v420 — سفارش تولید چندمحصولی: resolve co، اجرای مشترک، advanced اجباری،
  * plan FG، finalize با outputs override
@@ -28,7 +29,7 @@ const idxSrc = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'ut
 ok(appJs.includes('prodOrderRefreshFgPlan') && appJs.includes('برنامه محصولات این اجرای مشترک'), 'UI fg plan');
 ok(appJs.includes('pf-out-qty'), 'UI finalize outputs');
 ok(appJs.includes('سفارش چندمحصولی — اجرای مشترک (v420)'), 'Help v420');
-ok(swSrc.includes('erp-taranom-v420'), 'SW v420');
+ok(swAtLeast(swSrc, 420), 'SW v420');
 ok(idxSrc.includes('app.js?v=420'), 'index v420');
 
 let Database;

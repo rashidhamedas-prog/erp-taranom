@@ -16,6 +16,10 @@ const {
   assignCustomerOwner,
   alignCustomerOwners,
 } = require('../lib/customer-scope');
+const { validateCustomerFields, normalizeMobile, digitsOnly } = require('../lib/validators');
+const {
+  requireClientRequestId, findByClientRequestId, isUniqueClientRequestConflict,
+} = require('../lib/client-request-id');
 
 const excelUpload = createSecureUpload('xlsx');
 
@@ -131,7 +135,29 @@ router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام فروشگاه الزامی است' });
+  let requestKey;
+  try {
+    requestKey = requireClientRequestId(req.body);
+    validateCustomerFields(req.body || {});
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const db = getDB();
+  const prior = findByClientRequestId(db, 'customers', requestKey);
+  if (prior) return res.json({ ...prior, idempotent_replay: true });
+  const phoneNorm = normalizeMobile(mobile || phone || '');
+  let duplicate_phone_warning = false;
+  if (phoneNorm && digitsOnly(phoneNorm).length >= 10) {
+    const dig = digitsOnly(phoneNorm);
+    const hit = db.prepare(`
+      SELECT id FROM customers
+      WHERE id IS NOT NULL AND (
+        replace(replace(replace(COALESCE(mobile,''),' ',''),'-',''),'+','') LIKE '%' || ?
+        OR replace(replace(replace(COALESCE(phone,''),' ',''),'-',''),'+','') LIKE '%' || ?
+      ) LIMIT 1
+    `).get(dig.slice(-10), dig.slice(-10));
+    if (hit) duplicate_phone_warning = true;
+  }
   const bal = (req.user.role === 'admin') ? (parseFloat(balance) || 0) : 0;
   const autoF = (auto_followup === undefined) ? 1 : (auto_followup ? 1 : 0);
   // Only admin/accounting may set the customer's account-nature group
@@ -141,19 +167,28 @@ router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
   // admin can assign customer to a specific salesperson; creator remains created_by
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
   const createdBy = req.user.id;
-  const newId = db.transaction(() => {
-    // Insert under creator first so assignCustomerOwner can record a real transfer when admin assigns.
-    const result = db.prepare(
-      `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
-        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
-      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
-    const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
-    try { ensureCustomerTafsili(db, created.id); } catch (_) {}
-    if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
-    return created.id;
-  })();
+  let newId;
+  try {
+    newId = db.transaction(() => {
+      // Insert under creator first so assignCustomerOwner can record a real transfer when admin assigns.
+      const result = db.prepare(
+        `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
+          prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,created_by,client_request_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
+        prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy, requestKey);
+      const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
+      try { ensureCustomerTafsili(db, created.id); } catch (_) {}
+      if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
+      return created.id;
+    })();
+  } catch (e) {
+    if (isUniqueClientRequestConflict(e)) {
+      const again = findByClientRequestId(db, 'customers', requestKey);
+      if (again) return res.json({ ...again, idempotent_replay: true });
+    }
+    throw e;
+  }
   try { syncCustomerToParty(db, newId); } catch (_) {}
   assignCustomerOwner(db, {
     customerId: newId,
@@ -171,6 +206,7 @@ router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
   if (!(req.user.role === 'admin' && assigned_to) && (city || province)) {
     assignCustomerByTerritory(db, newId, city, province, req.user.id);
   }
+  if (duplicate_phone_warning) row.duplicate_phone_warning = true;
   res.json(row);
   // Fire welcome SMS after response — non-blocking. Central-only: device
   // builds never send SMS (the central replay of this op sends it once).
@@ -198,6 +234,19 @@ router.put('/:id', auth, (req, res) => {
   if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را ویرایش کند' });
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
+  // 8B: validate only fields whose value actually changed — legacy invalid rows stay until edited
+  try {
+    const patch = {};
+    for (const k of ['national_id', 'economic_code', 'postal_code', 'email', 'birth_date', 'mobile', 'phone']) {
+      if (!Object.prototype.hasOwnProperty.call(req.body || {}, k)) continue;
+      const next = req.body[k] == null ? '' : String(req.body[k]);
+      const prev = row[k] == null ? '' : String(row[k]);
+      if (next !== prev) patch[k] = req.body[k];
+    }
+    validateCustomerFields(patch);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
   const ownerChosen = req.user.role === 'admin' && assigned_to != null && assigned_to !== '';
   const uid = ownerChosen ? parseInt(assigned_to) : (row.user_id || row.assigned_to || req.user.id);

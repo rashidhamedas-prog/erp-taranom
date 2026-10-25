@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v333 — warehouse valuation uses Rial catalog cost without ×10.
  * Reproduces K-00009: cost=20_500_000, avg unset → report must show 20_500_000 not 205_000_000.
@@ -41,7 +42,7 @@ ok(!/costToman \* 10/.test(consignSrc), 'consignment no costToman×10');
 ok(/productUnitCostRial/.test(accSrc), 'sales-return costing uses helper');
 ok(/healProductCostRialUnits/.test(dbSrc), 'db boot runs cost rial unify');
 ok(/گزارش جامع انبار \(v333\)/.test(appSrc) && /×۱۰/.test(appSrc), 'help documents rial valuation');
-ok(/erp-taranom-v333/.test(swSrc), 'SW v333');
+ok(swAtLeast(swSrc, 333), 'SW v333');
 
 const { productUnitCostRial, catalogCostFromAvgRial, healProductCostRialUnits } = require('../lib/inventory/product-unit-cost');
 

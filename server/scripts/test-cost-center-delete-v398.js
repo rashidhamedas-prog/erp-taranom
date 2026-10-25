@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Cost center DELETE v398: unused → hard delete; referenced/seed → soft deactivate; children → 400.
  * Run: node server/scripts/test-cost-center-delete-v398.js
@@ -34,7 +35,7 @@ function ok(cond, label, extra) {
   const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
   const accSrc = fs.readFileSync(path.join(__dirname, '../routes/accounting.js'), 'utf8');
   ok(appSrc.includes('deactivated') && appSrc.includes('deleteCostCenter'), 'UI handles deactivated toast');
-  ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v398'), 'SW v398');
+  ok(swAtLeast(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8'), 398), 'SW v398');
   ok(accSrc.includes("['expense_payments'") && accSrc.includes("['journal_templates'"),
     'probe covers non-FK expense/template refs');
   ok(accSrc.includes("['persons'") && accSrc.includes("['budget_lines'"),

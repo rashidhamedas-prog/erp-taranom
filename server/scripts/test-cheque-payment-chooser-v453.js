@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v453 — «پرداخت چک» in payment chooser + party-aware cheque_pay books.
  * Static contract always; SQLite integration when better-sqlite3 loads.
@@ -46,7 +47,7 @@ const chooserSlice = appSrc.slice(appSrc.indexOf('function paymentOpChooser'), a
 ok(chooserSlice.includes('chequePaymentModal'), 'chooser wires to chequePaymentModal');
 ok(appSrc.includes("direction:'out'") && appSrc.includes("/cheque-records/'+id+'/pay"), 'save registers out then pay');
 ok(appSrc.includes("/cheque-records/'+id+'/expense"), 'expense path available from modal');
-ok(sw.includes('erp-taranom-v453'), 'SW cache v453');
+ok(swAtLeast(sw, 453), 'SW cache v453');
 
 ok(contract.includes("'E_CHEQUE_FORM_CLOSED'"), 'five cash forms still reject cheque');
 ok(routes.includes("sourceType === 'cheque_pay'") && routes.includes('resolveEndorseDebit'),

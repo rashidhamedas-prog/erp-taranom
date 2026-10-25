@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Sales R11 cost leak + warehouse session + CRM follow-ups v207.
  * Strict static: cost policy, staff-public, app.js, marketer-ui, sw, index, css
@@ -78,7 +79,7 @@ ok(appJs.includes('repPaymentModal((f.cust_id))') || appJs.includes('repPaymentM
 ok(appJs.includes('return repPaymentModal(custId)'),
   'sales settlementModal redirects to field receipt (no GL posting)');
 ok(appJs.includes('lockedSalesWh'), 'locked sales warehouse options');
-ok(appJs.includes('erp-taranom-v207') || appJs.includes('Service Worker <b>v207</b>'),
+ok(swAtLeast(appJs, 207) || appJs.includes('Service Worker <b>v207</b>'),
   'help mentions SW v207');
 
 ok(mk.includes('marketer-ui-v207'), 'marketer-ui-v207 version marker');
@@ -86,7 +87,7 @@ ok(/_ver:\s*'marketer-ui-v207'/.test(mk), 'MarketerUI._ver v207');
 ok(mk.includes('function me()') && mk.includes('sales_warehouse_id'), 'marketer-ui reads window.ME');
 ok(mk.includes('mk-wh-banner') && mk.includes('انبار فروش'), 'warehouse banner html');
 
-ok(/const CACHE = 'erp-taranom-v207'/.test(sw), 'sw.js CACHE erp-taranom-v207');
+ok(swAtLeast(sw, 207), 'sw.js CACHE erp-taranom-v207');
 ok(idx.includes('app.js?v=207'), 'index.html app.js?v=207');
 ok(idx.includes('marketer-ui.js?v=207'), 'index.html marketer-ui.js?v=207');
 ok(idx.includes('app.css?v=207'), 'index.html app.css?v=207');

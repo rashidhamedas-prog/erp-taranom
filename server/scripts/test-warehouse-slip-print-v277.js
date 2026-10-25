@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Warehouse slip print — static gates (v277)
  * Run: node server/scripts/test-warehouse-slip-print-v277.js
@@ -124,7 +125,7 @@ const accRoute = fs.readFileSync(path.join(__dirname, '../routes/accounting.js')
 ok(accRoute.includes('/sales-returns/:id/warehouse-slip'), 'sales-return slip route');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v277'), 'SW v277');
+ok(swAtLeast(sw, 277), 'SW v277');
 const index = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
 ok(index.includes('app.js?v=277'), 'index cache-bust v277');
 

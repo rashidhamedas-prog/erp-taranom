@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v505 — فروش سریع: فی خالی→قبلی، بدون focus-steal، R13 void استرداد
  * Run: node server/scripts/test-store-qs-harden-v505.js
@@ -53,7 +54,7 @@ ok(/returnId:\s*retOut\.id/.test(storeRt), 'quick-return/exchange pass returnId'
 // --- help + SW ---
 ok(appSrc.includes('قیمت قبلی می‌ماند') || appSrc.includes('خالی‌گذاشتن فیلد'), 'help empty price');
 ok(appSrc.includes('store_exchange_refund') && appSrc.includes('soft-void'), 'help R13 refund void');
-ok(swSrc.includes('erp-taranom-v505'), 'SW v505');
+ok(swAtLeast(swSrc, 505), 'SW v505');
 ok(idxSrc.includes('app.js?v=505'), 'index app.js?v=505');
 
 try {

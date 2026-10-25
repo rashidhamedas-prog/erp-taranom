@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v448 — ADR-PARTY-001 §13: person turnover ≠ incentive ledger.
  * No display-only rows; no half-merge; linked_rep for UI only.
@@ -31,7 +32,7 @@ ok(!pt.includes("align_ignore_sources: ['rep_ledger']"),
   'no v447 ignore-sources half-merge');
 ok(app.includes('has_incentive_ledger') && app.includes('loadRepDetail'),
   'UI links to rep statement');
-ok(sw.includes('erp-taranom-v449'), 'SW v449');
+ok(swAtLeast(sw, 449), 'SW v449');
 ok(adr.includes('Amendment v448') && adr.includes('Two books'),
   'ADR-PARTY-001 §13 recorded');
 

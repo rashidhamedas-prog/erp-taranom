@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v283 — E_ZERO_AVG_COST UX + R11-safe avg_cost_ok on issue templates
  */
@@ -36,7 +37,7 @@ ok(/catch\(e\)\{\s*\/\*/.test(orderSave) && !/catch\(e\)\{\s*showToast\(e\.messa
   'order issue save does not double-toast');
 ok(/avg_cost_ok/.test(engAdv) && /avg_cost_ok/.test(eng), 'issue templates expose avg_cost_ok');
 ok(/L\.avg_cost_ok\s*!=\s*null/.test(appJs), 'UI prefers avg_cost_ok over stripped average_cost_rial');
-ok(/erp-taranom-v283/.test(swJs), 'SW cache bumped to v283');
+ok(swAtLeast(swJs, 283), 'SW cache bumped to v283');
 ok(/بهای میانگین صفر \(v283\)/.test(appJs), 'admin help mentions v283 zero-avg');
 ok((appJs.match(/بهای میانگین صفر \(v283\)/g) || []).length === 1, 'help bullet not duplicated');
 

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * SW v499 — piece/hourly with person → PRD-03 credits person payable + person_ledger
  * Monthly / no person → Cr 5201. Heal is idempotent.
@@ -41,7 +42,7 @@ ok(engSrc.includes('absorbLaborJournal'), 'engine uses absorbLaborJournal');
 ok(engSrc.includes('retirePersonLaborForEntries'), 'engine retires person ledger');
 ok(appJs.includes('شخص (بستانکار دستمزد)'), 'UI label person creditor');
 ok(appJs.includes('قطعه‌ای یا ساعتی') && appJs.includes('حساب همان شخص'), 'Help: piece/hourly → person');
-ok(swSrc.includes('erp-taranom-v499'), 'SW v499');
+ok(swAtLeast(swSrc, 499), 'SW v499');
 ok(idxSrc.includes('app.js?v=499'), 'index cache bust v499');
 ok(adrSrc.includes('قطعه‌ای/ساعتی') || adrSrc.includes('piece'), 'ADR-005 carve-out documented');
 ok(accSrc.includes('با `person_id`'), 'accounting-events PRD-03 person variant');

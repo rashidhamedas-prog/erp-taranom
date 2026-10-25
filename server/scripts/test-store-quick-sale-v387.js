@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * فروش سریع فروشگاهی v387 — RBAC + cash/wh defaults + exchange wiring + UI static.
  * Run: node server/scripts/test-store-quick-sale-v387.js
@@ -171,10 +172,10 @@ const dbSrc = fs.readFileSync(path.join(root, 'db.js'), 'utf8');
 ok(dbSrc.includes("sales_cash_box_id"), 'db ensureColumn sales_cash_box_id');
 
 const swSrc = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-ok(swSrc.includes('erp-taranom-v387'), 'SW v387');
+ok(swAtLeast(swSrc, 387), 'SW v387');
 
 const idxSrc = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-ok(idxSrc.includes('app.js?v=387'), 'index app.js?v=387');
+ok((() => { const m = idxSrc.match(/app\.js\?v=(\d+)/); return m && Number(m[1]) >= 387; })(), 'index app.js?v=387+');
 
 try {
   // eslint-disable-next-line no-new-func

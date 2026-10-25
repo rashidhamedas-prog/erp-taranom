@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v494 — cheque clear/bounce date UX + API settlement-date rules.
  * Run: node server/scripts/test-cheque-clear-date-v494.js
@@ -30,7 +31,7 @@ ok(!/confirm\('وصول چک ثبت شود\?'\)/.test(appJs), 'no confirm-only c
 ok(/function chequeBounceSave/.test(appJs), 'UI bounce date modal');
 ok(/تاریخ وصول/.test(appJs), 'help mentions clear date');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v494/.test(sw), 'SW bumped to v494');
+ok(swAtLeast(sw, 494), 'SW bumped to v494');
 const routesSrc = fs.readFileSync(path.join(__dirname, '../routes/cheque-records.js'), 'utf8');
 ok(/resolveChequeEntryDate/.test(routesSrc), 'API date helper');
 ok(/E_CHEQUE_CLEAR_BEFORE_SEND/.test(routesSrc), 'API clear-before-send guard');

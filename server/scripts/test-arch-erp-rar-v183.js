@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * ARCH-ERP-RAR v183: cheque_in hits party books; live pack = colors × sizes;
  * invoice rows keep variant_id; UI contracts for color picker + cheque help.
@@ -128,7 +129,7 @@ try {
 }
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok('SW cache current', sw.includes('erp-taranom-v241'));
+ok('SW cache current', swAtLeast(sw, 241));
 
 try { db.close(); } catch (_) {}
 for (const suffix of ['', '-wal', '-shm']) {

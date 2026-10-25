@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v232: print due after receipts; top meta num+date; customer balance matches statement;
  * style API warehouse stock.
@@ -21,7 +22,7 @@ const pvRoute = fs.readFileSync(path.join(__dirname, '../routes/product-variants
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 
-ok(/erp-taranom-v232/.test(sw), 'SW v232');
+ok(swAtLeast(sw, 232), 'SW v232');
 ok(printJs.includes('duePayable') && printJs.includes('paidTotal'), 'print computes due after receipts');
 ok(printJs.includes('print-top-meta'), 'print top meta class');
 ok(!printJs.includes('صورتحساب فروش کالا و خدمات</div>\n        <div class="kind">'),

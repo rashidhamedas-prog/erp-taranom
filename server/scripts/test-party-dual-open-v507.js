@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * SW v507 — dual-role party opening mirrors once (control leaf only).
  * Run: node server/scripts/test-party-dual-open-v507.js
@@ -33,7 +34,7 @@ ok(/targets\.customer[\s\S]*targets\.supplier/.test(openSrc), 'mirror gated by t
 ok(dbSrc.includes('retireDuplicateRoleOpeningMirrors'), 'boot wires dual-open retire');
 ok(dbSrc.includes('party_dual_open_retire_v507'), 'boot logs v507 heal');
 ok(turnSrc.includes("description: desc") && turnSrc.includes("'مانده اول دوره'"), 'turnover plain opening label');
-ok(/erp-taranom-v507/.test(swSrc), 'SW v507');
+ok(swAtLeast(swSrc, 507), 'SW v507');
 ok(/app\.js\?v=507/.test(idxSrc), 'index cache bust v507');
 ok(appJs.includes('v507') && appJs.includes('همان برگ کنترل'), 'Help v507 present');
 

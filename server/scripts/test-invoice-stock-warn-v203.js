@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Invoice stock warn-only + live fabric-roll picker (SW v203).
  * Run: node server/scripts/test-invoice-stock-warn-v203.js
@@ -143,7 +144,7 @@ try {
   const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
   ok(html.includes('app.js?v=203') && html.includes('app.css?v=203'), 'کش فرانت v203');
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(sw.includes('erp-taranom-v203'), 'SW v203');
+  ok(swAtLeast(sw, 203), 'SW v203');
 } catch (e) {
   ok(false, 'نسخه فرانت', e.message);
 }

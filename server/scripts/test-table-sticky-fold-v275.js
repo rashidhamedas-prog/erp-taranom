@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * Regression: sticky thead must not use topbar offset inside fold/clip cards.
@@ -42,7 +43,7 @@ ok(/class="erp-fold"/.test(app), 'voucher/journal cards use erp-fold');
 
 ok(/app\.css\?v=275/.test(idx), 'index cache-bust app.css v275');
 ok(/app\.js\?v=275/.test(idx), 'index cache-bust app.js v275');
-ok(/erp-taranom-v275/.test(sw), 'SW cache erp-taranom-v275');
+ok(swAtLeast(sw, 275), 'SW cache erp-taranom-v275');
 
 try {
   // Syntax smoke: extract is not needed; app.js is a script body

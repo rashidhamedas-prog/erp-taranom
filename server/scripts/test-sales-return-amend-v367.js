@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v367 — R13 in-place amend of posted sales returns (same id).
@@ -30,7 +31,7 @@ const acc = read(path.join(root, 'routes', 'accounting.js'));
 const lib = read(path.join(root, 'lib', 'sales-return-doc.js'));
 const adr = read(path.join(root, '..', 'docs', 'architecture', 'RETURNS-ACC-ADR-005.md'));
 
-ok(/erp-taranom-v367/.test(sw), 'SW v367');
+ok(swAtLeast(sw, 367), 'SW v367');
 ok(/app\.js\?v=367/.test(idx), 'index app.js?v=367');
 ok(lib.includes('function updateSalesReturn'), 'updateSalesReturn');
 ok(lib.includes('function reverseSalesReturnEffects'), 'reverseSalesReturnEffects');

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static regression guards for warehouse audit Wave-2 (v306).
  * Run: node server/scripts/test-warehouse-audit-v306.js
@@ -74,7 +75,7 @@ ok(ledgers.includes('closing_warehouse_qty'), 'kardex closing physical qty');
 // Help + SW
 ok(appJs.includes('دوره‌ها / بازگشایی'), 'help/UI period reopen');
 ok(appJs.includes('warehouseOnly') || appJs.includes('موجودی امانی'), 'help wave-2 topics');
-ok(sw.includes('erp-taranom-v306'), 'SW bumped to v306');
+ok(swAtLeast(sw, 306), 'SW bumped to v306');
 ok(indexHtml.includes('app.js?v=306'), 'index cache-bust v306');
 
 try {

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v434 — نام/مقدار پایه/بازده روی سرفصل؛ تعداد هر محصول اصلی روی خروجی.
  * Run: node server/scripts/test-bom-formula-scope-v434.js
@@ -28,7 +29,7 @@ ok(appJs.includes('شناسنامهٔ فرمول'), 'UI formula identity section
 ok(appJs.includes('تعداد لنگر نسبت به پایه'), 'UI per-product anchor qty');
 ok(appJs.includes('main_outputs'), 'UI sends main_outputs');
 ok(appJs.includes('شناسنامهٔ فرمول در برابر تعداد محصول (v434)'), 'Help v434');
-ok(swSrc.includes('erp-taranom-v434'), 'SW v434');
+ok(swAtLeast(swSrc, 434), 'SW v434');
 ok(idxSrc.includes('app.js?v=434'), 'index v434');
 ok(!appJs.includes('_pbCoProducts'), 'legacy peer id list removed from create');
 

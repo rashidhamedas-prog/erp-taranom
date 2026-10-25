@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * SW v451 — person phone dedupe for BOM labor picker + sync paths
  * Run: node server/scripts/test-person-phone-dedupe-v451.js
@@ -39,7 +40,7 @@ ok(dbSrc.includes('runPersonPhoneDedupeHealV450'), 'db boots heal');
 ok(appJs.includes('dedupePersonsForPicker'), 'UI dedupePersonsForPicker');
 ok(appJs.includes('/persons?for_picker=1'), 'BOM loads for_picker');
 ok(appJs.includes('جستجوی شخص (v451)'), 'Help mentions v451');
-ok(swSrc.includes('erp-taranom-v452'), 'SW v452');
+ok(swAtLeast(swSrc, 452), 'SW v452');
 ok(idxSrc.includes('app.js?v=452'), 'index cache bust v452');
 
 const {

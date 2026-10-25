@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * قرارداد پرداخت خروجی — مبلغ صحیح، منبع انحصاری، چک بسته، اقساط.
  * Run: node server/scripts/test-cash-payment-contract-v427.js
@@ -68,7 +69,7 @@ ok(!app.includes('عمومی (بدون انتخاب مشخص)'), 'generic transf
 ok(app.includes('تسویهٔ بدهی فاکتور خرید'), 'expense form explains it is not AP settlement');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v428'), 'service worker v428');
+ok(swAtLeast(sw, 428), 'service worker v428');
 
 const amend = fs.readFileSync(path.join(__dirname, '../lib/amend-cash-ops.js'), 'utf8');
 const supplierFn = amend.slice(amend.indexOf('function amendSupplierPayment'), amend.indexOf('function assertPurchaseRoom') > -1 ? amend.indexOf('function amendIncentivePayment') : amend.length);

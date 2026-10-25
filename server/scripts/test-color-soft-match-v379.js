@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Soft fabric color match: spacing / ZWNJ / optional و (سورمه ای ≈ سرمه‌ای)
  * Run: node server/scripts/test-color-soft-match-v379.js
@@ -37,7 +38,7 @@ ok('app.js cutting colorsMatch + matrix-first + parse');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-assert.ok(sw.includes('erp-taranom-v379'));
+assert.ok(swAtLeast(sw, 379));
 assert.ok(idx.includes('app.js?v=379'));
 ok('SW/index v379');
 

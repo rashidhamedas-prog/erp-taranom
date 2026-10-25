@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v471 / ADR-006 W2–W4 smoke: amend shared, multi-pack void, cost alloc, lay gate, reverseOrder skip.
  * Run: node server/scripts/test-prod-journey-adr006-v471.js
@@ -17,7 +18,7 @@ const eng = fs.readFileSync(path.join(root, 'lib/production/engine.js'), 'utf8')
 const adv = fs.readFileSync(path.join(root, 'lib/production/engine-advanced.js'), 'utf8');
 const routes = fs.readFileSync(path.join(root, 'routes/production-shared-cut.js'), 'utf8');
 
-ok(sw.includes('erp-taranom-v471'), 'SW v471');
+ok(swAtLeast(sw, 471), 'SW v471');
 ok(shared.includes('function amendSharedCut'), 'amendSharedCut exists');
 ok(shared.includes('production_order_id'), 'shared lay/packs link order');
 ok(cutting.includes('amendSharedCut'), 'updateCuttingLay delegates amend');

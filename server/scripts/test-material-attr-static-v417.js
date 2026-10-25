@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static checks for v417 material/attr receipt (no better-sqlite3 needed).
  * Run: node server/scripts/test-material-attr-static-v417.js
@@ -33,7 +34,7 @@ ok(app.includes("kind=all"), 'UI lists kind=all');
 ok(app.includes("profile:'attr'") || app.includes('profile:\'attr\'') || app.includes('profile==="attr"') || app.includes("profile==='attr'"), 'UI posts attr profile');
 ok(app.includes('مواد با ویژگی'), 'UI segment copy');
 ok(nav.includes('دریافت مواد'), 'nav label');
-ok(sw.includes('erp-taranom-v417'), 'SW v417');
+ok(swAtLeast(sw, 417), 'SW v417');
 ok(idx.includes('app.js?v=417'), 'index app v417');
 ok(app.includes('دریافت مواد (طاقه / ویژگی) v417'), 'help updated');
 

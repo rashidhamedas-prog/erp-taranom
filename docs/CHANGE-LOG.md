@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۳ — v545: اعتبارسنجی + idempotency (۸B) و swAtLeast (۷D) (SW v545)
+- **منبع:** ادامهٔ `erp.md` بعد از 8A؛ **بدون push/merge/deploy**.
+- **۸B:** `public/validators.js` + `lib/validators.js` (کد ملی/اقتصادی/پستی/موبایل/ایمیل/جلالی)؛ `client_request_id` اجباری روی POST customers/invoices/settlements/account-receipts با ایندکس partial UNIQUE؛ UI کلید یکتا می‌فرستد؛ PUT مشتری فقط فیلدهای عوض‌شده را اعتبارسنجی می‌کند.
+- **۷D سبک:** `scripts/lib/sw-at-least.js` + تبدیل پین‌های دقیق SW در تست‌های قدیمی به `swAtLeast(min)`.
+- **فایل‌ها:** `lib/{validators,client-request-id}.js`, `public/validators.js`, `db.js`, `routes/{customers,invoices,accounting}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-audit-8b-validators-idempotency.js`, `scripts/lib/sw-at-least.js`, تست‌های پین SW، `package.json` (`test:audit-8b`), Help، CHANGE-LOG.
+- **تست:** `DB_PATH` زیر `.tmp-test-artifacts`؛ HTTP نیمه‌کاره روی Node بدون ABI better-sqlite3 → skip.
+- **Deploy:** ⏸ محلی — عمداً بدون merge/push/Iran.
+
 ### ۱۴۰۵/۰۸/۰۳ — v544: گارد RBAC سمت سرور — ممیزی 8A (#84/#95–#98/#101) (SW v544)
 - **منبع:** `erp.md` پرامپت 8A؛ skill-top استاندارد؛ **بدون push/merge/deploy** (لغو صریح auto-commit-deploy در سند).
 - **وضعیت پیش‌نیاز:** پرامپت‌های 1A–4B و 7D در این ریپو به‌صورت فایل جدا نبودند؛ نزدیک‌ترین موج باز و تأییدشده با گیت 8A بود (`POST /customers` فقط `auth`).

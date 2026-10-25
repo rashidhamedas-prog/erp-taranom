@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Opening-cheque phantom credit must not inflate dashboard creditor KPI (SW v376).
  * Reproduces: credit cheque_in + hollow «اصلاح:» debit purged → fold +800M vs GL.
@@ -161,7 +162,7 @@ const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(app.includes('بستانکار دفتر مشتری'), 'dash banner still names creditor');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v376/.test(sw), 'SW v376');
+ok(swAtLeast(sw, 376), 'SW v376');
 
 try { closeDB(); } catch (_) {}
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

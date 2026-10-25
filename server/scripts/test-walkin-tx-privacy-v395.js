@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Walk-in cash desk privacy v395 — helpers + timeline filter (stub DB, no native sqlite).
  * Run: node server/scripts/test-walkin-tx-privacy-v395.js
@@ -214,7 +215,7 @@ ok(walkinPersonalBalanceRial(db, walkinId, 3) === 2000, 'other personal bal open
 
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(appJs.includes('حریم تراکنش (v395)') || appJs.includes('حریم فروش حضوری'), 'help mentions privacy');
-ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v395'), 'sw v395');
+ok(swAtLeast(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8'), 395), 'sw v395');
 ok(fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8').includes('app.js?v=395'), 'index app.js v395');
 
 const invRoutes = fs.readFileSync(path.join(__dirname, '../routes/invoices.js'), 'utf8');

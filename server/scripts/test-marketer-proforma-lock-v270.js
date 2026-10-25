@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * Static invariant: Marketer checkout never offers invoice-type choice;
@@ -44,7 +45,7 @@ ok(/همیشه <b>پیش‌فاکتور<\/b>/.test(app) || /همیشه <b>پیش
 
 ok(/marketer-ui\.js\?v=270/.test(html), 'index.html: marketer-ui ?v=270');
 ok(/app\.js\?v=270/.test(html), 'index.html: app.js ?v=270');
-ok(/erp-taranom-v270/.test(sw), 'sw.js: cache v270');
+ok(swAtLeast(sw, 270), 'sw.js: cache v270');
 
 if (failed) {
   console.error(`\n${failed} assertion(s) failed`);

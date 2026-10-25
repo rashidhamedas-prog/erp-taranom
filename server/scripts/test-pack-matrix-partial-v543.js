@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v543 — Partial pack matrix: expandLivePack matrix fields, unit price A+,
@@ -26,7 +27,7 @@ const appJs = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 
-ok(sw.includes('erp-taranom-v543'), 'SW v543');
+ok(swAtLeast(sw, 543), 'SW v543');
 ok(indexHtml.includes('app.js?v=543'), 'app.js ?v=543');
 ok(appJs.includes('openPartialPackMatrix') && appJs.includes('stocked_qty'), 'client partial matrix helpers');
 ok(appJs.includes('پک کامل:') && appJs.includes('تکی موجود:'), 'picker pack meta label');

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Party opening JE must not be voided when another party's customer.id
  * equals this party's id (production: party 26 تجری vs customer 26 افروز).
@@ -147,7 +148,7 @@ const { canonicalCustomerFold, glCustomersTafsiliBalance } = require('../lib/cus
   ok(/ref_type IN \('opening_balance','opening_reclass'\)/.test(src), 'party-scoped opening_balance query');
   ok(/ref_type IN \('opening','opening_ledger'\)/.test(src), 'customer-scoped opening_ledger query');
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(/erp-taranom-v436/.test(sw), 'SW v436');
+  ok(swAtLeast(sw, 436), 'SW v436');
 
   try { closeDB(); } catch (_) { /* */ }
   console.log(`\nPASS ${pass} assertions — opening id collision v436`);

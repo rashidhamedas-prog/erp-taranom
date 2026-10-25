@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v449 — rep cash/accrual hits the person's COA leaf + person_ledger.
  * A bank payment must show on گردش شخص and move party-books.
@@ -27,7 +28,7 @@ ok(acc.includes('retirePersonLedgerByRef'), 'void incentive retires person ledge
 ok(reps.includes("counterpartyAccount(db, repId, 'coa_rep_advance')"), 'advance uses person leaf');
 ok(reps.includes('rep_expense_paid'), 'expense reimbursement mirrors person');
 ok(dbSrc.includes('reclass_rep_person_v449'), 'boot heal v449');
-ok(sw.includes('erp-taranom-v449'), 'SW v449');
+ok(swAtLeast(sw, 449), 'SW v449');
 ok(app.includes('تفصیلی همین شخص') && !app.includes('در این گردش نیست'), 'banner no longer hides payments');
 
 let db = null;

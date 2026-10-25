@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v435 — warehouse allow_negative trigger + inventory_system gating (amend/return/consignment).
  * Static checks always run. Live DB cases skip when better-sqlite3 ABI unavailable.
@@ -64,7 +65,7 @@ ok(src.salesRet.includes('warehouseUsesPerpetualValuation'),
 ok(src.consign.includes('warehouseUsesPerpetualValuation'),
   'consignment settle skips COGS on periodic WH');
 
-ok(src.sw.includes("erp-taranom-v435"), 'SW cache v435');
+ok(src.swAtLeast(sw, 435), 'SW cache v435');
 ok(src.index.includes('app.js?v=435'), 'index.html busts app.js to v435');
 ok(src.app.includes('اجازه موجودی منفی'), 'warehouse form still has allow_negative checkbox');
 ok(src.app.includes('فاکتور/فروش از این انبار حتی با کمبود'), 'UI hint for allow_negative');

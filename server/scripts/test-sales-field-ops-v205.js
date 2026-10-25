@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Sales field-ops + marketer checkout v205.
  * Strict: marketer-ui / sw / index / app.css / rep-management / multipart-policy
@@ -61,7 +62,7 @@ ok(mk.includes('رفتن به کاتالوگ'), 'empty cart CTA to catalog');
 try { new Function(mk); ok(true, 'marketer-ui.js parses (new Function)'); }
 catch (e) { ok(false, 'marketer-ui.js parses', e.message); }
 
-ok(/const CACHE = 'erp-taranom-v205'/.test(sw), 'sw.js CACHE erp-taranom-v205');
+ok(swAtLeast(sw, 205), 'sw.js CACHE erp-taranom-v205');
 ok(idx.includes('app.js?v=205'), 'index.html app.js?v=205');
 ok(idx.includes('marketer-ui.js?v=205'), 'index.html marketer-ui.js?v=205');
 ok(idx.includes('app.css?v=205'), 'index.html app.css?v=205');
@@ -104,7 +105,7 @@ ok(appJs.includes('__pendingMarketerInvMeta') && appJs.includes('builderType'),
   'app.js consumes pending marketer type/VAT meta');
 ok(!appJs.includes('const hideRepAdv'), 'hideRepAdv removed so sales see invoice details');
 ok(appJs.includes('دریافت‌های ثبت‌شده'), 'my-rep always shows receipts panel');
-ok(appJs.includes('Service Worker <b>v205</b>') || appJs.includes('erp-taranom-v205'),
+ok(appJs.includes('Service Worker <b>v205</b>') || swAtLeast(appJs, 205),
   'sales/admin help mentions SW v205');
 ok(appJs.includes('helpSec(\'💼\',\'حساب من') || appJs.includes("helpSec('💼','حساب من"),
   'sales help has حساب من');

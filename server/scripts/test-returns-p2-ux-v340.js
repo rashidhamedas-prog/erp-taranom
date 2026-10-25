@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * RETURNS P2-UX — static gates for professional returns UI (color×size + COGS preview).
@@ -22,7 +23,7 @@ const purchases = fs.readFileSync(path.join(root, 'routes', 'purchases.js'), 'ut
 
 console.log('-- returns P2-UX static --');
 
-ok(sw.includes("erp-taranom-v340"), 'SW cache v340');
+ok(swAtLeast(sw, 340), 'SW cache v340');
 ok(idx.includes('app.js?v=340'), 'index.html app.js?v=340');
 
 ok(app.includes("dest==='sales_return'") || app.includes("destRaw==='sales_return'"), 'variant modal dest sales_return');

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Invoice «کارشناس» dropdown — distribution_office + /auth/expert-options (v346)
  * Static checks only (no live DB/server).
@@ -113,7 +114,7 @@ ok(!invExpertCtx.includes(OLD_NARROW_ROLES),
 ok(invExpertCtx.includes('listSalesExpertUsers') || invExpertCtx.includes('ensureExpertUsersCache'),
   'inv-expert region uses expert cache helpers');
 
-ok(/const CACHE = 'erp-taranom-v34[6-9]'/.test(swSrc), 'sw.js CACHE erp-taranom-v346+');
+ok(swAtLeast(swSrc, 346), 'sw.js CACHE erp-taranom-v346+');
 ok(/app\.js\?v=34[6-9]/.test(indexSrc), 'index.html app.js?v=346+');
 
 const helpExpert = appJs.match(/کارشناس فاکتور[\s\S]{0,800}/);

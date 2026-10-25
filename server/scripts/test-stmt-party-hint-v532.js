@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v532 — customer statement party_hint for dual-role customer+employee.
  * Run: node server/scripts/test-stmt-party-hint-v532.js
@@ -82,7 +83,7 @@ ok(customerPartyAltHint(db, cust2) == null, 'pure customer → no hint');
 
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(appJs.includes('party_hint') && appJs.includes('گردش شخص / همه نقش‌ها'), 'UI banner hook');
-ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v532'), 'SW v532');
+ok(swAtLeast(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8'), 532), 'SW v532');
 
 console.log(`\n${fail ? 'FAIL' : 'PASS'} ${pass}/${pass + fail} (stmt-party-hint-v532)`);
 closeDB();

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v496 — cheque resend after soft-void policy (no paired reverse JE).
  * Run: node server/scripts/test-cheque-resend-softvoid-v496.js
@@ -34,7 +35,7 @@ ok(/both OK for resend/.test(routes), 'resend tolerates already-voided bounce JE
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(/ابطال نرم می‌شود/.test(appJs), 'UI resend copy mentions soft-void');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v496/.test(sw), 'SW v496');
+ok(swAtLeast(sw, 496), 'SW v496');
 
 let db;
 try {

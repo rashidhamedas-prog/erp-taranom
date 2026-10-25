@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static gates for fabric-roll amend v381 (no better-sqlite3).
  * Run: node server/scripts/test-fabric-roll-amend-static-v381.js
@@ -41,7 +42,7 @@ assert.ok(/Math\.abs\(live-meters\)/.test(app) || app.includes('Math.abs(live-me
 new Function(app);
 ok('app.js edit always + financial lock + Help + parse');
 
-assert.ok(sw.includes('erp-taranom-v381'));
+assert.ok(swAtLeast(sw, 381));
 assert.ok(idx.includes('app.js?v=381'));
 ok('SW/index v381');
 

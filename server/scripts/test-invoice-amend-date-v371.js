@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v371 — Invoice amend reverse/repost books use invoice date, not today.
@@ -25,7 +26,7 @@ const swSrc = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 
 console.log('\n══ Invoice amend books date = invoice date v371 ══\n');
 
-ok(/erp-taranom-v371/.test(swSrc), 'SW v371');
+ok(swAtLeast(swSrc, 371), 'SW v371');
 ok(voidSrc.includes('opts.date') || voidSrc.includes('options.date'), 'void-settlement accepts date');
 ok(posSrc.includes('date: when') && posSrc.includes('String(date || todayJalali())'), 'voidReceiptInTx uses caller date');
 ok(amendSrc.includes('reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId, date)'),

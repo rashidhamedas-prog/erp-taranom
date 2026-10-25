@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v233: invoice edit — variant modal stock scoped to line warehouse; full matrix; SW bump.
  */
@@ -18,7 +19,7 @@ const pvRoute = fs.readFileSync(path.join(__dirname, '../routes/product-variants
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 
-ok(/erp-taranom-v233/.test(sw), 'SW v233');
+ok(swAtLeast(sw, 233), 'SW v233');
 ok(!/erp-taranom-v232/.test(sw.replace(/erp-taranom-v233/g, '')), 'SW no stale v232 const');
 
 ok(pvRoute.includes("router.get('/style/:productId'"), 'style route exists');

@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Party opening balance upsert (SW v405).
  * JE date = active FY start; amount change rewrites same JE (no reverse+new).
@@ -209,7 +210,7 @@ function openingSideCredit(jeId) {
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
   ok(/مانده اول دوره اشخاص/.test(appJs) && /شروع سال مالی/.test(appJs), 'admin help mentions party opening FY date');
-  ok(/erp-taranom-v424/.test(sw), 'SW cache v424');
+  ok(swAtLeast(sw, 424), 'SW cache v424');
   ok(/app\.js\?v=424/.test(idx), 'index app.js?v=424');
 
   server.close();

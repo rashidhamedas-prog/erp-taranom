@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v465 — lay roll picker must find «سورمه ای» when the matrix color is «سرمه‌ای».
  * The old SQL LIKE ran before colorsMatch and dropped the roll.
@@ -18,7 +19,7 @@ assert.ok(fr.includes('function fabricColorKeySql'), 'sql color key exists');
 assert.ok(fr.includes("fabricColorKeySql('b.color')} = ?"), 'color filter uses the soft key');
 assert.ok(app.includes('cuttingExplainMissingRolls'), 'empty picker explains why');
 assert.ok(app.includes('v465'), 'help mentions v465');
-assert.ok(sw.includes('erp-taranom-v465'));
+assert.ok(swAtLeast(sw, 465));
 assert.ok(idx.includes('app.js?v=465'));
 new Function(app);
 

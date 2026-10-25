@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v446 — Incentive / marketer / rep hollow-void:
  * void must not leave twin «پرداخت انگیزه + ابطال» on rep_ledger or party turnover.
@@ -42,7 +43,7 @@ ok(turnSrc.includes('linked_rep_id') || turnSrc.includes('do NOT merge rep_ledge
 ok(/reverseCommissionAccrual[\s\S]*retireRepLedgerByRef/.test(repSrc),
   'reverseCommissionAccrual retires (no hollow twin)');
 ok(dbSrc.includes('purge_hollow_rep_incentive_v446'), 'boot heal flag v446');
-ok(swSrc.includes('erp-taranom-v446'), 'SW v446');
+ok(swAtLeast(swSrc, 446), 'SW v446');
 ok(appSrc.includes('v446') && appSrc.includes('پرداخت انگیزه فروش، دفتر بازاریاب'),
   'admin help mentions incentive hollow-void');
 

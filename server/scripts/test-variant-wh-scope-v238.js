@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v238: warehouse-scoped variant stock — no global fallback, no seed-with-global,
  * transfer ATP uses source warehouse only.
@@ -166,7 +167,7 @@ ok(appJs.includes('پک زندهٔ') || appJs.includes('همان انبار مب
   'Help: transfer pack scoped to source warehouse');
 
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v238/.test(sw), 'SW v238');
+ok(swAtLeast(sw, 238), 'SW v238');
 
 db.close();
 for (const suffix of ['', '-wal', '-shm']) {

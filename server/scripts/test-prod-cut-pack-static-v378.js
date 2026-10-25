@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static + pure-unit checks for v378 production cut/pack/issue flow.
  * Run: node server/scripts/test-prod-cut-pack-static-v378.js
@@ -53,7 +54,7 @@ ok('pure: stripSizeFitNote + colorsMatch');
 
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const idx = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-assert.ok(sw.includes('erp-taranom-v378'));
+assert.ok(swAtLeast(sw, 378));
 assert.ok(idx.includes('app.js?v=378'));
 ok('SW/index stamp v378');
 

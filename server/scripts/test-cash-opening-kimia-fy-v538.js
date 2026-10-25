@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v538: صندوق کیمیا — افتتاحیه روی شروع سال مالی؛ ویرایش بدون خطای FY؛ یک JE زنده.
  * Run: node server/scripts/test-cash-opening-kimia-fy-v538.js
@@ -152,7 +153,7 @@ function liveCashOpenCount(boxId) {
   const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   ok(!/addDaysToJalali\(start,\s*-1\)/.test(cashSrc), 'no day-before in cash-boxes');
   ok(/شروع سال مالی فعال است — حتی برای صندوق کیمیا/.test(appJs), 'form help mentions FY start for کیمیا');
-  ok(sw.includes('erp-taranom-v538'), 'SW v538');
+  ok(swAtLeast(sw, 538), 'SW v538');
 
   server.close();
   try { closeSessionStore(); } catch (_) { /* */ }

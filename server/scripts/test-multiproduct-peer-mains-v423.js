@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v423 — محصولات اصلی مستقل (حذف هم‌محصول / co→main)
  * Run: node server/scripts/test-multiproduct-peer-mains-v423.js
@@ -21,7 +22,7 @@ console.log('\n══ Multiproduct peer mains v423 ══\n');
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const idxSrc = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-ok(swSrc.includes('erp-taranom-v424'), 'SW v424');
+ok(swAtLeast(swSrc, 424), 'SW v424');
 ok(idxSrc.includes('app.js?v=424'), 'index v424');
 ok(appJs.includes('محصولات اصلی مستقل') || appJs.includes('محصول اصلی مستقل'), 'Help/UI peer mains');
 ok(!/هم‌محصول \(co\) — توصیه/.test(appJs), 'UI no co recommendation option');

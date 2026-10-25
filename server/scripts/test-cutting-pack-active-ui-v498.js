@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v498 — PACK فعال: covered-by-order must not hide live packing void CTA;
  * pending-pack queue list is separate from active-pack.
@@ -40,7 +41,7 @@ ok('prod-journey-gate: active-pack → step 4');
 
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const idx = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-assert.ok(sw.includes('erp-taranom-v498'), 'SW v498');
+assert.ok(swAtLeast(sw, 498), 'SW v498');
 assert.ok(idx.includes('app.js?v=498'), 'index stamp v498');
 ok('SW/index stamp v498');
 

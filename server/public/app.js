@@ -4182,6 +4182,15 @@ function updateCityDropdown(prov){
   const cities = IRAN_PROVINCES[prov] || [];
   sel.innerHTML = cities.map(ci=>`<option value="${esc(ci)}">${ci}</option>`).join('') || '<option value="">-- شهر --</option>';
 }
+function newClientRequestId(prefix){
+  return String(prefix||'req')+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+}
+function clientValidateCustomerPayload(data){
+  const V=window.ErpValidators;
+  if(!V) return null;
+  try{ V.validateCustomerFields(data||{}); return null; }
+  catch(e){ return e.message||'داده نامعتبر است'; }
+}
 async function saveCust(id){
   const data = {
     biz:el('c-biz').value.trim(), owner:el('c-owner').value,
@@ -4214,8 +4223,15 @@ async function saveCust(id){
     if(el('c-assigned_to')) data.assigned_to = +el('c-assigned_to').value||null;
   }
   if(!data.biz){ showToast('نام فروشگاه الزامی است','error'); return; }
-  if(id) await api('PUT','/customers/'+id, data); else await api('POST','/customers', data);
-  await reloadCustomers(); closeModal(); renderCustTable(); showToast('ذخیره شد');
+  if(!id){
+    const verr=clientValidateCustomerPayload(data);
+    if(verr){ showToast(verr,'error'); return; }
+  }
+  if(!id) data.client_request_id=window._custIdemKey||(window._custIdemKey=newClientRequestId('cust'));
+  const saved=id?await api('PUT','/customers/'+id, data):await api('POST','/customers', data);
+  if(!id) window._custIdemKey=null;
+  await reloadCustomers(); closeModal(); renderCustTable();
+  showToast(saved&&saved.duplicate_phone_warning?'ذخیره شد — موبایل مشابه قبلاً ثبت شده':'ذخیره شد');
 };
 
 /* ============================================================
@@ -7105,6 +7121,13 @@ async function saveInvoice(id){
       color_name:r.color_name||'', size_name:r.size_name||''
     }))
   };
+  if(!id){
+    if(!window._invIdemKey) window._invIdemKey=newClientRequestId('inv');
+    data.client_request_id=window._invIdemKey;
+  }
+  if(window.ErpValidators && data.date && !window.ErpValidators.isJalaliDate(data.date)){
+    showToast('تاریخ فاکتور نامعتبر است','error'); return;
+  }
   if(splits && splits.length){
     data.pay_splits=splits;
     const types=[...new Set(splits.map(s=>s.pay_type))];
@@ -7120,6 +7143,7 @@ async function saveInvoice(id){
   }
   try{
     const saved=id?await api('PUT','/invoices/'+id,data):await api('POST','/invoices',data);
+    if(!id) window._invIdemKey=null;
     CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; closeModal();
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL && (accTab==='sales-invoices'||accTab==='proforma-invoices')) loadAccTab(accTab);
@@ -29801,7 +29825,8 @@ async function savePersonReceipt(){
       for(const amount of amounts){
         await api('POST','/accounting/settlements',{
           cust_id:custId, amount, pay_type: pay_type==='bank'?'bank_transfer':pay_type,
-          bank_id, cash_box_id, date, note: note||'دریافت از مشتری'
+          bank_id, cash_box_id, date, note: note||'دریافت از مشتری',
+          client_request_id:newClientRequestId('stl')
         });
       }
     } else {
@@ -29883,7 +29908,8 @@ async function saveAccountReceipt(){
     for(const amount of amounts){
       await api('POST','/accounting/account-receipts',{
         account_code, amount, date:el('arr-date').value, note:payNoteWithRef('arr', el('arr-note').value),
-        pay_type, bank_id, cash_box_id
+        pay_type, bank_id, cash_box_id,
+        client_request_id:newClientRequestId('arr')
       });
     }
     closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
@@ -31184,6 +31210,7 @@ async function saveSettlement(){
   if(pay_type==='bank_transfer' && !el('st-bank')?.value){ showToast('بانک مقصد را انتخاب کنید','error'); return; }
   const invoice_id=+el('st-invoice')?.value||null;
   try{
+    if(!window._stlIdemKey) window._stlIdemKey=newClientRequestId('stl');
     await api('POST','/accounting/settlements',{
       cust_id, amount:amount, pay_type, invoice_id,
       date:el('st-date').value,
@@ -31194,8 +31221,10 @@ async function saveSettlement(){
       foreign_amount:+el('st-foreign')?.value||null,
       fx_rate_rial:+el('st-fx-rate')?.value||null,
       currency:(el('st-bank')?.selectedOptions?.[0]?.dataset?.cur
-        || el('st-cashbox')?.selectedOptions?.[0]?.dataset?.cur || 'IRR')
+        || el('st-cashbox')?.selectedOptions?.[0]?.dataset?.cur || 'IRR'),
+      client_request_id:window._stlIdemKey
     });
+    window._stlIdemKey=null;
     _accRecvCache=null; closeModal(); showToast('دریافت ثبت شد');
     loadAccTab(accTab);
   }catch(e){}
@@ -35840,13 +35869,19 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>در ویرایش کاربر، دکمه <b>دسترسی‌ها</b> بخش «دسترسی حسابداری» را باز می‌کند. تیک <b>مشاهده</b> روی «تب حسابداری» همان تب را به منوی کاربر اضافه می‌کند. هر ردیف پایین، یک صفحهٔ داخل همان تب است: اگر مشاهده‌اش روشن باشد در منوی حسابداری دیده می‌شود. ایجاد، ویرایش، حذف، تأیید و خروجی فقط همان عمل را روی همان صفحه باز می‌کند.</p>
       <p><b>عملیات دریافت و پرداخت:</b> با دادن مشاهده/ایجاد همین بخش (به‌همراه مشاهدهٔ تب حسابداری) کاربر غیرحسابدار می‌تواند همان صفحه را باز کند و دریافت/پرداخت مرتبط را ثبت کند؛ دیگر لازم نیست جداگانه «انگیزه فروش» یا کل کدینگ را تیک بزند. فهرست‌های جانبی بدون مجوز، خالی می‌مانند ولی صفحه از کار نمی‌افتد. بعد از ذخیرهٔ دسترسی‌ها یک‌بار از حساب آن کاربر خارج و دوباره وارد شوید.</p>
       <p>نقش حسابدار از قبل همهٔ این بخش‌ها را دارد. برای کارشناس یا مدیر فروش فقط همان بخش‌هایی را روشن کنید که باید ببینند. تنظیمات سیستم، دستگاه‌ها، پشتیبان و عملیات سال مالی حتی با تیک، فقط توسط مدیر سیستم اجرا می‌شوند.</p>
-      <h5>گارد سرور (ممیزی ۸A / SW v544)</h5>
+      <h5>گارد سرور (ممیزی ۸A / SW v545)</h5>
       <ul>
         <li>ایجاد مشتری، سفارش و استعلام بها دیگر فقط با توکن کافی نیست؛ باید مجوز <b>ایجاد</b> همان منبع (customers / orders / rfq) باشد — اپراتور تولید یا صندوق بدون تیک، ۴۰۳ می‌گیرند.</li>
         <li>فهرست بانک‌ها فقط با <b>banks:view</b> (پیش‌فرض حسابدار/مدیر)؛ نقش‌های غیرمالی دیگر ۲۰۰ خالی نمی‌بینند.</li>
         <li>اجرای MRP با <b>production:create</b> است نه فقط مشاهده.</li>
         <li>پیش‌فرض نقش برای پشتیبان/کاربران/اسناد/حقوق/مودیان روی نقش‌های غیرمالی خاموش است؛ کپی کاربر بدون نقش دیگر admin نمی‌شود (کم‌ترین نقش فروش).</li>
         <li>کاربر غیرمدیر بدون <code>branch_id</code> در محدودهٔ شعبه نامحدود نیست (OPEN-DECISION: حسابدار و مدیر فروش معاف‌اند).</li>
+      </ul>
+      <h5>اعتبارسنجی و جلوگیری از ثبت دوبل (ممیزی ۸B / SW v545)</h5>
+      <ul>
+        <li>کد ملی/شناسه ملی، کد اقتصادی، کد پستی، موبایل، ایمیل و تاریخ جلالی در سرور (و در فرم مشتری) کنترل می‌شوند؛ دادهٔ قدیمی نامعتبر فقط وقتی همان فیلد ویرایش شود رد می‌شود.</li>
+        <li>ایجاد فاکتور، مشتری، تسویه و دریافت حسابی با <b>client_request_id</b> یکتا است — دوبار کلیک همان سند را برمی‌گرداند نه ردیف دوم.</li>
+        <li>موبایل تکراری مشتری را بلاک نمی‌کند؛ فقط هشدار می‌دهد.</li>
       </ul>`),
     helpSec('👤','حذف کامل کاربر',`
       <p>در تنظیمات → کاربران، دکمه <b>حذف کامل</b> کاربر را از سیستم پاک می‌کند (نه فقط غیرفعال):</p>
@@ -35966,7 +36001,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
         <li><b>پایش لاگ سرور (v517):</b> هشدار شبانهٔ «سلامت تولید» و چک «بدون سند انحراف مواد (ADR-011)» دیگر سند <b>اضافه طاقه</b> (PRD-18، بستانکار ۵۲۱۱ که عمداً ثبت می‌شود) و اسناد ابطال‌شده را خطا نمی‌شمارند. فقط انحراف واقعی مواد هشدار می‌دهد. خطاهای اعتبارسنجی (۴xx) در لاگ با مسیر درخواست و به‌عنوان «request rejected» ثبت می‌شوند و فقط خطای واقعی سرور «unhandled error» است. مهاجرت «چند حکم حقوقی در سال» روی جدولی که نامش در اسکیما داخل گیومه است هم انجام می‌شود، پس ثبت حکم دوم یک نفر در همان سال دیگر خطای تکراری نمی‌دهد. اگر پشتیبان‌گیری خودکار متوقف شده است، در <b>تنظیمات ← پشتیبان</b> رمز رمزنگاری بکاپ را تعیین کنید.</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v544</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v545</b> است؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

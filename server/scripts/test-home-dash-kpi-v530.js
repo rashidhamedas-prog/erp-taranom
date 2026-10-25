@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v530 — Home dashboard KPIs use invoice face (rial), exclude reversed,
  * lowStock from warehouse_stock, and period vs all revenue fields.
@@ -42,7 +43,7 @@ const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8')
 ok(!appSrc.includes('فروش کل بدون فیلتر'), 'home UI has no all-time sales banner text');
 ok(!/کل:\s*\$\{fmt\(revAll\)\}/.test(appSrc) && !appSrc.includes('کل: ${fmt(revAll)}'), 'home hero has no «کل:» subtitle');
 ok(!appSrc.includes('periodHint'), 'periodHint banner removed from home dash');
-ok(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8').includes('erp-taranom-v531'), 'SW v531');
+ok(swAtLeast(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8'), 531), 'SW v531');
 ok(fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8').includes('app.js?v=531'), 'index asset ?v=531');
 
 let Database;

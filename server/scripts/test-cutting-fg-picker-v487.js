@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v487 — جستجوی کالای دوخته‌شده در خروجی برش از کاتالوگ کامل و محصولات همان سفارش.
  * Run: node server/scripts/test-cutting-fg-picker-v487.js
@@ -22,7 +23,7 @@ function ok(msg) {
 new Function(app);
 ok('app.js parses');
 
-assert.ok(sw.includes('erp-taranom-v487'), 'sw cache');
+assert.ok(swAtLeast(sw, 487), 'sw cache');
 assert.ok(html.includes('/app.js?v=487'), 'app cache bust');
 assert.ok(app.includes('await ensureProductsCache()'), 'lay modal loads full catalog');
 assert.ok(app.includes('cuttingBindSewnPickers(po)'), 'order scopes the picker');

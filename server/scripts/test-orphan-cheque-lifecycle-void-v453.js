@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v453: settlement/amend reverse must soft-void cheque send-to-bank + clear JEs (R13).
  * Reproduces صدوقی / چک 655099: leaf reversed, bank JE still live.
@@ -34,7 +35,7 @@ ok(!/UPDATE cheque_records\s+SET record_status='reversed'\s+WHERE settlement_id=
   'void-settlement no bare record_status UPDATE');
 ok(amendSrc.includes('reverseChequeRecordsForSettlement'), 'amend uses reverseChequeRecordsForSettlement');
 ok(dbSrc.includes('healOrphanReversedChequeLifecycleJes'), 'db boot wires heal');
-ok(/erp-taranom-v454/.test(swSrc), 'SW v454');
+ok(swAtLeast(swSrc, 454), 'SW v454');
 ok(appSrc.includes('R13 v454') && appSrc.includes('واگذاری') && /دفتر چک/.test(appSrc),
   'Help mentions R13 v454 cheque void');
 

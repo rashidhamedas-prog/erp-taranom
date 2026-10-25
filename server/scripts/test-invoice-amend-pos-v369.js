@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * v369 — Invoice amend must reverse+repost POS books (pos_receipt JE + customer_ledger),
@@ -27,7 +28,7 @@ const invRoutes = fs.readFileSync(path.join(root, 'routes', 'invoices.js'), 'utf
 
 console.log('\n══ Invoice amend POS books v369 ══\n');
 
-ok(/erp-taranom-v369/.test(swSrc), 'SW v369');
+ok(swAtLeast(swSrc, 369), 'SW v369');
 ok(amendSrc.includes('touchesPos') && amendSrc.includes('reverseInvoiceTimePaymentsInTx'),
   'amend forces reverse+repost when POS involved');
 ok(amendSrc.includes('voidLivePosReceiptsForInvoice'), 'amend voids orphan POS receipts');

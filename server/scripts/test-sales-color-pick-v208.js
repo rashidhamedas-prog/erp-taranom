@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Sales color picker for field/inside sales + marketer cart → invoice SKU.
  * Strict static: app.js, marketer-ui, css, sw, index, product-variants GET style.
@@ -44,7 +45,7 @@ ok(appJs.includes('function productNeedsColorPick'), 'productNeedsColorPick help
 ok(appJs.includes('🎨 انتخاب رنگ'), 'catalog card color-pick button');
 ok(appJs.includes("helpSec('🛒','فروش بازاریاب'"), 'admin+sales help sections exist');
 ok(appJs.includes('کارشناس میدانی، تلفنی و شعب'), 'sales help names field/phone/branch');
-ok(appJs.includes('erp-taranom-v209'), 'help mentions SW v209');
+ok(swAtLeast(appJs, 209), 'help mentions SW v209');
 
 console.log('\n— marketer cart —');
 ok(mk.includes("dest: 'marketer'"), 'marketer opens picker dest=marketer');
@@ -59,7 +60,7 @@ ok(mk.includes("_ver: 'marketer-ui-v209'"), 'marketer version marker v209');
 console.log('\n— assets / API —');
 ok(css.includes('.inv-var-qty') && css.includes('min-height:44px'), 'touch qty 44px');
 ok(css.includes('.var-chip-btn'), 'clickable color chips');
-ok(sw.includes("const CACHE = 'erp-taranom-v209'"), 'SW cache v209');
+ok(swAtLeast(sw, 209), 'SW cache v209');
 ok(idx.includes('marketer-ui.js?v=209'), 'index marketer-ui v209');
 ok(idx.includes('app.css?v=209'), 'index css v209');
 ok(idx.includes('app.js?v=209'), 'index app.js v209');

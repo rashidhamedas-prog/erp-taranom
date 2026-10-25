@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v454/v457 — outbound pay forms: cheque_book + cheque_recv in روش پرداخت;
  * no standalone «پرداخت چک» in paymentOpChooser.
@@ -34,7 +35,7 @@ ok(app.includes('loadRecvChequesForPay'), 'loads receivable cheques live');
 ok(contract.includes("'E_CHEQUE_FORM_CLOSED'"), 'cash APIs still refuse legacy cheque pay_type');
 ok(routes.includes('account_code') && routes.includes('E_CHEQUE_ENDORSE_ACCOUNT'),
   'endorse accepts chart account_code');
-ok(sw.includes('erp-taranom-v457'), 'SW v457');
+ok(swAtLeast(sw, 457), 'SW v457');
 
 console.log(fail ? `FAIL ${pass} ok ${fail} bad` : `PASS ${pass}`);
 process.exit(fail ? 1 : 0);

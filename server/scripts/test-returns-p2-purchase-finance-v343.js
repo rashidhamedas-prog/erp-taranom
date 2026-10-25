@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * RETURNS P2-finance purchase mirror — linked purchase return reduces PI settled/open balance.
@@ -27,7 +28,7 @@ const amend = readUtf8(path.join(root, 'lib', 'amend-cash-ops.js'));
 
 console.log('-- returns P2-finance purchase v343 --');
 
-ok(/erp-taranom-v343/.test(sw), 'SW cache v343');
+ok(swAtLeast(sw, 343), 'SW cache v343');
 ok(/app\.js\?v=343/.test(idx), 'index.html app.js?v=343');
 ok(paySrc.includes('function sumLinkedPurchaseReturnsGrossRial'), 'sumLinkedPurchaseReturnsGrossRial defined');
 ok(/paidReturns\s*=\s*sumLinkedPurchaseReturnsGrossRial/.test(paySrc), 'recompute adds linked purchase returns');

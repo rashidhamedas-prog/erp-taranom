@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static + in-memory checks for warehouse_docs aggregation (v272).
  * Run: node server/scripts/test-warehouse-docs-v272.js
@@ -52,7 +53,7 @@ ok(tables.includes("['warehouse_moves', 'doc_id']"), 'FK warehouse_moves.doc_id'
 ok(capture.includes("['/api/warehouses/moves/docs', 'warehouse_docs']"), 'PATH docs before moves');
 ok(capture.includes("['/api/warehouses/moves/batch', 'warehouse_docs']"), 'PATH batch → warehouse_docs');
 
-ok(sw.includes('erp-taranom-v272'), 'SW bumped to v272');
+ok(swAtLeast(sw, 272), 'SW bumped to v272');
 
 try {
   // eslint-disable-next-line no-new-func

@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static regression guards for warehouse audit Wave-1 (v305).
  * Run: node server/scripts/test-warehouse-audit-v305.js
@@ -94,7 +95,7 @@ ok(voidMove.includes('reverseBatchSideEffects'), 'void restores batch qty');
 // Help + SW
 ok(appJs.includes('warehouse-report'), 'warehouse-report in ACC_NOFILTER_TABS');
 ok(appJs.includes('Landed Cost') || appJs.includes('هزینه حمل (Landed Cost)'), 'help mentions landed cost');
-ok(sw.includes('erp-taranom-v305'), 'SW bumped to v305');
+ok(swAtLeast(sw, 305), 'SW bumped to v305');
 
 try {
   // eslint-disable-next-line no-new-func

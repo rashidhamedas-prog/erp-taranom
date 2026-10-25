@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * کنترل حساب اشخاص — فیلتر کارشناس (SW v518)
  * Run: node server/scripts/test-party-control-expert-v518.js
@@ -110,6 +111,6 @@ ok(ui.includes('id="pcExpert"') && ui.includes('expert_id='), 'dashboard filter 
 const help = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(help.includes('کارشناس</b> (v518)'), 'admin help mentions expert filter');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(sw.includes('erp-taranom-v518'), 'service worker v518');
+ok(swAtLeast(sw, 518), 'service worker v518');
 
 console.log(`\nPASS ${passed} assertions — party-control expert v518`);

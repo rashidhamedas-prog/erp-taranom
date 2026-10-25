@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v438 — invoice/catalog UI respects warehouse allow_negative for zero-stock pack add.
  */
@@ -51,7 +52,7 @@ ok(/allowNegative|clientAllowsNegativeStock\(salesWarehouseId\(\)\)/.test(mk),
 
 ok(app.includes('اجازه موجودی منفی') && app.includes('موجودی رنگ/سایز صفر باشد'),
   'Help mentions allow_negative pack add');
-ok(/erp-taranom-v438/.test(sw), 'SW v438');
+ok(swAtLeast(sw, 438), 'SW v438');
 ok(/app\.js\?v=438/.test(index), 'index app.js bust v438');
 ok(/marketer-ui\.js\?v=438/.test(index), 'index marketer-ui bust v438');
 

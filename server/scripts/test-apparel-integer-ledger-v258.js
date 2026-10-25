@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Piece/matrix stock stays integer. A float projection (6.462) is restored
  * from the movement ledger (opening 14 minus transfer 2 = 12), not rounded to 6.
@@ -125,7 +126,7 @@ const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok(/fmtPieceQty\(v\.stock\)/.test(app), 'SKU grid prints an integer');
 ok(/Math\.round\(parseQty\(inp\.value/.test(app), 'SKU save sends an integer');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-ok(/erp-taranom-v259/.test(sw), 'SW v259');
+ok(swAtLeast(sw, 259), 'SW v259');
 
 db.close();
 try { fs.unlinkSync(testDb); } catch (_) {}

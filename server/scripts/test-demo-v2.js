@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 'use strict';
 
@@ -250,7 +251,7 @@ async function runSecureSalesAppendedChecks() {
   const swJs = fs.readFileSync(path.join(ROOT, 'server', 'public', 'sw.js'), 'utf8');
   rec(
     'D38',
-    /const CACHE\s*=\s*'erp-taranom-v15[345678]'/.test(swJs),
+    swAtLeast(swJs, 153),
     /v158/.test(swJs) ? 'CACHE v158' : (/v157/.test(swJs) ? 'CACHE v157' : 'CACHE string missing')
   );
 

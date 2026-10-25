@@ -1,3 +1,4 @@
+const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
 /**
  * Regression: modal fullscreen overlay must stay on the viewport.
@@ -59,7 +60,7 @@ ok(/pinOverlayToViewport\(\s*el\(['"]nestedModalOverlay['"]\)\s*\)/.test(js)
 /* --- Help + cache bust --- */
 ok(/پورتال ثابت روی ویوپورت/.test(js), 'admin help mentions viewport portal');
 ok(/app\.css\?v=276/.test(html) && /app\.js\?v=276/.test(html), 'index cache-bust v276');
-ok(/erp-taranom-v276/.test(sw), 'SW cache erp-taranom-v276');
+ok(swAtLeast(sw, 276), 'SW cache erp-taranom-v276');
 
 /* --- Simulate static-position math (documentation invariant) --- */
 {

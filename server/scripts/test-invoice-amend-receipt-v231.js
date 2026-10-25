@@ -1,4 +1,5 @@
 'use strict';
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v231: amend append settlements; Persian/comma money; print receipts without inline style.
  * Run: .tools/node20/.../node.exe server/scripts/test-invoice-amend-receipt-v231.js
@@ -25,7 +26,7 @@ const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
 
-ok(/erp-taranom-v231/.test(sw), 'SW v231');
+ok(swAtLeast(sw, 231), 'SW v231');
 ok(typeof recomputeInvoiceSettledBalances === 'function', 'recomputeInvoiceSettledBalances export');
 ok(amendSrc.includes('splits.length > invoiceTime.length'), 'amend append path when more splits');
 ok(amendSrc.includes('patchOneInvoiceTimeSettlement'), 'amend patches prefix in place');
