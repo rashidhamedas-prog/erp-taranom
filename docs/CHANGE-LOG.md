@@ -7,7 +7,7 @@
 - **L1–L5:** خطای شبکه جدا؛ RBAC فقط `allowStoreRole`؛ گرد کردن مبالغ JE؛ VAT در `storeQsFinal`.
 - **فایل‌ها:** `lib/{round3,store-quick-sale,sales-return-doc,client-request-id,ledger}.js`, `routes/{store,invoices,products}.js`, `public/{app.js,index.html,sw.js}`, `scripts/test-store-quick-sale-qa-2026-10.js`, `package.json`, Help، CHANGE-LOG.
 - **تست:** `test:store-qs-qa` ۴۵/۰؛ sms ۲۲/۰؛ store-v387 ۳۰/۰.
-- **Deploy:** ⏸ PR باز — merge فقط پس از CI سبز + تأیید کاربر؛ بدون deploy خودکار.
+- **Deploy:** ✅ `9c351dfc` (merge PR #45) — overlay ایران + `pm2 restart` بدون `--update-env`؛ health/ready=200، sharp 0.33.5؛ SW `erp-taranom-v555` / `app.js?v=555`؛ QA روی VPS ۴۵/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۴ — v554: پرداختنی برگ‌به‌برگ تأمین‌کننده (خارج از ۲۱۰۱ هم) (SW v554)
 - **منبع:** درخواست `fix/7a-supplier-per-leaf`؛ ادامهٔ ممیزی 7A — هشدار کاذب books_mismatch_ap برای تأمین‌کنندگان با `coa_code` زیر ۱۱۰۶۰۱ (≈۳٫۹۶ میلیارد در داده واقعی).
