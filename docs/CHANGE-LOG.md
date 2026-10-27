@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۵ — v565: موجودی/هشدار فاکتور بر اساس انبار ردیف (Phase 0 cross-warehouse) (SW v565)
+- **منبع:** `invoice-cross-warehouse-cursor` Phase 0؛ شاخهٔ `fix/invoice-line-wh-stock`.
+- **API خواندنی:** `GET/POST /api/inventory/stock-by-warehouse` (+batch) با `invoices.view`؛ بدون INSERT/seed؛ از `warehouse_stock` / `variant_warehouse_stock`.
+- **کلاینت:** cache `_invLineStock`؛ `invLineAvail` / گروه‌بندی هشدار per `(انبار مؤثر، کالا/variant)`؛ `whChangeBind` و تغییر هدر → fetch+`renderCart`/`renderInvoiceStockWarn`/`renderInvPicker`؛ رزرو پیکر فقط ردیف هم‌انبار هدر؛ برچسب «موجودی این انبار: n».
+- **فایل‌ها:** `lib/invoice-line-wh-stock.js`، `routes/inventory.js`، `public/{app.js,app.css,index.html,sw.js}`، `scripts/test-invoice-line-wh-stock.js`، Help، CHANGE-LOG، `package.json`.
+- **تست:** `test:invoice-line-wh`؛ `test:public-encoding`؛ sms/sync طبق gate.
+- **Deploy:** ⏳ pending.
+
 ### ۱۴۰۵/۰۸/۰۵ — v564: فاز ۱ UI چک — تب پرداختی، فیلتر مشترک، layout دفتر (SW v564)
 - **منبع:** `cheque-module-cursor` Phase 1؛ شاخهٔ `feat/cheque-module-p1-ui`.
 - **تب‌ها:** `acc-cheques-pay` مستقل با `direction=out`؛ `acc-cheques-recv` با `direction=in`؛ فیلتر مشترک `chq.filters.v564`.

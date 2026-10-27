@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "erp-taranom",
   "version": "3.0.0",
   "description": "ERP پوشاک ترنم - نسخه ۳",
@@ -52,8 +52,9 @@
     "test:cheque-register": "node scripts/test-cheque-register-v562.js",
     "test:cheque-module-p1": "node scripts/test-cheque-module-p1.js",
     "test:public-encoding": "node scripts/test-public-encoding.js",
+    "test:invoice-line-wh": "node scripts/test-invoice-line-wh-stock.js",
     "test:cheque-due": "node scripts/test-cheque-due-v563.js",
-    "test": "npm run test:public-encoding && npm run test:cheque-due && npm run test:cheque-module-p1 && npm run test:cheque-register && node scripts/test-sms.js && node scripts/test-sync.js",
+    "test": "npm run test:public-encoding && npm run test:invoice-line-wh && npm run test:cheque-due && npm run test:cheque-module-p1 && npm run test:cheque-register && node scripts/test-sms.js && node scripts/test-sync.js",
     "audit:gate": "node scripts/check-audit-waivers.js",
     "qa:admin": "node ../scripts/qa/run-admin-qa.js",
     "qa:roles": "node ../scripts/qa/run-all-roles-qa.js",

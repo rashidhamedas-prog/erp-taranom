@@ -2023,6 +2023,8 @@ body.erp-demo-mode{padding-top:32px}
 .inv-stock-warn-title{font-weight:700;color:var(--orange);margin-bottom:6px}
 .inv-stock-warn ul{margin:0;padding-inline-start:18px}
 .inv-line-neg{font-size:11px;color:var(--red);font-weight:700;margin-top:4px;line-height:1.5}
+.inv-line-wh-stock{font-size:11px;margin-top:4px;line-height:1.45;color:var(--muted, #64748b)}
+.inv-line-wh-stock--low{color:var(--red);font-weight:700}
 .ifr-live-box{
   margin-top:10px;
   padding:10px 12px;

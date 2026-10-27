@@ -4,9 +4,10 @@
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr } = require('../lib/inventory/ledger');
+const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr, warehouseQty } = require('../lib/inventory/ledger');
+const { variantWarehouseQty } = require('../lib/inventory/movement');
 const { listFabricRolls, listFabricCirculation, receiveFabricRoll, voidFabricRoll, updateFabricRoll } = require('../lib/inventory/fabric-rolls');
 const {
   createBatch, listBatches, createSerial, listSerials, setSerialStatus, pickBatchesFefo,
@@ -18,6 +19,30 @@ const { createLandedCostDoc, allocateAndPost, voidLandedCost } = require('../lib
 const { recalculateMovingAverageFromLayers } = require('../lib/inventory/costing');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { postInventoryValueAdjustmentJe, MANUAL_SOURCES } = require('../lib/subledger-recon');
+
+/** Read-only per-warehouse on-hand for invoice line UI. Never INSERT / seed. */
+function buildStockByWarehouse(db, productId, variantId) {
+  const pid = parseInt(productId, 10);
+  const vid = variantId != null && variantId !== '' ? parseInt(variantId, 10) : 0;
+  const warehouses = db.prepare(
+    'SELECT id, name, COALESCE(allow_negative,0) AS allow_negative FROM warehouses WHERE active=1 ORDER BY id'
+  ).all();
+  return warehouses.map((w) => {
+    const whId = Number(w.id);
+    let qty = 0;
+    if (Number.isFinite(vid) && vid > 0) {
+      qty = Number(variantWarehouseQty(db, vid, whId)) || 0;
+    } else if (Number.isFinite(pid) && pid > 0) {
+      qty = Number(warehouseQty(db, pid, whId)) || 0;
+    }
+    return {
+      warehouse_id: whId,
+      name: String(w.name || ''),
+      qty,
+      allow_negative: Number(w.allow_negative) ? 1 : 0,
+    };
+  });
+}
 
 function sendErr(res, e) {
   const status = e.status || 400;
@@ -298,6 +323,49 @@ router.get('/available/:productId', auth, adminOrAccounting, (req, res) => {
     warehouse_id: wh,
     available: availableQty(db, +req.params.productId, wh),
   });
+});
+
+// Phase 0 — invoice line stock by warehouse (read-only; invoices.view)
+router.get('/stock-by-warehouse', auth, requirePermission('invoices', 'view'), (req, res) => {
+  const productId = parseInt(req.query.product_id, 10);
+  if (!Number.isFinite(productId) || productId <= 0) {
+    return res.status(400).json({ error: 'product_id الزامی است', code: 'E_PRODUCT_REQUIRED' });
+  }
+  const variantId = req.query.variant_id != null && req.query.variant_id !== ''
+    ? parseInt(req.query.variant_id, 10)
+    : null;
+  const db = getDB();
+  const warehouses = buildStockByWarehouse(db, productId, variantId);
+  res.json({
+    product_id: productId,
+    variant_id: Number.isFinite(variantId) && variantId > 0 ? variantId : null,
+    warehouses,
+  });
+});
+
+router.post('/stock-by-warehouse/batch', auth, requirePermission('invoices', 'view'), (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
+  if (!items) {
+    return res.status(400).json({ error: 'items الزامی است', code: 'E_ITEMS_REQUIRED' });
+  }
+  if (items.length > 100) {
+    return res.status(400).json({ error: 'حداکثر ۱۰۰ قلم در هر درخواست', code: 'E_ITEMS_LIMIT' });
+  }
+  const db = getDB();
+  const results = [];
+  for (const it of items) {
+    const productId = parseInt(it && it.product_id, 10);
+    if (!Number.isFinite(productId) || productId <= 0) continue;
+    const variantId = it && it.variant_id != null && it.variant_id !== ''
+      ? parseInt(it.variant_id, 10)
+      : null;
+    results.push({
+      product_id: productId,
+      variant_id: Number.isFinite(variantId) && variantId > 0 ? variantId : null,
+      warehouses: buildStockByWarehouse(db, productId, variantId),
+    });
+  }
+  res.json({ results });
 });
 
 router.post('/reservations', auth, adminOrAccounting, (req, res) => {
