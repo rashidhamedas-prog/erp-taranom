@@ -23,7 +23,7 @@
 - **حواله/گزارش:** بخش per انبار؛ `report-cross-warehouse-sales.js --db`.
 - **فایل‌ها:** sales-document, amend-invoice, rbac, warehouse-slip-print, production/schema, available-to-promise, invoices, scripts, public, Help, CHANGE-LOG.
 - **تست:** test-sales-cross-warehouse-posting ۲۱/۰؛ sales-cross-wh ۱۹/۰؛ encoding؛ sms.
-- **Deploy:** ⏳ pending.
+- **Deploy:** ✅ merge 95182a2 (PR #67) — بکاپ /home/taranom/backups/crm.db.20261027-170230؛ overlay + pm2 restart؛ health/ready=200؛ SW erp-taranom-v569؛ title ERP ترنم؛ posting ۲۱/۰؛ cross-wh ۱۹/۰؛ encoding؛ sms ۲۲/۰؛ گزارش ~/backups/reports/xwh-p2-20261027-170230.txt.
 
 
 ### ۱۴۰۵/۰۸/۰۵ — v567: دسترسی فروش از انبار دیگر + popover موجودی (Phase 1) (SW v567)
