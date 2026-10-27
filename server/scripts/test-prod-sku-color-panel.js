@@ -141,6 +141,68 @@ console.log('  ✓ prodColorFilter cases');
   console.log('  ✓ pcsFillEmptyValues');
 }
 
+/* ---- app.js draft lifecycle (vm: same functions as browser) ---- */
+{
+  const appSrc = fs.readFileSync(appPath, 'utf8');
+  const start = appSrc.indexOf('function pcsDraftRoot(');
+  const end = appSrc.indexOf('function pcsServerQty(', start);
+  assert.ok(start > 0 && end > start, 'locate app.js draft helpers');
+  let confirmCalls = 0;
+  let confirmResult = true;
+  const sandbox = {
+    window: { _prodMatrixDraft: null, _prodSkuSticky: null, _prodModalProduct: null, _pcsBeforeUnloadBound: true },
+    el: () => null,
+    document: { querySelector: () => ({ className: 'prod-form-v2' }) },
+    confirm: () => {
+      confirmCalls += 1;
+      return confirmResult;
+    },
+  };
+  vm.runInNewContext(appSrc.slice(start, end), sandbox);
+
+  // کالای جدید (id=0): ریست تمیز
+  sandbox.pcsDraftReset(0);
+  assert.strictEqual(sandbox.pcsHasUnsavedDraft(), false);
+  assert.strictEqual(sandbox.window._prodMatrixDraft.productId, 0);
+  assert.strictEqual(Object.keys(sandbox.window._prodMatrixDraft.byWh).length, 0);
+  passed += 3;
+  console.log('  ✓ app draft: new product reset');
+
+  // ویرایش → dirty → ذخیره موفق (pcsDraftReset مثل saveProduct) → بدون هشدار
+  sandbox.window._prodSkuSticky = { productId: 11 };
+  sandbox.window._prodModalProduct = { id: 11 };
+  sandbox.pcsDraftReset(11);
+  sandbox.pcsDraftSet(34, 10, 2, '5', 0);
+  assert.strictEqual(sandbox.pcsHasUnsavedDraft(), true);
+  sandbox.pcsDraftReset(11); // همان مسیر saveProduct قبل از closeModal
+  assert.strictEqual(sandbox.pcsHasUnsavedDraft(), false);
+  confirmCalls = 0;
+  assert.strictEqual(sandbox.pcsConfirmLeaveDraft(), true);
+  assert.strictEqual(confirmCalls, 0);
+  passed += 4;
+  console.log('  ✓ app draft: save then leave without confirm');
+
+  // ویرایش → dirty → تأیید دور ریختن → جدول تمیز؛ لغو نگه می‌دارد
+  sandbox.pcsDraftReset(11);
+  sandbox.pcsDraftSet(34, 10, 2, '9', 0);
+  confirmResult = false;
+  confirmCalls = 0;
+  assert.strictEqual(sandbox.pcsConfirmLeaveDraft(), false);
+  assert.strictEqual(confirmCalls, 1);
+  assert.strictEqual(sandbox.pcsHasUnsavedDraft(), true);
+  confirmResult = true;
+  confirmCalls = 0;
+  assert.strictEqual(sandbox.pcsConfirmLeaveDraft(), true);
+  assert.strictEqual(confirmCalls, 1);
+  assert.strictEqual(sandbox.pcsHasUnsavedDraft(), false);
+  // باز کردن دوباره (مثل prodModal)
+  sandbox.pcsDraftReset(11);
+  assert.strictEqual(sandbox.pcsDraftCount(), 0);
+  assert.strictEqual(sandbox.pcsDraftGet(34, 10, 2), undefined);
+  passed += 7;
+  console.log('  ✓ app draft: discard + reopen clean');
+}
+
 /* ---- XSS esc via chip-like helper (lib has no HTML; use same esc as app pattern) ---- */
 {
   function esc(s) {

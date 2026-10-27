@@ -9419,6 +9419,9 @@ async function prodModal(id){
   window._prodModalProduct = p;
   window._prodMatrixWhId = Number(p.warehouse_id)||window._prodMatrixWhId||0;
   window._prodSkuSticky = { productId: id ? Number(id) : 0, primed: false, colorIds: [], sizeOrder: [], tab: 'here' };
+  // کالای موجود و جدید: پیش‌نویس ماتریس از نشست قبلی نماند
+  if(typeof pcsDraftReset==='function') pcsDraftReset(id ? Number(id) : 0);
+  else window._prodMatrixDraft={ productId: id ? Number(id) : 0, byWh:{} };
   window._prodSkuReadOnly = !(typeof isAdmin==='function' && isAdmin()) && !(ME && ME.role==='accounting');
   window._prodPackAuto = false;
   window._prodPackColorsManual = false;
@@ -9790,6 +9793,13 @@ function pcsDraftClearWh(whId){
   else delete d.byWh[String(Number(whId)||0)];
   pcsBindBeforeUnload();
 }
+/** پاک‌کردن کامل پیش‌نویس (ذخیره موفق / باز شدن مودال / تأیید دور ریختن). */
+function pcsDraftReset(productId){
+  const pid=Number(productId)||0;
+  window._prodMatrixDraft={ productId:pid, byWh:{} };
+  pcsBindBeforeUnload();
+  return window._prodMatrixDraft;
+}
 function pcsDraftCount(whId){
   const d=window._prodMatrixDraft; if(!d||!d.byWh) return 0;
   if(whId!=null){
@@ -9802,7 +9812,9 @@ function pcsHasUnsavedDraft(){ return pcsDraftCount()>0; }
 function pcsConfirmLeaveDraft(){
   if(!pcsHasUnsavedDraft()) return true;
   if(!document.querySelector('.prod-form-v2') && !el('p-sku-chips')) return true;
-  return confirm('تغییرات ذخیره‌نشدهٔ موجودی رنگ×سایز از بین می‌رود. ادامه می‌دهید؟');
+  const ok=confirm('تغییرات ذخیره‌نشدهٔ موجودی رنگ×سایز از بین می‌رود. ادامه می‌دهید؟');
+  if(ok) pcsDraftReset(0);
+  return ok;
 }
 function pcsBindBeforeUnload(){
   if(window._pcsBeforeUnloadBound) return;
@@ -9812,6 +9824,7 @@ function pcsBindBeforeUnload(){
     if(!document.querySelector('.prod-form-v2') && !el('p-sku-chips')) return;
     ev.preventDefault();
     ev.returnValue='';
+    // اگر کاربر ترک را تأیید کند صفحه unload می‌شود؛ اگر بماند پیش‌نویس دست‌نخورده است.
   });
 }
 function pcsServerQty(cid, sid){
@@ -11062,6 +11075,9 @@ async function saveProduct(id){
       }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ثبت موجودی رنگ×سایز ناموفق بود','error'); }
     }
   }
+  // ذخیره موفق: پیش‌نویس کامل پاک شود تا closeModal هشدار ندهد
+  if(typeof pcsDraftReset==='function') pcsDraftReset(Number(savedId)||0);
+  else if(typeof pcsDraftClearWh==='function') pcsDraftClearWh(null);
   closeModal();
   const ready=saved&&saved.production_readiness;
   if(ready && Array.isArray(ready.hard) && ready.hard.length){
