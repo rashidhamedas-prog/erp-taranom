@@ -5,7 +5,7 @@
 - **تست/گزارش:** `test-cheque-module-p3.js`؛ `sandbox-cheque-recon-p3.js`؛ یادداشت usage در `report-cheque-quality.js`.
 - **فایل‌ها:** `lib/cheque-{lifecycle,lifecycle-actions,batch}.js`، `lib/coa-map.js`، `routes/{cheque-records,trust-checks}.js`، `db.js`، `lib/rbac.js`، `middleware/auth.js`، `sync/capture.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
 - **تست:** `test:cheque-module-p3`؛ encoding.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge `39a247e1` (PR #64) — بکاپ `/home/taranom/backups/crm.db.20261027-164441`؛ overlay + sandbox `phase3-sandbox-20261027-164454.txt`؛ `pm2 restart`؛ health/ready=200؛ SW `erp-taranom-v568`؛ test:cheque-module-p3 ۷۰/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v567: دسترسی فروش از انبار دیگر + popover موجودی (Phase 1) (SW v567)
 - **منبع:** `invoice-cross-warehouse-cursor` Phase 1؛ شاخهٔ `feat/sales-cross-warehouse-perm`.
