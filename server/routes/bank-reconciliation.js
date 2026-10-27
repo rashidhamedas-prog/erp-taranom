@@ -9,6 +9,10 @@ const {
   normalizeKind, assertJalaliDate, assertRialBank, computeBookBalance,
   resolveBankPostingAccount, computeBridge, adjustmentLines, POSTING_KINDS,
 } = require('../lib/bank-recon');
+const {
+  suggestChequeMatches,
+  confirmChequeMatch,
+} = require('../lib/bank-recon-cheque-suggest');
 
 function permit(action) {
   return (req, res, next) => {
@@ -604,6 +608,44 @@ router.post('/:id/refresh-book', auth, permit('edit'), (req, res) => {
     db.prepare('UPDATE bank_reconciliations SET book_balance_rial=? WHERE id=?').run(bookBal, recon.id);
     const fresh = loadReconOr404(db, recon.id);
     res.json({ ok: true, ...bridgeFor(db, fresh), book_balance_rial: bookBal });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+/**
+ * Phase 4C — پیشنهاد تطبیق چک‌های cleared / cleared_out با ردیف‌های صورت‌حساب.
+ * فقط پیشنهاد؛ بدون اعمال خودکار.
+ */
+router.get('/:id/cheque-suggestions', auth, permit('view'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    if (!recon) return res.status(404).json({ error: 'یافت نشد' });
+    const result = suggestChequeMatches(db, recon);
+    res.json({ ok: true, reconciliation_id: recon.id, bank_id: recon.bank_id, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+/**
+ * تأیید دستی یک پیشنهاد تطبیق چک ↔ ردیف صورت‌حساب.
+ * Body: { cheque_id, statement_line_id }
+ */
+router.post('/:id/confirm-cheque-match', auth, permit('edit'), (req, res) => {
+  try {
+    const db = getDB();
+    const recon = loadReconOr404(db, req.params.id);
+    ensureOpen(recon);
+    const out = confirmChequeMatch(db, recon, {
+      chequeId: req.body?.cheque_id,
+      statementLineId: req.body?.statement_line_id,
+      userId: req.user && req.user.id,
+    });
+    audit(req.user.id, 'confirm_cheque_match', 'bank_reconciliation', recon.id,
+      `چک #${out.cheque_id} ↔ صورت‌حساب #${out.statement_line_id}`);
+    res.json({ ...out, ...bridgeFor(db, recon) });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message });
   }

@@ -2430,13 +2430,24 @@ body.erp-demo-mode{padding-top:32px}
   .trsy-comp-row,.trsy-alert-item,.trsy-bar>i{transition:none}
 }
 
-/* ===== داشبورد چک — پل GL ===== */
+/* ===== داشبورد چک — پل GL + KPI افق (Phase 4B) ===== */
 .chq-gl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .chq-gl-card{
   padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--well);
   display:flex;flex-direction:column;gap:6px;line-height:1.5
 }
-@media (max-width:900px){.chq-gl-grid{grid-template-columns:1fr}}
+.chq-ops-kpi-head{font-size:12px;margin:14px 0 8px;font-weight:600}
+.chq-ops-kpi .rep-kpi-card{cursor:default}
+.chq-ops-kpi .rep-kpi-card[data-csp-click]{cursor:pointer}
+.chq-cf-grid{grid-template-columns:repeat(5,1fr)}
+.chq-cf-bars{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.chq-cf-bar{display:block;height:4px;border-radius:999px;max-width:100%}
+.chq-cf-bar.in{background:var(--green);opacity:.85}
+.chq-cf-bar.out{background:var(--orange, #c9783a);opacity:.85}
+@media (max-width:1100px){.chq-cf-grid{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:900px){
+  .chq-gl-grid,.chq-cf-grid{grid-template-columns:1fr}
+}
 
 /* ===== ADR-CHEQUE-LEAF-001 — برگه ERP خوانا + تاریخچه ===== */
 .chq-leaf{

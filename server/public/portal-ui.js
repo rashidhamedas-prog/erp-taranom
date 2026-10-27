@@ -852,6 +852,53 @@
       const b = r.bridge || {};
       const open = r.status === 'open';
       const liveBook = r.live_book_balance_rial != null ? r.live_book_balance_rial : (r.book_balance_rial || 0);
+      let chequeSuggestHtml = '';
+      if (open) {
+        let sug = { suggestions: [] };
+        try {
+          sug = await api('GET', '/bank-reconciliation/' + _bankReconId + '/cheque-suggestions', null, false, true) || {};
+        } catch (_) { sug = { suggestions: [] }; }
+        const suggestions = sug.suggestions || [];
+        chequeSuggestHtml = `
+          <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+            <div class="panel-head"><h4>چک‌های پیشنهادی برای تطبیق</h4>
+              <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('bank-recon'); })}">↻</button>
+            </div>
+            <div class="panel-body">
+              <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">
+                فقط پیشنهاد از چک‌های وصول‌شده (<code>cleared</code>) و پاس‌شده (<code>cleared_out</code>)؛ تأیید دستی لازم است و سند جدید زده نمی‌شود.
+              </p>
+              <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+                <th>چک</th><th>طرف</th><th>وضعیت</th><th>مبلغ</th><th>ردیف صورت‌حساب</th><th>اطمینان</th><th></th>
+              </tr></thead><tbody>${suggestions.map((s) => {
+                const cid = Number(s.cheque_id);
+                const fixedLine = Number(s.statement_line_id) || 0;
+                const lineLabel = fixedLine
+                  ? (`#${fixedLine} · ${esc(s.line_date || '')} · ${fmt(s.line_amount_rial || 0)}`)
+                  : (s.status === 'ambiguous'
+                    ? `<select class="br-chq-line" data-cheque-id="${cid}">
+                        <option value="">— انتخاب ردیف —</option>
+                        ${(s.candidates || []).map((c) =>
+                          `<option value="${c.statement_line_id}">#${c.statement_line_id} · ${esc(c.line_date || '')} · ${fmt(c.amount_rial || 0)}</option>`
+                        ).join('')}
+                      </select>`
+                    : '—');
+                const confirmBtn = `<button class="btn sm green" data-csp-click="${CSP.bind('click', function () {
+                  PortalUI.confirmBankChequeMatch(r.id, cid, fixedLine);
+                })}">تأیید</button>`;
+                return `<tr>
+                  <td class="mono">${esc(s.cheque_number || ('#' + cid))}</td>
+                  <td>${esc(s.party_name || '—')}</td>
+                  <td class="mono muted">${esc(s.lifecycle_status || '')}</td>
+                  <td class="mono">${fmt(s.amount_rial || 0)}</td>
+                  <td>${lineLabel}</td>
+                  <td class="mono">${fmt(s.confidence || 0)}٪${s.status === 'ambiguous' ? ' ⚠️' : ''}</td>
+                  <td>${confirmBtn}</td>
+                </tr>`;
+              }).join('') || emptyRow(7)}</tbody></table></div>
+            </div>
+          </div>`;
+      }
       detail = `
         <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
           <div class="panel-head"><h4>تطبیق #${fmt(r.id)} — ${esc(r.bank_name || '')}</h4>
@@ -891,7 +938,7 @@
               <td>${it.matched ? '✅' : '—'}</td>
             </tr>`).join('') || emptyRow(open ? 6 : 5)}</tbody></table></div>
           </div>
-        </div>`;
+        </div>${chequeSuggestHtml}`;
     }
     body.innerHTML = `
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px`)}">
@@ -1050,6 +1097,27 @@
     try {
       await api('POST', '/bank-reconciliation/' + id + '/void', {});
       showToast('تطبیق باطل شد');
+      loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
+  async function confirmBankChequeMatch(reconId, chequeId, statementLineId) {
+    let lineId = Number(statementLineId) || 0;
+    if (!lineId) {
+      const sel = document.querySelector('.br-chq-line[data-cheque-id="' + chequeId + '"]');
+      lineId = Number(sel && sel.value) || 0;
+    }
+    if (!chequeId || !lineId) {
+      showToast('ردیف صورت‌حساب را انتخاب کنید', 'error');
+      return;
+    }
+    if (!confirm('تطبیق این چک با ردیف صورت‌حساب تأیید شود؟ (فقط لینک؛ سند حسابداری جدید زده نمی‌شود)')) return;
+    try {
+      await api('POST', `/bank-reconciliation/${reconId}/confirm-cheque-match`, {
+        cheque_id: chequeId,
+        statement_line_id: lineId,
+      });
+      showToast('تطبیق چک تأیید شد');
       loadAccTab('bank-recon');
     } catch (e) {}
   }
@@ -2057,7 +2125,7 @@
           <div>
             <div class="trsy-kicker">چک · گزارش مدیریتی</div>
             <h3 class="trsy-title">داشبورد چک و الزامات</h3>
-            <p class="trsy-lead">پرتفوی دریافتنی و پرداختنی، پل تطبیق با دفتر کل (۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹)، صیاد، پیری سررسید و چک‌لیست الزامات.</p>
+            <p class="trsy-lead">سررسید ۷/۳۰/۹۰ (دریافتی و پرداختی)، معوق، صیاد، انقضای ۳ساله برگ، مهلت واخواست، تضمین، پیش‌بینی نقدینگی و پل دفتر کل (۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹).</p>
           </div>
           <div class="trsy-hero-actions">
             <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('cheque-dashboard'); })}">↻ بروزرسانی</button>
@@ -2070,6 +2138,15 @@
     await loadChequeDashboard();
   }
 
+  function chqOpsBucket(ops, key) {
+    const o = (ops && ops[key]) || {};
+    return {
+      in: o.in || { count: 0, amount_rial: 0 },
+      out: o.out || { count: 0, amount_rial: 0 },
+      total: o.total || { count: 0, amount_rial: 0 },
+    };
+  }
+
   async function loadChequeDashboard() {
     const box = document.getElementById('chqDashBody');
     if (!box) return;
@@ -2078,6 +2155,7 @@
     if (typeof accDateFrom !== 'undefined' && accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
     if (typeof accDateTo !== 'undefined' && accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
     let d = {};
+    let opsPayload = null;
     let recon = null;
     try {
       d = await api('GET', '/adv-reports/cheque-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
@@ -2086,14 +2164,29 @@
       return;
     }
     try {
+      opsPayload = await api('GET', '/cheque-records/dashboard-kpis', null, false, true) || null;
+    } catch (_) { opsPayload = null; }
+    try {
       recon = await api('GET', '/cheque-records/reconciliation', null, false, true) || null;
     } catch (_) { recon = null; }
     const k = d.kpis || {};
     const gl = d.gl_bridge || {};
+    const ops = (opsPayload && opsPayload.ops_kpis) || d.ops_kpis || {};
+    const cashflow = (opsPayload && opsPayload.cashflow_forecast) || d.cashflow_forecast || [];
+    const due7 = chqOpsBucket(ops, 'due_7d');
+    const due30 = chqOpsBucket(ops, 'due_30d');
+    const due90 = chqOpsBucket(ops, 'due_90d');
+    const overdueOpen = chqOpsBucket(ops, 'overdue_open');
+    const missSay = (ops.missing_sayadi) || { count: 0, amount_rial: 0 };
+    const sayNotReg = (ops.sayad_not_registered) || { count: 0, amount_rial: 0 };
+    const leafNear = (ops.leaves_near_3y_expiry) || { count: 0, book_count: 0, books: [] };
+    const protestNear = (ops.protests_near_deadline) || { count: 0, amount_rial: 0 };
+    const guarantee = (ops.guarantee) || { count: 0, amount_rial: 0 };
     const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
     const health = Number(d.health_score) || 0;
     const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
     const varTone = (n) => Math.abs(Number(n) || 0) > 500000 ? 'var(--red)' : 'var(--green)';
+    const warnTone = (n) => (Number(n) || 0) > 0 ? 'var(--red)' : 'inherit';
     const reconHtml = recon && Array.isArray(recon.accounts) ? `
       <div class="panel" data-csp-style="${CSP.style(`margin-top:14px`)}">
         <div class="panel-head"><h4>⚖️ تطبیق دفتر کل ↔ دفتر چک (فقط posted)</h4></div>
@@ -2117,10 +2210,94 @@
         </div>
       </div>` : '';
 
+    const horizonHtml = `
+      <div class="chq-ops-kpi-head muted">افق سررسید و ریسک عملیاتی (Phase 4)</div>
+      <div class="rep-kpi-grid trsy-kpi chq-ops-kpi">
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-cheque-register'); })}">
+          <div class="kpi-icon">📅</div>
+          <div class="kpi-label">سررسید ۷ روز</div>
+          <div class="kpi-val">${fmt(due7.total.count)}</div>
+          <div class="kpi-sub">ورود ${fmt(due7.in.count)} · خروج ${fmt(due7.out.count)} · ${fmt(due7.total.amount_rial)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📆</div>
+          <div class="kpi-label">سررسید ۳۰ روز</div>
+          <div class="kpi-val">${fmt(due30.total.count)}</div>
+          <div class="kpi-sub">ورود ${fmt(due30.in.count)} · خروج ${fmt(due30.out.count)} · ${fmt(due30.total.amount_rial)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">🗓️</div>
+          <div class="kpi-label">سررسید ۹۰ روز</div>
+          <div class="kpi-val">${fmt(due90.total.count)}</div>
+          <div class="kpi-sub">ورود ${fmt(due90.in.count)} · خروج ${fmt(due90.out.count)} · ${fmt(due90.total.amount_rial)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⏰</div>
+          <div class="kpi-label">سررسیدگذشتهٔ باز</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${warnTone(overdueOpen.total.count)}`)}">${fmt(overdueOpen.total.count)}</div>
+          <div class="kpi-sub">ورود ${fmt(overdueOpen.in.count)} · خروج ${fmt(overdueOpen.out.count)} · ${fmt(overdueOpen.total.amount_rial)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">🆔</div>
+          <div class="kpi-label">بی‌صیاد</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${warnTone(missSay.count)}`)}">${fmt(missSay.count)}</div>
+          <div class="kpi-sub">${fmt(missSay.amount_rial)} ریال</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">📡</div>
+          <div class="kpi-label">صیاد ثبت‌نشده</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${warnTone(sayNotReg.count)}`)}">${fmt(sayNotReg.count)}</div>
+          <div class="kpi-sub">${fmt(sayNotReg.amount_rial)} ریال · سامانه</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-check-categories'); })}">
+          <div class="kpi-icon">🍃</div>
+          <div class="kpi-label">نزدیک انقضای ۳ساله</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${warnTone(leafNear.count)}`)}">${fmt(leafNear.count)}</div>
+          <div class="kpi-sub">${fmt(leafNear.book_count || 0)} دسته · برگ سفید</div>
+        </div>
+        <div class="rep-kpi-card">
+          <div class="kpi-icon">⚖️</div>
+          <div class="kpi-label">مهلت واخواست ۶ماهه</div>
+          <div class="kpi-val" data-csp-style="${CSP.style(`color:${warnTone(protestNear.count)}`)}">${fmt(protestNear.count)}</div>
+          <div class="kpi-sub">${fmt(protestNear.amount_rial)} ریال · ≤۳۰ روز</div>
+        </div>
+        <div class="rep-kpi-card" data-csp-click="${CSP.bind('click', function () { go('acc-trust-checks'); })}">
+          <div class="kpi-icon">🛡️</div>
+          <div class="kpi-label">چک تضمینی</div>
+          <div class="kpi-val">${fmt(guarantee.count)}</div>
+          <div class="kpi-sub">${fmt(guarantee.amount_rial)} ریال · امانی ${fmt(k.trust_open_count || 0)}</div>
+        </div>
+      </div>`;
+
+    const cfMax = Math.max(1, ...cashflow.map((c) => Math.max(Number(c.inflow_rial) || 0, Number(c.outflow_rial) || 0)));
+    const cashflowHtml = `
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>💧 پیش‌بینی نقدینگی از سررسیدها</h4></div>
+        <div class="panel-body">
+          <div class="trsy-cf-grid chq-cf-grid">
+            ${cashflow.map((c) => {
+              const net = Number(c.net_rial) || 0;
+              const inW = Math.round(((Number(c.inflow_rial) || 0) / cfMax) * 100);
+              const outW = Math.round(((Number(c.outflow_rial) || 0) / cfMax) * 100);
+              return `<div class="trsy-cf-card chq-cf-card">
+                <div class="trsy-cf-name">${esc(c.label || c.bucket)}</div>
+                <div class="trsy-cf-net mono" data-csp-style="${CSP.style(`color:${treasuryMoneyTone(net)}`)}">${fmt(net)}</div>
+                <div class="trsy-cf-io muted">ورود ${fmt(c.inflow_rial || 0)} (${fmt(c.in_count || 0)}) · خروج ${fmt(c.outflow_rial || 0)} (${fmt(c.out_count || 0)})</div>
+                <div class="chq-cf-bars" aria-hidden="true">
+                  <span class="chq-cf-bar in" data-csp-style="${CSP.style(`width:${inW}%`)}"></span>
+                  <span class="chq-cf-bar out" data-csp-style="${CSP.style(`width:${outW}%`)}"></span>
+                </div>
+              </div>`;
+            }).join('') || '<div class="empty">سررسید بازی برای پیش‌بینی نیست</div>'}
+          </div>
+          <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">خالص = دریافتی باز − پرداختنی باز در هر بازه. تضمینی از افق نقدینگی کنار گذاشته شده است.</p>
+        </div>
+      </div>`;
+
     box.innerHTML = `
       <div class="trsy-meta">
         <span class="inv-badge moadian-approved">🟢 پرتفوی + مانده دفتر کل</span>
-        <span>تاریخ گزارش: <b>${esc(d.as_of || '—')}</b></span>
+        <span>تاریخ گزارش: <b>${esc(d.as_of || (opsPayload && opsPayload.as_of) || '—')}</b></span>
         <span>بروزرسانی: ${esc(liveAt)}</span>
         <span class="trsy-chip ${healthCls}">سلامت الزامات ${fmt(health)}٪</span>
       </div>
@@ -2146,7 +2323,7 @@
         </div>
         <div class="rep-kpi-card">
           <div class="kpi-icon">⏰</div>
-          <div class="kpi-label">سررسید گذشته</div>
+          <div class="kpi-label">سررسید گذشته (دریافتنی)</div>
           <div class="kpi-val" data-csp-style="${CSP.style(`color:${(k.overdue_recv_count || 0) ? 'var(--red)' : 'inherit'}`)}">${fmt(k.overdue_recv_count || 0)}</div>
           <div class="kpi-sub">${fmt(k.overdue_recv_rial || 0)} ریال</div>
         </div>
@@ -2157,6 +2334,8 @@
           <div class="kpi-sub">${fmt(k.due_14d_rial || 0)} ریال · امانی ${fmt(k.trust_open_count || 0)}</div>
         </div>
       </div>
+      ${horizonHtml}
+      ${cashflowHtml}
       <div class="trsy-grid-2">
         <div class="panel">
           <div class="panel-head"><h4>🔗 پل تطبیق دفتر کل</h4></div>
@@ -2242,7 +2421,7 @@
           </div>
         </div>
       </div>
-      <div class="trsy-footnote muted">مبالغ به <b>ریال</b>. «عملیاتی» از وضعیت چرخه چک؛ «دفتر» مانده زنده حساب‌های ۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹.</div>`;
+      <div class="trsy-footnote muted">مبالغ به <b>ریال</b>. KPIهای افق از <code>/cheque-records/dashboard-kpis</code>؛ پرتفوی و پل دفتر از <code>/adv-reports/cheque-dashboard</code>.</div>`;
     if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
   }
 
@@ -2253,7 +2432,7 @@
           <div>
             <div class="trsy-kicker">دفتر چک · موجودی برگه</div>
             <h3 class="trsy-title">گزارش دفتر چک و دسته</h3>
-            <p class="trsy-lead">موجودی برگه هر دسته، مصرف سریال، بانک بدون دسته، و چک‌های پرداختنی ثبت‌شدهٔ تحویل‌نشده.</p>
+            <p class="trsy-lead">توالی برگ‌ها از دسته، باطل/مفقود، صادرشدهٔ پاس‌نشده، و گردش چک طرف‌حساب.</p>
           </div>
           <div class="trsy-hero-actions">
             <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { loadAccTab('chequebook-report'); })}">↻ بروزرسانی</button>
@@ -2265,18 +2444,29 @@
     await loadChequebookReport();
   }
 
+  function leafStatusFa(st) {
+    return ({ blank: 'سفید', issued: 'صادر', void: 'باطل', lost: 'مفقود', cancelled: 'لغو' })[st] || (st || '—');
+  }
+
   async function loadChequebookReport() {
     const box = document.getElementById('chqBookBody');
     if (!box) return;
     box.innerHTML = '<div class="muted">در حال بارگذاری…</div>';
     let d = {};
+    let party = {};
     try {
       d = await api('GET', '/adv-reports/chequebook-dashboard', null, false, true) || {};
     } catch (e) {
       box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن گزارش ناموفق بود')}</div>`;
       return;
     }
+    try {
+      party = await api('GET', '/adv-reports/party-cheque-turnover?limit=40', null, false, true) || {};
+    } catch (_) {
+      party = { parties: [], totals: {} };
+    }
     const k = d.kpis || {};
+    const pt = party.totals || {};
     const health = Number(d.health_score) || 0;
     const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
     box.innerHTML = `
@@ -2286,24 +2476,25 @@
       </div>
       <div class="rep-kpi-grid trsy-kpi">
         <div class="rep-kpi-card"><div class="kpi-icon">📒</div><div class="kpi-label">دسته چک</div><div class="kpi-val">${fmt(k.book_count || 0)}</div><div class="kpi-sub">${fmt(k.active_books || 0)} فعال</div></div>
-        <div class="rep-kpi-card"><div class="kpi-icon">📄</div><div class="kpi-label">برگه کل</div><div class="kpi-val">${fmt(k.total_leaves || 0)}</div><div class="kpi-sub">مصرف ${fmt(k.used_leaves || 0)} · باقی ${fmt(k.remaining_leaves || 0)}</div></div>
-        <div class="rep-kpi-card"><div class="kpi-icon">⚠️</div><div class="kpi-label">کم‌موجود</div><div class="kpi-val">${fmt(k.low_stock_books || 0)}</div><div class="kpi-sub">بانک بدون دسته ${fmt(k.banks_without_books || 0)}</div></div>
-        <div class="rep-kpi-card"><div class="kpi-icon">📤</div><div class="kpi-label">پرداختنی ثبت‌شده</div><div class="kpi-val">${fmt(k.undelivered_pay_count || 0)}</div><div class="kpi-sub">${fmt(k.undelivered_pay_rial || 0)} ریال</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">📄</div><div class="kpi-label">برگه کل</div><div class="kpi-val">${fmt(k.total_leaves || 0)}</div><div class="kpi-sub">مصرف ${fmt(k.used_leaves || 0)} · سفید ${fmt(k.blank_leaves || k.remaining_leaves || 0)}</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">🚫</div><div class="kpi-label">باطل/مفقود</div><div class="kpi-val">${fmt(k.void_lost_leaves || 0)}</div><div class="kpi-sub">گسست سریال ${fmt(k.serial_gaps || 0)}</div></div>
+        <div class="rep-kpi-card"><div class="kpi-icon">⏳</div><div class="kpi-label">صادر پاس‌نشده</div><div class="kpi-val">${fmt(k.issued_uncleared_leaves || 0)}</div><div class="kpi-sub">کم‌موجود ${fmt(k.low_stock_books || 0)}</div></div>
       </div>
       <div class="trsy-grid-2">
         <div class="panel">
           <div class="panel-head"><h4>📑 موجودی دسته‌ها</h4></div>
           <div class="panel-body tbl-wrap">
             <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-              <th>دسته</th><th>بانک</th><th>برگه</th><th>مصرف</th><th>باقی</th><th>٪</th>
+              <th>دسته</th><th>بانک</th><th>برگه</th><th>مصرف</th><th>سفید</th><th>گسست</th><th>٪</th>
             </tr></thead><tbody>${(d.books || []).map((b) => `<tr>
-              <td><b>${esc(b.name)}</b>${b.alerts && b.alerts.length ? ' ⚠️' : ''}</td>
+              <td><b>${esc(b.name)}</b>${b.alerts && b.alerts.length ? ' ⚠️' : ''}${b.from_leaves_table ? '' : ' <span class="muted">(بدون برگ)</span>'}</td>
               <td>${esc(b.bank_name)}</td>
               <td class="mono">${fmt(b.leaf_count || 0)}</td>
               <td class="mono">${fmt(b.used_leaves || 0)}</td>
               <td class="mono">${b.remaining_leaves != null ? fmt(b.remaining_leaves) : '—'}</td>
+              <td class="mono">${fmt(b.serial_gap_count || 0)}</td>
               <td><div class="trsy-share-cell"><span class="mono">${fmt(b.fill_pct || 0)}٪</span>${treasuryShareBar(b.fill_pct)}</div></td>
-            </tr>`).join('') || emptyRow(6)}</tbody></table>
+            </tr>`).join('') || emptyRow(7)}</tbody></table>
           </div>
         </div>
         <div class="panel">
@@ -2320,6 +2511,73 @@
           </div>
         </div>
       </div>
+      <div class="trsy-grid-2" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel">
+          <div class="panel-head"><h4>🚫 برگ باطل / مفقود / لغو</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>دسته</th><th>سریال</th><th>وضعیت</th><th>دلیل</th>
+            </tr></thead><tbody>${(d.void_lost_leaves || []).map((r) => `<tr>
+              <td>${esc(r.category_name || '—')}</td>
+              <td class="mono">${esc(r.serial || '—')}</td>
+              <td>${esc(leafStatusFa(r.status))}</td>
+              <td class="muted">${esc(r.void_reason || '—')}</td>
+            </tr>`).join('') || emptyRow(4)}</tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>⏳ صادرشدهٔ پاس‌نشده</h4></div>
+          <div class="panel-body tbl-wrap">
+            <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+              <th>دسته</th><th>سریال</th><th>شماره چک</th><th>طرف</th><th>چرخه</th><th data-col-kind="money">مبلغ</th>
+            </tr></thead><tbody>${(d.issued_uncleared || []).map((r) => `<tr>
+              <td>${esc(r.category_name || '—')}</td>
+              <td class="mono">${esc(r.serial || '—')}</td>
+              <td class="mono">${esc(r.cheque_number || '—')}</td>
+              <td>${esc(r.party_name || '—')}</td>
+              <td class="mono muted">${esc(r.lifecycle_status || '—')}</td>
+              <td class="mono">${fmt(r.amount_rial || 0)}</td>
+            </tr>`).join('') || emptyRow(6)}</tbody></table>
+          </div>
+        </div>
+      </div>
+      ${(d.serial_gaps || []).length ? `
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>🔢 گسست توالی سریال</h4></div>
+        <div class="panel-body tbl-wrap">
+          <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>دسته</th><th>پس از</th><th>قبل از</th><th>بازه مفقود</th><th>تعداد</th>
+          </tr></thead><tbody>${(d.serial_gaps || []).map((g) => `<tr>
+            <td>${esc(g.category_name || '—')}</td>
+            <td class="mono">${esc(g.after_serial)}</td>
+            <td class="mono">${esc(g.before_serial)}</td>
+            <td class="mono">${esc(g.missing_from)} … ${esc(g.missing_to)}</td>
+            <td class="mono">${fmt(g.missing_count || 0)}</td>
+          </tr>`).join('')}</tbody></table>
+        </div>
+      </div>` : ''}
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>🤝 گردش چک طرف‌حساب</h4></div>
+        <div class="panel-body">
+          <div class="cards" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
+            ${statCard('b', '📥', fmt(pt.received_count || 0), 'دریافتی · ' + fmt(pt.received_rial || 0) + ' ریال')}
+            ${statCard('o', '✍️', fmt(pt.endorsed_count || 0), 'خرج‌شده · ' + fmt(pt.endorsed_rial || 0) + ' ریال')}
+            ${statCard('r', '↩️', fmt(pt.bounced_count || 0), 'برگشتی · ' + fmt(pt.bounced_rial || 0) + ' ریال')}
+          </div>
+          <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>طرف</th><th>دریافتی</th><th>خرج‌شده</th><th>برگشتی</th><th data-col-kind="money">جمع ریال</th>
+          </tr></thead><tbody>${(party.parties || []).map((p) => {
+            const sum = (p.received_rial || 0) + (p.endorsed_rial || 0) + (p.bounced_rial || 0);
+            return `<tr>
+              <td>${esc(p.party_name || '—')}</td>
+              <td class="mono">${fmt(p.received_count || 0)} · ${fmt(p.received_rial || 0)}</td>
+              <td class="mono">${fmt(p.endorsed_count || 0)} · ${fmt(p.endorsed_rial || 0)}</td>
+              <td class="mono">${fmt(p.bounced_count || 0)} · ${fmt(p.bounced_rial || 0)}</td>
+              <td class="mono">${fmt(sum)}</td>
+            </tr>`;
+          }).join('') || emptyRow(5)}</tbody></table></div>
+        </div>
+      </div>
       <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
         <div class="panel-head"><h4>📤 آخرین چک‌های پرداختنی (دفتر)</h4></div>
         <div class="panel-body tbl-wrap">
@@ -2332,6 +2590,7 @@
         </div>
       </div>`;
     if (typeof enhanceAccTables === 'function') enhanceAccTables(box);
+    if (typeof fitStatNums === 'function') fitStatNums();
   }
 
   async function reloadReport(kind) {
@@ -3130,7 +3389,7 @@
     saveBankReconItem,
     matchBankReconItems,
     closeBankRecon, classifyBankItem, openBankReconImport, saveBankReconImport,
-    autoMatchBankRecon, refreshBankReconBook, voidBankRecon,
+    autoMatchBankRecon, refreshBankReconBook, voidBankRecon, confirmBankChequeMatch,
     showBudgetVariance,
     openBudgetModal,
     saveBudget,

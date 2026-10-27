@@ -58,7 +58,13 @@ console.log('test-cheque-module-p3');
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   ok(swAtLeast(swSrc, 568), 'SW cache ≥ erp-taranom-v568');
   const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-  ok(/app\.js\?v=568/.test(idx) && /app\.css\?v=568/.test(idx), 'index.html app.js/css ?v=568');
+  {
+    const mJs = idx.match(/app\.js\?v=(\d+)/);
+    const mCss = idx.match(/app\.css\?v=(\d+)/);
+    const jv = mJs ? parseInt(mJs[1], 10) : 0;
+    const cv = mCss ? parseInt(mCss[1], 10) : 0;
+    ok(jv >= 568 && cv >= 568, `index.html app.js/css ?v≥568 (js=${jv}, css=${cv})`);
+  }
 }
 
 /* ---- static / export presence ---- */
