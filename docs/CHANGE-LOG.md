@@ -5,7 +5,7 @@
 - **UI:** انتخابگر بانک/شعبه (+city)، فرم دسته/برگ، هشدار مغایرت افتتاحیه، Help.
 - **فایل‌ها:** `db.js`، `lib/cheque-{book-leaves,opening-import}.js`، `routes/{check-categories,cheque-records}.js`، `sync/{tables,capture}.js`، `public/{app.js,app.css,index.html,sw.js}`، `scripts/test-cheque-module-p2.js`، CHANGE-LOG.
 - **تست:** `test:cheque-module-p2`؛ encoding.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge `066e69fb` (PR #59) — بکاپ `/home/taranom/backups/crm.db.20261027-162420`؛ overlay + `pm2 restart`؛ health/ready=200؛ SW `erp-taranom-v566`؛ title ERP ترنم؛ test:cheque-module-p2 ۲۴/۰؛ p1 ۱۵/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v565: موجودی/هشدار فاکتور بر اساس انبار ردیف (Phase 0 cross-warehouse) (SW v565)
 - **منبع:** `invoice-cross-warehouse-cursor` Phase 0؛ شاخهٔ `fix/invoice-line-wh-stock`.
