@@ -2580,6 +2580,8 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 .chq-cell-ellipsis{display:block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chq-row:hover td{background:color-mix(in srgb,var(--purple) 6%,transparent)}
 .chq-actions{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}
+.chq-batch-th,.chq-batch-td{width:36px;text-align:center;vertical-align:middle}
+.chq-batch-cb{width:16px;height:16px;cursor:pointer}
 .chq-act-more{position:relative;display:inline-block}
 .chq-act-more>summary{list-style:none;cursor:pointer;padding:4px 8px;border:1px solid var(--border);border-radius:8px;font-size:16px;line-height:1;min-width:32px;text-align:center}
 .chq-act-more>summary::-webkit-details-marker{display:none}

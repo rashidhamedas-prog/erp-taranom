@@ -1034,6 +1034,16 @@ function initDB(database, opts) {
     );
   `);
   ensureColumn(db, 'trust_checks', 'party_id', 'INTEGER');
+  // Phase 3C — trust/guarantee custody: party+contract+expiry, memo JE, soft-delete
+  ensureColumn(db, 'trust_checks', 'contract_id', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'contract_ref', "TEXT DEFAULT ''");
+  ensureColumn(db, 'trust_checks', 'guarantee_expiry', "TEXT DEFAULT ''");
+  ensureColumn(db, 'trust_checks', 'cheque_record_id', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'memo_je_id', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'deleted_at', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'deleted_by', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'returned_at', 'INTEGER');
+  ensureColumn(db, 'trust_checks', 'collected_at', 'INTEGER');
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cost_center_id', 'INTEGER');
@@ -2181,11 +2191,73 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'sayad_tracking_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'cheque_records', 'beneficiary_national_id', "TEXT DEFAULT ''");
   ensureColumn(db, 'cheque_records', 'is_guarantee', 'INTEGER DEFAULT 0');
+  // Phase 3A — واخواست / گواهی عدم پرداخت
+  ensureColumn(db, 'cheque_records', 'protest_cert_no', "TEXT DEFAULT ''");
+  ensureColumn(db, 'cheque_records', 'protest_date', "TEXT DEFAULT ''");
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_leaf ON cheque_records(leaf_id)');
   } catch (_) { /* */ }
+
+  // Phase 3A — COA: اسناد واخواستی (prefer 1117 if free; else first free 11xx) + حساب‌های انتظامی
+  try {
+    const insCoa = (() => {
+      const cols = db.prepare('PRAGMA table_info(chart_of_accounts)').all().map((c) => c.name);
+      if (cols.includes('level')) {
+        return db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,?)');
+      }
+      return {
+        run(code, name, type, parent, level) {
+          db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)')
+            .run(code, name, type, parent);
+          void level;
+        },
+      };
+    })();
+    const BOUNCED_NAME = 'اسناد واخواستی';
+    let bouncedCode = null;
+    const prefer = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get('1117');
+    if (!prefer) {
+      bouncedCode = '1117';
+      insCoa.run('1117', BOUNCED_NAME, 'asset', '1100', 2);
+    } else if (String(prefer.name || '') === BOUNCED_NAME) {
+      bouncedCode = '1117';
+    } else {
+      // 1117 taken (e.g. ذخیره کاهش ارزش) — first free under 11xx
+      for (let n = 1121; n <= 1199; n += 1) {
+        const c = String(n);
+        const row = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c);
+        if (!row) {
+          bouncedCode = c;
+          insCoa.run(c, BOUNCED_NAME, 'asset', '1100', 2);
+          break;
+        }
+        if (String(row.name || '') === BOUNCED_NAME) {
+          bouncedCode = c;
+          break;
+        }
+      }
+      if (!bouncedCode) bouncedCode = '1121';
+    }
+    const set = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
+    set.run('coa_bounced_cheques', bouncedCode);
+    set.run('coa_notes_dishonored', bouncedCode);
+
+    insCoa.run('9000', 'حساب‌های انتظامی', 'equity', null, 1);
+    insCoa.run('9100', 'اسناد تضمینی دریافتی', 'equity', '9000', 2);
+    insCoa.run('9101', 'اسناد تضمینی دریافتی (انتظامی)', 'equity', '9100', 2);
+    insCoa.run('9102', 'طرف اسناد تضمینی دریافتی', 'equity', '9100', 2);
+    insCoa.run('9200', 'اسناد تضمینی پرداختی', 'equity', '9000', 2);
+    insCoa.run('9201', 'اسناد تضمینی پرداختی (انتظامی)', 'equity', '9200', 2);
+    insCoa.run('9202', 'طرف اسناد تضمینی پرداختی', 'equity', '9200', 2);
+    set.run('coa_memo_guarantee_in_dr', '9101');
+    set.run('coa_memo_guarantee_in_cr', '9102');
+    set.run('coa_memo_guarantee_out_dr', '9202');
+    set.run('coa_memo_guarantee_out_cr', '9201');
+  } catch (e) {
+    console.warn('⚠️ cheque Phase3A COA seed skipped:', e.message);
+  }
 
   // v562 — cheque register events + bank branches (incremental, idempotent)
   db.exec(`

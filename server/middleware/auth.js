@@ -251,6 +251,79 @@ function requirePermission(resource, action) {
   };
 }
 
+/**
+ * Phase 3C — cheque.operate. Admin/accounting always pass (no break).
+ * Delegated users need resource `cheque` action `operate` (or create).
+ */
+function requireChequeOperate(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+  if (req.user.role === 'admin' || req.user.role === 'accounting') return next();
+  const { hasPermission } = require('../lib/rbac');
+  const db = getDB();
+  if (hasPermission(db, req.user, 'cheque', 'operate')
+      || hasPermission(db, req.user, 'cheque', 'create')) {
+    return next();
+  }
+  return res.status(403).json({
+    error: 'مجوز عملیات چک (cheque.operate) لازم است',
+    code: 'E_CHEQUE_OPERATE',
+  });
+}
+
+function chequeApproveThresholdRial(db) {
+  try {
+    const row = db.prepare(
+      "SELECT value FROM settings WHERE key='cheque_approve_threshold_rial'"
+    ).get();
+    const n = Number(row && row.value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function chequeAmountFromReq(req, db) {
+  if (req.body && req.body.amount != null) {
+    const a = Number(req.body.amount);
+    if (Number.isFinite(a) && a > 0) return a;
+  }
+  const ids = [];
+  if (req.params && req.params.id) ids.push(Number(req.params.id));
+  if (req.body && Array.isArray(req.body.ids)) {
+    for (const id of req.body.ids) ids.push(Number(id));
+  }
+  let maxAmt = 0;
+  for (const id of ids) {
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const row = db.prepare('SELECT amount FROM cheque_records WHERE id=?').get(id);
+    const a = Number(row && row.amount) || 0;
+    if (a > maxAmt) maxAmt = a;
+  }
+  return maxAmt;
+}
+
+/**
+ * Phase 3C — high-value clear/bounce/void needs cheque.approve above settings threshold.
+ * Admin/accounting always pass. Threshold 0 / unset = no second gate.
+ */
+function requireChequeHighValueApprove(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+  if (req.user.role === 'admin' || req.user.role === 'accounting') return next();
+  const db = getDB();
+  const threshold = chequeApproveThresholdRial(db);
+  if (!threshold) return next();
+  const amount = chequeAmountFromReq(req, db);
+  if (amount <= threshold) return next();
+  const { hasPermission } = require('../lib/rbac');
+  if (hasPermission(db, req.user, 'cheque', 'approve')) return next();
+  return res.status(403).json({
+    error: `این عملیات بالای سقف تأیید (${threshold.toLocaleString('fa-IR')} ریال) است و نیاز به مجوز cheque.approve دارد`,
+    code: 'E_CHEQUE_APPROVE_REQUIRED',
+    threshold_rial: threshold,
+    amount_rial: amount,
+  });
+}
+
 function managerOnly(req, res, next) {
   if (!req.user || !['admin', 'sales_manager'].includes(req.user.role)) {
     return res.status(403).json({ error: 'دسترسی ندارید — فقط مدیر' });
@@ -267,6 +340,8 @@ module.exports = {
   centralOnlyStrict,
   isDesktopPlatform,
   requirePermission,
+  requireChequeOperate,
+  requireChequeHighValueApprove,
   managerOnly,
   invalidateUserCache,
   revokeUserSessions,

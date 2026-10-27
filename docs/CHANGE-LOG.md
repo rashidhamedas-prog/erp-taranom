@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v567: فاز ۳ چرخه عمر چک — عودت/واخواست/پاس/تضمینی/batch (SW v567)
+- **منبع:** `cheque-module-cursor` Phase 3؛ شاخهٔ `feat/cheque-module-p3-lifecycle` (SW از پیش‌بینی v566 به v567 به‌خاطر برخورد P2 با invoice-wh روی main).
+- **چرخه:** عودت از صندوق Dr 1103/Cr 1109 + دفتر طرف؛ عودت پس از برگشت بدون GL؛ واخواست + انتقال به مشتری؛ `POST /:id/out-clear` Dr 2109/Cr بانک → `cleared_out`؛ ممنوعیت void پس از پاس؛ `markGuarantee` reverse سند دریافت + انتظامی؛ `POST /batch-action` تراکنشی.
+- **COA/RBAC:** `coa_bounced_cheques` + memo guarantee؛ مجوزهای `cheque.operate` / `cheque.approve`.
+- **تست/گزارش:** `test-cheque-module-p3.js`؛ `sandbox-cheque-recon-p3.js` (recon فقط‌خواندنی روی کپی)؛ یادداشت usage در `report-cheque-quality.js`.
+- **فایل‌ها:** `lib/cheque-{lifecycle,lifecycle-actions,batch}.js`، `lib/coa-map.js`، `routes/cheque-records.js`، `routes/trust-checks.js`، `db.js`، `lib/rbac.js`، `middleware/auth.js`، `sync/capture.js`، `public/{index.html,sw.js}`، `scripts/{test-cheque-module-p3,sandbox-cheque-recon-p3,report-cheque-quality}.js`، package.json، CHANGE-LOG.
+- **تست:** `test:cheque-module-p3`؛ encoding.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v566: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v566)
 - **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master` (SW از v565 پیش‌بینی به v566 به‌خاطر برخورد با invoice-line-wh روی main).
 - **دسته/برگ:** جدول `cheque_book_leaves` + UNIQUE(serial در دسته) / صیاد غیرخالی؛ تولید برگ از بازه؛ باطل/مفقود با دلیل؛ `used_leaves` از برگ‌ها؛ DELETE دسته → soft-delete (`deleted_at`).

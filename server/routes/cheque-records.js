@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const {
+  auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove,
+} = require('../middleware/auth');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { todayJalali } = require('../jalali');
@@ -27,9 +29,12 @@ const {
 const { runChequeRegister, runChequeSummary } = require('../lib/cheque-register-query');
 const { buildChequeReconciliation, buildOpeningChequeReconciliation, tableHasColumn } = require('../lib/cheque-reconciliation');
 const {
-  returnToDrawer, endorseReturn, outBounce, outVoid, replaceCheque,
-  reverseLastEvent, markGuarantee,
+  returnToDrawer, endorseReturn, outClear, outBounce, outVoid, replaceCheque,
+  reverseLastEvent, markGuarantee, protestCheque, transferProtestToCustomer,
 } = require('../lib/cheque-lifecycle-actions');
+const {
+  runBatchChequeAction, sendChequeToBank, ensureDepositSlipColumn,
+} = require('../lib/cheque-batch');
 const { allowedTargets, STATUS_LABEL } = require('../lib/cheque-lifecycle');
 const { ExcelJS } = require('../lib/excel-io');
 const { insertChequeEvent } = require('../lib/cheque-events');
@@ -56,12 +61,14 @@ function ensureChequeLegalColumns(db) {
     ['beneficiary_national_id', "TEXT DEFAULT ''"],
     ['is_guarantee', 'INTEGER DEFAULT 0'],
     ['leaf_id', 'INTEGER'],
+    ['deposit_slip_no', "TEXT DEFAULT ''"],
   ];
   for (const [name, def] of cols) {
     if (!tableHasColumn(db, 'cheque_records', name)) {
       try { db.exec(`ALTER TABLE cheque_records ADD COLUMN ${name} ${def}`); } catch (_) { /* */ }
     }
   }
+  ensureDepositSlipColumn(db);
 }
 
 function pickLegalFields(body) {
@@ -1338,9 +1345,9 @@ function voidChequeHttp(req, res) {
   }
 }
 
-router.delete('/:id', auth, adminOrAccounting, voidChequeHttp);
-router.post('/:id/cancel', auth, adminOrAccounting, voidChequeHttp);
-router.post('/:id/void', auth, adminOrAccounting, voidChequeHttp);
+router.delete('/:id', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, voidChequeHttp);
+router.post('/:id/cancel', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, voidChequeHttp);
+router.post('/:id/void', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, voidChequeHttp);
 
 /** Handover our cheque to the payee — Dr payable, Cr notes payable. */
 router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
@@ -1441,71 +1448,41 @@ router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/send-to-bank', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   try {
     const db = getDB();
-    const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
-    const amountRial = Math.round(Number(amountProbe.amount) || 0);
-    if (amountRial <= 0) throw new Error('مبلغ چک نامعتبر است');
-
-    const collection = acct(db, 'coa_cheques_in_collection');
-    const receivable = acct(db, 'coa_cheques_receivable');
-    const amt = amountRial / 10;
-    const bankId = req.body.collection_bank_id || null;
-    const entryDate = resolveChequeEntryDate(req.body.date);
-
-    const jeId = db.transaction(() => {
+    const body = req.body || {};
+    const bankId = body.collection_bank_id || body.bank_id || null;
+    const entryDate = resolveChequeEntryDate(body.date);
+    const result = db.transaction(() => {
       const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
       if (!row) {
         throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
       }
-      assertPosted(row);
-      postChequeInReceipt(db, row, req.user.id, entryDate);
-      if (!isRegistered(row)) {
-        throw Object.assign(new Error('وضعیت چرخه این چک اجازه واگذاری به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      const resolvedBankId = bankId;
-      if (!resolvedBankId) {
-        throw Object.assign(new Error('بانک وصول برای واگذاری الزامی است'), { status: 400, code: 'E_CHEQUE_BANK' });
-      }
-      const bank = db.prepare('SELECT id FROM banks WHERE id=?').get(resolvedBankId);
-      if (!bank) {
-        throw Object.assign(new Error('بانک وصول معتبر نیست'), { status: 400, code: 'E_CHEQUE_BANK' });
-      }
-      assertJournalIdempotent(db, 'cheque_send_to_bank', row.id);
-      const id = postToLedger(db, {
-        sourceType: 'cheque_send_to_bank', sourceId: row.id,
-        date: entryDate,
-        description: `واگذاری چک ${row.cheque_number || row.id} به بانک`,
-        createdBy: req.user.id,
-        lines: [
-          { code: collection.code, name: collection.name, debit: amt, credit: 0, debit_rial: amountRial },
-          { code: receivable.code, name: receivable.name, debit: 0, credit: amt, credit_rial: amountRial },
-        ],
+      return sendChequeToBank(db, row, {
+        user: req.user,
+        entryDate,
+        bankId,
+        depositSlipNo: body.deposit_slip_no,
+        clientRequestId: body.client_request_id || req.get('Idempotency-Key') || null,
       });
-      const updated = db.prepare(`
-        UPDATE cheque_records
-        SET lifecycle_status='in_collection', collection_bank_id=?, collection_je_id=?, status='واگذارشده'
-        WHERE id=? AND ${sqlIsRegistered('lifecycle_status')}
-          AND COALESCE(record_status,'posted')<>'reversed'
-      `).run(resolvedBankId, id, row.id);
-      if (!updated.changes) {
-        throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      syncSettlementChequeStatus(db, row.id);
-      return id;
     })();
 
     const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
     audit(req.user.id, 'cheque_send_bank', 'cheque_record', req.params.id, row?.cheque_number);
-    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'in_collection' });
+    res.json({
+      ok: true,
+      journal_entry_id: result.journal_entry_id,
+      lifecycle_status: 'in_collection',
+      deposit_slip_no: result.deposit_slip_no || null,
+      idempotent: !!result.idempotent,
+    });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
-router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/clear', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
   try {
     const db = getDB();
     const amountProbe = db.prepare("SELECT amount, collection_bank_id FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
@@ -1532,39 +1509,19 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
-  try {
-    const db = getDB();
-    const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+router.post('/:id/bounce', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
+  // Phase 3A: واخواست = Dr اسناد واخواستی / Cr 1116|بانک (نه Dr 1103)
+  runLifecycleAction(req, res, protestCheque);
+});
 
-    const entryDate = resolveChequeEntryDate(req.body.date);
+/** صریح واخواست با شماره/تاریخ گواهی + هشدار مهلت ۶ماهه */
+router.post('/:id/protest', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
+  runLifecycleAction(req, res, protestCheque);
+});
 
-    const jeId = db.transaction(() => {
-      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-      if (!row) throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
-      if (!['in_collection', 'cleared'].includes(row.lifecycle_status)) {
-        throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      assertJournalIdempotent(db, 'cheque_bounce', row.id);
-      const id = postChequeBounce(db, row, req.user.id, entryDate);
-      const updated = db.prepare(`
-        UPDATE cheque_records SET lifecycle_status='bounced', bounced_je_id=?, status='برگشتی'
-        WHERE id=? AND lifecycle_status IN ('in_collection','cleared')
-      `).run(id, row.id);
-      if (!updated.changes) {
-        throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-      }
-      syncSettlementChequeStatus(db, row.id);
-      return id;
-    })();
-
-    const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
-    audit(req.user.id, 'cheque_bounce', 'cheque_record', req.params.id, row?.cheque_number);
-    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'bounced' });
-  } catch (e) {
-    res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
+/** انتقال اسناد واخواستی به حساب مشتری: Dr 1103 / Cr واخواستی */
+router.post('/:id/transfer-to-customer', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
+  runLifecycleAction(req, res, transferProtestToCustomer);
 });
 
 /**
@@ -1658,7 +1615,7 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-function runLifecycleAction(req, res, fn) {
+function runLifecycleAction(req, res, fn, extraOpts) {
   try {
     const db = getDB();
     const result = db.transaction(() => {
@@ -1670,6 +1627,7 @@ function runLifecycleAction(req, res, fn) {
         clientRequestId: req.body.client_request_id || req.get('Idempotency-Key') || null,
         todayFn: todayJalali,
         body: req.body || {},
+        ...(typeof extraOpts === 'function' ? extraOpts(req) : (extraOpts || {})),
       });
     })();
     audit(req.user.id, 'cheque_lifecycle', 'cheque_record', req.params.id, result.lifecycle_status);
@@ -1679,25 +1637,53 @@ function runLifecycleAction(req, res, fn) {
   }
 }
 
-router.post('/:id/return-to-drawer', auth, adminOrAccounting, (req, res) => {
+/** وصول/واخواست/پاس گروهی — یک تراکنش برای همهٔ ids */
+router.post('/batch-action', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
+  try {
+    const db = getDB();
+    const body = req.body || {};
+    const result = db.transaction(() => runBatchChequeAction(db, {
+      action: body.action,
+      ids: body.ids,
+      date: body.date,
+      bankId: body.bank_id || body.collection_bank_id || null,
+      depositSlipNo: body.deposit_slip_no,
+      user: req.user,
+      todayFn: todayJalali,
+      clientRequestId: body.client_request_id || req.get('Idempotency-Key') || null,
+    }))();
+    audit(req.user.id, 'cheque_batch', 'cheque_record', null, `${result.action}×${(result.results || []).length}`);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/:id/return-to-drawer', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   runLifecycleAction(req, res, returnToDrawer);
 });
-router.post('/:id/endorse-return', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/endorse-return', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   runLifecycleAction(req, res, endorseReturn);
 });
-router.post('/:id/out-bounce', auth, adminOrAccounting, (req, res) => {
+/** پاس چک پرداختنی — Dr 2109 / Cr بانک */
+router.post('/:id/out-clear', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
+  runLifecycleAction(req, res, outClear, (r) => ({
+    bankId: (r.body && (r.body.bank_id || r.body.collection_bank_id)) || null,
+  }));
+});
+router.post('/:id/out-bounce', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
   runLifecycleAction(req, res, outBounce);
 });
-router.post('/:id/out-void', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/out-void', auth, adminOrAccounting, requireChequeOperate, requireChequeHighValueApprove, (req, res) => {
   runLifecycleAction(req, res, outVoid);
 });
-router.post('/:id/replace', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/replace', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   runLifecycleAction(req, res, replaceCheque);
 });
-router.post('/:id/reverse-last-event', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/reverse-last-event', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   runLifecycleAction(req, res, reverseLastEvent);
 });
-router.post('/:id/guarantee', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/guarantee', auth, adminOrAccounting, requireChequeOperate, (req, res) => {
   runLifecycleAction(req, res, markGuarantee);
 });
 

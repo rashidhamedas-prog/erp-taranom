@@ -44,7 +44,9 @@ const ALLOWED_KEYS = [
   'invoice_paper_size', 'invoice_thermal_width', 'invoice_customize',
   'session_absolute_hours', 'session_idle_hours', 'twofa_required_roles',
   // Invoice matrix: full pack required|optional (default required + matrix fallback)
-  'sales.full_pack_mode'
+  'sales.full_pack_mode',
+  // Phase 3C — سقف تأیید دوم برای وصول/واخواست/ابطال چک (ریال؛ 0=غیرفعال)
+  'cheque_approve_threshold_rial',
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which

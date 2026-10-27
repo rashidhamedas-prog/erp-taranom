@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Read-only cheque quality report.
- * Usage: node scripts/report-cheque-quality.js --db /path/to/crm.db [--out report.md]
+ * Read-only cheque quality report (Phase 3 gate companion).
+ * Usage: node scripts/report-cheque-quality.js --db /path/to/crm.copy.db [--out report.md]
+ * Prefer a filesystem copy — NEVER point at live production while writing elsewhere.
  * NEVER writes to the database.
+ * Recon sandbox (also read-only): node scripts/sandbox-cheque-recon-p3.js --db <copy.db>
  */
 const fs = require('fs');
 const path = require('path');
