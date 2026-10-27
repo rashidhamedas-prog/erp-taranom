@@ -2547,7 +2547,7 @@ body.erp-demo-mode{padding-top:32px}
 .inv-field-err-msg{margin-block-start:4px;color:var(--red);font-size:12px;font-weight:600;line-height:1.7}
 input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!important;box-shadow:0 0 0 2px rgba(220,38,38,.18)}
 
-/* v562 � ???? ?? (cheque register) */
+/* v563 — دفتر چک (cheque register) */
 .chq-reg{display:flex;flex-direction:column;gap:12px}
 .chq-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .chq-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);cursor:pointer;text-align:right;font:inherit;color:inherit}

@@ -1,4 +1,4 @@
-﻿if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
+if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
 /* ============================================================
    STATE & API
 ============================================================ */
@@ -1458,13 +1458,19 @@ function dpNav(dir){
   if(DP.m<1){DP.m=12;DP.y=Math.max(1390,DP.y-1);}
   renderDP();
 }
+function _dpDispatchValue(inp){
+  if(!inp) return;
+  // bubble so delegated listeners + CSP data-csp-input/change see the programmatic pick
+  inp.dispatchEvent(new Event('input',{bubbles:true}));
+  inp.dispatchEvent(new Event('change',{bubbles:true}));
+}
 function pickDay(d){
   const val = DP.y+'/'+String(DP.m).padStart(2,'0')+'/'+String(d).padStart(2,'0');
-  if(DP.input){ DP.input.value=val; DP.input.dispatchEvent(new Event('change')); }
+  if(DP.input){ DP.input.value=val; _dpDispatchValue(DP.input); }
   closeDP();
 }
-function pickToday(){ if(DP.input){ DP.input.value=todayJalali(); DP.input.dispatchEvent(new Event('change')); } closeDP(); }
-function pickClear(){ if(DP.input){ DP.input.value=''; DP.input.dispatchEvent(new Event('change')); } closeDP(); }
+function pickToday(){ if(DP.input){ DP.input.value=todayJalali(); _dpDispatchValue(DP.input); } closeDP(); }
+function pickClear(){ if(DP.input){ DP.input.value=''; _dpDispatchValue(DP.input); } closeDP(); }
 document.addEventListener('click',(e)=>{ const dp=el('dpRoot').querySelector('.dp'); if(dp && dp.classList.contains('open') && !e.target.closest('.dp') && e.target!==DP.input) closeDP(); });
 // Single global handler for customer search dropdowns — avoids accumulation per modal open
 document.addEventListener('click',e=>{ if(!e.target.closest('.cust-sw')) document.querySelectorAll('.cust-si-drop').forEach(d=>{d.style.display='none';}); },true);
@@ -6794,7 +6800,8 @@ function invDestHtml(row, i){
 }
 function invPayEnsureChequeDefaults(row){
   if(!row) return;
-  if(row.cheque_due==null) row.cheque_due=todayJalali();
+  // v563: empty due — never default to today (caused false overdue on first leaf)
+  if(row.cheque_due==null) row.cheque_due='';
   ['cheque_bank','cheque_branch','cheque_account','cheque_number','sayadi','cheque_owner','sheba','cheque_info'].forEach(k=>{
     if(row[k]==null) row[k]='';
   });
@@ -31560,8 +31567,8 @@ function receiptOpChooser(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 let prrCheques=[];
-function prrNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:todayJalali(),owner:'',note:''}; }
-function receivedChequeProblems(c){
+function prrNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:'',owner:'',note:''}; }
+function receivedChequeProblems(c, opts){
   const say=toEnDigits(String(c.sayadi||'')).replace(/\D/g,'');
   const missing=[];
   if(!String(c.bank||'').trim()) missing.push('نام بانک صادرکننده');
@@ -31569,19 +31576,26 @@ function receivedChequeProblems(c){
   if(!String(c.account||'').trim()) missing.push('شماره حساب');
   if(!String(c.number||'').trim()) missing.push('شماره چک');
   if(!/^\d{16}$/.test(say)) missing.push('شناسه صیاد ۱۶ رقمی');
-  if(!/^\d{4}\/\d{2}\/\d{2}$/.test(String(c.due||'').trim())) missing.push('تاریخ سررسید');
+  const due=toEnDigits(String(c.due||'').trim());
+  if(!/^\d{4}\/\d{2}\/\d{2}$/.test(due)) missing.push('تاریخ سررسید');
   if(!String(c.owner||'').trim()) missing.push('نام صادرکننده');
   const amount=parseInt(String(c.amount||'').replace(/[^\d]/g,''),10)||0;
   if(!amount) missing.push('مبلغ چک');
   const sheba=String(c.sheba||'').replace(/\s/g,'').toUpperCase();
   if(sheba && !/^IR\d{24}$/.test(sheba)) missing.push('شبا (IR و ۲۴ رقم)');
-  return {missing, sayadi:say, sheba, amount};
+  const recv=toEnDigits(String((opts&&opts.receiveDate)||c.receive_date||'').trim());
+  const warnings=[];
+  if(/^\d{4}\/\d{2}\/\d{2}$/.test(due) && /^\d{4}\/\d{2}\/\d{2}$/.test(recv)){
+    if(due<recv) missing.push('سررسید قبل از تاریخ دریافت');
+    else if(due===recv && !(opts&&opts.allowSameDayDue)) warnings.push('چک روز (سررسید=دریافت) — تأیید صریح لازم است');
+  }
+  return {missing, warnings, sayadi:say, sheba, amount, due};
 }
 function renderPrrCheques(){
   const body=el('prr-cheque-body'); if(!body) return;
   body.innerHTML=prrCheques.map((c,i)=>{
     const removeBtn=prrCheques.length>1
-      ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){prrCheques.splice(i,1);if(!prrCheques.length)prrCheques=[prrNewCheque()];renderPrrCheques()})}">حذف</button>`
+      ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){syncPrrChequesFromDom();prrCheques.splice(i,1);if(!prrCheques.length)prrCheques=[prrNewCheque()];renderPrrCheques()})}">حذف</button>`
       : '';
     return `
     <div class="chq-card" data-chq-i="${i}" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--well)`)}">
@@ -32921,7 +32935,7 @@ function renderStlRows(){
   </tr>`).join('');
   attachDatepickers(body);
 }
-function stlNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:todayJalali(),owner:'',note:''}; }
+function stlNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:'',owner:'',note:''}; }
 let stlCheques=[stlNewCheque()];
 // Show/hide the cheque cards block. Paying by cheque switches the amount field
 // off (the total is the sum of the individual cheque amounts) and reveals the
@@ -32947,8 +32961,8 @@ function toggleStlCheque(){
   if(!isPos && el('st-pos')) el('st-pos').value='';
   if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 }
-function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
-function stlRemoveCheque(i){ stlCheques.splice(i,1); if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
+function stlAddCheque(){ stlSyncChequesFromDom(); stlCheques.push(stlNewCheque()); renderStlCheques(); }
+function stlRemoveCheque(i){ stlSyncChequesFromDom(); stlCheques.splice(i,1); if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 function renderStlCheques(){
   const body=el('stlChequeCardsBody'); if(!body) return;
   // Use oninput (not onchange) so typed values survive re-renders / fast Tab /
@@ -35537,6 +35551,8 @@ function renderChequeLeafModalBody(chq, events){
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7;margin-bottom:12px`)}">مشاهده برگه و تاریخچه — عملیات مالی از ردیف دفتر چک؛ «برگشت آخرین رویداد» سند معکوس می‌سازد و ردیف را حذف نمی‌کند.</p>
       ${leaf}
       <div class="toolbar" data-csp-style="${CSP.style(`margin:10px 0;gap:8px`)}">
+        ${(['','registered','in_hand','pending'].includes(String(chq.lifecycle_normalized||chq.lifecycle_status||'').trim()) && chq.record_status!=='reversed')
+          ? `<button class="btn sm" data-csp-click="${CSP.bind('click',function(){chequeFixDueModal((chq.id),(chq.due_date||''),(chq.receive_date||''))})}">✏️ اصلاح سررسید</button>` : ''}
         <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(){chequeReverseLastEvent((chq.id))})}">↩️ برگشت آخرین رویداد</button>
       </div>
       <h4 data-csp-style="${CSP.style(`margin:18px 0 10px;font-size:14px`)}">تاریخچه</h4>
@@ -35547,6 +35563,30 @@ function renderChequeLeafModalBody(chq, events){
 }
 async function editChequeRegisterStatus(id){
   return openChequeLeafModal(id);
+}
+async function chequeFixDueModal(id, currentDue, receiveDate){
+  openModal(`
+    <div class="modal-head"><h3>✏️ اصلاح سررسید چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>سررسید جدید *</label><input id="chq-fix-due" data-jdate value="${esc(currentDue||'')}"></div>
+      <div class="fg full"><label>دلیل اصلاح *</label><input id="chq-fix-due-reason" placeholder="مثلاً اشتباه ثبت در دریافت چندمرحله‌ای"></div>
+      <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">سند مالی تغییر نمی‌کند. فقط سررسید برگ و تسویهٔ مرتبط به‌روز می‌شود. تاریخ دریافت فعلی: <b class="mono">${esc(receiveDate||'—')}</b></div>
+      <label class="fg full" data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center`)}"><input type="checkbox" id="chq-fix-due-same"> تأیید چک روز (سررسید = تاریخ دریافت)</label>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(){chequeFixDueSave((id))})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot')||document);
+}
+async function chequeFixDueSave(id){
+  const due_date=el('chq-fix-due')?.value||'';
+  const reason=el('chq-fix-due-reason')?.value||'';
+  const allow_same_day_due=!!el('chq-fix-due-same')?.checked;
+  if(!due_date){ showToast('سررسید را وارد کنید','error'); return; }
+  if(!String(reason).trim()){ showToast('دلیل اصلاح الزامی است','error'); return; }
+  try{
+    await api('PATCH','/cheque-records/'+id+'/due',{due_date,reason,allow_same_day_due});
+    closeModal(); showToast('سررسید اصلاح شد'); openChequeLeafModal(id);
+  }catch(e){}
 }
 async function chequeSendToBank(id){
   if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
@@ -38501,7 +38541,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
         <li><b>اندوخته و ذخایر</b>: اندوخته قانونی، ذخیره مطالبات مشکوک‌الوصول، NRV موجودی، فهرست کالاهای راکد</li>
       </ul>`),
-    helpSec('📒','دفتر چک کامل (v562)',`
+    helpSec('📒','دفتر چک و سررسید (v563)',`
+      <p><b>v563:</b> پیش‌فرض سررسید خالی است (نه امروز). هنگام «چک بعدی» مقادیر ردیف قبلی از DOM همگام می‌شوند. تقویم جلالی پس از انتخاب، <code>input</code> و <code>change</code> می‌فرستد. سرور سررسید قبل از دریافت و مغایرت با برنامهٔ پرداخت فاکتور را رد می‌کند. در برگ چک دکمهٔ <b>اصلاح سررسید</b> (بدون تغییر سند) برای وضعیت نزد صندوق موجود است.</p>
       <p>صفحهٔ <b>دفتر چک</b> کارت‌های خلاصه، فیلتر ترکیبی (جهت، چند وضعیت چرخه، بانک، طرف حساب، بازهٔ سررسید/صدور، مبلغ، صیاد، معوق، ایراد داده)، انتخاب ستون، جمع جدا دریافتی/پرداختی، aging، خروجی Excel و چاپ دارد. فیلترها در <code>localStorage</code> می‌مانند.</p>
       <ul>
         <li>وضعیت نمایشی از <code>lifecycle_status</code> است نه برچسب آزاد؛ پرچم کیفیت (بدون/ساختگی/تکراری صیاد، طرف مشکوک، شعبه نامشخص، بدون سند، برچسب کهنه) فقط هشدار است و داده را عوض نمی‌کند</li>

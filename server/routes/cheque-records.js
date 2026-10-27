@@ -742,9 +742,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         party_name, party_id, customer_id, status, status_note, amount, note, created_by_name,
         lifecycle_status, check_category_id, sayad_registered, sayad_confirmed, sayad_color
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      direction, String(cheque_number || ''), issue_date || '', receive_date || '', due_date || '',
-      bank_name || '', branch || '', sayDigits, sheba || '', account_number || '',
+    `    ).run(
+      direction, String(cheque_number || '').trim(), issue_date || '', receive_date || '', due_date || '',
+      bank_name || '', branch || '', sayDigits, String(sheba || '').trim(), String(account_number || '').trim(),
       party.partyName, party.partyId, party.customerId,
       status || defaultStatus, status_note || '',
       amountNum, finalNote, req.user.name || '',
@@ -806,6 +806,61 @@ router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
     .run(status_note ?? row.status_note, req.params.id);
   audit(req.user.id, 'update', 'cheque_record', req.params.id, `یادداشت وضعیت چک ${row.cheque_number}`);
   res.json({ ok: true });
+});
+
+/** Secure due-date correction — no GL change; updates settlement.cheque_due + event. */
+router.patch('/:id/due', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (String(row.record_status || 'posted') !== 'posted') {
+    return res.status(409).json({ error: 'فقط چک ثبت‌شده قابل اصلاح سررسید است', code: 'E_CHEQUE_DUE_LOCKED' });
+  }
+  const lc = String(row.lifecycle_status || '').trim();
+  const allowedLc = new Set(['', 'registered', 'in_hand', 'pending']);
+  if (!allowedLc.has(lc)) {
+    return res.status(409).json({
+      error: 'اصلاح سررسید فقط در وضعیت نزد صندوق / registered مجاز است',
+      code: 'E_CHEQUE_DUE_LOCKED',
+      lifecycle_status: lc,
+    });
+  }
+  const { assertChequeDueVsReceive, isValidJalaliDate } = require('../lib/cheque-due-validate');
+  const dueRaw = String((req.body && req.body.due_date) || '').trim();
+  const reason = String((req.body && req.body.reason) || '').trim();
+  if (!reason) return res.status(400).json({ error: 'دلیل اصلاح سررسید الزامی است', code: 'E_CHEQUE_DUE_REASON' });
+  let dueS;
+  try {
+    dueS = assertChequeDueVsReceive({
+      due: dueRaw,
+      receiveDate: row.receive_date || row.issue_date || '',
+      allowSameDayDue: !!(req.body && req.body.allow_same_day_due),
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  if (!isValidJalaliDate(dueS)) {
+    return res.status(400).json({ error: 'سررسید معتبر نیست', code: 'E_CHEQUE_DUE_INVALID' });
+  }
+  const oldDue = String(row.due_date || '');
+  if (oldDue === dueS) return res.json({ ok: true, due_date: dueS, unchanged: true });
+  db.transaction(() => {
+    db.prepare('UPDATE cheque_records SET due_date=? WHERE id=?').run(dueS, row.id);
+    if (row.settlement_id) {
+      db.prepare('UPDATE settlements SET cheque_due=? WHERE id=?').run(dueS, row.settlement_id);
+    }
+    insertChequeEvent(db, {
+      chequeId: row.id,
+      fromStatus: lc || row.status || 'registered',
+      toStatus: lc || 'registered',
+      eventDate: todayJalali(),
+      note: `تغییر سررسید از ${oldDue || '—'} به ${dueS} — ${reason}`,
+      createdBy: req.user.id,
+      clientRequestId: req.body && req.body.client_request_id,
+    });
+  })();
+  audit(req.user.id, 'cheque_due_fix', 'cheque_record', req.params.id, `سررسید ${oldDue}→${dueS}`);
+  res.json({ ok: true, due_date: dueS, previous_due: oldDue });
 });
 
 function voidChequeHttp(req, res) {
