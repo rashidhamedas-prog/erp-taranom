@@ -5,7 +5,7 @@
 - **گزارش فقط‌خواندنی:** `scripts/report-color-missing-hex.js` (`--db` اجباری).
 - **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-missing-hex,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
 - **تست:** `test:pcs-panel` ۷۱/۰؛ `node --check public/app.js` OK.
-- **Deploy:** ⏳ پس از تأیید حامد برای merge + بکاپ.
+- **Deploy:** ✅ merge `0d5a7947` (PR #51) — بکاپ `/home/taranom/backups/crm.db.20261027-141748`؛ overlay + `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v561`؛ test:pcs-panel ۷۱/۰؛ گزارش missing-hex: ۱۵ رنگ فعال بدون hex معتبر (فقط گزارش، بدون اصلاح داده).
 
 ### ۱۴۰۵/۰۸/۰۵ — v560: پیگیری #48 — جست‌وجوی کلاینتی، draft ماتریس، normalizer نیم‌فاصله (SW v560)
 - **منبع:** `prompt-pr48-followup.md`؛ شاخهٔ `fix/color-panel-followup` → PR به `main`.
