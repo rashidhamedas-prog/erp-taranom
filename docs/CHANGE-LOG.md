@@ -5,7 +5,7 @@
 - **فاز ۳:** `GET .../reconciliation` + پنل داشبورد چک؛ `scripts/report-cheque-quality.js` فقط‌خواندنی؛ cron یادآور سررسید (۳ روز/همان روز) بدون SMS.
 - **فایل‌ها:** `lib/cheque-*.js`, `routes/cheque-records.js`, `db.js`, `sync/tables.js`, `server.js`, `public/{app.js,app.css,portal-ui.js,index.html,sw.js}`, `scripts/{test-cheque-register-v562,report-cheque-quality}.js`, Help، CHANGE-LOG.
 - **تست:** `test:cheque-register` ۳۶/۰؛ `test-sms` ۲۲/۰؛ parse `app.js` OK.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge `00f1434f` (PR #53) — بکاپ `/home/taranom/backups/crm.db.20261027-145902`؛ overlay + `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v562`؛ test:cheque-register ۳۶/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v561: اصلاح swatch ماتریس رنگ×سایز از hex کاتالوگ (SW v561)
 - **منبع:** `prompt-swatch-fix.md`؛ شاخهٔ `fix/matrix-swatch-color` → PR (بدون merge خودکار).
