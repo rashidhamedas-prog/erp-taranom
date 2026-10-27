@@ -5,7 +5,7 @@
 - **گزارش‌ها:** برگ باطل/مفقود/صادر پاس‌نشده + گسست سریال در `chequebook-dashboard`؛ پیشنهاد تطبیق `cleared`/`cleared_out` با صورت‌حساب بانک (دستی)؛ گردش طرف‌حساب چک (`party-cheque-turnover`).
 - **فایل‌ها:** `lib/{cheque-reconciliation,cheque-dashboard,chequebook-dashboard,cheque-party-turnover,bank-recon-cheque-suggest}.js`، `routes/{cheque-records,adv-reports,bank-reconciliation}.js`، `public/{portal-ui.js,index.html,sw.js}`، `scripts/test-cheque-module-p4.js`، package.json، CHANGE-LOG.
 - **تست:** `test:cheque-module-p4`؛ encoding؛ QA: dashboard ≈ summary ≈ GL (جایی که فیلترها هم‌پوشانی دارند).
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge `0bbd698e` (PR #66) — بکاپ `/home/taranom/backups/crm.db.20261027-165551`؛ overlay + `pm2 restart`؛ health/ready=200؛ SW `erp-taranom-v569`؛ test:cheque-module-p4 ۵۸/۰؛ p3 ۷۰/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v568: فاز ۳ چرخه عمر چک — عودت/واخواست/پاس/تضمینی/batch (SW v568)
 - **منبع:** `cheque-module-cursor` Phase 3؛ شاخهٔ `feat/cheque-module-p3-lifecycle` (SW به v568 به‌خاطر برخورد با cross-warehouse v567 روی main).
