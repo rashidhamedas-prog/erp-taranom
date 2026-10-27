@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۵ — v559: بازطراحی پنل رنگ×سایز کالا (state + combobox + ماتریس) (SW v559)
+- **منبع:** `prompt-color-size-panel.md`؛ شاخهٔ `fix/product-color-size-panel`.
+- **باگ:** منبع حقیقت انتخاب رنگ = `_prodSkuSticky.colorIds` (دیگر از DOM فیلترشده خوانده نمی‌شود)؛ جستجو/تعویض انبار انتخاب را پاک نمی‌کند؛ خلاصهٔ پک «N تعریف‌شده (M دارای موجودی) × سایز».
+- **UI:** چیپ انتخاب‌شده + combobox افزودن (`faNorm`)، سایز toggle، ماتریس `<table>` با ستون sticky و جمع، برچسب بدون‌موجودی؛ بدون `style=`/`onclick` خام برای تب‌ها.
+- **CSS:** `.fg input` دیگر روی checkbox اعمال نمی‌شود؛ ellipsis اجباری نام رنگ برداشته شد.
+- **گزارش فقط‌خواندنی:** `scripts/report-color-variant-mismatch.js`؛ تست `test:pcs-panel`.
+- **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-variant-mismatch,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
+- **تست:** `test:pcs-panel` ۱۶/۰؛ sms ۲۲/۰؛ parse `app.js` OK.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v558: POS v2 QA regressions (B1–B18) (SW v558)
 - **منبع:** `prompt-pos-v2-fix.md` + ultra-debug؛ شاخهٔ `fix/pos-v2-qa-regressions`؛ تأیید کاربر برای merge+deploy.
 - **B1:** بازگردانی `storeQsLoadRefInvoices` / `storeQsSelectRefInvoice` (حذف‌شده در #42)؛ شکست بارگذاری → `mode=sale`.

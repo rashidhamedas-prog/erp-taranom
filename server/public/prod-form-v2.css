@@ -213,10 +213,10 @@
   overflow:hidden;clip:rect(0,0,0,0);
   white-space:nowrap;border:0;
 }
-.prod-form-v2 .pfv2-field input,
+.prod-form-v2 .pfv2-field input:not([type=checkbox]):not([type=radio]),
 .prod-form-v2 .pfv2-field select,
 .prod-form-v2 .pfv2-field textarea,
-.prod-form-v2 .fg input,
+.prod-form-v2 .fg input:not([type=checkbox]):not([type=radio]),
 .prod-form-v2 .fg select,
 .prod-form-v2 .fg textarea{
   min-height:var(--input-h);
@@ -230,6 +230,28 @@
   color:var(--c-text);
   width:100%;
   max-width:100%;
+}
+.prod-form-v2 .pcs-swatch{background:var(--swatch,#ccc)}
+.prod-form-v2 .pcs-selected{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.prod-form-v2 .pcs-chip{min-height:36px}
+.prod-form-v2 .pcs-size{min-height:44px;white-space:nowrap}
+.prod-form-v2 .pcs-matrix-tbl .pcs-sticky-col{
+  position:sticky;
+  inset-inline-start:0;
+  background:var(--c-card);
+  z-index:2;
+}
+.prod-form-v2 .pcs-matrix-scroll{overflow-x:auto}
+.prod-form-v2 .p-stock-cell{font-size:16px;min-height:44px}
+.prod-form-v2 #p-color-search:focus-visible,
+.prod-form-v2 .pcs-size:focus-visible,
+.prod-form-v2 .pcs-chip-x:focus-visible{
+  outline:3px solid var(--focus,#1D4ED8);
+  outline-offset:2px;
+}
+@media (max-width:767px){
+  .prod-form-v2 .pcs-matrix-scroll{overflow-x:auto}
+  .prod-form-v2 .pcs-chip-name{max-width:18ch}
 }
 .prod-form-v2 .pfv2-field textarea,
 .prod-form-v2 .fg textarea{
