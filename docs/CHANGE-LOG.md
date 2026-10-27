@@ -15,6 +15,16 @@
 - **فایل‌ها:** `lib/cheque-{lifecycle,lifecycle-actions,batch}.js`، `lib/coa-map.js`، `routes/{cheque-records,trust-checks}.js`، `db.js`، `lib/rbac.js`، `middleware/auth.js`، `sync/capture.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
 - **تست:** `test:cheque-module-p3`؛ encoding.
 - **Deploy:** ✅ merge `39a247e1` (PR #64) — بکاپ `/home/taranom/backups/crm.db.20261027-164441`؛ overlay + sandbox `phase3-sandbox-20261027-164454.txt`؛ `pm2 restart`؛ health/ready=200؛ SW `erp-taranom-v568`؛ test:cheque-module-p3 ۷۰/۰؛ encoding OK؛ sms ۲۲/۰.
+### ۱۴۰۵/۰۸/۰۵ — v569: فروش چندانباری — COGS تفکیکی + منفی + حواله + گزارش (Phase 2) (SW v569)
+- **منبع:** `invoice-cross-warehouse-cursor` Phase 2؛ شاخهٔ `feat/sales-cross-warehouse-posting` (SW از v568 به v569 به‌خاطر برخورد با cheque Phase 3).
+- **COGS:** `postCogsFromMovements` بستانکار موجودی را به تفکیک انبار ردیف می‌زند؛ فقط perpetual؛ Dr=جمع Cr؛ void soft-void همان JE.
+- **منفی:** کمبود بدون allow_negative مسدود مگر `inventory_negative`/`approve`؛ flag `erp_neg_override_flags`؛ audit `negative_stock_override`.
+- **RBAC:** `inventory_negative` append-only بعد از `cheque`.
+- **حواله/گزارش:** بخش per انبار؛ `report-cross-warehouse-sales.js --db`.
+- **فایل‌ها:** sales-document, amend-invoice, rbac, warehouse-slip-print, production/schema, available-to-promise, invoices, scripts, public, Help, CHANGE-LOG.
+- **تست:** test-sales-cross-warehouse-posting ۲۱/۰؛ sales-cross-wh ۱۹/۰؛ encoding؛ sms.
+- **Deploy:** ⏳ pending.
+
 
 ### ۱۴۰۵/۰۸/۰۵ — v567: دسترسی فروش از انبار دیگر + popover موجودی (Phase 1) (SW v567)
 - **منبع:** `invoice-cross-warehouse-cursor` Phase 1؛ شاخهٔ `feat/sales-cross-warehouse-perm`.

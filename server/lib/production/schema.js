@@ -1404,7 +1404,13 @@ function createTriggers(db) {
   if (tableExists(db, 'warehouse_stock')) {
     // v435: honor warehouses.allow_negative + settings.inventory_allow_negative.
     // Old unconditional trigger must be DROPped — CREATE IF NOT EXISTS never replaces body.
+    // v568: also honor erp_neg_override_flags (RBAC inventory_negative.approve for one sale txn).
     db.exec(`
+      CREATE TABLE IF NOT EXISTS erp_neg_override_flags (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        active INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT OR IGNORE INTO erp_neg_override_flags (id, active) VALUES (1, 0);
       DROP TRIGGER IF EXISTS trg_ws_no_negative;
       DROP TRIGGER IF EXISTS trg_ws_no_negative_ins;
       CREATE TRIGGER trg_ws_no_negative
@@ -1419,6 +1425,9 @@ function createTriggers(db) {
         AND NOT EXISTS (
           SELECT 1 FROM settings s
           WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM erp_neg_override_flags o WHERE o.id=1 AND COALESCE(o.active,0)=1
         );
       END;
       CREATE TRIGGER trg_ws_no_negative_ins
@@ -1433,6 +1442,9 @@ function createTriggers(db) {
         AND NOT EXISTS (
           SELECT 1 FROM settings s
           WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM erp_neg_override_flags o WHERE o.id=1 AND COALESCE(o.active,0)=1
         );
       END;
     `);

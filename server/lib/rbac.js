@@ -24,6 +24,8 @@ const RESOURCES = [
   'sales_cross_warehouse',
   // Phase 3C — cheque lifecycle permissions (cheque.operate / cheque.approve)
   'cheque',
+  // Phase 2 cross-warehouse — override موجودی منفی فروش (action approve)
+  'inventory_negative',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
@@ -31,6 +33,7 @@ const CLOSED_DEFAULT_NONE = new Set([
   'backup', 'users', 'journal_vouchers', 'payroll', 'moadian', 'settings', 'banks', 'orders', 'rfq',
   'sales_cross_warehouse',
   'cheque',
+  'inventory_negative',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));

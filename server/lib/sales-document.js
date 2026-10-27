@@ -329,12 +329,26 @@ function assertWarehouseLines(db, rows, headerWarehouseId, {
  * Post perpetual sale stock movements; returns { cogsRial, movements, usedWarehouses }.
  */
 function postSaleStockMovements(db, {
-  rows, warehouseId, sourceType, sourceId, userId, date, note,
+  rows, warehouseId, sourceType, sourceId, userId, date, note, user = null,
 }) {
   const used = new Map();
   const movements = [];
+  const negativeOverrides = [];
   let cogsRial = 0;
+  let canOverrideNeg = false;
+  try {
+    if (user && user.role === 'admin') canOverrideNeg = true;
+    else if (user) {
+      const { hasPermission } = require('./rbac');
+      canOverrideNeg = !!hasPermission(db, user, 'inventory_negative', 'approve');
+    }
+  } catch (_) { canOverrideNeg = false; }
+  const { allowNegative: whAllowsNeg } = require('./inventory/ledger');
   const productRows = (rows || []).filter((r) => r.row_type !== 'income' && r.item_kind !== 'service' && r.product_id);
+  const clearNegFlag = () => {
+    try { db.prepare('UPDATE erp_neg_override_flags SET active=0 WHERE id=1').run(); } catch (_) { /* ignore */ }
+  };
+  try {
   for (const r of productRows) {
     const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
     let whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : warehouseId;
@@ -391,6 +405,49 @@ function postSaleStockMovements(db, {
         : null;
       skipStock = !ws || (Number(ws.qty) + 1e-9 < need);
     }
+    // Phase 2: gate on *warehouse* qty (not products.stock header). Header may diverge
+    // across warehouses — if this WH has enough, allow header to go "negative".
+    // Warehouse shortage: allow_negative OR inventory_negative.approve (+ audit); else 403.
+    let saleAllowNeg = false;
+    if (!isFabric) {
+      let avail = 0;
+      try {
+        if (whId) {
+          const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, whId);
+          avail = Number(ws && ws.qty) || 0;
+        } else {
+          const pr = db.prepare('SELECT stock FROM products WHERE id=?').get(r.product_id);
+          avail = Number(pr && pr.stock) || 0;
+        }
+      } catch (_) { avail = 0; }
+      if (need - avail <= 1e-9) {
+        saleAllowNeg = true; // WH covered; product header may lag
+      } else if (whAllowsNeg(db, whId)) {
+        saleAllowNeg = true;
+      } else if (canOverrideNeg) {
+        saleAllowNeg = true;
+        try {
+          db.prepare('INSERT OR IGNORE INTO erp_neg_override_flags (id, active) VALUES (1, 0)').run();
+          db.prepare('UPDATE erp_neg_override_flags SET active=1 WHERE id=1').run();
+        } catch (_) { /* trigger may still block if flag table missing */ }
+        negativeOverrides.push({
+          product_id: r.product_id,
+          variant_id: r.variant_id || null,
+          warehouse_id: whId || null,
+          qty: need,
+          available: avail,
+        });
+      } else if (user) {
+        const err = new Error('برای فروش با موجودی منفی دسترسی تأیید لازم است');
+        err.status = 403;
+        err.code = 'E_NEGATIVE_OVERRIDE_FORBIDDEN';
+        err.product_id = r.product_id;
+        err.warehouse_id = whId;
+        err.available = avail;
+        err.needed = need;
+        throw err;
+      }
+    }
     const mv = postInventoryMovement(db, {
       eventType: 'sale',
       productId: r.product_id,
@@ -404,8 +461,7 @@ function postSaleStockMovements(db, {
       createdBy: userId,
       updateAvg: false,
       skipStock,
-      // Firm sales: product/SKU may go negative (UI warning only). Fabric lots stay hard-checked above.
-      allowNegative: !isFabric,
+      allowNegative: saleAllowNeg,
     });
     if (batchId) {
       if (isFabric) {
@@ -444,8 +500,12 @@ function postSaleStockMovements(db, {
   return {
     cogsRial,
     movements,
+    negativeOverrides,
     usedWarehouses: [...used.entries()].map(([id, name]) => ({ id, name })),
   };
+  } finally {
+    clearNegFlag();
+  }
 }
 
 function postPurchaseStockMovements(db, {
@@ -663,32 +723,78 @@ function reverseStockBySource(db, sourceType, sourceId, { createdBy, date, note 
  */
 function postCogsFromMovements(db, {
   invId, num, date, userId, cogsRial, reverse = false, inventoryCoaCode = null,
-  costCenterId = null, warehouseId = null,
+  costCenterId = null, warehouseId = null, movements = null,
 }) {
-  const amt = Math.round(Number(cogsRial) || 0);
-  if (amt <= 0) return null;
+  const { inventoryAmountLinesByWarehouse, inventoryAccountForWarehouse } = require('./inventory/ledger');
+
   if (reverse) {
     const orig = db.prepare(
       "SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0"
     ).get(invId);
     if (!orig) return null;
+    const origLines = db.prepare(`
+      SELECT account_code AS code, account_name AS name,
+             COALESCE(debit,0) AS debit, COALESCE(credit,0) AS credit,
+             cost_center_id
+      FROM journal_lines WHERE entry_id=? ORDER BY line_no, id
+    `).all(orig.id);
+    if (!origLines.length) return null;
+    const lines = origLines.map((l) => ({
+      code: l.code,
+      name: l.name,
+      debit: Number(l.credit) || 0,
+      credit: Number(l.debit) || 0,
+      cost_center_id: l.cost_center_id || null,
+    }));
+    return postToLedger(db, {
+      sourceType: 'invoice_cogs_reversal',
+      sourceId: invId,
+      date: date || '',
+      description: `بهای تمام‌شده فاکتور ${num} (ابطال)`,
+      createdBy: userId,
+      costCenterId: costCenterId || null,
+      warehouseId: warehouseId || null,
+      lines,
+    });
+  }
+
+  // Forward: group COGS credits by each line warehouse inventory COA (perpetual only).
+  const items = [];
+  if (Array.isArray(movements) && movements.length) {
+    for (const m of movements) {
+      const amt = Math.round(Number(m.amount_rial != null ? m.amount_rial : m.amountRial) || 0);
+      if (amt <= 0) continue;
+      const wh = m.warehouse_id != null ? parseInt(m.warehouse_id, 10)
+        : (m.warehouseId != null ? parseInt(m.warehouseId, 10) : null);
+      const whOk = Number.isFinite(wh) && wh > 0 ? wh : (warehouseId ? parseInt(warehouseId, 10) : null);
+      if (whOk && !warehouseUsesPerpetualValuation(db, whOk)) continue;
+      items.push({ warehouseId: whOk || null, amountRial: amt });
+    }
   } else {
-    assertJournalIdempotent(db, 'invoice_cogs', invId);
+    const amt = Math.round(Number(cogsRial) || 0);
+    if (amt > 0) {
+      const whOk = warehouseId ? parseInt(warehouseId, 10) : null;
+      if (!whOk || warehouseUsesPerpetualValuation(db, whOk)) {
+        items.push({ warehouseId: whOk || null, amountRial: amt });
+      }
+    }
   }
+  const invParts = inventoryAmountLinesByWarehouse(db, items);
+  // Fallback single-account if helper empty but legacy inventoryCoaCode given
+  let parts = invParts;
+  if ((!parts || !parts.length) && inventoryCoaCode) {
+    const amt = items.reduce((a, it) => a + it.amountRial, 0) || Math.round(Number(cogsRial) || 0);
+    if (amt > 0) {
+      const row = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(inventoryCoaCode)
+        || inventoryAccountForWarehouse(db, warehouseId);
+      parts = [{ code: row.code, name: row.name, amountRial: amt }];
+    }
+  }
+  const totalRial = (parts || []).reduce((a, p) => a + Math.round(Number(p.amountRial) || 0), 0);
+  if (totalRial <= 0) return null;
+  assertJournalIdempotent(db, 'invoice_cogs', invId);
+
   const cogs = acct(db, 'coa_cogs');
-  let invAcct;
-  try {
-    if (inventoryCoaCode) {
-      invAcct = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(inventoryCoaCode);
-    }
-    if (!invAcct) {
-      // Prefer finished-goods control (same default as warehouse type map).
-      try { invAcct = acct(db, 'coa_finished_goods'); }
-      catch (_) { invAcct = acct(db, 'coa_inventory'); }
-    }
-  } catch (_) {
-    invAcct = acct(db, 'coa_inventory');
-  }
   let ccId = costCenterId ? parseInt(costCenterId, 10) : null;
   if (!ccId && warehouseId) {
     try {
@@ -706,21 +812,21 @@ function postCogsFromMovements(db, {
       }
     } catch (_) { /* ignore */ }
   }
-  const L = rialToLedger(amt);
-  const lines = reverse
-    ? [
-      { code: invAcct.code, name: invAcct.name, debit: L, credit: 0 },
-      { code: cogs.code, name: cogs.name, debit: 0, credit: L },
-    ]
-    : [
-      { code: cogs.code, name: cogs.name, debit: L, credit: 0, cost_center_id: ccId || null },
-      { code: invAcct.code, name: invAcct.name, debit: 0, credit: L },
-    ];
+
+  const lines = [
+    { code: cogs.code, name: cogs.name, debit: rialToLedger(totalRial), credit: 0, cost_center_id: ccId || null },
+    ...parts.map((p) => ({
+      code: p.code,
+      name: p.name,
+      debit: 0,
+      credit: rialToLedger(Math.round(Number(p.amountRial) || 0)),
+    })),
+  ];
   return postToLedger(db, {
-    sourceType: reverse ? 'invoice_cogs_reversal' : 'invoice_cogs',
+    sourceType: 'invoice_cogs',
     sourceId: invId,
     date: date || '',
-    description: `بهای تمام‌شده فاکتور ${num}${reverse ? ' (ابطال)' : ''}`,
+    description: `بهای تمام‌شده فاکتور ${num}`,
     createdBy: userId,
     costCenterId: ccId || null,
     warehouseId: warehouseId || null,
