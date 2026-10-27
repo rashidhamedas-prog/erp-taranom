@@ -7,8 +7,8 @@
 - **N2/N3/N4:** badge «✓ n در انبار» / «در انبار دیگر» / «بدون موجودی»؛ «پر کردن خالی‌ها با ۱» فقط خالی/صفر + confirm؛ `pcsOtherWhTip` صریح «جمع کل محصول».
 - **گزارش:** `report-color-variant-mismatch.js` فقط `--db` (بدون مسیر پیش‌فرض).
 - **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-variant-mismatch,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
-- **تست:** `test:pcs-panel` (lifecycle app.js + ۴۰+)؛ `node --check public/app.js` OK.
-- **Deploy:** ⏳ پس از merge PR #49 + بکاپ `crm.db` (طبق پرامپت؛ هنوز deploy نشده).
+- **تست:** `test:pcs-panel` ۵۴/۰؛ `node --check public/app.js` OK.
+- **Deploy:** ✅ merge `55d73e6c` (PR #49) — بکاپ `/home/taranom/backups/crm.db.20261027-135405` (۹٬۴۹۸٬۶۲۴ بایت = منبع)؛ overlay ایران (git pull HTTPS بدون credential؛ درخت کثیف) + `pm2 restart erp-taranom` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v560`؛ test:pcs-panel ۵۴/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v559: بازطراحی پنل رنگ×سایز کالا (state + combobox + ماتریس) (SW v559)
 - **منبع:** `prompt-color-size-panel.md`؛ شاخهٔ `fix/product-color-size-panel`.
