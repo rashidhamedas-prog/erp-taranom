@@ -1010,6 +1010,43 @@ if (!isDevice() && !isDemoMode()) {
       if (r && r.ran) console.log('🧮 nightly subledger recon:', JSON.stringify({ run_id: r.run_id, summary: r.summary }));
     } catch (e) { console.error('cron subledger-recon-nightly error:', e.message); }
   });
+
+  // v562 — یادآور سررسید چک (۳ روز قبل و روز سررسید) — فقط اعلان داخلی، بدون SMS خودکار
+  cron.schedule('30 8 * * *', () => {
+    try {
+      const db = getDB();
+      const { todayJalali } = require('./jalali');
+      const { addJalaliDaysApprox } = require('./lib/cheque-register-query');
+      const today = todayJalali();
+      const in3 = addJalaliDaysApprox(today, 3);
+      const rows = db.prepare(`
+        SELECT id, cheque_number, due_date, amount, party_name, direction
+        FROM cheque_records
+        WHERE COALESCE(record_status,'posted')='posted'
+          AND due_date IN (?, ?)
+          AND (
+            TRIM(COALESCE(lifecycle_status,'')) IN ('','registered','in_hand','pending','in_collection')
+          )
+      `).all(today, in3);
+      for (const r of rows) {
+        const when = r.due_date === today ? 'امروز' : '۳ روز دیگر';
+        const title = `سررسید چک ${when}`;
+        const body = `چک ${r.cheque_number || ('#' + r.id)} · ${r.party_name || ''} · ${Number(r.amount) || 0} ریال · سررسید ${r.due_date}`;
+        const exists = db.prepare(`
+          SELECT id FROM app_notifications
+          WHERE kind='cheque_due' AND entity_type='cheque_record' AND entity_id=?
+            AND title=? AND COALESCE(resolved_at,0)=0
+          LIMIT 1
+        `).get(r.id, title);
+        if (exists) continue;
+        db.prepare(`
+          INSERT INTO app_notifications (kind, entity_type, entity_id, title, body, target_roles, created_at)
+          VALUES ('cheque_due','cheque_record',?,?,?,'["admin","accounting"]',strftime('%s','now'))
+        `).run(r.id, title, body);
+      }
+      if (rows.length) console.log(`📒 cheque due reminders scanned: ${rows.length}`);
+    } catch (e) { console.error('cron cheque-due reminder error:', e.message); }
+  });
 }
 
 // Global error handler — never leak stack traces to clients.

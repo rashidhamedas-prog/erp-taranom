@@ -222,6 +222,37 @@ function buildChequeHistory(db, chequeId) {
     });
   }
 
+  // cheque_events table (v562+) — merge without duplicating JE rows
+  try {
+    const { listChequeEvents } = require('./cheque-events');
+    const cev = listChequeEvents(db, id);
+    for (const ev of cev) {
+      const jid = Number(ev.journal_entry_id) || 0;
+      if (jid > 0 && jeIds.has(jid)) {
+        // annotate existing journal event
+        const hit = events.find((e) => e.journal_entry_id === jid);
+        if (hit) hit.cheque_event_id = ev.id;
+        continue;
+      }
+      events.push({
+        kind: 'cheque_event',
+        at: Number(ev.created_at) || 0,
+        date: ev.event_date || '',
+        title: `${statusLabelFor(ev.from_status) || ev.from_status || '—'} → ${statusLabelFor(ev.to_status) || ev.to_status}`,
+        detail: ev.note || '',
+        ref_type: null,
+        journal_entry_id: jid || null,
+        voucher_number: '',
+        reversed: !!ev.reverses_event_id,
+        lines: jid ? loadJournalLines(db, jid) : [],
+        cheque_event_id: ev.id,
+        from_status: ev.from_status,
+        to_status: ev.to_status,
+      });
+      if (jid) jeIds.add(jid);
+    }
+  } catch (_) { /* */ }
+
   events.sort((a, b) => {
     if (a.at !== b.at) return a.at - b.at;
     const ao = a.journal_entry_id || 0;

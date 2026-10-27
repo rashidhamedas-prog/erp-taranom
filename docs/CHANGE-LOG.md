@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v562: تکمیل دفتر چک (فیلتر/جمع/کیفیت + چرخه + تطبیق) (SW v562)
+- **منبع:** `prompt-cheque-register.md`؛ شاخهٔ `feat/cheque-register-complete`.
+- **فاز ۱ (فقط‌خواندنی):** `GET /api/cheque-records/{register,summary,export.xlsx}` + `lib/cheque-{quality,register-query}.js`؛ UI `renderChequeRegisterTab` با کارت، فیلتر کامل، column chooser، footer جدا in/out، aging، Excel، چاپ، a11y/موبایل؛ اعتبارسنجی صیاد روی POST وقتی مقدار ارسال شود.
+- **فاز ۲:** جداول `cheque_events` + `bank_branches`؛ ستون‌های `replaces_cheque_id`/`check_category_id`/sayad_*؛ `ALLOWED_TRANSITIONS`؛ اکشن‌های `return-to-drawer`/`endorse-return`/`out-bounce`/`out-void`/`replace`/`reverse-last-event`/`guarantee`؛ `PATCH .../status` فقط `status_note` برای posted (۴۰۹ روی تغییر برچسب آزاد).
+- **فاز ۳:** `GET .../reconciliation` + پنل داشبورد چک؛ `scripts/report-cheque-quality.js` فقط‌خواندنی؛ cron یادآور سررسید (۳ روز/همان روز) بدون SMS.
+- **فایل‌ها:** `lib/cheque-*.js`, `routes/cheque-records.js`, `db.js`, `sync/tables.js`, `server.js`, `public/{app.js,app.css,portal-ui.js,index.html,sw.js}`, `scripts/{test-cheque-register-v562,report-cheque-quality}.js`, Help، CHANGE-LOG.
+- **تست:** `test:cheque-register` ۳۶/۰؛ `test-sms` ۲۲/۰؛ parse `app.js` OK.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v561: اصلاح swatch ماتریس رنگ×سایز از hex کاتالوگ (SW v561)
 - **منبع:** `prompt-swatch-fix.md`؛ شاخهٔ `fix/matrix-swatch-color` → PR (بدون merge خودکار).
 - **باگ:** `selectedProdChips` فقط `{id,name}` می‌داد؛ `prodColorSwatchHex` بدون hex از hash نام `hsl` می‌ساخت → مشکی/سرمه‌ای و … رنگ غلط در ماتریس.

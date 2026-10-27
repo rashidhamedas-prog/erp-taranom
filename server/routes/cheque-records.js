@@ -20,6 +20,19 @@ const {
 } = require('../lib/cheque-lifecycle');
 const { syncSettlementChequeStatus } = require('../lib/cheque-due');
 const { enrichChequeRow, buildChequeHistory } = require('../lib/cheque-history');
+const {
+  validateSayadi, chequeQualityFlags, QUALITY_LABEL_FA,
+  buildDupSayadSet, buildAdminNameSet, daysUntilDue,
+} = require('../lib/cheque-quality');
+const { runChequeRegister, runChequeSummary } = require('../lib/cheque-register-query');
+const { buildChequeReconciliation } = require('../lib/cheque-reconciliation');
+const {
+  returnToDrawer, endorseReturn, outBounce, outVoid, replaceCheque,
+  reverseLastEvent, markGuarantee,
+} = require('../lib/cheque-lifecycle-actions');
+const { allowedTargets, STATUS_LABEL } = require('../lib/cheque-lifecycle');
+const { ExcelJS } = require('../lib/excel-io');
+const { insertChequeEvent } = require('../lib/cheque-events');
 
 /** Jalali YYYY/MM/DD for lifecycle JE dates; empty → today (API compat). */
 function resolveChequeEntryDate(raw) {
@@ -526,6 +539,142 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
+function enrichRegisterRow(db, row, ctx) {
+  const flags = chequeQualityFlags(row, ctx);
+  const today = ctx.today || todayJalali();
+  const days = daysUntilDue(row.due_date, today);
+  let collection_bank_name = '';
+  if (row.collection_bank_id) {
+    try {
+      const b = db.prepare('SELECT name FROM banks WHERE id=?').get(row.collection_bank_id);
+      collection_bank_name = (b && b.name) || '';
+    } catch (_) { /* */ }
+  }
+  const branchDisp = (!row.branch || String(row.branch).trim() === '0') ? 'نامشخص' : row.branch;
+  return {
+    ...enrichChequeRow(db, row),
+    branch_display: branchDisp,
+    collection_bank_name,
+    quality_flags: flags,
+    quality_labels: flags.map((f) => QUALITY_LABEL_FA[f] || f),
+    days_to_due: days,
+    allowed_actions: allowedTargets(row),
+  };
+}
+
+/** Paginated register with filters + totals (must be before /:id). */
+router.get('/register', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const today = String(req.query.today || todayJalali());
+    const ctx = {
+      today,
+      dupSayads: buildDupSayadSet(db),
+      adminNames: buildAdminNameSet(db),
+    };
+    const payload = runChequeRegister(db, { ...req.query, today }, (r) => enrichRegisterRow(db, r, ctx));
+    res.json(payload);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/summary', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(runChequeSummary(db, req.query.today || todayJalali()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/reconciliation', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildChequeReconciliation(getDB()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/lifecycle-labels', auth, adminOrAccounting, (_req, res) => {
+  res.json({ labels: STATUS_LABEL });
+});
+
+router.get('/export.xlsx', auth, adminOrAccounting, async (req, res) => {
+  try {
+    const db = getDB();
+    const today = String(req.query.today || todayJalali());
+    const ctx = {
+      today,
+      dupSayads: buildDupSayadSet(db),
+      adminNames: buildAdminNameSet(db),
+    };
+    const payload = runChequeRegister(db, {
+      ...req.query,
+      today,
+      page: 1,
+      page_size: 500,
+    }, (r) => enrichRegisterRow(db, r, ctx));
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('دفتر چک');
+    ws.views = [{ rightToLeft: true }];
+    const headers = [
+      'id', 'جهت', 'شماره', 'مبلغ ریال', 'بانک', 'شعبه', 'طرف حساب',
+      'سررسید', 'صدور/دریافت', 'صیاد', 'وضعیت چرخه', 'برچسب', 'پرچم‌ها', 'سند',
+    ];
+    ws.addRow(headers);
+    for (const r of payload.rows) {
+      ws.addRow([
+        r.id,
+        r.direction === 'out' ? 'پرداختی' : 'دریافتی',
+        r.cheque_number || '',
+        Number(r.amount) || 0,
+        r.bank_name || '',
+        r.branch_display || r.branch || '',
+        r.party_name || '',
+        r.due_date || '',
+        r.issue_date || r.receive_date || '',
+        r.sayadi || '',
+        r.lifecycle_label || r.lifecycle_status || '',
+        r.status || '',
+        (r.quality_labels || []).join('، '),
+        r.journal_entry_id || '',
+      ]);
+    }
+    const tin = payload.totals.by_direction.in;
+    const tout = payload.totals.by_direction.out;
+    ws.addRow([]);
+    ws.addRow(['جمع دریافتی', tin.count, tin.amount]);
+    ws.addRow(['جمع پرداختی', tout.count, tout.amount]);
+    ws.getColumn(4).numFmt = '#,##0';
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="cheque-register.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/bank-branches', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const q = String(req.query.q || '').trim();
+  try {
+    const rows = q
+      ? db.prepare(`
+          SELECT * FROM bank_branches
+          WHERE bank_name LIKE ? OR branch_name LIKE ? OR branch_code LIKE ?
+          ORDER BY bank_name, branch_name LIMIT 50
+        `).all('%' + q + '%', '%' + q + '%', '%' + q + '%')
+      : db.prepare('SELECT * FROM bank_branches ORDER BY bank_name, branch_name LIMIT 100').all();
+    res.json(rows);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
 /** ADR-CHEQUE-LEAF-001 — leaf detail (read-only). */
 router.get('/:id/history', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
@@ -552,7 +701,29 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
     return res.status(400).json({ error: 'مبلغ چک باید عدد مثبت معتبر باشد (ریال)' });
   }
+  // New creates: if sayadi provided, must be valid 16-digit (reject dummy/dup). Empty allowed for legacy forms; UI register prompts for it.
+  let sayDigits = '';
+  const rawSay = String(sayadi == null ? '' : sayadi).trim();
+  if (rawSay) {
+    const sayV = validateSayadi(rawSay);
+    if (!sayV.ok) {
+      return res.status(400).json({ error: sayV.message, code: sayV.code });
+    }
+    sayDigits = sayV.digits;
+  }
   const db = getDB();
+  if (sayDigits) {
+    const dup = db.prepare(`
+      SELECT id FROM cheque_records
+      WHERE COALESCE(record_status,'posted')='posted'
+        AND direction=?
+        AND TRIM(sayadi)=?
+      LIMIT 1
+    `).get(direction, sayDigits);
+    if (dup) {
+      return res.status(400).json({ error: 'شناسه صیاد تکراری است', code: 'E_SAYAD_DUP', existing_id: dup.id });
+    }
+  }
   let party;
   try {
     party = resolveChequeParty(db, req.body);
@@ -569,15 +740,19 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         direction, cheque_number, issue_date, receive_date, due_date,
         bank_name, branch, sayadi, sheba, account_number,
         party_name, party_id, customer_id, status, status_note, amount, note, created_by_name,
-        lifecycle_status
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        lifecycle_status, check_category_id, sayad_registered, sayad_confirmed, sayad_color
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       direction, String(cheque_number || ''), issue_date || '', receive_date || '', due_date || '',
-      bank_name || '', branch || '', sayadi || '', sheba || '', account_number || '',
+      bank_name || '', branch || '', sayDigits, sheba || '', account_number || '',
       party.partyName, party.partyId, party.customerId,
       status || defaultStatus, status_note || '',
       amountNum, finalNote, req.user.name || '',
-      'registered'
+      'registered',
+      req.body.check_category_id || null,
+      req.body.sayad_registered ? 1 : 0,
+      req.body.sayad_confirmed ? 1 : 0,
+      req.body.sayad_color || ''
     );
     if (opening) {
       const chequeAccount = acct(db, direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
@@ -614,14 +789,22 @@ router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  // Posted rows: only status_note may change freely; free-text status change → 409
+  if (String(row.record_status || 'posted') === 'posted'
+      && status != null && String(status) !== String(row.status || '')) {
+    return res.status(409).json({
+      error: 'تغییر برچسب وضعیت آزاد برای چک ثبت‌شده ممنوع است — از عملیات چرخه استفاده کنید',
+      code: 'E_CHEQUE_STATUS_LOCKED',
+    });
+  }
   try {
     refuseFreeTextFinancial(row, status);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  db.prepare('UPDATE cheque_records SET status=?, status_note=? WHERE id=?')
-    .run(status || row.status, status_note ?? row.status_note, req.params.id);
-  audit(req.user.id, 'update', 'cheque_record', req.params.id, `تغییر وضعیت چک ${row.cheque_number}`);
+  db.prepare('UPDATE cheque_records SET status_note=? WHERE id=?')
+    .run(status_note ?? row.status_note, req.params.id);
+  audit(req.user.id, 'update', 'cheque_record', req.params.id, `یادداشت وضعیت چک ${row.cheque_number}`);
   res.json({ ok: true });
 });
 
@@ -953,6 +1136,65 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
+
+function runLifecycleAction(req, res, fn) {
+  try {
+    const db = getDB();
+    const result = db.transaction(() => {
+      const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
+      if (!row) throw Object.assign(new Error('یافت نشد'), { status: 404 });
+      return fn(db, row, {
+        user: req.user,
+        date: req.body.date,
+        clientRequestId: req.body.client_request_id || req.get('Idempotency-Key') || null,
+        todayFn: todayJalali,
+        body: req.body || {},
+      });
+    })();
+    audit(req.user.id, 'cheque_lifecycle', 'cheque_record', req.params.id, result.lifecycle_status);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+}
+
+router.post('/:id/return-to-drawer', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, returnToDrawer);
+});
+router.post('/:id/endorse-return', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, endorseReturn);
+});
+router.post('/:id/out-bounce', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, outBounce);
+});
+router.post('/:id/out-void', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, outVoid);
+});
+router.post('/:id/replace', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, replaceCheque);
+});
+router.post('/:id/reverse-last-event', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, reverseLastEvent);
+});
+router.post('/:id/guarantee', auth, adminOrAccounting, (req, res) => {
+  runLifecycleAction(req, res, markGuarantee);
+});
+
+/** Record event after legacy lifecycle endpoints when client_request_id present. */
+function maybeLogLegacyEvent(db, row, from, to, jeId, user, date, note) {
+  try {
+    insertChequeEvent(db, {
+      chequeId: row.id,
+      fromStatus: from,
+      toStatus: to,
+      eventDate: date || todayJalali(),
+      journalEntryId: jeId,
+      createdBy: user && user.id,
+      note: note || '',
+    });
+  } catch (_) { /* */ }
+}
+void maybeLogLegacyEvent;
 
 module.exports = router;
 module.exports.chequeExpensePosting = chequeExpensePosting;

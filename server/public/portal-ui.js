@@ -2078,18 +2078,44 @@
     if (typeof accDateFrom !== 'undefined' && accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
     if (typeof accDateTo !== 'undefined' && accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
     let d = {};
+    let recon = null;
     try {
       d = await api('GET', '/adv-reports/cheque-dashboard' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
     } catch (e) {
       box.innerHTML = `<div class="empty">${esc((e && e.message) || 'خواندن داشبورد ناموفق بود')}</div>`;
       return;
     }
+    try {
+      recon = await api('GET', '/cheque-records/reconciliation', null, false, true) || null;
+    } catch (_) { recon = null; }
     const k = d.kpis || {};
     const gl = d.gl_bridge || {};
     const liveAt = new Date(d.generated_at || Date.now()).toLocaleString('fa-IR');
     const health = Number(d.health_score) || 0;
     const healthCls = health >= 85 ? 'trsy-ok' : (health >= 60 ? 'trsy-warn' : 'trsy-fail');
     const varTone = (n) => Math.abs(Number(n) || 0) > 500000 ? 'var(--red)' : 'var(--green)';
+    const reconHtml = recon && Array.isArray(recon.accounts) ? `
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:14px`)}">
+        <div class="panel-head"><h4>⚖️ تطبیق دفتر کل ↔ دفتر چک (فقط posted)</h4></div>
+        <div class="panel-body tbl-wrap">
+          <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>حساب</th><th>مانده GL</th><th>جمع عملیاتی</th><th>اختلاف</th><th>تعداد</th>
+          </tr></thead><tbody>
+          ${recon.accounts.map((a) => `<tr>
+            <td>${esc(a.code)} — ${esc(a.label||'')}</td>
+            <td class="mono" dir="ltr">${fmt(a.gl_rial||0)}</td>
+            <td class="mono" dir="ltr">${fmt(a.ops_absolute_rial!=null?a.ops_absolute_rial:a.ops_rial||0)}</td>
+            <td class="mono" dir="ltr" data-csp-style="${CSP.style(`color:${varTone(a.variance_rial)}`)}">${fmt(a.variance_rial||0)}</td>
+            <td class="mono">${fmt(a.ops_count||0)}</td>
+          </tr>`).join('')}
+          </tbody></table>
+          <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">
+            بدون سند: ${fmt((recon.drilldown&&recon.drilldown.cheques_without_je||[]).length)} ·
+            سند بدون چک: ${fmt((recon.drilldown&&recon.drilldown.jes_without_cheque||[]).length)} ·
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click', function () { go('acc-cheque-register'); })}">باز کردن دفتر چک</button>
+          </p>
+        </div>
+      </div>` : '';
 
     box.innerHTML = `
       <div class="trsy-meta">
@@ -2098,6 +2124,7 @@
         <span>بروزرسانی: ${esc(liveAt)}</span>
         <span class="trsy-chip ${healthCls}">سلامت الزامات ${fmt(health)}٪</span>
       </div>
+      ${reconHtml}
       <div class="rep-kpi-grid trsy-kpi">
         <div class="rep-kpi-card">
           <div class="kpi-icon">📥</div>
