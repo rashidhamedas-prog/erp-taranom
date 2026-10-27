@@ -33,7 +33,11 @@ const db = dbMods.getDB();
 const { RESOURCES, hasPermission } = require('../lib/rbac');
 const { assertLineWarehousesAllowed, listCrossWarehouseLines } = require('../lib/sales-document');
 
-ok(RESOURCES[RESOURCES.length - 1] === 'sales_cross_warehouse', 'RESOURCES append-only ends with sales_cross_warehouse');
+  ok(RESOURCES.includes('sales_cross_warehouse'), 'RESOURCES includes sales_cross_warehouse');
+  ok(RESOURCES.indexOf('sales_cross_warehouse') < RESOURCES.indexOf('inventory_negative')
+    || RESOURCES[RESOURCES.length - 1] === 'sales_cross_warehouse'
+    || RESOURCES[RESOURCES.length - 1] === 'inventory_negative',
+    'sales_cross_warehouse before inventory_negative (append-only)');
 
 async function main() {
   const express = require('express');

@@ -170,6 +170,33 @@ function metaRow(label, value) {
   return `<div class="kv"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span></div>`;
 }
 
+/**
+ * Group normalized slip lines by effective warehouse name (line warehouse, else header default).
+ * Returns [{ title, lines }] with line_no renumbered per section.
+ */
+function groupSlipLinesByWarehouse(lines, headerWarehouseName) {
+  const header = String(headerWarehouseName || '').trim();
+  const map = new Map();
+  for (const l of lines || []) {
+    const title = String(l.warehouse || header || '—').trim() || '—';
+    if (!map.has(title)) map.set(title, []);
+    map.get(title).push(l);
+  }
+  return [...map.entries()].map(([title, sectLines]) => ({
+    title,
+    lines: sectLines.map((row, i) => Object.assign({}, row, { line_no: i + 1 })),
+  }));
+}
+
+function slipSectionsHtml(sections) {
+  if (!sections || !sections.length) return linesTable([]);
+  if (sections.length === 1) return linesTable(sections[0].lines);
+  return sections.map((s, idx) => `<section class="wh-section${idx > 0 ? ' wh-section-break' : ''}" aria-label="${esc(s.title)}">
+    <h2 class="wh-section-title">${esc(s.title)}</h2>
+    ${linesTable(s.lines)}
+  </section>`).join('\n');
+}
+
 function linesTable(lines) {
   const rows = lines.map((l) => `<tr>
     <td class="c mono">${faNum(l.line_no)}</td>
@@ -223,6 +250,10 @@ function renderWarehouseSlipHtml(opts) {
   const settings = opts.settings || {};
   const dims = paperDims(opts.paper);
   const lines = Array.isArray(opts.lines) ? opts.lines : [];
+  const sections = Array.isArray(opts.sections) ? opts.sections : null;
+  const linesBlock = sections && sections.length > 1
+    ? slipSectionsHtml(sections)
+    : linesTable(sections && sections.length === 1 ? sections[0].lines : lines);
   const signKind = opts.signKind
     || (docKind.includes('receipt') ? 'receipt'
       : (docKind === 'wh_transfer' ? 'transfer' : 'issue'));
@@ -259,10 +290,21 @@ function renderWarehouseSlipHtml(opts) {
 <link href="/warehouse-slip-print.css?v=345" rel="stylesheet">
 <style>
 @page { size: ${dims.widthMm}mm ${dims.heightMm}mm; margin: ${dims.pageMargin}; }
+html.wh-slip .wh-section-title {
+  margin: 12px 0 6px;
+  font-size: 1.1em;
+  font-weight: 800;
+  color: #1B4332;
+  border-right: 4px solid #40916C;
+  padding: 4px 10px;
+  background: #F0F7F2;
+}
+html.wh-slip .wh-section:first-child .wh-section-title { margin-top: 0; }
 @media print {
   html.wh-slip body { background:#fff!important; padding:0!important; }
   html.wh-slip .pbtn { display:none!important; }
   html.wh-slip .sheet { box-shadow:none!important; max-width:100%!important; }
+  html.wh-slip .wh-section-break { page-break-before: always; break-before: page; }
 }
 </style>
 </head>
@@ -278,7 +320,7 @@ function renderWarehouseSlipHtml(opts) {
     </header>
     <p class="purpose">${esc(purpose)}</p>
     <div class="meta-grid">${meta}</div>
-    ${linesTable(lines)}
+    ${linesBlock}
     <p class="legal muted">توجه: این سند جایگزین فاکتور فروش/خرید یا سند حسابداری نیست و مبلغ ریالی ندارد. هر مغایرت تعداد باید قبل از خروج/ورود کالا اعلام و اصلاح شود.</p>
     ${signatureBlock(signKind)}
     <button class="pbtn" type="button" data-print>🖨️ چاپ ${esc(title)} (${esc(dims.paper)})</button>
@@ -300,6 +342,7 @@ function buildSalesInvoiceSlip(db, inv, rawRows, settings, paper) {
   const enriched = enrichInvoiceRowsForSlip(db, rawRows);
   const headerWh = resolveWarehouseName(db, inv.warehouse_id);
   const lines = normalizeSlipLines(enriched, { defaultWarehouse: headerWh });
+  const sections = groupSlipLinesByWarehouse(lines, headerWh);
   const isProforma = String(inv.type || '') === 'proforma';
   return renderWarehouseSlipHtml({
     docKind: 'sales_issue',
@@ -316,7 +359,8 @@ function buildSalesInvoiceSlip(db, inv, rawRows, settings, paper) {
       recorder: inv.seller_name || inv.salesperson || '',
       note: inv.note || '',
     },
-    lines,
+    lines: sections.length === 1 ? sections[0].lines : lines,
+    sections: sections.length > 1 ? sections : undefined,
   });
 }
 
@@ -416,6 +460,8 @@ module.exports = {
   paperDims,
   resolveWarehouseName,
   normalizeSlipLines,
+  groupSlipLinesByWarehouse,
+  slipSectionsHtml,
   enrichInvoiceRowsForSlip,
   renderWarehouseSlipHtml,
   companySettings,

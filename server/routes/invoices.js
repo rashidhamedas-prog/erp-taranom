@@ -794,10 +794,16 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       if (isFirmSale(invType)) {
         // ATP gate — same transaction as the movement, BEFORE anything moves (NONTAX-P0-atp).
         // Throws 409 E_ATP_INSUFFICIENT / 403 E_BACKORDER_FORBIDDEN → whole insert rolls back.
+        let forceNeg = req.user.role === 'admin';
+        if (!forceNeg) {
+          try { forceNeg = !!require('../lib/rbac').hasPermission(db, req.user, 'inventory_negative', 'approve'); }
+          catch (_) { forceNeg = false; }
+        }
         fulfillment = decideSaleFulfillment(db, {
           rows: built.rows, headerWarehouseId: whId, custId: cust_id, excludeInvoiceId: invId,
           backorderRequested: isBackorderRequested(req.body), role: req.user.role,
           provisional: isProvisionalRequest(req, isDevice),
+          forceAllowNegative: forceNeg,
         });
         if (fulfillment.mode === 'deduct') {
           if (warehouseUsesPerpetualValuation(db, whId)) {
@@ -805,9 +811,12 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             const stocked = runWithSaleContext({ custId: cust_id }, () => postSaleStockMovements(db, {
               rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
               userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
+              user: req.user,
             }));
             saleCogsRial = stocked.cogsRial;
             stockMeta.usedWarehouses = stocked.usedWarehouses;
+            stockMeta.movements = stocked.movements || [];
+            stockMeta.negativeOverrides = stocked.negativeOverrides || [];
           } else {
             const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
             if (stockErr) throw new Error(stockErr);
@@ -844,12 +853,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           });
         }
         // Periodic warehouses defer COGS to period-close — never post invoice_cogs here.
-        if (warehouseUsesPerpetualValuation(db, whId) && saleCogsRial > 0) {
-          const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
-          const invCoa = inventoryAccountForWarehouse(db, whId);
+        if (saleCogsRial > 0) {
           postCogsFromMovements(db, {
             invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
-            inventoryCoaCode: invCoa.code,
+            movements: stockMeta.movements || [],
             costCenterId: ccId, warehouseId: whId,
           });
         }
@@ -889,7 +896,12 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         });
       } catch (e) { console.error('crm invoice stage:', e.message); }
 
-      return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [], fulfillment };
+      return {
+        id: invId,
+        usedWarehouses: stockMeta.usedWarehouses || [],
+        negativeOverrides: stockMeta.negativeOverrides || [],
+        fulfillment,
+      };
     }).immediate();
   } catch (e) {
     if (isUniqueClientRequestConflict(e)) {
@@ -914,6 +926,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   try {
     for (const x of listCrossWarehouseLines(built.rows, whId)) {
       audit(req.user.id, 'cross_warehouse_sale', 'invoice', created.id, JSON.stringify(x));
+    }
+  } catch (_) {}
+  try {
+    for (const x of created.negativeOverrides || []) {
+      audit(req.user.id, 'negative_stock_override', 'invoice', created.id, JSON.stringify(x));
     }
   } catch (_) {}
   if (!isDevice()) {
@@ -1290,6 +1307,8 @@ router.post('/:id/convert', auth, (req, res) => {
   }
 
   let convertFulfillment = null;
+  let convertMovements = [];
+  let convertNegOverrides = [];
   try {
     db.transaction(() => {
       let stockDeducted = inv.stock_deducted || 0;
@@ -1297,18 +1316,27 @@ router.post('/:id/convert', auth, (req, res) => {
       let fulfillmentState = FULFILLMENT_STATES.DEDUCTED;
       if (!stockDeducted) {
         // ATP gate — same transaction, before any movement (NONTAX-P0-atp). Throws → convert rolls back.
+        let forceNegC = req.user.role === 'admin';
+        if (!forceNegC) {
+          try { forceNegC = !!require('../lib/rbac').hasPermission(db, req.user, 'inventory_negative', 'approve'); }
+          catch (_) { forceNegC = false; }
+        }
         convertFulfillment = decideSaleFulfillment(db, {
           rows, headerWarehouseId: convertWhId, custId: inv.cust_id, excludeInvoiceId: inv.id,
           backorderRequested: isBackorderRequested(req.body || {}), role: req.user.role,
           provisional: isProvisionalRequest(req, isDevice),
+          forceAllowNegative: forceNegC,
         });
         if (convertFulfillment.mode === 'deduct') {
           if (warehouseUsesPerpetualValuation(db, convertWhId)) {
             const stocked = runWithSaleContext({ custId: inv.cust_id }, () => postSaleStockMovements(db, {
               rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
               userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
+              user: req.user,
             }));
             saleCogsRial = stocked.cogsRial;
+            convertMovements = stocked.movements || [];
+            convertNegOverrides = stocked.negativeOverrides || [];
           } else {
             const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id, custId: inv.cust_id });
             if (stockErr) throw new Error(stockErr);
@@ -1352,12 +1380,10 @@ router.post('/:id/convert', auth, (req, res) => {
           chequeHeader: { cheque_info: inv.cheque_info, cheque_due_date: inv.cheque_due_date },
         });
       }
-      if (warehouseUsesPerpetualValuation(db, convertWhId) && saleCogsRial > 0) {
-        const { inventoryAccountForWarehouse } = require('../lib/inventory/ledger');
-        const invCoa = inventoryAccountForWarehouse(db, convertWhId);
+      if (saleCogsRial > 0) {
         postCogsFromMovements(db, {
           invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
-          inventoryCoaCode: invCoa.code,
+          movements: convertMovements,
           costCenterId: inv.cost_center_id, warehouseId: convertWhId,
         });
       }
@@ -1373,6 +1399,11 @@ router.post('/:id/convert', auth, (req, res) => {
   try {
     for (const x of listCrossWarehouseLines(rows, convertWhId)) {
       audit(req.user.id, 'cross_warehouse_sale', 'invoice', inv.id, JSON.stringify(x));
+    }
+  } catch (_) {}
+  try {
+    for (const x of convertNegOverrides || []) {
+      audit(req.user.id, 'negative_stock_override', 'invoice', inv.id, JSON.stringify(x));
     }
   } catch (_) {}
 

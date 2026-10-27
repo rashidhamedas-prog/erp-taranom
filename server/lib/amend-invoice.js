@@ -430,16 +430,38 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
   };
 }
 
-function buildPerpetualCogsLines(db, cogsRial) {
-  const amt = Math.round(Number(cogsRial) || 0);
-  if (amt <= 0) return [];
+function buildPerpetualCogsLines(db, cogsRial, movements, headerWhId) {
+  const { inventoryAmountLinesByWarehouse } = require('./inventory/ledger');
+  const { warehouseUsesPerpetualValuation } = require('./sales-document');
+  const items = [];
+  if (Array.isArray(movements) && movements.length) {
+    for (const m of movements) {
+      const amt = Math.round(Number(m.amount_rial != null ? m.amount_rial : m.amountRial) || 0);
+      if (amt <= 0) continue;
+      const wh = m.warehouse_id != null ? parseInt(m.warehouse_id, 10)
+        : (m.warehouseId != null ? parseInt(m.warehouseId, 10) : null);
+      const whOk = Number.isFinite(wh) && wh > 0 ? wh : (headerWhId ? parseInt(headerWhId, 10) : null);
+      if (whOk && !warehouseUsesPerpetualValuation(db, whOk)) continue;
+      items.push({ warehouseId: whOk || null, amountRial: amt });
+    }
+  } else {
+    const amt = Math.round(Number(cogsRial) || 0);
+    if (amt > 0) {
+      const whOk = headerWhId ? parseInt(headerWhId, 10) : null;
+      if (!whOk || warehouseUsesPerpetualValuation(db, whOk)) {
+        items.push({ warehouseId: whOk || null, amountRial: amt });
+      }
+    }
+  }
+  const parts = inventoryAmountLinesByWarehouse(db, items);
+  const total = parts.reduce((a, p) => a + Math.round(Number(p.amountRial) || 0), 0);
+  if (total <= 0) return [];
   const cogs = acct(db, 'coa_cogs');
-  let invAcct;
-  try { invAcct = acct(db, 'coa_inventory'); } catch (_) { invAcct = acct(db, 'coa_finished_goods'); }
-  const L = rialToLedger(amt);
   return [
-    { code: cogs.code, name: cogs.name, debit: L, credit: 0 },
-    { code: invAcct.code, name: invAcct.name, debit: 0, credit: L },
+    { code: cogs.code, name: cogs.name, debit: rialToLedger(total), credit: 0 },
+    ...parts.map((p) => ({
+      code: p.code, name: p.name, debit: 0, credit: rialToLedger(Math.round(Number(p.amountRial) || 0)),
+    })),
   ];
 }
 
@@ -464,10 +486,11 @@ function buildLegacyCogsLines(db, rows) {
   return lines;
 }
 
-function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial }) {
+function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial, movements }) {
   const perpetual = perpetualDocsEnabled(db);
+  const whIdHdr = parseInt(row.warehouse_id, 10) || null;
   const lines = perpetual
-    ? buildPerpetualCogsLines(db, cogsRial)
+    ? buildPerpetualCogsLines(db, cogsRial, movements, whIdHdr)
     : buildLegacyCogsLines(db, rows);
   let ccId = parseInt(row.cost_center_id, 10) || null;
   const whId = parseInt(row.warehouse_id, 10) || null;
@@ -906,21 +929,28 @@ function amendPostedInvoiceInPlace(db, {
     userId, date: entryDate, num: row.num,
   });
 
-  // Same gate as invoice create: periodic WH defers COGS to period-close (no invoice_cogs).
-  if (warehouseUsesPerpetualValuation(db, firmWh)) {
-    if (perpetualDocsEnabled(db)) {
+  // Phase 2: COGS credits split by line warehouse inventory COA (perpetual WHs only).
+  if (perpetualDocsEnabled(db) && stocked.cogsRial > 0) {
+    let amendMovements = [];
+    try {
+      amendMovements = db.prepare(`
+        SELECT warehouse_id, amount_rial FROM inventory_ledger
+        WHERE source_type='invoice' AND source_id=?
+          AND status='posted' AND COALESCE(reversed_of,0)=0 AND qty_out>0
+      `).all(row.id);
+    } catch (_) { amendMovements = []; }
+    rewriteCogsInPlace(db, {
+      row, num: row.num, date: entryDate, userId,
+      rows: built.rows, cogsRial: stocked.cogsRial,
+      movements: amendMovements,
+    });
+  } else if (!perpetualDocsEnabled(db)) {
+    const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
+    if (on && on.value === '1' && stocked.cogsRial > 0) {
       rewriteCogsInPlace(db, {
         row, num: row.num, date: entryDate, userId,
         rows: built.rows, cogsRial: stocked.cogsRial,
       });
-    } else {
-      const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
-      if (on && on.value === '1') {
-        rewriteCogsInPlace(db, {
-          row, num: row.num, date: entryDate, userId,
-          rows: built.rows, cogsRial: stocked.cogsRial,
-        });
-      }
     }
   } else {
     try {

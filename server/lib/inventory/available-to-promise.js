@@ -272,8 +272,10 @@ function evaluateAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
     prodReq.set(pk, pcur);
   }
 
+  const forceNeg = !!(opts && opts.forceAllowNegative);
   const negOkCache = new Map();
   const negOk = (whId) => {
+    if (forceNeg) return true;
     const k = whId || 0;
     if (!negOkCache.has(k)) negOkCache.set(k, salesAllowsNegative(db, whId));
     return negOkCache.get(k);
@@ -383,8 +385,11 @@ function isProvisionalRequest(req, isDeviceFn) {
 function decideSaleFulfillment(db, {
   rows, headerWarehouseId, custId = null, excludeInvoiceId = null,
   backorderRequested = false, role = '', provisional = false,
+  forceAllowNegative = false,
 }) {
-  const { shortages, checked } = evaluateAvailableToPromise(db, rows, headerWarehouseId, { custId, excludeInvoiceId });
+  const { shortages, checked } = evaluateAvailableToPromise(db, rows, headerWarehouseId, {
+    custId, excludeInvoiceId, forceAllowNegative,
+  });
   let mode = provisional ? 'provisional' : 'deduct';
   if (shortages.length) {
     if (backorderRequested && canAuthorizeBackorder(role)) {
