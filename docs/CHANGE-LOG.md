@@ -13,7 +13,7 @@
 - **کلاینت:** cache `_invLineStock`؛ `invLineAvail` / گروه‌بندی هشدار per `(انبار مؤثر، کالا/variant)`؛ `whChangeBind` و تغییر هدر → fetch+`renderCart`/`renderInvoiceStockWarn`/`renderInvPicker`؛ رزرو پیکر فقط ردیف هم‌انبار هدر؛ برچسب «موجودی این انبار: n».
 - **فایل‌ها:** `lib/invoice-line-wh-stock.js`، `routes/inventory.js`، `public/{app.js,app.css,index.html,sw.js}`، `scripts/test-invoice-line-wh-stock.js`، Help، CHANGE-LOG، `package.json`.
 - **تست:** `test:invoice-line-wh`؛ `test:public-encoding`؛ sms/sync طبق gate.
-- **Deploy:** ⏳ pending.
+- **Deploy:** ✅ merge `b5850f45` (PR #58) — بکاپ `/home/taranom/backups/crm.db.20261027-162250` (۹٬۵۳۱٬۳۹۲ بایت)؛ overlay + `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v565`؛ title ERP ترنم؛ test:invoice-line-wh ۶۹/۰؛ encoding OK؛ cheque-due ۲۶/۰؛ گزارش `~/backups/reports/xwh-p0-20261027-162250.txt`.
 
 ### ۱۴۰۵/۰۸/۰۵ — v564: فاز ۱ UI چک — تب پرداختی، فیلتر مشترک، layout دفتر (SW v564)
 - **منبع:** `cheque-module-cursor` Phase 1؛ شاخهٔ `feat/cheque-module-p1-ui`.
