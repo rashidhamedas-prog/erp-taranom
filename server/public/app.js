@@ -679,53 +679,206 @@ async function hydrateInvVarSum(ids, warehouseId){
   }
   return true;
 }
-function collectInvoiceStockWarnings(cart){
-  const issues=[];
-  const byProd={};
-  const bySku={};
-  (cart||[]).forEach(r=>{
-    if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
-    const pid=Number(r.product_id);
-    if(!Number.isFinite(pid)) return;
-    const qty=Number(r.qty)||0;
-    if(!byProd[pid]) byProd[pid]={name:r.name||'', qty:0};
-    byProd[pid].qty+=qty;
-    if(!byProd[pid].name && r.name) byProd[pid].name=r.name;
-    if(r.variant_id && r.sku_stock!=null){
-      const vid=String(r.variant_id);
-      if(!bySku[vid]){
-        const sku=variantAttrsLabel(r.color_name||r.color, r.size_name);
-        bySku[vid]={name:(r.name||'')+(sku?(' — '+sku):''), qty:0, avail:Number(r.sku_stock)||0};
+window._invLineStock = window._invLineStock || {};
+window._invLineStockSeq = window._invLineStockSeq || 0;
+/* XWH-SHARED:invLineStockKey */
+function invLineStockKey(pid, vid) {
+  const p = Number(pid);
+  const pSafe = Number.isFinite(p) ? p : 0;
+  if (vid == null || vid === '') return String(pSafe) + ':0';
+  const v = Number(vid);
+  return String(pSafe) + ':' + (Number.isFinite(v) ? String(v) : String(vid));
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invEffectiveLineWh */
+function invEffectiveLineWh(row, headerWh) {
+  const raw = row && row.warehouse_id != null && row.warehouse_id !== ''
+    ? Number(row.warehouse_id)
+    : 0;
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  const h = Number(headerWh);
+  if (Number.isFinite(h) && h > 0) return h;
+  return null;
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invLineAvail */
+function invLineAvail(row, headerWh, stockCache) {
+  if (!row) return 0;
+  const wh = invEffectiveLineWh(row, headerWh);
+  if (!wh) return 0;
+  const cache = stockCache || {};
+  const key = invLineStockKey(row.product_id, row.variant_id);
+  const map = cache[key];
+  if (map && map[wh] != null) return Number(map[wh]) || 0;
+  if (map && map[String(wh)] != null) return Number(map[String(wh)]) || 0;
+  return 0;
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:collectInvoiceStockWarnings */
+function collectInvoiceStockWarnings(cart, opts) {
+  const o = opts || {};
+  const headerWh = o.headerWh;
+  const stockCache = o.stockCache || {};
+  const heldFn = typeof o.heldFn === 'function'
+    ? o.heldFn
+    : function () { return 0; };
+  const warehouseName = typeof o.warehouseName === 'function'
+    ? o.warehouseName
+    : function (id) { return 'انبار ' + id; };
+  const variantLabel = typeof o.variantLabel === 'function'
+    ? o.variantLabel
+    : function () { return ''; };
+  const findProduct = typeof o.findProduct === 'function'
+    ? o.findProduct
+    : function () { return null; };
+
+  const issues = [];
+  const byProd = {};
+  const bySku = {};
+
+  (cart || []).forEach(function (r) {
+    if (!r || r.row_type === 'income' || r.batch_id || r.is_fabric_roll) return;
+    const pid = Number(r.product_id);
+    if (!Number.isFinite(pid)) return;
+    const qty = Number(r.qty) || 0;
+    const wh = invEffectiveLineWh(r, headerWh);
+    if (!wh) return;
+    const pk = String(pid) + '@' + String(wh);
+    if (!byProd[pk]) {
+      byProd[pk] = {
+        product_id: pid,
+        warehouse_id: wh,
+        name: r.name || '',
+        qty: 0,
+      };
+    }
+    byProd[pk].qty += qty;
+    if (!byProd[pk].name && r.name) byProd[pk].name = r.name;
+
+    if (r.variant_id != null && r.variant_id !== '') {
+      const vid = String(r.variant_id);
+      const sk = vid + '@' + String(wh);
+      if (!bySku[sk]) {
+        const sku = variantLabel(r.color_name || r.color, r.size_name);
+        bySku[sk] = {
+          variant_id: Number(r.variant_id) || r.variant_id,
+          product_id: pid,
+          warehouse_id: wh,
+          name: (r.name || '') + (sku ? (' — ' + sku) : ''),
+          qty: 0,
+        };
       }
-      bySku[vid].qty+=qty;
+      bySku[sk].qty += qty;
     }
   });
-  Object.keys(byProd).forEach(pid=>{
-    const g=byProd[pid];
-    const p=typeof findInvProduct==='function'?findInvProduct(pid):null;
-    const held=invoiceHeldQty('product', pid);
-    const avail=(p?Number(p.wh_qty!=null?p.wh_qty:(p.stock||0)):0)+held;
-    if(g.qty>avail+1e-9){
+
+  Object.keys(byProd).forEach(function (pk) {
+    const g = byProd[pk];
+    const sample = { product_id: g.product_id, warehouse_id: g.warehouse_id, variant_id: null };
+    let avail = invLineAvail(sample, headerWh, stockCache);
+    if (!(stockCache[invLineStockKey(g.product_id, null)] || stockCache[invLineStockKey(g.product_id, 0)])) {
+      const p = findProduct(g.product_id);
+      if (p && Number(headerWh) === Number(g.warehouse_id)) {
+        avail = Number(p.wh_qty != null ? p.wh_qty : (p.stock || 0)) || 0;
+      }
+    }
+    avail += Number(heldFn('product', g.product_id, g.warehouse_id)) || 0;
+    if (g.qty > avail + 1e-9) {
+      const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
+      const baseName = g.name || (findProduct(g.product_id) && findProduct(g.product_id).name) || 'کالا';
       issues.push({
-        kind:'product', product_id:Number(pid),
-        name:g.name||(p&&p.name)||'کالا',
-        need:g.qty, avail, after:avail-g.qty
+        kind: 'product',
+        product_id: g.product_id,
+        warehouse_id: g.warehouse_id,
+        name: baseName + ' (' + whName + ')',
+        wh_name: whName,
+        need: g.qty,
+        avail: avail,
+        after: avail - g.qty,
       });
     }
   });
-  Object.keys(bySku).forEach(vid=>{
-    const g=bySku[vid];
-    const heldSku=invoiceHeldQty('sku', vid);
-    const availSku=g.avail+heldSku;
-    if(g.qty>availSku+1e-9){
-      issues.push({kind:'sku', name:g.name||'SKU', need:g.qty, avail:availSku, after:availSku-g.qty});
+
+  Object.keys(bySku).forEach(function (sk) {
+    const g = bySku[sk];
+    const sample = {
+      product_id: g.product_id,
+      warehouse_id: g.warehouse_id,
+      variant_id: g.variant_id,
+    };
+    let avail = invLineAvail(sample, headerWh, stockCache);
+    avail += Number(heldFn('sku', g.variant_id, g.warehouse_id)) || 0;
+    if (g.qty > avail + 1e-9) {
+      const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
+      issues.push({
+        kind: 'sku',
+        product_id: g.product_id,
+        variant_id: g.variant_id,
+        warehouse_id: g.warehouse_id,
+        name: (g.name || 'SKU') + ' (' + whName + ')',
+        wh_name: whName,
+        need: g.qty,
+        avail: avail,
+        after: avail - g.qty,
+      });
     }
   });
+
   return issues;
+}
+/* /XWH-SHARED */
+function invoiceStockWarnOpts(){
+  return {
+    headerWh: typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null,
+    stockCache: window._invLineStock||{},
+    heldFn: function(kind,id,wh){ return invoiceHeldQty(kind,id,wh); },
+    warehouseName: function(id){ return typeof warehouseNameById==='function'?warehouseNameById(id):('انبار '+id); },
+    variantLabel: function(c,s){ return typeof variantAttrsLabel==='function'?variantAttrsLabel(c,s):''; },
+    findProduct: function(pid){ return typeof findInvProduct==='function'?findInvProduct(pid):null; },
+  };
+}
+function invoiceStockWarningsNow(cart){
+  return collectInvoiceStockWarnings(cart, invoiceStockWarnOpts());
+}
+function invLineAvailRow(row){
+  return invLineAvail(row, typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null, window._invLineStock||{});
+}
+async function ensureInvLineStockForCart(cart){
+  const rows=cart||(typeof invCart!=='undefined'?invCart:[]);
+  const items=[];
+  const seen={};
+  (rows||[]).forEach(function(r){
+    if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
+    const pid=Number(r.product_id);
+    if(!Number.isFinite(pid) || pid<=0) return;
+    const vid=r.variant_id!=null&&r.variant_id!==''?Number(r.variant_id):null;
+    const key=invLineStockKey(pid, vid);
+    if(seen[key]) return;
+    seen[key]=1;
+    if(window._invLineStock && window._invLineStock[key]) return;
+    items.push({ product_id: pid, variant_id: (Number.isFinite(vid)&&vid>0)?vid:null });
+  });
+  if(!items.length) return;
+  const seq=window._invLineStockSeq;
+  try{
+    const data=await api('POST','/inventory/stock-by-warehouse/batch',{items:items});
+    if(seq!==window._invLineStockSeq) return;
+    const results=(data&&data.results)||[];
+    if(!window._invLineStock) window._invLineStock={};
+    results.forEach(function(res){
+      const key=invLineStockKey(res.product_id, res.variant_id);
+      const map={};
+      (res.warehouses||[]).forEach(function(w){
+        map[w.warehouse_id]=Number(w.qty)||0;
+        map[String(w.warehouse_id)]=Number(w.qty)||0;
+      });
+      window._invLineStock[key]=map;
+    });
+  }catch(_){ /* keep prior cache */ }
 }
 function renderInvoiceStockWarn(){
   const box=el('invStockWarn'); if(!box) return;
-  const issues=collectInvoiceStockWarnings(invCart);
+  const issues=invoiceStockWarningsNow(invCart);
   if(!issues.length){ box.innerHTML=''; box.hidden=true; return; }
   const firm=el('inv-type')?.value!=='proforma';
   const title=firm
@@ -737,29 +890,39 @@ function renderInvoiceStockWarn(){
     <ul>${issues.map(i=>'<li><b>'+esc(i.name)+'</b> — نیاز '+fmtQty(i.need)+'، موجود '+fmt(i.avail)+'، پس از فاکتور <b>'+fmt(i.after)+'</b></li>').join('')}</ul>
   </div>`;
 }
-function invoiceHeldQty(kind, id){
+function invoiceHeldQty(kind, id, whId){
   const b=window._invStockBaseline;
   if(!b || !window._invBuilderId) return 0;
   const map=kind==='sku'?b.sku:b.prod;
+  if(whId!=null && whId!==''){
+    const k=String(id)+'@'+String(whId);
+    return Number(map && map[k])||0;
+  }
   return Number(map && map[String(id)])||0;
 }
 function captureInvoiceStockBaseline(inv){
   window._invStockBaseline=null;
   if(!inv || !Number(inv.stock_deducted) || inv.type==='proforma') return;
   const prod={}, sku={};
+  const headerWh=inv.warehouse_id||null;
   (inv.rows||[]).forEach(r=>{
     if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
+    const wh=r.warehouse_id||headerWh||'';
     const pid=String(r.product_id||'');
-    if(pid) prod[pid]=(prod[pid]||0)+(Number(r.qty)||0);
+    if(pid){
+      const pk=pid+'@'+String(wh);
+      prod[pk]=(prod[pk]||0)+(Number(r.qty)||0);
+    }
     if(r.variant_id){
       const vid=String(r.variant_id);
-      sku[vid]=(sku[vid]||0)+(Number(r.qty)||0);
+      const sk=vid+'@'+String(wh);
+      sku[sk]=(sku[sk]||0)+(Number(r.qty)||0);
     }
   });
   window._invStockBaseline={prod, sku};
 }
 function invoiceNegativeStockWarn(cart){
-  const issues=collectInvoiceStockWarnings(cart);
+  const issues=invoiceStockWarningsNow(cart);
   if(issues.length){
     try{ showToast('هشدار: پس از ثبت، موجودی برخی کالاها منفی می‌شود — فاکتور ثبت می‌شود','info'); }catch(_){}
   }
@@ -5490,7 +5653,14 @@ async function _openInvBuilder(id){
     whSel.dataset.whBound = '1';
     whSel.addEventListener('change', () => {
       applyHeaderWarehouseToCart(invCart, headerInvoiceWarehouseId());
-      renderCart();
+      const seq=++window._invLineStockSeq;
+      // Header WH change may need fresh per-line maps for remaining cross-WH rows.
+      ensureInvLineStockForCart(invCart).then(()=>{
+        if(seq!==window._invLineStockSeq) return;
+        renderCart();
+        if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
+        renderInvPicker();
+      });
       reloadInvProductsForWarehouse();
     });
   }
@@ -5527,8 +5697,13 @@ function renderInvPicker(){
   const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
   const shown=prods.slice(0,INV_PICK_LIMIT);
   el('invPicker').innerHTML = shown.map(p=>{
-    // Real-time available stock = current stock minus qty already reserved in this invoice's cart
-    const reserved=invCart.filter(r=>Number(r.product_id)===Number(p.id)).reduce((a,r)=>a+r.qty,0);
+    // Reserve only rows whose effective warehouse matches the header (cross-WH lines stay out).
+    const reserved=invCart.filter(r=>{
+      if(Number(r.product_id)!==Number(p.id)) return false;
+      if(r.row_type==='income' || r.batch_id || r.is_fabric_roll) return false;
+      const eff=typeof invEffectiveLineWh==='function'?invEffectiveLineWh(r, whId): (r.warehouse_id||whId);
+      return !whId || Number(eff)===Number(whId);
+    }).reduce((a,r)=>a+r.qty,0);
     // When a warehouse is selected, never fall back to company-wide products.stock.
     const onHand=whId
       ?(p.wh_qty!=null?Number(p.wh_qty):0)
@@ -6353,8 +6528,9 @@ function renderCart(){
   const freightMethod=el('inv-freight-alloc')?.value||'amount';
   const freightSeller=freightTypeIsSeller(el('inv-freight-type')?.value);
   const freightShares=allocateFreightShares(invCart, freight, freightMethod);
-  const stockWarns=typeof collectInvoiceStockWarnings==='function'?collectInvoiceStockWarnings(invCart):[];
-  const negProd=new Set(stockWarns.filter(w=>w.kind==='product').map(w=>Number(w.product_id)));
+  const stockWarns=typeof invoiceStockWarningsNow==='function'?invoiceStockWarningsNow(invCart):(typeof collectInvoiceStockWarnings==='function'?collectInvoiceStockWarnings(invCart, invoiceStockWarnOpts()):[]);
+  const negLineKeys=new Set(stockWarns.map(w=>String(w.kind)+':'+String(w.product_id||'')+':'+String(w.warehouse_id||'')+':'+String(w.variant_id||'')));
+  const negProdWh=new Set(stockWarns.filter(w=>w.kind==='product').map(w=>String(w.product_id)+'@'+String(w.warehouse_id)));
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
@@ -6387,7 +6563,16 @@ function renderCart(){
       const priceChangeBind=CSP.bind('change',function(event){const v=moneyParseInput(this);invApplyGroupField(ixCopy,'price',v);ixCopy.forEach(ix=>{if(canAccounting())invSyncLineDisc(invCart,ix,'pct')});renderCart()});
       const discPctChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'pct'));renderCart()});
       const discAmtChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc_amount',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'amt'));renderCart()});
-      const whChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'warehouse_id',+this.value||null)});
+      const whChangeBind=CSP.bind('change',function(event){
+        invApplyGroupField(ixCopy,'warehouse_id',+this.value||null);
+        const seq=++window._invLineStockSeq;
+        ensureInvLineStockForCart(invCart).then(function(){
+          if(seq!==window._invLineStockSeq) return;
+          renderCart();
+          if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
+          renderInvPicker();
+        });
+      });
       const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
       const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
       const oneLine=isPack?invPackOneLine(indices):(variantAttrsLabel(r.color_name||r.color, r.size_name, ' · '));
@@ -6397,7 +6582,15 @@ function renderCart(){
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
         : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmtQtyFa(live)+' متر'; })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
-      const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && negProd.has(Number(r.product_id));
+      const lineWhEff=typeof invEffectiveLineWh==='function'?invEffectiveLineWh(r, typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null):(r.warehouse_id||null);
+      const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && (
+        negProdWh.has(String(r.product_id)+'@'+String(lineWhEff))
+        || (r.variant_id!=null && negLineKeys.has('sku:'+String(r.product_id)+':'+String(lineWhEff)+':'+String(r.variant_id)))
+      );
+      const lineAvailN=(!isIncome && !r.batch_id && !r.is_fabric_roll && typeof invLineAvailRow==='function')?Number(invLineAvailRow(r))||0:null;
+      const lineWhStockHtml=(!isIncome && lineAvailN!=null)
+        ? ('<div class="inv-line-wh-stock'+(lineAvailN<qtySum?' inv-line-wh-stock--low':'')+'">موجودی این انبار: '+fmtQtyFa(lineAvailN)+'</div>')
+        : '';
       const qtyCell=(isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
         : '<input type="number" class="num-fit" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">')
@@ -6410,7 +6603,7 @@ function renderCart(){
         +'<td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
         +(showLineDisc?'<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
           +'<td class="col-disc-amt"><input type="number" class="num-fit" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
-        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-inv-pack-ix="'+i+'" data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
+        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-inv-pack-ix="'+i+'" data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>'+lineWhStockHtml:'—')+'</td>')
         +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
         +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
       +'</tr>'
@@ -6448,6 +6641,26 @@ function renderCart(){
   if(typeof renderInvReceiptLedger==='function') renderInvReceiptLedger();
   if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
   try{ bindNumFit(el('cartRows')); }catch(_){}
+  // Phase 0: hydrate per-line WH stock once when cache misses (then re-render).
+  if(!window._invLineStockPaint && invCart && invCart.length && typeof ensureInvLineStockForCart==='function'){
+    let miss=false;
+    for(let i=0;i<invCart.length;i++){
+      const r=invCart[i];
+      if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) continue;
+      const key=invLineStockKey(r.product_id, r.variant_id);
+      if(!(window._invLineStock && window._invLineStock[key])){ miss=true; break; }
+    }
+    if(miss){
+      window._invLineStockPaint=true;
+      const seq=++window._invLineStockSeq;
+      ensureInvLineStockForCart(invCart).then(function(){
+        window._invLineStockPaint=false;
+        if(seq!==window._invLineStockSeq) return;
+        renderCart();
+        renderInvPicker();
+      }).catch(function(){ window._invLineStockPaint=false; });
+    }
+  }
 }
 /* ───── v547: محاسبهٔ یکپارچهٔ مبلغ قابل پرداخت (آینهٔ server/lib/invoice-totals.js) ───── */
 function parseMoneyRial(v, opts){
@@ -37604,6 +37817,8 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🏭','موجودی ردیف فاکتور / انبار دیگر (v565)',`
+      <p>در سازندهٔ فاکتور و پیش‌فاکتور، موجودی و هشدار منفی برای هر ردیف بر اساس <b>انبار همان ردیف</b> محاسبه می‌شود (نه فقط انبار سربرگ). با تغییر انبار ردیف، موجودی از API خواندنی واکشی و هشدار/برچسب «موجودی این انبار» بلافاصله تازه می‌شود. رزرو سبد در پیکر کالا فقط ردیف‌های هم‌انبار با سربرگ را کم می‌کند تا عدد منفی ساختگی ساخته نشود. کسر واقعی هنگام ثبت از قبل per-line بود؛ این نسخه فقط نمایش و هشدار را هم‌تراز می‌کند.</p>`),
     helpSec('📏','واحد اندازه‌گیری',`
       <p>کاتالوگ <b>کالا → واحدهای اندازه‌گیری</b> منبع واحد کالا، فاکتور، سیاست عدد صحیح، و تشخیص پارچهٔ طولی است. موجودی در واحد خود کالا می‌ماند و به واحد دیگر بازنویسی نمی‌شود.</p>
       <ul>
@@ -38676,6 +38891,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('🏭','موجودی ردیف فاکتور بر اساس انبار همان ردیف',`
+      <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>`),
     helpSec('⚖️','موجودی کافی نیست',`
       <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
     helpSec('📏','واحد روی فاکتور',`
