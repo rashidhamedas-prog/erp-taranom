@@ -1,36 +1,35 @@
 'use strict';
 
-/** Normalize Persian/Arabic for color search (ي/ك/آ، ZWNJ، ارقام). */
-function faNorm(s) {
-  return String(s || '')
+/* PCS-SHARED:faNorm */
+function faNorm(s){
+  return String(s==null?'':s)
     .normalize('NFKC')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u200C]/g, '')
-    .replace(/ي/g, 'ی')
-    .replace(/ى/g, 'ی')
-    .replace(/ك/g, 'ک')
-    .replace(/[آأإ]/g, 'ا')
-    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-    .replace(/\s+/g, ' ')
+    .replace(/[\u200B\u200D-\u200F\u202A-\u202E\u2060\uFEFF]/g,'')
+    .replace(/[\u064A\u0649]/g,'\u06CC')
+    .replace(/\u0643/g,'\u06A9')
+    .replace(/[\u0622\u0623\u0625]/g,'\u0627')
+    .replace(/\u0629/g,'\u0647')
+    .replace(/[\u064B-\u065F\u0670]/g,'')
+    .replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[\u200C\s\u00A0]+/g,' ')
     .trim()
     .toLowerCase();
 }
+/* /PCS-SHARED */
 
-/** Filter color catalog by name/code using faNorm. */
-function prodColorFilter(list, q) {
-  const nq = faNorm(q);
-  if (!nq) return Array.isArray(list) ? list.slice() : [];
-  return (list || []).filter((c) => {
-    if (!c) return false;
-    return faNorm(c.name).includes(nq) || faNorm(c.code).includes(nq);
-  });
+/* PCS-SHARED:prodColorFilter */
+function prodColorFilter(list,q){
+  const k=x=>faNorm(x).replace(/ /g,'');
+  const nq=k(q);
+  if(!nq) return Array.isArray(list)?list.slice():[];
+  return (list||[]).filter(c=>c && (k(c.name).includes(nq) || k(c.code).includes(nq)));
 }
+/* /PCS-SHARED */
 
 /**
  * Classify style colors for a warehouse view.
- * @param {object[]} styleVars
- * @param {number|string} [_whId] reserved (variants already scoped by API)
- * @param {object} helpers { styleColorIds, matrixColorIds, preserveColorIds } — Set or array factories
+ * App version uses two args + global helpers; lib accepts optional helpers bag.
  */
 function prodSkuClassifyColors(styleVars, _whId, helpers) {
   const h = helpers || {};
@@ -56,12 +55,84 @@ function prodSkuClassifyColors(styleVars, _whId, helpers) {
   return { withStock, withoutStock, otherWh };
 }
 
-/** Split size label: main before paren, subtext inside. */
-function splitSizeLabel(name) {
-  const raw = String(name || '').trim();
-  const m = raw.match(/^(.+?)\s*[（(]\s*(.+?)\s*[）)]\s*$/);
-  if (m) return { main: m[1].trim(), sub: m[2].trim(), full: raw };
-  return { main: raw, sub: '', full: raw };
+/* PCS-SHARED:splitSizeLabel */
+function splitSizeLabel(name){
+  const raw=String(name||'').trim();
+  const m=raw.match(/^(.+?)\s*[（(]\s*(.+?)\s*[）)]\s*$/);
+  if(m) return { main:m[1].trim(), sub:m[2].trim(), full:raw };
+  return { main:raw, sub:'', full:raw };
+}
+/* /PCS-SHARED */
+
+function pcsDraftEnsure(draft, productId) {
+  const pid = Number(productId) || 0;
+  if (!draft || Number(draft.productId) !== pid) {
+    return { productId: pid, byWh: {} };
+  }
+  if (!draft.byWh || typeof draft.byWh !== 'object') draft.byWh = {};
+  return draft;
+}
+
+function pcsDraftGet(draft, whId, colorId, sizeId) {
+  if (!draft || !draft.byWh) return undefined;
+  const bag = draft.byWh[String(Number(whId) || 0)];
+  if (!bag) return undefined;
+  const key = `${Number(colorId)}:${Number(sizeId)}`;
+  return Object.prototype.hasOwnProperty.call(bag, key) ? bag[key] : undefined;
+}
+
+function pcsDraftSet(draft, whId, colorId, sizeId, value, serverQty) {
+  const d = draft && typeof draft === 'object' ? draft : { productId: 0, byWh: {} };
+  if (!d.byWh) d.byWh = {};
+  const wh = String(Number(whId) || 0);
+  if (!d.byWh[wh]) d.byWh[wh] = {};
+  const key = `${Number(colorId)}:${Number(sizeId)}`;
+  const str = value == null ? '' : String(value);
+  const serverStr = serverQty == null ? '' : String(serverQty);
+  const same =
+    str === serverStr ||
+    (Number(str) === Number(serverStr) && str !== '' && serverStr !== '');
+  if (same || (str === '' && (serverQty == null || Number(serverQty) === 0))) {
+    delete d.byWh[wh][key];
+    if (!Object.keys(d.byWh[wh]).length) delete d.byWh[wh];
+  } else {
+    d.byWh[wh][key] = str;
+  }
+  return d;
+}
+
+function pcsDraftClear(draft, whId) {
+  if (!draft || !draft.byWh) return draft || { productId: 0, byWh: {} };
+  if (whId == null) {
+    draft.byWh = {};
+    return draft;
+  }
+  delete draft.byWh[String(Number(whId) || 0)];
+  return draft;
+}
+
+function pcsDraftCount(draft, whId) {
+  if (!draft || !draft.byWh) return 0;
+  if (whId != null) {
+    const bag = draft.byWh[String(Number(whId) || 0)] || {};
+    return Object.keys(bag).length;
+  }
+  return Object.keys(draft.byWh).reduce((n, k) => n + Object.keys(draft.byWh[k] || {}).length, 0);
+}
+
+/** Fill only empty/zero string cells with fillVal; leave others. Returns {next, filled}. */
+function pcsFillEmptyValues(values, fillVal) {
+  const fill = fillVal == null ? '1' : String(fillVal);
+  const next = Array.isArray(values) ? values.slice() : [];
+  let filled = 0;
+  for (let i = 0; i < next.length; i++) {
+    const v = next[i] == null ? '' : String(next[i]).trim();
+    if (v === '' || v === '0') {
+      next[i] = fill;
+      filled += 1;
+    }
+  }
+  return { next, filled };
 }
 
 module.exports = {
@@ -69,4 +140,10 @@ module.exports = {
   prodColorFilter,
   prodSkuClassifyColors,
   splitSizeLabel,
+  pcsDraftEnsure,
+  pcsDraftGet,
+  pcsDraftSet,
+  pcsDraftClear,
+  pcsDraftCount,
+  pcsFillEmptyValues,
 };

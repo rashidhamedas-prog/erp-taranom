@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۰۵ — v560: پیگیری #48 — جست‌وجوی کلاینتی، draft ماتریس، normalizer نیم‌فاصله (SW v560)
+- **منبع:** `prompt-pr48-followup.md`؛ شاخهٔ `fix/color-panel-followup` → PR به `main`.
+- **B1:** فیلتر رنگ فقط سمت کلاینت (`renderPcsListbox` / `renderPcsChips` / `renderPcsSizes`)؛ `_pcsLoadSeq`؛ بدون reload/ازدست‌رفتن فوکوس هنگام تایپ؛ بستن combo بدون API.
+- **B2:** `window._prodMatrixDraft` + `pcsDraft*`؛ merge در `renderProdStockGrid`؛ کلاس `is-dirty`؛ جمع زنده؛ guard در `go`/`closeModal`/`beforeunload`؛ پاک‌شدن draft بعد از ذخیرهٔ موفق.
+- **B2b (follow-up):** `pcsDraftReset` در `prodModal` (کالای موجود/جدید)، قبل از `closeModal` در `saveProduct`، و پس از تأیید دور ریختن در `pcsConfirmLeaveDraft`؛ تست lifecycle روی منطق `app.js` (vm).
+- **B3:** `faNorm`/`prodColorFilter` یکسان با markerهای `PCS-SHARED` در `app.js` و `lib/prod-sku-color-panel.js` (ZWNJ/فاصله → یک فاصله؛ مقایسه بدون فاصله).
+- **N2/N3/N4:** badge «✓ n در انبار» / «در انبار دیگر» / «بدون موجودی»؛ «پر کردن خالی‌ها با ۱» فقط خالی/صفر + confirm؛ `pcsOtherWhTip` صریح «جمع کل محصول».
+- **گزارش:** `report-color-variant-mismatch.js` فقط `--db` (بدون مسیر پیش‌فرض).
+- **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-variant-mismatch,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
+- **تست:** `test:pcs-panel` (lifecycle app.js + ۴۰+)؛ `node --check public/app.js` OK.
+- **Deploy:** ⏳ پس از merge PR #49 + بکاپ `crm.db` (طبق پرامپت؛ هنوز deploy نشده).
+
 ### ۱۴۰۵/۰۸/۰۵ — v559: بازطراحی پنل رنگ×سایز کالا (state + combobox + ماتریس) (SW v559)
 - **منبع:** `prompt-color-size-panel.md`؛ شاخهٔ `fix/product-color-size-panel`.
 - **باگ:** منبع حقیقت انتخاب رنگ = `_prodSkuSticky.colorIds` (دیگر از DOM فیلترشده خوانده نمی‌شود)؛ جستجو/تعویض انبار انتخاب را پاک نمی‌کند؛ خلاصهٔ پک «N تعریف‌شده (M دارای موجودی) × سایز».
