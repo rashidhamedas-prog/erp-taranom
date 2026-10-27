@@ -5,7 +5,7 @@
 - **UI:** بدون دسترسی select انبار ردیف قفل؛ popover 📦 موجودی همه انبارها؛ بج «در انبار دیگر» در پیکر؛ Help ادمین/فروش.
 - **فایل‌ها:** `lib/{rbac,sales-document}.js`, `routes/invoices.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-sales-cross-warehouse.js`, CHANGE-LOG.
 - **تست:** `test:sales-cross-wh`؛ encoding.
-- **Deploy:** ⏳ pending.
+- **Deploy:** ✅ merge 9b2e37e3 (PR #62) — بکاپ /home/taranom/backups/crm.db.20261027-163956 (۹٬۵۶۴٬۱۶۰ بایت)؛ overlay + pm2 restart؛ health/ready=200؛ SW erp-taranom-v567؛ title ERP ترنم؛ test:sales-cross-wh ۱۸/۰؛ line-wh ۶۹/۰؛ encoding OK؛ sms ۲۲/۰؛ گزارش ~/backups/reports/xwh-p1-20261027-163956.txt.
 
 ### ۱۴۰۵/۰۸/۰۵ — v566: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v566)
 - **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master` (SW از v565 پیش‌بینی به v566 به‌خاطر برخورد با invoice-line-wh روی main).
