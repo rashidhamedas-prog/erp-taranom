@@ -2176,9 +2176,15 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'sayad_registered', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'cheque_records', 'sayad_confirmed', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'cheque_records', 'sayad_color', "TEXT DEFAULT ''");
+  // Phase 2A — فیلدهای قانونی / اتصال برگ
+  ensureColumn(db, 'cheque_records', 'leaf_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'sayad_tracking_code', "TEXT DEFAULT ''");
+  ensureColumn(db, 'cheque_records', 'beneficiary_national_id', "TEXT DEFAULT ''");
+  ensureColumn(db, 'cheque_records', 'is_guarantee', 'INTEGER DEFAULT 0');
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_leaf ON cheque_records(leaf_id)');
   } catch (_) { /* */ }
 
   // v562 — cheque register events + bank branches (incremental, idempotent)
@@ -2208,6 +2214,35 @@ function initSyncSchema(db, opts) {
     );
     CREATE INDEX IF NOT EXISTS idx_bank_branches_name ON bank_branches(bank_name);
   `);
+  ensureColumn(db, 'bank_branches', 'city', 'TEXT');
+
+  // Phase 2A — برگ‌های دسته‌چک (افزایشی / idempotent)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cheque_book_leaves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      check_category_id INTEGER NOT NULL,
+      serial TEXT NOT NULL,
+      sayadi TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'blank'
+        CHECK (status IN ('blank','issued','void','lost','cancelled')),
+      cheque_record_id INTEGER,
+      void_reason TEXT DEFAULT '',
+      voided_by INTEGER,
+      voided_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE (check_category_id, serial),
+      FOREIGN KEY (check_category_id) REFERENCES check_categories(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cheque_book_leaves_cat ON cheque_book_leaves(check_category_id);
+    CREATE INDEX IF NOT EXISTS idx_cheque_book_leaves_status ON cheque_book_leaves(status);
+  `);
+  try {
+    // یکتایی صیاد فقط وقتی مقدار غیرخالی است
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_cheque_book_leaves_sayadi
+      ON cheque_book_leaves(sayadi) WHERE sayadi IS NOT NULL AND sayadi <> ''
+    `);
+  } catch (_) { /* */ }
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -2388,6 +2423,9 @@ function initSyncSchema(db, opts) {
   for (const [col, def] of [
     ['holder_name', 'TEXT'], ['leaf_count', 'INTEGER DEFAULT 0'],
     ['current_leaf', 'TEXT'], ['note', 'TEXT'],
+    // Phase 2A — تاریخ صدور دسته (اعتبار ۳ساله) + soft-delete
+    // serial_from / serial_to از قبل در CREATE TABLE هستند
+    ['issue_date', 'TEXT'], ['deleted_at', 'INTEGER'],
   ]) ensureColumn(db, 'check_categories', col, def);
   ensureColumn(db, 'banks', 'extra_accounts', "TEXT DEFAULT '[]'");
   ensureColumn(db, 'purchase_invoices', 'freight_amount', 'INTEGER DEFAULT 0');
@@ -3565,6 +3603,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v31','1')").run();
+    }
+    // v32: cheque_book_leaves (Phase 2A cheque books & leaves)
+    const backfillV32 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v32'").get();
+    if (!backfillV32 || backfillV32.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v32 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v32','1')").run();
     }
   }
 

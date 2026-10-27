@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v565: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v565)
+- **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master`.
+- **دسته/برگ:** جدول `cheque_book_leaves` + UNIQUE(serial در دسته) / صیاد غیرخالی؛ تولید برگ از بازه؛ باطل/مفقود با دلیل؛ `used_leaves` از برگ‌ها؛ DELETE دسته → soft-delete (`deleted_at`).
+- **افتتاحیه:** صیاد ۱۶رقمی اجباری + رد dummy/تکراری؛ لینک طرف‌حساب؛ import اکسل preview/commit (قسمت B)؛ فیلدهای قانونی `sayad_tracking_code` / `beneficiary_national_id` / `is_guarantee` / `leaf_id`.
+- **UI:** انتخابگر بانک/شعبه (+city)، فرم دسته/برگ، هشدار مغایرت افتتاحیه (قسمت C).
+- **فایل‌ها:** `db.js`، `lib/cheque-book-leaves.js`، `routes/{check-categories,cheque-records}.js`، `sync/{tables,capture}.js`، `public/{app.js,app.css,index.html,sw.js}`، `scripts/test-cheque-module-p2.js`، Help، CHANGE-LOG.
+- **تست:** `test:cheque-module-p2`؛ encoding.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v564: فاز ۱ UI چک — تب پرداختی، فیلتر مشترک، layout دفتر (SW v564)
 - **منبع:** `cheque-module-cursor` Phase 1؛ شاخهٔ `feat/cheque-module-p1-ui`.
 - **تب‌ها:** `acc-cheques-pay` مستقل با `direction=out`؛ `acc-cheques-recv` با `direction=in`؛ فیلتر مشترک `chq.filters.v564`.

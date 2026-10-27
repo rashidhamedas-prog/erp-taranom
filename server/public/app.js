@@ -6857,7 +6857,9 @@ function invSnapshotSingleChequeRow(){
   if(!(face>0)){ showToast('مبلغ این فقره چک (ریال) را وارد کنید','error'); return null; }
   const missing=[];
   if(!(el('inv-cheque-bank')?.value||'').trim()) missing.push('بانک');
-  if(!(el('inv-cheque-branch')?.value||'').trim()) missing.push('شعبه');
+  const invBranch=(el('inv-cheque-branch')?.value||'').trim();
+  if(!invBranch) missing.push('شعبه');
+  else if(invBranch==='0'||invBranch==='۰'){ showToast('شعبه «۰» نامعتبر است؛ شعبه واقعی بانک را انتخاب کنید','error'); return null; }
   if(!(el('inv-cheque-account')?.value||'').trim()) missing.push('شماره حساب');
   if(!(el('inv-cheque-number')?.value||'').trim()) missing.push('شماره چک');
   const sayadiEn=toEnDigits(el('inv-cheque-sayadi')?.value||'').replace(/\D/g,'');
@@ -6874,7 +6876,7 @@ function invSnapshotSingleChequeRow(){
     amount:el('inv-cheque-face')?.value||String(face),
     pay_type:'cheque',
     cheque_bank:(el('inv-cheque-bank')?.value||'').trim(),
-    cheque_branch:(el('inv-cheque-branch')?.value||'').trim(),
+    cheque_branch:invBranch,
     cheque_account:(el('inv-cheque-account')?.value||'').trim(),
     cheque_number:(el('inv-cheque-number')?.value||'').trim(),
     sayadi:sayadiEn,
@@ -26431,19 +26433,20 @@ function isOutboundChequePay(pt){
 function payOutboundChequeFieldsHtml(prefix){
   return `<div id="${prefix}-cheque-out-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}">
     <div id="${prefix}-cheque-book-fields" data-csp-style="${CSP.style(`display:none`)}">
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">صدور از دسته‌چک: بدهکار طرف‌حساب/هزینه و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور بستانکار نمی‌شود.</div>
+      <div class="muted chq-out-lead">صدور از دسته‌چک: بدهکار طرف‌حساب/هزینه و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور بستانکار نمی‌شود. شعبه «۰» پذیرفته نیست.</div>
       <div class="form-grid">
         <div class="fg"><label>شماره چک *</label><input id="${prefix}-chq-num" class="mono"></div>
         <div class="fg"><label>صیاد</label><input id="${prefix}-chq-sayadi" class="mono" maxlength="16"></div>
         <div class="fg"><label>سررسید</label><input id="${prefix}-chq-due" data-jdate></div>
-        <div class="fg"><label>شعبه</label><input id="${prefix}-chq-branch"></div>
+        <div class="fg"><label>شعبه</label><input id="${prefix}-chq-branch" list="${prefix}-chq-branch-dl" placeholder="شعبه بانک"><datalist id="${prefix}-chq-branch-dl"></datalist></div>
         <div class="fg"><label>شماره حساب</label><input id="${prefix}-chq-acct" class="mono"></div>
         <div class="fg"><label>شبا</label><input id="${prefix}-chq-sheba" class="mono"></div>
         <div class="fg full"><label>ذینفع روی برگه چک *</label>${partySelect(prefix+'ChqParty')}</div>
+        ${chequeLegalFieldsHtml(prefix+'-chq',{out:true})}
       </div>
     </div>
     <div id="${prefix}-cheque-recv-fields" data-csp-style="${CSP.style(`display:none`)}">
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">خرج/ظهرنویسی چک دریافتی نزد صندوق به نفع همین طرف‌حساب. مبلغ از برگه چک می‌آید.</div>
+      <div class="muted chq-out-lead">خرج/ظهرنویسی چک دریافتی نزد صندوق به نفع همین طرف‌حساب. مبلغ از برگه چک می‌آید.</div>
       <div class="fg full"><label>چک دریافتی موجود *</label>
         <select id="${prefix}-recv-chq"><option value="">— در حال بارگذاری —</option></select>
       </div>
@@ -26492,14 +26495,17 @@ async function saveOutboundChequePayment(prefix, ctx){
   if(!cheque_number){ showToast('شماره چک الزامی است','error'); return false; }
   const bankId=+el(prefix+'-bank')?.value||0;
   if(!bankId){ showToast('بانک دسته‌چک را انتخاب کنید','error'); return false; }
+  const branch=String(el(prefix+'-chq-branch')?.value||'').trim();
+  if(!validateChequeBranchValue(branch)) return false;
   const bank=(CACHE.banks||[]).find(b=>Number(b.id)===bankId);
+  const legal=readChequeLegalFields(prefix+'-chq');
   const created=await api('POST','/cheque-records',{
     direction:'out', amount, party_id, cheque_number,
-    bank_name:bank?.name||'', branch:el(prefix+'-chq-branch')?.value||'',
+    bank_name:bank?.name||'', branch,
     account_number:el(prefix+'-chq-acct')?.value||'', sheba:el(prefix+'-chq-sheba')?.value||'',
     sayadi:el(prefix+'-chq-sayadi')?.value||'', due_date:el(prefix+'-chq-due')?.value||'',
     issue_date:date, note:note||'پرداخت از دسته‌چک',
-    check_category_id:+el(prefix+'-checkcat')?.value||null
+    check_category_id:+el(prefix+'-checkcat')?.value||null, ...legal
   });
   const id=created&&created.id;
   if(!id){ showToast('ثبت چک ناموفق بود','error'); return false; }
@@ -26744,6 +26750,19 @@ function toggleBankFields(prefix){
   }
   if(outBlock) outBlock.style.display=isChequeOut?'block':'none';
   if(bookFields) bookFields.style.display=isChequeBook?'block':'none';
+  if(isChequeBook){
+    ensureBankBranchesCache().then(rows=>{
+      const dl=el(prefix+'-chq-branch-dl');
+      if(!dl) return;
+      const labels=[];
+      (rows||[]).forEach(r=>{
+        const v=String(r.branch_name||r.branch_code||'').trim();
+        if(!v||v==='0') return;
+        labels.push(bankBranchDisplayLabel(r));
+      });
+      dl.innerHTML=[...new Set(labels)].map(n=>`<option value="${esc(n)}"></option>`).join('');
+    }).catch(()=>{});
+  }
   if(recvFields){
     recvFields.style.display=isChequeRecv?'block':'none';
     if(isChequeRecv) loadRecvChequesForPay(prefix);
@@ -29750,16 +29769,31 @@ async function saveCompanyProfile(){
   }catch(e){}
 }
 async function renderOpeningChequesTab(body, direction){
+  // Phase 1+ : opening tabs use renderChequeRegisterTab; keep legacy table as fallback.
   const label=direction==='in'?'دریافتنی':'پرداختنی';
   const rows=await api('GET','/cheque-records?direction='+direction+'&opening=1')||[];
+  let recon=null;
+  try{ recon=await api('GET','/cheque-records/opening-reconciliation?direction='+encodeURIComponent(direction)); }catch(_){}
+  const varRial=Number(recon&&recon.variance_rial||0);
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">چک‌های ${label} مانده اول دوره — ثبت چک‌های نزد صندوق/بانک قبل از شروع دوره مالی جاری. واگذاری، وصول و <b>برگشت</b> از «دفتر چک» است؛ برگشت مبلغ را به بدهی صورت‌حساب طرف حساب برمی‌گرداند.</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){openingChequeModal(`${String((direction) ?? '')}`)})}">➕ ثبت چک اول دوره</button></div>
-    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+    <div class="muted chq-opening-legacy-note">چک‌های ${label} مانده اول دوره — ثبت چک‌های نزد صندوق/بانک قبل از شروع دوره مالی جاری. واگذاری، وصول و <b>برگشت</b> از «دفتر چک» است.</div>
+    ${recon?`<div class="panel chq-opening-recon ${varRial?`chq-opening-recon--warn`:''}">
+      <div class="panel-body">
+        <span>چک‌ها: <b class="mono" dir="ltr">${fmt(recon.cheques_rial||0)}</b></span>
+        <span>GL: <b class="mono" dir="ltr">${fmt(recon.gl_opening_rial||0)}</b></span>
+        <span>اختلاف: <b class="mono" dir="ltr">${fmt(varRial)}</b> ریال</span>
+        ${varRial?`<div class="chq-opening-var-warn">⚠ جمع چک‌های اول دوره با مانده افتتاحیهٔ دفتر مغایرت دارد.</div>`:''}
+      </div>
+    </div>`:''}
+    <div class="toolbar chq-opening-toolbar">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){openingChequeModal(`${String((direction) ?? '')}`)})}">➕ ثبت چک اول دوره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openingChequeImportModal(`${String((direction) ?? '')}`)})}">📥 ورود اکسل</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl chq-opening-legacy-tbl"><thead><tr>
       <th>شماره چک</th><th>مبلغ ${moneyColLabel()}</th><th>بانک</th><th>شعبه</th><th>طرف حساب</th><th>سررسید</th><th>صیادی</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td class="mono">${esc(r.cheque_number||'-')}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.amount)}</td>
+      <td class="mono chq-amt-strong">${fmt(r.amount)}</td>
       <td>${esc(r.bank_name||'-')}</td><td class="muted">${esc(r.branch||'-')}</td>
       <td>${esc(r.party_name||'-')}</td>
       <td class="mono">${escDate(r.due_date||'-')}</td>
@@ -29769,38 +29803,133 @@ async function renderOpeningChequesTab(body, direction){
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 function openingChequeModal(direction){
-  ensurePartiesCache().then(()=>{
+  Promise.all([ensurePartiesCache(), ensureBankBranchesCache()]).then(()=>{
+    api('GET','/cheque-records/opening-reconciliation?direction='+encodeURIComponent(direction)).then(recon=>{
+      const v=Number(recon&&recon.variance_rial||0);
+      const box=el('oc-recon-warn');
+      if(box && v){
+        box.hidden=false;
+        box.textContent=`⚠ اختلاف فعلی افتتاحیه: ${fmt(v)} ریال (چک‌ها ${fmt(recon.cheques_rial||0)} در برابر GL ${fmt(recon.gl_opening_rial||0)}).`;
+      }
+    }).catch(()=>{});
     openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
+      <div class="fg full chq-opening-var-warn" id="oc-recon-warn" hidden></div>
       <div class="fg"><label>شماره چک</label><input id="oc-num" class="mono"></div>
       <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="oc-amt" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>بانک</label><input id="oc-bank"></div>
-      <div class="fg"><label>شعبه</label><input id="oc-branch"></div>
+      ${chequeBankBranchFieldsHtml('oc',{})}
       <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('ocParty')}</div>
       <div class="fg"><label>تاریخ سررسید</label><input id="oc-due" data-jdate></div>
-      <div class="fg"><label>شماره صیادی</label><input id="oc-sayadi" class="mono"></div>
+      <div class="fg"><label>شناسه صیاد ۱۶ رقمی *</label><input id="oc-sayadi" class="mono" dir="ltr" maxlength="16" inputmode="numeric"></div>
       <div class="fg full"><label>شرح</label><input id="oc-note" placeholder="مانده اول دوره"></div>
+      ${chequeLegalFieldsHtml('oc',{out:direction==='out'})}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveOpeningCheque(`${String((direction) ?? '')}`)})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
     attachDatepickers(el('modalRoot'));
     initPartySearches(el('modalRoot'));
+    if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+    mountChequeBankBranchFields('oc');
   });
 }
 async function saveOpeningCheque(direction){
   const amount=moneyVal('oc-amt');
   const party_id=+el('ocParty')?.value||0;
+  const sayadi=toEnDigits(el('oc-sayadi')?.value||'').replace(/\D/g,'');
+  const branch=String(el('oc-branch')?.value||'').trim();
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
   if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
+  if(!/^\d{16}$/.test(sayadi)){ showToast('شناسه صیاد باید دقیقاً ۱۶ رقم باشد','error'); return; }
+  if(!validateChequeBranchValue(branch)) return;
+  const legal=readChequeLegalFields('oc');
   try{
-    await api('POST','/cheque-records',{direction,amount,opening:true,party_id,
-      cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch:el('oc-branch').value,
-      due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
-    closeModal(); showToast('ثبت شد'); loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
+    const res=await api('POST','/cheque-records',{direction,amount,opening:true,party_id,
+      cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch,
+      due_date:el('oc-due').value,sayadi,note:el('oc-note').value,...legal});
+    closeModal();
+    const warn=(res&&(res.opening_variance_warning||res.variance_warning||res.warning))||'';
+    showToast(warn?('ثبت شد — '+warn):'ثبت شد');
+    loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
   }catch(e){}
 }
 async function deleteOpeningCheque(id){
-  if(!confirm('این چک حذف شود؟')) return;
-  try{ await api('DELETE','/cheque-records/'+id); showToast('حذف شد'); loadAccTab(accTab); }catch(e){}
+  if(!confirm('این چک ابطال نرم شود؟ (حذف فیزیکی نیست)')) return;
+  try{ await api('DELETE','/cheque-records/'+id); showToast('ابطال نرم انجام شد'); loadAccTab(accTab); }catch(e){}
+}
+function openingChequeImportModal(direction){
+  window._ocImportFile=null;
+  window._ocImportPreview=null;
+  openModal(`
+    <div class="modal-head"><h3>ورود اکسل چک اول دوره (${direction==='in'?'دریافتنی':'پرداختنی'})</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted chq-import-lead">فایل اکسل را انتخاب کنید؛ ابتدا پیش‌نمایش و اعتبارسنجی می‌شود و تا تأیید نهایی چیزی ثبت نمی‌شود. صیاد ۱۶رقمی و طرف‌حساب برای هر ردیف الزامی است.</p>
+      <div class="fg"><label>فایل اکسل</label>
+        <input type="file" id="oc-import-file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      </div>
+      <div id="oc-import-preview" class="chq-import-preview muted">هنوز پیش‌نمایشی نیست.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openingImportPreview(`${String((direction) ?? '')}`)})}">👁 پیش‌نمایش</button>
+      <button class="btn" id="oc-import-commit" disabled data-csp-click="${CSP.bind('click',function(event){openingImportCommit(`${String((direction) ?? '')}`)})}">✅ تأیید و ثبت</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+  const inp=el('oc-import-file');
+  if(inp) inp.addEventListener('change',()=>{ window._ocImportFile=inp.files&&inp.files[0]||null; window._ocImportPreview=null; const btn=el('oc-import-commit'); if(btn) btn.disabled=true; });
+}
+async function openingImportPreview(direction){
+  const file=window._ocImportFile||(el('oc-import-file')&&el('oc-import-file').files&&el('oc-import-file').files[0]);
+  if(!file){ showToast('فایل اکسل را انتخاب کنید','error'); return; }
+  const fd=new FormData();
+  fd.append('file',file);
+  fd.append('direction',direction);
+  try{
+    const prev=await api('POST','/cheque-records/opening-import/preview',fd,true);
+    window._ocImportPreview=prev;
+    const box=el('oc-import-preview');
+    const rows=prev&&(prev.rows||prev.valid_rows||prev.items)||[];
+    const errs=prev&&(prev.errors||prev.invalid_rows)||[];
+    const okCount=Number(prev&&(prev.valid_count!=null?prev.valid_count:rows.length))||0;
+    const errCount=Array.isArray(errs)?errs.length:Number(prev&&prev.error_count||0);
+    const btn=el('oc-import-commit');
+    if(btn) btn.disabled=!(okCount>0 && errCount===0 && prev && prev.ok!==false);
+    if(box){
+      box.className='chq-import-preview';
+      box.innerHTML=`
+        <div class="chq-import-summary">معتبر: <b>${fmt(okCount)}</b> · خطا: <b>${fmt(errCount)}</b>
+          ${prev&&prev.variance_rial!=null?` · اختلاف پیش‌بینی‌شده: <b class="mono" dir="ltr">${fmt(prev.variance_rial)}</b>`:''}
+        </div>
+        ${errCount?`<div class="chq-opening-var-warn">تا رفع خطاها ثبت نهایی غیرفعال است.</div>
+          <ul class="chq-import-errs">${(Array.isArray(errs)?errs:[]).slice(0,20).map(e=>`<li>${esc(typeof e==='string'?e:(e.message||e.error||JSON.stringify(e)))}</li>`).join('')}</ul>`:''}
+        <div class="tbl-wrap"><table class="tbl"><thead><tr>
+          <th>#</th><th>شماره</th><th>مبلغ</th><th>صیاد</th><th>طرف</th><th>بانک</th>
+        </tr></thead><tbody>${(Array.isArray(rows)?rows:[]).slice(0,50).map((r,i)=>`<tr>
+          <td class="mono">${i+1}</td>
+          <td class="mono">${esc(r.cheque_number||r.number||'-')}</td>
+          <td class="mono">${fmt(r.amount||0)}</td>
+          <td class="mono">${esc(r.sayadi||'-')}</td>
+          <td>${esc(r.party_name||r.party||'-')}</td>
+          <td>${esc(r.bank_name||r.bank||'-')}</td>
+        </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+    }
+  }catch(e){
+    showToast((e&&e.message)||'پیش‌نمایش ناموفق بود','error');
+  }
+}
+async function openingImportCommit(direction){
+  const file=window._ocImportFile||(el('oc-import-file')&&el('oc-import-file').files&&el('oc-import-file').files[0]);
+  if(!file){ showToast('فایل اکسل را انتخاب کنید','error'); return; }
+  if(!window._ocImportPreview){ showToast('ابتدا پیش‌نمایش را اجرا کنید','error'); return; }
+  const fd=new FormData();
+  fd.append('file',file);
+  fd.append('direction',direction);
+  if(window._ocImportPreview&&window._ocImportPreview.token) fd.append('preview_token',window._ocImportPreview.token);
+  try{
+    const res=await api('POST','/cheque-records/opening-import/commit',fd,true);
+    closeModal();
+    const warn=(res&&(res.opening_variance_warning||res.variance_warning||res.warning))||'';
+    showToast(warn?('ورود انجام شد — '+warn):(`ورود انجام شد (${fmt(res&&(res.created||res.count)||0)} ردیف)`));
+    loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
+  }catch(e){}
 }
 /** بارگذاری تمام صفحات فهرست اسناد (+ جستجوی شماره سند سمت سرور). */
 async function fetchAllJournalDocs(extra){
@@ -30647,29 +30776,143 @@ function viewBankLedger(id){
 }
 
 /* ============================================================
+   Phase 2 — بانک/شعبه، فیلدهای قانونی، دسته چک و برگ‌ها
+============================================================ */
+const CHEQUE_LEAF_STATUS_FA={blank:'سفید',issued:'صادرشده',void:'باطل',lost:'مفقود',cancelled:'لغو'};
+
+async function ensureBankBranchesCache(force){
+  if(!force && Array.isArray(CACHE.bankBranches)) return CACHE.bankBranches;
+  try{ CACHE.bankBranches=await api('GET','/cheque-records/bank-branches')||[]; }
+  catch(_){ CACHE.bankBranches=[]; }
+  return CACHE.bankBranches;
+}
+function bankBranchDisplayLabel(b){
+  if(!b) return '';
+  const name=String(b.branch_name||b.branch_code||'').trim();
+  const code=b.branch_code && b.branch_code!==b.branch_name?` (${b.branch_code})`:'';
+  const city=b.city?` — ${b.city}`:'';
+  return `${name}${code}${city}`;
+}
+function bankNamesFromBranches(rows){
+  const set=new Set();
+  (rows||[]).forEach(r=>{ const n=String(r.bank_name||'').trim(); if(n) set.add(n); });
+  return [...set].sort((a,b)=>String(a).localeCompare(String(b),'fa'));
+}
+function validateChequeBranchValue(branch){
+  const v=String(branch==null?'':branch).trim();
+  if(v==='0'||v==='۰'){
+    showToast('شعبه «۰» نامعتبر است؛ شعبه واقعی بانک را انتخاب کنید','error');
+    return false;
+  }
+  return true;
+}
+function chequeBankBranchFieldsHtml(prefix, vals){
+  vals=vals||{};
+  return `
+    <div class="fg chq-bb-bank"><label>بانک</label>
+      <input id="${prefix}-bank" list="${prefix}-bank-dl" value="${esc(vals.bank||'')}" autocomplete="off" placeholder="نام بانک"
+        data-csp-input="${CSP.bind('input',function(){chqRefreshBranchOptions(`${String((prefix) ?? '')}`)})}"
+        data-csp-change="${CSP.bind('change',function(){chqRefreshBranchOptions(`${String((prefix) ?? '')}`)})}">
+      <datalist id="${prefix}-bank-dl"></datalist>
+    </div>
+    <div class="fg chq-bb-branch"><label>شعبه</label>
+      <select id="${prefix}-branch" data-csp-change="${CSP.bind('change',function(){chqOnBranchSelect(`${String((prefix) ?? '')}`)})}">
+        <option value="">— انتخاب شعبه —</option>
+      </select>
+      <div class="muted chq-bb-city" id="${prefix}-branch-city" hidden></div>
+    </div>`;
+}
+async function mountChequeBankBranchFields(prefix, vals){
+  vals=vals||{};
+  const rows=await ensureBankBranchesCache();
+  const dl=el(prefix+'-bank-dl');
+  if(dl) dl.innerHTML=bankNamesFromBranches(rows).map(n=>`<option value="${esc(n)}"></option>`).join('');
+  const bankInp=el(prefix+'-bank');
+  if(bankInp && vals.bank) bankInp.value=vals.bank;
+  chqRefreshBranchOptions(prefix, vals.branch||'');
+}
+function chqRefreshBranchOptions(prefix, preferredBranch){
+  const rows=CACHE.bankBranches||[];
+  const bank=String(el(prefix+'-bank')?.value||'').trim();
+  const sel=el(prefix+'-branch'); if(!sel) return;
+  const prev=preferredBranch!=null?String(preferredBranch):String(sel.value||'');
+  const filtered=rows.filter(r=>!bank || String(r.bank_name||'').trim()===bank);
+  const opts=['<option value="">— انتخاب شعبه —</option>'];
+  filtered.forEach(r=>{
+    const val=String(r.branch_name||r.branch_code||'').trim();
+    if(!val || val==='0') return;
+    const selected=prev && (prev===val || prev===String(r.branch_code||''))?'selected':'';
+    opts.push(`<option value="${esc(val)}" data-city="${esc(r.city||'')}" data-code="${esc(r.branch_code||'')}" ${selected}>${esc(bankBranchDisplayLabel(r))}</option>`);
+  });
+  if(prev && prev!=='0' && !filtered.some(r=>String(r.branch_name||r.branch_code||'')===prev)){
+    opts.push(`<option value="${esc(prev)}" selected>${esc(prev)} (دستی)</option>`);
+  }
+  sel.innerHTML=opts.join('');
+  chqOnBranchSelect(prefix);
+}
+function chqOnBranchSelect(prefix){
+  const sel=el(prefix+'-branch');
+  const cityEl=el(prefix+'-branch-city');
+  if(!sel||!cityEl) return;
+  const opt=sel.selectedOptions&&sel.selectedOptions[0];
+  const city=opt&&opt.dataset?String(opt.dataset.city||'').trim():'';
+  if(city){ cityEl.hidden=false; cityEl.textContent='شهر: '+city; }
+  else { cityEl.hidden=true; cityEl.textContent=''; }
+}
+function chequeLegalFieldsHtml(prefix, opts){
+  opts=opts||{};
+  const row=opts.row||{};
+  const out=!!opts.out;
+  return `<div class="fg full chq-legal-fields">
+    <div class="chq-legal-title muted">فیلدهای قانونی صیاد</div>
+    <div class="form-grid">
+      <div class="fg"><label class="chq-check"><input type="checkbox" id="${prefix}-sayad-reg" ${row.sayad_registered?'checked':''}> ثبت در سامانه صیاد</label></div>
+      <div class="fg"><label>کد رهگیری صیاد</label><input id="${prefix}-sayad-track" class="mono" dir="ltr" value="${esc(row.sayad_tracking_code||'')}"></div>
+      ${out?`<div class="fg"><label>کد ملی ذینفع</label><input id="${prefix}-benef-nid" class="mono" dir="ltr" value="${esc(row.beneficiary_national_id||'')}" placeholder="ضد چک در وجه حامل"></div>`:''}
+      <div class="fg"><label class="chq-check"><input type="checkbox" id="${prefix}-is-guarantee" ${row.is_guarantee?'checked':''}> چک تضمینی</label></div>
+    </div>
+  </div>`;
+}
+function readChequeLegalFields(prefix){
+  return {
+    sayad_registered:!!el(prefix+'-sayad-reg')?.checked,
+    sayad_tracking_code:String(el(prefix+'-sayad-track')?.value||'').trim(),
+    beneficiary_national_id:String(el(prefix+'-benef-nid')?.value||'').trim(),
+    is_guarantee:!!el(prefix+'-is-guarantee')?.checked
+  };
+}
+
+/* ============================================================
    CHECK CATEGORIES (دسته چک) — our own checkbooks, each tied to a bank.
    Used whenever WE issue a cheque (supplier payments, incentive payments,
-   cash-basis purchase invoices).
+   cash-basis purchase invoices). Phase 2: برگ‌ها از cheque_book_leaves.
 ============================================================ */
 async function renderCheckCategoriesTab(body){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   const rows=await api('GET','/check-categories')||[];
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+    <div class="toolbar chq-cc-toolbar">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){checkCategoryModal()})}" ${(CACHE.banks||[]).length?'':'disabled title="ابتدا یک بانک بسازید"'}>➕ دسته چک جدید</button>
-      ${(CACHE.banks||[]).length?'':`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">ابتدا از تب «بانک‌ها» یک بانک بسازید</span>`}
+      ${(CACHE.banks||[]).length?'':`<span class="muted chq-cc-hint">ابتدا از تب «بانک‌ها» یک بانک بسازید</span>`}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام دسته چک</th><th>بانک</th><th>از سریال</th><th>تا سریال</th><th>مصرف‌شده</th><th>باقی</th><th>وضعیت</th><th>عملیات</th>
+      <th>نام دسته چک</th><th>بانک</th><th>از سریال</th><th>تا سریال</th><th>صدور دسته</th><th>مصرف‌شده</th><th>سفید</th><th>باقی</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(c=>`<tr>
       <td>${esc(c.name)}</td><td>${esc(c.bank_name||'-')}</td>
       <td class="mono">${esc(c.serial_from||'-')}</td><td class="mono">${esc(c.serial_to||'-')}</td>
+      <td class="mono">${escDate(c.issue_date||'-')}</td>
       <td class="mono">${fmt(Number(c.used_leaves||0))}</td>
+      <td class="mono">${fmt(Number(c.blank_leaves||0))}</td>
       <td class="mono">${c.remaining_leaves==null?'—':fmt(c.remaining_leaves)}</td>
       <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
-      <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){checkCategoryModal((c.id))})}">✏️</button>
-          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteCheckCategory((c.id))})}">🗑️</button></td>
-    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+      <td class="chq-cc-actions">
+        <button class="btn sm ghost" title="برگ‌ها" data-csp-click="${CSP.bind('click',function(event){checkCategoryLeavesModal((c.id))})}">📄</button>
+        <button class="btn sm ghost" title="تولید برگ از بازه" data-csp-click="${CSP.bind('click',function(event){generateCheckCategoryLeaves((c.id))})}">＋برگ</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){checkCategoryModal((c.id))})}">✏️</button>
+        <button class="btn sm red" title="حذف نرم" data-csp-click="${CSP.bind('click',function(event){deleteCheckCategory((c.id))})}">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(10)}</tbody></table></div>
+    <div class="muted chq-cc-foot">مصرف‌شده از وضعیت برگ‌ها (صادر/باطل/مفقود/لغو) خوانده می‌شود. حذف دسته = حذف نرم (حذف فیزیکی نیست).</div>`;
 }
 async function checkCategoryModal(id){
   const list=id?await api('GET','/check-categories'):[];
@@ -30683,32 +30926,120 @@ async function checkCategoryModal(id){
       <div class="fg full"><label>نام دسته چک * ${hlp('برچسبی برای شناسایی این دفترچه چک، مثال: دسته چک شماره ۱.')}</label><input id="cc-name" value="${esc(c.name||'')}"></div>
       <div class="fg"><label>از سریال</label><input id="cc-from" dir="ltr" class="mono" value="${esc(c.serial_from||'')}"></div>
       <div class="fg"><label>تا سریال</label><input id="cc-to" dir="ltr" class="mono" value="${esc(c.serial_to||'')}"></div>
+      <div class="fg"><label>تاریخ صدور دسته ${hlp('برای اعتبار ۳ساله برگ‌های صیادی.')}</label><input id="cc-issue" data-jdate value="${esc(c.issue_date||'')}"></div>
       <div class="fg"><label>تعداد برگ</label><input id="cc-leaf_count" type="number" min="0" value="${c.leaf_count||''}"></div>
       <div class="fg"><label>برگ جاری</label><input id="cc-current_leaf" dir="ltr" class="mono" value="${esc(c.current_leaf||'')}"></div>
       <div class="fg full"><label>نام صاحب حساب / شرکت</label><input id="cc-holder" value="${esc(c.holder_name||'')}"></div>
       <div class="fg full"><label>توضیحات</label><textarea id="cc-note">${esc(c.note||'')}</textarea></div>
+      ${!id?`<div class="fg full"><label class="chq-check"><input type="checkbox" id="cc-auto-gen" checked> تولید خودکار برگ‌های سفید از بازه سریال پس از ذخیره</label></div>`:''}
       ${id?`<div class="fg"><label>وضعیت</label><select id="cc-active">
         <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveCheckCategory((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof attachDatepickers==='function') attachDatepickers(el('modalRoot'));
 }
 async function saveCheckCategory(id){
   const name=el('cc-name').value.trim();
   if(!name){ showToast('نام دسته چک الزامی است','error'); return; }
   const data={bank_id:+el('cc-bank').value,name,serial_from:el('cc-from').value,serial_to:el('cc-to').value,
     leaf_count:+el('cc-leaf_count').value||0,current_leaf:el('cc-current_leaf').value,
-    holder_name:el('cc-holder').value,note:el('cc-note').value};
+    holder_name:el('cc-holder').value,note:el('cc-note').value,issue_date:el('cc-issue')?.value||''};
   if(id) data.active=+el('cc-active').value;
+  else data.auto_generate_leaves=!!el('cc-auto-gen')?.checked;
   try{
     if(id) await api('PUT','/check-categories/'+id,data); else await api('POST','/check-categories',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('check-categories');
   }catch(e){}
 }
 async function deleteCheckCategory(id){
-  if(!confirm('این دسته چک حذف شود؟')) return;
-  try{ await api('DELETE','/check-categories/'+id); showToast('حذف شد'); loadAccTab('check-categories'); }catch(e){}
+  if(!confirm('این دسته چک به‌صورت نرم حذف شود؟ (حذف فیزیکی نیست — از فهرست پنهان می‌شود)')) return;
+  try{
+    await api('DELETE','/check-categories/'+id);
+    showToast('حذف نرم انجام شد — دسته از فهرست فعال پنهان شد');
+    loadAccTab('check-categories');
+  }catch(e){}
+}
+async function generateCheckCategoryLeaves(id){
+  const list=await api('GET','/check-categories')||[];
+  const c=list.find(x=>x.id===id)||{};
+  openModal(`
+    <div class="modal-head"><h3>تولید برگ از بازه — ${esc(c.name||'')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>از سریال *</label><input id="cc-gen-from" dir="ltr" class="mono" value="${esc(c.serial_from||'')}"></div>
+      <div class="fg"><label>تا سریال *</label><input id="cc-gen-to" dir="ltr" class="mono" value="${esc(c.serial_to||'')}"></div>
+      <div class="fg full muted">برگ‌های سفید برای شماره‌های موجود ساخته نمی‌شوند (یکتا به ازای دسته+سریال). حداکثر ۵۰۰۰ برگ در هر درخواست.</div>
+    </div></div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){doGenerateCheckCategoryLeaves((id))})}">＋ تولید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function doGenerateCheckCategoryLeaves(id){
+  const serial_from=String(el('cc-gen-from')?.value||'').trim();
+  const serial_to=String(el('cc-gen-to')?.value||'').trim();
+  if(!serial_from||!serial_to){ showToast('بازه سریال الزامی است','error'); return; }
+  try{
+    const r=await api('POST','/check-categories/'+id+'/generate-leaves',{serial_from,serial_to});
+    closeModal();
+    showToast(`تولید شد: ${fmt(r.created||0)} برگ جدید`+(r.skipped?` (رد شده: ${fmt(r.skipped)})`:''));
+    loadAccTab('check-categories');
+  }catch(e){}
+}
+async function checkCategoryLeavesModal(id){
+  const list=await api('GET','/check-categories')||[];
+  const c=list.find(x=>x.id===id)||{};
+  let leafRows=[];
+  try{ leafRows=await api('GET','/check-categories/'+id+'/leaves')||[]; }catch(e){ leafRows=[]; }
+  openModal(`
+    <div class="modal-head"><h3>برگ‌های دسته — ${esc(c.name||'')}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="toolbar chq-leaf-toolbar">
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){closeModal();generateCheckCategoryLeaves((id))})}">＋ تولید از بازه</button>
+        <span class="muted">مصرف‌شده API: ${fmt(Number(c.used_leaves||0))} · سفید: ${fmt(Number(c.blank_leaves||0))}</span>
+      </div>
+      <div class="tbl-wrap chq-leaf-tbl"><table class="tbl"><thead><tr>
+        <th>سریال</th><th>صیاد</th><th>وضعیت</th><th>چک</th><th>عملیات</th>
+      </tr></thead><tbody>${(leafRows||[]).map(L=>{
+        const st=CHEQUE_LEAF_STATUS_FA[L.status]||L.status||'-';
+        const canVoid=L.status==='blank';
+        return `<tr>
+          <td class="mono">${esc(L.serial||'-')}</td>
+          <td class="mono">${esc(L.sayadi||'-')}</td>
+          <td><span class="tag chq-leaf-st chq-leaf-st--${esc(L.status||'')}">${esc(st)}</span></td>
+          <td class="mono">${L.cheque_record_id?('#'+L.cheque_record_id):'—'}</td>
+          <td>${canVoid?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidOrLostLeafModal((id),(L.id),'void')})}">باطل</button>
+            <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidOrLostLeafModal((id),(L.id),'lost')})}">مفقود</button>`:'—'}</td>
+        </tr>`;
+      }).join('')||emptyRow(5)}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+}
+function voidOrLostLeafModal(catId, leafId, kind){
+  const title=kind==='lost'?'ثبت مفقودی برگ':'ابطال برگ';
+  openModal(`
+    <div class="modal-head"><h3>${title}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal();checkCategoryLeavesModal((catId))})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>دلیل *</label><textarea id="cc-leaf-reason" rows="3" placeholder="دلیل ابطال یا مفقودی…"></textarea></div>
+    </div></div>
+    <div class="modal-foot">
+      <button class="btn red" data-csp-click="${CSP.bind('click',function(event){doVoidOrLostLeaf((catId),(leafId),`${String((kind) ?? '')}`)})}">تأیید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal();checkCategoryLeavesModal((catId))})}">انصراف</button>
+    </div>`);
+}
+async function doVoidOrLostLeaf(catId, leafId, kind){
+  const reason=String(el('cc-leaf-reason')?.value||'').trim();
+  if(!reason){ showToast('دلیل الزامی است','error'); return; }
+  const path=kind==='lost'
+    ? '/check-categories/'+catId+'/leaves/'+leafId+'/lost'
+    : '/check-categories/'+catId+'/leaves/'+leafId+'/void';
+  try{
+    await api('POST', path, {reason});
+    showToast(kind==='lost'?'برگ مفقود ثبت شد':'برگ باطل شد');
+    closeModal();
+    checkCategoryLeavesModal(catId);
+  }catch(e){}
 }
 
 /* ============================================================
@@ -31547,7 +31878,9 @@ function receivedChequeProblems(c, opts){
   const say=toEnDigits(String(c.sayadi||'')).replace(/\D/g,'');
   const missing=[];
   if(!String(c.bank||'').trim()) missing.push('نام بانک صادرکننده');
-  if(!String(c.branch||'').trim()) missing.push('شعبه');
+  const br=String(c.branch||'').trim();
+  if(!br) missing.push('شعبه');
+  else if(br==='0'||br==='۰') missing.push('شعبه معتبر (نه «۰»)');
   if(!String(c.account||'').trim()) missing.push('شماره حساب');
   if(!String(c.number||'').trim()) missing.push('شماره چک');
   if(!/^\d{16}$/.test(say)) missing.push('شناسه صیاد ۱۶ رقمی');
@@ -31861,12 +32194,13 @@ function paymentOpChooser(){
 async function chequePaymentModal(){
   await ensurePayCaches();
   await ensurePartiesCache().catch(()=>{});
+  await ensureBankBranchesCache().catch(()=>{});
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
   const ccOpts=(CACHE.costCenters||[]).filter(c=>c.active!==0).map(c=>`<option value="${c.id}">${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>📑 پرداخت چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">چک در دفتر چک پرداختنی ثبت و تحویل می‌شود: بدهکار طرف‌حساب (یا هزینه) و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور چک بستانکار نمی‌شود. برای نقد/کارت از «پرداخت به شخص» استفاده کنید.</div></div>
+      <div class="fg full"><div class="muted chq-pay-lead">چک در دفتر چک پرداختنی ثبت و تحویل می‌شود: بدهکار طرف‌حساب (یا هزینه) و بستانکار <b>اسناد پرداختنی</b> — بانک با صرف صدور چک بستانکار نمی‌شود. برای نقد/کارت از «پرداخت به شخص» استفاده کنید.</div></div>
       <div class="fg"><label>تاریخ سند *</label><input id="chqp-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>نوع عملیات *</label><select id="chqp-kind" data-csp-change="${CSP.bind('change',function(){chqpKindToggle()})}">
         <option value="pay">تسویه طرف حساب (تحویل چک)</option>
@@ -31874,7 +32208,7 @@ async function chequePaymentModal(){
       </select></div>
       <div class="fg full" id="chqp-party-wrap"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو کنید — نام آزاد پذیرفته نمی‌شود.')}</label>${partySelect('chqpParty')}</div>
       <div class="fg full" id="chqp-exp-wrap" data-csp-style="${CSP.style(`display:none`)}">
-        <div class="form-grid" data-csp-style="${CSP.style(`margin:0;padding:0;border:0`)}">
+        <div class="form-grid chq-pay-exp-grid">
           <div class="fg full"><label>بخش مالک هزینه</label>
             <select id="chqp-sec">
               <option value="admin">اداری — ۶۱۰۲</option>
@@ -31887,19 +32221,20 @@ async function chequePaymentModal(){
       </div>
       <div class="fg"><label>شماره چک *</label><input id="chqp-num" class="mono"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="chqp-amt" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>بانک صادرکننده</label><input id="chqp-bank"></div>
-      <div class="fg"><label>شعبه</label><input id="chqp-branch"></div>
+      ${chequeBankBranchFieldsHtml('chqp',{})}
       <div class="fg"><label>شماره حساب</label><input id="chqp-acct" class="mono"></div>
       <div class="fg"><label>شبا</label><input id="chqp-sheba" class="mono"></div>
       <div class="fg"><label>صیاد (۱۶ رقم)</label><input id="chqp-sayadi" class="mono" maxlength="16"></div>
       <div class="fg"><label>سررسید</label><input id="chqp-due" data-jdate></div>
       <div class="fg full"><label>شرح</label><input id="chqp-note" placeholder="پرداخت چک"></div>
+      ${chequeLegalFieldsHtml('chqp',{out:true})}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveChequePayment()})}">💾 ثبت و تحویل</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   initPartySearches(el('modalRoot'));
   if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  mountChequeBankBranchFields('chqp');
   chqpKindToggle();
 }
 function chqpKindToggle(){
@@ -31922,13 +32257,16 @@ async function saveChequePayment(){
     if(cost_section==='production_overhead' && !cost_center_id){ showToast('سربار تولید به مرکز هزینه نیاز دارد','error'); return; }
     if(isExpenseCcRequired() && !cost_center_id){ showToast('مرکز هزینه برای ثبت هزینه الزامی است','error'); return; }
   }
+  const branch=String(el('chqp-branch')?.value||'').trim();
+  if(!validateChequeBranchValue(branch)) return;
+  const legal=readChequeLegalFields('chqp');
   try{
     const created=await api('POST','/cheque-records',{
       direction:'out', amount, party_id, cheque_number,
-      bank_name:el('chqp-bank')?.value||'', branch:el('chqp-branch')?.value||'',
+      bank_name:el('chqp-bank')?.value||'', branch,
       account_number:el('chqp-acct')?.value||'', sheba:el('chqp-sheba')?.value||'',
       sayadi:el('chqp-sayadi')?.value||'', due_date:el('chqp-due')?.value||'',
-      issue_date:date, note:el('chqp-note')?.value||'پرداخت چک'
+      issue_date:date, note:el('chqp-note')?.value||'پرداخت چک', ...legal
     });
     const id=created&&created.id;
     if(!id){ showToast('ثبت چک ناموفق بود','error'); return; }
@@ -35245,16 +35583,18 @@ async function renderChequeRegisterTab(body){
   `).join('');
 
   const totalPages=Math.max(1, Math.ceil((payload.total_count||0)/(payload.page_size||100)));
+  const openingVar=Number(openingRecon&&openingRecon.variance_rial||0);
   const openingReconHtml=openingRecon?`
-    <div class="panel chq-opening-recon chq-no-print">
+    <div class="panel chq-opening-recon chq-no-print${openingVar?' chq-opening-recon--warn':''}">
       <div class="panel-head"><h4>⚖️ تطبیق افتتاحیه — حساب ${esc(openingRecon.account_code||'')} (فقط‌خواندنی)</h4></div>
       <div class="panel-body">
         <p class="muted chq-opening-recon-note">جمع چک‌های مانده اول دوره در دفتر چک در برابر گردش افتتاحیهٔ همان حساب در سند opening_cheque.</p>
         <div class="chq-footer-totals">
           <span>چک‌ها: <b class="mono" dir="ltr">${fmt(openingRecon.cheques_count||0)}</b> فقره · <b class="mono" dir="ltr">${fmt(openingRecon.cheques_rial||0)}</b> ریال</span>
           <span>دفتر GL: <b class="mono" dir="ltr">${fmt(openingRecon.gl_opening_rial||0)}</b> ریال</span>
-          <span>اختلاف: <b class="mono" dir="ltr">${fmt(openingRecon.variance_rial||0)}</b> ریال</span>
+          <span>اختلاف: <b class="mono" dir="ltr">${fmt(openingVar)}</b> ریال</span>
         </div>
+        ${openingVar?`<div class="chq-opening-var-warn">⚠ جمع چک‌های اول دوره با مانده افتتاحیهٔ دفتر مغایرت دارد — قبل از بستن دوره بررسی کنید.</div>`:''}
       </div>
     </div>`:'';
 
@@ -35266,7 +35606,8 @@ async function renderChequeRegisterTab(body){
       </div>
       ${prof.openingAddDir?`<div class="toolbar chq-opening-toolbar chq-no-print">
         <button class="btn" data-csp-click="${CSP.bind('click',function(){openingChequeModal(`${String((prof.openingAddDir) ?? '')}`)})}">➕ ثبت چک اول دوره</button>
-        <span class="muted chq-opening-toolbar-note">واگذاری، وصول و برگشت از «دفتر چک» یا تب دریافتی/پرداختی.</span>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){openingChequeImportModal(`${String((prof.openingAddDir) ?? '')}`)})}">📥 ورود اکسل</button>
+        <span class="muted chq-opening-toolbar-note">صیاد ۱۶رقمی و طرف‌حساب الزامی است. واگذاری/وصول از دفتر چک.</span>
       </div>`:''}
       ${openingReconHtml}
       ${prof.showCards?`<div class="chq-cards chq-no-print">${cardHtml}</div>`:''}
@@ -38629,6 +38970,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ستون‌ها در <code>chq.cols.v2</code>، جمع صفحه و جمع کل فیلتر، و Excel با همان فیلترها.</li>
         <li>صفحهٔ چک اول دوره: کارت تطبیق read-only جمع چک‌های افتتاحیه با GL حساب ۱۱۰۹/۲۱۰۹ از اسناد <code>opening_cheque</code>.</li>
       </ul>`),
+    helpSec('📒','دسته چک، شعبه و اول‌دوره (Phase 2 / v565)',`
+      <ul>
+        <li><b>دسته چک:</b> مصرف برگ از وضعیت برگ‌هاست (سفید/صادر/باطل/مفقود). دکمهٔ «＋برگ» بازه را تولید می‌کند؛ باطل/مفقود با دلیل در مودال. حذف دسته = <b>حذف نرم</b> (پنهان از فهرست).</li>
+        <li><b>تاریخ صدور دسته</b> برای اعتبار ۳ساله صیاد روی فرم دسته ذخیره می‌شود.</li>
+        <li><b>بانک/شعبه:</b> در فرم‌های چک از فهرست شعب (<code>/cheque-records/bank-branches</code>)؛ شهر شعبه نمایش داده می‌شود. مقدار شعبه «۰» رد می‌شود.</li>
+        <li><b>چک اول دوره:</b> صیاد ۱۶رقمی و طرف‌حساب از فهرست اشخاص اجباری است. هشدار مغایرت با مانده افتتاحیه نمایش داده می‌شود. ورود اکسل: پیش‌نمایش ← تأیید (بدون نوشتن تا تأیید).</li>
+        <li><b>فیلدهای قانونی:</b> ثبت در صیاد، کد رهگیری، کد ملی ذینفع (پرداختی)، چک تضمینی روی فرم ثبت/پرداخت.</li>
+      </ul>`),
     helpSec('📒','دفتر چک و سررسید (v563)',`
       <p><b>v563:</b> پیش‌فرض سررسید خالی است (نه امروز). هنگام «چک بعدی» مقادیر ردیف قبلی از DOM همگام می‌شوند. تقویم جلالی پس از انتخاب، <code>input</code> و <code>change</code> می‌فرستد. سرور سررسید قبل از دریافت و مغایرت با برنامهٔ پرداخت فاکتور را رد می‌کند. در برگ چک دکمهٔ <b>اصلاح سررسید</b> (بدون تغییر سند) برای وضعیت نزد صندوق موجود است.</p>
       <p>صفحهٔ <b>دفتر چک</b> کارت‌های خلاصه، فیلتر ترکیبی (جهت، چند وضعیت چرخه، بانک، طرف حساب، بازهٔ سررسید/صدور، مبلغ، صیاد، معوق، ایراد داده)، انتخاب ستون، جمع جدا دریافتی/پرداختی، aging، خروجی Excel و چاپ دارد. فیلترها در <code>localStorage</code> می‌مانند.</p>
@@ -38784,8 +39133,15 @@ function renderSalesGuide(){
         <li>در ویرایش فاکتور، دریافت‌های قبلی (نقد/بانک/چک/کارتخوان) مثل زمان ثبت دیده می‌شوند؛ اصلاح کارتخوان دفتر مشتری را هم هم‌تراز می‌کند (نه فقط مانده روی فرم).</li>
         <li>تغییرات ویرایش فاکتور (ابطال/ثبت مجدد دریافت و موجودی) با تاریخ خود فاکتور ثبت می‌شود نه تاریخ روز (v371).</li>
         <li>چک دریافتی: «مبلغ این فقره چک (ریال)» و «➕ ثبت چک بعدی» برای هر برگ جدا است؛ جمع چند فقره روی یک صیاد به یک برگهٔ واحد تبدیل نمی‌شود</li>
+        <li>شعبهٔ چک نباید «۰» باشد؛ صیاد باید ۱۶ رقم معتبر باشد</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور معمولی فروش قطعی بدون مودیان است. فاکتور رسمی فروش قطعی است و در صورت فعال بودن به صف مودیان می‌رود.</div>`),
+    helpSec('📒','چک دریافتی (Phase 2)',`
+      <ul>
+        <li>بانک و شعبه را درست وارد کنید؛ شعبه «۰» پذیرفته نمی‌شود</li>
+        <li>شناسه صیاد ۱۶رقمی برای هر فقره الزامی است</li>
+        <li>چند فقره روی یک فاکتور با «ثبت چک بعدی» جدا ثبت می‌شوند</li>
+      </ul>`),
     helpSec('🏪','فروش سریع فروشگاهی',`
       <p>اگر نقش شما <b>فروشگاهی</b> است، صفحهٔ اصلی همان <b>فروش سریع فروشگاهی (POS v2 / QA v558)</b> است: اسکن/جستجوی زنده، سبد، پرداخت نقد/پوز، ثبت فاکتور قطعی. میانبرها: F2 اسکن، F3 تعویض، F4 مشتری، F8 تعلیق، Shift+F8 بازگردانی معلق، F10 ثبت، Esc بستن. تعویض و برگشت هم از همین صفحه است.</p>
       <ul>

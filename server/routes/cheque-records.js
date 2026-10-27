@@ -25,7 +25,7 @@ const {
   buildDupSayadSet, buildAdminNameSet, daysUntilDue,
 } = require('../lib/cheque-quality');
 const { runChequeRegister, runChequeSummary } = require('../lib/cheque-register-query');
-const { buildChequeReconciliation, buildOpeningChequeReconciliation } = require('../lib/cheque-reconciliation');
+const { buildChequeReconciliation, buildOpeningChequeReconciliation, tableHasColumn } = require('../lib/cheque-reconciliation');
 const {
   returnToDrawer, endorseReturn, outBounce, outVoid, replaceCheque,
   reverseLastEvent, markGuarantee,
@@ -33,6 +33,128 @@ const {
 const { allowedTargets, STATUS_LABEL } = require('../lib/cheque-lifecycle');
 const { ExcelJS } = require('../lib/excel-io');
 const { insertChequeEvent } = require('../lib/cheque-events');
+const {
+  isTruthyOpening, assertBranchNotPlaceholder, previewOpeningImport,
+} = require('../lib/cheque-opening-import');
+const { createSecureUpload } = require('../lib/upload-policy');
+const { readWorkbook, XLSX } = require('../lib/excel-safe');
+
+const openingImportUpload = createSecureUpload('xlsx');
+
+function optionalOpeningXlsx(req, res, next) {
+  const ct = String((req.headers && req.headers['content-type']) || '');
+  if (ct.includes('multipart/form-data')) {
+    return openingImportUpload.single('file')(req, res, next);
+  }
+  return next();
+}
+
+/** Defensive ensure — schema agent / Phase 2A may already have these. */
+function ensureChequeLegalColumns(db) {
+  const cols = [
+    ['sayad_tracking_code', "TEXT DEFAULT ''"],
+    ['beneficiary_national_id', "TEXT DEFAULT ''"],
+    ['is_guarantee', 'INTEGER DEFAULT 0'],
+    ['leaf_id', 'INTEGER'],
+  ];
+  for (const [name, def] of cols) {
+    if (!tableHasColumn(db, 'cheque_records', name)) {
+      try { db.exec(`ALTER TABLE cheque_records ADD COLUMN ${name} ${def}`); } catch (_) { /* */ }
+    }
+  }
+}
+
+function pickLegalFields(body) {
+  const b = body || {};
+  return {
+    sayad_registered: b.sayad_registered ? 1 : 0,
+    sayad_confirmed: b.sayad_confirmed ? 1 : 0,
+    sayad_color: String(b.sayad_color == null ? '' : b.sayad_color).trim(),
+    sayad_tracking_code: String(b.sayad_tracking_code == null ? '' : b.sayad_tracking_code).trim(),
+    beneficiary_national_id: String(b.beneficiary_national_id == null ? '' : b.beneficiary_national_id).trim(),
+    is_guarantee: b.is_guarantee ? 1 : 0,
+  };
+}
+
+function openingVarianceWarning(db, direction) {
+  try {
+    const recon = buildOpeningChequeReconciliation(db, direction);
+    if (!recon || !Number.isFinite(recon.variance_rial) || recon.variance_rial === 0) {
+      return { warning: null, reconciliation: recon };
+    }
+    return {
+      reconciliation: recon,
+      warning: {
+        code: 'W_OPENING_VARIANCE',
+        message: `مغایرت مانده اول دوره با دفتر کل: ${recon.variance_rial.toLocaleString('fa-IR')} ریال`,
+        variance_rial: recon.variance_rial,
+        cheques_rial: recon.cheques_rial,
+        gl_opening_rial: recon.gl_opening_rial,
+        direction: recon.direction,
+        account_code: recon.account_code,
+      },
+    };
+  } catch (_) {
+    return { warning: null, reconciliation: null };
+  }
+}
+
+/**
+ * Soft-link leaf for out cheques. Prefer cheque-book-leaves helper; never hard-fail create.
+ */
+function tryLinkLeafOnCreate(db, { direction, leafId, checkCategoryId, serial, chequeRecordId }) {
+  if (String(direction) !== 'out') return null;
+  try {
+    const hasTable = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cheque_book_leaves'"
+    ).get();
+    if (!hasTable) return null;
+
+    let leaves;
+    try {
+      leaves = require('../lib/cheque-book-leaves');
+    } catch (_) {
+      leaves = null;
+    }
+
+    let resolvedLeafId = leafId != null && leafId !== '' ? parseInt(leafId, 10) : NaN;
+    let catId = checkCategoryId != null && checkCategoryId !== '' ? parseInt(checkCategoryId, 10) : NaN;
+    const serialStr = serial != null ? String(serial).trim() : '';
+
+    if ((!Number.isFinite(resolvedLeafId) || resolvedLeafId <= 0) && Number.isFinite(catId) && catId > 0 && serialStr) {
+      const bySerial = db.prepare(
+        'SELECT id, check_category_id FROM cheque_book_leaves WHERE check_category_id=? AND serial=?'
+      ).get(catId, serialStr);
+      if (bySerial) {
+        resolvedLeafId = bySerial.id;
+        catId = bySerial.check_category_id;
+      }
+    }
+    if (Number.isFinite(resolvedLeafId) && resolvedLeafId > 0 && (!Number.isFinite(catId) || catId <= 0)) {
+      const row = db.prepare('SELECT check_category_id FROM cheque_book_leaves WHERE id=?').get(resolvedLeafId);
+      if (row) catId = row.check_category_id;
+    }
+    if (!Number.isFinite(resolvedLeafId) || resolvedLeafId <= 0 || !Number.isFinite(catId) || catId <= 0) {
+      return null;
+    }
+
+    if (leaves && typeof leaves.issueLeafForCheque === 'function') {
+      leaves.issueLeafForCheque(db, catId, resolvedLeafId, chequeRecordId);
+      return resolvedLeafId;
+    }
+    // Fallback without helper module
+    db.prepare(`
+      UPDATE cheque_book_leaves SET status='issued', cheque_record_id=?
+      WHERE id=? AND check_category_id=? AND status='blank'
+    `).run(chequeRecordId, resolvedLeafId, catId);
+    if (tableHasColumn(db, 'cheque_records', 'leaf_id')) {
+      db.prepare('UPDATE cheque_records SET leaf_id=? WHERE id=?').run(resolvedLeafId, chequeRecordId);
+    }
+    return resolvedLeafId;
+  } catch (_) {
+    return null;
+  }
+}
 
 /** Jalali YYYY/MM/DD for lifecycle JE dates; empty → today (API compat). */
 function resolveChequeEntryDate(raw) {
@@ -141,9 +263,25 @@ function postReceivableClear(db, row, { bankId, entryDate, userId }) {
 
 
 function resolveChequeParty(db, body) {
-  const partyId = parseInt(body && body.party_id, 10);
+  let partyId = parseInt(body && body.party_id, 10);
   if (!Number.isFinite(partyId) || partyId <= 0) {
-    const err = new Error('طرف حساب باید از فهرست اشخاص انتخاب شود');
+    const customerId = parseInt(body && body.customer_id, 10);
+    if (Number.isFinite(customerId) && customerId > 0) {
+      const linked = db.prepare(`
+        SELECT id FROM parties
+        WHERE legacy_table='customers' AND legacy_id=? AND COALESCE(is_active,1)=1
+      `).get(customerId);
+      if (linked) partyId = linked.id;
+      else {
+        try {
+          const cust = db.prepare('SELECT party_id FROM customers WHERE id=?').get(customerId);
+          if (cust && cust.party_id) partyId = Number(cust.party_id);
+        } catch (_) { /* */ }
+      }
+    }
+  }
+  if (!Number.isFinite(partyId) || partyId <= 0) {
+    const err = new Error('طرف حساب باید از فهرست اشخاص انتخاب شود (party_id یا customer_id)');
     err.status = 400;
     err.code = 'E_CHEQUE_PARTY_REQUIRED';
     throw err;
@@ -683,6 +821,112 @@ router.get('/bank-branches', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+async function parseOpeningImportRows(req) {
+  if (req.file && req.file.buffer) {
+    const wb = await readWorkbook(req.file.buffer, { cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    return rawRows;
+  }
+  let rows = req.body && req.body.rows;
+  if (typeof rows === 'string') {
+    try { rows = JSON.parse(rows); } catch (_) { rows = null; }
+  }
+  if (Array.isArray(rows)) return rows;
+  if (Array.isArray(req.body)) return req.body;
+  return null;
+}
+
+/** Preview opening Excel/JSON — no DB write. */
+router.post('/opening-import/preview', auth, adminOrAccounting, optionalOpeningXlsx, async (req, res) => {
+  try {
+    const db = getDB();
+    const rows = await parseOpeningImportRows(req);
+    if (!rows || !rows.length) {
+      return res.status(400).json({ error: 'هیچ ردیفی برای پیش‌نمایش ارسال نشده است', code: 'E_IMPORT_EMPTY' });
+    }
+    if (rows.length > 5000) {
+      return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است', code: 'E_IMPORT_TOO_LARGE' });
+    }
+    const direction = (req.body && req.body.direction) || req.query.direction || 'in';
+    const preview = previewOpeningImport(db, { direction, rows });
+    res.json({
+      ok: preview.ok,
+      direction: preview.direction,
+      row_count: preview.row_count,
+      skipped_blank: preview.skipped_blank,
+      valid_count: preview.valid_count,
+      error_count: preview.error_count,
+      summary: preview.summary,
+      rows: preview.rows,
+      errors: preview.errors,
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_IMPORT_PREVIEW' });
+  }
+});
+
+/**
+ * Commit opening import — all-or-nothing transaction when every row is valid.
+ * Body: { direction, rows } or multipart file (re-validated server-side).
+ */
+router.post('/opening-import/commit', auth, adminOrAccounting, optionalOpeningXlsx, async (req, res) => {
+  try {
+    const db = getDB();
+    ensureChequeLegalColumns(db);
+    const rows = await parseOpeningImportRows(req);
+    if (!rows || !rows.length) {
+      return res.status(400).json({ error: 'هیچ ردیفی برای ثبت ارسال نشده است', code: 'E_IMPORT_EMPTY' });
+    }
+    if (rows.length > 5000) {
+      return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است', code: 'E_IMPORT_TOO_LARGE' });
+    }
+    const direction = (req.body && req.body.direction) || req.query.direction || 'in';
+    const preview = previewOpeningImport(db, { direction, rows });
+    if (!preview.valid_count) {
+      return res.status(400).json({
+        error: 'هیچ ردیف معتبری برای ثبت وجود ندارد',
+        code: 'E_IMPORT_INVALID',
+        errors: preview.errors,
+        summary: preview.summary,
+        rows: preview.rows,
+      });
+    }
+    if (preview.error_count > 0) {
+      return res.status(400).json({
+        error: 'ثبت فقط وقتی همه ردیف‌ها معتبر باشند انجام می‌شود (all-or-nothing)',
+        code: 'E_IMPORT_HAS_ERRORS',
+        errors: preview.errors,
+        summary: preview.summary,
+        rows: preview.rows,
+      });
+    }
+
+    const createdIds = db.transaction(() => {
+      const ids = [];
+      for (const body of preview.valid_bodies) {
+        const id = insertChequeRecord(db, body, req.user);
+        ids.push(id);
+      }
+      return ids;
+    })();
+
+    for (const id of createdIds) {
+      audit(req.user.id, 'create', 'cheque_record', id, 'ورود اکسل چک اول دوره');
+    }
+    const { warning, reconciliation } = openingVarianceWarning(db, preview.direction);
+    res.json({
+      ok: true,
+      created_count: createdIds.length,
+      ids: createdIds,
+      warning,
+      reconciliation,
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code || 'E_IMPORT_COMMIT' });
+  }
+});
+
 /** ADR-CHEQUE-LEAF-001 — leaf detail (read-only). */
 router.get('/:id/history', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
@@ -698,28 +942,54 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   res.json(enrichChequeRow(db, row));
 });
 
-router.post('/', auth, adminOrAccounting, (req, res) => {
+/**
+ * Shared create path for POST / and opening-import/commit.
+ * Throws with .status/.code on validation failure. Caller wraps transaction if needed.
+ */
+function insertChequeRecord(db, body, user) {
+  ensureChequeLegalColumns(db);
   const {
     direction, cheque_number, issue_date, receive_date, due_date,
     bank_name, branch, sayadi, sheba, account_number,
-    status, status_note, amount, note, opening
-  } = req.body;
-  if (!direction || !amount) return res.status(400).json({ error: 'جهت و مبلغ الزامی است' });
+    status, status_note, amount, note, opening,
+  } = body || {};
+  if (!direction || amount == null || amount === '') {
+    const err = new Error('جهت و مبلغ الزامی است');
+    err.status = 400;
+    throw err;
+  }
   const amountNum = Math.round(Number(String(amount).replace(/[,\s]/g, '')));
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
-    return res.status(400).json({ error: 'مبلغ چک باید عدد مثبت معتبر باشد (ریال)' });
+    const err = new Error('مبلغ چک باید عدد مثبت معتبر باشد (ریال)');
+    err.status = 400;
+    err.code = 'E_CHEQUE_AMOUNT';
+    throw err;
   }
-  // New creates: if sayadi provided, must be valid 16-digit (reject dummy/dup). Empty allowed for legacy forms; UI register prompts for it.
+  const isOpening = isTruthyOpening(opening);
+  try {
+    assertBranchNotPlaceholder(branch);
+  } catch (e) {
+    throw e;
+  }
+
   let sayDigits = '';
   const rawSay = String(sayadi == null ? '' : sayadi).trim();
+  if (isOpening && !rawSay) {
+    const err = new Error('شناسه صیاد برای چک اول دوره الزامی است (۱۶ رقم)');
+    err.status = 400;
+    err.code = 'E_SAYAD_REQUIRED';
+    throw err;
+  }
   if (rawSay) {
     const sayV = validateSayadi(rawSay);
     if (!sayV.ok) {
-      return res.status(400).json({ error: sayV.message, code: sayV.code });
+      const err = new Error(sayV.message);
+      err.status = 400;
+      err.code = sayV.code;
+      throw err;
     }
     sayDigits = sayV.digits;
   }
-  const db = getDB();
   if (sayDigits) {
     const dup = db.prepare(`
       SELECT id FROM cheque_records
@@ -729,67 +999,255 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       LIMIT 1
     `).get(direction, sayDigits);
     if (dup) {
-      return res.status(400).json({ error: 'شناسه صیاد تکراری است', code: 'E_SAYAD_DUP', existing_id: dup.id });
+      const err = new Error('شناسه صیاد تکراری است');
+      err.status = 400;
+      err.code = 'E_SAYAD_DUP';
+      err.existing_id = dup.id;
+      throw err;
     }
   }
-  let party;
-  try {
-    party = resolveChequeParty(db, req.body);
-  } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message, code: e.code });
-  }
-  const finalNote = opening ? (note ? note + ' — ' + OPENING_NOTE : OPENING_NOTE) : (note || '');
-  const recordId = db.transaction(() => {
-    const defaultStatus = opening
-      ? 'مانده اول دوره'
-      : (direction === 'in' ? 'نزد صندوق' : 'ثبت‌شده');
-    const result = db.prepare(`
+
+  // Opening: party_id یا customer_id اجباری — resolveChequeParty
+  const party = resolveChequeParty(db, body);
+  const legal = pickLegalFields(body);
+  const finalNote = isOpening ? (note ? note + ' — ' + OPENING_NOTE : OPENING_NOTE) : (note || '');
+  const defaultStatus = isOpening
+    ? 'مانده اول دوره'
+    : (direction === 'in' ? 'نزد صندوق' : 'ثبت‌شده');
+  const checkCategoryId = body.check_category_id || null;
+  const leafIdBody = body.leaf_id != null && body.leaf_id !== '' ? parseInt(body.leaf_id, 10) : null;
+
+  const hasLegalCols = tableHasColumn(db, 'cheque_records', 'sayad_tracking_code');
+  const hasLeafCol = tableHasColumn(db, 'cheque_records', 'leaf_id');
+
+  let insertSql;
+  let insertArgs;
+  if (hasLegalCols) {
+    insertSql = `
+      INSERT INTO cheque_records (
+        direction, cheque_number, issue_date, receive_date, due_date,
+        bank_name, branch, sayadi, sheba, account_number,
+        party_name, party_id, customer_id, status, status_note, amount, note, created_by_name,
+        lifecycle_status, check_category_id, sayad_registered, sayad_confirmed, sayad_color,
+        sayad_tracking_code, beneficiary_national_id, is_guarantee
+        ${hasLeafCol ? ', leaf_id' : ''}
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${hasLeafCol ? ',?' : ''})
+    `;
+    insertArgs = [
+      direction, String(cheque_number || '').trim(), issue_date || '', receive_date || '', due_date || '',
+      bank_name || '', branch || '', sayDigits, String(sheba || '').trim(), String(account_number || '').trim(),
+      party.partyName, party.partyId, party.customerId,
+      status || defaultStatus, status_note || '',
+      amountNum, finalNote, (user && user.name) || '',
+      'registered',
+      checkCategoryId,
+      legal.sayad_registered,
+      legal.sayad_confirmed,
+      legal.sayad_color,
+      legal.sayad_tracking_code,
+      legal.beneficiary_national_id,
+      legal.is_guarantee,
+    ];
+    if (hasLeafCol) insertArgs.push(Number.isFinite(leafIdBody) && leafIdBody > 0 ? leafIdBody : null);
+  } else {
+    insertSql = `
       INSERT INTO cheque_records (
         direction, cheque_number, issue_date, receive_date, due_date,
         bank_name, branch, sayadi, sheba, account_number,
         party_name, party_id, customer_id, status, status_note, amount, note, created_by_name,
         lifecycle_status, check_category_id, sayad_registered, sayad_confirmed, sayad_color
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `    ).run(
+    `;
+    insertArgs = [
       direction, String(cheque_number || '').trim(), issue_date || '', receive_date || '', due_date || '',
       bank_name || '', branch || '', sayDigits, String(sheba || '').trim(), String(account_number || '').trim(),
       party.partyName, party.partyId, party.customerId,
       status || defaultStatus, status_note || '',
-      amountNum, finalNote, req.user.name || '',
+      amountNum, finalNote, (user && user.name) || '',
       'registered',
-      req.body.check_category_id || null,
-      req.body.sayad_registered ? 1 : 0,
-      req.body.sayad_confirmed ? 1 : 0,
-      req.body.sayad_color || ''
-    );
-    if (opening) {
-      const chequeAccount = acct(db, direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
-      const openingAccount = acct(db, 'coa_opening_balance');
-      const valueToman = amountNum / 10;
-      const lines = direction === 'in'
-        ? [
-          { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
-          { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-        ]
-        : [
-          { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
-          { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
-        ];
-      const journalId = postToLedger(db, {
-        sourceType: 'opening_cheque', sourceId: result.lastInsertRowid,
-        date: issue_date || todayJalali(), description: `چک ${direction === 'in' ? 'دریافتنی' : 'پرداختنی'} اول دوره ${cheque_number || ''}`,
-        createdBy: req.user.id, voucherType: 'opening',
-        srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
-        lines,
-      });
-      db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id=?').run(journalId, result.lastInsertRowid);
+      checkCategoryId,
+      legal.sayad_registered,
+      legal.sayad_confirmed,
+      legal.sayad_color,
+    ];
+  }
+
+  const result = db.prepare(insertSql).run(...insertArgs);
+  const newId = result.lastInsertRowid;
+
+  if (isOpening) {
+    const chequeAccount = acct(db, direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
+    const openingAccount = acct(db, 'coa_opening_balance');
+    const valueToman = amountNum / 10;
+    const lines = direction === 'in'
+      ? [
+        { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
+        { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+      ]
+      : [
+        { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
+        { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
+      ];
+    const journalId = postToLedger(db, {
+      sourceType: 'opening_cheque', sourceId: newId,
+      date: issue_date || todayJalali(),
+      description: `چک ${direction === 'in' ? 'دریافتنی' : 'پرداختنی'} اول دوره ${cheque_number || ''}`,
+      createdBy: user && user.id, voucherType: 'opening',
+      srcSystem: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
+      lines,
+    });
+    db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id=?').run(journalId, newId);
+  }
+
+  tryLinkLeafOnCreate(db, {
+    direction,
+    leafId: leafIdBody,
+    checkCategoryId,
+    serial: body.serial != null ? body.serial : cheque_number,
+    chequeRecordId: newId,
+  });
+
+  const saved = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(newId);
+  postChequeInReceipt(db, saved, user && user.id, receive_date || issue_date || todayJalali());
+  return newId;
+}
+
+router.post('/', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const recordId = db.transaction(() => insertChequeRecord(db, req.body || {}, req.user))();
+    audit(req.user.id, 'create', 'cheque_record', recordId, `ثبت چک ${(req.body && req.body.cheque_number) || recordId}`);
+    const row = enrichChequeRow(db, db.prepare('SELECT * FROM cheque_records WHERE id=?').get(recordId));
+    const payload = { ...row };
+    if (isTruthyOpening(req.body && req.body.opening)) {
+      const { warning, reconciliation } = openingVarianceWarning(db, req.body.direction);
+      payload.warning = warning;
+      payload.reconciliation = reconciliation;
     }
-    const saved = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(result.lastInsertRowid);
-    postChequeInReceipt(db, saved, req.user.id, receive_date || issue_date || todayJalali());
-    return result.lastInsertRowid;
-  })();
-  audit(req.user.id, 'create', 'cheque_record', recordId, `ثبت چک ${cheque_number || recordId}`);
-  res.json(db.prepare('SELECT * FROM cheque_records WHERE id=?').get(recordId));
+    res.json(payload);
+  } catch (e) {
+    const extra = {};
+    if (e.existing_id) extra.existing_id = e.existing_id;
+    res.status(e.status || 400).json({ error: e.message, code: e.code, ...extra });
+  }
+});
+
+/** Update legal / descriptive fields (not financial reverse). */
+router.put('/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    ensureChequeLegalColumns(db);
+    const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'یافت نشد' });
+    if (String(row.record_status || 'posted') !== 'posted') {
+      return res.status(409).json({ error: 'فقط چک ثبت‌شده قابل ویرایش است', code: 'E_CHEQUE_LOCKED' });
+    }
+    const body = req.body || {};
+    try {
+      assertBranchNotPlaceholder(body.branch != null ? body.branch : row.branch);
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    }
+
+    let sayDigits = row.sayadi || '';
+    if (body.sayadi !== undefined) {
+      const rawSay = String(body.sayadi == null ? '' : body.sayadi).trim();
+      const openingRow = isOpeningCheque(row) || isTruthyOpening(body.opening);
+      if (openingRow && !rawSay) {
+        return res.status(400).json({
+          error: 'شناسه صیاد برای چک اول دوره الزامی است (۱۶ رقم)',
+          code: 'E_SAYAD_REQUIRED',
+        });
+      }
+      if (rawSay) {
+        const sayV = validateSayadi(rawSay);
+        if (!sayV.ok) return res.status(400).json({ error: sayV.message, code: sayV.code });
+        sayDigits = sayV.digits;
+        if (sayDigits !== String(row.sayadi || '').trim()) {
+          const dup = db.prepare(`
+            SELECT id FROM cheque_records
+            WHERE COALESCE(record_status,'posted')='posted'
+              AND direction=? AND TRIM(sayadi)=? AND id<>?
+            LIMIT 1
+          `).get(row.direction, sayDigits, row.id);
+          if (dup) {
+            return res.status(400).json({ error: 'شناسه صیاد تکراری است', code: 'E_SAYAD_DUP', existing_id: dup.id });
+          }
+        }
+      } else {
+        sayDigits = '';
+      }
+    }
+
+    let partyId = row.party_id;
+    let partyName = row.party_name;
+    let customerId = row.customer_id;
+    if (body.party_id != null || body.customer_id != null) {
+      const party = resolveChequeParty(db, body);
+      partyId = party.partyId;
+      partyName = party.partyName;
+      customerId = party.customerId;
+    }
+
+    const legal = pickLegalFields({
+      sayad_registered: body.sayad_registered !== undefined ? body.sayad_registered : row.sayad_registered,
+      sayad_confirmed: body.sayad_confirmed !== undefined ? body.sayad_confirmed : row.sayad_confirmed,
+      sayad_color: body.sayad_color !== undefined ? body.sayad_color : row.sayad_color,
+      sayad_tracking_code: body.sayad_tracking_code !== undefined ? body.sayad_tracking_code : row.sayad_tracking_code,
+      beneficiary_national_id: body.beneficiary_national_id !== undefined
+        ? body.beneficiary_national_id : row.beneficiary_national_id,
+      is_guarantee: body.is_guarantee !== undefined ? body.is_guarantee : row.is_guarantee,
+    });
+
+    const sets = [
+      'bank_name=?', 'branch=?', 'sayadi=?', 'sheba=?', 'account_number=?',
+      'cheque_number=?', 'issue_date=?', 'receive_date=?', 'due_date=?',
+      'party_name=?', 'party_id=?', 'customer_id=?',
+      'status_note=?', 'note=?',
+      'sayad_registered=?', 'sayad_confirmed=?', 'sayad_color=?',
+    ];
+    const args = [
+      body.bank_name !== undefined ? body.bank_name : row.bank_name,
+      body.branch !== undefined ? body.branch : row.branch,
+      sayDigits,
+      body.sheba !== undefined ? String(body.sheba).trim() : row.sheba,
+      body.account_number !== undefined ? String(body.account_number).trim() : row.account_number,
+      body.cheque_number !== undefined ? String(body.cheque_number).trim() : row.cheque_number,
+      body.issue_date !== undefined ? body.issue_date : row.issue_date,
+      body.receive_date !== undefined ? body.receive_date : row.receive_date,
+      body.due_date !== undefined ? body.due_date : row.due_date,
+      partyName, partyId, customerId,
+      body.status_note !== undefined ? body.status_note : row.status_note,
+      body.note !== undefined ? body.note : row.note,
+      legal.sayad_registered, legal.sayad_confirmed, legal.sayad_color,
+    ];
+    if (tableHasColumn(db, 'cheque_records', 'sayad_tracking_code')) {
+      sets.push('sayad_tracking_code=?', 'beneficiary_national_id=?', 'is_guarantee=?');
+      args.push(legal.sayad_tracking_code, legal.beneficiary_national_id, legal.is_guarantee);
+    }
+    if (body.check_category_id !== undefined) {
+      sets.push('check_category_id=?');
+      args.push(body.check_category_id || null);
+    }
+    args.push(row.id);
+    db.prepare(`UPDATE cheque_records SET ${sets.join(', ')} WHERE id=?`).run(...args);
+
+    if (body.leaf_id != null || (body.check_category_id && (body.serial || body.cheque_number))) {
+      tryLinkLeafOnCreate(db, {
+        direction: row.direction,
+        leafId: body.leaf_id,
+        checkCategoryId: body.check_category_id != null ? body.check_category_id : row.check_category_id,
+        serial: body.serial != null ? body.serial : (body.cheque_number || row.cheque_number),
+        chequeRecordId: row.id,
+      });
+    }
+
+    audit(req.user.id, 'update', 'cheque_record', row.id, `ویرایش چک ${row.cheque_number || row.id}`);
+    const updated = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(row.id);
+    res.json(enrichChequeRow(db, updated));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {

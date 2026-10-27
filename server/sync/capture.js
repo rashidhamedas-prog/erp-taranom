@@ -217,6 +217,10 @@ function tableForPath(path) {
   if (path.startsWith('/api/purchases/returns/') && /\/allocate/.test(path)) {
     return 'return_credit_allocations';
   }
+  // Phase 2A: برگ‌های دسته‌چک — mid-path :id/(generate-leaves|leaves) قبل از check_categories
+  if (path.startsWith('/api/check-categories/') && /\/(?:generate-leaves|leaves)(?:\/|$)/.test(path)) {
+    return 'cheque_book_leaves';
+  }
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

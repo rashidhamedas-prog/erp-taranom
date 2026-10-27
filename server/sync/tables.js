@@ -266,6 +266,8 @@ const SYNCABLE_TABLES = [
   // v562 cheque register — events + bank branches (append-only)
   { name: 'cheque_events',                     upsertKey: 'id' },
   { name: 'bank_branches',                     upsertKey: 'id' },
+  // Phase 2A — برگ‌های دسته‌چک (append-only)
+  { name: 'cheque_book_leaves',                upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -500,6 +502,10 @@ const FK_COLUMNS = [
   ['cheque_events', 'party_id'],
   ['cheque_records', 'replaces_cheque_id'],
   ['cheque_records', 'check_category_id'],
+  // Phase 2A cheque book leaves (append-only)
+  ['cheque_book_leaves', 'check_category_id'],
+  ['cheque_book_leaves', 'cheque_record_id'],
+  ['cheque_records', 'leaf_id'],
   // QA-FIX-HIGHS trust-check party_id (append-only)
   ['trust_checks', 'party_id'],
   // QA-ERP gaps (append-only)
