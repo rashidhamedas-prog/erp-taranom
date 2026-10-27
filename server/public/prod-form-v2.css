@@ -232,6 +232,7 @@
   max-width:100%;
 }
 .prod-form-v2 .pcs-swatch{background:var(--swatch,#ccc)}
+.prod-form-v2 .pcs-swatch--missing{background:#D1D5DB;border:1px solid #9CA3AF}
 .prod-form-v2 .pcs-selected{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
 .prod-form-v2 .pcs-chip{min-height:36px}
 .prod-form-v2 .pcs-size{min-height:44px;white-space:nowrap}

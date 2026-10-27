@@ -9664,14 +9664,29 @@ function prodStyleSizeIds(vars){
 function prodSkuCanMutate(){
   return !window._prodSkuReadOnly;
 }
-function prodColorSwatchHex(c){
+/** Swatch از کاتالوگ رنگ — بدون fallback مبتنی بر hash/hsl. */
+function pcsSwatchForColorId(colorId){
+  const id=Number(colorId)||0;
+  const cat=window._prodColorCatalog||[];
+  const c=cat.find(x=>Number(x.id)===id);
   const hex=safeCssHex(c&&(c.hex||c.color_hex));
-  if(hex) return hex;
-  const name=String(c&&c.name||'');
-  let h=0;
-  for(let i=0;i<name.length;i++) h=((h<<5)-h)+name.charCodeAt(i)|0;
-  const hue=Math.abs(h)%360;
-  return `hsl(${hue} 42% 62%)`;
+  if(hex) return { hex, missing:false };
+  return { hex:'', missing:true };
+}
+function pcsSwatchSpanHtml(colorId){
+  const s=pcsSwatchForColorId(colorId);
+  if(s.missing){
+    return '<span class="pcs-swatch pcs-swatch--missing" title="بدون کد رنگ"></span>';
+  }
+  return `<span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+s.hex)}"></span>`;
+}
+/** Wrapper سازگار: فقط hex معتبر از کاتالوگ/شیء؛ هرگز hsl نمی‌سازد. */
+function prodColorSwatchHex(c){
+  if(c&&c.id!=null){
+    const s=pcsSwatchForColorId(c.id);
+    return s.missing?'':s.hex;
+  }
+  return safeCssHex(c&&(c.hex||c.color_hex))||'';
 }
 function prodColorSimilarityPairs(colors){
   const list=(colors||[]).filter(c=>c&&c.name);
@@ -10082,10 +10097,9 @@ function renderPcsChips(){
   }
   host.innerHTML=selected.map(c=>{
     const id=Number(c.id);
-    const hex=prodColorSwatchHex(c);
     const removeBtn=ro?'':`<button type="button" class="pcs-chip-x" data-color-id="${id}" aria-label="حذف رنگ ${esc(c.name)}">×</button>`;
     return `<span class="pcs-chip is-on" data-color-id="${id}" title="${esc(c.name)}">
-      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+      ${pcsSwatchSpanHtml(id)}
       <bdi class="pcs-chip-name">${esc(c.name)}</bdi>
       ${pcsChipBadgeHtml(id)}
       ${removeBtn}
@@ -10125,10 +10139,9 @@ function renderPcsListbox(){
   const comboActive=Number(st._comboActive)||0;
   const renderOpt=(c)=>{
     const id=Number(c.id);
-    const hex=prodColorSwatchHex(c);
     const sel=comboActive===id;
     return `<li role="option" class="pcs-opt${sel?' is-active':''}" data-color-id="${id}" id="pcs-opt-${id}" aria-selected="${sel?'true':'false'}">
-      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+      ${pcsSwatchSpanHtml(id)}
       <bdi>${esc(c.name)}</bdi>
       ${c.code?`<span class="muted mono" dir="ltr">${esc(c.code)}</span>`:''}
     </li>`;
@@ -10259,10 +10272,9 @@ async function loadProdSkuChips(productId, opts){
 
   const renderOpt=(c, idx)=>{
     const id=Number(c.id);
-    const hex=prodColorSwatchHex(c);
     const sel=comboActive===id || (!comboActive && idx===0);
     return `<li role="option" class="pcs-opt${sel?' is-active':''}" data-color-id="${id}" id="pcs-opt-${id}" aria-selected="${sel?'true':'false'}">
-      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+      ${pcsSwatchSpanHtml(id)}
       <bdi>${esc(c.name)}</bdi>
       ${c.code?`<span class="muted mono" dir="ltr">${esc(c.code)}</span>`:''}
     </li>`;
@@ -10303,7 +10315,7 @@ async function loadProdSkuChips(productId, opts){
     const name=c?c.name:('#'+id);
     const globalQty=(styleVars||[]).filter(v=>Number(v.color_id)===Number(id)).reduce((acc,v)=>acc+prodVariantGlobalQty(v),0);
     return `<div class="prod-other-row">
-      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+prodColorSwatchHex(c||{name}))}"></span>
+      ${pcsSwatchSpanHtml(id)}
       <b>${esc(name)}</b>
       <span class="muted">موجودی سراسری ≈ ${fmt(globalQty)} — در این انبار صفر/غایب</span>
       ${ro?'':`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){includeProdPreserveColor(Number(id))})}">افزودن به این کالا</button>`}
@@ -10504,7 +10516,8 @@ function selectedProdChips(){
   const sizesCat=window._prodSizeCatalog||[];
   const colors=(st.colorIds||[]).map(id=>{
     const c=cat.find(x=>Number(x.id)===Number(id));
-    return { id:Number(id), name:(c&&c.name)||('#'+id) };
+    const hex=safeCssHex(c&&(c.hex||c.color_hex));
+    return { id:Number(id), name:(c&&c.name)||('#'+id), hex:hex||undefined };
   }).filter(c=>c.id);
   const sizeIds=(st.sizeOrder||[]).map(Number).filter(Boolean);
   const sizes=sizeIds.map(id=>{
@@ -10597,11 +10610,10 @@ function renderProdStockGrid(){
         <tbody>${colors.map(c=>{
           const miss=incompleteIds.has(Number(c.id));
           const rowSum=sizes.reduce((acc,s)=>acc+(Number(qtyOf(c.id,s.id))||0),0);
-          const hex=prodColorSwatchHex(c);
           return `<tr class="${miss?'prod-matrix-incomplete':''}">
             <th scope="row" class="pcs-sticky-col">
               <span class="pcs-row-color">
-                <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+                ${pcsSwatchSpanHtml(c.id)}
                 <bdi>${esc(c.name)}</bdi>
               </span>
               ${ro?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
@@ -37817,9 +37829,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اعتبارسنجی نام خالی همچنان مسدودکننده است؛ بقیهٔ قواعد (بارکد EAN، قیمت، پک، …) فقط هشدار نمایشی هستند.</li>
         <li>خلاصهٔ زندهٔ «N رنگ × M سایز = K عدد در پک» و لینک «محاسبهٔ خودکار» برای <code>تعداد در پک</code> اضافه شده؛ ویرایش دستی پک حفظ می‌شود.</li>
       </ul>
-      <h5>پنل رنگ و سایز کالا (SW v560)</h5>
+      <h5>پنل رنگ و سایز کالا (SW v561)</h5>
       <ul>
         <li>انتخاب رنگ‌ها از <b>چیپ‌های انتخاب‌شده</b> + کادر جستجوی combobox است. تایپ فقط listbox را فیلتر می‌کند (بدون درخواست شبکه و بدون از دست رفتن فوکوس). ذخیره همان <code>color_ids</code>/<code>size_ids</code> قبلی را می‌فرستد.</li>
+        <li>دایرهٔ رنگ (swatch) فقط از کد hex ثبت‌شده در «رنگ‌های کالا» خوانده می‌شود — رنگ ساختگی از نام تولید نمی‌شود؛ بدون hex خاکستری خنثی با عنوان «بدون کد رنگ» است.</li>
         <li>برچسب‌ها: «✓ n در ‹انبار›»، «در انبار دیگر: n»، یا «بدون موجودی». خلاصهٔ پک: «N رنگ تعریف‌شده (M دارای موجودی) × سایز».</li>
         <li>عددهای ماتریس تا ذخیره در پیش‌نویس می‌مانند؛ ترک صفحه/مودال با پیش‌نویس هشدار می‌دهد. «پر کردن خالی‌ها با ۱» فقط سلول خالی/صفر را پر می‌کند.</li>
         <li>سایزها دکمهٔ toggle با برچسب اصلی و زیرنویس بازه هستند؛ ترتیب با ▲▼ می‌ماند. ماتریس جدول با ستون چسبان، جمع زنده، و تب «انبارهای دیگر» است.</li>

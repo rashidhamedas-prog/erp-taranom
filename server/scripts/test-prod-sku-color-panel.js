@@ -17,6 +17,7 @@ const lib = require(path.join(__dirname, '..', 'lib', 'prod-sku-color-panel.js')
 const appPath = path.join(__dirname, '..', 'public', 'app.js');
 const libPath = path.join(__dirname, '..', 'lib', 'prod-sku-color-panel.js');
 const reportPath = path.join(__dirname, 'report-color-variant-mismatch.js');
+const reportMissingHexPath = path.join(__dirname, 'report-color-missing-hex.js');
 
 let passed = 0;
 function check(cond, msg) {
@@ -201,6 +202,68 @@ console.log('  ✓ prodColorFilter cases');
   assert.strictEqual(sandbox.pcsDraftGet(34, 10, 2), undefined);
   passed += 7;
   console.log('  ✓ app draft: discard + reopen clean');
+}
+
+/* ---- swatch: catalog hex only (no hsl fallback) ---- */
+{
+  const catalog = [
+    { id: 1, name: 'مشکی', hex: '#000000' },
+    { id: 2, name: 'سرمه‌ای', hex: '#191C6B' },
+    { id: 3, name: 'خراب', hex: 'red;x' },
+    { id: 4, name: 'بد', hex: '#zzz' },
+    { id: 5, name: 'خالی', hex: '' },
+  ];
+  const black = lib.pcsSwatchForColorId(1, catalog);
+  assert.strictEqual(black.hex, '#000000');
+  assert.strictEqual(black.missing, false);
+  const navy = lib.pcsSwatchForColorId(2, catalog);
+  assert.strictEqual(navy.hex, '#191C6B');
+  assert.strictEqual(navy.missing, false);
+  for (const id of [3, 4, 5, 99]) {
+    const s = lib.pcsSwatchForColorId(id, catalog);
+    assert.strictEqual(s.missing, true);
+    assert.strictEqual(s.hex, '');
+    assert.strictEqual(String(s.hex).includes('hsl'), false);
+  }
+  passed += 8;
+  console.log('  ✓ pcsSwatchForColorId catalog / missing');
+
+  const appSrc = fs.readFileSync(appPath, 'utf8');
+  const fnStart = appSrc.indexOf('function pcsSwatchForColorId');
+  const fnEnd = appSrc.indexOf('function prodColorSimilarityPairs', fnStart);
+  assert.ok(fnStart > 0 && fnEnd > fnStart, 'locate pcsSwatch helpers in app.js');
+  const helperSlice = appSrc.slice(fnStart, fnEnd);
+  assert.strictEqual(helperSlice.includes('hsl('), false);
+  assert.strictEqual(/hash|charCodeAt/.test(helperSlice), false);
+  // هیچ --swatch از نام رنگ خارج از helper ساخته نشود (grep روی کل app برای hsl در prodColorSwatch)
+  const oldHash = appSrc.indexOf('hsl(${hue');
+  assert.strictEqual(oldHash, -1);
+  passed += 3;
+  console.log('  ✓ no hsl/hash swatch fallback in app.js');
+
+  const sandbox = {
+    window: { _prodColorCatalog: catalog },
+    CSP: { style: (s) => 'BIND:' + s },
+    safeCssHex: lib.safeCssHex,
+  };
+  vm.runInNewContext(
+    helperSlice + '\nthis.pcsSwatchForColorId=pcsSwatchForColorId;this.pcsSwatchSpanHtml=pcsSwatchSpanHtml;',
+    sandbox
+  );
+  const matrixSpan = sandbox.pcsSwatchSpanHtml(1);
+  assert.strictEqual(matrixSpan.includes('#000000'), true);
+  assert.strictEqual(matrixSpan.includes('pcs-swatch--missing'), false);
+  const missSpan = sandbox.pcsSwatchSpanHtml(5);
+  assert.strictEqual(missSpan.includes('pcs-swatch--missing'), true);
+  assert.strictEqual(missSpan.includes('--swatch'), false);
+  assert.strictEqual(missSpan.includes('hsl'), false);
+  passed += 5;
+  console.log('  ✓ matrix swatch html uses catalog hex');
+
+  const missReport = spawnSync(process.execPath, [reportMissingHexPath], { encoding: 'utf8' });
+  assert.strictEqual(missReport.status, 2);
+  passed += 1;
+  console.log('  ✓ report-color-missing-hex without --db exits 2');
 }
 
 /* ---- XSS esc via chip-like helper (lib has no HTML; use same esc as app pattern) ---- */

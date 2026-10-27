@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v561: اصلاح swatch ماتریس رنگ×سایز از hex کاتالوگ (SW v561)
+- **منبع:** `prompt-swatch-fix.md`؛ شاخهٔ `fix/matrix-swatch-color` → PR (بدون merge خودکار).
+- **باگ:** `selectedProdChips` فقط `{id,name}` می‌داد؛ `prodColorSwatchHex` بدون hex از hash نام `hsl` می‌ساخت → مشکی/سرمه‌ای و … رنگ غلط در ماتریس.
+- **رفع:** `pcsSwatchForColorId` / `pcsSwatchSpanHtml` فقط از `_prodColorCatalog` + `safeCssHex`؛ حذف fallback hash/hsl؛ کلاس `pcs-swatch--missing`؛ نگه داشتن `hex` در `selectedProdChips`.
+- **گزارش فقط‌خواندنی:** `scripts/report-color-missing-hex.js` (`--db` اجباری).
+- **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-missing-hex,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
+- **تست:** `test:pcs-panel` ۷۱/۰؛ `node --check public/app.js` OK.
+- **Deploy:** ⏳ پس از تأیید حامد برای merge + بکاپ.
+
 ### ۱۴۰۵/۰۸/۰۵ — v560: پیگیری #48 — جست‌وجوی کلاینتی، draft ماتریس، normalizer نیم‌فاصله (SW v560)
 - **منبع:** `prompt-pr48-followup.md`؛ شاخهٔ `fix/color-panel-followup` → PR به `main`.
 - **B1:** فیلتر رنگ فقط سمت کلاینت (`renderPcsListbox` / `renderPcsChips` / `renderPcsSizes`)؛ `_pcsLoadSeq`؛ بدون reload/ازدست‌رفتن فوکوس هنگام تایپ؛ بستن combo بدون API.
