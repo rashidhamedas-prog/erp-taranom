@@ -40,6 +40,7 @@
     "test:7a-supplier-leaf": "node scripts/test-7a-supplier-per-leaf.js",
     "test:store-qs-qa": "node scripts/test-store-quick-sale-qa-2026-10.js",
     "test:search-norm-pos": "node scripts/test-search-normalize-pos-v2.js",
+    "test:pcs-panel": "node scripts/test-prod-sku-color-panel.js",
     "test:audit-7b": "node scripts/test-audit-7b-recon.js",
     "test:audit-7c": "node scripts/test-audit-7c-regressions.js",
     "test:audit-8a": "node scripts/test-audit-8a-rbac-guards.js",
