@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v566: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v566)
+- **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master` (SW از v565 پیش‌بینی به v566 به‌خاطر برخورد با invoice-line-wh روی main).
+- **دسته/برگ:** جدول `cheque_book_leaves` + UNIQUE(serial در دسته) / صیاد غیرخالی؛ تولید برگ از بازه؛ باطل/مفقود با دلیل؛ `used_leaves` از برگ‌ها؛ DELETE دسته → soft-delete (`deleted_at`).
+- **افتتاحیه:** صیاد ۱۶رقمی اجباری + رد dummy/تکراری؛ لینک طرف‌حساب؛ import اکسل preview/commit؛ فیلدهای قانونی `sayad_tracking_code` / `beneficiary_national_id` / `is_guarantee` / `leaf_id`.
+- **UI:** انتخابگر بانک/شعبه (+city)، فرم دسته/برگ، هشدار مغایرت افتتاحیه، Help.
+- **فایل‌ها:** `db.js`، `lib/cheque-{book-leaves,opening-import}.js`، `routes/{check-categories,cheque-records}.js`، `sync/{tables,capture}.js`، `public/{app.js,app.css,index.html,sw.js}`، `scripts/test-cheque-module-p2.js`، CHANGE-LOG.
+- **تست:** `test:cheque-module-p2`؛ encoding.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v565: موجودی/هشدار فاکتور بر اساس انبار ردیف (Phase 0 cross-warehouse) (SW v565)
 - **منبع:** `invoice-cross-warehouse-cursor` Phase 0؛ شاخهٔ `fix/invoice-line-wh-stock`.
 - **API خواندنی:** `GET/POST /api/inventory/stock-by-warehouse` (+batch) با `invoices.view`؛ بدون INSERT/seed؛ از `warehouse_stock` / `variant_warehouse_stock`.
@@ -13,7 +22,7 @@
 - **افتتاحیه:** کارت تطبیق فقط‌خواندنی `GET /cheque-records/opening-reconciliation` vs GL opening_cheque.
 - **فایل‌ها:** `public/{app.js,app.css,acc-nav.js,index.html,sw.js}`، `lib/cheque-{register-query,reconciliation}.js`، `routes/cheque-records.js`، `scripts/{test-cheque-module-p1,test-cheque-register-v562}.js`، Help، CHANGE-LOG.
 - **تست:** `test:cheque-module-p1`؛ `test:cheque-register`؛ encoding.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge ``ae101685`` (PR #57) — بکاپ ``/home/taranom/backups/crm.db.20261027-160602`` (۹٬۵۳۱٬۳۹۲ بایت)؛ overlay + ``pm2 restart`` بدون ``--update-env``؛ health/ready=200؛ SW ``erp-taranom-v564``؛ title ERP ترنم؛ test:cheque-module-p1 ۱۵/۰؛ register ۴۴/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v563: hotfix encoding + سررسید چک چندمرحله‌ای (SW v563)
 - **منبع:** `cheque-module-cursor` Phase 0؛ شاخهٔ `hotfix/utf8-and-cheque-due`.
