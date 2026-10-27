@@ -6,7 +6,7 @@
 - **گزارش فقط‌خواندنی:** `scripts/report-color-variant-mismatch.js`؛ تست `test:pcs-panel`.
 - **فایل‌ها:** `public/{app.js,app.css,prod-form-v2.css,index.html,sw.js}`، `lib/prod-sku-color-panel.js`، `scripts/{report-color-variant-mismatch,test-prod-sku-color-panel}.js`، Help، CHANGE-LOG.
 - **تست:** `test:pcs-panel` ۱۶/۰؛ sms ۲۲/۰؛ parse `app.js` OK.
-- **Deploy:** ⏳
+- **Deploy:** ✅ `9637813d` (merge PR #48) — overlay ایران (درخت کثیف؛ بدون pull HTTPS) + `pm2 restart` بدون `--update-env`؛ health/ready=200، sharp 0.33.5؛ SW `erp-taranom-v559` / `app.js?v=559` + `app.css?v=559` + `prod-form-v2.css?v=559`؛ test:pcs-panel ۱۶/۰؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v558: POS v2 QA regressions (B1–B18) (SW v558)
 - **منبع:** `prompt-pos-v2-fix.md` + ultra-debug؛ شاخهٔ `fix/pos-v2-qa-regressions`؛ تأیید کاربر برای merge+deploy.
