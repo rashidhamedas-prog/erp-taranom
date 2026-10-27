@@ -48,7 +48,7 @@ console.log('test-cheque-module-p2');
 /* ---- SW pin ---- */
 {
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(swAtLeast(swSrc, 565), 'SW cache ≥ erp-taranom-v565');
+  ok(swAtLeast(swSrc, 566), 'SW cache ≥ erp-taranom-v566');
 }
 
 /* ---- validateSayadi: dummy / repeated / empty ---- */
