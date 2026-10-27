@@ -2025,6 +2025,25 @@ body.erp-demo-mode{padding-top:32px}
 .inv-line-neg{font-size:11px;color:var(--red);font-weight:700;margin-top:4px;line-height:1.5}
 .inv-line-wh-stock{font-size:11px;margin-top:4px;line-height:1.45;color:var(--muted, #64748b)}
 .inv-line-wh-stock--low{color:var(--red);font-weight:700}
+/* v567: popover 📦 فروش از انبار دیگر */
+.inv-xwh-pop-wrap{position:relative}
+.inv-xwh-row{display:flex;align-items:center;gap:4px}
+.inv-xwh-row select{flex:1;min-width:0}
+.inv-xwh-row select:disabled{opacity:.7;cursor:not-allowed}
+.inv-xwh-pop-btn{flex:none;border:1.5px solid var(--border);background:var(--card);border-radius:8px;width:30px;height:30px;line-height:1;font-size:14px;cursor:pointer;padding:0}
+.inv-xwh-pop-btn:hover,.inv-xwh-pop-btn.is-open{border-color:var(--purple2);background:var(--purple-light)}
+.inv-xwh-pop{position:absolute;inset-inline-start:0;top:100%;margin-top:4px;z-index:40;min-width:210px;max-width:280px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px;font-size:12px}
+.inv-xwh-pop-head{font-weight:700;color:var(--purple);padding:4px 6px 6px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.inv-xwh-pop-item{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:none;background:transparent;text-align:right;padding:6px 8px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:12px;color:inherit}
+.inv-xwh-pop-item:hover{background:var(--row-hover)}
+.inv-xwh-pop-item.is-cur{background:var(--purple-light);font-weight:700}
+.inv-xwh-pop-item.is-locked{cursor:not-allowed;opacity:.75}
+.inv-xwh-pop-name small{color:var(--muted, #64748b);font-weight:400}
+.inv-xwh-pop-qty{font-variant-numeric:tabular-nums;font-weight:700;color:var(--green)}
+.inv-xwh-pop-qty--low{color:var(--red)}
+.inv-xwh-pop-note{margin-top:4px;padding:5px 6px;border-top:1px dashed var(--border);color:var(--orange);font-size:11px;line-height:1.5}
+.inv-xwh-pop-empty{padding:6px}
+.inv-xwh-badge{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--warnbox-bg);color:var(--orange);border:1px solid var(--orange)}
 .ifr-live-box{
   margin-top:10px;
   padding:10px 12px;

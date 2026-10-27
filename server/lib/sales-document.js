@@ -181,6 +181,67 @@ function requireFirmHeaderWarehouse(headerWarehouseId) {
   return whId;
 }
 
+/**
+ * Phase 1 — without sales_cross_warehouse:create (and non-admin), every stocked
+ * line warehouse must match the invoice header warehouse.
+ */
+function assertLineWarehousesAllowed(db, user, rows, headerWhId) {
+  if (!user) {
+    const err = new Error('برای فروش از انبار دیگر دسترسی لازم است');
+    err.status = 403;
+    err.code = 'E_CROSS_WH_FORBIDDEN';
+    throw err;
+  }
+  if (user.role === 'admin') return;
+  const { hasPermission } = require('./rbac');
+  if (hasPermission(db, user, 'sales_cross_warehouse', 'create')) return;
+  const header = parseInt(headerWhId, 10);
+  const headerOk = Number.isFinite(header) && header > 0 ? header : null;
+  for (const r of rows || []) {
+    if (!r || r.row_type === 'income' || r.item_kind === 'service') continue;
+    if (isFabricRollLine(r)) continue;
+    if (!r.product_id) continue;
+    const lineWh = r.warehouse_id != null && r.warehouse_id !== ''
+      ? parseInt(r.warehouse_id, 10)
+      : null;
+    const eff = (Number.isFinite(lineWh) && lineWh > 0) ? lineWh : headerOk;
+    if (!eff || !headerOk) continue;
+    if (eff !== headerOk) {
+      const err = new Error('فروش از انبار دیگر برای این کاربر مجاز نیست');
+      err.status = 403;
+      err.code = 'E_CROSS_WH_FORBIDDEN';
+      err.warehouse_id = eff;
+      err.header_warehouse_id = headerOk;
+      throw err;
+    }
+  }
+}
+
+function listCrossWarehouseLines(rows, headerWhId) {
+  const header = parseInt(headerWhId, 10);
+  const headerOk = Number.isFinite(header) && header > 0 ? header : null;
+  const out = [];
+  (rows || []).forEach((r, idx) => {
+    if (!r || r.row_type === 'income' || r.item_kind === 'service') return;
+    if (isFabricRollLine(r)) return;
+    if (!r.product_id) return;
+    const lineWh = r.warehouse_id != null && r.warehouse_id !== ''
+      ? parseInt(r.warehouse_id, 10)
+      : null;
+    if (!Number.isFinite(lineWh) || lineWh <= 0) return;
+    if (!headerOk || lineWh === headerOk) return;
+    out.push({
+      line: idx,
+      product_id: r.product_id,
+      variant_id: r.variant_id || null,
+      from_wh: lineWh,
+      header_wh: headerOk,
+      qty: Number(r.qty) || 0,
+    });
+  });
+  return out;
+}
+
 function assertWarehouseLines(db, rows, headerWarehouseId, {
   requirePositive = true, allowNegativeProduct = false, heldByBatch = null,
 } = {}) {
@@ -703,6 +764,8 @@ module.exports = {
   applyFreightToDocTotals,
   applyHeaderWarehouseToLines,
   requireFirmHeaderWarehouse,
+  assertLineWarehousesAllowed,
+  listCrossWarehouseLines,
   assertWarehouseLines,
   postSaleStockMovements,
   postPurchaseStockMovements,

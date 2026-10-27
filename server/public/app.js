@@ -2896,6 +2896,12 @@ function showAccountingTab(){
   return !!(USER_PERMS.accounting && USER_PERMS.accounting.view);
 }
 function canAccounting(){ return ME && (ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'); }
+/* v567: فروش از انبار دیگر — admin همیشه؛ بقیه فقط با sales_cross_warehouse.create (ماتریس USER_PERMS) */
+function canSalesCrossWarehouse(){
+  if(!ME) return false;
+  if(ME.role==='admin') return true;
+  return !!(USER_PERMS && USER_PERMS.sales_cross_warehouse && USER_PERMS.sales_cross_warehouse.create);
+}
 function canRepAdmin(){
   return canAccounting() || canPerm('reps','view') || canPerm('acc_reps','view');
 }
@@ -5682,6 +5688,52 @@ async function _openInvBuilder(id){
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
+/* v567: جمع موجودی انبارهای فعال به‌جز انبار سربرگ (cache محصول-سطح یا هر variant) */
+function invOtherWhQtyForProduct(pid, headerWh){
+  const cache=window._invLineStock||{};
+  const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0 && Number(w.id)!==Number(headerWh));
+  if(!whs.length) return 0;
+  const prefix=String(Number(pid))+':';
+  const keys=Object.keys(cache).filter(k=>k.indexOf(prefix)===0);
+  if(!keys.length) return 0;
+  // اگر کلید محصول-سطح (pid:0) هست فقط همان؛ وگرنه جمع variantهای موجود در cache
+  const useKeys=cache[prefix+'0']?[prefix+'0']:keys;
+  let sum=0;
+  useKeys.forEach(function(k){
+    const m=cache[k]||{};
+    whs.forEach(function(w){ const v=m[w.id]!=null?m[w.id]:m[String(w.id)]; if(v!=null && Number(v)>0) sum+=Number(v); });
+  });
+  return sum;
+}
+/* v567: fetch اختیاری و یک‌بارهٔ موجودی انبارهای دیگر برای کالاهای صفرِ سربرگ در پیکر (حداکثر ۴۰ قلم) */
+window._invOtherWhTried = window._invOtherWhTried || {};
+function hydrateInvOtherWhStock(shown, whId){
+  if(!(CACHE.warehouses||[]).length) return;
+  const items=[];
+  (shown||[]).forEach(function(p){
+    if(items.length>=40) return;
+    const onHand=p.wh_qty!=null?Number(p.wh_qty):0;
+    if(onHand>0) return;
+    const key=invLineStockKey(p.id,null);
+    if(window._invLineStock && window._invLineStock[key]) return;
+    const tk=key+'@'+whId;
+    if(window._invOtherWhTried[tk]) return;
+    window._invOtherWhTried[tk]=1;
+    items.push({product_id:Number(p.id), variant_id:null});
+  });
+  if(!items.length) return;
+  api('POST','/inventory/stock-by-warehouse/batch',{items:items}).then(function(data){
+    if(!window._invLineStock) window._invLineStock={};
+    let any=false;
+    ((data&&data.results)||[]).forEach(function(res){
+      const map={};
+      (res.warehouses||[]).forEach(function(w){ map[w.warehouse_id]=Number(w.qty)||0; map[String(w.warehouse_id)]=Number(w.qty)||0; });
+      window._invLineStock[invLineStockKey(res.product_id,res.variant_id)]=map;
+      any=true;
+    });
+    if(any && el('invPicker') && +(el('inv-warehouse')?.value||0)===Number(whId)) renderInvPicker();
+  }).catch(function(){ /* بج اختیاری است */ });
+}
 function renderInvPicker(){
   const whId = +(el('inv-warehouse')?.value || 0);
   const q=(el('invProdSearch')?.value||'').trim();
@@ -5709,6 +5761,11 @@ function renderInvPicker(){
       ?(p.wh_qty!=null?Number(p.wh_qty):0)
       :(p.wh_qty!=null?Number(p.wh_qty):(Number(p.stock)||0));
     const avail=onHand-reserved;
+    // v567: سربرگ صفر ولی انبار دیگر دارد → بج «در انبار دیگر: n» (جمع انبارهای فعال دیگر از cache)
+    const otherWhQty=(whId && onHand<=0)?invOtherWhQtyForProduct(p.id, whId):0;
+    const otherWhBadge=otherWhQty>0
+      ? `<div class="inv-xwh-badge" title="موجودی این کالا در انبارهای دیگر">در انبار دیگر: ${fmtQtyFa(otherWhQty)}</div>`
+      : '';
     const needsColor=productNeedsColorPick(p);
     const colorBtn=needsColor
       ? `<button type="button" class="btn sm pick-color-btn" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();addToCart(p.id)})}">➕ افزودن پک</button>`
@@ -5720,11 +5777,13 @@ function renderInvPicker(){
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی${whId?' انبار':''}: ${fmtQtyFa(avail)}</div>
+      ${otherWhBadge}
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.has_matrix) return ''; const n=Number(s.full_packs_count)||0; const m=Number(s.leftover_singles_qty)||0; return '<div class="pick-pack-meta muted" data-csp-style="'+CSP.style('font-size:10px;margin-top:2px')+'">پک کامل: '+fmt(n)+' / تکی موجود: '+fmt(m)+'</div>'; })()}
       ${colorBtn}
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
   const shownIds=shown.map(p=>p.id);
+  if(whId) hydrateInvOtherWhStock(shown, whId);
   hydrateInvVarSum(shownIds, whId).then(changed=>{ if(changed && el('invPicker')) renderInvPicker(); });
 }
 async function reloadInvProductsForWarehouse(){
@@ -6514,12 +6573,100 @@ function removeInvCartGroup(indices){
 function invApplyGroupField(indices, field, value){
   indices.forEach(i=>{ if(invCart[i]) invCart[i][field]=value; });
 }
+/* v567: popover 📦 موجودی همهٔ انبارها برای هر ردیف سبد (Phase 1 cross-warehouse) */
+window._invXwhOpen = window._invXwhOpen==null ? null : window._invXwhOpen;
+const INV_XWH_NO_PERM_MSG='برای فروش از انبار دیگر دسترسی لازم است';
+function invXwhRowKeys(indices){
+  const seen={}; const keys=[];
+  (indices||[]).forEach(function(ix){
+    const r=invCart[ix]; if(!r) return;
+    const k=invLineStockKey(r.product_id, r.variant_id);
+    if(!seen[k]){ seen[k]=1; keys.push(k); }
+  });
+  return keys;
+}
+function invXwhQtyAt(indices, whId){
+  const keys=invXwhRowKeys(indices);
+  const cache=window._invLineStock||{};
+  let sum=0, known=false;
+  keys.forEach(function(k){
+    const m=cache[k]; if(!m) return;
+    const v=m[whId]!=null?m[whId]:m[String(whId)];
+    if(v!=null){ known=true; sum+=Number(v)||0; }
+  });
+  return known?sum:null;
+}
+function invXwhRefresh(){
+  const seq=++window._invLineStockSeq;
+  return ensureInvLineStockForCart(invCart).then(function(){
+    if(seq!==window._invLineStockSeq) return;
+    renderCart();
+    if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
+    renderInvPicker();
+  });
+}
+function invXwhToggle(ix){
+  window._invXwhOpen = (window._invXwhOpen===ix) ? null : ix;
+  renderCart();
+  if(window._invXwhOpen!=null){
+    const seq=++window._invLineStockSeq;
+    ensureInvLineStockForCart(invCart).then(function(){
+      if(seq!==window._invLineStockSeq) return;
+      if(window._invXwhOpen!=null) renderCart();
+    });
+  }
+}
+function invXwhPick(indices, whId){
+  if(!canSalesCrossWarehouse()){ showToast(INV_XWH_NO_PERM_MSG,'error'); return; }
+  window._invXwhOpen=null;
+  invApplyGroupField(indices,'warehouse_id',+whId||null);
+  renderCart();
+  invXwhRefresh();
+}
+function invXwhPopHtml(indices, curWh, needQty){
+  const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
+  const headerWh=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+  const loaded=invXwhRowKeys(indices).every(k=>window._invLineStock && window._invLineStock[k]);
+  const ixCopy=indices.slice();
+  const canPick=canSalesCrossWarehouse();
+  const items=whs.map(function(w){
+    const q=invXwhQtyAt(ixCopy, w.id);
+    const isCur=Number(curWh)===Number(w.id);
+    const isHdr=Number(headerWh)===Number(w.id);
+    const low=q!=null && q<needQty;
+    const bind=CSP.bind('click',function(event){ event.stopPropagation(); invXwhPick(ixCopy, w.id); });
+    return '<button type="button" class="inv-xwh-pop-item'+(isCur?' is-cur':'')+(canPick?'':' is-locked')+'" data-csp-click="'+bind+'">'
+      +'<span class="inv-xwh-pop-name">'+esc(w.name)+(isHdr?' <small>(سربرگ)</small>':'')+'</span>'
+      +'<span class="inv-xwh-pop-qty'+(low?' inv-xwh-pop-qty--low':'')+'">'+(q==null?'…':fmtQtyFa(q))+'</span>'
+      +'</button>';
+  }).join('');
+  return '<div class="inv-xwh-pop" role="dialog" aria-label="موجودی در انبارها">'
+    +'<div class="inv-xwh-pop-head">موجودی در همهٔ انبارها'+(loaded?'':' <span class="muted">(در حال بارگذاری…)</span>')+'</div>'
+    +(items||'<div class="muted inv-xwh-pop-empty">انباری یافت نشد</div>')
+    +(canPick?'':'<div class="inv-xwh-pop-note">'+esc(INV_XWH_NO_PERM_MSG)+'</div>')
+    +'</div>';
+}
+if(!window._invXwhDocBound){
+  window._invXwhDocBound=true;
+  document.addEventListener('click',function(e){
+    if(window._invXwhOpen==null) return;
+    if(e.target && e.target.closest && e.target.closest('.inv-xwh-pop-wrap')) return;
+    window._invXwhOpen=null;
+    try{ if(typeof renderCart==='function' && el('cartRows')) renderCart(); }catch(_){}
+  });
+}
 function renderCart(){
   const showLineDisc=canAccounting();
   const hideWhCol=typeof isRepRole==='function' && isRepRole(ME?.role);
   const defWh=ME?.sales_warehouse_id||null;
   if(hideWhCol && defWh){
     invCart.forEach(r=>{ if(r.row_type!=='income' && !r.batch_id && !r.is_fabric_roll) r.warehouse_id=defWh; });
+  }
+  // v567: بدون دسترسی «فروش از انبار دیگر» همهٔ ردیف‌ها روی انبار سربرگ قفل می‌شوند (نمایندگان بالاتر قفل‌اند).
+  const whLockedNoPerm=!hideWhCol && !canSalesCrossWarehouse();
+  if(whLockedNoPerm){
+    const hdrWh=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+    if(hdrWh) invCart.forEach(r=>{ if(r.row_type!=='income' && !r.batch_id && !r.is_fabric_roll) r.warehouse_id=hdrWh; });
   }
   const groups=invCartGroups();
   const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(groups.length)+' ردیف · '+fmt(invCart.length)+' SKU';
@@ -6603,7 +6750,15 @@ function renderCart(){
         +'<td class="col-price"><input type="text" inputmode="numeric" class="money num-fit" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
         +(showLineDisc?'<td class="col-disc"><input type="number" class="num-fit" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
           +'<td class="col-disc-amt"><input type="number" class="num-fit" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
-        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-inv-pack-ix="'+i+'" data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>'+lineWhStockHtml:'—')+'</td>')
+        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?(function(){
+          const lockAttr=whLockedNoPerm?(' disabled title="'+esc(INV_XWH_NO_PERM_MSG)+'" aria-disabled="true"'):'';
+          const showPop=!(r.batch_id||r.is_fabric_roll);
+          const popBind=CSP.bind('click',function(event){ event.stopPropagation(); invXwhToggle(i); });
+          const popOpen=showPop && window._invXwhOpen===i;
+          const popBtn=showPop?('<button type="button" class="inv-xwh-pop-btn'+(popOpen?' is-open':'')+'" title="موجودی در همهٔ انبارها" aria-label="موجودی در همهٔ انبارها" aria-expanded="'+(popOpen?'true':'false')+'" data-csp-click="'+popBind+'">📦</button>'):'';
+          return '<div class="inv-xwh-pop-wrap"><div class="inv-xwh-row"><select data-inv-pack-ix="'+i+'"'+lockAttr+' data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>'+popBtn+'</div>'
+            +(popOpen?invXwhPopHtml(ixCopy, lineWhEff, qtySum):'')+'</div>'+lineWhStockHtml;
+        })():'—')+'</td>')
         +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
         +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
       +'</tr>'
@@ -12094,7 +12249,8 @@ const RBAC_RES_FA={
   moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت',
   production_cost:'بهای تمام‌شده تولید', production_close:'بستن دوره تولید',
   production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
-  bank_reconciliation:'مغایرت‌گیری بانکی', banks:'بانک‌ها', orders:'سفارش‌ها', rfq:'استعلام بها'
+  bank_reconciliation:'مغایرت‌گیری بانکی', banks:'بانک‌ها', orders:'سفارش‌ها', rfq:'استعلام بها',
+  sales_cross_warehouse:'فروش از انبار دیگر'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
 /* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
@@ -38158,6 +38314,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📦','فروش از انبار دیگر — دسترسی و popover (v567)',`
+      <p>در ماتریس دسترسی کاربران منبع جدید <b>«فروش از انبار دیگر»</b> (<span dir="ltr">sales_cross_warehouse</span>، عمل «ایجاد») اضافه شده است. مدیر همیشه مجاز است؛ حسابدار و مدیر فروش فقط با تیک این دسترسی می‌توانند انبار یک ردیف را متفاوت از انبار سربرگ انتخاب کنند. نمایندگان فروش مثل قبل روی انبار خودشان قفل می‌مانند.</p>
+      <ul>
+        <li>بدون دسترسی، انتخابگر انبار هر ردیف غیرفعال است و روی انبار سربرگ می‌ماند (راهنمای «برای فروش از انبار دیگر دسترسی لازم است»).</li>
+        <li>دکمهٔ <b>📦</b> کنار انبار ردیف، موجودی همهٔ انبارها را نشان می‌دهد؛ با دسترسی، کلیک روی یک انبار همان را برای ردیف انتخاب و موجودی/هشدار را دوباره حساب می‌کند.</li>
+        <li>در پیکر کالا اگر موجودی انبار سربرگ صفر ولی انبار دیگر موجودی دارد، بج «در انبار دیگر: n» (جمع انبارهای دیگر) دیده می‌شود.</li>
+      </ul>`),
     helpSec('🏭','موجودی ردیف فاکتور / انبار دیگر (v565)',`
       <p>در سازندهٔ فاکتور و پیش‌فاکتور، موجودی و هشدار منفی برای هر ردیف بر اساس <b>انبار همان ردیف</b> محاسبه می‌شود (نه فقط انبار سربرگ). با تغییر انبار ردیف، موجودی از API خواندنی واکشی و هشدار/برچسب «موجودی این انبار» بلافاصله تازه می‌شود. رزرو سبد در پیکر کالا فقط ردیف‌های هم‌انبار با سربرگ را کم می‌کند تا عدد منفی ساختگی ساخته نشود. کسر واقعی هنگام ثبت از قبل per-line بود؛ این نسخه فقط نمایش و هشدار را هم‌تراز می‌کند.</p>`),
     helpSec('📏','واحد اندازه‌گیری',`
@@ -39240,6 +39403,11 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('📦','فروش از انبار دیگر (v567)',`
+      <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
+      <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),
+    helpSec('🏭','فروش از انبار دیگر',`
+      <p>اگر دسترسی «فروش از انبار دیگر» ندارید، انبار هر ردیف همان انبار سربرگ است. با دسترسی، دکمهٔ 📦 موجودی همهٔ انبارها را نشان می‌دهد و می‌توانید انبار ردیف را عوض کنید.</p>`),
     helpSec('🏭','موجودی ردیف فاکتور بر اساس انبار همان ردیف',`
       <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>`),
     helpSec('⚖️','موجودی کافی نیست',`

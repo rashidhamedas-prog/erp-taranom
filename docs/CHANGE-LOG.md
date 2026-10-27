@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v567: دسترسی فروش از انبار دیگر + popover موجودی (Phase 1) (SW v567)
+- **منبع:** `invoice-cross-warehouse-cursor` Phase 1؛ شاخهٔ `feat/sales-cross-warehouse-perm`.
+- **RBAC:** منبع `sales_cross_warehouse` (append-only) با action `create`؛ پیش‌فرض فقط admin؛ برچسب «فروش از انبار دیگر».
+- **سرور:** `assertLineWarehousesAllowed` روی POST/PUT/convert → 403 `E_CROSS_WH_FORBIDDEN`؛ audit `cross_warehouse_sale`.
+- **UI:** بدون دسترسی select انبار ردیف قفل؛ popover 📦 موجودی همه انبارها؛ بج «در انبار دیگر» در پیکر؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/{rbac,sales-document}.js`, `routes/invoices.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-sales-cross-warehouse.js`, CHANGE-LOG.
+- **تست:** `test:sales-cross-wh`؛ encoding.
+- **Deploy:** ⏳ pending.
+
 ### ۱۴۰۵/۰۸/۰۵ — v566: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v566)
 - **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master` (SW از v565 پیش‌بینی به v566 به‌خاطر برخورد با invoice-line-wh روی main).
 - **دسته/برگ:** جدول `cheque_book_leaves` + UNIQUE(serial در دسته) / صیاد غیرخالی؛ تولید برگ از بازه؛ باطل/مفقود با دلیل؛ `used_leaves` از برگ‌ها؛ DELETE دسته → soft-delete (`deleted_at`).
