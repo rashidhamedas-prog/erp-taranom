@@ -2171,10 +2171,43 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'cheque_records', 'endorse_supplier_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'expense_account_code', 'TEXT');
+  ensureColumn(db, 'cheque_records', 'replaces_cheque_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'check_category_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'sayad_registered', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cheque_records', 'sayad_confirmed', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cheque_records', 'sayad_color', "TEXT DEFAULT ''");
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
   } catch (_) { /* */ }
+
+  // v562 — cheque register events + bank branches (incremental, idempotent)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cheque_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cheque_id INTEGER NOT NULL REFERENCES cheque_records(id),
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      event_date TEXT NOT NULL,
+      journal_entry_id INTEGER,
+      reverses_event_id INTEGER,
+      bank_id INTEGER,
+      party_id INTEGER,
+      note TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      client_request_id TEXT UNIQUE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cheque_events_cheque ON cheque_events(cheque_id);
+    CREATE TABLE IF NOT EXISTS bank_branches(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bank_name TEXT NOT NULL,
+      branch_code TEXT DEFAULT '',
+      branch_name TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_bank_branches_name ON bank_branches(bank_name);
+  `);
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -3518,6 +3551,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v30','1')").run();
+    }
+    // v31: cheque_events + bank_branches (cheque register complete)
+    const backfillV31 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v31'").get();
+    if (!backfillV31 || backfillV31.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v31 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v31','1')").run();
     }
   }
 

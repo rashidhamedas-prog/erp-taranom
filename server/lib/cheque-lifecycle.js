@@ -36,10 +36,75 @@ const STATUS_LABEL = {
   cleared: 'وصول‌شده',
   bounced: 'برگشتی',
   endorsed: 'خرج‌شده',
+  endorse_returned: 'برگشت از ظهرنویس',
+  returned_to_drawer: 'عودت به صاحب',
+  guarantee: 'تضمینی',
   issued: 'پرداخت‌شده',
+  paid: 'پرداخت‌شده',
   expensed: 'خرج‌شده',
+  bounced_out: 'برگشت پرداختی',
+  voided: 'ابطال‌شده',
+  void: 'ابطال‌شده',
+  replaced: 'تعویض‌شده',
   reversed: 'ابطال‌شده',
 };
+
+/** Allowed lifecycle transitions keyed by direction → from → [to…]. */
+const ALLOWED_TRANSITIONS = {
+  in: {
+    registered: ['in_collection', 'endorsed', 'returned_to_drawer', 'guarantee', 'void', 'voided'],
+    in_hand: ['in_collection', 'endorsed', 'returned_to_drawer', 'guarantee', 'void', 'voided'],
+    pending: ['in_collection', 'endorsed', 'returned_to_drawer', 'guarantee', 'void', 'voided'],
+    '': ['in_collection', 'endorsed', 'returned_to_drawer', 'guarantee', 'void', 'voided'],
+    in_collection: ['cleared', 'bounced'],
+    cleared: ['bounced'],
+    bounced: ['in_collection', 'returned_to_drawer'], // resend → in_collection (then clear)
+    endorsed: ['endorse_returned'],
+    endorse_returned: ['in_collection', 'endorsed', 'returned_to_drawer'],
+    returned_to_drawer: [],
+    guarantee: ['void', 'voided', 'returned_to_drawer'],
+  },
+  out: {
+    registered: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
+    in_hand: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
+    pending: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
+    '': ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
+    issued: ['bounced_out', 'voided', 'replaced'],
+    paid: ['bounced_out', 'voided', 'replaced'],
+    expensed: ['bounced_out', 'voided', 'replaced'],
+    endorsed: ['bounced_out', 'voided', 'replaced'],
+    bounced_out: ['paid', 'issued', 'voided'],
+    replaced: [],
+    voided: [],
+    void: [],
+  },
+};
+
+function allowedTargets(row) {
+  const dir = row && row.direction === 'out' ? 'out' : 'in';
+  const from = normalizeLifecycle(row);
+  const map = ALLOWED_TRANSITIONS[dir] || {};
+  const raw = lifecycleOf(row);
+  return (map[raw] || map[from] || []).slice();
+}
+
+function assertTransition(row, to) {
+  const target = String(to || '').trim();
+  if (!target) {
+    const err = new Error('وضعیت مقصد نامعتبر است');
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+  const allowed = allowedTargets(row);
+  if (!allowed.includes(target)) {
+    const err = new Error(`گذار از «${statusLabelFor(row)}» به «${STATUS_LABEL[target] || target}» مجاز نیست`);
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+  return true;
+}
 
 function lifecycleOf(rowOrLc) {
   if (rowOrLc == null) return '';
@@ -142,6 +207,7 @@ module.exports = {
   CLOSED_OUT,
   FINANCIAL_STATUS_RE,
   STATUS_LABEL,
+  ALLOWED_TRANSITIONS,
   lifecycleOf,
   isRegistered,
   normalizeLifecycle,
@@ -149,4 +215,6 @@ module.exports = {
   isOpeningCheque,
   sqlIsRegistered,
   repairChequeLifecycleAliases,
+  allowedTargets,
+  assertTransition,
 };

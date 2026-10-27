@@ -263,6 +263,9 @@ const SYNCABLE_TABLES = [
   { name: 'inventory_period_locks',            upsertKey: 'period' },
   // Audit 8C — per-product unit conversions (append-only)
   { name: 'product_unit_conversions',          upsertKey: 'id' },
+  // v562 cheque register — events + bank branches (append-only)
+  { name: 'cheque_events',                     upsertKey: 'id' },
+  { name: 'bank_branches',                     upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -490,6 +493,13 @@ const FK_COLUMNS = [
   ['cheque_records', 'party_id'],
   ['cheque_records', 'endorse_party_id'],
   ['cheque_records', 'endorse_supplier_id'],
+  ['cheque_events', 'cheque_id'],
+  ['cheque_events', 'journal_entry_id'],
+  ['cheque_events', 'reverses_event_id'],
+  ['cheque_events', 'bank_id'],
+  ['cheque_events', 'party_id'],
+  ['cheque_records', 'replaces_cheque_id'],
+  ['cheque_records', 'check_category_id'],
   // QA-FIX-HIGHS trust-check party_id (append-only)
   ['trust_checks', 'party_id'],
   // QA-ERP gaps (append-only)
