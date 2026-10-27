@@ -9,6 +9,7 @@ const { buildCashFlowReport } = require('../lib/cash-flow');
 const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
 const { buildChequeDashboard } = require('../lib/cheque-dashboard');
 const { buildChequebookDashboard } = require('../lib/chequebook-dashboard');
+const { buildPartyChequeTurnover } = require('../lib/cheque-party-turnover');
 const { buildSalesPurchaseDashboard } = require('../lib/sales-purchase-dashboard');
 const { buildPartyControlDashboard } = require('../lib/party-control-dashboard');
 
@@ -608,6 +609,29 @@ router.get('/chequebook-dashboard', auth, adminOrAccounting, (req, res) => {
       books: [],
       alerts: [{ severity: 'fail', title: 'خطای گزارش', detail: 'گزارش دفتر چک در دسترس نیست', action_nav: 'acc-chequebook-report' }],
       warning: 'گزارش دفتر چک در دسترس نیست',
+    });
+  }
+});
+
+/** Phase 4C — گردش چک طرف‌حساب (دریافتی / خرج‌شده / برگشتی) */
+router.get('/party-cheque-turnover', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildPartyChequeTurnover(getDB(), {
+      from: req.query.from,
+      to: req.query.to,
+      party_id: req.query.party_id,
+      limit: req.query.limit,
+    }));
+  } catch (e) {
+    console.error('GET /adv-reports/party-cheque-turnover', e && e.message);
+    res.status(200).json({
+      parties: [],
+      totals: {
+        received_count: 0, received_rial: 0,
+        endorsed_count: 0, endorsed_rial: 0,
+        bounced_count: 0, bounced_rial: 0,
+      },
+      warning: 'گزارش گردش چک طرف‌حساب در دسترس نیست',
     });
   }
 });

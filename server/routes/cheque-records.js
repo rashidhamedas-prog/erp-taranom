@@ -27,6 +27,7 @@ const {
   buildDupSayadSet, buildAdminNameSet, daysUntilDue,
 } = require('../lib/cheque-quality');
 const { runChequeRegister, runChequeSummary } = require('../lib/cheque-register-query');
+const { buildChequeDashboardKpis } = require('../lib/cheque-dashboard');
 const { buildChequeReconciliation, buildOpeningChequeReconciliation, tableHasColumn } = require('../lib/cheque-reconciliation');
 const {
   returnToDrawer, endorseReturn, outClear, outBounce, outVoid, replaceCheque,
@@ -728,6 +729,15 @@ router.get('/summary', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     res.json(runChequeSummary(db, req.query.today || todayJalali()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+/** Phase 4B — KPI داشبورد (سررسید ۷/۳۰/۹۰، معوق، صیاد، انقضا، واخواست، تضمین، پیش‌بینی نقدینگی) */
+router.get('/dashboard-kpis', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildChequeDashboardKpis(getDB(), req.query.today || todayJalali()));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code });
   }

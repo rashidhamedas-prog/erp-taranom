@@ -2,11 +2,13 @@
 /**
  * Cheque portfolio dashboard — matched to portal-ui renderChequeDashboardTab.
  * GL bridge 1109 / 1116 / 2109, aging, sayadi compliance, alerts.
+ * Phase 4B: horizon KPIs (7/30/90), overdue, sayadi/sayad, leaf expiry, protest window, guarantee, cashflow.
  * Never throws to HTTP.
  */
 
-const { todayJalali } = require('../jalali');
+const { todayJalali, addDaysToJalali } = require('../jalali');
 const { glBalanceOnCode } = require('./treasury-dashboard');
+const { daysUntilDue: daysUntilDueShared } = require('./cheque-quality');
 
 const GL_RECV = '1109';
 const GL_COLLECTION = '1116';
@@ -15,6 +17,14 @@ const GL_PAY = '2109';
 const { CLOSED_IN, CLOSED_OUT } = require('./cheque-lifecycle');
 const COLLECTION_LC = new Set(['in_collection']);
 const REGISTERED_OPEN = new Set(['', 'registered', 'in_hand', 'pending']);
+const BOUNCED_LC = new Set(['bounced', 'bounced_out']);
+
+/** Blank leaves near 3-year صیاد validity (issue_date + ~1095d); warn window = 90 days. */
+const LEAF_VALIDITY_DAYS = 1095;
+const LEAF_NEAR_DAYS = 90;
+/** Protest / واخواست rights vs endorser: 6 months ≈ 180d from due; near = ≤30d left. */
+const PROTEST_WINDOW_DAYS = 180;
+const PROTEST_NEAR_DAYS = 30;
 
 function tableExists(db, name) {
   try {
@@ -60,20 +70,20 @@ function isSayadiValid(raw) {
 }
 
 function daysUntilDue(due, today) {
-  if (!due || !today) return null;
-  try {
-    const p = (s) => {
-      const parts = String(s).split(/[/-]/).map((x) => parseInt(x, 10));
-      if (parts.length < 3) return null;
-      return parts[0] * 372 + parts[1] * 31 + parts[2];
-    };
-    const a = p(due);
-    const b = p(today);
-    if (a == null || b == null) return null;
-    return a - b;
-  } catch (_) {
-    return null;
-  }
+  return daysUntilDueShared(due, today);
+}
+
+function emptyBucket() {
+  return { count: 0, amount_rial: 0 };
+}
+
+function emptyHorizonDir() {
+  return { in: emptyBucket(), out: emptyBucket(), total: emptyBucket() };
+}
+
+function bumpBucket(b, amt) {
+  b.count += 1;
+  b.amount_rial += amt;
 }
 
 function agingBucket(days) {
@@ -83,6 +93,30 @@ function agingBucket(days) {
   if (days <= 30) return '8_30';
   if (days <= 90) return '31_90';
   return '90_plus';
+}
+
+function emptyOpsKpis() {
+  return {
+    due_7d: emptyHorizonDir(),
+    due_30d: emptyHorizonDir(),
+    due_90d: emptyHorizonDir(),
+    overdue_open: emptyHorizonDir(),
+    missing_sayadi: emptyBucket(),
+    sayad_not_registered: emptyBucket(),
+    leaves_near_3y_expiry: { count: 0, book_count: 0, books: [] },
+    protests_near_deadline: emptyBucket(),
+    guarantee: emptyBucket(),
+  };
+}
+
+function emptyCashflow() {
+  return [
+    { bucket: 'overdue', label: 'سررسیدگذشته', inflow_rial: 0, outflow_rial: 0, net_rial: 0, in_count: 0, out_count: 0 },
+    { bucket: '0_7', label: '۰–۷ روز', inflow_rial: 0, outflow_rial: 0, net_rial: 0, in_count: 0, out_count: 0 },
+    { bucket: '8_30', label: '۸–۳۰ روز', inflow_rial: 0, outflow_rial: 0, net_rial: 0, in_count: 0, out_count: 0 },
+    { bucket: '31_90', label: '۳۱–۹۰ روز', inflow_rial: 0, outflow_rial: 0, net_rial: 0, in_count: 0, out_count: 0 },
+    { bucket: '90_plus', label: 'بیش از ۹۰ روز', inflow_rial: 0, outflow_rial: 0, net_rial: 0, in_count: 0, out_count: 0 },
+  ];
 }
 
 function emptyPayload(from, to, warning) {
@@ -106,6 +140,8 @@ function emptyPayload(from, to, warning) {
       bounced_count: 0,
       trust_open_count: 0,
     },
+    ops_kpis: emptyOpsKpis(),
+    cashflow_forecast: emptyCashflow(),
     gl_bridge: {
       gl_recv_1109_rial: 0,
       gl_collection_1116_rial: 0,
@@ -196,7 +232,7 @@ function buildCompliance(kpis, gl, sayadi) {
   return list;
 }
 
-function buildAlerts(kpis, gl, sayadi, highlights) {
+function buildAlerts(kpis, gl, sayadi, highlights, ops) {
   const alerts = [];
   if (kpis.overdue_recv_count > 0) {
     alerts.push({
@@ -212,6 +248,30 @@ function buildAlerts(kpis, gl, sayadi, highlights) {
       title: 'صیاد ناقص',
       detail: `${sayadi.missing_count} چک باز بدون شناسه ۱۶ رقمی`,
       action_nav: 'acc-cheques-recv',
+    });
+  }
+  if (ops && ops.sayad_not_registered && ops.sayad_not_registered.count > 0) {
+    alerts.push({
+      severity: 'warn',
+      title: 'صیاد ثبت‌نشده در سامانه',
+      detail: `${ops.sayad_not_registered.count} چک باز با شناسه ولی بدون ثبت سامانه`,
+      action_nav: 'acc-cheque-register',
+    });
+  }
+  if (ops && ops.leaves_near_3y_expiry && ops.leaves_near_3y_expiry.count > 0) {
+    alerts.push({
+      severity: 'warn',
+      title: 'انقضای ۳ساله برگ صیادی',
+      detail: `${ops.leaves_near_3y_expiry.count} برگ سفید نزدیک انقضا در ${ops.leaves_near_3y_expiry.book_count} دسته`,
+      action_nav: 'acc-check-categories',
+    });
+  }
+  if (ops && ops.protests_near_deadline && ops.protests_near_deadline.count > 0) {
+    alerts.push({
+      severity: 'fail',
+      title: 'مهلت ۶ماهه واخواست',
+      detail: `${ops.protests_near_deadline.count} چک برگشتی نزدیک/گذشته از مهلت ظهرنویس`,
+      action_nav: 'acc-cheque-register',
     });
   }
   if (Math.abs(gl?.variance_recv_rial || 0) > 5_000_000) {
@@ -234,6 +294,200 @@ function buildAlerts(kpis, gl, sayadi, highlights) {
   return alerts;
 }
 
+function isOpenPortfolio(dir, lcVal) {
+  if (dir === 'in') {
+    if (COLLECTION_LC.has(lcVal)) return true;
+    if (lcVal === 'guarantee') return false;
+    return !CLOSED_IN.has(lcVal);
+  }
+  if (dir === 'out') {
+    if (lcVal === 'guarantee') return false;
+    return !CLOSED_OUT.has(lcVal) && REGISTERED_OPEN.has(lcVal);
+  }
+  return false;
+}
+
+function countLeavesNearExpiry(db, today) {
+  const out = { count: 0, book_count: 0, books: [] };
+  if (!tableExists(db, 'check_categories') || !tableHasColumn(db, 'check_categories', 'issue_date')) {
+    return out;
+  }
+  try {
+    const books = db.prepare(`
+      SELECT id, name, issue_date, COALESCE(active,1) AS active
+      FROM check_categories
+      WHERE COALESCE(issue_date,'')<>''
+        AND COALESCE(active,1)=1
+        ${tableHasColumn(db, 'check_categories', 'deleted_at') ? 'AND COALESCE(deleted_at,0)=0' : ''}
+    `).all();
+    const hasLeaves = tableExists(db, 'cheque_book_leaves');
+    for (const b of books) {
+      const expiry = addDaysToJalali(String(b.issue_date).trim(), LEAF_VALIDITY_DAYS);
+      const daysLeft = daysUntilDue(expiry, today);
+      if (daysLeft == null) continue;
+      if (daysLeft > LEAF_NEAR_DAYS) continue;
+      let blank = 0;
+      if (hasLeaves) {
+        const row = db.prepare(`
+          SELECT COUNT(*) AS n FROM cheque_book_leaves
+          WHERE check_category_id=? AND status='blank'
+        `).get(b.id);
+        blank = Number(row && row.n) || 0;
+      } else if (tableHasColumn(db, 'check_categories', 'leaf_count')) {
+        blank = Math.max(0, Number(b.leaf_count) || 0);
+      }
+      if (blank <= 0 && daysLeft > 0) continue;
+      out.book_count += 1;
+      out.count += blank;
+      out.books.push({
+        id: b.id,
+        name: b.name,
+        issue_date: b.issue_date,
+        expiry_date: expiry,
+        days_left: daysLeft,
+        blank_leaves: blank,
+      });
+    }
+    out.books.sort((a, b) => (a.days_left || 0) - (b.days_left || 0));
+    out.books = out.books.slice(0, 12);
+  } catch (e) {
+    console.error('cheque-dashboard leaves:', e && e.message);
+  }
+  return out;
+}
+
+/**
+ * Phase 4B focused KPIs + cashflow (efficient single scan + small leaf query).
+ * Used by GET /cheque-records/dashboard-kpis and embedded in buildChequeDashboard.
+ */
+function buildChequeDashboardKpis(db, todayRaw) {
+  const today = String(todayRaw || todayJalali()).trim() || todayJalali();
+  const ops = emptyOpsKpis();
+  const cashflow = emptyCashflow();
+  const cfByBucket = Object.fromEntries(cashflow.map((c) => [c.bucket, c]));
+
+  try {
+    if (!tableExists(db, 'cheque_records')) {
+      return {
+        generated_at: Date.now(),
+        as_of: today,
+        ops_kpis: ops,
+        cashflow_forecast: cashflow,
+        warning: 'جدول چک در دسترس نیست',
+      };
+    }
+
+    const amt = chequeAmountExpr(db);
+    const alive = isAliveSql(db);
+    const lc = lifecycleCol(db);
+    const hasSayadReg = tableHasColumn(db, 'cheque_records', 'sayad_registered');
+    const hasIsGuarantee = tableHasColumn(db, 'cheque_records', 'is_guarantee');
+
+    const cols = [
+      'id', 'direction',
+      `${lc ? lc : "''"} AS lc`,
+      'due_date', 'sayadi',
+      `${amt} AS amount_rial`,
+    ];
+    if (hasSayadReg) cols.push('COALESCE(sayad_registered,0) AS sayad_registered');
+    else cols.push('0 AS sayad_registered');
+    if (hasIsGuarantee) cols.push('COALESCE(is_guarantee,0) AS is_guarantee');
+    else cols.push('0 AS is_guarantee');
+
+    const rows = db.prepare(`
+      SELECT ${cols.join(', ')}
+      FROM cheque_records
+      WHERE ${alive}
+    `).all();
+
+    for (const r of rows) {
+      const dir = String(r.direction || '').trim();
+      const lcVal = String(r.lc || '').trim().toLowerCase();
+      const amtR = Math.round(Number(r.amount_rial) || 0);
+      const isIn = dir === 'in';
+      const isOut = dir === 'out';
+      const dirKey = isIn ? 'in' : (isOut ? 'out' : null);
+      const open = isOpenPortfolio(dir, lcVal);
+      const isGuarantee = lcVal === 'guarantee' || Number(r.is_guarantee) === 1;
+
+      if (isGuarantee) {
+        bumpBucket(ops.guarantee, amtR);
+      }
+
+      if (BOUNCED_LC.has(lcVal)) {
+        const due = String(r.due_date || '').trim();
+        if (due) {
+          const deadline = addDaysToJalali(due, PROTEST_WINDOW_DAYS);
+          const daysTo = daysUntilDue(deadline, today);
+          if (daysTo != null && daysTo <= PROTEST_NEAR_DAYS) {
+            bumpBucket(ops.protests_near_deadline, amtR);
+          }
+        }
+      }
+
+      // تضمینی از افق سررسید/معوق باز جدا است
+      if (!open || !dirKey || isGuarantee) continue;
+
+      const say = String(r.sayadi || '').trim();
+      if (!say) bumpBucket(ops.missing_sayadi, amtR);
+      else if (Number(r.sayad_registered) !== 1) bumpBucket(ops.sayad_not_registered, amtR);
+
+      const days = daysUntilDue(r.due_date, today);
+      if (days == null) continue;
+
+      if (days < 0) {
+        bumpBucket(ops.overdue_open[dirKey], amtR);
+        bumpBucket(ops.overdue_open.total, amtR);
+      } else {
+        if (days <= 7) {
+          bumpBucket(ops.due_7d[dirKey], amtR);
+          bumpBucket(ops.due_7d.total, amtR);
+        }
+        if (days <= 30) {
+          bumpBucket(ops.due_30d[dirKey], amtR);
+          bumpBucket(ops.due_30d.total, amtR);
+        }
+        if (days <= 90) {
+          bumpBucket(ops.due_90d[dirKey], amtR);
+          bumpBucket(ops.due_90d.total, amtR);
+        }
+      }
+
+      const buck = agingBucket(days);
+      const cf = cfByBucket[buck];
+      if (cf) {
+        if (isIn) {
+          cf.inflow_rial += amtR;
+          cf.in_count += 1;
+        } else if (isOut) {
+          cf.outflow_rial += amtR;
+          cf.out_count += 1;
+        }
+        cf.net_rial = cf.inflow_rial - cf.outflow_rial;
+      }
+    }
+
+    ops.leaves_near_3y_expiry = countLeavesNearExpiry(db, today);
+
+    return {
+      generated_at: Date.now(),
+      as_of: today,
+      ops_kpis: ops,
+      cashflow_forecast: cashflow,
+      warning: '',
+    };
+  } catch (e) {
+    console.error('cheque-dashboard-kpis:', e && e.message);
+    return {
+      generated_at: Date.now(),
+      as_of: today,
+      ops_kpis: emptyOpsKpis(),
+      cashflow_forecast: emptyCashflow(),
+      warning: 'KPI داشبورد چک با خطا ساخته شد',
+    };
+  }
+}
+
 function buildChequeDashboard(db, from, to) {
   void from;
   void to;
@@ -245,6 +499,7 @@ function buildChequeDashboard(db, from, to) {
     const alive = isAliveSql(db);
     const lc = lifecycleCol(db);
     const today = todayJalali();
+    const phase4 = buildChequeDashboardKpis(db, today);
 
     const rows = db.prepare(`
       SELECT id, direction, ${lc ? lc : "''"} AS lc, due_date, sayadi, party_name, cheque_number, ${amt} AS amount_rial
@@ -286,7 +541,7 @@ function buildChequeDashboard(db, from, to) {
       const dir = String(r.direction || '').trim();
       const lcVal = String(r.lc || '').trim().toLowerCase();
       const amtR = Math.round(Number(r.amount_rial) || 0);
-      if (lcVal === 'bounced') kpis.bounced_count++;
+      if (lcVal === 'bounced' || lcVal === 'bounced_out') kpis.bounced_count++;
 
       const isIn = dir === 'in';
       const isOut = dir === 'out';
@@ -295,7 +550,7 @@ function buildChequeDashboard(db, from, to) {
 
       if (isIn && COLLECTION_LC.has(lcVal)) {
         kpis.recv_collection_rial += amtR;
-      } else if (isIn && !closedIn) {
+      } else if (isIn && !closedIn && lcVal !== 'guarantee') {
         kpis.recv_open_rial += amtR;
         kpis.recv_open_count++;
         sayadiTotal++;
@@ -347,6 +602,7 @@ function buildChequeDashboard(db, from, to) {
         const tr = db.prepare(`
           SELECT COUNT(*) AS n FROM trust_checks
           WHERE COALESCE(status,'open') NOT IN ('returned','closed','cancelled')
+            ${tableHasColumn(db, 'trust_checks', 'deleted_at') ? 'AND COALESCE(deleted_at,0)=0' : ''}
         `).get();
         kpis.trust_open_count = Number(tr && tr.n) || 0;
       } catch (_) { /* */ }
@@ -374,8 +630,13 @@ function buildChequeDashboard(db, from, to) {
     overdueList.sort((a, b) => (b.days_overdue || 0) - (a.days_overdue || 0));
     dueSoonList.sort((a, b) => (a.days_left || 0) - (b.days_left || 0));
 
+    const ops_kpis = phase4.ops_kpis || emptyOpsKpis();
     const compliance = buildCompliance(kpis, gl_bridge, sayadi);
-    const alerts = buildAlerts(kpis, gl_bridge, sayadi, { overdue: overdueList, due_soon: dueSoonList });
+    const alerts = buildAlerts(
+      kpis, gl_bridge, sayadi,
+      { overdue: overdueList, due_soon: dueSoonList },
+      ops_kpis,
+    );
 
     return {
       generated_at: Date.now(),
@@ -383,8 +644,10 @@ function buildChequeDashboard(db, from, to) {
       from: from || '',
       to: to || '',
       health_score: healthScore(compliance),
-      warning: '',
+      warning: phase4.warning || '',
       kpis,
+      ops_kpis,
+      cashflow_forecast: phase4.cashflow_forecast || emptyCashflow(),
       gl_bridge,
       aging: Object.values(agingMap).filter((a) => a.count > 0 || a.bucket === 'overdue'),
       sayadi,
@@ -401,4 +664,7 @@ function buildChequeDashboard(db, from, to) {
   }
 }
 
-module.exports = { buildChequeDashboard };
+module.exports = {
+  buildChequeDashboard,
+  buildChequeDashboardKpis,
+};

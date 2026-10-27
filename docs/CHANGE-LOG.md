@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v569: فاز ۴ چک — مغایرت/داشبورد KPI/گزارش‌ها (SW v569)
+- **منبع:** `cheque-module-cursor` Phase 4؛ شاخهٔ `feat/cheque-module-p4-reports` (SW از v567 پیش‌بینی به v569 به‌خاطر برخورد با P3=v568 روی main).
+- **مغایرت:** `cheque-reconciliation` بدون hardcode `1105`؛ کد واخواست از `coa_bounced_cheques` (۱۱۲۱) + ردیف‌های انتظامی تضمین.
+- **داشبورد KPI:** سررسید ۷/۳۰/۹۰ (in+out)، معوق باز، بی‌صیاد، صیاد ثبت‌نشده، انقضای ۳ساله برگ، مهلت ۶ماهه واخواست، تضمینی، پیش‌بینی نقدینگی؛ `GET /cheque-records/dashboard-kpis` + `ops_kpis` در `buildChequeDashboard`.
+- **گزارش‌ها:** برگ باطل/مفقود/صادر پاس‌نشده + گسست سریال در `chequebook-dashboard`؛ پیشنهاد تطبیق `cleared`/`cleared_out` با صورت‌حساب بانک (دستی)؛ گردش طرف‌حساب چک (`party-cheque-turnover`).
+- **فایل‌ها:** `lib/{cheque-reconciliation,cheque-dashboard,chequebook-dashboard,cheque-party-turnover,bank-recon-cheque-suggest}.js`، `routes/{cheque-records,adv-reports,bank-reconciliation}.js`، `public/{portal-ui.js,index.html,sw.js}`، `scripts/test-cheque-module-p4.js`، package.json، CHANGE-LOG.
+- **تست:** `test:cheque-module-p4`؛ encoding؛ QA: dashboard ≈ summary ≈ GL (جایی که فیلترها هم‌پوشانی دارند).
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v568: فاز ۳ چرخه عمر چک — عودت/واخواست/پاس/تضمینی/batch (SW v568)
 - **منبع:** `cheque-module-cursor` Phase 3؛ شاخهٔ `feat/cheque-module-p3-lifecycle` (SW به v568 به‌خاطر برخورد با cross-warehouse v567 روی main).
 - **چرخه:** عودت از صندوق Dr 1103/Cr 1109 + دفتر طرف؛ عودت پس از برگشت بدون GL؛ واخواست + انتقال به مشتری؛ `POST /:id/out-clear` Dr 2109/Cr بانک → `cleared_out`؛ ممنوعیت void پس از پاس؛ `markGuarantee` reverse سند دریافت + انتظامی؛ `POST /batch-action` تراکنشی.
