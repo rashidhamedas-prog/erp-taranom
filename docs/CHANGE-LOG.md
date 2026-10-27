@@ -5,7 +5,7 @@
 - **گزارش فقط‌خواندنی:** `scripts/report-cheque-due-mismatch.js`.
 - **فایل‌ها:** `public/{index.html,app.js,app.css,sw.js}`، `lib/cheque-due-validate.js`، `lib/invoice-payments.js`، `lib/amend-invoice.js`، `routes/{accounting,cheque-records}.js`، `scripts/{test-public-encoding,test-cheque-due-v563,report-cheque-due-mismatch}.js`، Help، CHANGE-LOG.
 - **تست:** `test:public-encoding`؛ `test:cheque-due`؛ sms/sync طبق gate.
-- **Deploy:** ⏳ در انتظار GREEN GATE / merge.
+- **Deploy:** ✅ merge ``61953492`` (PR #55) — بکاپ ``/home/taranom/backups/crm.db.20261027-155113`` (۹٬۵۲۷٬۲۹۶ بایت)؛ overlay + ``pm2 restart`` بدون ``--update-env``؛ health/ready=200؛ SW ``erp-taranom-v563``؛ title ERP ترنم؛ test:cheque-due ۲۶/۰؛ encoding OK؛ sms ۲۲/۰؛ گزارش ``~/backups/reports/phase0-20261027-155113.txt``.
 
 ### ۱۴۰۵/۰۸/۰۵ — v562: تکمیل دفتر چک (فیلتر/جمع/کیفیت + چرخه + تطبیق) (SW v562)
 - **منبع:** `prompt-cheque-register.md`؛ شاخهٔ `feat/cheque-register-complete`.
