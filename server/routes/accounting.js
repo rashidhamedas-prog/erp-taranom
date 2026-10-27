@@ -836,11 +836,29 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
   const groupId = 'inst-' + Date.now().toString(36);
   const created = [];
 
-  db.transaction(() => {
+  const runBatch = db.transaction(() => {
+    const { validateIncomingChequeDue, digitsOnly: dueDigits } = require('../lib/cheque-due-validate');
+    let chequeRowIdx = 0;
     for (const p of payments) {
       const amount = parseFloat(p.amount);
       if (!amount || amount <= 0) throw new Error('مبلغ هر قسط باید بزرگ‌تر از صفر باشد');
       const pay_type = p.pay_type || 'cash';
+      let chequeDue = String(p.cheque_due || '').trim();
+      let chequeNumber = String(p.cheque_number || '').trim();
+      let chequeSayadi = String(p.cheque_sayadi || p.sayadi || '').trim();
+      if (pay_type === 'cheque') {
+        chequeRowIdx += 1;
+        chequeSayadi = dueDigits(chequeSayadi);
+        chequeDue = validateIncomingChequeDue(db, {
+          due: chequeDue,
+          receiveDate: p.date || '',
+          allowSameDayDue: !!p.allow_same_day_due,
+          invoiceId: p.invoice_id || null,
+          sayadi: chequeSayadi,
+          chequeNumber,
+          index: chequeRowIdx,
+        });
+      }
       const result = db.prepare(
         `INSERT INTO settlements
           (user_id,cust_id,invoice_id,amount,amount_rial,pay_type,date,note,bank_id,cash_box_id,check_category_id,
@@ -849,9 +867,9 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, p.invoice_id || null, amount, amount, pay_type,
             p.date || '', note || p.note || '', p.bank_id || null, p.cash_box_id || null, p.check_category_id || null,
-            p.cheque_bank || '', p.cheque_sayadi || '', p.cheque_number || '', p.cheque_account || '',
-            parseFloat(p.cheque_amount || 0), p.cheque_owner || '', p.cheque_due || '',
-            p.cheque_status || 'pending', groupId, p.cheque_branch || '', p.cheque_sheba || '',
+            String(p.cheque_bank || '').trim(), chequeSayadi, chequeNumber, String(p.cheque_account || '').trim(),
+            parseFloat(p.cheque_amount || 0), String(p.cheque_owner || '').trim(), chequeDue,
+            p.cheque_status || 'pending', groupId, String(p.cheque_branch || '').trim(), String(p.cheque_sheba || '').trim(),
             parseInt(p.cheque_row) || 0);
       const settlementId = result.lastInsertRowid;
       const payLabel = pay_type === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
@@ -878,9 +896,10 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         insertChequeRecordForSettlement(db, {
           settlementId, invoiceId: p.invoice_id || null, custId: cust_id, amountRial: amount,
           date: p.date || '', note: note || p.note || '',
-          cheque_number: p.cheque_number, cheque_due: p.cheque_due,
-          cheque_bank: p.cheque_bank, cheque_branch: p.cheque_branch || '',
-          sayadi: p.cheque_sayadi, sheba: p.cheque_sheba || '', cheque_account: p.cheque_account,
+          cheque_number: chequeNumber, cheque_due: chequeDue,
+          cheque_bank: String(p.cheque_bank || '').trim(), cheque_branch: String(p.cheque_branch || '').trim(),
+          sayadi: chequeSayadi, sheba: String(p.cheque_sheba || '').trim(),
+          cheque_account: String(p.cheque_account || '').trim(),
         });
       }
       if (p.invoice_id) {
@@ -892,7 +911,12 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
       }
       created.push({ id: settlementId, amount });
     }
-  })();
+  });
+  try {
+    runBatch();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || String(e), code: e.code, register_due: e.register_due, invoice_due: e.invoice_due });
+  }
 
   audit(req.user.id, 'create', 'settlement', null, `ثبت ${created.length} قسط برای مشتری ${cust_id}`);
   res.json({ ok: true, installment_group: groupId, created });

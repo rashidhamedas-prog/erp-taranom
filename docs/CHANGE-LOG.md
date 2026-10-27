@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v563: hotfix encoding + سررسید چک چندمرحله‌ای (SW v563)
+- **منبع:** `cheque-module-cursor` Phase 0؛ شاخهٔ `hotfix/utf8-and-cheque-due`.
+- **encoding:** بازگردانی `index.html` از `32a4e98` + bump `?v=563`؛ اصلاح کامنت mojibake در `app.css`؛ گارد `scripts/test-public-encoding.js` (UTF-8 fatal / U+FFFD / `????` / BOM).
+- **سررسید:** `stlSyncChequesFromDom` قبل از add/remove؛ پیش‌فرض `due:''` در stl/prr/invPay؛ jdate با `input`+`change`؛ اعتبارسنجی `E_CHEQUE_DUE_BEFORE_RECEIVE` / same-day / `E_CHEQUE_DUE_MISMATCH`؛ `PATCH /cheque-records/:id/due`؛ trim شماره/صیاد؛ amend از split نه header.
+- **گزارش فقط‌خواندنی:** `scripts/report-cheque-due-mismatch.js`.
+- **فایل‌ها:** `public/{index.html,app.js,app.css,sw.js}`، `lib/cheque-due-validate.js`، `lib/invoice-payments.js`، `lib/amend-invoice.js`، `routes/{accounting,cheque-records}.js`، `scripts/{test-public-encoding,test-cheque-due-v563,report-cheque-due-mismatch}.js`، Help، CHANGE-LOG.
+- **تست:** `test:public-encoding`؛ `test:cheque-due`؛ sms/sync طبق gate.
+- **Deploy:** ⏳ در انتظار GREEN GATE / merge.
+
 ### ۱۴۰۵/۰۸/۰۵ — v562: تکمیل دفتر چک (فیلتر/جمع/کیفیت + چرخه + تطبیق) (SW v562)
 - **منبع:** `prompt-cheque-register.md`؛ شاخهٔ `feat/cheque-register-complete`.
 - **فاز ۱ (فقط‌خواندنی):** `GET /api/cheque-records/{register,summary,export.xlsx}` + `lib/cheque-{quality,register-query}.js`؛ UI `renderChequeRegisterTab` با کارت، فیلتر کامل، column chooser، footer جدا in/out، aging، Excel، چاپ، a11y/موبایل؛ اعتبارسنجی صیاد روی POST وقتی مقدار ارسال شود.

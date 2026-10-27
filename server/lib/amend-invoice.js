@@ -527,7 +527,22 @@ function patchOneInvoiceTimeSettlement(db, {
   const amountRial = Math.round(Number(s.amount) || 0);
   const payType = s.pay_type;
   const chequeInfo = s.cheque_info || (body && body.cheque_info) || '';
-  const chequeDue = s.cheque_due || (body && body.cheque_due_date) || '';
+  // v563: amend keeps due from the pay_splits row — never invoice header / today.
+  let chequeDue = String(s.cheque_due || '').trim();
+  if (payType === 'cheque') {
+    const { validateIncomingChequeDue } = require('./cheque-due-validate');
+    chequeDue = validateIncomingChequeDue(db, {
+      due: chequeDue,
+      receiveDate: date || '',
+      allowSameDayDue: !!(s.allow_same_day_due || (body && body.allow_same_day_due)),
+      invoiceId: invId,
+      sayadi: s.sayadi,
+      chequeNumber: s.cheque_number,
+      index: installmentIndex + 1,
+    });
+  } else if (!chequeDue) {
+    chequeDue = (body && body.cheque_due_date) || '';
+  }
   const structured = [s.cheque_bank, s.cheque_number, s.sayadi].filter(Boolean).join(' — ');
   const detail = structured || chequeInfo;
   const note = s.note || `دریافت هنگام فاکتور ${num}`

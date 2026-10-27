@@ -89,6 +89,15 @@ function assertReceivedCheque(s, index) {
   s.cheque_number = String(s.cheque_number).trim();
   s.cheque_owner = String(s.cheque_owner).trim();
   s.cheque_due = String(s.cheque_due).trim();
+  // Due vs receive / same-day: callers that know receive_date should also call
+  // validateIncomingChequeDue; here we only reject clearly invalid Jalali strings.
+  const { isValidJalaliDate } = require('./cheque-due-validate');
+  if (!isValidJalaliDate(s.cheque_due)) {
+    const e = new Error(`چک دریافتی (ردیف ${n}): تاریخ سررسید معتبر نیست`);
+    e.status = 400;
+    e.code = 'E_CHEQUE_DUE_INVALID';
+    throw e;
+  }
 }
 
 function normalizeInvoicePaySplits(body, invoiceFinal) {
@@ -520,11 +529,26 @@ function insertInvoiceSettlement(db, { userId, custId, invoiceId, split, date, n
   const amountRial = split.amount;
   const pay_type = split.pay_type;
   const chequeInfo = split.cheque_info || (chequeHeader && chequeHeader.cheque_info) || '';
-  const chequeDue = split.cheque_due || (chequeHeader && chequeHeader.cheque_due_date) || '';
+  // v563: due must come from the split (pay_splits), never header/today fallback for cheques.
+  let chequeDue = String(split.cheque_due || '').trim();
+  if (pay_type !== 'cheque' && !chequeDue) {
+    chequeDue = (chequeHeader && chequeHeader.cheque_due_date) || '';
+  }
   const structured = [split.cheque_bank, split.cheque_number, split.sayadi].filter(Boolean).join(' — ');
   const detail = structured || chequeInfo;
   const settNote = detail ? `${note}${note ? ' — ' : ''}${detail}` : note;
   const asset = settlementAssetAccount(db, split);
+  if (pay_type === 'cheque') {
+    const { validateIncomingChequeDue } = require('./cheque-due-validate');
+    chequeDue = validateIncomingChequeDue(db, {
+      due: chequeDue,
+      receiveDate: date || '',
+      allowSameDayDue: !!(split.allow_same_day_due || (chequeHeader && chequeHeader.allow_same_day_due)),
+      invoiceId,
+      sayadi: split.sayadi,
+      chequeNumber: split.cheque_number,
+    });
+  }
   if (pay_type === 'cheque' && split.sayadi) {
     const dup = db.prepare(
       "SELECT id FROM cheque_records WHERE sayadi=? AND direction='in' AND COALESCE(record_status,'posted')<>'reversed'"
@@ -667,6 +691,7 @@ module.exports = {
   persistInvoicePayPlan,
   paymentsFromStoredInvoice,
   settlementAssetAccount,
+  insertInvoiceSettlement,
   insertChequeRecordForSettlement,
   backfillMissingSettlementCheques,
   loadInvoiceReceipts,
