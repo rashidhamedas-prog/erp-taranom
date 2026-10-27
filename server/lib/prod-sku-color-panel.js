@@ -135,6 +135,23 @@ function pcsFillEmptyValues(values, fillVal) {
   return { next, filled };
 }
 
+function safeCssHex(h) {
+  const s = String(h == null ? '' : h).trim();
+  return /^#[0-9A-Fa-f]{3,8}$/.test(s) ? s : '';
+}
+
+/**
+ * Pure swatch resolver (same rules as app.js pcsSwatchForColorId).
+ * Source: catalog row hex/color_hex via safeCssHex — never invents hsl from name.
+ */
+function pcsSwatchForColorId(colorId, catalog) {
+  const id = Number(colorId) || 0;
+  const c = (catalog || []).find((x) => Number(x.id) === id);
+  const hex = safeCssHex(c && (c.hex || c.color_hex));
+  if (hex) return { hex, missing: false };
+  return { hex: '', missing: true };
+}
+
 module.exports = {
   faNorm,
   prodColorFilter,
@@ -146,4 +163,6 @@ module.exports = {
   pcsDraftClear,
   pcsDraftCount,
   pcsFillEmptyValues,
+  safeCssHex,
+  pcsSwatchForColorId,
 };
